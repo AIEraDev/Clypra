@@ -37,6 +37,18 @@ describe("AudioBufferPool", () => {
     expect(pool.get("clip-2")).toBeUndefined();
   });
 
+  it("reports cache hits and misses per telemetry window", () => {
+    const buffer = createMockAudioBuffer(1.0);
+    pool.set("clip-1", buffer);
+    pool.get("clip-1");
+    pool.get("missing");
+
+    expect(pool.getStats()).toMatchObject({ hits: 1, misses: 1 });
+    expect(pool.takeTelemetryStats()).toMatchObject({ hits: 1, misses: 1 });
+    expect(pool.getStats()).toMatchObject({ hits: 0, misses: 0 });
+    expect(pool.has("clip-1")).toBe(true);
+  });
+
   it("tracks memory stats accurately", () => {
     const buffer1 = createMockAudioBuffer(1.0, 1000, 2); // 8000 bytes
     const buffer2 = createMockAudioBuffer(1.0, 2000, 2); // 16000 bytes

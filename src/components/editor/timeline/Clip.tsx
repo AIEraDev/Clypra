@@ -14,6 +14,10 @@ import { AudioEnvelopeEditor } from "./AudioEnvelopeEditor";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useHistoryStore } from "@/store/historyStore";
 import { TimelineTrimCommand } from "@/core/history/commands/TimelineTrimCommand";
+import {
+  getPreviewInteractionCoordinator,
+  type PreviewInteractionToken,
+} from "@/core/interactions";
 
 import { timeToPixel, pixelToTime } from "@/lib/timeline/timelineViewport";
 
@@ -67,6 +71,35 @@ interface ClipProps {
   };
 }
 
+function getClipDisplayText(clip: any): string {
+  // 1. If explicit text is set on the clip
+  if (clip.text && typeof clip.text === "string" && clip.text.trim().length > 0) {
+    return clip.text;
+  }
+
+  // 2. For text templates, check control values or snapshot nodes
+  if (clip.kind === "text-template" || clip.templateSnapshot) {
+    if (clip.templateControlValues) {
+      for (const val of Object.values(clip.templateControlValues)) {
+        if (typeof val === "string" && val.trim().length > 0) {
+          return val;
+        }
+      }
+    }
+    const nodes = clip.templateSnapshot?.document?.nodes;
+    if (Array.isArray(nodes)) {
+      const textNode = nodes.find(
+        (n: any) => n.type === "text" && typeof n.text === "string" && n.text.trim().length > 0,
+      );
+      if (textNode?.text) return textNode.text;
+    }
+  }
+
+  // 3. Clean up clip name or template label
+  const rawLabel = clip.name || clip.templateSnapshot?.metadata?.label || "Text";
+  return rawLabel.replace(/^text-template-/, "").replace(/[-_]/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+}
+
 const ClipInner: React.FC<ClipProps> = ({
   clip,
   mediaAsset,
@@ -93,7 +126,9 @@ const ClipInner: React.FC<ClipProps> = ({
   const snapEnabled = useTimelineStore((s) => s.snapEnabled);
   const setSnapGuides = useTimelineStore((s) => s.setSnapGuides);
   const clearSnapGuides = useTimelineStore((s) => s.clearSnapGuides);
-  const { pause } = useTransportControls();
+  useTransportControls();
+  const previewInteractionCoordinator = getPreviewInteractionCoordinator();
+  const previewInteractionRef = useRef<PreviewInteractionToken | null>(null);
 
   const [isResizing, setIsResizing] = useState<"left" | "right" | null>(null);
   const resizeStartRef = useRef<{
@@ -220,7 +255,7 @@ const ClipInner: React.FC<ClipProps> = ({
     if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
       e.preventDefault();
       e.stopPropagation();
-      const step = e.shiftKey ? 1.0 : (1 / 30); // 1 sec with Shift, 1 frame (1/30s) without
+      const step = e.shiftKey ? 1.0 : 1 / 30; // 1 sec with Shift, 1 frame (1/30s) without
       const delta = e.key === "ArrowRight" ? step : -step;
       const newStartTime = Math.max(0, clip.startTime + delta);
       updateClip(clip.id, { startTime: newStartTime });
@@ -330,6 +365,11 @@ const ClipInner: React.FC<ClipProps> = ({
 
   const resizePointerIdRef = useRef<number | null>(null);
   const activeResizeHandleRef = useRef<HTMLElement | null>(null);
+  // PERF (0-B): RAF coalescing refs for resize pointer events.
+  // Raw pointermove fires at 120–240Hz on high-polling devices. We coalesce
+  // all events within a single display frame into one store write.
+  const resizeRafRef = useRef<number | null>(null);
+  const pendingResizeEventRef = useRef<PointerEvent | null>(null);
 
   const handleResizeStart = (e: React.PointerEvent, side: "left" | "right") => {
     e.stopPropagation();
@@ -341,7 +381,8 @@ const ClipInner: React.FC<ClipProps> = ({
       return;
     }
 
-    pause();
+    previewInteractionRef.current =
+      previewInteractionCoordinator.begin("clip-trim");
 
     // Let's check if ripple mode is active (Shift key OR global ripple mode enabled)
     const isRipple = e.shiftKey || rippleEditEnabled;
@@ -393,7 +434,7 @@ const ClipInner: React.FC<ClipProps> = ({
     const clipId = clip.id;
     const trackId = clip.trackId;
 
-    const handlePointerMove = (e: PointerEvent) => {
+    const applyResizeMove = (e: PointerEvent) => {
       if (
         resizePointerIdRef.current !== null &&
         e.pointerId !== resizePointerIdRef.current
@@ -553,11 +594,15 @@ const ClipInner: React.FC<ClipProps> = ({
           const startTimeDelta = newStartTime - resizeStart.startTime;
           const newTrimIn = resizeStart.trimIn + startTimeDelta;
 
+          // PERF (0-B / 8-C): Skip epoch increment during drag preview.
+          // The committed TimelineTrimCommand on pointerup will trigger a full
+          // epoch increment. This prevents 120–240 filmstrip invalidations/sec.
           updateClip(clipId, {
             startTime: newStartTime,
             duration: newDuration,
             trimIn: newTrimIn,
-          });
+            _skipEpochIncrement: true,
+          } as Parameters<typeof updateClip>[1]);
         } else {
           // Resize from right (trim out)
           const minDuration = MIN_TRIM_DURATION_SEC;
@@ -587,15 +632,40 @@ const ClipInner: React.FC<ClipProps> = ({
             ? unclampedTrimOut
             : Math.min(unclampedTrimOut, maxMediaTime);
 
+          // PERF (0-B / 8-C): Skip epoch increment during drag preview.
           updateClip(clipId, {
             duration: newDuration,
             trimOut: newTrimOut,
-          });
+            _skipEpochIncrement: true,
+          } as Parameters<typeof updateClip>[1]);
         }
       }
     };
 
+    // PERF (0-B): RAF coalescing — save the latest event and schedule at most
+    // one RAF per display frame. Many pointermove events collapse to one store write.
+    const handlePointerMove = (e: PointerEvent) => {
+      pendingResizeEventRef.current = e;
+      if (resizeRafRef.current !== null) return; // RAF already queued
+      resizeRafRef.current = requestAnimationFrame(() => {
+        resizeRafRef.current = null;
+        const pending = pendingResizeEventRef.current;
+        pendingResizeEventRef.current = null;
+        if (pending) applyResizeMove(pending);
+      });
+    };
+
     const finishResize = () => {
+      // PERF (0-B): Drain any pending RAF before committing so the final
+      // pointer position is always applied even if the RAF hasn't fired yet.
+      if (resizeRafRef.current !== null) {
+        cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
+      }
+      const drainEvent = pendingResizeEventRef.current;
+      pendingResizeEventRef.current = null;
+      if (drainEvent) applyResizeMove(drainEvent);
+
       if (
         activeResizeHandleRef.current &&
         resizePointerIdRef.current !== null
@@ -623,9 +693,20 @@ const ClipInner: React.FC<ClipProps> = ({
       const store = useTimelineStore.getState();
       store.detectAndSyncGaps(trackId);
       const afterResize = useTimelineStore.getState();
+      // PERF (7 / 8-D): Compare only the trimmed clip by ID instead of
+      // JSON.stringify-ing the entire clips array (was O(n) serialization of
+      // both before and after arrays on every drag completion).
+      const beforeClip = initialResizeStart.beforeClips.find(
+        (c) => c.id === clipId,
+      );
+      const afterClip = afterResize.clips.find((c) => c.id === clipId);
       const clipsChanged =
-        JSON.stringify(initialResizeStart.beforeClips) !==
-        JSON.stringify(afterResize.clips);
+        !beforeClip ||
+        !afterClip ||
+        beforeClip.startTime !== afterClip.startTime ||
+        beforeClip.duration !== afterClip.duration ||
+        beforeClip.trimIn !== afterClip.trimIn ||
+        beforeClip.trimOut !== afterClip.trimOut;
       if (clipsChanged) {
         useHistoryStore
           .getState()
@@ -637,6 +718,10 @@ const ClipInner: React.FC<ClipProps> = ({
               afterResize.gaps,
             ),
           );
+      }
+      if (previewInteractionRef.current) {
+        previewInteractionCoordinator.commit(previewInteractionRef.current);
+        previewInteractionRef.current = null;
       }
     };
 
@@ -663,9 +748,19 @@ const ClipInner: React.FC<ClipProps> = ({
     document.addEventListener("pointercancel", handlePointerCancel);
 
     return () => {
+      // Cancel any pending RAF so it doesn't fire after unmount/re-run
+      if (resizeRafRef.current !== null) {
+        cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
+      }
+      pendingResizeEventRef.current = null;
       document.removeEventListener("pointermove", handlePointerMove);
       document.removeEventListener("pointerup", handlePointerUp);
       document.removeEventListener("pointercancel", handlePointerCancel);
+      if (previewInteractionRef.current) {
+        previewInteractionCoordinator.cancel(previewInteractionRef.current);
+        previewInteractionRef.current = null;
+      }
     };
   }, [
     isResizing,
@@ -677,7 +772,10 @@ const ClipInner: React.FC<ClipProps> = ({
     snapEnabled,
     setSnapGuides,
     clearSnapGuides,
-    useHistoryStore,
+    previewInteractionCoordinator,
+    // NOTE: useHistoryStore is intentionally omitted — it is the stable Zustand
+    // hook reference itself (never changes), so including it was misleading (BUG 8-D).
+    // useHistoryStore.getState() is called imperatively inside finishResize.
   ]);
 
   const formatDuration = (seconds: number) => {
@@ -700,7 +798,11 @@ const ClipInner: React.FC<ClipProps> = ({
           : mediaAsset?.type);
 
   const isSticker = inferredKind === "sticker";
-  const isClipText = inferredKind === "text";
+  // Text templates are composition clips, but they belong to the same text
+  // track presentation as normal text and text effects. They must never fall
+  // through to the media branch, which expects a filmstrip asset.
+  const isClipText =
+    inferredKind === "text" || inferredKind === "text-template";
   const isClipAudio = inferredKind === "audio";
   const isClipVideo = inferredKind === "video";
   const isClipImage = inferredKind === "image";
@@ -731,7 +833,9 @@ const ClipInner: React.FC<ClipProps> = ({
         ? "clip-kind-caption"
         : isTitle
           ? "clip-kind-title"
-          : "clip-kind-text";
+          : inferredKind === "text-template"
+            ? "clip-kind-title"
+            : "clip-kind-text";
     }
     if (isClipAudio) return "clip-kind-audio bg-timeline-clip-audio";
     if (isClipVideo) return "clip-kind-video bg-timeline-clip-video";
@@ -828,16 +932,16 @@ const ClipInner: React.FC<ClipProps> = ({
             {clip.compoundChildren?.length ?? 0}
           </div>
         </div>
-      ) : clip.kind === "text" ? (
+      ) : isClipText ? (
         <div className="relative flex h-full w-full items-center px-3">
           {/* Icon badge for text role differentiation */}
-          {(isCaption || isTitle) && (
+          {(isCaption || isTitle || inferredKind === "text-template") && (
             <div className="absolute left-1 top-1/2 -translate-y-1/2 flex items-center justify-center rounded bg-clypra-clip-badge-bg px-1.5 py-0.5 text-[9px] font-semibold text-clypra-clip-fg backdrop-blur-sm">
               {isCaption ? "CC" : "T"}
             </div>
           )}
           <div className="text-[12px] text-clypra-clip-fg font-medium tracking-[0.01em] truncate max-w-full select-none pointer-events-none pl-4">
-            {(clip as any).text || "Default text"}
+            {getClipDisplayText(clip)}
           </div>
         </div>
       ) : isClipFilter ? (
@@ -1032,9 +1136,16 @@ const arePropsEqual = (prevProps: ClipProps, nextProps: ClipProps) => {
     prevProps.clip.trackId !== nextProps.clip.trackId ||
     prevProps.clip.kind !== nextProps.clip.kind ||
     prevProps.clip.name !== nextProps.clip.name ||
-    (prevProps.clip.kind === "text" &&
-      nextProps.clip.kind === "text" &&
-      (prevProps.clip as any).text !== (nextProps.clip as any).text)
+    ((prevProps.clip.kind === "text" ||
+      prevProps.clip.kind === "text-template") &&
+      (nextProps.clip.kind === "text" ||
+        nextProps.clip.kind === "text-template") &&
+      ((prevProps.clip as any).text !== (nextProps.clip as any).text ||
+        prevProps.clip.templateRevisionId !==
+          nextProps.clip.templateRevisionId ||
+        prevProps.clip.templateContentHash !==
+          nextProps.clip.templateContentHash ||
+        prevProps.clip.templateSnapshot !== nextProps.clip.templateSnapshot))
   ) {
     return false;
   }

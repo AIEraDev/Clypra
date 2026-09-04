@@ -221,23 +221,34 @@ export class PlaybackClock {
     // Capture the UI-side extrapolation before replacing it with the newest
     // authoritative native sample. This measures clock/poll divergence only;
     // backend video-vs-audio drift is recorded in the native presentation path.
-    recordAudioPoll(clampedTime * 1000, this.time * 1000);
+    const currentExtrapolated = this.time;
+    recordAudioPoll(clampedTime * 1000, currentExtrapolated * 1000);
+
     const backwardTolerance = Math.max(0.05, 1 / this._frameRate);
     if (
       this._state === "playing" &&
       !this._isSeeking &&
       clampedTime < this._time - backwardTolerance
     ) {
+      // Ignore stale samples that arrive from earlier playback segments or delayed polls.
       return;
     }
-    if (this._isSeeking || Math.abs(clampedTime - this._time) > 0.5) {
+
+    let effectiveTime = clampedTime;
+    if (this._state === "playing" && !this._isSeeking) {
+      // During active forward playback, hold the current extrapolated time
+      // rather than snapping backward on delayed IPC poll arrivals.
+      if (clampedTime < currentExtrapolated) {
+        effectiveTime = currentExtrapolated;
+      }
     }
+
     this._nativeClockPosition = {
-      time: clampedTime,
+      time: effectiveTime,
       receivedAtMs: performance.now(),
       speed: validSpeed,
     };
-    this._time = clampedTime;
+    this._time = effectiveTime;
   }
 
   /** Stop consuming native samples and return to the local audio clock. */
@@ -435,9 +446,7 @@ export class PlaybackClock {
 
     this._notifyListeners();
 
-    if (wasPlaying) {
-      this.play();
-    }
+    // Seeking pauses playback; user manually presses play to continue.
   }
 
   /**

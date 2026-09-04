@@ -30,3 +30,15 @@ export type {
   SeekMode,
   SeekQuality,
 } from "./seekController";
+export {
+  previewQualificationController,
+  startPreviewQualificationFromDiagnostics,
+  PREVIEW_PERFORMANCE_BUDGETS,
+} from "./previewPerformanceContract";
+export type {
+  PreviewPerformancePath,
+  PreviewPerformanceSampleKind,
+  PreviewPerformanceScenario,
+  PreviewQualificationCallbacks,
+  PreviewQualificationState,
+} from "./previewPerformanceContract";

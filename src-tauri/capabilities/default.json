@@ -21,11 +21,14 @@
     "core:window:allow-is-maximized",
     "core:window:allow-is-fullscreen",
     "core:window:allow-set-fullscreen",
+    "core:window:allow-destroy",
     "opener:default",
     "dialog:default",
     "core:path:default",
     "fs:default",
     "updater:default",
+    "process:default",
+    "process:allow-exit",
     "process:allow-restart",
     {
       "identifier": "fs:allow-read",
@@ -85,6 +88,22 @@
     },
     {
       "identifier": "fs:allow-read-dir",
+      "allow": [
+        { "path": "$APPCACHE" }, { "path": "$APPCACHE/**/*" },
+        { "path": "$APPLOCALDATA" }, { "path": "$APPLOCALDATA/**/*" },
+        { "path": "$APPDATA" }, { "path": "$APPDATA/**/*" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-rename",
+      "allow": [
+        { "path": "$APPCACHE" }, { "path": "$APPCACHE/**/*" },
+        { "path": "$APPLOCALDATA" }, { "path": "$APPLOCALDATA/**/*" },
+        { "path": "$APPDATA" }, { "path": "$APPDATA/**/*" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-copy-file",
       "allow": [
         { "path": "$APPCACHE" }, { "path": "$APPCACHE/**/*" },
         { "path": "$APPLOCALDATA" }, { "path": "$APPLOCALDATA/**/*" },

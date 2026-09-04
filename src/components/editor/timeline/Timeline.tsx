@@ -50,9 +50,11 @@ import { Playhead } from "./Playhead";
 import { EmptyTimelineDropZone } from "./EmptyTimelineDropZone";
 import { ClipContextMenu } from "./ClipContextMenu";
 import { TimelineEmptySpaceContextMenu } from "./TimelineEmptySpaceContextMenu";
+import { GapContextMenu } from "./GapContextMenu";
 import { AudioStreamPicker } from "./AudioStreamPicker";
 import { MediaJobIndicator } from "./MediaJobIndicator";
 import { RenameClipDialog } from "./RenameClipDialog";
+import type { Gap } from "@/types/gap";
 
 export const Timeline: React.FC = () => {
   const tracks = useTimelineStore((s) => s.tracks);
@@ -93,11 +95,19 @@ export const Timeline: React.FC = () => {
     clickedTime: number;
     position: { x: number; y: number };
   } | null>(null);
+
+  const [gapContextMenu, setGapContextMenu] = useState<{
+    gap: Gap;
+    locked: boolean;
+    position: { x: number; y: number };
+  } | null>(null);
+
   const [renameClipId, setRenameClipId] = useState<string | null>(null);
 
   const handleClipContextMenu = useCallback(
     (e: React.MouseEvent, clipId: string, trackId: string) => {
       setEmptySpaceContextMenu(null);
+      setGapContextMenu(null);
       setClipContextMenu({
         clickedClipId: clipId,
         clickedTrackId: trackId,
@@ -110,11 +120,25 @@ export const Timeline: React.FC = () => {
   const handleTrackContextMenu = useCallback(
     (e: React.MouseEvent, trackId: string, time: number) => {
       setClipContextMenu(null);
+      setGapContextMenu(null);
       setEmptySpaceContextMenu({
         clickedTrackId: trackId,
         clickedTime: time,
         position: { x: e.clientX, y: e.clientY },
       });
+    },
+    [],
+  );
+
+  const handleGapContextMenu = useCallback(
+    (params: {
+      gap: Gap;
+      locked: boolean;
+      position: { x: number; y: number };
+    }) => {
+      setClipContextMenu(null);
+      setEmptySpaceContextMenu(null);
+      setGapContextMenu(params);
     },
     [],
   );
@@ -136,6 +160,7 @@ export const Timeline: React.FC = () => {
         pixelsPerSecond,
       );
       setClipContextMenu(null);
+      setGapContextMenu(null);
       setEmptySpaceContextMenu({
         clickedTrackId: null,
         clickedTime: Math.max(0, clickedTime),
@@ -584,6 +609,9 @@ export const Timeline: React.FC = () => {
       if (target.closest("[data-track-label]")) return;
 
       clearSelection();
+      setClipContextMenu(null);
+      setEmptySpaceContextMenu(null);
+      setGapContextMenu(null);
 
       if (previewMode === "source") {
         exitSourceMode(); // Auto-switches transport context
@@ -830,6 +858,7 @@ export const Timeline: React.FC = () => {
                           onClipDragEnd={handleClipDragEnd}
                           onClipContextMenu={handleClipContextMenu}
                           onTrackContextMenu={handleTrackContextMenu}
+                          onGapContextMenu={handleGapContextMenu}
                           dragState={trackDragState}
                         />
                       </div>
@@ -950,6 +979,14 @@ export const Timeline: React.FC = () => {
           clickedTime={emptySpaceContextMenu.clickedTime}
           position={emptySpaceContextMenu.position}
           onClose={() => setEmptySpaceContextMenu(null)}
+        />
+      )}
+      {gapContextMenu && (
+        <GapContextMenu
+          gap={gapContextMenu.gap}
+          locked={gapContextMenu.locked}
+          position={gapContextMenu.position}
+          onClose={() => setGapContextMenu(null)}
         />
       )}
       <RenameClipDialog

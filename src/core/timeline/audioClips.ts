@@ -83,7 +83,15 @@ export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: Medi
       // Find asset
       const asset = assets.find((a) => a.id === clip.mediaId);
       const directAudioPath = (clip as any).audioPath as string | undefined;
-      const isAudioClip = clip.kind === "audio" || asset?.type === "audio" || asset?.type === "video" || !!directAudioPath;
+      const hasAudioStream =
+        asset?.streams && asset.streams.length > 0
+          ? asset.streams.some((s) => s.type === "audio")
+          : true;
+      const isAudioClip =
+        clip.kind === "audio" ||
+        asset?.type === "audio" ||
+        (asset?.type === "video" && hasAudioStream) ||
+        !!directAudioPath;
 
       if (!isAudioClip) return false;
 

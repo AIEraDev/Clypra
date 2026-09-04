@@ -314,7 +314,7 @@ impl DecoderState {
     }
 
     fn can_decode_forward(&self, target_pts: i64, sequential_window: i64) -> bool {
-        if target_pts <= self.current_pts {
+        if target_pts < self.current_pts {
             return false;
         }
 
@@ -357,6 +357,11 @@ pub struct VideoDecoder {
     stream_metadata: VideoStreamMetadata,
     /// Decoder state for sequential optimization
     state: DecoderState,
+    /// The visible preview often renders the same first frame once while the
+    /// session is stopped and again when audio playback starts. Retain only
+    /// the last raw frame so that boundary does not force a second FFmpeg
+    /// seek/decode before playback has even begun.
+    last_raw_nv12: Option<(i64, Arc<[u8]>, Arc<[u8]>, u32, u32, VideoColorMetadata)>,
 }
 
 impl VideoDecoder {
@@ -522,6 +527,7 @@ impl VideoDecoder {
             rotation,
             stream_metadata,
             state: DecoderState::new(),
+            last_raw_nv12: None,
         })
     }
 
@@ -1318,30 +1324,53 @@ impl VideoDecoder {
     pub fn decode_frame_raw_nv12(
         &mut self,
         timestamp_secs: f64,
-    ) -> Result<(Vec<u8>, Vec<u8>, u32, u32, VideoColorMetadata), String> {
+    ) -> Result<(Arc<[u8]>, Arc<[u8]>, u32, u32, VideoColorMetadata), String> {
         self.decode_frame_raw_nv12_with_cancel(timestamp_secs, || false)
     }
 
-    /// Decode a frame while allowing the native preview owner to supersede it
-    /// at packet/frame boundaries. The regular decoder API remains unchanged
-    /// for thumbnails and other callers.
-    #[allow(clippy::type_complexity)]
+    /// Optimized decoding: decodes directly to NV12 without CPU sws_scale RGBA conversion.
+    /// Returns (y_plane, uv_plane, width, height, color).
+    /// Used for zero-copy GPU shader-based YUV conversion via wgpu_compositor.
     pub fn decode_frame_raw_nv12_with_cancel<F: Fn() -> bool>(
         &mut self,
         timestamp_secs: f64,
         is_cancelled: F,
-    ) -> Result<(Vec<u8>, Vec<u8>, u32, u32, VideoColorMetadata), String> {
+    ) -> Result<(Arc<[u8]>, Arc<[u8]>, u32, u32, VideoColorMetadata), String> {
         if is_cancelled() {
             return Err("Native preview request cancelled".to_string());
         }
         let ts = self.clamp_timestamp(timestamp_secs);
         let target_pts = (ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
+        let stream_fps = if self.stream_metadata.average_frame_rate_den > 0
+            && self.stream_metadata.average_frame_rate_num > 0
+        {
+            self.stream_metadata.average_frame_rate_num as f64
+                / self.stream_metadata.average_frame_rate_den as f64
+        } else if self.stream_metadata.nominal_frame_rate_den > 0
+            && self.stream_metadata.nominal_frame_rate_num > 0
+        {
+            self.stream_metadata.nominal_frame_rate_num as f64
+                / self.stream_metadata.nominal_frame_rate_den as f64
+        } else {
+            30.0
+        };
+        let frame_duration_secs = (1.0 / stream_fps.max(1.0)).min(0.2);
+        let pts_tolerance =
+            ((frame_duration_secs * 0.95) * self.time_base.1 as f64 / self.time_base.0 as f64).round().max(1.0) as i64;
+
+        if let Some((cached_pts, y, uv, width, height, color)) = &self.last_raw_nv12 {
+            if (*cached_pts - target_pts).abs() <= pts_tolerance {
+                return Ok((Arc::clone(y), Arc::clone(uv), *width, *height, color.clone()));
+            }
+        }
         let sequential_window = (2.0 * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
         self.state.update_sequential(target_pts);
 
+        let backward_distance = self.state.current_pts - target_pts;
+        let is_backward = target_pts < self.state.current_pts;
         let needs_seek = self.state.current_pts < 0
-            || target_pts < self.state.current_pts
-            || !self.state.can_decode_forward(target_pts, sequential_window);
+            || (is_backward && backward_distance > pts_tolerance)
+            || (!is_backward && !self.state.can_decode_forward(target_pts, sequential_window));
 
         if needs_seek {
             if is_cancelled() {
@@ -1366,31 +1395,51 @@ impl VideoDecoder {
         let mut best_frame = ffmpeg::frame::Video::empty();
         let mut found = false;
 
-        'decode: for (stream, packet) in self.input_ctx.packets() {
+        // Drain any frame already buffered in the codec DPB before reading new packets from container
+        let mut buffered = ffmpeg::frame::Video::empty();
+        while self.decoder.receive_frame(&mut buffered).is_ok() {
             if is_cancelled() {
                 return Err("Native preview request cancelled".to_string());
             }
-            if stream.index() != self.stream_index {
-                continue;
+            let pts = buffered.pts().unwrap_or(0);
+            self.state.current_pts = pts;
+            let frame_ts = pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
+            if frame_ts >= ts - (1.0 / 60.0) {
+                best_frame = buffered;
+                found = true;
+                break;
             }
-            if self.decoder.send_packet(&packet).is_err() {
-                continue;
-            }
-            let mut frame = ffmpeg::frame::Video::empty();
-            while self.decoder.receive_frame(&mut frame).is_ok() {
+            best_frame = buffered;
+            buffered = ffmpeg::frame::Video::empty();
+        }
+
+        if !found {
+            'decode: for (stream, packet) in self.input_ctx.packets() {
                 if is_cancelled() {
                     return Err("Native preview request cancelled".to_string());
                 }
-                let pts = frame.pts().unwrap_or(0);
-                self.state.current_pts = pts;
-                let frame_ts = pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
-                if frame_ts >= ts - (1.0 / 60.0) {
-                    best_frame = frame;
-                    found = true;
-                    break 'decode;
+                if stream.index() != self.stream_index {
+                    continue;
                 }
-                best_frame = frame;
-                frame = ffmpeg::frame::Video::empty();
+                if self.decoder.send_packet(&packet).is_err() {
+                    continue;
+                }
+                let mut frame = ffmpeg::frame::Video::empty();
+                while self.decoder.receive_frame(&mut frame).is_ok() {
+                    if is_cancelled() {
+                        return Err("Native preview request cancelled".to_string());
+                    }
+                    let pts = frame.pts().unwrap_or(0);
+                    self.state.current_pts = pts;
+                    let frame_ts = pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
+                    if frame_ts >= ts - (1.0 / 60.0) {
+                        best_frame = frame;
+                        found = true;
+                        break 'decode;
+                    }
+                    best_frame = frame;
+                    frame = ffmpeg::frame::Video::empty();
+                }
             }
         }
 
@@ -1466,7 +1515,7 @@ impl VideoDecoder {
 
         let cpu_frame = self.to_cpu_frame(best_frame)?;
         let frame_color = self.frame_metadata(&cpu_frame).color;
-        if let Some(nv12) = self.extract_nv12_planes(&cpu_frame) {
+        let result = if let Some(nv12) = self.extract_nv12_planes(&cpu_frame) {
             Ok((
                 nv12.0,
                 nv12.1,
@@ -1502,7 +1551,18 @@ impl VideoDecoder {
                     )
                 })
                 .ok_or_else(|| "Failed to extract converted NV12 planes".to_string())
-        }
+        }?;
+        let y_arc: Arc<[u8]> = Arc::from(result.0);
+        let uv_arc: Arc<[u8]> = Arc::from(result.1);
+        self.last_raw_nv12 = Some((
+            target_pts,
+            Arc::clone(&y_arc),
+            Arc::clone(&uv_arc),
+            result.2,
+            result.3,
+            result.4.clone(),
+        ));
+        Ok((y_arc, uv_arc, result.2, result.3, result.4))
     }
 
     /// Scale YUV frame to RGBA
@@ -1695,6 +1755,9 @@ fn current_timestamp_ms() -> u64 {
 pub(crate) struct DecoderEntry {
     pub(crate) decoder: Arc<Mutex<VideoDecoder>>,
     pub(crate) last_accessed_ms: AtomicU64,
+    /// Persistent playback leases pin the entry while the preview owns it.
+    /// Filmstrip activity may evict only entries with a zero lease count.
+    pub(crate) lease_count: AtomicU64,
 }
 
 impl DecoderEntry {
@@ -1704,23 +1767,60 @@ impl DecoderEntry {
     }
 }
 
+/// An active-preview pin for one decoder pool entry.
+///
+/// The decoder mutex is still acquired only by the decode operation. Holding
+/// this lease does not hold the mutex; it only prevents LRU eviction while a
+/// persistent Native playback session is using the decoder.
+pub struct PreviewDecoderLease {
+    path: String,
+    entry: Arc<DecoderEntry>,
+}
+
+impl PreviewDecoderLease {
+    pub fn decoder(&self) -> Arc<Mutex<VideoDecoder>> {
+        self.entry.touch();
+        self.entry.decoder.clone()
+    }
+
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+}
+
+impl Drop for PreviewDecoderLease {
+    fn drop(&mut self) {
+        self.entry.lease_count.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 pub(crate) static THUMBNAIL_DECODER_POOL: Lazy<DashMap<String, Arc<DecoderEntry>>> =
     Lazy::new(DashMap::new);
 pub(crate) static PREVIEW_DECODER_POOL: Lazy<DashMap<String, Arc<DecoderEntry>>> =
     Lazy::new(DashMap::new);
 
-// Symmetric pool size limits with lock-free atomic LRU eviction (Total 20 max decoders)
+// Symmetric pool size limits with lock-free atomic LRU eviction
 const MAX_THUMBNAIL_DECODER_POOL_SIZE: usize = 10;
-const MAX_PREVIEW_DECODER_POOL_SIZE: usize = 10;
+const MAX_PREVIEW_DECODER_POOL_SIZE: usize = 32;
+
+#[inline]
+pub fn preview_pool_key(path: &str, stream_id: &str) -> String {
+    if stream_id.trim().is_empty() {
+        path.to_string()
+    } else {
+        format!("{path}::stream::{stream_id}")
+    }
+}
 
 async fn get_or_create_decoder_in_pool(
     pool: &DashMap<String, Arc<DecoderEntry>>,
+    key: &str,
     path: &str,
     max_pool_size: usize,
     prefer_hardware: bool,
 ) -> Result<Arc<Mutex<VideoDecoder>>, String> {
     // 1. Fast Path: Check if decoder exists in pool without holding shard lock across await
-    if let Some(entry) = pool.get(path) {
+    if let Some(entry) = pool.get(key) {
         entry.touch();
         return Ok(entry.decoder.clone());
     }
@@ -1733,11 +1833,13 @@ async fn get_or_create_decoder_in_pool(
                 (
                     kv.key().clone(),
                     kv.value().last_accessed_ms.load(Ordering::Relaxed),
+                    kv.value().lease_count.load(Ordering::Acquire),
                 )
             })
-            .min_by_key(|(_, ts)| *ts);
+            .filter(|(_, _, leases)| *leases == 0)
+            .min_by_key(|(_, ts, _)| *ts);
 
-        if let Some((oldest_key, _)) = oldest {
+        if let Some((oldest_key, _, _)) = oldest {
             pool.remove(&oldest_key);
         }
     }
@@ -1754,9 +1856,10 @@ async fn get_or_create_decoder_in_pool(
     let entry = Arc::new(DecoderEntry {
         decoder: arc_decoder.clone(),
         last_accessed_ms: AtomicU64::new(current_timestamp_ms()),
+        lease_count: AtomicU64::new(0),
     });
 
-    pool.insert(path.to_string(), entry);
+    pool.insert(key.to_string(), entry);
     Ok(arc_decoder)
 }
 
@@ -1764,6 +1867,7 @@ async fn get_or_create_decoder_in_pool(
 pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String> {
     get_or_create_decoder_in_pool(
         &THUMBNAIL_DECODER_POOL,
+        path,
         path,
         MAX_THUMBNAIL_DECODER_POOL_SIZE,
         false,
@@ -1775,8 +1879,20 @@ pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String>
 /// Completely decoupled from background filmstrip decoding so playback/playhead scrubbing
 /// is NEVER blocked by background batch generation locks.
 pub async fn get_preview_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String> {
+    get_preview_decoder_for_stream(path, "").await
+}
+
+/// Dedicated stream-isolated Interactive Preview & Playback decoder.
+/// Stacking multiple clips or tracks referencing the same or different video files
+/// assigns each track/layer its own stream reader to prevent sequential GOP seek thrashing.
+pub async fn get_preview_decoder_for_stream(
+    path: &str,
+    stream_id: &str,
+) -> Result<Arc<Mutex<VideoDecoder>>, String> {
+    let key = preview_pool_key(path, stream_id);
     get_or_create_decoder_in_pool(
         &PREVIEW_DECODER_POOL,
+        &key,
         path,
         MAX_PREVIEW_DECODER_POOL_SIZE,
         true,
@@ -1784,10 +1900,64 @@ pub async fn get_preview_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>,
     .await
 }
 
+/// Acquire a persistent pin for a Native playback decoder.
+pub async fn acquire_preview_decoder_lease(path: &str) -> Result<PreviewDecoderLease, String> {
+    acquire_preview_decoder_lease_for_stream(path, "").await
+}
+
+/// Acquire a persistent stream-isolated pin for a Native playback decoder.
+pub async fn acquire_preview_decoder_lease_for_stream(
+    path: &str,
+    stream_id: &str,
+) -> Result<PreviewDecoderLease, String> {
+    let key = preview_pool_key(path, stream_id);
+    let decoder = get_or_create_decoder_in_pool(
+        &PREVIEW_DECODER_POOL,
+        &key,
+        path,
+        MAX_PREVIEW_DECODER_POOL_SIZE,
+        true,
+    )
+    .await?;
+    let entry = PREVIEW_DECODER_POOL
+        .get(&key)
+        .map(|value| value.value().clone())
+        .ok_or_else(|| "Preview decoder disappeared during lease acquisition".to_string())?;
+    entry.lease_count.fetch_add(1, Ordering::AcqRel);
+    entry.touch();
+    debug_assert!(Arc::ptr_eq(&decoder, &entry.decoder));
+    Ok(PreviewDecoderLease {
+        path: path.to_string(),
+        entry,
+    })
+}
+
 /// Call this when a clip is removed from the project to free memory
 pub fn release_decoder(path: &str) {
     THUMBNAIL_DECODER_POOL.remove(path);
-    PREVIEW_DECODER_POOL.remove(path);
+    let keys_to_remove: Vec<String> = PREVIEW_DECODER_POOL
+        .iter()
+        .filter(|kv| {
+            (kv.key() == path || kv.key().starts_with(&format!("{path}::stream::")))
+                && kv.value().lease_count.load(Ordering::Acquire) == 0
+        })
+        .map(|kv| kv.key().clone())
+        .collect();
+    for key in keys_to_remove {
+        PREVIEW_DECODER_POOL.remove(&key);
+    }
+}
+
+/// Release a specific stream-isolated decoder
+pub fn release_decoder_stream(path: &str, stream_id: &str) {
+    let key = preview_pool_key(path, stream_id);
+    if PREVIEW_DECODER_POOL
+        .get(&key)
+        .map(|entry| entry.lease_count.load(Ordering::Acquire) == 0)
+        .unwrap_or(false)
+    {
+        PREVIEW_DECODER_POOL.remove(&key);
+    }
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────

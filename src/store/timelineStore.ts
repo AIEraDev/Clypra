@@ -23,6 +23,7 @@
 
 import { create } from "zustand";
 import type { Track, TrackType, Clip, TextClip, TransitionTimelineItem, TransitionType, TimelineMarker } from "@/types";
+import { type CaptionTrack, CAPTION_MODEL_VERSION, DEFAULT_CAPTION_STYLE } from "@/types/captions";
 import { synchronizeClipAudioProperties } from "@/types/audio";
 import type { Gap } from "@/types/gap";
 import { generateId, getCounter } from "@/lib/utils/id";
@@ -40,6 +41,7 @@ import {
   getTrackInsertionIndexGrouped,
   getSafeTrackInsertionIndex,
   normalizeTrackOrderForMainVideo,
+  resolvePrimaryVideoTrackId,
 } from "@/lib/timeline/trackTypeConfig";
 
 interface TimelineStore {
@@ -47,6 +49,10 @@ interface TimelineStore {
   clips: Clip[];
   gaps: Gap[]; // NEW: First-class gap entities
   transitions: TransitionTimelineItem[];
+  /** Caption tracks (§3 Cue-array data model) */
+  captionTracks: CaptionTrack[];
+  /** Currently active caption track ID for editing */
+  activeCaptionTrackId: string | null;
   /**
    * First created video track - UI metadata only.
    * Used for: default drop target, visual highlighting, user expectations.
@@ -80,7 +86,12 @@ interface TimelineStore {
   /** Increment epoch (for cache invalidation) */
   incrementEpoch: () => void;
   /** Hydrate timeline state from project load (atomic operation) */
-  hydrateFromProject: (payload: { tracks?: any[]; clips?: any[]; transitions?: TransitionTimelineItem[]; gaps?: Gap[]; markers?: TimelineMarker[]; mainVideoTrackId?: string | null; cleanEmptyTracks?: boolean }) => void;
+  hydrateFromProject: (payload: { tracks?: any[]; clips?: any[]; transitions?: TransitionTimelineItem[]; gaps?: Gap[]; markers?: TimelineMarker[]; captionTracks?: CaptionTrack[]; mainVideoTrackId?: string | null; cleanEmptyTracks?: boolean }) => void;
+  setCaptionTracks: (tracks: CaptionTrack[]) => void;
+  setActiveCaptionTrackId: (id: string | null) => void;
+  updateCaptionTrack: (trackId: string, updates: Partial<CaptionTrack>) => void;
+  addCaptionTrack: (track?: Partial<CaptionTrack>) => CaptionTrack;
+  removeCaptionTrack: (trackId: string) => void;
   addTrack: (type: TrackType) => void;
   /** Inserts a track at index (clamped); returns the new track id. */
   insertTrackAt: (type: TrackType, index: number) => string;
@@ -228,6 +239,8 @@ export const useTimelineStore = create<TimelineStore>(
     gaps: [], // NEW: Initialize empty gaps array
     transitions: [],
     markers: [],
+    captionTracks: [],
+    activeCaptionTrackId: null,
     mainVideoTrackId: null,
     epoch: 0,
     projectLoadRevision: 0,
@@ -315,12 +328,12 @@ export const useTimelineStore = create<TimelineStore>(
         });
 
         // The main row is explicit when present. For older projects, infer it
-        // from the clip/media contract so an image overlay track (which is
-        // serialized as a compatible video row) cannot become the main row.
+        // from the clip/media contract and canonical bottommost video track position
+        // so an overlay track or secondary video row cannot steal the main A-roll role.
         const explicitMainTrack = finalTracks.find(
           (track) => track.id === payload?.mainVideoTrackId && track.type === "video",
         );
-        const inferredMainTrack = finalTracks.find((track) =>
+        const inferredMainTrack = [...finalTracks].reverse().find((track) =>
           track.type === "video" && finalClipsRaw.some((clip: any) => {
             if (clip.trackId !== track.id) return false;
             if (clip.kind === "video") return true;
@@ -328,16 +341,19 @@ export const useTimelineStore = create<TimelineStore>(
             return asset?.type === "video";
           }),
         );
-        const newMainVideoTrackId = explicitMainTrack?.id ?? inferredMainTrack?.id ?? finalTracks.find((t) => t.type === "video")?.id ?? null;
+        const newMainVideoTrackId = explicitMainTrack?.id ?? inferredMainTrack?.id ?? resolvePrimaryVideoTrackId(finalTracks, payload?.mainVideoTrackId);
         finalTracks = normalizeTrackOrderForMainVideo(finalTracks, newMainVideoTrackId);
 
         // Atomic state update - all or nothing
+        const loadedCaptionTracks = (payload as any)?.captionTracks ?? [];
         set({
           tracks: finalTracks,
           clips: normalizedClips,
           gaps: finalGaps, // Load gaps from project
           transitions: finalTransitions,
           markers: finalMarkers,
+          captionTracks: loadedCaptionTracks,
+          activeCaptionTrackId: loadedCaptionTracks[0]?.id ?? null,
           scrollLeft: 0,
           zoomLevel: TIMELINE_ZOOM_DEFAULT,
           pixelsPerSecond: TIMELINE_ZOOM_DEFAULT * TIMELINE_PPS_PER_ZOOM,
@@ -362,6 +378,82 @@ export const useTimelineStore = create<TimelineStore>(
       }
     },
 
+    setCaptionTracks: (tracks) => {
+      set((state) => {
+        const next: Partial<TimelineStore> = { captionTracks: tracks };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
+    },
+
+    setActiveCaptionTrackId: (id) => set({ activeCaptionTrackId: id }),
+
+    updateCaptionTrack: (trackId, updates) => {
+      set((state) => {
+        const nextTracks = state.captionTracks.map((t) =>
+          t.id === trackId ? { ...t, ...updates } : t
+        );
+        const next: Partial<TimelineStore> = { captionTracks: nextTracks };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
+    },
+
+    addCaptionTrack: (track) => {
+      const id = track?.id || generateId("caption_track");
+      const newTrack: CaptionTrack = {
+        id,
+        captionModelVersion: CAPTION_MODEL_VERSION,
+        name: track?.name || "Subtitles",
+        visible: track?.visible ?? true,
+        locked: track?.locked ?? false,
+        defaultStyle: track?.defaultStyle || { ...DEFAULT_CAPTION_STYLE },
+        cues: track?.cues || [],
+      };
+      set((state) => {
+        const nextTracks = [...state.captionTracks, newTrack];
+        const next: Partial<TimelineStore> = {
+          captionTracks: nextTracks,
+          activeCaptionTrackId: state.activeCaptionTrackId ?? id,
+        };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
+      return newTrack;
+    },
+
+    removeCaptionTrack: (trackId) => {
+      set((state) => {
+        const nextTracks = state.captionTracks.filter((t) => t.id !== trackId);
+        const nextActiveId =
+          state.activeCaptionTrackId === trackId
+            ? (nextTracks[0]?.id ?? null)
+            : state.activeCaptionTrackId;
+        const next: Partial<TimelineStore> = {
+          captionTracks: nextTracks,
+          activeCaptionTrackId: nextActiveId,
+        };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
+    },
+
     addTrack: (type) => {
       const newTrack: Track = {
         id: generateId("track"),
@@ -378,7 +470,7 @@ export const useTimelineStore = create<TimelineStore>(
         nextTracks.splice(insertIndex, 0, newTrack);
         const next: Partial<TimelineStore> = {
           tracks: nextTracks,
-          mainVideoTrackId: state.mainVideoTrackId ?? (type === "video" ? newTrack.id : null),
+          mainVideoTrackId: resolvePrimaryVideoTrackId(state.tracks, state.mainVideoTrackId) ?? (type === "video" ? newTrack.id : null),
         };
         if (state._batchDepth > 0) {
           next._pendingEpochIncrement = true;
@@ -406,7 +498,7 @@ export const useTimelineStore = create<TimelineStore>(
         nextTracks.splice(clamped, 0, newTrack);
         const next: Partial<TimelineStore> = {
           tracks: nextTracks,
-          mainVideoTrackId: state.mainVideoTrackId ?? (type === "video" ? newTrack.id : null),
+          mainVideoTrackId: resolvePrimaryVideoTrackId(state.tracks, state.mainVideoTrackId) ?? (type === "video" ? newTrack.id : null),
         };
         if (state._batchDepth > 0) {
           next._pendingEpochIncrement = true;
@@ -677,7 +769,7 @@ export const useTimelineStore = create<TimelineStore>(
           const track = state.tracks.find((t) => t.id === trackId);
           const hasOtherClips = remainingClips.some((c) => c.trackId === trackId);
 
-          if (track && !hasOtherClips && shouldAutoPruneTrack(track, state.mainVideoTrackId || state.tracks)) {
+          if (track && !hasOtherClips && shouldAutoPruneTrack(track, state.tracks, state.mainVideoTrackId)) {
             tracksToKeep = state.tracks.filter((t) => t.id !== trackId);
             gapsToKeep = state.gaps.filter((g) => g.trackId !== trackId);
             removedTrackIdForCleanup = trackId;
@@ -1246,7 +1338,10 @@ export const useTimelineStore = create<TimelineStore>(
 
     removeEmptyNonMainTracks: (candidateTrackIds) => {
       set((state) => {
-        const mainVideoTrackId = state.mainVideoTrackId ?? state.tracks.find((t) => t.type === "video")?.id ?? null;
+        const videoTracks = state.tracks.filter((t) => t.type === "video");
+        const mainVideoTrackId = state.mainVideoTrackId ?? (
+          videoTracks.length === 1 ? videoTracks[0].id : videoTracks[videoTracks.length - 1]?.id ?? null
+        );
         const candidateSet = candidateTrackIds ? new Set(candidateTrackIds) : null;
         const nextTracks = state.tracks.filter((track) => {
           if (track.id === mainVideoTrackId) return true;

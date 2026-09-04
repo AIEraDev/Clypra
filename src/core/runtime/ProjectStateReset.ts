@@ -121,6 +121,26 @@ export async function resetAllProjectState(options: ResetOptions = {}): Promise<
     console.error("  ❌ GlobalAudioEngine reset failed:", error);
   }
 
+  // Reset the process-global native surface coordinator state in TypeScript
+  // and the native frame queue generation, cache, and playback session in Rust.
+  try {
+    const { resetGlobalNativeSurfaceCoordinator } = await import("@/core/runtime/nativeSurfaceLifecycle");
+    resetGlobalNativeSurfaceCoordinator();
+    resetSubsystems.push("NativeSurfaceCoordinator");
+  } catch (error) {
+    errors.push({ subsystem: "NativeSurfaceCoordinator", error: error as Error });
+    console.error("  ❌ NativeSurfaceCoordinator reset failed:", error);
+  }
+
+  try {
+    const { resetNativeRuntime } = await import("@/lib/platform/tauri");
+    await resetNativeRuntime();
+    resetSubsystems.push("NativePreviewRuntime");
+  } catch (error) {
+    errors.push({ subsystem: "NativePreviewRuntime", error: error as Error });
+    console.error("  ❌ NativePreviewRuntime reset failed:", error);
+  }
+
 
 
   // ═══════════════════════════════════════════════════════════════════════════════
@@ -163,6 +183,21 @@ export async function resetAllProjectState(options: ResetOptions = {}): Promise<
       errors.push({ subsystem: "TransformController", error: error as Error });
       console.error("  ❌ TransformController reset failed:", error);
     }
+  }
+
+  try {
+    // Keep this import pointed at the coordinator's concrete module. The interactions
+    // barrel is intentionally mocked by several reset tests and by lightweight
+    // consumers; project reset must still invalidate the live coordinator in those
+    // environments instead of depending on an optional barrel export.
+    const { getPreviewInteractionCoordinator } = await import(
+      "@/core/interactions/PreviewInteractionCoordinator"
+    );
+    getPreviewInteractionCoordinator().cancelActive("project-reset", false);
+    resetSubsystems.push("PreviewInteractionCoordinator");
+  } catch (error) {
+    errors.push({ subsystem: "PreviewInteractionCoordinator", error: error as Error });
+    console.error("  ❌ PreviewInteractionCoordinator reset failed:", error);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════════
@@ -304,6 +339,17 @@ export async function resetAllProjectState(options: ResetOptions = {}): Promise<
       }),
 
 
+
+    // CacheCoordinator — coordinated memory trimming across all registered participants
+    import("@/core/cache/cacheCoordinator")
+      .then(({ getCacheCoordinator }) => {
+        getCacheCoordinator().handleMemoryPressure("moderate");
+        resetSubsystems.push("CacheCoordinator");
+      })
+      .catch((error) => {
+        errors.push({ subsystem: "CacheCoordinator", error: error as Error });
+        console.error("  ❌ CacheCoordinator reset failed:", error);
+      }),
 
     // GlobalGPUCache
     opts.resetGPUCache

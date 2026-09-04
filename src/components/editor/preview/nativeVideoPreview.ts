@@ -1,4 +1,5 @@
 import type { EvaluatedMediaLayer, EvaluatedScene, EvaluatedTextLayer } from "@/core/evaluation/types";
+import { cullOccludedVisualLayers } from "@/core/evaluation/evaluator";
 import type {
   NativeProjectVideoLayer,
   NativeVideoProjectFrameRequest,
@@ -133,7 +134,9 @@ function hasNativeImageRasterAsset(
   // Accept the old layer-scoped identity while projects/frames transition to
   // the deterministic source-scoped identity. New producers must use the
   // shared identity helper above.
-  return asset.assetId === buildNativeImageAssetId(layer.sourcePath, layer.width, layer.height)
+  const sourceWidth = layer.sourceWidth ?? layer.width;
+  const sourceHeight = layer.sourceHeight ?? layer.height;
+  return asset.assetId === buildNativeImageAssetId(layer.sourcePath, sourceWidth, sourceHeight)
     || asset.assetId.startsWith(`native-image:${layer.layerId}:`);
 }
 
@@ -367,8 +370,11 @@ function getNativeColorGrade(
   mpgStack?: ReadonlyArray<{ type: string; params?: Record<string, unknown> }>,
 ): NativeColorGradeSnapshot | null | undefined {
   const grade = colorGrade as Record<string, unknown> | undefined;
-  const hasLut = grade?.hasLut === 1;
   const activeFilter = filter && filter.intensity > 0.001 ? filter : undefined;
+  const filterLutId = (activeFilter as any)?.lutId || (activeFilter as any)?.lut;
+  const hasLut = grade?.hasLut === 1 || Boolean(filterLutId);
+  const effectiveLutId = (typeof grade?.lutId === "string" && grade.lutId.trim() ? grade.lutId.trim() : undefined)
+    ?? (typeof filterLutId === "string" && filterLutId.trim() ? filterLutId.trim() : undefined);
   const preset = activeFilter?.gradingParams as Record<string, unknown> | undefined;
   const presetIntensity = activeFilter?.intensity ?? 0;
   const layerMpgStack = (filter as (typeof filter & {
@@ -379,7 +385,7 @@ function getNativeColorGrade(
   let filterIR: FilterIR = {};
   if (activeFilter) {
     filterIR = resolveFilterToIR(activeFilter.id, activeFilter.intensity);
-    if (Object.keys(filterIR).length === 0 && !preset && !mpgGrade) return null;
+    if (Object.keys(filterIR).length === 0 && !preset && !mpgGrade && !effectiveLutId) return null;
   }
   const hasGradeValues = Boolean(grade && (
     grade.exposure !== 0 || grade.contrast !== 1 || grade.saturation !== 1 ||
@@ -388,7 +394,7 @@ function getNativeColorGrade(
   )) || Boolean(preset && Object.keys(preset).length > 0) || Boolean(mpgGrade);
   const activeEffects = (effects ?? []).filter((effect) => effect.intensity > 0.001);
   if (!hasMeaningfulObject(adjustments) && !hasGradeValues && !activeFilter && activeEffects.length === 0) return undefined;
-  if (hasLut && (typeof grade?.lutId !== "string" || !grade.lutId.trim())) return null;
+  if (hasLut && !effectiveLutId) return null;
   const values = adjustments as Record<string, unknown> | undefined;
   const readNumber = (value: unknown): number | null | undefined => {
     if (value === undefined) return undefined;
@@ -790,8 +796,10 @@ function getNativeColorGrade(
     grainIntensity,
     grainSize,
     ...(hasLut ? {
-      lutId: typeof grade?.lutId === "string" && grade.lutId.trim() ? grade.lutId : undefined,
-      lutIntensity: typeof grade?.lutIntensity === "number" && Number.isFinite(grade.lutIntensity) ? grade.lutIntensity : 1,
+      lutId: effectiveLutId,
+      lutIntensity: typeof grade?.lutIntensity === "number" && Number.isFinite(grade.lutIntensity)
+        ? grade.lutIntensity
+        : (activeFilter?.intensity ?? 1),
       lutSize: typeof grade?.lutSize === "number" && Number.isFinite(grade.lutSize) ? grade.lutSize : 33,
     } : { lutIntensity: 1, lutSize: 33 }),
     blurStrength: blurRadius > 0 ? 1 : 0,
@@ -981,14 +989,21 @@ export function buildNativeVideoProjectRequest(
   scene: EvaluatedScene,
   rasterLayers: NativeRasterLayerSnapshot[] = [],
 ): NativeVideoProjectFrameRequest | null {
-  if (scene.visualLayers.some((layer) => layer.layerType !== "media" && layer.layerType !== "text")) return null;
+  const canvasWidth = scene.metadata.canvasWidth || 1920;
+  const canvasHeight = scene.metadata.canvasHeight || 1080;
+  const hasTransitions = Boolean(scene.transitions && scene.transitions.length > 0);
+  const visualLayers = hasTransitions
+    ? scene.visualLayers
+    : cullOccludedVisualLayers(scene.visualLayers, canvasWidth, canvasHeight);
+
+  if (visualLayers.some((layer) => layer.layerType !== "media" && layer.layerType !== "text")) return null;
   const clearColor = getNativeClearColor(scene, rasterLayers);
   if (!clearColor) return null;
 
-  const textLayers = scene.visualLayers.filter(
+  const textLayers = visualLayers.filter(
     (layer): layer is EvaluatedTextLayer => layer.layerType === "text"
   );
-  const allMediaLayers = scene.visualLayers.filter(
+  const allMediaLayers = visualLayers.filter(
     (layer): layer is EvaluatedMediaLayer => layer.layerType === "media",
   );
   const animatedStickerLayers = allMediaLayers.filter(isNativeAnimatedStickerLayer);
@@ -1012,7 +1027,7 @@ export function buildNativeVideoProjectRequest(
   const transition = getNativeTransitionSnapshot(scene, mediaLayers);
   if (transition === null) return null;
   if (transition && backgroundMediaPath !== null) return null;
-  if (transition && (textLayers.length > 0 || rasterLayers.some((layer) => layer.isMask))) return null;
+  if (transition && rasterLayers.some((layer) => layer.isMask)) return null;
   if (scene.activeFilter && mediaLayers.some((layer) => layer.filter?.id !== scene.activeFilter?.id)) return null;
   if (!mediaLayers.every((layer) => isSupportedNativeVideoLayer(layer, scene.activeFilter?.effectStack))) {
     return null;
@@ -1190,8 +1205,8 @@ export function getNativePreviewBlockers(
   }
   const transition = getNativeTransitionSnapshot(scene, mediaLayers);
   if (transition === null) add("The active transition is not implemented in the native compositor.");
-  if (transition && (textLayers.length > 0 || rasterLayers.some((layer) => layer.isMask))) {
-    add("Native transitions currently require two video layers without text or mask layers.");
+  if (transition && rasterLayers.some((layer) => layer.isMask)) {
+    add("Native transitions currently do not support mask layers.");
   }
   if (scene.activeFilter && mediaLayers.some((layer) => layer.filter?.id !== scene.activeFilter?.id)) {
     add("The active filter track does not resolve consistently across native media layers.");
@@ -1258,26 +1273,30 @@ export function buildNativeFrameRequest(
   const request = buildNativeVideoProjectRequest(scene, rasterLayers);
   if (!request) return null;
 
-  const nativeMediaLayers = request.layers.filter((layer) => layer.layerId !== NATIVE_BACKGROUND_MEDIA_LAYER_ID);
-  const videoLayers = scene.visualLayers
+  const hasTransitions = Boolean(scene.transitions && scene.transitions.length > 0);
+  const visualLayers = hasTransitions
+    ? scene.visualLayers
+    : cullOccludedVisualLayers(scene.visualLayers, request.canvasWidth, request.canvasHeight);
+  const videoLayers = visualLayers
     .filter((layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && isNativeVideoGraphLayer(layer) && !isNativeAnimatedStickerLayer(layer))
-    .map((layer, index) => {
+    .map((layer) => {
       const colorGrade = getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects, scene.activeFilter?.effectStack);
+      const bodyEffect = getNativeBodyEffect(layer, rasterLayers);
       return {
-      assetId: layer.mediaId,
-      layerId: layer.layerId,
-      videoPath: nativeMediaLayers[index].videoPath,
-      sourceTime: secondsToNativeTime(layer.sourceTime, Math.max(0, Math.round(layer.sourceTime * Math.max(frameRate, 1)))),
-      x: layer.x,
-      y: layer.y,
-      width: layer.width,
-      height: layer.height,
-      rotation: layer.rotation,
-      opacity: layer.opacity,
-      zIndex: layer.zIndex,
-      blendMode: layer.blendMode,
-      ...(colorGrade ? { colorGrade } : {}),
-      ...(nativeMediaLayers[index].bodyEffect ? { bodyEffect: nativeMediaLayers[index].bodyEffect } : {}),
+        assetId: layer.mediaId,
+        layerId: layer.layerId,
+        videoPath: layer.sourcePath,
+        sourceTime: secondsToNativeTime(layer.sourceTime, Math.max(0, Math.round(layer.sourceTime * Math.max(frameRate, 1)))),
+        x: layer.x,
+        y: layer.y,
+        width: layer.width,
+        height: layer.height,
+        rotation: layer.rotation,
+        opacity: layer.opacity,
+        zIndex: layer.zIndex,
+        blendMode: layer.blendMode,
+        ...(colorGrade ? { colorGrade } : {}),
+        ...(bodyEffect ? { bodyEffect } : {}),
       };
     });
 

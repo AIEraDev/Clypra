@@ -24,7 +24,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use tauri::ipc::{Channel, InvokeBody, Request};
 use tokio::io::AsyncWriteExt;
-use tokio::process::{Child, Command};
+use tokio::process::Child;
 use tokio::sync::Mutex;
 
 /// Export progress update.
@@ -201,16 +201,7 @@ const PROGRESS_THROTTLE_INTERVAL: std::time::Duration = std::time::Duration::fro
 /// `ffmpeg` and `ffprobe` (typically in /opt/homebrew/bin or /usr/local/bin)
 /// may not be found with the default PATH.
 pub(crate) fn augmented_path() -> String {
-    let current = std::env::var("PATH").unwrap_or_default();
-    if cfg!(target_os = "windows") {
-        return current;
-    }
-    let extra = "/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin";
-    if current.is_empty() {
-        extra.to_string()
-    } else {
-        format!("{}:{}", current, extra)
-    }
+    crate::commands::binary_resolver::augmented_path()
 }
 
 /// Probe whether a media file has an audio stream.
@@ -220,10 +211,7 @@ pub(crate) fn augmented_path() -> String {
 /// Tokio async runtime for the entire duration of each ffprobe call —
 /// starving other concurrent async tasks (progress updates, IPC responses).
 async fn has_audio_stream(path: &str) -> bool {
-    let path_env = augmented_path();
-
-    let output = Command::new("ffprobe")
-        .env("PATH", &path_env)
+    let output = crate::commands::binary_resolver::create_async_command("ffprobe")
         .args([
             "-v",
             "error",
@@ -257,8 +245,8 @@ async fn has_audio_stream(path: &str) -> bool {
         }
         Err(e) => {
             eprintln!(
-                "[has_audio_stream] Could not spawn ffprobe (PATH={}): {}",
-                path_env, e
+                "[has_audio_stream] Could not spawn ffprobe: {}",
+                e
             );
             false
         }
@@ -291,8 +279,7 @@ pub async fn start_video_export(
     let session_id = uuid::Uuid::new_v4().to_string();
 
     // Build FFmpeg command
-    let mut cmd = Command::new("ffmpeg");
-    cmd.env("PATH", augmented_path());
+    let mut cmd = crate::commands::binary_resolver::create_async_command("ffmpeg");
 
     // Input 0: raw RGBA frames from stdin
     cmd.arg("-thread_queue_size")
@@ -1093,8 +1080,7 @@ pub async fn cancel_video_export(session_id: String) -> Result<(), String> {
 /// Check if FFmpeg is available on the system.
 #[tauri::command]
 pub async fn check_ffmpeg_available() -> Result<bool, String> {
-    let output = Command::new("ffmpeg")
-        .env("PATH", augmented_path())
+    let output = crate::commands::binary_resolver::create_async_command("ffmpeg")
         .arg("-version")
         .output()
         .await;
@@ -1108,8 +1094,7 @@ pub async fn check_ffmpeg_available() -> Result<bool, String> {
 /// Get FFmpeg version information.
 #[tauri::command]
 pub async fn get_ffmpeg_version() -> Result<String, String> {
-    let output = Command::new("ffmpeg")
-        .env("PATH", augmented_path())
+    let output = crate::commands::binary_resolver::create_async_command("ffmpeg")
         .arg("-version")
         .output()
         .await
@@ -1137,8 +1122,7 @@ pub async fn run_wgpu_smoke_test(output_path: String) -> Result<String, String> 
 
     let wgpu_renderer = crate::wgpu_compositor::NativeWgpuRenderer::new().await?;
 
-    let mut cmd = Command::new("ffmpeg");
-    cmd.env("PATH", augmented_path());
+    let mut cmd = crate::commands::binary_resolver::create_async_command("ffmpeg");
     cmd.arg("-thread_queue_size")
         .arg("8")
         .arg("-f")
@@ -1214,8 +1198,7 @@ pub async fn run_native_document_wgpu_export(
 
     let wgpu_renderer = crate::wgpu_compositor::NativeWgpuRenderer::new().await?;
 
-    let mut cmd = Command::new("ffmpeg");
-    cmd.env("PATH", augmented_path());
+    let mut cmd = crate::commands::binary_resolver::create_async_command("ffmpeg");
     cmd.arg("-thread_queue_size")
         .arg("8")
         .arg("-f")

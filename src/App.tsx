@@ -15,6 +15,7 @@ import { CrashRecoveryDialog } from "./components/ui/CrashRecoveryDialog";
 import { UnsavedChangesDialog } from "@/components/ui/modals";
 import { ErrorBoundary } from "@/components/ErrorBoundary"; // Add root error boundary
 import { hasSnapshot, getSnapshot, clearSnapshot, type RecoverySnapshot } from "@/core/runtime/CrashRecoveryService";
+import { resolvePrimaryVideoTrackId } from "@/lib/timeline/trackTypeConfig";
 import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
 import { useRecordingStore } from "@/store/recordingStore";
 import { FloatingWidget } from "@/components/ui/FloatingWidget";
@@ -22,6 +23,9 @@ import { ScreenRecordingPreviewModal } from "@/components/ui/ScreenRecordingPrev
 import { useAutoUpdater } from "@/hooks/useAutoUpdater";
 import { UpdateBanner } from "@/components/ui/UpdateBanner";
 import { Toaster } from "sonner";
+import { ProjectLoadingModal } from "./components/ui/modals/ProjectLoadingModal";
+import { installNativeDiagnostics } from "@/core/runtime/nativeDiagnostics";
+import { getPreviewInteractionCoordinator } from "@/core/interactions";
 
 // const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
 
@@ -29,15 +33,46 @@ const App = () => {
   const { project, createProject, loadProject, setRecentProjects } = useProjectStore();
   const [isLoading, setIsLoading] = useState(true);
   const { showSettingsModal, toggleSettingsModal } = useUIStore();
+  const settingsWasOpenRef = useRef(showSettingsModal);
   const [pendingRecovery, setPendingRecovery] = useState<RecoverySnapshot | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
   const [isClosingProject, setIsClosingProject] = useState(false);
+
+  useEffect(() => {
+    if (!platform.isTauri()) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void installNativeDiagnostics()
+      .then((cleanup) => {
+        if (disposed) cleanup();
+        else unlisten = cleanup;
+      })
+      .catch(() => {
+        // Diagnostics must never affect application startup.
+      });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
   const [projectNameBeforeClose, setProjectNameBeforeClose] = useState<string>("");
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const [isSavingBeforeClose, setIsSavingBeforeClose] = useState(false);
   const closingWindowRef = useRef(false);
+  const closingProjectRef = useRef(false);
   const { isRecording, previewRecording, setPreviewRecording } = useRecordingStore();
   const autoUpdater = useAutoUpdater();
+
+  useEffect(() => {
+    const opened = showSettingsModal && !settingsWasOpenRef.current;
+    settingsWasOpenRef.current = showSettingsModal;
+
+    // Settings is also available from the launch screen. Only an editor
+    // session owns playback, so opening Settings there must be a no-op.
+    if (opened && project) {
+      getPreviewInteractionCoordinator().requestPause();
+    }
+  }, [project, showSettingsModal]);
 
   useEffect(() => {
     const initializeApp = async () => {
@@ -247,12 +282,14 @@ const App = () => {
             timelineStore.withBatch(() => {
               // Ensure main video track exists
               let tracks = useTimelineStore.getState().tracks;
-              let mainVideoTrack = tracks.find((t) => t.type === "video");
+              const mainVideoTrackId = useTimelineStore.getState().mainVideoTrackId;
+              let mainVideoTrack = tracks.find((t) => t.id === resolvePrimaryVideoTrackId(tracks, mainVideoTrackId));
 
               if (!mainVideoTrack) {
                 useTimelineStore.getState().addTrack("video");
                 tracks = useTimelineStore.getState().tracks;
-                mainVideoTrack = tracks.find((t) => t.type === "video");
+                const nextMainId = useTimelineStore.getState().mainVideoTrackId;
+                mainVideoTrack = tracks.find((t) => t.id === resolvePrimaryVideoTrackId(tracks, nextMainId));
               }
 
               const mainTrackId = mainVideoTrack!.id;
@@ -406,10 +443,10 @@ const App = () => {
     setIsRestoring(true);
     try {
       // BUG-008 fix: useTimelineStore import removed — loadProject() handles hydration.
-      const { tracks, clips, transitions, gaps, markers, mediaAssets, project } = pendingRecovery;
+      const { tracks, clips, transitions, gaps, markers, mediaAssets, project, mainVideoTrackId } = pendingRecovery;
 
       // Hydrate project store (sets active project)
-      await loadProject(project, { tracks, clips, transitions, gaps: gaps ?? [], markers: markers ?? [], mediaAssets });
+      await loadProject(project, { tracks, clips, transitions, gaps: gaps ?? [], markers: markers ?? [], mediaAssets, mainVideoTrackId });
 
       // BUG-008 fix: Removed redundant hydrateFromProject() call.
       // loadProject() already hydrates the timeline with proper normalization.
@@ -448,8 +485,9 @@ const App = () => {
    */
   const handleCloseProject = useCallback(async () => {
     const currentProject = useProjectStore.getState().project;
-    if (!currentProject) return;
+    if (!currentProject || closingProjectRef.current) return;
 
+    closingProjectRef.current = true;
     setProjectNameBeforeClose(currentProject.name);
     setIsClosingProject(true);
 
@@ -460,6 +498,7 @@ const App = () => {
       const updateStep = (window as any).__updateClosingStep;
       if (!updateStep) {
         console.error("[App] Modal step updater not available");
+        closingProjectRef.current = false;
         setIsClosingProject(false);
         return;
       }
@@ -483,6 +522,7 @@ const App = () => {
 
       // Wait a moment for visual feedback, then close modal
       await new Promise((resolve) => setTimeout(resolve, 500));
+      closingProjectRef.current = false;
       setIsClosingProject(false);
       setProjectNameBeforeClose("");
     } catch (error) {
@@ -498,8 +538,16 @@ const App = () => {
 
   const exitApp = async () => {
     try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("exit_app");
+      return;
+    } catch (invokeErr) {
+      console.warn("[App] Native exit_app invoke failed, falling back:", invokeErr);
+    }
+    try {
       const { exit } = await import("@tauri-apps/plugin-process");
       await exit(0);
+      return;
     } catch {
       try {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -528,7 +576,10 @@ const App = () => {
     // Clean project: close smoothly and exit
     closingWindowRef.current = true;
     try {
-      await handleCloseProject();
+      const { disposeActiveSession } = await import("@/core/runtime/ProjectSession");
+      await disposeActiveSession().catch(() => {});
+      const { clearSnapshot } = await import("@/core/runtime/CrashRecoveryService");
+      await clearSnapshot().catch(() => {});
       await exitApp();
     } catch (err) {
       console.error("[App] Failed to cleanly exit app:", err);
@@ -536,7 +587,7 @@ const App = () => {
     } finally {
       closingWindowRef.current = false;
     }
-  }, [handleCloseProject]);
+  }, []);
 
   const handleSaveAndExit = async () => {
     setIsSavingBeforeClose(true);
@@ -544,7 +595,10 @@ const App = () => {
     try {
       const { saveCurrentProject } = useProjectStore.getState();
       await saveCurrentProject();
-      await handleCloseProject();
+      const { disposeActiveSession } = await import("@/core/runtime/ProjectSession");
+      await disposeActiveSession().catch(() => {});
+      const { clearSnapshot } = await import("@/core/runtime/CrashRecoveryService");
+      await clearSnapshot().catch(() => {});
       await exitApp();
     } catch (err) {
       console.error("[App] Failed to save and exit:", err);
@@ -643,11 +697,14 @@ const App = () => {
       <SettingsModal isOpen={showSettingsModal} onClose={toggleSettingsModal} />
       <ScreenRecordingPreviewModal isOpen={!!previewRecording} onClose={() => setPreviewRecording(null)} onProjectCreate={handleCreateProject} />
 
+      <ProjectLoadingModal />
+
       {/* ── Closing Project Modal ────────────────────────────────────────── */}
       <ClosingProjectModal
         isOpen={isClosingProject}
         projectName={projectNameBeforeClose}
         onComplete={() => {
+          closingProjectRef.current = false;
           setIsClosingProject(false);
           setProjectNameBeforeClose("");
         }}

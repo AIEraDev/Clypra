@@ -1,7 +1,4 @@
-import {
-  isTauriRuntime,
-  registerNativeFontBytes,
-} from "@/lib/platform/tauri";
+import { isTauriRuntime, registerNativeFontBytes } from "@/lib/platform/tauri";
 
 import interUrl from "@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url";
 import montserratUrl from "@fontsource-variable/montserrat/files/montserrat-latin-wght-normal.woff2?url";
@@ -42,16 +39,28 @@ const BUNDLED_FONTS: readonly NativeBundledFont[] = [
   { url: interUrl, aliases: ["Inter", "Inter Variable"] },
   { url: montserratUrl, aliases: ["Montserrat", "Montserrat Variable"] },
   { url: geistUrl, aliases: ["Geist", "Geist Variable"] },
-  { url: spaceGroteskUrl, aliases: ["Space Grotesk", "Space Grotesk Variable"] },
+  {
+    url: spaceGroteskUrl,
+    aliases: ["Space Grotesk", "Space Grotesk Variable"],
+  },
   { url: robotoUrl, aliases: ["Roboto", "Roboto Variable"] },
   { url: outfitUrl, aliases: ["Outfit", "Outfit Variable"] },
-  { url: robotoCondensedUrl, aliases: ["Roboto Condensed", "Roboto Condensed Variable"] },
+  {
+    url: robotoCondensedUrl,
+    aliases: ["Roboto Condensed", "Roboto Condensed Variable"],
+  },
   { url: openSansUrl, aliases: ["Open Sans", "Open Sans Variable"] },
   { url: ralewayUrl, aliases: ["Raleway", "Raleway Variable"] },
   { url: oswaldUrl, aliases: ["Oswald", "Oswald Variable"] },
-  { url: playfairDisplayUrl, aliases: ["Playfair Display", "Playfair Display Variable"] },
+  {
+    url: playfairDisplayUrl,
+    aliases: ["Playfair Display", "Playfair Display Variable"],
+  },
   { url: nunitoUrl, aliases: ["Nunito", "Nunito Variable"] },
-  { url: dancingScriptUrl, aliases: ["Dancing Script", "Dancing Script Variable"] },
+  {
+    url: dancingScriptUrl,
+    aliases: ["Dancing Script", "Dancing Script Variable"],
+  },
   { url: latoUrl, aliases: ["Lato"] },
   { url: antonUrl, aliases: ["Anton"] },
   { url: bebasNeueUrl, aliases: ["Bebas Neue"] },
@@ -64,7 +73,8 @@ const BUNDLED_FONTS: readonly NativeBundledFont[] = [
 
 const assetByFontId = new Map<string, string>();
 for (const font of BUNDLED_FONTS) {
-  for (const alias of font.aliases) assetByFontId.set(alias.toLowerCase(), font.url);
+  for (const alias of font.aliases)
+    assetByFontId.set(alias.toLowerCase(), font.url);
 }
 
 const registrations = new Map<string, Promise<number>>();
@@ -73,13 +83,17 @@ function fontIdsKey(fontIds: readonly string[]): string[] {
   return [...new Set(fontIds.map((fontId) => fontId.trim()).filter(Boolean))];
 }
 
-async function registerBundledFont(fontId: string, url: string): Promise<number> {
+async function registerBundledFont(
+  fontId: string,
+  url: string,
+): Promise<number> {
   const existing = registrations.get(fontId.toLowerCase());
   if (existing) return existing;
 
   const pending = fetch(url)
     .then((response) => {
-      if (!response.ok) throw new Error(`Unable to load bundled font (${response.status})`);
+      if (!response.ok)
+        throw new Error(`Unable to load bundled font (${response.status})`);
       return response.arrayBuffer();
     })
     .then((bytes) => registerNativeFontBytes(fontId, bytes));
@@ -99,14 +113,48 @@ export async function ensureNativeFontsRegistered(
 ): Promise<void> {
   if (!isTauriRuntime()) return;
   const emojiFallback = registerBundledFont(NATIVE_EMOJI_FONT_ID, notoEmojiUrl);
-  await Promise.all(
-    [emojiFallback, ...fontIdsKey(fontIds).flatMap((fontId) => {
+  await Promise.all([
+    emojiFallback,
+    ...fontIdsKey(fontIds).flatMap((fontId) => {
       const url = assetByFontId.get(fontId.toLowerCase());
       return url ? [registerBundledFont(fontId, url)] : [];
-    })],
-  );
+    }),
+  ]);
 }
 
 export function getBundledNativeFontIds(): string[] {
   return BUNDLED_FONTS.flatMap(({ aliases }) => aliases);
+}
+
+/**
+ * Low-priority background registration of all remaining bundled fonts with
+ * the native Rust rasterizer.
+ *
+ * Schedules one requestIdleCallback (or setTimeout fallback) that registers
+ * every bundled font not already queued. Call this after project startup
+ * (or on font-picker focus) so the Rust cache is fully warm before the user
+ * browses the font list, without competing with video/audio decode.
+ *
+ * Safe to call multiple times — already-registered fonts are no-ops due to
+ * the `registrations` deduplication map.
+ */
+export function prewarmNativeFontsOnIdle(): void {
+  if (!isTauriRuntime()) return;
+
+  const run = () => {
+    // Kick off registration for every bundled font whose promise is not yet in
+    // the registrations map. registerBundledFont is idempotent per fontId.
+    void Promise.allSettled([
+      registerBundledFont(NATIVE_EMOJI_FONT_ID, notoEmojiUrl),
+      ...BUNDLED_FONTS.map((font) =>
+        registerBundledFont(font.aliases[0], font.url),
+      ),
+    ]);
+  };
+
+  if (typeof requestIdleCallback !== "undefined") {
+    requestIdleCallback(() => run(), { timeout: 3000 });
+  } else {
+    setTimeout(run, 0);
+  }
 }

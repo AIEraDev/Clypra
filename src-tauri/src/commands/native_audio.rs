@@ -52,24 +52,6 @@ pub fn get_native_audio_diagnostics(app: AppHandle) -> Result<NativeAudioDiagnos
         .lock()
         .map_err(|_| "Native audio clock lock is poisoned".to_string())
         .map(|clock| clock.diagnostics())?;
-    // This command is requested once after a user-initiated Play, not from the
-    // real-time callback. Use stderr so `tauri dev` captures the evidence even
-    // in builds that have not installed a `log` facade subscriber.
-    eprintln!(
-        "[native-audio] diagnostics installed={} active={:?} mixer_peak={:.6} callbacks={} rendered={} non_silent={} device={:?} clips={:?}",
-        diagnostics.installed_clips.len(),
-        diagnostics.active_clip_ids,
-        diagnostics.mixer_peak,
-        diagnostics.status.callback_count,
-        diagnostics.status.rendered_frames,
-        diagnostics.status.non_silent_frames,
-        diagnostics.status.device_name,
-        diagnostics
-            .clip_diagnostics
-            .iter()
-            .map(|clip| (&clip.id, clip.active, clip.mixer_peak))
-            .collect::<Vec<_>>(),
-    );
     Ok(diagnostics)
 }
 
@@ -235,32 +217,46 @@ pub async fn replace_native_audio_clips(
 
     let mut decoded: Vec<NativePcmClip> = Vec::with_capacity(clips.len());
     for request in clips {
-        decoded.push(
-            decode_native_audio_clip(
-                &PathBuf::from(request.path),
-                request.clip_id,
-                request.timeline_start_ticks,
-                request.source_start_ticks,
-                request.duration_ticks,
-                request.gain,
-                request.pan,
-                request.fade_in_ticks,
-                request.fade_out_ticks,
-                request.fade_in_curve,
-                request.fade_out_curve,
-                request.volume_keyframes,
-                request.channel_mode,
-                request.downmix,
-                request.channel_map,
-                request.preserve_pitch,
-                sample_rate,
-                channels,
-            )
-            .await?,
-        );
+        match decode_native_audio_clip(
+            &PathBuf::from(&request.path),
+            request.clip_id.clone(),
+            request.timeline_start_ticks,
+            request.source_start_ticks,
+            request.duration_ticks,
+            request.gain,
+            request.pan,
+            request.fade_in_ticks,
+            request.fade_out_ticks,
+            request.fade_in_curve,
+            request.fade_out_curve,
+            request.volume_keyframes,
+            request.channel_mode,
+            request.downmix,
+            request.channel_map,
+            request.preserve_pitch,
+            sample_rate,
+            channels,
+        )
+        .await
+        {
+            Ok(clip) => decoded.push(clip),
+            Err(error) => {
+                eprintln!(
+                    "[NativeAudio] Skipping failed audio clip {}: {} (path: {})",
+                    request.clip_id,
+                    error,
+                    request.path
+                );
+            }
+        }
     }
 
-    let statuses = decoded.iter().map(NativePcmClip::status).collect();
+    let statuses: Vec<NativeAudioClipStatus> = decoded.iter().map(NativePcmClip::status).collect();
+    eprintln!(
+        "[NativeAudio] Installed {} audio clips: {:?}",
+        decoded.len(),
+        statuses.iter().map(|s| (&s.id, s.duration_ticks)).collect::<Vec<_>>()
+    );
     clock
         .lock()
         .map_err(|_| "Native audio clock lock is poisoned".to_string())?

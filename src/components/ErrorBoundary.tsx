@@ -32,6 +32,19 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
     const label = this.props.name ? `[ErrorBoundary: ${this.props.name}]` : "[ErrorBoundary]";
     console.error(`${label} Caught unhandled error:`, error, errorInfo);
+
+    // Forward to crash telemetry pipeline. Import lazily to avoid circular
+    // dependencies during module initialisation.
+    import("@/core/telemetry").then(({ crashReporter }) => {
+      void crashReporter.reportCrash({
+        crashType: "SUBSYSTEM_ERROR",
+        error,
+        subsystem: this.props.name,
+        componentStack: errorInfo.componentStack ?? undefined,
+      });
+    }).catch(() => {
+      // Telemetry must never cascade into the error boundary itself.
+    });
   }
 
   handleReset = () => {

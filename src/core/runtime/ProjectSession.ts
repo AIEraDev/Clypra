@@ -51,14 +51,29 @@ import { ProgramPlaybackContext } from "../playback/ProgramPlaybackContext";
 import { SourcePlaybackContext } from "../playback/SourcePlaybackContext";
 
 import { RenderEngine } from "@/lib/renderEngine/renderEngine";
-import { QualityPreset, RendererMode, type SrpConfig } from "@/lib/renderEngine/types";
-import { PreviewMediaPool, type PreviewSyncState } from "../resources/PreviewMediaPool";
+import {
+  QualityPreset,
+  RendererMode,
+  type SrpConfig,
+} from "@/lib/renderEngine/types";
+import {
+  PreviewMediaPool,
+  type PreviewSyncState,
+} from "../resources/PreviewMediaPool";
 import { AudioEngine } from "../audio/AudioEngine";
-import { getSharedAudioEngine, stopSharedAudioEngine } from "../audio/audioRuntime";
+import {
+  getSharedAudioEngine,
+  prewarmSharedAudioBuffers,
+  stopSharedAudioEngine,
+} from "../audio/audioRuntime";
 import { isTauriRuntime } from "@/lib/platform/tauri";
 import type { Clip, MediaAsset } from "@/types";
 import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
-import { resourceTracker, installDiagnostics } from "@/core/monitoring/ResourceTracker";
+import {
+  resourceTracker,
+  installDiagnostics,
+} from "@/core/monitoring/ResourceTracker";
+import { getFrameStartTime } from "@/lib/utils/frameTime";
 
 /**
  * Project Session State
@@ -69,8 +84,16 @@ export type SessionState = "initializing" | "active" | "disposing" | "disposed";
  * Session lifecycle events
  */
 export type SessionEventType = "initialized" | "disposed" | "error";
-export type SessionEventListener = (event: { type: SessionEventType; session: ProjectSession; error?: Error }) => void;
+export type SessionEventListener = (event: {
+  type: SessionEventType;
+  session: ProjectSession;
+  error?: Error;
+}) => void;
 type SessionRegistryListener = (session: ProjectSession | null) => void;
+export type SessionInitializationProgress = (
+  progress: number,
+  message: string,
+) => void;
 
 export class ProjectSession {
   // Session identity
@@ -85,6 +108,18 @@ export class ProjectSession {
   private _transportAuthority: TransportAuthority | null = null;
   private _programContext: ProgramPlaybackContext | null = null;
   private _sourceContext: SourcePlaybackContext | null = null;
+  private _nativeRasterBridge:
+    | import("@/core/render/nativeRasterBridge").NativeRasterBridge
+    | null = null;
+  private readonly _onInitializationProgress?: SessionInitializationProgress;
+  /**
+   * Font families referenced by this project's text clips that are not in
+   * the bundled/system font registry. Populated during session init.
+   * These clips will render with a fallback font until the font is installed
+   * or the user replaces it. The original fontFamily string is preserved in
+   * the project data (never silently mutated).
+   */
+  private _missingFontFamilies: string[] = [];
 
   // Lifecycle tracking
   private _initializePromise: Promise<void> | null = null;
@@ -96,9 +131,13 @@ export class ProjectSession {
   private _asyncTasks = new Set<AbortController>();
   private _rafIds = new Set<number>();
 
-  constructor(projectId: string) {
+  constructor(
+    projectId: string,
+    onInitializationProgress?: SessionInitializationProgress,
+  ) {
     this.projectId = projectId;
     this.sessionId = `session-${projectId}-${Date.now()}`;
+    this._onInitializationProgress = onInitializationProgress;
   }
 
   // ─── Getters ────────────────────────────────────────────────────────────
@@ -109,16 +148,18 @@ export class ProjectSession {
 
   get playback(): PlaybackClock {
     if (!this._playback) {
-      throw new Error(`[ProjectSession] Playback not initialized. Call initialize() first.`);
+      throw new Error(
+        `[ProjectSession] Playback not initialized. Call initialize() first.`,
+      );
     }
     return this._playback;
   }
 
-
-
   get renderRuntime(): RenderEngine {
     if (!this._renderRuntime) {
-      throw new Error(`[ProjectSession] RenderEngine not initialized. Call initialize() first.`);
+      throw new Error(
+        `[ProjectSession] RenderEngine not initialized. Call initialize() first.`,
+      );
     }
     return this._renderRuntime;
   }
@@ -143,6 +184,24 @@ export class ProjectSession {
     return this._sourceContext;
   }
 
+  /** Shared native preview asset bridge for session initialization and playback. */
+  get nativeRasterBridge():
+    | import("@/core/render/nativeRasterBridge").NativeRasterBridge
+    | null {
+    return this._nativeRasterBridge;
+  }
+
+  /**
+   * Font families referenced by this project that are not in the bundled
+   * registry. Empty when all fonts are known. Populated after initialize().
+   *
+   * These represent missing-font conditions: the clip data is unchanged,
+   * but the font cannot be loaded offline. Show a diagnostic to the user.
+   */
+  get missingFontFamilies(): readonly string[] {
+    return this._missingFontFamilies;
+  }
+
   // ─── Lifecycle ──────────────────────────────────────────────────────────
 
   /**
@@ -158,12 +217,103 @@ export class ProjectSession {
     return this._initializePromise;
   }
 
+  /**
+   * Warm raster assets after timeline mutations as well as during project
+   * opening. This is intentionally public so inserting a template cannot
+   * make the first program-preview frame pay the native upload cost.
+   */
+  async prewarmNativeRasterAssets(): Promise<void> {
+    if (!isTauriRuntime() || this._state !== "active") return;
+    await this._prewarmNativeRasterAssets();
+  }
+
+  /**
+   * Prewarms a specific clip at a given timestamp (defaulting to clip.startTime).
+   * Evaluates only the frame containing the clip, registers required fonts,
+   * dispatches rendering off-thread to the Worker, and registers the texture
+   * with the native raster bridge before playback or preview begins.
+   */
+  async prewarmClip(clip: Clip, atTime?: number): Promise<void> {
+    if (!isTauriRuntime() || this._state !== "active") return;
+    const bridge = this._nativeRasterBridge;
+    if (!bridge || typeof document === "undefined") return;
+
+    try {
+      const [projectStore, timelineStore, evaluator, fontRegistry] =
+        await Promise.all([
+          import("@/store/projectStore"),
+          import("@/store/timelineStore"),
+          import("@/core/evaluation/evaluator"),
+          import("@/core/fonts/nativeFontRegistry"),
+        ]);
+
+      const project = projectStore.useProjectStore.getState().project;
+      if (!project || project.id !== this.projectId) return;
+
+      const { clips, tracks, transitions } = timelineStore.useTimelineStore.getState();
+      const mediaAssets = projectStore.useProjectStore.getState().mediaAssets;
+      const frameRate = Math.max(1, project.frameRate ?? 30);
+      const targetTime = atTime ?? clip.startTime;
+      const frameTime = getFrameStartTime(targetTime, frameRate);
+
+      // Ensure the clip is in the evaluated list
+      const effectiveClips = clips.some((c) => c.id === clip.id) ? clips : [...clips, clip];
+
+      const scene = evaluator.evaluateTimelineScene(
+        frameTime,
+        effectiveClips,
+        tracks,
+        mediaAssets,
+        project,
+        transitions,
+      );
+
+      const textLayers = scene.visualLayers.filter(
+        (layer): layer is import("@/core/evaluation/types").EvaluatedTextLayer =>
+          layer.layerType === "text" && (layer.clipId === clip.id || layer.layerId.startsWith(clip.id)),
+      );
+      const imageLayers = scene.visualLayers.filter(
+        (layer) =>
+          layer.layerType === "media" &&
+          layer.mediaType === "image" &&
+          layer.stickerFormat !== "gif" &&
+          layer.stickerFormat !== "lottie" &&
+          (layer.clipId === clip.id || layer.layerId.startsWith(clip.id)),
+      );
+
+      if (textLayers.length === 0 && imageLayers.length === 0) return;
+
+      await Promise.all([
+        textLayers.length > 0
+          ? bridge.prewarmTextAssets(scene, "session-prewarm")
+          : Promise.resolve(),
+        textLayers.length > 0
+          ? fontRegistry.ensureNativeFontsRegistered(
+              textLayers.map((layer) => layer.fontFamily),
+            )
+          : Promise.resolve(),
+        imageLayers.length > 0
+          ? bridge.prewarmImageAssets(scene)
+          : Promise.resolve(),
+      ]);
+    } catch (error) {
+      console.warn("[ProjectSession] Clip raster prewarm failed", {
+        projectId: this.projectId,
+        clipId: clip.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private async _doInitialize(): Promise<void> {
     if (this._state !== "initializing") {
-      throw new Error(`[ProjectSession] Cannot initialize from state: ${this._state}`);
+      throw new Error(
+        `[ProjectSession] Cannot initialize from state: ${this._state}`,
+      );
     }
 
     try {
+      this._onInitializationProgress?.(0.05, "Creating playback session…");
       // Use global singletons (single clock/scheduler ensures no divergence)
       this._playback = getPlaybackClock();
       // Browser program preview uses the shared Web Audio engine. Tauri
@@ -189,12 +339,51 @@ export class ProjectSession {
 
       // Keep the hidden video pool for native frame extraction, but never let
       // it create a second audible HTML-media path in Tauri.
-      this._previewMediaPool = new PreviewMediaPool(this.projectId, this.sessionId, {
-        audioEnabled: !isTauriRuntime(),
-      });
+      this._previewMediaPool = new PreviewMediaPool(
+        this.projectId,
+        this.sessionId,
+        {
+          audioEnabled: !isTauriRuntime(),
+        },
+      );
 
       // Initialize stores (timeline, UI)
       await this._initializeStores();
+      this._onInitializationProgress?.(0.35, "Initializing preview runtime…");
+
+      // Browser audio is decoded before the session becomes active, matching
+      // the existing text/image session prewarm. Native CPAL already decodes
+      // the complete native graph in NativeAudioPreviewController.initialize.
+      if (!isTauriRuntime()) {
+        this._onInitializationProgress?.(0.45, "Prewarming audio…");
+        await this._prewarmAudioAssets();
+      }
+
+      // Warm existing text/image boundaries before the session becomes active.
+      // The bridge is shared with NativeProgramPreview so first play does not
+      // repeat first-use rasterization or native image decoding on the
+      // transport path.
+      if (isTauriRuntime()) {
+        this._onInitializationProgress?.(0.55, "Prewarming text and images…");
+        const { NativeRasterBridge } =
+          await import("@/core/render/nativeRasterBridge");
+        this._nativeRasterBridge = new NativeRasterBridge();
+
+        // ── Project-scoped font prewarm ──────────────────────────────────
+        // Extract every font family used by text clips in this project and
+        // warm both the browser (document.fonts) and the native Rust registry
+        // in parallel. This ensures the subsequent _prewarmNativeRasterAssets
+        // rasterization loop hits the fast-path cache and fontWaitMs = 0ms.
+        await this._prewarmProjectFonts();
+
+        // Opening is not complete until every text/image boundary has been
+        // warmed. This is deliberately awaited: a background warmup can
+        // contend with the first transport frame and recreate the entry freeze
+        // we are eliminating.
+        await this._prewarmNativeRasterAssets();
+      }
+
+      this._onInitializationProgress?.(0.95, "Finalizing preview session…");
 
       this._state = "active";
 
@@ -213,7 +402,11 @@ export class ProjectSession {
       this._notifyListeners({ type: "initialized", session: this });
     } catch (error) {
       this._state = "disposed";
-      this._notifyListeners({ type: "error", session: this, error: error as Error });
+      this._notifyListeners({
+        type: "error",
+        session: this,
+        error: error as Error,
+      });
       throw error;
     }
   }
@@ -267,6 +460,8 @@ export class ProjectSession {
       }
 
       // 6. Teardown render runtime (GPU resources, WebGL contexts)
+      this._nativeRasterBridge?.dispose();
+      this._nativeRasterBridge = null;
       if (this._renderRuntime) {
         this._renderRuntime.teardown();
         this._renderRuntime = null;
@@ -277,7 +472,6 @@ export class ProjectSession {
 
       // 8. Release references to global singletons (actual disposal handled by destroyRuntime)
       this._playback = null;
-
 
       // 9. Reset stores
       await this._resetStores();
@@ -302,7 +496,11 @@ export class ProjectSession {
         detail: { error: String(error) },
       });
       resourceTracker.release(this.sessionId);
-      this._notifyListeners({ type: "error", session: this, error: error as Error });
+      this._notifyListeners({
+        type: "error",
+        session: this,
+        error: error as Error,
+      });
     }
   }
 
@@ -312,7 +510,12 @@ export class ProjectSession {
    * Synchronize preview media elements with timeline state.
    * Creates/destroys headless video/audio elements as needed.
    */
-  syncPreviewMedia(clips: Clip[], assets: MediaAsset[], tracks: Array<{ id: string; type: string }>, syncState: PreviewSyncState): void {
+  syncPreviewMedia(
+    clips: Clip[],
+    assets: MediaAsset[],
+    tracks: Array<{ id: string; type: string }>,
+    syncState: PreviewSyncState,
+  ): void {
     if (this._state !== "active") {
       return;
     }
@@ -427,6 +630,192 @@ export class ProjectSession {
     getViewportController().reset();
   }
 
+  private async _prewarmProjectFonts(): Promise<void> {
+    const [projectStore, timelineStore, fontLoader, fontRegistry, registry] =
+      await Promise.all([
+        import("@/store/projectStore"),
+        import("@/store/timelineStore"),
+        import("@/core/fonts/FontLoader"),
+        import("@/core/fonts/nativeFontRegistry"),
+        import("@/core/fonts/fontRegistry"),
+      ]);
+
+    const project = projectStore.useProjectStore.getState().project;
+    if (!project || project.id !== this.projectId) return;
+
+    const { clips } = timelineStore.useTimelineStore.getState();
+
+    // Collect unique font families from all text/text-template clips.
+    const textClips = clips.filter(
+      (clip) => clip.kind === "text" || clip.kind === "text-template",
+    ) as Array<{ fontFamily?: string; fontId?: string }>;
+
+    const fontFamilies = [
+      ...new Set(
+        textClips
+          .map((clip) => clip.fontFamily)
+          .filter((f): f is string => Boolean(f?.trim())),
+      ),
+    ];
+
+    // ── Missing-font detection ─────────────────────────────────────────────
+    // A font is "missing" if it is not a known bundled/system font and cannot
+    // be resolved offline. We surface this as a console warning and store the
+    // list on the session for diagnostic use. We do NOT mutate the clip —
+    // the original fontFamily value is preserved so the project is portable.
+    const missingFamilies = fontFamilies.filter(
+      (family) => !registry.isKnownFont(family),
+    );
+    if (missingFamilies.length > 0) {
+      console.warn(
+        `[ProjectSession] Project references ${missingFamilies.length} font(s) not in the bundled registry. ` +
+          `These will render with a fallback font. Missing: ${missingFamilies.join(", ")}`,
+      );
+    }
+    this._missingFontFamilies = missingFamilies;
+
+    if (fontFamilies.length === 0) {
+      // No text clips — still schedule idle prewarm so the font picker is
+      // warm when the user first opens it.
+      fontLoader.getFontLoader().prewarmRemainingFontsOnIdle();
+      fontRegistry.prewarmNativeFontsOnIdle();
+      return;
+    }
+
+    // Warm browser document.fonts and the native Rust registry in parallel.
+    // Errors in either path are swallowed — a failure here means first-frame
+    // font-wait cost is paid, not a hard error.
+    await Promise.allSettled([
+      fontLoader.getFontLoader().prewarmProjectFonts(fontFamilies),
+      fontRegistry.ensureNativeFontsRegistered(fontFamilies),
+    ]);
+
+    // Schedule remaining bundled fonts for idle loading so the font picker
+    // shows instant previews without blocking the project open sequence.
+    fontLoader.getFontLoader().prewarmRemainingFontsOnIdle();
+    fontRegistry.prewarmNativeFontsOnIdle();
+  }
+
+  private async _prewarmNativeRasterAssets(): Promise<void> {
+    const bridge = this._nativeRasterBridge;
+    if (!bridge || typeof document === "undefined") return;
+
+    const [projectStore, timelineStore, evaluator, fontRegistry] =
+      await Promise.all([
+        import("@/store/projectStore"),
+        import("@/store/timelineStore"),
+        import("@/core/evaluation/evaluator"),
+        import("@/core/fonts/nativeFontRegistry"),
+      ]);
+    const project = projectStore.useProjectStore.getState().project;
+    if (!project || project.id !== this.projectId) return;
+
+    const { clips, tracks, transitions } =
+      timelineStore.useTimelineStore.getState();
+    const mediaAssets = projectStore.useProjectStore.getState().mediaAssets;
+    const assetMap = new Map(mediaAssets.map((a) => [a.id, a]));
+    const isRasterClip = (clip: (typeof clips)[number]) => {
+      if (
+        clip.kind === "text" ||
+        clip.kind === "text-template" ||
+        clip.kind === "image" ||
+        clip.kind === "sticker"
+      )
+        return true;
+      const asset = assetMap.get(clip.mediaId);
+      return (
+        asset?.type === "image" ||
+        (clip.mediaId && clip.mediaId.startsWith("sticker-"))
+      );
+    };
+    const rasterBoundaries = clips
+      .filter(isRasterClip)
+      .sort((left, right) => left.startTime - right.startTime);
+    if (rasterBoundaries.length === 0) return;
+
+    const frameRate = Math.max(1, project.frameRate ?? 30);
+    for (const clip of rasterBoundaries) {
+      const frameTime = getFrameStartTime(clip.startTime, frameRate);
+      const scene = evaluator.evaluateTimelineScene(
+        frameTime,
+        clips,
+        tracks,
+        mediaAssets,
+        project,
+        transitions,
+      );
+      const textLayers = scene.visualLayers.filter(
+        (layer) => layer.layerType === "text",
+      );
+      const imageLayers = scene.visualLayers.filter(
+        (layer) =>
+          layer.layerType === "media" &&
+          layer.mediaType === "image" &&
+          layer.stickerFormat !== "gif" &&
+          layer.stickerFormat !== "lottie",
+      );
+      if (textLayers.length === 0 && imageLayers.length === 0) continue;
+
+      const warmup = Promise.all([
+        textLayers.length > 0
+          ? bridge.prewarmTextAssets(scene, "session-prewarm")
+          : Promise.resolve(),
+        textLayers.length > 0
+          ? fontRegistry.ensureNativeFontsRegistered(
+              textLayers.map((layer) => layer.fontFamily),
+            )
+          : Promise.resolve(),
+        imageLayers.length > 0
+          ? bridge.prewarmImageAssets(scene)
+          : Promise.resolve(),
+      ]).catch((error) => {
+        console.warn("[ProjectSession] Native raster prewarm failed", {
+          projectId: this.projectId,
+          frameTime,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+      await warmup;
+    }
+  }
+
+  private async _prewarmAudioAssets(): Promise<void> {
+    const projectStore = await import("@/store/projectStore");
+    const timelineStore = await import("@/store/timelineStore");
+    const project = projectStore.useProjectStore.getState().project;
+    if (!project || project.id !== this.projectId) return;
+
+    const { clips, tracks } = timelineStore.useTimelineStore.getState();
+    const audioTrackIds = new Set(
+      tracks
+        .filter((track) => track.type === "audio" && !track.muted)
+        .map((track) => track.id),
+    );
+    const assets = projectStore.useProjectStore.getState().mediaAssets;
+    const assetsById = new Map(assets.map((asset) => [asset.id, asset]));
+    const items = clips
+      .filter((clip) => audioTrackIds.has(clip.trackId))
+      .map((clip) => {
+        const key = clip.mediaId || clip.audioPath || clip.id;
+        const source =
+          clip.audioPath ||
+          (clip.mediaId ? assetsById.get(clip.mediaId)?.path : undefined);
+        return source ? { key, source } : null;
+      })
+      .filter((item): item is { key: string; source: string } => Boolean(item));
+
+    if (items.length === 0) return;
+    const result = await prewarmSharedAudioBuffers(items);
+    if (result.failed > 0) {
+      console.warn("[ProjectSession] Audio prewarm completed with failures", {
+        projectId: this.projectId,
+        requested: result.requested,
+        loaded: result.loaded,
+        failed: result.failed,
+      });
+    }
+  }
+
   private async _resetStores(): Promise<void> {
     // Same as initialize - reset to clean state
     await this._initializeStores();
@@ -466,7 +855,11 @@ export class ProjectSession {
     return () => this._listeners.delete(listener);
   }
 
-  private _notifyListeners(event: { type: SessionEventType; session: ProjectSession; error?: Error }): void {
+  private _notifyListeners(event: {
+    type: SessionEventType;
+    session: ProjectSession;
+    error?: Error;
+  }): void {
     this._listeners.forEach((listener) => {
       try {
         listener(event);
@@ -497,7 +890,9 @@ export class ProjectSession {
       state: this._state,
       playbackState: this._playback?.state ?? null,
       pendingJobs: 0,
-      videoElements: this._previewMediaPool ? this._previewMediaPool.getVideoElements().size : 0,
+      videoElements: this._previewMediaPool
+        ? this._previewMediaPool.getVideoElements().size
+        : 0,
       asyncTasks: this._asyncTasks.size,
       rafLoops: this._rafIds.size,
     };
@@ -543,7 +938,9 @@ class SessionRegistry {
     const requestId = ++this._currentRequestId;
 
     if (session && session.projectId !== this._targetProjectId) {
-      console.warn(`[SessionRegistry] Session switch discarded: session project ${session.projectId} does not match target project ${this._targetProjectId}. Disposing session.`);
+      console.warn(
+        `[SessionRegistry] Session switch discarded: session project ${session.projectId} does not match target project ${this._targetProjectId}. Disposing session.`,
+      );
       await session.dispose();
       return;
     }
@@ -566,7 +963,9 @@ class SessionRegistry {
       }
       this._notifyListeners();
     } else {
-      console.warn(`[SessionRegistry] Session switch superceded (request ${requestId} vs current ${this._currentRequestId}). Disposing orphaned session.`);
+      console.warn(
+        `[SessionRegistry] Session switch superceded (request ${requestId} vs current ${this._currentRequestId}). Disposing orphaned session.`,
+      );
       if (session) {
         await session.dispose();
       }
@@ -590,7 +989,10 @@ class SessionRegistry {
       try {
         listener(this._activeSession);
       } catch (error) {
-        console.error(`[ProjectSession] Session registry listener error:`, error);
+        console.error(
+          `[ProjectSession] Session registry listener error:`,
+          error,
+        );
       }
     });
   }
@@ -606,7 +1008,9 @@ const sessionRegistry = new SessionRegistry();
 export function getActiveSession(): ProjectSession {
   const session = sessionRegistry.getActiveSession();
   if (!session) {
-    throw new Error(`[ProjectSession] No active session. Create and initialize a session first.`);
+    throw new Error(
+      `[ProjectSession] No active session. Create and initialize a session first.`,
+    );
   }
   return session;
 }
@@ -635,20 +1039,26 @@ export function subscribeToSessionChanges(listener: () => void): () => void {
  * Create and activate new project session.
  * Automatically disposes previous session if exists.
  */
-export async function createProjectSession(projectId: string): Promise<ProjectSession> {
+export async function createProjectSession(
+  projectId: string,
+  options: { onProgress?: SessionInitializationProgress } = {},
+): Promise<ProjectSession> {
   // Install diagnostics on first session creation (idempotent)
   installDiagnostics();
   // Also attach lifecycle log to the diagnostics surface
   if (typeof window !== "undefined") {
     const diag = (window as any).__clypra_diagnostics ?? {};
-    (window as any).__clypra_diagnostics = { ...diag, lifecycle: lifecycleMonitor };
+    (window as any).__clypra_diagnostics = {
+      ...diag,
+      lifecycle: lifecycleMonitor,
+    };
   }
 
   lifecycleMonitor.record("PROJECT_LOAD_START", { projectId });
 
   sessionRegistry.setTargetProjectId(projectId);
 
-  const session = new ProjectSession(projectId);
+  const session = new ProjectSession(projectId, options.onProgress);
   try {
     await session.initialize();
   } catch (err) {
@@ -659,7 +1069,10 @@ export async function createProjectSession(projectId: string): Promise<ProjectSe
   }
   await sessionRegistry.setActiveSession(session);
 
-  lifecycleMonitor.record("PROJECT_LOAD_COMPLETE", { projectId, sessionId: session.sessionId });
+  lifecycleMonitor.record("PROJECT_LOAD_COMPLETE", {
+    projectId,
+    sessionId: session.sessionId,
+  });
 
   return session;
 }

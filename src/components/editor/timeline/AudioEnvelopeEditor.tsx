@@ -4,6 +4,10 @@ import { useHistoryStore } from "@/store/historyStore";
 import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
 import type { Clip } from "@/types";
 import { timeToPixel, pixelToTime } from "@/lib/timeline/timelineViewport";
+import {
+  getPreviewInteractionCoordinator,
+  type PreviewInteractionToken,
+} from "@/core/interactions";
 
 interface AudioEnvelopeEditorProps {
   clip: Clip;
@@ -18,6 +22,8 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
 }) => {
   const updateClip = useTimelineStore((s) => s.updateClip);
   const { execute } = useHistoryStore();
+  const previewInteractionCoordinator = getPreviewInteractionCoordinator();
+  const previewInteractionRef = useRef<PreviewInteractionToken | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const volumeLaneRef = useRef<HTMLDivElement>(null);
@@ -30,6 +36,12 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
   } | null>(null);
   const fadeDragTargetRef = useRef<HTMLElement | null>(null);
   const fadeValueRef = useRef<number | null>(null);
+  // PERF (0-B extended / 8-B): RAF coalescing refs.
+  // onPointerMove fires at raw device polling rate (120–240Hz). We stash the
+  // latest event and process it in a single RAF callback per display frame.
+  const envelopeRafRef = useRef<number | null>(null);
+  const pendingEnvelopeMoveRef =
+    useRef<React.PointerEvent<HTMLDivElement> | null>(null);
 
   const [isHovered, setIsHovered] = useState(false);
   const [activeDrag, setActiveDrag] = useState<
@@ -86,6 +98,8 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
     e.preventDefault();
     const container = containerRef.current;
     if (!container) return;
+    previewInteractionRef.current =
+      previewInteractionCoordinator.begin("audio-envelope");
     const rect = container.getBoundingClientRect();
     const laneRect = volumeLaneRef.current?.getBoundingClientRect();
     const point = getTooltipPoint(
@@ -114,6 +128,8 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
     e.preventDefault();
     const initialFade = type === "fadeIn" ? fadeIn : fadeOut;
     fadeDragRef.current = { type, initialFade, pointerId: e.pointerId };
+    previewInteractionRef.current =
+      previewInteractionCoordinator.begin("audio-envelope");
     fadeDragTargetRef.current = e.currentTarget;
     fadeValueRef.current = initialFade;
     setActiveDrag(type);
@@ -146,15 +162,29 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
     const nextFade = Math.max(0, Math.min(maxAllowed, rawFade));
     const field = drag.type;
 
-    updateClip(clip.id, { [field]: nextFade });
+    // PERF (0-B extended): Skip epoch during drag preview — finishFadeDrag
+    // commits a TransformClipCommand which triggers the real epoch increment.
+    updateClip(clip.id, {
+      [field]: nextFade,
+      _skipEpochIncrement: true,
+    } as Parameters<typeof updateClip>[1]);
     fadeValueRef.current = nextFade;
-    setDragValue(nextFade);
+    // Don't call setDragValue here — RAF callback flushes to React state at ≤60fps
     return true;
   };
 
   const finishFadeDrag = (pointerId?: number) => {
     const drag = fadeDragRef.current;
     if (!drag) return;
+
+    // PERF: Drain any pending RAF before reading the final value
+    if (envelopeRafRef.current !== null) {
+      cancelAnimationFrame(envelopeRafRef.current);
+      envelopeRafRef.current = null;
+    }
+    const pendingMove = pendingEnvelopeMoveRef.current;
+    pendingEnvelopeMoveRef.current = null;
+    if (pendingMove) applyEnvelopeMove(pendingMove);
 
     const finalFade = fadeValueRef.current ?? drag.initialFade;
     const field = drag.type;
@@ -177,12 +207,24 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
         ),
       );
     }
+    if (previewInteractionRef.current) {
+      previewInteractionCoordinator.commit(previewInteractionRef.current);
+      previewInteractionRef.current = null;
+    }
   };
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (updateFadeFromPointer(e)) return;
-    // The ref is authoritative during a pointer gesture. React state is only
-    // presentation state and may lag during a captured mouse event.
+  // PERF (0-B extended / 8-B): Real work is done here, called from the RAF
+  // callback at most once per display frame (~60fps) rather than at raw pointer
+  // polling rate (120–240Hz). updateClip and setDragValue are called at most once
+  // per frame instead of on every raw event.
+  const applyEnvelopeMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (updateFadeFromPointer(e)) {
+      // Fade drag: flush latest fadeValueRef to React state for tooltip display
+      const latest = fadeValueRef.current;
+      if (latest !== null) setDragValue(latest);
+      return;
+    }
+    // Volume drag path
     if (!dragStartRef.current) return;
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -192,16 +234,49 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
       0,
       Math.min(1.0, dragStartRef.current.initialVolume + deltaVol),
     );
-    updateClip(clip.id, { volume: nextVol });
-    setDragValue(nextVol);
+    // PERF (0-B extended): Skip epoch during drag preview — finishVolumeDrag
+    // commits a TransformClipCommand which triggers the real epoch increment.
+    updateClip(clip.id, {
+      volume: nextVol,
+      _skipEpochIncrement: true,
+    } as Parameters<typeof updateClip>[1]);
     dragValueRef.current = nextVol;
+    // Flush to React state for the live tooltip (capped at RAF rate, ~60fps)
+    setDragValue(nextVol);
     setDragPoint(
       getTooltipPoint(e.clientX - rect.left, e.clientY - rect.top, rect),
     );
   };
 
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    // PERF (0-B extended / 8-B): Stash the latest event; schedule one RAF per
+    // display frame. Many raw pointer events collapse to one store write + one
+    // React state update.
+    // We must persist the synthetic event before the RAF fires because React
+    // recycles SyntheticEvent objects. e.persist() opts out of pooling.
+    e.persist();
+    pendingEnvelopeMoveRef.current = e;
+    if (envelopeRafRef.current !== null) return; // RAF already queued
+    envelopeRafRef.current = requestAnimationFrame(() => {
+      envelopeRafRef.current = null;
+      const pending = pendingEnvelopeMoveRef.current;
+      pendingEnvelopeMoveRef.current = null;
+      if (pending) applyEnvelopeMove(pending);
+    });
+  };
+
   const finishVolumeDrag = (pointerId?: number) => {
     if (!dragStartRef.current) return;
+
+    // PERF: Drain any pending RAF before reading the final value
+    if (envelopeRafRef.current !== null) {
+      cancelAnimationFrame(envelopeRafRef.current);
+      envelopeRafRef.current = null;
+    }
+    const pendingMove = pendingEnvelopeMoveRef.current;
+    pendingEnvelopeMoveRef.current = null;
+    if (pendingMove) applyEnvelopeMove(pendingMove);
+
     const initialVolume = dragStartRef.current.initialVolume;
     const finalVolume = dragValueRef.current ?? clip.volume ?? 1.0;
     const dragTarget = dragTargetRef.current;
@@ -228,6 +303,10 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
         ),
       );
     }
+    if (previewInteractionRef.current) {
+      previewInteractionCoordinator.commit(previewInteractionRef.current);
+      previewInteractionRef.current = null;
+    }
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -242,7 +321,9 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
   const handleVolumeDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (volume !== 1.0) {
+      const token = previewInteractionCoordinator.begin("property-edit");
       execute(new TransformClipCommand(clip.id, { volume }, { volume: 1.0 }));
+      previewInteractionCoordinator.commit(token);
     }
   };
 

@@ -151,7 +151,9 @@ async fn native_project_frame_matches_geometry_golden() {
     let ctx = match HeadlessGpuContext::try_new().await {
         Some(ctx) => ctx,
         None => {
-            eprintln!("Skipping native_project_frame_matches_geometry_golden: no suitable GPU adapter");
+            eprintln!(
+                "Skipping native_project_frame_matches_geometry_golden: no suitable GPU adapter"
+            );
             return;
         }
     };
@@ -208,15 +210,24 @@ async fn native_project_frame_matches_geometry_golden() {
 
     let sample_fg = pixel(&actual, 64, 8, 8);
     for (a, b) in sample_fg.iter().zip(&[220, 40, 20, 255]) {
-        assert!(a.abs_diff(*b) <= 6, "foreground pixel diff exceeded tolerance: sample={sample_fg:?}");
+        assert!(
+            a.abs_diff(*b) <= 6,
+            "foreground pixel diff exceeded tolerance: sample={sample_fg:?}"
+        );
     }
     let sample_bg1 = pixel(&actual, 64, 48, 8);
     for (a, b) in sample_bg1.iter().zip(&[0, 0, 0, 255]) {
-        assert!(a.abs_diff(*b) <= 6, "background pixel 1 diff exceeded tolerance: sample={sample_bg1:?}");
+        assert!(
+            a.abs_diff(*b) <= 6,
+            "background pixel 1 diff exceeded tolerance: sample={sample_bg1:?}"
+        );
     }
     let sample_bg2 = pixel(&actual, 64, 8, 28);
     for (a, b) in sample_bg2.iter().zip(&[0, 0, 0, 255]) {
-        assert!(a.abs_diff(*b) <= 6, "background pixel 2 diff exceeded tolerance: sample={sample_bg2:?}");
+        assert!(
+            a.abs_diff(*b) <= 6,
+            "background pixel 2 diff exceeded tolerance: sample={sample_bg2:?}"
+        );
     }
 
     let mut expected = vec![0u8; 64 * 36 * 4];
@@ -233,11 +244,22 @@ async fn native_project_frame_matches_geometry_golden() {
     if !diff.is_within_tolerance(6) {
         if let Some(output_dir) = std::env::var_os("CLYPRA_GOLDEN_ARTIFACT_DIR") {
             let output_dir = std::path::Path::new(&output_dir);
-            std::fs::create_dir_all(output_dir).expect("golden artifact directory should be writable");
-            write_rgba8_png(&output_dir.join("native-project-actual.png"), 64, 36, &actual)
-                .expect("actual golden frame should be capturable");
-            write_rgba8_png(&output_dir.join("native-project-expected.png"), 64, 36, &expected)
-                .expect("expected golden frame should be capturable");
+            std::fs::create_dir_all(output_dir)
+                .expect("golden artifact directory should be writable");
+            write_rgba8_png(
+                &output_dir.join("native-project-actual.png"),
+                64,
+                36,
+                &actual,
+            )
+            .expect("actual golden frame should be capturable");
+            write_rgba8_png(
+                &output_dir.join("native-project-expected.png"),
+                64,
+                36,
+                &expected,
+            )
+            .expect("expected golden frame should be capturable");
         }
     }
     assert!(

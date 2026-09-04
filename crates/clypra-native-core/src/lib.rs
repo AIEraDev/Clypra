@@ -45,12 +45,13 @@ pub mod native_core {
     pub use crate::cache::FrameCache;
     pub use crate::contracts::{
         BodyEffectSnapshot, ColorGradeSnapshot, ColorPolicy, FramePacket, FrameRequest, FrameTime,
-        NativeCoreError, PixelFormat, PlaybackClockStatus, PlaybackPlan, PlaybackState,
-        ProjectSnapshot, QualityTier, RasterLayerSnapshot, TemplateDefinitionSnapshot,
-        TemplateElementKind, TemplateElementSnapshot, TextBackgroundSnapshot, TextEffectDefinitionSnapshot,
-        TextEffectInstance, TextEffectPassSnapshot,
-        TextLayerSnapshot, TextParamValue, TextRunSnapshot, TransitionSnapshot, VideoLayerSnapshot,
-        DEFAULT_TIME_SCALE,
+        NativeCoreError, NativePlaybackFrameDemand, NativePlaybackRasterLayerUpdate,
+        NativePlaybackTextLayerUpdate, NativePlaybackVideoLayerUpdate, PixelFormat,
+        PlaybackClockStatus, PlaybackPlan, PlaybackState, ProjectSnapshot, QualityTier,
+        RasterLayerSnapshot, TemplateDefinitionSnapshot, TemplateElementKind,
+        TemplateElementSnapshot, TextBackgroundSnapshot, TextEffectDefinitionSnapshot,
+        TextEffectInstance, TextEffectPassSnapshot, TextLayerSnapshot, TextParamValue,
+        TextRunSnapshot, TransitionSnapshot, VideoLayerSnapshot, DEFAULT_TIME_SCALE,
         NATIVE_CORE_CONTRACT_VERSION,
     };
     pub use crate::font_registry::{global_font_registry, FontRegistry, DEFAULT_FONT_ID};
@@ -58,39 +59,42 @@ pub mod native_core {
         global_glyph_cache, GlyphSdfCache, SdfGlyph, ShapedTextSdf, TextAlign,
     };
     pub use crate::performance::{
-        ModeStats, NativeFrameServiceStats, PerformanceBudget, PerformanceSample, PreviewMode,
-        StagePercentiles,
+        ModeStats, NativeFrameServiceStats, NativePerformanceSampleBatch, PerformanceBudget,
+        PerformanceSample, PreviewMode, StagePercentiles,
     };
     pub use crate::sdf::{generate_padded_sdf, generate_sdf};
     pub use crate::service::NativeFrameService;
     pub use crate::session::PlaybackSession;
     pub use crate::surface::{
-        NativeGpuRuntimeState, NativeGpuRuntimeStatus, NativeSurfaceGeometry, NativeSurfaceProbe,
-        NativeSurfacePresentation, NativeSurfaceStatus,
+        NativeGpuRuntimeState, NativeGpuRuntimeStatus, NativeSurfaceGeometry,
+        NativeSurfacePresentation, NativeSurfacePresentationTimings, NativeSurfaceProbe,
+        NativeSurfaceStatus,
     };
 }
 
 pub use cache::FrameCache;
 pub use contracts::{
     BodyEffectSnapshot, ColorGradeSnapshot, ColorPolicy, FramePacket, FrameRequest, FrameTime,
-    NativeCoreError, PixelFormat, PlaybackClockStatus, PlaybackPlan, PlaybackState, ProjectSnapshot,
-    QualityTier, RasterLayerSnapshot, TemplateDefinitionSnapshot, TemplateElementKind,
-    TemplateElementSnapshot, TextBackgroundSnapshot, TextEffectDefinitionSnapshot,
-    TextEffectInstance, TextEffectPassSnapshot, TextLayerSnapshot,
-    TextParamValue, TextRunSnapshot, TransitionSnapshot, VideoLayerSnapshot, DEFAULT_TIME_SCALE,
-    NATIVE_CORE_CONTRACT_VERSION,
+    NativeCoreError, NativePlaybackFrameDemand, NativePlaybackRasterLayerUpdate,
+    NativePlaybackTextLayerUpdate, NativePlaybackVideoLayerUpdate, PixelFormat,
+    PlaybackClockStatus, PlaybackPlan, PlaybackState, ProjectSnapshot, QualityTier,
+    RasterLayerSnapshot, TemplateDefinitionSnapshot, TemplateElementKind, TemplateElementSnapshot,
+    TextBackgroundSnapshot, TextEffectDefinitionSnapshot, TextEffectInstance,
+    TextEffectPassSnapshot, TextLayerSnapshot, TextParamValue, TextRunSnapshot, TransitionSnapshot,
+    VideoLayerSnapshot, DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION,
 };
 pub use font_registry::{global_font_registry, FontRegistry, DEFAULT_FONT_ID};
 pub use glyph_cache::{global_glyph_cache, GlyphSdfCache, SdfGlyph, ShapedTextSdf, TextAlign};
 pub use golden::{compare_rgba8, GoldenDiff};
 pub use performance::{
-    ModeStats, NativeFrameServiceStats, PerformanceBudget, PerformanceSample, PreviewMode,
-    StagePercentiles,
+    ModeStats, NativeFrameServiceStats, NativePerformanceSampleBatch, PerformanceBudget,
+    PerformanceSample, PreviewMode, StagePercentiles,
 };
 pub use sdf::{generate_padded_sdf, generate_sdf};
 pub use service::NativeFrameService;
 pub use session::PlaybackSession;
 pub use surface::{
-    NativeGpuRuntimeState, NativeGpuRuntimeStatus, NativeSurfaceGeometry, NativeSurfaceProbe,
-    NativeSurfacePresentation, NativeSurfaceStatus,
+    NativeGpuRuntimeState, NativeGpuRuntimeStatus, NativeSurfaceGeometry,
+    NativeSurfacePresentation, NativeSurfacePresentationTimings, NativeSurfaceProbe,
+    NativeSurfaceStatus,
 };

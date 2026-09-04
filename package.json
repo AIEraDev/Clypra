@@ -41,7 +41,7 @@
     "@capacitor/core": "^8.4.0",
     "@capacitor/filesystem": "^8.1.2",
     "@capacitor/share": "^8.0.1",
-    "@clypra-studio/engine": "1.3.0",
+    "@clypra-studio/engine": "1.6.0",
     "@clypra-studio/shaders": "0.1.5",
     "@clypra/ui-color-picker": "0.2.1",
     "@fontsource-variable/dancing-script": "^5.2.8",

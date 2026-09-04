@@ -131,6 +131,7 @@ export interface EvaluatedMediaLayer extends BaseVisualLayer {
     name: string;
     intensity: number;
     gradingParams?: import("@clypra-studio/engine").GradingParams;
+    lutId?: string;
   };
 
   /** Layout parameters for the clip fitting/cropping/transforming */
@@ -160,16 +161,47 @@ export interface EvaluatedTextLayer extends BaseVisualLayer {
   /** The current playhead time in seconds */
   readonly time?: number;
 
+  /**
+   * Whether this layer's template contains any animation nodes
+   * (entrance/exit/propertyKeyframes/splitAnimator).
+   *
+   * Computed once in the evaluator from the embedded templateSnapshot and
+   * stored here so the raster cache-key builder (buildNativeTextKeyObject)
+   * never needs to re-parse the template document per frame.
+   *
+   * When false (static template or no templateId), `time` is excluded from
+   * the raster key, giving the cache a stable hit for the entire clip duration.
+   */
+  readonly templateAnimated?: boolean;
+
+  /** Caption text may wrap by default; title text is point text unless constrained. */
+  readonly textRole?: "caption" | "title";
+
+  /** Explicit user-authored width constraint for automatic wrapping. */
+  readonly maxWidth?: number;
+
   /** The clip start time on timeline */
   readonly clipStartTime?: number;
 
   /** The clip duration */
   readonly clipDuration?: number;
 
+  /** Text lifecycle segment active at the evaluated playhead. */
+  readonly animationOperation?: "render" | "entrance" | "exit" | "animation";
+  readonly animationType?: string;
+
   // ─── Text Content ─────────────────────────────────────────────────────────
 
   /** Text content to render */
   readonly text: string;
+
+  /**
+   * Stable font identifier propagated from TextClip.fontId.
+   * Present when the source clip had a fontId assigned (all clips created
+   * after the fontRegistry was introduced). Used for missing-font detection
+   * and registry lookups without re-normalising the family string.
+   */
+  readonly fontId?: string;
 
   /** Font family */
   readonly fontFamily: string;
@@ -241,7 +273,11 @@ export interface EvaluatedTextLayer extends BaseVisualLayer {
   readonly templateId?: string;
   readonly templateRevisionId?: string;
   readonly templateContentHash?: string;
-  readonly templateSnapshot?: import("@clypra-studio/engine").TextTemplate;
+  readonly templateSnapshot?:
+    | import("@clypra-studio/engine").TextTemplate
+    | import("@clypra-studio/engine").TextTemplateArtifact;
+  readonly templateControlValues?: Record<string, unknown>;
+  readonly templateDependencySnapshot?: import("@clypra-studio/engine").TemplateDependencyManifest;
   readonly templateDependencies?: ReadonlyArray<{
     effectId: string;
     revisionId: string;
@@ -324,7 +360,15 @@ export interface EvaluatedTransition {
 /**
  * Blend modes for compositing.
  */
-export type BlendMode = "normal" | "multiply" | "screen" | "overlay" | "darken" | "lighten" | "add" | "subtract";
+export type BlendMode =
+  | "normal"
+  | "multiply"
+  | "screen"
+  | "overlay"
+  | "darken"
+  | "lighten"
+  | "add"
+  | "subtract";
 
 /**
  * Evaluated effect (future).
@@ -367,7 +411,11 @@ export interface SceneMetadata {
   readonly isGap: boolean;
 
   /** Fallback strategy if gap */
-  readonly fallbackStrategy?: "black" | "freeze" | "transparent" | "placeholder";
+  readonly fallbackStrategy?:
+    | "black"
+    | "freeze"
+    | "transparent"
+    | "placeholder";
 
   /** Timeline epoch (for cache invalidation) */
   readonly epochId?: string;
@@ -405,7 +453,10 @@ export interface EvaluatedScene {
     intensity: number;
     gradingParams?: import("@clypra-studio/engine").GradingParams;
     pipeline?: "v2";
-    effectStack?: ReadonlyArray<{ type: string; params?: Record<string, unknown> }>;
+    effectStack?: ReadonlyArray<{
+      type: string;
+      params?: Record<string, unknown>;
+    }>;
   };
 }
 

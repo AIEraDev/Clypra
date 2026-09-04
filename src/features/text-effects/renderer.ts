@@ -1,15 +1,17 @@
-import { evaluateScene as engineEvaluateScene, textEffectConfigToScene, defaultConfig as engineDefaultConfig, type TextEffectConfig, _buildConfig } from "@clypra-studio/engine";
+import { renderTextEffectToCanvas, defaultConfig as engineDefaultConfig, type TextEffectConfig, _buildConfig } from "@clypra-studio/engine";
 import { TextEffectDefinition } from "./types/types";
 import { hasRegisteredEngine, renderRegisteredEffect } from "./registry";
 import { getFontLoader } from "@/core/fonts/FontLoader";
 
 /**
  * Draw a SceneDocument to the target canvas context.
- * Delegates directly to the engine's evaluateScene.
+ * Delegates to the package-owned text-effect capability renderer.
  */
 function drawScene(targetCtx: CanvasRenderingContext2D, cfg: TextEffectConfig, time: number): void {
-  const scene = getOrBuildScene(cfg);
-  engineEvaluateScene(scene, time, targetCtx);
+  renderTextEffectToCanvas(targetCtx, {
+    source: cfg,
+    context: { environment: "studio", time, width: cfg.canvasWidth, height: cfg.canvasHeight },
+  });
 }
 
 function drawCanonicalScene(
@@ -34,19 +36,11 @@ function drawCanonicalScene(
   scene.text.fontStyle = effect.font?.style || scene.text.fontStyle;
   scene.canvas.width = canvasWidth;
   scene.canvas.height = canvasHeight;
-  engineEvaluateScene(scene, time, targetCtx);
+  renderTextEffectToCanvas(targetCtx, {
+    source: scene,
+    context: { environment: "studio", time, width: canvasWidth, height: canvasHeight },
+  });
   return true;
-}
-
-// textEffectConfigToScene is pure — cache by config object identity to avoid
-// rebuilding the full SceneDocument on every animation frame.
-const _sceneCache = new WeakMap<object, ReturnType<typeof textEffectConfigToScene>>();
-
-function getOrBuildScene(cfg: TextEffectConfig) {
-  if (_sceneCache.has(cfg)) return _sceneCache.get(cfg)!;
-  const scene = textEffectConfigToScene(cfg);
-  _sceneCache.set(cfg, scene);
-  return scene;
 }
 
 /**
@@ -66,7 +60,7 @@ function buildEngineConfig(effect: TextEffectDefinition, text: string, fontSize:
 /**
  * Render a text effect onto any 2D canvas context.
  *
- * Uses the full @clypra-studio/engine pipeline (evaluateScene) for API-fetched effects
+ * Uses the full @clypra-studio/engine capability pipeline for API-fetched effects
  * so stroke blur (ctx.filter), glow compositing, bevel, and all post-fx are
  * applied correctly. Locally registered engines (studio-generated classes) are
  * called via their drawFrame() method.
@@ -123,7 +117,7 @@ export const renderTextEffect = (canvas: HTMLCanvasElement, text: string, effect
  * 1. Sets canvas dimensions
  * 2. Pre-loads the required font via FontLoader (deduped, cached)
  * 3. Waits for document.fonts.ready
- * 4. Draws via engineEvaluateScene (full pipeline incl. ctx.filter / WebGL fallback)
+ * 4. Draws via the package capability renderer (full pipeline incl. ctx.filter)
  */
 export const renderTextEffectAsync = async (canvas: HTMLCanvasElement, text: string, effect: TextEffectDefinition, fontSize: number, time?: number): Promise<void> => {
   const ctx = canvas.getContext("2d");

@@ -16,6 +16,7 @@
  */
 
 import { AUDIO_MODEL_VERSION, normalizeClipAudioProperties } from "./audio";
+import { CAPTION_MODEL_VERSION, type CaptionTrack } from "./captions";
 import type { Project, MediaAsset, Track, Clip, AspectRatio, TransitionTimelineItem, TimelineMarker, CanvasBackgroundConfig, MediaStreamInfo, DerivedMediaProvenance, ClipAudioProperties } from "./index";
 import type { Gap } from "./gap";
 
@@ -51,6 +52,8 @@ export interface RustProject {
   thumbnail?: string | null;
   timeline_schema_version?: number | null;
   audio_model_version?: number | null;
+  caption_model_version?: number | null;
+  caption_tracks?: any[] | null;
 }
 
 /**
@@ -155,6 +158,7 @@ export interface ProjectPersistenceSnapshot {
   transitions: TransitionTimelineItem[];
   gaps: Gap[];
   markers: TimelineMarker[];
+  captionTracks?: CaptionTrack[];
   timelineSchemaVersion: number;
   epoch?: number;
   migrated: boolean;
@@ -218,6 +222,12 @@ export function validateAndMigrateProjectPayload(input: unknown): ProjectPersist
     if (!trackIds.has(clip.trackId)) throw new Error(`Clip ${clip.id} refers to a missing track`);
   }
 
+  const captionTracks: CaptionTrack[] = Array.isArray(rust.caption_tracks)
+    ? (rust.caption_tracks as CaptionTrack[])
+    : Array.isArray(raw.captionTracks)
+      ? (raw.captionTracks as CaptionTrack[])
+      : [];
+
   const normalizedRust = toRustProject(project, {
     mediaAssets,
     tracks,
@@ -225,6 +235,7 @@ export function validateAndMigrateProjectPayload(input: unknown): ProjectPersist
     transitions,
     gaps,
     markers,
+    captionTracks,
     mainVideoTrackId: rust.main_video_track_id ?? null,
     updateModifiedTime: false,
   });
@@ -237,6 +248,7 @@ export function validateAndMigrateProjectPayload(input: unknown): ProjectPersist
     transitions,
     gaps,
     markers,
+    captionTracks,
     timelineSchemaVersion: project.timelineSchemaVersion ?? 1,
     migrated,
     rustProject: normalizedRust,
@@ -275,6 +287,7 @@ export function fromRustProject(rust: RustProject): Project {
     thumbnail: rust.thumbnail ?? undefined,
     timelineSchemaVersion: rust.timeline_schema_version ?? 1,
     audioModelVersion: rust.audio_model_version ?? AUDIO_MODEL_VERSION,
+    captionModelVersion: rust.caption_model_version ?? CAPTION_MODEL_VERSION,
   };
 }
 
@@ -465,6 +478,7 @@ export function toRustProject(
     transitions?: TransitionTimelineItem[];
     gaps?: Gap[];
     markers?: TimelineMarker[];
+    captionTracks?: CaptionTrack[];
     mainVideoTrackId?: string | null;
     /** Update modification timestamp to current time (default: true, set false for round-trip serialization) */
     updateModifiedTime?: boolean;
@@ -491,6 +505,8 @@ export function toRustProject(
     thumbnail: frontend.thumbnail,
     timeline_schema_version: frontend.timelineSchemaVersion ?? 1,
     audio_model_version: frontend.audioModelVersion ?? AUDIO_MODEL_VERSION,
+    caption_model_version: frontend.captionModelVersion ?? CAPTION_MODEL_VERSION,
+    caption_tracks: options?.captionTracks ?? [],
     ...(options?.mainVideoTrackId !== undefined
       ? { main_video_track_id: options.mainVideoTrackId }
       : {}),

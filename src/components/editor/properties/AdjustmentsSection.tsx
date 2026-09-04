@@ -37,7 +37,8 @@ const AdjustmentSlider: React.FC<SliderProps> = ({
   onReset,
 }) => {
   const range = max - min;
-  const fillPercent = range > 0 ? Math.min(100, Math.max(0, ((value - min) / range) * 100)) : 0;
+  const fillPercent =
+    range > 0 ? Math.min(100, Math.max(0, ((value - min) / range) * 100)) : 0;
 
   return (
     <div className="space-y-1 group select-none">
@@ -46,10 +47,15 @@ const AdjustmentSlider: React.FC<SliderProps> = ({
         onDoubleClick={onReset}
         title="Double-click to reset"
       >
-        <span className={`text-[10px] font-medium transition-colors ${isOverridden ? "text-accent font-semibold" : "text-text-muted"}`}>
-          {label} {isAuto && <span className="opacity-60 text-[8px]">(auto)</span>}
+        <span
+          className={`text-[10px] font-medium transition-colors ${isOverridden ? "text-accent font-semibold" : "text-text-muted"}`}
+        >
+          {label}{" "}
+          {isAuto && <span className="opacity-60 text-[8px]">(auto)</span>}
         </span>
-        <span className={`text-[10px] tabular-nums ${isOverridden ? "text-accent font-medium" : "text-text-primary"}`}>
+        <span
+          className={`text-[10px] tabular-nums ${isOverridden ? "text-accent font-medium" : "text-text-primary"}`}
+        >
           {value.toFixed(step < 0.1 ? 2 : 0)}
         </span>
       </div>
@@ -69,7 +75,7 @@ const AdjustmentSlider: React.FC<SliderProps> = ({
               ? `linear-gradient(to right, var(--color-accent) 0%, var(--color-accent) ${fillPercent}%, var(--color-border) ${fillPercent}%, var(--color-border) 100%)`
               : isAuto
                 ? `linear-gradient(to right, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.3) ${fillPercent}%, var(--color-border) ${fillPercent}%, var(--color-border) 100%)`
-                : `linear-gradient(to right, var(--color-accent) 0%, var(--color-accent) ${fillPercent}%, var(--color-border) ${fillPercent}%, var(--color-border) 100%)`
+                : `linear-gradient(to right, var(--color-accent) 0%, var(--color-accent) ${fillPercent}%, var(--color-border) ${fillPercent}%, var(--color-border) 100%)`,
           }}
         />
         {isOverridden && (
@@ -93,7 +99,8 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
   // Resolve preset parameters
   const presetParams = useMemo(() => {
     if (!selectedClip.filter) return undefined;
-    return filterCacheManager.getCached(selectedClip.filter.id)?.filter?.gradingParams;
+    return filterCacheManager.getCached(selectedClip.filter.id)?.filter
+      ?.gradingParams;
   }, [selectedClip.filter]);
 
   const adjustments = selectedClip.adjustments ?? {};
@@ -103,7 +110,10 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
     handleUpdate("adjustments", nextAdjustments);
   };
 
-  const updateStructuredField = (key: "vibrance" | "grain" | "crossProcess", subFields: Record<string, any>) => {
+  const updateStructuredField = (
+    key: "vibrance" | "grain" | "crossProcess",
+    subFields: Record<string, any>,
+  ) => {
     const current = adjustments[key] || {};
     const nextAdjustments = {
       ...adjustments,
@@ -131,7 +141,9 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
     }
     if (presetParams) {
       if (key === "hue") {
-        return presetParams.hueRotate !== undefined ? (presetParams.hueRotate * 180) / Math.PI : defaultVal;
+        return presetParams.hueRotate !== undefined
+          ? (presetParams.hueRotate * 180) / Math.PI
+          : defaultVal;
       }
       if (key in presetParams) {
         return (presetParams as any)[key] as number;
@@ -168,7 +180,9 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
       <div className="space-y-4 pt-1">
         {/* Category: Basic Adjustments */}
         <div className="space-y-3">
-          <span className="text-[9px] font-bold uppercase tracking-wider text-text-muted select-none">Basic Adjustments</span>
+          <span className="text-[9px] font-bold uppercase tracking-wider text-text-muted select-none">
+            Basic Adjustments
+          </span>
           <AdjustmentSlider
             label="Exposure"
             value={getVal("exposure", 0.0)}
@@ -213,7 +227,9 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
 
         {/* Category: Color & White Balance */}
         <div className="space-y-3 pt-1 border-t border-border/20">
-          <span className="text-[9px] font-bold uppercase tracking-wider text-text-muted select-none">Color & White Balance</span>
+          <span className="text-[9px] font-bold uppercase tracking-wider text-text-muted select-none">
+            Color & White Balance
+          </span>
           <AdjustmentSlider
             label="Temperature"
             value={getVal("temperature", 0.0)}
@@ -269,7 +285,9 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
 
         {/* Category: Creative */}
         <div className="space-y-3 pt-1 border-t border-border/20">
-          <span className="text-[9px] font-bold uppercase tracking-wider text-text-muted select-none">Creative</span>
+          <span className="text-[9px] font-bold uppercase tracking-wider text-text-muted select-none">
+            Creative
+          </span>
           <AdjustmentSlider
             label="Vignette"
             value={getVal("vignette", 0.0)}
@@ -281,8 +299,13 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
             onReset={() => resetAdjustment("vignette")}
           />
           <div className="flex items-center justify-between py-1 select-none">
-            <span className={`text-[10px] font-medium transition-colors ${isOverridden("invert") ? "text-purple-400 font-semibold" : "text-text-muted"}`}>
-              Invert Color {isAuto("invert") && <span className="opacity-60 text-[8px]">(auto)</span>}
+            <span
+              className={`text-[10px] font-medium transition-colors ${isOverridden("invert") ? "text-purple-400 font-semibold" : "text-text-muted"}`}
+            >
+              Invert Color{" "}
+              {isAuto("invert") && (
+                <span className="opacity-60 text-[8px]">(auto)</span>
+              )}
             </span>
             <div className="flex items-center gap-1.5">
               <input
@@ -312,7 +335,9 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
 
         {/* Category: Advanced Grading */}
         <div className="space-y-3 pt-1 border-t border-border/20">
-          <span className="text-[9px] font-bold uppercase tracking-wider text-text-muted select-none">Advanced Grading</span>
+          <span className="text-[9px] font-bold uppercase tracking-wider text-text-muted select-none">
+            Advanced Grading
+          </span>
 
           {/* Lift */}
           <AdjustmentSlider
@@ -327,32 +352,44 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
           />
 
           {/* Vibrance */}
-          <div className={`p-2.5 rounded-lg bg-white/[0.02] border transition-colors space-y-2.5 ${isOverridden("vibrance") ? "border-purple-500/30" : "border-border/10"}`}>
+          <div
+            className={`p-2.5 rounded-lg bg-white/2 border transition-colors space-y-2.5 ${isOverridden("vibrance") ? "border-purple-500/30" : "border-border/10"}`}
+          >
             <AdjustmentSlider
               label="Vibrance Amount"
               value={
                 isOverridden("vibrance")
-                  ? adjustments.vibrance?.amount ?? 0.0
-                  : presetParams?.vibrance?.amount ?? 0.0
+                  ? (adjustments.vibrance?.amount ?? 0.0)
+                  : (presetParams?.vibrance?.amount ?? 0.0)
               }
               min={-1.0}
               max={1.0}
               isOverridden={isOverridden("vibrance")}
               isAuto={!isOverridden("vibrance") && !!presetParams?.vibrance}
-              onChange={(val) => updateStructuredField("vibrance", { amount: val })}
+              onChange={(val) =>
+                updateStructuredField("vibrance", { amount: val })
+              }
               onReset={() => resetAdjustment("vibrance")}
             />
             <div className="flex items-center justify-between">
-              <span className={`text-[10px] ${isOverridden("vibrance") ? "text-purple-400" : "text-text-muted"}`}>Protected Skin Tone Hue</span>
+              <span
+                className={`text-[10px] ${isOverridden("vibrance") ? "text-purple-400" : "text-text-muted"}`}
+              >
+                Protected Skin Tone Hue
+              </span>
               <div className="flex items-center gap-1.5">
                 <ClypraColorPicker
                   value={
                     isOverridden("vibrance")
-                      ? adjustments.vibrance?.protectedHue ?? "#E8B08C"
-                      : presetParams?.vibrance?.protectedHue ?? "#E8B08C"
+                      ? (adjustments.vibrance?.protectedHue ?? "#E8B08C")
+                      : (presetParams?.vibrance?.protectedHue ?? "#E8B08C")
                   }
-                  onChange={(c: string) => updateStructuredField("vibrance", { protectedHue: c })}
-                  onChangeComplete={(c: string) => updateStructuredField("vibrance", { protectedHue: c })}
+                  onChange={(c: string) =>
+                    updateStructuredField("vibrance", { protectedHue: c })
+                  }
+                  onChangeComplete={(c: string) =>
+                    updateStructuredField("vibrance", { protectedHue: c })
+                  }
                   format="hex"
                   showAlpha={false}
                   size="sm"
@@ -373,27 +410,31 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
           </div>
 
           {/* Film Grain */}
-          <div className={`p-2.5 rounded-lg bg-white/[0.02] border transition-colors space-y-2.5 ${isOverridden("grain") ? "border-purple-500/30" : "border-border/10"}`}>
+          <div
+            className={`p-2.5 rounded-lg bg-white/2 border transition-colors space-y-2.5 ${isOverridden("grain") ? "border-purple-500/30" : "border-border/10"}`}
+          >
             <AdjustmentSlider
               label="Grain Intensity"
               value={
                 isOverridden("grain")
-                  ? adjustments.grain?.intensity ?? 0.0
-                  : presetParams?.grain?.intensity ?? 0.0
+                  ? (adjustments.grain?.intensity ?? 0.0)
+                  : (presetParams?.grain?.intensity ?? 0.0)
               }
               min={0.0}
               max={1.0}
               isOverridden={isOverridden("grain")}
               isAuto={!isOverridden("grain") && !!presetParams?.grain}
-              onChange={(val) => updateStructuredField("grain", { intensity: val })}
+              onChange={(val) =>
+                updateStructuredField("grain", { intensity: val })
+              }
               onReset={() => resetAdjustment("grain")}
             />
             <AdjustmentSlider
               label="Grain Size"
               value={
                 isOverridden("grain")
-                  ? adjustments.grain?.size ?? 1.0
-                  : presetParams?.grain?.size ?? 1.0
+                  ? (adjustments.grain?.size ?? 1.0)
+                  : (presetParams?.grain?.size ?? 1.0)
               }
               min={0.5}
               max={5.0}
@@ -406,25 +447,34 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
           </div>
 
           {/* Cross Process */}
-          <div className={`p-2.5 rounded-lg bg-white/[0.02] border transition-colors space-y-2.5 ${isOverridden("crossProcess") ? "border-purple-500/30" : "border-border/10"}`}>
+          <div
+            className={`p-2.5 rounded-lg bg-white/2 border transition-colors space-y-2.5 ${isOverridden("crossProcess") ? "border-purple-500/30" : "border-border/10"}`}
+          >
             <AdjustmentSlider
               label="Cross Process Amount"
               value={
                 isOverridden("crossProcess")
-                  ? adjustments.crossProcess?.amount ?? 0.0
-                  : presetParams?.crossProcess?.amount ?? 0.0
+                  ? (adjustments.crossProcess?.amount ?? 0.0)
+                  : (presetParams?.crossProcess?.amount ?? 0.0)
               }
               min={0.0}
               max={1.0}
               isOverridden={isOverridden("crossProcess")}
-              isAuto={!isOverridden("crossProcess") && !!presetParams?.crossProcess}
-              onChange={(val) => updateStructuredField("crossProcess", { amount: val })}
+              isAuto={
+                !isOverridden("crossProcess") && !!presetParams?.crossProcess
+              }
+              onChange={(val) =>
+                updateStructuredField("crossProcess", { amount: val })
+              }
               onReset={() => resetAdjustment("crossProcess")}
             />
           </div>
 
           {/* 3-Way Color Wheels */}
-          <ColorWheelsSection selectedClip={selectedClip} handleUpdate={handleUpdate} />
+          <ColorWheelsSection
+            selectedClip={selectedClip}
+            handleUpdate={handleUpdate}
+          />
 
           {/* 3D LUT Importer & Presets */}
           <LUTSection selectedClip={selectedClip} handleUpdate={handleUpdate} />

@@ -12,6 +12,13 @@ export function isCompoundClip(clip: Clip): boolean {
  */
 export function expandCompoundClips(clips: Clip[]): Clip[] {
   const expand = (clip: Clip, absoluteStart: number): Clip[] => {
+    if (clip.kind === "text-template") {
+      // Canonical template clips remain first-class runtime entities. The
+      // evaluator owns their timeline geometry and the engine package owns
+      // their composition semantics; converting them to a legacy text clip
+      // here discarded nodes, panels, controls and timing.
+      return [{ ...clip, startTime: absoluteStart }];
+    }
     if (!isCompoundClip(clip)) {
       return [{ ...clip, startTime: absoluteStart }];
     }

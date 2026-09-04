@@ -10,15 +10,18 @@ use tauri::{Emitter, Manager};
 pub mod ai;
 pub mod audio;
 pub mod commands;
+pub mod diagnostics;
 pub mod models;
 pub mod native_audio;
 pub mod native_core;
 pub mod preview_golden;
+pub mod golden_harness;
 pub mod sync_metrics;
 pub mod thumbnail_engine;
 pub mod wgpu_compositor;
 
 use commands::*;
+use diagnostics::crash_handler::{get_unreported_crashes, mark_crash_reported, purge_crash_reports};
 use thumbnail_engine::init_thumbnail_engine;
 
 #[tauri::command]
@@ -46,6 +49,11 @@ fn set_menu_language(app: tauri::AppHandle, language: String) -> Result<(), Stri
     Ok(())
 }
 
+#[tauri::command]
+fn exit_app(app: tauri::AppHandle, code: Option<i32>) {
+    app.exit(code.unwrap_or(0));
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "windows")]
@@ -53,7 +61,7 @@ pub fn run() {
         if std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").is_err() {
             std::env::set_var(
                 "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-                "--enable-gpu-rasterization --ignore-gpu-blocklist --enable-zero-copy --allow-file-access-from-files",
+                "--enable-gpu-rasterization --allow-file-access-from-files",
             );
         }
     }
@@ -67,6 +75,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            diagnostics::initialize(app.handle());
             // macOS uses the real traffic lights and native window corner
             // treatment with an overlay title bar. Windows/Linux switch to
             // borderless mode so the shared custom controls stay integrated
@@ -75,7 +84,9 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 window
                     .set_title_bar_style(tauri::TitleBarStyle::Overlay)
-                    .map_err(|error| format!("failed to enable macOS title bar overlay: {error}"))?;
+                    .map_err(|error| {
+                        format!("failed to enable macOS title bar overlay: {error}")
+                    })?;
             }
 
             #[cfg(not(target_os = "macos"))]
@@ -92,8 +103,6 @@ pub fn run() {
                     let _ = init_thumbnail_engine(dir).await;
                 }
             });
-            sync_metrics::ensure_metrics_flush_loop();
-
             // Initialize Whisper download state
             app.manage(whisper::init_download_state());
 
@@ -115,7 +124,7 @@ pub fn run() {
                 commands::native_surface::NativeSurfaceRuntime::new(),
             )));
             app.manage(Arc::new(tokio::sync::Mutex::new(
-                commands::native_preview::NativePreviewFrameQueue::new(6),
+                commands::native_preview::NativePreviewFrameQueue::new(24),
             )));
             app.manage(Arc::new(Mutex::new(
                 commands::native_playback::NativePlaybackRuntime::new(),
@@ -135,9 +144,11 @@ pub fn run() {
                     .get_webview_window("main")
                     .and_then(|window| instance.create_surface(window).ok());
                 let surface_available = surface.is_some();
-                let gpu_result =
-                    crate::wgpu_compositor::GpuContext::select_best_gpu(&instance, surface.as_ref())
-                        .await;
+                let gpu_result = crate::wgpu_compositor::GpuContext::select_best_gpu(
+                    &instance,
+                    surface.as_ref(),
+                )
+                .await;
                 (gpu_result, surface_available)
             });
 
@@ -171,7 +182,8 @@ pub fn run() {
                 Err(error) => {
                     log::error!("Native GPU initialization failed: {error}");
                     if let Ok(mut status) = native_gpu_status.lock() {
-                        *status = native_core::NativeGpuRuntimeStatus::failed(error, surface_available);
+                        *status =
+                            native_core::NativeGpuRuntimeStatus::failed(error, surface_available);
                     }
                 }
             }
@@ -210,6 +222,7 @@ pub fn run() {
             render_native_preview_frame,
             render_native_project_frame,
             render_native_video_project_frame,
+            get_video_scopes,
             render_native_frame,
             register_native_font,
             register_native_font_bytes,
@@ -217,15 +230,20 @@ pub fn run() {
             queue_native_frame,
             cancel_native_preview_requests,
             register_native_raster_asset,
+            register_native_raster_asset_raw,
             register_native_image_asset,
             present_native_frame,
             get_native_frame_service_stats,
+            get_native_frame_service_samples,
+            reset_native_preview_runtime,
             get_native_gpu_status,
             probe_native_surface,
             resize_native_surface,
             hide_native_surface,
             get_native_surface_status,
             configure_native_playback,
+            configure_native_playback_render,
+            submit_native_playback_demand,
             get_native_playback_state,
             native_play,
             native_pause,
@@ -294,15 +312,22 @@ pub fn run() {
             // Screen recording & native smoke test commands
             trim_video,
             set_menu_language,
+            exit_app,
             run_wgpu_smoke_test,
             run_native_document_wgpu_export,
+            // Native crash diagnostic commands
+            get_unreported_crashes,
+            mark_crash_reported,
+            purge_crash_reports,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // Prevent immediate OS destruction so the webview can perform
-                // unsaved-changes dirty checks, user prompt, and clean shutdown.
-                api.prevent_close();
-                let _ = window.emit("clypra://close-requested", ());
+                if window.label() == "main" {
+                    // Prevent immediate OS destruction so the webview can perform
+                    // unsaved-changes dirty checks, user prompt, and clean shutdown.
+                    api.prevent_close();
+                    let _ = window.emit("clypra://close-requested", ());
+                }
             }
         })
         .run(tauri::generate_context!())

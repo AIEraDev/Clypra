@@ -64,50 +64,32 @@ describe("PlaybackClock: RAF Generation Counter", () => {
     rafCallbacks.clear();
   });
 
-  it("should prevent stale RAF tick from executing after seek", () => {
-    // When seek() does pause→play, old RAF tick can execute
-    // Generation counter prevents this
-
+  it("should pause playback and cancel RAF on seek", () => {
     clock.play();
     expect(clock.state).toBe("playing");
 
-    // Capture the old RAF callback
-    const oldCallbacks = Array.from(rafCallbacks.values());
-    expect(oldCallbacks.length).toBe(1);
-
-    // Now seek (which does pause→play internally)
+    // Seek pauses playback so user manually resumes
     clock.seek(5.0);
+    expect(clock.state).toBe("paused");
+    expect(clock.time).toBe(5.0);
 
-    // After seek, there should be a NEW RAF callback
-    const newCallbacks = Array.from(rafCallbacks.values());
-    expect(newCallbacks.length).toBe(1);
-
-    // The old callback should be different from the new one
-    expect(oldCallbacks[0]).not.toBe(newCallbacks[0]);
-
-    // Execute the OLD callback (simulating it firing after seek)
-    const timeBefore = clock.time;
-    oldCallbacks[0]();
-    const timeAfter = clock.time;
-
-    // Time should NOT advance because old callback
-    // has stale generation and should be ignored
-    expect(timeAfter).toBe(timeBefore);
+    // Old RAF callbacks from before the seek should not advance time
+    const oldCallbacks = Array.from(rafCallbacks.values());
+    for (const cb of oldCallbacks) {
+      cb();
+    }
+    expect(clock.time).toBe(5.0);
   });
 
-  it("should allow new RAF tick to execute normally after seek", () => {
+  it("should allow manual play to resume after seek", () => {
     clock.play();
     clock.seek(5.0);
+    expect(clock.state).toBe("paused");
+    expect(clock.time).toBe(5.0);
 
-    const initialTime = clock.time;
-    expect(initialTime).toBe(5.0);
-
-    // Execute the NEW RAF callback (correct generation)
+    clock.play();
+    expect(clock.state).toBe("playing");
     executeNextFrame();
-
-    // Time should advance normally (new callback has correct generation)
-    // Note: In real scenario time would advance based on AudioContext
-    // In this test, behavior depends on mock implementation
   });
 
   it("should increment generation on each play() call", () => {
@@ -129,22 +111,15 @@ describe("PlaybackClock: RAF Generation Counter", () => {
     expect(gen4).toBe(gen3 + 1);
   });
 
-  it("should handle rapid seek during playback", () => {
-    // Rapid seeking is a common trigger for stale RAF ticks
+  it("should handle rapid seek during playback by staying paused at final seek position", () => {
     clock.play();
-
-    const initialGeneration = (clock as any)._generation;
 
     // Rapid seeks
     clock.seek(1.0);
     clock.seek(2.0);
     clock.seek(3.0);
 
-    // Each seek does pause→play, so generation increments
-    const finalGeneration = (clock as any)._generation;
-    expect(finalGeneration).toBeGreaterThan(initialGeneration);
-
-    // Time should be at the last seek position
+    expect(clock.state).toBe("paused");
     expect(clock.time).toBe(3.0);
   });
 

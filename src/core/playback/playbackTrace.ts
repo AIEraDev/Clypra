@@ -2,11 +2,39 @@
  * Focused diagnostics for native preview audio & playback synchronization.
  */
 
+const PLAYBACK_CONSOLE_EVENTS = new Set([
+  "playback-state",
+  "native-present-start",
+  "native-present-result",
+  "native-present-stages",
+  "slow-stage",
+  "pause-surface-handoff",
+  "surface-ready",
+  "surface-error",
+  "audio-ready",
+  "audio-status",
+  "audio-audibility",
+  "native-frame-dropped",
+  "native-frame-stale",
+  "preview-pointer-capture",
+  "preview-hit-test",
+]);
+
 export function tracePlayback(
   event: string,
   details: Record<string, unknown> = {},
 ): void {
-  // Always log in DEV or when debug flag is active
+  const timeMs = performance.now();
+  const payload: PlaybackTraceEvent = {
+    category: "playback",
+    event,
+    timeMs: Number(timeMs.toFixed(2)),
+    tsEpochMs: Date.now(),
+    ...details,
+  };
+
+  playbackMetrics.record(payload);
+
   const globalWithDebugFlag = globalThis as typeof globalThis & {
     __CLYPRA_DEBUG_AUDIO__?: boolean;
   };
@@ -22,22 +50,30 @@ export function tracePlayback(
     globalWithDebugFlag.__CLYPRA_DEBUG_AUDIO__ === true ||
     localStorageEnabled;
 
-  const timeMs = performance.now();
-  const payload: PlaybackTraceEvent = {
-    category: "playback",
-    event,
-    timeMs: Number(timeMs.toFixed(2)),
-    tsEpochMs: Date.now(),
-    ...details,
-  };
-
-  playbackMetrics.record(payload);
-
-  // Keep developer logs structured and cheap. Aggregates are emitted by the
-  // collector, so this path never floods the console on every RAF tick.
-  if (debugLoggingEnabled && playbackMetrics.shouldLogEvent(event)) {
-    console.debug("[av-sync][react][playback]", JSON.stringify(payload));
+  if (event === "native-frame-dropped" || event === "surface-error") {
+    console.warn(`[av-sync][native-preview] ${event}`, payload);
+  } else if (event === "slow-stage") {
+    console.warn(`[av-sync][slow-stage] ${details.stage ?? "unknown"} took ${details.durationMs}ms`, payload);
+  } else if (event === "playback-state") {
+    console.info(`[av-sync][state] -> ${details.playbackState} at ${details.time}s (frame: ${details.frameIndex})`);
+  } else if (debugLoggingEnabled && PLAYBACK_CONSOLE_EVENTS.has(event)) {
+    console.debug(`[av-sync][react][playback] ${event}`, payload);
   }
+}
+
+/** Log only render/playback stages that exceed one frame budget. */
+export function traceSlowPlaybackStage(
+  stage: string,
+  startedAtMs: number,
+  details: Record<string, unknown> = {},
+): void {
+  const durationMs = performance.now() - startedAtMs;
+  if (durationMs < 16) return;
+  tracePlayback("slow-stage", {
+    stage,
+    durationMs: Number(durationMs.toFixed(2)),
+    ...details,
+  });
 }
 
 export interface PlaybackTraceEvent {
@@ -92,24 +128,13 @@ class PlaybackMetricsCollector {
       now - this.lastAggregateLogMs >= 1000
     ) {
       this.lastAggregateLogMs = now;
+      const snap = this.snapshot();
+      if (snap.events > 0 && (snap.droppedFrames > 0 || snap.staleFrames > 0 || this.debugEnabled)) {
+        console.info(
+          `[av-sync][summary 1s] events: ${snap.events} | dropped: ${snap.droppedFrames} | stale: ${snap.staleFrames} | maxDrift: ${snap.maxDriftMs.toFixed(1)}ms | seeks: ${snap.seeks}`
+        );
+      }
     }
-  }
-
-  shouldLogEvent(event: string): boolean {
-    return (
-      event.includes("seek") ||
-      event.includes("stale") ||
-      event.includes("drop") ||
-      event.includes("error") ||
-      // These are low-frequency, boundary-level native audio evidence. They
-      // must remain visible when audio debugging is enabled; otherwise a
-      // silent device/mixer failure is recorded but cannot be diagnosed from
-      // the desktop runtime that produced it.
-      event.includes("timeline-ready") ||
-      event.includes("audio-ready") ||
-      event.includes("audio-status") ||
-      event.includes("audio-audibility")
-    );
   }
 
   snapshot(): PlaybackMetricsSnapshot {

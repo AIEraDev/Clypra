@@ -1,5 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 use std::borrow::Cow;
+use web_time::Instant;
 use wgpu::util::DeviceExt;
 
 use crate::wgpu_compositor::chroma_key::ChromaKeyUniforms;
@@ -338,6 +339,10 @@ impl LayerUniformPool {
             queue.write_buffer(&self.buffer, offset, bytemuck::bytes_of(uniforms));
         }
     }
+
+    pub fn dynamic_offset(&self, layer_index: usize) -> u32 {
+        (layer_index as u64 * self.aligned_stride).min(u32::MAX as u64) as u32
+    }
 }
 
 /// High-performance GPU multi-track compositor supporting infinite layers, PIP, transforms, opacity, 3D LUT grading, Chroma Key, and Transitions.
@@ -346,6 +351,8 @@ pub struct MultiTrackCompositor {
     pub height: u32,
     pub pipeline_normal: wgpu::RenderPipeline,
     pub pipeline_additive: wgpu::RenderPipeline,
+    pub pipeline_multiply: wgpu::RenderPipeline,
+    pub pipeline_screen: wgpu::RenderPipeline,
     pub pipeline_transition: wgpu::RenderPipeline,
     pub uniform_bind_group_layout: wgpu::BindGroupLayout,
     pub texture_bind_group_layout: wgpu::BindGroupLayout,
@@ -357,6 +364,8 @@ pub struct MultiTrackCompositor {
     default_mask_view: wgpu::TextureView,
     target_format: wgpu::TextureFormat,
     quad_vertex_buffer: wgpu::Buffer,
+    uniform_pool: LayerUniformPool,
+    uniform_bind_group: wgpu::BindGroup,
 }
 
 impl MultiTrackCompositor {
@@ -454,7 +463,7 @@ impl MultiTrackCompositor {
                     visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
+                        has_dynamic_offset: true,
                         min_binding_size: None,
                     },
                     count: None,
@@ -680,6 +689,92 @@ impl MultiTrackCompositor {
             cache: None,
         });
 
+        // Multiply blending pipeline
+        let pipeline_multiply = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Compositor Multiply Render Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: std::slice::from_ref(&vertex_buffer_layout),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: target_format,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::Dst,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        // Screen blending pipeline
+        let pipeline_screen = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Compositor Screen Render Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: std::slice::from_ref(&vertex_buffer_layout),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: target_format,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrc,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
         // Dual-texture transition pipeline
         let pipeline_transition = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Compositor Transition Render Pipeline"),
@@ -746,11 +841,35 @@ impl MultiTrackCompositor {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
+        // Uniform storage is a compositor resource, not a frame resource.
+        // The old path allocated one buffer and bind group per layer on every
+        // frame, which made the native presentation path spend more time in
+        // allocation/descriptor setup than in actual GPU drawing.
+        const MAX_COMPOSITOR_LAYERS: usize = 256;
+        let uniform_pool = LayerUniformPool::new(device, MAX_COMPOSITOR_LAYERS);
+        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Compositor Dynamic Layer Uniform Bind Group"),
+            layout: &uniform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &uniform_pool.buffer,
+                    offset: 0,
+                    size: Some(
+                        std::num::NonZeroU64::new(std::mem::size_of::<LayerUniforms>() as u64)
+                            .expect("LayerUniforms has non-zero size"),
+                    ),
+                }),
+            }],
+        });
+
         Self {
             width,
             height,
             pipeline_normal,
             pipeline_additive,
+            pipeline_multiply,
+            pipeline_screen,
             pipeline_transition,
             uniform_bind_group_layout,
             texture_bind_group_layout,
@@ -762,6 +881,8 @@ impl MultiTrackCompositor {
             default_mask_view,
             target_format,
             quad_vertex_buffer,
+            uniform_pool,
+            uniform_bind_group,
         }
     }
 
@@ -824,11 +945,17 @@ impl MultiTrackCompositor {
             label: Some("MultiTrack Composite Encoder"),
         });
 
-        let mut uniform_buffers = Vec::with_capacity(sorted_layers.len());
-        let mut uniform_bind_groups = Vec::with_capacity(sorted_layers.len());
         let mut texture_bind_groups = Vec::with_capacity(sorted_layers.len());
 
-        for layer in sorted_layers.iter() {
+        if sorted_layers.len() > self.uniform_pool.max_layers {
+            return Err(format!(
+                "Compositor layer count {} exceeds the supported maximum {}",
+                sorted_layers.len(),
+                self.uniform_pool.max_layers
+            ));
+        }
+
+        for (layer_index, layer) in sorted_layers.iter().enumerate() {
             let lut = layer.lut.unwrap_or(&self.default_identity_lut);
 
             let mut color_grade = layer.color_grade;
@@ -849,20 +976,8 @@ impl MultiTrackCompositor {
                 body_effect: layer.body_effect,
             };
 
-            let uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Layer Uniform Buffer"),
-                contents: bytemuck::bytes_of(&uniforms),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
-
-            let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Layer Uniform Bind Group"),
-                layout: &self.uniform_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uniform_buf.as_entire_binding(),
-                }],
-            });
+            self.uniform_pool
+                .write_uniforms(queue, layer_index, &uniforms);
 
             let texture_bind_group = Self::create_layer_texture_bind_group(
                 device,
@@ -874,8 +989,6 @@ impl MultiTrackCompositor {
                 &self.sampler,
             );
 
-            uniform_buffers.push(uniform_buf);
-            uniform_bind_groups.push(uniform_bind_group);
             texture_bind_groups.push(texture_bind_group);
         }
 
@@ -904,11 +1017,17 @@ impl MultiTrackCompositor {
             for (idx, layer) in sorted_layers.iter().enumerate() {
                 let pipeline = match layer.blend_mode {
                     BlendMode::Additive => &self.pipeline_additive,
+                    BlendMode::Multiply => &self.pipeline_multiply,
+                    BlendMode::Screen => &self.pipeline_screen,
                     _ => &self.pipeline_normal,
                 };
 
                 render_pass.set_pipeline(pipeline);
-                render_pass.set_bind_group(0, &uniform_bind_groups[idx], &[]);
+                render_pass.set_bind_group(
+                    0,
+                    &self.uniform_bind_group,
+                    &[self.uniform_pool.dynamic_offset(idx)],
+                );
                 render_pass.set_bind_group(1, &texture_bind_groups[idx], &[]);
                 render_pass.draw(0..6, 0..1);
             }
@@ -994,10 +1113,10 @@ impl MultiTrackCompositor {
         let target_texture = device.create_texture(&texture_desc);
         let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let compose_started = std::time::Instant::now();
+        let compose_started = Instant::now();
         self.composite_layers(device, queue, &target_view, layers, clear_color)?;
         let compose_us = compose_started.elapsed().as_micros() as u64;
-        let readback_started = std::time::Instant::now();
+        let readback_started = Instant::now();
 
         let bytes_per_pixel = 4u32;
         let unpadded_bytes_per_row = width * bytes_per_pixel;
@@ -1261,6 +1380,38 @@ impl MultiTrackCompositor {
         uniforms: &TransitionUniforms,
         #[cfg(target_arch = "wasm32")] is_gl: bool,
     ) -> Result<(Vec<u8>, u64, u64), String> {
+        self.render_transition_with_overlays_to_rgba_bytes_timed(
+            device,
+            queue,
+            width,
+            height,
+            from_view,
+            to_view,
+            uniforms,
+            &[],
+            Some(wgpu::Color::BLACK),
+            #[cfg(target_arch = "wasm32")]
+            is_gl,
+        )
+        .await
+    }
+
+    /// Render a transition with text/overlay layers on top and return CPU-observable
+    /// composition and readback durations.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn render_transition_with_overlays_to_rgba_bytes_timed(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        width: u32,
+        height: u32,
+        from_view: &wgpu::TextureView,
+        to_view: &wgpu::TextureView,
+        uniforms: &TransitionUniforms,
+        overlays: &[CompositeLayer<'_>],
+        clear_color: Option<wgpu::Color>,
+        #[cfg(target_arch = "wasm32")] is_gl: bool,
+    ) -> Result<(Vec<u8>, u64, u64), String> {
         let texture_desc = wgpu::TextureDescriptor {
             label: Some("Transition Render Target"),
             size: wgpu::Extent3d {
@@ -1279,7 +1430,7 @@ impl MultiTrackCompositor {
         let target_texture = device.create_texture(&texture_desc);
         let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let compose_started = std::time::Instant::now();
+        let compose_started = Instant::now();
         self.composite_transition(
             device,
             queue,
@@ -1287,10 +1438,14 @@ impl MultiTrackCompositor {
             from_view,
             to_view,
             uniforms,
-            Some(wgpu::Color::BLACK),
+            clear_color.or(Some(wgpu::Color::BLACK)),
         )?;
+
+        if !overlays.is_empty() {
+            self.composite_layers(device, queue, &target_view, overlays, None)?;
+        }
         let compose_us = compose_started.elapsed().as_micros() as u64;
-        let readback_started = std::time::Instant::now();
+        let readback_started = Instant::now();
 
         let bytes_per_pixel = 4u32;
         let unpadded_bytes_per_row = width * bytes_per_pixel;

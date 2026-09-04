@@ -1,25 +1,71 @@
 import React, { useState, useEffect } from "react";
-import { Trash2, HardDrive, RefreshCw, AlertCircle, CheckCircle, Cloud, Database, Music2, Layers, Film, Gauge, ChevronDown, Sparkles } from "lucide-react";
+import {
+  Trash2,
+  HardDrive,
+  RefreshCw,
+  AlertCircle,
+  CheckCircle,
+  Cloud,
+  Database,
+  Music2,
+  Layers,
+  Film,
+  Gauge,
+  ChevronDown,
+  Sparkles,
+  LayoutTemplate,
+} from "lucide-react";
 import { useCacheManager } from "@/hooks/useCacheManager";
-import { TextEffectsApi } from "@/features/text-effects/api/textEffectsApi";
 import { TextEffectsCacheManager } from "@/features/text-effects/cache/cacheManager";
+import { TextTemplatesCacheManager } from "@/features/text-templates/cache/cacheManager";
 import { useAudioLibraryStore } from "@/features/audio-library/store/audioLibraryStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { invoke } from "@tauri-apps/api/core";
 import { isTauriRuntime } from "@/lib/platform/tauri";
-import { filmstripTelemetry, type FilmstripSessionSummary } from "@/lib/filmstrip/filmstripTelemetry";
+import {
+  filmstripTelemetry,
+  type FilmstripSessionSummary,
+} from "@/lib/filmstrip/filmstripTelemetry";
 import { toast } from "@/lib/toast";
 
 export const CacheSettings: React.FC = () => {
-  const { isClearing, cacheInfo, lastResult, clearAllCaches, clearAppCache, clearWebViewCache, clearGPUCache } = useCacheManager();
-  const { getCacheStats, clearAllCache: clearAudioCache } = useAudioLibraryStore();
+  const {
+    isClearing,
+    cacheInfo,
+    lastResult,
+    clearAllCaches,
+    clearAppCache,
+    clearWebViewCache,
+    clearGPUCache,
+  } = useCacheManager();
+  const { getCacheStats, clearAllCache: clearAudioCache } =
+    useAudioLibraryStore();
 
-  const { autoClearCacheOnProjectClose, setAutoClearCacheOnProjectClose } = useSettingsStore();
+  const { autoClearCacheOnProjectClose, setAutoClearCacheOnProjectClose } =
+    useSettingsStore();
   const [tipsExpanded, setTipsExpanded] = useState(false);
-  const [apiCacheStatus, setApiCacheStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [apiCacheStatus, setApiCacheStatus] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
   const [isClearingApi, setIsClearingApi] = useState(false);
-  const [textEffectsCacheStats, setTextEffectsCacheStats] = useState<{ zustand: number; indexedDB: number; totalMB: number } | null>(null);
-  const [audioCacheStats, setAudioCacheStats] = useState({ count: 0, totalSize: 0, items: [] as any[] });
+  const [textEffectsCacheStats, setTextEffectsCacheStats] = useState<{
+    zustand: number;
+    indexedDB: number;
+    totalMB: number;
+  } | null>(null);
+  const [textTemplatesCacheStats, setTextTemplatesCacheStats] = useState<{
+    memory: number;
+    indexedDB: number;
+    totalMB: number;
+  } | null>(null);
+  const [isClearingTemplates, setIsClearingTemplates] = useState(false);
+  const [isHardReloadingText, setIsHardReloadingText] = useState(false);
+  const [audioCacheStats, setAudioCacheStats] = useState({
+    count: 0,
+    totalSize: 0,
+    items: [] as any[],
+  });
   const [isClearingAudio, setIsClearingAudio] = useState(false);
 
   const [filmstripDiskStats, setFilmstripDiskStats] = useState<{
@@ -31,7 +77,8 @@ export const CacheSettings: React.FC = () => {
   } | null>(null);
   const [isClearingFilmstrip, setIsClearingFilmstrip] = useState(false);
   const [filmstripLimitGb, setFilmstripLimitGb] = useState<string>("5");
-  const [telemetrySummary, setTelemetrySummary] = useState<FilmstripSessionSummary>(filmstripTelemetry.getSummary());
+  const [telemetrySummary, setTelemetrySummary] =
+    useState<FilmstripSessionSummary>(filmstripTelemetry.getSummary());
 
   const loadFilmstripStats = async () => {
     if (isTauriRuntime()) {
@@ -45,7 +92,10 @@ export const CacheSettings: React.FC = () => {
           setFilmstripLimitGb(String(gb));
         }
       } catch (e) {
-        console.warn("[CacheSettings] Failed to fetch filmstrip disk stats:", e);
+        console.warn(
+          "[CacheSettings] Failed to fetch filmstrip disk stats:",
+          e,
+        );
       }
     }
     setTelemetrySummary(filmstripTelemetry.getSummary());
@@ -70,12 +120,18 @@ export const CacheSettings: React.FC = () => {
         toast.success(msg);
       } else {
         filmstripTelemetry.clear();
-        setApiCacheStatus({ type: "success", message: "Filmstrip cache reset" });
+        setApiCacheStatus({
+          type: "success",
+          message: "Filmstrip cache reset",
+        });
         toast.success("Filmstrip cache reset");
       }
       setTimeout(() => setApiCacheStatus(null), 3000);
     } catch (e) {
-      setApiCacheStatus({ type: "error", message: "Failed to clear filmstrip disk cache" });
+      setApiCacheStatus({
+        type: "error",
+        message: "Failed to clear filmstrip disk cache",
+      });
       toast.error("Failed to clear filmstrip disk cache");
       setTimeout(() => setApiCacheStatus(null), 5000);
     } finally {
@@ -91,7 +147,9 @@ export const CacheSettings: React.FC = () => {
       try {
         await invoke("set_cache_size_limit", { limitBytes });
         await loadFilmstripStats();
-        toast.success(`Cache size limit set to ${gb === 0 ? "Unlimited" : `${gb} GB`}`);
+        toast.success(
+          `Cache size limit set to ${gb === 0 ? "Unlimited" : `${gb} GB`}`,
+        );
       } catch (e) {
         console.error("Failed to set cache limit:", e);
         toast.error("Failed to set cache limit");
@@ -113,9 +171,32 @@ export const CacheSettings: React.FC = () => {
         totalMB: stats.indexedDB.sizeMB,
       });
     } catch (e) {
-      console.error("[CacheSettings] Failed to load text effects cache stats:", e);
+      console.error(
+        "[CacheSettings] Failed to load text effects cache stats:",
+        e,
+      );
     }
   };
+
+  const loadTextTemplatesCacheStats = async () => {
+    try {
+      const stats = await TextTemplatesCacheManager.getStats();
+      setTextTemplatesCacheStats({
+        memory: stats.memoryCount,
+        indexedDB: stats.indexedDBCount,
+        totalMB: stats.sizeMB,
+      });
+    } catch (e) {
+      console.error(
+        "[CacheSettings] Failed to load text template cache stats:",
+        e,
+      );
+    }
+  };
+
+  useEffect(() => {
+    loadTextTemplatesCacheStats();
+  }, []);
 
   // Load audio cache stats
   useEffect(() => {
@@ -140,11 +221,62 @@ export const CacheSettings: React.FC = () => {
       toast.success(msg);
       setTimeout(() => setApiCacheStatus(null), 3000);
     } catch (error) {
-      setApiCacheStatus({ type: "error", message: "Failed to clear text effects cache" });
+      setApiCacheStatus({
+        type: "error",
+        message: "Failed to clear text effects cache",
+      });
       toast.error("Failed to clear text effects cache");
       setTimeout(() => setApiCacheStatus(null), 5000);
     } finally {
       setIsClearingApi(false);
+    }
+  };
+
+  const handleClearTextTemplatesCache = async () => {
+    setIsClearingTemplates(true);
+    try {
+      const result = await TextTemplatesCacheManager.clearAll();
+      await loadTextTemplatesCacheStats();
+      const msg = `Text template cache cleared (${result.apiEntries} API entries)`;
+      setApiCacheStatus({ type: "success", message: msg });
+      toast.success(msg);
+      setTimeout(() => setApiCacheStatus(null), 3000);
+    } catch (error) {
+      console.error("[CacheSettings] Text template cache clear error:", error);
+      setApiCacheStatus({
+        type: "error",
+        message: "Failed to clear text template cache",
+      });
+      toast.error("Failed to clear text template cache");
+      setTimeout(() => setApiCacheStatus(null), 5000);
+    } finally {
+      setIsClearingTemplates(false);
+    }
+  };
+
+  const handleHardReloadAllTextData = async () => {
+    setIsHardReloadingText(true);
+    try {
+      const { TextEffectsApi } = await import("@/features/text-effects/api/textEffectsApi");
+      const { clearTemplateGridCache } = await import("@/features/text-templates/components/TemplateGrid");
+      clearTemplateGridCache();
+
+      const result = await TextEffectsApi.hardReloadAllTextData();
+      await loadTextEffectsCacheStats();
+      await loadTextTemplatesCacheStats();
+
+      const msg = `Hard reloaded all text data (${result.effectsCount} effects, ${result.templatesCount} templates)`;
+      setApiCacheStatus({ type: "success", message: msg });
+      toast.success(msg);
+      setTimeout(() => setApiCacheStatus(null), 4000);
+    } catch (error) {
+      console.error("[CacheSettings] Hard reload text data failed:", error);
+      const msg = error instanceof Error ? error.message : "Failed to hard reload text data";
+      setApiCacheStatus({ type: "error", message: msg });
+      toast.error(msg);
+      setTimeout(() => setApiCacheStatus(null), 5000);
+    } finally {
+      setIsHardReloadingText(false);
     }
   };
 
@@ -159,8 +291,12 @@ export const CacheSettings: React.FC = () => {
       setTimeout(() => setApiCacheStatus(null), 3000);
     } catch (error) {
       console.error("[CacheSettings] Audio cache clear error:", error);
-      const errorMessage = error instanceof Error ? error.message : "Failed to clear audio cache";
-      setApiCacheStatus({ type: "error", message: `Audio cache error: ${errorMessage}` });
+      const errorMessage =
+        error instanceof Error ? error.message : "Failed to clear audio cache";
+      setApiCacheStatus({
+        type: "error",
+        message: `Audio cache error: ${errorMessage}`,
+      });
       toast.error(`Audio cache error: ${errorMessage}`);
       setTimeout(() => setApiCacheStatus(null), 5000);
     } finally {
@@ -168,369 +304,404 @@ export const CacheSettings: React.FC = () => {
     }
   };
 
-
-
   return (
-    <div className="space-y-3">
+    <div className="space-y-6">
+      {/* Header */}
       <div>
-        <h3 className="text-[13px] font-semibold uppercase tracking-wider text-text-muted mb-2">Cache Management</h3>
-        <p className="text-[11px] text-text-muted">Clear cached data to free up disk space or resolve performance issues.</p>
+        <h2 className="text-[13px] font-semibold text-text-primary mb-1">Cache Management</h2>
+        <p className="text-[11px] text-text-muted leading-relaxed">
+          Clear cached data to free up disk space or resolve performance issues.
+        </p>
       </div>
 
-      {/* Cache Info */}
+      {/* Cache Status Overview */}
       {cacheInfo && (
-        <div className="bg-surface-raised/30 border border-white/6 rounded-lg p-4 space-y-3">
-          <div className="flex items-center gap-2 text-xs">
-            <HardDrive className="w-4 h-4 text-accent" />
-            <span className="font-semibold text-text-primary">Cache Status</span>
+        <section className="rounded-xl bg-surface-raised/40 border border-white/5 p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <HardDrive className="w-3.5 h-3.5 text-accent" />
+            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Cache Status</h3>
           </div>
-
-          <div className="grid grid-cols-2 gap-3 text-[11px]">
-            <div className="bg-surface-raised/50 rounded p-2 border border-white/5">
-              <div className="text-text-muted">localStorage Items</div>
-              <div className="text-text-primary font-semibold mt-1">{cacheInfo.localStorage}</div>
+          <div className="grid grid-cols-2 gap-2 text-[11px]">
+            <div className="bg-surface-raised/60 rounded-lg p-2.5 border border-white/5">
+              <div className="text-text-muted mb-1">localStorage</div>
+              <div className="text-text-primary font-semibold">{cacheInfo.localStorage} items</div>
             </div>
-
-            <div className="bg-surface-raised/50 rounded p-2 border border-white/5">
-              <div className="text-text-muted">sessionStorage Items</div>
-              <div className="text-text-primary font-semibold mt-1">{cacheInfo.sessionStorage}</div>
+            <div className="bg-surface-raised/60 rounded-lg p-2.5 border border-white/5">
+              <div className="text-text-muted mb-1">sessionStorage</div>
+              <div className="text-text-primary font-semibold">{cacheInfo.sessionStorage} items</div>
             </div>
-
             {cacheInfo.gpuCache && (
               <>
-                <div className="bg-surface-raised/50 rounded p-2 border border-white/5">
-                  <div className="text-text-muted">GPU Textures</div>
-                  <div className="text-text-primary font-semibold mt-1">{cacheInfo.gpuCache.textureCount || 0}</div>
+                <div className="bg-surface-raised/60 rounded-lg p-2.5 border border-white/5">
+                  <div className="text-text-muted mb-1">GPU Textures</div>
+                  <div className="text-text-primary font-semibold">{cacheInfo.gpuCache.textureCount || 0}</div>
                 </div>
-
-                <div className="bg-surface-raised/50 rounded p-2 border border-white/5">
-                  <div className="text-text-muted">GPU Memory</div>
-                  <div className="text-text-primary font-semibold mt-1">{cacheInfo.gpuCache.memoryMB || "0"} MB</div>
+                <div className="bg-surface-raised/60 rounded-lg p-2.5 border border-white/5">
+                  <div className="text-text-muted mb-1">GPU Memory</div>
+                  <div className="text-text-primary font-semibold">{cacheInfo.gpuCache.memoryMB || "0"} MB</div>
                 </div>
               </>
             )}
           </div>
-        </div>
+        </section>
       )}
 
-      {/* Clear Result Message */}
+      {/* Inline clear result */}
       {lastResult && (
-        <div className={`flex items-center gap-3 p-2 rounded-lg border text-xs ${lastResult.success ? "bg-green-500/10 border-green-500/30 text-green-400" : "bg-red-500/10 border-red-500/30 text-red-400"}`}>
-          {lastResult.success ? <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" /> : <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />}
+        <div className={`flex items-start gap-2.5 p-3 rounded-lg border text-xs ${lastResult.success ? "bg-green-500/10 border-green-500/25 text-green-400" : "bg-red-500/10 border-red-500/25 text-red-400"}`}>
+          {lastResult.success ? <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" /> : <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />}
           <div className="flex-1">
             <p className="font-medium">{lastResult.message}</p>
             {lastResult.stats?.errors && lastResult.stats.errors.length > 0 && (
-              <ul className="mt-2 text-[10px] space-y-1">
-                {lastResult.stats.errors.map((error: string, idx: number) => (
-                  <li key={idx}>• {error}</li>
-                ))}
+              <ul className="mt-1.5 space-y-0.5 text-[10px] opacity-80">
+                {lastResult.stats.errors.map((error: string, idx: number) => (<li key={idx}>• {error}</li>))}
               </ul>
             )}
           </div>
         </div>
       )}
 
-      {/* Clear Cache Actions */}
-      <div className="space-y-3">
-        <button onClick={() => clearAllCaches({ localStorage: false })} disabled={isClearing} className="w-full flex items-center justify-between p-4 bg-surface-raised/30 hover:bg-surface-raised/50 border border-white/6 hover:border-accent/40 rounded-lg transition-all group disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-accent/20 flex items-center justify-center group-hover:bg-accent/30 transition-colors">
-              <Trash2 className="w-5 h-5 text-accent" />
-            </div>
-            <div className="text-left">
-              <div className="font-medium text-text-primary text-xs">Clear All Caches</div>
-              <div className="text-[10px] text-text-muted">App cache, WebView, GPU, and IndexedDB</div>
-            </div>
+      {/* General Cache Actions */}
+      <section className="space-y-2">
+        {/* Clear All — prominent row */}
+        <button
+          onClick={() => clearAllCaches({ localStorage: false })}
+          disabled={isClearing}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-surface-raised/40 hover:bg-surface-raised/60 border border-white/6 hover:border-accent/30 transition-all group disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+        >
+          <div className="w-8 h-8 rounded-lg bg-accent/15 flex items-center justify-center group-hover:bg-accent/25 transition-colors shrink-0">
+            <Trash2 className="w-4 h-4 text-accent" />
           </div>
-          {isClearing && <RefreshCw className="w-5 h-5 text-accent animate-spin" />}
+          <div className="text-left flex-1 min-w-0">
+            <div className="text-[12px] font-semibold text-text-primary">Clear All Caches</div>
+            <div className="text-[10px] text-text-muted truncate">App cache, WebView, GPU, and IndexedDB</div>
+          </div>
+          {isClearing && <RefreshCw className="w-4 h-4 text-accent animate-spin shrink-0" />}
         </button>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <button onClick={() => clearAppCache()} disabled={isClearing} className="flex flex-col items-center gap-2 p-4 bg-surface-raised/20 hover:bg-surface-raised/40 border border-white/6 hover:border-accent/30 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
-            <HardDrive className="w-5 h-5 text-accent" />
-            <div className="text-[11px] font-medium text-text-primary">App Cache</div>
-          </button>
-
-          <button onClick={() => clearWebViewCache()} disabled={isClearing} className="flex flex-col items-center gap-2 p-4 bg-surface-raised/20 hover:bg-surface-raised/40 border border-white/6 hover:border-accent/30 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
-            <RefreshCw className="w-5 h-5 text-accent" />
-            <div className="text-[11px] font-medium text-text-primary">WebView</div>
-          </button>
-
-          <button onClick={() => clearGPUCache()} disabled={isClearing} className="flex flex-col items-center gap-2 p-4 bg-surface-raised/20 hover:bg-surface-raised/40 border border-white/6 hover:border-accent/30 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
-            <Trash2 className="w-5 h-5 text-accent" />
-            <div className="text-[11px] font-medium text-text-primary">GPU Cache</div>
-          </button>
+        {/* Individual cache buttons */}
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { label: "App Cache", icon: HardDrive, action: clearAppCache },
+            { label: "WebView", icon: RefreshCw, action: clearWebViewCache },
+            { label: "GPU Cache", icon: Trash2, action: clearGPUCache },
+          ].map(({ label, icon: Icon, action }) => (
+            <button
+              key={label}
+              onClick={() => action()}
+              disabled={isClearing}
+              className="flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl bg-surface-raised/30 hover:bg-surface-raised/50 border border-white/5 hover:border-accent/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              <Icon className="w-4 h-4 text-accent" />
+              <span className="text-[10px] font-medium text-text-muted text-center leading-tight">{label}</span>
+            </button>
+          ))}
         </div>
-      </div>
+      </section>
 
-      {/* API Cache Management */}
-      <div className="space-y-3 pt-4 border-t border-white/6">
+      {/* Text Effects Cache */}
+      <section className="space-y-2.5 pt-4 border-t border-white/6">
         <div>
-          <h3 className="text-[13px] font-semibold uppercase tracking-wider text-text-muted mb-2">Text Effects Cache</h3>
-          <p className="text-[11px] text-text-muted">Manage cached text effects from local storage and API.</p>
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Text Effects Cache</h3>
+          <p className="text-[10px] text-text-muted mt-0.5">Memory and IndexedDB cache for text effects.</p>
         </div>
 
-        {/* Text Effects Cache Stats */}
         {textEffectsCacheStats && (
-          <div className="bg-surface-raised/30 border border-white/6 rounded-lg p-4 space-y-3">
-            <div className="flex items-center gap-2 text-xs">
-              <Layers className="w-4 h-4 text-accent" />
-              <span className="font-semibold text-text-primary">Cached Text Effects</span>
+          <div className="grid grid-cols-3 gap-2 text-[11px]">
+            <div className="bg-surface-raised/40 rounded-lg p-2.5 border border-white/5 text-center">
+              <div className="text-text-muted text-[10px] mb-1">Memory</div>
+              <div className="text-text-primary font-semibold">{textEffectsCacheStats.zustand}</div>
             </div>
-
-            <div className="grid grid-cols-3 gap-3 text-[11px]">
-              <div className="bg-surface-raised/50 rounded p-2 border border-white/5">
-                <div className="text-text-muted">Memory</div>
-                <div className="text-text-primary font-semibold mt-1">{textEffectsCacheStats.zustand} effects</div>
-              </div>
-
-              <div className="bg-surface-raised/50 rounded p-2 border border-white/5">
-                <div className="text-text-muted">IndexedDB</div>
-                <div className="text-text-primary font-semibold mt-1">{textEffectsCacheStats.indexedDB} effects</div>
-              </div>
-
-              <div className="bg-surface-raised/50 rounded p-2 border border-white/5">
-                <div className="text-text-muted">Disk Size</div>
-                <div className="text-text-primary font-semibold mt-1">{textEffectsCacheStats.totalMB.toFixed(2)} MB</div>
-              </div>
+            <div className="bg-surface-raised/40 rounded-lg p-2.5 border border-white/5 text-center">
+              <div className="text-text-muted text-[10px] mb-1">IndexedDB</div>
+              <div className="text-text-primary font-semibold">{textEffectsCacheStats.indexedDB}</div>
+            </div>
+            <div className="bg-surface-raised/40 rounded-lg p-2.5 border border-white/5 text-center">
+              <div className="text-text-muted text-[10px] mb-1">Disk</div>
+              <div className="text-text-primary font-semibold">{textEffectsCacheStats.totalMB.toFixed(1)} MB</div>
             </div>
           </div>
         )}
 
         {apiCacheStatus && (
-          <div className={`flex items-center gap-3 p-2 rounded-lg border text-xs ${apiCacheStatus.type === "success" ? "bg-green-500/10 border-green-500/30 text-green-400" : "bg-red-500/10 border-red-500/30 text-red-400"}`}>
-            {apiCacheStatus.type === "success" ? <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" /> : <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />}
+          <div className={`flex items-center gap-2.5 p-2.5 rounded-lg border text-xs ${apiCacheStatus.type === "success" ? "bg-green-500/10 border-green-500/25 text-green-400" : "bg-red-500/10 border-red-500/25 text-red-400"}`}>
+            {apiCacheStatus.type === "success" ? <CheckCircle className="w-3.5 h-3.5 shrink-0" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0" />}
             <p className="font-medium flex-1">{apiCacheStatus.message}</p>
           </div>
         )}
 
-        <div className="w-full">
-          <button onClick={handleClearLocalApiCache} disabled={isClearingApi} className="w-full flex items-center gap-3 p-4 bg-surface-raised/20 hover:bg-surface-raised/40 border border-white/6 hover:border-blue-500/30 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
-            <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center">{isClearingApi ? <RefreshCw className="w-5 h-5 text-blue-400 animate-spin" /> : <Database className="w-5 h-5 text-blue-400" />}</div>
-            <div className="text-left flex-1">
-              <div className="font-medium text-text-primary text-xs">Clear Local Cache</div>
-              <div className="text-[10px] text-text-muted">Memory + IndexedDB</div>
-            </div>
-          </button>
+        <button
+          onClick={handleClearLocalApiCache}
+          disabled={isClearingApi}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-surface-raised/30 hover:bg-surface-raised/50 border border-white/5 hover:border-blue-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+        >
+          <div className="w-8 h-8 rounded-lg bg-blue-500/15 flex items-center justify-center shrink-0">
+            {isClearingApi ? <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" /> : <Database className="w-4 h-4 text-blue-400" />}
+          </div>
+          <div className="text-left flex-1">
+            <div className="text-[12px] font-medium text-text-primary">Clear Text Effects Cache</div>
+            <div className="text-[10px] text-text-muted">Memory + IndexedDB</div>
+          </div>
+        </button>
+
+        <p className="text-[10px] text-text-muted px-1 leading-relaxed">Local cache stores effects on your device for faster access.</p>
+      </section>
+
+      {/* Text Templates Cache */}
+      <section className="space-y-2.5 pt-4 border-t border-white/6">
+        <div>
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Text Templates Cache</h3>
+          <p className="text-[10px] text-text-muted mt-0.5">Revision-pinned catalogs stored locally for offline-safe editor previews.</p>
         </div>
 
-        <div className="flex items-start gap-3 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-          <AlertCircle className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-          <p className="text-[11px] text-blue-200/90">Local cache stores effects on your device for faster access.</p>
+        {textTemplatesCacheStats && (
+          <div className="grid grid-cols-3 gap-2 text-[11px]">
+            <div className="bg-surface-raised/40 rounded-lg p-2.5 border border-white/5 text-center">
+              <div className="text-text-muted text-[10px] mb-1">Memory</div>
+              <div className="text-text-primary font-semibold">{textTemplatesCacheStats.memory}</div>
+            </div>
+            <div className="bg-surface-raised/40 rounded-lg p-2.5 border border-white/5 text-center">
+              <div className="text-text-muted text-[10px] mb-1">IndexedDB</div>
+              <div className="text-text-primary font-semibold">{textTemplatesCacheStats.indexedDB}</div>
+            </div>
+            <div className="bg-surface-raised/40 rounded-lg p-2.5 border border-white/5 text-center">
+              <div className="text-text-muted text-[10px] mb-1">Disk</div>
+              <div className="text-text-primary font-semibold">{textTemplatesCacheStats.totalMB.toFixed(1)} MB</div>
+            </div>
+          </div>
+        )}
+
+        <button
+          onClick={handleClearTextTemplatesCache}
+          disabled={isClearingTemplates}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-surface-raised/30 hover:bg-surface-raised/50 border border-white/5 hover:border-purple-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+        >
+          <div className="w-8 h-8 rounded-lg bg-purple-500/15 flex items-center justify-center shrink-0">
+            {isClearingTemplates ? <RefreshCw className="w-4 h-4 text-purple-400 animate-spin" /> : <LayoutTemplate className="w-4 h-4 text-purple-400" />}
+          </div>
+          <div className="text-left flex-1">
+            <div className="text-[12px] font-medium text-text-primary">Clear Text Template Cache</div>
+            <div className="text-[10px] text-text-muted">Catalogs, revision payloads, memory, and IndexedDB</div>
+          </div>
+        </button>
+
+        <p className="text-[10px] text-text-muted px-1 leading-relaxed">Timeline instances keep their immutable snapshot and are not affected by this action.</p>
+      </section>
+
+      {/* Dev Mode: Hard Reload Text Effects & Templates */}
+      <section className="space-y-2.5 pt-4 border-t border-white/6">
+        <div>
+          <div className="flex items-center gap-1.5">
+            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-accent">Developer Mode: Text Catalog</h3>
+            <span className="px-1.5 py-0.5 rounded bg-accent/15 text-accent text-[9px] font-medium">Auto-refreshes every 30m</span>
+          </div>
+          <p className="text-[10px] text-text-muted mt-0.5">Purges all local RAM, IndexedDB, and browser caches for both text effects and text templates, then re-fetches the latest catalog fresh from the API.</p>
         </div>
-      </div>
+
+        <button
+          onClick={handleHardReloadAllTextData}
+          disabled={isHardReloadingText}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-accent/10 hover:bg-accent/20 border border-accent/25 hover:border-accent/40 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+        >
+          <div className="w-8 h-8 rounded-lg bg-accent/20 flex items-center justify-center shrink-0">
+            {isHardReloadingText ? <RefreshCw className="w-4 h-4 text-accent animate-spin" /> : <RefreshCw className="w-4 h-4 text-accent" />}
+          </div>
+          <div className="text-left flex-1">
+            <div className="text-[12px] font-semibold text-text-primary">Hard Reload &amp; Refresh All Text Data</div>
+            <div className="text-[10px] text-text-muted">Purges all text effects and template caches &amp; refetches latest catalog</div>
+          </div>
+        </button>
+      </section>
 
       {/* Filmstrip & Media Pipeline Disk Cache */}
-      <div className="space-y-3 pt-4 border-t border-white/6">
-        <div className="flex items-center justify-between">
+      <section className="space-y-2.5 pt-4 border-t border-white/6">
+        <div className="flex items-start justify-between gap-2">
           <div>
-            <h3 className="text-[13px] font-semibold uppercase tracking-wider text-text-muted mb-1">Filmstrip & Media Cache</h3>
-            <p className="text-[11px] text-text-muted">High-performance WebP atlases and persistent timeline frames.</p>
+            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Filmstrip &amp; Media Cache</h3>
+            <p className="text-[10px] text-text-muted mt-0.5">High-performance WebP atlases and persistent timeline frames.</p>
           </div>
           <button
             onClick={loadFilmstripStats}
             title="Refresh Filmstrip Stats"
-            className="p-1.5 rounded-md hover:bg-surface-raised/40 text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg hover:bg-surface-raised/50 text-text-muted hover:text-text-primary transition-colors cursor-pointer shrink-0"
           >
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
         </div>
 
-        {/* Filmstrip Disk Cache Stats */}
-        <div className="bg-surface-raised/30 border border-white/6 rounded-lg p-4 space-y-3">
-          <div className="flex items-center gap-2 text-xs">
-            <Film className="w-4 h-4 text-accent" />
-            <span className="font-semibold text-text-primary">Timeline Frame Cache</span>
+        <div className="rounded-xl bg-surface-raised/40 border border-white/5 p-3.5 space-y-3">
+          <div className="flex items-center gap-2">
+            <Film className="w-3.5 h-3.5 text-accent" />
+            <span className="text-[11px] font-semibold text-text-primary">Timeline Frame Cache</span>
           </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[11px]">
-            <div className="bg-surface-raised/50 rounded p-2 border border-white/5">
-              <div className="text-text-muted">Disk Usage</div>
-              <div className="text-text-primary font-semibold mt-1">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+            <div className="bg-surface-raised/60 rounded-lg p-2.5 border border-white/5">
+              <div className="text-text-muted text-[10px] mb-1">Disk Usage</div>
+              <div className="text-text-primary font-semibold">
                 {filmstripDiskStats ? `${(filmstripDiskStats.total_bytes / (1024 * 1024)).toFixed(1)} MB` : "0.0 MB"}
               </div>
             </div>
-
-            <div className="bg-surface-raised/50 rounded p-2 border border-white/5">
-              <div className="text-text-muted">WebP Atlases</div>
-              <div className="text-text-primary font-semibold mt-1">
-                {filmstripDiskStats ? filmstripDiskStats.atlas_count : 0} files
-              </div>
+            <div className="bg-surface-raised/60 rounded-lg p-2.5 border border-white/5">
+              <div className="text-text-muted text-[10px] mb-1">WebP Atlases</div>
+              <div className="text-text-primary font-semibold">{filmstripDiskStats ? filmstripDiskStats.atlas_count : 0} files</div>
             </div>
-
-            <div className="bg-surface-raised/50 rounded p-2 border border-white/5">
-              <div className="text-text-muted">Cache Hit Rate</div>
-              <div className="text-text-primary font-semibold mt-1">
+            <div className="bg-surface-raised/60 rounded-lg p-2.5 border border-white/5">
+              <div className="text-text-muted text-[10px] mb-1">Hit Rate</div>
+              <div className="text-text-primary font-semibold">
                 {filmstripDiskStats ? `${filmstripDiskStats.hit_rate_pct.toFixed(1)}%` : "0.0%"}
               </div>
             </div>
-
-            <div className="bg-surface-raised/50 rounded p-2 border border-white/5">
-              <div className="text-text-muted">Avg Time-to-Visible</div>
-              <div className="text-text-primary font-semibold mt-1 text-green-400">
+            <div className="bg-surface-raised/60 rounded-lg p-2.5 border border-white/5">
+              <div className="text-text-muted text-[10px] mb-1">Avg Latency</div>
+              <div className="text-green-400 font-semibold">
                 {telemetrySummary.avgTimeToVisibleMs > 0 ? `${telemetrySummary.avgTimeToVisibleMs.toFixed(1)} ms` : "< 10 ms"}
               </div>
             </div>
           </div>
 
-          {/* Cache Size Limit Selector */}
-          <div className="flex items-center justify-between pt-2 border-t border-white/5 text-[11px]">
-            <span className="text-text-muted">Disk Cache Storage Limit</span>
+          <div className="flex items-center justify-between pt-2 border-t border-white/5">
+            <span className="text-[10px] text-text-muted">Disk Cache Limit</span>
             <select
               value={filmstripLimitGb}
               onChange={(e) => handleSetFilmstripLimit(e.target.value)}
-              className="bg-surface-raised/80 border border-white/10 rounded px-2 py-1 text-text-primary text-xs focus:outline-none focus:border-accent"
+              className="bg-surface-raised/80 border border-white/10 rounded-lg px-2.5 py-1 text-text-primary text-[11px] focus:outline-none focus:border-accent/40 cursor-pointer"
             >
-              <option value="1">1 GB (Conservative)</option>
-              <option value="5">5 GB (Recommended)</option>
-              <option value="10">10 GB (High Performance)</option>
-              <option value="20">20 GB (Heavy Timeline)</option>
+              <option value="1">1 GB — Conservative</option>
+              <option value="5">5 GB — Recommended</option>
+              <option value="10">10 GB — High Performance</option>
+              <option value="20">20 GB — Heavy Timeline</option>
               <option value="0">Unlimited</option>
             </select>
           </div>
         </div>
 
-        <div className="w-full">
-          <button
-            onClick={handleClearFilmstripCache}
-            disabled={isClearingFilmstrip}
-            className="w-full flex items-center gap-3 p-4 bg-surface-raised/20 hover:bg-surface-raised/40 border border-white/6 hover:border-red-500/30 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-          >
-            <div className="w-10 h-10 rounded-lg bg-red-500/20 flex items-center justify-center">
-              {isClearingFilmstrip ? <RefreshCw className="w-5 h-5 text-red-400 animate-spin" /> : <Trash2 className="w-5 h-5 text-red-400" />}
-            </div>
-            <div className="text-left flex-1">
-              <div className="font-medium text-text-primary text-xs">Purge Filmstrip Disk Cache</div>
-              <div className="text-[10px] text-text-muted">Deletes all cached timeline WebP atlases and resets tier cache</div>
-            </div>
-          </button>
-        </div>
-      </div>
+        <button
+          onClick={handleClearFilmstripCache}
+          disabled={isClearingFilmstrip}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-surface-raised/30 hover:bg-surface-raised/50 border border-white/5 hover:border-red-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+        >
+          <div className="w-8 h-8 rounded-lg bg-red-500/15 flex items-center justify-center shrink-0">
+            {isClearingFilmstrip ? <RefreshCw className="w-4 h-4 text-red-400 animate-spin" /> : <Trash2 className="w-4 h-4 text-red-400" />}
+          </div>
+          <div className="text-left flex-1">
+            <div className="text-[12px] font-medium text-text-primary">Purge Filmstrip Disk Cache</div>
+            <div className="text-[10px] text-text-muted">Deletes all cached timeline WebP atlases and resets tier cache</div>
+          </div>
+        </button>
+      </section>
 
       {/* Audio Library Cache Management */}
-      <div className="space-y-3 pt-4 border-t border-white/6">
+      <section className="space-y-2.5 pt-4 border-t border-white/6">
         <div>
-          <h3 className="text-[13px] font-semibold uppercase tracking-wider text-text-muted mb-2">Audio Library Cache</h3>
-          <p className="text-[11px] text-text-muted">Manage downloaded audio files from the audio library.</p>
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Audio Library Cache</h3>
+          <p className="text-[10px] text-text-muted mt-0.5">Manage downloaded audio files from the audio library.</p>
         </div>
 
-        {/* Audio Cache Stats */}
-        <div className="bg-surface-raised/30 border border-white/6 rounded-lg p-4 space-y-3">
-          <div className="flex items-center gap-2 text-xs">
-            <Music2 className="w-4 h-4 text-accent" />
-            <span className="font-semibold text-text-primary">Cached Audio Files</span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 text-[11px]">
-            <div className="bg-surface-raised/50 rounded p-2 border border-white/5">
-              <div className="text-text-muted">Files</div>
-              <div className="text-text-primary font-semibold mt-1">{audioCacheStats.count}</div>
+        <div className="grid grid-cols-2 gap-2 text-[11px]">
+          <div className="bg-surface-raised/40 rounded-lg p-2.5 border border-white/5 flex items-center gap-2.5">
+            <Music2 className="w-3.5 h-3.5 text-accent shrink-0" />
+            <div>
+              <div className="text-text-muted text-[10px]">Files cached</div>
+              <div className="text-text-primary font-semibold">{audioCacheStats.count}</div>
             </div>
-
-            <div className="bg-surface-raised/50 rounded p-2 border border-white/5">
-              <div className="text-text-muted">Total Size</div>
-              <div className="text-text-primary font-semibold mt-1">{(audioCacheStats.totalSize / (1024 * 1024)).toFixed(2)} MB</div>
+          </div>
+          <div className="bg-surface-raised/40 rounded-lg p-2.5 border border-white/5 flex items-center gap-2.5">
+            <Gauge className="w-3.5 h-3.5 text-accent shrink-0" />
+            <div>
+              <div className="text-text-muted text-[10px]">Total size</div>
+              <div className="text-text-primary font-semibold">{(audioCacheStats.totalSize / (1024 * 1024)).toFixed(2)} MB</div>
             </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <button onClick={refreshAudioStats} disabled={isClearingAudio} className="flex items-center gap-3 p-4 bg-surface-raised/20 hover:bg-surface-raised/40 border border-white/6 hover:border-accent/30 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
-            <div className="w-10 h-10 rounded-lg bg-accent/20 flex items-center justify-center">
-              <RefreshCw className="w-5 h-5 text-accent" />
-            </div>
-            <div className="text-left flex-1">
-              <div className="font-medium text-text-primary text-xs">Refresh Stats</div>
-              <div className="text-[10px] text-text-muted">Update cache information</div>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={refreshAudioStats}
+            disabled={isClearingAudio}
+            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-surface-raised/30 hover:bg-surface-raised/50 border border-white/5 hover:border-accent/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-accent shrink-0" />
+            <div className="text-left min-w-0">
+              <div className="text-[11px] font-medium text-text-primary">Refresh Stats</div>
+              <div className="text-[9px] text-text-muted">Update information</div>
             </div>
           </button>
 
-          <button onClick={handleClearAudioCache} disabled={isClearingAudio} className="flex items-center gap-3 p-4 bg-surface-raised/20 hover:bg-surface-raised/40 border border-white/6 hover:border-red-500/30 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
-            <div className="w-10 h-10 rounded-lg bg-red-500/20 flex items-center justify-center">{isClearingAudio ? <RefreshCw className="w-5 h-5 text-red-400 animate-spin" /> : <Trash2 className="w-5 h-5 text-red-400" />}</div>
-            <div className="text-left flex-1">
-              <div className="font-medium text-text-primary text-xs">Clear Audio Cache</div>
-              <div className="text-[10px] text-text-muted">Delete all downloaded files</div>
+          <button
+            onClick={handleClearAudioCache}
+            disabled={isClearingAudio}
+            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-surface-raised/30 hover:bg-surface-raised/50 border border-white/5 hover:border-red-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          >
+            <div className="shrink-0">
+              {isClearingAudio ? <RefreshCw className="w-3.5 h-3.5 text-red-400 animate-spin" /> : <Trash2 className="w-3.5 h-3.5 text-red-400" />}
+            </div>
+            <div className="text-left min-w-0">
+              <div className="text-[11px] font-medium text-text-primary">Clear Audio Cache</div>
+              <div className="text-[9px] text-text-muted">Delete downloaded files</div>
             </div>
           </button>
         </div>
 
-        <div className="flex items-start gap-3 p-3 bg-orange-500/10 border border-orange-500/30 rounded-lg">
-          <AlertCircle className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
-          <p className="text-[11px] text-orange-200/90">Clearing audio cache will remove all downloaded library files. You'll need to download them again when adding to timeline.</p>
-        </div>
-      </div>
+        <p className="text-[10px] text-text-muted px-1 leading-relaxed">Clearing audio cache removes all downloaded library files. They'll re-download when needed.</p>
+      </section>
 
       {/* Auto Cache Cleanup Preference */}
-      <div className="bg-surface-raised/30 border border-white/6 rounded-lg p-4 flex items-center justify-between gap-4">
-        <div>
-          <div className="text-xs font-semibold text-text-primary">Auto-clear Cache on Project Close</div>
-          <div className="text-[11px] text-text-muted mt-0.5">Automatically frees temporary GPU frame cache when switching or closing projects.</div>
+      <section className="pt-4 border-t border-white/6">
+        <div className="flex items-center justify-between gap-4 px-4 py-3 rounded-xl bg-surface-raised/40 border border-white/5">
+          <div>
+            <div className="text-[12px] font-medium text-text-primary">Auto-clear Cache on Project Close</div>
+            <div className="text-[10px] text-text-muted mt-0.5">Frees temporary GPU frame cache when switching or closing projects.</div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autoClearCacheOnProjectClose}
+            onClick={() => setAutoClearCacheOnProjectClose(!autoClearCacheOnProjectClose)}
+            className={`w-9 h-5 rounded-full relative shrink-0 transition-colors cursor-pointer ${autoClearCacheOnProjectClose ? "bg-accent" : "bg-white/10"}`}
+          >
+            <div
+              className={`absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform duration-150 ${
+                autoClearCacheOnProjectClose ? "translate-x-4.5" : "translate-x-0.5"
+              }`}
+            />
+          </button>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={autoClearCacheOnProjectClose}
-          onClick={() => setAutoClearCacheOnProjectClose(!autoClearCacheOnProjectClose)}
-          className={`w-9 h-5 rounded-full relative shrink-0 transition-colors cursor-pointer ${
-            autoClearCacheOnProjectClose ? "bg-accent" : "bg-white/10"
-          }`}
-        >
-          <div
-            className={`absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform duration-150 ${
-              autoClearCacheOnProjectClose ? "translate-x-4.5" : "translate-x-0.5"
-            }`}
-          />
-        </button>
-      </div>
+      </section>
 
-      {/* Long-Form & Large Project Tips */}
+      {/* Tips — collapsible */}
       <div className="rounded-xl border border-white/6 overflow-hidden bg-surface-raised/20">
         <button
           onClick={() => setTipsExpanded((v) => !v)}
           className="w-full flex items-center justify-between px-4 py-3 text-[12px] font-semibold text-text-primary hover:bg-white/[0.03] transition-colors cursor-pointer"
         >
           <span className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-accent" />
-            Long-Form & Large Project Tips
+            <Sparkles className="w-3.5 h-3.5 text-accent" />
+            Long-Form &amp; Large Project Tips
           </span>
-          <ChevronDown
-            className={`w-4 h-4 text-text-muted transition-transform duration-150 ${
-              tipsExpanded ? "rotate-180" : ""
-            }`}
-          />
+          <ChevronDown className={`w-3.5 h-3.5 text-text-muted transition-transform duration-150 ${tipsExpanded ? "rotate-180" : ""}`} />
         </button>
         {tipsExpanded && (
-          <div className="px-4 pb-4 space-y-2 border-t border-white/6">
-            <ul className="space-y-2.5 pt-3">
-              {[
-                "Editing 4K+ footage over 30 min? Enable Proxy Editing Mode in Editor → Performance settings.",
-                "Set Preview Resolution to Medium or Proxy for multi-hour timelines to maintain 60 FPS scrub.",
-                "Use the cache clear buttons above between long editing sessions to free GPU memory.",
-                "Clypra never loads full video files into RAM — only decoded frames are cached (1 GiB default).",
-                "Long exports run as streaming GPU pipelines — Clypra will not overheat or crash on hour-long exports.",
-              ].map((tip, i) => (
-                <li key={i} className="text-[11px] text-text-muted leading-relaxed flex gap-2">
-                  <span className="text-accent shrink-0 mt-0.5">•</span>
-                  <span>{tip}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <ul className="px-4 pb-4 pt-3 space-y-2 border-t border-white/6">
+            {[
+              "Editing 4K+ footage over 30 min? Enable Proxy Editing Mode in Editor → Performance settings.",
+              "Set Preview Resolution to Medium or Proxy for multi-hour timelines to maintain 60 FPS scrub.",
+              "Use the cache clear buttons above between long editing sessions to free GPU memory.",
+              "Clypra never loads full video files into RAM — only decoded frames are cached (1 GiB default).",
+              "Long exports run as streaming GPU pipelines — Clypra will not overheat or crash on hour-long exports.",
+            ].map((tip, i) => (
+              <li key={i} className="text-[10px] text-text-muted leading-relaxed flex gap-2">
+                <span className="text-accent shrink-0 mt-0.5">•</span>
+                <span>{tip}</span>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 
-      {/* Warning Note */}
-      <div className="flex items-start gap-3 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-        <AlertCircle className="w-5 h-5 text-yellow-400 shrink-0 mt-0.5" />
-        <div className="text-[11px] text-yellow-200/90">
-          <p className="font-semibold mb-1">Important Notes:</p>
-          <ul className="space-y-1 list-disc list-inside">
-            <li>Clearing cache may require an application restart for full effect</li>
-            <li>WebView cache (Windows) may be locked by running processes</li>
-            <li>Your settings and preferences will be preserved</li>
-          </ul>
-        </div>
-      </div>
+      {/* Note */}
+      <p className="text-[10px] text-text-muted leading-relaxed px-1">
+        Clearing cache may require a restart for full effect. Your settings and preferences are always preserved.
+      </p>
     </div>
   );
 };

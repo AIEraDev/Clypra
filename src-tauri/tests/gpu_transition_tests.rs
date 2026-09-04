@@ -1,4 +1,6 @@
-use tauri_app_lib::wgpu_compositor::{NativeWgpuRenderer, TransitionPipeline, TransitionType, TransitionUniforms};
+use tauri_app_lib::wgpu_compositor::{
+    NativeWgpuRenderer, TransitionPipeline, TransitionType, TransitionUniforms,
+};
 
 #[tokio::test]
 #[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
@@ -6,7 +8,10 @@ async fn test_gpu_transition_pipeline_initialization_and_render() {
     let renderer = match NativeWgpuRenderer::new().await {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("Skipping GPU transition test (no GPU adapter available): {}", e);
+            eprintln!(
+                "Skipping GPU transition test (no GPU adapter available): {}",
+                e
+            );
             return;
         }
     };
@@ -20,7 +25,11 @@ async fn test_gpu_transition_pipeline_initialization_and_render() {
     // Create 2 test textures: Texture A (Pure Red) and Texture B (Pure Blue)
     let texture_a = renderer.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("Test Texture A (Red)"),
-        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -31,7 +40,11 @@ async fn test_gpu_transition_pipeline_initialization_and_render() {
 
     let texture_b = renderer.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("Test Texture B (Blue)"),
-        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -42,7 +55,11 @@ async fn test_gpu_transition_pipeline_initialization_and_render() {
 
     let target_texture = renderer.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("Target Texture"),
-        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -67,7 +84,11 @@ async fn test_gpu_transition_pipeline_initialization_and_render() {
             bytes_per_row: Some(width * 4),
             rows_per_image: Some(height),
         },
-        wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
     );
 
     renderer.queue.write_texture(
@@ -83,7 +104,11 @@ async fn test_gpu_transition_pipeline_initialization_and_render() {
             bytes_per_row: Some(width * 4),
             rows_per_image: Some(height),
         },
-        wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
     );
 
     let view_a = texture_a.create_view(&wgpu::TextureViewDescriptor::default());

@@ -21,6 +21,7 @@ pub struct NativeSurfaceRuntime {
     configuration: Option<wgpu::SurfaceConfiguration>,
     configured_format: Option<wgpu::TextureFormat>,
     last_presentation_sequence: u64,
+    runtime_epoch: u64,
 }
 
 impl NativeSurfaceRuntime {
@@ -32,6 +33,7 @@ impl NativeSurfaceRuntime {
             configuration: None,
             configured_format: None,
             last_presentation_sequence: 0,
+            runtime_epoch: 0,
         }
     }
 
@@ -83,6 +85,10 @@ impl NativeSurfaceRuntime {
         true
     }
 
+    pub(crate) fn runtime_epoch(&self) -> u64 {
+        self.runtime_epoch
+    }
+
     pub(crate) fn show_surface(&self) -> Result<(), String> {
         self.surface_window
             .as_ref()
@@ -98,6 +104,25 @@ impl NativeSurfaceRuntime {
                 .map_err(|error| format!("Unable to hide native preview surface: {error}"))?;
         }
         Ok(())
+    }
+
+    pub(crate) fn reset(&mut self) {
+        let _ = self.hide_surface();
+        // The child window and wgpu surface belong to one preview session. Do
+        // not retain either across project close: a hidden child window can
+        // keep platform-specific parent/coordinate state, and an in-flight
+        // presentation from the old session must never be able to show it
+        // after the next session has started.
+        self.surface = None;
+        let surface_window = self.surface_window.take();
+        self.probe = None;
+        self.configuration = None;
+        self.configured_format = None;
+        self.last_presentation_sequence = 0;
+        self.runtime_epoch = self.runtime_epoch.wrapping_add(1);
+        if let Some(window) = surface_window {
+            let _ = window.close();
+        }
     }
 }
 
@@ -153,6 +178,11 @@ fn configure_surface(
         let parent = app
             .get_webview_window("main")
             .ok_or_else(|| "Main WebView window is unavailable".to_string())?;
+        let dpr = if geometry.device_pixel_ratio > 0.0 {
+            geometry.device_pixel_ratio as f64
+        } else {
+            1.0
+        };
         let surface_window = WebviewWindowBuilder::new(
             &app,
             NATIVE_PREVIEW_SURFACE_LABEL,
@@ -164,10 +194,16 @@ fn configure_surface(
         )
         .parent(&parent)
         .map_err(|error| format!("Unable to parent native preview surface: {error}"))?
+        .inner_size(
+            geometry.width_physical as f64 / dpr,
+            geometry.height_physical as f64 / dpr,
+        )
         .decorations(false)
         .transparent(true)
         .shadow(false)
-        .always_on_top(true)
+        // The preview is a retained child surface parented to the main WebView window.
+        // It must NOT use always_on_top so it does not float over modals, dialogs,
+        // or other application windows.
         .skip_taskbar(true)
         .focusable(false)
         .focused(false)
@@ -178,22 +214,41 @@ fn configure_surface(
         surface_window
             .set_ignore_cursor_events(true)
             .map_err(|error| format!("Unable to disable native surface pointer events: {error}"))?;
+
+        #[cfg(target_os = "macos")]
+        unsafe {
+            if let Ok(ns_win) = surface_window.ns_window() {
+                // NSWindowCollectionBehaviorFullScreenAuxiliary (1 << 8) | NSWindowCollectionBehaviorMoveToActiveSpace (1 << 1)
+                let behavior: usize = (1 << 8) | (1 << 1);
+                let current_behavior: usize =
+                    objc2::msg_send![ns_win as *mut objc2::runtime::AnyObject, collectionBehavior];
+                let _: () = objc2::msg_send![
+                    ns_win as *mut objc2::runtime::AnyObject,
+                    setCollectionBehavior: current_behavior | behavior
+                ];
+            }
+        }
+
         runtime_state.surface_window = Some(surface_window.clone());
         surface_window
     };
 
-    surface_window
-        .set_position(Position::Physical(PhysicalPosition::new(
-            geometry.x_physical,
-            geometry.y_physical,
-        )))
-        .map_err(|error| format!("Unable to position native preview surface: {error}"))?;
+    // On macOS Cocoa, window origins are anchored at the bottom-left. Setting
+    // the size BEFORE position ensures Tao calculates the top-left screen
+    // position using the target window height rather than an uninitialized
+    // or stale height.
     surface_window
         .set_size(Size::Physical(PhysicalSize::new(
             geometry.width_physical,
             geometry.height_physical,
         )))
         .map_err(|error| format!("Unable to resize native preview surface: {error}"))?;
+    surface_window
+        .set_position(Position::Physical(PhysicalPosition::new(
+            geometry.x_physical,
+            geometry.y_physical,
+        )))
+        .map_err(|error| format!("Unable to position native preview surface: {error}"))?;
 
     let window_size = surface_window
         .inner_size()
@@ -386,6 +441,16 @@ mod tests {
     #[test]
     fn runtime_starts_without_a_surface() {
         assert!(NativeSurfaceRuntime::new().probe().is_none());
+    }
+
+    #[test]
+    fn reset_advances_runtime_epoch() {
+        let mut runtime = NativeSurfaceRuntime::new();
+        let initial_epoch = runtime.runtime_epoch();
+
+        runtime.reset();
+
+        assert_ne!(runtime.runtime_epoch(), initial_epoch);
     }
 
     #[test]

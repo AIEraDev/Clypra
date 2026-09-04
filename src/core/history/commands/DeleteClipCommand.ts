@@ -6,13 +6,14 @@ import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
 import type { Clip, Track, TransitionTimelineItem } from "@/types";
 import type { Gap } from "@/types/gap";
-import { shouldAutoPruneTrack } from "@/lib/timeline/trackTypeConfig";
+import { shouldAutoPruneTrack, resolvePrimaryVideoTrackId } from "@/lib/timeline/trackTypeConfig";
 
 interface TimelineState {
   tracks?: Track[];
   clips: Clip[];
   transitions?: TransitionTimelineItem[];
   gaps?: Gap[];
+  mainVideoTrackId?: string | null;
   epoch: number;
 }
 
@@ -56,19 +57,21 @@ export class DeleteClipCommand implements Command {
     const hasOtherClips = remainingClips.some((c) => c.trackId === clip.trackId);
 
     let tracks = state.tracks;
+    let nextMainVideoTrackId = state.mainVideoTrackId;
     if (tracks && !hasOtherClips) {
       const trackToDelete = tracks.find((t) => t.id === clip.trackId);
       // Only auto-prune if the track type is configured with autoPrune: true.
-      if (trackToDelete && shouldAutoPruneTrack(trackToDelete, state.tracks)) {
+      if (trackToDelete && shouldAutoPruneTrack(trackToDelete, state.tracks, state.mainVideoTrackId)) {
         this.deletedTrack = typeof structuredClone === "function"
           ? structuredClone(trackToDelete)
           : JSON.parse(JSON.stringify(trackToDelete)) as Track;
         this.deletedTrackIndex = tracks.findIndex((t) => t.id === clip.trackId);
         tracks = tracks.filter((t) => t.id !== clip.trackId);
+        if (nextMainVideoTrackId === clip.trackId) {
+          nextMainVideoTrackId = resolvePrimaryVideoTrackId(tracks);
+        }
       }
     }
-
-
 
     if (state.transitions) {
       this.deletedTransitions = state.transitions.filter((t) => t.fromItemId === this.clipId || t.toItemId === this.clipId);
@@ -82,6 +85,10 @@ export class DeleteClipCommand implements Command {
 
     if (state.tracks !== undefined) {
       nextState.tracks = tracks;
+    }
+
+    if (state.mainVideoTrackId !== undefined) {
+      nextState.mainVideoTrackId = nextMainVideoTrackId;
     }
 
     if (state.transitions !== undefined) {

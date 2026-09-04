@@ -1,6 +1,7 @@
-import React, { useRef, useEffect, useCallback } from "react";
+import React, { useRef, useEffect, useCallback, useState } from "react";
 import { TemplatePreviewPlayer } from "@/features/text-templates";
-import { evaluateScene, textEffectConfigToScene, type TextEffectConfig, _buildConfig } from "@clypra-studio/engine";
+import { Minus, Plus, RotateCcw } from "lucide-react";
+import { renderTextEffectToCanvas, textEffectConfigToScene, type TextEffectConfig, _buildConfig } from "@clypra-studio/engine";
 import { getFontLoader } from "@/core/fonts/FontLoader";
 import { traceTextRenderGeometry, traceTextRenderScene } from "@/core/render/textRenderTrace";
 
@@ -65,6 +66,7 @@ export const resolveTextSourcePreviewConfig = (preset: any): TextEffectConfig =>
 export const TextSourcePreview: React.FC<TextSourcePreviewProps> = ({ preset }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mountedRef = useRef(true);
+  const [templateZoom, setTemplateZoom] = useState(1);
 
 
 
@@ -185,7 +187,10 @@ export const TextSourcePreview: React.FC<TextSourcePreviewProps> = ({ preset }) 
             contentHash: (preset as any).contentHash,
             time: 0,
           });
-          evaluateScene(scene, 0, ctx);
+          renderTextEffectToCanvas(ctx, {
+            source: { scene, revisionId: (preset as any).revisionId, contentHash: (preset as any).contentHash },
+            context: { environment: "editor", time: 0, width: PREVIEW_CANVAS_W, height: PREVIEW_CANVAS_H },
+          });
         } else {
           const scene = textEffectConfigToScene(effectConfig);
           traceTextRenderScene(scene, {
@@ -196,7 +201,10 @@ export const TextSourcePreview: React.FC<TextSourcePreviewProps> = ({ preset }) 
             contentHash: (preset as any).contentHash,
             time: 0,
           });
-          evaluateScene(scene, 0, ctx);
+          renderTextEffectToCanvas(ctx, {
+            source: scene,
+            context: { environment: "editor", time: 0, width: PREVIEW_CANVAS_W, height: PREVIEW_CANVAS_H },
+          });
         }
       } catch (error) {
         console.error("[TextSourcePreview] ❌ Error:", error);
@@ -219,7 +227,15 @@ export const TextSourcePreview: React.FC<TextSourcePreviewProps> = ({ preset }) 
   if (isTemplate) {
     return (
       <div className="w-full aspect-video checkerboard flex items-center justify-center relative p-8 shadow-[0_0_40px_rgba(0,0,0,0.8)] border border-white/5 overflow-hidden">
-        <TemplatePreviewPlayer lottieData={(preset as any).injectedData || (preset as any).templateData || (preset as any).lottieData || preset} autoplay={true} loop={true} mode="canvas" fitToContent={true} className="w-full h-full object-contain" />
+        <div className="absolute top-2 right-2 z-10 flex items-center gap-1 rounded-md border border-white/10 bg-black/60 p-1 backdrop-blur-sm">
+          <button type="button" aria-label="Zoom out preview" onClick={() => setTemplateZoom((value) => Math.max(0.5, Number((value - 0.1).toFixed(1))))} className="rounded p-1 text-white/70 hover:bg-white/10 hover:text-white cursor-pointer"><Minus size={13} /></button>
+          <button type="button" aria-label="Reset preview zoom" onClick={() => setTemplateZoom(1)} className="min-w-10 rounded px-1 text-[10px] text-white/80 hover:bg-white/10 cursor-pointer">{Math.round(templateZoom * 100)}%</button>
+          <button type="button" aria-label="Zoom in preview" onClick={() => setTemplateZoom((value) => Math.min(2, Number((value + 0.1).toFixed(1))))} className="rounded p-1 text-white/70 hover:bg-white/10 hover:text-white cursor-pointer"><Plus size={13} /></button>
+          <button type="button" aria-label="Reset preview zoom" onClick={() => setTemplateZoom(1)} className="rounded p-1 text-white/70 hover:bg-white/10 hover:text-white cursor-pointer"><RotateCcw size={12} /></button>
+        </div>
+        <div className="w-full h-full flex items-center justify-center" style={{ transform: `scale(${templateZoom})`, transformOrigin: "center" }}>
+          <TemplatePreviewPlayer lottieData={(preset as any).injectedData || (preset as any).templateData || (preset as any).lottieData || preset} autoplay={true} loop={true} mode="canvas" fitToContent={true} className="w-full h-full object-contain" />
+        </div>
       </div>
     );
   }

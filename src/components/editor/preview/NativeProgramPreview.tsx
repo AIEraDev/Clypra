@@ -5,9 +5,11 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Expand, Shrink } from "lucide-react";
+import { Expand, Shrink, Activity } from "lucide-react";
+import { VideoScopesModal } from "../scopes/VideoScopesModal";
 import {
   usePlaybackClock,
+  usePlaybackStatus,
   usePlaybackControls,
   useTransportControls,
   getPlaybackClock,
@@ -17,6 +19,11 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
+import {
+  getPreviewInteractionCoordinator,
+  getTransformController,
+  type DragGeometry,
+} from "@/core/interactions";
 import { useViewportState } from "@/hooks/useViewportController";
 import { PreviewTransport } from "./PreviewTransport";
 import { TransformOverlayMemoized as TransformOverlay } from "../transform/TransformOverlay";
@@ -32,24 +39,22 @@ import {
   PreviewQualityTier,
 } from "./PreviewQualityManager";
 import { cn } from "@/lib/utils";
-import { AspectRatio } from "@/types";
+import { AspectRatio, type Clip } from "@/types";
 import { formatTime } from "@/lib/utils/timeFormatting";
 import { refitClipsForCanvasChange } from "@/lib/timeline/refitClips";
 import { useAudioSyncEngine } from "@/hooks/useAudioSyncEngine";
 import { toast } from "@/lib/toast";
 
-import { TelemetryOverlay, type TelemetryStats } from "./TelemetryOverlay";
 import { AspectSelector } from "./AspectSelector";
 import { PlaybackSpeedSelector } from "./PlaybackSpeedSelector";
 import { VolumeControl } from "./VolumeControl";
 import { getCanvasBackgroundLayer } from "./canvasBackground";
 import { getFrameIndexAtTime, getFrameStartTime } from "@/lib/utils/frameTime";
 import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
-import { getPlaybackMetricsSnapshot } from "@/core/playback/playbackTrace";
 import {
-  getSyncMetricsSnapshot,
-  startSyncMetricsFlushLoop,
-} from "@/lib/playback/syncMetrics";
+  tracePlayback,
+  traceSlowPlaybackStage,
+} from "@/core/playback/playbackTrace";
 import {
   nativePerfCollector,
   type NativePerfSpan,
@@ -57,25 +62,28 @@ import {
 import type { SeekIntent } from "@/core/playback/seekController";
 import {
   getNativePreviewSurfaceGeometry,
-  hideNativeSurface,
   cancelNativePreviewRequests,
   isTauriRuntime,
   onNativePreviewWindowMoved,
   presentNativeFrame,
+  configureNativePlaybackRender,
+  submitNativePlaybackDemand,
   getNativeFrameServiceStats,
+  getNativeFrameServiceSamples,
   getNativeSyncMetricsSnapshot,
   getNativeGpuStatus,
-  queueNativeFrame,
   registerNativeRasterAsset,
-  probeNativeSurface,
   renderNativeFrame,
-  resizeNativeSurface,
+  listenForNativePlaybackStats,
+  type NativePlaybackStatsPayload,
 } from "@/lib/platform/tauri";
 import { telemetryCollector } from "@/services/telemetryCollector";
 import type { NativeSurfaceGeometry } from "@/lib/platform/nativeCore";
+import type { TelemetryPreviewContext } from "@/services/telemetryCollector";
 
 import type { SmartOverlayClip } from "@/types/smartOverlay";
 import { KaraokeCaptions } from "@/components/captions/KaraokeCaptions";
+import { paintTextLayersToCanvas } from "./nativeTextPreview";
 import { useCaptionStore } from "@/store/captionStore";
 import type { EvaluatedScene } from "@/core/evaluation/types";
 import { makeBodyMaskCacheKey, segmentBodyMask } from "@/features/body-effects";
@@ -90,6 +98,7 @@ import {
   computeAssetsVersion,
   computeEffectsStoreVersion,
 } from "@/core/evaluation/cache";
+import { buildNativePlaybackSnapshotKey } from "@/core/playback/nativePlaybackSnapshot";
 import {
   buildNativeFrameRequest,
   getNativePreviewBlockers,
@@ -100,13 +109,29 @@ import {
   NativePreviewFrameScheduler,
   type NativePreviewRequestSource,
 } from "./nativePreviewScheduler";
-import { NativeRasterBridge } from "@/core/render/nativeRasterBridge";
+import { previewQualificationController } from "@/core/playback/previewPerformanceContract";
+import {
+  NativeSurfaceOutput,
+  WebViewCanvasOutput,
+} from "@/core/playback/previewOutputAdapters";
 import { ensureNativeFontsRegistered } from "@/core/fonts/nativeFontRegistry";
 import {
   NATIVE_PREVIEW_ONLY,
+  createNativePlaybackFrameDemand,
   type NativeFrameRequest,
   type NativeRasterLayerSnapshot,
 } from "@/lib/platform/nativeCore";
+import {
+  claimNativeSurfaceReadiness,
+  configureNativeSurface,
+  failNativeSurfaceReadiness,
+  hideNativeSurfaceWhenIdle,
+  isNativeSurfaceRequestSuperseded,
+  markNativeSurfaceReady,
+  presentOnNativeSurface,
+  releaseNativeSurface,
+  releaseNativeSurfaceReadiness,
+} from "@/core/runtime/nativeSurfaceLifecycle";
 
 function isExpectedStaleNativePreviewError(error: unknown): boolean {
   return /native preview frame request is stale|request cancelled/i.test(
@@ -140,18 +165,184 @@ function drawNativeFrameToCanvas(
 
   if (canvas.width !== frame.width) canvas.width = frame.width;
   if (canvas.height !== frame.height) canvas.height = frame.height;
-  const context = canvas.getContext("2d");
+  const context = canvas.getContext("2d", { alpha: false });
   if (!context) return false;
 
-  const image = context.createImageData(frame.width, frame.height);
+  const image = getReusableCanvasImageData(
+    canvas,
+    context,
+    frame.width,
+    frame.height,
+  );
   image.data.set(new Uint8ClampedArray(frame.rgba));
   context.putImageData(image, 0, 0);
   return true;
 }
 
+const reusableCanvasImages = new WeakMap<
+  HTMLCanvasElement,
+  { width: number; height: number; image: ImageData }
+>();
+
+function getReusableCanvasImageData(
+  canvas: HTMLCanvasElement,
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+): ImageData {
+  const cached = reusableCanvasImages.get(canvas);
+  if (cached?.width === width && cached.height === height) return cached.image;
+  const image = context.createImageData(width, height);
+  reusableCanvasImages.set(canvas, { width, height, image });
+  return image;
+}
+
+/**
+ * WebView readback is a fallback/qualification path, not a full-resolution
+ * export path. Keep the transfer bounded even when a large editor viewport or
+ * DPR would otherwise make every RGBA frame expensive.
+ */
+const WEBVIEW_MAX_OUTPUT_DIMENSION = 960;
+
+function capWebViewRenderTarget(target: {
+  width: number;
+  height: number;
+  quality: NativeFrameRequest["quality"];
+}): typeof target {
+  const largest = Math.max(target.width, target.height);
+  if (largest <= WEBVIEW_MAX_OUTPUT_DIMENSION) return target;
+  const scale = WEBVIEW_MAX_OUTPUT_DIMENSION / largest;
+  return {
+    ...target,
+    width: Math.max(1, Math.floor(target.width * scale)),
+    height: Math.max(1, Math.floor(target.height * scale)),
+  };
+}
+
+interface ConnectedProgramTransportProps {
+  duration: number;
+  frameRate: number;
+  disabled: boolean;
+  onPlayPause: () => void;
+  onSeek: (time: number) => void;
+  formatTime: (seconds: number) => string;
+  onStepBack: (currentTime: number) => void;
+  onStepForward: (currentTime: number) => void;
+  speedMenuRef: React.RefObject<HTMLDivElement | null>;
+  speedMenuOpen: boolean;
+  setSpeedMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  transportSetSpeed: (speed: number) => void;
+  aspectMenuRef: React.RefObject<HTMLDivElement | null>;
+  aspectMenuOpen: boolean;
+  setAspectMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  previewAspectPreset: AspectRatio;
+  selectAspectPreset: (preset: AspectRatio) => void;
+  canvasWidth: number;
+  canvasHeight: number;
+  isMuted: boolean;
+  setIsMuted: React.Dispatch<React.SetStateAction<boolean>>;
+  volume: number;
+  setVolume: React.Dispatch<React.SetStateAction<number>>;
+  scopesOpen: boolean;
+  setScopesOpen: React.Dispatch<React.SetStateAction<boolean>>;
+}
+
+const ConnectedProgramTransport: React.FC<ConnectedProgramTransportProps> =
+  React.memo((props) => {
+    const clockState = usePlaybackClock();
+    return (
+      <PreviewTransport
+        currentTime={clockState.time}
+        duration={props.duration || clockState.duration}
+        isPlaying={clockState.state === "playing"}
+        disabled={props.disabled}
+        onPlayPause={props.onPlayPause}
+        onSeek={props.onSeek}
+        formatTime={props.formatTime}
+        onStepBack={() => props.onStepBack(clockState.time)}
+        onStepForward={() => props.onStepForward(clockState.time)}
+        leftActions={
+          <div className="relative" ref={props.speedMenuRef}>
+            <PlaybackSpeedSelector
+              playbackSpeed={clockState.speed}
+              speedMenuOpen={props.speedMenuOpen}
+              setSpeedMenuOpen={props.setSpeedMenuOpen}
+              setSpeed={props.transportSetSpeed}
+            />
+          </div>
+        }
+        rightActions={
+          <>
+            <button
+              type="button"
+              onClick={() => props.setScopesOpen((prev) => !prev)}
+              title="Toggle Video Scopes (Waveform, Parade, Vectorscope, Histogram)"
+              className={`p-1.5 rounded-lg transition-colors flex items-center justify-center ${
+                props.scopesOpen
+                  ? "bg-accent text-white shadow-sm"
+                  : "text-text-muted hover:text-text-primary hover:bg-white/5"
+              }`}
+            >
+              <Activity className="w-3.5 h-3.5" />
+            </button>
+
+            <div className="relative shrink-0" ref={props.aspectMenuRef}>
+              <AspectSelector
+                aspectMenuOpen={props.aspectMenuOpen}
+                setAspectMenuOpen={props.setAspectMenuOpen}
+                previewAspectPreset={props.previewAspectPreset}
+                selectAspectPreset={props.selectAspectPreset}
+                canvasWidth={props.canvasWidth}
+                canvasHeight={props.canvasHeight}
+              />
+            </div>
+
+            <div className="hidden @[360px]:block w-px h-4 bg-white/10 mx-0.5" />
+            <VolumeControl
+              isMuted={props.isMuted}
+              setIsMuted={props.setIsMuted}
+              volume={props.volume}
+              setVolume={props.setVolume}
+            />
+          </>
+        }
+      />
+    );
+  });
+
+interface ConnectedTransformOverlayProps extends Omit<
+  React.ComponentProps<typeof TransformOverlay>,
+  "currentTime" | "visible"
+> {}
+
+/**
+ * Playback is a leaf concern for the transform overlay. Keeping this clock
+ * subscription here prevents playhead ticks from re-rendering the preview
+ * container, canvas host, and native-surface coordination tree.
+ */
+const ConnectedTransformOverlay = React.memo(
+  (props: ConnectedTransformOverlayProps) => {
+    const clockState = usePlaybackClock();
+    const { pause } = useTransportControls();
+
+    return (
+      <TransformOverlay
+        {...props}
+        currentTime={clockState.time}
+        visible={clockState.state !== "playing"}
+        interactionMode={clockState.state === "playing" ? "playing" : "editing"}
+        onPlaybackInteraction={pause}
+      />
+    );
+  },
+);
+
 export const NativeProgramPreview: React.FC = () => {
   const karaokeOverlayEnabled = useCaptionStore((s) => s.karaokeOverlayEnabled);
   const project = useProjectStore((s) => s.project);
+  const projectInitializing = useProjectStore(
+    (s) => s.projectInitialization !== null,
+  );
   const updateProject = useProjectStore((s) => s.updateProject);
   const mediaAssets = useProjectStore((s) => s.mediaAssets);
   const tracks = useTimelineStore((s) => s.tracks);
@@ -165,8 +356,9 @@ export const NativeProgramPreview: React.FC = () => {
   const previewQuality = useSettingsStore((s) => s.previewQuality);
   const setPreviewQuality = useSettingsStore((s) => s.setPreviewQuality);
 
-  const clockState = usePlaybackClock();
   const clock = getPlaybackClock();
+  const previewInteractionCoordinator = getPreviewInteractionCoordinator();
+  const { state: playbackState } = usePlaybackStatus();
   const { setDuration, setFrameRate } = usePlaybackControls();
   const {
     play: transportPlay,
@@ -190,18 +382,18 @@ export const NativeProgramPreview: React.FC = () => {
   const [aspectMenuOpen, setAspectMenuOpen] = useState(false);
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
   const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
-  const [showTelemetry, setShowTelemetry] = useState(false);
   const [showSafeOverlay, setShowSafeOverlay] = useState(false);
-  const [telemetryStats, setTelemetryStats] = useState<TelemetryStats | null>(
+  const [scopesOpen, setScopesOpen] = useState(false);
+  const [nativeSurfaceReady, setNativeSurfaceReady] = useState(false);
+  const [nativeSurfaceError, setNativeSurfaceError] = useState<string | null>(
     null,
   );
-  const [nativeSurfaceReady, setNativeSurfaceReady] = useState(false);
   // Audit 4.6 fix: mirror nativeSurfaceReady in a ref so the render loop can read the
   // latest value imperatively without nativeSurfaceReady being listed in the effect deps.
   // Having it in deps caused the entire render loop to restart (RAF cancelled, blank frame)
   // on every native surface probe and window resize.
   const nativeSurfaceReadyRef = useRef(false);
-  const [nativeSurfacePresenting, setNativeSurfacePresenting] = useState(false);
+  const nativeSurfaceErrorRef = useRef<string | null>(null);
   const nativeOnlyBlockersKeyRef = useRef("");
 
   const previewContainerRef = useRef<HTMLDivElement>(null);
@@ -213,6 +405,10 @@ export const NativeProgramPreview: React.FC = () => {
     (node: HTMLDivElement | null) => {
       previewContainerRef.current = node;
       setContainerEl(node);
+      // Measurement belongs to the mounted container. Clear it when the
+      // project view leaves the tree so a later session cannot configure the
+      // native child surface from a previous session's rectangle.
+      if (!node) setDimensions({ width: 0, height: 0 });
     },
     [],
   );
@@ -245,20 +441,23 @@ export const NativeProgramPreview: React.FC = () => {
     width: number;
     height: number;
   } | null>(null);
-  // Persist prefetch identity across native surface/canvas effect restarts.
-  // Without this, a remounted render loop could repeatedly warm the same
-  // boundary and contend with visible presentation.
+  // Persist text-prefetch identity across native surface/canvas effect
+  // restarts. Text prewarming is isolated from the visible video decoder path.
   const nativePrefetchStateRef = useRef({
-    inFlight: new Map<string, Promise<void>>(),
-    completed: new Set<string>(),
-    failedAt: new Map<string, number>(),
+    textInFlight: new Map<string, Promise<void>>(),
+    textCompleted: new Set<string>(),
+    textFailedAt: new Map<string, number>(),
   });
   const qualityManagerSigRef = useRef<string>("");
-  const telemetryRef = useRef(telemetryStats);
-  const lastTelemetryFlushRef = useRef(0);
-  const showTelemetryRef = useRef(showTelemetry);
-  const droppedFramesRef = useRef(0);
-  const maxDriftRef = useRef(0);
+  const previewTelemetryContextRef = useRef<TelemetryPreviewContext>({
+    view: "webview",
+    surface: "dom-canvas",
+    runtimeEnvironment: import.meta.env.DEV ? "development" : "production",
+  });
+  // Native telemetry is read through the service's bounded sequence cursor.
+  // This preserves every retained observation between polls without creating
+  // a measurement when the editor is idle.
+  const lastNativeSampleSequenceRef = useRef(0);
   const originalCanvasDimsRef = useRef<{
     projectId: string;
     width: number;
@@ -268,7 +467,6 @@ export const NativeProgramPreview: React.FC = () => {
   const prevFrameRateRef = useRef<number>(0);
   const isMutedRef = useRef(isMuted);
   const volumeRef = useRef(volume);
-
   isMutedRef.current = isMuted;
   volumeRef.current = volume;
 
@@ -280,7 +478,7 @@ export const NativeProgramPreview: React.FC = () => {
     project,
     epoch,
     clock,
-    clockState,
+    clockState: clock.getState(),
     canvasWidth: project?.canvasWidth ?? 1920,
     canvasHeight: project?.canvasHeight ?? 1080,
     displayWidth: 0,
@@ -307,8 +505,24 @@ export const NativeProgramPreview: React.FC = () => {
   // use this wake-up hook to request exactly one new frame instead of keeping
   // an idle RAF loop alive.
   const wakeNativeRenderLoopRef = useRef<(() => void) | null>(null);
+  const [playbackStats, setPlaybackStats] = useState<NativePlaybackStatsPayload | null>(null);
 
-  showTelemetryRef.current = showTelemetry;
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listenForNativePlaybackStats((stats) => {
+      setPlaybackStats(stats);
+      console.log(
+        `%c[av-sync][perf] 📊 ${stats.framesRendered} frames (${stats.fps}fps) | Lookahead: ${stats.hitRatePercent.toFixed(1)}% cache hit | Avg Latency: ${stats.avgTotalMs.toFixed(2)}ms (decode: ${stats.avgDecodeMs.toFixed(2)}ms) | Peak: ${stats.maxFrameMs.toFixed(2)}ms | Streams: ${stats.stackedStreams}`,
+        "color: #06b6d4; font-weight: bold;",
+      );
+    }).then((fn) => {
+      unlisten = fn;
+    }).catch(() => undefined);
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   useEffect(() => {
     // Probe native GPU status for accurate hardware telemetry
@@ -326,16 +540,24 @@ export const NativeProgramPreview: React.FC = () => {
         .catch(() => {});
     }
 
-    startSyncMetricsFlushLoop();
     let active = true;
     const flushMetrics = async () => {
-      const snapshot = getPlaybackMetricsSnapshot();
-      const frontendSync = getSyncMetricsSnapshot();
-      const [nativeSync, nativeRender] = await Promise.all([
+      const afterSequence = lastNativeSampleSequenceRef.current;
+      const [nativeSync, nativeRender, nativeSampleBatch] = await Promise.all([
         getNativeSyncMetricsSnapshot().catch(() => null),
         getNativeFrameServiceStats().catch(() => null),
+        getNativeFrameServiceSamples(afterSequence, 256).catch(() => null),
       ]);
       if (!active) return;
+
+      // A project reset starts the native sequence over. Do not let the old
+      // cursor suppress all samples from the new project.
+      if (
+        nativeSampleBatch &&
+        nativeSampleBatch.latestSequence < lastNativeSampleSequenceRef.current
+      ) {
+        lastNativeSampleSequenceRef.current = 0;
+      }
 
       // Extract current video profile
       const videoAsset = renderStateRef.current.mediaAssets.find(
@@ -344,101 +566,63 @@ export const NativeProgramPreview: React.FC = () => {
 
       const profile = {
         width:
-          videoAsset?.width || renderStateRef.current.project?.canvasWidth || 3840,
+          videoAsset?.width ||
+          renderStateRef.current.project?.canvasWidth ||
+          3840,
         height:
-          videoAsset?.height || renderStateRef.current.project?.canvasHeight || 2160,
+          videoAsset?.height ||
+          renderStateRef.current.project?.canvasHeight ||
+          2160,
         nominalFps: renderStateRef.current.project?.frameRate || 60,
       };
 
-      // Feed production telemetry collector in background
-      telemetryCollector.recordNativeSyncSnapshot(
-        nativeSync,
-        nativeRender,
-        profile,
-      );
-
-      if (!showTelemetryRef.current) {
-        setTelemetryStats(null);
-        return;
+      const samples = nativeSampleBatch?.samples ?? [];
+      if (nativeSampleBatch) {
+        for (let index = 0; index < samples.length; index += 1) {
+          const sample = samples[index];
+          const sequence = nativeSampleBatch.firstSequence + index;
+          telemetryCollector.recordNativeSyncSnapshot(
+            nativeSync,
+            { ...(nativeRender ?? {}), lastSample: sample },
+            profile,
+            previewTelemetryContextRef.current,
+            `sequence:${sequence}:${sample.requestId}:${sample.frameIndex}`,
+          );
+        }
+        lastNativeSampleSequenceRef.current = nativeSampleBatch.nextSequence;
+      } else {
+        // Compatibility fallback for older desktop binaries that do not yet
+        // expose the cursor command. It remains cursor-protected.
+        const lastNativeSample = nativeRender?.lastSample;
+        const nativeSampleCursor =
+          lastNativeSample && nativeRender?.lastSampleSequence !== undefined
+            ? `sequence:${nativeRender.lastSampleSequence}:${lastNativeSample.requestId}:${lastNativeSample.frameIndex}`
+            : null;
+        if (
+          nativeSampleCursor &&
+          nativeRender?.lastSampleSequence !== undefined &&
+          nativeRender.lastSampleSequence > afterSequence
+        ) {
+          lastNativeSampleSequenceRef.current = nativeRender.lastSampleSequence;
+          telemetryCollector.recordNativeSyncSnapshot(
+            nativeSync,
+            nativeRender,
+            profile,
+            previewTelemetryContextRef.current,
+            nativeSampleCursor,
+          );
+        }
       }
-
-      const hasNativeDrift = Boolean(nativeSync && nativeSync.av_drift.n > 0);
-      const hasNativeSeeks = Boolean(nativeSync && nativeSync.seeks.n > 0);
-      const lastRender = nativeRender?.lastSample;
-      const cacheTotal = snapshot.cacheHits + snapshot.cacheMisses;
-      const next: TelemetryStats = {
-        avgEvaluationTimeMs: lastRender ? lastRender.decodeTimeUs / 1000 : 0,
-        avgRasterTimeMs: lastRender
-          ? (lastRender.readbackTimeUs + (lastRender.presentTimeUs ?? 0)) / 1000
-          : 0,
-        avgTotalTimeMs: lastRender
-          ? lastRender.totalTimeUs / 1000
-          : (snapshot.seekP95Ms ?? 0),
-        cacheHitRate:
-          nativeRender?.windowCacheHitRate ??
-          (cacheTotal > 0 ? snapshot.cacheHits / cacheTotal : 0),
-        active: nativeRender?.windowRequestCount ?? 0,
-        droppedFrames: Math.max(
-          snapshot.droppedFrames,
-          nativeSync?.dropped_frames ?? 0,
-          nativeRender?.windowDroppedFrames ?? 0,
-        ),
-        driftMagnitude: hasNativeDrift
-          ? nativeSync!.av_drift.max_abs_micros / 1_000_000
-          : snapshot.maxDriftMs / 1000,
-        seekP50Ms:
-          nativeRender?.windowSeekP50Ms ??
-          (hasNativeSeeks
-            ? nativeSync!.seeks.avg_latency_micros / 1000
-            : snapshot.seekP50Ms),
-        seekP95Ms:
-          nativeRender?.windowSeekP95Ms ??
-          (hasNativeSeeks
-            ? nativeSync!.seeks.max_latency_micros / 1000
-            : snapshot.seekP95Ms),
-        seekP99Ms: snapshot.seekP99Ms,
-        avDriftP95Ms: hasNativeDrift
-          ? nativeSync!.av_drift.p95_abs_micros / 1000
-          : 0,
-        uiPlayheadDriftAvgMs: frontendSync.ui_playhead_drift.avg,
-        uiPlayheadDriftMaxMs: frontendSync.ui_playhead_drift.maxAbs,
-        paintIntervalAvgMs: frontendSync.playhead_paint_jitter.avg,
-        framePacingJank: nativeSync?.frame_pacing.jank_events ?? 0,
-        nativeSeekAvgMs: hasNativeSeeks
-          ? nativeSync!.seeks.avg_latency_micros / 1000
-          : null,
-        nativeSeekMaxMs: hasNativeSeeks
-          ? nativeSync!.seeks.max_latency_micros / 1000
-          : null,
-        nativeSeekCorrect: hasNativeSeeks ? nativeSync!.seeks.correct : 0,
-        nativeSeekCount: hasNativeSeeks ? nativeSync!.seeks.n : 0,
-        staleFrames: Math.max(
-          snapshot.staleFrames,
-          nativeRender?.windowStaleFrames ?? 0,
-        ),
-        cancelledFrames: Math.max(
-          snapshot.cancelledFrames,
-          nativeRender?.windowCancelledFrames ?? 0,
-        ),
-        cacheMisses: nativeRender
-          ? nativeRender.cacheMisses
-          : snapshot.cacheMisses,
-      };
-      telemetryRef.current = next;
-      setTelemetryStats(next);
     };
 
     void flushMetrics();
-    const pollIntervalMs = showTelemetry ? 250 : 1000;
-    const interval = window.setInterval(
-      () => void flushMetrics(),
-      pollIntervalMs,
-    );
+    const interval = window.setInterval(() => void flushMetrics(), 1000);
     return () => {
       active = false;
       window.clearInterval(interval);
+      lastNativeSampleSequenceRef.current = 0;
     };
-  }, [showTelemetry]);
+  }, []);
   renderStateRef.current.clips = clips;
   renderStateRef.current.tracks = tracks;
   renderStateRef.current.transitions = transitions;
@@ -446,7 +630,7 @@ export const NativeProgramPreview: React.FC = () => {
   renderStateRef.current.project = project;
   renderStateRef.current.epoch = epoch;
   renderStateRef.current.clock = clock;
-  renderStateRef.current.clockState = clockState;
+  renderStateRef.current.clockState = clock.getState();
   renderStateRef.current.dpr = window.devicePixelRatio || 1;
   renderStateRef.current.previewQuality = previewQuality;
   // Audit 1.3 fix: recompute version hashes here (React-render time) rather than in
@@ -494,18 +678,107 @@ export const NativeProgramPreview: React.FC = () => {
 
   const { scale, offsetX, offsetY, displayWidth, displayHeight } =
     displayTransform;
+  const nativeSurfaceViewportReady = displayWidth > 0 && displayHeight > 0;
+
+  // Browser fallback for localhost/editor testing. Tauri continues through
+  // the native surface loop below; browser text uses the same timeline
+  // evaluator and package-owned renderer, instead of silently showing an
+  // empty canvas when no native surface exists.
+  useEffect(() => {
+    if (isTauriRuntime() || !canvasEl || !project || projectInitializing)
+      return;
+
+    let disposed = false;
+    let rafId: number | null = null;
+    let renderInFlight = false;
+    let renderQueued = true;
+    let requestVersion = 0;
+
+    const schedule = () => {
+      renderQueued = true;
+      requestVersion += 1;
+      if (renderInFlight) return;
+      if (rafId !== null) return;
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null;
+        void render();
+      });
+    };
+
+    const render = async () => {
+      if (disposed || renderInFlight) return;
+      renderInFlight = true;
+      const versionAtStart = requestVersion;
+      renderQueued = false;
+      try {
+        const state = renderStateRef.current;
+        const scene = evaluateTimelineSceneCached(
+          state.clock.getState().time,
+          state.clips,
+          state.tracks,
+          state.mediaAssets,
+          state.project,
+          state.epoch,
+          state.transitions,
+          state.sceneVersions,
+        );
+        // Resizing a canvas reallocates its backing store and clears all
+        // drawing state. It is a layout event, not a frame event.
+        if (canvasEl.width !== state.canvasWidth)
+          canvasEl.width = state.canvasWidth;
+        if (canvasEl.height !== state.canvasHeight)
+          canvasEl.height = state.canvasHeight;
+        if (scene.visualLayers.some((layer) => layer.layerType === "text")) {
+          await paintTextLayersToCanvas(
+            canvasEl,
+            scene,
+            state.clock.state === "playing"
+              ? "visible-playback"
+              : "interactive-preview",
+            {
+              shouldPaint: () => !disposed && versionAtStart === requestVersion,
+            },
+          );
+        } else if (!disposed && versionAtStart === requestVersion) {
+          canvasEl
+            .getContext("2d")
+            ?.clearRect(0, 0, canvasEl.width, canvasEl.height);
+        }
+      } catch (error) {
+        console.error("[browser-preview] text-render-failed", error);
+      } finally {
+        renderInFlight = false;
+        if ((renderQueued || versionAtStart !== requestVersion) && !disposed)
+          schedule();
+      }
+    };
+
+    const unsubscribe = clock.subscribe(() => schedule());
+    schedule();
+    return () => {
+      disposed = true;
+      unsubscribe();
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
+    };
+  }, [canvasEl, project?.id, projectInitializing, epoch]);
 
   // The native presenter is hosted in a transparent child surface positioned
   // over the displayed program viewport and configured only in Tauri.
   useEffect(() => {
     if (
       !isTauriRuntime() ||
+      !project?.id ||
       !nativeSurfaceTargetRef.current ||
-      displayWidth <= 0 ||
-      displayHeight <= 0
+      !nativeSurfaceViewportReady
     ) {
       return;
     }
+    const readinessToken = claimNativeSurfaceReadiness(project.id);
+    // tracePlayback("surface-setup-start", {
+    //   projectId: project.id,
+    //   generation: readinessToken.generation,
+    //   viewport: `${Math.round(displayWidth)}x${Math.round(displayHeight)}`,
+    // });
 
     let active = true;
     let syncInFlight = false;
@@ -525,6 +798,8 @@ export const NativeProgramPreview: React.FC = () => {
       syncRequested = true;
       if (syncInFlight) return;
       syncInFlight = true;
+      nativeSurfaceErrorRef.current = null;
+      setNativeSurfaceError(null);
 
       void (async () => {
         try {
@@ -542,33 +817,45 @@ export const NativeProgramPreview: React.FC = () => {
             )
               continue;
 
-            // Do not keep presenting into the old child-window position while
-            // the DOM viewport is moving. Complete the hide before resizing so
-            // an older hide cannot race a later native presentation.
-            nativeSurfaceGeometrySettledRef.current = false;
-            setNativeSurfacePresenting(false);
-            await hideNativeSurface().catch(() => undefined);
+            // Geometry changes are handled as a non-destructive transaction by
+            // the shared surface coordinator. Keep the retained native frame
+            // visible while the child window moves; hiding here exposes an
+            // empty DOM canvas and causes the resize blank-frame regression.
+            await configureNativeSurface(project.id, geometry);
             if (!active) break;
-
-            if (nativeSurfaceConfiguredRef.current) {
-              await resizeNativeSurface(geometry);
-            } else {
-              await probeNativeSurface(geometry);
-              nativeSurfaceConfiguredRef.current = true;
-            }
+            nativeSurfaceConfiguredRef.current = true;
             appliedGeometryKey = nextGeometryKey;
             nativeSurfaceGeometrySettledRef.current = true;
             if (active) {
               nativeSurfaceReadyRef.current = true;
+              nativeSurfaceErrorRef.current = null;
+              setNativeSurfaceError(null);
               setNativeSurfaceReady(true);
+              markNativeSurfaceReady(readinessToken);
+              // Resizing intentionally hides the retained child surface. The
+              // paused renderer is otherwise event-driven, so without an
+              // explicit wake it can leave the DOM fallback canvas visible
+              // and blank after a window resize. Request a fresh frame after
+              // the new native surface geometry is fully configured.
+              wakeNativeRenderLoopRef.current?.();
             }
           }
         } catch (error) {
+          if (isNativeSurfaceRequestSuperseded(error)) {
+            // A newer geometry or project transaction owns the coordinator.
+            // This request is obsolete, not a surface failure.
+            return;
+          }
           nativeSurfaceConfiguredRef.current = false;
           nativeSurfaceGeometrySettledRef.current = false;
           if (active) {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            nativeSurfaceErrorRef.current = message;
+            setNativeSurfaceError(message);
             nativeSurfaceReadyRef.current = false;
             setNativeSurfaceReady(false);
+            failNativeSurfaceReadiness(readinessToken, error);
           }
         } finally {
           syncInFlight = false;
@@ -609,27 +896,17 @@ export const NativeProgramPreview: React.FC = () => {
       nativeSurfaceConfiguredRef.current = false;
       nativeSurfaceGeometrySettledRef.current = false;
       nativeSurfaceReadyRef.current = false;
+      nativeSurfaceErrorRef.current = null;
+      setNativeSurfaceError(null);
       setNativeSurfaceReady(false);
-      setNativeSurfacePresenting(false);
-      void hideNativeSurface().catch(() => undefined);
+      releaseNativeSurfaceReadiness(readinessToken);
+      void releaseNativeSurface(project.id).catch(() => undefined);
     };
-    // Audit 5.4 fix: empty deps — mount once per component lifetime.
-    // The ResizeObserver + window 'resize' handler inside already call syncSurface()
-    // on every dimension change; displayWidth/displayHeight in deps caused the effect
-    // to re-mount on every pixel change during resize, accumulating window-moved
-    // listeners before the async unlistenWindowMoved Promise could resolve and clean up.
-  }, []);
-
-  // Keep paused/seeking frames on the DOM canvas. The native surface is a
-  // separate child window, so leaving it visible after a pause can make the
-  // same frame appear at stale coordinates while the canvas is laid out in
-  // the current preview viewport.
-  useEffect(() => {
-    if (!nativeSurfaceReady || clockState.state === "playing") return;
-
-    setNativeSurfacePresenting(false);
-    void hideNativeSurface().catch(() => undefined);
-  }, [clockState.state, nativeSurfaceReady]);
+    // The boolean viewport dependency retries setup when the initial layout
+    // changes from zero-sized placeholder to a real preview. It remains stable
+    // during ordinary resize events, which keeps this effect from remounting on
+    // every pixel change; ResizeObserver handles those through syncSurface().
+  }, [project?.id, nativeSurfaceViewportReady]);
 
   const previewBackgroundLayer = useMemo(() => {
     return getCanvasBackgroundLayer(project?.canvasBackground);
@@ -651,11 +928,29 @@ export const NativeProgramPreview: React.FC = () => {
       if (isPanning || spacePressed) return;
       const target = e.target as HTMLElement | null;
       if (!target) return;
+      // tracePlayback("preview-pointer-capture", {
+      //   pointer: { clientX: e.clientX, clientY: e.clientY },
+      //   target: {
+      //     tagName: target.tagName,
+      //     id: target.id || null,
+      //     testId: target.getAttribute("data-testid"),
+      //     transformOverlay: Boolean(target.closest("[data-transform-overlay]")),
+      //     viewport: Boolean(
+      //       target.closest("[data-testid='program-preview-viewport']"),
+      //     ),
+      //   },
+      //   playbackState: clock.state,
+      //   currentTime: Number(clock.time.toFixed(3)),
+      //   nativeSurfaceReady,
+      //   selectedClipIds: useUIStore.getState().selectedClipIds,
+      // });
       if (target.closest("[data-transform-handle]")) return;
       if (target.closest("[data-playhead]")) return;
+      if (target.closest("[data-transform-overlay]")) return;
+      if (target.closest("[data-testid='program-preview-viewport']")) return;
       clearSelection();
     },
-    [clearSelection, isPanning, spacePressed],
+    [clearSelection, isPanning, spacePressed, clock, nativeSurfaceReady],
   );
 
   const selectAspectPreset = useCallback(
@@ -675,6 +970,8 @@ export const NativeProgramPreview: React.FC = () => {
           refitClipsForCanvasChange(
             originalCanvasDimsRef.current.width,
             originalCanvasDimsRef.current.height,
+            project.canvasWidth,
+            project.canvasHeight,
           );
         }
       } else {
@@ -684,7 +981,12 @@ export const NativeProgramPreview: React.FC = () => {
           canvasHeight: dims.height,
           aspectRatio: p,
         });
-        refitClipsForCanvasChange(dims.width, dims.height);
+        refitClipsForCanvasChange(
+          dims.width,
+          dims.height,
+          project.canvasWidth,
+          project.canvasHeight,
+        );
       }
     },
     [project, updateProject],
@@ -811,7 +1113,15 @@ export const NativeProgramPreview: React.FC = () => {
     // The desktop editor is the native runtime. Browser rendering is kept out
     // of this component so a missing native runtime cannot silently resurrect a
     // second renderer.
-    if (!canvasEl || !project || !isTauriRuntime()) return;
+    // The project store exposes the project before session activation so the
+    // loading modal can render its progress. Do not start the visible RAF loop
+    // in that gap: it would create an unowned bridge and can issue a long
+    // stopped-state render while session prewarming is still in progress.
+    if (!canvasEl || !project || !isTauriRuntime() || projectInitializing)
+      return;
+
+    const capturedSession = getActiveSessionOrNull();
+    if (!capturedSession) return;
 
     let rafId: number | null = null;
     let isActive = true;
@@ -832,31 +1142,56 @@ export const NativeProgramPreview: React.FC = () => {
     let nativeFailureCount = 0;
     let nativeBlockedKey = "";
     let nativePlaybackInFlight: Promise<void> | null = null;
+    let nativePlaybackRenderSnapshotKey = "";
+    let nativePlaybackRenderSnapshotInFlight: Promise<void> | null = null;
+    let nativePlaybackRenderSnapshotInFlightKey = "";
+    let nativePlaybackRenderSnapshotPending: {
+      key: string;
+      request: NativeFrameRequest;
+    } | null = null;
+    let nativePlaybackRenderFailed = false;
     let nativeContinuousFailureStreak = 0;
     let nativeDroppedFrameCount = 0;
     let nativeContinuousBlockedRevision = "";
     let nativeContinuousObservedRevision = "";
     let lastSeekTraceKey = "";
+    let lastTracedPlaybackState: string | null = null;
     let frameScheduled = false;
     let lastRenderLoopError = "";
-    let lastLoggedTextSignature = "";
     let lastLoggedMissingTextSignature = "";
-    let lastLoggedTextPresentationSignature = "";
     let lastLoggedTextDropSignature = "";
-    const nativePrefetchInFlight = nativePrefetchStateRef.current.inFlight;
-    const nativePrefetchCompleted = nativePrefetchStateRef.current.completed;
-    const nativePrefetchFailedAt = nativePrefetchStateRef.current.failedAt;
+    const nativeTextPrefetchInFlight =
+      nativePrefetchStateRef.current.textInFlight;
+    const nativeTextPrefetchCompleted =
+      nativePrefetchStateRef.current.textCompleted;
+    const nativeTextPrefetchFailedAt =
+      nativePrefetchStateRef.current.textFailedAt;
+    let nativeTextPrefetchTimer: number | null = null;
 
     let nativeSurfaceShown = false;
+    let playbackPipelineLogged = false;
     let lastNativePlaybackRequestKey = "";
     let visibleRequestKey = "";
     const seekController =
-      getActiveSessionOrNull()?.transportAuthority?.getSeekController();
+      capturedSession.transportAuthority?.getSeekController();
     let latestSeekIntent: SeekIntent | null =
       seekController?.getCurrent() ?? null;
     let visibleRequestGeneration = seekController?.getGeneration() ?? 0;
     let transportRevision = 0;
-    const nativeRasterBridge = new NativeRasterBridge();
+    const sessionNativeRasterBridge = capturedSession?.nativeRasterBridge;
+    if (!sessionNativeRasterBridge) {
+      console.warn(
+        "[native-preview] active session has no native raster bridge",
+      );
+      return;
+    }
+    const nativeRasterBridge = sessionNativeRasterBridge;
+    // tracePlayback("playback-loop-start", {
+    //   projectId: project.id,
+    //   sessionId: capturedSession.sessionId,
+    //   surfaceReady: nativeSurfaceReadyRef.current,
+    //   surfaceError: nativeSurfaceErrorRef.current,
+    // });
     const nativeBodyMaskInFlight = new Map<
       string,
       Promise<NativeRasterLayerSnapshot | null>
@@ -871,9 +1206,12 @@ export const NativeProgramPreview: React.FC = () => {
 
     const getNativeRenderTarget = (
       state: typeof renderStateRef.current,
-      isPlaying: boolean,
       isInteracting: boolean,
-    ): { width: number; height: number; quality: NativeFrameRequest["quality"] } => {
+    ): {
+      width: number;
+      height: number;
+      quality: NativeFrameRequest["quality"];
+    } => {
       const manager = qualityManagerRef.current;
       if (!manager) {
         return {
@@ -883,10 +1221,8 @@ export const NativeProgramPreview: React.FC = () => {
         };
       }
 
-      const tier = manager.selectTierForInteraction(
-        isPlaying,
+      const tier = manager.selectTierForPreview(
         isInteracting,
-        false,
         state.previewQuality,
       );
       const profile = manager.getRenderProfile(tier);
@@ -1088,7 +1424,7 @@ export const NativeProgramPreview: React.FC = () => {
 
     const nativePreviewScheduler = new NativePreviewFrameScheduler({
       maxCacheEntries: 12,
-      maxInFlight: 2,
+      maxInFlight: 1,
       load: async (request, signal) => {
         if (signal?.aborted) {
           throw new DOMException(
@@ -1098,7 +1434,26 @@ export const NativeProgramPreview: React.FC = () => {
         }
         const requestKey = getNativeFrameRequestKey(request);
         const frontendSpan = nativePerfCollector.isEnabled()
-          ? nativePerfCollector.begin(request)
+          ? nativePerfCollector.begin(request, {
+              view: "webview",
+              surface: "dom-canvas",
+              runtimeEnvironment: import.meta.env.DEV
+                ? "development"
+                : "production",
+              sessionId: capturedSession.sessionId,
+              qualificationRunId:
+                previewQualificationController.getState().runId ?? undefined,
+              scenario:
+                previewQualificationController.getState().status === "running"
+                  ? "qualification"
+                  : request.mode === "seek"
+                    ? "seek"
+                    : request.mode === "scrub"
+                      ? "scrub"
+                      : request.mode === "frameStep"
+                        ? "paused-interaction"
+                        : "playback",
+            })
           : null;
         frontendSpan?.markDispatchStarted();
         if (frontendSpan) nativeFrontendPerfSpans.set(requestKey, frontendSpan);
@@ -1149,15 +1504,71 @@ export const NativeProgramPreview: React.FC = () => {
     });
 
     const presentNativePlaybackFrame = async (request: NativeFrameRequest) => {
-      const present = () =>
-        queueNativeFrame(request).then(() => presentNativeFrame(request));
+      const startedAt = performance.now();
+      const present = () => presentNativeFrame(request);
       try {
         await ensureNativeRequestFonts(request);
-        return await present();
+        // The native surface is process-global and its window can be hidden or
+        // reconfigured by the lifecycle effect. Keep presentation in the same
+        // operation lane as hide/resize so a stale cleanup cannot hide the
+        // surface immediately after this frame is submitted.
+        return await presentOnNativeSurface(project.id, present);
       } catch (error) {
         if (!(await reRegisterTextAssetsForRequest(request))) throw error;
-        return present();
+        return presentOnNativeSurface(project.id, present);
+      } finally {
+        traceSlowPlaybackStage("native-present", startedAt, {
+          frameIndex: request.frameTime.frameIndex,
+          textLayerCount: request.project.textLayers?.length ?? 0,
+          mode: request.mode,
+        });
       }
+    };
+
+    const nativePlaybackSnapshotKeyFor = buildNativePlaybackSnapshotKey;
+
+    const ensureNativePlaybackRenderSnapshot = (
+      request: NativeFrameRequest,
+    ): void => {
+      const key = nativePlaybackSnapshotKeyFor(request);
+      if (
+        nativePlaybackRenderSnapshotKey === key ||
+        nativePlaybackRenderSnapshotInFlightKey === key
+      ) {
+        return;
+      }
+      if (nativePlaybackRenderSnapshotInFlight !== null) {
+        // Configuration is also latest-value work. A text asset can become
+        // available while the previous graph is still being installed; keep
+        // only the newest snapshot and avoid concurrent Rust session swaps.
+        nativePlaybackRenderSnapshotPending = { key, request };
+        return;
+      }
+      nativePlaybackRenderSnapshotInFlightKey = key;
+      nativePlaybackRenderFailed = false;
+      nativePlaybackRenderSnapshotInFlight = configureNativePlaybackRender(
+        request,
+      )
+        .then(() => {
+          nativePlaybackRenderSnapshotKey = key;
+          nativePlaybackRenderFailed = false;
+        })
+        .catch((error) => {
+          nativePlaybackRenderFailed = true;
+          console.warn("[native-preview] persistent-render-session-failed", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        })
+        .finally(() => {
+          nativePlaybackRenderSnapshotInFlight = null;
+          nativePlaybackRenderSnapshotInFlightKey = "";
+          forceRenderNeeded = true;
+          const pending = nativePlaybackRenderSnapshotPending;
+          nativePlaybackRenderSnapshotPending = null;
+          if (pending && isActive) {
+            ensureNativePlaybackRenderSnapshot(pending.request);
+          }
+        });
     };
 
     const nativeTextDebugSummary = (request: NativeFrameRequest) =>
@@ -1171,39 +1582,73 @@ export const NativeProgramPreview: React.FC = () => {
       }));
 
     /**
-     * Warm the native caches before a visual clip boundary reaches the audio
-     * clock. The visible RAF never awaits this work: image registration,
-     * animated asset rasterization, body-mask generation, native text SDF
-     * compilation, and decode-ahead all happen on the low-priority path.
+     * Text has a distinct first-use cost: browser font loading, effect
+     * rasterization, and (when needed) native font registration. Warm only
+     * that path several seconds before a text boundary so it never competes
+     * with the first visible text frame.
      */
-    const prefetchNativeFrame = (frameIndex: number): void => {
+    const prefetchUpcomingNativeText = (currentFrame: number): void => {
       const state = renderStateRef.current;
       const project = state.project;
-      if (!project || state.clock.state !== "playing" || !isTauriRuntime()) return;
+      if (!project || state.clock.state !== "playing" || !isTauriRuntime()) {
+        return;
+      }
 
       const frameRate = Math.max(1, project.frameRate ?? 30);
-      const durationFrames = Math.max(1, Math.ceil(state.clock.duration * frameRate));
-      const targetFrame = Math.min(durationFrames - 1, Math.max(0, Math.floor(frameIndex)));
+      const currentTime = getFrameStartTime(
+        currentFrame / frameRate,
+        frameRate,
+      );
+      const durationFrames = Math.max(
+        1,
+        Math.ceil(state.clock.duration * frameRate),
+      );
+      const horizonTime = currentTime + 8;
+      const assetMap = new Map(state.mediaAssets.map((a) => [a.id, a]));
+      const isRasterClip = (clip: (typeof state.clips)[number]) => {
+        if (
+          clip.kind === "text" ||
+          clip.kind === "text-template" ||
+          clip.kind === "image" ||
+          clip.kind === "sticker"
+        )
+          return true;
+        const asset = assetMap.get(clip.mediaId);
+        return (
+          asset?.type === "image" ||
+          (clip.mediaId && clip.mediaId.startsWith("sticker-"))
+        );
+      };
+      const upcomingRasterClip = state.clips
+        .filter(
+          (clip) =>
+            isRasterClip(clip) &&
+            clip.startTime > currentTime &&
+            clip.startTime <= horizonTime,
+        )
+        .sort((left, right) => left.startTime - right.startTime)[0];
+      if (!upcomingRasterClip) return;
+
+      const targetFrame = Math.min(
+        durationFrames - 1,
+        Math.max(
+          currentFrame + 1,
+          Math.ceil(upcomingRasterClip.startTime * frameRate),
+        ),
+      );
       const revision = `${project.id ?? "unknown-project"}:${state.epoch}`;
       const key = `${revision}:${targetFrame}`;
       if (
-        nativePrefetchCompleted.has(key) ||
-        nativePrefetchInFlight.has(key)
+        nativeTextPrefetchCompleted.has(key) ||
+        nativeTextPrefetchInFlight.has(key)
       ) {
         return;
       }
-      const previousFailureAt = nativePrefetchFailedAt.get(key) ?? 0;
+      const previousFailureAt = nativeTextPrefetchFailedAt.get(key) ?? 0;
       if (performance.now() - previousFailureAt < 1000) return;
-      // Keep warm-up behind the visible playback path. A full native decode
-      // can be CPU-heavy, and two concurrent look-ahead jobs were enough to
-      // contend with surface presentation and reintroduce playback stutter.
-      // One nearby boundary is sufficient: text/image assets remain cached
-      // after that frame and do not need a second adjacent-frame prefetch.
-      if (nativePlaybackInFlight || nativePrefetchInFlight.size >= 1) return;
 
       const task = (async () => {
         const time = getFrameStartTime(targetFrame / frameRate, frameRate);
-        const prefetchTarget = getNativeRenderTarget(state, true, false);
         const scene = evaluateTimelineSceneCached(
           time,
           state.clips,
@@ -1214,49 +1659,31 @@ export const NativeProgramPreview: React.FC = () => {
           state.transitions,
           state.sceneVersions,
         );
-        const bridgeRasters = await nativeRasterBridge.rasterize(scene, {
-          frameKey: targetFrame,
-        });
-        const bodyMasks = await rasterizeNativeBodyMasks(
-          scene,
-          getActiveSessionOrNull()?.getPreviewVideoElements() ?? new Map(),
+        const textLayers = scene.visualLayers.filter(
+          (layer) => layer.layerType === "text",
         );
-        const activeSmartClips = state.clips.filter(
-          (clip): clip is SmartOverlayClip =>
-            clip.kind === "smart-overlay" &&
-            time >= clip.startTime &&
-            time < clip.startTime + clip.duration,
+        const imageLayers = scene.visualLayers.filter(
+          (layer) =>
+            layer.layerType === "media" &&
+            layer.mediaType === "image" &&
+            layer.stickerFormat !== "gif" &&
+            layer.stickerFormat !== "lottie",
         );
-        const smartOverlays = await nativeRasterBridge.rasterizeSmartOverlays(
-          activeSmartClips,
-          time,
-          prefetchTarget.width,
-          prefetchTarget.height,
-          { frameKey: targetFrame },
-        );
-        const request = buildNativeFrameRequest(
-          scene,
-          revision,
-          targetFrame,
-          frameRate,
-          prefetchTarget.width,
-          prefetchTarget.height,
-          [...bridgeRasters, ...bodyMasks, ...smartOverlays],
-          {
-            mode: "prefetch",
-            quality: prefetchTarget.quality,
-          },
-        );
-        if (!request) return;
+        if (textLayers.length === 0 && imageLayers.length === 0) return;
 
-        const requestTextLayers = request.project.textLayers ?? [];
-        if (requestTextLayers.length > 0) {
-          console.debug("[native-preview] text-prefetch-ready", {
-            frameIndex: targetFrame,
-            textLayerCount: requestTextLayers.length,
-            textLayers: nativeTextDebugSummary(request),
-          });
-        }
+        await Promise.all([
+          textLayers.length > 0
+            ? nativeRasterBridge.prewarmTextAssets(scene, "text-prefetch")
+            : Promise.resolve(),
+          textLayers.length > 0
+            ? ensureNativeFontsRegistered(
+                textLayers.map((layer) => layer.fontFamily),
+              )
+            : Promise.resolve(),
+          imageLayers.length > 0
+            ? nativeRasterBridge.prewarmImageAssets(scene)
+            : Promise.resolve(),
+        ]);
 
         const current = renderStateRef.current;
         if (
@@ -1267,53 +1694,43 @@ export const NativeProgramPreview: React.FC = () => {
         ) {
           return;
         }
-        await ensureNativeRequestFonts(request);
-        await queueNativeFrame(request);
-        nativePrefetchCompleted.add(key);
-        nativePrefetchFailedAt.delete(key);
+        nativeTextPrefetchCompleted.add(key);
+        while (nativeTextPrefetchCompleted.size > 128) {
+          const oldestKey = nativeTextPrefetchCompleted.values().next().value;
+          if (oldestKey === undefined) break;
+          nativeTextPrefetchCompleted.delete(oldestKey);
+        }
+        nativeTextPrefetchFailedAt.delete(key);
       })()
         .catch((error) => {
-          nativePrefetchFailedAt.set(key, performance.now());
-          console.error("[native-preview] prefetch-failed", {
+          nativeTextPrefetchFailedAt.set(key, performance.now());
+          console.error("[native-preview] text-prefetch-failed", {
             frameIndex: targetFrame,
             revision,
             error: error instanceof Error ? error.message : String(error),
           });
         })
         .finally(() => {
-          nativePrefetchInFlight.delete(key);
+          nativeTextPrefetchInFlight.delete(key);
         });
 
-      nativePrefetchInFlight.set(key, task);
+      nativeTextPrefetchInFlight.set(key, task);
     };
 
-    const prefetchUpcomingNativeFrames = (currentFrame: number): void => {
-      const state = renderStateRef.current;
-      if (!state.project || state.clock.state !== "playing") return;
-      const frameRate = Math.max(1, state.project.frameRate ?? 30);
-      const currentTime = getFrameStartTime(currentFrame / frameRate, frameRate);
-      const prefetchHorizonFrame = currentFrame + Math.ceil(frameRate * 3);
-      const durationFrames = Math.max(1, Math.ceil(state.clock.duration * frameRate));
-      const candidates = new Set<number>();
-
-      // Target activation boundaries rather than every adjacent frame. This
-      // path prepares expensive first-use assets for a layer that begins
-      // several seconds ahead without competing with the currently visible
-      // video decode. It is intentionally not a second visible-frame loop.
-      for (const clip of state.clips) {
-        if (clip.kind === "audio" || clip.startTime <= currentTime) continue;
-        const boundary = Math.min(
-          durationFrames - 1,
-          Math.max(currentFrame + 1, Math.ceil(clip.startTime * frameRate)),
+    // Never start text preparation in the same turn as the first play intent.
+    // Canvas rasterization can occupy the WebView thread even though the
+    // function is async; give the first native frame and audio clock a head
+    // start, then warm the next text boundary from an idle timer.
+    const scheduleUpcomingNativeTextPrefetch = (): void => {
+      if (nativeTextPrefetchTimer !== null) return;
+      nativeTextPrefetchTimer = window.setTimeout(() => {
+        nativeTextPrefetchTimer = null;
+        const current = renderStateRef.current;
+        if (current.clock.state !== "playing") return;
+        prefetchUpcomingNativeText(
+          getFrameIndexAtTime(current.clock.time, current.clock.frameRate),
         );
-        if (boundary <= prefetchHorizonFrame) candidates.add(boundary);
-      }
-
-      [...candidates]
-        .filter((frame) => frame > currentFrame && frame < durationFrames)
-        .sort((left, right) => left - right)
-        .slice(0, 1)
-        .forEach(prefetchNativeFrame);
+      }, 100);
     };
 
     const scheduleNextFrame = () => {
@@ -1326,24 +1743,112 @@ export const NativeProgramPreview: React.FC = () => {
     };
     wakeNativeRenderLoopRef.current = scheduleNextFrame;
 
+    // Transform feedback is an ephemeral render concern. Keep it outside
+    // renderStateRef and Zustand so a pointer drag cannot invalidate every
+    // editor subscriber. The active geometry is merged into a private clip
+    // snapshot only at the native scene boundary below.
+    const transformController = getTransformController();
+    let dragPreviewClipId: string | null = null;
+    let dragPreviewSessionId = 0;
+    let dragPreviewRevision = 0;
+    let dragPreviewGeometry: DragGeometry | null = null;
+    let dragPreviewPendingCommit = false;
+
+    const getRenderClips = (
+      baseClips: Clip[],
+    ): {
+      clips: Clip[];
+      previewRevision: number;
+    } => {
+      if (!dragPreviewClipId || !dragPreviewGeometry) {
+        return { clips: baseClips, previewRevision: 0 };
+      }
+
+      const previewGeometry = dragPreviewGeometry;
+      const previewClipId = dragPreviewClipId;
+      const previewRevision = dragPreviewRevision;
+      const previewClips = baseClips.map((clip) =>
+        clip.id === previewClipId
+          ? ({
+              ...clip,
+              x: previewGeometry.x,
+              y: previewGeometry.y,
+              width: previewGeometry.width,
+              height: previewGeometry.height,
+              rotation: previewGeometry.rotation,
+              ...(previewGeometry.fontSize !== undefined
+                ? { fontSize: previewGeometry.fontSize }
+                : {}),
+              ...(previewGeometry.conform
+                ? { conform: previewGeometry.conform }
+                : {}),
+            } as Clip)
+          : clip,
+      );
+
+      // The final command is written synchronously, but React may publish its
+      // new timeline snapshot on the next commit. Retain the final geometry
+      // for that handoff, then release the ephemeral override after one render.
+      if (dragPreviewPendingCommit) {
+        dragPreviewPendingCommit = false;
+        dragPreviewClipId = null;
+        dragPreviewGeometry = null;
+      }
+
+      return { clips: previewClips, previewRevision };
+    };
+
     const renderLoop = async () => {
       if (!isActive || renderInFlight) return;
+      const wasRenderInFlightAtStart = renderInFlight; // false at this point — guard passed
       renderInFlight = true;
+      const renderStartedAt = performance.now();
+      let traceFrameIndex = -1;
+      let traceTextLayerCount = 0;
 
       try {
         const state = renderStateRef.current;
         const timeToRender = state.clock.time;
         const playbackState = state.clock.state;
         const isPlaying = playbackState === "playing";
-
         const frameRate = state.project?.frameRate ?? 30;
         const frameIndex = getFrameIndexAtTime(timeToRender, frameRate);
+        if (playbackState !== lastTracedPlaybackState) {
+          lastTracedPlaybackState = playbackState;
+          // tracePlayback("playback-state", {
+          //   projectId: state.project?.id ?? null,
+          //   sessionId: capturedSession.sessionId,
+          //   playbackState,
+          //   time: Number(timeToRender.toFixed(3)),
+          //   frameIndex,
+          //   nativeClockReady: state.clock.hasNativeClockPosition,
+          //   surfaceReady: nativeSurfaceReadyRef.current,
+          //   surfacePresenting: nativeSurfaceShown,
+          //   renderInFlight,
+          // });
+        }
+        traceFrameIndex = frameIndex;
         const frameStartTime = getFrameStartTime(timeToRender, frameRate);
-        const renderTarget = getNativeRenderTarget(
+        const qualificationState = previewQualificationController.getState();
+        const nativeAudioClockReadyForTarget =
+          !isTauriRuntime() || state.clock.hasNativeClockPosition;
+        const nativeRevisionForTarget = `${state.project?.id ?? "unknown-project"}:${state.epoch}`;
+        const nativeSurfaceCanOwnPlayback =
+          nativeSurfaceReadyRef.current &&
+          nativeSurfaceGeometrySettledRef.current &&
+          nativeAudioClockReadyForTarget &&
+          nativeContinuousBlockedRevision !== nativeRevisionForTarget;
+        const baseRenderTarget = getNativeRenderTarget(
           state,
-          isPlaying,
           !isPlaying && clock.isSeeking,
         );
+        const webViewTargetRequired =
+          !isPlaying ||
+          qualificationState.path === "webview" ||
+          !nativeSurfaceCanOwnPlayback;
+        const renderTarget = webViewTargetRequired
+          ? capWebViewRenderTarget(baseRenderTarget)
+          : baseRenderTarget;
         const requestIntent = latestSeekIntent
           ? {
               generation: latestSeekIntent.generation,
@@ -1375,8 +1880,8 @@ export const NativeProgramPreview: React.FC = () => {
           state.transitions !== lastRenderedTransitions;
         const projectChanged = state.project !== lastRenderedProject;
 
-        const session = getActiveSessionOrNull();
-        const mediaReadyRevision = session?.getPreviewMediaReadyRevision() ?? 0;
+        const mediaReadyRevision =
+          capturedSession.getPreviewMediaReadyRevision();
         const mediaReadyChanged =
           mediaReadyRevision !== lastRenderedMediaReadyRevision;
 
@@ -1395,18 +1900,55 @@ export const NativeProgramPreview: React.FC = () => {
 
         if (!mightNeedRender) return;
 
+        const { clips: renderClips, previewRevision } = getRenderClips(
+          state.clips,
+        );
+        const dragPreviewRevisionAtStart = dragPreviewRevision;
+        const renderSceneVersions =
+          previewRevision > 0
+            ? {
+                ...state.sceneVersions,
+                clipVersion: `${state.sceneVersions.clipVersion}:drag:${dragPreviewSessionId}:${previewRevision}`,
+              }
+            : state.sceneVersions;
+
+        const evaluationStartedAt = performance.now();
         const scene = evaluateTimelineSceneCached(
           frameStartTime,
-          state.clips,
+          renderClips,
           state.tracks,
           state.mediaAssets,
           state.project,
           state.epoch,
           state.transitions,
-          state.sceneVersions,
+          renderSceneVersions,
         );
+        traceTextLayerCount = scene.visualLayers.filter(
+          (layer) => layer.layerType === "text",
+        ).length;
+        traceSlowPlaybackStage(
+          "visible-scene-evaluation",
+          evaluationStartedAt,
+          {
+            frameIndex,
+            playbackState,
+            textLayerCount: traceTextLayerCount,
+          },
+        );
+        const bridgeStartedAt = performance.now();
         const nativeBridgeRasters = await nativeRasterBridge.rasterize(scene, {
           frameKey: frameIndex,
+          phase: isPlaying ? "visible-playback" : "interactive-preview",
+          // A cold text asset must not block the native playback clock. The
+          // bridge returns the previous bitmap/native text fallback and
+          // publishes the prepared asset for a later frame.
+          nonBlockingText: isPlaying,
+        });
+        traceSlowPlaybackStage("visible-raster-bridge", bridgeStartedAt, {
+          frameIndex,
+          playbackState,
+          textLayerCount: traceTextLayerCount,
+          rasterLayerCount: nativeBridgeRasters.length,
         });
         // Playback is a latest-frame stream. If the clock advanced while the
         // WebView was rasterizing an integration layer, abandon this work
@@ -1416,22 +1958,29 @@ export const NativeProgramPreview: React.FC = () => {
         const playbackTargetStillCurrent = () => {
           const current = renderStateRef.current;
           return (
-            !isPlaying ||
-            (current.project?.id === state.project?.id &&
-              current.epoch === state.epoch &&
-              current.clock.state === "playing" &&
-              getFrameIndexAtTime(current.clock.time, frameRate) === frameIndex)
+            dragPreviewRevision === dragPreviewRevisionAtStart &&
+            (!isPlaying ||
+              (current.project?.id === state.project?.id &&
+                current.epoch === state.epoch &&
+                current.clock.state === "playing" &&
+                getFrameIndexAtTime(current.clock.time, frameRate) ===
+                  frameIndex))
           );
         };
         if (!playbackTargetStillCurrent()) {
           forceRenderNeeded = true;
           return;
         }
+        const bodyMaskStartedAt = performance.now();
         const nativeBodyMasks = await rasterizeNativeBodyMasks(
           scene,
-          session?.getPreviewVideoElements() ?? new Map(),
+          capturedSession.getPreviewVideoElements(),
         );
-        const nativeActiveSmartClips = state.clips.filter(
+        traceSlowPlaybackStage("visible-body-masks", bodyMaskStartedAt, {
+          frameIndex,
+          bodyMaskCount: nativeBodyMasks.length,
+        });
+        const nativeActiveSmartClips = renderClips.filter(
           (clip): clip is SmartOverlayClip =>
             clip.kind === "smart-overlay" &&
             frameStartTime >= clip.startTime &&
@@ -1439,6 +1988,7 @@ export const NativeProgramPreview: React.FC = () => {
             // (startTime <= evalTime < clipEnd). Was <= which rendered overlays one extra frame.
             frameStartTime < clip.startTime + clip.duration,
         );
+        const smartOverlayStartedAt = performance.now();
         const nativeSmartOverlays =
           await nativeRasterBridge.rasterizeSmartOverlays(
             nativeActiveSmartClips,
@@ -1447,6 +1997,14 @@ export const NativeProgramPreview: React.FC = () => {
             renderTarget.height,
             { frameKey: frameIndex },
           );
+        traceSlowPlaybackStage(
+          "visible-smart-overlays",
+          smartOverlayStartedAt,
+          {
+            frameIndex,
+            smartOverlayCount: nativeSmartOverlays.length,
+          },
+        );
         if (!playbackTargetStillCurrent()) {
           forceRenderNeeded = true;
           return;
@@ -1466,18 +2024,11 @@ export const NativeProgramPreview: React.FC = () => {
           nativeRasterLayers,
           requestIntent,
         );
-        const textLayers = nativeRequest?.project.textLayers ?? [];
         const sceneTextLayers = scene.visualLayers.filter(
           (layer) => layer.layerType === "text",
         );
         const missingTextSignature = sceneTextLayers
           .map((layer) => `${layer.layerId}|${layer.text}`)
-          .join("\u001f");
-        const textSignature = textLayers
-          .map(
-            (layer) =>
-              `${layer.text}|${layer.fontId}|${layer.fontWeight ?? ""}|${layer.fontStyle ?? ""}|${layer.effect?.effectId ?? ""}`,
-          )
           .join("\u001f");
         if (
           !nativeRequest &&
@@ -1491,15 +2042,13 @@ export const NativeProgramPreview: React.FC = () => {
             blockers: getNativePreviewBlockers(scene, nativeRasterLayers),
           });
         }
-        if (textLayers.length > 0 && textSignature !== lastLoggedTextSignature) {
-          lastLoggedTextSignature = textSignature;
-          console.debug("[native-preview] text-request-ready", {
-            frameIndex,
-            textLayerCount: textLayers.length,
-            textLayers: nativeTextDebugSummary(nativeRequest!),
-          });
-        }
-        if (isPlaying) prefetchUpcomingNativeFrames(frameIndex);
+        // Do not queue a speculative native video frame from the visible RAF.
+        // `queue_native_frame` uses the same decoder mutex as presentation, so
+        // launching it immediately before the visible request can freeze the
+        // surface several seconds before a text/media boundary. Decoder cold
+        // starts are handled during project/session initialization; text and
+        // other WebView assets use their isolated prewarm paths below.
+        if (isPlaying) scheduleUpcomingNativeTextPrefetch();
         // Present the frame that was actually evaluated. Building a second
         // look-ahead scene here doubles WebView rasterization and IPC exactly
         // when the renderer is already behind. Native queue/prefetch remains
@@ -1529,6 +2078,12 @@ export const NativeProgramPreview: React.FC = () => {
           visibleRequestGeneration += 1;
           nativePreviewScheduler.setVisibleGeneration();
         }
+        const interactionGeneration =
+          previewInteractionCoordinator.getGeneration().revision;
+        if (interactionGeneration > visibleRequestGeneration) {
+          visibleRequestGeneration = interactionGeneration;
+          nativePreviewScheduler.setVisibleGeneration(visibleRequestGeneration);
+        }
         const targetGeneration = visibleRequestGeneration;
         // Do not hand the visible surface to native video until native audio has
         // supplied its first hardware-clock sample. Before that point the
@@ -1553,23 +2108,26 @@ export const NativeProgramPreview: React.FC = () => {
         // Audit 4.6 fix: read nativeSurfaceReadyRef.current (imperative ref) rather than
         // the React state `nativeSurfaceReady` to avoid having the state in the effect deps.
         const nativeSurfaceReadyNow = nativeSurfaceReadyRef.current;
+        const nativeSurfaceErrorNow = nativeSurfaceErrorRef.current;
         if (nativeOnlyMode) {
           const blockers = [
             ...(!nativeRequest
               ? getNativePreviewBlockers(scene, nativeRasterLayers)
               : []),
-            ...(!nativeSurfaceReadyNow
-              ? ["The retained native wgpu surface is not ready."]
+            ...(nativeSurfaceErrorNow
+              ? [
+                  `The retained native wgpu surface failed to initialize: ${nativeSurfaceErrorNow}`,
+                ]
               : []),
           ];
           const blockerKey = blockers.join("\n");
           if (nativeOnlyBlockersKeyRef.current !== blockerKey) {
             nativeOnlyBlockersKeyRef.current = blockerKey;
             if (blockers.length > 0) {
-              toast.error(
-                ["Native-only preview", ...blockers].join("\n"),
-                { id: "native-only-preview-blocked", duration: 6000 },
-              );
+              toast.error(["Native-only preview", ...blockers].join("\n"), {
+                id: "native-only-preview-blocked",
+                duration: 6000,
+              });
             } else {
               toast.dismiss("native-only-preview-blocked");
             }
@@ -1588,26 +2146,88 @@ export const NativeProgramPreview: React.FC = () => {
           nativeSurfaceReadyNow &&
           nativeSurfaceGeometrySettledRef.current &&
           nativeContinuousBlockedRevision !== nativeRevision;
+        const qualification = previewQualificationController.getState();
+        const qualificationForcesWebView =
+          qualification.status === "running" &&
+          qualification.path === "webview";
         const nativeSurfaceOwnsCurrentFrame =
           nativeSurfaceShown &&
+          isPlaying &&
           lastNativePlaybackRequestKey === nativePlaybackRequestKey &&
-          (!isPlaying || nativeAudioClockReady) &&
+          nativeAudioClockReady &&
           nativeSurfaceUsable;
         const nativeDirectSurfacePath =
           nativeSurfaceUsable &&
           Boolean(nativeRequest) &&
-          (nativePlaybackPath || nativePausedPath);
+          nativePlaybackPath &&
+          !qualificationForcesWebView;
+        const outputAdapter = nativeDirectSurfacePath
+          ? NativeSurfaceOutput
+          : WebViewCanvasOutput;
         const nativeReadbackFallbackPath =
-          isPlaying && nativePlaybackPath && !nativeSurfaceUsable;
-        if (
+          isPlaying &&
+          nativePlaybackPath &&
+          (!nativeSurfaceUsable || qualificationForcesWebView);
+        const telemetryScenario =
+          qualification.status === "running"
+            ? "qualification"
+            : isPlaying
+              ? "playback"
+              : clock.isSeeking
+                ? "seek"
+                : "paused-interaction";
+        const telemetryContextBase = {
+          sessionId: capturedSession.sessionId,
+          qualificationRunId:
+            qualification.status === "running"
+              ? (qualification.runId ?? undefined)
+              : undefined,
+          scenario: telemetryScenario as
+            | "playback"
+            | "seek"
+            | "paused-interaction"
+            | "qualification",
+          runtimeEnvironment: import.meta.env.DEV
+            ? ("development" as const)
+            : ("production" as const),
+        };
+        previewTelemetryContextRef.current = nativeDirectSurfacePath
+          ? {
+              view: outputAdapter.path,
+              surface: outputAdapter.surface,
+              ...telemetryContextBase,
+            }
+          : {
+              view: outputAdapter.path,
+              surface: outputAdapter.surface,
+              ...telemetryContextBase,
+            };
+        // The child surface is playback-only on desktop. Paused and seeking
+        // frames must be committed to the DOM canvas so they share the exact
+        // same placement and layering as the editor overlays (TransformOverlay,
+        // SafeOverlay, captions).
+        if (!isPlaying) {
+          nativePlaybackRenderFailed = false;
+          playbackPipelineLogged = false;
+        }
+        const nativeSurfaceNeedsHide =
           nativeSurfaceShown &&
-          !nativeDirectSurfacePath &&
-          !nativeSurfaceOwnsCurrentFrame
-        ) {
+          (!nativeDirectSurfacePath ||
+            !nativeSurfaceUsable ||
+            (!nativeRequest && !nativeSurfaceOwnsCurrentFrame));
+        if (nativeSurfaceNeedsHide) {
+          // tracePlayback("surface-hide-for-recovery", {
+          //   projectId: state.project?.id ?? null,
+          //   playbackState,
+          //   frameIndex,
+          //   surfaceReady: nativeSurfaceReadyNow,
+          //   surfaceUsable: nativeSurfaceUsable,
+          //   hasNativeRequest: Boolean(nativeRequest),
+          //   surfaceOwnsCurrentFrame: nativeSurfaceOwnsCurrentFrame,
+          // });
           nativeSurfaceShown = false;
           lastNativePlaybackRequestKey = "";
-          setNativeSurfacePresenting(false);
-          void hideNativeSurface().catch(() => undefined);
+          void hideNativeSurfaceWhenIdle().catch(() => undefined);
         }
         const cachedNativeFrame =
           nativeRequestKey !== ""
@@ -1630,6 +2250,7 @@ export const NativeProgramPreview: React.FC = () => {
             current.project?.id === state.project?.id &&
             current.epoch === state.epoch &&
             current.clock.state === playbackState &&
+            dragPreviewRevision === dragPreviewRevisionAtStart &&
             (!requireExactFrame ||
               getFrameIndexAtTime(current.clock.time, frameRate) === frameIndex)
           );
@@ -1646,10 +2267,9 @@ export const NativeProgramPreview: React.FC = () => {
           performance.now() >= nativeRetryAt &&
           !nativePlaybackInFlight
         ) {
-          const requestToPresent =
-            isPlaying
-              ? nativePlaybackRequest ?? nativeRequest
-              : nativeRequest;
+          const requestToPresent = isPlaying
+            ? (nativePlaybackRequest ?? nativeRequest)
+            : nativeRequest;
           if (requestToPresent) {
             const requestKey = getNativeFrameRequestKey(requestToPresent);
             if (requestKey !== lastNativePlaybackRequestKey) {
@@ -1661,9 +2281,104 @@ export const NativeProgramPreview: React.FC = () => {
                 generation: targetGeneration,
               };
 
-              if (nativeSurfaceUsable) {
+              const persistentNativePlaybackEligible =
+                isPlaying &&
+                nativeSurfaceUsable &&
+                !qualificationForcesWebView &&
+                !nativePlaybackRenderFailed;
+              if (persistentNativePlaybackEligible) {
+                ensureNativePlaybackRenderSnapshot(requestToPresent);
+                const snapshotKey =
+                  nativePlaybackSnapshotKeyFor(requestToPresent);
+                if (
+                  nativePlaybackRenderSnapshotKey === snapshotKey &&
+                  nativePlaybackRenderSnapshotInFlight === null
+                ) {
+                  if (!playbackPipelineLogged) {
+                    playbackPipelineLogged = true;
+                    console.log(
+                      `%c[av-sync][pipeline] Continuous playback ACTIVE via persistent Native background worker (frame: ${requestToPresent.frameTime.frameIndex})`,
+                      "color: #10b981; font-weight: bold;",
+                    );
+                  }
+                  // Rust owns the active decode/present operation and keeps
+                  // one latest pending demand. This command contains only
+                  // dynamic layer values; it never sends paths or the full
+                  // project snapshot and it does not wait for presentation.
+                  const playbackDemandRequest = {
+                    ...requestToPresent,
+                    generation: targetGeneration,
+                  };
+                  void submitNativePlaybackDemand(
+                    createNativePlaybackFrameDemand(playbackDemandRequest),
+                  ).catch((error) => {
+                    const msg =
+                      error instanceof Error ? error.message : String(error);
+                    if (!msg.includes("not configured")) {
+                      nativePlaybackRenderFailed = true;
+                    }
+                    nativePlaybackRenderSnapshotKey = "";
+                    lastNativePlaybackRequestKey = "";
+                    forceRenderNeeded = true;
+                    console.warn("[native-preview] demand-submit-failed", {
+                      frameIndex: requestToPresent.frameTime.frameIndex,
+                      error: msg,
+                    });
+                  });
+                  nativeSurfaceShown = true;
+                  lastNativePlaybackRequestKey = requestKey;
+                }
+              } else if (
+                isPlaying &&
+                nativeSurfaceUsable &&
+                !qualificationForcesWebView
+              ) {
+                if (!playbackPipelineLogged) {
+                  playbackPipelineLogged = true;
+                  console.warn(
+                    "[av-sync][pipeline] Fallback synchronous presentation active (not persistent worker):",
+                    {
+                      persistentNativePlaybackEligible,
+                      nativePlaybackRenderFailed,
+                      snapshotKeyMatch:
+                        nativePlaybackRenderSnapshotKey ===
+                        nativePlaybackSnapshotKeyFor(requestToPresent),
+                      snapshotInFlight:
+                        nativePlaybackRenderSnapshotInFlight !== null,
+                    },
+                  );
+                }
+                const tracePresentation = isFirstFrame || !isPlaying;
+                if (tracePresentation) {
+                  // tracePlayback("native-present-start", {
+                  //   projectId: state.project?.id ?? null,
+                  //   sessionId: capturedSession.sessionId,
+                  //   frameIndex: requestToPresent.frameTime.frameIndex,
+                  //   requestKey,
+                  //   playbackState,
+                  //   audioClockReady: nativeAudioClockReady,
+                  //   surfaceReady: nativeSurfaceReadyNow,
+                  //   surfaceGeometrySettled:
+                  //     nativeSurfaceGeometrySettledRef.current,
+                  // });
+                }
                 const frontendSpan = nativePerfCollector.isEnabled()
-                  ? nativePerfCollector.begin(requestToPresent)
+                  ? nativePerfCollector.begin(requestToPresent, {
+                      view: "native",
+                      surface: "native-surface",
+                      runtimeEnvironment: import.meta.env.DEV
+                        ? "development"
+                        : "production",
+                      sessionId: capturedSession.sessionId,
+                      qualificationRunId:
+                        previewQualificationController.getState().runId ??
+                        undefined,
+                      scenario:
+                        previewQualificationController.getState().status ===
+                        "running"
+                          ? "qualification"
+                          : "playback",
+                    })
                   : null;
                 frontendSpan?.markDispatchStarted();
                 frontendSpan?.markIpcStarted();
@@ -1672,7 +2387,62 @@ export const NativeProgramPreview: React.FC = () => {
                 )
                   .then((presentation) => {
                     frontendSpan?.markIpcFinished();
+                    const timings = presentation.timings;
+                    if (timings && timings.totalUs >= 16_667) {
+                      // tracePlayback("native-present-stages", {
+                      //   projectId: state.project?.id ?? null,
+                      //   sessionId: capturedSession.sessionId,
+                      //   frameIndex: requestToPresent.frameTime.frameIndex,
+                      //   totalMs: Number((timings.totalUs / 1000).toFixed(2)),
+                      //   decodeMs: Number((timings.decodeUs / 1000).toFixed(2)),
+                      //   decoderWaitMs: Number(
+                      //     (timings.decoderMutexWaitUs / 1000).toFixed(2),
+                      //   ),
+                      //   conversionUploadMs: Number(
+                      //     (timings.conversionUploadUs / 1000).toFixed(2),
+                      //   ),
+                      //   composeMs: Number(
+                      //     (timings.composeUs / 1000).toFixed(2),
+                      //   ),
+                      //   surfaceAcquireMs: Number(
+                      //     (timings.surfaceAcquireUs / 1000).toFixed(2),
+                      //   ),
+                      //   submitPresentMs: Number(
+                      //     (timings.submitPresentUs / 1000).toFixed(2),
+                      //   ),
+                      //   queueHit: timings.queueHit,
+                      // });
+                    }
+                    if (tracePresentation) {
+                      // tracePlayback("native-present-result", {
+                      //   projectId: state.project?.id ?? null,
+                      //   sessionId: capturedSession.sessionId,
+                      //   frameIndex: requestToPresent.frameTime.frameIndex,
+                      //   requestKey,
+                      //   playbackState,
+                      //   presented: presentation.presented,
+                      //   dropped: presentation.dropped,
+                      //   stale: presentation.stale,
+                      //   frameAgeTicks: presentation.frameAgeTicks,
+                      //   audioPositionTicks: presentation.audioPositionTicks,
+                      // });
+                    }
                     if (!presentation.presented) {
+                      // tracePlayback(
+                      //   presentation.stale
+                      //     ? "native-frame-stale"
+                      //     : "native-frame-dropped",
+                      //   {
+                      //     projectId: state.project?.id ?? null,
+                      //     sessionId: capturedSession.sessionId,
+                      //     frameIndex: requestToPresent.frameTime.frameIndex,
+                      //     playbackState,
+                      //     dropped: presentation.dropped,
+                      //     stale: presentation.stale,
+                      //     frameAgeTicks: presentation.frameAgeTicks,
+                      //     audioPositionTicks: presentation.audioPositionTicks,
+                      //   },
+                      // );
                       const droppedTextLayers =
                         requestToPresent.project.textLayers ?? [];
                       const droppedTextSignature = droppedTextLayers
@@ -1698,58 +2468,74 @@ export const NativeProgramPreview: React.FC = () => {
                       frontendSpan?.finish({
                         dropped: presentation.dropped,
                         stale: presentation.stale === true,
+                        dropReason:
+                          presentation.dropReason ??
+                          (presentation.dropped ? "present-failed" : undefined),
                       });
                       lastNativePlaybackRequestKey = "";
                       if (presentation.dropped) {
                         nativeDroppedFrameCount += 1;
+                        if (
+                          isPlaying &&
+                          nativePlaybackRenderSnapshotInFlight === null &&
+                          typeof presentation.audioPositionTicks === "number" &&
+                          presentation.audioPositionTicks > 0 &&
+                          typeof presentation.frameAgeTicks === "number" &&
+                          presentation.frameAgeTicks > 60_000
+                        ) {
+                          clock.setNativeClockPosition(
+                            presentation.audioPositionTicks / 1_000_000,
+                            clock.speed,
+                          );
+                        }
                       }
                     } else {
-                      frontendSpan?.finish();
+                      frontendSpan?.finish({
+                        stageTimings: timings
+                          ? {
+                              decodeUs: timings.decodeUs,
+                              decoderMutexWaitUs: timings.decoderMutexWaitUs,
+                              conversionUploadUs: timings.conversionUploadUs,
+                              composeUs: timings.composeUs,
+                              surfaceAcquireUs: timings.surfaceAcquireUs,
+                              gpuQueueWaitUs: timings.gpuQueueWaitUs,
+                              submitPresentUs: timings.submitPresentUs,
+                            }
+                          : undefined,
+                      });
                       const current = renderStateRef.current;
                       const currentRequestIsStillAuthoritative =
                         requestKey === nativeRequestKey || isPlaying;
-                      if (
+                      // A stopped clock is the normal state immediately after
+                      // project load. A successfully presented frame must be
+                      // accepted there as the initial still, and it should
+                      // remain visible while a play/pause/seek transition is
+                      // waiting for its replacement.
+                      const canRetainPresentedSurface =
                         isActive &&
                         nativeSurfaceGeometrySettledRef.current &&
                         current.project?.id === state.project?.id &&
                         current.epoch === state.epoch &&
-                        current.clock.state !== "stopped" &&
+                        isPlaying;
+                      if (
+                        canRetainPresentedSurface &&
                         currentRequestIsStillAuthoritative
                       ) {
-                        const presentedTextLayers =
-                          requestToPresent.project.textLayers ?? [];
-                        const presentationTextSignature = presentedTextLayers
-                          .map(
-                            (layer) =>
-                              `${layer.text}|${layer.fontId}|${layer.fontWeight ?? ""}|${layer.effect?.effectId ?? ""}`,
-                          )
-                          .join("\u001f");
-                        if (
-                          presentedTextLayers.length > 0 &&
-                          presentationTextSignature !==
-                            lastLoggedTextPresentationSignature
-                        ) {
-                          lastLoggedTextPresentationSignature =
-                            presentationTextSignature;
-                          console.debug("[native-preview] text-surface-presented", {
-                            frameIndex: requestToPresent.frameTime.frameIndex,
-                            textLayers: nativeTextDebugSummary(requestToPresent),
-                            presented: presentation.presented,
-                            dropped: presentation.dropped,
-                            stale: presentation.stale,
-                          });
-                        }
                         nativeSurfaceShown = true;
-                        if (nativeSurfaceReadyRef.current) {
-                          setNativeSurfacePresenting(true);
-                        }
-                      } else if (presentation.presented) {
-                        if (lastNativePlaybackRequestKey === requestKey) {
-                          lastNativePlaybackRequestKey = "";
-                          nativeSurfaceShown = false;
-                          setNativeSurfacePresenting(false);
-                          void hideNativeSurface().catch(() => undefined);
-                        }
+                      } else if (
+                        canRetainPresentedSurface &&
+                        presentation.presented
+                      ) {
+                        // The request may have become non-authoritative while
+                        // it was in flight, but its frame is still valid visual
+                        // continuity. Leave the retained surface visible until
+                        // the newer request is presented.
+                        // tracePlayback("surface-retain-presented-frame", {
+                        //   projectId: state.project?.id ?? null,
+                        //   frameIndex: requestToPresent.frameTime.frameIndex,
+                        //   playbackState,
+                        //   currentPlaybackState: current.clock.state,
+                        // });
                       }
                     }
                   })
@@ -1768,7 +2554,8 @@ export const NativeProgramPreview: React.FC = () => {
                       frameIndex: requestToPresent.frameTime.frameIndex,
                       requestKey,
                       textLayers: nativeTextDebugSummary(requestToPresent),
-                      error: error instanceof Error ? error.message : String(error),
+                      error:
+                        error instanceof Error ? error.message : String(error),
                     });
                     frontendSpan?.markIpcFinished();
                     frontendSpan?.finish({ dropped: true });
@@ -1778,19 +2565,18 @@ export const NativeProgramPreview: React.FC = () => {
                       nativeContinuousBlockedRevision = nativeRevision;
                     }
                     nativeRetryAt = performance.now() + 250;
-                    if (nativeSurfaceShown) {
+                    if (isActive && nativeSurfaceShown) {
                       nativeSurfaceShown = false;
                       lastNativePlaybackRequestKey = "";
-                      setNativeSurfacePresenting(false);
-                      void hideNativeSurface().catch(() => undefined);
+                      void hideNativeSurfaceWhenIdle().catch(() => undefined);
                     }
                   })
                   .finally(() => {
                     nativePlaybackInFlight = null;
                   });
               } else {
-                // Non-authoritative diagnostic path retained for browser harnesses;
-                // Tauri never enters this branch because its preview is surface-only.
+                // Non-authoritative readback path used by native-surface
+                // recovery and by paused/seeking editor interaction.
                 nativePlaybackInFlight = nativePreviewScheduler
                   .requestVisible(requestSource)
                   .then((frame) => {
@@ -1876,9 +2662,9 @@ export const NativeProgramPreview: React.FC = () => {
           }
         }
 
-        // Native Tauri preview is a hard boundary. Readback is reserved for
-        // export/diagnostics; the desktop preview keeps the last surface frame
-        // while the retained surface recovers.
+        // Native Tauri preview normally uses the retained surface during
+        // playback. Readback is used automatically for paused/seeking editor
+        // interaction and whenever the native surface is unavailable.
         if (
           needsRender &&
           !nativeSurfaceShown &&
@@ -2011,6 +2797,23 @@ export const NativeProgramPreview: React.FC = () => {
               }
               canvasPaintMs = performance.now() - canvasPaintStarted;
             }
+            // Browser/local development has no retained native surface. Paint
+            // evaluated text layers through the same package-backed raster
+            // bridge so Program Preview is functional before Tauri starts.
+            if (
+              !isTauriRuntime() &&
+              canvasEl &&
+              scene.visualLayers.some((layer) => layer.layerType === "text")
+            ) {
+              const browserPaintStarted = performance.now();
+              await paintTextLayersToCanvas(
+                canvasEl,
+                scene,
+                isPlaying ? "visible-playback" : "interactive-preview",
+                { shouldPaint: targetStillCurrent },
+              );
+              canvasPaintMs = performance.now() - browserPaintStarted;
+            }
             if (nativeFrame && canvasEl && exactNativeFrame !== null) {
               const frontendSpan =
                 nativeFrontendPerfSpans.get(nativeRequestKey);
@@ -2051,7 +2854,9 @@ export const NativeProgramPreview: React.FC = () => {
             console.error("[native-preview] paused-frame-failed", {
               frameIndex,
               requestKey: nativeRequestKey,
-              textLayers: nativeRequest ? nativeTextDebugSummary(nativeRequest) : [],
+              textLayers: nativeRequest
+                ? nativeTextDebugSummary(nativeRequest)
+                : [],
               error: error instanceof Error ? error.message : String(error),
             });
           }
@@ -2075,6 +2880,14 @@ export const NativeProgramPreview: React.FC = () => {
         forceRenderNeeded = true;
         nativeRetryAt = performance.now() + 250;
       } finally {
+        if (renderStateRef.current.clock.state === "playing") {
+          traceSlowPlaybackStage("visible-render-loop", renderStartedAt, {
+            frameIndex: traceFrameIndex,
+            playbackState: renderStateRef.current.clock.state,
+            textLayerCount: traceTextLayerCount,
+            renderInFlightAtStart: wasRenderInFlightAtStart,
+          });
+        }
         renderInFlight = false;
         const latest = renderStateRef.current;
         const hasPendingVisualChange =
@@ -2089,6 +2902,31 @@ export const NativeProgramPreview: React.FC = () => {
         if (hasPendingVisualChange) scheduleNextFrame();
       }
     };
+
+    const unsubscribeTransformGeometry = transformController.onDragGeometry(
+      (geometry, sessionId, revision) => {
+        const active = transformController.getActiveTransform();
+        if (!active) return;
+
+        dragPreviewClipId = active.clipId;
+        dragPreviewSessionId = sessionId;
+        dragPreviewRevision = revision;
+        dragPreviewGeometry = geometry;
+        dragPreviewPendingCommit = false;
+        forceRenderNeeded = true;
+        scheduleNextFrame();
+      },
+    );
+    const unsubscribeTransformEnd = transformController.onDragEnd(
+      (sessionId, finalGeometry) => {
+        dragPreviewSessionId = sessionId;
+        dragPreviewRevision += 1;
+        dragPreviewGeometry = finalGeometry;
+        dragPreviewPendingCommit = true;
+        forceRenderNeeded = true;
+        scheduleNextFrame();
+      },
+    );
 
     let lastSubscriberClockState: "playing" | "paused" | "stopped" =
       clock.state;
@@ -2113,9 +2951,7 @@ export const NativeProgramPreview: React.FC = () => {
         nativeFailureCount = 0;
         nativeRetryAt = 0;
         if (newClockState.state === "playing") {
-          prefetchUpcomingNativeFrames(
-            getFrameIndexAtTime(newClockState.time, renderStateRef.current.clock.frameRate),
-          );
+          scheduleUpcomingNativeTextPrefetch();
         }
       }
       scheduleNextFrame();
@@ -2123,11 +2959,24 @@ export const NativeProgramPreview: React.FC = () => {
 
     scheduleNextFrame();
     return () => {
+      // tracePlayback("playback-loop-stop", {
+      //   projectId: project.id,
+      //   sessionId: capturedSession.sessionId,
+      //   playbackState: clock.state,
+      //   surfaceReady: nativeSurfaceReadyRef.current,
+      //   surfacePresenting: nativeSurfaceShown,
+      //   renderInFlight,
+      // });
       isActive = false;
       unsubscribeClock();
       unsubscribeSeekIntent?.();
+      unsubscribeTransformGeometry();
+      unsubscribeTransformEnd();
       nativePreviewScheduler.dispose();
-      nativeRasterBridge.dispose();
+      if (nativeTextPrefetchTimer !== null) {
+        window.clearTimeout(nativeTextPrefetchTimer);
+        nativeTextPrefetchTimer = null;
+      }
       if (wakeNativeRenderLoopRef.current === scheduleNextFrame) {
         wakeNativeRenderLoopRef.current = null;
       }
@@ -2141,52 +2990,46 @@ export const NativeProgramPreview: React.FC = () => {
     // Audit 4.6 fix: nativeSurfaceReady removed from deps — it is now read from
     // nativeSurfaceReadyRef.current inside the loop, preventing the loop from restarting
     // (and emitting a blank frame) on every native surface probe and window resize.
-  }, [canvasEl, project?.id]);
+  }, [canvasEl, project?.id, projectInitializing]);
 
   // Wake the paused native renderer for timeline edits, text input, seeks,
-  // and viewport changes. The loop itself decides whether one frame is
-  // actually needed and then goes idle again.
+  // and viewport changes. When actively playing, the RAF loop runs continuously;
+  // do not trigger wake loops on every clock tick.
   useEffect(() => {
-    wakeNativeRenderLoopRef.current?.();
+    if (clock.state !== "playing") {
+      wakeNativeRenderLoopRef.current?.();
+    }
   }, [
     clips,
     tracks,
     transitions,
     mediaAssets,
     epoch,
-    clockState.state,
-    clockState.time,
     dimensions.width,
     dimensions.height,
     previewQuality,
+    nativeSurfaceError,
   ]);
 
   useEffect(() => {
     setActiveContext("program");
-  }, [setActiveContext]);
+    if (typeof window !== "undefined") {
+      (
+        window as unknown as { __CLYPRA_PREVIEW_DEBUG__?: unknown }
+      ).__CLYPRA_PREVIEW_DEBUG__ = {
+        getPlaybackState: () => clock.getState(),
+        getPreviewOutputMode: () =>
+          previewTelemetryContextRef.current.surface === "native-surface"
+            ? "native-surface"
+            : "dom-readback",
+      };
+    }
+  }, [setActiveContext, clock]);
 
   if (!project) return null;
 
-  if (dimensions.width === 0 || dimensions.height === 0) {
-    return (
-      <div className="flex-1 bg-bg flex flex-col min-h-0 border-l border-t border-white/3">
-        <div className="flex-1 flex items-center justify-center p-4 md:p-6 overflow-hidden relative bg-[#06080a]">
-          <div
-            ref={previewContainerCallback}
-            className="w-full h-full flex items-center justify-center"
-          >
-            <div className="text-text-muted">Loading preview...</div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const currentTime = clockState.time;
-  const duration = clockState.duration;
-  const isPlaying = clockState.state === "playing";
-  const playbackSpeed = clockState.speed;
-  const frameRate = clockState.frameRate;
+  const duration = project.duration || 0;
+  const frameRate = project.frameRate ?? 30;
   const step = 1 / Math.max(1, frameRate);
 
   return (
@@ -2194,35 +3037,22 @@ export const NativeProgramPreview: React.FC = () => {
       data-preview-space="program"
       className="flex-1 bg-bg flex flex-col min-h-0 border-l border-t border-white/3"
     >
-      <div className="flex items-center px-4 h-10 shrink-0 gap-2 overflow-hidden">
+      <div
+        data-preview-header
+        className="flex items-center px-4 h-10 shrink-0 gap-2 overflow-hidden"
+      >
         <span className="text-[13px] font-semibold text-text-primary tracking-tight leading-none">
-          {isTauriRuntime()
-            ? "Program Preview (Native)"
-            : "Program Preview (Desktop required)"}
+          Program Preview
         </span>
-        <span className="text-[13px] text-text-muted leading-none">
-          —{" "}
-          {isTauriRuntime()
-            ? nativeSurfacePresenting
-              ? "wgpu Surface"
-              : "Preparing wgpu Surface"
-            : "Open the desktop runtime"}
-        </span>
-        <button
-          onClick={() => setShowTelemetry((s) => !s)}
-          className={cn(
-            "ml-auto px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer",
-            showTelemetry
-              ? "bg-accent/20 text-accent"
-              : "text-text-muted hover:text-text-primary hover:bg-white/6",
-          )}
-        >
-          Metrics
-        </button>
+        {import.meta.env.DEV && nativeSurfaceError && (
+          <span className="text-[11px] text-danger leading-none truncate">
+            Preview surface unavailable
+          </span>
+        )}
         <button
           onClick={() => setShowSafeOverlay((s) => !s)}
           className={cn(
-            "px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer",
+            "ml-auto px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer",
             showSafeOverlay
               ? "bg-accent/20 text-accent"
               : "text-text-muted hover:text-text-primary hover:bg-white/6",
@@ -2233,10 +3063,6 @@ export const NativeProgramPreview: React.FC = () => {
       </div>
 
       <div className="flex-1 flex items-center justify-center overflow-hidden bg-[#06080a] relative">
-        <TelemetryOverlay
-          showTelemetry={showTelemetry}
-          telemetryStats={telemetryStats}
-        />
         <div
           ref={previewContainerCallback}
           onPointerDownCapture={handlePreviewPointerDownCapture}
@@ -2246,73 +3072,89 @@ export const NativeProgramPreview: React.FC = () => {
             spacePressed && !isPanning && "cursor-grab",
           )}
         >
-          <div
-            ref={nativeSurfaceTargetRef}
-            data-testid="program-preview-viewport"
-            className="relative flex shrink-0 items-center justify-center overflow-visible shadow-[0_0_40px_rgba(0,0,0,0.36)]"
-            style={{ width: displayWidth, height: displayHeight }}
-          >
-            <>
-              {previewBackgroundLayer && (
-                <div
-                  data-testid="program-preview-background"
-                  className={cn(
-                    "absolute inset-0 z-0 pointer-events-none overflow-hidden",
-                    previewBackgroundLayer.className,
-                  )}
-                  style={previewBackgroundLayer.style}
+          {dimensions.width > 0 && dimensions.height > 0 ? (
+            <div
+              ref={nativeSurfaceTargetRef}
+              data-testid="program-preview-viewport"
+              className="relative flex shrink-0 items-center justify-center overflow-visible shadow-[0_0_40px_rgba(0,0,0,0.36)]"
+              style={{ width: displayWidth, height: displayHeight }}
+            >
+              <>
+                {previewBackgroundLayer && (
+                  <div
+                    data-testid="program-preview-background"
+                    className={cn(
+                      "absolute inset-0 z-0 pointer-events-none overflow-hidden",
+                      previewBackgroundLayer.className,
+                    )}
+                    style={previewBackgroundLayer.style}
+                  />
+                )}
+                <canvas
+                  ref={canvasRef}
+                  data-testid="program-preview-canvas"
+                  style={{
+                    position: "relative",
+                    zIndex: 1,
+                    width: displayWidth,
+                    height: displayHeight,
+                    imageRendering: "auto",
+                    background: "transparent",
+                  }}
                 />
-              )}
-              <canvas
-                ref={canvasRef}
-                data-testid="program-preview-canvas"
-                style={{
-                  position: "relative",
-                  zIndex: 1,
-                  width: displayWidth,
-                  height: displayHeight,
-                  imageRendering: "auto",
-                  background: "transparent",
-                  visibility: nativeSurfacePresenting ? "hidden" : "visible",
-                }}
-              />
-              <canvas
-                ref={smartOverlayCanvasRef}
-                data-testid="program-preview-smart-overlay-canvas"
-                width={displayWidth}
-                height={displayHeight}
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  zIndex: 2,
-                  pointerEvents: "none",
-                  width: displayWidth,
-                  height: displayHeight,
-                  background: "transparent",
-                  visibility: nativeSurfacePresenting ? "hidden" : "visible",
-                }}
-              />
+                <canvas
+                  ref={smartOverlayCanvasRef}
+                  data-testid="program-preview-smart-overlay-canvas"
+                  width={displayWidth}
+                  height={displayHeight}
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    zIndex: 2,
+                    pointerEvents: "none",
+                    width: displayWidth,
+                    height: displayHeight,
+                    background: "transparent",
+                  }}
+                />
 
-              <TransformOverlay
-                canvasWidth={canvasWidth}
-                canvasHeight={canvasHeight}
-                scale={scale}
-                viewport={viewport}
-                displayOffset={{ x: offsetX, y: offsetY }}
-                displayWidth={displayWidth}
-                displayHeight={displayHeight}
-                currentTime={currentTime}
-                visible={!isPlaying}
-              />
-              <SafeOverlay
-                visible={showSafeOverlay}
-                displayWidth={displayWidth}
-                displayHeight={displayHeight}
-                displayOffset={{ x: offsetX, y: offsetY }}
-              />
-              {karaokeOverlayEnabled && <KaraokeCaptions />}
-            </>
-          </div>
+                <ConnectedTransformOverlay
+                  canvasWidth={canvasWidth}
+                  canvasHeight={canvasHeight}
+                  scale={scale}
+                  viewport={viewport}
+                  displayOffset={{ x: offsetX, y: offsetY }}
+                  displayWidth={displayWidth}
+                  displayHeight={displayHeight}
+                />
+                <SafeOverlay
+                  visible={showSafeOverlay}
+                  displayWidth={displayWidth}
+                  displayHeight={displayHeight}
+                  displayOffset={{ x: offsetX, y: offsetY }}
+                />
+                {karaokeOverlayEnabled && <KaraokeCaptions />}
+                {playbackStats && clock.state === "playing" && (
+                  <div className="absolute top-3 left-3 z-30 pointer-events-none flex items-center gap-2 px-2.5 py-1 rounded-md bg-black/60 backdrop-blur-md border border-white/10 text-[11px] font-mono text-white/90 shadow-lg select-none">
+                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>{playbackStats.fps} fps</span>
+                    <span className="text-white/30">•</span>
+                    <span>{playbackStats.avgTotalMs.toFixed(1)}ms</span>
+                    <span className="text-white/30">•</span>
+                    <span className="text-emerald-300">{playbackStats.hitRatePercent.toFixed(0)}% cached</span>
+                    {playbackStats.stackedStreams > 1 && (
+                      <>
+                        <span className="text-white/30">•</span>
+                        <span className="text-amber-300">{playbackStats.stackedStreams} streams</span>
+                      </>
+                    )}
+                  </div>
+                )}
+              </>
+            </div>
+          ) : (
+            <div className="text-text-muted">Loading preview...</div>
+          )}
         </div>
 
         {clips.length === 0 && (
@@ -2335,22 +3177,21 @@ export const NativeProgramPreview: React.FC = () => {
         )}
       </div>
 
-      <PreviewTransport
-        currentTime={currentTime}
+      <ConnectedProgramTransport
         duration={duration}
-        isPlaying={isPlaying}
+        frameRate={frameRate}
         disabled={clips.length === 0}
         onPlayPause={() => {
           if (clips.length === 0) return;
           setActiveContext?.("program");
-          isPlaying ? transportPause() : transportPlay();
+          clock.state === "playing" ? transportPause() : transportPlay();
         }}
         onSeek={(time) => {
           if (clips.length === 0) return;
           transportSeek(clampAndSnapProgramTime(time, duration, frameRate));
         }}
         formatTime={formatTime}
-        onStepBack={() => {
+        onStepBack={(currentTime) => {
           if (clips.length === 0) return;
           const targetTime = Math.max(0, currentTime - step);
           transportSeek(
@@ -2358,7 +3199,7 @@ export const NativeProgramPreview: React.FC = () => {
             { mode: "frameStep", quality: "full" },
           );
         }}
-        onStepForward={() => {
+        onStepForward={(currentTime) => {
           if (clips.length === 0) return;
           const targetTime = Math.min(duration, currentTime + step);
           transportSeek(
@@ -2366,38 +3207,28 @@ export const NativeProgramPreview: React.FC = () => {
             { mode: "frameStep", quality: "full" },
           );
         }}
-        leftActions={
-          <div className="relative" ref={speedMenuRef}>
-            <PlaybackSpeedSelector
-              playbackSpeed={playbackSpeed}
-              speedMenuOpen={speedMenuOpen}
-              setSpeedMenuOpen={setSpeedMenuOpen}
-              setSpeed={transportSetSpeed}
-            />
-          </div>
-        }
-        rightActions={
-          <>
-            <div className="relative shrink-0" ref={aspectMenuRef}>
-              <AspectSelector
-                aspectMenuOpen={aspectMenuOpen}
-                setAspectMenuOpen={setAspectMenuOpen}
-                previewAspectPreset={previewAspectPreset}
-                selectAspectPreset={selectAspectPreset}
-                canvasWidth={canvasWidth}
-                canvasHeight={canvasHeight}
-              />
-            </div>
+        speedMenuRef={speedMenuRef}
+        speedMenuOpen={speedMenuOpen}
+        setSpeedMenuOpen={setSpeedMenuOpen}
+        transportSetSpeed={transportSetSpeed}
+        aspectMenuRef={aspectMenuRef}
+        aspectMenuOpen={aspectMenuOpen}
+        setAspectMenuOpen={setAspectMenuOpen}
+        previewAspectPreset={previewAspectPreset}
+        selectAspectPreset={selectAspectPreset}
+        canvasWidth={canvasWidth}
+        canvasHeight={canvasHeight}
+        isMuted={isMuted}
+        setIsMuted={setIsMuted}
+        volume={volume}
+        setVolume={setVolume}
+        scopesOpen={scopesOpen}
+        setScopesOpen={setScopesOpen}
+      />
 
-            <div className="hidden @[360px]:block w-px h-4 bg-white/10 mx-0.5" />
-            <VolumeControl
-              isMuted={isMuted}
-              setIsMuted={setIsMuted}
-              volume={volume}
-              setVolume={setVolume}
-            />
-          </>
-        }
+      <VideoScopesModal
+        isOpen={scopesOpen}
+        onClose={() => setScopesOpen(false)}
       />
     </div>
   );

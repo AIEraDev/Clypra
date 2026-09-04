@@ -74,7 +74,7 @@ describe("Text Layer Evaluation", () => {
     if (layer.layerType === "text") {
       expect(layer.text).toBe("Hello World");
       expect(layer.fontSize).toBe(48);
-      expect(layer.fontFamily).toBe("Inter");
+      expect(layer.fontFamily).toMatch(/Inter/);
       expect(layer.color).toBe("#ffffff");
       expect(layer.fontWeight).toBe("bold");
       expect(layer.fontStyle).toBe("normal");

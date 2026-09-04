@@ -43,14 +43,22 @@ fn test_font_hash() -> u64 {
 fn sdf_single_solid_pixel() {
     let sdf = generate_sdf(&[255u8], 1, 1, 8.0);
     assert_eq!(sdf.len(), 1);
-    assert!(sdf[0] >= 128, "solid pixel SDF should be ≥ 128, got {}", sdf[0]);
+    assert!(
+        sdf[0] >= 128,
+        "solid pixel SDF should be ≥ 128, got {}",
+        sdf[0]
+    );
 }
 
 #[test]
 fn sdf_single_empty_pixel() {
     let sdf = generate_sdf(&[0u8], 1, 1, 8.0);
     assert_eq!(sdf.len(), 1);
-    assert!(sdf[0] <= 128, "empty pixel SDF should be ≤ 128, got {}", sdf[0]);
+    assert!(
+        sdf[0] <= 128,
+        "empty pixel SDF should be ≤ 128, got {}",
+        sdf[0]
+    );
 }
 
 #[test]
@@ -59,7 +67,10 @@ fn sdf_centre_of_solid_block_saturates() {
     let mask = vec![255u8; side * side];
     let sdf = generate_sdf(&mask, side, side, 8.0);
     let centre = sdf[(side / 2) * side + (side / 2)];
-    assert_eq!(centre, 255, "centre of large solid block must be 255 (saturated interior)");
+    assert_eq!(
+        centre, 255,
+        "centre of large solid block must be 255 (saturated interior)"
+    );
 }
 
 #[test]
@@ -73,9 +84,11 @@ fn sdf_corners_less_than_centre() {
     let centre_x = ow / 2;
     let centre_y = oh / 2;
     let centre = sdf[centre_y * ow + centre_x];
-    let corner  = sdf[0]; // top-left corner of padded buffer — deep exterior
-    assert!(corner < centre,
-        "padded corner SDF ({corner}) must be < padded centre SDF ({centre})");
+    let corner = sdf[0]; // top-left corner of padded buffer — deep exterior
+    assert!(
+        corner < centre,
+        "padded corner SDF ({corner}) must be < padded centre SDF ({centre})"
+    );
 }
 
 #[test]
@@ -94,15 +107,20 @@ fn sdf_circle_radial_symmetry() {
         sdf[py * w + px]
     };
 
-    let east  = sample(r + 4.0, 0.0);
-    let west  = sample(-(r + 4.0), 0.0);
+    let east = sample(r + 4.0, 0.0);
+    let west = sample(-(r + 4.0), 0.0);
     let north = sample(0.0, -(r + 4.0));
     let south = sample(0.0, r + 4.0);
 
     // Exact symmetry: opposite Cardinal directions must be identical (diff == 0).
-    let max_diff = east.abs_diff(west).max(north.abs_diff(south)).max(east.abs_diff(north));
-    assert!(max_diff <= 1,
-        "radial symmetry broken: E={east} W={west} N={north} S={south} diff={max_diff}");
+    let max_diff = east
+        .abs_diff(west)
+        .max(north.abs_diff(south))
+        .max(east.abs_diff(north));
+    assert!(
+        max_diff <= 1,
+        "radial symmetry broken: E={east} W={west} N={north} S={south} diff={max_diff}"
+    );
 }
 
 #[test]
@@ -111,7 +129,7 @@ fn sdf_interior_exterior_ordering() {
     let mask = circle_mask(w, h, 15.5, 15.5, 10.0);
     let sdf = generate_sdf(&mask, w, h, 8.0);
     assert!(sdf[15 * w + 15] > 128, "well-interior pixel must be > 128");
-    assert!(sdf[4  * w +  4] < 128, "well-exterior pixel must be < 128");
+    assert!(sdf[4 * w + 4] < 128, "well-exterior pixel must be < 128");
 }
 
 #[test]
@@ -130,8 +148,10 @@ fn padded_sdf_all_zero_mask_stays_exterior() {
     let (sdf, w, h) = generate_padded_sdf(&mask, 16, 16, 4, 8.0);
     assert_eq!(w, 24);
     assert_eq!(h, 24);
-    assert!(sdf.iter().all(|&v| v <= 128),
-        "all-zero mask must produce only exterior SDF values (≤ 128)");
+    assert!(
+        sdf.iter().all(|&v| v <= 128),
+        "all-zero mask must produce only exterior SDF values (≤ 128)"
+    );
 }
 
 // ── 2. Glyph cache ──────────────────────────────────────────────────────────
@@ -143,7 +163,10 @@ fn glyph_cache_hit_returns_identical_data() {
     let cache = GlyphSdfCache::new(4 * 1024 * 1024);
     let g1 = cache.get_or_insert(&font, hash, 'A', 48.0, 8.0, 4);
     let g2 = cache.get_or_insert(&font, hash, 'A', 48.0, 8.0, 4);
-    assert_eq!(g1.sdf_data, g2.sdf_data, "cache hit must return bit-identical SDF");
+    assert_eq!(
+        g1.sdf_data, g2.sdf_data,
+        "cache hit must return bit-identical SDF"
+    );
     assert_eq!(g1.width, g2.width);
     assert_eq!(g1.height, g2.height);
 }
@@ -157,9 +180,18 @@ fn styled_glyphs_are_cached_separately_and_change_rasterization() {
     let bold = cache.get_or_insert_styled(&font, hash, 'A', 72.0, 800, false, 8.0, 4);
     let italic = cache.get_or_insert_styled(&font, hash, 'A', 72.0, 400, true, 8.0, 4);
 
-    assert_ne!(regular.sdf_data, bold.sdf_data, "bold must not reuse regular glyph pixels");
-    assert_ne!(regular.sdf_data, italic.sdf_data, "italic must not reuse regular glyph pixels");
-    assert!(italic.width >= regular.width, "italic shear must preserve the glyph");
+    assert_ne!(
+        regular.sdf_data, bold.sdf_data,
+        "bold must not reuse regular glyph pixels"
+    );
+    assert_ne!(
+        regular.sdf_data, italic.sdf_data,
+        "italic must not reuse regular glyph pixels"
+    );
+    assert!(
+        italic.width >= regular.width,
+        "italic shear must preserve the glyph"
+    );
 }
 
 #[test]
@@ -169,8 +201,12 @@ fn glyph_cache_different_sizes_are_distinct() {
     let cache = GlyphSdfCache::new(8 * 1024 * 1024);
     let small = cache.get_or_insert(&font, hash, 'M', 24.0, 8.0, 4);
     let large = cache.get_or_insert(&font, hash, 'M', 96.0, 8.0, 4);
-    assert!(large.width >= small.width,
-        "96px glyph ({}) must be at least as wide as 24px glyph ({})", large.width, small.width);
+    assert!(
+        large.width >= small.width,
+        "96px glyph ({}) must be at least as wide as 24px glyph ({})",
+        large.width,
+        small.width
+    );
 }
 
 #[test]
@@ -187,7 +223,10 @@ fn glyph_cache_eviction_does_not_panic() {
 fn global_cache_is_singleton() {
     let a = global_glyph_cache() as *const _;
     let b = global_glyph_cache() as *const _;
-    assert!(std::ptr::eq(a, b), "global_glyph_cache() must return the same instance");
+    assert!(
+        std::ptr::eq(a, b),
+        "global_glyph_cache() must return the same instance"
+    );
 }
 
 // ── 3. Text shaping ─────────────────────────────────────────────────────────
@@ -198,9 +237,12 @@ fn render_text_sdf_non_empty() {
     let hash = test_font_hash();
     let cache = GlyphSdfCache::new(8 * 1024 * 1024);
     let result = cache.render_text_sdf(&font, hash, "Clypra", 48.0, 0.0, 1.2, 8.0, 4);
-    assert!(result.width > 0,  "text SDF width must be > 0");
+    assert!(result.width > 0, "text SDF width must be > 0");
     assert!(result.height > 0, "text SDF height must be > 0");
-    assert_eq!(result.sdf_buffer.len(), (result.width * result.height) as usize);
+    assert_eq!(
+        result.sdf_buffer.len(),
+        (result.width * result.height) as usize
+    );
 }
 
 #[test]
@@ -219,10 +261,14 @@ fn render_text_sdf_wider_with_letter_spacing() {
     let font = test_font();
     let hash = test_font_hash();
     let cache = GlyphSdfCache::new(8 * 1024 * 1024);
-    let tight = cache.render_text_sdf(&font, hash, "ABC", 48.0, 0.0,  1.2, 8.0, 4);
+    let tight = cache.render_text_sdf(&font, hash, "ABC", 48.0, 0.0, 1.2, 8.0, 4);
     let loose = cache.render_text_sdf(&font, hash, "ABC", 48.0, 16.0, 1.2, 8.0, 4);
-    assert!(loose.width > tight.width,
-        "letter-spacing=16 width ({}) should exceed tight width ({})", loose.width, tight.width);
+    assert!(
+        loose.width > tight.width,
+        "letter-spacing=16 width ({}) should exceed tight width ({})",
+        loose.width,
+        tight.width
+    );
 }
 
 #[test]
@@ -230,10 +276,14 @@ fn render_text_sdf_multiline_taller() {
     let font = test_font();
     let hash = test_font_hash();
     let cache = GlyphSdfCache::new(8 * 1024 * 1024);
-    let single = cache.render_text_sdf(&font, hash, "ABC",     48.0, 0.0, 1.2, 8.0, 4);
-    let multi  = cache.render_text_sdf(&font, hash, "ABC\nDEF", 48.0, 0.0, 1.2, 8.0, 4);
-    assert!(multi.height > single.height,
-        "two-line height ({}) must exceed single-line height ({})", multi.height, single.height);
+    let single = cache.render_text_sdf(&font, hash, "ABC", 48.0, 0.0, 1.2, 8.0, 4);
+    let multi = cache.render_text_sdf(&font, hash, "ABC\nDEF", 48.0, 0.0, 1.2, 8.0, 4);
+    assert!(
+        multi.height > single.height,
+        "two-line height ({}) must exceed single-line height ({})",
+        multi.height,
+        single.height
+    );
 }
 
 #[test]
@@ -243,9 +293,39 @@ fn render_text_sdf_alignment_modes() {
     let hash = test_font_hash();
     let cache = GlyphSdfCache::new(8 * 1024 * 1024);
 
-    let left = cache.render_text_sdf_aligned(&font, hash, "SHORT\nVERY LONG LINE OF TEXT", 32.0, 0.0, 1.2, TextAlign::Left, 8.0, 4);
-    let center = cache.render_text_sdf_aligned(&font, hash, "SHORT\nVERY LONG LINE OF TEXT", 32.0, 0.0, 1.2, TextAlign::Center, 8.0, 4);
-    let right = cache.render_text_sdf_aligned(&font, hash, "SHORT\nVERY LONG LINE OF TEXT", 32.0, 0.0, 1.2, TextAlign::Right, 8.0, 4);
+    let left = cache.render_text_sdf_aligned(
+        &font,
+        hash,
+        "SHORT\nVERY LONG LINE OF TEXT",
+        32.0,
+        0.0,
+        1.2,
+        TextAlign::Left,
+        8.0,
+        4,
+    );
+    let center = cache.render_text_sdf_aligned(
+        &font,
+        hash,
+        "SHORT\nVERY LONG LINE OF TEXT",
+        32.0,
+        0.0,
+        1.2,
+        TextAlign::Center,
+        8.0,
+        4,
+    );
+    let right = cache.render_text_sdf_aligned(
+        &font,
+        hash,
+        "SHORT\nVERY LONG LINE OF TEXT",
+        32.0,
+        0.0,
+        1.2,
+        TextAlign::Right,
+        8.0,
+        4,
+    );
 
     assert_eq!(left.width, center.width);
     assert_eq!(left.width, right.width);
@@ -278,13 +358,20 @@ fn glyph_cache_lru_eviction_and_pinning() {
     }
 
     let stats_after = cache.stats();
-    assert!(stats_after.evictions > 0, "Evictions must have occurred under budget pressure");
+    assert!(
+        stats_after.evictions > 0,
+        "Evictions must have occurred under budget pressure"
+    );
 
     // Pinned glyph 'A' must still be resident
     assert_eq!(stats_after.pinned_count, 1);
     let hit_count_before = cache.stats().hits;
     let _ = cache.get_or_insert(&font, hash, 'A', 32.0, 8.0, 4);
-    assert_eq!(cache.stats().hits, hit_count_before + 1, "Pinned glyph 'A' must be a cache hit");
+    assert_eq!(
+        cache.stats().hits,
+        hit_count_before + 1,
+        "Pinned glyph 'A' must be a cache hit"
+    );
 }
 
 #[test]
@@ -295,13 +382,25 @@ fn render_text_sdf_clamps_extreme_dimensions_and_flags_truncated() {
     let cache = GlyphSdfCache::new(8 * 1024 * 1024);
 
     // Construct a single-line string that is guaranteed to exceed MAX_TEXT_CANVAS_DIMENSION
-    let long_text: String = std::iter::repeat("EXTREMELY_LONG_TEXT_LINE_THAT_EXCEEDS_MAX_TEXTURE_BUDGET_")
-        .take(200)
-        .collect();
+    let long_text: String =
+        std::iter::repeat("EXTREMELY_LONG_TEXT_LINE_THAT_EXCEEDS_MAX_TEXTURE_BUDGET_")
+            .take(200)
+            .collect();
 
     let result = cache.render_text_sdf(&font, hash, &long_text, 64.0, 0.0, 1.2, 8.0, 4);
 
-    assert!(result.is_truncated, "Extreme text must be flagged as truncated");
-    assert!(result.width as usize <= MAX_TEXT_CANVAS_DIMENSION, "Canvas width ({}) must be clamped to MAX ({})", result.width, MAX_TEXT_CANVAS_DIMENSION);
-    assert_eq!(result.sdf_buffer.len(), (result.width * result.height) as usize);
+    assert!(
+        result.is_truncated,
+        "Extreme text must be flagged as truncated"
+    );
+    assert!(
+        result.width as usize <= MAX_TEXT_CANVAS_DIMENSION,
+        "Canvas width ({}) must be clamped to MAX ({})",
+        result.width,
+        MAX_TEXT_CANVAS_DIMENSION
+    );
+    assert_eq!(
+        result.sdf_buffer.len(),
+        (result.width * result.height) as usize
+    );
 }

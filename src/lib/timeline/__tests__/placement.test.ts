@@ -183,5 +183,54 @@ describe("Timeline Placement & Snapping System", () => {
       expect(result.shouldCreateTrack).toBe(false);
       expect(result.targetTrackId).toBe("track-v1");
     });
+
+    it("should reuse an existing gap only when the complete clip duration fits", () => {
+      const textTracks: Track[] = [
+        { id: "text-1", type: "text", locked: false } as Track,
+      ];
+      const textClips: Clip[] = [
+        { id: "text-a", trackId: "text-1", startTime: 0, duration: 2 } as Clip,
+        { id: "text-b", trackId: "text-1", startTime: 5, duration: 2 } as Clip,
+      ];
+
+      const fits = resolveAddToTimelinePlacement({
+        asset: { type: "video", trackType: "text" },
+        tracks: textTracks,
+        clips: textClips,
+        playheadTime: 2,
+        sequenceEndTime: 10,
+        duration: 3,
+      });
+      expect(fits.targetTrackId).toBe("text-1");
+      expect(fits.shouldCreateTrack).toBe(false);
+
+      const collidesWithRightClip = resolveAddToTimelinePlacement({
+        asset: { type: "video", trackType: "text" },
+        tracks: textTracks,
+        clips: textClips,
+        playheadTime: 2,
+        sequenceEndTime: 10,
+        duration: 4,
+      });
+      expect(collidesWithRightClip.targetTrackId).toBeNull();
+      expect(collidesWithRightClip.shouldCreateTrack).toBe(true);
+    });
+
+    it("chooses another unlocked text track before creating a new one", () => {
+      const textTracks: Track[] = [
+        { id: "text-occupied", type: "text", locked: false } as Track,
+        { id: "text-free", type: "text", locked: false } as Track,
+      ];
+      const result = resolveAddToTimelinePlacement({
+        asset: { type: "video", trackType: "text" },
+        tracks: textTracks,
+        clips: [{ id: "existing", trackId: "text-occupied", startTime: 0, duration: 10 } as Clip],
+        playheadTime: 2,
+        sequenceEndTime: 10,
+        duration: 2,
+      });
+      expect(result.targetTrackId).toBe("text-free");
+      expect(result.shouldCreateTrack).toBe(false);
+    });
   });
 });

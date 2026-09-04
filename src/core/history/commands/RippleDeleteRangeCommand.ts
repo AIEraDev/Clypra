@@ -2,16 +2,17 @@ import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
 import type { Clip, Track } from "@/types";
 import type { Gap } from "@/types/gap";
-import { shouldAutoPruneTrack } from "@/lib/timeline/trackTypeConfig";
+import { shouldAutoPruneTrack, resolvePrimaryVideoTrackId } from "@/lib/timeline/trackTypeConfig";
 
 interface TimelineState {
   tracks: Track[];
   clips: Clip[];
   gaps: Gap[];
+  mainVideoTrackId?: string | null;
   epoch: number;
 }
 
-type TimelineSnapshot = Pick<TimelineState, "tracks" | "clips" | "gaps">;
+type TimelineSnapshot = Pick<TimelineState, "tracks" | "clips" | "gaps" | "mainVideoTrackId">;
 
 function cloneClipSnapshot(clip: Clip): Clip {
   if (typeof structuredClone === "function") return structuredClone(clip);
@@ -23,6 +24,7 @@ function cloneSnapshot(state: Partial<TimelineState>): TimelineSnapshot {
     tracks: (state.tracks ?? []).map((track) => ({ ...track })),
     clips: (state.clips ?? []).map(cloneClipSnapshot),
     gaps: (state.gaps ?? []).map((gap) => ({ ...gap, metadata: gap.metadata ? { ...gap.metadata } : gap.metadata })),
+    mainVideoTrackId: state.mainVideoTrackId ?? null,
   };
 }
 
@@ -104,15 +106,21 @@ export class RippleDeleteRangeCommand implements Command {
     // Keep a track if it still has clips OR if its type is non-prunable (autoPrune: false).
     // This is driven purely by TRACK_TYPE_CONFIG — no hardcoded type strings here.
     const tracks = state.tracks.filter(
-      (track) => occupiedTrackIds.has(track.id) || !shouldAutoPruneTrack(track, state.tracks),
+      (track) => occupiedTrackIds.has(track.id) || !shouldAutoPruneTrack(track, state.tracks, state.mainVideoTrackId),
     );
     const deletedTrackIds = new Set(state.tracks.filter((track) => !tracks.some((candidate) => candidate.id === track.id)).map((track) => track.id));
+
+    let mainVideoTrackId = state.mainVideoTrackId;
+    if (mainVideoTrackId && !tracks.some((t) => t.id === mainVideoTrackId)) {
+      mainVideoTrackId = resolvePrimaryVideoTrackId(tracks);
+    }
 
     return {
       ...state,
       tracks,
       clips,
       gaps: state.gaps.filter((gap) => !deletedTrackIds.has(gap.trackId)),
+      mainVideoTrackId,
       epoch: state.epoch + 1,
     };
   }

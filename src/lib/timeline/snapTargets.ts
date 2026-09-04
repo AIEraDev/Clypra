@@ -108,3 +108,28 @@ export function findSnap(input: FindSnapInput): SnapResult {
 
   return { snapped: false, originalTime: candidateTime };
 }
+
+/**
+ * Asynchronously finds the closest snap target using the background TimelineSnap worker.
+ */
+export async function findSnapAsync(
+  draggedClipId: string,
+  proposedStartTime: number,
+  trackId: string,
+  options: {
+    snapEnabled?: boolean;
+    snapRadiusSeconds?: number;
+    playheadTime?: number;
+  } = {},
+): Promise<import("@/workers/types").SnapResult> {
+  const { getTimelineSnapWorkerClient } = await import(
+    "@/core/workers/timelineSnapWorkerClient"
+  );
+  return getTimelineSnapWorkerClient().querySnap(
+    draggedClipId,
+    proposedStartTime,
+    trackId,
+    options,
+  );
+}
+

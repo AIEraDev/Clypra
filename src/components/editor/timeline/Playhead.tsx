@@ -22,6 +22,10 @@ import {
   recordPlayheadPaint,
   recordSeekResolved,
 } from "@/lib/playback/syncMetrics";
+import {
+  getPreviewInteractionCoordinator,
+  type PreviewInteractionToken,
+} from "@/core/interactions";
 
 interface PlayheadProps {
   pixelsPerSecond: number;
@@ -38,12 +42,14 @@ export const Playhead: React.FC<PlayheadProps> = ({
 }) => {
   const clockState = usePlaybackClock();
   const { seek: transportSeek } = useTransportControls();
+  const previewInteractionCoordinator = getPreviewInteractionCoordinator();
   const { setScrollLeft } = useTimelineStore();
   const [isDragging, setIsDragging] = useState(false);
   const playheadRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const scrollVelocityRef = useRef(0);
   const pointerIdRef = useRef<number | null>(null);
+  const scrubInteractionRef = useRef<PreviewInteractionToken | null>(null);
   const pointerXRef = useRef(0); // Pointer position in viewport space
   const pointerVelocityRef = useRef(0);
   const lastPointerSampleRef = useRef<{ x: number; timeMs: number } | null>(
@@ -224,6 +230,10 @@ export const Playhead: React.FC<PlayheadProps> = ({
           mode: "seek",
           quality: "full",
         });
+        if (scrubInteractionRef.current) {
+          previewInteractionCoordinator.commit(scrubInteractionRef.current, false);
+          scrubInteractionRef.current = null;
+        }
         setIsDragging(false);
         scrollVelocityRef.current = 0;
         pointerIdRef.current = null;
@@ -248,6 +258,10 @@ export const Playhead: React.FC<PlayheadProps> = ({
       pointerVelocityRef.current = 0;
       lastPointerSampleRef.current = null;
       clearDragCursorLock();
+      if (scrubInteractionRef.current) {
+        previewInteractionCoordinator.cancel(scrubInteractionRef.current);
+        scrubInteractionRef.current = null;
+      }
     };
 
     const handlePointerCancel = (e: PointerEvent) => {
@@ -259,6 +273,10 @@ export const Playhead: React.FC<PlayheadProps> = ({
       pointerVelocityRef.current = 0;
       lastPointerSampleRef.current = null;
       clearDragCursorLock();
+      if (scrubInteractionRef.current) {
+        previewInteractionCoordinator.cancel(scrubInteractionRef.current);
+        scrubInteractionRef.current = null;
+      }
     };
 
     const handleVisibilityChange = () => {
@@ -290,9 +308,13 @@ export const Playhead: React.FC<PlayheadProps> = ({
       window.removeEventListener("blur", handleWindowBlur);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       clearDragCursorLock();
+      if (scrubInteractionRef.current) {
+        previewInteractionCoordinator.cancel(scrubInteractionRef.current);
+        scrubInteractionRef.current = null;
+      }
       scrollVelocityRef.current = 0;
     };
-  }, [isDragging, containerRef, transportSeek]);
+  }, [isDragging, containerRef, transportSeek, previewInteractionCoordinator]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     e.preventDefault();
@@ -301,6 +323,8 @@ export const Playhead: React.FC<PlayheadProps> = ({
     const container = containerRef.current;
     const parent = playheadRef.current?.parentElement;
     if (!container || !parent) return;
+
+    scrubInteractionRef.current = previewInteractionCoordinator.begin("scrub");
 
     // ✅ Capture pointer to receive events even outside element
     if (playheadRef.current) {
@@ -336,7 +360,7 @@ export const Playhead: React.FC<PlayheadProps> = ({
     const snappedTime =
       pixelsPerFrame > 3 ? snapToFrameBoundary(rawTime, frameRate) : rawTime;
     const newTime = clampAndSnapProgramTime(snappedTime, duration, frameRate);
-    transportSeek(newTime, { mode: "seek", quality: "full" });
+    transportSeek(newTime, { mode: "scrub", quality: "full" });
 
     setIsDragging(true);
   };

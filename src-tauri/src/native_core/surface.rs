@@ -132,6 +132,9 @@ pub struct NativeSurfacePresentation {
     /// True when the frame was intentionally discarded because it was stale
     /// relative to the native audio clock or superseded by a newer request.
     pub dropped: bool,
+    /// `stale`, `cancelled`, or `late-for-audio` when a frame is discarded.
+    #[serde(default)]
+    pub drop_reason: Option<String>,
     /// Native audio position in the audio clock's canonical 1 MHz ticks.
     pub audio_position_ticks: u64,
     /// Audio position minus frame position in canonical 1 MHz ticks.
@@ -145,6 +148,25 @@ pub struct NativeSurfacePresentation {
     pub stale: bool,
     #[serde(default)]
     pub cancelled: bool,
+    /// Optional stage timings for playback diagnosis. These are attached only
+    /// to successful surface submissions so the acknowledgement stays small on
+    /// the common path while exposing which native stage misses the frame
+    /// budget when a request is slow.
+    #[serde(default)]
+    pub timings: Option<NativeSurfacePresentationTimings>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeSurfacePresentationTimings {
+    pub total_us: u64,
+    pub decode_us: u32,
+    pub decoder_mutex_wait_us: u64,
+    pub conversion_upload_us: u64,
+    pub compose_us: u64,
+    pub surface_acquire_us: u64,
+    pub submit_present_us: u64,
+    pub queue_hit: bool,
 }
 
 #[cfg(test)]

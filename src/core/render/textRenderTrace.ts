@@ -1,3 +1,13 @@
+import {
+  telemetryCollector,
+  type TelemetryTextKind,
+  type TelemetryTextRendererPath,
+  type TelemetryTextPhase,
+  type TelemetryTextOperation,
+  type TelemetryTextProperty,
+} from "@/services/telemetryCollector";
+import { observeInteractiveTextRender } from "@/core/interactions/InteractiveTextRenderCoordinator";
+
 export interface TextRenderTraceLayer {
   id?: string;
   type?: string;
@@ -40,80 +50,29 @@ export interface TextRenderTraceContext {
   time?: number;
 }
 
-const loggedKeys = new Set<string>();
-const loggedGeometryKeys = new Set<string>();
-
-function isTraceEnabled(): boolean {
-  return import.meta.env.DEV || import.meta.env.VITE_CLYPRA_TEXT_RENDER_TRACE === "1";
-}
-
-function layerState(layer: TextRenderTraceLayer) {
-  const enabled = layer.enabled === true;
-  const opacity = typeof layer.opacity === "number" ? layer.opacity : 1;
-  return {
-    id: layer.id,
-    type: layer.type,
-    enabled,
-    opacity,
-    active: enabled && opacity > 0,
-    params: layer.params ?? {},
-  };
-}
+export type TextRenderTracePhase = TelemetryTextPhase;
+export type TextRenderKind = TelemetryTextKind;
+export type TextRenderPath = TelemetryTextRendererPath;
+export type TextRenderOperation = TelemetryTextOperation;
 
 /**
- * Logs the resolved text scene once per asset/revision/render path in dev.
- * This is intentionally state-focused so it exposes accidental activation of
- * panel/glow/shadow layers without flooding the console on every frame.
+ * Text diagnostics are intentionally silent. Text performance is captured by
+ * the structured native telemetry path; console tracing here caused large
+ * object serialization and made first-use playback less representative.
  */
 export function traceTextRenderScene(
   scene: TextRenderTraceScene,
   context: TextRenderTraceContext,
 ): void {
-  if (!isTraceEnabled()) return;
-
-  const revision = context.revisionId || scene.revision?.revisionId || "latest";
-  const asset = context.assetId || scene.revision?.assetId || "anonymous";
-  const key = `${context.path}:${asset}:${revision}:${context.contentHash || scene.revision?.contentHash || ""}`;
-  if (loggedKeys.has(key)) return;
-  loggedKeys.add(key);
-
-  const layers = (scene.effectLayers ?? []).map(layerState);
-  const activeLayers = layers.filter((layer) => layer.active);
-  const activePanel = activeLayers.find((layer) => layer.type === "panel");
-  const activeGlow = activeLayers.filter((layer) => layer.type === "glow");
-
-  console.groupCollapsed(`[Clypra:text-render] ${context.path} ${asset}@${revision}`);
-  console.log("source", {
-    assetId: asset,
-    category: context.category,
-    revisionId: revision,
-    contentHash: context.contentHash || scene.revision?.contentHash,
-    rendererVersion: scene.revision?.rendererVersion,
-    schemaVersion: scene.schemaVersion,
-    time: context.time,
-  });
-  console.log("canvas", scene.canvas);
-  console.log("text", scene.text);
-  console.log("compositor", scene.compositor);
-  console.table(layers);
-  console.log("active contributors", activeLayers.map(({ id, type, opacity, params }) => ({ id, type, opacity, params })));
-  console.log("legacy compatibility fields", scene.legacyConfig ?? null);
-
-  if (activePanel) {
-    console.warn("[Clypra:text-render] Active panel/background plate", activePanel);
-  }
-  if (activeGlow.length > 0) {
-    console.warn("[Clypra:text-render] Active glow contributors", activeGlow);
-  }
-  console.groupEnd();
+  void scene;
+  void context;
 }
 
 export function resetTextRenderTrace(): void {
-  loggedKeys.clear();
-  loggedGeometryKeys.clear();
+  // Kept as a compatibility no-op for existing render call sites.
 }
 
-/** Log the evaluated timeline text-layer geometry once per layer/revision. */
+/** Preserve the call-site contract without emitting console diagnostics. */
 export function traceTextRenderGeometry(input: {
   path: TextRenderTraceContext["path"];
   assetId?: string;
@@ -123,13 +82,121 @@ export function traceTextRenderGeometry(input: {
   render: Record<string, unknown>;
   authoredCanvas?: unknown;
 }): void {
-  if (!isTraceEnabled()) return;
-  const key = `${input.path}:${input.assetId ?? "anonymous"}:${input.revisionId ?? "latest"}:${input.layer.layerId ?? "unknown"}:${JSON.stringify({ layer: input.layer, render: input.render })}`;
-  if (loggedGeometryKeys.has(key)) return;
-  loggedGeometryKeys.add(key);
-  console.groupCollapsed(`[Clypra:text-render] ${input.path} geometry ${input.assetId ?? "anonymous"}`);
-  console.log("layer", input.layer);
-  console.log("render", input.render);
-  console.log("authored effect canvas", input.authoredCanvas ?? null);
-  console.groupEnd();
+  void input;
+}
+
+export function traceTextRenderTiming(input: {
+  phase: TextRenderTracePhase;
+  kind: TextRenderKind;
+  rendererPath: TextRenderPath;
+  assetId?: string;
+  layerId?: string;
+  fontFamily?: string;
+  fontWaitMs: number;
+  rasterMs: number;
+  readbackMs?: number;
+  transferMs?: number;
+  paintMs?: number;
+  outputPixels?: number;
+  cacheHit?: boolean;
+  totalMs: number;
+  operation?: TextRenderOperation;
+  property?: TelemetryTextProperty;
+  contentLength?: number;
+  lineCount?: number;
+  layoutWidth?: number;
+  layoutHeight?: number;
+}): void {
+  const activeSession = (globalThis as { __activeProjectSession?: { sessionId?: string } }).__activeProjectSession;
+  telemetryCollector.recordTextRender({
+    kind: input.kind,
+    rendererPath: input.rendererPath,
+    phase: input.phase,
+    operation: input.operation,
+    property: input.property,
+    sessionId: activeSession?.sessionId,
+    fontWaitUs: Math.round(Math.max(0, input.fontWaitMs) * 1000),
+    rasterUs: Math.round(Math.max(0, input.rasterMs) * 1000),
+    readbackUs: input.readbackMs === undefined ? undefined : Math.round(Math.max(0, input.readbackMs) * 1000),
+    transferUs: input.transferMs === undefined ? undefined : Math.round(Math.max(0, input.transferMs) * 1000),
+    paintUs: input.paintMs === undefined ? undefined : Math.round(Math.max(0, input.paintMs) * 1000),
+    outputPixels: input.outputPixels,
+    cacheHit: input.cacheHit ?? false,
+    totalTimeUs: Math.round(Math.max(0, input.totalMs) * 1000),
+    contentLength: input.contentLength,
+    lineCount: input.lineCount,
+    layoutWidth: input.layoutWidth,
+    layoutHeight: input.layoutHeight,
+  });
+  if (input.phase === "interactive-preview") {
+    observeInteractiveTextRender({
+      fontWaitMs: input.fontWaitMs,
+      rasterMs: input.rasterMs,
+      readbackMs: input.readbackMs,
+      transferMs: input.transferMs,
+      paintMs: input.paintMs,
+      totalMs: input.totalMs,
+      cacheHit: input.cacheHit,
+    });
+  }
+}
+
+export function traceTextInteraction(input: {
+  kind?: TextRenderKind;
+  rendererPath?: TextRenderPath;
+  operation: Exclude<TextRenderOperation, "render" | "prefetch">;
+  property?: TelemetryTextProperty;
+  phase?: TextRenderTracePhase;
+  interactionId?: string;
+  durationMs: number;
+  inputToPreviewMs?: number;
+  stageTimings?: {
+    fontWaitMs?: number;
+    compileMs?: number;
+    rasterMs?: number;
+    readbackMs?: number;
+    transferMs?: number;
+    paintMs?: number;
+    totalMs?: number;
+  };
+  stageCoverage?: "complete" | "partial" | "unattributed";
+  renderCount?: number;
+  cacheHits?: number;
+  cacheMisses?: number;
+  unattributedTimeMs?: number;
+  contentLength?: number;
+  lineCount?: number;
+  layoutWidth?: number;
+  layoutHeight?: number;
+}): void {
+  const activeSession = (globalThis as { __activeProjectSession?: { sessionId?: string } }).__activeProjectSession;
+  telemetryCollector.recordTextInteraction({
+    ...input,
+    sessionId: activeSession?.sessionId,
+    durationUs: Math.round(Math.max(0, input.durationMs) * 1000),
+    inputToPreviewUs: input.inputToPreviewMs === undefined ? undefined : Math.round(Math.max(0, input.inputToPreviewMs) * 1000),
+    stageTimings: input.stageTimings ? {
+      fontWaitUs: input.stageTimings.fontWaitMs === undefined ? undefined : Math.round(Math.max(0, input.stageTimings.fontWaitMs) * 1000),
+      compileUs: input.stageTimings.compileMs === undefined ? undefined : Math.round(Math.max(0, input.stageTimings.compileMs) * 1000),
+      rasterUs: input.stageTimings.rasterMs === undefined ? undefined : Math.round(Math.max(0, input.stageTimings.rasterMs) * 1000),
+      readbackUs: input.stageTimings.readbackMs === undefined ? undefined : Math.round(Math.max(0, input.stageTimings.readbackMs) * 1000),
+      transferUs: input.stageTimings.transferMs === undefined ? undefined : Math.round(Math.max(0, input.stageTimings.transferMs) * 1000),
+      paintUs: input.stageTimings.paintMs === undefined ? undefined : Math.round(Math.max(0, input.stageTimings.paintMs) * 1000),
+      totalTimeUs: input.stageTimings.totalMs === undefined ? undefined : Math.round(Math.max(0, input.stageTimings.totalMs) * 1000),
+    } : undefined,
+    stageCoverage: input.stageCoverage,
+    renderCount: input.renderCount,
+    cacheHits: input.cacheHits,
+    cacheMisses: input.cacheMisses,
+    unattributedTimeUs: input.unattributedTimeMs === undefined ? undefined : Math.round(Math.max(0, input.unattributedTimeMs) * 1000),
+  });
+}
+
+export function traceTextRenderCacheHit(input: {
+  kind: TextRenderKind;
+  rendererPath: TextRenderPath;
+  phase: TextRenderTracePhase;
+}): void {
+  const activeSession = (globalThis as { __activeProjectSession?: { sessionId?: string } }).__activeProjectSession;
+  telemetryCollector.recordTextCacheHit({ ...input, sessionId: activeSession?.sessionId });
 }

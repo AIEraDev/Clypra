@@ -99,7 +99,6 @@ export function useFilmstrip(opts: UseFilmstripOptions): UseFilmstripResult {
     opts.viewportScrollLeft,
     opts.viewportWidth,
     opts.pixelsPerSecond,
-    opts.playheadTime,
     opts.invalidationKey,
   ]);
 

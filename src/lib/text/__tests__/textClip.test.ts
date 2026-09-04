@@ -102,6 +102,27 @@ describe("Text Clip Utilities", () => {
       // Caption max width is canvasWidth * 0.95 = 950
       expect(result.width).toBeLessThanOrEqual(950);
     });
+
+    it("should honor an explicit max width and preserve multiline height", () => {
+      const singleLine = calculateTextClipSize({
+        text: "A long line of editable text",
+        fontFamily: "Inter",
+        fontSize: 48,
+        canvasWidth: 1920,
+        maxWidth: 320,
+      });
+      const multiline = calculateTextClipSize({
+        text: "A long line of editable text\nSecond line",
+        fontFamily: "Inter",
+        fontSize: 48,
+        canvasWidth: 1920,
+        maxWidth: 320,
+      });
+
+      expect(singleLine.width).toBeLessThanOrEqual(320);
+      expect(multiline.width).toBeLessThanOrEqual(320);
+      expect(multiline.height).toBeGreaterThan(singleLine.height);
+    });
   });
 
   describe("createTextClip", () => {

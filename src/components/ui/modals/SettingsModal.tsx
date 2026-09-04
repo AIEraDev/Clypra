@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Check, Palette, SlidersHorizontal, Info, Paintbrush, RotateCcw, Copy, Download, Upload, HardDrive, Captions, RefreshCw, Keyboard } from "lucide-react";
+import { Check, Palette, SlidersHorizontal, Info, Paintbrush, RotateCcw, Copy, Download, Upload, HardDrive, Captions, RefreshCw, Keyboard, Activity } from "lucide-react";
 import { platform } from "@/core/platform";
 import { Modal } from "../primitives/Modal";
 import { useSettingsStore, Theme, UiTheme, ClipPalette, CLIP_PALETTE_IDS, FontFamily, THEME_META, CLIP_PALETTE_META, FONT_META, getThemeColors, getClipPaletteColors, getBaseThemeForCustomization, getThemeColorKeys } from "@/store/settingsStore";
@@ -15,13 +15,14 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { getVersion } from "@tauri-apps/api/app";
 import { ClypraColorPicker } from "@clypra/ui-color-picker";
 import { toast } from "@/lib/toast";
+import { PreviewDiagnosticsTab } from "@/components/settings/PreviewDiagnosticsTab";
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-type Tab = "appearance" | "editor" | "shortcuts" | "captions" | "cache" | "about";
+type Tab = "appearance" | "editor" | "shortcuts" | "captions" | "cache" | "diagnostics" | "about";
 
 const TABS: { id: Tab; label: string; icon: React.FC<{ className?: string }> }[] = [
   { id: "appearance", label: "Appearance", icon: Palette },
@@ -29,6 +30,7 @@ const TABS: { id: Tab; label: string; icon: React.FC<{ className?: string }> }[]
   { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
   { id: "captions", label: "Auto-Captions", icon: Captions },
   { id: "cache", label: "Storage & Cache", icon: HardDrive },
+  { id: "diagnostics", label: "Diagnostics", icon: Activity },
   { id: "about", label: "About", icon: Info },
 ];
 
@@ -443,14 +445,12 @@ function EditorTab() {
     previewQuality,
     proxyEditingEnabled,
     autoClearCacheOnProjectClose,
-    performanceTelemetryEnabled,
     setSnapToGrid,
     setAutoSave,
     setDefaultFrameRate,
     setPreviewQuality,
     setProxyEditingEnabled,
     setAutoClearCacheOnProjectClose,
-    setPerformanceTelemetryEnabled,
   } = useSettingsStore();
   const { snapEnabled, toggleSnapEnabled } = useTimelineStore();
   const { project, updateProject } = useProjectStore();
@@ -542,12 +542,6 @@ function EditorTab() {
             description="Automatically frees GPU frame cache when closing a project."
           >
             <ToggleSwitch checked={autoClearCacheOnProjectClose} onChange={setAutoClearCacheOnProjectClose} />
-          </SettingRow>
-          <SettingRow
-            label="Anonymous Performance Telemetry"
-            description="Shares anonymous frame render times, seek latencies, and GPU model to catch regressions and dropped frames. Zero video frames, assets, project titles, or user identities are ever collected."
-          >
-            <ToggleSwitch checked={performanceTelemetryEnabled} onChange={setPerformanceTelemetryEnabled} />
           </SettingRow>
         </div>
       </section>
@@ -941,6 +935,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               <WhisperSettings />
             ))}
           {activeTab === "cache" && <CacheSettings />}
+          {activeTab === "diagnostics" && <PreviewDiagnosticsTab />}
           {activeTab === "about" && <AboutTab />}
         </main>
       </div>

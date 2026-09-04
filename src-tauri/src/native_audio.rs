@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::Instant;
 
 pub const TICKS_PER_SECOND: i64 = 1_000_000;
 pub const MAX_PCM_BYTES: usize = 256 * 1024 * 1024;
@@ -34,6 +35,10 @@ pub struct NativeAudioStatus {
     pub speed: f32,
     pub volume: f32,
     pub muted: bool,
+    pub mixer_lock_misses: u64,
+    pub callback_time_us: u64,
+    pub callback_max_time_us: u64,
+    pub callback_over_budget_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -649,6 +654,10 @@ struct NativeAudioClockInner {
     volume_milli: Arc<AtomicU32>,
     muted: Arc<AtomicBool>,
     transport_ramp_frames: Arc<AtomicU32>,
+    mixer_lock_misses: Arc<AtomicU64>,
+    callback_time_us: Arc<AtomicU64>,
+    callback_max_time_us: Arc<AtomicU64>,
+    callback_over_budget_count: Arc<AtomicU64>,
     mixer: Arc<RwLock<NativeAudioMixer>>,
     last_error: Arc<Mutex<Option<String>>>,
 }
@@ -676,6 +685,10 @@ impl NativeAudioClock {
                 volume_milli: Arc::new(AtomicU32::new(1_000)),
                 muted: Arc::new(AtomicBool::new(false)),
                 transport_ramp_frames: Arc::new(AtomicU32::new(0)),
+                mixer_lock_misses: Arc::new(AtomicU64::new(0)),
+                callback_time_us: Arc::new(AtomicU64::new(0)),
+                callback_max_time_us: Arc::new(AtomicU64::new(0)),
+                callback_over_budget_count: Arc::new(AtomicU64::new(0)),
                 mixer: Arc::new(RwLock::new(NativeAudioMixer::default())),
                 last_error: Arc::new(Mutex::new(None)),
             },
@@ -700,6 +713,10 @@ impl NativeAudioClock {
         self.inner.position_ticks.store(0, Ordering::Release);
         self.inner.playing.store(false, Ordering::Release);
         self.inner.transport_ramp_frames.store(0, Ordering::Release);
+        self.inner.mixer_lock_misses.store(0, Ordering::Release);
+        self.inner.callback_time_us.store(0, Ordering::Release);
+        self.inner.callback_max_time_us.store(0, Ordering::Release);
+        self.inner.callback_over_budget_count.store(0, Ordering::Release);
 
         let host = cpal::default_host();
         let host_name = format!("{:?}", host.id());
@@ -727,6 +744,10 @@ impl NativeAudioClock {
         let volume_milli = self.inner.volume_milli.clone();
         let muted = self.inner.muted.clone();
         let transport_ramp_frames = self.inner.transport_ramp_frames.clone();
+        let mixer_lock_misses = self.inner.mixer_lock_misses.clone();
+        let callback_time_us = self.inner.callback_time_us.clone();
+        let callback_max_time_us = self.inner.callback_max_time_us.clone();
+        let callback_over_budget_count = self.inner.callback_over_budget_count.clone();
         let mixer = self.inner.mixer.clone();
         let last_error = self.inner.last_error.clone();
 
@@ -745,6 +766,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -762,6 +787,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -779,6 +808,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -796,6 +829,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -813,6 +850,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -830,6 +871,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -847,6 +892,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -864,6 +913,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -881,6 +934,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -898,6 +955,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -915,6 +976,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -932,6 +997,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames,
+                mixer_lock_misses,
+                callback_time_us,
+                callback_max_time_us,
+                callback_over_budget_count,
                 mixer,
                 last_error,
             ),
@@ -1019,7 +1088,7 @@ impl NativeAudioClock {
         self.inner
             .mixer
             .write()
-            .expect("native audio mixer lock poisoned")
+            .map_err(|_| "native audio mixer lock poisoned".to_string())?
             .install_clip(clip)
     }
 
@@ -1107,6 +1176,13 @@ impl NativeAudioClock {
             speed: self.inner.speed_milli.load(Ordering::Acquire) as f32 / 1_000.0,
             volume: self.inner.volume_milli.load(Ordering::Acquire) as f32 / 1_000.0,
             muted: self.inner.muted.load(Ordering::Acquire),
+            mixer_lock_misses: self.inner.mixer_lock_misses.load(Ordering::Acquire),
+            callback_time_us: self.inner.callback_time_us.load(Ordering::Acquire),
+            callback_max_time_us: self.inner.callback_max_time_us.load(Ordering::Acquire),
+            callback_over_budget_count: self
+                .inner
+                .callback_over_budget_count
+                .load(Ordering::Acquire),
         }
     }
 
@@ -1160,6 +1236,10 @@ fn build_audio_stream<T>(
     volume_milli: Arc<AtomicU32>,
     muted: Arc<AtomicBool>,
     transport_ramp_frames: Arc<AtomicU32>,
+    mixer_lock_misses: Arc<AtomicU64>,
+    callback_time_us: Arc<AtomicU64>,
+    callback_max_time_us: Arc<AtomicU64>,
+    callback_over_budget_count: Arc<AtomicU64>,
     mixer: Arc<RwLock<NativeAudioMixer>>,
     last_error: Arc<Mutex<Option<String>>>,
 ) -> Result<cpal::Stream, cpal::Error>
@@ -1179,6 +1259,7 @@ where
             }
 
             let start_ticks = position_ticks.load(Ordering::Acquire);
+            let callback_started = Instant::now();
             let master_gain = volume_milli.load(Ordering::Acquire) as f32 / 1_000.0;
             let playback_speed = speed_milli.load(Ordering::Acquire) as f32 / 1_000.0;
             let frames = data.len() / usize::from(channels.max(1));
@@ -1207,9 +1288,24 @@ where
                 }
             } else {
                 // Lock contention fallback (render silence rather than block the audio thread)
+                mixer_lock_misses.fetch_add(1, Ordering::Relaxed);
                 for sample in data.iter_mut() {
                     *sample = T::EQUILIBRIUM;
                 }
+            }
+
+            let callback_elapsed_us = callback_started
+                .elapsed()
+                .as_micros()
+                .min(u64::MAX as u128) as u64;
+            callback_time_us.fetch_add(callback_elapsed_us, Ordering::Relaxed);
+            callback_max_time_us.fetch_max(callback_elapsed_us, Ordering::Relaxed);
+            let callback_budget_us = (frames as u64)
+                .saturating_mul(1_000_000)
+                .checked_div(u64::from(sample_rate.max(1)))
+                .unwrap_or(0);
+            if callback_elapsed_us > callback_budget_us {
+                callback_over_budget_count.fetch_add(1, Ordering::Relaxed);
             }
 
             played_frames.fetch_add(frames as u64, Ordering::Relaxed);
@@ -1254,7 +1350,7 @@ pub async fn decode_native_audio_clip(
     channels: u16,
 ) -> Result<NativePcmClip, String> {
     let config = AudioClipConfig {
-        id: clip_id,
+        id: clip_id.clone(),
         path: path.to_string_lossy().to_string(),
         timeline_start_ticks,
         source_start_ticks,
@@ -1275,7 +1371,41 @@ pub async fn decode_native_audio_clip(
     } else {
         channels
     };
-    let decoded = decode_audio_clip(path, config, sample_rate, decode_channels).await?;
+    let decoded = match decode_audio_clip(path, config, sample_rate, decode_channels).await {
+        Ok(decoded) => decoded,
+        Err(error) => {
+            eprintln!(
+                "[NativeAudio] Audio decoding failed for clip {}: {} (path: {:?}). Installing silent clip placeholder.",
+                clip_id,
+                error,
+                path
+            );
+            log::warn!(
+                "[NativeAudio] Audio decoding failed for clip {}: {}. Installing silent clip placeholder.",
+                clip_id,
+                error
+            );
+            return Ok(NativePcmClip {
+                id: clip_id,
+                sample_rate,
+                channels,
+                samples: Arc::from(Vec::<f32>::new()),
+                timeline_start_ticks,
+                duration_ticks,
+                gain: 0.0,
+                pan: 0.0,
+                fade_in_ticks: 0,
+                fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: Vec::new(),
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
+            });
+        }
+    };
     let mut native: NativePcmClip = decoded.into();
     native.pan = pan.clamp(-1.0, 1.0);
     native.fade_in_curve = fade_in_curve;
@@ -1298,6 +1428,102 @@ pub async fn decode_native_audio_clip(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn failed_audio_clip_decode_installs_silent_clip_without_error() {
+        let path = std::path::PathBuf::from("/nonexistent/file/without/audio.mp4");
+        let result = decode_native_audio_clip(
+            &path,
+            "silent_fallback_clip".to_string(),
+            0,
+            0,
+            1_000_000,
+            1.0,
+            0.0,
+            0,
+            0,
+            "linear".to_string(),
+            "linear".to_string(),
+            Vec::new(),
+            "auto".to_string(),
+            "auto".to_string(),
+            None,
+            false,
+            48_000,
+            2,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let clip = result.unwrap();
+        assert_eq!(clip.id, "silent_fallback_clip");
+        assert_eq!(clip.gain, 0.0);
+        assert!(clip.samples.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_user_timeline_playback() {
+        let path1 = std::path::PathBuf::from("/Users/AIEraDev/Documents/clypra-testing-assets/O lo far ooo 😂😂🤣🤣 [7662866378793258261].mp4");
+        let path2 = std::path::PathBuf::from("/Users/AIEraDev/Documents/clypra-testing-assets/VØRTΞX★ 👽 - @CFCMods They thought they had Argentina [2077525613615751168].mp4");
+        if !path1.exists() || !path2.exists() {
+            return;
+        }
+
+        let clip1 = decode_native_audio_clip(
+            &path1,
+            "clip1".to_string(),
+            0,
+            0,
+            40_800_000,
+            1.0,
+            0.0,
+            0,
+            0,
+            "linear".to_string(),
+            "linear".to_string(),
+            Vec::new(),
+            "auto".to_string(),
+            "auto".to_string(),
+            None,
+            false,
+            48_000,
+            2,
+        ).await.unwrap();
+
+        let clip2 = decode_native_audio_clip(
+            &path2,
+            "clip2".to_string(),
+            12_200_000,
+            0,
+            25_402_630,
+            1.0,
+            0.0,
+            0,
+            0,
+            "linear".to_string(),
+            "linear".to_string(),
+            Vec::new(),
+            "auto".to_string(),
+            "auto".to_string(),
+            None,
+            false,
+            48_000,
+            2,
+        ).await.unwrap();
+
+        eprintln!("Clip 1: duration_ticks={}, sample_count={}, sample_rate={}, channels={}",
+            clip1.duration_ticks, clip1.samples.len(), clip1.sample_rate, clip1.channels);
+        eprintln!("Clip 2: duration_ticks={}, sample_count={}, sample_rate={}, channels={}",
+            clip2.duration_ticks, clip2.samples.len(), clip2.sample_rate, clip2.channels);
+
+        assert!(clip1.duration_ticks >= 40_000_000);
+        assert!(clip2.duration_ticks >= 25_000_000);
+
+        // At 22s, both clips are overlapping and MUST produce audio samples
+        let ticks_22s = 22 * 1_000_000;
+        assert!(sample_at(&clip1, ticks_22s, 0, 1.0).is_some());
+        assert!(sample_at(&clip2, ticks_22s, 0, 1.0).is_some());
+    }
 
     #[test]
     fn new_clock_is_stopped_and_unconfigured() {

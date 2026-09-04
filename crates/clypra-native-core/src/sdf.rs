@@ -107,7 +107,11 @@ pub fn generate_sdf(alpha_mask: &[u8], width: usize, height: usize, radius: f32)
     if size == 0 {
         return Vec::new();
     }
-    assert_eq!(alpha_mask.len(), size, "alpha_mask size must equal width * height");
+    assert_eq!(
+        alpha_mask.len(),
+        size,
+        "alpha_mask size must equal width * height"
+    );
 
     let radius = radius.max(1.0);
 

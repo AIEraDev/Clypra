@@ -27,6 +27,7 @@ interface StickerRendererEntry {
  */
 export class NativeAnimatedStickerRenderer {
   private readonly entries = new Map<string, StickerRendererEntry>();
+  private readonly registeredFrames = new Set<string>();
 
   async render(layer: EvaluatedMediaLayer): Promise<NativeAnimatedStickerRaster | null> {
     if (layer.clipKind !== "sticker" || layer.stickerFormat !== "lottie") return null;
@@ -84,14 +85,40 @@ export class NativeAnimatedStickerRenderer {
     const rawFrame = Math.max(0, Math.floor(layer.sourceTime * Math.max(0, speed) * frameRate));
     const loop = layer.stickerSettings?.loop ?? true;
     const frame = loop ? rawFrame % totalFrames : Math.min(rawFrame, totalFrames - 1);
+    const assetId = `native-sticker:${layer.layerId}:${frame}:${entry.canvas.width}x${entry.canvas.height}`;
+
+    // Fast-path: if this frame has already been registered in the GPU texture cache,
+    // skip canvas rasterization and avoid creating a massive JSON array.
+    if (this.registeredFrames.has(assetId)) {
+      return {
+        assetId,
+        rgba: [],
+        width: entry.canvas.width,
+        height: entry.canvas.height,
+        x: layer.x,
+        y: layer.y,
+        rotation: layer.rotation,
+        opacity: layer.opacity,
+        zIndex: layer.zIndex,
+        blendMode: layer.blendMode,
+        isText: false,
+      };
+    }
+
     entry.animation.goToAndStop(frame, true);
     await Promise.resolve();
 
     const context = entry.canvas.getContext("2d");
     if (!context || entry.canvas.width === 0 || entry.canvas.height === 0) return null;
     const rgba = Array.from(context.getImageData(0, 0, entry.canvas.width, entry.canvas.height).data);
+    this.registeredFrames.add(assetId);
+    if (this.registeredFrames.size > 512) {
+      const first = this.registeredFrames.values().next().value;
+      if (first) this.registeredFrames.delete(first);
+    }
+
     return {
-      assetId: `native-sticker:${layer.layerId}:${frame}:${entry.canvas.width}x${entry.canvas.height}`,
+      assetId,
       rgba,
       width: entry.canvas.width,
       height: entry.canvas.height,
@@ -108,6 +135,7 @@ export class NativeAnimatedStickerRenderer {
   dispose(): void {
     for (const entry of this.entries.values()) this.destroyEntry(entry);
     this.entries.clear();
+    this.registeredFrames.clear();
   }
 
   private destroyEntry(entry: StickerRendererEntry): void {

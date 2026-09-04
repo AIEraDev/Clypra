@@ -1,7 +1,74 @@
+import type { TemplateTextProperties } from "@/features/text-templates/types";
+
+export const CAPTION_MODEL_VERSION = 1;
+export const TICKS_PER_SECOND = 1_000_000;
+
+export interface CaptionCue {
+  id: string;
+  startTicks: number; // 1,000,000 ticks/sec (1MHz)
+  endTicks: number;
+  text: string;
+  speaker?: string; // Reserved for v2 diarization
+  styleOverride?: Partial<TemplateTextProperties>;
+  styleVersion: number;
+  effectVersion?: number;
+}
+
+export interface CaptionTrack {
+  id: string;
+  captionModelVersion: number;
+  name: string;
+  visible: boolean;
+  locked: boolean;
+  defaultStyle: TemplateTextProperties;
+  cues: CaptionCue[];
+}
+
+export const DEFAULT_CAPTION_STYLE: TemplateTextProperties = {
+  text: "",
+  fontFamily: "Inter Variable",
+  fontSize: 36,
+  color: "#ffffff",
+  align: "center",
+  verticalAlign: "middle",
+  fontWeight: 700,
+  fontStyle: "normal",
+  lineHeight: 1.25,
+  letterSpacing: 0,
+};
+
+export function secondsToTicks(seconds: number): number {
+  if (!Number.isFinite(seconds) || seconds < 0) return 0;
+  return Math.round(seconds * TICKS_PER_SECOND);
+}
+
+export function ticksToSeconds(ticks: number): number {
+  if (!Number.isFinite(ticks) || ticks <= 0) return 0;
+  return ticks / TICKS_PER_SECOND;
+}
+
+export function ticksToFrameIndex(ticks: number, fps: number): number {
+  if (!Number.isFinite(ticks) || ticks <= 0) return 0;
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : 30;
+  return Math.round((ticks / TICKS_PER_SECOND) * safeFps);
+}
+
+export function frameIndexToTicks(frameIndex: number, fps: number): number {
+  if (!Number.isFinite(frameIndex) || frameIndex <= 0) return 0;
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : 30;
+  return Math.round((frameIndex / safeFps) * TICKS_PER_SECOND);
+}
+
+// ---------------------------------------------------------------------------
+// Legacy / Whisper Bridge types
+// ---------------------------------------------------------------------------
+
 export interface WordTimestamp {
   word: string;
   startMs: number;
   endMs: number;
+  startTicks?: number;
+  endTicks?: number;
 }
 
 export interface SubtitleSegment {
@@ -9,6 +76,8 @@ export interface SubtitleSegment {
   text: string;
   startMs: number;
   endMs: number;
+  startTicks?: number;
+  endTicks?: number;
   words: WordTimestamp[];
 }
 

@@ -29,6 +29,20 @@ describe('Platform Path Conversion & URI Normalization Edge Cases', () => {
       expect(output).toBe('/Users/dev/My Sample Video+1.mp4');
     });
 
+    it('preserves hash fragments (#) in file names without truncating', () => {
+      const input = 'asset://localhost/%2FUsers%2Fdev%2FMessi%20is%20the%20greatest%20%23football%20%23messi.mp4';
+      const output = toNativePath(input);
+      expect(output).toBe('/Users/dev/Messi is the greatest #football #messi.mp4');
+
+      const rawHashInput = 'asset://localhost/Users/dev/Messi #football #messi.mp4';
+      expect(toNativePath(rawHashInput)).toBe('/Users/dev/Messi #football #messi.mp4');
+    });
+
+    it('preserves question marks (?) in file names without truncating', () => {
+      const input = 'asset://localhost/%2FUsers%2Fdev%2FWhat%3F%20Video.mp4';
+      const output = toNativePath(input);
+      expect(output).toBe('/Users/dev/What? Video.mp4');
+    });
   });
 
   describe('Unmodified Native Paths & Fallbacks', () => {

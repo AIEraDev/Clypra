@@ -1,6 +1,18 @@
-import type { AudioFadeCurve, AudioFXConfig, AudioKeyframe, ClipAudioProperties } from "./audio";
+import type {
+  AudioFadeCurve,
+  AudioFXConfig,
+  AudioKeyframe,
+  ClipAudioProperties,
+} from "./audio";
 
-export type AspectRatio = "original" | "16:9" | "9:16" | "1:1" | "4:5" | "21:9" | "4:3";
+export type AspectRatio =
+  | "original"
+  | "16:9"
+  | "9:16"
+  | "1:1"
+  | "4:5"
+  | "21:9"
+  | "4:3";
 
 export type {
   AudioChannelConfig,
@@ -15,7 +27,14 @@ export type {
   AudioSpeedConfig,
   ClipAudioProperties,
 } from "./audio";
-export { AUDIO_MODEL_VERSION, dbToLinearGain, getClipAudioProperties, linearGainToDb, normalizeClipAudioProperties, synchronizeClipAudioProperties } from "./audio";
+export {
+  AUDIO_MODEL_VERSION,
+  dbToLinearGain,
+  getClipAudioProperties,
+  linearGainToDb,
+  normalizeClipAudioProperties,
+  synchronizeClipAudioProperties,
+} from "./audio";
 
 /**
  * Maximum project name length.
@@ -132,9 +151,19 @@ export interface Project {
   timelineSchemaVersion?: number;
   /** Version of the first-class audio clip model. */
   audioModelVersion?: number;
+  /** Version of the first-class caption model. */
+  captionModelVersion?: number;
 }
 
-export type TrackType = "video" | "audio" | "text" | "sticker" | "filter" | "video-effect" | "body-effect" | "animated-overlay";
+export type TrackType =
+  | "video"
+  | "audio"
+  | "text"
+  | "sticker"
+  | "filter"
+  | "video-effect"
+  | "body-effect"
+  | "animated-overlay";
 
 export interface Track {
   id: string;
@@ -227,17 +256,44 @@ export interface MediaAsset {
 }
 
 /** Type guard to check if asset has visual dimensions */
-export function hasVisualDimensions(asset: MediaAsset): asset is MediaAsset & { width: number; height: number } {
-  return (asset.type === "video" || asset.type === "image") && asset.width !== undefined && asset.height !== undefined;
+export function hasVisualDimensions(
+  asset: MediaAsset,
+): asset is MediaAsset & { width: number; height: number } {
+  return (
+    (asset.type === "video" || asset.type === "image") &&
+    asset.width !== undefined &&
+    asset.height !== undefined
+  );
 }
 
-export type ClipKind = "video" | "audio" | "image" | "sticker" | "text" | "filter" | "video-effect" | "body-effect" | "animated-overlay" | "smart-overlay" | "compound";
+export type ClipKind =
+  | "video"
+  | "audio"
+  | "image"
+  | "sticker"
+  | "text"
+  | "text-template"
+  | "filter"
+  | "video-effect"
+  | "body-effect"
+  | "animated-overlay"
+  | "smart-overlay"
+  | "compound";
 /** Semantic participation of a clip in the compositor. */
-export type ClipRole = "primary" | "overlay" | "text" | "effect" | "background" | "audio";
-export type { SmartOverlayClip, SmartOverlayType, SmartOverlayContentUnion, SmartOverlayStyle, SmartOverlayPreset } from "./smartOverlay";
-
-
-
+export type ClipRole =
+  | "primary"
+  | "overlay"
+  | "text"
+  | "effect"
+  | "background"
+  | "audio";
+export type {
+  SmartOverlayClip,
+  SmartOverlayType,
+  SmartOverlayContentUnion,
+  SmartOverlayStyle,
+  SmartOverlayPreset,
+} from "./smartOverlay";
 
 export interface Clip {
   id: string;
@@ -254,6 +310,8 @@ export interface Clip {
   height: number;
   opacity: number;
   rotation: number;
+  /** Compositor layer blend mode (e.g. normal, multiply, screen, overlay, additive, difference) */
+  blendMode?: BlendMode;
   // Transform constraints
   aspectRatioLocked?: boolean; // Default true for video/images
   sourceAspectRatio?: number; // Original aspect ratio (width/height)
@@ -298,6 +356,7 @@ export interface Clip {
   stickerAnimationPath?: string;
   stickerSourceId?: string;
   stickerImagePath?: string;
+  stickerSettings?: StickerSettings;
   /** Text template ID for text clips */
   templateId?: string;
   /** Template catalog version captured when this clip was created. */
@@ -305,7 +364,12 @@ export interface Clip {
   /** Immutable template revision captured when this clip was created. */
   templateRevisionId?: string;
   templateContentHash?: string;
-  templateSnapshot?: import("@clypra-studio/engine").TextTemplate;
+  templateSnapshot?:
+    | import("@clypra-studio/engine").TextTemplate
+    | import("@clypra-studio/engine").TextTemplateArtifact;
+  templateControlValues?: Record<string, unknown>;
+  /** Complete immutable dependency manifest for canonical template clips. */
+  templateDependencySnapshot?: import("@clypra-studio/engine").TemplateDependencyManifest;
   templateDependencies?: Array<{
     effectId: string;
     revisionId: string;
@@ -322,7 +386,9 @@ export interface Clip {
   /** Clip-level markers pinned to local clip time */
   markers?: ClipMarker[];
   /** Visual property animation keyframes */
-  visualKeyframes?: Partial<Record<VisualPropertyKey, VisualPropertyKeyframe[]>>;
+  visualKeyframes?: Partial<
+    Record<VisualPropertyKey, VisualPropertyKeyframe[]>
+  >;
   audioPath?: string;
   /** Source clip identity for generated detach-audio clips. */
   detachedFromClipId?: string;
@@ -332,20 +398,26 @@ export interface Clip {
   compoundPreview?: string;
 }
 
-export type EasingType = "linear" | "easeIn" | "easeOut" | "easeInOut" | "bezier";
-
-export interface VisualPropertyKeyframe {
-  id: string;
-  /** Relative time inside the clip (seconds) */
-  time: number;
-  /** Property value */
-  value: number;
-  easing?: EasingType;
-  /** Bezier control points [x1, y1, x2, y2] for custom curve */
-  controlPoints?: [number, number, number, number];
+export interface StickerSettings {
+  speed: number;
+  loop: boolean;
 }
 
-export type VisualPropertyKey = "x" | "y" | "width" | "height" | "rotation" | "opacity";
+import type { Keyframe, KeyframeEasing } from "./keyframes";
+
+export type EasingType = KeyframeEasing;
+
+export interface VisualPropertyKeyframe extends Keyframe<number> {
+  easing?: EasingType;
+}
+
+export type VisualPropertyKey =
+  | "x"
+  | "y"
+  | "width"
+  | "height"
+  | "rotation"
+  | "opacity";
 
 /** Video overlay applied to a clip (actual video file) */
 export interface ClipOverlay {
@@ -394,7 +466,21 @@ export interface ClipEffect {
 }
 
 /** Blend modes for overlays */
-export type BlendMode = "normal" | "multiply" | "screen" | "overlay" | "darken" | "lighten" | "color-dodge" | "color-burn" | "hard-light" | "soft-light" | "difference" | "exclusion" | "add" | "subtract";
+export type BlendMode =
+  | "normal"
+  | "multiply"
+  | "screen"
+  | "overlay"
+  | "darken"
+  | "lighten"
+  | "color-dodge"
+  | "color-burn"
+  | "hard-light"
+  | "soft-light"
+  | "difference"
+  | "exclusion"
+  | "add"
+  | "subtract";
 
 export interface VideoClip extends Clip {
   kind: "video";
@@ -460,7 +546,16 @@ export interface CaptionWord {
   probability?: number; // 0.98 (Whisper confidence score)
 }
 
-export type TextAnimationType = "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "scale" | "zoom-in" | "zoom-out";
+export type TextAnimationType =
+  | "none"
+  | "fade"
+  | "slide-up"
+  | "slide-down"
+  | "slide-left"
+  | "slide-right"
+  | "scale"
+  | "zoom-in"
+  | "zoom-out";
 
 export interface TextAnimation {
   type: TextAnimationType;
@@ -471,6 +566,15 @@ export interface TextAnimation {
 export interface TextClip extends Clip {
   kind: "text";
   text: string;
+  /**
+   * Stable font identifier from the Clypra font registry.
+   * Derived from the registry's FontRecord.id at clip creation time.
+   * When present, takes priority over fontFamily for registry lookups.
+   * For bundled fonts: e.g. "inter-variable", "bebas-neue", "impact".
+   * For unknown/user fonts: a lowercased slug of the family name.
+   * Optional for backward-compat — old clips without this field remain valid.
+   */
+  fontId?: string;
   fontFamily: string;
   fontSize: number;
   fontWeight?: string | number;
@@ -521,8 +625,19 @@ export interface TextClip extends Clip {
   exitAnimation?: TextAnimation;
 }
 
-export type TimelineItemKind = "video" | "audio" | "image" | "text" | "transition";
-export type TimelineItemRole = "primary" | "overlay" | "text" | "effect" | "background" | "audio";
+export type TimelineItemKind =
+  | "video"
+  | "audio"
+  | "image"
+  | "text"
+  | "transition";
+export type TimelineItemRole =
+  | "primary"
+  | "overlay"
+  | "text"
+  | "effect"
+  | "background"
+  | "audio";
 
 export interface TimelinePlacement {
   trackId: string;
@@ -602,12 +717,27 @@ export interface TransitionTimelineItem extends BaseTimelineItem {
   easing: TransitionEasing;
 }
 
-export type TimelineItem = MediaTimelineItem | TextTimelineItem | TransitionTimelineItem;
+export type TimelineItem =
+  | MediaTimelineItem
+  | TextTimelineItem
+  | TransitionTimelineItem;
 
-export type DragItem = { type: "MEDIA_ASSET"; asset: MediaAsset } | { type: "CLIP"; clip: Clip };
+export type DragItem =
+  | { type: "MEDIA_ASSET"; asset: MediaAsset }
+  | { type: "CLIP"; clip: Clip };
 
 // Transform system types
-export type TransformHandle = "move" | "nw" | "n" | "ne" | "w" | "e" | "sw" | "s" | "se" | "rotate";
+export type TransformHandle =
+  | "move"
+  | "nw"
+  | "n"
+  | "ne"
+  | "w"
+  | "e"
+  | "sw"
+  | "s"
+  | "se"
+  | "rotate";
 
 export interface TransformState {
   clipId: string;
@@ -658,3 +788,5 @@ export * from "./export";
 export * from "./gap";
 export * from "./serialization";
 export * from "./compositor";
+export * from "./captions";
+export * from "./keyframes";

@@ -1,7 +1,6 @@
 use tauri_app_lib::thumbnail_engine::atlas::{
-    load_from_atlas_resilient, prune_disk_cache_if_needed, purge_all_disk_cache,
-    set_disk_cache_limit, get_disk_cache_stats_from_dir,
-    AtlasBuilder, AtlasLocation,
+    get_disk_cache_stats_from_dir, load_from_atlas_resilient, prune_disk_cache_if_needed,
+    purge_all_disk_cache, set_disk_cache_limit, AtlasBuilder, AtlasLocation,
 };
 
 #[tokio::test]
@@ -24,19 +23,28 @@ async fn test_truncated_0byte_atlas_auto_quarantined() {
     // Attempt load - must fail with error and auto-quarantine (delete) the corrupted file
     let result = load_from_atlas_resilient(&location, 80, 45).await;
     assert!(result.is_err());
-    assert!(!atlas_path.exists(), "Corrupted 0-byte atlas should be deleted from disk");
+    assert!(
+        !atlas_path.exists(),
+        "Corrupted 0-byte atlas should be deleted from disk"
+    );
 
     let _ = tokio::fs::remove_dir_all(&temp_dir).await;
 }
 
 #[tokio::test]
 async fn test_corrupt_garbage_webp_auto_quarantined() {
-    let temp_dir = std::env::temp_dir().join(format!("clypra_test_corrupt_{}", uuid::Uuid::new_v4()));
+    let temp_dir =
+        std::env::temp_dir().join(format!("clypra_test_corrupt_{}", uuid::Uuid::new_v4()));
     tokio::fs::create_dir_all(&temp_dir).await.unwrap();
 
     let atlas_path = temp_dir.join("test_video_med_0001_1x.webp");
     // Write random garbage bytes (corrupted image stream)
-    tokio::fs::write(&atlas_path, &[0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x11, 0x22, 0x33]).await.unwrap();
+    tokio::fs::write(
+        &atlas_path,
+        &[0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x11, 0x22, 0x33],
+    )
+    .await
+    .unwrap();
     assert!(atlas_path.exists());
 
     let location = AtlasLocation {
@@ -48,7 +56,10 @@ async fn test_corrupt_garbage_webp_auto_quarantined() {
 
     let result = load_from_atlas_resilient(&location, 80, 45).await;
     assert!(result.is_err());
-    assert!(!atlas_path.exists(), "Corrupted garbage atlas should be deleted from disk");
+    assert!(
+        !atlas_path.exists(),
+        "Corrupted garbage atlas should be deleted from disk"
+    );
 
     let _ = tokio::fs::remove_dir_all(&temp_dir).await;
 }
@@ -69,7 +80,9 @@ async fn test_atomic_atlas_save_and_resilient_load() {
         thumb_rgba.extend_from_slice(&red_pixel);
     }
 
-    let (col, row) = builder.add_thumbnail(&thumb_rgba, thumb_w, thumb_h).unwrap();
+    let (col, row) = builder
+        .add_thumbnail(&thumb_rgba, thumb_w, thumb_h)
+        .unwrap();
     assert_eq!(col, 0);
     assert_eq!(row, 0);
 
@@ -79,7 +92,10 @@ async fn test_atomic_atlas_save_and_resilient_load() {
     // Verify main atlas exists and no temporary files linger
     assert!(atlas_path.exists());
     let tmp_path = atlas_path.with_extension("tmp.webp");
-    assert!(!tmp_path.exists(), "Temporary write file should be committed and removed");
+    assert!(
+        !tmp_path.exists(),
+        "Temporary write file should be committed and removed"
+    );
 
     let location = AtlasLocation {
         atlas_path: atlas_path.clone(),
@@ -88,7 +104,9 @@ async fn test_atomic_atlas_save_and_resilient_load() {
         row,
     };
 
-    let loaded_rgba = load_from_atlas_resilient(&location, thumb_w, thumb_h).await.unwrap();
+    let loaded_rgba = load_from_atlas_resilient(&location, thumb_w, thumb_h)
+        .await
+        .unwrap();
     assert_eq!(loaded_rgba.len(), thumb_rgba.len());
     // Verify colors match
     assert_eq!(&loaded_rgba[0..4], &[255, 0, 0, 255]);
@@ -129,7 +147,10 @@ async fn test_disk_cache_prunes_oldest_files_when_over_budget() {
 
     let (after_bytes, after_count) = get_disk_cache_stats_from_dir(&temp_dir).await;
     assert!(after_count < 5, "Oldest files should be pruned");
-    assert!(after_bytes <= tight_limit, "Cache usage should be within budget");
+    assert!(
+        after_bytes <= tight_limit,
+        "Cache usage should be within budget"
+    );
 
     // The oldest file (paths[0]) should have been deleted first
     assert!(!paths[0].exists(), "Oldest atlas must be evicted first");

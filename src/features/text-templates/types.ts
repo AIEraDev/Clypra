@@ -16,7 +16,15 @@ export type TemplateCategory =
   | "caption"        // subtitle-style, bottom of frame
   | "callout"        // arrow + label pointing to something
   | "social"         // follow/subscribe CTAs
-  | "countdown";     // timer overlays
+  | "countdown"      // timer overlays
+  | "kinetic-type"   // dynamic typography
+  | "cta"            // call-to-action cards
+  | "credits"        // end credits and rolling titles
+  | "quotes"         // pull quotes and author citations
+  | "sports"         // scoreboards, stats, and player cards
+  | "gaming"         // HUDs, gamer tags, and stream overlays
+  | "news"           // breaking news and tickers
+  | "minimal";       // clean editorial layouts
 
 export const TEMPLATE_CATEGORIES = [
   "lower-third",
@@ -25,6 +33,14 @@ export const TEMPLATE_CATEGORIES = [
   "callout",
   "social",
   "countdown",
+  "kinetic-type",
+  "cta",
+  "credits",
+  "quotes",
+  "sports",
+  "gaming",
+  "news",
+  "minimal",
 ] as const;
 
 export type ElementKind = "text" | "solid" | "image";

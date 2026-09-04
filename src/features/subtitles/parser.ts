@@ -142,3 +142,26 @@ export function serializeSubtitles(blocks: SubtitleBlock[], format: "srt" | "vtt
 
   return result.join("\n");
 }
+
+/**
+ * Asynchronously parses SRT or WebVTT content off the main UI thread via SubtitleParserWorkerClient.
+ */
+export async function parseSubtitlesAsync(
+  content: string,
+  format?: "srt" | "vtt",
+): Promise<SubtitleBlock[]> {
+  const isVtt = format ? format === "vtt" : content.trim().startsWith("WEBVTT");
+  const { getSubtitleParserWorkerClient } = await import(
+    "@/core/workers/subtitleParserWorkerClient"
+  );
+  const res = await getSubtitleParserWorkerClient().parseSubtitles(
+    isVtt ? "vtt" : "srt",
+    content,
+  );
+  return res.cues.map((cue, idx) => ({
+    id: cue.id || String(idx + 1),
+    startTime: cue.startTime,
+    endTime: cue.endTime,
+    text: cue.text,
+  }));
+}

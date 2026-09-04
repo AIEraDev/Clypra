@@ -96,6 +96,11 @@ pub struct PerformanceSample {
     pub stale: bool,
     #[serde(default)]
     pub dropped: bool,
+    /// Stable drop classification used by the performance API. This is kept
+    /// separate from the boolean so stale, cancelled, and audio-late frames
+    /// can be diagnosed without mixing their percentiles.
+    #[serde(default)]
+    pub drop_reason: Option<String>,
     #[serde(default)]
     pub seek_time_us: u32,
     #[serde(default)]
@@ -145,6 +150,11 @@ pub struct NativeFrameServiceStats {
     pub cached_entries: usize,
     pub cached_bytes: usize,
     pub last_sample: Option<PerformanceSample>,
+    /// Monotonically increases for every newly recorded sample. Consumers
+    /// polling stats can use this cursor to avoid reporting the same sample
+    /// repeatedly while the editor is idle.
+    #[serde(default)]
+    pub last_sample_sequence: u64,
     #[serde(default)]
     pub window_started_at_ms: u64,
     #[serde(default)]
@@ -171,6 +181,21 @@ pub struct NativeFrameServiceStats {
     /// re-rendered should contribute here, not to `cache_hits`.
     #[serde(default)]
     pub text_layer_cache_hits: u64,
+}
+
+/// A cursor-bounded batch of native samples. The cursor belongs to the
+/// service, not to the UI, so polling this endpoint never records a new
+/// measurement and an idle editor cannot duplicate the last frame.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativePerformanceSampleBatch {
+    pub samples: Vec<PerformanceSample>,
+    pub first_sequence: u64,
+    pub last_sequence: u64,
+    pub next_sequence: u64,
+    pub oldest_sequence: u64,
+    pub latest_sequence: u64,
+    pub truncated: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -269,6 +294,7 @@ mod tests {
             cancelled: false,
             stale: false,
             dropped: false,
+            drop_reason: None,
             seek_time_us: 0,
             conversion_time_us: 0,
             upload_time_us: 0,

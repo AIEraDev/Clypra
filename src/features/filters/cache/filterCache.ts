@@ -11,6 +11,7 @@ import {
   sanitizeRemoteFilterPayload,
   MAX_FILTER_PAYLOAD_BYTES,
 } from "../security/filterValidation";
+import { getCacheCoordinator } from "@/core/cache/cacheCoordinator";
 
 export interface CachedFilter {
   id: string;
@@ -336,3 +337,22 @@ class FilterCacheManager {
 }
 
 export const filterCacheManager = new FilterCacheManager();
+
+getCacheCoordinator().register({
+  name: "filter-cache",
+  getBytesUsed: () => filterCacheManager.getCacheStats().totalSize,
+  trimTo: (targetBytes) => {
+    let freed = 0;
+    const items = filterCacheManager.getAllCached();
+    for (const item of items) {
+      if (filterCacheManager.getCacheStats().totalSize <= targetBytes) break;
+      const size = item.size;
+      filterCacheManager.clearCache(item.id).catch(() => {});
+      freed += size;
+    }
+    return freed;
+  },
+  clear: () => {
+    filterCacheManager.clearAllCache().catch(() => {});
+  },
+});

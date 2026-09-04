@@ -29,4 +29,14 @@ describe("shared audio/visual keyframe math", () => {
 
     expect(audio).toBe(numeric);
   });
+
+  it("verifies generic Keyframe<number> contract compatibility", () => {
+    const genericKeyframes: import("@/types").Keyframe<number>[] = [
+      { id: "kf-1", time: 0, value: 10, easing: "easeIn" },
+      { id: "kf-2", time: 2, value: 50, easing: "easeOut" },
+    ];
+    const evaluated = evaluateNumericKeyframes(genericKeyframes, 1.0, 0);
+    expect(evaluated).toBeGreaterThan(10);
+    expect(evaluated).toBeLessThan(50);
+  });
 });

@@ -18,7 +18,12 @@ export const EffectStylePanel: React.FC<EffectStylePanelProps> = ({
   onChangeEffect,
   isModified,
 }) => {
-  const effectName = effectDefinition?.name || effectId.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  const effectName =
+    effectDefinition?.name ||
+    effectId
+      .split("-")
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
   const effectCategory = effectDefinition?.category || "Custom";
 
   return (
@@ -46,7 +51,7 @@ export const EffectStylePanel: React.FC<EffectStylePanelProps> = ({
           >
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
-          
+
           <button
             onClick={onDetach}
             title="Detach Effect (Keep current styles)"
@@ -60,9 +65,7 @@ export const EffectStylePanel: React.FC<EffectStylePanelProps> = ({
       {isModified && (
         <div className="flex items-start gap-2 p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-md text-[11px] text-amber-400 select-none">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          <span>
-            Tip: Editing typography or colors below will detach from the preset effect.
-          </span>
+          <span>This effect has been modified from its original preset.</span>
         </div>
       )}
     </div>

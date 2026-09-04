@@ -143,6 +143,7 @@ fn native_color_grade(s: &clypra_native_core::ColorGradeSnapshot) -> ColorGradeU
 /// method) means it can be called from both without any `self` coupling.
 async fn render_raster_frame(
     gpu: &GpuContext,
+    compositor: &MultiTrackCompositor,
     request: &FrameRequest,
 ) -> Result<Vec<u8>, String> {
     #[cfg(target_arch = "wasm32")]
@@ -207,12 +208,6 @@ async fn render_raster_frame(
         views.push(texture.create_view(&wgpu::TextureViewDescriptor::default()));
         textures.push(texture);
     }
-
-    let compositor = MultiTrackCompositor::new_with_target_format(
-        device, queue,
-        request.output_width, request.output_height,
-        wgpu::TextureFormat::Rgba8UnormSrgb,
-    );
 
     if let Some(transition) = request.project.transition.as_ref() {
         let transition_type = match transition.transition_type.to_ascii_lowercase().as_str() {
@@ -425,6 +420,10 @@ async fn init_gpu() -> Result<GpuContext, String> {
 #[wasm_bindgen]
 pub struct WasmRenderer {
     gpu: GpuContext,
+    // Pipelines, samplers, LUTs, and uniform storage are renderer resources.
+    // They must survive across frames; constructing them in render_frame made
+    // every playback tick pay the full GPU pipeline setup cost.
+    compositor: MultiTrackCompositor,
 }
 
 /// Async factory — the entry point Studio uses instead of `new WasmRenderer()`.
@@ -445,7 +444,14 @@ pub async fn create_renderer() -> Result<WasmRenderer, JsValue> {
     console_error_panic_hook::set_once();
 
     let gpu = init_gpu().await.map_err(|e| JsValue::from_str(&e))?;
-    Ok(WasmRenderer { gpu })
+    let compositor = MultiTrackCompositor::new_with_target_format(
+        &gpu.device,
+        &gpu.queue,
+        1,
+        1,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+    );
+    Ok(WasmRenderer { gpu, compositor })
 }
 
 #[wasm_bindgen]
@@ -474,14 +480,14 @@ impl WasmRenderer {
     /// `POST /v1/render/frame` on the native daemon).
     ///
     /// Returns raw PNG bytes as a `Uint8Array`.
-    pub async fn render_frame(&self, request_json: &str) -> Result<Vec<u8>, JsValue> {
+    pub async fn render_frame(&mut self, request_json: &str) -> Result<Vec<u8>, JsValue> {
         let request: FrameRequest = serde_json::from_str(request_json)
             .map_err(|e| JsValue::from_str(&format!("Invalid FrameRequest JSON: {e}")))?;
         request
             .validate()
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-        let rgba = render_raster_frame(&self.gpu, &request)
+        let rgba = render_raster_frame(&self.gpu, &self.compositor, &request)
             .await
             .map_err(|e| JsValue::from_str(&e))?;
 

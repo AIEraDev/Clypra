@@ -8,7 +8,7 @@ use serde::Serialize;
 use std::collections::VecDeque;
 use std::fmt::Display;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 const MAX_PERCENTILE_SAMPLES: usize = 500;
 const MAX_SEEK_EVENTS: usize = 50;
@@ -209,11 +209,9 @@ pub struct SyncMetricsRegistry {
 
 impl SyncMetricsRegistry {
     pub fn record_dropped_frame(&self) {
-        let dropped_frames = self.dropped_frames.fetch_add(1, Ordering::Relaxed) + 1;
-        trace_event(
-            "frame_dropped",
-            format_args!("dropped_frames={dropped_frames}"),
-        );
+        // This is a realtime hot path. Keep the counter lock-free and emit the
+        // result only from the bounded periodic aggregate below.
+        self.dropped_frames.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn record_seek_requested(&self, requested_ticks: i64) {
@@ -263,12 +261,6 @@ impl SyncMetricsRegistry {
             // that would turn a normal pause into seconds of fake jank.
             self.frame_pacing.reset_last_frame();
         }
-        trace_event(
-            "frame_presented",
-            format_args!(
-                "presented_ticks={presented_ticks} target_interval_micros={target_interval_micros} measure_pacing={measure_pacing} resolve_seek={resolve_seek}"
-            ),
-        );
         if !resolve_seek {
             return;
         }
@@ -361,95 +353,15 @@ fn snapshot_with(
 }
 
 pub static SYNC_METRICS: Lazy<SyncMetricsRegistry> = Lazy::new(SyncMetricsRegistry::default);
-static FLUSH_LOOP_STARTED: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
-static TRACE_ENABLED: Lazy<bool> = Lazy::new(|| {
-    ["CLYPRA_TRACE_AV_SYNC", "CLYPRA_TRACE_SYNC"]
-        .iter()
-        .filter_map(|name| std::env::var(name).ok())
-        .any(|value| value == "1" || value.eq_ignore_ascii_case("true"))
-});
-
-/// Emit high-volume native events only when explicitly enabled. The stable
-/// marker and epoch timestamp make Rust stderr and browser console output
-/// searchable and correlatable during playback investigations.
-pub fn trace_event(event: &str, details: impl Display) {
-    if !*TRACE_ENABLED {
-        return;
-    }
-    let timestamp_epoch_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or(0);
-    eprintln!(
-        "[av-sync][rust] source=rust event={event} ts_epoch_ms={timestamp_epoch_ms} {details}"
-    );
-}
-
-pub fn ensure_metrics_flush_loop() {
-    if FLUSH_LOOP_STARTED.swap(1, Ordering::SeqCst) != 0 {
-        return;
-    }
-    // Tauri setup runs synchronously and is not guaranteed to be inside a
-    // Tokio context. Use Tauri's runtime bridge so startup never panics with
-    // "there is no reactor running".
-    tauri::async_runtime::spawn(async {
-        let mut interval = tokio::time::interval(Duration::from_secs(5));
-        loop {
-            interval.tick().await;
-            flush_periodic_metrics();
-        }
-    });
-}
-
-fn flush_periodic_metrics() {
-    let snapshot = SYNC_METRICS.take_and_reset();
-    if snapshot.av_drift.n == 0
-        && snapshot.frame_pacing.n == 0
-        && snapshot.dropped_frames == 0
-        && snapshot.seeks.n == 0
-    {
-        return;
-    }
-    let window_id = snapshot.timestamp_epoch_ms / 5_000;
-    eprintln!(
-        "─────── 🎯 [A/V Sync Metrics: 5s Window] [av-sync][rust] source=rust event=window_flush ts_epoch_ms={} window_id={} ───────",
-        snapshot.timestamp_epoch_ms,
-        window_id,
-    );
-    if snapshot.av_drift.n > 0 || snapshot.dropped_frames > 0 {
-        eprintln!(
-            "[av-sync][rust] source=rust event=drift_window n={} avg={:+.2}ms max_abs={:.2}ms p95_abs={:.2}ms dropped={}",
-            snapshot.av_drift.n,
-            snapshot.av_drift.avg_micros / 1000.0,
-            snapshot.av_drift.max_abs_micros as f64 / 1000.0,
-            snapshot.av_drift.p95_abs_micros as f64 / 1000.0,
-            snapshot.dropped_frames,
-        );
-    }
-    if snapshot.frame_pacing.n > 0 {
-        eprintln!(
-            "[av-sync][rust] source=rust event=pacing_window target={:.2}ms stddev={:.2}ms jank_events={}",
-            snapshot.frame_pacing.target_interval_micros / 1000.0,
-            snapshot.frame_pacing.stddev_micros / 1000.0,
-            snapshot.frame_pacing.jank_events,
-        );
-    }
-    if snapshot.seeks.n > 0 {
-        eprintln!(
-            "[av-sync][rust] source=rust event=seek_window seeks={} avg_latency={:.2}ms max_latency={:.2}ms correct={}/{}",
-            snapshot.seeks.n,
-            snapshot.seeks.avg_latency_micros / 1000.0,
-            snapshot.seeks.max_latency_micros as f64 / 1000.0,
-            snapshot.seeks.correct,
-            snapshot.seeks.n,
-        );
-    }
-    eprintln!("─────────────────────────────────────────────────");
+/// Retained as a compatibility hook for native callers. Diagnostics are
+/// delivered through the Tauri event bridge instead of blocking stderr.
+pub fn trace_event(_event: &str, _details: impl Display) {
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn drift_snapshot_reports_signed_average_and_percentiles() {

@@ -87,4 +87,15 @@ describe("TimelineToolbar zoom controls", () => {
     act(() => callbacks[0](0));
     expect(useTimelineStore.getState().zoomLevel).not.toBe(1);
   });
+
+  it("opens the preview quality menu into the timeline layer", () => {
+    render(<TimelineToolbar />);
+
+    fireEvent.click(screen.getByTitle("Preview resolution (does not affect final export)"));
+
+    const menu = screen.getByText("Full 4K").closest("div");
+    expect(menu).not.toBeNull();
+    expect(menu).toHaveClass("top-full");
+    expect(menu).toHaveClass("z-[220]");
+  });
 });

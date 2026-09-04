@@ -11,22 +11,28 @@
  *
  * Used before invoking Rust commands that need filesystem paths.
  */
+function reconstructPath(url: URL): string {
+  // Reconstruct full path including search and hash fragments (e.g. filenames with '#' or '?')
+  let pathname = decodeURIComponent(
+    (url.pathname + (url.search || "") + (url.hash || "")).replace(/\+/g, " ")
+  );
+  if (pathname.startsWith("//")) {
+    pathname = pathname.replace(/^\/+/, "/");
+  }
+  // Windows: /C:/... → C:/...
+  if (/^\/[A-Za-z]:/.test(pathname)) {
+    pathname = pathname.slice(1);
+  }
+  return pathname;
+}
+
 export function toNativePath(inputPath: string): string {
   const p = inputPath.trim();
 
   // Handle http://asset.localhost/ or https://asset.localhost/
   if (p.startsWith("http://asset.localhost/") || p.startsWith("https://asset.localhost/") || p.startsWith("http://asset.localhost%2F") || p.startsWith("https://asset.localhost%2F")) {
     try {
-      const url = new URL(p);
-      let pathname = decodeURIComponent(url.pathname.replace(/\+/g, " "));
-      if (pathname.startsWith("//")) {
-        pathname = pathname.replace(/^\/+/, "/");
-      }
-      // Windows: http://asset.localhost/C:/... → /C:/... → C:/...
-      if (/^\/[A-Za-z]:/.test(pathname)) {
-        pathname = pathname.slice(1);
-      }
-      return pathname;
+      return reconstructPath(new URL(p));
     } catch {
       return p;
     }
@@ -35,16 +41,7 @@ export function toNativePath(inputPath: string): string {
   // Handle asset://localhost/<encoded-path> produced by convertFileSrc on macOS/Linux
   if (p.startsWith("asset://localhost/") || p.startsWith("asset://localhost%2F")) {
     try {
-      const url = new URL(p);
-      let pathname = decodeURIComponent(url.pathname.replace(/\+/g, " "));
-      if (pathname.startsWith("//")) {
-        pathname = pathname.replace(/^\/+/, "/");
-      }
-      // Windows: asset://localhost/C:/... → /C:/... → C:/...
-      if (/^\/[A-Za-z]:/.test(pathname)) {
-        pathname = pathname.slice(1);
-      }
-      return pathname;
+      return reconstructPath(new URL(p));
     } catch {
       return p;
     }
@@ -53,15 +50,7 @@ export function toNativePath(inputPath: string): string {
   // Handle asset://<encoded-path> (Windows variant: asset:///C:/...)
   if (p.startsWith("asset://")) {
     try {
-      const url = new URL(p);
-      let pathname = decodeURIComponent(url.pathname.replace(/\+/g, " "));
-      if (pathname.startsWith("//")) {
-        pathname = pathname.replace(/^\/+/, "/");
-      }
-      if (/^\/[A-Za-z]:/.test(pathname)) {
-        pathname = pathname.slice(1);
-      }
-      return pathname;
+      return reconstructPath(new URL(p));
     } catch {
       return p;
     }
@@ -72,16 +61,7 @@ export function toNativePath(inputPath: string): string {
     return p;
   }
   try {
-    const url = new URL(p);
-    let pathname = decodeURIComponent(url.pathname.replace(/\+/g, " "));
-    if (pathname.startsWith("//")) {
-      pathname = pathname.replace(/^\/+/, "/");
-    }
-    // Windows: file:///C:/Users/... → /C:/Users/... → C:/Users/...
-    if (/^\/[A-Za-z]:/.test(pathname)) {
-      pathname = pathname.slice(1);
-    }
-    return pathname;
+    return reconstructPath(new URL(p));
   } catch {
     return p;
   }

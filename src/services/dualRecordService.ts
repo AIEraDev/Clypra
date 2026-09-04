@@ -69,6 +69,7 @@ export class DualRecordService {
   private cameraTempFileName: string | null = null;
   private screenFinalFileName: string | null = null;
   private cameraFinalFileName: string | null = null;
+  private pendingChunkWrites: Promise<void>[] = [];
 
   // High-precision start timestamps
   private screenStartPerfTime: number | null = null;
@@ -636,7 +637,20 @@ export class DualRecordService {
         );
         this.screenRecorder.ondataavailable = (e) => {
           if (e.data && e.data.size > 0) {
+            // Keep chunks in memory as safety net
             this.screenChunks.push(e.data);
+
+            if (this.screenTempFileName && platform.appendRecordingChunk) {
+              const writePromise = (async () => {
+                try {
+                  const buf = await e.data.arrayBuffer();
+                  await platform.appendRecordingChunk!(this.screenTempFileName!, new Uint8Array(buf));
+                } catch (err) {
+                  console.warn("[DualRecordService] Failed to append screen chunk:", err);
+                }
+              })();
+              this.pendingChunkWrites.push(writePromise);
+            }
           }
         };
         this.screenRecorder.onerror = (e) => {
@@ -657,7 +671,20 @@ export class DualRecordService {
         );
         this.webcamRecorder.ondataavailable = (e) => {
           if (e.data && e.data.size > 0) {
+            // Keep chunks in memory as safety net
             this.webcamChunks.push(e.data);
+
+            if (this.cameraTempFileName && platform.appendRecordingChunk) {
+              const writePromise = (async () => {
+                try {
+                  const buf = await e.data.arrayBuffer();
+                  await platform.appendRecordingChunk!(this.cameraTempFileName!, new Uint8Array(buf));
+                } catch (err) {
+                  console.warn("[DualRecordService] Failed to append camera chunk:", err);
+                }
+              })();
+              this.pendingChunkWrites.push(writePromise);
+            }
           }
         };
         this.webcamRecorder.onerror = (e) => {
@@ -728,10 +755,30 @@ export class DualRecordService {
         stopRecorderInstance(this.webcamRecorder),
       ]);
 
+      // Flush all in-flight chunk disk writes before renaming temp -> final!
+      if (this.pendingChunkWrites.length > 0) {
+        await Promise.allSettled(this.pendingChunkWrites);
+        this.pendingChunkWrites = [];
+      }
+
       const filePaths: string[] = [];
 
       // Save Screen Recording
-      if (this.screenChunks.length > 0) {
+      let screenSaved = false;
+      if (this.screenTempFileName && this.screenFinalFileName && platform.finalizeRecordingFile) {
+        try {
+          const path = await platform.finalizeRecordingFile(
+            this.screenTempFileName,
+            this.screenFinalFileName,
+          );
+          filePaths.push(path);
+          screenSaved = true;
+        } catch (err) {
+          console.warn("[DualRecordService] Screen temp file finalization failed, falling back to in-memory save:", err);
+        }
+      }
+
+      if (!screenSaved && this.screenChunks.length > 0) {
         const mimeType = this.screenRecorder?.mimeType || "video/webm";
         const ext = mimeType.includes("mp4") ? "mp4" : "webm";
         const fileName = this.screenFinalFileName || `screen_${Date.now()}.${ext}`;
@@ -740,11 +787,26 @@ export class DualRecordService {
         if (arrayBuffer.byteLength > 0) {
           const path = await platform.saveRecording(fileName, new Uint8Array(arrayBuffer));
           filePaths.push(path);
+          screenSaved = true;
         }
       }
 
       // Save Camera Recording
-      if (this.webcamChunks.length > 0) {
+      let cameraSaved = false;
+      if (this.cameraTempFileName && this.cameraFinalFileName && platform.finalizeRecordingFile) {
+        try {
+          const path = await platform.finalizeRecordingFile(
+            this.cameraTempFileName,
+            this.cameraFinalFileName,
+          );
+          filePaths.push(path);
+          cameraSaved = true;
+        } catch (err) {
+          console.warn("[DualRecordService] Camera temp file finalization failed, falling back to in-memory save:", err);
+        }
+      }
+
+      if (!cameraSaved && this.webcamChunks.length > 0) {
         const mimeType = this.webcamRecorder?.mimeType || "video/webm";
         const ext = mimeType.includes("mp4") ? "mp4" : "webm";
         const fileName = this.cameraFinalFileName || `camera_${Date.now()}.${ext}`;
@@ -753,8 +815,10 @@ export class DualRecordService {
         if (arrayBuffer.byteLength > 0) {
           const path = await platform.saveRecording(fileName, new Uint8Array(arrayBuffer));
           filePaths.push(path);
+          cameraSaved = true;
         }
       }
+
 
       if (filePaths.length === 0) {
         throw new Error("Screen recording ended before video data was captured. Please verify screen capture permissions.");
@@ -820,6 +884,7 @@ export class DualRecordService {
     this.cameraFinalFileName = null;
     this.screenStartPerfTime = null;
     this.webcamStartPerfTime = null;
+    this.pendingChunkWrites = [];
   }
 
 }

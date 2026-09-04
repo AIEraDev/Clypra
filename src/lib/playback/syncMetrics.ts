@@ -164,7 +164,15 @@ export function startSyncMetricsFlushLoop(intervalMs = 5000): void {
     const paintJitter = playheadPaintJitter.takeAndReset();
     const seekLatency = seekUserLatency.takeAndReset();
     if (uiDrift.n === 0 && paintJitter.n === 0 && seekLatency.n === 0) return;
-    // Metrics remain available to the telemetry overlay and diagnostics API,
-    // but periodic console summaries are intentionally silent in production.
+    if (import.meta.env.DEV || isSyncMetricsTraceEnabled()) {
+      console.info("[av-sync][metrics]", {
+        source: "react",
+        ui_drift_avg_ms: Number(uiDrift.avg.toFixed(2)),
+        max_drift_ms: Number(uiDrift.maxAbs.toFixed(2)),
+        paint_jitter_max_ms: Number(paintJitter.maxAbs.toFixed(2)),
+        seek_latency_avg_ms: Number(seekLatency.avg.toFixed(2)),
+        samples: uiDrift.n,
+      });
+    }
   }, intervalMs);
 }

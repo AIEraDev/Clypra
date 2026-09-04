@@ -82,8 +82,7 @@ fn style_bitmap(
 
     for y in 0..height {
         let italic_shift = if shear > 0 {
-            ((height.saturating_sub(1 + y)) as f32 / height as f32 * shear as f32).round()
-                as isize
+            ((height.saturating_sub(1 + y)) as f32 / height as f32 * shear as f32).round() as isize
         } else {
             0
         };
@@ -239,15 +238,7 @@ impl GlyphSdfCache {
         epoch: u64,
     ) -> SdfGlyph {
         self.get_or_insert_pinned_with_style(
-            font,
-            font_hash,
-            character,
-            size_px,
-            radius,
-            padding,
-            epoch,
-            400,
-            false,
+            font, font_hash, character, size_px, radius, padding, epoch, 400, false,
         )
     }
 
@@ -265,9 +256,8 @@ impl GlyphSdfCache {
     ) -> SdfGlyph {
         let glyph_index = font.lookup_glyph_index(character);
         let size_key = (size_px * 100.0).round() as u32;
-        let style_hash = font_hash
-            ^ ((font_weight as u64) << 16)
-            ^ if italic { 1u64 << 63 } else { 0 };
+        let style_hash =
+            font_hash ^ ((font_weight as u64) << 16) ^ if italic { 1u64 << 63 } else { 0 };
         let key = (style_hash, glyph_index, size_key);
 
         // Fast path: read lock check
@@ -291,17 +281,13 @@ impl GlyphSdfCache {
             }
         }
 
-        self.misses.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.misses
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         // Slow path: rasterize with fontdue and generate SDF
         let (metrics, bitmap) = font.rasterize(character, size_px);
-        let (bitmap, bitmap_width) = style_bitmap(
-            &bitmap,
-            metrics.width,
-            metrics.height,
-            font_weight,
-            italic,
-        );
+        let (bitmap, bitmap_width) =
+            style_bitmap(&bitmap, metrics.width, metrics.height, font_weight, italic);
 
         let (sdf_data, sdf_w, sdf_h) = if bitmap_width > 0 && metrics.height > 0 {
             generate_padded_sdf(&bitmap, bitmap_width, metrics.height, padding, radius)
@@ -345,7 +331,8 @@ impl GlyphSdfCache {
                 lru.remove(idx);
                 if let Some(removed) = write.remove(&key_to_evict) {
                     *total = total.saturating_sub(removed.bytes);
-                    self.evictions.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    self.evictions
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
             } else {
                 // All entries are pinned for the current active frame — break to avoid starving active frame
@@ -404,7 +391,10 @@ impl GlyphSdfCache {
     pub fn stats(&self) -> GlyphCacheStats {
         let cur_epoch = *self.current_epoch.read();
         let read = self.entries.read();
-        let pinned_count = read.values().filter(|e| e.pinned_epoch >= cur_epoch && e.pinned_epoch > 0).count();
+        let pinned_count = read
+            .values()
+            .filter(|e| e.pinned_epoch >= cur_epoch && e.pinned_epoch > 0)
+            .count();
         GlyphCacheStats {
             hits: self.hits.load(std::sync::atomic::Ordering::Relaxed),
             misses: self.misses.load(std::sync::atomic::Ordering::Relaxed),
@@ -420,7 +410,8 @@ impl GlyphSdfCache {
     pub fn reset_stats(&self) {
         self.hits.store(0, std::sync::atomic::Ordering::Relaxed);
         self.misses.store(0, std::sync::atomic::Ordering::Relaxed);
-        self.evictions.store(0, std::sync::atomic::Ordering::Relaxed);
+        self.evictions
+            .store(0, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Shapes a text string and generates a composite signed-distance-field atlas buffer (Left-aligned).
@@ -585,10 +576,7 @@ impl GlyphSdfCache {
 
             if glyph.width > 0 && glyph.height > 0 {
                 let gx = cursor_x + (glyph.xmin as f32) - (glyph.padding as f32);
-                current_line.push(GlyphItem {
-                    glyph,
-                    rel_x: gx,
-                });
+                current_line.push(GlyphItem { glyph, rel_x: gx });
             }
 
             cursor_x += adv + letter_spacing;
@@ -623,7 +611,9 @@ impl GlyphSdfCache {
 
             for item in line.glyphs {
                 let gx = item.rel_x + offset_x;
-                let gy = line_y - (item.glyph.ymin as f32) - (item.glyph.height as f32 - item.glyph.padding as f32);
+                let gy = line_y
+                    - (item.glyph.ymin as f32)
+                    - (item.glyph.height as f32 - item.glyph.padding as f32);
 
                 min_x = min_x.min(gx);
                 min_y = min_y.min(gy);

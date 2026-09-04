@@ -10,6 +10,7 @@
 
 import type { CanvasBackgroundConfig, MediaAsset } from "@/types";
 import type { EvaluatedScene } from "./types";
+import { getCacheCoordinator } from "@/core/cache/cacheCoordinator";
 
 /**
  * Cache key for evaluated scenes.
@@ -215,6 +216,19 @@ export class EvaluationCache {
     }
   }
 
+  getBytesUsed(): number {
+    return this.currentMemoryMB * 1024 * 1024;
+  }
+
+  trimTo(targetBytes: number): number {
+    const startBytes = this.getBytesUsed();
+    const targetMB = targetBytes / (1024 * 1024);
+    while (this.currentMemoryMB > targetMB && this.cache.size > 0) {
+      this.evictLRU();
+    }
+    return Math.max(0, startBytes - this.getBytesUsed());
+  }
+
   private serializeKey(key: CacheKey): string {
     // Round time to 3 decimal places (millisecond precision)
     const roundedTime = Math.round(key.time * 1000) / 1000;
@@ -238,6 +252,12 @@ let globalCache: EvaluationCache | null = null;
 export function getEvaluationCache(): EvaluationCache {
   if (!globalCache) {
     globalCache = new EvaluationCache(100);
+    getCacheCoordinator().register({
+      name: "evaluated-scene",
+      getBytesUsed: () => globalCache?.getBytesUsed() ?? 0,
+      trimTo: (t) => globalCache?.trimTo(t) ?? 0,
+      clear: () => globalCache?.clear(),
+    });
   }
   return globalCache;
 }
@@ -247,6 +267,13 @@ export function getEvaluationCache(): EvaluationCache {
  */
 export function resetEvaluationCache(): void {
   globalCache = null;
+}
+
+function fastPropSig(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  return JSON.stringify(v);
 }
 
 /**
@@ -266,7 +293,7 @@ export function computeClipVersion(clips: Array<Record<string, any>>, transition
     .map((c) =>
       [
         c.id,
-        "text" in c ? "text" : c.mediaId ? "media" : "unknown",
+        c.kind === "text-template" ? "text-template" : "text" in c ? "text" : c.mediaId ? "media" : "unknown",
         c.trackId,
         c.mediaId ?? "",
         Number(c.startTime ?? 0).toFixed(3),
@@ -286,6 +313,9 @@ export function computeClipVersion(clips: Array<Record<string, any>>, transition
         c.templateId ?? "",
         c.templateRevisionId ?? "",
         c.templateContentHash ?? "",
+        fastPropSig(c.templateControlValues),
+        fastPropSig(c.templateDependencySnapshot),
+        fastPropSig(c.templateSnapshot?.revision),
         c.styleDefinition?.id ?? "",
         c.fontFamily ?? "",
         c.fontSize ?? "",
@@ -296,10 +326,10 @@ export function computeClipVersion(clips: Array<Record<string, any>>, transition
         c.lineHeight ?? "",
         c.align ?? "",
         c.valign ?? "",
-        JSON.stringify(c.stroke ?? null),
-        JSON.stringify(c.shadow ?? null),
-        JSON.stringify(c.background ?? null),
-        JSON.stringify(c.customization ?? null),
+        fastPropSig(c.stroke),
+        fastPropSig(c.shadow),
+        fastPropSig(c.background),
+        fastPropSig(c.customization),
         c.effectStackVersion ?? "",
       ].join(":"),
     )
@@ -321,7 +351,7 @@ export function computeClipVersion(clips: Array<Record<string, any>>, transition
         Number(t.placement?.startTime ?? 0).toFixed(3),
         Number(t.placement?.duration ?? 0).toFixed(3),
         t.effects?.version ?? 0,
-        JSON.stringify(t.metadata ?? null),
+        fastPropSig(t.metadata),
       ].join(":")
     )
     .join("|");

@@ -7,29 +7,29 @@
 //! The cache uses an LRU eviction policy with a configurable VRAM budget.
 //! Default: 256 MB (holds ~120 1080p RGBA text layers simultaneously).
 
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use sha2::{Digest, Sha256};
 
 /// A single cached text layer GPU texture.
 pub struct CachedTextLayer {
     /// The composited RGBA output texture after the full SDF effect pass-chain.
-    pub texture:      Arc<wgpu::Texture>,
-    pub view:         Arc<wgpu::TextureView>,
-    pub width:        u32,
-    pub height:       u32,
-    bytes:            usize,
+    pub texture: Arc<wgpu::Texture>,
+    pub view: Arc<wgpu::TextureView>,
+    pub width: u32,
+    pub height: u32,
+    bytes: usize,
 }
 
 /// VRAM-resident cache keyed by a 64-bit content hash.
 pub struct TextLayerCache {
-    entries:      HashMap<u64, CachedTextLayer>,
-    order:        VecDeque<u64>,
+    entries: HashMap<u64, CachedTextLayer>,
+    order: VecDeque<u64>,
     current_bytes: usize,
-    max_bytes:    usize,
+    max_bytes: usize,
 
     // Telemetry — kept separate from frame decode/compose counters per ADR.
-    pub cache_hits:   u64,
+    pub cache_hits: u64,
     pub cache_misses: u64,
 }
 
@@ -37,12 +37,12 @@ impl TextLayerCache {
     /// Create a cache with a VRAM budget. Default: 256 MB.
     pub fn new(max_bytes: usize) -> Self {
         Self {
-            entries:       HashMap::new(),
-            order:         VecDeque::new(),
+            entries: HashMap::new(),
+            order: VecDeque::new(),
             current_bytes: 0,
             max_bytes,
-            cache_hits:    0,
-            cache_misses:  0,
+            cache_hits: 0,
+            cache_misses: 0,
         }
     }
 
@@ -62,11 +62,11 @@ impl TextLayerCache {
     /// Insert a rendered texture. Evicts LRU entries until the budget is met.
     pub fn insert(
         &mut self,
-        key:     u64,
+        key: u64,
         texture: Arc<wgpu::Texture>,
-        view:    Arc<wgpu::TextureView>,
-        width:   u32,
-        height:  u32,
+        view: Arc<wgpu::TextureView>,
+        width: u32,
+        height: u32,
     ) {
         let bytes = (width as usize)
             .saturating_mul(height as usize)
@@ -79,7 +79,9 @@ impl TextLayerCache {
         self.remove(key); // remove any existing entry for this key first
 
         while self.current_bytes.saturating_add(bytes) > self.max_bytes {
-            let Some(oldest) = self.order.pop_front() else { break };
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
             if let Some(removed) = self.entries.remove(&oldest) {
                 self.current_bytes = self.current_bytes.saturating_sub(removed.bytes);
             }
@@ -87,7 +89,16 @@ impl TextLayerCache {
 
         self.current_bytes = self.current_bytes.saturating_add(bytes);
         self.order.push_back(key);
-        self.entries.insert(key, CachedTextLayer { texture, view, width, height, bytes });
+        self.entries.insert(
+            key,
+            CachedTextLayer {
+                texture,
+                view,
+                width,
+                height,
+                bytes,
+            },
+        );
     }
 
     /// Invalidate a specific cache entry.
@@ -105,9 +116,15 @@ impl TextLayerCache {
         self.current_bytes = 0;
     }
 
-    pub fn entry_count(&self) -> usize { self.entries.len() }
-    pub fn current_bytes(&self) -> usize { self.current_bytes }
-    pub fn max_bytes(&self) -> usize { self.max_bytes }
+    pub fn entry_count(&self) -> usize {
+        self.entries.len()
+    }
+    pub fn current_bytes(&self) -> usize {
+        self.current_bytes
+    }
+    pub fn max_bytes(&self) -> usize {
+        self.max_bytes
+    }
 
     fn touch(&mut self, key: u64) {
         self.order.retain(|k| *k != key);
@@ -117,12 +134,12 @@ impl TextLayerCache {
 
 /// Compute a stable 64-bit cache key for a text layer snapshot.
 pub fn text_layer_cache_key(
-    text:           &str,
-    font_id:        &str,
-    font_size:      f32,
-    effect_id:      &str,
+    text: &str,
+    font_id: &str,
+    font_size: f32,
+    effect_id: &str,
     effect_version: u32,
-    params_json:    &str,
+    params_json: &str,
 ) -> u64 {
     let mut hasher = Sha256::new();
     hasher.update(text.as_bytes());

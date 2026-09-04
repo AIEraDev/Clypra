@@ -61,10 +61,8 @@ export interface SettingsStore {
   // Performance
   proxyEditingEnabled: boolean;
   autoClearCacheOnProjectClose: boolean;
-  performanceTelemetryEnabled: boolean;
   setProxyEditingEnabled: (v: boolean) => void;
   setAutoClearCacheOnProjectClose: (v: boolean) => void;
-  setPerformanceTelemetryEnabled: (v: boolean) => void;
   // Layout persistence (replaces anonymous localStorage keys)
   layoutPreset: LayoutPreset;
   sidebarWidth: number;
@@ -81,5 +79,4 @@ export interface SettingsStore {
   setPropertiesPanelCollapsed: (v: boolean) => void;
   setTimelineHeight: (v: number) => void;
 }
-
 

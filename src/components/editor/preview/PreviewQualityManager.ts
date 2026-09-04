@@ -87,58 +87,58 @@ export class PreviewQualityManager {
 
     switch (tier) {
       case PreviewQualityTier.PlaybackHigh: {
-        // 75% resolution, NO DPR
+        // 75% resolution, NO DPR — frame rate over fidelity
         const scale = Math.min(0.75, this.viewportWidth / this.sequenceWidth, this.viewportHeight / this.sequenceHeight);
-        const w = this.sequenceWidth * scale;
-        const h = this.sequenceHeight * scale;
+        const maxWidth = Math.max(1, Math.round(this.sequenceWidth * scale));
+        const maxHeight = Math.max(1, Math.round((maxWidth * this.sequenceHeight) / this.sequenceWidth));
         return {
-          maxWidth: Math.max(1, Math.floor(w)),
-          maxHeight: Math.max(1, Math.floor(h)),
+          maxWidth,
+          maxHeight,
           dprScale: 1.0,
           useDpr: false,
-          estimatedVRAMBytes: w * h * 4,
+          estimatedVRAMBytes: maxWidth * maxHeight * 4,
         };
       }
 
       case PreviewQualityTier.Playback: {
         // Half resolution, NO DPR — frame rate over fidelity
         const scale = Math.min(0.5, this.viewportWidth / this.sequenceWidth, this.viewportHeight / this.sequenceHeight);
-        const w = this.sequenceWidth * scale;
-        const h = this.sequenceHeight * scale;
+        const maxWidth = Math.max(1, Math.round(this.sequenceWidth * scale));
+        const maxHeight = Math.max(1, Math.round((maxWidth * this.sequenceHeight) / this.sequenceWidth));
         return {
-          maxWidth: Math.max(1, Math.floor(w)),
-          maxHeight: Math.max(1, Math.floor(h)),
+          maxWidth,
+          maxHeight,
           dprScale: 1.0,
           useDpr: false,
-          estimatedVRAMBytes: w * h * 4,
+          estimatedVRAMBytes: maxWidth * maxHeight * 4,
         };
       }
 
       case PreviewQualityTier.Interaction: {
         // Quarter resolution, prioritizes latency
         const scale = Math.min(0.25, (this.viewportWidth * 0.5) / this.sequenceWidth, (this.viewportHeight * 0.5) / this.sequenceHeight);
-        const w = this.sequenceWidth * scale;
-        const h = this.sequenceHeight * scale;
+        const maxWidth = Math.max(1, Math.round(this.sequenceWidth * scale));
+        const maxHeight = Math.max(1, Math.round((maxWidth * this.sequenceHeight) / this.sequenceWidth));
         return {
-          maxWidth: Math.max(1, Math.floor(w)),
-          maxHeight: Math.max(1, Math.floor(h)),
+          maxWidth,
+          maxHeight,
           dprScale: 1.0,
           useDpr: false,
-          estimatedVRAMBytes: w * h * 4,
+          estimatedVRAMBytes: maxWidth * maxHeight * 4,
         };
       }
 
       case PreviewQualityTier.Idle: {
-        // Full resolution, capped at viewport × DPR, preserving aspect ratio
+        // Full resolution, capped at viewport × DPR, strictly preserving sequence aspect ratio
         const scale = Math.min(1.0, viewportMaxWidth / this.sequenceWidth, viewportMaxHeight / this.sequenceHeight);
-        const w = this.sequenceWidth * scale;
-        const h = this.sequenceHeight * scale;
+        const maxWidth = Math.max(1, Math.round(this.sequenceWidth * scale));
+        const maxHeight = Math.max(1, Math.round((maxWidth * this.sequenceHeight) / this.sequenceWidth));
         return {
-          maxWidth: Math.max(1, Math.floor(w)),
-          maxHeight: Math.max(1, Math.floor(h)),
+          maxWidth,
+          maxHeight,
           dprScale: this.dpr,
           useDpr: true,
-          estimatedVRAMBytes: w * h * 4,
+          estimatedVRAMBytes: maxWidth * maxHeight * 4,
         };
       }
 
@@ -166,18 +166,37 @@ export class PreviewQualityManager {
     isPlaying: boolean,
     isInteracting: boolean,
     isExporting: boolean = false,
-    playbackQuality: "full" | "high" | "medium" | "low" = "high"
+    playbackQuality: "full" | "high" | "medium" | "low" = "high",
   ): PreviewQualityTier {
     if (isExporting) return PreviewQualityTier.Export;
-    if (isPlaying) {
-      if (playbackQuality === "full") return PreviewQualityTier.Idle;
-      if (playbackQuality === "high") return PreviewQualityTier.PlaybackHigh;
-      if (playbackQuality === "medium") return PreviewQualityTier.Playback;
-      if (playbackQuality === "low") return PreviewQualityTier.Interaction;
-      return PreviewQualityTier.PlaybackHigh;
-    }
+    if (isPlaying) return this.selectTierForPreview(false, playbackQuality);
     if (isInteracting) return PreviewQualityTier.Interaction;
     return PreviewQualityTier.Idle;
+  }
+
+  /**
+   * Select the tier for the visible preview surface.
+   *
+   * Playing and paused are transport states of one preview, not separate
+   * output products. A stable tier prevents a pause from swapping in a
+   * differently sized frame and making the image visibly jump in sharpness.
+   */
+  selectTierForPreview(
+    isInteracting: boolean,
+    previewQuality: "full" | "high" | "medium" | "low" = "high",
+  ): PreviewQualityTier {
+    if (isInteracting) return PreviewQualityTier.Interaction;
+    switch (previewQuality) {
+      case "full":
+        return PreviewQualityTier.Idle;
+      case "medium":
+        return PreviewQualityTier.Playback;
+      case "low":
+        return PreviewQualityTier.Interaction;
+      case "high":
+      default:
+        return PreviewQualityTier.PlaybackHigh;
+    }
   }
 
   /**

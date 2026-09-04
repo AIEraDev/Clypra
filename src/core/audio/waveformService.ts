@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { WaveformBucket } from "@/types";
+import { getWaveformLodWorkerClient } from "@/core/workers/waveformLodWorkerClient";
+import { getCacheCoordinator, type ICacheParticipant } from "@/core/cache/cacheCoordinator";
 
 const WAVEFORM_CACHE_MAX = 50;
 
@@ -13,6 +15,34 @@ const WAVEFORM_CACHE_MAX = 50;
 const waveformCache = new Map<string, WaveformBucket[]>();
 const waveformRequests = new Map<string, Promise<WaveformBucket[]>>();
 const browserWaveformRequests = new Map<string, Promise<WaveformBucket[]>>();
+
+const waveformCacheParticipant: ICacheParticipant = {
+  name: "waveform-lod",
+  getBytesUsed() {
+    let bytes = 0;
+    for (const buckets of waveformCache.values()) {
+      bytes += (buckets?.length || 0) * 8;
+    }
+    return bytes;
+  },
+  trimTo(targetBytes) {
+    let freed = 0;
+    while (this.getBytesUsed() > targetBytes && waveformCache.size > 0) {
+      const oldest = waveformCache.keys().next().value;
+      if (!oldest) break;
+      const buckets = waveformCache.get(oldest);
+      const bSize = (buckets?.length || 0) * 8;
+      waveformCache.delete(oldest);
+      freed += bSize;
+    }
+    return freed;
+  },
+  clear() {
+    waveformCache.clear();
+  },
+};
+
+getCacheCoordinator().register(waveformCacheParticipant);
 
 export interface NativeWaveformRequest {
   path: string;
@@ -156,31 +186,29 @@ export function getBrowserWaveformData(
       const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
       const channelData = audioBuffer.getChannelData(0);
       const sampleRate = audioBuffer.sampleRate;
-      const sourceDuration = Number.isFinite(request.sourceDuration) && request.sourceDuration! > 0
-        ? request.sourceDuration!
-        : undefined;
 
-      if (sourceDuration) {
-        const sourceBuckets = computeWaveformBuckets(
-          channelData,
-          0,
-          channelData.length,
-          request.sourceBucketCount ?? 2048,
-        );
-        return sampleWaveformRange(
-          sourceBuckets,
-          request.sourceStart / sourceDuration,
-          (request.sourceStart + request.visibleDuration) / sourceDuration,
-          request.bucketCount,
-        );
-      }
+      const workerClient = getWaveformLodWorkerClient();
+      // Transfer copy of channelData to worker for LOD pyramid building
+      const pcmCopy = new Float32Array(channelData);
+      await workerClient.buildLod(request.url, pcmCopy, sampleRate, 1);
 
-      return computeWaveformBuckets(
-        channelData,
-        Math.floor(Math.max(0, request.sourceStart) * sampleRate),
-        Math.floor(Math.max(0, request.sourceStart + request.visibleDuration) * sampleRate),
+      const startSample = Math.floor(Math.max(0, request.sourceStart) * sampleRate);
+      const endSample = Math.floor(
+        Math.max(0, request.sourceStart + request.visibleDuration) * sampleRate,
+      );
+
+      const slice = await workerClient.sliceViewport(
+        request.url,
+        startSample,
+        endSample,
         request.bucketCount,
       );
+
+      const buckets: WaveformBucket[] = [];
+      for (let i = 0; i < slice.peaks.length; i++) {
+        buckets.push({ peak: slice.peaks[i], rms: slice.rms[i] });
+      }
+      return buckets;
     } finally {
       await audioContext.close();
     }
@@ -216,6 +244,105 @@ export function sampleWaveformRange(
       rms: Math.max(result.rms, bucket.rms),
     }), { peak: 0, rms: 0 });
   });
+}
+
+export interface WaveformThumbnailOptions {
+  width?: number;
+  height?: number;
+  barCount?: number;
+  barColor?: string;
+  backgroundColor?: string;
+  barGap?: number;
+  trimIn?: number;
+  trimOut?: number;
+}
+
+/**
+ * Draws an array of waveform buckets onto an HTML canvas and returns a base64 PNG data URL.
+ */
+export function renderWaveformBucketsToDataUrl(
+  buckets: WaveformBucket[],
+  options: WaveformThumbnailOptions = {},
+): string {
+  const {
+    width = 160,
+    height = 90,
+    barCount = 32,
+    barColor = "#22d3ee",
+    backgroundColor = "#1e293b",
+    barGap = 0.2,
+  } = options;
+
+  if (typeof document === "undefined" || !document.createElement) {
+    return "";
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return "";
+
+  ctx.fillStyle = backgroundColor;
+  ctx.fillRect(0, 0, width, height);
+
+  const effectiveBuckets = buckets.length > 0
+    ? (buckets.length === barCount ? buckets : sampleWaveformRange(buckets, 0, 1, barCount))
+    : [];
+
+  const maxPeak = Math.max(...effectiveBuckets.map((b) => b.peak), 0.001);
+  const barWidth = width / barCount;
+  const actualBarWidth = barWidth * (1 - barGap);
+  const barGapPx = barWidth * barGap;
+
+  ctx.fillStyle = barColor;
+
+  for (let i = 0; i < barCount; i++) {
+    const bucket = effectiveBuckets[i];
+    const rawVal = bucket ? bucket.peak / maxPeak : Math.sin(i * 0.5) * 0.5 + 0.5;
+    const minHeight = 2;
+    const maxHeight = height * 0.8;
+    const barHeight = Math.max(minHeight, rawVal * maxHeight);
+
+    const x = i * barWidth + barGapPx / 2;
+    const y = (height - barHeight) / 2;
+
+    ctx.beginPath();
+    if (ctx.roundRect) {
+      ctx.roundRect(x, y, actualBarWidth, barHeight, 1);
+    } else {
+      ctx.rect(x, y, actualBarWidth, barHeight);
+    }
+    ctx.fill();
+  }
+
+  return canvas.toDataURL("image/png");
+}
+
+/**
+ * Generates an audio waveform thumbnail data URL by leveraging cached waveform buckets.
+ */
+export async function generateAudioWaveformThumbnail(
+  audioPath: string,
+  options: WaveformThumbnailOptions = {},
+): Promise<string> {
+  const barCount = options.barCount ?? 32;
+  const trimIn = options.trimIn ?? 0;
+  const trimOut = options.trimOut;
+  const visibleDuration = trimOut !== undefined ? Math.max(0.1, trimOut - trimIn) : 10;
+
+  try {
+    const cacheKey = `browser-thumb:${audioPath}:${trimIn}:${visibleDuration}:${barCount}`;
+    const buckets = await getBrowserWaveformData(cacheKey, {
+      url: audioPath,
+      sourceStart: trimIn,
+      visibleDuration,
+      bucketCount: barCount,
+    });
+    return renderWaveformBucketsToDataUrl(buckets, options);
+  } catch {
+    return renderWaveformBucketsToDataUrl([], options);
+  }
 }
 
 /** Test-only reset hook; no production caller should need to clear this cache. */

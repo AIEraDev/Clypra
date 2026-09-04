@@ -7,7 +7,7 @@
 import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
 import type { Track, Clip } from "@/types";
-import { getSafeTrackInsertionIndex } from "@/lib/timeline/trackTypeConfig";
+import { getSafeTrackInsertionIndex, resolvePrimaryVideoTrackId } from "@/lib/timeline/trackTypeConfig";
 
 interface TimelineState {
   tracks: Track[];
@@ -50,7 +50,7 @@ export class AddTrackCommand implements Command {
     return {
       ...state,
       tracks,
-      mainVideoTrackId: state.mainVideoTrackId ?? (this.track.type === "video" ? this.track.id : null),
+      mainVideoTrackId: resolvePrimaryVideoTrackId(state.tracks, state.mainVideoTrackId) ?? (this.track.type === "video" ? this.track.id : null),
       epoch: state.epoch + 1, // ✅ Epoch increment inside command
     };
   }

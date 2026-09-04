@@ -19,7 +19,11 @@
  */
 
 import { useEffect, useState, useMemo } from "react";
-import { getViewportController, type Viewport, type ViewportListener } from "@/core/interactions";
+import {
+  getViewportController,
+  type Viewport,
+  type ViewportListener,
+} from "@/core/interactions";
 
 /**
  * Hook for UI snapshots of viewport state.
@@ -56,7 +60,18 @@ export function useViewportControls() {
       setZoom: (zoom: number) => controller.setZoom(zoom),
       setPan: (panX: number, panY: number) => controller.setPan(panX, panY),
       reset: () => controller.reset(),
-      zoomToFit: (canvasWidth: number, canvasHeight: number, viewportWidth: number, viewportHeight: number) => controller.zoomToFit(canvasWidth, canvasHeight, viewportWidth, viewportHeight),
+      zoomToFit: (
+        canvasWidth: number,
+        canvasHeight: number,
+        viewportWidth: number,
+        viewportHeight: number,
+      ) =>
+        controller.zoomToFit(
+          canvasWidth,
+          canvasHeight,
+          viewportWidth,
+          viewportHeight,
+        ),
       getViewport: () => controller.getViewport(),
     }),
     [controller],

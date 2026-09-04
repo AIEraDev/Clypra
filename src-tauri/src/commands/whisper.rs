@@ -39,14 +39,53 @@ fn get_model_url(size: &str) -> Result<String, String> {
     Ok(url.to_string())
 }
 
+pub const MIN_WHISPER_MODEL_BYTES: u64 = 10 * 1024 * 1024; // 10 MB minimum for any Whisper model
+
+/// Validates that a file on disk is an actual GGML Whisper model:
+/// - File exists and is a regular file
+/// - Size is at least 10MB (tiny is ~75MB; eliminates 68-byte mock files or aborted downloads)
+/// - Not a PyTorch .pt file
+/// - Header magic matches GGML format ("ggml", "ggmf", or "ggmv")
+pub fn is_valid_whisper_model_file(path: &std::path::Path) -> bool {
+    if !path.exists() || !path.is_file() {
+        return false;
+    }
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        if ext.eq_ignore_ascii_case("pt") {
+            return false;
+        }
+    }
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    if metadata.len() < MIN_WHISPER_MODEL_BYTES {
+        return false;
+    }
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    use std::io::Read;
+    let mut header = [0u8; 4];
+    if file.read_exact(&mut header).is_err() {
+        return false;
+    }
+    &header == b"ggml"
+        || &header == b"ggmf"
+        || &header == b"ggmv"
+        || &header == b"lmgg"
+        || &header == b"fmgg"
+        || &header == b"vmgg"
+}
+
 /// Resolves the file path for a Whisper model on disk.
-/// Checks absolute path, ggml-{size}.bin, {size}.bin, or legacy {size}.pt
+/// Checks absolute path, ggml-{size}.bin, or {size}.bin.
+/// Strictly enforces that the target file is a validated GGML binary >= 10MB.
 pub fn resolve_model_file_path(
     app_data_dir: &std::path::Path,
     model_size_or_path: &str,
 ) -> Option<std::path::PathBuf> {
     let direct_path = std::path::PathBuf::from(model_size_or_path);
-    if direct_path.exists() && direct_path.is_file() {
+    if is_valid_whisper_model_file(&direct_path) {
         return Some(direct_path);
     }
 
@@ -62,12 +101,11 @@ pub fn resolve_model_file_path(
     let candidates = [
         models_dir.join(format!("ggml-{}.bin", clean_name)),
         models_dir.join(format!("{}.bin", clean_name)),
-        models_dir.join(format!("{}.pt", clean_name)),
     ];
 
     candidates
         .into_iter()
-        .find(|candidate| candidate.exists() && candidate.is_file())
+        .find(|candidate| is_valid_whisper_model_file(candidate))
 }
 
 /// Download a Whisper model directly from Hugging Face GGML CDN with progress tracking and cancellation support
@@ -171,10 +209,11 @@ async fn perform_download(
         total_size / 1_048_576
     );
 
+    let part_path = file_path.with_extension("bin.part");
     let mut stream = response.bytes_stream();
-    let mut file = tokio::fs::File::create(&file_path)
+    let mut file = tokio::fs::File::create(&part_path)
         .await
-        .map_err(|e| format!("Failed to create file: {}", e))?;
+        .map_err(|e| format!("Failed to create temporary download file: {}", e))?;
 
     let mut downloaded = 0u64;
     let mut last_update = std::time::Instant::now();
@@ -186,7 +225,7 @@ async fn perform_download(
             _ = cancel_token.cancelled() => {
                 eprintln!("🦀 [download_whisper_model] Download cancelled");
                 // Clean up partial file
-                let _ = tokio::fs::remove_file(&file_path).await;
+                let _ = tokio::fs::remove_file(&part_path).await;
                 return Err("Download cancelled".to_string());
             }
 
@@ -231,7 +270,7 @@ async fn perform_download(
                     }
                     Some(Err(e)) => {
                         // Clean up partial file
-                        let _ = tokio::fs::remove_file(&file_path).await;
+                        let _ = tokio::fs::remove_file(&part_path).await;
                         return Err(format!("Download error: {}", e));
                     }
                     None => {
@@ -243,13 +282,26 @@ async fn perform_download(
         }
     }
 
-    // Flush file
+    // Flush file and drop handle before validation and renaming
     file.flush()
         .await
         .map_err(|e| format!("Failed to flush file: {}", e))?;
+    drop(file);
+
+    // Validate completed file format and size
+    if !is_valid_whisper_model_file(&part_path) {
+        let _ = tokio::fs::remove_file(&part_path).await;
+        return Err(
+            "Downloaded file failed GGML model validation (corrupt or incomplete)".to_string(),
+        );
+    }
+
+    tokio::fs::rename(&part_path, &file_path)
+        .await
+        .map_err(|e| format!("Failed to finalize model file: {}", e))?;
 
     eprintln!(
-        "🦀 [download_whisper_model] Download completed: {} MB",
+        "🦀 [download_whisper_model] Download completed and verified: {} MB",
         downloaded / 1_048_576
     );
 
@@ -287,7 +339,7 @@ pub async fn delete_whisper_model(app: tauri::AppHandle, size: String) -> Result
     Ok(())
 }
 
-/// List all downloaded Whisper models from app data directory
+/// List all downloaded and verified Whisper models from app data directory
 #[tauri::command]
 pub async fn list_downloaded_models(app: tauri::AppHandle) -> Result<Vec<String>, String> {
     let app_data_dir = app
@@ -313,14 +365,11 @@ pub async fn list_downloaded_models(app: tauri::AppHandle) -> Result<Vec<String>
         .map_err(|e| format!("Failed to read entry: {}", e))?
     {
         let path = entry.path();
-        if path.is_file() {
-            let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-            if ext == "bin" || ext == "pt" {
-                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    let clean_name = stem.strip_prefix("ggml-").unwrap_or(stem);
-                    if !models.contains(&clean_name.to_string()) {
-                        models.push(clean_name.to_string());
-                    }
+        if is_valid_whisper_model_file(&path) {
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                let clean_name = stem.strip_prefix("ggml-").unwrap_or(stem);
+                if !models.contains(&clean_name.to_string()) {
+                    models.push(clean_name.to_string());
                 }
             }
         }
@@ -351,8 +400,7 @@ pub async fn cancel_whisper_download(app: tauri::AppHandle, size: String) -> Res
     Ok(())
 }
 
-/// Verify if a Whisper model is actually downloaded to disk
-/// Checks the app data directory
+/// Verify if a Whisper model is actually downloaded and validated on disk
 #[tauri::command]
 pub async fn verify_whisper_model_exists(
     app: tauri::AppHandle,
@@ -363,37 +411,92 @@ pub async fn verify_whisper_model_exists(
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
 
-    if let Some(model_path) = resolve_model_file_path(&app_data_dir, &size) {
-        // Check file size to ensure it's a real model file
-        if let Ok(metadata) = tokio::fs::metadata(&model_path).await {
-            let file_size = metadata.len();
-            eprintln!(
-                "🦀 [verify_whisper_model_exists] Model '{}' at {:?}: exists ({}MB)",
-                size,
-                model_path,
-                file_size / 1_048_576
-            );
-
-            // Whisper models should be at least 10MB (tiny is ~39MB, base is ~74MB)
-            if file_size < 10_000_000 {
-                eprintln!("⚠️ [verify_whisper_model_exists] Model file too small ({}MB), likely incomplete", 
-                    file_size / 1_048_576);
-                return Ok(false);
-            }
-
-            return Ok(true);
-        }
-    } else {
-        eprintln!(
-            "🦀 [verify_whisper_model_exists] Model '{}' not found in app data",
-            size
-        );
-    }
-
-    Ok(false)
+    Ok(resolve_model_file_path(&app_data_dir, &size).is_some())
 }
 
 /// Initialize download tasks state
 pub fn init_download_state() -> DownloadTasks {
     Arc::new(Mutex::new(HashMap::new()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn test_is_valid_whisper_model_rejects_missing_and_tiny_files() {
+        let temp_dir = std::env::temp_dir().join("clypra_test_whisper");
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        // 1. Missing file
+        let missing = temp_dir.join("nonexistent.bin");
+        assert!(!is_valid_whisper_model_file(&missing));
+
+        // 2. 68-byte mock file (reproducing the exact mock found on disk)
+        let mock_file = temp_dir.join("mock.bin");
+        std::fs::write(
+            &mock_file,
+            b"Downloaded at: SystemTime { tv_sec: 1781398073 }",
+        )
+        .unwrap();
+        assert!(!is_valid_whisper_model_file(&mock_file));
+
+        // 3. PyTorch file (.pt) rejected even if large
+        let pt_file = temp_dir.join("test.pt");
+        let mut pt_handle = std::fs::File::create(&pt_file).unwrap();
+        pt_handle.write_all(b"PK\x03\x04").unwrap();
+        pt_handle.set_len(15 * 1024 * 1024).unwrap();
+        drop(pt_handle);
+        assert!(!is_valid_whisper_model_file(&pt_file));
+
+        // 4. Large file (15MB) with WRONG magic header
+        let wrong_magic = temp_dir.join("wrong_magic.bin");
+        let mut wm_handle = std::fs::File::create(&wrong_magic).unwrap();
+        wm_handle.write_all(b"RAND").unwrap();
+        wm_handle.set_len(15 * 1024 * 1024).unwrap();
+        drop(wm_handle);
+        assert!(!is_valid_whisper_model_file(&wrong_magic));
+
+        // 5. Large file (15MB) with VALID "ggml" magic header
+        let valid_ggml = temp_dir.join("valid_model.bin");
+        let mut valid_handle = std::fs::File::create(&valid_ggml).unwrap();
+        valid_handle.write_all(b"ggml").unwrap();
+        valid_handle.set_len(15 * 1024 * 1024).unwrap();
+        drop(valid_handle);
+        assert!(is_valid_whisper_model_file(&valid_ggml));
+
+        // Clean up
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_resolve_model_file_path_rejects_corrupted_candidates() {
+        let temp_dir = std::env::temp_dir().join("clypra_test_whisper_resolve");
+        let models_dir = temp_dir.join("models").join("whisper");
+        let _ = std::fs::create_dir_all(&models_dir);
+
+        // Put a 68-byte mock file at tiny.bin
+        let corrupt_path = models_dir.join("tiny.bin");
+        std::fs::write(&corrupt_path, b"Downloaded at: mock").unwrap();
+
+        // Put a .pt file at tiny.pt
+        let pt_path = models_dir.join("tiny.pt");
+        std::fs::write(&pt_path, b"pytorch").unwrap();
+
+        // resolve_model_file_path must NOT return the corrupt or .pt candidate!
+        assert_eq!(resolve_model_file_path(&temp_dir, "tiny"), None);
+
+        // Now place a valid ggml file at ggml-tiny.bin
+        let valid_path = models_dir.join("ggml-tiny.bin");
+        let mut file = std::fs::File::create(&valid_path).unwrap();
+        file.write_all(b"ggml").unwrap();
+        file.set_len(15 * 1024 * 1024).unwrap();
+        drop(file);
+
+        // Must now find the valid model!
+        assert_eq!(resolve_model_file_path(&temp_dir, "tiny"), Some(valid_path));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }

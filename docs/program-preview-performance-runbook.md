@@ -28,6 +28,8 @@ The canonical implementation is split across these files:
   `src-tauri/src/wgpu_compositor/multi_track_composer.rs`
 - Contract documentation:
   `docs/performance-contract.md`
+- Playback and lookahead investigation runbook:
+  `docs/native-preview-playback-performance-investigation.md`
 
 Extend these existing contracts. Do not create a second `PerformanceSample`,
 stats command, request-ID type, mode parser, or telemetry ring buffer without an
@@ -243,7 +245,71 @@ The permanent playback contract is:
   abandon the obsolete work and schedule the current frame.
 - The visible playback loop builds one scene and one request per tick. It does
   not render a second look-ahead scene. Native queue/prefetch is the only
-  bounded decode warm-up mechanism.
+  bounded decode warm-up mechanism, and it must not be launched from the
+  visible playback RAF because queue_native_frame shares the decoder mutex
+  with presentation. Session startup decoder prewarming is the safe cold-start
+  path; text assets have their separate isolated prewarm path.
+- Existing text boundaries are fully prewarmed during native session
+  initialization. Opening does not complete while browser font loading, native
+  font registration, or text-effect rasterization is still in flight. Newly
+  inserted text uses a deferred look-ahead prewarm of up to eight seconds;
+  neither path may decode a second visible video frame or block transport
+  controls.
+- The interactive decoder owns the sequential playback stream and retains its
+  last raw NV12 frame. Re-presenting the initial frame at the stopped-to-playing
+  boundary must be a cache reuse, not a second FFmpeg seek. Any future decode
+  ahead must live inside this native owner; a second WebView IPC command must
+  never contend for the same decoder mutex.
+- Project creation, project opening, and crash-session recovery are gated by a
+  blocking initialization modal. The modal is driven by the project-store
+  lifecycle state, reports the active phase, and remains visible until the
+  timeline and preview session are ready. This makes text/font prewarming an
+  explicit startup contract instead of hidden work racing the first play.
+
+### 12. The native surface is a session resource, not a component side effect
+
+The native preview surface is process-global because it is hosted by a retained
+Tauri child window. Treating it as a set of independent React side effects made
+geometry updates, project cleanup, and frame presentation race one another. A
+resize could hide the only visible frame, expose an empty DOM canvas, and then
+wait indefinitely for a paused render loop to wake.
+
+The permanent ownership contract is:
+
+- `nativeSurfaceLifecycle.ts` is the sole owner of surface configure, resize,
+  present ordering, and release. Preview components may request a transaction;
+  they must not call native surface commands directly.
+- Every configure request has a monotonically increasing revision. A stale
+  revision cannot overwrite a newer project or geometry transaction.
+- Same-owner geometry changes are non-destructive: the retained surface stays
+  visible while the child window is moved/resized, and the next presentation is
+  serialized behind that operation.
+- Project release is the only normal path that hides the surface. It runs after
+  all earlier presentations and clears ownership so a later project cannot be
+  hidden by stale cleanup.
+- Completing a surface transaction wakes the event-driven paused renderer. A
+  native resize must never rely on an unrelated timeline event to repaint.
+- The native child window receives one canonical monitor-space rectangle from
+  the DOM viewport. Coordinate-space conversion belongs at that boundary and
+  must not be patched with fixed header offsets or render-scale adjustments.
+- The visible Program Preview render loop is also gated by that lifecycle
+  state. It must not start while the project is exposed to React but its
+  `ProjectSession` is still initializing, and it must use the active session's
+  shared raster bridge. A modal that only covers the UI is insufficient if a
+  background RAF can still issue a stopped-state native render during startup.
+- Project transitions are serialized. A second open/create/close request waits
+  for the current transition, and close awaits native-surface hide, save and
+  crash-recovery flush, session disposal, media release, store reset, timeline
+  reset, and snapshot cleanup before the project is removed from the UI. Native
+  surface lifecycle commands use the same queue as React cleanup so repeated
+  close/open cannot hide the next project's surface.
+- Built-in editor fonts are vendored as local WOFF2 assets. The application
+  must not import Google Fonts globally or invoke the engine's Google Fonts
+  injection path for a bundled family. The application font boundary resolves
+  bundled aliases to the local CSS family and reserves the remote fallback for
+  genuinely custom families only. This keeps font loading deterministic and
+  prevents a network stylesheet from appearing at a text boundary during
+  playback.
 - Static raster inputs use content/configuration-based asset identities and
   may be reused across frames. Time-dependent inputs, such as shaders, remain
   frame-addressed until they have a native procedural implementation.
@@ -255,7 +321,35 @@ The 2026-08-28 fix applied these rules in `NativeProgramPreview` and
 the benchmark below must be run on representative mixed timelines to establish
 the baseline.
 
-### 12. Regression acceptance criteria for future integrations
+### 13. Playback render graph ownership and frame budget
+
+The native playback path is a real-time frame stream. Its critical path is
+
+`audio clock → scene snapshot → immutable asset references → native decode →
+GPU conversion/composition → surface present`.
+
+The following are session resources and must be created during session setup or
+on a controlled configuration change, never while presenting a frame:
+
+- compositor shader modules, pipelines, bind-group layouts, samplers, LUT, and
+  default mask;
+- dynamic layer-uniform storage and its bind group;
+- native text/image asset registrations and decoder warm-up.
+
+Per-frame work is limited to advancing the clock, decoding the needed source
+frame, updating dynamic uniforms, and submitting the current surface frame.
+Text/image pixels are immutable assets. Position, opacity, rotation, z-order,
+and blend mode are per-frame compositor values; changing them must not trigger
+Canvas rasterization, font shaping, or a new native asset upload. Time-varying
+effects are the explicit exception and must use a bounded latest-frame policy.
+
+The retained surface is the visual continuity buffer. The playback scheduler
+may drop obsolete frame requests, but it must never allow an older request to
+overwrite a newer generation or block the audio clock behind speculative
+readback work. Readback remains an interaction/export path, not the playback
+path.
+
+### 14. Regression acceptance criteria for future integrations
 
 Before merging a new clip type, renderer, effect, or preview integration:
 
@@ -288,6 +382,25 @@ Before changing React scheduling, UI rendering, or native policy:
    logging is suspected.
 7. Only after native timings identify the cost should UI or React work be
    considered.
+
+### Reproducing a lifecycle/playback hang
+
+In a development build, reproduce in this order: open the existing project,
+press Play, wait for the first visible boundary, press Pause, then seek across
+the first text and image boundaries. The React diagnostics use the existing
+structured playback trace and now include `project-lifecycle-*`,
+`surface-*`, `playback-state`, `native-present-*`, and
+`pause-surface-handoff` events. Capture the complete sequence from the first
+`project-lifecycle-start` through the freeze or blank frame; do not capture
+only the final toast.
+
+For a production-like debug run, enable the bounded trace before reproducing:
+
+```js
+localStorage.setItem("clypra:debug:playback", "1");
+```
+
+Disable it afterward with `localStorage.removeItem("clypra:debug:playback")`.
 
 ## Benchmark record
 

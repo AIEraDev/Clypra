@@ -14,6 +14,7 @@ import type { Clip, TextClip } from "@/types";
 import { generateId } from "@/lib/utils/id";
 import { resolveTextEffectDefinition } from "@/lib/text/textClip";
 import type { TemplateDefinition, TemplateCustomization, TemplateElement } from "./types";
+import { resolveTextTemplateArtifact, type TextTemplateArtifact } from "@clypra-studio/engine";
 
 export interface InstantiateTemplateOptions {
   /** Target timeline track ID */
@@ -35,6 +36,12 @@ export function instantiateTemplate(
   template: TemplateDefinition,
   options: InstantiateTemplateOptions
 ): Clip {
+  // Legacy definitions still instantiate through the compatibility adapter;
+  // only a canonical artifact gets the first-class clip representation.
+  const artifact = resolveTextTemplateArtifact(template, { allowLegacy: false });
+  if (artifact) {
+    return instantiateTextTemplateArtifact(artifact, options);
+  }
   const compoundId = generateId("compound");
   const duration = template.defaultDuration || template.duration || 4.0;
   const canvasWidth = options.canvasWidth || template.canvasWidth || 1920;
@@ -100,6 +107,80 @@ export function instantiateTemplate(
   };
 
   return compoundClip;
+}
+
+/**
+ * Creates a first-class template instance. The artifact is pinned on the clip
+ * and materialized only by the timeline evaluator, so catalog republishing
+ * cannot mutate an existing edit.
+ */
+export function instantiateTextTemplateArtifact(
+  artifact: TextTemplateArtifact,
+  options: InstantiateTemplateOptions & { controlValues?: Record<string, unknown> },
+): Clip {
+  const controlValues: Record<string, unknown> = { ...(options.controlValues || {}) };
+  const textNodes = artifact.document.nodes.filter((node: any) => node.type === "text") as any[];
+  for (const control of artifact.controls) {
+    const node = artifact.document.nodes.find((candidate: any) => candidate.id === control.target.nodeId) as any;
+    const role = node?.role || "";
+    const nodeIndex = textNodes.findIndex((candidate) => candidate.id === control.target.nodeId);
+    if (control.type === "text") {
+      const value = options.customization?.layerTexts?.[control.target.nodeId]
+        ?? (role === "primary" ? options.customization?.primaryText : role === "secondary" ? options.customization?.secondaryText : role === "accent" ? options.customization?.accentText : undefined)
+        ?? (nodeIndex === 0 ? options.customization?.primaryText : nodeIndex === 1 ? options.customization?.secondaryText : nodeIndex === 2 ? options.customization?.accentText : undefined);
+      if (value !== undefined) controlValues[control.id] = value;
+    } else if (control.type === "color") {
+      const value = options.customization?.layerColors?.[control.target.nodeId]
+        ?? (role === "secondary" ? options.customization?.secondaryColor : options.customization?.primaryColor);
+      if (value !== undefined) controlValues[control.id] = value;
+    }
+  }
+  const duration = options.controlValues && artifact.timing.durationPolicy === "fixed"
+    ? artifact.timing.duration
+    : artifact.timing.duration;
+
+  const primaryText =
+    (Object.values(controlValues).find((val) => typeof val === "string" && val.trim().length > 0) as string) ||
+    textNodes[0]?.text ||
+    "";
+
+  const cleanLabel = artifact.metadata.label
+    ? artifact.metadata.label.replace(/^text-template-/, "").replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+    : "Text Template";
+
+  return {
+    id: generateId("text-template"),
+    name: cleanLabel,
+    text: primaryText || cleanLabel,
+    kind: "text-template",
+    trackId: options.trackId,
+    startTime: options.startTime,
+    duration,
+    trimIn: 0,
+    trimOut: 0,
+    x: 0,
+    y: 0,
+    width: options.canvasWidth || artifact.document.canvas.width,
+    height: options.canvasHeight || artifact.document.canvas.height,
+    opacity: 1,
+    rotation: 0,
+    mediaId: `text-template-${artifact.metadata.id}`,
+    role: "text",
+    templateId: artifact.metadata.id,
+    templateVersion: artifact.document.templateVersion,
+    templateRevisionId: artifact.revision.revisionId,
+    templateContentHash: artifact.revision.contentHash,
+    templateSnapshot: cloneSerializable(artifact),
+    templateControlValues: cloneSerializable(controlValues),
+    templateDependencySnapshot: cloneSerializable(artifact.dependencies),
+    templateDependencies: artifact.dependencies.textEffects.map((dependency) => ({
+      effectId: dependency.effectId,
+      revisionId: dependency.revisionId,
+      contentHash: dependency.contentHash,
+      snapshot: dependency.snapshot as any,
+    })),
+    compoundPreview: artifact.previews?.thumbnailUrl,
+  } as Clip;
 }
 
 /**

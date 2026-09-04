@@ -7,12 +7,22 @@ export const NATIVE_CORE_TIME_SCALE = 1_000_000;
  */
 export const NATIVE_PREVIEW_ONLY =
   (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) ||
-  (import.meta.env.DEV && import.meta.env.VITE_CLYPRA_NATIVE_PREVIEW_ONLY === "1");
+  (import.meta.env.DEV &&
+    import.meta.env.VITE_CLYPRA_NATIVE_PREVIEW_ONLY === "1");
 
 export type NativeQualityTier = "full" | "half" | "quarter" | "proxy";
 export type NativePixelFormat = "rgba8Srgb" | "rgba16Float";
-export type NativePlaybackClockStatus = "audio" | "monotonicFallback" | "buffering" | "stopped";
-export type NativeSurfaceStatus = "ready" | "resizing" | "deviceLost" | "recovering" | "failed";
+export type NativePlaybackClockStatus =
+  | "audio"
+  | "monotonicFallback"
+  | "buffering"
+  | "stopped";
+export type NativeSurfaceStatus =
+  | "ready"
+  | "resizing"
+  | "deviceLost"
+  | "recovering"
+  | "failed";
 export type NativeGpuRuntimeState = "initializing" | "ready" | "failed";
 
 export interface NativeAudioStatus {
@@ -32,6 +42,12 @@ export interface NativeAudioStatus {
   speed: number;
   volume: number;
   muted: boolean;
+  /** Number of output callbacks that could not acquire the mixer read lock. */
+  mixerLockMisses: number;
+  /** Accumulated callback execution time, measured off the network path. */
+  callbackTimeUs: number;
+  callbackMaxTimeUs: number;
+  callbackOverBudgetCount: number;
 }
 
 export interface NativeAudioClipStatus {
@@ -110,6 +126,22 @@ export interface NativePerformanceSample {
   gpuQueueWaitUs?: number;
   surfaceAcquireUs?: number;
   submitPresentUs?: number;
+  dropReason?:
+    | "stale"
+    | "cancelled"
+    | "late-for-audio"
+    | "present-failed"
+    | string;
+}
+
+export interface NativePerformanceSampleBatch {
+  samples: NativePerformanceSample[];
+  firstSequence: number;
+  lastSequence: number;
+  nextSequence: number;
+  oldestSequence: number;
+  latestSequence: number;
+  truncated: boolean;
 }
 
 export type NativePreviewMode =
@@ -151,6 +183,7 @@ export interface NativeFrameServiceStats {
   cachedEntries: number;
   cachedBytes: number;
   lastSample: NativePerformanceSample | null;
+  lastSampleSequence?: number;
   windowStartedAtMs?: number;
   windowRequestCount?: number;
   windowDroppedFrames?: number;
@@ -213,6 +246,18 @@ export interface NativeSurfacePresentation {
   mode?: "playback" | "scrub" | "seek" | "frameStep";
   stale?: boolean;
   cancelled?: boolean;
+  dropReason?: "stale" | "cancelled" | "late-for-audio" | "present-failed";
+  timings?: {
+    totalUs: number;
+    decodeUs: number;
+    decoderMutexWaitUs: number;
+    conversionUploadUs: number;
+    composeUs: number;
+    surfaceAcquireUs: number;
+    gpuQueueWaitUs?: number;
+    submitPresentUs: number;
+    queueHit: boolean;
+  };
 }
 
 export interface NativeSyncDriftSnapshot {
@@ -295,7 +340,11 @@ export interface NativeTransitionSnapshot {
 
 export interface NativeBodyEffectSnapshot {
   maskAssetId: string;
-  renderer: "body_outline" | "body_glow" | "body_segmentation_glow" | "body_particles";
+  renderer:
+    | "body_outline"
+    | "body_glow"
+    | "body_segmentation_glow"
+    | "body_particles";
   colorR: number;
   colorG: number;
   colorB: number;
@@ -396,9 +445,13 @@ export interface NativeColorGradeSnapshot {
 export interface NativeRasterLayerSnapshot {
   assetId: string;
   /** RGBA8 bytes, omitted after native asset registration. */
-  rgba?: number[];
+  rgba?: Uint8ClampedArray | number[];
+  /** Dimensions of the immutable uploaded texture. */
   width: number;
   height: number;
+  /** Placement dimensions. Defaults to the texture dimensions for legacy callers. */
+  displayWidth?: number;
+  displayHeight?: number;
   x: number;
   y: number;
   rotation: number;
@@ -491,15 +544,26 @@ export interface NativeFrameRequest {
   renderGraphVersion: number;
   /** Optional asynchronous seek identity; omitted by legacy callers. */
   generation?: number;
-  mode?: "playback" | "playback-lookahead" | "scrub" | "seek" | "frameStep" | "prefetch";
+  mode?:
+    | "playback"
+    | "playback-lookahead"
+    | "scrub"
+    | "seek"
+    | "frameStep"
+    | "prefetch";
   scrubVelocityPxPerSecond?: number;
   requestedAtMs?: number;
 }
 
-export type NativeFrameRequestInput = Omit<NativeFrameRequest, "contractVersion">;
+export type NativeFrameRequestInput = Omit<
+  NativeFrameRequest,
+  "contractVersion"
+>;
 
 /** Single construction point for preview, filmstrip, and export requests. */
-export function createNativeFrameRequest(input: NativeFrameRequestInput): NativeFrameRequest {
+export function createNativeFrameRequest(
+  input: NativeFrameRequestInput,
+): NativeFrameRequest {
   return {
     contractVersion: NATIVE_CORE_CONTRACT_VERSION,
     ...input,
@@ -514,6 +578,87 @@ export interface NativePlaybackPlan {
   audioTrackCount: number;
 }
 
+export interface NativePlaybackFrameDemand {
+  contractVersion: number;
+  requestId: string;
+  frameTime: NativeFrameTime;
+  generation?: number;
+  mode?: NativeFrameRequest["mode"];
+  videoLayers: Array<{
+    sourceTime: NativeFrameTime;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+    opacity: number;
+    zIndex: number;
+  }>;
+  rasterLayers: Array<{
+    assetId: string;
+    width: number;
+    height: number;
+    displayWidth?: number;
+    displayHeight?: number;
+    x: number;
+    y: number;
+    rotation: number;
+    opacity: number;
+    zIndex: number;
+  }>;
+  textLayers: Array<{
+    x: number;
+    y: number;
+    rotation: number;
+    opacity: number;
+    zIndex: number;
+  }>;
+  transitionProgress?: number;
+}
+
+/** Build the compact per-frame update for the persistent Rust Native session. */
+export function createNativePlaybackFrameDemand(
+  request: NativeFrameRequest,
+): NativePlaybackFrameDemand {
+  return {
+    contractVersion: request.contractVersion,
+    requestId: request.requestId,
+    frameTime: request.frameTime,
+    generation: request.generation,
+    mode: request.mode,
+    videoLayers: request.project.videoLayers.map((layer) => ({
+      sourceTime: layer.sourceTime,
+      x: layer.x,
+      y: layer.y,
+      width: layer.width,
+      height: layer.height,
+      rotation: layer.rotation,
+      opacity: layer.opacity,
+      zIndex: layer.zIndex,
+    })),
+    rasterLayers: (request.project.rasterLayers ?? []).map((layer) => ({
+      assetId: layer.assetId,
+      width: layer.width,
+      height: layer.height,
+      displayWidth: layer.displayWidth,
+      displayHeight: layer.displayHeight,
+      x: layer.x,
+      y: layer.y,
+      rotation: layer.rotation ?? 0,
+      opacity: layer.opacity ?? 1,
+      zIndex: layer.zIndex ?? 0,
+    })),
+    textLayers: (request.project.textLayers ?? []).map((layer) => ({
+      x: layer.x,
+      y: layer.y,
+      rotation: layer.rotation ?? 0,
+      opacity: layer.opacity ?? 1,
+      zIndex: layer.zIndex ?? 0,
+    })),
+    transitionProgress: request.project.transition?.progress,
+  };
+}
+
 export interface NativePlaybackState {
   contractVersion: number;
   projectRevision: string;
@@ -524,7 +669,10 @@ export interface NativePlaybackState {
   clockStatus: NativePlaybackClockStatus;
 }
 
-export function secondsToNativeTime(seconds: number, frameIndex = 0): NativeFrameTime {
+export function secondsToNativeTime(
+  seconds: number,
+  frameIndex = 0,
+): NativeFrameTime {
   return {
     frameIndex,
     ticks: Math.max(0, Math.round(seconds * NATIVE_CORE_TIME_SCALE)),
@@ -532,7 +680,10 @@ export function secondsToNativeTime(seconds: number, frameIndex = 0): NativeFram
   };
 }
 
-export function frameIndexToNativeTime(frameIndex: number, frameRate: number): NativeFrameTime {
+export function frameIndexToNativeTime(
+  frameIndex: number,
+  frameRate: number,
+): NativeFrameTime {
   const safeRate = Number.isFinite(frameRate) && frameRate > 0 ? frameRate : 30;
   return secondsToNativeTime(frameIndex / safeRate, frameIndex);
 }

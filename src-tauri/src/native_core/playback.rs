@@ -1,9 +1,31 @@
 use super::{FrameTime, NativeCoreError, PlaybackPlan};
 
 pub const MAX_AV_DRIFT_TICKS_AT_1MHZ: i64 = 16_000;
-pub const VIDEO_DROP_THRESHOLD_TICKS_AT_1MHZ: i64 = 20_000;
+pub const VIDEO_DROP_THRESHOLD_TICKS_AT_1MHZ: i64 = 60_000;
 pub const MIN_AUDIO_BUFFER_TICKS_AT_1MHZ: i64 = 100_000;
 pub const MAX_VIDEO_LOOKAHEAD_TICKS_AT_1MHZ: i64 = 200_000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VideoFrameTimingDecision {
+    OnTime,
+    LateForAudio,
+}
+
+/// The sole native-core authority for the audio lateness decision.
+///
+/// Recency/generation checks belong to the render session and happen before
+/// this function. Keeping those decisions separate prevents a stale frame and
+/// a current-but-late frame from being reported as the same failure mode.
+pub fn native_presentation_timing(
+    audio_position: FrameTime,
+    frame_time: FrameTime,
+) -> Result<VideoFrameTimingDecision, NativeCoreError> {
+    Ok(if is_video_late(audio_position, frame_time)? {
+        VideoFrameTimingDecision::LateForAudio
+    } else {
+        VideoFrameTimingDecision::OnTime
+    })
+}
 
 /// Resolve the frame covering the current audio-clock interval.
 ///
@@ -75,7 +97,27 @@ mod tests {
     #[test]
     fn marks_late_video_for_drop() {
         let audio = FrameTime::new(0, 100_000, 1_000_000).unwrap();
-        let frame = FrameTime::new(0, 70_000, 1_000_000).unwrap();
+        let frame = FrameTime::new(0, 30_000, 1_000_000).unwrap();
         assert!(is_video_late(audio, frame).unwrap());
+    }
+
+    #[test]
+    fn separates_current_but_late_from_audio_on_time() {
+        let audio = FrameTime::new(0, 100_000, 1_000_000).unwrap();
+        let frame = FrameTime::new(0, 30_000, 1_000_000).unwrap();
+        assert_eq!(
+            native_presentation_timing(audio, frame).unwrap(),
+            VideoFrameTimingDecision::LateForAudio
+        );
+    }
+
+    #[test]
+    fn keeps_a_newer_frame_on_time_even_when_an_older_frame_is_late() {
+        let audio = FrameTime::new(2, 100_000, 1_000_000).unwrap();
+        let newer = FrameTime::new(2, 95_000, 1_000_000).unwrap();
+        assert_eq!(
+            native_presentation_timing(audio, newer).unwrap(),
+            VideoFrameTimingDecision::OnTime
+        );
     }
 }

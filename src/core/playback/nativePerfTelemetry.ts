@@ -1,4 +1,10 @@
 import type { NativeFrameRequest, NativePreviewMode } from "@/lib/platform/nativeCore";
+import { telemetryCollector } from "@/services/telemetryCollector";
+import type {
+  TelemetryOperationMode,
+  TelemetryStageTimings,
+  TelemetryPreviewContext,
+} from "@/services/telemetryCollector";
 
 export interface NativeFrontendPerfSample {
   requestId: string;
@@ -12,6 +18,9 @@ export interface NativeFrontendPerfSample {
   dropped: boolean;
   stale: boolean;
   cancelled: boolean;
+  dropReason?: "stale" | "cancelled" | "late-for-audio" | "present-failed";
+  previewContext?: TelemetryPreviewContext;
+  stageTimings?: Partial<TelemetryStageTimings>;
 }
 
 export interface NativeFrontendStagePercentiles {
@@ -75,6 +84,7 @@ export class NativePerfSpan {
     private readonly collector: NativePerfCollector,
     private readonly request: NativeFrameRequest,
     private readonly mode: NativePreviewMode,
+    private readonly previewContext?: TelemetryPreviewContext,
   ) {}
 
   markDispatchStarted(): void {
@@ -98,6 +108,8 @@ export class NativePerfSpan {
     dropped?: boolean;
     stale?: boolean;
     cancelled?: boolean;
+    dropReason?: "stale" | "cancelled" | "late-for-audio" | "present-failed";
+    stageTimings?: Partial<TelemetryStageTimings>;
   } = {}): void {
     if (this.finished) return;
     this.markIpcFinished();
@@ -114,13 +126,19 @@ export class NativePerfSpan {
       dropped: options.dropped === true,
       stale: options.stale === true,
       cancelled: options.cancelled === true,
+      dropReason: options.dropReason,
+      previewContext: this.previewContext,
+      stageTimings: options.stageTimings,
     });
   }
 }
 
 class NativePerfCollector {
   private readonly samples = new Map<NativePreviewMode, NativeFrontendPerfSample[]>();
-  private enabled = readTraceFlag();
+  // Keep the frontend/native boundary observable in every build for now. The
+  // collector is bounded and forwards through the existing batched transport;
+  // the user telemetry setting can still disable it intentionally.
+  private enabled = true;
 
   constructor() {
     for (const mode of [
@@ -144,8 +162,8 @@ class NativePerfCollector {
     return this.enabled;
   }
 
-  begin(request: NativeFrameRequest): NativePerfSpan {
-    return new NativePerfSpan(this, request, normalizeMode(request.mode));
+  begin(request: NativeFrameRequest, previewContext?: TelemetryPreviewContext): NativePerfSpan {
+    return new NativePerfSpan(this, request, normalizeMode(request.mode), previewContext);
   }
 
   record(sample: NativeFrontendPerfSample): void {
@@ -154,6 +172,50 @@ class NativePerfCollector {
     if (!bucket) return;
     bucket.push(sample);
     if (bucket.length > RING_CAPACITY) bucket.shift();
+
+    telemetryCollector.recordRenderSpan(
+      {
+        ...sample.stageTimings,
+        schedulerWaitUs: Math.round(sample.dispatchMs * 1000),
+        ipcWaitUs: Math.round(sample.ipcMs * 1000),
+      canvasPaintUs:
+        sample.canvasPaintMs !== undefined
+          ? Math.round(sample.canvasPaintMs * 1000)
+          : undefined,
+        // The native invoke boundary includes the RGBA payload transfer for
+        // WebView. Surface that measured bridge duration as transfer cost;
+        // native-sample readback remains the GPU/CPU readback measurement.
+        transferUs:
+          sample.previewContext?.view === "webview"
+            ? Math.round(sample.ipcMs * 1000)
+            : undefined,
+        totalTimeUs: Math.round(sample.totalMs * 1000),
+      },
+      sample.dropped ? 1 : 0,
+      1,
+      {},
+      toTelemetryMode(sample.mode),
+      undefined,
+      sample.stale ? 1 : 0,
+      sample.cancelled ? 1 : 0,
+      {
+        previewContext: sample.previewContext,
+        measurementId: `frontend:${sample.previewContext?.view ?? "unknown"}:${sample.previewContext?.surface ?? "unknown"}:${sample.requestId}:${sample.frameIndex}`,
+        measurementSource: "frontend-span",
+        sampleKind: "frame-anomaly",
+        frameSequence: sample.frameIndex,
+        deadlineUs: 16_667,
+        dropReason: sample.dropped
+          ? sample.dropReason ??
+            (sample.cancelled
+              ? "cancelled"
+              : sample.stale
+                ? "stale"
+                : "present-failed")
+          : undefined,
+        forceSample: sample.previewContext?.scenario === "qualification",
+      },
+    );
   }
 
   statsFor(mode: NativePreviewMode): NativeFrontendModeStats {
@@ -194,6 +256,12 @@ class NativePerfCollector {
 function normalizeMode(mode: NativeFrameRequest["mode"]): NativePreviewMode {
   if (mode === "frameStep") return "frame-step";
   return mode ?? "seek";
+}
+
+function toTelemetryMode(mode: NativePreviewMode): TelemetryOperationMode {
+  if (mode === "seek") return "seek-cold";
+  if (mode === "prefetch") return "playback-lookahead";
+  return mode;
 }
 
 export const nativePerfCollector = new NativePerfCollector();

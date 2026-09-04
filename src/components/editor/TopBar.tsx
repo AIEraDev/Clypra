@@ -1,4 +1,4 @@
-import React, { useState, lazy, Suspense } from "react";
+import React, { useState, useEffect, lazy, Suspense } from "react";
 import { Upload, Home, Settings, PanelLeft, PanelRight } from "lucide-react";
 import { Button } from "../ui/Button";
 import { useProjectStore } from "@/store/projectStore";
@@ -7,6 +7,7 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { platform } from "@/core/platform";
 import { isMacOSPlatform, WindowControls, WindowDragRegion } from "../ui/WindowControls";
 import { LayoutPresetMenu } from "./layout/LayoutPresetMenu";
+import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
 
 // Lazy load ExportDialog
 const ExportDialog = lazy(() => import("../ui/ExportDialog").then((m) => ({ default: m.ExportDialog })));
@@ -24,6 +25,12 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
   const propertiesPanelCollapsed = useSettingsStore((s) => s.propertiesPanelCollapsed);
   const setPropertiesPanelCollapsed = useSettingsStore((s) => s.setPropertiesPanelCollapsed);
   const [showExportDialog, setShowExportDialog] = useState(false);
+
+  useEffect(() => {
+    if (showExportDialog) {
+      void hideNativeSurfaceWhenIdle().catch(() => undefined);
+    }
+  }, [showExportDialog]);
 
   const handleClose = () => {
     if (onRequestClose) {

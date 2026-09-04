@@ -3,7 +3,7 @@ import type { Gap } from "@/types/gap";
 import { generateCommandId } from "../Command";
 import type { Command } from "../Command";
 import { generateId, getCounter } from "@/lib/utils/id";
-import { TRACK_TYPE_CONFIG, getSafeTrackInsertionIndex } from "@/lib/timeline/trackTypeConfig";
+import { TRACK_TYPE_CONFIG, getSafeTrackInsertionIndex, resolvePrimaryVideoTrackId } from "@/lib/timeline/trackTypeConfig";
 import { detectGaps, mergeAdjacentGaps } from "@/lib/timeline/gapEngine";
 import { calculateDepartureClosurePositions, type OriginalClipPlacement } from "@/lib/timeline/clipPositions";
 import { findSnap } from "@/lib/timeline/snapTargets";
@@ -224,8 +224,11 @@ export function buildTimelineDragResult(input: BuildTimelineDragResultInput): Ti
   }
 
   let afterClips = applyClipUpdates(state.clips, updates);
-  const mainVideoTrackIdAfter = state.mainVideoTrackId ??
-    (createdTrackId && input.trackType === "video" ? createdTrackId : afterTracks.find((track) => track.type === "video")?.id ?? null);
+  const resolvedPrimaryBefore = resolvePrimaryVideoTrackId(state.tracks, state.mainVideoTrackId);
+  const mainVideoTrackIdAfter = resolvedPrimaryBefore ??
+    (createdTrackId && input.trackType === "video"
+      ? createdTrackId
+      : resolvePrimaryVideoTrackId(afterTracks));
   afterTracks = afterTracks.filter(
     (track) =>
       !sourceTrackIds.has(track.id) ||

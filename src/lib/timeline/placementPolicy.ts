@@ -69,6 +69,8 @@ interface ResolveAddPlacementParams {
   clips: Clip[];
   playheadTime: number;
   sequenceEndTime: number;
+  /** Duration is required to guarantee that insertion does not overlap a later clip. */
+  duration?: number;
   preferTrackId?: string | null;
 }
 
@@ -87,6 +89,14 @@ function isTrackOccupiedAtTime(trackClips: Clip[], time: number): boolean {
   });
 }
 
+function isTrackOccupiedDuring(trackClips: Clip[], startTime: number, duration: number): boolean {
+  const endTime = startTime + Math.max(0, duration);
+  return trackClips.some((clip) => {
+    const clipEnd = clip.startTime + clip.duration;
+    return clip.startTime < endTime && clipEnd > startTime;
+  });
+}
+
 /**
  * Unified Add-to-Timeline resolver (playhead-first, CapCut-style).
  *
@@ -97,7 +107,7 @@ function isTrackOccupiedAtTime(trackClips: Clip[], time: number): boolean {
  * - No overwrite/ripple side effects.
  */
 export function resolveAddToTimelinePlacement(params: ResolveAddPlacementParams): AddPlacementDecision {
-  const { asset, tracks, clips, playheadTime, sequenceEndTime, preferTrackId } = params;
+  const { asset, tracks, clips, playheadTime, sequenceEndTime, duration = 0, preferTrackId } = params;
   const trackType = resolveTargetTrackType(asset);
   const clampedStartTime = Math.max(0, Math.min(playheadTime, Math.max(0, sequenceEndTime)));
   const preferredTrackId = resolvePreferredTrackId({ tracks, asset, preferTrackId });
@@ -112,14 +122,26 @@ export function resolveAddToTimelinePlacement(params: ResolveAddPlacementParams)
     };
   }
 
-  const targetTrackClips = clips.filter((clip) => clip.trackId === preferredTrackId);
-  const occupied = isTrackOccupiedAtTime(targetTrackClips, clampedStartTime);
+  // Search every unlocked track of the requested semantic type. This is what
+  // makes a template behave like text/effect content: a gap on an existing
+  // text lane is reusable, while a collision creates a new lane. The old
+  // point-only check could place a long clip in a gap and overlap the clip
+  // immediately after that gap.
+  const candidateTracks = tracks
+    .filter((track) => track.type === trackType && !track.locked)
+    .sort((a, b) => (a.id === preferredTrackId ? -1 : b.id === preferredTrackId ? 1 : 0));
+  const availableTrack = candidateTracks.find((track) => {
+    const trackClips = clips.filter((clip) => clip.trackId === track.id);
+    return duration > 0
+      ? !isTrackOccupiedDuring(trackClips, clampedStartTime, duration)
+      : !isTrackOccupiedAtTime(trackClips, clampedStartTime);
+  });
 
   return {
     intent: "playhead",
     trackType,
     startTime: clampedStartTime,
-    targetTrackId: occupied ? null : preferredTrackId,
-    shouldCreateTrack: occupied,
+    targetTrackId: availableTrack?.id ?? null,
+    shouldCreateTrack: !availableTrack,
   };
 }

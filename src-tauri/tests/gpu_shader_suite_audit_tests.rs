@@ -1,12 +1,12 @@
 // src-tauri/tests/gpu_shader_suite_audit_tests.rs
 
-use wgpu::util::DeviceExt;
 use tauri_app_lib::wgpu_compositor::chroma_key::ChromaKeyUniforms;
 use tauri_app_lib::wgpu_compositor::lut_texture::GpuLut3D;
 use tauri_app_lib::wgpu_compositor::multi_track_composer::{
     BlendMode, BodyEffectUniforms, ColorGradeUniforms, CompositeLayer, CropMargins, LayerTransform,
     LayerUniforms, MultiTrackCompositor, TransitionUniforms,
 };
+use wgpu::util::DeviceExt;
 
 /// Headless GPU test harness
 struct HeadlessAuditContext {
@@ -46,7 +46,12 @@ impl HeadlessAuditContext {
         Self { device, queue }
     }
 
-    pub fn create_solid_texture(&self, width: u32, height: u32, rgba: [u8; 4]) -> (wgpu::Texture, wgpu::TextureView) {
+    pub fn create_solid_texture(
+        &self,
+        width: u32,
+        height: u32,
+        rgba: [u8; 4],
+    ) -> (wgpu::Texture, wgpu::TextureView) {
         let pixel_count = (width * height) as usize;
         let mut data = Vec::with_capacity(pixel_count * 4);
         for _ in 0..pixel_count {
@@ -57,7 +62,11 @@ impl HeadlessAuditContext {
             &self.queue,
             &wgpu::TextureDescriptor {
                 label: Some("Audit Test Texture"),
-                size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
@@ -76,7 +85,12 @@ impl HeadlessAuditContext {
 
 fn get_pixel(bytes: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
     let offset = ((y * width + x) * 4) as usize;
-    [bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]]
+    [
+        bytes[offset],
+        bytes[offset + 1],
+        bytes[offset + 2],
+        bytes[offset + 3],
+    ]
 }
 
 fn assert_pixel_near(actual: [u8; 4], expected: [u8; 4], tolerance: u8, ctx: &str) {
@@ -85,7 +99,9 @@ fn assert_pixel_near(actual: [u8; 4], expected: [u8; 4], tolerance: u8, ctx: &st
         assert!(
             diff <= tolerance as i16,
             "Pixel mismatch in {ctx} at channel {i}: actual={}, expected={}, diff={}",
-            actual[i], expected[i], diff
+            actual[i],
+            expected[i],
+            diff
         );
     }
 }
@@ -211,7 +227,12 @@ async fn test_audit_ultrakey_matte_extraction() {
         .expect("Chroma key pass failed");
 
     let sampled_bg = get_pixel(&output_keyed, width, width / 2, height / 2);
-    assert_pixel_near(sampled_bg, [0, 0, 255, 255], 1, "Green screen keyed out revealing blue background");
+    assert_pixel_near(
+        sampled_bg,
+        [0, 0, 255, 255],
+        1,
+        "Green screen keyed out revealing blue background",
+    );
 
     // Scenario B: Red Foreground Subject (Must retain 1.0 alpha and opaque RGB)
     let (_fg_red, fg_red_view) = ctx.create_solid_texture(width, height, [255, 0, 0, 255]);
@@ -261,7 +282,12 @@ async fn test_audit_ultrakey_matte_extraction() {
         .expect("Chroma key subject retention pass failed");
 
     let sampled_fg = get_pixel(&output_subject, width, width / 2, height / 2);
-    assert_pixel_near(sampled_fg, [255, 0, 0, 255], 1, "Red subject remains 100% opaque");
+    assert_pixel_near(
+        sampled_fg,
+        [255, 0, 0, 255],
+        1,
+        "Red subject remains 100% opaque",
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -311,7 +337,12 @@ async fn test_audit_dual_texture_transition_midpoint() {
     // B = mix(0, 255, 0.5) = 128
     // A = mix(255, 255, 0.5) = 255
     let sampled = get_pixel(&output, width, width / 2, height / 2);
-    assert_pixel_near(sampled, [255, 128, 128, 255], 2, "Cross-Dissolve t=0.5 blend midpoint");
+    assert_pixel_near(
+        sampled,
+        [255, 128, 128, 255],
+        2,
+        "Cross-Dissolve t=0.5 blend midpoint",
+    );
 }
 
 // -----------------------------------------------------------------------------

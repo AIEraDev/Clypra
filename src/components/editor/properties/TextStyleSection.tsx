@@ -29,7 +29,11 @@ import { EffectStylePanel } from "./EffectStylePanel";
 import { TemplateLayerEditor } from "./TemplateLayerEditor";
 import { ClypraColorPicker } from "@clypra/ui-color-picker";
 import { isTauriRuntime } from "@/lib/platform/tauri";
-import { getBundledNativeFontIds } from "@/core/fonts/nativeFontRegistry";
+import {
+  getBundledNativeFontIds,
+  prewarmNativeFontsOnIdle,
+} from "@/core/fonts/nativeFontRegistry";
+import { getFontLoader } from "@/core/fonts/FontLoader";
 import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
 import { resolveTextClipStyleUpdate } from "@/lib/text/textClip";
 
@@ -144,10 +148,63 @@ interface TextStyleSectionProps {
   setNewPresetName: (name: string) => void;
   handleUpdate: (key: string, value: any) => void;
   handleUpdateMultiple: (fields: Record<string, any>) => void;
+  /** Immediate command path used when applying a caption style transaction. */
+  handleUpdateImmediate?: (key: string, value: any) => void;
+  handleUpdateMultipleImmediate?: (fields: Record<string, any>) => void;
   handleApplyPreset: (preset: any) => void;
   savePreset: (name: string, style: any) => void;
   deletePreset: (id: string) => void;
 }
+
+interface TextContentEditorProps {
+  value: string;
+  onChange: (value: string) => void;
+  mode: "plain" | "effect";
+}
+
+/**
+ * Keep text entry responsive while the timeline and preview catch up at RAF
+ * cadence. The timeline remains authoritative outside the focused editor,
+ * but React store renders must not replace a newer DOM input value while the
+ * user is typing.
+ */
+const TextContentEditor = React.memo<TextContentEditorProps>(
+  ({ value, onChange, mode }) => {
+    const [draft, setDraft] = React.useState(value);
+    const focusedRef = React.useRef(false);
+
+    React.useEffect(() => {
+      if (!focusedRef.current || value === draft) {
+        setDraft(value);
+      }
+    }, [value, draft]);
+
+    return (
+      <textarea
+        value={draft}
+        onFocus={() => {
+          focusedRef.current = true;
+        }}
+        onBlur={() => {
+          focusedRef.current = false;
+          // The parent normally commits through its debounce timer. This
+          // final notification also covers a blur that happens before the
+          // timer fires, without creating a second editor-side state.
+          if (draft !== value) onChange(draft);
+        }}
+        onChange={(event) => {
+          const nextValue = event.target.value;
+          setDraft(nextValue);
+          onChange(nextValue);
+        }}
+        rows={3}
+        placeholder="CLYPRA"
+        aria-label={`${mode === "effect" ? "Effect" : "Plain"} text content`}
+        className="w-full bg-surface-raised border border-border/60 rounded-lg p-2.5 text-xs text-text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 resize-none selectable transition-colors"
+      />
+    );
+  },
+);
 
 export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
   textClip,
@@ -156,6 +213,8 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
   setNewPresetName,
   handleUpdate: originalHandleUpdate,
   handleUpdateMultiple: originalHandleUpdateMultiple,
+  handleUpdateImmediate,
+  handleUpdateMultipleImmediate,
   handleApplyPreset,
   savePreset,
   deletePreset,
@@ -241,7 +300,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
       const history = useHistoryStore.getState();
       history.beginTransaction("Apply Caption Style to All");
       try {
-        originalHandleUpdate(key, value);
+        (handleUpdateImmediate ?? originalHandleUpdate)(key, value);
         trackCaptions.forEach((c) => {
           if (c.id !== textClip.id) {
             executeCaptionStyleUpdate(c as TextClip, { [key]: value });
@@ -278,7 +337,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
       const history = useHistoryStore.getState();
       history.beginTransaction("Apply Caption Style to All");
       try {
-        originalHandleUpdateMultiple(fields);
+        (handleUpdateMultipleImmediate ?? originalHandleUpdateMultiple)(fields);
         trackCaptions.forEach((c) => {
           if (c.id !== textClip.id) {
             executeCaptionStyleUpdate(c as TextClip, styleFields);
@@ -294,7 +353,10 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
     }
   };
 
-  function executeCaptionStyleUpdate(clip: TextClip, updates: Record<string, any>): void {
+  function executeCaptionStyleUpdate(
+    clip: TextClip,
+    updates: Record<string, any>,
+  ): void {
     const project = useProjectStore.getState().project;
     const resolvedUpdates = resolveTextClipStyleUpdate(
       clip,
@@ -305,9 +367,11 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
     const oldProperties = Object.fromEntries(
       Object.keys(resolvedUpdates).map((key) => [key, (clip as any)[key]]),
     );
-    useHistoryStore.getState().execute(
-      new TransformClipCommand(clip.id, oldProperties, resolvedUpdates),
-    );
+    useHistoryStore
+      .getState()
+      .execute(
+        new TransformClipCommand(clip.id, oldProperties, resolvedUpdates),
+      );
   }
 
   const customization = textClip.customization || {
@@ -458,9 +522,47 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
   const effectiveLineHeight =
     textClip.lineHeight ?? effectFont?.lineHeight ?? 1.2;
 
+  /**
+   * Stroke/shadow/background are not exposed in the effect-mode UI — those
+   * controls are hidden so users cannot accidentally create a conflicting state.
+   * The EffectStylePanel isModified badge is kept for future use but is always
+   * false now that no geometry-override controls are shown in effect mode.
+   */
+  const isEffectGeometryModified = false;
+
+  /**
+   * Triggered on font-picker focus / pointer-enter.
+   * Prewarms all remaining bundled fonts in the background so the user sees
+   * instant preview switching when browsing the list. The idle scheduler
+   * ensures this never competes with active playback or timeline operations.
+   */
+  const handleFontPickerPrewarm = React.useCallback(() => {
+    getFontLoader().prewarmRemainingFontsOnIdle();
+    prewarmNativeFontsOnIdle();
+  }, []);
+
+  /**
+   * Typography controls in effect mode.
+   *
+   * Font family, size, weight, style, color, letter-spacing, and line-height
+   * are per-clip overrides that the effect renderer applies ON TOP of the
+   * effect scene — changing them keeps the visual effect intact.
+   *
+   * Only stroke, shadow, and background genuinely conflict with effect
+   * ownership (the effect defines its own geometry for those). Touching any
+   * of those three detaches the clip from the effect preset so the user's
+   * values take full control.
+   *
+   * Templates are self-contained; this path is never reached in template mode
+   * (the typography section is hidden for templates).
+   */
+  const EFFECT_DETACH_KEYS = new Set(["stroke", "shadow", "background"]);
+
   const handleCustomStyleUpdate = (key: string, value: any) => {
     const updates: Record<string, any> = { [key]: value };
-    if (textClip.styleId && key !== "styleId") {
+    // Only clear the effect link for properties that genuinely conflict with
+    // the effect's own geometry. Font, size, color, spacing are safe overrides.
+    if (textClip.styleId && key !== "styleId" && EFFECT_DETACH_KEYS.has(key)) {
       updates.styleId = undefined;
       updates.styleDefinition = undefined;
     }
@@ -586,18 +688,17 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
               const el = document.getElementById("quick-presets-section");
               el?.scrollIntoView({ behavior: "smooth" });
             }}
-            isModified={false}
+            isModified={isEffectGeometryModified}
           />
           <div>
             <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider block mb-1.5 select-none">
               Text Content
             </label>
-            <textarea
+            <TextContentEditor
+              key={`${textClip.id}-effect-content`}
               value={textClip.text || ""}
-              onChange={(e) => handleUpdate("text", e.target.value)}
-              rows={3}
-              placeholder="CLYPRA"
-              className="w-full bg-surface-raised border border-border/60 rounded-lg p-2.5 text-xs text-text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 resize-none selectable transition-colors"
+              onChange={(value) => handleUpdate("text", value)}
+              mode="effect"
             />
             {isTextExceedingMaxDimension && (
               <div className="mt-1.5 flex items-start gap-1.5 p-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] leading-tight">
@@ -614,12 +715,11 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
           <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider block mb-1.5 select-none">
             Text Content
           </label>
-          <textarea
+          <TextContentEditor
+            key={`${textClip.id}-plain-content`}
             value={textClip.text || ""}
-            onChange={(e) => handleUpdate("text", e.target.value)}
-            rows={3}
-            placeholder="CLYPRA"
-            className="w-full bg-surface-raised border border-border/60 rounded-lg p-2.5 text-xs text-text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 resize-none selectable transition-colors"
+            onChange={(value) => handleUpdate("text", value)}
+            mode="plain"
           />
           {isTextExceedingMaxDimension && (
             <div className="mt-1.5 flex items-start gap-1.5 p-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] leading-tight">
@@ -633,12 +733,6 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
       {/* Section C: Typography (Plain & Effect mode only) */}
       {mode !== "template" && (
         <div className="space-y-3">
-          {mode === "effect" && (
-            <div className="p-2 bg-amber-500/10 border border-amber-500/25 rounded text-[10px] text-amber-400 select-none">
-              Note: Modifying typography will detach from the effect preset.
-            </div>
-          )}
-
           {/* Font Family */}
           <div>
             <label className="text-[10px] font-medium text-text-muted block mb-1 select-none">
@@ -649,6 +743,8 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
               onChange={(e) =>
                 handleCustomStyleUpdate("fontFamily", e.target.value)
               }
+              onFocus={handleFontPickerPrewarm}
+              onPointerEnter={handleFontPickerPrewarm}
               className="w-full bg-surface-raised border border-border/60 rounded-md px-2.5 py-1.5 text-xs text-text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23888%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-no-repeat bg-[right_8px_center] pr-7"
             >
               {!nativeDesktop && (
@@ -697,48 +793,55 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
             onChange={(v) => handleCustomStyleUpdate("fontSize", v)}
           />
 
-          {/* Font Weight */}
-          <div>
-            <div className="flex justify-between items-center text-[10px] text-text-muted mb-1 select-none">
-              <span>Font Weight</span>
-              <span className="text-text-primary font-medium">
-                {weightLabel} ({currentWeight})
-              </span>
+          {/* Font Weight — hidden for effects (effect design defines its own weight) */}
+          {mode !== "effect" && (
+            <div>
+              <div className="flex justify-between items-center text-[10px] text-text-muted mb-1 select-none">
+                <span>Font Weight</span>
+                <span className="text-text-primary font-medium">
+                  {weightLabel} ({currentWeight})
+                </span>
+              </div>
+              <input
+                type="range"
+                min={100}
+                max={900}
+                step={100}
+                value={currentWeight}
+                onChange={(e) =>
+                  handleCustomStyleUpdate("fontWeight", Number(e.target.value))
+                }
+                className="w-full h-1.5 rounded-full appearance-none outline-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(var(--color-accent-raw),0.35)] [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
+                style={{
+                  background: `linear-gradient(to right, var(--color-accent) 0%, var(--color-accent) ${((currentWeight - 100) / 800) * 100}%, var(--color-border) ${((currentWeight - 100) / 800) * 100}%, var(--color-border) 100%)`,
+                }}
+              />
             </div>
-            <input
-              type="range"
-              min={100}
-              max={900}
-              step={100}
-              value={currentWeight}
-              onChange={(e) =>
-                handleCustomStyleUpdate("fontWeight", Number(e.target.value))
-              }
-              className="w-full h-1.5 rounded-full appearance-none outline-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(var(--color-accent-raw),0.35)] [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
-              style={{
-                background: `linear-gradient(to right, var(--color-accent) 0%, var(--color-accent) ${((currentWeight - 100) / 800) * 100}%, var(--color-border) ${((currentWeight - 100) / 800) * 100}%, var(--color-border) 100%)`,
-              }}
-            />
-          </div>
+          )}
 
           {/* Font Style + Alignment */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="text-[9px] text-text-muted block select-none">
-                Style
-              </label>
-              <button
-                onClick={() =>
-                  handleCustomStyleUpdate(
-                    "fontStyle",
-                    effectiveFontStyle === "italic" ? "normal" : "italic",
-                  )
-                }
-                className={`w-full py-1.5 rounded-md text-xs italic font-medium transition-all cursor-pointer border ${effectiveFontStyle === "italic" ? "bg-accent/15 text-accent border-accent/30" : "bg-surface-raised text-text-muted border-border/60 hover:text-text-primary hover:bg-white/[0.06]"}`}
-              >
-                Italic
-              </button>
-            </div>
+            {/* Italic toggle — hidden for effects (effect design defines its own style) */}
+            {mode !== "effect" ? (
+              <div className="space-y-1">
+                <label className="text-[9px] text-text-muted block select-none">
+                  Style
+                </label>
+                <button
+                  onClick={() =>
+                    handleCustomStyleUpdate(
+                      "fontStyle",
+                      effectiveFontStyle === "italic" ? "normal" : "italic",
+                    )
+                  }
+                  className={`w-full py-1.5 rounded-md text-xs italic font-medium transition-all cursor-pointer border ${effectiveFontStyle === "italic" ? "bg-accent/15 text-accent border-accent/30" : "bg-surface-raised text-text-muted border-border/60 hover:text-text-primary hover:bg-white/[0.06]"}`}
+                >
+                  Italic
+                </button>
+              </div>
+            ) : (
+              <div /> /* empty cell to keep alignment in the same column */
+            )}
 
             <div className="space-y-1">
               <label className="text-[9px] text-text-muted block select-none">
@@ -817,74 +920,72 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
             onChange={(v) => handleCustomStyleUpdate("lineHeight", v)}
           />
 
-          {/* Text Color */}
-          <div className="space-y-2 pt-3 border-t border-border/30">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-medium text-text-primary select-none">
-                Text Color
-              </span>
-              <div className="flex items-center gap-2">
-                <ClypraColorPicker
-                  value={isGradient ? "#ffffff" : textClip.color || "#ffffff"}
-                  onChange={(c: string) => handleCustomStyleUpdate("color", c)}
-                  onChangeComplete={(c: string) =>
-                    handleCustomStyleUpdate("color", c)
-                  }
-                  format="hex"
-                  availableModes={["solid", "wheel"]}
-                  presetColors={COLOR_PALETTE.filter(
-                    (p) => !p.value.includes(","),
-                  ).map((p) => p.value)}
-                  showAlpha={true}
-                  size="sm"
-                  triggerClassName="w-28 h-8 min-w-0 overflow-hidden bg-surface-raised border-border/60 hover:border-border shrink-0 [&>div]:min-w-0 [&>div]:max-w-full [&>div]:overflow-hidden [&>div>span]:min-w-0 [&>div>span]:truncate [&>div>span]:whitespace-nowrap"
-                  popoverClassName="z-[100]"
-                />
+          {/* Text Color — hidden for effects and templates (their design owns color) */}
+          {mode === "plain" && (
+            <div className="space-y-2 pt-3 border-t border-border/30">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-medium text-text-primary select-none">
+                  Text Color
+                </span>
+                <div className="flex items-center gap-2">
+                  <ClypraColorPicker
+                    value={isGradient ? "#ffffff" : textClip.color || "#ffffff"}
+                    onChange={(c: string) =>
+                      handleCustomStyleUpdate("color", c)
+                    }
+                    format="hex"
+                    availableModes={["solid", "wheel"]}
+                    presetColors={COLOR_PALETTE.filter(
+                      (p) => !p.value.includes(","),
+                    ).map((p) => p.value)}
+                    showAlpha={true}
+                    size="sm"
+                    triggerClassName="w-28 h-8 min-w-0 overflow-hidden bg-surface-raised border-border/60 hover:border-border shrink-0 [&>div]:min-w-0 [&>div]:max-w-full [&>div]:overflow-hidden [&>div>span]:min-w-0 [&>div>span]:truncate [&>div>span]:whitespace-nowrap"
+                    popoverClassName="z-[100]"
+                  />
+                </div>
               </div>
+              {isGradient && !isPresetGradient && (
+                <div className="space-y-2 p-2.5 bg-zinc-950/40 border border-zinc-800 rounded-lg select-none">
+                  <div className="flex justify-between items-center text-[10px] text-zinc-400 mb-1">
+                    <span>Gradient Stops</span>
+                    {getStops().length < 4 && (
+                      <button
+                        onClick={handleAddStop}
+                        className="text-[10px] text-accent hover:underline cursor-pointer"
+                      >
+                        + Add Stop
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2.5">
+                    {getStops().map((stopColor, idx) => (
+                      <div key={idx} className="flex items-center gap-1">
+                        <ClypraColorPicker
+                          value={stopColor}
+                          onChange={(c: string) => handleStopChange(idx, c)}
+                          format="hex"
+                          availableModes={["solid", "wheel"]}
+                          showAlpha={true}
+                          size="sm"
+                          triggerClassName="w-20 h-7 bg-surface-raised border-border/60 hover:border-border shrink-0"
+                          popoverClassName="z-[100]"
+                        />
+                        {getStops().length > 2 && (
+                          <button
+                            onClick={() => handleRemoveStop(idx)}
+                            className="text-[10px] text-destructive hover:underline cursor-pointer font-bold px-1"
+                          >
+                            &times;
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-            {isGradient && !isPresetGradient && (
-              <div className="space-y-2 p-2.5 bg-zinc-950/40 border border-zinc-800 rounded-lg select-none">
-                <div className="flex justify-between items-center text-[10px] text-zinc-400 mb-1">
-                  <span>Gradient Stops</span>
-                  {getStops().length < 4 && (
-                    <button
-                      onClick={handleAddStop}
-                      className="text-[10px] text-accent hover:underline cursor-pointer"
-                    >
-                      + Add Stop
-                    </button>
-                  )}
-                </div>
-                <div className="flex flex-wrap gap-2.5">
-                  {getStops().map((stopColor, idx) => (
-                    <div key={idx} className="flex items-center gap-1">
-                      <ClypraColorPicker
-                        value={stopColor}
-                        onChange={(c: string) => handleStopChange(idx, c)}
-                        onChangeComplete={(c: string) =>
-                          handleStopChange(idx, c)
-                        }
-                        format="hex"
-                        availableModes={["solid", "wheel"]}
-                        showAlpha={true}
-                        size="sm"
-                        triggerClassName="w-20 h-7 bg-surface-raised border-border/60 hover:border-border shrink-0"
-                        popoverClassName="z-[100]"
-                      />
-                      {getStops().length > 2 && (
-                        <button
-                          onClick={() => handleRemoveStop(idx)}
-                          className="text-[10px] text-destructive hover:underline cursor-pointer font-bold px-1"
-                        >
-                          &times;
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
+          )}
         </div>
       )}
 

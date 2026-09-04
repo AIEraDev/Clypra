@@ -68,4 +68,21 @@ describe("TemplateStore Preloading", () => {
       { family: "Roboto", weight: 700, style: "normal" },
     ]);
   });
+
+  it("fetches a full revision when the catalog only contains a summary", async () => {
+    const summary = { id: "tpl-summary", label: "Summary", category: "callout", revisionId: "rev-2", thumbnailUrl: "thumb.png" };
+    const full = {
+      id: "tpl-summary",
+      category: "callout",
+      duration: 2,
+      layers: [{ id: "title", kind: "text", content: "Loaded", x: 0, y: 0, width: 300, height: 80 }],
+    };
+    vi.mocked(TextEffectsApi.getTemplateData).mockResolvedValue(full as any);
+    useTemplateStore.setState({ templates: [summary as any] });
+
+    await useTemplateStore.getState().selectTemplate(summary as any);
+
+    expect(TextEffectsApi.getTemplateData).toHaveBeenCalledWith("callout", "tpl-summary", { revisionId: "rev-2" });
+    expect(useTemplateStore.getState().selectedTemplate?.templateData).toEqual(full);
+  });
 });

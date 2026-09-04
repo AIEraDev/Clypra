@@ -1,12 +1,13 @@
+use dashmap::DashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
-use dashmap::DashMap;
 use tokio::sync::Mutex;
 use wgpu::util::DeviceExt;
 
 use tauri_app_lib::wgpu_compositor::multi_track_composer::{
-    BlendMode, BodyEffectUniforms, CompositeLayer, CropMargins, LayerTransform, MultiTrackCompositor,
+    BlendMode, BodyEffectUniforms, CompositeLayer, CropMargins, LayerTransform,
+    MultiTrackCompositor,
 };
 use tauri_app_lib::wgpu_compositor::texture_pool::{
     create_nv12_bind_group_layout, create_nv12_render_pipeline, create_nv12_sampler,
@@ -107,11 +108,8 @@ async fn test_regression_odd_width_and_arbitrary_stride_padding() {
 
     let layout = create_nv12_bind_group_layout(&ctx.device);
     let sampler = create_nv12_sampler(&ctx.device);
-    let pipeline = create_nv12_render_pipeline(
-        &ctx.device,
-        &layout,
-        wgpu::TextureFormat::Rgba8UnormSrgb,
-    );
+    let pipeline =
+        create_nv12_render_pipeline(&ctx.device, &layout, wgpu::TextureFormat::Rgba8UnormSrgb);
 
     // Matrix of odd, non-standard, mobile, and cropped video resolutions
     let odd_resolutions = vec![
@@ -123,15 +121,8 @@ async fn test_regression_odd_width_and_arbitrary_stride_padding() {
     ];
 
     for (width, height) in odd_resolutions {
-        let mut ring = Nv12TextureRingBuffer::new(
-            &ctx.device,
-            &layout,
-            &sampler,
-            &sampler,
-            width,
-            height,
-            2,
-        );
+        let mut ring =
+            Nv12TextureRingBuffer::new(&ctx.device, &layout, &sampler, &sampler, width, height, 2);
 
         let uv_width = (width + 1) / 2;
         let uv_height = (height + 1) / 2;
@@ -140,13 +131,7 @@ async fn test_regression_odd_width_and_arbitrary_stride_padding() {
         let uv_plane = vec![128u8; (uv_width * 2 * uv_height) as usize];
 
         // Ensure upload does not panic on odd widths
-        ring.upload_frame(
-            &ctx.queue,
-            &y_plane,
-            &uv_plane,
-            width,
-            uv_width * 2,
-        );
+        ring.upload_frame(&ctx.queue, &y_plane, &uv_plane, width, uv_width * 2);
 
         let target_texture = ctx.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Odd Dimension Target"),
@@ -193,11 +178,8 @@ async fn test_regression_yuv_hdr_odd_width_p010() {
 
     let layout = create_yuv_hdr_bind_group_layout(&ctx.device);
     let sampler = create_yuv_hdr_sampler(&ctx.device);
-    let pipeline = create_yuv_hdr_render_pipeline(
-        &ctx.device,
-        &layout,
-        wgpu::TextureFormat::Rgba8UnormSrgb,
-    );
+    let pipeline =
+        create_yuv_hdr_render_pipeline(&ctx.device, &layout, wgpu::TextureFormat::Rgba8UnormSrgb);
 
     let width = 853u32;
     let height = 480u32;
@@ -267,7 +249,6 @@ async fn test_regression_dashmap_lru_concurrency_no_deadlock() {
         last_accessed: Arc<Mutex<Instant>>,
     }
 
-
     let pool: Arc<DashMap<String, MockEntry>> = Arc::new(DashMap::new());
     let max_pool_size = 10;
     let total_tasks = 40;
@@ -321,7 +302,6 @@ async fn test_regression_dashmap_lru_concurrency_no_deadlock() {
                         _id: task_id,
                         last_accessed: Arc::new(Mutex::new(Instant::now())),
                     },
-
                 );
 
                 completed_clone.fetch_add(1, Ordering::Relaxed);
@@ -421,7 +401,13 @@ async fn test_regression_multi_track_layer_pooling() {
             },
         ];
 
-        let res = compositor.render_to_rgba_bytes(&ctx.device, &ctx.queue, &layers).await;
-        assert!(res.is_ok(), "Multi-track render pass failed on iteration {}", i);
+        let res = compositor
+            .render_to_rgba_bytes(&ctx.device, &ctx.queue, &layers)
+            .await;
+        assert!(
+            res.is_ok(),
+            "Multi-track render pass failed on iteration {}",
+            i
+        );
     }
 }

@@ -39,6 +39,7 @@ import type { Command, CommandJournalState } from "@/core/history";
 import { useTimelineStore } from "./timelineStore";
 import { useUIStore } from "./uiStore";
 import { useProjectStore } from "./projectStore";
+import { getPreviewInteractionCoordinator } from "@/core/interactions";
 
 /**
  * History commands update the timeline store with setState directly. That is
@@ -119,6 +120,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => {
     },
 
     undo: () => {
+      getPreviewInteractionCoordinator().cancelActive("undo-redo");
       const { journal } = get();
 
       if (!journal.canUndo()) return;
@@ -144,6 +146,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => {
     },
 
     redo: () => {
+      getPreviewInteractionCoordinator().cancelActive("undo-redo");
       const { journal } = get();
 
       if (!journal.canRedo()) return;
