@@ -129,12 +129,12 @@ pub struct GlyphCacheStats {
     pub pinned_count: usize,
 }
 
-/// Content-addressed glyph cache keyed by `(font_hash, glyph_index, target_size_px)`.
+/// Content-addressed glyph cache keyed by `(font_hash, glyph_index, target_size_px, radius_key, padding_key)`.
 /// Employs incremental LRU eviction with active-frame epoch pinning to eliminate
 /// mid-playback distance-transform hitches under memory pressure.
 pub struct GlyphSdfCache {
-    entries: RwLock<HashMap<(u64, u16, u32), CacheEntry>>,
-    lru_order: RwLock<std::collections::VecDeque<(u64, u16, u32)>>,
+    entries: RwLock<HashMap<(u64, u16, u32, u16, u16), CacheEntry>>,
+    lru_order: RwLock<std::collections::VecDeque<(u64, u16, u32, u16, u16)>>,
     total_bytes: RwLock<usize>,
     current_epoch: RwLock<u64>,
     max_bytes: usize,
@@ -256,9 +256,11 @@ impl GlyphSdfCache {
     ) -> SdfGlyph {
         let glyph_index = font.lookup_glyph_index(character);
         let size_key = (size_px * 100.0).round() as u32;
+        let radius_key = (radius * 10.0).round().max(0.0) as u16;
+        let padding_key = padding.min(u16::MAX as usize) as u16;
         let style_hash =
             font_hash ^ ((font_weight as u64) << 16) ^ if italic { 1u64 << 63 } else { 0 };
-        let key = (style_hash, glyph_index, size_key);
+        let key = (style_hash, glyph_index, size_key, radius_key, padding_key);
 
         // Fast path: read lock check
         {
