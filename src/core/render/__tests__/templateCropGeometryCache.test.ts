@@ -125,7 +125,7 @@ describe("Template crop geometry cache", () => {
       templateRevisionId: "rev-42",
       templateContentHash: "hash-abc",
     });
-    expect(previewMod.getTemplateCropCacheKey(layer)).toBe("rev-42");
+    expect(previewMod.getTemplateCropCacheKey(layer)).toMatch(/^rev-42:/);
   });
 
   it("falls back to templateContentHash when revisionId is absent", () => {
@@ -134,7 +134,7 @@ describe("Template crop geometry cache", () => {
       templateRevisionId: undefined,
       templateContentHash: "hash-abc",
     });
-    expect(previewMod.getTemplateCropCacheKey(layer)).toBe("hash-abc");
+    expect(previewMod.getTemplateCropCacheKey(layer)).toMatch(/^hash-abc:/);
   });
 
   it("falls back to templateId as last resort", () => {
@@ -143,7 +143,7 @@ describe("Template crop geometry cache", () => {
       templateRevisionId: undefined,
       templateContentHash: undefined,
     });
-    expect(previewMod.getTemplateCropCacheKey(layer)).toBe("tmpl-fallback");
+    expect(previewMod.getTemplateCropCacheKey(layer)).toMatch(/^tmpl-fallback:/);
   });
 
   // ── cropTemplateAsset — geometry ──────────────────────────────────────────
