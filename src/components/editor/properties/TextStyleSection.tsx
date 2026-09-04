@@ -937,9 +937,10 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
             onChange={(v) => handleCustomStyleUpdate("lineHeight", v)}
           />
 
-          {/* Text Color — hidden for effects and templates (their design owns color) */}
+          {/* Text Color, Stroke, Shadow, Background — hidden for effects and templates */}
           {mode === "plain" && (
-            <div className="space-y-2 pt-3 border-t border-border/30">
+            <>
+              <div className="space-y-2 pt-3 border-t border-border/30">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-medium text-text-primary select-none">
                   Text Color
@@ -1002,7 +1003,273 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
                 </div>
               )}
             </div>
-          )}
+
+            {/* Text Stroke */}
+            <div className="space-y-2 pt-3 border-t border-border/30">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-medium text-text-primary select-none">
+                  Stroke
+                </span>
+                <div className="flex items-center gap-2">
+                  {textClip.stroke && (
+                    <ClypraColorPicker
+                      value={textClip.stroke.color || "#000000"}
+                      onChange={(c: string) =>
+                        handleCustomStyleUpdate("stroke", {
+                          color: c,
+                          width: textClip.stroke?.width ?? 2,
+                        })
+                      }
+                      format="hex"
+                      availableModes={["solid", "wheel"]}
+                      presetColors={COLOR_PALETTE.filter(
+                        (p) => !p.value.includes(","),
+                      ).map((p) => p.value)}
+                      showAlpha={true}
+                      size="sm"
+                      triggerClassName="w-20 h-7 min-w-0 overflow-hidden bg-surface-raised border-border/60 hover:border-border shrink-0"
+                      popoverClassName="z-[100]"
+                    />
+                  )}
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(
+                        textClip.stroke && (textClip.stroke.width ?? 0) > 0,
+                      )}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          handleCustomStyleUpdate("stroke", {
+                            color: "#000000",
+                            width: 2,
+                          });
+                        } else {
+                          handleCustomStyleUpdate("stroke", undefined);
+                        }
+                      }}
+                      className="sr-only peer"
+                    />
+                    <div className="w-7 h-3.5 bg-surface-raised border border-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-3.5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-accent" />
+                  </label>
+                </div>
+              </div>
+              {textClip.stroke && (
+                <div className="pt-1">
+                  <PropertySlider
+                    label="Stroke Width"
+                    value={textClip.stroke.width ?? 2}
+                    min={1}
+                    max={30}
+                    step={1}
+                    suffix="px"
+                    onChange={(v) =>
+                      handleCustomStyleUpdate("stroke", {
+                        color: textClip.stroke?.color ?? "#000000",
+                        width: v,
+                      })
+                    }
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Drop Shadow */}
+            <div className="space-y-2 pt-3 border-t border-border/30">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-medium text-text-primary select-none">
+                  Shadow
+                </span>
+                <div className="flex items-center gap-2">
+                  {textClip.shadow && (
+                    <ClypraColorPicker
+                      value={textClip.shadow.color || "rgba(0,0,0,0.75)"}
+                      onChange={(c: string) =>
+                        handleCustomStyleUpdate("shadow", {
+                          color: c,
+                          blur: textClip.shadow?.blur ?? 4,
+                          offsetX: textClip.shadow?.offsetX ?? 2,
+                          offsetY: textClip.shadow?.offsetY ?? 2,
+                        })
+                      }
+                      format="hex"
+                      availableModes={["solid", "wheel"]}
+                      presetColors={COLOR_PALETTE.filter(
+                        (p) => !p.value.includes(","),
+                      ).map((p) => p.value)}
+                      showAlpha={true}
+                      size="sm"
+                      triggerClassName="w-20 h-7 min-w-0 overflow-hidden bg-surface-raised border-border/60 hover:border-border shrink-0"
+                      popoverClassName="z-[100]"
+                    />
+                  )}
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(textClip.shadow)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          handleCustomStyleUpdate("shadow", {
+                            color: "rgba(0, 0, 0, 0.75)",
+                            blur: 4,
+                            offsetX: 2,
+                            offsetY: 2,
+                          });
+                        } else {
+                          handleCustomStyleUpdate("shadow", undefined);
+                        }
+                      }}
+                      className="sr-only peer"
+                    />
+                    <div className="w-7 h-3.5 bg-surface-raised border border-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-3.5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-accent" />
+                  </label>
+                </div>
+              </div>
+              {textClip.shadow && (
+                <div className="space-y-2 pt-1">
+                  <PropertySlider
+                    label="Blur"
+                    value={textClip.shadow.blur ?? 4}
+                    min={0}
+                    max={60}
+                    step={1}
+                    suffix="px"
+                    onChange={(v) =>
+                      handleCustomStyleUpdate("shadow", {
+                        color: textClip.shadow?.color ?? "rgba(0, 0, 0, 0.75)",
+                        blur: v,
+                        offsetX: textClip.shadow?.offsetX ?? 2,
+                        offsetY: textClip.shadow?.offsetY ?? 2,
+                      })
+                    }
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <PropertySlider
+                      label="Offset X"
+                      value={textClip.shadow.offsetX ?? 2}
+                      min={-50}
+                      max={50}
+                      step={1}
+                      suffix="px"
+                      onChange={(v) =>
+                        handleCustomStyleUpdate("shadow", {
+                          color:
+                            textClip.shadow?.color ?? "rgba(0, 0, 0, 0.75)",
+                          blur: textClip.shadow?.blur ?? 4,
+                          offsetX: v,
+                          offsetY: textClip.shadow?.offsetY ?? 2,
+                        })
+                      }
+                    />
+                    <PropertySlider
+                      label="Offset Y"
+                      value={textClip.shadow.offsetY ?? 2}
+                      min={-50}
+                      max={50}
+                      step={1}
+                      suffix="px"
+                      onChange={(v) =>
+                        handleCustomStyleUpdate("shadow", {
+                          color:
+                            textClip.shadow?.color ?? "rgba(0, 0, 0, 0.75)",
+                          blur: textClip.shadow?.blur ?? 4,
+                          offsetX: textClip.shadow?.offsetX ?? 2,
+                          offsetY: v,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Background Box */}
+            <div className="space-y-2 pt-3 border-t border-border/30">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-medium text-text-primary select-none">
+                  Background Box
+                </span>
+                <div className="flex items-center gap-2">
+                  {textClip.background && (
+                    <ClypraColorPicker
+                      value={textClip.background.color || "rgba(0,0,0,0.6)"}
+                      onChange={(c: string) =>
+                        handleCustomStyleUpdate("background", {
+                          color: c,
+                          padding: textClip.background?.padding ?? 8,
+                          borderRadius: textClip.background?.borderRadius ?? 4,
+                        })
+                      }
+                      format="hex"
+                      availableModes={["solid", "wheel"]}
+                      presetColors={COLOR_PALETTE.filter(
+                        (p) => !p.value.includes(","),
+                      ).map((p) => p.value)}
+                      showAlpha={true}
+                      size="sm"
+                      triggerClassName="w-20 h-7 min-w-0 overflow-hidden bg-surface-raised border-border/60 hover:border-border shrink-0"
+                      popoverClassName="z-[100]"
+                    />
+                  )}
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(textClip.background)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          handleCustomStyleUpdate("background", {
+                            color: "rgba(0, 0, 0, 0.6)",
+                            padding: 8,
+                            borderRadius: 4,
+                          });
+                        } else {
+                          handleCustomStyleUpdate("background", undefined);
+                        }
+                      }}
+                      className="sr-only peer"
+                    />
+                    <div className="w-7 h-3.5 bg-surface-raised border border-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-3.5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-accent" />
+                  </label>
+                </div>
+              </div>
+              {textClip.background && (
+                <div className="space-y-2 pt-1">
+                  <PropertySlider
+                    label="Padding"
+                    value={textClip.background.padding ?? 8}
+                    min={0}
+                    max={60}
+                    step={1}
+                    suffix="px"
+                    onChange={(v) =>
+                      handleCustomStyleUpdate("background", {
+                        color:
+                          textClip.background?.color ?? "rgba(0, 0, 0, 0.6)",
+                        padding: v,
+                        borderRadius: textClip.background?.borderRadius ?? 4,
+                      })
+                    }
+                  />
+                  <PropertySlider
+                    label="Border Radius"
+                    value={textClip.background.borderRadius ?? 4}
+                    min={0}
+                    max={40}
+                    step={1}
+                    suffix="px"
+                    onChange={(v) =>
+                      handleCustomStyleUpdate("background", {
+                        color:
+                          textClip.background?.color ?? "rgba(0, 0, 0, 0.6)",
+                        padding: textClip.background?.padding ?? 8,
+                        borderRadius: v,
+                      })
+                    }
+                  />
+              </div>
+            )}
+          </div>
+        </>
+      )}
         </div>
       )}
 
