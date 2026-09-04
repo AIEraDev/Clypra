@@ -320,4 +320,26 @@ describe("Project Serialization Layer", () => {
     expect(() => validateAndMigrateProjectPayload({ id: "p", name: "Broken", created_at: 1, modified_at: 2, clips: "not-an-array" }))
       .toThrow(/must be an array/i);
   });
+
+  it("recovers from duplicate editable item IDs by deduplicating and marking migrated", () => {
+    const payloadWithDuplicates = {
+      id: "proj-dup",
+      name: "Duplicate Test",
+      created_at: 1000,
+      modified_at: 2000,
+      tracks: [
+        { id: "track-1", type: "text", name: "Text 1", muted: false, locked: false, visible: true, height: 48 },
+        { id: "track-1", type: "text", name: "Text 1 Dup", muted: false, locked: false, visible: true, height: 48 },
+      ],
+      clips: [
+        { id: "clip-dup", kind: "text", trackId: "track-1", startTime: 0, duration: 5, trimIn: 0, trimOut: 5, x: 0, y: 0, width: 1920, height: 1080, opacity: 1, rotation: 0 },
+        { id: "clip-dup", kind: "text", trackId: "track-1", startTime: 0, duration: 5, trimIn: 0, trimOut: 5, x: 0, y: 0, width: 1920, height: 1080, opacity: 1, rotation: 0 },
+      ],
+    };
+
+    const snapshot = validateAndMigrateProjectPayload(payloadWithDuplicates);
+    expect(snapshot.tracks).toHaveLength(1);
+    expect(snapshot.clips).toHaveLength(1);
+    expect(snapshot.migrated).toBe(true);
+  });
 });

@@ -333,6 +333,8 @@ export function evaluateTimelineScene(
         animationType: animationState.animationType,
         textRole: textClip.textRole,
         maxWidth: textClip.maxWidth,
+        baseWidth: evalW,
+        baseHeight: evalH,
         x: finalX,
         y: finalY,
         width: finalWidth,

@@ -8,12 +8,22 @@ interface EffectCardProps {
   isFavorite: boolean;
   isDownloading: boolean;
   isDownloaded?: boolean;
+  isApplying?: boolean;
   onFavorite: (e: React.MouseEvent) => void;
   onApply: (e: React.MouseEvent) => void;
   onPreview: () => void;
 }
 
-export const EffectCard: React.FC<EffectCardProps> = ({ effect, isFavorite, isDownloading, isDownloaded = false, onFavorite, onApply, onPreview }) => {
+export const EffectCard: React.FC<EffectCardProps> = ({
+  effect,
+  isFavorite,
+  isDownloading,
+  isDownloaded = false,
+  isApplying = false,
+  onFavorite,
+  onApply,
+  onPreview,
+}) => {
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
   const canvasRef = useCallback((node: HTMLCanvasElement | null) => {
     setCanvas(node);
@@ -79,12 +89,24 @@ export const EffectCard: React.FC<EffectCardProps> = ({ effect, isFavorite, isDo
             e.stopPropagation();
             onApply(e);
           }}
-          disabled={isDownloading}
-          title={isDownloaded ? "Add text to timeline" : "Download and add text to timeline"}
-          aria-label={isDownloaded ? "Add text effect to timeline" : "Download and add text effect to timeline"}
-          className={`w-4 h-4 rounded-full flex items-center justify-center transition-all relative ${isDownloaded ? "bg-accent hover:bg-accent/85 border border-accent text-white cursor-pointer" : isDownloading ? "bg-accent/20 border border-accent cursor-wait" : "bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary cursor-pointer"}`}
+          disabled={isDownloading || isApplying}
+          title={isApplying ? "Adding text effect to timeline..." : isDownloaded ? "Add text to timeline" : "Download and add text to timeline"}
+          aria-label={isApplying ? "Adding text effect to timeline" : isDownloaded ? "Add text effect to timeline" : "Download and add text effect to timeline"}
+          className={`w-4 h-4 rounded-full flex items-center justify-center transition-all relative ${
+            isDownloaded && !isApplying
+              ? "bg-accent hover:bg-accent/85 border border-accent text-white cursor-pointer"
+              : isDownloading || isApplying
+              ? "bg-accent/20 border border-accent cursor-wait"
+              : "bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary cursor-pointer"
+          }`}
         >
-          {isDownloading ? <div className="w-2 h-2 rounded-full border-2 border-accent border-t-transparent animate-spin" /> : isDownloaded ? <Plus className="w-3 h-3 group-hover:scale-110 transition-transform" /> : <Download className="w-2 h-2 group-hover:scale-115 transition-transform" />}
+          {isDownloading || isApplying ? (
+            <div className="w-2 h-2 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+          ) : isDownloaded ? (
+            <Plus className="w-3 h-3 group-hover:scale-110 transition-transform" />
+          ) : (
+            <Download className="w-2 h-2 group-hover:scale-115 transition-transform" />
+          )}
         </button>
       </div>
     </div>

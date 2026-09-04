@@ -276,6 +276,33 @@ describe("template crop cache key invalidation", () => {
     // For static templates, time differences do not change the raster key
     expect(keyAtTime1).toBe(keyAtTime2);
   });
+
+  it("stabilizes the raster key across animated scale changes by using unscaled base dimensions", () => {
+    const baseLayer = makeTextLayer({
+      layerId: "anim-scale-layer",
+      baseWidth: 400,
+      baseHeight: 100,
+      width: 200, // scaled 0.5x at start of entrance
+      height: 50,
+    });
+    const midLayer = makeTextLayer({
+      ...baseLayer,
+      width: 320, // scaled 0.8x during entrance
+      height: 80,
+    });
+    const endLayer = makeTextLayer({
+      ...baseLayer,
+      width: 400, // 1.0x unscaled
+      height: 100,
+    });
+
+    const keyStart = buildNativeTextRasterKey(baseLayer);
+    const keyMid = buildNativeTextRasterKey(midLayer);
+    const keyEnd = buildNativeTextRasterKey(endLayer);
+
+    expect(keyStart).toBe(keyMid);
+    expect(keyMid).toBe(keyEnd);
+  });
 });
 
 describe("browser preview blend mode painting", () => {

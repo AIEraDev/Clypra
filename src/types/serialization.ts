@@ -215,9 +215,43 @@ export function validateAndMigrateProjectPayload(input: unknown): ProjectPersist
   const gaps = (rust.gaps ?? []).map((gap: RustGap) => fromRustGap(gap));
   const markers = (rust.markers ?? []) as TimelineMarker[];
 
-  const ids = [...mediaAssets, ...tracks, ...clips, ...transitions, ...gaps, ...markers].map((item: any) => item?.id).filter(Boolean);
-  if (new Set(ids).size !== ids.length) throw new Error("Project contains duplicate editable item IDs");
+  // Detect and recover from duplicate IDs (can happen when concurrent timeline
+  // additions race before the serialization lock was in place). Keep only the
+  // first occurrence of each ID and mark the project as migrated so it is
+  // auto-saved in the repaired form.
+  const allItems = [...mediaAssets, ...tracks, ...clips, ...transitions, ...gaps, ...markers];
+  const ids = allItems.map((item: any) => item?.id).filter(Boolean);
+  let hasDuplicates = new Set(ids).size !== ids.length;
+  if (hasDuplicates) {
+    console.warn("[validateAndMigrateProjectPayload] Project contains duplicate editable item IDs — deduplicating for recovery");
+    const seenIds = new Set<string>();
+    const dedup = <T extends { id?: string }>(arr: T[]): T[] =>
+      arr.filter((item) => {
+        const id = (item as any).id;
+        if (!id || seenIds.has(id)) return false;
+        seenIds.add(id);
+        return true;
+      });
+    // Re-assign deduplicated arrays (mutate local vars only)
+    const dedupedTracks = dedup(tracks as any[]) as typeof tracks;
+    const dedupedClips = dedup(clips as any[]) as typeof clips;
+    tracks.length = 0;
+    tracks.push(...dedupedTracks);
+    clips.length = 0;
+    clips.push(...dedupedClips);
+    // Force migrated=true below so the repaired project is auto-saved
+    hasDuplicates = true;
+  }
+
   const trackIds = new Set(tracks.map((track) => track.id));
+  // Drop orphan clips whose track was removed by deduplication
+  const orphanClipIds = clips.filter((c: any) => !trackIds.has(c.trackId)).map((c: any) => c.id);
+  if (orphanClipIds.length > 0) {
+    console.warn("[validateAndMigrateProjectPayload] Dropping orphan clips with missing track refs:", orphanClipIds);
+    const validClips = clips.filter((c: any) => trackIds.has(c.trackId));
+    clips.length = 0;
+    clips.push(...validClips);
+  }
   for (const clip of clips) {
     if (!trackIds.has(clip.trackId)) throw new Error(`Clip ${clip.id} refers to a missing track`);
   }
@@ -239,7 +273,7 @@ export function validateAndMigrateProjectPayload(input: unknown): ProjectPersist
     mainVideoTrackId: rust.main_video_track_id ?? null,
     updateModifiedTime: false,
   });
-  const migrated = JSON.stringify(normalizedRust) !== JSON.stringify(raw);
+  const migrated = hasDuplicates || JSON.stringify(normalizedRust) !== JSON.stringify(raw);
   return {
     project,
     mediaAssets,
