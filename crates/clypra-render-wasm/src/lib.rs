@@ -474,6 +474,17 @@ impl WasmRenderer {
             .map_err(|e| JsValue::from_str(&e))
     }
 
+    /// List all font IDs currently registered in the WASM font registry.
+    /// Returns a `JsValue` array of strings.
+    pub fn list_fonts(&self) -> js_sys::Array {
+        let ids = clypra_native_core::font_registry::global_font_registry().list_fonts();
+        let arr = js_sys::Array::new();
+        for id in ids {
+            arr.push(&JsValue::from_str(&id));
+        }
+        arr
+    }
+
     /// Render a single frame.
     ///
     /// `request_json` — a JSON-serialised `FrameRequest` (same contract as

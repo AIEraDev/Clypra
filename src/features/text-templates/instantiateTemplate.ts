@@ -227,7 +227,7 @@ export function instantiateTemplateElement(
       color: "#FFFFFF",
     };
     const pinnedStyleDefinition = resolveTextEffectDefinition(
-      textProps.styleId,
+      textProps.styleId ?? textProps.styleRef?.effectId,
       textProps.styleDefinition,
     );
 
@@ -258,22 +258,40 @@ export function instantiateTemplateElement(
       fontSize: textProps.fontSize || 48,
       color: textProps.color || "#FFFFFF",
       align: textProps.align || "center",
-      valign: "middle",
+      valign: textProps.verticalAlign || "middle",
       paddingX: 0,
       paddingY: 0,
       fontWeight: textProps.fontWeight ?? 400,
       fontStyle: textProps.fontStyle || "normal",
       letterSpacing: textProps.letterSpacing ?? 0,
       lineHeight: textProps.lineHeight ?? 1.2,
-      styleId: textProps.styleId,
+      fontId: textProps.fontId,
+      maxWidth: textProps.maxWidth,
+      stroke: textProps.stroke,
+      shadow: textProps.shadow,
+      background: textProps.background,
+      backgroundColor: textProps.backgroundColor,
+      entranceAnimation: textProps.animation
+        ? {
+            type: textProps.animation.preset as any,
+            duration: textProps.animation.duration,
+            easing: "ease-out",
+          }
+        : undefined,
+      styleId: textProps.styleId ?? textProps.styleRef?.effectId,
       styleVersion:
         textProps.styleVersion ?? (Number(pinnedStyleDefinition?.version) || 1),
       parameterOverrides: textProps.parameterOverrides
         ? cloneSerializable(textProps.parameterOverrides)
-        : undefined,
+        : textProps.styleRef?.parameterOverrides
+          ? cloneSerializable(textProps.styleRef.parameterOverrides)
+          : undefined,
       styleDefinition: pinnedStyleDefinition
         ? cloneSerializable(pinnedStyleDefinition)
         : undefined,
+      styleRevisionId: textProps.styleRef?.revisionId ?? (textProps as any).styleRevisionId,
+      styleContentHash: textProps.styleRef?.contentHash ?? (textProps as any).styleContentHash,
+      styleSnapshot: textProps.styleRef?.snapshot ?? (textProps as any).styleSnapshot,
       templateId,
       templateVersion,
       templateRevisionId,
@@ -287,7 +305,7 @@ export function instantiateTemplateElement(
       rotation: 0,
       opacity: 1,
       zIndex: element.zIndex ?? (index + 1),
-      textRole: "title",
+      textRole: textProps.textRole || "title",
     };
 
     return textClip as Clip;
@@ -377,7 +395,7 @@ export function applyTemplateStyle(
     color: "#FFFFFF",
   };
   const pinnedStyleDefinition = resolveTextEffectDefinition(
-    textProps.styleId,
+    textProps.styleId ?? textProps.styleRef?.effectId,
     textProps.styleDefinition,
   );
 
@@ -389,22 +407,31 @@ export function applyTemplateStyle(
     fontSize: textProps.fontSize || targetClip.fontSize,
     color: textProps.color || targetClip.color,
     align: textProps.align || targetClip.align,
+    valign: textProps.verticalAlign ?? targetClip.valign,
     fontWeight: textProps.fontWeight ?? targetClip.fontWeight,
     fontStyle: textProps.fontStyle || targetClip.fontStyle,
     letterSpacing: textProps.letterSpacing ?? targetClip.letterSpacing,
     lineHeight: textProps.lineHeight ?? targetClip.lineHeight,
-    styleId: textProps.styleId,
+    fontId: textProps.fontId ?? targetClip.fontId,
+    maxWidth: textProps.maxWidth ?? targetClip.maxWidth,
+    stroke: textProps.stroke ?? targetClip.stroke,
+    shadow: textProps.shadow ?? targetClip.shadow,
+    background: textProps.background ?? targetClip.background,
+    backgroundColor: textProps.backgroundColor ?? targetClip.backgroundColor,
+    styleId: textProps.styleId ?? textProps.styleRef?.effectId,
     styleVersion:
       textProps.styleVersion ?? (Number(pinnedStyleDefinition?.version) || 1),
     parameterOverrides: textProps.parameterOverrides
       ? cloneSerializable(textProps.parameterOverrides)
-      : undefined,
-      styleDefinition: pinnedStyleDefinition
-        ? cloneSerializable(pinnedStyleDefinition)
+      : textProps.styleRef?.parameterOverrides
+        ? cloneSerializable(textProps.styleRef.parameterOverrides)
         : undefined,
-      styleRevisionId: textProps.styleRef?.revisionId ?? (textProps as any).styleRevisionId,
-      styleContentHash: textProps.styleRef?.contentHash ?? (textProps as any).styleContentHash,
-      styleSnapshot: textProps.styleRef?.snapshot ?? (textProps as any).styleSnapshot,
+    styleDefinition: pinnedStyleDefinition
+      ? cloneSerializable(pinnedStyleDefinition)
+      : undefined,
+    styleRevisionId: textProps.styleRef?.revisionId ?? (textProps as any).styleRevisionId,
+    styleContentHash: textProps.styleRef?.contentHash ?? (textProps as any).styleContentHash,
+    styleSnapshot: textProps.styleRef?.snapshot ?? (textProps as any).styleSnapshot,
   };
 }
 
@@ -472,11 +499,50 @@ function extractElementsFromLegacyTemplate(template: any): TemplateElement[] {
       textProperties: {
         text: layer.content || "Text",
         fontFamily: layer.fontFamily || "Inter Variable",
-        fontSize: layer.fontSize || 36,
-        color: layer.color || "#FFFFFF",
+        fontSize: typeof layer.fontSize === "number" ? layer.fontSize : 36,
+        color: typeof layer.color === "string" ? layer.color : "#FFFFFF",
         align: layer.align || "left",
-        fontWeight: layer.fontWeight || 400,
-        styleId: layer.styleId,
+        verticalAlign: layer.verticalAlign || "middle",
+        fontWeight: typeof layer.fontWeight === "number" ? layer.fontWeight : 400,
+        fontStyle: layer.fontStyle || "normal",
+        letterSpacing: typeof layer.letterSpacing === "number" ? layer.letterSpacing : 0,
+        lineHeight: typeof layer.lineHeight === "number" ? layer.lineHeight : 1.2,
+        styleId: layer.styleId ?? layer.styleRef?.effectId,
+        styleRef: layer.styleRef,
+        styleDefinition: layer.styleDefinition,
+        styleVersion: layer.styleVersion ?? (layer.styleRef ? 1 : undefined),
+        parameterOverrides: layer.parameterOverrides ?? layer.styleRef?.parameterOverrides,
+        stroke: layer.stroke
+          ? {
+              color: typeof layer.stroke.color === "string" ? layer.stroke.color : "#000000",
+              width: typeof layer.stroke.width === "number" ? layer.stroke.width : 1,
+            }
+          : undefined,
+        shadow: layer.shadow
+          ? {
+              color: typeof layer.shadow.color === "string" ? layer.shadow.color : "#000000",
+              blur: typeof layer.shadow.blur === "number" ? layer.shadow.blur : 0,
+              offsetX: typeof layer.shadow.offsetX === "number" ? layer.shadow.offsetX : 0,
+              offsetY: typeof layer.shadow.offsetY === "number" ? layer.shadow.offsetY : 0,
+            }
+          : undefined,
+        background: layer.backgroundColor
+          ? {
+              color: typeof layer.backgroundColor === "string" ? layer.backgroundColor : "#000000",
+              padding: typeof layer.padding === "number" ? layer.padding : 0,
+              borderRadius: typeof layer.backgroundRadius === "number" ? layer.backgroundRadius : 0,
+            }
+          : undefined,
+        backgroundColor: typeof layer.backgroundColor === "string" ? layer.backgroundColor : undefined,
+        fontId: layer.fontId,
+        maxWidth: typeof layer.maxWidth === "number" ? layer.maxWidth : undefined,
+        textRole: layer.role === "primary" || layer.role === "secondary" ? "title" : undefined,
+        animation: layer.animation
+          ? {
+              preset: layer.animation.in || "none",
+              duration: layer.animation.inDuration || 0.5,
+            }
+          : undefined,
       },
     };
   });
