@@ -13,6 +13,8 @@ import type {
   SerializedResult,
   PatchResult,
   WriteComplete,
+  ReadOpfsResult,
+  ClearOpfsResult,
   JsonPatchOperation,
 } from "@/workers/types";
 
@@ -107,6 +109,43 @@ export class ProjectWorkerClient {
       } as any);
     } catch {
       return { type: "WRITE_COMPLETE", id: "fallback" };
+    }
+  }
+
+  /**
+   * Read project JSON or patches directly from Origin Private File System.
+   */
+  async readOpfs(filename: string): Promise<string | null> {
+    if (this.bus.status === "error" || typeof Worker === "undefined") {
+      return null;
+    }
+
+    try {
+      const result = await this.bus.send<ReadOpfsResult>({
+        type: "READ_OPFS",
+        filename,
+      } as any);
+      return result.json;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Delete an OPFS file (e.g. after flushing patches to disk).
+   */
+  async clearOpfs(filename: string): Promise<void> {
+    if (this.bus.status === "error" || typeof Worker === "undefined") {
+      return;
+    }
+
+    try {
+      await this.bus.send<ClearOpfsResult>({
+        type: "CLEAR_OPFS",
+        filename,
+      } as any);
+    } catch {
+      // Non-fatal
     }
   }
 
