@@ -226,6 +226,14 @@ export async function paintTextLayersToCanvas(
     const paintStartedAt = performance.now();
     ctx.save();
     ctx.globalAlpha = layer.opacity;
+    if (layer.blendMode && layer.blendMode !== "normal") {
+      ctx.globalCompositeOperation =
+        layer.blendMode === "add"
+          ? "lighter"
+          : layer.blendMode === "subtract"
+            ? "difference"
+            : (layer.blendMode as GlobalCompositeOperation);
+    }
     const isAbsolute = asset.positionMode === "absolute";
     const centerX = isAbsolute
       ? asset.x + asset.width / 2
@@ -254,6 +262,21 @@ const browserTextRasterCache = new Map<
   string,
   Promise<NativeTextRasterAsset>
 >();
+
+/** Exported for testing only. */
+export function _clearBrowserTextRasterCache(): void {
+  browserTextRasterCache.clear();
+  browserTextAssetByLayerId.clear();
+  browserTextAssetKeyByLayerId.clear();
+  browserTextLayoutKeyByLayerId.clear();
+}
+
+/** Exported for testing only. */
+export function _getBrowserTextRasterPromise(
+  key: string,
+): Promise<NativeTextRasterAsset> | undefined {
+  return browserTextRasterCache.get(key);
+}
 const browserTextAssetByLayerId = new Map<string, NativeTextRasterAsset>();
 const browserTextAssetKeyByLayerId = new Map<string, string>();
 const browserTextLayoutKeyByLayerId = new Map<string, string>();
@@ -588,10 +611,17 @@ export function _clearTemplateCropGeometryCache(): void {
 export function getTemplateCropCacheKey(
   layer: EvaluatedTextLayer,
 ): string | null {
-  if (!layer.templateId) return null;
-  return (
-    layer.templateRevisionId ?? layer.templateContentHash ?? layer.templateId
-  );
+  const baseId =
+    layer.templateRevisionId ?? layer.templateContentHash ?? layer.templateId;
+  if (!baseId) return null;
+  const custKey = JSON.stringify({
+    t: layer.text,
+    c: layer.customization,
+    v: layer.templateControlValues,
+    w: layer.width,
+    h: layer.height,
+  });
+  return `${baseId}:${custKey}`;
 }
 
 /**
@@ -994,8 +1024,12 @@ export async function rasterizeTextLayerForNative(
   const rgba = ctx.getImageData(0, 0, width, height).data;
   const readbackMs = performance.now() - readbackStartedAt;
   const cropKey = getTemplateCropCacheKey(layer);
-  const croppedTemplate = cropKey
-    ? cropTemplateAsset(rgba, width, height, cropKey)
+  const effectiveCropKey =
+    cropKey && layer.templateAnimated
+      ? `${cropKey}:t${Math.round((layer.time ?? 0) * 30)}`
+      : cropKey;
+  const croppedTemplate = effectiveCropKey
+    ? cropTemplateAsset(rgba, width, height, effectiveCropKey)
     : null;
   const cacheKey = buildNativeTextRasterKey(layer);
   const timing = {
