@@ -94,7 +94,7 @@ pub fn compute_video_scopes(
         let mut green = [0u32; 256];
         let mut blue = [0u32; 256];
 
-        for pixel in rgba_bytes.chunks_exact(4) {
+        for pixel in rgba_bytes.as_chunks::<4>().0 {
             let r = pixel[0] as usize;
             let g = pixel[1] as usize;
             let b = pixel[2] as usize;
@@ -226,7 +226,7 @@ pub fn compute_video_scopes(
         let mut counts = vec![0u32; VEC_DIM * VEC_DIM];
         let center = (VEC_DIM as f32) * 0.5;
 
-        for pixel in rgba_bytes.chunks_exact(4) {
+        for pixel in rgba_bytes.as_chunks::<4>().0 {
             let r = pixel[0] as f32 / 255.0;
             let g = pixel[1] as f32 / 255.0;
             let b = pixel[2] as f32 / 255.0;
