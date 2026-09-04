@@ -3271,6 +3271,7 @@ mod tests {
 
     fn text_layer_with_box(box_width: Option<f32>, box_height: Option<f32>) -> TextLayerSnapshot {
         TextLayerSnapshot {
+            layer_id: None,
             text: "Hello".to_string(),
             font_id: "inter".to_string(),
             font_size: 48.0,
@@ -3390,6 +3391,7 @@ mod tests {
                 clear_color: [0.0, 0.0, 0.0, 1.0],
                 video_layers: vec![],
                 raster_layers: vec![RasterLayerSnapshot {
+                    layer_id: None,
                     asset_id: "text-1".to_string(),
                     rgba: None,
                     width: 480,

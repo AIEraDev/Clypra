@@ -71,6 +71,7 @@ export interface NativeTextRasterAsset {
    * Consumers that draw via canvas (paintTextLayersToCanvas) use
    * createImageData which accepts Uint8ClampedArray directly — zero copy.
    */
+  layerId?: string;
   rgba: Uint8ClampedArray | number[];
   width: number;
   height: number;
@@ -465,8 +466,8 @@ function buildNativeTextKeyObject(
     textRole: layer.textRole,
     maxWidth: layer.maxWidth,
     time: timeDependent ? layer.time : undefined,
-    width: layer.width,
-    height: layer.height,
+    width: layer.baseWidth ?? layer.width,
+    height: layer.baseHeight ?? layer.height,
     fontFamily: layer.fontFamily,
     fontSize: layer.fontSize,
     fontWeight: layer.fontWeight,
@@ -801,8 +802,10 @@ export function getCachedLayoutMetrics(
   });
   const bleedX = Math.max(metrics.paddingX, bleed.x);
   const bleedY = Math.max(metrics.paddingY, bleed.y);
-  const rasterWidth = Math.max(1, Math.ceil(layer.width + bleedX * 2));
-  const rasterHeight = Math.max(1, Math.ceil(layer.height + bleedY * 2));
+  const baseWidth = layer.baseWidth ?? layer.width;
+  const baseHeight = layer.baseHeight ?? layer.height;
+  const rasterWidth = Math.max(1, Math.ceil(baseWidth + bleedX * 2));
+  const rasterHeight = Math.max(1, Math.ceil(baseHeight + bleedY * 2));
 
   const result: TextLayoutMetrics = {
     bleedX,
@@ -930,10 +933,12 @@ export async function rasterizeTextLayerForNative(
           Math.ceil(Number(canvas?.height) || 200),
         );
         const unscaledFontSize = normalizeFontSize(layer.fontSize);
-        const evalWidth = Math.max(authoredWidth, Math.ceil(layer.width + 400));
+        const baseWidth = layer.baseWidth ?? layer.width;
+        const baseHeight = layer.baseHeight ?? layer.height;
+        const evalWidth = Math.max(authoredWidth, Math.ceil(baseWidth + 400));
         const evalHeight = Math.max(
           authoredHeight,
-          Math.ceil(layer.height + 200),
+          Math.ceil(baseHeight + 200),
         );
         const sceneText = canonicalScene.text as any;
         if (sceneText) {
@@ -1008,10 +1013,12 @@ export async function rasterizeTextLayerForNative(
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, width, height);
+  const baseWidth = layer.baseWidth ?? layer.width;
+  const baseHeight = layer.baseHeight ?? layer.height;
   ctx.save();
-  ctx.translate(layer.width / 2 + bleedX, layer.height / 2 + bleedY);
+  ctx.translate(baseWidth / 2 + bleedX, baseHeight / 2 + bleedY);
   const rasterStartedAt = performance.now();
-  await rasterizeTextLayer(ctx, layer, layer.width, layer.height, 1, 1);
+  await rasterizeTextLayer(ctx, layer, baseWidth, baseHeight, 1, 1);
   const rasterMs = performance.now() - rasterStartedAt;
   ctx.restore();
 
@@ -1054,12 +1061,13 @@ export async function rasterizeTextLayerForNative(
         : "render") as TextRenderOperation),
     contentLength: layer.text.length,
     lineCount: Math.max(1, layer.text.split("\n").length),
-    layoutWidth: layer.width,
-    layoutHeight: layer.height,
+    layoutWidth: baseWidth,
+    layoutHeight: baseHeight,
   };
   if (!options.deferTelemetry) traceTextRenderTiming(timing);
 
   return {
+    layerId: layer.layerId,
     assetId: `native-text:${layer.layerId}:${hashTextRasterKey(cacheKey)}`,
     rgba: croppedTemplate?.rgba ?? rgba,
     width: croppedTemplate?.width ?? width,

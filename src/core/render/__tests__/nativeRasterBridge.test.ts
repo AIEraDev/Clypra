@@ -45,8 +45,10 @@ describe("NativeRasterBridge", () => {
   });
 
   it("registers text layers as Studio-engine rasters for native composition", async () => {
+    // Layer logical (unscaled base) dims equal texture dims: scale=1, displayWidth=texW
+    // x = layer.x + (layerW - displayW)/2 = 10 + (1 - 1)/2 = 10
     const scene = {
-      visualLayers: [{ layerType: "text", layerId: "title" }],
+      visualLayers: [{ layerType: "text", layerId: "title", x: 10, y: 20, width: 1, height: 1 }],
       metadata: { canvasWidth: 1920, canvasHeight: 1080 },
     } as unknown as EvaluatedScene;
     mocks.rasterizeText.mockResolvedValue({
@@ -69,6 +71,8 @@ describe("NativeRasterBridge", () => {
       assetId: "native-text:title:hash",
       width: 1,
       height: 1,
+      displayWidth: 1,
+      displayHeight: 1,
       x: 10,
       y: 20,
       rotation: 0,
@@ -83,6 +87,7 @@ describe("NativeRasterBridge", () => {
     }));
     bridge.dispose();
   });
+
 
   it("registers still images through the native-owned alpha raster cache", async () => {
     const scene = {
@@ -218,6 +223,10 @@ describe("NativeRasterBridge", () => {
   });
 
   it("updates text placement during non-blocking playback without freezing at pause coordinates", async () => {
+    // Layer logical dims (unscaled base): width=280, height=70
+    // Texture dims include bleed: texW = 280 + 2*10 = 300, texH = 70 + 2*5 = 80
+    // Scale=1 (no animation), so displayWidth=300, displayHeight=80
+    // x = layer.x + (layerW - displayW)/2 = layer.x + (280 - 300)/2 = layer.x - 10 (= layer.x - bleedX)
     const scene = {
       visualLayers: [{
         layerType: "text",
@@ -225,6 +234,8 @@ describe("NativeRasterBridge", () => {
         text: "Sync me",
         x: 100,
         y: 200,
+        width: 280,
+        height: 70,
         rotation: 0,
         opacity: 1,
         zIndex: 5,
@@ -257,8 +268,8 @@ describe("NativeRasterBridge", () => {
     expect(pauseRasters).toHaveLength(1);
     expect(pauseRasters[0]).toMatchObject({
       assetId: "native-text:synced-title:v1",
-      x: 90, // 100 - bleedX(10)
-      y: 195, // 200 - bleedY(5)
+      x: 90, // 100 + (280 - 300)/2 = 100 - 10 = 90 (same as old layer.x - bleedX)
+      y: 195, // 200 + (70 - 80)/2 = 200 - 5 = 195
       opacity: 1,
       zIndex: 5,
     });
@@ -284,8 +295,8 @@ describe("NativeRasterBridge", () => {
     expect(playbackRasters1).toHaveLength(1);
     expect(playbackRasters1[0]).toMatchObject({
       assetId: "native-text:synced-title:v1",
-      x: 140, // 150 - bleedX(10) -> live position updated!
-      y: 245, // 250 - bleedY(5) -> live position updated!
+      x: 140, // 150 + (280 - 300)/2 = 150 - 10 = 140 (live position updated!)
+      y: 245, // 250 + (70 - 80)/2 = 250 - 5 = 245 (live position updated!)
       opacity: 0.8,
       rotation: 15,
       zIndex: 5,
@@ -309,13 +320,14 @@ describe("NativeRasterBridge", () => {
     });
 
     expect(playbackRasters2[0]).toMatchObject({
-      x: 190,
-      y: 295,
+      x: 190, // 200 + (280 - 300)/2 = 200 - 10 = 190
+      y: 295, // 300 + (70 - 80)/2 = 300 - 5 = 295
       opacity: 0.5,
     });
 
     bridge.dispose();
   });
+
 
   it("handles absolute position mode during non-blocking playback", async () => {
     const scene = {

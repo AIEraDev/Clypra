@@ -1085,6 +1085,7 @@ export function buildNativeVideoProjectRequest(
       const color = parseColorToRgba(layer.color || "#ffffff");
       const effect = normalizeNativeTextEffect(layer);
       return {
+        layerId: layer.layerId,
         text: layer.text || "",
         fontId: layer.fontFamily || "default",
         fontSize: layer.fontSize,

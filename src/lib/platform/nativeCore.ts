@@ -443,6 +443,7 @@ export interface NativeColorGradeSnapshot {
 }
 
 export interface NativeRasterLayerSnapshot {
+  layerId?: string;
   assetId: string;
   /** RGBA8 bytes, omitted after native asset registration. */
   rgba?: Uint8ClampedArray | number[];
@@ -465,6 +466,7 @@ export interface NativeRasterLayerSnapshot {
 }
 
 export interface NativeTextLayerSnapshot {
+  layerId?: string;
   text: string;
   fontId: string;
   fontSize: number;
@@ -595,6 +597,7 @@ export interface NativePlaybackFrameDemand {
     zIndex: number;
   }>;
   rasterLayers: Array<{
+    layerId?: string;
     assetId: string;
     width: number;
     height: number;
@@ -605,8 +608,11 @@ export interface NativePlaybackFrameDemand {
     rotation: number;
     opacity: number;
     zIndex: number;
+    blendMode?: string;
+    isMask?: boolean;
   }>;
   textLayers: Array<{
+    layerId?: string;
     x: number;
     y: number;
     rotation: number;
@@ -637,6 +643,7 @@ export function createNativePlaybackFrameDemand(
       zIndex: layer.zIndex,
     })),
     rasterLayers: (request.project.rasterLayers ?? []).map((layer) => ({
+      layerId: layer.layerId,
       assetId: layer.assetId,
       width: layer.width,
       height: layer.height,
@@ -647,8 +654,11 @@ export function createNativePlaybackFrameDemand(
       rotation: layer.rotation ?? 0,
       opacity: layer.opacity ?? 1,
       zIndex: layer.zIndex ?? 0,
+      blendMode: layer.blendMode,
+      isMask: layer.isMask ?? false,
     })),
     textLayers: (request.project.textLayers ?? []).map((layer) => ({
+      layerId: layer.layerId,
       x: layer.x,
       y: layer.y,
       rotation: layer.rotation ?? 0,

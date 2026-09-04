@@ -462,19 +462,33 @@ export class NativeRasterBridge {
         // the entire duration of playback (text invisible or at wrong position).
         if (previous) {
           const bleed = this.textSnapshotBleedByLayerId.get(layer.layerId);
+          // Compute scale from animation: base dims are raster size, final dims
+          // include scale animation. displayWidth/displayHeight drive the GPU
+          // quad so the compositor scales the immutable texture instead of
+          // triggering a re-rasterization every animation frame.
+          const texW = previous.width;
+          const texH = previous.height;
+          const baseW = (layer as { baseWidth?: number }).baseWidth ?? layer.width;
+          const baseH = (layer as { baseHeight?: number }).baseHeight ?? layer.height;
+          const scaleX = baseW > 0 ? layer.width / baseW : 1;
+          const scaleY = baseH > 0 ? layer.height / baseH : 1;
+          const displayWidth = texW * scaleX;
+          const displayHeight = texH * scaleY;
           const updatedSnapshot: NativeRasterLayerSnapshot = {
             ...previous,
+            displayWidth,
+            displayHeight,
             x:
               bleed?.positionMode === "absolute"
                 ? previous.x
                 : typeof layer.x === "number"
-                  ? layer.x - (bleed?.bleedX ?? 0)
+                  ? layer.x + (layer.width - displayWidth) / 2
                   : previous.x,
             y:
               bleed?.positionMode === "absolute"
                 ? previous.y
                 : typeof layer.y === "number"
-                  ? layer.y - (bleed?.bleedY ?? 0)
+                  ? layer.y + (layer.height - displayHeight) / 2
                   : previous.y,
             rotation:
               typeof layer.rotation === "number"
@@ -501,19 +515,31 @@ export class NativeRasterBridge {
       // Pixels are immutable; placement is not. Entry/leave motion and
       // opacity must be expressed as native compositor uniforms instead of
       // causing a new Canvas raster and GPU upload every frame.
+      // Compute display dimensions from animation scale so the GPU quad
+      // scales the immutable texture rather than triggering re-rasterization.
+      const texW = asset.width;
+      const texH = asset.height;
+      const baseW = (layer as { baseWidth?: number }).baseWidth ?? layer.width;
+      const baseH = (layer as { baseHeight?: number }).baseHeight ?? layer.height;
+      const scaleX = baseW > 0 ? layer.width / baseW : 1;
+      const scaleY = baseH > 0 ? layer.height / baseH : 1;
+      const displayWidth = texW * scaleX;
+      const displayHeight = texH * scaleY;
       const positioned = {
         ...asset,
+        displayWidth,
+        displayHeight,
         x:
           asset.positionMode === "absolute"
             ? asset.x
             : typeof layer.x === "number"
-              ? layer.x - (asset.bleedX ?? 0)
+              ? layer.x + (layer.width - displayWidth) / 2
               : asset.x,
         y:
           asset.positionMode === "absolute"
             ? asset.y
             : typeof layer.y === "number"
-              ? layer.y - (asset.bleedY ?? 0)
+              ? layer.y + (layer.height - displayHeight) / 2
               : asset.y,
         rotation:
           typeof layer.rotation === "number" ? layer.rotation : asset.rotation,
@@ -688,18 +714,30 @@ export class NativeRasterBridge {
     if (input.generation !== this.textPreparationGeneration) return;
     const positioned = {
       ...asset,
-      x:
-        asset.positionMode === "absolute"
-          ? asset.x
-          : typeof input.layer.x === "number"
-            ? input.layer.x - (asset.bleedX ?? 0)
-            : asset.x,
-      y:
-        asset.positionMode === "absolute"
-          ? asset.y
-          : typeof input.layer.y === "number"
-            ? input.layer.y - (asset.bleedY ?? 0)
-            : asset.y,
+      // Scale from animation: immutable texture scaled by GPU uniforms.
+      ...((): { displayWidth: number; displayHeight: number } => {
+        const baseW = (input.layer as { baseWidth?: number }).baseWidth ?? input.layer.width;
+        const baseH = (input.layer as { baseHeight?: number }).baseHeight ?? input.layer.height;
+        const scaleX = baseW > 0 ? input.layer.width / baseW : 1;
+        const scaleY = baseH > 0 ? input.layer.height / baseH : 1;
+        return { displayWidth: asset.width * scaleX, displayHeight: asset.height * scaleY };
+      })(),
+      x: (() => {
+        if (asset.positionMode === "absolute") return asset.x;
+        if (typeof input.layer.x !== "number") return asset.x;
+        const baseW = (input.layer as { baseWidth?: number }).baseWidth ?? input.layer.width;
+        const scaleX = baseW > 0 ? input.layer.width / baseW : 1;
+        const displayWidth = asset.width * scaleX;
+        return input.layer.x + (input.layer.width - displayWidth) / 2;
+      })(),
+      y: (() => {
+        if (asset.positionMode === "absolute") return asset.y;
+        if (typeof input.layer.y !== "number") return asset.y;
+        const baseH = (input.layer as { baseHeight?: number }).baseHeight ?? input.layer.height;
+        const scaleY = baseH > 0 ? input.layer.height / baseH : 1;
+        const displayHeight = asset.height * scaleY;
+        return input.layer.y + (input.layer.height - displayHeight) / 2;
+      })(),
       rotation:
         typeof input.layer.rotation === "number"
           ? input.layer.rotation

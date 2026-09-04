@@ -180,6 +180,10 @@ export interface EvaluatedTextLayer extends BaseVisualLayer {
   /** Explicit user-authored width constraint for automatic wrapping. */
   readonly maxWidth?: number;
 
+  /** Unscaled base layout dimensions before text animation scale is applied. */
+  readonly baseWidth?: number;
+  readonly baseHeight?: number;
+
   /** The clip start time on timeline */
   readonly clipStartTime?: number;
 

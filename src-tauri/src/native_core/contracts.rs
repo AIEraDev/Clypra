@@ -384,6 +384,8 @@ fn default_color_grade_particle_color() -> [f32; 4] {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RasterLayerSnapshot {
+    #[serde(default)]
+    pub layer_id: Option<String>,
     pub asset_id: String,
     /// Pixel payload is present on the registration/miss path and omitted
     /// once the native GPU asset is already resident.
@@ -456,6 +458,8 @@ pub struct TextEffectPassSnapshot {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextLayerSnapshot {
+    #[serde(default)]
+    pub layer_id: Option<String>,
     pub text: String,
     pub font_id: String,
     pub font_size: f32,
@@ -714,6 +718,8 @@ pub struct NativePlaybackVideoLayerUpdate {
 #[serde(rename_all = "camelCase")]
 pub struct NativePlaybackRasterLayerUpdate {
     #[serde(default)]
+    pub layer_id: Option<String>,
+    #[serde(default)]
     pub asset_id: String,
     #[serde(default)]
     pub width: u32,
@@ -728,11 +734,17 @@ pub struct NativePlaybackRasterLayerUpdate {
     pub rotation: f32,
     pub opacity: f32,
     pub z_index: i32,
+    #[serde(default)]
+    pub blend_mode: Option<String>,
+    #[serde(default)]
+    pub is_mask: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativePlaybackTextLayerUpdate {
+    #[serde(default)]
+    pub layer_id: Option<String>,
     pub x: f32,
     pub y: f32,
     pub rotation: f32,
@@ -1505,6 +1517,12 @@ impl FrameRequest {
             layer.source_time.ticks = 0;
             layer.source_time.timescale = 1;
         }
+
+        // Overlay layers (raster_layers and text_layers) are dynamically composited on top of
+        // decoded video frames. They do not affect video decoding, so clear them to ensure
+        // lookahead pre-decoded video frames match regardless of text/sticker appearances.
+        cache_request.project.raster_layers.clear();
+        cache_request.project.text_layers.clear();
 
         let bytes = serde_json::to_vec(&cache_request).map_err(|error| {
             NativeCoreError::InvalidContract(format!("Unable to serialize FrameRequest: {error}"))

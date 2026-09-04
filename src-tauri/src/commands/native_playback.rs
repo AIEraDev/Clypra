@@ -158,10 +158,7 @@ impl NativeRenderSession {
             .map_err(|_| "Native render snapshot lock is poisoned".to_string())?
             .clone();
         if let Some(demand) = demand {
-            if demand.video_layers.len() != request.project.video_layers.len()
-                || demand.raster_layers.len() != request.project.raster_layers.len()
-                || demand.text_layers.len() != request.project.text_layers.len()
-            {
+            if demand.video_layers.len() != request.project.video_layers.len() {
                 return Err(
                     "Native playback demand does not match the configured render snapshot".to_string(),
                 );
@@ -185,45 +182,150 @@ impl NativeRenderSession {
                 layer.opacity = update.opacity;
                 layer.z_index = update.z_index;
             }
-            for (layer, update) in request
-                .project
-                .raster_layers
-                .iter_mut()
-                .zip(&demand.raster_layers)
+
+            if demand.raster_layers.len() == request.project.raster_layers.len()
+                && demand.text_layers.len() == request.project.text_layers.len()
             {
-                if !update.asset_id.is_empty() {
-                    layer.asset_id = update.asset_id.clone();
+                for (layer, update) in request
+                    .project
+                    .raster_layers
+                    .iter_mut()
+                    .zip(&demand.raster_layers)
+                {
+                    if let Some(layer_id) = &update.layer_id {
+                        layer.layer_id = Some(layer_id.clone());
+                    }
+                    if !update.asset_id.is_empty() {
+                        layer.asset_id = update.asset_id.clone();
+                    }
+                    if update.width > 0 {
+                        layer.width = update.width;
+                    }
+                    if update.height > 0 {
+                        layer.height = update.height;
+                    }
+                    layer.display_width = update.display_width;
+                    layer.display_height = update.display_height;
+                    layer.x = update.x;
+                    layer.y = update.y;
+                    layer.rotation = update.rotation;
+                    layer.opacity = update.opacity;
+                    layer.z_index = update.z_index;
+                    if let Some(blend_mode) = &update.blend_mode {
+                        layer.blend_mode = blend_mode.clone();
+                    }
+                    layer.is_mask = update.is_mask;
                 }
-                if update.width > 0 {
-                    layer.width = update.width;
+                for (layer, update) in request
+                    .project
+                    .text_layers
+                    .iter_mut()
+                    .zip(&demand.text_layers)
+                {
+                    if let Some(layer_id) = &update.layer_id {
+                        layer.layer_id = Some(layer_id.clone());
+                    }
+                    layer.x = update.x;
+                    layer.y = update.y;
+                    layer.rotation = update.rotation;
+                    layer.opacity = update.opacity;
+                    layer.z_index = update.z_index;
                 }
-                if update.height > 0 {
-                    layer.height = update.height;
+            } else {
+                // Dynamic overlay addition / removal / transition (e.g. text clip begins or ends).
+                // Rebuild raster_layers and text_layers to match the active demand representation.
+                let mut new_raster_layers = Vec::with_capacity(demand.raster_layers.len());
+                for (i, update) in demand.raster_layers.iter().enumerate() {
+                    let existing = if let Some(lid) = &update.layer_id {
+                        request
+                            .project
+                            .raster_layers
+                            .iter()
+                            .find(|r| r.layer_id.as_deref() == Some(lid))
+                            .cloned()
+                    } else {
+                        request.project.raster_layers.get(i).cloned()
+                    };
+                    if let Some(mut layer) = existing {
+                        if let Some(layer_id) = &update.layer_id {
+                            layer.layer_id = Some(layer_id.clone());
+                        }
+                        if !update.asset_id.is_empty() {
+                            layer.asset_id = update.asset_id.clone();
+                        }
+                        if update.width > 0 {
+                            layer.width = update.width;
+                        }
+                        if update.height > 0 {
+                            layer.height = update.height;
+                        }
+                        layer.display_width = update.display_width;
+                        layer.display_height = update.display_height;
+                        layer.x = update.x;
+                        layer.y = update.y;
+                        layer.rotation = update.rotation;
+                        layer.opacity = update.opacity;
+                        layer.z_index = update.z_index;
+                        if let Some(blend_mode) = &update.blend_mode {
+                            layer.blend_mode = blend_mode.clone();
+                        }
+                        layer.is_mask = update.is_mask;
+                        new_raster_layers.push(layer);
+                    } else {
+                        new_raster_layers.push(crate::native_core::RasterLayerSnapshot {
+                            layer_id: update.layer_id.clone(),
+                            asset_id: update.asset_id.clone(),
+                            rgba: None,
+                            width: update.width,
+                            height: update.height,
+                            display_width: update.display_width,
+                            display_height: update.display_height,
+                            x: update.x,
+                            y: update.y,
+                            rotation: update.rotation,
+                            opacity: update.opacity,
+                            z_index: update.z_index,
+                            blend_mode: update
+                                .blend_mode
+                                .clone()
+                                .unwrap_or_else(|| "normal".to_string()),
+                            color_grade: None,
+                            is_mask: update.is_mask,
+                            is_text: true,
+                        });
+                    }
                 }
-                layer.display_width = update.display_width;
-                layer.display_height = update.display_height;
-                layer.x = update.x;
-                layer.y = update.y;
-                layer.rotation = update.rotation;
-                layer.opacity = update.opacity;
-                layer.z_index = update.z_index;
+                request.project.raster_layers = new_raster_layers;
+
+                let mut new_text_layers = Vec::with_capacity(demand.text_layers.len());
+                for (i, update) in demand.text_layers.iter().enumerate() {
+                    if let Some(existing) = request.project.text_layers.get(i) {
+                        let mut layer = existing.clone();
+                        if let Some(layer_id) = &update.layer_id {
+                            layer.layer_id = Some(layer_id.clone());
+                        }
+                        layer.x = update.x;
+                        layer.y = update.y;
+                        layer.rotation = update.rotation;
+                        layer.opacity = update.opacity;
+                        layer.z_index = update.z_index;
+                        new_text_layers.push(layer);
+                    }
+                }
+                request.project.text_layers = new_text_layers;
             }
-            for (layer, update) in request
-                .project
-                .text_layers
-                .iter_mut()
-                .zip(&demand.text_layers)
-            {
-                layer.x = update.x;
-                layer.y = update.y;
-                layer.rotation = update.rotation;
-                layer.opacity = update.opacity;
-                layer.z_index = update.z_index;
-            }
+
             if let Some(progress) = demand.transition_progress {
                 if let Some(transition) = request.project.transition.as_mut() {
                     transition.progress = progress;
                 }
+            }
+
+            // Fix 1: Update self.snapshot with the successfully applied demand.
+            // This ensures subsequent ticks without a new demand fall back to the
+            // last known good state rather than reverting to t=0 (preventing text blinking).
+            if let Ok(mut snapshot_guard) = self.snapshot.lock() {
+                *snapshot_guard = request.clone();
             }
         }
         Ok(request)
@@ -940,5 +1042,191 @@ mod tests {
         let current = slot.take().unwrap();
         assert_eq!(current.request_id, "new");
         assert!(slot.take().is_none());
+    }
+
+    fn test_snapshot_with_text() -> FrameRequest {
+        FrameRequest {
+            contract_version: NATIVE_CORE_CONTRACT_VERSION,
+            request_id: "init".to_string(),
+            frame_time: clock(0),
+            output_width: 1920,
+            output_height: 1080,
+            quality: crate::native_core::QualityTier::Full,
+            color_policy: crate::native_core::ColorPolicy::default(),
+            render_graph_version: 1,
+            generation: Some(1),
+            mode: Some("playback".to_string()),
+            scrub_velocity_px_per_second: None,
+            requested_at_ms: None,
+            project: crate::native_core::ProjectSnapshot {
+                schema_version: 1,
+                project_revision: "test:1".to_string(),
+                frame_rate: 30,
+                canvas_width: 1920,
+                canvas_height: 1080,
+                clear_color: [0.0, 0.0, 0.0, 1.0],
+                video_layers: Vec::new(),
+                raster_layers: Vec::new(),
+                text_layers: vec![crate::native_core::TextLayerSnapshot {
+                    layer_id: Some("title".to_string()),
+                    text: "Hello".to_string(),
+                    font_id: "inter".to_string(),
+                    font_size: 48.0,
+                    font_weight: "normal".to_string(),
+                    font_style: "normal".to_string(),
+                    letter_spacing: 0.0,
+                    line_height: 1.2,
+                    color: [1.0, 1.0, 1.0, 1.0],
+                    text_align: "center".to_string(),
+                    vertical_align: "middle".to_string(),
+                    x: 100.0,
+                    y: 100.0,
+                    box_width: Some(200.0),
+                    box_height: Some(100.0),
+                    rotation: 0.0,
+                    opacity: 0.0,
+                    z_index: 1,
+                    blend_mode: "normal".to_string(),
+                    stroke_color: None,
+                    stroke_width: None,
+                    shadow_color: None,
+                    shadow_offset: None,
+                    shadow_blur: None,
+                    background: None,
+                    runs: Vec::new(),
+                    template_id: None,
+                    template_data: None,
+                    effect: None,
+                }],
+                transition: None,
+            },
+        }
+    }
+
+    fn test_snapshot() -> FrameRequest {
+        let mut s = test_snapshot_with_text();
+        s.project.text_layers.clear();
+        s
+    }
+
+    #[test]
+    fn materialize_request_handles_sdf_to_raster_transition() {
+        let session = NativeRenderSession {
+            snapshot: Mutex::new(test_snapshot_with_text()),
+            leases: Mutex::new(Vec::new()),
+            pending: Mutex::new(LatestPlaybackDemand::default()),
+            notify: tokio::sync::Notify::new(),
+            running: AtomicBool::new(false),
+            generation: AtomicU64::new(1),
+            worker: Mutex::new(None),
+        };
+
+        let mut d = demand("demand-1", 1);
+        d.raster_layers = vec![crate::native_core::NativePlaybackRasterLayerUpdate {
+            layer_id: Some("title".to_string()),
+            asset_id: "native-text:title:abc".to_string(),
+            width: 640,
+            height: 120,
+            display_width: Some(300.0),
+            display_height: Some(60.0),
+            x: 150.0,
+            y: 120.0,
+            rotation: 5.0,
+            opacity: 0.85,
+            z_index: 2,
+            blend_mode: None,
+            is_mask: false,
+        }];
+        d.text_layers = Vec::new();
+
+        let materialized = session.materialize_request(Some(&d)).expect("transition should succeed");
+        assert_eq!(materialized.project.raster_layers.len(), 1);
+        assert_eq!(materialized.project.text_layers.len(), 0);
+        let raster = &materialized.project.raster_layers[0];
+        assert_eq!(raster.asset_id, "native-text:title:abc");
+        assert_eq!(raster.opacity, 0.85);
+        assert_eq!(raster.display_width, Some(300.0));
+    }
+
+    #[test]
+    fn materialize_request_retains_last_known_good_state_on_missed_demand_tick() {
+        let session = NativeRenderSession {
+            snapshot: Mutex::new(test_snapshot_with_text()),
+            leases: Mutex::new(Vec::new()),
+            pending: Mutex::new(LatestPlaybackDemand::default()),
+            notify: tokio::sync::Notify::new(),
+            running: AtomicBool::new(false),
+            generation: AtomicU64::new(1),
+            worker: Mutex::new(None),
+        };
+
+        // Tick 1: dynamic demand arrives with opacity 0.75
+        let mut d = demand("demand-1", 1);
+        d.text_layers = vec![crate::native_core::NativePlaybackTextLayerUpdate {
+            layer_id: Some("title".to_string()),
+            x: 100.0,
+            y: 100.0,
+            rotation: 0.0,
+            opacity: 0.75,
+            z_index: 1,
+        }];
+        let mat1 = session.materialize_request(Some(&d)).unwrap();
+        assert_eq!(mat1.project.text_layers[0].opacity, 0.75);
+
+        // Tick 2: demand was taken by slot.take(), leaving None for a synthetic missed tick
+        let mat2 = session.materialize_request(None).unwrap();
+        // Crucial Fix 1 assertion: opacity must NOT revert to 0.0 (clip start snapshot),
+        // it must retain 0.75 (the last applied dynamic state)!
+        assert_eq!(mat2.project.text_layers[0].opacity, 0.75);
+    }
+
+    #[test]
+    fn materialize_request_dynamically_adds_and_removes_overlay_layers() {
+        // Session configured with base video only (zero raster layers, zero text layers)
+        let session = NativeRenderSession {
+            snapshot: Mutex::new(test_snapshot()),
+            leases: Mutex::new(Vec::new()),
+            pending: Mutex::new(LatestPlaybackDemand::default()),
+            notify: tokio::sync::Notify::new(),
+            running: AtomicBool::new(false),
+            generation: AtomicU64::new(1),
+            worker: Mutex::new(None),
+        };
+
+        // Frame 114: text clip enters on the timeline
+        let mut d1 = demand("demand-enter", 114);
+        d1.raster_layers = vec![crate::native_core::NativePlaybackRasterLayerUpdate {
+            layer_id: Some("clip-title".to_string()),
+            asset_id: "native-text:clip-title:v1".to_string(),
+            width: 400,
+            height: 100,
+            display_width: Some(200.0),
+            display_height: Some(50.0),
+            x: 100.0,
+            y: 200.0,
+            rotation: 0.0,
+            opacity: 0.5,
+            z_index: 3,
+            blend_mode: Some("screen".to_string()),
+            is_mask: false,
+        }];
+        let mat1 = session.materialize_request(Some(&d1)).expect("dynamic addition should succeed");
+        assert_eq!(mat1.project.raster_layers.len(), 1);
+        let layer = &mat1.project.raster_layers[0];
+        assert_eq!(layer.layer_id.as_deref(), Some("clip-title"));
+        assert_eq!(layer.asset_id, "native-text:clip-title:v1");
+        assert_eq!(layer.opacity, 0.5);
+        assert_eq!(layer.display_width, Some(200.0));
+        assert_eq!(layer.blend_mode, "screen");
+
+        // Frame 428: text clip exits timeline
+        let mut d2 = demand("demand-exit", 428);
+        d2.raster_layers = Vec::new();
+        let mat2 = session.materialize_request(Some(&d2)).expect("dynamic removal should succeed");
+        assert_eq!(mat2.project.raster_layers.len(), 0);
+
+        // Frame 429: missed tick after exit retains empty overlay state
+        let mat3 = session.materialize_request(None).unwrap();
+        assert_eq!(mat3.project.raster_layers.len(), 0);
     }
 }
