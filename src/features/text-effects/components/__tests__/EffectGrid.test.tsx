@@ -97,6 +97,10 @@ describe("EffectGrid Component", () => {
     });
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("renders category tabs and maps default category correctly", () => {
     render(<EffectGrid />);
 
@@ -155,7 +159,7 @@ describe("EffectGrid Component", () => {
     expect(toggleFavoriteSpy).toHaveBeenCalledWith("bold-clean");
   });
 
-  it("calls startDownload and completeDownload during apply download triggers", async () => {
+  it("calls startDownload and completeDownload during apply download triggers without artificial delay", async () => {
     const fullEffectMock: TextEffectDefinition = {
       id: "bold-clean",
       name: "Bold Clean",
@@ -173,7 +177,6 @@ describe("EffectGrid Component", () => {
     const completeDownloadSpy = vi.spyOn(useFavoritesStore.getState(), "completeDownload");
     const onAddToTimeline = vi.fn();
 
-    vi.useFakeTimers();
     render(<EffectGrid onAddToTimeline={onAddToTimeline} />);
 
     // Get the card container and query buttons inside it
@@ -184,23 +187,15 @@ describe("EffectGrid Component", () => {
     fireEvent.click(applyBtn);
 
     expect(startDownloadSpy).toHaveBeenCalledWith("bold-clean");
-    expect(TextEffectsApi.getFullEffect).toHaveBeenCalledWith("essentials", "bold-clean", { forceRefresh: true });
+    expect(TextEffectsApi.getFullEffect).toHaveBeenCalledWith("essentials", "bold-clean", {});
 
-    // Flush promise microtasks to schedule setTimeout
-    await Promise.resolve();
-    await Promise.resolve();
-
-    // Fast-forward timeline apply timer
-    act(() => {
-      vi.advanceTimersByTime(900);
+    await waitFor(() => {
+      expect(completeDownloadSpy).toHaveBeenCalledWith("bold-clean", "effect");
+      expect(onAddToTimeline).toHaveBeenCalledWith(expect.objectContaining({
+        styleId: "bold-clean",
+        effectDefinition: fullEffectMock,
+      }), "text");
     });
-
-    expect(completeDownloadSpy).toHaveBeenCalledWith("bold-clean", "effect");
-    expect(onAddToTimeline).toHaveBeenCalledWith(expect.objectContaining({
-      styleId: "bold-clean",
-      effectDefinition: fullEffectMock,
-    }), "text");
-    vi.useRealTimers();
   });
 
   it("shows download spinner immediately on card click for preview, and projects preview only on completion", async () => {
