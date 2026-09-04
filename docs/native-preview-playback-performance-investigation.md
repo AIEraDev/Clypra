@@ -113,6 +113,30 @@ Future contributors and AI agents **must review this runbook** prior to modifyin
 
 ---
 
+### Bug 8: Overlay Lifecycle Decoupling & Lookahead Cache Preservation
+- **Symptom**: In continuous playback containing text overlays, stickers, or title animations, playback ran at 30/60 FPS with 99.6% lookahead queue hits during the animation (Frames #115 to #427). However, at the exact moments the overlay entered (Frame #113 $\rightarrow$ #114) and exited (Frame #427 $\rightarrow$ #428), playback experienced severe freezes:
+  ```text
+  [NativePlayback] Persistent background render worker STOPPED
+  [NativePlayback] Persistent background render worker STARTED
+  [NativePresent] Frame #114 [COLD_DECODE] total: 419.00ms
+  ...
+  [NativePlayback] Persistent background render worker STOPPED
+  [NativePlayback] Persistent background render worker STARTED
+  [NativePresent] Frame #429 [COLD_DECODE] total: 454.98ms
+  ```
+- **Root Causes**:
+  1. **Structural Snapshot Key Pollution**: In `src/core/playback/nativePlaybackSnapshot.ts`, `buildNativePlaybackSnapshotKey` serialized an `overlays` array into the key. Before the clip, `overlays` was `[]`; at clip entrance, `overlays` became `[{"id":"clip-1","role":"text"}]`; at clip exit, it reverted to `[]`. This caused `ensureNativePlaybackRenderSnapshot` in `NativeProgramPreview.tsx` to detect a false structural graph change at clip boundaries.
+  2. **Worker Teardown & Lookahead Purge**: `configure_native_playback_render` in `src-tauri/src/commands/native_playback.rs` called `previous.stop()` and `queue.reset()`, terminating the background decoding thread and discarding all 24 frames of warm, pre-decoded video lookahead cache. The transport was forced into an unbuffered synchronous cold decode (~420–455ms).
+  3. **Rigid Demand Validation**: In `native_playback.rs`, `materialize_request` previously asserted `demand_overlays == configured_overlays` and rejected dynamic demands whenever the overlay count changed ($0 \to 1$ or $1 \to 0$), forcing frontend demand submission to fail and trigger full session reconfiguration.
+  4. **Lookahead Cache Key Discrepancy**: In `src-tauri/src/native_core/contracts.rs`, `FrameRequest::cache_key()` hashed `project.raster_layers` and `project.text_layers`. Because `NativePreviewFrameQueue` stores raw decoded video frames (`DecodedNativeVideoFrame`), hashing overlay state caused hash mismatches on boundary frames.
+- **Architectural Solution (Decoupling Overlays from Hardware Decoding Sessions)**:
+  1. **Pure Hardware Decoding Session Identity**: `buildNativePlaybackSnapshotKey` now defines structural identity strictly by hardware video decoding resources: video layers/streams (`videoLayers`), canvas dimensions, project revision, frame rate, output dimensions, and transitions. Overlay arrays are entirely excluded.
+  2. **Dynamic Per-Frame Overlay Stream**: Overlays (text, stickers, dynamic rasters) are transported as dynamic per-frame demands via `NativePlaybackFrameDemand` submitted to `submit_native_playback_demand`.
+  3. **Dynamic Layer Materialization in Rust**: Removed the overlay count check in `materialize_request`. Rust dynamically instantiates or removes `RasterLayerSnapshot`s in microseconds without restarting the worker thread or resetting the queue, maintaining layer identity matching by `layer_id` and propagating `blend_mode` and `is_mask`.
+  4. **Normalized Video Lookahead Cache Key**: In `contracts.rs`, `cache_key()` clears `raster_layers` and `text_layers` before computing the SHA256 digest. Lookahead video frames match with 100% hash accuracy regardless of text/sticker appearances.
+
+---
+
 ## 3. Verification & Benchmark Test Suite
 
 To verify that regressions have not been introduced, execute the automated benchmark suites:
@@ -120,6 +144,7 @@ To verify that regressions have not been introduced, execute the automated bench
 ### Rust Native Multi-Asset Performance Suite
 ```bash
 cargo test --test testing_assets_performance_tests -- --test-threads=1
+cargo test --lib native_playback
 ```
 Verifies:
 1. `test_single_video_sequential_playback_performance_all_assets`: Validates open time, cold decode, steady-state FPS (>60 FPS, >2x real-time), and P95 latency across all media in `clypra-testing-assets`.
@@ -127,10 +152,12 @@ Verifies:
 3. `test_multi_stacked_concurrent_playback_performance`: Validates isolated multi-stream decoding for stacked video layers.
 4. `test_occlusion_culling_performance_delta`: Validates GPU/CPU savings when opaque top layers cull underlying tracks.
 5. `test_random_seeking_and_forward_resumption_performance`: Validates seek recovery latency.
+6. `materialize_request_dynamically_adds_and_removes_overlay_layers`: Validates zero-restart dynamic overlay addition and removal ($0 \to 1 \to 0$).
 
 ### TypeScript Playback & Evaluation Suite
 ```bash
 npx vitest run src/core/playback/__tests__/
+npx vitest run src/core/render/__tests__/
 npx vitest run src/core/evaluation/__tests__/timelineAssetsPerformance.test.ts
 ```
 
@@ -145,4 +172,6 @@ npx vitest run src/core/evaluation/__tests__/timelineAssetsPerformance.test.ts
 5. **Preserve Stream Decoder Isolation**: Stacked video clips must use distinct stream decoder handles (`get_preview_decoder_for_stream`) to avoid GOP mutex thrashing across layers.
 6. **Always Use `tauri::async_runtime::spawn` on Native Public/Sync APIs**: Never call `tokio::spawn` directly in synchronous functions or handlers that may be called from OS GUI threads.
 7. **Always Pause on Timeline Seek/Scrub**: Seeking is a playhead navigation action that must leave playback paused until the user explicitly requests playback continuation.
+8. **Decouple Dynamic Overlays from Hardware Decoder Graphs**: Text, stickers, and dynamic rasters are compositor overlay demands, never structural decoding graphs. Their appearance, disappearance, or animated transform parameters must never restart the background render worker, clear the lookahead queue, or invalidate `buildNativePlaybackSnapshotKey`.
+
 

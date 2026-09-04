@@ -40,6 +40,10 @@ high-level map for implementation and review. Detailed contracts remain in
 9. Time-dependent text preparation is a bounded latest-value stream. Native
    playback keeps one active text raster preparation and one replacement
    request; obsolete animation timestamps never form a background backlog.
+10. Dynamic overlays (text, stickers, dynamic rasters) are decoupled from the
+    hardware video decoding graph. Their appearance, disappearance, or animated
+    parameters must never invalidate the persistent native playback worker, purge
+    the lookahead queue, or trigger session reconfiguration.
 
 ## 2. System ownership
 
