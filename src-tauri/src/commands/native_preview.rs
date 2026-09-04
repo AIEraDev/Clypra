@@ -2238,6 +2238,68 @@ pub async fn register_native_raster_asset(
         .map(|_| ())
 }
 
+/// High-performance raw binary raster asset registration.
+/// Accepts raw RGBA bytes directly from the IPC request body, avoiding base64
+/// expansion and JSON array serialization. Headers:
+/// - asset-id: string
+/// - width: u32
+/// - height: u32
+#[tauri::command]
+pub async fn register_native_raster_asset_raw(
+    app: tauri::AppHandle,
+    request: tauri::ipc::Request<'_>,
+) -> Result<(), String> {
+    let headers = request.headers();
+    let asset_id = headers
+        .get("asset-id")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| "Missing asset-id header".to_string())?
+        .to_string();
+
+    if asset_id.trim().is_empty() {
+        return Err("Native raster asset id must be non-empty".to_string());
+    }
+
+    let width: u32 = headers
+        .get("width")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse().ok())
+        .ok_or_else(|| "Missing or invalid width header".to_string())?;
+
+    let height: u32 = headers
+        .get("height")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse().ok())
+        .ok_or_else(|| "Missing or invalid height header".to_string())?;
+
+    let tauri::ipc::InvokeBody::Raw(raw_rgba) = request.body() else {
+        return Err("Expected raw binary payload for raster asset".to_string());
+    };
+
+    let expected_bytes = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| "Native raster asset dimensions overflow".to_string())?;
+
+    if width == 0
+        || height == 0
+        || width > 8192
+        || height > 8192
+        || raw_rgba.len() != expected_bytes
+        || raw_rgba.len() > 64 * 1024 * 1024
+    {
+        return Err("Native raster asset payload is invalid".to_string());
+    }
+
+    let preview_state = app
+        .try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
+        .ok_or_else(|| "Native preview GPU session is unavailable".to_string())?;
+    let mut session = preview_state.lock().await;
+    session
+        .get_or_upload_rgba_layer_to_texture(&asset_id, width, height, Some(raw_rgba))
+        .map(|_| ())
+}
+
 /// Decode and upload a still-image asset without returning its pixels through
 /// the WebView. This keeps first-use image activation off the JS main thread
 /// and makes the native GPU cache the sole owner of the decoded raster.
