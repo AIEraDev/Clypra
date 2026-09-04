@@ -1013,7 +1013,7 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
     const fontFamily =
       options.fontFamily ??
       effectTypography.fontFamily ??
-      "Inter, system-ui, sans-serif";
+      "Inter Variable";
     const fontWeight = options.fontWeight ?? effectTypography.fontWeight;
     const fontStyle = options.fontStyle ?? effectTypography.fontStyle;
     const lineHeight = options.lineHeight ?? effectTypography.lineHeight ?? 1.2;
@@ -1058,7 +1058,7 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
   const fontFamily =
     options.fontFamily ??
     effectTypography.fontFamily ??
-    "Inter, system-ui, sans-serif";
+    "Inter Variable";
   const fontWeight = options.fontWeight ?? effectTypography.fontWeight;
   const fontStyle = options.fontStyle ?? effectTypography.fontStyle;
   const lineHeight = options.lineHeight ?? effectTypography.lineHeight ?? 1.2;
@@ -1307,7 +1307,7 @@ function calculateTextClipContentTransform(
   const fontFamily =
     merged.fontFamily ??
     effectDefinition?.font?.family ??
-    "Inter, system-ui, sans-serif";
+    "Inter Variable";
   const fontWeight = merged.fontWeight ?? effectDefinition?.font?.weight;
   const fontStyle = merged.fontStyle ?? effectDefinition?.font?.style;
 
