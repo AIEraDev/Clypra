@@ -6,6 +6,7 @@ import { useTimelineStore } from "../../store/timelineStore";
 import { effectBleed, resolveTextEffectDefinition } from "../../lib/text/textClip";
 import { getTextRenderMetrics, normalizeFontSize } from "../../lib/utils/fixedSizing";
 import { traceTextRenderScene } from "./textRenderTrace";
+import { resolveTemplateControlValues } from "../../lib/text/templateControls";
 
 
 
@@ -53,26 +54,11 @@ function buildPlainTextEffectConfig(layer: EvaluatedTextLayer, offW: number, off
 }
 
 function templateControlValues(layer: EvaluatedTextLayer, artifact: ReturnType<typeof resolveTextTemplateArtifact>): Record<string, unknown> {
-  if (!artifact) return {};
-  const customization = layer.customization;
-  const values: Record<string, unknown> = { ...(layer.templateControlValues || {}) };
-  for (const control of artifact.controls) {
-    if (control.type !== "text" && control.type !== "color") continue;
-    const node = artifact.document.nodes.find((candidate: any) => candidate.id === control.target.nodeId) as any;
-    const role = node?.role || "";
-    if (control.type === "text") {
-      values[control.id] = customization?.layerTexts?.[control.target.nodeId]
-        ?? (role === "primary" ? customization?.primaryText : role === "secondary" ? customization?.secondaryText : role === "accent" ? customization?.accentText : undefined)
-        ?? values[control.id]
-        ?? control.defaultValue;
-    } else {
-      values[control.id] = customization?.layerColors?.[control.target.nodeId]
-        ?? (role === "secondary" ? customization?.secondaryColor : customization?.primaryColor)
-        ?? values[control.id]
-        ?? control.defaultValue;
-    }
-  }
-  return values;
+  return resolveTemplateControlValues(artifact, {
+    customization: layer.customization,
+    templateControlValues: layer.templateControlValues,
+    fallbackText: layer.text,
+  });
 }
 
 function renderTemplateArtifact(
