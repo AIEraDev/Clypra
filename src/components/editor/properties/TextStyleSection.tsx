@@ -286,6 +286,16 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
   const selectedFontIsUnavailableNatively =
     nativeDesktop && !nativeFontIds.has(resolvedFont.toLowerCase());
 
+  // Missing-font badge: shown when the font is not in the bundled registry at all.
+  const isMissingFont = selectedFontIsUnavailableNatively;
+
+  // RTL/BiDi detection: warn when clip text contains right-to-left characters.
+  // Covers Hebrew, Arabic, Thaana, Syriac, extended Arabic, Arabic Presentation Forms.
+  const hasBidiText = React.useMemo(() => {
+    const text = textClip.text ?? "";
+    return /[\u0590-\u083F]|[\u08A0-\u08FF]|[\uFB1D-\uFDFF]|[\uFE70-\uFEFC]/.test(text);
+  }, [textClip.text]);
+
   // Styling properties to batch-update across all caption clips on the same track
   const CAPTION_STYLE_KEYS = [
     "fontFamily",
@@ -796,6 +806,23 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
               <p className="mt-1 text-[10px] text-text-muted">
                 Desktop preview supports the bundled native fonts shown here.
               </p>
+            )}
+            {isMissingFont && (
+              <div className="mt-1.5 flex items-start gap-1.5 p-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] leading-tight">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>
+                  <strong>&quot;{requestedFont}&quot;</strong> is not available
+                  in the native renderer. A context-aware fallback will be used.
+                </span>
+              </div>
+            )}
+            {hasBidiText && (
+              <div className="mt-1.5 flex items-start gap-1.5 p-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] leading-tight">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>
+                  This clip contains right-to-left text. Ensure the selected font supports the script.
+                </span>
+              </div>
             )}
           </div>
 

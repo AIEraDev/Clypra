@@ -11,6 +11,7 @@ import type { Clip, MediaAsset } from "@/types";
 import { expandCompoundClips } from "@/core/timeline/compoundClips";
 import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import { getTextEffectCache } from "@/features/text-effects/cache/persistentCache";
+import { isKnownFont } from "@/core/fonts/fontRegistry";
 
 export interface MissingTextEffect {
   clipId: string;
@@ -189,11 +190,25 @@ export async function verifyExportDependencies(
     }
   }
 
+  // ── Font dependency check ─────────────────────────────────────────────────
+  // Scan all text clips for fontFamily values that are not in the registry.
+  // Unknown families will be substituted at render time; we surface them so
+  // the export dialog can warn the user before committing.
+  for (const clip of textClips) {
+    const fontFamily = (clip as any).fontFamily as string | undefined;
+    if (fontFamily && !isKnownFont(fontFamily)) {
+      if (!missingFonts.includes(fontFamily)) {
+        missingFonts.push(fontFamily);
+      }
+    }
+  }
+
   return {
     ready:
       missingEffects.length === 0 &&
       missingImageAssets.length === 0 &&
-      missingAudioAssets.length === 0,
+      missingAudioAssets.length === 0 &&
+      missingFonts.length === 0,
     missingEffects,
     missingImageAssets,
     missingAudioAssets,
