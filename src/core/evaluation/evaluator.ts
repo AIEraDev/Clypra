@@ -391,7 +391,10 @@ export function evaluateTimelineScene(
         templateDependencySnapshot: textClip.templateDependencySnapshot,
         templateDependencies: textClip.templateDependencies,
         customization: textClip.customization,
-        templateAnimated: templateAnimated || undefined,
+        templateAnimated:
+          clip.kind === "text-template" || textClip.templateId
+            ? Boolean(templateAnimated)
+            : undefined,
       };
 
       visualLayers.push(textLayer);
