@@ -13,6 +13,7 @@ pub mod compatibility;
 #[path = "../../../src-tauri/src/native_core/contracts.rs"]
 pub mod contracts;
 pub mod font_registry;
+pub mod font_validator;
 pub mod glyph_cache;
 pub mod golden;
 #[path = "../../../src-tauri/src/native_core/performance.rs"]
@@ -84,6 +85,10 @@ pub use contracts::{
     VideoLayerSnapshot, DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION,
 };
 pub use font_registry::{global_font_registry, FontRegistry, DEFAULT_FONT_ID};
+pub use font_validator::{
+    is_valid_font_bytes, is_valid_font_file, FontFormat, FontValidationError, MAX_FONT_BYTES,
+    MIN_FONT_BYTES,
+};
 pub use glyph_cache::{global_glyph_cache, GlyphSdfCache, SdfGlyph, ShapedTextSdf, TextAlign};
 pub use golden::{compare_rgba8, GoldenDiff};
 pub use performance::{

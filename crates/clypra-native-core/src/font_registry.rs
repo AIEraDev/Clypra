@@ -7,7 +7,6 @@
 use fontdue::{Font, FontSettings};
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::io::Cursor;
 use std::sync::{Arc, OnceLock};
 
@@ -16,6 +15,70 @@ pub const DEFAULT_FONT_BYTES: &[u8] = include_bytes!("../tests/test_font.ttf");
 pub const DEFAULT_FONT_ID: &str = "default";
 /// Internal face used for glyphs missing from the selected editor font.
 pub const EMOJI_FALLBACK_FONT_ID: &str = "__clypra_noto_emoji";
+
+/// Selects a context-aware fallback font key based on typographic classification.
+fn resolve_contextual_fallback_key(
+    font_id: &str,
+    fonts: &HashMap<String, (Arc<Font>, u64)>,
+) -> &'static str {
+    let lower = font_id.to_lowercase();
+    if lower.contains("serif")
+        || lower.contains("playfair")
+        || lower.contains("times")
+        || lower.contains("georgia")
+    {
+        if fonts.contains_key("playfair display") {
+            return "playfair display";
+        }
+        if fonts.contains_key("playfair display variable") {
+            return "playfair display variable";
+        }
+    }
+    if lower.contains("mono")
+        || lower.contains("code")
+        || lower.contains("inconsolata")
+        || lower.contains("courier")
+    {
+        if fonts.contains_key("jetbrains mono") {
+            return "jetbrains mono";
+        }
+        if fonts.contains_key(DEFAULT_FONT_ID) {
+            return DEFAULT_FONT_ID;
+        }
+    }
+    if lower.contains("condensed")
+        || lower.contains("bebas")
+        || lower.contains("anton")
+        || lower.contains("oswald")
+    {
+        if fonts.contains_key("bebas neue") {
+            return "bebas neue";
+        }
+        if fonts.contains_key("oswald") {
+            return "oswald";
+        }
+    }
+    if lower.contains("script") || lower.contains("hand") || lower.contains("pacifico") {
+        if fonts.contains_key("dancing script") {
+            return "dancing script";
+        }
+        if fonts.contains_key("pacifico") {
+            return "pacifico";
+        }
+    }
+
+    // Default proportional sans-serif cascade
+    if fonts.contains_key("inter variable") {
+        return "inter variable";
+    }
+    if fonts.contains_key("inter") {
+        return "inter";
+    }
+    if fonts.contains_key("roboto") {
+        return "roboto";
+    }
+    DEFAULT_FONT_ID
+}
 
 /// Thread-safe registry of parsed TrueType / OpenType fonts.
 pub struct FontRegistry {
@@ -43,6 +106,10 @@ impl FontRegistry {
             return Err("Native font id must not be empty".to_string());
         }
 
+        // Validate font byte buffer structure before parsing
+        crate::font_validator::is_valid_font_bytes(font_bytes)
+            .map_err(|e| format!("Font validation failed for '{font_id}': {e}"))?;
+
         // The web editor bundles fonts as WOFF2. Convert at the native
         // boundary so the same deterministic registration API accepts both
         // editor assets and user-provided TTF/OTF files.
@@ -57,11 +124,16 @@ impl FontRegistry {
         let font = Font::from_bytes(parse_bytes, FontSettings::default())
             .map_err(|e| format!("Failed to parse font '{font_id}': {e}"))?;
 
-        // Compute 64-bit content hash of font bytes
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        font_bytes.hash(&mut hasher);
-        font_id.hash(&mut hasher);
-        let font_hash = hasher.finish();
+        // Compute deterministic 64-bit FNV-1a content hash of font bytes and id
+        let mut font_hash = 0xcbf29ce484222325u64;
+        for &b in font_bytes {
+            font_hash ^= b as u64;
+            font_hash = font_hash.wrapping_mul(0x100000001b3);
+        }
+        for &b in font_id.as_bytes() {
+            font_hash ^= b as u64;
+            font_hash = font_hash.wrapping_mul(0x100000001b3);
+        }
 
         let mut write = self.fonts.write();
         write.insert(font_id.to_lowercase(), (Arc::new(font), font_hash));
@@ -69,7 +141,7 @@ impl FontRegistry {
     }
 
     /// Retrieve a font by identifier. If the requested font is not found,
-    /// falls back to the bundled default font and records a diagnostic warning.
+    /// falls back to the context-aware default font and records a diagnostic warning.
     pub fn get_font(&self, font_id: &str) -> (Arc<Font>, u64) {
         let (font, hash, _) = self.get_font_with_status(font_id);
         (font, hash)
@@ -84,20 +156,28 @@ impl FontRegistry {
             return (Arc::clone(&entry.0), entry.1, false);
         }
 
-        // Record missing font warning
+        // Determine context-aware fallback key based on font classification
+        let fallback_key = resolve_contextual_fallback_key(&key, &read);
+        let fallback_entry = read.get(fallback_key).cloned();
         drop(read);
+
+        // Record missing font warning
         {
             let mut warnings = self.missing_warnings.write();
             let msg = format!(
-                "Requested font '{font_id}' is not installed; fell back to '{DEFAULT_FONT_ID}'"
+                "Requested font '{font_id}' is not installed; fell back to '{fallback_key}'"
             );
             if !warnings.contains(&msg) {
                 warnings.push(msg);
             }
         }
 
+        if let Some(entry) = fallback_entry {
+            return (Arc::clone(&entry.0), entry.1, true);
+        }
+
+        // Fallback to default font if contextual target is missing
         let read = self.fonts.read();
-        // Fallback to default font
         if let Some(default_entry) = read.get(DEFAULT_FONT_ID) {
             return (Arc::clone(&default_entry.0), default_entry.1, true);
         }
@@ -204,6 +284,52 @@ mod tests {
         let reg = FontRegistry::new();
         let error = reg.require_font("missing-desktop-font").unwrap_err();
         assert!(error.contains("not registered"));
+    }
+
+    #[test]
+    fn deterministic_font_hash() {
+        let reg1 = FontRegistry::new();
+        let reg2 = FontRegistry::new();
+        let hash1 = reg1.register_font("test-det", DEFAULT_FONT_BYTES).unwrap();
+        let hash2 = reg2.register_font("test-det", DEFAULT_FONT_BYTES).unwrap();
+        assert_eq!(hash1, hash2);
+        assert_ne!(hash1, 0);
+    }
+
+    #[test]
+    fn font_validation_rejects_corrupted_bytes() {
+        let reg = FontRegistry::new();
+        let corrupt_bytes = b"not a font file";
+        let result = reg.register_font("corrupted", corrupt_bytes);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Font validation failed"));
+    }
+
+    #[test]
+    fn contextual_fallback_resolution() {
+        let reg = FontRegistry::new();
+        // Register mock faces using test font bytes
+        reg.register_font("inter variable", DEFAULT_FONT_BYTES).unwrap();
+        reg.register_font("playfair display", DEFAULT_FONT_BYTES).unwrap();
+        reg.register_font("bebas neue", DEFAULT_FONT_BYTES).unwrap();
+
+        // 1. Unknown sans-serif should fall back to inter variable
+        let (_, _, is_fb) = reg.get_font_with_status("arial-custom");
+        assert!(is_fb);
+        let warnings = reg.get_missing_font_warnings();
+        assert!(warnings.iter().any(|w| w.contains("fell back to 'inter variable'")));
+
+        // 2. Unknown serif should fall back to playfair display
+        let (_, _, is_fb) = reg.get_font_with_status("times-serif");
+        assert!(is_fb);
+        let warnings = reg.get_missing_font_warnings();
+        assert!(warnings.iter().any(|w| w.contains("fell back to 'playfair display'")));
+
+        // 3. Unknown display/condensed should fall back to bebas neue
+        let (_, _, is_fb) = reg.get_font_with_status("anton-condensed");
+        assert!(is_fb);
+        let warnings = reg.get_missing_font_warnings();
+        assert!(warnings.iter().any(|w| w.contains("fell back to 'bebas neue'")));
     }
 
     #[test]

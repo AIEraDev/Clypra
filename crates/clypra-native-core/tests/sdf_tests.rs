@@ -431,3 +431,19 @@ fn render_text_sdf_clamps_extreme_dimensions_and_flags_truncated() {
         (result.width * result.height) as usize
     );
 }
+
+#[test]
+fn render_text_sdf_kerning_and_line_metrics() {
+    let font = test_font();
+    let hash = test_font_hash();
+    let cache = GlyphSdfCache::new(8 * 1024 * 1024);
+
+    let result = cache.render_text_sdf(&font, hash, "AV WA To", 48.0, 0.0, 0.0, 8.0, 4);
+    assert!(result.width > 0);
+    assert!(result.height > 0);
+    assert_eq!(
+        result.sdf_buffer.len(),
+        (result.width * result.height) as usize
+    );
+}
+

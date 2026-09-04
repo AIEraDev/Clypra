@@ -527,6 +527,8 @@ impl GlyphSdfCache {
 
         let line_height = if line_height_mult > 0.0 {
             size_px * line_height_mult
+        } else if let Some(metrics) = font.horizontal_line_metrics(size_px) {
+            metrics.new_line_size
         } else {
             size_px * 1.2
         };
@@ -544,6 +546,7 @@ impl GlyphSdfCache {
         let mut lines = Vec::new();
         let mut current_line = Vec::new();
         let mut cursor_x = 0.0f32;
+        let mut prev_char: Option<char> = None;
 
         for ch in text.chars() {
             if ch == '\n' {
@@ -552,6 +555,7 @@ impl GlyphSdfCache {
                     width: cursor_x.max(0.0),
                 });
                 cursor_x = 0.0;
+                prev_char = None;
                 continue;
             }
 
@@ -564,6 +568,15 @@ impl GlyphSdfCache {
                 }
                 _ => (font, font_hash),
             };
+
+            // Apply horizontal kerning between adjacent characters when available
+            if let Some(prev) = prev_char {
+                if let Some(kern) = glyph_font.horizontal_kern(prev, ch, size_px) {
+                    cursor_x += kern;
+                }
+            }
+            prev_char = Some(ch);
+
             let glyph = self.get_or_insert_styled(
                 glyph_font,
                 glyph_hash,
