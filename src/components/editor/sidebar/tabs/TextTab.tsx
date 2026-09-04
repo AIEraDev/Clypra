@@ -478,56 +478,67 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
     if (!isDownloaded) {
       startDownload(itemId);
 
-      // Lazy load the full vector parameters concurrently with the spinner
+      // Lazy load the full definition
       if (type === "effect") {
         try {
-          await TextEffectsApi.getFullEffect(item.category, item.id);
-        } catch (err) {
-          console.error(
-            "[Clypra:TextTab] Failed to lazy load detailed config on click:",
-            err,
+          const fullEffect = await TextEffectsApi.getFullEffect(
+            item.category,
+            item.id,
+            item.revisionId ? { revisionId: item.revisionId } : {},
           );
+          completeDownload(itemId, type);
+          onAddToTimeline?.(
+            {
+              name: fullEffect.name,
+              text: fullEffect.text || "CLYPRA",
+              presetType: "effect",
+              styleId: fullEffect.id,
+              styleRevisionId: fullEffect.revisionId ?? (fullEffect as any).revision?.revisionId,
+              styleContentHash: fullEffect.contentHash ?? (fullEffect as any).revision?.contentHash,
+              styleSnapshot: (fullEffect as any).scene,
+              effectDefinition: fullEffect,
+            },
+            "text",
+          );
+        } catch (err) {
+          console.error("[Clypra:TextTab] Failed to load effect on first apply:", err);
+          cancelDownload(itemId);
         }
       } else {
         try {
           await selectTemplate(item);
-        } catch (err) {
-          console.error(
-            "[Clypra:TextTab] Failed to lazy load Lottie data on click:",
-            err,
+          completeDownload(itemId, type);
+          onAddToTimeline?.(
+            {
+              name: item.name || item.label,
+              presetType: "template",
+              templateId: item.id,
+              templateRevisionId: (item as any).revisionId ?? (item as any).revision?.revisionId,
+              templateContentHash: (item as any).contentHash ?? (item as any).revision?.contentHash,
+              templateDefinition: item,
+            },
+            "text",
           );
+        } catch (err) {
+          console.error("[Clypra:TextTab] Failed to load template on first apply:", err);
+          cancelDownload(itemId);
         }
       }
-
-      setTimeout(() => {
-        completeDownload(itemId, type);
-      }, 850);
     } else {
-      // Apply to timeline
+      // Already downloaded — use cache, no network round-trip
       if (type === "effect") {
-        let fullEffect: any = null;
-        try {
-          fullEffect = await TextEffectsApi.getFullEffect(
-            item.category,
-            item.id,
-          );
-        } catch (err) {
-          console.error(
-            "[Clypra:TextTab] Failed to get effect config on apply:",
-            err,
-          );
-        }
-        const targetEffect = fullEffect || item;
+        const cachedEffect = useEffectsStore.getState().definitions[itemId];
+        const targetEffect: any = cachedEffect || item;
         onAddToTimeline?.(
           {
             name: targetEffect.name,
-            text: targetEffect.text || "CLYPRA", // Use default text from full definition
+            text: targetEffect.text || "CLYPRA",
             presetType: "effect",
             styleId: targetEffect.id,
             styleRevisionId: targetEffect.revisionId ?? targetEffect.revision?.revisionId,
             styleContentHash: targetEffect.contentHash ?? targetEffect.revision?.contentHash,
             styleSnapshot: targetEffect.scene,
-            effectDefinition: targetEffect, // ← Pass the full effect definition for proper dimensions
+            effectDefinition: targetEffect,
           },
           "text",
         );

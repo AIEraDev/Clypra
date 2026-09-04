@@ -97,6 +97,10 @@ describe("TextEffectGrid Component", () => {
     });
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("renders category tabs and maps default category correctly", () => {
     render(<TextEffectGrid />);
 
@@ -155,7 +159,7 @@ describe("TextEffectGrid Component", () => {
     expect(toggleFavoriteSpy).toHaveBeenCalledWith("bold-clean");
   });
 
-  it("calls startDownload and completeDownload during apply download triggers", async () => {
+  it("calls startDownload and completeDownload during apply download triggers without artificial delay", async () => {
     const fullEffectMock: TextEffectDefinition = {
       id: "bold-clean",
       name: "Bold Clean",
@@ -173,7 +177,6 @@ describe("TextEffectGrid Component", () => {
     const completeDownloadSpy = vi.spyOn(useFavoritesStore.getState(), "completeDownload");
     const onAddToTimeline = vi.fn();
 
-    vi.useFakeTimers();
     render(<TextEffectGrid onAddToTimeline={onAddToTimeline} />);
 
     // Get the card container and query buttons inside it
@@ -184,23 +187,102 @@ describe("TextEffectGrid Component", () => {
     fireEvent.click(applyBtn);
 
     expect(startDownloadSpy).toHaveBeenCalledWith("bold-clean");
-    expect(TextEffectsApi.getFullEffect).toHaveBeenCalledWith("essentials", "bold-clean", { forceRefresh: true });
+    expect(TextEffectsApi.getFullEffect).toHaveBeenCalledWith("essentials", "bold-clean", {});
 
-    // Flush promise microtasks to schedule setTimeout
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitFor(() => {
+      expect(completeDownloadSpy).toHaveBeenCalledWith("bold-clean", "effect");
+      expect(onAddToTimeline).toHaveBeenCalledWith(expect.objectContaining({
+        styleId: "bold-clean",
+        effectDefinition: fullEffectMock,
+      }), "text");
+    });
+  });
 
-    // Fast-forward timeline apply timer
-    act(() => {
-      vi.advanceTimersByTime(900);
+  it("immediately applies already-downloaded cached effects without network roundtrip", async () => {
+    const fullEffectMock: TextEffectDefinition = {
+      id: "bold-clean",
+      name: "Bold Clean",
+      category: "essentials",
+      description: "Bold clean text style",
+      tags: ["essentials", "clean"],
+      font: { family: "Inter", weight: 700, style: "normal", letterSpacing: 0, lineHeight: 1.2 },
+      fills: [{ type: "solid", color: "#FFE259" }],
+      strokes: [],
+      shadows: [],
+    };
+
+    useEffectsStore.setState((state) => ({
+      ...state,
+      definitions: { "bold-clean": fullEffectMock },
+    }));
+
+    useFavoritesStore.setState((state) => ({
+      ...state,
+      downloadedEffects: ["bold-clean"],
+    }));
+
+    const onAddToTimeline = vi.fn();
+    render(<TextEffectGrid onAddToTimeline={onAddToTimeline} />);
+
+    const card = screen.getByText("Bold Clean").closest(".group");
+    const buttons = card!.querySelectorAll("button");
+    const applyBtn = buttons[1];
+    fireEvent.click(applyBtn);
+
+    // Should apply immediately using cache with ZERO network call
+    expect(TextEffectsApi.getFullEffect).not.toHaveBeenCalled();
+    expect(onAddToTimeline).toHaveBeenCalledWith(
+      expect.objectContaining({
+        styleId: "bold-clean",
+        effectDefinition: fullEffectMock,
+      }),
+      "text",
+    );
+  });
+
+  it("debounces and drops duplicate clicks while an apply is in flight", async () => {
+    let resolveEffect: (val: any) => void = () => {};
+    const delayedPromise = new Promise((resolve) => {
+      resolveEffect = resolve;
+    });
+    vi.mocked(TextEffectsApi.getFullEffect).mockReturnValue(delayedPromise as any);
+
+    const onAddToTimeline = vi.fn();
+    render(<TextEffectGrid onAddToTimeline={onAddToTimeline} />);
+
+    const card = screen.getByText("Bold Clean").closest(".group");
+    const buttons = card!.querySelectorAll("button");
+    const applyBtn = buttons[1];
+
+    // Rapid clicks 5 times
+    fireEvent.click(applyBtn);
+    fireEvent.click(applyBtn);
+    fireEvent.click(applyBtn);
+    fireEvent.click(applyBtn);
+    fireEvent.click(applyBtn);
+
+    // Only one download initiated
+    expect(TextEffectsApi.getFullEffect).toHaveBeenCalledTimes(1);
+
+    // Resolve the promise
+    const fullEffectMock: TextEffectDefinition = {
+      id: "bold-clean",
+      name: "Bold Clean",
+      category: "essentials",
+      description: "Bold clean text style",
+      tags: ["essentials", "clean"],
+      font: { family: "Inter", weight: 700, style: "normal", letterSpacing: 0, lineHeight: 1.2 },
+      fills: [{ type: "solid", color: "#FFE259" }],
+      strokes: [],
+      shadows: [],
+    };
+    await act(async () => {
+      resolveEffect(fullEffectMock);
+      await delayedPromise;
     });
 
-    expect(completeDownloadSpy).toHaveBeenCalledWith("bold-clean", "effect");
-    expect(onAddToTimeline).toHaveBeenCalledWith(expect.objectContaining({
-      styleId: "bold-clean",
-      effectDefinition: fullEffectMock,
-    }), "text");
-    vi.useRealTimers();
+    // onAddToTimeline only called once despite 5 rapid clicks
+    expect(onAddToTimeline).toHaveBeenCalledTimes(1);
   });
 
   it("shows download spinner immediately on card click for preview, and projects preview only on completion", async () => {

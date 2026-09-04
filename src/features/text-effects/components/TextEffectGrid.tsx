@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useEffectsStore } from "../store/effectsStore";
 import { EffectCard } from "@/components/ui/EffectCard";
 import { TextEffectsApi, TEXT_EFFECT_CATEGORIES } from "../api/textEffectsApi";
@@ -8,6 +8,9 @@ import { useUIStore } from "@/store/uiStore";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 
 const CATEGORIES = TEXT_EFFECT_CATEGORIES;
+
+/** Cooldown after a successful apply before the button re-enables (ms). */
+const APPLY_COOLDOWN_MS = 400;
 
 interface TextEffectGridProps {
   searchQuery?: string;
@@ -20,6 +23,10 @@ export function TextEffectGrid({ searchQuery = "", onAddToTimeline }: TextEffect
 
   // Consume global favorites and downloads store
   const { favorites, downloadedEffects, downloadingIds, toggleFavorite, startDownload, completeDownload, cancelDownload } = useFavoritesStore();
+
+  // Track which effect IDs are currently being applied (in-flight guard).
+  const [applyingIds, setApplyingIds] = useState<Set<string>>(new Set());
+  const cooldownTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   // Load index when category changes
   useEffect(() => {
@@ -34,6 +41,13 @@ export function TextEffectGrid({ searchQuery = "", onAddToTimeline }: TextEffect
     return () => clearInterval(timer);
   }, [activeCategory, loadCategory]);
 
+  // Cleanup cooldown timers on unmount
+  useEffect(() => {
+    return () => {
+      cooldownTimers.current.forEach((t) => clearTimeout(t));
+    };
+  }, []);
+
   const items = index[activeCategory] ?? [];
   const filteredItems = items.filter((item) => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -42,7 +56,7 @@ export function TextEffectGrid({ searchQuery = "", onAddToTimeline }: TextEffect
     toggleFavorite(id);
   };
 
-  const applyEffectToTimeline = (effect: any) => {
+  const applyEffectToTimeline = useCallback((effect: any) => {
     onAddToTimeline?.(
       {
         name: effect.name,
@@ -56,41 +70,61 @@ export function TextEffectGrid({ searchQuery = "", onAddToTimeline }: TextEffect
       },
       "text",
     );
-  };
+  }, [onAddToTimeline]);
+
+  /** Mark an itemId as no longer applying after a short cooldown. */
+  const scheduleApplyRelease = useCallback((itemId: string) => {
+    // Cancel any existing timer for this ID
+    const existing = cooldownTimers.current.get(itemId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      setApplyingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(itemId);
+        return next;
+      });
+      cooldownTimers.current.delete(itemId);
+    }, APPLY_COOLDOWN_MS);
+    cooldownTimers.current.set(itemId, timer);
+  }, []);
 
   const handleDownloadAndApply = async (item: any, e: React.MouseEvent) => {
     e.stopPropagation();
     const itemId = item.id;
-    if (downloadingIds.includes(itemId)) return;
 
-    const cachedEffect = useEffectsStore.getState().definitions[itemId];
-    if (downloadedEffects.includes(itemId) && cachedEffect) {
-      try {
-        const latestEffect = await TextEffectsApi.getFullEffect(item.category, itemId, { forceRefresh: true, ...(item.revisionId ? { revisionId: item.revisionId } : {}) });
-        applyEffectToTimeline(latestEffect);
-      } catch {
-        // Preserve offline use of downloaded effects when the catalog is
-        // temporarily unavailable.
-        applyEffectToTimeline(cachedEffect);
-      }
-      return;
-    }
+    // Strict in-flight guard: reject if already downloading OR already applying
+    if (downloadingIds.includes(itemId) || applyingIds.has(itemId)) return;
 
-    if (!downloadedEffects.includes(itemId)) {
-      startDownload(itemId);
-    }
+    // Mark as applying immediately so subsequent fast clicks are dropped
+    setApplyingIds((prev) => new Set([...prev, itemId]));
 
-    // Lazy load the full effect definition
     try {
-      const fullEffect = await TextEffectsApi.getFullEffect(item.category, item.id, { forceRefresh: true, ...(item.revisionId ? { revisionId: item.revisionId } : {}) });
+      const cachedEffect = useEffectsStore.getState().definitions[itemId];
 
-      setTimeout(() => {
+      if (downloadedEffects.includes(itemId) && cachedEffect) {
+        // ── Fast path: already downloaded — use cached definition, no network call ──
+        applyEffectToTimeline(cachedEffect);
+        return;
+      }
+
+      // ── Slow path: first download ──
+      startDownload(itemId);
+      try {
+        const fullEffect = await TextEffectsApi.getFullEffect(
+          item.category,
+          item.id,
+          item.revisionId ? { revisionId: item.revisionId } : {},
+        );
         completeDownload(itemId, "effect");
         applyEffectToTimeline(fullEffect || item);
-      }, 850);
-    } catch (err) {
-      console.error("[TextEffectGrid] Failed to load effect:", err);
-      cancelDownload(itemId);
+      } catch (err) {
+        console.error("[TextEffectGrid] Failed to load effect:", err);
+        cancelDownload(itemId);
+      }
+    } finally {
+      // Release the in-flight guard after a short cooldown so rapid double-
+      // clicks are still absorbed, but the button eventually re-enables.
+      scheduleApplyRelease(itemId);
     }
   };
 
@@ -119,11 +153,15 @@ export function TextEffectGrid({ searchQuery = "", onAddToTimeline }: TextEffect
     try {
       const startTime = performance.now();
 
-      // Resolve the full effect configuration
+      // Resolve the full effect configuration.
       // A Studio publish can update an effect without changing its id. Source
       // preview must therefore validate against the latest definition rather
       // than replaying an older memory/IndexedDB copy.
-      const fullEffect = await TextEffectsApi.getFullEffect(item.category, itemId, { forceRefresh: true, ...(item.revisionId ? { revisionId: item.revisionId } : {}) });
+      const fullEffect = await TextEffectsApi.getFullEffect(
+        item.category,
+        itemId,
+        { forceRefresh: true, ...(item.revisionId ? { revisionId: item.revisionId } : {}) },
+      );
 
       const loadTime = (performance.now() - startTime).toFixed(2);
       console.log(`[EffectGrid:Preview] ✅ Effect loaded in ${loadTime}ms: ${itemId}`);
@@ -219,7 +257,17 @@ export function TextEffectGrid({ searchQuery = "", onAddToTimeline }: TextEffect
         {!indexLoading && !indexError && filteredItems.length > 0 && (
           <div className="grid grid-cols-3 gap-1.5">
             {filteredItems.map((effect) => (
-              <EffectCard key={effect.id} effect={convertToEffectDefinition(effect)} isFavorite={favorites.includes(effect.id)} isDownloading={downloadingIds.includes(effect.id)} isDownloaded={downloadedEffects.includes(effect.id)} onFavorite={(e) => handleToggleFavorite(effect.id, e)} onApply={(e) => handleDownloadAndApply(effect, e)} onPreview={() => handlePreview(effect)} />
+              <EffectCard
+                key={effect.id}
+                effect={convertToEffectDefinition(effect)}
+                isFavorite={favorites.includes(effect.id)}
+                isDownloading={downloadingIds.includes(effect.id)}
+                isDownloaded={downloadedEffects.includes(effect.id)}
+                isApplying={applyingIds.has(effect.id)}
+                onFavorite={(e) => handleToggleFavorite(effect.id, e)}
+                onApply={(e) => handleDownloadAndApply(effect, e)}
+                onPreview={() => handlePreview(effect)}
+              />
             ))}
           </div>
         )}

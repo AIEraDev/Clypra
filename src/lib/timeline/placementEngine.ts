@@ -77,10 +77,31 @@ function findAdjacentClipsAtPlayhead(playheadTime: number): [string, string] | n
 }
 
 export class TimelinePlacementEngine {
+  private static _placementLock: Promise<void> = Promise.resolve();
+
   /**
    * Authoritative entry point for adding any item to the timeline.
+   * Additions are serialized to prevent concurrent placement races from
+   * corrupting track allocation and spawning duplicate tracks.
    */
   static async addToTimeline(
+    options: TimelinePlacementOptions,
+  ): Promise<TimelinePlacementResult> {
+    const previousLock = TimelinePlacementEngine._placementLock;
+    let releaseLock: () => void = () => {};
+    TimelinePlacementEngine._placementLock = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+
+    try {
+      await previousLock;
+      return await TimelinePlacementEngine._addToTimelineInternal(options);
+    } finally {
+      releaseLock();
+    }
+  }
+
+  private static async _addToTimelineInternal(
     options: TimelinePlacementOptions,
   ): Promise<TimelinePlacementResult> {
     const { item, type, sourceInPoint, sourceOutPoint } = options;

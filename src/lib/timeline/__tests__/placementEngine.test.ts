@@ -87,4 +87,32 @@ describe("TimelinePlacementEngine", () => {
     expect(clip.trimOut).toBe(7.0);
     expect(clip.duration).toBe(5.0);
   });
+
+  it("serializes concurrent additions and avoids race conditions", async () => {
+    // Fire 5 additions concurrently
+    const promises = Array.from({ length: 5 }).map((_, i) =>
+      TimelinePlacementEngine.addToTimeline({
+        item: { text: `Clip ${i}` },
+        type: "text",
+        playheadTime: 0,
+      }),
+    );
+
+    const results = await Promise.all(promises);
+    expect(results.every((r) => r.success)).toBe(true);
+
+    const timelineState = useTimelineStore.getState();
+    const textClips = timelineState.clips.filter((c) => c.kind === "text");
+    expect(textClips.length).toBe(5);
+
+    // Verify each clip has a unique valid ID
+    const clipIds = textClips.map((c) => c.id);
+    expect(new Set(clipIds).size).toBe(5);
+
+    // Verify all clips reference valid existing tracks
+    const trackIds = new Set(timelineState.tracks.map((t) => t.id));
+    for (const clip of textClips) {
+      expect(trackIds.has(clip.trackId)).toBe(true);
+    }
+  });
 });

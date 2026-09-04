@@ -116,6 +116,7 @@ function getCategoryEmptyState(cat: string) {
 interface TemplateGridProps {
   onPreview: (template: TemplateDefinition) => void;
   onApply: (template: TemplateDefinition, e: React.MouseEvent) => void;
+  applyingIds?: Set<string>;
 }
 
 // Module-level per-category cache — persists across component unmounts with 30m TTL
@@ -128,7 +129,7 @@ export function clearTemplateGridCache(): void {
   categoryCacheTimestamps.clear();
 }
 
-export function TemplateGrid({ onPreview, onApply }: TemplateGridProps) {
+export function TemplateGrid({ onPreview, onApply, applyingIds }: TemplateGridProps) {
   const [activeCategory, setActiveCategory] = useState<string>(
     TEMPLATE_CATEGORIES[0],
   );
@@ -330,6 +331,7 @@ export function TemplateGrid({ onPreview, onApply }: TemplateGridProps) {
                 isFavorite={favorites.includes(template.id)}
                 isDownloading={downloadingIds.includes(template.id)}
                 isDownloaded={downloadedTemplates.includes(template.id)}
+                isApplying={applyingIds?.has(template.id) ?? false}
                 onFavorite={(e) => {
                   e.stopPropagation();
                   toggleFavorite(template.id);
