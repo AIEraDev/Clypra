@@ -1,5 +1,6 @@
 import { renderTextTemplateToCanvas, resolveTextTemplateArtifact } from "@clypra-studio/engine";
 import { TextTemplate, TemplateCustomization, RenderedFrameSequence } from "./types";
+import { resolveTemplateControlValues } from "@/lib/text/templateControls";
 
 /**
  * Renders a complete Canvas template frame-by-frame to a sequence of PNG Blobs.
@@ -21,21 +22,7 @@ export async function renderToFrameSequence(
     throw new Error("Failed to get 2D context");
   }
 
-  const controlValues: Record<string, unknown> = {};
-  for (const control of artifact.controls) {
-    let value: unknown = control.defaultValue;
-    const node = artifact.document.nodes.find((candidate) => candidate.id === control.target.nodeId) as any;
-    const role = node?.role || "";
-    if (control.type === "text") {
-      if (customization.layerTexts?.[control.target.nodeId] !== undefined) value = customization.layerTexts[control.target.nodeId];
-      else if (role === "primary" || control.label.toLowerCase().includes("primary")) value = customization.primaryText;
-      else if (role === "secondary" || control.label.toLowerCase().includes("secondary")) value = customization.secondaryText ?? "";
-      else if (role === "accent" || control.label.toLowerCase().includes("accent")) value = customization.accentText ?? "";
-    } else if (control.type === "color") {
-      value = customization.layerColors?.[control.target.nodeId] || (role === "secondary" ? customization.secondaryColor : customization.primaryColor) || value;
-    }
-    controlValues[control.id] = value;
-  }
+  const controlValues = resolveTemplateControlValues(artifact, customization);
 
   const frames: Blob[] = [];
   const fps = artifact.timing.fps;

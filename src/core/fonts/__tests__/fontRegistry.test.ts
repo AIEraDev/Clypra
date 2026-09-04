@@ -88,6 +88,15 @@ describe("resolveCanonicalFamily", () => {
     expect(resolveCanonicalFamily("  inter  ")).toBe("Inter Variable");
   });
 
+  it("resolves CSS font stacks by matching primary family", () => {
+    expect(resolveCanonicalFamily("Inter, system-ui, sans-serif")).toBe("Inter Variable");
+    expect(resolveCanonicalFamily("'Inter Variable', sans-serif")).toBe("Inter Variable");
+    expect(resolveCanonicalFamily("Roboto, Arial, sans-serif")).toBe("Roboto Variable");
+    expect(resolveCanonicalFamily("'Roboto Condensed', sans-serif")).toBe("Roboto Condensed Variable");
+    expect(resolveCanonicalFamily("Times New Roman, serif")).toBe("Times New Roman");
+    expect(resolveCanonicalFamily("Custom Brand Font, sans-serif")).toBe("Custom Brand Font, sans-serif");
+  });
+
   // Verify all 10 system fonts resolve to themselves (canonical = family)
   const SYSTEM_FAMILIES = [
     "Arial",

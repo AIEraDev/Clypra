@@ -1,6 +1,6 @@
 use super::export::ExportProgress;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -607,13 +607,26 @@ async fn run_ffmpeg(args: &[String], cancellation: &CancellationToken) -> Result
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::inherit())
+        .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
         .map_err(|error| format!("Failed to spawn FFmpeg: {error}"))?;
     let pid = child
         .id()
         .ok_or_else(|| "FFmpeg did not expose a process ID".to_string())?;
+
+    let stderr_pipe = child.stderr.take();
+    let stderr_task = tokio::spawn(async move {
+        if let Some(reader) = stderr_pipe {
+            use tokio::io::AsyncReadExt;
+            let mut buffer = Vec::new();
+            let _ = reader.take(65536).read_to_end(&mut buffer).await;
+            String::from_utf8_lossy(&buffer).to_string()
+        } else {
+            String::new()
+        }
+    });
+
     let mut peak_rss = 0u64;
     let mut interval = tokio::time::interval(Duration::from_millis(500));
 
@@ -623,15 +636,22 @@ async fn run_ffmpeg(args: &[String], cancellation: &CancellationToken) -> Result
             _ = cancellation.cancelled() => {
                 let _ = child.kill().await;
                 let _ = child.wait().await; // Reap zombie PID and release OS file locks
+                let _ = stderr_task.await;
                 return Err("Export cancelled".into());
             }
             // Child process exit
             status = child.wait() => {
                 let status = status.map_err(|error| format!("Failed to inspect FFmpeg: {error}"))?;
+                let captured_stderr = stderr_task.await.unwrap_or_default();
                 return if status.success() {
                     Ok(peak_rss)
                 } else {
-                    Err(format!("FFmpeg exited with status {status}"))
+                    let trimmed = captured_stderr.trim();
+                    if trimmed.is_empty() {
+                        Err(format!("FFmpeg exited with status {status}"))
+                    } else {
+                        Err(format!("FFmpeg exited with status {status}: {trimmed}"))
+                    }
                 };
             }
             // Periodic memory check
@@ -641,6 +661,7 @@ async fn run_ffmpeg(args: &[String], cancellation: &CancellationToken) -> Result
                     if rss > MAX_FFMPEG_RSS_BYTES {
                         let _ = child.kill().await;
                         let _ = child.wait().await;
+                        let _ = stderr_task.await;
                         return Err(format!(
                             "FFmpeg exceeded the {} MiB memory safety ceiling",
                             MAX_FFMPEG_RSS_BYTES / 1024 / 1024
@@ -785,16 +806,50 @@ async fn run_native_export(
 ) -> Result<NativeExportCompletion, String> {
     let started = Instant::now();
     let total_frames = (plan.total_duration * plan.frame_rate).round() as u32;
-    let temp_dir = std::env::temp_dir().join(format!("clypra-export-{session_id}"));
     let output_path = PathBuf::from(&plan.output_path);
+
+    // Prefer creating workspace adjacent to final output to avoid EXDEV cross-device issues
+    let temp_dir = if let Some(parent) = output_path.parent() {
+        if parent.exists() {
+            let candidate = parent.join(format!(".clypra-export-tmp-{session_id}"));
+            if tokio::fs::create_dir_all(&candidate).await.is_ok() {
+                candidate
+            } else {
+                std::env::temp_dir().join(format!("clypra-export-{session_id}"))
+            }
+        } else {
+            std::env::temp_dir().join(format!("clypra-export-{session_id}"))
+        }
+    } else {
+        std::env::temp_dir().join(format!("clypra-export-{session_id}"))
+    };
+
     let encoder = detect_best_encoder(&plan.codec);
     let segment_extension = if plan.codec == "prores" { "mov" } else { "mp4" };
     let result = async {
         tokio::fs::create_dir_all(&temp_dir)
             .await
             .map_err(|error| format!("Failed to create export workspace: {error}"))?;
-        let mut segment_paths = Vec::with_capacity(plan.clips.len());
+
+        // Pre-probe audio streams across unique clips concurrently
+        let unique_audio_paths: HashSet<String> =
+            plan.clips.iter().map(|c| c.path.clone()).collect();
+        let probe_futures = unique_audio_paths.into_iter().map(|path| {
+            let cancel = cancellation.clone();
+            async move {
+                let has_audio = probe_has_audio(&path, &cancel).await;
+                (path, has_audio)
+            }
+        });
+        let probe_map: HashMap<String, bool> =
+            futures_util::future::join_all(probe_futures).await.into_iter().collect();
+
         let mut audio_streams = Vec::with_capacity(plan.clips.len());
+        for clip in &plan.clips {
+            audio_streams.push(*probe_map.get(&clip.path).unwrap_or(&false));
+        }
+
+        let mut segment_paths = Vec::with_capacity(plan.clips.len());
         let mut completed_duration = 0.0f64;
         let mut peak_rss = 0u64;
 
@@ -804,7 +859,6 @@ async fn run_native_export(
                 return Err("Export cancelled".into());
             }
             let segment_path = temp_dir.join(format!("segment-{index:04}.{segment_extension}"));
-            audio_streams.push(probe_has_audio(&clip.path, &cancellation).await);
             let args = build_segment_args(&plan, clip, &segment_path, &active_encoder);
             let segment_rss = match run_ffmpeg(&args, &cancellation).await {
                 Ok(rss) => rss,
@@ -875,8 +929,8 @@ async fn run_native_export(
             .await?,
         );
 
-        // Atomic commit: rename temporary muxed file to destination output_path
-        tokio::fs::rename(&muxed_temp_path, &output_path)
+        // Atomic commit: rename temporary muxed file to destination output_path (with EXDEV fallback)
+        super::export::atomic_or_copy_commit(&muxed_temp_path, &output_path)
             .await
             .map_err(|error| format!("Failed to commit native export file: {error}"))?;
 
@@ -1147,5 +1201,25 @@ mod tests {
             "Export cancelled"
         );
         assert!(started.elapsed() < Duration::from_secs(3));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn run_ffmpeg_captures_detailed_stderr_on_failure() {
+        let token = CancellationToken::new();
+        let args = vec![
+            "-f".into(),
+            "lavfi".into(),
+            "-i".into(),
+            "an_invalid_lavfi_filter_source_name".into(),
+            "-f".into(),
+            "null".into(),
+            "-".into(),
+        ];
+        let result = run_ffmpeg(&args, &token).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("FFmpeg exited with status"));
+        assert!(err.contains("No such filter") || err.contains("Error") || err.contains("an_invalid_lavfi"));
     }
 }

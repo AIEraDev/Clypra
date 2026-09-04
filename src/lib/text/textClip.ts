@@ -17,6 +17,7 @@ import { generateId } from "../utils/id";
 import { useEffectsStore } from "../../features/text-effects/store/effectsStore";
 import { useTemplateStore } from "../../features/text-templates/templateStore";
 import { deriveFontId } from "../../core/fonts/fontRegistry";
+import { resolveTemplateControlValues } from "./templateControls";
 
 export interface CreateTextClipOptions {
   /** Track ID to place the clip on */
@@ -669,40 +670,10 @@ function templateControlValues(
   text: string,
   customization?: any,
 ): Record<string, unknown> {
-  if (!artifact) return {};
-  const values: Record<string, unknown> = {};
-  for (const control of artifact.controls) {
-    const node = artifact.document.nodes.find(
-      (candidate: any) => candidate.id === control.target.nodeId,
-    ) as any;
-    const role = node?.role || "";
-    if (control.type === "text") {
-      values[control.id] =
-        customization?.layerTexts?.[control.target.nodeId] ??
-        (role === "primary"
-          ? customization?.primaryText
-          : role === "secondary"
-            ? customization?.secondaryText
-            : role === "accent"
-              ? customization?.accentText
-              : undefined) ??
-        (control.target.nodeId ===
-        artifact.document.nodes.find(
-          (candidate: any) => candidate.type === "text",
-        )?.id
-          ? text
-          : undefined) ??
-        control.defaultValue;
-    } else if (control.type === "color") {
-      values[control.id] =
-        customization?.layerColors?.[control.target.nodeId] ??
-        (role === "secondary"
-          ? customization?.secondaryColor
-          : customization?.primaryColor) ??
-        control.defaultValue;
-    }
-  }
-  return values;
+  return resolveTemplateControlValues(artifact, {
+    customization,
+    fallbackText: text,
+  });
 }
 
 function alphaBounds(
@@ -1013,7 +984,7 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
     const fontFamily =
       options.fontFamily ??
       effectTypography.fontFamily ??
-      "Inter, system-ui, sans-serif";
+      "Inter Variable";
     const fontWeight = options.fontWeight ?? effectTypography.fontWeight;
     const fontStyle = options.fontStyle ?? effectTypography.fontStyle;
     const lineHeight = options.lineHeight ?? effectTypography.lineHeight ?? 1.2;
@@ -1058,7 +1029,7 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
   const fontFamily =
     options.fontFamily ??
     effectTypography.fontFamily ??
-    "Inter, system-ui, sans-serif";
+    "Inter Variable";
   const fontWeight = options.fontWeight ?? effectTypography.fontWeight;
   const fontStyle = options.fontStyle ?? effectTypography.fontStyle;
   const lineHeight = options.lineHeight ?? effectTypography.lineHeight ?? 1.2;
@@ -1307,7 +1278,7 @@ function calculateTextClipContentTransform(
   const fontFamily =
     merged.fontFamily ??
     effectDefinition?.font?.family ??
-    "Inter, system-ui, sans-serif";
+    "Inter Variable";
   const fontWeight = merged.fontWeight ?? effectDefinition?.font?.weight;
   const fontStyle = merged.fontStyle ?? effectDefinition?.font?.style;
 

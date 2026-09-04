@@ -472,7 +472,18 @@ export const BUNDLED_FONT_ALIAS_SET: ReadonlySet<string> = new Set(
  */
 export function resolveCanonicalFamily(family: string): string {
   if (!family) return family;
-  return FONT_ALIAS_MAP.get(family.trim().toLowerCase()) ?? family.trim();
+  const trimmed = family.trim();
+  const direct = FONT_ALIAS_MAP.get(trimmed.toLowerCase());
+  if (direct) return direct;
+
+  // Handle CSS font stacks (e.g. "Inter, system-ui, sans-serif" or "'Inter Variable', sans-serif")
+  const primary = trimmed.split(",")[0].trim().replace(/^["']|["']$/g, "");
+  if (primary) {
+    const primaryMatch = FONT_ALIAS_MAP.get(primary.toLowerCase());
+    if (primaryMatch) return primaryMatch;
+  }
+
+  return trimmed;
 }
 
 /**

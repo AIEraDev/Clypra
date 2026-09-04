@@ -32,7 +32,11 @@
 
 import { resolveTextTemplateArtifact } from "@clypra-studio/engine";
 import type { EvaluatedTextLayer } from "@/core/evaluation/types";
-import type { TextRenderTracePhase } from "@/core/render/textRenderTrace";
+import {
+  type TextRenderTracePhase,
+  traceTextRenderCacheHit,
+} from "@/core/render/textRenderTrace";
+import { resolveTemplateControlValues } from "@/lib/text/templateControls";
 import type { NativeTextRasterAsset } from "@/components/editor/preview/nativeTextPreview";
 import {
   buildNativeTextLayoutKey,
@@ -55,39 +59,11 @@ function resolveControlValues(
   layer: EvaluatedTextLayer,
   artifact: NonNullable<ReturnType<typeof resolveTextTemplateArtifact>>,
 ): Record<string, unknown> {
-  const customization = layer.customization;
-  const values: Record<string, unknown> = {
-    ...(layer.templateControlValues || {}),
-  };
-  for (const control of artifact.controls) {
-    if (control.type !== "text" && control.type !== "color") continue;
-    const node = artifact.document.nodes.find(
-      (candidate: any) => candidate.id === control.target.nodeId,
-    ) as any;
-    const role: string = node?.role || "";
-    if (control.type === "text") {
-      values[control.id] =
-        customization?.layerTexts?.[control.target.nodeId] ??
-        (role === "primary"
-          ? customization?.primaryText
-          : role === "secondary"
-            ? customization?.secondaryText
-            : role === "accent"
-              ? customization?.accentText
-              : undefined) ??
-        values[control.id] ??
-        control.defaultValue;
-    } else {
-      values[control.id] =
-        customization?.layerColors?.[control.target.nodeId] ??
-        (role === "secondary"
-          ? customization?.secondaryColor
-          : customization?.primaryColor) ??
-        values[control.id] ??
-        control.defaultValue;
-    }
-  }
-  return values;
+  return resolveTemplateControlValues(artifact, {
+    customization: layer.customization,
+    templateControlValues: layer.templateControlValues,
+    fallbackText: layer.text,
+  });
 }
 
 // ─── ImageBitmap → Uint8ClampedArray readback ─────────────────────────────────
@@ -283,7 +259,14 @@ export class TemplateRasterizerWorkerClient {
     phase: TextRenderTracePhase,
   ): Promise<NativeTextRasterAsset> {
     const existing = this.inFlight.get(rasterKey);
-    if (existing) return existing;
+    if (existing) {
+      traceTextRenderCacheHit({
+        kind: "template",
+        rendererPath: "native-raster",
+        phase,
+      });
+      return existing;
+    }
     const promise = this._doRasterizeTemplate(layer, rasterKey, phase);
     this.inFlight.set(rasterKey, promise);
     void promise.finally(() => this.inFlight.delete(rasterKey));
@@ -382,7 +365,14 @@ export class TemplateRasterizerWorkerClient {
     phase: TextRenderTracePhase,
   ): Promise<NativeTextRasterAsset> {
     const existing = this.inFlight.get(rasterKey);
-    if (existing) return existing;
+    if (existing) {
+      traceTextRenderCacheHit({
+        kind: "effect",
+        rendererPath: "native-raster",
+        phase,
+      });
+      return existing;
+    }
     const promise = this._doRasterizeEffect(
       layer,
       sceneDoc,

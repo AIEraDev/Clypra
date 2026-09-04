@@ -4,7 +4,11 @@ import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import {
   buildNativeTextLayoutKey,
   buildNativeTextRasterKey,
+  getTemplateCropCacheKey,
+  paintTextLayersToCanvas,
   resolveNativeTextEffectDefinition,
+  _clearBrowserTextRasterCache,
+  _getBrowserTextRasterPromise,
 } from "../nativeTextPreview";
 
 function makeTextLayer(
@@ -181,3 +185,124 @@ describe("text layout metrics cache", () => {
     expect(() => _clearTextLayoutMetricsCache()).not.toThrow();
   });
 });
+
+describe("browser-path concurrent rasterization race elimination", () => {
+  beforeEach(() => {
+    _clearBrowserTextRasterCache();
+  });
+
+  it("fires overlapping paintTextLayersToCanvas calls for the same key and asserts a single shared in-flight promise", async () => {
+    const canvas1 = document.createElement("canvas");
+    canvas1.width = 1920;
+    canvas1.height = 1080;
+    const canvas2 = document.createElement("canvas");
+    canvas2.width = 1920;
+    canvas2.height = 1080;
+
+    const layer = makeTextLayer({
+      layerId: "concurrent-layer-1",
+      text: "Concurrent Clypra Test",
+    });
+    const key = buildNativeTextRasterKey(layer);
+    const scene = {
+      visualLayers: [layer],
+      audioLayers: [],
+      metadata: { time: 0, duration: 10, fps: 60 },
+    } as any;
+
+    // Fire two overlapping calls before microtasks resolve
+    const p1 = paintTextLayersToCanvas(canvas1, scene, "interactive-preview");
+    const p2 = paintTextLayersToCanvas(canvas2, scene, "interactive-preview");
+
+    // The inFlight / browserTextRasterCache promise must exist and be a single shared Promise
+    const sharedPromise = _getBrowserTextRasterPromise(key);
+    expect(sharedPromise).toBeDefined();
+
+    // Fire a third overlapping call for the exact same key
+    const canvas3 = document.createElement("canvas");
+    canvas3.width = 1920;
+    canvas3.height = 1080;
+    const p3 = paintTextLayersToCanvas(canvas3, scene, "interactive-preview");
+
+    const sharedPromise2 = _getBrowserTextRasterPromise(key);
+    expect(sharedPromise2).toBe(sharedPromise);
+
+    // All calls must resolve successfully
+    await expect(Promise.all([p1, p2, p3])).resolves.not.toThrow();
+  });
+});
+
+describe("template crop cache key invalidation", () => {
+  it("generates distinct cache keys when text customization or dimensions change", () => {
+    const baseLayer = makeTextLayer({
+      templateId: "tpl-headline",
+      templateRevisionId: "rev-1",
+      customization: { primaryText: "Original Title" } as any,
+      width: 500,
+      height: 100,
+    });
+    const editedTextLayer = makeTextLayer({
+      ...baseLayer,
+      customization: { primaryText: "Updated Long Title" } as any,
+    });
+    const resizedLayer = makeTextLayer({
+      ...baseLayer,
+      width: 800,
+      height: 150,
+    });
+
+    const key1 = getTemplateCropCacheKey(baseLayer);
+    const key2 = getTemplateCropCacheKey(editedTextLayer);
+    const key3 = getTemplateCropCacheKey(resizedLayer);
+
+    expect(key1).not.toBeNull();
+    expect(key2).not.toBeNull();
+    expect(key3).not.toBeNull();
+    expect(key1).not.toEqual(key2);
+    expect(key1).not.toEqual(key3);
+  });
+
+  it("buildNativeTextRasterKey honors templateAnimated false and does not trigger artifact parsing", () => {
+    const staticTemplateLayer = makeTextLayer({
+      templateId: "tpl-static",
+      templateAnimated: false,
+      time: 1.5,
+    });
+    const keyAtTime1 = buildNativeTextRasterKey(staticTemplateLayer);
+    const keyAtTime2 = buildNativeTextRasterKey({
+      ...staticTemplateLayer,
+      time: 2.5,
+    });
+    // For static templates, time differences do not change the raster key
+    expect(keyAtTime1).toBe(keyAtTime2);
+  });
+});
+
+describe("browser preview blend mode painting", () => {
+  it("applies layer blendMode to canvas context during painting", async () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 800;
+    canvas.height = 600;
+    const ctx = canvas.getContext("2d")!;
+    vi.spyOn(canvas, "getContext").mockReturnValue(ctx);
+    let capturedBlendMode = "";
+    ctx.drawImage = vi.fn().mockImplementation(() => {
+      capturedBlendMode = ctx.globalCompositeOperation;
+    });
+
+    const layer = makeTextLayer({
+      layerId: "blend-layer-1",
+      blendMode: "screen",
+    });
+    const scene = {
+      visualLayers: [layer],
+      audioLayers: [],
+      metadata: { time: 0, duration: 5, fps: 60 },
+    } as any;
+
+    await paintTextLayersToCanvas(canvas, scene, "interactive-preview");
+    expect(capturedBlendMode).toBe("screen");
+  });
+});
+
+

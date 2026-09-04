@@ -210,6 +210,33 @@ fn glyph_cache_different_sizes_are_distinct() {
 }
 
 #[test]
+fn glyph_cache_different_radius_and_padding_are_distinct() {
+    let font = test_font();
+    let hash = test_font_hash();
+    let cache = GlyphSdfCache::new(8 * 1024 * 1024);
+    let g_normal = cache.get_or_insert(&font, hash, 'B', 48.0, 8.0, 4);
+    let g_padded = cache.get_or_insert(&font, hash, 'B', 48.0, 8.0, 12);
+    let g_wider_radius = cache.get_or_insert(&font, hash, 'B', 48.0, 16.0, 4);
+
+    assert_ne!(
+        g_normal.padding, g_padded.padding,
+        "padding must be reflected in glyph metadata"
+    );
+    assert_ne!(
+        g_normal.sdf_data, g_padded.sdf_data,
+        "changing padding must generate distinct SDF data"
+    );
+    assert_ne!(
+        g_normal.sdf_data, g_wider_radius.sdf_data,
+        "changing radius must generate distinct SDF data"
+    );
+
+    let stats = cache.stats();
+    assert_eq!(stats.misses, 3, "all three variants should be distinct cache misses");
+    assert_eq!(stats.hits, 0, "no collisions should occur between different radius/padding");
+}
+
+#[test]
 fn glyph_cache_eviction_does_not_panic() {
     let font = test_font();
     let hash = test_font_hash();

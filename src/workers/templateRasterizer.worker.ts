@@ -103,7 +103,10 @@ async function ensureWorkerFontLoaded(fontFamily?: string): Promise<void> {
   if (loadedWorkerFonts.has(key)) return;
 
   const url = fontUrlByAlias.get(key) || fontUrlByAlias.get(key.replace(/\s+variable$/i, ""));
-  if (!url) return;
+  if (!url) {
+    console.warn(`[TextRasterizerWorker] Font "${fontFamily}" is not in worker bundled fonts; canvas will use system fallback`);
+    return;
+  }
 
   try {
     const face = new FontFace(fontFamily, `url(${url})`);
@@ -215,6 +218,30 @@ function createBlankBitmap(): ImageBitmap {
   return blank.transferToImageBitmap();
 }
 
+interface VisibleBounds {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+const MAX_WORKER_BOUNDS_CACHE = 64;
+const staticBoundsCache = new Map<string, VisibleBounds | null>();
+
+function isArtifactAnimated(artifact: TextTemplateArtifact | null | undefined): boolean {
+  if (!artifact?.document?.nodes) return false;
+  return artifact.document.nodes.some((node: any) => {
+    const a = node.animation;
+    return Boolean(
+      a &&
+      ((a.in && a.in !== "none") ||
+        (a.out && a.out !== "none") ||
+        Boolean(a.propertyKeyframes) ||
+        Boolean(node.splitAnimator))
+    );
+  });
+}
+
 async function handleRenderTemplate(
   msg: WorkerRenderTemplateMessage,
 ): Promise<void> {
@@ -258,8 +285,25 @@ async function handleRenderTemplate(
     },
   });
 
-  const imgData = ctx.getImageData(0, 0, width, height);
-  const bounds = findVisibleBounds(imgData.data, width, height, 8);
+  const isAnimated = isArtifactAnimated(artifact);
+  const staticCacheKey = !isAnimated
+    ? `${(artifact as any)?.id ?? id}:${width}x${height}:${JSON.stringify(controlValues)}`
+    : null;
+
+  let bounds: VisibleBounds | null = null;
+  if (staticCacheKey && staticBoundsCache.has(staticCacheKey)) {
+    bounds = staticBoundsCache.get(staticCacheKey) ?? null;
+  } else {
+    const imgData = ctx.getImageData(0, 0, width, height);
+    bounds = findVisibleBounds(imgData.data, width, height, 8);
+    if (staticCacheKey) {
+      if (staticBoundsCache.size >= MAX_WORKER_BOUNDS_CACHE) {
+        const oldest = staticBoundsCache.keys().next().value;
+        if (oldest) staticBoundsCache.delete(oldest);
+      }
+      staticBoundsCache.set(staticCacheKey, bounds);
+    }
+  }
 
   let bitmap: ImageBitmap;
   let offsetX = 0;
@@ -349,8 +393,29 @@ async function handleRenderEffect(
     },
   });
 
-  const imgData = evalCtx.getImageData(0, 0, width, height);
-  const bounds = findVisibleBounds(imgData.data, width, height, 16);
+  const isEffectAnimated = Boolean(
+    (sceneDocument as any)?.animation &&
+    (sceneDocument as any)?.animation?.type &&
+    (sceneDocument as any)?.animation?.type !== "none"
+  );
+  const staticEffectKey = !isEffectAnimated
+    ? `${id}:${width}x${height}:${sceneText?.content}:${sceneText?.fontSize}`
+    : null;
+
+  let bounds: VisibleBounds | null = null;
+  if (staticEffectKey && staticBoundsCache.has(staticEffectKey)) {
+    bounds = staticBoundsCache.get(staticEffectKey) ?? null;
+  } else {
+    const imgData = evalCtx.getImageData(0, 0, width, height);
+    bounds = findVisibleBounds(imgData.data, width, height, 16);
+    if (staticEffectKey) {
+      if (staticBoundsCache.size >= MAX_WORKER_BOUNDS_CACHE) {
+        const oldest = staticBoundsCache.keys().next().value;
+        if (oldest) staticBoundsCache.delete(oldest);
+      }
+      staticBoundsCache.set(staticEffectKey, bounds);
+    }
+  }
 
   let bitmap: ImageBitmap;
   let offsetX = 0;

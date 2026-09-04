@@ -209,15 +209,30 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           const current = useTimelineStore
             .getState()
             .clips.find((clip) => clip.id === clipId);
-          const oldTransform: Record<string, unknown> = {};
-          const newTransform: Record<string, unknown> = {};
-          for (const [key, value] of Object.entries(latest)) {
-            const oldValue = before[key];
-            if (Object.is(oldValue, value)) continue;
-            oldTransform[key] = oldValue;
-            newTransform[key] = value;
+          if (!current) return;
+
+          const project = useProjectStore.getState().project;
+          const currentCanvasWidth = project?.canvasWidth ?? 1920;
+          const currentCanvasHeight = project?.canvasHeight ?? 1080;
+
+          const { oldTransform, newTransform } = buildClipPropertyTransform(
+            current,
+            latest,
+            currentCanvasWidth,
+            currentCanvasHeight,
+          );
+
+          for (const [key, value] of Object.entries(before)) {
+            if (key in newTransform) {
+              oldTransform[key] = value;
+            }
           }
-          if (Object.keys(newTransform).length > 0) {
+
+          const hasChanged = Object.keys(newTransform).some(
+            (key) => !Object.is(oldTransform[key], newTransform[key]),
+          );
+
+          if (hasChanged) {
             useHistoryStore
               .getState()
               .execute(
