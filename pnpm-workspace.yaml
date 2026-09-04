@@ -2,4 +2,4 @@ allowBuilds:
   canvas: false
   esbuild: false
 minimumReleaseAgeExclude:
-  - "@clypra-studio/engine@1.4.0"
+  - '@clypra-studio/engine@1.4.0 || 1.6.0'
