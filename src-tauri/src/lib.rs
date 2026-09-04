@@ -227,6 +227,8 @@ pub fn run() {
             register_native_font,
             register_native_font_bytes,
             list_native_fonts,
+            get_native_font_warnings,
+            clear_native_font_warnings,
             queue_native_frame,
             cancel_native_preview_requests,
             register_native_raster_asset,

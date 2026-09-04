@@ -96,6 +96,17 @@ pub fn list_native_fonts() -> Result<Vec<String>, String> {
     Ok(clypra_native_core::font_registry::global_font_registry().list_fonts())
 }
 
+#[tauri::command]
+pub fn get_native_font_warnings() -> Result<Vec<String>, String> {
+    Ok(clypra_native_core::font_registry::global_font_registry().get_missing_font_warnings())
+}
+
+#[tauri::command]
+pub fn clear_native_font_warnings() -> Result<(), String> {
+    clypra_native_core::font_registry::global_font_registry().clear_missing_font_warnings();
+    Ok(())
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 struct NativeDecodeTimings {
     decode_time_us: u32,
