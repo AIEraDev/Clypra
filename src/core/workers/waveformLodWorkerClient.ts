@@ -37,7 +37,8 @@ export class WaveformLodWorkerClient {
 
   /**
    * Build a multi-LOD pyramid for a media asset.
-   * `pcm` is transferred zero-copy to the worker thread.
+   * If backed by SharedArrayBuffer, memory is shared zero-copy without neutering.
+   * If backed by standard ArrayBuffer, buffer is transferred zero-copy.
    */
   async buildLod(
     mediaId: string,
@@ -50,6 +51,11 @@ export class WaveformLodWorkerClient {
       return this.fallbackBuildLod(mediaId, pcm, sampleRate, channelCount);
     }
 
+    const isShared =
+      typeof SharedArrayBuffer !== "undefined" &&
+      pcm.buffer instanceof SharedArrayBuffer;
+    const transferList: Transferable[] = isShared ? [] : [pcm.buffer];
+
     try {
       return await this.bus.send<WaveformBuildReady>(
         {
@@ -60,7 +66,7 @@ export class WaveformLodWorkerClient {
           channelCount,
           lodSteps,
         } as any,
-        [pcm.buffer],
+        transferList,
       );
     } catch {
       return this.fallbackBuildLod(mediaId, pcm, sampleRate, channelCount);
@@ -218,4 +224,24 @@ export function getWaveformLodWorkerClient(): WaveformLodWorkerClient {
     clientInstance = new WaveformLodWorkerClient();
   }
   return clientInstance;
+}
+
+/**
+ * Allocate a Float32Array backed by SharedArrayBuffer if the runtime is cross-origin isolated.
+ * Allows zero-copy sharing across Web Workers without neutering source buffers.
+ */
+export function allocatePcmBuffer(length: number): Float32Array {
+  if (
+    typeof SharedArrayBuffer !== "undefined" &&
+    typeof crossOriginIsolated !== "undefined" &&
+    crossOriginIsolated
+  ) {
+    try {
+      const sab = new SharedArrayBuffer(length * Float32Array.BYTES_PER_ELEMENT);
+      return new Float32Array(sab);
+    } catch {
+      // Fall through to regular array buffer
+    }
+  }
+  return new Float32Array(length);
 }
