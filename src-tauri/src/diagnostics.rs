@@ -62,3 +62,6 @@ pub fn error(source: &'static str, code: &'static str, message: impl Into<String
 pub fn warning(source: &'static str, code: &'static str, message: impl Into<String>) {
     report("warning", source, code, message);
 }
+
+pub use warning as warn;
+

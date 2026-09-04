@@ -524,18 +524,23 @@ impl NativePreviewSession {
             return Ok((Arc::clone(tex), Arc::clone(view), tex.width(), tex.height()));
         }
 
-        // Cache miss: Shape text & generate SDF. Keep this failure explicit;
-        // desktop authority must never silently substitute browser typography.
+        // Cache miss: Shape text & generate SDF. If font is not registered,
+        // log a diagnostic warning and gracefully substitute contextual fallback.
         let font_registry = clypra_native_core::font_registry::global_font_registry();
         let (font, font_hash) = match font_registry.require_font(&layer.font_id) {
             Ok(font) => font,
             Err(error) => {
-                crate::diagnostics::error(
+                let (fallback_font, fallback_hash, _) =
+                    font_registry.get_font_with_status(&layer.font_id);
+                crate::diagnostics::warn(
                     "native-preview",
                     "text-font-missing",
-                    format!("font_id={} reason={error}", layer.font_id),
+                    format!(
+                        "font_id={} reason={error}; substituted with contextual fallback",
+                        layer.font_id
+                    ),
                 );
-                return Err(error);
+                (fallback_font, fallback_hash)
             }
         };
         let emoji_fallback = font_registry
