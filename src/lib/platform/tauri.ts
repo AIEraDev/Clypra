@@ -944,15 +944,23 @@ export async function decodeFrame(
     console.warn("[Tauri] decodeFrame bypassed: Non-Tauri environment.");
     return "data:image/png;base64,mockedDataURL";
   }
-  // Binary IPC — Rust returns raw RGBA bytes, no base64 overhead
-  const buf = await invoke<ArrayBuffer>("decode_frame", {
+  // Binary IPC — Rust returns raw RGBA bytes or data URL string
+  const buf = await invoke<ArrayBuffer | Uint8Array | number[] | string>("decode_frame", {
     videoPath: toNativePath(videoPath),
     timeSecs,
     width,
     height,
   });
-  // Convert ArrayBuffer → data URL on JS side (single pass, no extra copy)
-  const bytes = new Uint8Array(buf);
+  if (typeof buf === "string") {
+    return buf;
+  }
+  // Convert ArrayBuffer / typed array → data URL on JS side (single pass, no extra copy)
+  const bytes =
+    buf instanceof Uint8Array
+      ? buf
+      : Array.isArray(buf)
+        ? new Uint8Array(buf)
+        : new Uint8Array(buf);
   let binary = "";
   for (let i = 0; i < bytes.byteLength; i++) {
     binary += String.fromCharCode(bytes[i]);

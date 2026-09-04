@@ -126,10 +126,12 @@ async fn test_stress_rapid_4k_scrubbing_wraparound() {
         "\n🔥 [4K Scrub Stress] Uploaded {} frames in {:.2?} (~{:.1} FPS)",
         total_frames, elapsed, fps
     );
+    let min_fps = if cfg!(debug_assertions) { 30.0 } else { 60.0 };
     assert!(
-        fps > 60.0,
-        "Throughput dropped below acceptable DMA threshold: {:.1} FPS",
-        fps
+        fps > min_fps,
+        "Throughput dropped below acceptable DMA threshold: {:.1} FPS (expected > {:.1})",
+        fps,
+        min_fps
     );
 }
 

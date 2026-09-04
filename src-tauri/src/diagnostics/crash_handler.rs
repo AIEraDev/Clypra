@@ -176,10 +176,10 @@ pub fn purge_old_crashes(app_data_dir: &Path, max_age_days: u32) -> Result<usize
             if path.extension().and_then(|s| s.to_str()) == Some("json") {
                 if let Ok(content) = fs::read_to_string(&path) {
                     if let Ok(report) = serde_json::from_str::<NativeCrashReport>(&content) {
-                        if now_epoch_ms.saturating_sub(report.timestamp_epoch_ms) > max_age_ms {
-                            if fs::remove_file(&path).is_ok() {
-                                deleted_count += 1;
-                            }
+                        if now_epoch_ms.saturating_sub(report.timestamp_epoch_ms) > max_age_ms
+                            && fs::remove_file(&path).is_ok()
+                        {
+                            deleted_count += 1;
                         }
                     }
                 }

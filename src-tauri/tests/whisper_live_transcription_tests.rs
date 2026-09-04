@@ -4,10 +4,15 @@ use std::process::Command;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 #[tokio::test]
+#[ignore = "requires local whisper model file and audio asset — run with cargo test --test whisper_live_transcription_tests -- --ignored"]
 async fn test_live_whisper_on_device_transcription() {
-    let model_path = PathBuf::from(
-        "/Users/AIEraDev/Library/Application Support/com.clypra.editor/models/whisper/ggml-tiny.bin",
-    );
+    let model_path = std::env::var("WHISPER_MODEL_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            PathBuf::from(
+                "/Users/AIEraDev/Library/Application Support/com.clypra.editor/models/whisper/ggml-tiny.bin",
+            )
+        });
     assert!(
         model_path.exists(),
         "ggml-tiny.bin must exist at {:?}",
