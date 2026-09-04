@@ -2,13 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 import { registerNativeRasterAsset } from "../platform/tauri";
 
 describe("registerNativeRasterAsset high-performance transfer", () => {
-  it("encodes Uint8ClampedArray to base64 instead of allocating number array", async () => {
-    let capturedPayload: any = null;
+  it("sends raw binary buffer directly to register_native_raster_asset_raw with headers", async () => {
+    let capturedCmd: string | null = null;
+    let capturedBuffer: any = null;
+    let capturedOptions: any = null;
+
     (window as any).__TAURI_INTERNALS__ = {
-      invoke: vi.fn().mockImplementation((cmd, args) => {
-        if (cmd === "register_native_raster_asset") {
-          capturedPayload = args.asset;
-        }
+      invoke: vi.fn().mockImplementation((cmd, buffer, options) => {
+        capturedCmd = cmd;
+        capturedBuffer = buffer;
+        capturedOptions = options;
         return Promise.resolve();
       }),
     };
@@ -16,7 +19,6 @@ describe("registerNativeRasterAsset high-performance transfer", () => {
     const width = 100;
     const height = 100;
     const buffer = new Uint8ClampedArray(width * height * 4);
-    // Fill with known pattern
     for (let i = 0; i < buffer.length; i++) {
       buffer[i] = i % 256;
     }
@@ -35,20 +37,54 @@ describe("registerNativeRasterAsset high-performance transfer", () => {
       isText: false,
     });
 
-    expect(capturedPayload).not.toBeNull();
-    expect(capturedPayload.assetId).toBe("test-raster-1");
-    expect(capturedPayload.width).toBe(100);
-    expect(capturedPayload.height).toBe(100);
-    expect(capturedPayload.rgbaBase64).toBeDefined();
-    expect(typeof capturedPayload.rgbaBase64).toBe("string");
-    expect(capturedPayload.rgba).toBeUndefined();
+    expect(capturedCmd).toBe("register_native_raster_asset_raw");
+    expect(capturedBuffer).toBeInstanceOf(ArrayBuffer);
+    expect(capturedBuffer.byteLength).toBe(width * height * 4);
+    expect(capturedOptions?.headers).toEqual({
+      "asset-id": "test-raster-1",
+      width: "100",
+      height: "100",
+    });
+  });
 
-    // Verify round-trip decoding
-    const decodedBinary = atob(capturedPayload.rgbaBase64);
-    expect(decodedBinary.length).toBe(buffer.length);
-    for (let i = 0; i < 1000; i++) {
-      expect(decodedBinary.charCodeAt(i)).toBe(buffer[i]);
-    }
+  it("falls back to base64 encoding if register_native_raster_asset_raw fails", async () => {
+    let capturedBase64Payload: any = null;
+
+    (window as any).__TAURI_INTERNALS__ = {
+      invoke: vi.fn().mockImplementation((cmd, args) => {
+        if (cmd === "register_native_raster_asset_raw") {
+          return Promise.reject(new Error("Command not found"));
+        }
+        if (cmd === "register_native_raster_asset") {
+          capturedBase64Payload = args.asset;
+          return Promise.resolve();
+        }
+        return Promise.resolve();
+      }),
+    };
+
+    const width = 10;
+    const height = 10;
+    const buffer = new Uint8ClampedArray(width * height * 4);
+
+    await registerNativeRasterAsset({
+      assetId: "test-fallback",
+      width,
+      height,
+      rgba: buffer,
+      x: 0,
+      y: 0,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 0,
+      blendMode: "normal",
+      isText: false,
+    });
+
+    expect(capturedBase64Payload).not.toBeNull();
+    expect(capturedBase64Payload.assetId).toBe("test-fallback");
+    expect(capturedBase64Payload.rgbaBase64).toBeDefined();
+    expect(typeof capturedBase64Payload.rgbaBase64).toBe("string");
   });
 
   it("preserves number[] fallback for legacy callers", async () => {
@@ -80,3 +116,4 @@ describe("registerNativeRasterAsset high-performance transfer", () => {
     expect(capturedPayload.rgbaBase64).toBeUndefined();
   });
 });
+
