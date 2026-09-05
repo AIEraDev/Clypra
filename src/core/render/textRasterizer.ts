@@ -7,6 +7,7 @@ import { effectBleed, resolveTextEffectDefinition } from "../../lib/text/textCli
 import { getTextRenderMetrics, normalizeFontSize } from "../../lib/utils/fixedSizing";
 import { traceTextRenderScene } from "./textRenderTrace";
 import { resolveTemplateControlValues } from "../../lib/text/templateControls";
+import { calculateOptimalTemplateLayout } from "./templateScale";
 
 
 
@@ -69,20 +70,21 @@ function renderTemplateArtifact(
   height: number,
 ): boolean {
   if (!artifact) return false;
-  const localTime = layer.time !== undefined && layer.clipStartTime !== undefined ? layer.time - layer.clipStartTime : 0;
-  const docWidth = Math.max(
-    1,
-    Math.round(Number(artifact.document?.canvas?.width) || 1920),
+  const localTime =
+    layer.time !== undefined && layer.clipStartTime !== undefined
+      ? layer.time - layer.clipStartTime
+      : 0;
+  const controlValues = templateControlValues(layer, artifact);
+  const layout = calculateOptimalTemplateLayout(
+    artifact,
+    width,
+    height,
+    controlValues,
   );
-  const docHeight = Math.max(
-    1,
-    Math.round(Number(artifact.document?.canvas?.height) || 1080),
-  );
-  const uniformScale = Math.min(width / docWidth, height / docHeight);
-  const uniformWidth = Math.max(1, Math.round(docWidth * uniformScale));
-  const uniformHeight = Math.max(1, Math.round(docHeight * uniformScale));
-  const offsetX0 = Math.round((width - uniformWidth) / 2);
-  const offsetY0 = Math.round((height - uniformHeight) / 2);
+  const uniformWidth = layout.uniformWidth;
+  const uniformHeight = layout.uniformHeight;
+  const offsetX0 = layout.offsetX;
+  const offsetY0 = layout.offsetY;
 
   ctx.save();
   // Native text raster assets are centered around the evaluated layer origin.
@@ -96,7 +98,7 @@ function renderTemplateArtifact(
       clipDuration: layer.clipDuration,
       width: uniformWidth,
       height: uniformHeight,
-      controlValues: templateControlValues(layer, artifact),
+      controlValues,
     },
   });
   ctx.restore();
