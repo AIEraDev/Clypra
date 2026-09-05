@@ -42,7 +42,7 @@ jobs:
             libva-dev \
             build-essential pkg-config libssl-dev \
             libclang-dev libxdo-dev cmake nasm \
-            libasound2-dev
+            libasound2-dev zlib1g-dev
 
       - name: Cache Static FFmpeg (Linux)
         if: matrix.platform == 'ubuntu-24.04'
@@ -50,7 +50,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/ffmpeg-static
-          key: ffmpeg-8.0-linux-static-v3-${{ matrix.target }}
+          key: ffmpeg-8.0-linux-static-v4-${{ matrix.target }}
 
       - name: Build Static FFmpeg (Linux)
         if: matrix.platform == 'ubuntu-24.04' && steps.cache-ffmpeg-linux.outputs.cache-hit != 'true'
@@ -68,7 +68,8 @@ jobs:
             --disable-network \
             --disable-autodetect \
             --disable-indevs \
-            --disable-outdevs
+            --disable-outdevs \
+            --enable-zlib
           make -j$(nproc) install
           rm -rf /tmp/ffmpeg-src
 

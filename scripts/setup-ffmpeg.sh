@@ -53,6 +53,7 @@ elif [ "$OS" = "Linux" ]; then
     "--disable-autodetect"
     "--disable-indevs"
     "--disable-outdevs"
+    "--enable-zlib"
   )
 fi
 
