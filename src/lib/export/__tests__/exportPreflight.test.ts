@@ -225,4 +225,35 @@ describe("Export Preflight Dependency Verification (§1.2 Architecture Contract)
     expect(err.message).toContain("media cannot be force-exported");
     expect(err.message).not.toContain("force-export confirmation");
   });
+
+  it("does not treat text-template clips with normalized audio properties as missing audio assets", async () => {
+    const templateClip: Clip = {
+      id: "text-template-1",
+      name: "Typewriter",
+      kind: "text-template",
+      mediaId: "text-template-text-template-typewriter",
+      startTime: 0,
+      duration: 3,
+      role: "text",
+      audio: {
+        audioModelVersion: 1,
+        gainDb: 0,
+        muted: false,
+        pan: 0,
+        volumeKeyframes: [],
+        fadeIn: { duration: 0, curve: "linear" },
+        fadeOut: { duration: 0, curve: "linear" },
+        channelConfig: { mode: "stereo", downmix: "auto", preservePitch: true },
+        speed: { speedRatio: 1, pitchCompensation: true },
+      },
+    } as any;
+
+    const result = await verifyExportDependencies([templateClip], {
+      isOnline: false,
+      assets: [],
+    });
+
+    expect(result.ready).toBe(true);
+    expect(result.missingAudioAssets).toHaveLength(0);
+  });
 });
