@@ -50,10 +50,10 @@ if [ "$OS" = "Darwin" ]; then
   )
 elif [ "$OS" = "Linux" ]; then
   EXTRA_FLAGS=(
-    "--enable-vaapi"
     "--disable-autodetect"
     "--disable-indevs"
     "--disable-outdevs"
+    "--enable-zlib"
   )
 fi
 
