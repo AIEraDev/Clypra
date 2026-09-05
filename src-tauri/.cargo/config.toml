@@ -10,3 +10,5 @@ MACOSX_DEPLOYMENT_TARGET = "11.0"
 # Automatically configure FFMPEG_DIR for local builds using bundled static FFmpeg libraries.
 # Environment variables set in the shell will override this default if specified.
 FFMPEG_DIR = { value = "ffmpeg-static", relative = true }
+PKG_CONFIG_PATH = { value = "ffmpeg-static/lib/pkgconfig", relative = true }
+

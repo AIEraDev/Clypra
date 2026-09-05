@@ -44,10 +44,16 @@ if [ "$OS" = "Darwin" ]; then
     "--disable-xlib"
     "--disable-libxcb"
     "--disable-indev=xcbgrab"
+    "--disable-autodetect"
+    "--disable-indevs"
+    "--disable-outdevs"
   )
 elif [ "$OS" = "Linux" ]; then
   EXTRA_FLAGS=(
     "--enable-vaapi"
+    "--disable-autodetect"
+    "--disable-indevs"
+    "--disable-outdevs"
   )
 fi
 
