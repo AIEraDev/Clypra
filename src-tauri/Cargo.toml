@@ -1,6 +1,6 @@
 [package]
 name = "clypra"
-version = "1.4.6"
+version = "1.4.7"
 description = "A modern, open-source video editor with native performance and GPU-accelerated preview"
 authors = ["Clypra Contributors"]
 edition = "2021"
@@ -57,9 +57,10 @@ bytemuck = { version = "1.21", features = ["derive"] }
 memmap2 = "0.9"
 
 # Native FFmpeg bindings for fast thumbnail extraction
-# ffmpeg-next "9" / ffmpeg-sys-next "9" target FFmpeg 8.x system libraries
-ffmpeg-next = "9"
-ffmpeg-sys-next = "9"
+# ffmpeg-next "9" / ffmpeg-sys-next "9" target FFmpeg 8.x libraries
+# Statically linked to eliminate external runtime dynamic library dependencies
+ffmpeg-next = { version = "9", features = ["static"] }
+ffmpeg-sys-next = { version = "9", features = ["static"] }
 
 # Image encoding for native decoder frame output
 image = { version = "0.25", default-features = false, features = ["webp", "png"] }

@@ -7,6 +7,7 @@ import { effectBleed, resolveTextEffectDefinition } from "../../lib/text/textCli
 import { getTextRenderMetrics, normalizeFontSize } from "../../lib/utils/fixedSizing";
 import { traceTextRenderScene } from "./textRenderTrace";
 import { resolveTemplateControlValues } from "../../lib/text/templateControls";
+import { calculateOptimalTemplateLayout } from "./templateScale";
 
 
 
@@ -69,20 +70,35 @@ function renderTemplateArtifact(
   height: number,
 ): boolean {
   if (!artifact) return false;
-  const localTime = layer.time !== undefined && layer.clipStartTime !== undefined ? layer.time - layer.clipStartTime : 0;
+  const localTime =
+    layer.time !== undefined && layer.clipStartTime !== undefined
+      ? layer.time - layer.clipStartTime
+      : 0;
+  const controlValues = templateControlValues(layer, artifact);
+  const layout = calculateOptimalTemplateLayout(
+    artifact,
+    width,
+    height,
+    controlValues,
+  );
+  const uniformWidth = layout.uniformWidth;
+  const uniformHeight = layout.uniformHeight;
+  const offsetX0 = layout.offsetX;
+  const offsetY0 = layout.offsetY;
+
   ctx.save();
   // Native text raster assets are centered around the evaluated layer origin.
   // The package renderer uses composition-space coordinates from (0, 0).
-  ctx.translate(-width / 2, -height / 2);
+  ctx.translate(-width / 2 + offsetX0, -height / 2 + offsetY0);
   renderTextTemplateToCanvas(ctx, {
     artifact,
     context: {
       environment: "editor",
       time: localTime,
       clipDuration: layer.clipDuration,
-      width,
-      height,
-      controlValues: templateControlValues(layer, artifact),
+      width: uniformWidth,
+      height: uniformHeight,
+      controlValues,
     },
   });
   ctx.restore();

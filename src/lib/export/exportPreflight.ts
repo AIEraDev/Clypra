@@ -124,16 +124,30 @@ export async function verifyExportDependencies(
     }
 
     for (const clip of flattenedClips) {
+      // Non-audio clips (text templates, plain text, images, shapes) never reference audio assets
+      if (
+        clip.kind === "text" ||
+        clip.kind === "text-template" ||
+        clip.kind === "image" ||
+        clip.role === "text" ||
+        (typeof clip.mediaId === "string" && clip.mediaId.startsWith("text-template-"))
+      ) {
+        continue;
+      }
+
       const asset = options.assets.find((candidate) => candidate.id === clip.mediaId);
       const directAudioPath = (clip as any).audioPath as string | undefined;
-      const hasAudio =
+      const hasAudioStream =
+        asset?.streams && asset.streams.length > 0
+          ? asset.streams.some((s) => s.type === "audio")
+          : true;
+      const isAudioClip =
         clip.kind === "audio" ||
         asset?.type === "audio" ||
-        asset?.type === "video" ||
+        (asset?.type === "video" && hasAudioStream) ||
         Boolean(directAudioPath) ||
-        Boolean(clip.audio) ||
         clip.role === "audio";
-      if (!hasAudio) continue;
+      if (!isAudioClip) continue;
 
       const audioId = clip.mediaId || directAudioPath || "unknown-audio";
       if (checkedAudioIds.has(audioId)) continue;

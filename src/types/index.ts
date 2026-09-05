@@ -312,6 +312,9 @@ export interface Clip {
   rotation: number;
   /** Compositor layer blend mode (e.g. normal, multiply, screen, overlay, additive, difference) */
   blendMode?: BlendMode;
+  /** Base unscaled dimensions for GPU quad transform calculation */
+  baseWidth?: number;
+  baseHeight?: number;
   // Transform constraints
   aspectRatioLocked?: boolean; // Default true for video/images
   sourceAspectRatio?: number; // Original aspect ratio (width/height)

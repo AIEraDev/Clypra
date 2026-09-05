@@ -162,6 +162,8 @@ export function instantiateTextTemplateArtifact(
     y: 0,
     width: options.canvasWidth || artifact.document.canvas.width,
     height: options.canvasHeight || artifact.document.canvas.height,
+    baseWidth: options.canvasWidth || artifact.document.canvas.width,
+    baseHeight: options.canvasHeight || artifact.document.canvas.height,
     opacity: 1,
     rotation: 0,
     mediaId: `text-template-${artifact.metadata.id}`,

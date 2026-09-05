@@ -41,6 +41,7 @@ import {
   renderTextEffectToCanvas,
   type TextTemplateArtifact,
 } from "@clypra-studio/engine";
+import { calculateOptimalTemplateLayout } from "../core/render/templateScale";
 
 import interUrl from "@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url";
 import montserratUrl from "@fontsource-variable/montserrat/files/montserrat-latin-wght-normal.woff2?url";
@@ -272,18 +273,32 @@ async function handleRenderTemplate(
 
   ctx.clearRect(0, 0, width, height);
 
+  const layout = calculateOptimalTemplateLayout(
+    artifact,
+    width,
+    height,
+    controlValues,
+  );
+  const uniformWidth = layout.uniformWidth;
+  const uniformHeight = layout.uniformHeight;
+  const offsetX0 = layout.offsetX;
+  const offsetY0 = layout.offsetY;
+
   const rasterStart = performance.now();
+  ctx.save();
+  ctx.translate(offsetX0, offsetY0);
   renderTextTemplateToCanvas(ctx, {
     artifact,
     context: {
       environment: "editor",
       time: localTime,
       clipDuration,
-      width,
-      height,
+      width: uniformWidth,
+      height: uniformHeight,
       controlValues,
     },
   });
+  ctx.restore();
 
   const isAnimated = isArtifactAnimated(artifact);
   const staticCacheKey = !isAnimated

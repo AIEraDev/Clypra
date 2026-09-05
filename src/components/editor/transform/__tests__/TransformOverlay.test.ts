@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { buildTransformStartClip, calculateScaledTextTransform, calculateTextResizeFontSize, getHitTestCandidates, isClipActiveAtTime, shouldScaleTextFontForHandle, getUpdatedConformForClipBounds } from "../TransformOverlay";
+import {
+  buildTransformStartClip,
+  calculateScaledTextTransform,
+  calculateTextResizeFontSize,
+  getHitTestCandidates,
+  isClipActiveAtTime,
+  shouldScaleTextFontForHandle,
+  getUpdatedConformForClipBounds,
+  resolveClipVisualBounds,
+} from "../TransformOverlay";
 import { getCursorForHandle } from "../calculator";
 import type { TextClip, TransformHandle, TransformState } from "@/types";
 
@@ -269,3 +278,126 @@ describe("getUpdatedConformForClipBounds", () => {
     expect(updatedConform.userOffsetY).toBe(0); // Center is still at 540 (canvasHeight/2)
   });
 });
+
+describe("resolveClipVisualBounds", () => {
+  it("returns standard clip bounds when no conform or template is present", () => {
+    const clip = {
+      id: "plain-clip",
+      x: 50,
+      y: 100,
+      width: 400,
+      height: 300,
+    } as any;
+
+    const bounds = resolveClipVisualBounds(clip, 1920, 1080);
+    expect(bounds).toEqual({ x: 50, y: 100, width: 400, height: 300 });
+  });
+
+  it("resolves adaptive prominent visual badge bounds for a text-template clip under content-aware scaling", () => {
+    const templateClip = {
+      id: "template-1",
+      kind: "text-template",
+      x: 0,
+      y: 0,
+      width: 1080,
+      height: 1920,
+      templateSnapshot: {
+        schemaVersion: "1.0.0",
+        id: "badge-template",
+        name: "Badge",
+        document: {
+          canvas: { width: 1920, height: 1080 },
+          nodes: [
+            { id: "box", type: "shape", x: 760, y: 440, width: 400, height: 200 },
+          ],
+        },
+      },
+    } as any;
+
+    // Portrait canvas: 1080 x 1920
+    // Content-aware scaling targets ~62% width coverage on portrait canvas:
+    // targetContentWidth = 1080 * 0.62 = 669.6
+    // scale = 669.6 / 400 = 1.674
+    // Visual badge: width = 400 * 1.674 = 669.6, height = 200 * 1.674 = 334.8
+    // Centered: x = 205.24, y = 792.56
+    const bounds = resolveClipVisualBounds(templateClip, 1080, 1920);
+    expect(bounds.x).toBeCloseTo(205.24, 1);
+    expect(bounds.y).toBeCloseTo(792.56, 1);
+    expect(bounds.width).toBeCloseTo(669.6, 1);
+    expect(bounds.height).toBeCloseTo(334.8, 1);
+  });
+});
+
+describe("Text template hit testing", () => {
+  const tracks = [
+    { id: "template-track", type: "text", visible: true },
+    { id: "video-track", type: "video", visible: true },
+  ] as any;
+
+  const backgroundVideo = {
+    id: "bg-video",
+    trackId: "video-track",
+    kind: "video",
+    startTime: 0,
+    duration: 10,
+    x: 0,
+    y: 0,
+    width: 1080,
+    height: 1920,
+  } as any;
+
+  const templateClip = {
+    id: "template-badge",
+    trackId: "template-track",
+    kind: "text-template",
+    startTime: 0,
+    duration: 10,
+    x: 0,
+    y: 0,
+    width: 1080,
+    height: 1920,
+    templateSnapshot: {
+      schemaVersion: "1.0.0",
+      id: "badge-template",
+      name: "Badge",
+      document: {
+        canvas: { width: 1920, height: 1080 },
+        nodes: [
+          { id: "box", type: "shape", x: 760, y: 440, width: 400, height: 200 },
+        ],
+      },
+    },
+  } as any;
+
+  it("selects the template clip when clicking inside the visual badge bounds", () => {
+    // Inside badge: x = 427.5 .. 652.5, y = 903.75 .. 1016.25
+    const candidates = getHitTestCandidates(
+      [backgroundVideo, templateClip],
+      tracks,
+      5,
+      500,
+      950,
+      1080,
+      1920,
+    );
+
+    expect(candidates[0]?.id).toBe("template-badge");
+  });
+
+  it("does not select the template clip when clicking outside its badge bounds in the empty margin", () => {
+    // Outside badge (top of screen): (100, 100)
+    const candidates = getHitTestCandidates(
+      [backgroundVideo, templateClip],
+      tracks,
+      5,
+      100,
+      100,
+      1080,
+      1920,
+    );
+
+    // Should only hit the background video, not the text template
+    expect(candidates.map((c) => c.id)).toEqual(["bg-video"]);
+  });
+});
+
