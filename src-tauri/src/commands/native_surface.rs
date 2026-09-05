@@ -312,6 +312,19 @@ fn configure_surface(
     runtime_state.configuration = Some(configuration);
     runtime_state.configured_format = Some(format);
     runtime_state.probe = Some(probe.clone());
+
+    // Zero-Cold-Start: Pre-warm Metal/wgpu render pipelines in the background
+    // during session opening / surface configuration so Frame #1 has zero compile spike.
+    let app_clone = app.clone();
+    let surface_w = window_size.width;
+    let surface_h = window_size.height;
+    tauri::async_runtime::spawn(async move {
+        if let Some(preview_state) = app_clone.try_state::<Arc<tokio::sync::Mutex<crate::wgpu_compositor::NativePreviewSession>>>() {
+            let mut session = preview_state.lock().await;
+            session.warmup_gpu_pipelines(surface_w, surface_h, format);
+        }
+    });
+
     Ok(probe)
 }
 
