@@ -489,6 +489,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           completeDownload(itemId, type);
           onAddToTimeline?.(
             {
+              id: fullEffect.id,
               name: fullEffect.name,
               text: fullEffect.text || "CLYPRA",
               presetType: "effect",
@@ -531,6 +532,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         const targetEffect: any = cachedEffect || item;
         onAddToTimeline?.(
           {
+            id: targetEffect.id,
             name: targetEffect.name,
             text: targetEffect.text || "CLYPRA",
             presetType: "effect",
@@ -585,6 +587,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const handleNewEffectApply = (text: string, effect: any) => {
     onAddToTimeline?.(
       {
+        id: effect.id,
         name: effect.name,
         text: text || "CLYPRA",
         presetType: "effect",

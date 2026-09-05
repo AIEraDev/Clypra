@@ -59,6 +59,7 @@ export function TextEffectGrid({ searchQuery = "", onAddToTimeline }: TextEffect
   const applyEffectToTimeline = useCallback((effect: any) => {
     onAddToTimeline?.(
       {
+        id: effect.id,
         name: effect.name,
         text: effect.text || "CLYPRA",
         presetType: "effect",
