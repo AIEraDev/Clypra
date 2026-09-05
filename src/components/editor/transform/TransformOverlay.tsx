@@ -50,7 +50,8 @@ import type {
 import { ContextMenu } from "@/components/ui/ContextMenu";
 import { useProjectStore } from "@/store/projectStore";
 import { Maximize2, Minimize2, RotateCcw } from "lucide-react";
-import { resolveConform } from "@clypra-studio/engine";
+import { resolveConform, resolveTextTemplateArtifact } from "@clypra-studio/engine";
+import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { compareCompositorClips } from "@/core/compositor/ordering";
 import { toCompositorClip } from "@/core/timeline/adapter";
 import { tracePlayback } from "@/core/playback/playbackTrace";
@@ -259,14 +260,153 @@ function getDragPreviewTransform(
 ): string {
   const startCenterX = startTransform.x + startTransform.width / 2;
   const startCenterY = startTransform.y + startTransform.height / 2;
-  const nextCenterX = geometry.x + geometry.width / 2;
-  const nextCenterY = geometry.y + geometry.height / 2;
+  const targetX = geometry.visualX ?? geometry.x;
+  const targetY = geometry.visualY ?? geometry.y;
+  const nextCenterX = targetX + geometry.width / 2;
+  const nextCenterY = targetY + geometry.height / 2;
   const translateX = (nextCenterX - startCenterX) * scale * zoom;
   const translateY = (nextCenterY - startCenterY) * scale * zoom;
   const scaleX = geometry.width / Math.max(1, startTransform.width);
   const scaleY = geometry.height / Math.max(1, startTransform.height);
 
   return `translate3d(${translateX}px, ${translateY}px, 0) rotate(${geometry.rotation}deg) scale(${scaleX}, ${scaleY})`;
+}
+
+/**
+ * Resolves the actual rendered visual bounds of a clip on the canvas.
+ * For video clips with conform, calculates post-conform fitted dimensions.
+ * For text-template clips, resolves the tight visual bounding box of the rendered
+ * template badge (from NativeRasterBridge's raster snapshot or template node bounds)
+ * instead of full-canvas clip dimensions.
+ */
+export function resolveClipVisualBounds(
+  clip: Clip,
+  canvasWidth?: number,
+  canvasHeight?: number,
+): { x: number; y: number; width: number; height: number } {
+  let x = clip.x;
+  let y = clip.y;
+  let width = clip.width;
+  let height = clip.height;
+
+  if (
+    canvasWidth &&
+    canvasHeight &&
+    clip.conform &&
+    clip.conform.sourceWidth &&
+    clip.conform.sourceHeight
+  ) {
+    const resolved = resolveConform(
+      {
+        ...clip.conform,
+        userScale: clip.conform.userScale ?? 1,
+        userOffsetX: clip.conform.userOffsetX ?? 0,
+        userOffsetY: clip.conform.userOffsetY ?? 0,
+      },
+      canvasWidth,
+      canvasHeight,
+    );
+    if (resolved) {
+      x = resolved.x;
+      y = resolved.y;
+      width = resolved.width;
+      height = resolved.height;
+    }
+    return { x, y, width, height };
+  }
+
+  if (
+    (clip.kind === "text-template" || clip.templateSnapshot) &&
+    canvasWidth &&
+    canvasHeight
+  ) {
+    // 1. Inspect exact rendered quad from active nativeRasterBridge if available
+    const snapshot = getActiveSessionOrNull()?.nativeRasterBridge?.getTextSnapshot(
+      clip.id,
+    );
+    if (
+      snapshot &&
+      typeof snapshot.x === "number" &&
+      typeof snapshot.y === "number" &&
+      typeof snapshot.displayWidth === "number" &&
+      snapshot.displayWidth > 0 &&
+      typeof snapshot.displayHeight === "number" &&
+      snapshot.displayHeight > 0
+    ) {
+      return {
+        x: snapshot.x,
+        y: snapshot.y,
+        width: snapshot.displayWidth,
+        height: snapshot.displayHeight,
+      };
+    }
+
+    // 2. Fallback: estimate from template artifact node bounds under uniform scaling
+    const artifact =
+      resolveTextTemplateArtifact(clip.templateSnapshot || (clip as any)) ??
+      ((clip.templateSnapshot as any)?.document?.nodes
+        ? (clip.templateSnapshot as any)
+        : (clip as any)?.document?.nodes
+          ? (clip as any)
+          : null);
+    if (artifact?.document?.nodes && artifact.document.nodes.length > 0) {
+      const docWidth = Math.max(
+        1,
+        Math.round(Number(artifact.document.canvas?.width) || 1920),
+      );
+      const docHeight = Math.max(
+        1,
+        Math.round(Number(artifact.document.canvas?.height) || 1080),
+      );
+      const uniformScale = Math.min(
+        canvasWidth / docWidth,
+        canvasHeight / docHeight,
+      );
+      const originX = (canvasWidth - docWidth * uniformScale) / 2;
+      const originY = (canvasHeight - docHeight * uniformScale) / 2;
+
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+
+      for (const node of artifact.document.nodes) {
+        if ((node as any).visible === false) continue;
+        const nx = typeof (node as any).x === "number" ? (node as any).x : 0;
+        const ny = typeof (node as any).y === "number" ? (node as any).y : 0;
+        const nw =
+          typeof (node as any).width === "number"
+            ? (node as any).width
+            : (node as any).style?.fontSize
+              ? String((node as any).text || "Template").length *
+                ((node as any).style.fontSize || 48) *
+                0.6
+              : 300;
+        const nh =
+          typeof (node as any).height === "number"
+            ? (node as any).height
+            : (node as any).style?.fontSize
+              ? ((node as any).style.fontSize || 48) * 1.5
+              : 100;
+
+        minX = Math.min(minX, nx);
+        minY = Math.min(minY, ny);
+        maxX = Math.max(maxX, nx + nw);
+        maxY = Math.max(maxY, ny + nh);
+      }
+
+      if (Number.isFinite(minX) && Number.isFinite(maxX) && maxX > minX) {
+        return {
+          x: (clip.x || 0) + originX + minX * uniformScale,
+          y: (clip.y || 0) + originY + minY * uniformScale,
+          width: Math.max(1, (maxX - minX) * uniformScale),
+          height: Math.max(1, (maxY - minY) * uniformScale),
+        };
+      }
+    }
+  }
+
+  return { x, y, width, height };
 }
 
 /**
@@ -325,39 +465,12 @@ export function getHitTestCandidateDiagnostics(
       return isClipActiveAtTime(clip, currentTime);
     })
     .map(({ clip, index, compositorClip }) => {
-      let x = clip.x;
-      let y = clip.y;
-      let width = clip.width;
-      let height = clip.height;
-      if (
-        canvasWidth &&
-        canvasHeight &&
-        clip.conform &&
-        clip.conform.sourceWidth &&
-        clip.conform.sourceHeight
-      ) {
-        const resolved = resolveConform(
-          {
-            ...clip.conform,
-            userScale: clip.conform.userScale ?? 1,
-            userOffsetX: clip.conform.userOffsetX ?? 0,
-            userOffsetY: clip.conform.userOffsetY ?? 0,
-          },
-          canvasWidth,
-          canvasHeight,
-        );
-        if (resolved) {
-          x = resolved.x;
-          y = resolved.y;
-          width = resolved.width;
-          height = resolved.height;
-        }
-      }
+      const visual = resolveClipVisualBounds(clip, canvasWidth, canvasHeight);
       const bounds = {
-        x,
-        y,
-        width,
-        height,
+        x: visual.x,
+        y: visual.y,
+        width: visual.width,
+        height: visual.height,
         rotation: clip.rotation ?? 0,
       };
       return {
@@ -369,7 +482,7 @@ export function getHitTestCandidateDiagnostics(
         evaluationPriority: compositorClip.evaluationPriority,
         compositorClip,
         bounds,
-        hit: width > 0 && height > 0 && hitTestClip(canvasX, canvasY, bounds),
+        hit: visual.width > 0 && visual.height > 0 && hitTestClip(canvasX, canvasY, bounds),
       };
     })
     .sort((a, b) => {
@@ -775,27 +888,16 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         scale,
       );
 
-      // Resolve actual rendered dimensions (accounting for conform if present)
-      let actualWidth = selectedClip.width;
-      let actualHeight = selectedClip.height;
-      let actualX = selectedClip.x;
-      let actualY = selectedClip.y;
-
-      if (
-        selectedClip.conform &&
-        selectedClip.conform.sourceWidth &&
-        selectedClip.conform.sourceHeight
-      ) {
-        const resolved = resolveConform(
-          selectedClip.conform,
-          canvasWidth,
-          canvasHeight,
-        );
-        actualWidth = resolved.width;
-        actualHeight = resolved.height;
-        actualX = resolved.x;
-        actualY = resolved.y;
-      }
+      // Resolve actual rendered dimensions (accounting for conform / template bounds if present)
+      const visualBounds = resolveClipVisualBounds(
+        selectedClip,
+        canvasWidth,
+        canvasHeight,
+      );
+      const actualWidth = visualBounds.width;
+      const actualHeight = visualBounds.height;
+      const actualX = visualBounds.x;
+      const actualY = visualBounds.y;
 
       // Capture start angle for rotation handle
       if (handle === "rotate") {
@@ -855,11 +957,16 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
           selectedClip.sourceAspectRatio ??
           actualWidth / Math.max(1, actualHeight),
       });
+      const isTemplateClip =
+        selectedClip.kind === "text-template" || Boolean(selectedClip.templateSnapshot);
+
       transformController.updateDragGeometry({
-        x: actualX,
-        y: actualY,
-        width: actualWidth,
-        height: actualHeight,
+        x: isTemplateClip ? (selectedClip.x || 0) : actualX,
+        y: isTemplateClip ? (selectedClip.y || 0) : actualY,
+        width: isTemplateClip ? selectedClip.width : actualWidth,
+        height: isTemplateClip ? selectedClip.height : actualHeight,
+        visualX: isTemplateClip ? actualX : undefined,
+        visualY: isTemplateClip ? actualY : undefined,
         rotation: selectedClip.rotation ?? 0,
         ...(startFontSizeRef.current !== undefined
           ? { fontSize: startFontSizeRef.current }
@@ -1397,6 +1504,41 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         }
       }
 
+      const isTemplateClip =
+        selectedClip.kind === "text-template" || Boolean(selectedClip.templateSnapshot);
+
+      let templateClipX: number | undefined;
+      let templateClipY: number | undefined;
+      let templateClipWidth: number | undefined;
+      let templateClipHeight: number | undefined;
+
+      if (isTemplateClip) {
+        const visualX = newTransform.x ?? startClip.x;
+        const visualY = newTransform.y ?? startClip.y;
+        const deltaX = visualX - currentTransform.startTransform.x;
+        const deltaY = visualY - currentTransform.startTransform.y;
+        templateClipX = (selectedClip.x || 0) + deltaX;
+        templateClipY = (selectedClip.y || 0) + deltaY;
+
+        if (
+          currentTransform.handle !== "move" &&
+          currentTransform.handle !== "rotate"
+        ) {
+          const scaleRatio =
+            (newTransform.width ?? startClip.width) /
+            Math.max(1, currentTransform.startTransform.width);
+          templateClipWidth = Math.round(
+            (selectedClip.baseWidth ?? selectedClip.width) * scaleRatio,
+          );
+          templateClipHeight = Math.round(
+            (selectedClip.baseHeight ?? selectedClip.height) * scaleRatio,
+          );
+        } else {
+          templateClipWidth = selectedClip.width;
+          templateClipHeight = selectedClip.height;
+        }
+      }
+
       if (
         selectedClip.conform &&
         selectedClip.conform.sourceWidth &&
@@ -1420,10 +1562,12 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       // selection box consume this without replacing the timeline array or
       // notifying every Zustand subscriber on every pointer frame.
       transformController.updateDragGeometry({
-        x: newTransform.x ?? startClip.x,
-        y: newTransform.y ?? startClip.y,
-        width: newTransform.width ?? startClip.width,
-        height: newTransform.height ?? startClip.height,
+        x: isTemplateClip ? (templateClipX ?? selectedClip.x) : (newTransform.x ?? startClip.x),
+        y: isTemplateClip ? (templateClipY ?? selectedClip.y) : (newTransform.y ?? startClip.y),
+        width: isTemplateClip ? (templateClipWidth ?? selectedClip.width) : (newTransform.width ?? startClip.width),
+        height: isTemplateClip ? (templateClipHeight ?? selectedClip.height) : (newTransform.height ?? startClip.height),
+        visualX: isTemplateClip ? (newTransform.x ?? startClip.x) : undefined,
+        visualY: isTemplateClip ? (newTransform.y ?? startClip.y) : undefined,
         rotation: newTransform.rotation ?? startClip.rotation ?? 0,
         ...((newTransform as Partial<TextClip>).fontSize !== undefined
           ? { fontSize: (newTransform as Partial<TextClip>).fontSize }
@@ -1516,10 +1660,21 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       return;
     }
 
+    const isTemplateClip =
+      Boolean(selectedClip && (selectedClip.kind === "text-template" || Boolean(selectedClip.templateSnapshot)));
+
     // Commit to history with epoch advancement
-    const oldTransform: Record<string, any> = {
-      ...currentTransform.startTransform,
-    };
+    const oldTransform: Record<string, any> = isTemplateClip && selectedClip
+      ? {
+          x: selectedClip.x,
+          y: selectedClip.y,
+          width: selectedClip.width,
+          height: selectedClip.height,
+          rotation: selectedClip.rotation,
+        }
+      : {
+          ...currentTransform.startTransform,
+        };
     const newTransform: Record<string, any> = {
       x: finalGeometry.x,
       y: finalGeometry.y,
@@ -1891,33 +2046,18 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
   const zeroOffset = { x: 0, y: 0 };
   const rotation = selectedClip.rotation ?? 0;
 
-  // Calculate the center of the clip in canvas space
-  const clipCenterX = selectedClip.x + selectedClip.width / 2;
-  const clipCenterY = selectedClip.y + selectedClip.height / 2;
-
-  // Resolve actual rendered dimensions (accounting for conform if present)
-  // For clips with conform (e.g., 16:9 video fitted into 9:16 canvas),
-  // the transform overlay should match the actual rendered bounds, not the clip's logical bounds
-  let actualWidth = selectedClip.width;
-  let actualHeight = selectedClip.height;
-  let actualX = selectedClip.x;
-  let actualY = selectedClip.y;
-
-  if (
-    selectedClip.conform &&
-    selectedClip.conform.sourceWidth &&
-    selectedClip.conform.sourceHeight
-  ) {
-    const resolved = resolveConform(
-      selectedClip.conform,
-      canvasWidth,
-      canvasHeight,
-    );
-    actualWidth = resolved.width;
-    actualHeight = resolved.height;
-    actualX = resolved.x;
-    actualY = resolved.y;
-  }
+  // Resolve actual rendered dimensions (accounting for conform or text template if present)
+  // For clips with conform (e.g., 16:9 video fitted into 9:16 canvas) or text templates,
+  // the transform overlay should match the actual rendered bounds, not the clip's full logical bounds
+  const visualBounds = resolveClipVisualBounds(
+    selectedClip,
+    canvasWidth,
+    canvasHeight,
+  );
+  const actualWidth = visualBounds.width;
+  const actualHeight = visualBounds.height;
+  const actualX = visualBounds.x;
+  const actualY = visualBounds.y;
 
   // Convert clip center to screen space (use actual rendered position)
   const actualCenterX = actualX + actualWidth / 2;
