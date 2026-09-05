@@ -70,18 +70,32 @@ function renderTemplateArtifact(
 ): boolean {
   if (!artifact) return false;
   const localTime = layer.time !== undefined && layer.clipStartTime !== undefined ? layer.time - layer.clipStartTime : 0;
+  const docWidth = Math.max(
+    1,
+    Math.round(Number(artifact.document?.canvas?.width) || 1920),
+  );
+  const docHeight = Math.max(
+    1,
+    Math.round(Number(artifact.document?.canvas?.height) || 1080),
+  );
+  const uniformScale = Math.min(width / docWidth, height / docHeight);
+  const uniformWidth = Math.max(1, Math.round(docWidth * uniformScale));
+  const uniformHeight = Math.max(1, Math.round(docHeight * uniformScale));
+  const offsetX0 = Math.round((width - uniformWidth) / 2);
+  const offsetY0 = Math.round((height - uniformHeight) / 2);
+
   ctx.save();
   // Native text raster assets are centered around the evaluated layer origin.
   // The package renderer uses composition-space coordinates from (0, 0).
-  ctx.translate(-width / 2, -height / 2);
+  ctx.translate(-width / 2 + offsetX0, -height / 2 + offsetY0);
   renderTextTemplateToCanvas(ctx, {
     artifact,
     context: {
       environment: "editor",
       time: localTime,
       clipDuration: layer.clipDuration,
-      width,
-      height,
+      width: uniformWidth,
+      height: uniformHeight,
       controlValues: templateControlValues(layer, artifact),
     },
   });

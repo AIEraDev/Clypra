@@ -272,18 +272,35 @@ async function handleRenderTemplate(
 
   ctx.clearRect(0, 0, width, height);
 
+  const docWidth = Math.max(
+    1,
+    Math.round(Number(artifact?.document?.canvas?.width) || 1920),
+  );
+  const docHeight = Math.max(
+    1,
+    Math.round(Number(artifact?.document?.canvas?.height) || 1080),
+  );
+  const uniformScale = Math.min(width / docWidth, height / docHeight);
+  const uniformWidth = Math.max(1, Math.round(docWidth * uniformScale));
+  const uniformHeight = Math.max(1, Math.round(docHeight * uniformScale));
+  const offsetX0 = Math.round((width - uniformWidth) / 2);
+  const offsetY0 = Math.round((height - uniformHeight) / 2);
+
   const rasterStart = performance.now();
+  ctx.save();
+  ctx.translate(offsetX0, offsetY0);
   renderTextTemplateToCanvas(ctx, {
     artifact,
     context: {
       environment: "editor",
       time: localTime,
       clipDuration,
-      width,
-      height,
+      width: uniformWidth,
+      height: uniformHeight,
       controlValues,
     },
   });
+  ctx.restore();
 
   const isAnimated = isArtifactAnimated(artifact);
   const staticCacheKey = !isAnimated
