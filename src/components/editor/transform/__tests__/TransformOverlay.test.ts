@@ -293,7 +293,7 @@ describe("resolveClipVisualBounds", () => {
     expect(bounds).toEqual({ x: 50, y: 100, width: 400, height: 300 });
   });
 
-  it("resolves tight visual badge bounds for a text-template clip under uniform scaling", () => {
+  it("resolves adaptive prominent visual badge bounds for a text-template clip under content-aware scaling", () => {
     const templateClip = {
       id: "template-1",
       kind: "text-template",
@@ -315,16 +315,16 @@ describe("resolveClipVisualBounds", () => {
     } as any;
 
     // Portrait canvas: 1080 x 1920
-    // Uniform scale: min(1080/1920, 1920/1080) = 0.5625
-    // Uniform doc dimensions: 1920*0.5625 = 1080, 1080*0.5625 = 607.5
-    // Center offsets: originX = 0, originY = (1920 - 607.5)/2 = 656.25
-    // Visual badge: x = 760*0.5625 = 427.5, y = 656.25 + 440*0.5625 = 903.75
-    // width = 400*0.5625 = 225, height = 200*0.5625 = 112.5
+    // Content-aware scaling targets ~62% width coverage on portrait canvas:
+    // targetContentWidth = 1080 * 0.62 = 669.6
+    // scale = 669.6 / 400 = 1.674
+    // Visual badge: width = 400 * 1.674 = 669.6, height = 200 * 1.674 = 334.8
+    // Centered: x = 205.24, y = 792.56
     const bounds = resolveClipVisualBounds(templateClip, 1080, 1920);
-    expect(bounds.x).toBeCloseTo(427.5);
-    expect(bounds.y).toBeCloseTo(903.75);
-    expect(bounds.width).toBeCloseTo(225);
-    expect(bounds.height).toBeCloseTo(112.5);
+    expect(bounds.x).toBeCloseTo(205.24, 1);
+    expect(bounds.y).toBeCloseTo(792.56, 1);
+    expect(bounds.width).toBeCloseTo(669.6, 1);
+    expect(bounds.height).toBeCloseTo(334.8, 1);
   });
 });
 

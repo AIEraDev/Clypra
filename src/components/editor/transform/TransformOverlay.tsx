@@ -53,6 +53,7 @@ import { Maximize2, Minimize2, RotateCcw } from "lucide-react";
 import { resolveConform, resolveTextTemplateArtifact } from "@clypra-studio/engine";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { compareCompositorClips } from "@/core/compositor/ordering";
+import { calculateOptimalTemplateLayout } from "@/core/render/templateScale";
 import { toCompositorClip } from "@/core/timeline/adapter";
 import { tracePlayback } from "@/core/playback/playbackTrace";
 import type { CompositorClip } from "@/core/compositor/types";
@@ -350,59 +351,18 @@ export function resolveClipVisualBounds(
           ? (clip as any)
           : null);
     if (artifact?.document?.nodes && artifact.document.nodes.length > 0) {
-      const docWidth = Math.max(
-        1,
-        Math.round(Number(artifact.document.canvas?.width) || 1920),
+      const layout = calculateOptimalTemplateLayout(
+        artifact,
+        canvasWidth,
+        canvasHeight,
+        clip.templateControlValues,
       );
-      const docHeight = Math.max(
-        1,
-        Math.round(Number(artifact.document.canvas?.height) || 1080),
-      );
-      const uniformScale = Math.min(
-        canvasWidth / docWidth,
-        canvasHeight / docHeight,
-      );
-      const originX = (canvasWidth - docWidth * uniformScale) / 2;
-      const originY = (canvasHeight - docHeight * uniformScale) / 2;
-
-      let minX = Infinity;
-      let minY = Infinity;
-      let maxX = -Infinity;
-      let maxY = -Infinity;
-
-      for (const node of artifact.document.nodes) {
-        if ((node as any).visible === false) continue;
-        const nx = typeof (node as any).x === "number" ? (node as any).x : 0;
-        const ny = typeof (node as any).y === "number" ? (node as any).y : 0;
-        const nw =
-          typeof (node as any).width === "number"
-            ? (node as any).width
-            : (node as any).style?.fontSize
-              ? String((node as any).text || "Template").length *
-                ((node as any).style.fontSize || 48) *
-                0.6
-              : 300;
-        const nh =
-          typeof (node as any).height === "number"
-            ? (node as any).height
-            : (node as any).style?.fontSize
-              ? ((node as any).style.fontSize || 48) * 1.5
-              : 100;
-
-        minX = Math.min(minX, nx);
-        minY = Math.min(minY, ny);
-        maxX = Math.max(maxX, nx + nw);
-        maxY = Math.max(maxY, ny + nh);
-      }
-
-      if (Number.isFinite(minX) && Number.isFinite(maxX) && maxX > minX) {
-        return {
-          x: (clip.x || 0) + originX + minX * uniformScale,
-          y: (clip.y || 0) + originY + minY * uniformScale,
-          width: Math.max(1, (maxX - minX) * uniformScale),
-          height: Math.max(1, (maxY - minY) * uniformScale),
-        };
-      }
+      return {
+        x: (clip.x || 0) + layout.contentBounds.x,
+        y: (clip.y || 0) + layout.contentBounds.y,
+        width: layout.contentBounds.width,
+        height: layout.contentBounds.height,
+      };
     }
   }
 
