@@ -21,6 +21,7 @@ BUNDLE_BINARY="$BUNDLE_DIR/Contents/MacOS/clypra"
 BUNDLE_ID="com.clypra.editor"
 
 # ── 1. Build ──────────────────────────────────────────────────────────────────
+"$SCRIPT_DIR/setup-ffmpeg.sh"
 echo "🔨 Building Tauri (debug)..."
 cd "$TAURI_DIR"
 cargo build

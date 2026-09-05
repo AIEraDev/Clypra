@@ -7,3 +7,6 @@
 # Applied on all platforms — cmake ignores these on non-Apple targets
 CMAKE_OSX_DEPLOYMENT_TARGET = "11.0"
 MACOSX_DEPLOYMENT_TARGET = "11.0"
+# Automatically configure FFMPEG_DIR for local builds using bundled static FFmpeg libraries.
+# Environment variables set in the shell will override this default if specified.
+FFMPEG_DIR = { value = "ffmpeg-static", relative = true }

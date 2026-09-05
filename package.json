@@ -24,6 +24,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "setup:ffmpeg": "bash scripts/setup-ffmpeg.sh",
     "docs:check": "node scripts/check-doc-links.mjs",
     "dev": "vite",
     "typecheck": "tsc --noEmit",
