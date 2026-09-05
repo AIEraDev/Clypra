@@ -390,6 +390,16 @@ export class NativeRasterBridge {
     this.animatedStickerRenderer.dispose();
   }
 
+  /**
+   * Retrieves the latest raster snapshot for a text or template layer,
+   * including its rendered position (x, y) and display dimensions.
+   */
+  public getTextSnapshot(
+    layerId: string,
+  ): NativeRasterLayerSnapshot | undefined {
+    return this.textSnapshotsByLayerId.get(layerId);
+  }
+
   private async rasterizeText(
     scene: EvaluatedScene,
     phase: TextRenderTracePhase,

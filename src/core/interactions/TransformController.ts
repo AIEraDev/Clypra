@@ -46,6 +46,9 @@ export interface DragGeometry {
   fontSize?: number;
   /** Conform state for clips with aspect-ratio conformation. */
   conform?: Record<string, unknown>;
+  /** Visual canvas position for display overlays when clip coordinates differ from visual bounds (e.g. templates) */
+  visualX?: number;
+  visualY?: number;
 }
 
 /**
