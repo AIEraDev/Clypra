@@ -3,20 +3,27 @@ fn main() {
     println!("cargo:rerun-if-env-changed=FFMPEG_DIR");
     println!("cargo:rerun-if-env-changed=FFMPEG_STATIC");
 
-    // On macOS, tell the binary where to find bundled dylibs at runtime
-    // This sets the rpath so the app works when distributed
+    // On macOS, link required system libraries for static FFmpeg and set bundle rpath
     #[cfg(target_os = "macos")]
     {
         // Frameworks directory inside the .app bundle
         println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../Frameworks");
         println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../lib");
+
+        // System libraries required by static FFmpeg
+        println!("cargo:rustc-link-lib=z");
+        println!("cargo:rustc-link-lib=bz2");
+        println!("cargo:rustc-link-lib=iconv");
     }
 
-    // On Linux AppImage, libs sit next to the binary
+    // On Linux AppImage, libs sit next to the binary and link system libraries
     #[cfg(target_os = "linux")]
     {
         println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/../lib");
         println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
+
+        println!("cargo:rustc-link-lib=z");
+        println!("cargo:rustc-link-lib=m");
     }
 
     // FFmpeg static on Windows requires system libraries that vcpkg doesn't automatically pass downstream
