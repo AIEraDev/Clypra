@@ -2418,10 +2418,10 @@ pub(crate) async fn present_native_frame_internal(
             } else if is_playback_mode {
                 let notify = q.notify();
                 drop(q);
-                // In continuous playback, give in-flight lookahead up to 35ms to finish
+                // In continuous playback, give in-flight lookahead up to 75ms to finish
                 // rather than launching a competing cold decode that thrashes the decoder GOP.
                 let _ = tokio::time::timeout(
-                    std::time::Duration::from_millis(35),
+                    std::time::Duration::from_millis(75),
                     notify.notified(),
                 )
                 .await;
@@ -2431,7 +2431,7 @@ pub(crate) async fn present_native_frame_internal(
                 let notify = q.notify();
                 drop(q);
                 let _ = tokio::time::timeout(
-                    std::time::Duration::from_millis(35),
+                    std::time::Duration::from_millis(75),
                     notify.notified(),
                 )
                 .await;
