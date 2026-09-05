@@ -115,4 +115,30 @@ describe("TimelinePlacementEngine", () => {
       expect(trackIds.has(clip.trackId)).toBe(true);
     }
   });
+
+  it("preserves styleId, effectDefinition, and styleSnapshot when adding a text effect", async () => {
+    const mockScene = { effectLayers: [{ type: "gradient" }] };
+    const mockDef = { id: "gradient-punch", name: "Gradient Punch", scene: mockScene };
+
+    const res = await TimelinePlacementEngine.addToTimeline({
+      item: {
+        name: "Gradient Punch",
+        text: "CLYPRA",
+        presetType: "effect",
+        styleId: "gradient-punch",
+        styleSnapshot: mockScene,
+        effectDefinition: mockDef,
+      },
+      type: "text",
+    });
+
+    expect(res.success).toBe(true);
+    const clips = useTimelineStore.getState().clips;
+    const clip = clips.find((c) => c.kind === "text") as any;
+    expect(clip).toBeDefined();
+    expect(clip.styleId).toBe("gradient-punch");
+    expect(clip.styleSnapshot).toEqual(mockScene);
+    expect(clip.styleDefinition).toEqual(mockDef);
+    expect(clip.text).toBe("CLYPRA");
+  });
 });

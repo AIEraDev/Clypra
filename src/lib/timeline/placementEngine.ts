@@ -316,7 +316,7 @@ export class TimelinePlacementEngine {
           if (TEXT_PRESETS[presetName]) presetConfig = TEXT_PRESETS[presetName];
         }
 
-        const styleId = item.presetType === "effect" ? item.id : item.styleId;
+        const styleId = item.styleId ?? (item.presetType === "effect" ? item.id : undefined);
         let effectDefinition = item.effectDefinition;
         if (styleId && !effectDefinition) {
           effectDefinition = resolveTextEffectDefinition(

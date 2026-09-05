@@ -319,15 +319,13 @@ impl DecoderState {
         }
 
         let distance = target_pts - self.current_pts;
-        if distance > sequential_window {
-            return false;
-        }
+        let max_distance = if self.sequential_hits >= 3 {
+            sequential_window * 2
+        } else {
+            sequential_window
+        };
 
-        if self.sequential_hits >= 3 {
-            return distance <= sequential_window * 2;
-        }
-
-        true
+        distance <= max_distance
     }
 
     fn update_sequential(&mut self, target_pts: i64) {

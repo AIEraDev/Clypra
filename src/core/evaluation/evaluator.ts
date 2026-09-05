@@ -253,7 +253,9 @@ export function evaluateTimelineScene(
                 (catalogStyleDefinition as any)?.name ||
                 textClip.styleId ||
                 "Pinned Text Effect",
-              scene: textClip.styleSnapshot,
+              scene:
+                textClip.styleSnapshot ??
+                (catalogStyleDefinition as any)?.scene,
             } as any)
           : undefined;
       const styleTypography = resolveTextEffectTypography(styleDefinition);
