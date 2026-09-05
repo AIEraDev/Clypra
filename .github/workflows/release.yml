@@ -40,12 +40,44 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev patchelf xdg-utils \
             libva-dev \
-            libavutil-dev libavcodec-dev libavformat-dev \
-            libswscale-dev libswresample-dev \
-            libavdevice-dev libavfilter-dev libpostproc-dev \
             build-essential pkg-config libssl-dev \
             libclang-dev libxdo-dev cmake \
             libasound2-dev
+
+      - name: Cache Static FFmpeg (Linux)
+        if: matrix.platform == 'ubuntu-24.04'
+        id: cache-ffmpeg-linux
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ffmpeg-static
+          key: ffmpeg-8.0-linux-static-v2-${{ matrix.target }}
+
+      - name: Build Static FFmpeg (Linux)
+        if: matrix.platform == 'ubuntu-24.04' && steps.cache-ffmpeg-linux.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/ffmpeg-src
+          curl -sL https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz | tar -xJ --strip-components=1 -C /tmp/ffmpeg-src
+          cd /tmp/ffmpeg-src
+          ./configure \
+            --prefix="${{ runner.temp }}/ffmpeg-static" \
+            --enable-static \
+            --disable-shared \
+            --enable-pic \
+            --disable-programs \
+            --disable-doc \
+            --disable-network \
+            --disable-autodetect \
+            --disable-indevs \
+            --disable-outdevs \
+            --enable-vaapi
+          make -j$(nproc) install
+          rm -rf /tmp/ffmpeg-src
+
+      - name: Configure FFmpeg Environment (Linux)
+        if: matrix.platform == 'ubuntu-24.04'
+        run: |
+          echo "FFMPEG_DIR=${{ runner.temp }}/ffmpeg-static" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=${{ runner.temp }}/ffmpeg-static/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> $GITHUB_ENV
 
       # ── macOS ──────────────────────────────────────────────────────────────
       # whisper-rs-sys builds ggml via cmake. The only reliable way to set
@@ -54,14 +86,45 @@ jobs:
       # CMAKE_OSX_DEPLOYMENT_TARGET through CARGO_BUILD_TARGET_DIR cmake
       # passthrough. We use a .cargo/config.toml [env] block (committed) to
       # guarantee cmake sees the flag, and also set it here for safety.
-      - name: Install FFmpeg (macOS)
+      - name: Cache Static FFmpeg (macOS)
+        if: matrix.platform == 'macos-latest'
+        id: cache-ffmpeg-macos
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ffmpeg-static
+          key: ffmpeg-8.0-darwin-static-v2-${{ matrix.target }}
+
+      - name: Build Static FFmpeg (macOS)
+        if: matrix.platform == 'macos-latest' && steps.cache-ffmpeg-macos.outputs.cache-hit != 'true'
+        run: |
+          brew install cmake pkg-config
+          mkdir -p /tmp/ffmpeg-src
+          curl -sL https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz | tar -xJ --strip-components=1 -C /tmp/ffmpeg-src
+          cd /tmp/ffmpeg-src
+          ./configure \
+            --prefix="${{ runner.temp }}/ffmpeg-static" \
+            --enable-static \
+            --disable-shared \
+            --enable-pic \
+            --disable-programs \
+            --disable-doc \
+            --disable-network \
+            --disable-autodetect \
+            --disable-indevs \
+            --disable-outdevs \
+            --enable-videotoolbox \
+            --enable-audiotoolbox \
+            --disable-xlib \
+            --disable-libxcb \
+            --disable-indev=xcbgrab
+          make -j$(sysctl -n hw.ncpu) install
+          rm -rf /tmp/ffmpeg-src
+
+      - name: Configure FFmpeg Environment (macOS)
         if: matrix.platform == 'macos-latest'
         run: |
-          brew install ffmpeg cmake pkg-config
-          BREW_PREFIX=$(brew --prefix)
-          FFMPEG_PREFIX=$(brew --prefix ffmpeg)
-          echo "FFMPEG_DIR=$FFMPEG_PREFIX" >> $GITHUB_ENV
-          echo "PKG_CONFIG_PATH=$FFMPEG_PREFIX/lib/pkgconfig:$BREW_PREFIX/lib/pkgconfig" >> $GITHUB_ENV
+          echo "FFMPEG_DIR=${{ runner.temp }}/ffmpeg-static" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=${{ runner.temp }}/ffmpeg-static/lib/pkgconfig" >> $GITHUB_ENV
           echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> $GITHUB_ENV
           echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> $GITHUB_ENV
           echo "CMAKE_OSX_DEPLOYMENT_TARGET=11.0" >> $GITHUB_ENV

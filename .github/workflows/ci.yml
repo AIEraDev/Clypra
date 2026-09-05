@@ -39,8 +39,6 @@ jobs:
   test-rust:
     name: Test Rust Backend
     runs-on: ubuntu-latest
-    env:
-      PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig
 
     steps:
       - name: Checkout repository
@@ -49,30 +47,51 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install FFmpeg dependencies
+      - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libavcodec-dev \
-            libavformat-dev \
-            libavutil-dev \
-            libavfilter-dev \
-            libavdevice-dev \
-            libswscale-dev \
-            libswresample-dev \
-            libasound2-dev \
-            libpostproc-dev \
-            libclang-dev \
-            pkg-config \
             libwebkit2gtk-4.1-dev \
-            build-essential \
-            curl \
-            wget \
-            file \
-            libxdo-dev \
-            libssl-dev \
             libayatana-appindicator3-dev \
-            librsvg2-dev
+            librsvg2-dev patchelf xdg-utils \
+            libva-dev \
+            build-essential pkg-config libssl-dev \
+            libclang-dev libxdo-dev cmake \
+            libasound2-dev \
+            curl wget file
+
+      - name: Cache Static FFmpeg (Linux)
+        id: cache-ffmpeg-linux
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ffmpeg-static
+          key: ffmpeg-8.0-linux-static-v2-x86_64-unknown-linux-gnu
+
+      - name: Build Static FFmpeg (Linux)
+        if: steps.cache-ffmpeg-linux.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/ffmpeg-src
+          curl -sL https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz | tar -xJ --strip-components=1 -C /tmp/ffmpeg-src
+          cd /tmp/ffmpeg-src
+          ./configure \
+            --prefix="${{ runner.temp }}/ffmpeg-static" \
+            --enable-static \
+            --disable-shared \
+            --enable-pic \
+            --disable-programs \
+            --disable-doc \
+            --disable-network \
+            --disable-autodetect \
+            --disable-indevs \
+            --disable-outdevs \
+            --enable-vaapi
+          make -j$(nproc) install
+          rm -rf /tmp/ffmpeg-src
+
+      - name: Configure FFmpeg Environment (Linux)
+        run: |
+          echo "FFMPEG_DIR=${{ runner.temp }}/ffmpeg-static" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=${{ runner.temp }}/ffmpeg-static/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig" >> $GITHUB_ENV
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2

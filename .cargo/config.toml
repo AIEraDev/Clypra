@@ -1,0 +1,8 @@
+# Cargo build configuration
+# Automatically configure FFMPEG_DIR and PKG_CONFIG_PATH for builds from project root
+
+[env]
+CMAKE_OSX_DEPLOYMENT_TARGET = "11.0"
+MACOSX_DEPLOYMENT_TARGET = "11.0"
+FFMPEG_DIR = { value = "src-tauri/ffmpeg-static", relative = true }
+PKG_CONFIG_PATH = { value = "src-tauri/ffmpeg-static/lib/pkgconfig", relative = true }
