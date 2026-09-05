@@ -712,8 +712,13 @@ export const NativeProgramPreview: React.FC = () => {
       renderQueued = false;
       try {
         const state = renderStateRef.current;
-        const scene = evaluateTimelineSceneCached(
+        const frameRate = state.project?.frameRate ?? 30;
+        const renderTime = getFrameStartTime(
           state.clock.getState().time,
+          frameRate,
+        );
+        const scene = evaluateTimelineSceneCached(
+          renderTime,
           state.clips,
           state.tracks,
           state.mediaAssets,
@@ -1150,6 +1155,7 @@ export const NativeProgramPreview: React.FC = () => {
       request: NativeFrameRequest;
     } | null = null;
     let nativePlaybackRenderFailed = false;
+    let nativePlaybackRenderRetryAt = 0;
     let nativeContinuousFailureStreak = 0;
     let nativeDroppedFrameCount = 0;
     let nativeContinuousBlockedRevision = "";
@@ -1590,7 +1596,7 @@ export const NativeProgramPreview: React.FC = () => {
     const prefetchUpcomingNativeText = (currentFrame: number): void => {
       const state = renderStateRef.current;
       const project = state.project;
-      if (!project || state.clock.state !== "playing" || !isTauriRuntime()) {
+      if (!project || !isTauriRuntime()) {
         return;
       }
 
@@ -1623,7 +1629,7 @@ export const NativeProgramPreview: React.FC = () => {
         .filter(
           (clip) =>
             isRasterClip(clip) &&
-            clip.startTime > currentTime &&
+            clip.startTime + clip.duration > currentTime &&
             clip.startTime <= horizonTime,
         )
         .sort((left, right) => left.startTime - right.startTime)[0];
@@ -1632,7 +1638,7 @@ export const NativeProgramPreview: React.FC = () => {
       const targetFrame = Math.min(
         durationFrames - 1,
         Math.max(
-          currentFrame + 1,
+          currentFrame,
           Math.ceil(upcomingRasterClip.startTime * frameRate),
         ),
       );
@@ -1689,8 +1695,7 @@ export const NativeProgramPreview: React.FC = () => {
         if (
           !isActive ||
           current.project?.id !== project.id ||
-          current.epoch !== state.epoch ||
-          current.clock.state !== "playing"
+          current.epoch !== state.epoch
         ) {
           return;
         }
@@ -1726,7 +1731,7 @@ export const NativeProgramPreview: React.FC = () => {
       nativeTextPrefetchTimer = window.setTimeout(() => {
         nativeTextPrefetchTimer = null;
         const current = renderStateRef.current;
-        if (current.clock.state !== "playing") return;
+        if (!current.project) return;
         prefetchUpcomingNativeText(
           getFrameIndexAtTime(current.clock.time, current.clock.frameRate),
         );
@@ -1983,9 +1988,7 @@ export const NativeProgramPreview: React.FC = () => {
         const nativeActiveSmartClips = renderClips.filter(
           (clip): clip is SmartOverlayClip =>
             clip.kind === "smart-overlay" &&
-            frameStartTime >= clip.startTime &&
-            // Audit 3.5 fix: use strict < to match the evaluator's boundary convention
-            // (startTime <= evalTime < clipEnd). Was <= which rendered overlays one extra frame.
+            clip.startTime < frameStartTime + (1 / frameRate) - 1e-4 &&
             frameStartTime < clip.startTime + clip.duration,
         );
         const smartOverlayStartedAt = performance.now();
@@ -2048,7 +2051,7 @@ export const NativeProgramPreview: React.FC = () => {
         // surface several seconds before a text/media boundary. Decoder cold
         // starts are handled during project/session initialization; text and
         // other WebView assets use their isolated prewarm paths below.
-        if (isPlaying) scheduleUpcomingNativeTextPrefetch();
+        scheduleUpcomingNativeTextPrefetch();
         // Present the frame that was actually evaluated. Building a second
         // look-ahead scene here doubles WebView rasterization and IPC exactly
         // when the renderer is already behind. Native queue/prefetch remains
@@ -2281,6 +2284,17 @@ export const NativeProgramPreview: React.FC = () => {
                 generation: targetGeneration,
               };
 
+              if (!isPlaying && nativeSurfaceUsable && !qualificationForcesWebView) {
+                ensureNativePlaybackRenderSnapshot(requestToPresent);
+              }
+
+              if (
+                nativePlaybackRenderFailed &&
+                performance.now() >= nativePlaybackRenderRetryAt
+              ) {
+                nativePlaybackRenderFailed = false;
+              }
+
               const persistentNativePlaybackEligible =
                 isPlaying &&
                 nativeSurfaceUsable &&
@@ -2316,6 +2330,7 @@ export const NativeProgramPreview: React.FC = () => {
                       error instanceof Error ? error.message : String(error);
                     if (!msg.includes("not configured")) {
                       nativePlaybackRenderFailed = true;
+                      nativePlaybackRenderRetryAt = performance.now() + 1000;
                     }
                     nativePlaybackRenderSnapshotKey = "";
                     lastNativePlaybackRequestKey = "";

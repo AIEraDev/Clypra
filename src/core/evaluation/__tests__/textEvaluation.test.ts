@@ -489,4 +489,41 @@ describe("Text Layer Evaluation", () => {
     const sceneFarPast = evaluateScene(5.01, [textClip as any], tracks, [], project);
     expect(sceneFarPast.visualLayers).toHaveLength(0);
   });
+
+  it("evaluates text clip as active and visible (opacity > 0) when paused at frame start boundary even with sub-frame start offset", () => {
+    const textClip: TextClip = {
+      id: "paused-frame-text",
+      kind: "text",
+      trackId: "t1",
+      mediaId: "",
+      startTime: 6.00005, // Slight sub-millisecond float drift on frame 180 (6.0s) boundary
+      duration: 5,
+      trimIn: 0,
+      trimOut: 5,
+      x: 100,
+      y: 200,
+      width: 800,
+      height: 100,
+      opacity: 1.0,
+      rotation: 0,
+      text: "Paused Frame Text",
+      fontSize: 48,
+      fontFamily: "Inter",
+      color: "#ffffff",
+      fontWeight: "normal",
+      fontStyle: "normal",
+      align: "center",
+      valign: "middle",
+      lineHeight: 1.2,
+      letterSpacing: 0,
+      paddingX: 16,
+      paddingY: 16,
+    };
+
+    // Evaluated at frame 180 start (6.0000s)
+    const scene = evaluateScene(6.0, [textClip as any], tracks, [], project);
+    expect(scene.visualLayers).toHaveLength(1);
+    expect(scene.visualLayers[0].clipId).toBe("paused-frame-text");
+    expect(scene.visualLayers[0].opacity).toBe(1.0);
+  });
 });

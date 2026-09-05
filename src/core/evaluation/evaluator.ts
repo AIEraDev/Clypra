@@ -119,9 +119,15 @@ export function evaluateTimelineScene(
     evalTime,
   );
 
+  const frameRate = project?.frameRate || 30;
+  const frameDuration = 1 / frameRate;
+
   const activeClips = compositorClips.filter((clip) => {
     const clipEnd = getClipEndTime(clip);
-    const isInTimeBounds = clip.startTime <= evalTime && evalTime < clipEnd;
+    // Allow boundary tolerance (1e-4s = 0.1ms) to guard against IEEE-754 precision drift
+    // and sub-millisecond timer variance on frame boundaries.
+    const isInTimeBounds =
+      clip.startTime <= evalTime + 1e-4 && evalTime < clipEnd;
     const track = trackMap.get(clip.trackId);
     const isVisible = track?.visible ?? true;
     const isInTransition = transitionWindows.some(
@@ -140,7 +146,7 @@ export function evaluateTimelineScene(
       return (
         c.kind === "filter" &&
         (track?.visible ?? true) &&
-        c.startTime <= evalTime &&
+        c.startTime <= evalTime + 1e-4 &&
         evalTime < c.startTime + c.duration
       );
     })
@@ -153,7 +159,7 @@ export function evaluateTimelineScene(
       return (
         (c.kind === "video-effect" || c.kind === "body-effect") &&
         (track?.visible ?? true) &&
-        c.startTime <= evalTime &&
+        c.startTime <= evalTime + 1e-4 &&
         evalTime < c.startTime + c.duration
       );
     })
@@ -167,7 +173,7 @@ export function evaluateTimelineScene(
 
   for (let i = 0; i < sortedClips.length; i++) {
     const clip = sortedClips[i];
-    const offset = evalTime - clip.startTime;
+    const offset = Math.max(0, evalTime - clip.startTime);
     const kf = (clip as any).keyframes || {};
 
     let evalX =
@@ -294,6 +300,7 @@ export function evaluateTimelineScene(
         clip.duration,
         textClip.entranceAnimation,
         textClip.exitAnimation,
+        frameDuration,
       );
 
       // Apply animation opacity (multiply with transition opacity)
@@ -308,7 +315,7 @@ export function evaluateTimelineScene(
       const finalWidth = evalW * animationState.scale;
       const finalHeight = evalH * animationState.scale;
 
-      const karaokeTime = evalTime - clip.startTime;
+      const karaokeTime = Math.max(0, evalTime - clip.startTime);
       const karaokeRuns = textClip.words?.length
         ? textClip.words.map((word, wordIndex) => ({
             text:

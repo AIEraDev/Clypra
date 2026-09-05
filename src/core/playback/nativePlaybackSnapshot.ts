@@ -25,14 +25,21 @@ export function buildNativePlaybackSnapshotKey(request: NativeFrameRequest): str
     colorPolicy: request.colorPolicy,
     project: {
       schemaVersion: project.schemaVersion,
-      projectRevision: project.projectRevision,
       frameRate: project.frameRate,
       canvasWidth: project.canvasWidth,
       canvasHeight: project.canvasHeight,
       clearColor: project.clearColor,
-      videoLayers: project.videoLayers.map(({ sourceTime: _sourceTime, x: _x, y: _y, width: _width, height: _height, rotation: _rotation, opacity: _opacity, zIndex: _zIndex, ...layer }) => layer),
+      videoLayers: project.videoLayers.map((layer) => ({
+        layerId: layer.layerId,
+        assetId: layer.assetId,
+        videoPath: layer.videoPath,
+      })),
       transition: project.transition
-        ? (({ progress: _progress, ...transition }) => transition)(project.transition)
+        ? {
+            outgoingLayer: project.transition.outgoingLayer,
+            incomingLayer: project.transition.incomingLayer,
+            transitionType: project.transition.transitionType,
+          }
         : null,
     },
   });

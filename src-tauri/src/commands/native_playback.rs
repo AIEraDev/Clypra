@@ -622,9 +622,6 @@ impl NativePlaybackRuntime {
     }
 
     pub fn configure(&mut self, plan: PlaybackPlan) -> Result<PlaybackState, NativeCoreError> {
-        if let Some(render_session) = self.render_session.take() {
-            render_session.stop();
-        }
         let session = PlaybackSession::new(plan)?;
         let state = session.state();
         self.session = Some(session);
@@ -823,6 +820,9 @@ pub async fn configure_native_playback_render(
             queue.inner().clone().lock().await.reset();
         }
     }
+    let canvas_w = snapshot.project.canvas_width;
+    let canvas_h = snapshot.project.canvas_height;
+    let snapshot_clone = snapshot.clone();
     // Acquire leases only after the previous revision has released its pins;
     // this prevents a project switch from temporarily growing the preview
     // decoder pool beyond its intended capacity.
@@ -848,6 +848,24 @@ pub async fn configure_native_playback_render(
     };
     if should_start {
         runtime.start_render(app.clone());
+    } else {
+        // Pre-warm the lookahead queue while paused or settling so when Play is triggered,
+        // the initial frames are already resident in the queue.
+        crate::commands::native_preview::schedule_lookahead_predecode(app.clone(), snapshot_clone, 16);
+    }
+
+    let target_format = if let Some(surface_runtime) = app.try_state::<Arc<std::sync::Mutex<crate::commands::native_surface::NativeSurfaceRuntime>>>() {
+        surface_runtime.lock().ok().and_then(|s| s.configured_format())
+    } else {
+        None
+    }.unwrap_or(wgpu::TextureFormat::Rgba8UnormSrgb);
+
+    if let Some(preview_state) = app.try_state::<Arc<tokio::sync::Mutex<crate::wgpu_compositor::NativePreviewSession>>>() {
+        let preview_state_arc = preview_state.inner().clone();
+        tokio::spawn(async move {
+            let mut session = preview_state_arc.lock().await;
+            session.warmup_gpu_pipelines(canvas_w, canvas_h, target_format);
+        });
     }
     Ok(())
 }

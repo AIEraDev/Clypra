@@ -249,11 +249,32 @@ impl NativePreviewSession {
         // Keep the session bounded when a window is resized repeatedly or a
         // diagnostic target changes dimensions. The newest entry is the one
         // currently used by the caller; old GPU graphs can be released.
-        const MAX_CACHED_COMPOSITORS: usize = 3;
+        const MAX_CACHED_COMPOSITORS: usize = 4;
         if self.compositors.len() > MAX_CACHED_COMPOSITORS {
             self.compositors.remove(0);
         }
         &self.compositors[self.compositors.len().saturating_sub(1)].compositor
+    }
+
+    /// Pre-compile and prime Metal/wgpu render pipelines for the project canvas
+    /// dimensions and surface target format. Calling this during session opening
+    /// or surface configuration completely eliminates the ~70ms first-frame
+    /// compilation spike from the playback presentation path.
+    pub fn warmup_gpu_pipelines(
+        &mut self,
+        width: u32,
+        height: u32,
+        target_format: wgpu::TextureFormat,
+    ) {
+        if width == 0 || height == 0 {
+            return;
+        }
+        // Pre-compile the surface presentation compositor (5 pipelines: normal, additive, multiply, screen, transition)
+        let _ = self.get_or_create_compositor(width, height, target_format);
+        // Pre-compile the offscreen/readback compositor if distinct
+        if target_format != wgpu::TextureFormat::Rgba8UnormSrgb {
+            let _ = self.get_or_create_compositor(width, height, wgpu::TextureFormat::Rgba8UnormSrgb);
+        }
     }
 
     /// Convert one decoded NV12 frame into a GPU texture for timeline compositing.

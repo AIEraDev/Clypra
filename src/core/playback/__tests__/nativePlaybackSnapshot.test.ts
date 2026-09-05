@@ -77,6 +77,27 @@ describe("native playback snapshot identity", () => {
     expect(emptyOverlays).toBe(first);
   });
 
+  it("keeps the structural snapshot key unchanged across projectRevision bumps and layer styling edits", () => {
+    const first = buildNativePlaybackSnapshotKey(baseRequest);
+    const edited = buildNativePlaybackSnapshotKey({
+      ...baseRequest,
+      project: {
+        ...baseRequest.project,
+        projectRevision: "project:rev-99999",
+        videoLayers: [{
+          ...baseRequest.project.videoLayers[0],
+          x: 100,
+          y: -200,
+          rotation: 45,
+          opacity: 0.5,
+          blendMode: "screen",
+          colorGrade: { contrast: 1.5 },
+        }],
+      },
+    } as unknown as NativeFrameRequest);
+    expect(edited).toBe(first);
+  });
+
   it("reconfigures when video stream layers change", () => {
     const first = buildNativePlaybackSnapshotKey(baseRequest);
     const differentVideo = buildNativePlaybackSnapshotKey({

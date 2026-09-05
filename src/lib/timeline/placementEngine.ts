@@ -40,6 +40,7 @@ import type { Clip, MediaAsset, TrackType } from "@/types";
 import { resolveTextTemplateArtifact } from "@clypra-studio/engine";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { getPreviewInteractionCoordinator } from "@/core/interactions/PreviewInteractionCoordinator";
+import { getFrameStartTime } from "@/lib/utils/frameTime";
 
 export interface TimelinePlacementOptions {
   item: any;
@@ -111,11 +112,13 @@ export class TimelinePlacementEngine {
     try {
       const timelineState = useTimelineStore.getState();
       const projectState = useProjectStore.getState();
-      const playheadTime =
+      const project = projectState.project;
+      const frameRate = project?.frameRate || 30;
+      const rawPlayheadTime =
         options.playheadTime ?? getPlaybackClock().time ?? 0;
+      const playheadTime = getFrameStartTime(rawPlayheadTime, frameRate);
       const sequenceEndTime = timelineState.getTimelineEndTime();
       const { tracks, clips } = timelineState;
-      const project = projectState.project;
 
       // ─── 1. Media Assets (Video, Audio, Image) ──────────────────────────────
       if (type === "media") {
