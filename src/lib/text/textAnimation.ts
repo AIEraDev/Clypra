@@ -55,12 +55,22 @@ export interface AnimationState {
 /**
  * Calculate animation progress (0.0 to 1.0) for a given time within clip duration
  */
-export function calculateAnimationProgress(currentTime: number, clipStartTime: number, clipDuration: number, animation: TextAnimation | undefined, isEntrance: boolean): number {
+export function calculateAnimationProgress(
+  currentTime: number,
+  clipStartTime: number,
+  clipDuration: number,
+  animation: TextAnimation | undefined,
+  isEntrance: boolean,
+  frameDuration: number = 1 / 30,
+): number {
   if (!animation || animation.type === "none" || animation.duration === 0) {
     return 1.0; // No animation, fully visible
   }
 
-  const relativeTime = currentTime - clipStartTime;
+  const isWithinStartFrame =
+    currentTime < clipStartTime && clipStartTime - currentTime < frameDuration;
+  const effectiveTime = isWithinStartFrame ? clipStartTime : currentTime;
+  const relativeTime = effectiveTime - clipStartTime;
 
   if (isEntrance) {
     // Entrance: animate from 0 to animation.duration
@@ -97,7 +107,14 @@ export function applyEasing(progress: number, easing: TextAnimation["easing"]): 
 /**
  * Calculate the animation state for a text clip at a specific time
  */
-export function calculateTextAnimationState(currentTime: number, clipStartTime: number, clipDuration: number, entranceAnimation: TextAnimation | undefined, exitAnimation: TextAnimation | undefined): AnimationState {
+export function calculateTextAnimationState(
+  currentTime: number,
+  clipStartTime: number,
+  clipDuration: number,
+  entranceAnimation: TextAnimation | undefined,
+  exitAnimation: TextAnimation | undefined,
+  frameDuration: number = 1 / 30,
+): AnimationState {
   const state: AnimationState = {
     opacity: 1.0,
     translateX: 0,
@@ -106,7 +123,10 @@ export function calculateTextAnimationState(currentTime: number, clipStartTime: 
     operation: "render",
   };
 
-  const relativeTime = currentTime - clipStartTime;
+  const isWithinStartFrame =
+    currentTime < clipStartTime && clipStartTime - currentTime < frameDuration;
+  const effectiveTime = isWithinStartFrame ? clipStartTime : currentTime;
+  const relativeTime = effectiveTime - clipStartTime;
 
   // Before clip starts or after clip ends
   if (relativeTime < 0 || relativeTime > clipDuration) {
@@ -116,7 +136,14 @@ export function calculateTextAnimationState(currentTime: number, clipStartTime: 
 
   // Calculate entrance animation
   if (entranceAnimation && entranceAnimation.type !== "none") {
-    const entranceProgress = calculateAnimationProgress(currentTime, clipStartTime, clipDuration, entranceAnimation, true);
+    const entranceProgress = calculateAnimationProgress(
+      effectiveTime,
+      clipStartTime,
+      clipDuration,
+      entranceAnimation,
+      true,
+      frameDuration,
+    );
     const easedProgress = applyEasing(entranceProgress, entranceAnimation.easing);
 
     if (easedProgress < 1.0) {
@@ -128,7 +155,14 @@ export function calculateTextAnimationState(currentTime: number, clipStartTime: 
 
   // Calculate exit animation
   if (exitAnimation && exitAnimation.type !== "none") {
-    const exitProgress = calculateAnimationProgress(currentTime, clipStartTime, clipDuration, exitAnimation, false);
+    const exitProgress = calculateAnimationProgress(
+      effectiveTime,
+      clipStartTime,
+      clipDuration,
+      exitAnimation,
+      false,
+      frameDuration,
+    );
     const easedProgress = applyEasing(exitProgress, exitAnimation.easing);
 
     if (easedProgress < 1.0) {
