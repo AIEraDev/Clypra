@@ -1508,6 +1508,11 @@ impl FrameRequest {
         cache_request.scrub_velocity_px_per_second = None;
         cache_request.requested_at_ms = None;
 
+        // Project revision bumps and compositor clear colors/transitions do not alter raw decoded frames.
+        cache_request.project.project_revision.clear();
+        cache_request.project.clear_color = [0.0, 0.0, 0.0, 1.0];
+        cache_request.project.transition = None;
+
         // Normalise time representations to canonical frame indices!
         // Clock tick jitter and timescale variations (e.g. 1000 vs 1_000_000 vs audio sample rate)
         // must not produce distinct cache keys for the exact same frame index.
@@ -1516,6 +1521,18 @@ impl FrameRequest {
         for layer in &mut cache_request.project.video_layers {
             layer.source_time.ticks = 0;
             layer.source_time.timescale = 1;
+            // Video decoding produces raw pixel buffers independent of layer transform,
+            // opacity, z-index, blending, or color grading which are applied in the GPU compositor.
+            layer.x = 0.0;
+            layer.y = 0.0;
+            layer.width = 0.0;
+            layer.height = 0.0;
+            layer.rotation = 0.0;
+            layer.opacity = 1.0;
+            layer.z_index = 0;
+            layer.blend_mode.clear();
+            layer.color_grade = None;
+            layer.body_effect = None;
         }
 
         // Overlay layers (raster_layers and text_layers) are dynamically composited on top of
@@ -1654,6 +1671,23 @@ mod tests {
     }
 
     #[test]
+    fn request_cache_key_ignores_project_revision_and_transform_metadata() {
+        let first = request();
+        let mut second = first.clone();
+        second.project.project_revision = "project-rev-999".to_string();
+        second.project.clear_color = [1.0, 0.0, 0.0, 1.0];
+        second.project.video_layers[0].x = 150.0;
+        second.project.video_layers[0].y = -200.0;
+        second.project.video_layers[0].rotation = 45.0;
+        second.project.video_layers[0].opacity = 0.5;
+        second.project.video_layers[0].blend_mode = "screen".to_string();
+        second.project.video_layers[0].z_index = 4;
+        second.project.video_layers[0].color_grade = Some(serde_json::from_str("{}").unwrap());
+
+        assert_eq!(first.cache_key().unwrap(), second.cache_key().unwrap());
+    }
+
+    #[test]
     fn request_validation_rejects_unknown_seek_modes() {
         let mut invalid = request();
         invalid.mode = Some("unknown".to_string());
@@ -1671,6 +1705,7 @@ mod tests {
     fn registered_raster_reference_can_omit_pixel_payload() {
         let mut value = request();
         value.project.raster_layers = vec![RasterLayerSnapshot {
+            layer_id: None,
             asset_id: "native-text:title:abcd1234".to_string(),
             rgba: None,
             width: 64,
@@ -1711,6 +1746,7 @@ mod tests {
 
         let mut raster_at_limit = request();
         let raster_layer = RasterLayerSnapshot {
+            layer_id: None,
             asset_id: "native-raster".to_string(),
             rgba: None,
             width: 64,
@@ -1746,6 +1782,7 @@ mod tests {
         value.project.video_layers.clear();
         value.project.raster_layers = vec![
             RasterLayerSnapshot {
+                layer_id: None,
                 asset_id: "clip-a".to_string(),
                 rgba: None,
                 width: 64,
@@ -1763,6 +1800,7 @@ mod tests {
                 is_text: false,
             },
             RasterLayerSnapshot {
+                layer_id: None,
                 asset_id: "clip-b".to_string(),
                 rgba: None,
                 width: 64,
@@ -1799,6 +1837,7 @@ mod tests {
     fn text_layers_validation_rejects_nan_and_enforces_caps() {
         let mut value = request();
         let valid_text_layer = TextLayerSnapshot {
+            layer_id: None,
             text: "Hello Clypra".to_string(),
             font_id: "inter".to_string(),
             font_size: 48.0,
