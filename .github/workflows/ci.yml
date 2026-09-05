@@ -56,7 +56,7 @@ jobs:
             librsvg2-dev patchelf xdg-utils \
             libva-dev \
             build-essential pkg-config libssl-dev \
-            libclang-dev libxdo-dev cmake \
+            libclang-dev libxdo-dev cmake nasm \
             libasound2-dev \
             curl wget file
 
