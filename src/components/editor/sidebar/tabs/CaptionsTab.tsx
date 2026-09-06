@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useCallback, useEffect } from "react";
 import {
   Plus,
   Download,
@@ -10,10 +10,11 @@ import {
   Settings,
   Type,
   Wand2,
-  Layers,
-  Split,
   Check,
   RotateCcw,
+  Palette,
+  Star,
+  ChevronRight,
 } from "lucide-react";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
@@ -21,10 +22,13 @@ import { useHistoryStore } from "@/store/historyStore";
 import { useTransportControls } from "@/hooks/usePlaybackClock";
 import { useCaptionStore } from "@/store/captionStore";
 import { useUIStore } from "@/store/uiStore";
-import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
-import { useTemplateStore } from "@/features/text-templates/templateStore";
+import { ClypraColorPicker } from "@clypra/ui-color-picker";
+import { ClypraSlider, ClypraProgressBar } from "@/components/ui/primitives";
 import { parseSubtitlesAsync } from "@/features/subtitles/parser";
-import { CAPTION_STYLE_PRESETS, getCaptionPresetById } from "@/features/subtitles/captionPresets";
+import {
+  type CaptionStyleDefinition,
+  getAllCaptionStyles,
+} from "@/features/subtitles/captionStyles";
 import {
   segmentWordTimestamps,
   type CaptionPacingPreset,
@@ -61,7 +65,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { platform } from "@/core/platform";
 import type { TabProps } from "../types";
 
-export type CaptionStylingTier = "plain" | "effects" | "templates";
+
+export type CaptionStylingTier = "plain" | "styles";
 
 const FONT_OPTIONS = [
   "Inter Variable",
@@ -72,21 +77,6 @@ const FONT_OPTIONS = [
   "Arial",
 ];
 
-const BUILTIN_CAPTION_EFFECTS = [
-  { id: "neon-glow", name: "Neon Glow", previewColor: "#00FFFF", stroke: "#0055FF" },
-  { id: "yellow-bold", name: "Classic Yellow", previewColor: "#FFE600", stroke: "#000000" },
-  { id: "gradient-sunset", name: "Sunset Pop", previewColor: "#FF5E3A", stroke: "#8A2387" },
-  { id: "metallic-gold", name: "Chrome Gold", previewColor: "#FFD700", stroke: "#B8860B" },
-  { id: "minimal-clean", name: "Minimal White", previewColor: "#FFFFFF", stroke: "rgba(0,0,0,0.6)" },
-  { id: "black-box", name: "Dark Box", previewColor: "#FFFFFF", bg: "rgba(0,0,0,0.8)" },
-];
-
-const BUILTIN_CAPTION_TEMPLATES = [
-  { id: "word-pop", name: "Word Pop", desc: "Dynamic scale bounce on each word" },
-  { id: "karaoke-glow", name: "Karaoke Highlight", desc: "Active word highlights as spoken" },
-  { id: "badge-lower-third", name: "Pill Badge", desc: "Rounded badge container with subtitle text" },
-  { id: "minimal-slide", name: "Minimal Slide", desc: "Smooth slide-in subtitle animation" },
-];
 
 export const CaptionsTab: React.FC<TabProps> = () => {
   const {
@@ -109,9 +99,10 @@ export const CaptionsTab: React.FC<TabProps> = () => {
   const [generationProgress, setGenerationProgress] = useState<string | null>(null);
 
   // Styling Tier state
-  const [stylingTier, setStylingTier] = useState<CaptionStylingTier>("plain");
+  const [stylingTier, setStylingTier] = useState<CaptionStylingTier>("styles");
   const [applyToAll, setApplyToAll] = useState(true);
   const [pacingPreset, setPacingPreset] = useState<CaptionPacingPreset>("standard");
+  const [selectedStyleId, setSelectedStyleId] = useState<string>("classic-yellow");
 
   // Plain Text custom properties state
   const [fontFamily, setFontFamily] = useState("Outfit Variable");
@@ -233,52 +224,48 @@ export const CaptionsTab: React.FC<TabProps> = () => {
     broadcastStyleUpdate(patch, "Customize Caption Typography");
   };
 
-  // 1-Click Preset selection
-  const handleApplyPreset = (presetId: string) => {
-    const preset = getCaptionPresetById(presetId);
-    if (!preset) return;
+  // Apply a full CaptionStyleDefinition to all caption clips
+  const handleApplyCaptionStyle = useCallback(
+    (style: CaptionStyleDefinition) => {
+      setSelectedStyleId(style.id);
+      broadcastStyleUpdate(style.patch, `Apply Caption Style: ${style.name}`);
 
-    setFontFamily(preset.fontFamily);
-    setFontSize(preset.fontSize);
-    setFillColor(preset.fillColor);
-    setFontWeight(preset.bold ? 700 : 400);
-
-    if (preset.strokeColor && preset.strokeWidth) {
-      setHasStroke(true);
-      setStrokeColor(preset.strokeColor);
-      setStrokeWidth(preset.strokeWidth);
-    } else {
-      setHasStroke(false);
-    }
-
-    if (preset.backgroundColor) {
-      setHasBackground(true);
-      setBackgroundColor(preset.backgroundColor);
-    } else {
-      setHasBackground(false);
-    }
-
-    applyPlainTextCustomization({
-      fontFamily: preset.fontFamily,
-      fontSize: preset.fontSize,
-      color: preset.fillColor,
-      fontWeight: preset.bold ? 700 : 400,
-      stroke: preset.strokeColor ? { color: preset.strokeColor, width: preset.strokeWidth || 3 } : undefined,
-      background: preset.backgroundColor
-        ? { color: preset.backgroundColor, padding: 8, borderRadius: 6 }
-        : undefined,
-    });
-  };
-
-  // Apply Text Effect
-  const handleApplyTextEffect = (effectId: string) => {
-    broadcastStyleUpdate({ styleId: effectId }, `Apply Text Effect: ${effectId}`);
-  };
-
-  // Apply Motion Template
-  const handleApplyTemplate = (templateId: string) => {
-    broadcastStyleUpdate({ templateId }, `Apply Motion Template: ${templateId}`);
-  };
+      // Sync the plain-text controls to match this style (for round-trip editing)
+      if (style.patch.fontFamily) setFontFamily(style.patch.fontFamily);
+      if (style.patch.fontSize) setFontSize(style.patch.fontSize);
+      if (style.patch.fontWeight !== undefined) setFontWeight(style.patch.fontWeight);
+      if (style.patch.color) setFillColor(style.patch.color);
+      if (style.patch.textTransform) setUppercase(style.patch.textTransform === "uppercase");
+      if (style.patch.align) setAlign(style.patch.align as any);
+      if (style.patch.valign)
+        setVerticalPosition(style.patch.valign === "middle" ? "center" : (style.patch.valign as any));
+      if (style.patch.stroke) {
+        setHasStroke(true);
+        setStrokeColor(style.patch.stroke.color);
+        setStrokeWidth(style.patch.stroke.width);
+      } else if (style.patch.stroke === undefined && "stroke" in style.patch) {
+        setHasStroke(false);
+      }
+      if (style.patch.shadow) {
+        setHasShadow(true);
+        setShadowColor(style.patch.shadow.color);
+        setShadowBlur(style.patch.shadow.blur);
+        setShadowOffsetY(style.patch.shadow.offsetY ?? 2);
+      } else if (style.patch.shadow === undefined && "shadow" in style.patch) {
+        setHasShadow(false);
+      }
+      if (style.patch.background) {
+        setHasBackground(true);
+        setBackgroundColor(style.patch.background.color);
+        setBackgroundPadding(style.patch.background.padding ?? 10);
+        setBackgroundRadius(style.patch.background.borderRadius ?? 8);
+      } else if (style.patch.background === undefined && "background" in style.patch) {
+        setHasBackground(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [broadcastStyleUpdate],
+  );
 
   // Reset to Plain Text Default
   const handleResetToDefault = () => {
@@ -472,7 +459,13 @@ export const CaptionsTab: React.FC<TabProps> = () => {
         if (!asset || !asset.path) continue;
 
         try {
-          setGenerationProgress(`Transcribing ${asset.name || "media"}…`);
+          // Build a short, readable display name:
+          // strip extension → strip trailing bracket IDs like [1120622...] → trim to 22 chars
+          const rawName = asset.name || "media";
+          const noExt = rawName.replace(/\.[^.]+$/, "");
+          const cleaned = noExt.replace(/\s*\[[^\]]*\]\s*$/, "").trim();
+          const displayName = cleaned.length > 22 ? `${cleaned.slice(0, 22)}…` : cleaned;
+          setGenerationProgress(`Transcribing "${displayName}"…`);
           const rawSegments = await invoke<any[]>("generate_auto_captions", {
             videoPath: asset.path,
             modelSize: model,
@@ -682,28 +675,40 @@ export const CaptionsTab: React.FC<TabProps> = () => {
             </div>
           </div>
 
-          {/* Primary Auto-Generate CTA Button */}
-          <button
-            onClick={handleAutoGenerate}
-            disabled={isGenerating}
-            className={`w-full h-9 flex items-center justify-center gap-2 rounded-lg text-xs font-bold transition-all shadow-md ${
-              isGenerating
-                ? "bg-accent/50 text-white/70 cursor-wait"
-                : "bg-accent hover:bg-accent/85 active:scale-[0.99] text-white"
-            }`}
-          >
-            <Sparkles className={`w-3.5 h-3.5 ${isGenerating ? "animate-spin" : ""}`} />
-            {isGenerating ? (generationProgress || "Generating captions…") : "Auto-Generate Captions"}
-          </button>
+          {/* Primary Auto-Generate CTA Button & Progress */}
+          <div className="space-y-1.5">
+            <button
+              onClick={handleAutoGenerate}
+              disabled={isGenerating}
+              className={`w-full h-9 flex items-center justify-center gap-2 rounded-lg text-xs font-bold transition-all shadow-md ${
+                isGenerating
+                  ? "bg-accent/50 text-white/70 cursor-wait"
+                  : "bg-accent hover:bg-accent/85 active:scale-[0.99] text-white"
+              }`}
+            >
+              <Sparkles className={`w-3.5 h-3.5 ${isGenerating ? "animate-spin" : ""}`} />
+              {isGenerating ? (generationProgress || "Generating captions…") : "Auto-Generate Captions"}
+            </button>
+            {isGenerating && (
+              <ClypraProgressBar
+                size="xs"
+                variant="gradient"
+                animated={true}
+                className="px-0.5"
+              />
+            )}
+          </div>
         </div>
 
-        {/* ── Section: Multi-Tiered Styling Pipeline ── */}
+
+        {/* ── Section: Caption Styling ── */}
         <div className="space-y-2 p-2.5 rounded-xl bg-surface-raised/40 border border-white/6">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-text-muted/70">
-              Caption Styling Mode
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-text-muted/70 flex items-center gap-1.5">
+              <Palette className="w-3.5 h-3.5 text-accent" />
+              Caption Style
             </span>
-            {/* Apply to all toggle switch */}
+            {/* Apply to all toggle */}
             <button
               onClick={() => setApplyToAll(!applyToAll)}
               className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold border transition-all ${
@@ -718,8 +723,17 @@ export const CaptionsTab: React.FC<TabProps> = () => {
             </button>
           </div>
 
-          {/* Tier mode switcher tabs */}
-          <div className="grid grid-cols-3 gap-1 bg-background/50 p-0.5 rounded-lg border border-white/8 text-[11px]">
+          {/* Tier switcher: Caption Styles | Custom Typography */}
+          <div className="grid grid-cols-2 gap-1 bg-background/50 p-0.5 rounded-lg border border-white/8 text-[11px]">
+            <button
+              onClick={() => setStylingTier("styles")}
+              className={`flex items-center justify-center gap-1 py-1 rounded-md font-semibold transition-all ${
+                stylingTier === "styles" ? "bg-accent text-white shadow-sm" : "text-text-muted hover:text-text-primary"
+              }`}
+            >
+              <Star className="w-3 h-3" />
+              Caption Styles
+            </button>
             <button
               onClick={() => setStylingTier("plain")}
               className={`flex items-center justify-center gap-1 py-1 rounded-md font-semibold transition-all ${
@@ -727,50 +741,115 @@ export const CaptionsTab: React.FC<TabProps> = () => {
               }`}
             >
               <Type className="w-3 h-3" />
-              Plain Text
-            </button>
-            <button
-              onClick={() => setStylingTier("effects")}
-              className={`flex items-center justify-center gap-1 py-1 rounded-md font-semibold transition-all ${
-                stylingTier === "effects" ? "bg-accent text-white shadow-sm" : "text-text-muted hover:text-text-primary"
-              }`}
-            >
-              <Wand2 className="w-3 h-3" />
-              Effects
-            </button>
-            <button
-              onClick={() => setStylingTier("templates")}
-              className={`flex items-center justify-center gap-1 py-1 rounded-md font-semibold transition-all ${
-                stylingTier === "templates" ? "bg-accent text-white shadow-sm" : "text-text-muted hover:text-text-primary"
-              }`}
-            >
-              <Layers className="w-3 h-3" />
-              Templates
+              Custom
             </button>
           </div>
 
-          {/* ── TIER 1: Plain Text Custom Styling (The Default) ── */}
+          {/* ── TIER 1: Caption Style Gallery ── */}
+          {stylingTier === "styles" && (
+            <div className="space-y-2 pt-0.5">
+              <p className="text-[9px] text-text-muted/60 font-medium">
+                Tap a style to apply it to all caption clips instantly.
+              </p>
+              {/* Style cards grid */}
+              <div className="grid grid-cols-2 gap-2">
+                {getAllCaptionStyles().map((style) => {
+                  const isSelected = selectedStyleId === style.id;
+                  const p = style.preview;
+
+                  return (
+                    <button
+                      key={style.id}
+                      onClick={() => handleApplyCaptionStyle(style)}
+                      title={style.description}
+                      className={`relative flex flex-col rounded-xl overflow-hidden border transition-all duration-150 group ${
+                        isSelected
+                          ? "border-accent shadow-[0_0_0_1.5px] shadow-accent/40 ring-1 ring-accent/30"
+                          : "border-white/10 hover:border-white/25"
+                      }`}
+                      style={{
+                        background: p.bgColor
+                          ? `linear-gradient(135deg, ${p.bgColor}40 0%, rgba(20,20,20,0.95) 100%)`
+                          : "linear-gradient(135deg, rgba(30,30,30,0.95) 0%, rgba(18,18,18,0.95) 100%)",
+                      }}
+                    >
+                      {/* Preview area */}
+                      <div
+                        className="flex items-center justify-center px-2 pt-3 pb-2"
+                        style={{ minHeight: 52 }}
+                      >
+                        {/* Text preview */}
+                        {p.hasPill ? (
+                          <span
+                            className="text-xs font-semibold px-3 py-1 rounded-full"
+                            style={{
+                              color: p.textColor,
+                              backgroundColor: p.bgColor || "rgba(0,0,0,0.7)",
+                              fontWeight: p.fontWeight || 600,
+                              fontFamily: p.fontFamily !== "monospace" ? undefined : "monospace",
+                              border: p.strokeColor ? `1px solid ${p.strokeColor}` : undefined,
+                              borderRadius: p.bgBorderRadius || 9999,
+                            }}
+                          >
+                            Aa
+                          </span>
+                        ) : (
+                          <span
+                            className="text-sm font-black tracking-wide uppercase"
+                            style={{
+                              color: p.textColor,
+                              fontWeight: p.fontWeight || 700,
+                              fontFamily: p.fontFamily !== "monospace" ? undefined : "monospace",
+                              WebkitTextStroke: p.strokeColor
+                                ? `${p.strokeWidth ?? 2}px ${p.strokeColor}`
+                                : undefined,
+                              textShadow: p.strokeColor
+                                ? `0 0 6px ${p.strokeColor}40`
+                                : "0 1px 4px rgba(0,0,0,0.8)",
+                            }}
+                          >
+                            Aa
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Label */}
+                      <div className="px-2 pb-2 text-center">
+                        <p
+                          className={`text-[10px] font-semibold leading-tight transition-colors ${
+                            isSelected ? "text-accent" : "text-text-secondary group-hover:text-text-primary"
+                          }`}
+                        >
+                          {style.name}
+                        </p>
+                      </div>
+
+                      {/* Active check badge */}
+                      {isSelected && (
+                        <span className="absolute top-1.5 right-1.5 w-4 h-4 flex items-center justify-center rounded-full bg-accent text-white">
+                          <Check className="w-2.5 h-2.5" />
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* "Customise further" link */}
+              <button
+                onClick={() => setStylingTier("plain")}
+                className="flex items-center justify-center gap-1.5 w-full py-1.5 rounded-lg border border-dashed border-white/12 text-[10px] text-text-muted hover:text-text-primary hover:border-accent/30 transition-all"
+              >
+                <Wand2 className="w-3 h-3" />
+                Customise further…
+                <ChevronRight className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+
+          {/* ── TIER 2: Custom Typography (Plain Text Designer) ── */}
           {stylingTier === "plain" && (
             <div className="space-y-2.5 pt-1">
-              {/* Presets row */}
-              <div className="flex flex-col gap-1">
-                <span className="text-[9px] uppercase font-semibold text-text-muted/60">Quick Presets</span>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {CAPTION_STYLE_PRESETS.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => handleApplyPreset(p.id)}
-                      className="flex items-center gap-1.5 p-1.5 rounded-lg bg-surface-raised border border-white/6 hover:border-accent/40 text-[11px] font-semibold text-text-secondary transition-all truncate"
-                    >
-                      <span
-                        className="w-3 h-3 rounded-full shrink-0 border border-white/20"
-                        style={{ backgroundColor: p.fillColor }}
-                      />
-                      <span className="truncate">{p.name}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
 
               {/* Typography controls */}
               <div className="grid grid-cols-2 gap-2">
@@ -792,35 +871,41 @@ export const CaptionsTab: React.FC<TabProps> = () => {
                   </select>
                 </div>
 
-                <div className="flex flex-col gap-1">
-                  <label className="text-[9px] uppercase font-semibold text-text-muted/60">Font Size ({fontSize}px)</label>
-                  <input
-                    type="range"
-                    min="18"
-                    max="64"
+                <div className="flex flex-col justify-end">
+                  <ClypraSlider
+                    label="Font Size"
+                    min={18}
+                    max={64}
+                    step={1}
                     value={fontSize}
-                    onChange={(e) => {
-                      const sz = parseInt(e.target.value, 10);
+                    suffix="px"
+                    size="sm"
+                    defaultValue={34}
+                    onChange={(sz) => {
                       setFontSize(sz);
                       applyPlainTextCustomization({ fontSize: sz });
                     }}
-                    className="w-full accent-accent mt-1"
                   />
                 </div>
               </div>
+
 
               {/* Color & Uppercase */}
               <div className="grid grid-cols-2 gap-2">
                 <div className="flex items-center justify-between p-1.5 bg-background/50 rounded-lg border border-white/8">
                   <span className="text-[10px] font-semibold text-text-secondary">Text Fill</span>
-                  <input
-                    type="color"
+                  <ClypraColorPicker
                     value={fillColor}
-                    onChange={(e) => {
-                      setFillColor(e.target.value);
-                      applyPlainTextCustomization({ color: e.target.value });
+                    onChange={(c: string) => {
+                      setFillColor(c);
+                      applyPlainTextCustomization({ color: c });
                     }}
-                    className="w-6 h-6 rounded cursor-pointer border-0 bg-transparent"
+                    format="hex"
+                    availableModes={["solid", "wheel"]}
+                    showAlpha={true}
+                    size="sm"
+                    triggerClassName="w-7 h-7 min-w-0 shrink-0 bg-surface-raised border-border/60 hover:border-border"
+                    popoverClassName="z-[100]"
                   />
                 </div>
 
@@ -859,36 +944,42 @@ export const CaptionsTab: React.FC<TabProps> = () => {
                     Outline Stroke
                   </label>
                   {hasStroke && (
-                    <input
-                      type="color"
+                    <ClypraColorPicker
                       value={strokeColor}
-                      onChange={(e) => {
-                        setStrokeColor(e.target.value);
-                        applyPlainTextCustomization({ stroke: { color: e.target.value, width: strokeWidth } });
+                      onChange={(c: string) => {
+                        setStrokeColor(c);
+                        applyPlainTextCustomization({ stroke: { color: c, width: strokeWidth } });
                       }}
-                      className="w-5 h-5 rounded cursor-pointer border-0 bg-transparent"
+                      format="hex"
+                      availableModes={["solid", "wheel"]}
+                      showAlpha={true}
+                      size="sm"
+                      triggerClassName="w-7 h-7 min-w-0 shrink-0 bg-surface-raised border-border/60 hover:border-border"
+                      popoverClassName="z-[100]"
                     />
                   )}
                 </div>
                 {hasStroke && (
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-[9px] text-text-muted">Width</span>
-                    <input
-                      type="range"
-                      min="1"
-                      max="8"
+                  <div className="pt-1.5 border-t border-white/5">
+                    <ClypraSlider
+                      label="Stroke Width"
+                      min={1}
+                      max={8}
+                      step={1}
                       value={strokeWidth}
-                      onChange={(e) => {
-                        const w = parseInt(e.target.value, 10);
+                      suffix="px"
+                      size="sm"
+                      compact={true}
+                      defaultValue={3}
+                      onChange={(w) => {
                         setStrokeWidth(w);
                         applyPlainTextCustomization({ stroke: { color: strokeColor, width: w } });
                       }}
-                      className="flex-1 accent-accent"
                     />
-                    <span className="text-[10px] font-mono text-text-muted w-4">{strokeWidth}</span>
                   </div>
                 )}
               </div>
+
 
               {/* Background Box */}
               <div className="flex flex-col gap-1 p-2 bg-background/40 rounded-lg border border-white/6">
@@ -910,20 +1001,25 @@ export const CaptionsTab: React.FC<TabProps> = () => {
                     Background Box / Pill
                   </label>
                   {hasBackground && (
-                    <input
-                      type="color"
-                      value={backgroundColor.startsWith("#") ? backgroundColor : "#000000"}
-                      onChange={(e) => {
-                        setBackgroundColor(e.target.value);
+                    <ClypraColorPicker
+                      value={backgroundColor}
+                      onChange={(c: string) => {
+                        setBackgroundColor(c);
                         applyPlainTextCustomization({
-                          background: { color: e.target.value, padding: backgroundPadding, borderRadius: backgroundRadius },
+                          background: { color: c, padding: backgroundPadding, borderRadius: backgroundRadius },
                         });
                       }}
-                      className="w-5 h-5 rounded cursor-pointer border-0 bg-transparent"
+                      format="hex"
+                      availableModes={["solid", "wheel"]}
+                      showAlpha={true}
+                      size="sm"
+                      triggerClassName="w-7 h-7 min-w-0 shrink-0 bg-surface-raised border-border/60 hover:border-border"
+                      popoverClassName="z-[100]"
                     />
                   )}
                 </div>
               </div>
+
 
               {/* Reset to clean defaults */}
               <button
@@ -933,62 +1029,6 @@ export const CaptionsTab: React.FC<TabProps> = () => {
                 <RotateCcw className="w-3 h-3" />
                 Reset Typography Defaults
               </button>
-            </div>
-          )}
-
-          {/* ── TIER 2: Text Effects ── */}
-          {stylingTier === "effects" && (
-            <div className="space-y-2 pt-1">
-              <span className="text-[9px] uppercase font-semibold text-text-muted/60">
-                GPU Shader Text Effects
-              </span>
-              <div className="grid grid-cols-2 gap-1.5">
-                {BUILTIN_CAPTION_EFFECTS.map((eff) => (
-                  <button
-                    key={eff.id}
-                    onClick={() => handleApplyTextEffect(eff.id)}
-                    className="flex flex-col items-center justify-center p-2 rounded-lg bg-surface-raised border border-white/8 hover:border-accent/50 hover:bg-surface-raised/80 transition-all text-center group"
-                  >
-                    <span
-                      className="text-xs font-bold tracking-wider mb-1 px-2 py-0.5 rounded"
-                      style={{
-                        color: eff.previewColor,
-                        textShadow: eff.stroke ? `0 0 8px ${eff.stroke}` : "none",
-                        backgroundColor: eff.bg || "transparent",
-                      }}
-                    >
-                      Aa
-                    </span>
-                    <span className="text-[10px] font-semibold text-text-secondary group-hover:text-text-primary">
-                      {eff.name}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── TIER 3: Motion Templates ── */}
-          {stylingTier === "templates" && (
-            <div className="space-y-2 pt-1">
-              <span className="text-[9px] uppercase font-semibold text-text-muted/60">
-                Motion Text Templates & Badges
-              </span>
-              <div className="flex flex-col gap-1.5">
-                {BUILTIN_CAPTION_TEMPLATES.map((tmpl) => (
-                  <button
-                    key={tmpl.id}
-                    onClick={() => handleApplyTemplate(tmpl.id)}
-                    className="flex items-start gap-2.5 p-2 rounded-lg bg-surface-raised border border-white/8 hover:border-accent/50 text-left transition-all group"
-                  >
-                    <Sparkles className="w-4 h-4 text-accent shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-text-primary">{tmpl.name}</p>
-                      <p className="text-[10px] text-text-muted leading-tight">{tmpl.desc}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
             </div>
           )}
         </div>
