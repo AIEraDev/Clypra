@@ -1643,6 +1643,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
     if (
       (selectedClip as any).kind === "text-template" ||
       (selectedClip as any).templateId ||
+      (selectedClip as any).styleId ||
+      (selectedClip as any).styleSnapshot ||
       (selectedClip as any).baseWidth !== undefined
     ) {
       if (
@@ -2044,10 +2046,15 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
   const handleDisplayX = clipCenterScreen.x - handleDisplayWidth / 2;
   const handleDisplayY = clipCenterScreen.y - handleDisplayHeight / 2;
 
-  if (selectedClip.kind === "text-template" || selectedClip.templateSnapshot) {
+  if (
+    selectedClip.kind === "text-template" ||
+    selectedClip.templateSnapshot ||
+    Boolean((selectedClip as any).styleId)
+  ) {
     console.log("[TransformOverlay:RenderSelection]", {
       clipId: selectedClip.id,
       clipKind: selectedClip.kind,
+      styleId: (selectedClip as any).styleId,
       clipRaw: { x: selectedClip.x, y: selectedClip.y, w: selectedClip.width, h: selectedClip.height },
       canvas: { width: canvasWidth, height: canvasHeight },
       visualBounds,

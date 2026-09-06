@@ -118,6 +118,9 @@ function buildAsset(
     y = evalCanvasOriginY + offsetY;
   }
 
+  const bleedX = x - layer.x;
+  const bleedY = y - layer.y;
+
   return {
     assetId: `native-text:${layer.layerId}:${hashRasterKey(rasterKey)}`,
     rgba,
@@ -131,8 +134,8 @@ function buildAsset(
     blendMode: layer.blendMode,
     isText: true,
     positionMode: "absolute",
-    bleedX: offsetX,
-    bleedY: offsetY,
+    bleedX,
+    bleedY,
     timing: {
       phase,
       kind,

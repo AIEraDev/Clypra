@@ -236,15 +236,19 @@ export async function paintTextLayersToCanvas(
             : (layer.blendMode as GlobalCompositeOperation);
     }
     const isAbsolute = asset.positionMode === "absolute";
+    const isTemplateOrEffect =
+      layer.clipKind === "text-template" ||
+      Boolean(layer.templateId) ||
+      Boolean(layer.styleId);
     const posX =
       isAbsolute
-        ? (layer.clipKind === "text-template" || Boolean(layer.templateId)) && typeof layer.x === "number"
+        ? isTemplateOrEffect && typeof layer.x === "number"
           ? layer.x + (asset.bleedX ?? 0)
           : asset.x
         : layer.x;
     const posY =
       isAbsolute
-        ? (layer.clipKind === "text-template" || Boolean(layer.templateId)) && typeof layer.y === "number"
+        ? isTemplateOrEffect && typeof layer.y === "number"
           ? layer.y + (asset.bleedY ?? 0)
           : asset.y
         : layer.y;

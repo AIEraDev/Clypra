@@ -150,6 +150,8 @@ export class NativeRasterBridge {
       bleedX: number;
       bleedY: number;
       positionMode: "centered" | "absolute";
+      baseWidth?: number;
+      baseHeight?: number;
     }
   >();
   private readonly imageCache = new Map<string, Promise<void>>();
@@ -480,14 +482,16 @@ export class NativeRasterBridge {
           const texH = previous.height;
           const isTemplate =
             layer.clipKind === "text-template" || Boolean(layer.templateId);
+          const isEffect = Boolean(layer.styleId);
+          const isTemplateOrEffect = isTemplate || isEffect;
           const isContentBoundedTemplate =
             isTemplate && !bleed?.bleedX && !bleed?.bleedY;
           const baseW = isContentBoundedTemplate
             ? (layer as { baseWidth?: number }).baseWidth || texW
-            : (layer as { baseWidth?: number }).baseWidth ?? layer.width;
+            : bleed?.baseWidth ?? (layer as { baseWidth?: number }).baseWidth ?? layer.width;
           const baseH = isContentBoundedTemplate
             ? (layer as { baseHeight?: number }).baseHeight || texH
-            : (layer as { baseHeight?: number }).baseHeight ?? layer.height;
+            : bleed?.baseHeight ?? (layer as { baseHeight?: number }).baseHeight ?? layer.height;
           const scaleX = baseW > 0 ? layer.width / baseW : 1;
           const scaleY = baseH > 0 ? layer.height / baseH : 1;
           const displayWidth = isContentBoundedTemplate
@@ -502,20 +506,16 @@ export class NativeRasterBridge {
             displayHeight,
             x:
               bleed?.positionMode === "absolute"
-                ? (layer.clipKind === "text-template" ||
-                    Boolean(layer.templateId)) &&
-                  typeof layer.x === "number"
-                  ? layer.x + (bleed.bleedX ?? 0)
+                ? isTemplateOrEffect && typeof layer.x === "number"
+                  ? layer.x + (bleed.bleedX ?? 0) * scaleX
                   : previous.x
                 : typeof layer.x === "number"
                   ? layer.x + (layer.width - displayWidth) / 2
                   : previous.x,
             y:
               bleed?.positionMode === "absolute"
-                ? (layer.clipKind === "text-template" ||
-                    Boolean(layer.templateId)) &&
-                  typeof layer.y === "number"
-                  ? layer.y + (bleed.bleedY ?? 0)
+                ? isTemplateOrEffect && typeof layer.y === "number"
+                  ? layer.y + (bleed.bleedY ?? 0) * scaleY
                   : previous.y
                 : typeof layer.y === "number"
                   ? layer.y + (layer.height - displayHeight) / 2
@@ -551,6 +551,8 @@ export class NativeRasterBridge {
       const texH = asset.height;
       const isTemplate =
         layer.clipKind === "text-template" || Boolean(layer.templateId);
+      const isEffect = Boolean(layer.styleId);
+      const isTemplateOrEffect = isTemplate || isEffect;
       const isContentBoundedTemplate =
         isTemplate && !asset.bleedX && !asset.bleedY;
       const baseW = isContentBoundedTemplate
@@ -573,16 +575,16 @@ export class NativeRasterBridge {
         displayHeight,
         x:
           asset.positionMode === "absolute"
-            ? (layer.clipKind === "text-template" || Boolean(layer.templateId)) && typeof layer.x === "number"
-              ? layer.x + (asset.bleedX ?? 0)
+            ? isTemplateOrEffect && typeof layer.x === "number"
+              ? layer.x + (asset.bleedX ?? 0) * scaleX
               : asset.x
             : typeof layer.x === "number"
               ? layer.x + (layer.width - displayWidth) / 2
               : asset.x,
         y:
           asset.positionMode === "absolute"
-            ? (layer.clipKind === "text-template" || Boolean(layer.templateId)) && typeof layer.y === "number"
-              ? layer.y + (asset.bleedY ?? 0)
+            ? isTemplateOrEffect && typeof layer.y === "number"
+              ? layer.y + (asset.bleedY ?? 0) * scaleY
               : asset.y
             : typeof layer.y === "number"
               ? layer.y + (layer.height - displayHeight) / 2
@@ -617,6 +619,8 @@ export class NativeRasterBridge {
         bleedX: asset.bleedX ?? 0,
         bleedY: asset.bleedY ?? 0,
         positionMode: asset.positionMode ?? "centered",
+        baseWidth: (layer as { baseWidth?: number }).baseWidth ?? layer.width,
+        baseHeight: (layer as { baseHeight?: number }).baseHeight ?? layer.height,
       });
       return positioned;
     });
@@ -770,62 +774,50 @@ export class NativeRasterBridge {
     if (input.generation !== this.textPreparationGeneration) return;
     await this.register(asset);
     if (input.generation !== this.textPreparationGeneration) return;
+    const isTemplate =
+      input.layer.clipKind === "text-template" ||
+      Boolean(input.layer.templateId);
+    const isEffect = Boolean(input.layer.styleId);
+    const isTemplateOrEffect = isTemplate || isEffect;
+    const isContentBoundedTemplate =
+      isTemplate && !asset.bleedX && !asset.bleedY;
+    const baseW = isContentBoundedTemplate
+      ? (input.layer as { baseWidth?: number }).baseWidth || asset.width
+      : (input.layer as { baseWidth?: number }).baseWidth ??
+        input.layer.width;
+    const baseH = isContentBoundedTemplate
+      ? (input.layer as { baseHeight?: number }).baseHeight || asset.height
+      : (input.layer as { baseHeight?: number }).baseHeight ??
+        input.layer.height;
+    const scaleX = baseW > 0 ? input.layer.width / baseW : 1;
+    const scaleY = baseH > 0 ? input.layer.height / baseH : 1;
+    const displayWidth = isContentBoundedTemplate
+      ? input.layer.width
+      : asset.width * scaleX;
+    const displayHeight = isContentBoundedTemplate
+      ? input.layer.height
+      : asset.height * scaleY;
+
     const positioned = {
       ...asset,
-      // Scale from animation: immutable texture scaled by GPU uniforms.
-      ...((): { displayWidth: number; displayHeight: number } => {
-        const isTemplate =
-          input.layer.clipKind === "text-template" ||
-          Boolean(input.layer.templateId);
-        const isContentBoundedTemplate =
-          isTemplate && !asset.bleedX && !asset.bleedY;
-        const baseW = isContentBoundedTemplate
-          ? (input.layer as { baseWidth?: number }).baseWidth || asset.width
-          : (input.layer as { baseWidth?: number }).baseWidth ??
-            input.layer.width;
-        const baseH = isContentBoundedTemplate
-          ? (input.layer as { baseHeight?: number }).baseHeight || asset.height
-          : (input.layer as { baseHeight?: number }).baseHeight ??
-            input.layer.height;
-        const scaleX = baseW > 0 ? input.layer.width / baseW : 1;
-        const scaleY = baseH > 0 ? input.layer.height / baseH : 1;
-        return {
-          displayWidth: isContentBoundedTemplate
-            ? input.layer.width
-            : asset.width * scaleX,
-          displayHeight: isContentBoundedTemplate
-            ? input.layer.height
-            : asset.height * scaleY,
-        };
-      })(),
+      displayWidth,
+      displayHeight,
       x: (() => {
         if (asset.positionMode === "absolute") {
-          return (input.layer.clipKind === "text-template" || Boolean(input.layer.templateId)) &&
-            typeof input.layer.x === "number"
-            ? input.layer.x + (asset.bleedX ?? 0)
+          return isTemplateOrEffect && typeof input.layer.x === "number"
+            ? input.layer.x + (asset.bleedX ?? 0) * scaleX
             : asset.x;
         }
         if (typeof input.layer.x !== "number") return asset.x;
-        const baseW =
-          (input.layer as { baseWidth?: number }).baseWidth ??
-          input.layer.width;
-        const scaleX = baseW > 0 ? input.layer.width / baseW : 1;
-        const displayWidth = asset.width * scaleX;
         return input.layer.x + (input.layer.width - displayWidth) / 2;
       })(),
       y: (() => {
         if (asset.positionMode === "absolute") {
-          return (input.layer.clipKind === "text-template" || Boolean(input.layer.templateId)) &&
-            typeof input.layer.y === "number"
-            ? input.layer.y + (asset.bleedY ?? 0)
+          return isTemplateOrEffect && typeof input.layer.y === "number"
+            ? input.layer.y + (asset.bleedY ?? 0) * scaleY
             : asset.y;
         }
         if (typeof input.layer.y !== "number") return asset.y;
-        const baseH =
-          (input.layer as { baseHeight?: number }).baseHeight ??
-          input.layer.height;
-        const scaleY = baseH > 0 ? input.layer.height / baseH : 1;
-        const displayHeight = asset.height * scaleY;
         return input.layer.y + (input.layer.height - displayHeight) / 2;
       })(),
       rotation:
@@ -851,6 +843,8 @@ export class NativeRasterBridge {
       bleedX: asset.bleedX ?? 0,
       bleedY: asset.bleedY ?? 0,
       positionMode: asset.positionMode ?? "centered",
+      baseWidth: (input.layer as { baseWidth?: number }).baseWidth ?? input.layer.width,
+      baseHeight: (input.layer as { baseHeight?: number }).baseHeight ?? input.layer.height,
     });
   }
 
