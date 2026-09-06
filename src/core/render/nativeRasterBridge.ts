@@ -478,25 +478,45 @@ export class NativeRasterBridge {
           // triggering a re-rasterization every animation frame.
           const texW = previous.width;
           const texH = previous.height;
-          const baseW = (layer as { baseWidth?: number }).baseWidth ?? layer.width;
-          const baseH = (layer as { baseHeight?: number }).baseHeight ?? layer.height;
+          const isTemplate =
+            layer.clipKind === "text-template" || Boolean(layer.templateId);
+          const isContentBoundedTemplate =
+            isTemplate && !bleed?.bleedX && !bleed?.bleedY;
+          const baseW = isContentBoundedTemplate
+            ? (layer as { baseWidth?: number }).baseWidth || texW
+            : (layer as { baseWidth?: number }).baseWidth ?? layer.width;
+          const baseH = isContentBoundedTemplate
+            ? (layer as { baseHeight?: number }).baseHeight || texH
+            : (layer as { baseHeight?: number }).baseHeight ?? layer.height;
           const scaleX = baseW > 0 ? layer.width / baseW : 1;
           const scaleY = baseH > 0 ? layer.height / baseH : 1;
-          const displayWidth = texW * scaleX;
-          const displayHeight = texH * scaleY;
+          const displayWidth = isContentBoundedTemplate
+            ? layer.width
+            : texW * scaleX;
+          const displayHeight = isContentBoundedTemplate
+            ? layer.height
+            : texH * scaleY;
           const updatedSnapshot: NativeRasterLayerSnapshot = {
             ...previous,
             displayWidth,
             displayHeight,
             x:
               bleed?.positionMode === "absolute"
-                ? previous.x
+                ? (layer.clipKind === "text-template" ||
+                    Boolean(layer.templateId)) &&
+                  typeof layer.x === "number"
+                  ? layer.x + (bleed.bleedX ?? 0)
+                  : previous.x
                 : typeof layer.x === "number"
                   ? layer.x + (layer.width - displayWidth) / 2
                   : previous.x,
             y:
               bleed?.positionMode === "absolute"
-                ? previous.y
+                ? (layer.clipKind === "text-template" ||
+                    Boolean(layer.templateId)) &&
+                  typeof layer.y === "number"
+                  ? layer.y + (bleed.bleedY ?? 0)
+                  : previous.y
                 : typeof layer.y === "number"
                   ? layer.y + (layer.height - displayHeight) / 2
                   : previous.y,
@@ -529,25 +549,41 @@ export class NativeRasterBridge {
       // scales the immutable texture rather than triggering re-rasterization.
       const texW = asset.width;
       const texH = asset.height;
-      const baseW = (layer as { baseWidth?: number }).baseWidth ?? layer.width;
-      const baseH = (layer as { baseHeight?: number }).baseHeight ?? layer.height;
+      const isTemplate =
+        layer.clipKind === "text-template" || Boolean(layer.templateId);
+      const isContentBoundedTemplate =
+        isTemplate && !asset.bleedX && !asset.bleedY;
+      const baseW = isContentBoundedTemplate
+        ? (layer as { baseWidth?: number }).baseWidth || texW
+        : (layer as { baseWidth?: number }).baseWidth ?? layer.width;
+      const baseH = isContentBoundedTemplate
+        ? (layer as { baseHeight?: number }).baseHeight || texH
+        : (layer as { baseHeight?: number }).baseHeight ?? layer.height;
       const scaleX = baseW > 0 ? layer.width / baseW : 1;
       const scaleY = baseH > 0 ? layer.height / baseH : 1;
-      const displayWidth = texW * scaleX;
-      const displayHeight = texH * scaleY;
+      const displayWidth = isContentBoundedTemplate
+        ? layer.width
+        : texW * scaleX;
+      const displayHeight = isContentBoundedTemplate
+        ? layer.height
+        : texH * scaleY;
       const positioned = {
         ...asset,
         displayWidth,
         displayHeight,
         x:
           asset.positionMode === "absolute"
-            ? asset.x
+            ? (layer.clipKind === "text-template" || Boolean(layer.templateId)) && typeof layer.x === "number"
+              ? layer.x + (asset.bleedX ?? 0)
+              : asset.x
             : typeof layer.x === "number"
               ? layer.x + (layer.width - displayWidth) / 2
               : asset.x,
         y:
           asset.positionMode === "absolute"
-            ? asset.y
+            ? (layer.clipKind === "text-template" || Boolean(layer.templateId)) && typeof layer.y === "number"
+              ? layer.y + (asset.bleedY ?? 0)
+              : asset.y
             : typeof layer.y === "number"
               ? layer.y + (layer.height - displayHeight) / 2
               : asset.y,
@@ -564,6 +600,18 @@ export class NativeRasterBridge {
       await this.register(positioned);
       const result = snapshot(positioned);
       this.textSnapshotsByLayerId.set(layer.layerId, result);
+      // if (layer.clipKind === "text-template" || Boolean(layer.templateId)) {
+      //   console.log("[NativeRasterBridge:TemplateSnapshotRegistered]", {
+      //     layerId: layer.layerId,
+      //     x: result.x,
+      //     y: result.y,
+      //     displayWidth: result.displayWidth,
+      //     displayHeight: result.displayHeight,
+      //     positionMode: asset.positionMode,
+      //     texWidth: asset.width,
+      //     texHeight: asset.height,
+      //   });
+      // }
       this.textSnapshotKeysByLayerId.set(layer.layerId, key);
       this.textSnapshotBleedByLayerId.set(layer.layerId, {
         bleedX: asset.bleedX ?? 0,
@@ -726,24 +774,56 @@ export class NativeRasterBridge {
       ...asset,
       // Scale from animation: immutable texture scaled by GPU uniforms.
       ...((): { displayWidth: number; displayHeight: number } => {
-        const baseW = (input.layer as { baseWidth?: number }).baseWidth ?? input.layer.width;
-        const baseH = (input.layer as { baseHeight?: number }).baseHeight ?? input.layer.height;
+        const isTemplate =
+          input.layer.clipKind === "text-template" ||
+          Boolean(input.layer.templateId);
+        const isContentBoundedTemplate =
+          isTemplate && !asset.bleedX && !asset.bleedY;
+        const baseW = isContentBoundedTemplate
+          ? (input.layer as { baseWidth?: number }).baseWidth || asset.width
+          : (input.layer as { baseWidth?: number }).baseWidth ??
+            input.layer.width;
+        const baseH = isContentBoundedTemplate
+          ? (input.layer as { baseHeight?: number }).baseHeight || asset.height
+          : (input.layer as { baseHeight?: number }).baseHeight ??
+            input.layer.height;
         const scaleX = baseW > 0 ? input.layer.width / baseW : 1;
         const scaleY = baseH > 0 ? input.layer.height / baseH : 1;
-        return { displayWidth: asset.width * scaleX, displayHeight: asset.height * scaleY };
+        return {
+          displayWidth: isContentBoundedTemplate
+            ? input.layer.width
+            : asset.width * scaleX,
+          displayHeight: isContentBoundedTemplate
+            ? input.layer.height
+            : asset.height * scaleY,
+        };
       })(),
       x: (() => {
-        if (asset.positionMode === "absolute") return asset.x;
+        if (asset.positionMode === "absolute") {
+          return (input.layer.clipKind === "text-template" || Boolean(input.layer.templateId)) &&
+            typeof input.layer.x === "number"
+            ? input.layer.x + (asset.bleedX ?? 0)
+            : asset.x;
+        }
         if (typeof input.layer.x !== "number") return asset.x;
-        const baseW = (input.layer as { baseWidth?: number }).baseWidth ?? input.layer.width;
+        const baseW =
+          (input.layer as { baseWidth?: number }).baseWidth ??
+          input.layer.width;
         const scaleX = baseW > 0 ? input.layer.width / baseW : 1;
         const displayWidth = asset.width * scaleX;
         return input.layer.x + (input.layer.width - displayWidth) / 2;
       })(),
       y: (() => {
-        if (asset.positionMode === "absolute") return asset.y;
+        if (asset.positionMode === "absolute") {
+          return (input.layer.clipKind === "text-template" || Boolean(input.layer.templateId)) &&
+            typeof input.layer.y === "number"
+            ? input.layer.y + (asset.bleedY ?? 0)
+            : asset.y;
+        }
         if (typeof input.layer.y !== "number") return asset.y;
-        const baseH = (input.layer as { baseHeight?: number }).baseHeight ?? input.layer.height;
+        const baseH =
+          (input.layer as { baseHeight?: number }).baseHeight ??
+          input.layer.height;
         const scaleY = baseH > 0 ? input.layer.height / baseH : 1;
         const displayHeight = asset.height * scaleY;
         return input.layer.y + (input.layer.height - displayHeight) / 2;

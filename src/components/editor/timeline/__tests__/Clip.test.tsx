@@ -588,12 +588,12 @@ describe("Clip Component", () => {
   });
 
   describe("Keyboard Navigation & Accessibility (Finding 8.1)", () => {
-    it("renders with tabIndex=0 when unlocked and tabIndex=-1 when locked", () => {
+    it("renders with tabIndex=-1 so clips do not steal keyboard focus", () => {
       const clip = createMockClip({ id: "clip-unlocked" });
       const { unmount } = renderClip(clip, undefined, { locked: false });
 
       const clipElement = screen.getByTestId("clip-clip-unlocked");
-      expect(clipElement).toHaveAttribute("tabindex", "0");
+      expect(clipElement).toHaveAttribute("tabindex", "-1");
       unmount();
 
       const lockedClip = createMockClip({ id: "clip-locked" });
@@ -625,7 +625,7 @@ describe("Clip Component", () => {
       expect(element.getAttribute("aria-label")).toContain("selected");
     });
 
-    it("selects clip on Enter and Space keypress", () => {
+    it("selects clip on Enter keypress and does not intercept Space key", () => {
       const clip = createMockClip({ id: "clip-kb-select" });
       renderClip(clip);
 
@@ -633,9 +633,10 @@ describe("Clip Component", () => {
 
       fireEvent.keyDown(element, { key: "Enter" });
       expect(mockSelectClip).toHaveBeenCalledWith("clip-kb-select");
+      mockSelectClip.mockClear();
 
       fireEvent.keyDown(element, { key: " " });
-      expect(mockSelectClip).toHaveBeenCalledWith("clip-kb-select");
+      expect(mockSelectClip).not.toHaveBeenCalled();
     });
 
     it("toggles multi-selection on Shift+Enter keypress", () => {

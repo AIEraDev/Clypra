@@ -131,8 +131,8 @@ function buildAsset(
     blendMode: layer.blendMode,
     isText: true,
     positionMode: "absolute",
-    bleedX: 0,
-    bleedY: 0,
+    bleedX: offsetX,
+    bleedY: offsetY,
     timing: {
       phase,
       kind,

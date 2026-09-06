@@ -292,4 +292,98 @@ describe("NativeRasterBridge — Fix 2 transform field audit", () => {
 
     bridge.dispose();
   });
+
+  it("text-template with absolute position mode: x/y update immediately to layer.x/y + bleed without seeking", async () => {
+    mocks.rasterizeText.mockResolvedValue({
+      ...BASE_ASSET,
+      positionMode: "absolute" as const,
+      bleedX: 0,
+      bleedY: 0,
+      x: 205,
+      y: 792,
+    });
+
+    const bridge = new NativeRasterBridge();
+
+    // Initial render at (205, 792)
+    const [initial] = await bridge.rasterize(
+      makeScene({ clipKind: "text-template", templateId: "intro-banner", x: 205, y: 792 }),
+      { frameKey: 0, nonBlockingText: false, phase: "interactive-preview" },
+    );
+    expect(initial.x).toBe(205);
+    expect(initial.y).toBe(792);
+
+    // User transformed the clip to (350, 500) at the SAME playhead frame.
+    // The raster texture is cached, but positioned x/y must immediately reflect (350, 500).
+    const [transformed] = await bridge.rasterize(
+      makeScene({ clipKind: "text-template", templateId: "intro-banner", x: 350, y: 500 }),
+      { frameKey: 0, nonBlockingText: false, phase: "interactive-preview" },
+    );
+    expect(transformed.x).toBe(350);
+    expect(transformed.y).toBe(500);
+
+    // Live snapshot stored in bridge must also reflect (350, 500)
+    const snapshot = bridge.getTextSnapshot("audit-layer");
+    expect(snapshot).toBeDefined();
+    expect(snapshot?.x).toBe(350);
+    expect(snapshot?.y).toBe(500);
+
+    bridge.dispose();
+  });
+
+  it("content-bounded text-template: displayWidth and displayHeight scale immediately to match layer.width and layer.height during resize", async () => {
+    mocks.rasterizeText.mockResolvedValue({
+      ...BASE_ASSET,
+      width: 669,
+      height: 334,
+      positionMode: "absolute" as const,
+      bleedX: 0,
+      bleedY: 0,
+      x: 205,
+      y: 792,
+    });
+
+    const bridge = new NativeRasterBridge();
+
+    // Initial render at 669x334
+    const [initial] = await bridge.rasterize(
+      makeScene({
+        clipKind: "text-template",
+        templateId: "intro-banner",
+        x: 205,
+        y: 792,
+        width: 669,
+        height: 334,
+        baseWidth: 669,
+        baseHeight: 334,
+      }),
+      { frameKey: 0, nonBlockingText: false, phase: "interactive-preview" },
+    );
+    expect(initial.displayWidth).toBe(669);
+    expect(initial.displayHeight).toBe(334);
+
+    // User resized the clip (e.g. dragged East handle to widen to 900x334)
+    // The raster texture is cached at 669x334, but displayWidth must scale directly to 900
+    const [resized] = await bridge.rasterize(
+      makeScene({
+        clipKind: "text-template",
+        templateId: "intro-banner",
+        x: 205,
+        y: 792,
+        width: 900,
+        height: 334,
+        baseWidth: 669,
+        baseHeight: 334,
+      }),
+      { frameKey: 0, nonBlockingText: false, phase: "interactive-preview" },
+    );
+    expect(resized.displayWidth).toBe(900);
+    expect(resized.displayHeight).toBe(334);
+    expect(resized.x).toBe(205);
+    expect(resized.y).toBe(792);
+
+    bridge.dispose();
+  });
 });
+
+

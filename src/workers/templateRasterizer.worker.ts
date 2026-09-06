@@ -41,7 +41,10 @@ import {
   renderTextEffectToCanvas,
   type TextTemplateArtifact,
 } from "@clypra-studio/engine";
-import { calculateOptimalTemplateLayout } from "../core/render/templateScale";
+import {
+  calculateOptimalTemplateLayout,
+  measureTemplateContentBounds,
+} from "../core/render/templateScale";
 
 import interUrl from "@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url";
 import montserratUrl from "@fontsource-variable/montserrat/files/montserrat-latin-wght-normal.woff2?url";
@@ -69,16 +72,28 @@ const BUNDLED_FONTS: Array<{ url: string; aliases: string[] }> = [
   { url: interUrl, aliases: ["Inter", "Inter Variable"] },
   { url: montserratUrl, aliases: ["Montserrat", "Montserrat Variable"] },
   { url: geistUrl, aliases: ["Geist", "Geist Variable"] },
-  { url: spaceGroteskUrl, aliases: ["Space Grotesk", "Space Grotesk Variable"] },
+  {
+    url: spaceGroteskUrl,
+    aliases: ["Space Grotesk", "Space Grotesk Variable"],
+  },
   { url: robotoUrl, aliases: ["Roboto", "Roboto Variable"] },
   { url: outfitUrl, aliases: ["Outfit", "Outfit Variable"] },
-  { url: robotoCondensedUrl, aliases: ["Roboto Condensed", "Roboto Condensed Variable"] },
+  {
+    url: robotoCondensedUrl,
+    aliases: ["Roboto Condensed", "Roboto Condensed Variable"],
+  },
   { url: openSansUrl, aliases: ["Open Sans", "Open Sans Variable"] },
   { url: ralewayUrl, aliases: ["Raleway", "Raleway Variable"] },
   { url: oswaldUrl, aliases: ["Oswald", "Oswald Variable"] },
-  { url: playfairDisplayUrl, aliases: ["Playfair Display", "Playfair Display Variable"] },
+  {
+    url: playfairDisplayUrl,
+    aliases: ["Playfair Display", "Playfair Display Variable"],
+  },
   { url: nunitoUrl, aliases: ["Nunito", "Nunito Variable"] },
-  { url: dancingScriptUrl, aliases: ["Dancing Script", "Dancing Script Variable"] },
+  {
+    url: dancingScriptUrl,
+    aliases: ["Dancing Script", "Dancing Script Variable"],
+  },
   { url: latoUrl, aliases: ["Lato"] },
   { url: antonUrl, aliases: ["Anton"] },
   { url: bebasNeueUrl, aliases: ["Bebas Neue"] },
@@ -103,9 +118,13 @@ async function ensureWorkerFontLoaded(fontFamily?: string): Promise<void> {
   const key = fontFamily.trim().toLowerCase();
   if (loadedWorkerFonts.has(key)) return;
 
-  const url = fontUrlByAlias.get(key) || fontUrlByAlias.get(key.replace(/\s+variable$/i, ""));
+  const url =
+    fontUrlByAlias.get(key) ||
+    fontUrlByAlias.get(key.replace(/\s+variable$/i, ""));
   if (!url) {
-    console.warn(`[TextRasterizerWorker] Font "${fontFamily}" is not in worker bundled fonts; canvas will use system fallback`);
+    console.warn(
+      `[TextRasterizerWorker] Font "${fontFamily}" is not in worker bundled fonts; canvas will use system fallback`,
+    );
     return;
   }
 
@@ -115,7 +134,10 @@ async function ensureWorkerFontLoaded(fontFamily?: string): Promise<void> {
     (self as any).fonts.add(loadedFace);
     loadedWorkerFonts.add(key);
   } catch (err) {
-    console.warn(`[TextRasterizerWorker] Failed to load font "${fontFamily}":`, err);
+    console.warn(
+      `[TextRasterizerWorker] Failed to load font "${fontFamily}":`,
+      err,
+    );
   }
 }
 
@@ -229,7 +251,9 @@ interface VisibleBounds {
 const MAX_WORKER_BOUNDS_CACHE = 64;
 const staticBoundsCache = new Map<string, VisibleBounds | null>();
 
-function isArtifactAnimated(artifact: TextTemplateArtifact | null | undefined): boolean {
+function isArtifactAnimated(
+  artifact: TextTemplateArtifact | null | undefined,
+): boolean {
   if (!artifact?.document?.nodes) return false;
   return artifact.document.nodes.some((node: any) => {
     const a = node.animation;
@@ -238,7 +262,7 @@ function isArtifactAnimated(artifact: TextTemplateArtifact | null | undefined): 
       ((a.in && a.in !== "none") ||
         (a.out && a.out !== "none") ||
         Boolean(a.propertyKeyframes) ||
-        Boolean(node.splitAnimator))
+        Boolean(node.splitAnimator)),
     );
   });
 }
@@ -261,7 +285,9 @@ async function handleRenderTemplate(
 
   // Ensure all fonts used by text nodes in the template are loaded in worker
   if (artifact?.document?.nodes) {
-    const textNodes = artifact.document.nodes.filter((n: any) => n.type === "text");
+    const textNodes = artifact.document.nodes.filter(
+      (n: any) => n.type === "text",
+    );
     await Promise.all(
       textNodes.map((n: any) => ensureWorkerFontLoaded(n.style?.fontFamily)),
     );
@@ -273,89 +299,131 @@ async function handleRenderTemplate(
 
   ctx.clearRect(0, 0, width, height);
 
-  const layout = calculateOptimalTemplateLayout(
-    artifact,
-    width,
-    height,
-    controlValues,
+  const contentBounds = measureTemplateContentBounds(artifact, controlValues);
+  const docWidth = Math.max(
+    1,
+    Math.round(Number(artifact?.document?.canvas?.width) || 1920),
   );
-  const uniformWidth = layout.uniformWidth;
-  const uniformHeight = layout.uniformHeight;
-  const offsetX0 = layout.offsetX;
-  const offsetY0 = layout.offsetY;
+  const docHeight = Math.max(
+    1,
+    Math.round(Number(artifact?.document?.canvas?.height) || 1080),
+  );
+
+  // If layer is sized to content bounds, render directly into layer dimensions with exact offset translation.
+  const isContentBounded =
+    width < docWidth * 0.85 &&
+    height < docHeight * 0.85 &&
+    contentBounds.width > 0 &&
+    contentBounds.height > 0;
 
   const rasterStart = performance.now();
-  ctx.save();
-  ctx.translate(offsetX0, offsetY0);
-  renderTextTemplateToCanvas(ctx, {
-    artifact,
-    context: {
-      environment: "editor",
-      time: localTime,
-      clipDuration,
-      width: uniformWidth,
-      height: uniformHeight,
-      controlValues,
-    },
-  });
-  ctx.restore();
-
-  const isAnimated = isArtifactAnimated(artifact);
-  const staticCacheKey = !isAnimated
-    ? `${(artifact as any)?.id ?? id}:${width}x${height}:${JSON.stringify(controlValues)}`
-    : null;
-
-  let bounds: VisibleBounds | null = null;
-  if (staticCacheKey && staticBoundsCache.has(staticCacheKey)) {
-    bounds = staticBoundsCache.get(staticCacheKey) ?? null;
-  } else {
-    const imgData = ctx.getImageData(0, 0, width, height);
-    bounds = findVisibleBounds(imgData.data, width, height, 8);
-    if (staticCacheKey) {
-      if (staticBoundsCache.size >= MAX_WORKER_BOUNDS_CACHE) {
-        const oldest = staticBoundsCache.keys().next().value;
-        if (oldest) staticBoundsCache.delete(oldest);
-      }
-      staticBoundsCache.set(staticCacheKey, bounds);
-    }
-  }
-
   let bitmap: ImageBitmap;
   let offsetX = 0;
   let offsetY = 0;
-  let croppedWidth = 1;
-  let croppedHeight = 1;
+  let croppedWidth = width;
+  let croppedHeight = height;
 
-  if (!bounds) {
-    bitmap = createBlankBitmap();
+  if (isContentBounded) {
+    const scale = width / Math.max(1, contentBounds.width);
+    const uniformWidth = Math.max(1, Math.round(docWidth * scale));
+    const uniformHeight = Math.max(1, Math.round(docHeight * scale));
+    const offsetX0 = -Math.round(contentBounds.minX * scale);
+    const offsetY0 = -Math.round(contentBounds.minY * scale);
+
+    ctx.save();
+    ctx.translate(offsetX0, offsetY0);
+    renderTextTemplateToCanvas(ctx, {
+      artifact,
+      context: {
+        environment: "editor",
+        time: localTime,
+        clipDuration,
+        width: uniformWidth,
+        height: uniformHeight,
+        controlValues,
+      },
+    });
+    ctx.restore();
+
+    bitmap = offscreen.transferToImageBitmap();
   } else {
-    offsetX = bounds.left;
-    offsetY = bounds.top;
-    croppedWidth = Math.max(1, bounds.width);
-    croppedHeight = Math.max(1, bounds.height);
+    const layout = calculateOptimalTemplateLayout(
+      artifact,
+      width,
+      height,
+      controlValues,
+    );
+    const uniformWidth = layout.uniformWidth;
+    const uniformHeight = layout.uniformHeight;
+    const offsetX0 = layout.offsetX;
+    const offsetY0 = layout.offsetY;
 
-    const cropped = new OffscreenCanvas(croppedWidth, croppedHeight);
-    const croppedCtx = cropped.getContext("2d", { alpha: true });
-    if (croppedCtx) {
-      croppedCtx.drawImage(
-        offscreen,
-        offsetX,
-        offsetY,
-        croppedWidth,
-        croppedHeight,
-        0,
-        0,
-        croppedWidth,
-        croppedHeight,
-      );
-      bitmap = cropped.transferToImageBitmap();
+    ctx.save();
+    ctx.translate(offsetX0, offsetY0);
+    renderTextTemplateToCanvas(ctx, {
+      artifact,
+      context: {
+        environment: "editor",
+        time: localTime,
+        clipDuration,
+        width: uniformWidth,
+        height: uniformHeight,
+        controlValues,
+      },
+    });
+    ctx.restore();
+
+    const isAnimated = isArtifactAnimated(artifact);
+    const staticCacheKey = !isAnimated
+      ? `${(artifact as any)?.id ?? id}:${width}x${height}:${JSON.stringify(controlValues)}`
+      : null;
+
+    let bounds: VisibleBounds | null = null;
+    if (staticCacheKey && staticBoundsCache.has(staticCacheKey)) {
+      bounds = staticBoundsCache.get(staticCacheKey) ?? null;
     } else {
-      bitmap = offscreen.transferToImageBitmap();
+      const imgData = ctx.getImageData(0, 0, width, height);
+      bounds = findVisibleBounds(imgData.data, width, height, 8);
+      if (staticCacheKey) {
+        if (staticBoundsCache.size >= MAX_WORKER_BOUNDS_CACHE) {
+          const oldest = staticBoundsCache.keys().next().value;
+          if (oldest) staticBoundsCache.delete(oldest);
+        }
+        staticBoundsCache.set(staticCacheKey, bounds);
+      }
+    }
+
+    if (!bounds) {
+      bitmap = createBlankBitmap();
+    } else {
+      offsetX = bounds.left;
+      offsetY = bounds.top;
+      croppedWidth = Math.max(1, bounds.width);
+      croppedHeight = Math.max(1, bounds.height);
+
+      const cropped = new OffscreenCanvas(croppedWidth, croppedHeight);
+      const croppedCtx = cropped.getContext("2d", { alpha: true });
+      if (croppedCtx) {
+        croppedCtx.drawImage(
+          offscreen,
+          offsetX,
+          offsetY,
+          croppedWidth,
+          croppedHeight,
+          0,
+          0,
+          croppedWidth,
+          croppedHeight,
+        );
+        bitmap = cropped.transferToImageBitmap();
+      } else {
+        bitmap = offscreen.transferToImageBitmap();
+      }
     }
   }
 
   const workerRasterMs = performance.now() - rasterStart;
-  console.log(`[TextRasterizerWorker] Template frame rendered (id=${id}, time=${localTime.toFixed(3)}s, cropped=${croppedWidth}x${croppedHeight}, offset=(${offsetX},${offsetY}), workerMs=${workerRasterMs.toFixed(2)}ms)`);
+  // console.log(`[TextRasterizerWorker] Template frame rendered (id=${id}, time=${localTime.toFixed(3)}s, cropped=${croppedWidth}x${croppedHeight}, offset=(${offsetX},${offsetY}), workerMs=${workerRasterMs.toFixed(2)}ms)`);
 
   (self as unknown as Worker).postMessage(
     {
@@ -375,13 +443,7 @@ async function handleRenderTemplate(
 async function handleRenderEffect(
   msg: WorkerRenderEffectMessage,
 ): Promise<void> {
-  const {
-    id,
-    sceneDocument,
-    time,
-    evalWidth,
-    evalHeight,
-  } = msg;
+  const { id, sceneDocument, time, evalWidth, evalHeight } = msg;
 
   const width = Math.max(1, Math.round(evalWidth));
   const height = Math.max(1, Math.round(evalHeight));
@@ -411,7 +473,7 @@ async function handleRenderEffect(
   const isEffectAnimated = Boolean(
     (sceneDocument as any)?.animation &&
     (sceneDocument as any)?.animation?.type &&
-    (sceneDocument as any)?.animation?.type !== "none"
+    (sceneDocument as any)?.animation?.type !== "none",
   );
   const staticEffectKey = !isEffectAnimated
     ? `${id}:${width}x${height}:${sceneText?.content}:${sceneText?.fontSize}`
@@ -469,7 +531,7 @@ async function handleRenderEffect(
   }
 
   const workerRasterMs = performance.now() - rasterStart;
-  console.log(`[TextRasterizerWorker] Effect frame rendered (id=${id}, time=${time.toFixed(3)}s, cropped=${croppedWidth}x${croppedHeight}, offset=(${offsetX},${offsetY}), workerMs=${workerRasterMs.toFixed(2)}ms)`);
+  // console.log(`[TextRasterizerWorker] Effect frame rendered (id=${id}, time=${time.toFixed(3)}s, cropped=${croppedWidth}x${croppedHeight}, offset=(${offsetX},${offsetY}), workerMs=${workerRasterMs.toFixed(2)}ms)`);
 
   (self as unknown as Worker).postMessage(
     {
@@ -504,7 +566,10 @@ self.onmessage = async (
       await handleRenderEffect(msg);
     }
   } catch (error) {
-    console.error(`[TextRasterizerWorker] Render failed for ${msg.type} (id=${(msg as { id: string }).id}):`, error);
+    console.error(
+      `[TextRasterizerWorker] Render failed for ${msg.type} (id=${(msg as { id: string }).id}):`,
+      error,
+    );
     (self as unknown as Worker).postMessage({
       type: "FRAME_FAILED",
       id: (msg as { id: string }).id,

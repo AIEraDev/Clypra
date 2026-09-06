@@ -276,4 +276,64 @@ describe("templateScale - calculateOptimalTemplateLayout", () => {
     expect(layout.contentBounds.width).toBeLessThanOrEqual(1080 * 0.88 + 1);
     expect(layout.contentBounds.height).toBeLessThanOrEqual(1920 * 0.78 + 1);
   });
+
+  it("calculates tight prominent layout for Speaker name lower-third template on 1080x1920", () => {
+    const introBannerArtifact = {
+      id: "intro-banner",
+      metadata: { category: "lower-third", label: "intro-banner" },
+      document: {
+        canvas: { width: 1920, height: 1080 },
+        nodes: [
+          {
+            id: "bar-mtpfnrh7",
+            type: "shape",
+            shapeType: "rectangle",
+            x: 115,
+            y: 842,
+            width: 520,
+            height: 100,
+            visible: true,
+          },
+          {
+            id: "name-mtpfnrh5",
+            type: "text",
+            text: "SPEAKER NAME",
+            x: 139,
+            y: 856,
+            width: "auto",
+            height: "auto",
+            visible: true,
+            style: { fontSize: 42, fontWeight: 700 },
+          },
+          {
+            id: "role-mtpfnrh6",
+            type: "text",
+            text: "Product Designer & Director",
+            x: 139,
+            y: 902,
+            width: "auto",
+            height: "auto",
+            visible: true,
+            style: { fontSize: 24, fontWeight: 400 },
+          },
+        ],
+      },
+    } as any;
+
+    const bounds = measureTemplateContentBounds(introBannerArtifact);
+    expect(bounds.width).toBe(520);
+    expect(bounds.height).toBe(100);
+
+    const layout = calculateOptimalTemplateLayout(introBannerArtifact, 1080, 1920);
+    // On 1080x1920 portrait canvas:
+    expect(layout.contentBounds.width).toBeCloseTo(693.33, 1);
+    expect(layout.contentBounds.height).toBeCloseTo(133.33, 1);
+    expect(layout.contentBounds.x).toBeGreaterThan(0);
+    expect(layout.contentBounds.y).toBeGreaterThan(1920 * 0.6); // positioned in lower portion of screen
+
+    const layout169 = calculateOptimalTemplateLayout(introBannerArtifact, 1920, 1080);
+    expect(layout169.contentBounds.width).toBeCloseTo(806.4, 1);
+    expect(layout169.contentBounds.height).toBeCloseTo(155.08, 1);
+    expect(layout169.contentBounds.y).toBeGreaterThan(1080 * 0.6);
+  });
 });

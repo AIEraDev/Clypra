@@ -358,6 +358,27 @@ describe("Template Instantiation via Compound Clip Reuse (§1, §2, §3)", () =>
     expect(expandCompoundClips([clip])[0]).toMatchObject({ kind: "text-template", templateId: "canonical-title" });
   });
 
+  it("initializes canonical text-template clip with tight layout contentBounds instead of full canvas", () => {
+    const artifact = normalizeTextTemplateArtifact({
+      id: "centered-badge",
+      label: "Centered Badge",
+      category: "badge",
+      duration: 3,
+      canvas: { width: 1920, height: 1080 },
+      nodes: [{ id: "tag", name: "Tag", type: "text", x: 760, y: 480, width: 400, height: 120, text: "Breaking News", style: { fontFamily: "Inter", fontSize: 48, textColor: "#fff" } }],
+    });
+    const clip = instantiateTemplate(artifact as any, { trackId: "track-1", startTime: 0, canvasWidth: 1080, canvasHeight: 1920 });
+    expect(clip.kind).toBe("text-template");
+    expect(clip.width).toBeLessThan(1080);
+    expect(clip.height).toBeLessThan(1920);
+    expect(clip.width).toBeGreaterThan(0);
+    expect(clip.height).toBeGreaterThan(0);
+    expect(clip.x).toBeGreaterThan(0);
+    expect(clip.y).toBeGreaterThan(0);
+    expect(clip.baseWidth).toBe(clip.width);
+    expect(clip.baseHeight).toBe(clip.height);
+  });
+
   it("extracts and applies full text styling properties and styleRef from legacy template layers", () => {
     const legacyTemplateWithEffects = {
       id: "styled-template-v1",

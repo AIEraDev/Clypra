@@ -1722,77 +1722,9 @@ class TelemetryCollector {
   }
 
   private async flushQueued(): Promise<boolean> {
-    if (this.queue.length === 0) return true;
-
-    // Back off when remote endpoint fails repeatedly to prevent event-loop congestion
-    if (
-      this.transportStatus.consecutiveFailures >= 3 &&
-      this.transportStatus.lastFailureAtMs &&
-      Date.now() - this.transportStatus.lastFailureAtMs < 60_000
-    ) {
-      return false;
-    }
-
-    const eventsToFlush = [...this.queue];
+    // Telemetry endpoint temporarily blocked
     this.queue = [];
-
-    const payload = {
-      batchId: `batch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      sentAtMs: Date.now(),
-      events: eventsToFlush,
-    };
-    this.transportStatus = {
-      ...this.transportStatus,
-      lastBatchId: payload.batchId,
-      lastBatchEventCount: payload.events.length,
-      lastAttemptAtMs: payload.sentAtMs,
-      pendingEvents: this.queue.length,
-    };
-
-    try {
-      if (typeof navigator !== "undefined" && typeof fetch === "function") {
-        const res = await fetch(DEFAULT_API_INGEST_URL, {
-          method: "POST",
-          headers: {
-            ...getApiHeaders(),
-            "X-Clypra-Client": "tauri-desktop",
-          },
-          body: JSON.stringify(payload),
-        });
-
-        if (res.ok) {
-          this.drainOfflineQueue();
-          this.transportStatus = {
-            ...this.transportStatus,
-            lastSuccessAtMs: Date.now(),
-            lastFailureAtMs: null,
-            consecutiveFailures: 0,
-            pendingEvents: this.queue.length,
-          };
-          return true;
-        } else {
-          this.saveToOfflineStorage(payload);
-          this.transportStatus = {
-            ...this.transportStatus,
-            lastFailureAtMs: Date.now(),
-            consecutiveFailures: this.transportStatus.consecutiveFailures + 1,
-            pendingEvents: this.queue.length,
-          };
-          return false;
-        }
-      }
-      return true;
-    } catch {
-      // Offline fallback: save batch to offline storage with bounded capacity
-      this.saveToOfflineStorage(payload);
-      this.transportStatus = {
-        ...this.transportStatus,
-        lastFailureAtMs: Date.now(),
-        consecutiveFailures: this.transportStatus.consecutiveFailures + 1,
-        pendingEvents: this.queue.length,
-      };
-      return false;
-    }
+    return true;
   }
 
   private saveToOfflineStorage(batch: { batchId: string; sentAtMs: number; events: TelemetryEvent[] }): void {
@@ -1812,28 +1744,8 @@ class TelemetryCollector {
   }
 
   private async drainOfflineQueue(): Promise<void> {
-    try {
-      if (typeof localStorage === "undefined") return;
-      const key = "clypra:telemetry:offline_queue";
-      const raw = localStorage.getItem(key);
-      if (!raw) return;
-      const queue: Array<{ batchId: string; sentAtMs: number; events: TelemetryEvent[] }> = JSON.parse(raw);
-      if (queue.length === 0) return;
-
-      localStorage.removeItem(key);
-      for (const batch of queue) {
-        await fetch(DEFAULT_API_INGEST_URL, {
-          method: "POST",
-          headers: {
-            ...getApiHeaders(),
-            "X-Clypra-Client": "tauri-desktop",
-          },
-          body: JSON.stringify(batch),
-        }).catch(() => {});
-      }
-    } catch {
-      // Safe non-blocking catch
-    }
+    // Telemetry endpoint temporarily blocked
+    return;
   }
 
   private clearOfflineQueue(): void {
