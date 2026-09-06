@@ -601,6 +601,9 @@ export interface TextClip extends Clip {
   /** Effect parameters captured when this clip was created. */
   parameterOverrides?: Record<string, any>;
   templateId?: string;
+  templateDefinition?: any;
+  templateSnapshot?: any;
+  templateControlValues?: Record<string, unknown>;
   customization?: any;
   /** Role of the text clip: caption for subtitles, title for decorative text/graphics */
   textRole?: "caption" | "title";

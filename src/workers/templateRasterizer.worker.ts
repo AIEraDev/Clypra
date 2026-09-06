@@ -289,7 +289,13 @@ async function handleRenderTemplate(
       (n: any) => n.type === "text",
     );
     await Promise.all(
-      textNodes.map((n: any) => ensureWorkerFontLoaded(n.style?.fontFamily)),
+      textNodes.map((n: any) => {
+        const overriddenFont =
+          (controlValues && typeof controlValues[`font-${n.id}`] === "string"
+            ? (controlValues[`font-${n.id}`] as string)
+            : undefined) || n.style?.fontFamily;
+        return ensureWorkerFontLoaded(overriddenFont);
+      }),
     );
   }
 
