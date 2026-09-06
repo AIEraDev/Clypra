@@ -183,7 +183,25 @@ export function getClipAudioProperties(fields: LegacyAudioClipFields): ClipAudio
 }
 
 function isAudioCapableClip(fields: LegacyAudioClipFields): boolean {
-  return fields.kind === "audio" || fields.kind === "video" || fields.kind === "compound" || Boolean(fields.audioPath) || Boolean(fields.detachedFromClipId) || Boolean(fields.audio);
+  if (
+    fields.kind === "text" ||
+    fields.kind === "text-template" ||
+    fields.kind === "image" ||
+    fields.kind === "sticker" ||
+    fields.kind === "filter" ||
+    fields.kind === "video-effect" ||
+    fields.kind === "body-effect"
+  ) {
+    return false;
+  }
+  return (
+    fields.kind === "audio" ||
+    fields.kind === "video" ||
+    fields.kind === "compound" ||
+    Boolean(fields.audioPath) ||
+    Boolean(fields.detachedFromClipId) ||
+    Boolean(fields.audio)
+  );
 }
 
 function mergeAudioProperties(
