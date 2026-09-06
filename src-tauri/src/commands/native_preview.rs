@@ -1924,7 +1924,7 @@ pub async fn queue_native_frame(
 ) -> Result<(), String> {
     let command_started = Instant::now();
     request.validate().map_err(|error| error.to_string())?;
-    let key = request.cache_key().map_err(|error| error.to_string())?;
+    let key = request.decode_cache_key().map_err(|error| error.to_string())?;
     let legacy_request = to_video_project_request(&request)?;
     validate_video_project_request(&legacy_request)?;
 
@@ -2144,7 +2144,7 @@ pub(crate) fn schedule_lookahead_predecode(
             }
 
             // If already in queue or pending, skip
-            if let Ok(key) = req.cache_key() {
+            if let Ok(key) = req.decode_cache_key() {
                 if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
                     let queue_state = queue.lock().await;
                     if queue_state.contains(&key) {
@@ -2408,7 +2408,7 @@ pub(crate) async fn present_native_frame_internal(
         .lock()
         .map_err(|_| "Native surface runtime lock is poisoned".to_string())?
         .runtime_epoch();
-    let queued_key = request.cache_key().map_err(|error| error.to_string())?;
+    let queued_key = request.decode_cache_key().map_err(|error| error.to_string())?;
     let is_playback_mode = request.mode.as_deref() == Some("playback");
     let queued_frame =
         if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {

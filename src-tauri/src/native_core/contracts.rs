@@ -1496,11 +1496,11 @@ impl FrameRequest {
         Ok(())
     }
 
-    pub fn cache_key(&self) -> Result<String, NativeCoreError> {
+    /// Cache key for raw video decode queue (NativePreviewFrameQueue).
+    /// Strips transforms and overlay layers (raster/text) so lookahead
+    /// pre-decoded raw video frames are shared regardless of dynamic overlays or transforms.
+    pub fn decode_cache_key(&self) -> Result<String, NativeCoreError> {
         self.validate()?;
-        // Request identity controls cancellation/telemetry, not decoded-frame
-        // identity. Keep those fields out of the cache key so a new seek
-        // generation can reuse an already-rendered exact frame.
         let mut cache_request = self.clone();
         cache_request.request_id.clear();
         cache_request.generation = None;
@@ -1513,9 +1513,7 @@ impl FrameRequest {
         cache_request.project.clear_color = [0.0, 0.0, 0.0, 1.0];
         cache_request.project.transition = None;
 
-        // Normalise time representations to canonical frame indices!
-        // Clock tick jitter and timescale variations (e.g. 1000 vs 1_000_000 vs audio sample rate)
-        // must not produce distinct cache keys for the exact same frame index.
+        // Normalise time representations to canonical frame indices
         cache_request.frame_time.ticks = 0;
         cache_request.frame_time.timescale = 1;
         for layer in &mut cache_request.project.video_layers {
@@ -1540,6 +1538,46 @@ impl FrameRequest {
         // lookahead pre-decoded video frames match regardless of text/sticker appearances.
         cache_request.project.raster_layers.clear();
         cache_request.project.text_layers.clear();
+
+        let bytes = serde_json::to_vec(&cache_request).map_err(|error| {
+            NativeCoreError::InvalidContract(format!("Unable to serialize FrameRequest: {error}"))
+        })?;
+        let digest = Sha256::digest(bytes);
+        Ok(format!("native-decode-v{}-{:x}", self.contract_version, digest))
+    }
+
+    /// Cache key for the final composited frame packet (NativeFrameService).
+    /// Preserves all visual layout, transforms, raster overlays, text layers,
+    /// color grades, and transitions so any change in position, size, text,
+    /// or styling yields a distinct composited frame.
+    /// Heavy raw RGBA byte vectors in raster_layers are stripped to keep hashing fast,
+    /// using `asset_id` to identify texture contents.
+    pub fn cache_key(&self) -> Result<String, NativeCoreError> {
+        self.validate()?;
+        // Request identity controls cancellation/telemetry, not composited-frame
+        // identity. Keep those fields out of the cache key so a new seek
+        // generation can reuse an already-rendered exact frame.
+        let mut cache_request = self.clone();
+        cache_request.request_id.clear();
+        cache_request.generation = None;
+        cache_request.mode = None;
+        cache_request.scrub_velocity_px_per_second = None;
+        cache_request.requested_at_ms = None;
+
+        // Normalise time representations to canonical frame indices!
+        // Clock tick jitter and timescale variations (e.g. 1000 vs 1_000_000 vs audio sample rate)
+        // must not produce distinct cache keys for the exact same frame index.
+        cache_request.frame_time.ticks = 0;
+        cache_request.frame_time.timescale = 1;
+        for layer in &mut cache_request.project.video_layers {
+            layer.source_time.ticks = 0;
+            layer.source_time.timescale = 1;
+        }
+
+        // Strip heavy pixel bytes from raster layers - asset_id uniquely identifies pixels
+        for layer in &mut cache_request.project.raster_layers {
+            layer.rgba = None;
+        }
 
         let bytes = serde_json::to_vec(&cache_request).map_err(|error| {
             NativeCoreError::InvalidContract(format!("Unable to serialize FrameRequest: {error}"))
@@ -1671,7 +1709,7 @@ mod tests {
     }
 
     #[test]
-    fn request_cache_key_ignores_project_revision_and_transform_metadata() {
+    fn request_decode_cache_key_ignores_project_revision_and_transform_metadata() {
         let first = request();
         let mut second = first.clone();
         second.project.project_revision = "project-rev-999".to_string();
@@ -1684,7 +1722,41 @@ mod tests {
         second.project.video_layers[0].z_index = 4;
         second.project.video_layers[0].color_grade = Some(serde_json::from_str("{}").unwrap());
 
-        assert_eq!(first.cache_key().unwrap(), second.cache_key().unwrap());
+        assert_eq!(first.decode_cache_key().unwrap(), second.decode_cache_key().unwrap());
+    }
+
+    #[test]
+    fn request_cache_key_changes_with_layer_transforms_and_overlays() {
+        let first = request();
+        let mut second = first.clone();
+        second.project.video_layers[0].x = 150.0;
+        assert_ne!(first.cache_key().unwrap(), second.cache_key().unwrap());
+
+        let mut third = first.clone();
+        third.project.raster_layers.push(RasterLayerSnapshot {
+            layer_id: Some("raster-1".to_string()),
+            asset_id: "asset-1".to_string(),
+            rgba: Some(vec![255, 0, 0, 255]),
+            width: 1,
+            height: 1,
+            display_width: Some(100.0),
+            display_height: Some(100.0),
+            x: 50.0,
+            y: 50.0,
+            rotation: 0.0,
+            opacity: 1.0,
+            z_index: 1,
+            blend_mode: "normal".to_string(),
+            color_grade: None,
+            is_mask: false,
+            is_text: true,
+        });
+        assert_ne!(first.cache_key().unwrap(), third.cache_key().unwrap());
+
+        // But changing only the rgba bytes when asset_id and geometry match produces identical cache key
+        let mut fourth = third.clone();
+        fourth.project.raster_layers[0].rgba = Some(vec![0, 255, 0, 255]);
+        assert_eq!(third.cache_key().unwrap(), fourth.cache_key().unwrap());
     }
 
     #[test]
