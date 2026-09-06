@@ -582,6 +582,7 @@ export interface TextClip extends Clip {
   fontSize: number;
   fontWeight?: string | number;
   fontStyle?: "normal" | "italic";
+  textTransform?: "uppercase" | "lowercase" | "capitalize" | "none";
   color: string;
   backgroundColor?: string;
   align: "left" | "center" | "right";

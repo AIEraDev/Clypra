@@ -84,6 +84,7 @@ export interface CreateTextClipOptions {
   customization?: any;
   fontWeight?: string | number;
   fontStyle?: "normal" | "italic";
+  textTransform?: "uppercase" | "lowercase" | "capitalize" | "none";
   stroke?: { color: string; width: number };
   shadow?: { color: string; blur: number; offsetX: number; offsetY: number };
   background?: { color: string; padding: number; borderRadius: number };
@@ -1073,6 +1074,7 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
     color,
     fontWeight: fontWeight || (bold ? "bold" : "normal"),
     fontStyle: fontStyle || (italic ? "italic" : "normal"),
+    textTransform: options.textTransform,
     align: "center",
     valign: "middle",
     lineHeight,

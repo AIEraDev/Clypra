@@ -307,6 +307,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
     "color",
     "fontWeight",
     "fontStyle",
+    "textTransform",
     "stroke",
     "shadow",
     "background",
@@ -314,6 +315,14 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
     "letterSpacing",
     "align",
     "valign",
+    "styleId",
+    "styleVersion",
+    "styleRevisionId",
+    "styleContentHash",
+    "styleSnapshot",
+    "styleDefinition",
+    "templateId",
+    "templateSnapshot",
   ];
 
   const handleUpdate = (key: string, value: any) => {
