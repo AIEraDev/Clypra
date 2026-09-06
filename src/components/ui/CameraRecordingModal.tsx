@@ -81,13 +81,9 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
   const service = CameraRecordService.getInstance();
 
   // ── Device enumeration ────────────────────────────────────────────────────
-  // NOTE: enumeration is merged into the preview setup below so we always have
-  // a live permission grant before calling enumerateDevices (pre-grant, browsers
-  // return empty labels and blank deviceIds which makes exact-deviceId matching fail).
 
   useEffect(() => {
     if (!cameraModalOpen) return;
-    // Re-enumerate on device hot-plug events only (initial enum happens in setup)
     const handleDeviceChange = async () => {
       const [cams, micsArr] = await Promise.all([
         service.enumerateCameras(),
@@ -105,128 +101,34 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
   }, [cameraModalOpen]);
 
   // ── Preview stream setup ──────────────────────────────────────────────────
-  // WKWebView has a persistent bug where getUserMedia video tracks rendered in
-  // a <video> element show as black (the hardware decoder path fails in this
-  // compositing context). We work around it by:
-  //  1. Keeping a hidden <video> element for decoding only
-  //  2. Drawing frames to a visible <canvas> via rAF (bypasses broken path)
-  //  3. Doing the scaleX(-1) mirror in canvas 2D (not CSS) so no GPU transform issue
-  //  4. Setting up AudioContext BEFORE assigning srcObject (WKWebView drops
-  //     audio tracks on muted video elements when srcObject is assigned)
+  // WKWebView-safe approach:
+  //  - Always open with unconstrained video:true on first mount so we never
+  //    stop+reopen the track (WKWebView fires "capture failure" on any track
+  //    that is stopped while still in the "starting" state).
+  //  - Enumerate AFTER the grant so we get real deviceIds / labels.
+  //  - If the user switches cameras via the dropdown, a dedicated
+  //    handleSwitchCamera callback reopens cleanly on a stable stream.
+  //  - Draw to canvas via rAF (hidden video → canvas) to bypass WKWebView's
+  //    broken direct-video-element compositing path.
 
   const previewStreamRef = useRef<MediaStream | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawLoopRef = useRef<number>(0);
+  // Track which device is currently open so the dropdown callback can compare
+  const openDeviceIdRef = useRef<string>("");
 
-  useEffect(() => {
-    if (!cameraModalOpen || isRecording) return;
+  // Internal helper: attach a live stream to the hidden video and start the
+  // canvas draw loop. Does NOT stop any existing stream.
+  const attachStreamToCanvas = React.useCallback(
+    (stream: MediaStream, cancelled: { current: boolean }) => {
+      const vid = videoRef.current;
+      if (!vid || cancelled.current) return;
 
-    let cancelled = false;
-
-    const setup = async () => {
-      // Tear down previous preview
-      cancelAnimationFrame(drawLoopRef.current);
+      // Audio context for mic level meter — set up BEFORE srcObject assignment
+      // (WKWebView drops audio tracks when srcObject is set on a muted element)
+      cancelAnimationFrame(micAnimRef.current);
       audioCtxRef.current?.close();
       audioCtxRef.current = null;
-      previewStreamRef.current?.getTracks().forEach((t) => t.stop());
-      previewStreamRef.current = null;
-      if (videoRef.current) videoRef.current.srcObject = null;
-      setCameraError(null);
-
-      // ── Step 1: Open with video:true first to trigger the permission prompt.
-      // Before getUserMedia is granted, enumerateDevices returns empty labels
-      // and blank deviceIds — exact-deviceId constraints built from those will
-      // silently fail or pick the wrong device.
-      let stream: MediaStream | null = null;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-          audio: micEnabled,
-        });
-      } catch (err: any) {
-        if (!cancelled)
-          setCameraError(
-            err?.message ||
-              "Camera unavailable — check System Settings → Privacy.",
-          );
-        return;
-      }
-
-      if (cancelled) {
-        stream.getTracks().forEach((t) => t.stop());
-        return;
-      }
-
-      // ── Step 2: Now that permission is granted, enumerate real deviceIds.
-      const [cams, micsArr] = await Promise.all([
-        service.enumerateCameras(),
-        service.enumerateMics(),
-      ]);
-      if (!cancelled) {
-        setCameras(cams);
-        setMics(micsArr);
-      }
-
-      // ── Step 3: If the user had a specific camera selected (or we just got
-      // real deviceIds), and it differs from what the default stream gave us,
-      // close the default stream and reopen on the correct device.
-      const targetCameraId =
-        selectedCameraDeviceId || (cams[0]?.deviceId ?? "");
-      if (!cancelled) {
-        if (cams.length > 0 && !selectedCameraDeviceId) {
-          setSelectedCameraDeviceId(cams[0].deviceId);
-        }
-        if (micsArr.length > 0 && !selectedMicDeviceId) {
-          setSelectedMicDeviceId(micsArr[0].deviceId);
-        }
-      }
-
-      const currentVideoTrack = stream.getVideoTracks()[0];
-      const currentDeviceId =
-        currentVideoTrack?.getSettings?.()?.deviceId ?? "";
-      const needsReopen =
-        targetCameraId && currentDeviceId && currentDeviceId !== targetCameraId;
-
-      if (needsReopen && !cancelled) {
-        stream.getTracks().forEach((t) => t.stop());
-        try {
-          const targetMicId = selectedMicDeviceId || micsArr[0]?.deviceId;
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              deviceId: { exact: targetCameraId },
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-            },
-            audio: micEnabled
-              ? targetMicId
-                ? { deviceId: { exact: targetMicId } }
-                : true
-              : false,
-          });
-        } catch {
-          // Device became unavailable — fall back to the already-open default
-          try {
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-              audio: micEnabled,
-            });
-          } catch (err: any) {
-            if (!cancelled)
-              setCameraError(err?.message || "Camera unavailable.");
-            return;
-          }
-        }
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-      }
-
-      previewStreamRef.current = stream;
-
-      // ── 1. Mic level meter via AudioContext ───────────────────────────────
-      // Set this up BEFORE assigning srcObject — WKWebView drops the audio
-      // track when a muted video element's srcObject is set.
       if (micEnabled && stream.getAudioTracks().length > 0) {
         try {
           const audioCtx = new AudioContext();
@@ -236,7 +138,6 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
           analyser.fftSize = 256;
           source.connect(analyser);
           const dataArray = new Uint8Array(analyser.frequencyBinCount);
-          cancelAnimationFrame(micAnimRef.current);
           const pollMic = () => {
             analyser.getByteFrequencyData(dataArray);
             const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
@@ -250,30 +151,32 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
         }
       }
 
-      // ── 2. Decode via hidden video element ────────────────────────────────
-      const vid = videoRef.current;
-      if (!vid) return;
-      // Give the video element ONLY the video track so WKWebView doesn't touch
-      // the audio track (which we're already using in AudioContext above).
+      // Feed only the video track into the hidden <video> element
       const videoOnlyStream = new MediaStream(stream.getVideoTracks());
       vid.muted = true;
       vid.srcObject = videoOnlyStream;
-      await vid.play().catch(() => {});
+      vid.play().catch(() => {});
 
-      // ── 3. Draw to canvas via rAF ─────────────────────────────────────────
       const startDraw = () => {
         const canvas = canvasRef.current;
-        if (!canvas || !vid) return;
+        if (!canvas || !vid || cancelled.current) return;
         canvas.width = vid.videoWidth || 640;
         canvas.height = vid.videoHeight || 480;
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
-
+        cancelAnimationFrame(drawLoopRef.current);
         const draw = () => {
-          if (cancelled) return;
+          if (cancelled.current) return;
           if (vid.readyState >= 2 && vid.videoWidth > 0) {
+            // Resize canvas if the track resolution changed (e.g. device switch)
+            if (
+              canvas.width !== vid.videoWidth ||
+              canvas.height !== vid.videoHeight
+            ) {
+              canvas.width = vid.videoWidth;
+              canvas.height = vid.videoHeight;
+            }
             ctx.save();
-            // Mirror horizontally (front-camera feel)
             ctx.translate(canvas.width, 0);
             ctx.scale(-1, 1);
             ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
@@ -289,33 +192,138 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
       } else {
         vid.onloadedmetadata = () => startDraw();
       }
-    };
+    },
+    [micEnabled],
+  );
 
-    setup();
+  const cancelledRef = useRef({ current: false });
 
-    return () => {
-      cancelled = true;
+  useEffect(() => {
+    if (!cameraModalOpen || isRecording) return;
+
+    const cancelled = { current: false };
+    cancelledRef.current = cancelled;
+
+    const setup = async () => {
+      // Tear down any previous preview cleanly
       cancelAnimationFrame(drawLoopRef.current);
       cancelAnimationFrame(micAnimRef.current);
       audioCtxRef.current?.close();
       audioCtxRef.current = null;
       previewStreamRef.current?.getTracks().forEach((t) => t.stop());
       previewStreamRef.current = null;
+      openDeviceIdRef.current = "";
       if (videoRef.current) videoRef.current.srcObject = null;
-      // Clear canvas
+      setCameraError(null);
+
+      // Open stream with no device constraint — this fires the permission
+      // prompt and gives us a live track immediately without any stop/reopen.
+      let stream: MediaStream | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: micEnabled,
+        });
+      } catch (err: any) {
+        if (!cancelled.current)
+          setCameraError(
+            err?.message ||
+              "Camera unavailable — check System Settings → Privacy.",
+          );
+        return;
+      }
+
+      if (cancelled.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+
+      // Record which device is actually running
+      const runningDeviceId =
+        stream.getVideoTracks()[0]?.getSettings?.()?.deviceId ?? "";
+      openDeviceIdRef.current = runningDeviceId;
+      previewStreamRef.current = stream;
+
+      // Enumerate NOW — permission is granted so we get real labels + deviceIds
+      const [cams, micsArr] = await Promise.all([
+        service.enumerateCameras(),
+        service.enumerateMics(),
+      ]);
+      if (!cancelled.current) {
+        setCameras(cams);
+        setMics(micsArr);
+        // Set defaults without triggering a re-open (we're already live)
+        if (cams.length > 0 && !selectedCameraDeviceId) {
+          setSelectedCameraDeviceId(runningDeviceId || cams[0].deviceId);
+        }
+        if (micsArr.length > 0 && !selectedMicDeviceId) {
+          setSelectedMicDeviceId(micsArr[0].deviceId);
+        }
+      }
+
+      attachStreamToCanvas(stream, cancelled);
+    };
+
+    setup();
+
+    return () => {
+      cancelled.current = true;
+      cancelAnimationFrame(drawLoopRef.current);
+      cancelAnimationFrame(micAnimRef.current);
+      audioCtxRef.current?.close();
+      audioCtxRef.current = null;
+      previewStreamRef.current?.getTracks().forEach((t) => t.stop());
+      previewStreamRef.current = null;
+      openDeviceIdRef.current = "";
+      if (videoRef.current) videoRef.current.srcObject = null;
       if (canvasRef.current) {
         const ctx = canvasRef.current.getContext("2d");
         ctx?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
       }
     };
+    // Only re-run when the modal opens/closes or recording starts/stops.
+    // Device switching is handled by handleSwitchCamera below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    cameraModalOpen,
-    isRecording,
-    selectedCameraDeviceId,
-    selectedMicDeviceId,
-    micEnabled,
-  ]);
+  }, [cameraModalOpen, isRecording]);
+
+  // Switch to a different camera without tearing down the whole effect
+  const handleSwitchCamera = React.useCallback(
+    async (deviceId: string) => {
+      if (deviceId === openDeviceIdRef.current) return;
+      setSelectedCameraDeviceId(deviceId);
+
+      const cancelled = cancelledRef.current;
+      cancelAnimationFrame(drawLoopRef.current);
+      audioCtxRef.current?.close();
+      audioCtxRef.current = null;
+      previewStreamRef.current?.getTracks().forEach((t) => t.stop());
+      previewStreamRef.current = null;
+      if (videoRef.current) videoRef.current.srcObject = null;
+      setCameraError(null);
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            deviceId: { exact: deviceId },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: micEnabled,
+        });
+        if (cancelled.current) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        openDeviceIdRef.current =
+          stream.getVideoTracks()[0]?.getSettings?.()?.deviceId ?? deviceId;
+        previewStreamRef.current = stream;
+        attachStreamToCanvas(stream, cancelled);
+      } catch (err: any) {
+        setCameraError(err?.message || "Could not switch camera.");
+      }
+    },
+    [micEnabled, attachStreamToCanvas],
+  );
 
   // ── Recording timer ───────────────────────────────────────────────────────
 
@@ -399,8 +407,8 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
       (c) => c.deviceId === selectedCameraDeviceId,
     );
     const next = cameras[(currentIdx + 1) % cameras.length];
-    setSelectedCameraDeviceId(next.deviceId);
-  }, [cameras, selectedCameraDeviceId]);
+    handleSwitchCamera(next.deviceId);
+  }, [cameras, selectedCameraDeviceId, handleSwitchCamera]);
 
   if (!cameraModalOpen) return null;
 
@@ -589,7 +597,7 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
                       <button
                         key={cam.deviceId}
                         onClick={() => {
-                          setSelectedCameraDeviceId(cam.deviceId);
+                          handleSwitchCamera(cam.deviceId);
                           setCameraDropdownOpen(false);
                         }}
                         className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-white/80 hover:bg-white/8 transition-colors cursor-pointer"
