@@ -81,29 +81,27 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
   const service = CameraRecordService.getInstance();
 
   // ── Device enumeration ────────────────────────────────────────────────────
+  // NOTE: enumeration is merged into the preview setup below so we always have
+  // a live permission grant before calling enumerateDevices (pre-grant, browsers
+  // return empty labels and blank deviceIds which makes exact-deviceId matching fail).
 
   useEffect(() => {
     if (!cameraModalOpen) return;
-
-    const enumerate = async () => {
+    // Re-enumerate on device hot-plug events only (initial enum happens in setup)
+    const handleDeviceChange = async () => {
       const [cams, micsArr] = await Promise.all([
         service.enumerateCameras(),
         service.enumerateMics(),
       ]);
       setCameras(cams);
       setMics(micsArr);
-      if (cams.length > 0 && !selectedCameraDeviceId) {
-        setSelectedCameraDeviceId(cams[0].deviceId);
-      }
-      if (micsArr.length > 0 && !selectedMicDeviceId) {
-        setSelectedMicDeviceId(micsArr[0].deviceId);
-      }
     };
-
-    enumerate();
-    navigator.mediaDevices.addEventListener("devicechange", enumerate);
+    navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
     return () =>
-      navigator.mediaDevices.removeEventListener("devicechange", enumerate);
+      navigator.mediaDevices.removeEventListener(
+        "devicechange",
+        handleDeviceChange,
+      );
   }, [cameraModalOpen]);
 
   // ── Preview stream setup ──────────────────────────────────────────────────
@@ -135,51 +133,95 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
       if (videoRef.current) videoRef.current.srcObject = null;
       setCameraError(null);
 
-      // Acquire stream — use the selected device IDs so we capture the right camera.
-      // Fall back to unconstrained if the exact deviceId fails (e.g. device was
-      // unplugged between enumeration and stream acquisition).
+      // ── Step 1: Open with video:true first to trigger the permission prompt.
+      // Before getUserMedia is granted, enumerateDevices returns empty labels
+      // and blank deviceIds — exact-deviceId constraints built from those will
+      // silently fail or pick the wrong device.
       let stream: MediaStream | null = null;
-      const videoConstraints: MediaTrackConstraints = selectedCameraDeviceId
-        ? { deviceId: { exact: selectedCameraDeviceId } }
-        : {};
-      const audioConstraints: boolean | MediaTrackConstraints = micEnabled
-        ? selectedMicDeviceId
-          ? { deviceId: { exact: selectedMicDeviceId } }
-          : true
-        : false;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            ...videoConstraints,
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-          audio: audioConstraints,
+          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: micEnabled,
         });
-      } catch {
-        // Retry with no constraints (handles cases where the exact deviceId is
-        // stale or the camera rejected the ideal resolution hints)
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: selectedCameraDeviceId
-              ? { deviceId: { exact: selectedCameraDeviceId } }
-              : true,
-            audio: audioConstraints,
-          });
-        } catch (err: any) {
-          if (!cancelled)
-            setCameraError(
-              err?.message ||
-                "Camera unavailable — check System Settings → Privacy.",
-            );
-          return;
-        }
+      } catch (err: any) {
+        if (!cancelled)
+          setCameraError(
+            err?.message ||
+              "Camera unavailable — check System Settings → Privacy.",
+          );
+        return;
       }
 
       if (cancelled) {
         stream.getTracks().forEach((t) => t.stop());
         return;
       }
+
+      // ── Step 2: Now that permission is granted, enumerate real deviceIds.
+      const [cams, micsArr] = await Promise.all([
+        service.enumerateCameras(),
+        service.enumerateMics(),
+      ]);
+      if (!cancelled) {
+        setCameras(cams);
+        setMics(micsArr);
+      }
+
+      // ── Step 3: If the user had a specific camera selected (or we just got
+      // real deviceIds), and it differs from what the default stream gave us,
+      // close the default stream and reopen on the correct device.
+      const targetCameraId =
+        selectedCameraDeviceId || (cams[0]?.deviceId ?? "");
+      if (!cancelled) {
+        if (cams.length > 0 && !selectedCameraDeviceId) {
+          setSelectedCameraDeviceId(cams[0].deviceId);
+        }
+        if (micsArr.length > 0 && !selectedMicDeviceId) {
+          setSelectedMicDeviceId(micsArr[0].deviceId);
+        }
+      }
+
+      const currentVideoTrack = stream.getVideoTracks()[0];
+      const currentDeviceId =
+        currentVideoTrack?.getSettings?.()?.deviceId ?? "";
+      const needsReopen =
+        targetCameraId && currentDeviceId && currentDeviceId !== targetCameraId;
+
+      if (needsReopen && !cancelled) {
+        stream.getTracks().forEach((t) => t.stop());
+        try {
+          const targetMicId = selectedMicDeviceId || micsArr[0]?.deviceId;
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              deviceId: { exact: targetCameraId },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+            audio: micEnabled
+              ? targetMicId
+                ? { deviceId: { exact: targetMicId } }
+                : true
+              : false,
+          });
+        } catch {
+          // Device became unavailable — fall back to the already-open default
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+              audio: micEnabled,
+            });
+          } catch (err: any) {
+            if (!cancelled)
+              setCameraError(err?.message || "Camera unavailable.");
+            return;
+          }
+        }
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+      }
+
       previewStreamRef.current = stream;
 
       // ── 1. Mic level meter via AudioContext ───────────────────────────────
