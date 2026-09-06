@@ -569,4 +569,4 @@ function computeTemplateContentBounds(
 );
 
 TemplatePreviewPlayer.displayName = 'TemplatePreviewPlayer';
-export default TemplatePreviewPlayer;
+
