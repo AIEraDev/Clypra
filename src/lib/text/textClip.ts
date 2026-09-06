@@ -1010,19 +1010,39 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
       textRole,
     });
 
-    // Calculate position based on preset using the dynamic box sizes
-    const textPosition = calculateTextPosition(
-      position,
-      canvasWidth,
-      canvasHeight,
-      sizing.width,
-      sizing.height,
-    );
-    x = textPosition.x;
-    y = textPosition.y;
-    width = textPosition.width;
-    height = textPosition.height;
+    if (textRole === "caption") {
+      // Caption clips always use a fixed full-width container (95% of canvas)
+      // so the renderer wraps at a predictable boundary and never breaks mid-word.
+      // Centering gives equal 2.5% gutters on each side.
+      const captionWidth = Math.round(canvasWidth * 0.95);
+      const captionX = Math.round((canvasWidth - captionWidth) / 2);
+      const captionY = calculateTextPosition(
+        position,
+        canvasWidth,
+        canvasHeight,
+        captionWidth,
+        sizing.height,
+      ).y;
+      x = captionX;
+      y = captionY;
+      width = captionWidth;
+      height = sizing.height;
+    } else {
+      // Regular text clips use the measured text width
+      const textPosition = calculateTextPosition(
+        position,
+        canvasWidth,
+        canvasHeight,
+        sizing.width,
+        sizing.height,
+      );
+      x = textPosition.x;
+      y = textPosition.y;
+      width = textPosition.width;
+      height = textPosition.height;
+    }
   }
+
 
   const defaultFontSize =
     effectTypography.fontSize ?? (options.styleId ? 96 : 100);
