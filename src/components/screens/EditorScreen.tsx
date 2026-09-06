@@ -6,6 +6,7 @@ import { EditorLayout } from "@/components/editor/EditorLayout";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { usePlaybackControls } from "@/hooks/usePlaybackClock";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { useGlobalSelectionDeselect } from "@/hooks/useGlobalSelectionDeselect";
 import { useProjectStore } from "@/store/projectStore";
 
 interface EditorScreenProps {
@@ -14,6 +15,7 @@ interface EditorScreenProps {
 
 export const EditorScreen: React.FC<EditorScreenProps> = ({ onRequestClose }) => {
   useKeyboardShortcuts();
+  useGlobalSelectionDeselect();
   const { setDuration } = usePlaybackControls();
   const projectDuration = useProjectStore((s) => s.project?.duration ?? 0);
 

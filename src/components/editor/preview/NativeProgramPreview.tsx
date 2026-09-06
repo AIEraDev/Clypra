@@ -19,6 +19,7 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
+import { isProtectedInteractiveElement } from "@/core/selection/selectionCoordinator";
 import {
   getPreviewInteractionCoordinator,
   getTransformController,
@@ -944,10 +945,7 @@ export const NativeProgramPreview: React.FC = () => {
       //   nativeSurfaceReady,
       //   selectedClipIds: useUIStore.getState().selectedClipIds,
       // });
-      if (target.closest("[data-transform-handle]")) return;
-      if (target.closest("[data-playhead]")) return;
-      if (target.closest("[data-transform-overlay]")) return;
-      if (target.closest("[data-testid='program-preview-viewport']")) return;
+      if (isProtectedInteractiveElement(target)) return;
       clearSelection();
     },
     [clearSelection, isPanning, spacePressed, clock, nativeSurfaceReady],

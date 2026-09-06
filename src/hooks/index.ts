@@ -15,3 +15,4 @@ export { useViewportState } from "./useViewportController";
 export { useVoiceoverRecorder } from "./useVoiceoverRecorder";
 export { useWindowSize } from "./useWindowSize";
 export { useClickOutside, type ClickOutsideTarget, type UseClickOutsideOptions } from "./useClickOutside";
+export { useGlobalSelectionDeselect } from "./useGlobalSelectionDeselect";

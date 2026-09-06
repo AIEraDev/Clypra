@@ -439,8 +439,10 @@ export function getHitTestCandidateDiagnostics(
   canvasWidth?: number,
   canvasHeight?: number,
 ): HitTestCandidateDiagnostic[] {
-  const visibleTrackIds = new Set(
-    tracks.filter((track) => track.visible !== false).map((track) => track.id),
+  const interactiveTrackIds = new Set(
+    tracks
+      .filter((track) => track.visible !== false && track.locked !== true)
+      .map((track) => track.id),
   );
 
   return clips
@@ -450,7 +452,7 @@ export function getHitTestCandidateDiagnostics(
       compositorClip: toCompositorClip(clip, tracks),
     }))
     .filter(({ clip }) => {
-      if (!visibleTrackIds.has(clip.trackId)) return false;
+      if (!interactiveTrackIds.has(clip.trackId)) return false;
       if (
         clip.kind === "audio" ||
         clip.kind === "filter" ||
