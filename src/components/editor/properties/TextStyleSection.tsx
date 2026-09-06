@@ -28,6 +28,7 @@ import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import { EffectStylePanel } from "./EffectStylePanel";
 import { TemplateLayerEditor } from "./TemplateLayerEditor";
 import { ClypraColorPicker } from "@clypra/ui-color-picker";
+import { resolveTextTemplateArtifact } from "@clypra-studio/engine";
 import { isTauriRuntime } from "@/lib/platform/tauri";
 import {
   getBundledNativeFontIds,
@@ -75,7 +76,7 @@ const GOOGLE_FONTS = [
   { value: "Pacifico", label: "Pacifico" },
 ];
 
-const FONT_PICKER_OPTIONS = [...SYSTEM_FONTS, ...GOOGLE_FONTS];
+export const FONT_PICKER_OPTIONS = [...SYSTEM_FONTS, ...GOOGLE_FONTS];
 
 /**
  * Keep the native select controlled even when older clips store a family
@@ -244,10 +245,13 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
 
   const { templates } = useTemplateStore();
   const { definitions } = useEffectsStore();
-  const templateDef = templates.find((t) => t.id === textClip.templateId);
+  const templateDef =
+    templates.find((t) => t.id === textClip.templateId) ??
+    (textClip.templateDefinition as any) ??
+    (textClip.templateSnapshot as any);
   const innerTemplate = templateDef
     ? templateDef.templateData || templateDef.lottieData || templateDef
-    : null;
+    : (textClip.templateSnapshot as any) ?? (textClip.templateDefinition as any) ?? null;
 
   React.useEffect(() => {
     if (
@@ -677,17 +681,54 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
                 template={innerTemplate!}
                 customization={customization}
                 onChange={(nextCust) => {
-                  const firstTextLayer = innerTemplate?.layers?.find(
-                    (l: any) => l.kind === "text",
-                  );
+                  const resolvedArtifact = resolveTextTemplateArtifact(innerTemplate);
+                  const firstNodeId =
+                    resolvedArtifact?.document?.nodes?.find(
+                      (n: any) => n.type === "text",
+                    )?.id ||
+                    innerTemplate?.layers?.find(
+                      (l: any) => l.kind === "text",
+                    )?.id ||
+                    "";
                   const primaryTextVal =
-                    nextCust.layerTexts?.[firstTextLayer?.id || ""] ??
+                    nextCust.layerTexts?.[firstNodeId] ??
                     nextCust.primaryText ??
                     textClip.text;
+                  const primaryFontVal =
+                    nextCust.layerFontFamilies?.[firstNodeId] ??
+                    nextCust.primaryFontFamily ??
+                    textClip.fontFamily;
+                  const primaryColorVal =
+                    nextCust.layerColors?.[firstNodeId] ??
+                    nextCust.primaryColor ??
+                    textClip.color;
+
+                  // Build templateControlValues to ensure engine compiler and worker receive all overrides
+                  const existingControlValues = textClip.templateControlValues || {};
+                  const nextControlValues: Record<string, unknown> = { ...existingControlValues };
+
+                  if (nextCust.layerTexts) {
+                    for (const [nodeId, txt] of Object.entries(nextCust.layerTexts)) {
+                      nextControlValues[`text-${nodeId}`] = txt;
+                    }
+                  }
+                  if (nextCust.layerFontFamilies) {
+                    for (const [nodeId, font] of Object.entries(nextCust.layerFontFamilies)) {
+                      nextControlValues[`font-${nodeId}`] = font;
+                    }
+                  }
+                  if (nextCust.layerColors) {
+                    for (const [nodeId, col] of Object.entries(nextCust.layerColors)) {
+                      nextControlValues[`color-${nodeId}`] = col;
+                    }
+                  }
 
                   handleUpdateMultiple({
                     customization: nextCust,
+                    templateControlValues: nextControlValues,
                     text: primaryTextVal,
+                    fontFamily: primaryFontVal,
+                    color: primaryColorVal,
                   });
                 }}
               />
