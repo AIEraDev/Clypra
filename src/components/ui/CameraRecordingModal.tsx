@@ -18,11 +18,9 @@ import {
 } from "@/services/cameraRecordService";
 
 interface CameraRecordingModalProps {
-  /** Called with the final file path when a recording is complete */
   onRecordingComplete: (filePath: string) => void;
 }
 
-// Aspect ratio display label + CSS aspect-ratio value
 const RATIO_OPTIONS: {
   value: CameraAspectRatio;
   label: string;
@@ -65,26 +63,57 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
     resetSession,
   } = useCameraStore();
 
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const vidRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const drawRef = useRef<number>(0);
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const micAnimRef = useRef<number>(0);
   const micBarRef = useRef<HTMLDivElement>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [cameras, setCameras] = useState<CameraDevice[]>([]);
   const [mics, setMics] = useState<AudioDevice[]>([]);
   const [cameraDropdownOpen, setCameraDropdownOpen] = useState(false);
   const [micDropdownOpen, setMicDropdownOpen] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
-  const [previewKey, setPreviewKey] = useState(0);
+  // "idle" → waiting for user tap | "starting" → getUserMedia in flight | "live" → frames flowing
+  const [previewState, setPreviewState] = useState<
+    "idle" | "starting" | "live"
+  >("idle");
 
   const service = CameraRecordService.getInstance();
 
-  // ── Device enumeration ────────────────────────────────────────────────────
+  // ── Clean up everything when modal closes ────────────────────────────────
+  const teardown = useCallback(() => {
+    cancelAnimationFrame(drawRef.current);
+    cancelAnimationFrame(micAnimRef.current);
+    audioCtxRef.current?.close();
+    audioCtxRef.current = null;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    if (vidRef.current) vidRef.current.srcObject = null;
+    if (canvasRef.current) {
+      const ctx = canvasRef.current.getContext("2d");
+      ctx?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    }
+    setPreviewState("idle");
+  }, []);
 
   useEffect(() => {
+    if (!cameraModalOpen) {
+      teardown();
+      return;
+    }
+    // Reset to idle so the user sees the "tap to enable" prompt on each open
+    setPreviewState("idle");
+    setCameraError(null);
+  }, [cameraModalOpen]);
+
+  // Hot-plug re-enumeration
+  useEffect(() => {
     if (!cameraModalOpen) return;
-    const handleDeviceChange = async () => {
+    const onChange = async () => {
       const [cams, micsArr] = await Promise.all([
         service.enumerateCameras(),
         service.enumerateMics(),
@@ -92,214 +121,145 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
       setCameras(cams);
       setMics(micsArr);
     };
-    navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
+    navigator.mediaDevices.addEventListener("devicechange", onChange);
     return () =>
-      navigator.mediaDevices.removeEventListener(
-        "devicechange",
-        handleDeviceChange,
-      );
+      navigator.mediaDevices.removeEventListener("devicechange", onChange);
   }, [cameraModalOpen]);
 
-  // ── Preview stream setup ──────────────────────────────────────────────────
-  // WKWebView-safe approach:
-  //  - Always open with unconstrained video:true on first mount so we never
-  //    stop+reopen the track (WKWebView fires "capture failure" on any track
-  //    that is stopped while still in the "starting" state).
-  //  - Enumerate AFTER the grant so we get real deviceIds / labels.
-  //  - If the user switches cameras via the dropdown, a dedicated
-  //    handleSwitchCamera callback reopens cleanly on a stable stream.
-  //  - Draw to canvas via rAF (hidden video → canvas) to bypass WKWebView's
-  //    broken direct-video-element compositing path.
+  // ── Attach a live stream to canvas + audio meter ─────────────────────────
+  const attachStream = useCallback(
+    (stream: MediaStream) => {
+      streamRef.current = stream;
 
-  const previewStreamRef = useRef<MediaStream | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const drawLoopRef = useRef<number>(0);
-  // Track which device is currently open so the dropdown callback can compare
-  const openDeviceIdRef = useRef<string>("");
-
-  // Internal helper: attach a live stream to the hidden video and start the
-  // canvas draw loop. Does NOT stop any existing stream.
-  const attachStreamToCanvas = React.useCallback(
-    (stream: MediaStream, cancelled: { current: boolean }) => {
-      const vid = videoRef.current;
-      if (!vid || cancelled.current) return;
-
-      // Audio context for mic level meter — set up BEFORE srcObject assignment
-      // (WKWebView drops audio tracks when srcObject is set on a muted element)
+      // Audio meter — set up BEFORE srcObject (WKWebView drops audio tracks otherwise)
       cancelAnimationFrame(micAnimRef.current);
       audioCtxRef.current?.close();
       audioCtxRef.current = null;
       if (micEnabled && stream.getAudioTracks().length > 0) {
         try {
-          const audioCtx = new AudioContext();
-          audioCtxRef.current = audioCtx;
-          const source = audioCtx.createMediaStreamSource(stream);
-          const analyser = audioCtx.createAnalyser();
-          analyser.fftSize = 256;
-          source.connect(analyser);
-          const dataArray = new Uint8Array(analyser.frequencyBinCount);
-          const pollMic = () => {
-            analyser.getByteFrequencyData(dataArray);
-            const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+          const ac = new AudioContext();
+          audioCtxRef.current = ac;
+          const src = ac.createMediaStreamSource(stream);
+          const anal = ac.createAnalyser();
+          anal.fftSize = 256;
+          src.connect(anal);
+          const buf = new Uint8Array(anal.frequencyBinCount);
+          const poll = () => {
+            anal.getByteFrequencyData(buf);
+            const avg = buf.reduce((a, b) => a + b, 0) / buf.length;
             if (micBarRef.current)
               micBarRef.current.style.width = `${Math.min(avg / 128, 1) * 100}%`;
-            micAnimRef.current = requestAnimationFrame(pollMic);
+            micAnimRef.current = requestAnimationFrame(poll);
           };
-          pollMic();
-        } catch (e) {
-          console.warn("[CameraModal] AudioContext:", e);
+          poll();
+        } catch {
+          /* ignore */
         }
       }
 
-      // Feed only the video track into the hidden <video> element
-      const videoOnlyStream = new MediaStream(stream.getVideoTracks());
+      // Feed only the video track into the hidden <video> (WKWebView safe)
+      const vid = vidRef.current;
+      if (!vid) return;
+      vid.srcObject = new MediaStream(stream.getVideoTracks());
       vid.muted = true;
-      vid.srcObject = videoOnlyStream;
       vid.play().catch(() => {});
 
       const startDraw = () => {
         const canvas = canvasRef.current;
-        if (!canvas || !vid || cancelled.current) return;
+        if (!canvas || !vid) return;
         canvas.width = vid.videoWidth || 640;
         canvas.height = vid.videoHeight || 480;
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
-        cancelAnimationFrame(drawLoopRef.current);
+
+        cancelAnimationFrame(drawRef.current);
         const draw = () => {
-          if (cancelled.current) return;
           if (vid.readyState >= 2 && vid.videoWidth > 0) {
-            // Resize canvas if the track resolution changed (e.g. device switch)
-            if (
-              canvas.width !== vid.videoWidth ||
-              canvas.height !== vid.videoHeight
-            ) {
-              canvas.width = vid.videoWidth;
+            if (canvas.width !== vid.videoWidth) canvas.width = vid.videoWidth;
+            if (canvas.height !== vid.videoHeight)
               canvas.height = vid.videoHeight;
-            }
             ctx.save();
             ctx.translate(canvas.width, 0);
             ctx.scale(-1, 1);
             ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
             ctx.restore();
           }
-          drawLoopRef.current = requestAnimationFrame(draw);
+          drawRef.current = requestAnimationFrame(draw);
         };
         draw();
+        setPreviewState("live");
       };
 
-      if (vid.readyState >= 1) {
-        startDraw();
-      } else {
-        vid.onloadedmetadata = () => startDraw();
-      }
+      if (vid.readyState >= 1) startDraw();
+      else vid.onloadedmetadata = () => startDraw();
     },
     [micEnabled],
   );
 
-  const cancelledRef = useRef({ current: false });
+  // ── USER GESTURE: Enable camera (called from a button click) ─────────────
+  // WKWebView requires getUserMedia to be called on the user-gesture call stack.
+  // Calling it from a useEffect (no gesture) causes the track to open then
+  // immediately die with "capture failure". This button click IS the gesture.
+  const handleEnableCamera = useCallback(async () => {
+    if (previewState !== "idle") return;
+    setPreviewState("starting");
+    setCameraError(null);
 
-  useEffect(() => {
-    if (!cameraModalOpen || isRecording) return;
+    // Stop any stale stream
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
 
-    const cancelled = { current: false };
-    cancelledRef.current = cancelled;
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: micEnabled,
+      });
+    } catch (err: any) {
+      setCameraError(
+        err?.message || "Camera unavailable — check System Settings → Privacy.",
+      );
+      setPreviewState("idle");
+      return;
+    }
 
-    const setup = async () => {
-      // Tear down any previous preview cleanly
-      cancelAnimationFrame(drawLoopRef.current);
-      cancelAnimationFrame(micAnimRef.current);
-      audioCtxRef.current?.close();
-      audioCtxRef.current = null;
-      previewStreamRef.current?.getTracks().forEach((t) => t.stop());
-      previewStreamRef.current = null;
-      openDeviceIdRef.current = "";
-      if (videoRef.current) videoRef.current.srcObject = null;
-      setCameraError(null);
+    // Enumerate NOW — permission is granted so we get real labels and deviceIds
+    const [cams, micsArr] = await Promise.all([
+      service.enumerateCameras(),
+      service.enumerateMics(),
+    ]);
+    setCameras(cams);
+    setMics(micsArr);
 
-      // Open stream with no device constraint — this fires the permission
-      // prompt and gives us a live track immediately without any stop/reopen.
-      let stream: MediaStream | null = null;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-          audio: micEnabled,
-        });
-      } catch (err: any) {
-        if (!cancelled.current)
-          setCameraError(
-            err?.message ||
-              "Camera unavailable — check System Settings → Privacy.",
-          );
-        return;
-      }
+    const runningId =
+      stream.getVideoTracks()[0]?.getSettings?.()?.deviceId ?? "";
+    if (!selectedCameraDeviceId)
+      setSelectedCameraDeviceId(runningId || cams[0]?.deviceId || "");
+    if (!selectedMicDeviceId)
+      setSelectedMicDeviceId(micsArr[0]?.deviceId || "");
 
-      if (cancelled.current) {
-        stream.getTracks().forEach((t) => t.stop());
-        return;
-      }
+    attachStream(stream);
+  }, [
+    previewState,
+    micEnabled,
+    selectedCameraDeviceId,
+    selectedMicDeviceId,
+    attachStream,
+  ]);
 
-      // Record which device is actually running
-      const runningDeviceId =
-        stream.getVideoTracks()[0]?.getSettings?.()?.deviceId ?? "";
-      openDeviceIdRef.current = runningDeviceId;
-      previewStreamRef.current = stream;
-
-      // Enumerate NOW — permission is granted so we get real labels + deviceIds
-      const [cams, micsArr] = await Promise.all([
-        service.enumerateCameras(),
-        service.enumerateMics(),
-      ]);
-      if (!cancelled.current) {
-        setCameras(cams);
-        setMics(micsArr);
-        // Set defaults without triggering a re-open (we're already live)
-        if (cams.length > 0 && !selectedCameraDeviceId) {
-          setSelectedCameraDeviceId(runningDeviceId || cams[0].deviceId);
-        }
-        if (micsArr.length > 0 && !selectedMicDeviceId) {
-          setSelectedMicDeviceId(micsArr[0].deviceId);
-        }
-      }
-
-      attachStreamToCanvas(stream, cancelled);
-    };
-
-    setup();
-
-    return () => {
-      cancelled.current = true;
-      cancelAnimationFrame(drawLoopRef.current);
-      cancelAnimationFrame(micAnimRef.current);
-      audioCtxRef.current?.close();
-      audioCtxRef.current = null;
-      previewStreamRef.current?.getTracks().forEach((t) => t.stop());
-      previewStreamRef.current = null;
-      openDeviceIdRef.current = "";
-      if (videoRef.current) videoRef.current.srcObject = null;
-      if (canvasRef.current) {
-        const ctx = canvasRef.current.getContext("2d");
-        ctx?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-      }
-    };
-    // Only re-run when the modal opens/closes or recording starts/stops.
-    // Device switching is handled by handleSwitchCamera below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraModalOpen, isRecording]);
-
-  // Switch to a different camera without tearing down the whole effect
-  const handleSwitchCamera = React.useCallback(
+  // ── Switch camera (also user gesture — called from dropdown click) ────────
+  const handleSwitchCamera = useCallback(
     async (deviceId: string) => {
-      if (deviceId === openDeviceIdRef.current) return;
       setSelectedCameraDeviceId(deviceId);
+      setCameraDropdownOpen(false);
+      if (previewState !== "live") return;
 
-      const cancelled = cancelledRef.current;
-      cancelAnimationFrame(drawLoopRef.current);
+      cancelAnimationFrame(drawRef.current);
       audioCtxRef.current?.close();
       audioCtxRef.current = null;
-      previewStreamRef.current?.getTracks().forEach((t) => t.stop());
-      previewStreamRef.current = null;
-      if (videoRef.current) videoRef.current.srcObject = null;
-      setCameraError(null);
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      if (vidRef.current) vidRef.current.srcObject = null;
 
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -310,23 +270,23 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
           },
           audio: micEnabled,
         });
-        if (cancelled.current) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        openDeviceIdRef.current =
-          stream.getVideoTracks()[0]?.getSettings?.()?.deviceId ?? deviceId;
-        previewStreamRef.current = stream;
-        attachStreamToCanvas(stream, cancelled);
+        attachStream(stream);
       } catch (err: any) {
         setCameraError(err?.message || "Could not switch camera.");
+        setPreviewState("idle");
       }
     },
-    [micEnabled, attachStreamToCanvas],
+    [previewState, micEnabled, attachStream],
   );
 
-  // ── Recording timer ───────────────────────────────────────────────────────
+  const handleFlipCamera = useCallback(() => {
+    if (cameras.length < 2) return;
+    const idx = cameras.findIndex((c) => c.deviceId === selectedCameraDeviceId);
+    const next = cameras[(idx + 1) % cameras.length];
+    handleSwitchCamera(next.deviceId);
+  }, [cameras, selectedCameraDeviceId, handleSwitchCamera]);
 
+  // ── Recording timer ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!isRecording) {
       if (timerRef.current) {
@@ -344,16 +304,11 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
     };
   }, [isRecording]);
 
-  // ── Actions ───────────────────────────────────────────────────────────────
-
+  // ── Record / Stop ─────────────────────────────────────────────────────────
   const handleStartRecording = useCallback(async () => {
     try {
       setCameraError(null);
-      if (videoRef.current) videoRef.current.srcObject = null;
-      service.stopPreview();
-      service.stopMicMonitor();
-      cancelAnimationFrame(micAnimRef.current);
-
+      teardown();
       setRecordingSeconds(0);
       await service.startRecording({
         deviceId: selectedCameraDeviceId ?? undefined,
@@ -366,13 +321,13 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
       setCameraError(
         err?.message || "Could not start camera. Check permissions.",
       );
-      setPreviewKey((k) => k + 1);
     }
   }, [
     selectedCameraDeviceId,
     selectedMicDeviceId,
     selectedAspectRatio,
     micEnabled,
+    teardown,
   ]);
 
   const handleStopRecording = useCallback(async () => {
@@ -392,23 +347,13 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
   }, [isStopping, onRecordingComplete]);
 
   const handleClose = useCallback(() => {
-    if (isRecording) return; // don't close mid-recording
+    if (isRecording) return;
+    teardown();
     service.stopPreview();
     service.stopMicMonitor();
-    cancelAnimationFrame(micAnimRef.current);
-    if (videoRef.current) videoRef.current.srcObject = null;
     resetSession();
     closeCameraModal();
-  }, [isRecording]);
-
-  const handleFlipCamera = useCallback(async () => {
-    if (cameras.length < 2) return;
-    const currentIdx = cameras.findIndex(
-      (c) => c.deviceId === selectedCameraDeviceId,
-    );
-    const next = cameras[(currentIdx + 1) % cameras.length];
-    handleSwitchCamera(next.deviceId);
-  }, [cameras, selectedCameraDeviceId, handleSwitchCamera]);
+  }, [isRecording, teardown]);
 
   if (!cameraModalOpen) return null;
 
@@ -422,7 +367,6 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xl">
-      {/* Close button */}
       {!isRecording && (
         <button
           onClick={handleClose}
@@ -434,7 +378,7 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
       )}
 
       <div className="flex flex-col items-center gap-5 w-full max-w-130 px-4">
-        {/* ── Aspect ratio selector ───────────────────────────────────────── */}
+        {/* Aspect ratio selector */}
         {!isRecording && (
           <div className="flex items-center gap-2">
             {RATIO_OPTIONS.map((opt) => (
@@ -453,29 +397,59 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
           </div>
         )}
 
-        {/* ── Viewfinder ─────────────────────────────────────────────────── */}
+        {/* Viewfinder */}
         <div
-          className="relative overflow-hidden rounded-2xl bg-black border border-white/10 shadow-2xl"
+          className="relative overflow-hidden rounded-2xl bg-zinc-900 border border-white/10 shadow-2xl"
           style={{
             aspectRatio: currentRatio.css,
             maxHeight: "55vh",
             width: "auto",
+            minWidth: "240px",
           }}
         >
-          {/* Hidden decoder video — never visible, just feeds frames to the canvas */}
-          <video ref={videoRef} playsInline style={{ display: "none" }} />
-          {/* Canvas viewfinder — frames drawn here via rAF with mirror applied in 2D context */}
-          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+          {/* Hidden decoder video */}
+          <video ref={vidRef} playsInline style={{ display: "none" }} />
 
-          {/* Crop guide overlay — shows the target ratio letterbox when sensor differs */}
-          {/* Since we request matching ideal dimensions, this mostly acts as a visual frame */}
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              boxShadow: "inset 0 0 0 2px rgba(255,255,255,0.15)",
-              borderRadius: "inherit",
-            }}
+          {/* Canvas viewfinder */}
+          <canvas
+            ref={canvasRef}
+            className="absolute inset-0 w-full h-full object-cover"
           />
+
+          {/* Tap-to-enable overlay — shown until the user clicks to grant camera */}
+          {!isRecording && previewState !== "live" && (
+            <button
+              onClick={handleEnableCamera}
+              disabled={previewState === "starting"}
+              className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 hover:bg-black/40 transition-colors cursor-pointer disabled:cursor-wait"
+            >
+              {previewState === "starting" ? (
+                <>
+                  <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span className="text-white/70 text-sm">
+                    Starting camera…
+                  </span>
+                </>
+              ) : cameraError ? (
+                <>
+                  <Camera className="w-10 h-10 text-white/30" />
+                  <span className="text-white/60 text-sm text-center px-6">
+                    {cameraError}
+                  </span>
+                  <span className="text-white/40 text-xs">Tap to retry</span>
+                </>
+              ) : (
+                <>
+                  <div className="w-16 h-16 rounded-full bg-white/10 border-2 border-white/30 flex items-center justify-center hover:bg-white/20 transition-colors">
+                    <Camera className="w-7 h-7 text-white" />
+                  </div>
+                  <span className="text-white/70 text-sm">
+                    Tap to enable camera
+                  </span>
+                </>
+              )}
+            </button>
+          )}
 
           {/* Recording indicator */}
           {isRecording && (
@@ -487,25 +461,15 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
             </div>
           )}
 
-          {/* Aspect ratio badge */}
-          {!isRecording && (
+          {!isRecording && previewState === "live" && (
             <div className="absolute top-4 right-4 px-2 py-1 rounded-lg bg-black/60 backdrop-blur-sm text-white/70 text-[11px] font-semibold border border-white/10">
               {selectedAspectRatio}
             </div>
           )}
-
-          {/* Camera error overlay */}
-          {cameraError && !isRecording && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 p-6 text-center">
-              <Camera className="w-10 h-10 text-white/30 mb-3" />
-              <p className="text-white/60 text-sm">{cameraError}</p>
-            </div>
-          )}
         </div>
 
-        {/* ── Controls row ───────────────────────────────────────────────── */}
+        {/* Controls */}
         <div className="flex items-center gap-5">
-          {/* Mic toggle */}
           {!isRecording && (
             <button
               onClick={() => setMicEnabled(!micEnabled)}
@@ -524,7 +488,6 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
             </button>
           )}
 
-          {/* Main record / stop button */}
           {isStopping ? (
             <div className="w-18 h-18 rounded-full border-4 border-white/30 flex items-center justify-center">
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -540,7 +503,7 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
           ) : (
             <button
               onClick={handleStartRecording}
-              disabled={!!cameraError}
+              disabled={previewState !== "live"}
               className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-400 border-4 border-white flex items-center justify-center shadow-2xl shadow-red-500/40 transition-all cursor-pointer active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
               title="Start recording"
             >
@@ -548,7 +511,6 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
             </button>
           )}
 
-          {/* Flip camera */}
           {!isRecording && (
             <button
               onClick={handleFlipCamera}
@@ -561,8 +523,8 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
           )}
         </div>
 
-        {/* ── Mic level bar ─────────────────────────────────────────────── */}
-        {micEnabled && !isRecording && (
+        {/* Mic level bar */}
+        {micEnabled && !isRecording && previewState === "live" && (
           <div className="w-full max-w-xs h-1 bg-white/10 rounded-full overflow-hidden">
             <div
               ref={micBarRef}
@@ -572,10 +534,9 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
           </div>
         )}
 
-        {/* ── Device pickers ─────────────────────────────────────────────── */}
-        {!isRecording && (
+        {/* Device pickers */}
+        {!isRecording && previewState === "live" && (
           <div className="flex items-center gap-3 text-xs text-white/50">
-            {/* Camera picker */}
             {cameras.length > 1 && (
               <div className="relative">
                 <button
@@ -596,10 +557,7 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
                     {cameras.map((cam) => (
                       <button
                         key={cam.deviceId}
-                        onClick={() => {
-                          handleSwitchCamera(cam.deviceId);
-                          setCameraDropdownOpen(false);
-                        }}
+                        onClick={() => handleSwitchCamera(cam.deviceId)}
                         className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-white/80 hover:bg-white/8 transition-colors cursor-pointer"
                       >
                         <Check
@@ -613,7 +571,6 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
               </div>
             )}
 
-            {/* Mic picker */}
             {micEnabled && mics.length > 1 && (
               <div className="relative">
                 <button
