@@ -1,8 +1,82 @@
 use bytemuck::cast_slice;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
+use std::sync::OnceLock;
 use tauri::Manager;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+
+/// Compiled regex for Whisper special-token strings that can appear in segment/word text.
+/// Matches: [_TT_NNN], [_BEG_], [_EOT_], [_SOT_], [_LANG_*], <|...|> timestamp strings
+/// and any remaining [_…_] sentinel patterns.
+static WHISPER_SPECIAL_TOKEN_RE: OnceLock<Regex> = OnceLock::new();
+
+fn whisper_special_token_re() -> &'static Regex {
+    WHISPER_SPECIAL_TOKEN_RE.get_or_init(|| {
+        // Covers: [_TT_554], [_BEG_], [_EOT_], [_SOT_], [_LANG_en], <|0.00|>, <|transcribe|>
+        Regex::new(r"\[_[A-Z0-9_]+_\]|<\|[^|]*\|>").expect("invalid special token regex")
+    })
+}
+
+/// Strip Whisper special-token strings from a text string and collapse extra whitespace.
+fn strip_special_tokens(text: &str) -> String {
+    let stripped = whisper_special_token_re().replace_all(text, "");
+    // Collapse runs of whitespace that the removals may leave behind
+    let collapsed = stripped.split_whitespace().collect::<Vec<_>>().join(" ");
+    collapsed.trim().to_string()
+}
+
+// ── English capitalisation correction ────────────────────────────────────────
+// Whisper often transcribes in all-lowercase without sentence punctuation.
+// These static regexes fix the most common casing errors at post-processing
+// time so captions read naturally without requiring a separate LLM pass.
+
+static I_STANDALONE_RE: OnceLock<Regex> = OnceLock::new();
+static I_CONTRACTION_RE: OnceLock<Regex> = OnceLock::new();
+static SENTENCE_START_RE: OnceLock<Regex> = OnceLock::new();
+
+/// Fix common English capitalisation errors in Whisper output:
+///  • standalone `i` → `I`  (e.g. "and i went" → "and I went")
+///  • `i'm`, `i've`, `i'll`, `i'd`, `i'd`, `i'ma` → uppercase first letter
+///  • first word after sentence-ending punctuation (. ! ?) → capitalised
+fn fix_english_capitalisation(text: &str) -> String {
+    // 1. Standalone `i` (word boundary on both sides, case-insensitive match
+    //    only when already lowercase so we don't re-process already-correct text)
+    let re_i = I_STANDALONE_RE.get_or_init(|| {
+        Regex::new(r"\bi\b").expect("invalid i regex")
+    });
+    let s = re_i.replace_all(text, "I").into_owned();
+
+    // 2. `i` contractions: i'm i've i'll i'd i'ma i'mma → I'm I've I'll I'd…
+    let re_ic = I_CONTRACTION_RE.get_or_init(|| {
+        Regex::new(r"\bi'(m|ve|ll|d|ma|mma)\b").expect("invalid contraction regex")
+    });
+    let s = re_ic.replace_all(&s, |caps: &regex::Captures| {
+        format!("I'{}", &caps[1])
+    }).into_owned();
+
+    // 3. Capitalise first letter of the string and first letter after . ! ?
+    let re_sent = SENTENCE_START_RE.get_or_init(|| {
+        Regex::new(r"(?:^|[.!?]\s+)([a-z])").expect("invalid sentence-start regex")
+    });
+    let s = re_sent.replace_all(&s, |caps: &regex::Captures| {
+        let full = caps.get(0).unwrap().as_str();
+        let letter = caps.get(1).unwrap();
+        let upper = letter.as_str().to_uppercase();
+        full.replacen(letter.as_str(), &upper, 1)
+    }).into_owned();
+
+    s
+}
+
+/// Clean and grammatically correct a Whisper segment/word string.
+fn clean_transcript_text(text: &str) -> String {
+    let stripped = strip_special_tokens(text);
+    if stripped.is_empty() {
+        return stripped;
+    }
+    fix_english_capitalisation(&stripped)
+}
 
 use crate::commands::whisper::resolve_model_file_path;
 
@@ -177,7 +251,14 @@ pub async fn generate_auto_captions(
                 None => continue,
             };
 
-            let text = seg.to_str_lossy().unwrap_or_default().trim().to_string();
+            let raw_text = seg.to_str_lossy().unwrap_or_default().trim().to_string();
+            // Apply full pipeline: strip special tokens + English capitalisation correction
+            let text = clean_transcript_text(&raw_text);
+
+            // Skip entirely-empty segments that were nothing but special tokens
+            if text.is_empty() {
+                continue;
+            }
 
             // Whisper timestamps are in centiseconds (10 ms units)
             let start_cs = seg.start_timestamp();
@@ -196,11 +277,21 @@ pub async fn generate_auto_captions(
                     None => continue,
                 };
 
-                let word = token.to_str_lossy().unwrap_or_default().trim().to_string();
+                let raw_word = token.to_str_lossy().unwrap_or_default().trim().to_string();
+
+                // Primary filter: Whisper special-token IDs sit above the vocabulary text range.
+                // Both [_TT_NNN] and <|0.00|> style markers are caught by this.
+                if raw_word.starts_with("[_") || raw_word.starts_with("<|") {
+                    continue;
+                }
+
+                // Strip any residual special tokens; also fix standalone 'i' → 'I'
+                let word = clean_transcript_text(&raw_word);
 
                 if word.is_empty() {
                     continue;
                 }
+
 
                 let token_data = token.token_data();
                 let word_start_cs = token_data.t0;
@@ -213,6 +304,7 @@ pub async fn generate_auto_captions(
                     end_ticks: whisper_centiseconds_to_ticks(word_end_cs),
                 });
             }
+
 
             segments.push(SubtitleSegment {
                 id: i as usize,

@@ -667,6 +667,7 @@ dependencies = [
  "parking_lot",
  "proptest",
  "rayon",
+ "regex",
  "reqwest 0.12.28",
  "rtrb",
  "serde",
