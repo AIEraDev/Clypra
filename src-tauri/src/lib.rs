@@ -351,6 +351,13 @@ pub fn run() {
             get_transfer_server_url,
             start_transfer_service,
             stop_transfer_service,
+            // ── Permissions ──────────────────────────────────────────────────
+            check_camera_permission,
+            check_microphone_permission,
+            open_camera_privacy_settings,
+            open_microphone_privacy_settings,
+            // ── Camera Recording Processing ──────────────────────────────────
+            process_camera_recording,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
