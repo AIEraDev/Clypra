@@ -1,4 +1,20 @@
+/**
+ * CameraRecordingModal
+ *
+ * Front camera only recording modal with live aspect-ratio preview framing
+ * (9:16, 16:9, 1:1, 4:3) and native post-processing.
+ *
+ * Architecture:
+ * - Direct WebKit video stream for zero-latency, hardware-accelerated preview.
+ * - Single getUserMedia call shared by video, mic VU metering, and recorder
+ *   (eliminates macOS AVCaptureSession contention).
+ * - Live aspect-ratio container with `object-cover` and selfie mirroring (`scale-x-[-1]`).
+ * - MediaRecorder captures raw video stream; on stop, Clypra's Rust backend
+ *   (`process_camera_recording`) center-crops to target aspect ratio and exports clean MP4.
+ */
+
 import React, { useEffect, useRef, useCallback, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   Camera,
   Mic,
@@ -17,9 +33,13 @@ import {
   type AudioDevice,
 } from "@/services/cameraRecordService";
 
+// ── Props ─────────────────────────────────────────────────────────────────────
+
 interface CameraRecordingModalProps {
-  onRecordingComplete: (filePath: string) => void;
+  onRecordingComplete: (filePath: string, aspectRatio: CameraAspectRatio) => void;
 }
+
+// ── Constants ─────────────────────────────────────────────────────────────────
 
 const RATIO_OPTIONS: {
   value: CameraAspectRatio;
@@ -40,6 +60,8 @@ function formatTime(secs: number): string {
   return `${m}:${s}`;
 }
 
+// ── Component ─────────────────────────────────────────────────────────────────
+
 export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
   onRecordingComplete,
 }) => {
@@ -58,235 +80,437 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
     setSelectedMicDeviceId,
     micEnabled,
     setMicEnabled,
+    previewState,
+    setPreviewState,
+    availableCameras,
+    setAvailableCameras,
+    availableMics,
+    setAvailableMics,
     cameraError,
     setCameraError,
     resetSession,
   } = useCameraStore();
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const vidRef = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const drawRef = useRef<number>(0);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const micAnimRef = useRef<number>(0);
-  const micBarRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const micBarRef = useRef<HTMLDivElement>(null);
+  const micAudioCtxRef = useRef<AudioContext | null>(null);
+  const micAnimRef = useRef<number>(0);
 
-  const [cameras, setCameras] = useState<CameraDevice[]>([]);
-  const [mics, setMics] = useState<AudioDevice[]>([]);
   const [cameraDropdownOpen, setCameraDropdownOpen] = useState(false);
   const [micDropdownOpen, setMicDropdownOpen] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
-  // "idle" → waiting for user tap | "starting" → getUserMedia in flight | "live" → frames flowing
-  const [previewState, setPreviewState] = useState<
-    "idle" | "starting" | "live"
-  >("idle");
 
   const service = CameraRecordService.getInstance();
 
-  // ── Clean up everything when modal closes ────────────────────────────────
-  const teardown = useCallback(() => {
-    cancelAnimationFrame(drawRef.current);
-    cancelAnimationFrame(micAnimRef.current);
-    audioCtxRef.current?.close();
-    audioCtxRef.current = null;
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    if (vidRef.current) vidRef.current.srcObject = null;
-    if (canvasRef.current) {
-      const ctx = canvasRef.current.getContext("2d");
-      ctx?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+  // ── Stream binding helper (direct hardware-accelerated WebKit video) ───────
+
+  const attachStreamToVideo = useCallback((stream: MediaStream) => {
+    const vid = videoRef.current;
+    console.log("%c🎥 [CameraDebug] attachStreamToVideo called.", "color: #e879f9; font-weight: bold;", {
+      hasVidRef: !!vid,
+      streamId: stream.id,
+      streamActive: stream.active,
+      videoTrackCount: stream.getVideoTracks().length,
+      audioTrackCount: stream.getAudioTracks().length,
+    });
+
+    if (!vid) {
+      console.error("❌ [CameraDebug] attachStreamToVideo: videoRef.current is NULL!");
+      return;
     }
+
+    const videoTracks = stream.getVideoTracks();
+    if (videoTracks.length === 0) {
+      console.error("❌ [CameraDebug] No video tracks in stream!");
+      return;
+    }
+
+    // Inspect layout geometry
+    const rect = vid.getBoundingClientRect();
+    const computed = window.getComputedStyle(vid);
+    console.log("%c🎥 [CameraDebug] <video> DOM Geometry & Computed Style:", "color: #38bdf8;", {
+      clientWidth: vid.clientWidth,
+      clientHeight: vid.clientHeight,
+      offsetWidth: vid.offsetWidth,
+      offsetHeight: vid.offsetHeight,
+      rect: { width: rect.width, height: rect.height, top: rect.top, left: rect.left },
+      display: computed.display,
+      visibility: computed.visibility,
+      opacity: computed.opacity,
+    });
+
+    // Ensure WebKit media flags
+    vid.defaultMuted = true;
+    vid.muted = true;
+    vid.playsInline = true;
+    vid.setAttribute("muted", "");
+    vid.setAttribute("playsinline", "");
+    vid.setAttribute("webkit-playsinline", "");
+    vid.setAttribute("autoplay", "");
+
+    // Monitor all video element events
+    const eventsToTrack = [
+      "loadstart",
+      "loadedmetadata",
+      "loadeddata",
+      "canplay",
+      "canplaythrough",
+      "play",
+      "playing",
+      "pause",
+      "waiting",
+      "stalled",
+      "suspend",
+      "error",
+    ];
+
+    eventsToTrack.forEach((evtName) => {
+      vid.addEventListener(
+        evtName,
+        () => {
+          console.log(`%c🎥 [CameraDebug] <video> EVENT: '${evtName}'`, "color: #60a5fa; font-weight: bold;", {
+            videoWidth: vid.videoWidth,
+            videoHeight: vid.videoHeight,
+            readyState: vid.readyState,
+            paused: vid.paused,
+            currentTime: vid.currentTime,
+            error: vid.error ? { code: vid.error.code, message: vid.error.message } : null,
+          });
+        },
+        { passive: true },
+      );
+    });
+
+    // Monitor timeupdate and sample pixel luminance to verify frame rendering
+    let timeTick = 0;
+    vid.ontimeupdate = () => {
+      timeTick++;
+      if (timeTick <= 5 || timeTick % 30 === 0) {
+        let pixelAnalysis = "N/A";
+        try {
+          if (vid.videoWidth > 0 && vid.videoHeight > 0) {
+            const probeCanvas = document.createElement("canvas");
+            probeCanvas.width = 16;
+            probeCanvas.height = 16;
+            const ctx = probeCanvas.getContext("2d");
+            if (ctx) {
+              ctx.drawImage(vid, 0, 0, 16, 16);
+              const imgData = ctx.getImageData(0, 0, 16, 16).data;
+              let rTotal = 0, gTotal = 0, bTotal = 0;
+              for (let i = 0; i < imgData.length; i += 4) {
+                rTotal += imgData[i];
+                gTotal += imgData[i + 1];
+                bTotal += imgData[i + 2];
+              }
+              const pxCount = imgData.length / 4;
+              const avgR = Math.round(rTotal / pxCount);
+              const avgG = Math.round(gTotal / pxCount);
+              const avgB = Math.round(bTotal / pxCount);
+              const isPureBlack = avgR + avgG + avgB === 0;
+              pixelAnalysis = isPureBlack
+                ? "⚠️ PURE BLACK (RGB: 0,0,0) — Hardware/OS is feeding black frames"
+                : `✅ LIGHT DETECTED! Avg RGB(${avgR}, ${avgG}, ${avgB})`;
+            }
+          }
+        } catch (e: any) {
+          pixelAnalysis = `Probe failed: ${e?.message}`;
+        }
+
+        console.log(`%c🎥 [CameraDebug] Frame update #${timeTick}:`, "color: #34d399;", {
+          currentTime: vid.currentTime.toFixed(2),
+          videoWidth: vid.videoWidth,
+          videoHeight: vid.videoHeight,
+          readyState: vid.readyState,
+          pixelAnalysis,
+        });
+      }
+    };
+
+    console.log("%c🎥 [CameraDebug] Setting vid.srcObject = stream", "color: #f59e0b;");
+    vid.srcObject = stream;
+
+    vid.play()
+      .then(() => {
+        console.log("%c✅ [CameraDebug] vid.play() PROMISE RESOLVED SUCCESSFULLY!", "color: #22c55e; font-weight: bold;", {
+          videoWidth: vid.videoWidth,
+          videoHeight: vid.videoHeight,
+          readyState: vid.readyState,
+          paused: vid.paused,
+          currentTime: vid.currentTime,
+        });
+        setPreviewState("live");
+      })
+      .catch((err) => {
+        console.error("%c❌ [CameraDebug] vid.play() PROMISE REJECTED:", "color: #ef4444; font-weight: bold;", err);
+      });
+  }, [setPreviewState]);
+
+  // ── Teardown helper ─────────────────────────────────────────────────────────
+
+  const teardown = useCallback(() => {
+    console.log("%c🎥 [CameraDebug] teardown called.", "color: #94a3b8;");
+    cancelAnimationFrame(micAnimRef.current);
+    micAudioCtxRef.current?.close().catch?.(() => {});
+    micAudioCtxRef.current = null;
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
+    if (micBarRef.current) {
+      micBarRef.current.style.width = "0%";
+    }
+
     setPreviewState("idle");
+  }, [setPreviewState]);
+
+  // ── Stop mic meter ──────────────────────────────────────────────────────────
+
+  const stopMicMeter = useCallback(() => {
+    cancelAnimationFrame(micAnimRef.current);
+    micAudioCtxRef.current?.close().catch?.(() => {});
+    micAudioCtxRef.current = null;
+    if (micBarRef.current) {
+      micBarRef.current.style.width = "0%";
+    }
   }, []);
+
+  // ── Start mic VU meter from an active stream ────────────────────────────────
+
+  const startMicMeter = useCallback((stream: MediaStream) => {
+    stopMicMeter();
+
+    const audioTrack = stream.getAudioTracks()[0];
+    if (!audioTrack) return;
+
+    try {
+      const ac = new AudioContext();
+      micAudioCtxRef.current = ac;
+      const src = ac.createMediaStreamSource(stream);
+      const anal = ac.createAnalyser();
+      anal.fftSize = 256;
+      src.connect(anal);
+      const buf = new Uint8Array(anal.frequencyBinCount);
+
+      const poll = () => {
+        anal.getByteFrequencyData(buf);
+        const avg = buf.reduce((a, b) => a + b, 0) / buf.length;
+        if (micBarRef.current) {
+          micBarRef.current.style.width = `${Math.min(avg / 128, 1) * 100}%`;
+        }
+        micAnimRef.current = requestAnimationFrame(poll);
+      };
+      poll();
+    } catch (err) {
+      console.warn("[CameraModal] Mic meter setup failed:", err);
+    }
+  }, [stopMicMeter]);
+
+  // ── Start camera preview ────────────────────────────────────────────────────
+
+  const startCameraPreview = useCallback(
+    async (targetCamId?: string | null, targetMicId?: string | null) => {
+      console.log("%c🎥 [CameraDebug] startCameraPreview invoked.", "color: #38bdf8; font-weight: bold;", {
+        targetCamId,
+        targetMicId,
+        selectedCameraDeviceId,
+        selectedMicDeviceId,
+        micEnabled,
+      });
+
+      setPreviewState("initializing");
+      setCameraError(null);
+
+      // Clean up previous stream
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+      stopMicMeter();
+
+      try {
+        const camId = targetCamId ?? selectedCameraDeviceId;
+        const micId = targetMicId ?? selectedMicDeviceId;
+
+        const videoConstraints: MediaTrackConstraints = camId
+          ? { deviceId: { exact: camId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+          : { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
+
+        const audioConstraints: boolean | MediaTrackConstraints = micEnabled
+          ? micId
+            ? { deviceId: { exact: micId } }
+            : true
+          : false;
+
+        console.log("%c🎥 [CameraDebug] Requesting getUserMedia with constraints:", "color: #f59e0b;", {
+          video: videoConstraints,
+          audio: audioConstraints,
+        });
+
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: videoConstraints,
+            audio: audioConstraints,
+          });
+        } catch (initialErr) {
+          console.warn("[CameraModal] Targeted camera request failed, retrying unconstrained:", initialErr);
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+            audio: micEnabled,
+          });
+        }
+
+        console.log("%c✅ [CameraDebug] getUserMedia SUCCEEDED!", "color: #22c55e; font-weight: bold;", {
+          streamId: stream.id,
+          active: stream.active,
+        });
+
+        stream.getVideoTracks().forEach((track, i) => {
+          console.log(`%c🎥 [CameraDebug] VideoTrack[${i}]:`, "color: #38bdf8;", {
+            label: track.label,
+            id: track.id,
+            enabled: track.enabled,
+            muted: track.muted,
+            readyState: track.readyState,
+            settings: track.getSettings(),
+            constraints: track.getConstraints(),
+          });
+          track.onmute = () => console.warn(`⚠️ [CameraDebug] VideoTrack[${i}] MUTED by system!`);
+          track.onunmute = () => console.log(`✅ [CameraDebug] VideoTrack[${i}] UNMUTED by system.`);
+          track.onended = () => console.warn(`❌ [CameraDebug] VideoTrack[${i}] ENDED!`);
+        });
+
+        stream.getAudioTracks().forEach((track, i) => {
+          console.log(`%c🎥 [CameraDebug] AudioTrack[${i}]:`, "color: #a855f7;", {
+            label: track.label,
+            id: track.id,
+            enabled: track.enabled,
+            muted: track.muted,
+            readyState: track.readyState,
+            settings: track.getSettings(),
+          });
+        });
+
+        streamRef.current = stream;
+
+        // Attach direct video stream to element
+        attachStreamToVideo(stream);
+
+        // Start mic meter from the same stream (zero extra getUserMedia)
+        if (micEnabled && stream.getAudioTracks().length > 0) {
+          startMicMeter(stream);
+        }
+
+        // Enumerate devices now that permission is granted
+        const [cams, mics] = await Promise.all([
+          service.enumerateCameras(),
+          service.enumerateMics(),
+        ]);
+        console.log("%c🎥 [CameraDebug] Enumerated devices:", "color: #94a3b8;", {
+          cameras: cams.map((c) => ({ id: c.deviceId, label: c.label })),
+          mics: mics.map((m) => ({ id: m.deviceId, label: m.label })),
+        });
+        setAvailableCameras(cams);
+        setAvailableMics(mics);
+
+        // Record running device IDs
+        const runningCamTrack = stream.getVideoTracks()[0];
+        const runningCamId = runningCamTrack?.getSettings?.()?.deviceId || cams[0]?.deviceId || null;
+        if (!selectedCameraDeviceId && runningCamId) {
+          setSelectedCameraDeviceId(runningCamId);
+        }
+
+        const runningMicTrack = stream.getAudioTracks()[0];
+        const runningMicId = runningMicTrack?.getSettings?.()?.deviceId || mics[0]?.deviceId || null;
+        if (!selectedMicDeviceId && runningMicId) {
+          setSelectedMicDeviceId(runningMicId);
+        }
+
+        setPreviewState("live");
+      } catch (err: any) {
+        console.error("❌ [CameraModal] startCameraPreview failed:", err);
+        const msg =
+          typeof err === "string"
+            ? err
+            : err?.message || "Camera access failed. Check macOS System Settings → Privacy & Security.";
+        setCameraError(msg);
+        setPreviewState("error");
+      }
+    },
+    [
+      selectedCameraDeviceId,
+      selectedMicDeviceId,
+      micEnabled,
+      setPreviewState,
+      setCameraError,
+      setAvailableCameras,
+      setAvailableMics,
+      setSelectedCameraDeviceId,
+      setSelectedMicDeviceId,
+      service,
+      startMicMeter,
+      stopMicMeter,
+      attachStreamToVideo,
+    ],
+  );
+
+  // ── Permission pre-check & auto-start on modal open ─────────────────────────
 
   useEffect(() => {
     if (!cameraModalOpen) {
       teardown();
       return;
     }
-    // Reset to idle so the user sees the "tap to enable" prompt on each open
-    setPreviewState("idle");
-    setCameraError(null);
-  }, [cameraModalOpen]);
 
-  // Hot-plug re-enumeration
-  useEffect(() => {
-    if (!cameraModalOpen) return;
-    const onChange = async () => {
-      const [cams, micsArr] = await Promise.all([
-        service.enumerateCameras(),
-        service.enumerateMics(),
-      ]);
-      setCameras(cams);
-      setMics(micsArr);
-    };
-    navigator.mediaDevices.addEventListener("devicechange", onChange);
-    return () =>
-      navigator.mediaDevices.removeEventListener("devicechange", onChange);
-  }, [cameraModalOpen]);
+    let cancelled = false;
 
-  // ── Attach a live stream to canvas + audio meter ─────────────────────────
-  const attachStream = useCallback(
-    (stream: MediaStream) => {
-      streamRef.current = stream;
-
-      // Audio meter — set up BEFORE srcObject (WKWebView drops audio tracks otherwise)
-      cancelAnimationFrame(micAnimRef.current);
-      audioCtxRef.current?.close();
-      audioCtxRef.current = null;
-      if (micEnabled && stream.getAudioTracks().length > 0) {
-        try {
-          const ac = new AudioContext();
-          audioCtxRef.current = ac;
-          const src = ac.createMediaStreamSource(stream);
-          const anal = ac.createAnalyser();
-          anal.fftSize = 256;
-          src.connect(anal);
-          const buf = new Uint8Array(anal.frequencyBinCount);
-          const poll = () => {
-            anal.getByteFrequencyData(buf);
-            const avg = buf.reduce((a, b) => a + b, 0) / buf.length;
-            if (micBarRef.current)
-              micBarRef.current.style.width = `${Math.min(avg / 128, 1) * 100}%`;
-            micAnimRef.current = requestAnimationFrame(poll);
-          };
-          poll();
-        } catch {
-          /* ignore */
-        }
-      }
-
-      // Feed only the video track into the hidden <video> (WKWebView safe)
-      const vid = vidRef.current;
-      if (!vid) return;
-      vid.srcObject = new MediaStream(stream.getVideoTracks());
-      vid.muted = true;
-      vid.play().catch(() => {});
-
-      const startDraw = () => {
-        const canvas = canvasRef.current;
-        if (!canvas || !vid) return;
-        canvas.width = vid.videoWidth || 640;
-        canvas.height = vid.videoHeight || 480;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-
-        cancelAnimationFrame(drawRef.current);
-        const draw = () => {
-          if (vid.readyState >= 2 && vid.videoWidth > 0) {
-            if (canvas.width !== vid.videoWidth) canvas.width = vid.videoWidth;
-            if (canvas.height !== vid.videoHeight)
-              canvas.height = vid.videoHeight;
-            ctx.save();
-            ctx.translate(canvas.width, 0);
-            ctx.scale(-1, 1);
-            ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
-            ctx.restore();
-          }
-          drawRef.current = requestAnimationFrame(draw);
-        };
-        draw();
-        setPreviewState("live");
-      };
-
-      if (vid.readyState >= 1) startDraw();
-      else vid.onloadedmetadata = () => startDraw();
-    },
-    [micEnabled],
-  );
-
-  // ── USER GESTURE: Enable camera (called from a button click) ─────────────
-  // WKWebView requires getUserMedia to be called on the user-gesture call stack.
-  // Calling it from a useEffect (no gesture) causes the track to open then
-  // immediately die with "capture failure". This button click IS the gesture.
-  const handleEnableCamera = useCallback(async () => {
-    if (previewState !== "idle") return;
-    setPreviewState("starting");
-    setCameraError(null);
-
-    // Stop any stale stream
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-
-    let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: micEnabled,
-      });
-    } catch (err: any) {
-      setCameraError(
-        err?.message || "Camera unavailable — check System Settings → Privacy.",
-      );
-      setPreviewState("idle");
-      return;
-    }
-
-    // Enumerate NOW — permission is granted so we get real labels and deviceIds
-    const [cams, micsArr] = await Promise.all([
-      service.enumerateCameras(),
-      service.enumerateMics(),
-    ]);
-    setCameras(cams);
-    setMics(micsArr);
-
-    const runningId =
-      stream.getVideoTracks()[0]?.getSettings?.()?.deviceId ?? "";
-    if (!selectedCameraDeviceId)
-      setSelectedCameraDeviceId(runningId || cams[0]?.deviceId || "");
-    if (!selectedMicDeviceId)
-      setSelectedMicDeviceId(micsArr[0]?.deviceId || "");
-
-    attachStream(stream);
-  }, [
-    previewState,
-    micEnabled,
-    selectedCameraDeviceId,
-    selectedMicDeviceId,
-    attachStream,
-  ]);
-
-  // ── Switch camera (also user gesture — called from dropdown click) ────────
-  const handleSwitchCamera = useCallback(
-    async (deviceId: string) => {
-      setSelectedCameraDeviceId(deviceId);
-      setCameraDropdownOpen(false);
-      if (previewState !== "live") return;
-
-      cancelAnimationFrame(drawRef.current);
-      audioCtxRef.current?.close();
-      audioCtxRef.current = null;
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-      if (vidRef.current) vidRef.current.srcObject = null;
-
+    (async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            deviceId: { exact: deviceId },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-          audio: micEnabled,
-        });
-        attachStream(stream);
-      } catch (err: any) {
-        setCameraError(err?.message || "Could not switch camera.");
-        setPreviewState("idle");
+        const permStatus = await invoke<{
+          status: string;
+          can_request: boolean;
+          message: string;
+        }>("check_camera_permission");
+        console.log("%c🎥 [CameraDebug] check_camera_permission result:", "color: #38bdf8; font-weight: bold;", permStatus);
+
+        if (cancelled) return;
+
+        if (permStatus.status === "denied" || permStatus.status === "restricted") {
+          setCameraError(permStatus.message);
+          setPreviewState("error");
+          return;
+        }
+      } catch (permErr) {
+        console.warn("🎥 [CameraDebug] check_camera_permission error/fallback:", permErr);
       }
-    },
-    [previewState, micEnabled, attachStream],
-  );
 
-  const handleFlipCamera = useCallback(() => {
-    if (cameras.length < 2) return;
-    const idx = cameras.findIndex((c) => c.deviceId === selectedCameraDeviceId);
-    const next = cameras[(idx + 1) % cameras.length];
-    handleSwitchCamera(next.deviceId);
-  }, [cameras, selectedCameraDeviceId, handleSwitchCamera]);
+      if (!cancelled) {
+        startCameraPreview();
+      }
+    })();
 
-  // ── Recording timer ───────────────────────────────────────────────────────
+    return () => {
+      cancelled = true;
+    };
+  }, [cameraModalOpen, teardown, startCameraPreview, setCameraError, setPreviewState]);
+
+  // Re-bind stream if video element mounts or remounts
+  useEffect(() => {
+    if (videoRef.current && streamRef.current && !videoRef.current.srcObject) {
+      attachStreamToVideo(streamRef.current);
+    }
+  }, [attachStreamToVideo, previewState, cameraModalOpen]);
+
+  // ── Recording timer ─────────────────────────────────────────────────────────
+
   useEffect(() => {
     if (!isRecording) {
       if (timerRef.current) {
@@ -302,71 +526,149 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isRecording]);
+  }, [isRecording, setRecordingSeconds]);
 
-  // ── Record / Stop ─────────────────────────────────────────────────────────
+  // ── Switch Camera ───────────────────────────────────────────────────────────
+
+  const handleSwitchCamera = useCallback(
+    async (deviceId: string) => {
+      setSelectedCameraDeviceId(deviceId);
+      setCameraDropdownOpen(false);
+      await startCameraPreview(deviceId, selectedMicDeviceId);
+    },
+    [setSelectedCameraDeviceId, startCameraPreview, selectedMicDeviceId],
+  );
+
+  const handleFlipCamera = useCallback(() => {
+    if (availableCameras.length < 2) return;
+    const idx = availableCameras.findIndex(
+      (c) => c.deviceId === selectedCameraDeviceId,
+    );
+    const next = availableCameras[(idx + 1) % availableCameras.length];
+    if (next) {
+      handleSwitchCamera(next.deviceId);
+    }
+  }, [availableCameras, selectedCameraDeviceId, handleSwitchCamera]);
+
+  // ── Mic Toggle ──────────────────────────────────────────────────────────────
+
+  const handleToggleMic = useCallback(() => {
+    const nextState = !micEnabled;
+    setMicEnabled(nextState);
+
+    if (streamRef.current) {
+      const audioTrack = streamRef.current.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = nextState;
+      }
+      if (!nextState) {
+        stopMicMeter();
+      } else if (audioTrack) {
+        startMicMeter(streamRef.current);
+      } else {
+        startCameraPreview(selectedCameraDeviceId, selectedMicDeviceId);
+      }
+    }
+  }, [
+    micEnabled,
+    setMicEnabled,
+    stopMicMeter,
+    startMicMeter,
+    startCameraPreview,
+    selectedCameraDeviceId,
+    selectedMicDeviceId,
+  ]);
+
+  // ── Record / Stop ───────────────────────────────────────────────────────────
+
   const handleStartRecording = useCallback(async () => {
+    if (previewState !== "live" || !streamRef.current) return;
     try {
       setCameraError(null);
-      teardown();
       setRecordingSeconds(0);
-      await service.startRecording({
+
+      await service.startRecording(streamRef.current, {
         deviceId: selectedCameraDeviceId ?? undefined,
-        audioDeviceId: selectedMicDeviceId ?? undefined,
+        audioDeviceId: micEnabled
+          ? (selectedMicDeviceId ?? undefined)
+          : undefined,
         aspectRatio: selectedAspectRatio,
         audio: micEnabled,
       });
+
       setIsRecording(true);
     } catch (err: any) {
-      setCameraError(
-        err?.message || "Could not start camera. Check permissions.",
-      );
+      const msg = typeof err === "string" ? err : err?.message || "Could not start recording";
+      setCameraError(msg);
     }
   }, [
+    previewState,
+    service,
     selectedCameraDeviceId,
     selectedMicDeviceId,
     selectedAspectRatio,
     micEnabled,
-    teardown,
+    setCameraError,
+    setRecordingSeconds,
+    setIsRecording,
   ]);
 
   const handleStopRecording = useCallback(async () => {
     if (!service.isRecording() || isStopping) return;
     setIsStopping(true);
     try {
-      const filePath = await service.stopRecording();
+      const filePath = await service.stopRecording(selectedAspectRatio);
       setIsRecording(false);
+      teardown();
+      service.cleanup();
       resetSession();
       closeCameraModal();
-      onRecordingComplete(filePath);
+      onRecordingComplete(filePath, selectedAspectRatio);
     } catch (err: any) {
-      setCameraError(err?.message || "Failed to save recording.");
+      const msg = typeof err === "string" ? err : err?.message || "Failed to save recording";
+      setCameraError(msg);
       setIsRecording(false);
       setIsStopping(false);
     }
-  }, [isStopping, onRecordingComplete]);
+  }, [
+    isStopping,
+    service,
+    selectedAspectRatio,
+    setIsRecording,
+    teardown,
+    resetSession,
+    closeCameraModal,
+    onRecordingComplete,
+    setCameraError,
+  ]);
+
+  // ── Close ───────────────────────────────────────────────────────────────────
 
   const handleClose = useCallback(() => {
     if (isRecording) return;
     teardown();
-    service.stopPreview();
-    service.stopMicMonitor();
+    service.cleanup();
     resetSession();
     closeCameraModal();
-  }, [isRecording, teardown]);
+  }, [isRecording, teardown, service, resetSession, closeCameraModal]);
 
   if (!cameraModalOpen) return null;
 
   const currentRatio =
     RATIO_OPTIONS.find((r) => r.value === selectedAspectRatio) ??
     RATIO_OPTIONS[0];
-  const currentCamera = cameras.find(
+  const currentCamera = availableCameras.find(
     (c) => c.deviceId === selectedCameraDeviceId,
   );
-  const currentMic = mics.find((m) => m.deviceId === selectedMicDeviceId);
+  const currentMic = availableMics.find(
+    (m) => m.deviceId === selectedMicDeviceId,
+  );
+  const isLive = previewState === "live";
+  const isInitializing = previewState === "initializing";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xl">
+      {/* Close button */}
       {!isRecording && (
         <button
           onClick={handleClose}
@@ -378,7 +680,7 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
       )}
 
       <div className="flex flex-col items-center gap-5 w-full max-w-130 px-4">
-        {/* Aspect ratio selector */}
+        {/* ── Aspect ratio selector ─────────────────────────────────────── */}
         {!isRecording && (
           <div className="flex items-center gap-2">
             {RATIO_OPTIONS.map((opt) => (
@@ -397,9 +699,9 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
           </div>
         )}
 
-        {/* Viewfinder */}
+        {/* ── Viewfinder Container (Smoothly framed to selected aspect ratio) ── */}
         <div
-          className="relative overflow-hidden rounded-2xl bg-zinc-900 border border-white/10 shadow-2xl"
+          className="relative overflow-hidden rounded-2xl bg-black border border-white/10 shadow-2xl transition-[aspect-ratio] duration-300"
           style={{
             aspectRatio: currentRatio.css,
             maxHeight: "55vh",
@@ -407,48 +709,76 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
             minWidth: "240px",
           }}
         >
-          {/* Hidden decoder video */}
-          <video ref={vidRef} playsInline style={{ display: "none" }} />
+          {/* Mirrored container for selfie camera */}
+          <div className="absolute inset-0 w-full h-full scale-x-[-1] overflow-hidden">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              onLoadedMetadata={(e) => {
+                const vid = e.currentTarget;
+                console.log("%c🎥 [CameraDebug] onLoadedMetadata event on <video>:", "color: #38bdf8; font-weight: bold;", {
+                  videoWidth: vid.videoWidth,
+                  videoHeight: vid.videoHeight,
+                  readyState: vid.readyState,
+                });
+                vid.play().catch((err) => {
+                  console.warn("🎥 [CameraDebug] onLoadedMetadata play() failed:", err);
+                });
+                setPreviewState("live");
+              }}
+              className="w-full h-full object-cover"
+            />
+          </div>
 
-          {/* Canvas viewfinder */}
-          <canvas
-            ref={canvasRef}
-            className="absolute inset-0 w-full h-full object-cover"
-          />
-
-          {/* Tap-to-enable overlay — shown until the user clicks to grant camera */}
-          {!isRecording && previewState !== "live" && (
-            <button
-              onClick={handleEnableCamera}
-              disabled={previewState === "starting"}
-              className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 hover:bg-black/40 transition-colors cursor-pointer disabled:cursor-wait"
-            >
-              {previewState === "starting" ? (
+          {/* Loading / Error / Retry Overlay */}
+          {!isRecording && !isLive && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 px-4">
+              {isInitializing ? (
                 <>
                   <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   <span className="text-white/70 text-sm">
                     Starting camera…
                   </span>
                 </>
-              ) : cameraError ? (
+              ) : previewState === "error" ? (
                 <>
                   <Camera className="w-10 h-10 text-white/30" />
-                  <span className="text-white/60 text-sm text-center px-6">
-                    {cameraError}
+                  <span className="text-white/70 text-sm text-center max-w-[260px] leading-relaxed">
+                    {cameraError ?? "Camera unavailable"}
                   </span>
-                  <span className="text-white/40 text-xs">Tap to retry</span>
+                  <div className="flex flex-col items-center gap-2 mt-2">
+                    <button
+                      onClick={() => {
+                        invoke("open_camera_privacy_settings").catch(() => {});
+                      }}
+                      className="px-4 py-2 rounded-xl bg-white/15 hover:bg-white/25 border border-white/20 text-white text-xs font-semibold transition-colors cursor-pointer"
+                    >
+                      Open System Settings →
+                    </button>
+                    <button
+                      onClick={() => startCameraPreview()}
+                      className="text-white/50 hover:text-white text-xs underline cursor-pointer mt-1"
+                    >
+                      Tap to retry
+                    </button>
+                  </div>
                 </>
               ) : (
-                <>
-                  <div className="w-16 h-16 rounded-full bg-white/10 border-2 border-white/30 flex items-center justify-center hover:bg-white/20 transition-colors">
+                <button
+                  onClick={() => startCameraPreview()}
+                  className="flex flex-col items-center gap-3 cursor-pointer group"
+                >
+                  <div className="w-16 h-16 rounded-full bg-white/10 border-2 border-white/30 flex items-center justify-center group-hover:bg-white/20 transition-colors">
                     <Camera className="w-7 h-7 text-white" />
                   </div>
-                  <span className="text-white/70 text-sm">
+                  <span className="text-white/70 text-sm group-hover:text-white transition-colors">
                     Tap to enable camera
                   </span>
-                </>
+                </button>
               )}
-            </button>
+            </div>
           )}
 
           {/* Recording indicator */}
@@ -461,18 +791,20 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
             </div>
           )}
 
-          {!isRecording && previewState === "live" && (
+          {/* Aspect ratio badge */}
+          {!isRecording && isLive && (
             <div className="absolute top-4 right-4 px-2 py-1 rounded-lg bg-black/60 backdrop-blur-sm text-white/70 text-[11px] font-semibold border border-white/10">
               {selectedAspectRatio}
             </div>
           )}
         </div>
 
-        {/* Controls */}
+        {/* ── Controls Row ──────────────────────────────────────────────── */}
         <div className="flex items-center gap-5">
+          {/* Mic toggle */}
           {!isRecording && (
             <button
-              onClick={() => setMicEnabled(!micEnabled)}
+              onClick={handleToggleMic}
               className={`p-3 rounded-full transition-all cursor-pointer border ${
                 micEnabled
                   ? "bg-white/10 border-white/20 text-white hover:bg-white/20"
@@ -488,6 +820,7 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
             </button>
           )}
 
+          {/* Record / Stop button */}
           {isStopping ? (
             <div className="w-18 h-18 rounded-full border-4 border-white/30 flex items-center justify-center">
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -503,18 +836,19 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
           ) : (
             <button
               onClick={handleStartRecording}
-              disabled={previewState !== "live"}
+              disabled={!isLive}
               className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-400 border-4 border-white flex items-center justify-center shadow-2xl shadow-red-500/40 transition-all cursor-pointer active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Start recording"
+              title={isLive ? "Start recording" : "Camera not ready"}
             >
               <Circle className="w-7 h-7 fill-white text-white" />
             </button>
           )}
 
+          {/* Flip camera */}
           {!isRecording && (
             <button
               onClick={handleFlipCamera}
-              disabled={cameras.length < 2}
+              disabled={availableCameras.length < 2}
               className="p-3 rounded-full bg-white/10 border border-white/20 text-white hover:bg-white/20 transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
               title="Switch camera"
             >
@@ -523,8 +857,8 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
           )}
         </div>
 
-        {/* Mic level bar */}
-        {micEnabled && !isRecording && previewState === "live" && (
+        {/* ── Mic level bar ─────────────────────────────────────────────── */}
+        {micEnabled && !isRecording && isLive && (
           <div className="w-full max-w-xs h-1 bg-white/10 rounded-full overflow-hidden">
             <div
               ref={micBarRef}
@@ -534,10 +868,11 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
           </div>
         )}
 
-        {/* Device pickers */}
-        {!isRecording && previewState === "live" && (
+        {/* ── Device pickers ────────────────────────────────────────────── */}
+        {!isRecording && isLive && (
           <div className="flex items-center gap-3 text-xs text-white/50">
-            {cameras.length > 1 && (
+            {/* Camera picker */}
+            {availableCameras.length > 1 && (
               <div className="relative">
                 <button
                   onClick={() => {
@@ -554,14 +889,18 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
                 </button>
                 {cameraDropdownOpen && (
                   <div className="absolute bottom-full mb-1.5 left-0 z-50 min-w-[180px] rounded-xl border border-white/10 bg-[#1a1a1e] py-1 shadow-2xl">
-                    {cameras.map((cam) => (
+                    {availableCameras.map((cam) => (
                       <button
                         key={cam.deviceId}
                         onClick={() => handleSwitchCamera(cam.deviceId)}
                         className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-white/80 hover:bg-white/8 transition-colors cursor-pointer"
                       >
                         <Check
-                          className={`w-3 h-3 shrink-0 ${selectedCameraDeviceId === cam.deviceId ? "opacity-100 text-white" : "opacity-0"}`}
+                          className={`w-3 h-3 shrink-0 ${
+                            selectedCameraDeviceId === cam.deviceId
+                              ? "opacity-100 text-white"
+                              : "opacity-0"
+                          }`}
                         />
                         <span className="truncate">{cam.label}</span>
                       </button>
@@ -571,7 +910,8 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
               </div>
             )}
 
-            {micEnabled && mics.length > 1 && (
+            {/* Mic picker */}
+            {micEnabled && availableMics.length > 1 && (
               <div className="relative">
                 <button
                   onClick={() => {
@@ -588,17 +928,22 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
                 </button>
                 {micDropdownOpen && (
                   <div className="absolute bottom-full mb-1.5 left-0 z-50 min-w-[180px] rounded-xl border border-white/10 bg-[#1a1a1e] py-1 shadow-2xl">
-                    {mics.map((mic) => (
+                    {availableMics.map((mic) => (
                       <button
                         key={mic.deviceId}
                         onClick={() => {
                           setSelectedMicDeviceId(mic.deviceId);
                           setMicDropdownOpen(false);
+                          startCameraPreview(selectedCameraDeviceId, mic.deviceId);
                         }}
                         className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-white/80 hover:bg-white/8 transition-colors cursor-pointer"
                       >
                         <Check
-                          className={`w-3 h-3 shrink-0 ${selectedMicDeviceId === mic.deviceId ? "opacity-100 text-white" : "opacity-0"}`}
+                          className={`w-3 h-3 shrink-0 ${
+                            selectedMicDeviceId === mic.deviceId
+                              ? "opacity-100 text-white"
+                              : "opacity-0"
+                          }`}
                         />
                         <span className="truncate">{mic.label}</span>
                       </button>
