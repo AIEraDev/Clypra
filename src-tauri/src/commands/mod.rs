@@ -19,6 +19,7 @@ pub mod security;
 pub mod silence_detector;
 pub mod sync_metrics;
 pub mod thumbnail;
+pub mod transfer;
 pub mod whisper;
 
 pub use ai::*;
@@ -40,4 +41,5 @@ pub use security::*;
 pub use silence_detector::*;
 pub use sync_metrics::*;
 pub use thumbnail::*;
+pub use transfer::*;
 pub use whisper::*;

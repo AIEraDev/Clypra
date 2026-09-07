@@ -18,6 +18,7 @@ pub mod preview_golden;
 pub mod golden_harness;
 pub mod sync_metrics;
 pub mod thumbnail_engine;
+pub mod transfer;
 pub mod wgpu_compositor;
 
 use commands::*;
@@ -67,6 +68,9 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        // Native camera capture via AVFoundation (macOS) / DirectShow (Windows) / V4L2 (Linux).
+        // Registers all plugin:crabcamera|* commands automatically — no invoke_handler entries needed.
+        .plugin(crabcamera::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -186,6 +190,22 @@ pub fn run() {
                             native_core::NativeGpuRuntimeStatus::failed(error, surface_available);
                     }
                 }
+            }
+
+            // Initialize LocalSend-compatible phone transfer service
+            let transfer_svc = Arc::new(transfer::TransferService::new());
+            app.manage(transfer_svc.clone());
+            {
+                let transfer_app = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Ok(data_dir) = transfer_app.path().app_data_dir() {
+                        let inbox = data_dir.join("transfer_inbox");
+                        let _ = std::fs::create_dir_all(&inbox);
+                        if let Err(e) = transfer_svc.start(transfer_app, inbox).await {
+                            log::warn!("[Transfer] Failed to start: {e}");
+                        }
+                    }
+                });
             }
 
             Ok(())
@@ -321,6 +341,16 @@ pub fn run() {
             get_unreported_crashes,
             mark_crash_reported,
             purge_crash_reports,
+            // Phone ↔ laptop file transfer (LocalSend protocol)
+            get_transfer_service_status,
+            get_discovered_devices,
+            accept_transfer_session,
+            reject_transfer_session,
+            cancel_transfer_session,
+            get_transfer_sessions,
+            get_transfer_server_url,
+            start_transfer_service,
+            stop_transfer_service,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

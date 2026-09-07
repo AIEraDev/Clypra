@@ -29,7 +29,7 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["macros", "process", "rt-multi-thread", "time", "sync"] }
+tokio = { version = "1", features = ["macros", "net", "process", "rt-multi-thread", "time", "sync"] }
 tokio-util = "0.7"
 rayon = "1.10"
 base64 = "0.22"
@@ -43,6 +43,10 @@ uuid = { version = "1", features = ["v4"] }
 unicode-segmentation = "1"
 reqwest = { version = "0.12", features = ["stream"] }
 futures-util = "0.3"
+axum = { version = "0.7", features = ["multipart"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors"] }
+qrcode = "0.14"
 parking_lot = "0.12"
 woff2 = { package = "woff2-patched", version = "0.4" }
 log = "0.4"
@@ -66,6 +70,31 @@ ffmpeg-sys-next = { version = "9", features = ["static"] }
 image = { version = "0.25", default-features = false, features = ["webp", "png"] }
 whisper-rs = "0.16.0"
 regex = "1"
+
+# Native camera capture — AVFoundation (macOS), DirectShow/MediaFoundation (Windows), V4L2 (Linux)
+# Features:
+#   tauri     — registers all plugin:crabcamera|* Tauri commands automatically
+#   recording — H.264 (openh264) + Opus → MP4 via Muxide; replaces MediaRecorder entirely
+#
+# NOTE: `audio` feature is intentionally omitted. It pulls cpal 0.15 (alsa-sys 0.3)
+# which conflicts with Clypra's own cpal 0.18 (alsa-sys 0.4). Mic audio capture for
+# metering and recording is handled by getUserMedia (audio-only, no camera issues)
+# and CrabCamera's start_recording accepts an audio_device_id for in-process capture.
+#
+# Future AVFoundation upgrade path (when direct CVPixelBuffer → Metal pipeline is needed):
+#   Replace crabcamera with a direct objc2 binding to AVCaptureSession.
+#   The migration surface is src-tauri/src/commands/camera.rs only — the TS layer
+#   (nativeCameraService.ts) stays identical because it uses the same invoke contract.
+#   Pipeline target:
+#     AVCaptureSession → AVCaptureVideoDataOutput → CMSampleBuffer
+#       → CVPixelBuffer (kCVPixelFormatType_32BGRA)
+#       → Metal texture (MTLTexture via CVMetalTextureCacheCreateTextureFromImage)
+#       → wgpu (import_external_texture or copy via queue.write_texture)
+#       → GPU effects (wgpu_compositor)
+#       → AI segmentation (CoreML / ort)
+#       → Background removal
+#       → Compositor → Timeline → Encoder (VideoToolbox H.264/HEVC)
+crabcamera = { version = "0.9.2", features = ["tauri", "recording"] }
 
 # On-device AI inference via ONNX Runtime (MediaPipe face tracking, auto-reframe)
 ort = { version = "2.0.0-rc.13", features = ["copy-dylibs"] }
