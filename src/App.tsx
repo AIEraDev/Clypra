@@ -24,6 +24,9 @@ import { useAutoUpdater } from "@/hooks/useAutoUpdater";
 import { UpdateBanner } from "@/components/ui/UpdateBanner";
 import { Toaster } from "sonner";
 import { ProjectLoadingModal } from "./components/ui/modals/ProjectLoadingModal";
+import { TransferPanel } from "./components/ui/TransferPanel";
+import { useSettingsStore } from "@/store/settingsStore";
+import { importMediaPaths, getMediaType } from "@/hooks/useMediaImport";
 import { installNativeDiagnostics } from "@/core/runtime/nativeDiagnostics";
 import { getPreviewInteractionCoordinator } from "@/core/interactions";
 
@@ -32,7 +35,7 @@ import { getPreviewInteractionCoordinator } from "@/core/interactions";
 const App = () => {
   const { project, createProject, loadProject, setRecentProjects } = useProjectStore();
   const [isLoading, setIsLoading] = useState(true);
-  const { showSettingsModal, toggleSettingsModal } = useUIStore();
+  const { showSettingsModal, toggleSettingsModal, showTransferModal, setTransferModal } = useUIStore();
   const settingsWasOpenRef = useRef(showSettingsModal);
   const [pendingRecovery, setPendingRecovery] = useState<RecoverySnapshot | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
@@ -194,6 +197,7 @@ const App = () => {
           for (const path of initialClipPaths) {
             try {
               const filename = path.split(/[/\\]/).pop() || "recording.webm";
+              const mediaType = getMediaType(filename);
 
               // Convert native FS path to a webview-renderable asset:// URL so the
               // video element can actually load the file in the Tauri WKWebView sandbox.
@@ -206,57 +210,70 @@ const App = () => {
 
               const metadata = await platform.getMediaMetadata(path);
               let validDuration = metadata?.duration;
+              let posterFrame: string | undefined;
 
-              // If metadata duration is non-finite or non-positive (common with WebM MediaRecorder headers), probe via HTMLVideoElement
-              if (!Number.isFinite(validDuration) || validDuration <= 0) {
+              if (mediaType === "image") {
+                validDuration = 5.0;
                 try {
-                  validDuration = await new Promise<number>((resolve) => {
-                    const vid = document.createElement("video");
-                    vid.preload = "metadata";
-                    let resolved = false;
-                    const finish = (d: number) => {
-                      if (!resolved) {
-                        resolved = true;
-                        vid.removeAttribute("src");
-                        vid.load();
-                        resolve(Number.isFinite(d) && d > 0 ? d : 5.0);
-                      }
-                    };
-                    const timeout = setTimeout(() => finish(5.0), 1000);
-                    vid.onloadedmetadata = () => {
-                      if (vid.duration && vid.duration !== Infinity && !isNaN(vid.duration) && vid.duration > 0) {
-                        clearTimeout(timeout);
-                        finish(vid.duration);
-                      } else {
-                        vid.currentTime = 1e101;
-                        vid.ontimeupdate = () => {
+                  posterFrame = platform.convertFileSrc(path);
+                } catch {
+                  posterFrame = undefined;
+                }
+              } else if (mediaType === "audio") {
+                validDuration = Number.isFinite(validDuration) && (validDuration ?? 0) > 0 ? validDuration : 5.0;
+              } else {
+                // Video duration probe
+                if (!Number.isFinite(validDuration) || (validDuration ?? 0) <= 0) {
+                  try {
+                    validDuration = await new Promise<number>((resolve) => {
+                      const vid = document.createElement("video");
+                      vid.preload = "metadata";
+                      let resolved = false;
+                      const finish = (d: number) => {
+                        if (!resolved) {
+                          resolved = true;
+                          vid.removeAttribute("src");
+                          vid.load();
+                          resolve(Number.isFinite(d) && d > 0 ? d : 5.0);
+                        }
+                      };
+                      const timeout = setTimeout(() => finish(5.0), 1000);
+                      vid.onloadedmetadata = () => {
+                        if (vid.duration && vid.duration !== Infinity && !isNaN(vid.duration) && vid.duration > 0) {
                           clearTimeout(timeout);
                           finish(vid.duration);
-                        };
-                      }
-                    };
-                    vid.onerror = () => {
-                      clearTimeout(timeout);
-                      finish(5.0);
-                    };
-                    vid.src = displayPath;
-                  });
-                } catch {
-                  validDuration = 5.0;
+                        } else {
+                          vid.currentTime = 1e101;
+                          vid.ontimeupdate = () => {
+                            clearTimeout(timeout);
+                            finish(vid.duration);
+                          };
+                        }
+                      };
+                      vid.onerror = () => {
+                        clearTimeout(timeout);
+                        finish(5.0);
+                      };
+                      vid.src = displayPath;
+                    });
+                  } catch {
+                    validDuration = 5.0;
+                  }
                 }
+                const safeDur = Math.max(0.5, validDuration || 5.0);
+                posterFrame = await platform.extractPosterFrame(path, safeDur, window.devicePixelRatio || 1.0).catch(() => undefined);
               }
 
               const safeDuration = Math.max(0.5, validDuration || 5.0);
-              const posterFrame = await platform.extractPosterFrame(path, safeDuration, window.devicePixelRatio || 1.0).catch(() => undefined);
 
               const asset = {
                 id: generateId("asset"),
                 name: filename,
-                path: displayPath,
-                type: "video" as const,
+                path: path,
+                type: mediaType,
                 duration: safeDuration,
-                width: metadata.width || 1920,
-                height: metadata.height || 1080,
+                width: mediaType === "audio" ? 0 : (metadata?.width || 1920),
+                height: mediaType === "audio" ? 0 : (metadata?.height || 1080),
                 posterFrame,
                 size: 0,
               };
@@ -695,6 +712,18 @@ const App = () => {
     >
       {isRecording ? <FloatingWidget onProjectCreate={handleCreateProject} /> : <TooltipProvider delayDuration={0}>{project ? <EditorScreen onRequestClose={handleCloseProject} /> : <LaunchScreen onProjectCreate={handleCreateProject} onProjectOpen={handleOpenProject} />}</TooltipProvider>}
       <SettingsModal isOpen={showSettingsModal} onClose={toggleSettingsModal} />
+      <TransferPanel
+        isOpen={showTransferModal}
+        onClose={() => setTransferModal(false)}
+        onImportFiles={async (paths) => {
+          if (!useProjectStore.getState().project) {
+            const { defaultFrameRate } = useSettingsStore.getState();
+            await useProjectStore.getState().createProject("Phone Transfer", "9:16", defaultFrameRate);
+          }
+          await importMediaPaths(paths);
+          setTransferModal(false);
+        }}
+      />
       <ScreenRecordingPreviewModal isOpen={!!previewRecording} onClose={() => setPreviewRecording(null)} onProjectCreate={handleCreateProject} />
 
       <ProjectLoadingModal />

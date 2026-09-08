@@ -1,17 +1,21 @@
 /**
  * TransferPanel
  *
- * Phone ↔ Laptop file transfer UI, built on top of the native Rust
- * LocalSend-compatible server. Surfaces on the LaunchScreen as a
- * full-screen overlay.
+ * Bidirectional Phone ↔ Laptop file transfer UI, built on top of the native Rust
+ * LocalSend-compatible server and Web Hub.
  *
- * Flow:
- *   1. User opens Transfer Panel → server starts, QR code + URL shown
- *   2. Phone user either opens LocalSend app (discovers Clypra on LAN)
- *      or visits http://<ip>:53317 in browser
- *   3. Incoming transfer fires clypra://transfer-incoming → consent dialog
- *   4. User accepts → file streams in → progress bar → complete
- *   5. "Add to Project" imports files into the current/new project
+ * Capabilities:
+ *   1. Send to Phone (Laptop → Phone):
+ *      - Stage files on desktop.
+ *      - Real scannable QR code for zero-install mobile browser download.
+ *      - Direct peer-to-peer push transfer to discovered LocalSend phones.
+ *   2. Receive from Phone (Phone → Laptop):
+ *      - Real scannable QR code for zero-install mobile browser upload.
+ *      - LocalSend v2 inbound receiver with consent prompt and real-time progress.
+ *      - 1-click "Add to Project" import.
+ *   3. Network Diagnostics:
+ *      - Multi-interface LAN IP detection.
+ *      - Active subnet scanner (bypasses router multicast drops).
  */
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
@@ -22,11 +26,26 @@ import {
   XCircle,
   Loader2,
   FileVideo,
+  FileText,
   Copy,
   Check as CheckIcon,
   AlertTriangle,
   Download,
+  Upload,
+  Trash2,
+  RefreshCw,
+  Plus,
+  Send,
+  Laptop,
+  Folder,
+  FolderOpen,
+  Eye,
+  Image as ImageIcon,
 } from "lucide-react";
+import {
+  useSettingsStore,
+  syncThemeToTransferService,
+} from "@/store/settingsStore";
 import { platform } from "@/core/platform";
 
 const isTauri =
@@ -54,17 +73,35 @@ async function listenEvent(
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+interface StagedFile {
+  id: string;
+  fileName: string;
+  filePath: string;
+  size: number;
+  mimeType: string;
+  createdAt: number;
+}
+
+interface DiscoveredDevice {
+  alias: string;
+  deviceType?: string;
+  ip: string;
+  port: number;
+  fingerprint: string;
+  lastSeenSecs: number;
+}
+
 interface IncomingFile {
   id: string;
-  file_name: string;
+  fileName: string;
   size: number;
-  file_type: string;
+  fileType: string;
 }
 
 interface TransferSession {
-  session_id: string;
-  sender_alias: string;
-  sender_ip: string;
+  sessionId: string;
+  senderAlias: string;
+  senderIp: string;
   state:
     | "Pending"
     | "Accepted"
@@ -73,27 +110,41 @@ interface TransferSession {
     | "Complete"
     | "Cancelled";
   files: IncomingFile[];
-  received_files: string[];
-  bytes_received: number;
-  total_bytes: number;
+  receivedFiles: string[];
+  bytesReceived: number;
+  totalBytes: number;
 }
 
 interface ConsentRequest {
-  session_id: string;
-  sender_alias: string;
-  files: { name: string; size: number }[];
+  sessionId: string;
+  senderAlias: string;
+  files: { id: string; name: string; size: number }[];
 }
 
 interface ProgressEvent {
-  session_id: string;
-  file_id: string;
-  bytes_received: number;
-  total_bytes: number;
+  sessionId: string;
+  fileId: string;
+  bytesReceived: number;
+  totalBytes: number;
 }
 
 interface CompleteEvent {
-  session_id: string;
-  file_paths: string[];
+  sessionId: string;
+  filePaths: string[];
+}
+
+interface OutboundProgressEvent {
+  sessionId: string;
+  fileId: string;
+  fileName: string;
+  bytesSent: number;
+  totalBytes: number;
+}
+
+interface NetworkInterfaceInfo {
+  name: string;
+  ip: string;
+  isDefault: boolean;
 }
 
 function formatBytes(bytes: number): string {
@@ -104,47 +155,63 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-// ── QR Code rendering (pure CSS/SVG fallback via URL display) ─────────────────
+// ── QR Code Renderer (SVG from Rust backend) ──────────────────────────────────
 
-function QRDisplay({ url }: { url: string }) {
-  // We show the URL prominently for manual entry; a proper QR would require
-  // a JS library. For now, use a placeholder SVG frame with the URL below it.
+function QRCodeSVG({
+  svg,
+  url,
+  subtitle,
+}: {
+  svg: string | null;
+  url: string | null;
+  subtitle: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const copyUrl = async () => {
+    if (!url) return;
+    await navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <div className="flex flex-col items-center gap-3">
-      <div
-        className="w-36 h-36 bg-white rounded-xl flex items-center justify-center relative overflow-hidden"
-        style={{ padding: "8px" }}
-      >
-        {/* Simplified QR visual hint */}
-        <div className="absolute inset-2 grid grid-cols-7 gap-0.5">
-          {Array.from({ length: 49 }).map((_, i) => {
-            // Corner squares pattern
-            const row = Math.floor(i / 7);
-            const col = i % 7;
-            const isCorner =
-              (row < 3 && col < 3) ||
-              (row < 3 && col >= 4) ||
-              (row >= 4 && col < 3);
-            const isRandom =
-              Math.sin(i * 7 + url.charCodeAt(i % url.length)) > 0;
-            return (
-              <div
-                key={i}
-                className={`rounded-[1px] ${isCorner || isRandom ? "bg-black" : "bg-transparent"}`}
-              />
-            );
-          })}
-        </div>
-        {/* Center Clypra dot */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="w-6 h-6 bg-white rounded-sm flex items-center justify-center">
-            <div className="w-4 h-4 bg-black rounded-sm" />
+      <div className="w-44 h-44 bg-white rounded-2xl p-2.5 shadow-xl flex items-center justify-center border border-white/20">
+        {svg ? (
+          <div
+            className="w-full h-full flex items-center justify-center [&>svg]:w-full [&>svg]:h-full [&>svg]:block"
+            dangerouslySetInnerHTML={{ __html: svg }}
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-2 text-zinc-400">
+            <Loader2 className="w-6 h-6 animate-spin text-accent" />
+            <span className="text-[11px]">Generating QR…</span>
           </div>
-        </div>
+        )}
       </div>
-      <p className="text-[11px] text-text-muted text-center">
-        Scan with LocalSend app or open in browser
-      </p>
+
+      <div className="flex flex-col items-center gap-1.5 max-w-[240px] text-center">
+        <p className="text-[12px] font-medium text-text-primary">{subtitle}</p>
+        {url && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 border border-white/8">
+            <span className="text-[11px] font-mono text-text-muted truncate max-w-[160px]">
+              {url}
+            </span>
+            <button
+              onClick={copyUrl}
+              className="text-text-muted hover:text-text-primary p-0.5 cursor-pointer transition-colors"
+              title="Copy URL"
+            >
+              {copied ? (
+                <CheckIcon className="w-3.5 h-3.5 text-green-400" />
+              ) : (
+                <Copy className="w-3.5 h-3.5" />
+              )}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -154,20 +221,53 @@ function QRDisplay({ url }: { url: string }) {
 interface TransferPanelProps {
   isOpen: boolean;
   onClose: () => void;
-  /** Called with paths of received files when user clicks "Add to Project" */
   onImportFiles: (filePaths: string[]) => void;
+  /** Optional initial active tab */
+  initialTab?: "send" | "receive";
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// ── Main Component ────────────────────────────────────────────────────────────
 
 export const TransferPanel: React.FC<TransferPanelProps> = ({
   isOpen,
   onClose,
   onImportFiles,
+  initialTab = "send",
 }) => {
+  const transferSaveDirectory = useSettingsStore(
+    (s) => s.transferSaveDirectory,
+  );
+  const setTransferSaveDirectory = useSettingsStore(
+    (s) => s.setTransferSaveDirectory,
+  );
+  const uiTheme = useSettingsStore((s) => s.uiTheme);
+  const fontFamily = useSettingsStore((s) => s.fontFamily);
+  const [saveDirectory, setSaveDirectory] = useState<string>(
+    transferSaveDirectory || "",
+  );
+
+  const [activeTab, setActiveTab] = useState<"send" | "receive">(initialTab);
   const [serverUrl, setServerUrl] = useState<string | null>(null);
+  const [qrCodeSvg, setQrCodeSvg] = useState<string | null>(null);
   const [serverRunning, setServerRunning] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [localIp, setLocalIp] = useState<string>("");
+  const [interfaces, setInterfaces] = useState<NetworkInterfaceInfo[]>([]);
+
+  // Send state
+  const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
+  const [discoveredDevices, setDiscoveredDevices] = useState<
+    DiscoveredDevice[]
+  >([]);
+  const [isScanning, setIsScanning] = useState(false);
+  const [outboundStatus, setOutboundStatus] = useState<string | null>(null);
+  const [outboundProgress, setOutboundProgress] = useState<{
+    sent: number;
+    total: number;
+    fileName: string;
+  } | null>(null);
+
+  // Receive state
   const [consentRequest, setConsentRequest] = useState<ConsentRequest | null>(
     null,
   );
@@ -175,34 +275,163 @@ export const TransferPanel: React.FC<TransferPanelProps> = ({
   const [progress, setProgress] = useState<
     Record<string, { received: number; total: number }>
   >({});
-  const [copiedUrl, setCopiedUrl] = useState(false);
 
   const unlistenRefs = useRef<Array<() => void>>([]);
+  const pollIntervalRef = useRef<any>(null);
 
-  // ── Server lifecycle ────────────────────────────────────────────────────────
+  // ── Server lifecycle & initialization ───────────────────────────────────────
+
+  const loadStaged = useCallback(async () => {
+    if (!isTauri) return;
+    try {
+      const files = await invokeTransfer<StagedFile[]>("get_staged_files");
+      setStagedFiles(files);
+    } catch {}
+  }, []);
+
+  const loadDevices = useCallback(async () => {
+    if (!isTauri) return;
+    try {
+      const devs = await invokeTransfer<DiscoveredDevice[]>(
+        "get_discovered_devices",
+      );
+      setDiscoveredDevices(devs);
+    } catch {}
+  }, []);
+
+  const triggerSubnetScan = useCallback(async () => {
+    if (!isTauri || isScanning) return;
+    setIsScanning(true);
+    try {
+      const found =
+        await invokeTransfer<DiscoveredDevice[]>("scan_local_network");
+      setDiscoveredDevices(found);
+    } catch (err) {
+      console.warn("[Transfer] Scan error:", err);
+    } finally {
+      setIsScanning(false);
+    }
+  }, [isScanning]);
+
+  const handleChangeDirectory = async () => {
+    if (!isTauri) return;
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Choose Folder to Save Transferred Files",
+        defaultPath: saveDirectory || undefined,
+      });
+
+      if (!selected || typeof selected !== "string") return;
+      const updated = await invokeTransfer<string>(
+        "set_transfer_save_directory",
+        { path: selected },
+      );
+      setSaveDirectory(updated);
+      setTransferSaveDirectory(updated);
+    } catch (err: any) {
+      console.error("[Transfer] Failed to change save directory:", err);
+    }
+  };
+
+  const handleOpenDirectory = async () => {
+    if (!isTauri) return;
+    try {
+      await invokeTransfer("open_transfer_save_directory");
+    } catch (err: any) {
+      console.error("[Transfer] Failed to open save directory:", err);
+    }
+  };
+
+  const handleOpenFile = async (filePath: string) => {
+    if (!isTauri) return;
+    try {
+      await invokeTransfer("open_file_path", { path: filePath });
+    } catch (err: any) {
+      console.error("[Transfer] Failed to open file:", err);
+    }
+  };
+
+  const handleShowInFolder = async (filePath: string) => {
+    if (!isTauri) return;
+    try {
+      await invokeTransfer("show_item_in_folder", { path: filePath });
+    } catch (err: any) {
+      console.error("[Transfer] Failed to show item in folder:", err);
+    }
+  };
 
   useEffect(() => {
     if (!isOpen || !isTauri) return;
 
     const startServer = async () => {
       try {
-        await invokeTransfer("start_transfer_service");
+        await invokeTransfer("start_transfer_service", {
+          customDir: transferSaveDirectory || undefined,
+        });
         const status = await invokeTransfer<{
           running: boolean;
           port: number;
-          local_ip: string;
+          localIp: string;
         }>("get_transfer_service_status");
+
         setServerRunning(status.running);
+        setLocalIp(status.localIp);
         setServerError(null);
+
         const url = await invokeTransfer<string>("get_transfer_server_url");
         setServerUrl(url);
+
+        const svg = await invokeTransfer<string>("get_transfer_qr_code");
+        setQrCodeSvg(svg);
+
+        const dir = await invokeTransfer<string>("get_transfer_save_directory");
+        setSaveDirectory(dir);
+
+        const ifaces = await invokeTransfer<NetworkInterfaceInfo[]>(
+          "get_network_interfaces",
+        );
+        setInterfaces(ifaces);
+
+        await loadStaged();
+        await loadDevices();
+
+        // Sync active editor theme to mobile web hub
+        await syncThemeToTransferService();
+
+        // Run an active scan on open to find peers immediately
+        void triggerSubnetScan();
       } catch (err: any) {
         setServerError(err?.message || String(err));
       }
     };
 
     startServer();
-  }, [isOpen]);
+
+    pollIntervalRef.current = setInterval(() => {
+      loadDevices();
+      loadStaged();
+    }, 4000);
+
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, [
+    isOpen,
+    loadStaged,
+    loadDevices,
+    triggerSubnetScan,
+    transferSaveDirectory,
+  ]);
+
+  // Synchronize mobile hub theme whenever editor theme or font family changes
+  useEffect(() => {
+    if (isOpen && isTauri) {
+      void syncThemeToTransferService();
+    }
+  }, [uiTheme, fontFamily, isOpen]);
 
   // ── Event listeners ─────────────────────────────────────────────────────────
 
@@ -210,36 +439,42 @@ export const TransferPanel: React.FC<TransferPanelProps> = ({
     if (!isOpen || !isTauri) return;
 
     const setup = async () => {
-      const unlisten1 = await listenEvent(
+      const unlistenIncoming = await listenEvent(
         "clypra://transfer-incoming",
-        (payload: ConsentRequest) => {
-          setConsentRequest(payload);
+        (payload: any) => {
+          setConsentRequest({
+            sessionId: payload.sessionId,
+            senderAlias: payload.senderAlias,
+            files: payload.files || [],
+          });
+          // Switch to receive tab so user sees consent immediately
+          setActiveTab("receive");
         },
       );
 
-      const unlisten2 = await listenEvent(
+      const unlistenProgress = await listenEvent(
         "clypra://transfer-progress",
         (payload: ProgressEvent) => {
           setProgress((prev) => ({
             ...prev,
-            [payload.session_id]: {
-              received: payload.bytes_received,
-              total: payload.total_bytes,
+            [payload.sessionId]: {
+              received: payload.bytesReceived,
+              total: payload.totalBytes,
             },
           }));
         },
       );
 
-      const unlisten3 = await listenEvent(
+      const unlistenComplete = await listenEvent(
         "clypra://transfer-complete",
         (payload: CompleteEvent) => {
           setSessions((prev) =>
             prev.map((s) =>
-              s.session_id === payload.session_id
+              s.sessionId === payload.sessionId
                 ? {
                     ...s,
                     state: "Complete",
-                    received_files: payload.file_paths,
+                    receivedFiles: payload.filePaths,
                   }
                 : s,
             ),
@@ -247,12 +482,12 @@ export const TransferPanel: React.FC<TransferPanelProps> = ({
         },
       );
 
-      const unlisten4 = await listenEvent(
+      const unlistenCancelled = await listenEvent(
         "clypra://transfer-cancelled",
-        (payload: { session_id: string }) => {
+        (payload: { sessionId: string }) => {
           setSessions((prev) =>
             prev.map((s) =>
-              s.session_id === payload.session_id
+              s.sessionId === payload.sessionId
                 ? { ...s, state: "Cancelled" }
                 : s,
             ),
@@ -260,7 +495,36 @@ export const TransferPanel: React.FC<TransferPanelProps> = ({
         },
       );
 
-      unlistenRefs.current = [unlisten1, unlisten2, unlisten3, unlisten4];
+      const unlistenOutProgress = await listenEvent(
+        "clypra://transfer-outbound-progress",
+        (payload: OutboundProgressEvent) => {
+          setOutboundProgress({
+            sent: payload.bytesSent,
+            total: payload.totalBytes,
+            fileName: payload.fileName,
+          });
+        },
+      );
+
+      const unlistenOutComplete = await listenEvent(
+        "clypra://transfer-outbound-complete",
+        () => {
+          setOutboundStatus("✅ Sent successfully to remote device!");
+          setTimeout(() => {
+            setOutboundProgress(null);
+            setOutboundStatus(null);
+          }, 4000);
+        },
+      );
+
+      unlistenRefs.current = [
+        unlistenIncoming,
+        unlistenProgress,
+        unlistenComplete,
+        unlistenCancelled,
+        unlistenOutProgress,
+        unlistenOutComplete,
+      ];
     };
 
     setup();
@@ -270,31 +534,90 @@ export const TransferPanel: React.FC<TransferPanelProps> = ({
     };
   }, [isOpen]);
 
+  // ── Staged files actions ────────────────────────────────────────────────────
+
+  const handlePickFiles = async () => {
+    if (!isTauri) return;
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({
+        multiple: true,
+        title: "Select Files to Send to Phone",
+      });
+
+      if (!selected) return;
+      const paths = Array.isArray(selected) ? selected : [selected];
+      if (paths.length === 0) return;
+
+      const updated = await invokeTransfer<StagedFile[]>(
+        "stage_files_for_transfer",
+        { paths },
+      );
+      setStagedFiles(updated);
+    } catch (err: any) {
+      console.error("[Transfer] Pick files error:", err);
+    }
+  };
+
+  const handleUnstage = async (fileId: string) => {
+    try {
+      await invokeTransfer("unstage_file", { fileId });
+      setStagedFiles((prev) => prev.filter((f) => f.id !== fileId));
+    } catch {}
+  };
+
+  const handleClearStaged = async () => {
+    try {
+      await invokeTransfer("clear_staged_files");
+      setStagedFiles([]);
+    } catch {}
+  };
+
+  const handleSendToPeer = async (device: DiscoveredDevice) => {
+    if (stagedFiles.length === 0) return;
+    setOutboundStatus(`Sending to ${device.alias}…`);
+    setOutboundProgress({
+      sent: 0,
+      total: stagedFiles.reduce((acc, f) => acc + f.size, 0),
+      fileName: stagedFiles[0].fileName,
+    });
+
+    try {
+      await invokeTransfer("send_files_to_peer", {
+        peerIp: device.ip,
+        peerPort: device.port,
+        filePaths: stagedFiles.map((f) => f.filePath),
+      });
+    } catch (err: any) {
+      setOutboundStatus(`Failed: ${err?.message || String(err)}`);
+      setOutboundProgress(null);
+    }
+  };
+
   // ── Consent actions ─────────────────────────────────────────────────────────
 
   const handleAccept = useCallback(async (req: ConsentRequest) => {
     try {
       await invokeTransfer("accept_transfer_session", {
-        sessionId: req.session_id,
+        sessionId: req.sessionId,
       });
       setConsentRequest(null);
-      // Optimistically add session to list
       setSessions((prev) => [
         ...prev,
         {
-          session_id: req.session_id,
-          sender_alias: req.sender_alias,
-          sender_ip: "",
+          sessionId: req.sessionId,
+          senderAlias: req.senderAlias,
+          senderIp: "",
           state: "Accepted",
-          files: req.files.map((f, i) => ({
-            id: String(i),
-            file_name: f.name,
+          files: req.files.map((f) => ({
+            id: f.id,
+            fileName: f.name,
             size: f.size,
-            file_type: "video/*",
+            fileType: "video/*",
           })),
-          received_files: [],
-          bytes_received: 0,
-          total_bytes: req.files.reduce((acc, f) => acc + f.size, 0),
+          receivedFiles: [],
+          bytesReceived: 0,
+          totalBytes: req.files.reduce((acc, f) => acc + f.size, 0),
         },
       ]);
     } catch (err: any) {
@@ -305,23 +628,16 @@ export const TransferPanel: React.FC<TransferPanelProps> = ({
   const handleReject = useCallback(async (req: ConsentRequest) => {
     try {
       await invokeTransfer("reject_transfer_session", {
-        sessionId: req.session_id,
+        sessionId: req.sessionId,
       });
     } catch {}
     setConsentRequest(null);
   }, []);
 
-  const handleCopyUrl = useCallback(async () => {
-    if (!serverUrl) return;
-    await navigator.clipboard.writeText(serverUrl);
-    setCopiedUrl(true);
-    setTimeout(() => setCopiedUrl(false), 2000);
-  }, [serverUrl]);
-
   const handleImport = useCallback(
     (session: TransferSession) => {
-      if (session.received_files.length > 0) {
-        onImportFiles(session.received_files);
+      if (session.receivedFiles.length > 0) {
+        onImportFiles(session.receivedFiles);
       }
     },
     [onImportFiles],
@@ -330,251 +646,619 @@ export const TransferPanel: React.FC<TransferPanelProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
       <div
-        className="relative w-full max-w-md rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        className="relative w-full max-w-xl rounded-2xl shadow-2xl flex flex-col overflow-hidden text-text-primary"
         style={{
-          background: "var(--clypra-surface-panel)",
+          background: "var(--clypra-surface-panel, #15151c)",
           border:
-            "1px solid color-mix(in srgb, var(--clypra-text-primary) 10%, transparent)",
-          maxHeight: "85vh",
+            "1px solid color-mix(in srgb, var(--clypra-text-primary, #fff) 12%, transparent)",
+          maxHeight: "88vh",
         }}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-white/6 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center">
-              <Smartphone className="w-4 h-4 text-accent" />
+        {/* Top Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/8 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-accent/15 border border-accent/30 flex items-center justify-center">
+              <Smartphone className="w-5 h-5 text-accent" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-text-primary">
-                Receive from Phone
-              </h2>
-              <p className="text-[11px] text-text-muted">
-                Local network · no internet needed
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-text-primary">
+                  Local File Sharing
+                </h2>
+                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-accent/10 border border-accent/20 text-accent">
+                  WiFi Transfer
+                </span>
+              </div>
+              <p className="text-xs text-text-muted">
+                Laptop ↔ Mobile Phone · No cloud · Full quality
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-white/10 transition-colors cursor-pointer"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto scrollbar-thin">
-          {/* Server status / setup section */}
-          <div className="px-5 py-4 border-b border-white/6">
-            {!isTauri ? (
-              <div className="flex items-center gap-2 text-sm text-text-muted">
-                <AlertTriangle className="w-4 h-4 text-yellow-400" />
-                Transfer is only available in the Tauri desktop app.
+        {/* Tab Navigation */}
+        <div className="flex border-b border-white/8 px-6 pt-2 bg-white/2 shrink-0">
+          <button
+            onClick={() => setActiveTab("send")}
+            className={`flex items-center gap-2 pb-3 px-3 text-sm font-semibold border-b-2 cursor-pointer transition-all ${
+              activeTab === "send"
+                ? "border-accent text-accent"
+                : "border-transparent text-text-muted hover:text-text-primary"
+            }`}
+          >
+            <Upload className="w-4 h-4" />
+            <span>Send to Phone</span>
+            {stagedFiles.length > 0 && (
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-accent text-white font-bold">
+                {stagedFiles.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveTab("receive")}
+            className={`flex items-center gap-2 pb-3 px-3 text-sm font-semibold border-b-2 cursor-pointer transition-all ${
+              activeTab === "receive"
+                ? "border-accent text-accent"
+                : "border-transparent text-text-muted hover:text-text-primary"
+            }`}
+          >
+            <Download className="w-4 h-4" />
+            <span>Receive from Phone</span>
+            {consentRequest && (
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            )}
+          </button>
+        </div>
+
+        {/* Save Destination Folder Bar */}
+        <div className="px-6 pt-3.5 shrink-0">
+          <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-white/3 border border-white/8 text-xs">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Folder className="w-4 h-4 text-accent shrink-0" />
+              <div className="min-w-0">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-text-muted">
+                  Save files to:
+                </span>
+                <p
+                  className="font-mono text-xs font-semibold text-text-primary truncate"
+                  title={saveDirectory}
+                >
+                  {saveDirectory || "Default: ~/Downloads/Clypra Transfers"}
+                </p>
               </div>
-            ) : serverError ? (
-              <div className="flex items-start gap-2 text-sm text-red-400">
-                <XCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                <span>{serverError}</span>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                onClick={handleOpenDirectory}
+                className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-text-primary text-[11px] font-medium border border-white/10 transition-colors cursor-pointer flex items-center gap-1"
+                title="Reveal folder in Finder / Explorer"
+              >
+                <FolderOpen className="w-3.5 h-3.5" />
+                <span>Open</span>
+              </button>
+              <button
+                onClick={handleChangeDirectory}
+                className="px-2.5 py-1 rounded-lg bg-accent/20 hover:bg-accent text-accent hover:text-white text-[11px] font-semibold border border-accent/30 transition-colors cursor-pointer"
+                title="Choose custom folder on your system"
+              >
+                Change…
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Main Content Area */}
+        <div className="flex-1 overflow-y-auto scrollbar-thin p-6 space-y-6">
+          {!isTauri ? (
+            <div className="flex items-center gap-2 text-sm text-yellow-400 p-4 rounded-xl bg-yellow-400/10 border border-yellow-400/20">
+              <AlertTriangle className="w-5 h-5 shrink-0" />
+              <span>
+                Local transfer is only available in the Clypra desktop app.
+              </span>
+            </div>
+          ) : serverError ? (
+            <div className="flex items-start gap-3 text-sm text-red-400 p-4 rounded-xl bg-red-400/10 border border-red-400/20">
+              <XCircle className="w-5 h-5 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-semibold">Server Error</p>
+                <p className="text-xs text-red-400/80">{serverError}</p>
               </div>
-            ) : !serverRunning ? (
-              <div className="flex items-center gap-2 text-sm text-text-muted">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Starting transfer server…
-              </div>
-            ) : (
-              <div className="flex gap-5 items-start">
-                {serverUrl && <QRDisplay url={serverUrl} />}
-                <div className="flex-1 flex flex-col gap-3 pt-1">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                    <span className="text-xs font-semibold text-green-400">
-                      Server active
-                    </span>
-                  </div>
-                  <div>
-                    <p className="text-[11px] text-text-muted mb-1.5">
-                      Open this URL on your phone:
-                    </p>
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-bg border border-white/8">
-                      <Wifi className="w-3.5 h-3.5 text-text-muted shrink-0" />
-                      <span className="text-xs font-mono text-text-primary flex-1 truncate">
-                        {serverUrl}
-                      </span>
+            </div>
+          ) : !serverRunning ? (
+            <div className="flex items-center justify-center gap-3 py-12 text-text-muted">
+              <Loader2 className="w-5 h-5 animate-spin text-accent" />
+              <span>Starting transfer engine…</span>
+            </div>
+          ) : activeTab === "send" ? (
+            /* ─────────────────────────────────────────────────────────── */
+            /* TAB 1: SEND TO PHONE                                       */
+            /* ─────────────────────────────────────────────────────────── */
+            <div className="space-y-6">
+              {/* Dual presentation: QR Code on left, Staged files & peers on right */}
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+                <div className="md:col-span-5 flex justify-center">
+                  <QRCodeSVG
+                    svg={qrCodeSvg}
+                    url={serverUrl}
+                    subtitle="Scan with Phone Camera to download in mobile browser"
+                  />
+                </div>
+
+                <div className="md:col-span-7 flex flex-col gap-4">
+                  <div className="flex flex-col gap-y-2">
+                    <div>
+                      <h3 className="text-sm font-bold">Staged Files</h3>
+                      <p className="text-[11px] text-text-muted">
+                        Files ready for phone download
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {stagedFiles.length > 0 && (
+                        <button
+                          onClick={handleClearStaged}
+                          className="text-[11px] flex-1 text-red-400 bg-red-800 rounded-md hover:text-red-300 p-1 cursor-pointer flex items-center justify-center gap-1"
+                          title="Clear all staged files"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Clear</span>
+                        </button>
+                      )}
                       <button
-                        onClick={handleCopyUrl}
-                        className="shrink-0 text-text-muted hover:text-text-primary cursor-pointer transition-colors"
-                        title="Copy URL"
+                        onClick={handlePickFiles}
+                        className="px-3 flex-1 py-1.5 rounded-md bg-accent text-white text-xs font-semibold hover:bg-accent/90 cursor-pointer flex items-center justify-center gap-1.5 transition-colors shadow-md shadow-accent/20"
                       >
-                        {copiedUrl ? (
-                          <CheckIcon className="w-3.5 h-3.5 text-green-400" />
-                        ) : (
-                          <Copy className="w-3.5 h-3.5" />
-                        )}
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add Files…</span>
                       </button>
                     </div>
                   </div>
-                  <p className="text-[11px] text-text-muted leading-relaxed">
-                    Or use the{" "}
-                    <span className="text-text-primary font-semibold">
-                      LocalSend
-                    </span>{" "}
-                    app on your phone — it will discover Clypra automatically.
-                  </p>
+
+                  {stagedFiles.length === 0 ? (
+                    <div
+                      onClick={handlePickFiles}
+                      className="border-2 border-dashed border-white/10 hover:border-accent/40 rounded-xl p-6 text-center cursor-pointer transition-colors bg-white/1"
+                    >
+                      <FileVideo className="w-8 h-8 text-text-muted/40 mx-auto mb-2" />
+                      <p className="text-xs font-semibold text-text-muted">
+                        No files staged yet
+                      </p>
+                      <p className="text-[11px] text-text-muted/60 mt-1">
+                        Click here to select videos, images, or exports to share
+                        with phone
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-44 overflow-y-auto scrollbar-thin">
+                      {stagedFiles.map((file) => (
+                        <div
+                          key={file.id}
+                          className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-white/4 border border-white/6 text-xs"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FileText className="w-3.5 h-3.5 text-accent shrink-0" />
+                            <span
+                              className="truncate font-medium"
+                              title={file.fileName}
+                            >
+                              {file.fileName}
+                            </span>
+                            <span className="text-[10px] text-text-muted shrink-0">
+                              · {formatBytes(file.size)}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => handleUnstage(file.id)}
+                            className="text-text-muted hover:text-red-400 p-1 cursor-pointer"
+                            title="Remove"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Outbound Transfer Progress */}
+                  {outboundProgress && (
+                    <div className="rounded-xl border border-accent/30 bg-accent/5 p-3 space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-accent truncate">
+                          Sending {outboundProgress.fileName}…
+                        </span>
+                        <span className="font-mono text-[11px] text-text-muted">
+                          {formatBytes(outboundProgress.sent)} /{" "}
+                          {formatBytes(outboundProgress.total)}
+                        </span>
+                      </div>
+                      <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-accent rounded-full transition-all duration-200"
+                          style={{
+                            width: `${Math.round(
+                              (outboundProgress.sent /
+                                (outboundProgress.total || 1)) *
+                                100,
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {outboundStatus && !outboundProgress && (
+                    <p className="text-xs font-semibold text-green-400">
+                      {outboundStatus}
+                    </p>
+                  )}
                 </div>
               </div>
-            )}
-          </div>
 
-          {/* Incoming consent dialog */}
-          {consentRequest && (
-            <div className="mx-4 my-4 rounded-xl border border-accent/30 bg-accent/5 p-4 shadow-lg">
-              <div className="flex items-start gap-3 mb-3">
-                <Download className="w-5 h-5 text-accent mt-0.5 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-text-primary">
-                    <span className="text-accent">
-                      {consentRequest.sender_alias}
-                    </span>{" "}
-                    wants to send {consentRequest.files.length} file
-                    {consentRequest.files.length !== 1 ? "s" : ""}
-                  </p>
-                  <div className="mt-1.5 space-y-1">
-                    {consentRequest.files.slice(0, 3).map((f, i) => (
+              {/* Discovered LocalSend Devices */}
+              <div className="border-t border-white/8 pt-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Laptop className="w-4 h-4 text-accent" />
+                    <h3 className="text-sm font-bold">Discovered Devices</h3>
+                    <span className="text-xs text-text-muted">
+                      ({discoveredDevices.length})
+                    </span>
+                  </div>
+                  <button
+                    onClick={triggerSubnetScan}
+                    disabled={isScanning}
+                    className="text-xs text-text-muted hover:text-text-primary flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/5 border border-white/8 cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw
+                      className={`w-3 h-3 ${isScanning ? "animate-spin text-accent" : ""}`}
+                    />
+                    <span>
+                      {isScanning ? "Scanning WiFi…" : "Scan Network"}
+                    </span>
+                  </button>
+                </div>
+
+                {discoveredDevices.length === 0 ? (
+                  <div className="rounded-xl border border-white/6 bg-white/2 p-4 text-center">
+                    <p className="text-xs text-text-muted">
+                      No LocalSend devices discovered automatically yet.
+                    </p>
+                    <p className="text-[11px] text-text-muted/60 mt-1">
+                      Open LocalSend on your phone, or simply scan the QR code
+                      above with your camera!
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {discoveredDevices.map((dev) => (
                       <div
-                        key={i}
-                        className="flex items-center justify-between gap-2"
+                        key={dev.fingerprint}
+                        className="flex items-center justify-between p-3 rounded-xl bg-white/[0.03] border border-white/8 hover:border-white/20 transition-all"
                       >
-                        <span className="text-xs text-text-muted truncate">
-                          {f.name}
-                        </span>
-                        <span className="text-[11px] text-text-muted/60 shrink-0">
-                          {formatBytes(f.size)}
-                        </span>
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-8 h-8 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
+                            <Smartphone className="w-4 h-4 text-accent" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold truncate">
+                              {dev.alias}
+                            </p>
+                            <p className="text-[10px] text-text-muted font-mono truncate">
+                              {dev.ip}:{dev.port}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleSendToPeer(dev)}
+                          disabled={stagedFiles.length === 0}
+                          className="px-2.5 py-1 rounded-lg bg-accent/20 text-accent hover:bg-accent text-xs font-semibold hover:text-white transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0 flex items-center gap-1"
+                        >
+                          <Send className="w-3 h-3" />
+                          <span>Push</span>
+                        </button>
                       </div>
                     ))}
-                    {consentRequest.files.length > 3 && (
-                      <p className="text-[11px] text-text-muted/60">
-                        +{consentRequest.files.length - 3} more…
-                      </p>
-                    )}
                   </div>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleReject(consentRequest)}
-                  className="flex-1 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-text-muted hover:bg-white/10 hover:text-text-primary transition-colors cursor-pointer font-semibold"
-                >
-                  Reject
-                </button>
-                <button
-                  onClick={() => handleAccept(consentRequest)}
-                  className="flex-1 py-2 rounded-lg bg-accent text-white text-sm font-semibold hover:bg-accent/90 transition-colors cursor-pointer shadow-md shadow-accent/20"
-                >
-                  Accept
-                </button>
+                )}
               </div>
             </div>
-          )}
-
-          {/* Active and completed sessions */}
-          {sessions.length > 0 && (
-            <div className="px-4 py-3 space-y-3">
-              <p className="text-[11px] font-semibold text-text-muted uppercase tracking-wider">
-                Transfers
-              </p>
-              {sessions.map((session) => {
-                const prog = progress[session.session_id];
-                const pct =
-                  prog && prog.total > 0
-                    ? Math.round((prog.received / prog.total) * 100)
-                    : session.state === "Complete"
-                      ? 100
-                      : 0;
-
-                return (
-                  <div
-                    key={session.session_id}
-                    className="rounded-xl border border-white/6 bg-bg p-3 space-y-2.5"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <FileVideo className="w-4 h-4 text-text-muted shrink-0" />
-                        <span className="text-sm font-semibold text-text-primary truncate">
-                          {session.sender_alias}
-                        </span>
-                        <span className="text-[11px] text-text-muted">
-                          · {session.files.length} file
-                          {session.files.length !== 1 ? "s" : ""}
-                        </span>
-                      </div>
-                      <div className="shrink-0">
-                        {session.state === "Complete" && (
-                          <CheckCircle className="w-4 h-4 text-green-400" />
-                        )}
-                        {session.state === "Cancelled" && (
-                          <XCircle className="w-4 h-4 text-red-400" />
-                        )}
-                        {(session.state === "Accepted" ||
-                          session.state === "InProgress") && (
-                          <Loader2 className="w-4 h-4 text-accent animate-spin" />
+          ) : (
+            /* ─────────────────────────────────────────────────────────── */
+            /* TAB 2: RECEIVE FROM PHONE                                  */
+            /* ─────────────────────────────────────────────────────────── */
+            <div className="space-y-6">
+              {/* Incoming consent request */}
+              {consentRequest && (
+                <div className="rounded-xl border border-accent/40 bg-accent/10 p-4 shadow-lg animate-in zoom-in-95">
+                  <div className="flex items-start gap-3 mb-3">
+                    <Download className="w-5 h-5 text-accent mt-0.5 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-text-primary">
+                        <span className="text-accent">
+                          {consentRequest.senderAlias}
+                        </span>{" "}
+                        wants to send {consentRequest.files.length} file
+                        {consentRequest.files.length !== 1 ? "s" : ""}
+                      </p>
+                      <div className="mt-2 space-y-1">
+                        {consentRequest.files.slice(0, 3).map((f, i) => (
+                          <div
+                            key={i}
+                            className="flex items-center justify-between gap-2"
+                          >
+                            <span className="text-xs text-text-muted truncate">
+                              {f.name}
+                            </span>
+                            <span className="text-[11px] text-text-muted/60 shrink-0 font-mono">
+                              {formatBytes(f.size)}
+                            </span>
+                          </div>
+                        ))}
+                        {consentRequest.files.length > 3 && (
+                          <p className="text-[11px] text-text-muted/60">
+                            +{consentRequest.files.length - 3} more files…
+                          </p>
                         )}
                       </div>
                     </div>
-
-                    {/* Progress bar */}
-                    {(session.state === "InProgress" ||
-                      session.state === "Accepted" ||
-                      session.state === "Complete") && (
-                      <div className="space-y-1">
-                        <div className="h-1.5 bg-white/8 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-accent rounded-full transition-[width] duration-200"
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                        <div className="flex justify-between text-[10px] text-text-muted">
-                          <span>
-                            {prog ? formatBytes(prog.received) : "0 B"} /{" "}
-                            {prog
-                              ? formatBytes(prog.total)
-                              : formatBytes(session.total_bytes)}
-                          </span>
-                          <span>{pct}%</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Complete action */}
-                    {session.state === "Complete" &&
-                      session.received_files.length > 0 && (
-                        <button
-                          onClick={() => handleImport(session)}
-                          className="w-full py-1.5 rounded-lg bg-accent/10 border border-accent/20 text-accent text-xs font-semibold hover:bg-accent/20 transition-colors cursor-pointer"
-                        >
-                          Add to Project
-                        </button>
-                      )}
                   </div>
-                );
-              })}
-            </div>
-          )}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleReject(consentRequest)}
+                      className="flex-1 py-2 rounded-lg bg-white/5 border border-white/10 text-xs font-semibold text-text-muted hover:bg-white/10 hover:text-text-primary transition-colors cursor-pointer"
+                    >
+                      Decline
+                    </button>
+                    <button
+                      onClick={() => handleAccept(consentRequest)}
+                      className="flex-1 py-2 rounded-lg bg-accent text-white text-xs font-semibold hover:bg-accent/90 transition-colors cursor-pointer shadow-md shadow-accent/20"
+                    >
+                      Accept Transfer
+                    </button>
+                  </div>
+                </div>
+              )}
 
-          {/* Empty state when no sessions yet */}
-          {sessions.length === 0 && !consentRequest && serverRunning && (
-            <div className="px-5 py-8 flex flex-col items-center text-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-surface-raised border border-white/6 flex items-center justify-center">
-                <Smartphone className="w-5 h-5 text-text-muted/40" />
+              {/* QR and upload instructions */}
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
+                <div className="md:col-span-5 flex justify-center">
+                  <QRCodeSVG
+                    svg={qrCodeSvg}
+                    url={serverUrl}
+                    subtitle="Scan with Phone Camera to upload directly into Clypra"
+                  />
+                </div>
+
+                <div className="md:col-span-7 space-y-3">
+                  <div className="p-4 rounded-xl bg-white/3 border border-white/8 space-y-2">
+                    <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">
+                      How to upload from phone
+                    </h3>
+                    <ol className="text-xs text-text-muted space-y-1.5 list-decimal list-inside leading-relaxed">
+                      <li>Point your phone camera at the QR code.</li>
+                      <li>
+                        Tap the link banner to open Clypra Web Hub in browser.
+                      </li>
+                      <li>
+                        Select photos or 4K videos and tap{" "}
+                        <strong>"Send to Clypra"</strong>.
+                      </li>
+                      <li>Accept the transfer prompt on your laptop.</li>
+                    </ol>
+                  </div>
+                </div>
               </div>
-              <p className="text-sm text-text-muted">
-                Waiting for incoming transfer…
-              </p>
-              <p className="text-xs text-text-muted/50">
-                Phone and laptop must be on the same WiFi network.
-              </p>
+
+              {/* Active & Completed Transfer Sessions */}
+              {sessions.length > 0 && (
+                <div className="border-t border-white/8 pt-5 space-y-3">
+                  <h3 className="text-xs font-bold text-text-muted uppercase tracking-wider">
+                    Recent Inbound Transfers
+                  </h3>
+                  {sessions.map((session) => {
+                    const prog = progress[session.sessionId];
+                    const pct =
+                      prog && prog.total > 0
+                        ? Math.round((prog.received / prog.total) * 100)
+                        : session.state === "Complete"
+                          ? 100
+                          : 0;
+
+                    return (
+                      <div
+                        key={session.sessionId}
+                        className="rounded-xl border border-white/8 bg-white/[0.03] p-3.5 space-y-2.5"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FileVideo className="w-4 h-4 text-accent shrink-0" />
+                            <span className="text-xs font-semibold text-text-primary truncate">
+                              {session.senderAlias}
+                            </span>
+                            <span className="text-[11px] text-text-muted">
+                              · {session.files.length} file
+                              {session.files.length !== 1 ? "s" : ""}
+                            </span>
+                          </div>
+                          <div>
+                            {session.state === "Complete" && (
+                              <CheckCircle className="w-4 h-4 text-green-400" />
+                            )}
+                            {session.state === "Cancelled" && (
+                              <XCircle className="w-4 h-4 text-red-400" />
+                            )}
+                            {(session.state === "Accepted" ||
+                              session.state === "InProgress") && (
+                              <Loader2 className="w-4 h-4 text-accent animate-spin" />
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Progress */}
+                        {(session.state === "InProgress" ||
+                          session.state === "Accepted" ||
+                          session.state === "Complete") && (
+                          <div className="space-y-1">
+                            <div className="h-1.5 bg-white/8 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-accent rounded-full transition-all duration-200"
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <div className="flex justify-between text-[10px] text-text-muted">
+                              <span>
+                                {prog ? formatBytes(prog.received) : "0 B"} /{" "}
+                                {prog
+                                  ? formatBytes(prog.total)
+                                  : formatBytes(session.totalBytes)}
+                              </span>
+                              <span className="font-mono">{pct}%</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {session.state === "Complete" &&
+                          session.receivedFiles.length > 0 && (
+                            <div className="space-y-2.5 pt-1 border-t border-white/5">
+                              <div className="space-y-1.5">
+                                {session.receivedFiles.map((filePath, idx) => {
+                                  const fileName =
+                                    filePath.split(/[/\\]/).pop() || "File";
+                                  const isImage =
+                                    /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(
+                                      fileName,
+                                    );
+                                  const isVideo =
+                                    /\.(mp4|mov|mkv|webm|m4v|avi|flv|wmv)$/i.test(
+                                      fileName,
+                                    );
+                                  const matchingInfo = session.files.find(
+                                    (f) => f.fileName === fileName,
+                                  );
+                                  const fileSrc = isTauri
+                                    ? platform.convertFileSrc(filePath)
+                                    : "";
+
+                                  return (
+                                    <div
+                                      key={`${filePath}-${idx}`}
+                                      className="flex items-center justify-between gap-3 p-2 rounded-lg bg-black/25 border border-white/5 hover:border-white/15 transition-colors"
+                                    >
+                                      <div className="flex items-center gap-2.5 min-w-0">
+                                        {isImage && fileSrc ? (
+                                          <div
+                                            onClick={() =>
+                                              handleOpenFile(filePath)
+                                            }
+                                            className="w-11 h-11 rounded-lg overflow-hidden bg-black/40 border border-white/15 shrink-0 cursor-pointer hover:opacity-85 transition-opacity relative group shadow-sm"
+                                            title="Click to view full image on PC"
+                                          >
+                                            <img
+                                              src={fileSrc}
+                                              alt={fileName}
+                                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                                            />
+                                          </div>
+                                        ) : isVideo ? (
+                                          <div className="w-11 h-11 rounded-lg bg-accent/10 border border-accent/25 flex items-center justify-center shrink-0">
+                                            <FileVideo className="w-5 h-5 text-accent" />
+                                          </div>
+                                        ) : (
+                                          <div className="w-11 h-11 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
+                                            <FileText className="w-5 h-5 text-text-muted" />
+                                          </div>
+                                        )}
+                                        <div className="min-w-0">
+                                          <p
+                                            className="text-xs font-semibold text-text-primary truncate max-w-[190px]"
+                                            title={fileName}
+                                          >
+                                            {fileName}
+                                          </p>
+                                          <p className="text-[10px] text-text-muted mt-0.5">
+                                            {matchingInfo?.size
+                                              ? formatBytes(matchingInfo.size)
+                                              : isImage
+                                                ? "Image"
+                                                : isVideo
+                                                  ? "Video"
+                                                  : "File"}
+                                          </p>
+                                        </div>
+                                      </div>
+
+                                      <div className="flex items-center gap-1.5 shrink-0">
+                                        <button
+                                          onClick={() =>
+                                            handleOpenFile(filePath)
+                                          }
+                                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-[11px] font-medium text-text-primary transition-all cursor-pointer shadow-sm active:scale-95"
+                                          title="Open and view locally on PC"
+                                        >
+                                          <Eye className="w-3.5 h-3.5 text-accent" />
+                                          <span>
+                                            {isImage ? "View Image" : "Open"}
+                                          </span>
+                                        </button>
+                                        <button
+                                          onClick={() =>
+                                            handleShowInFolder(filePath)
+                                          }
+                                          className="p-1.5 rounded-lg hover:bg-white/10 border border-transparent hover:border-white/10 text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+                                          title="Reveal in Finder / Explorer"
+                                        >
+                                          <FolderOpen className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+
+                              <button
+                                onClick={() => handleImport(session)}
+                                className="w-full py-1.5 rounded-lg bg-accent/20 border border-accent/30 text-accent text-xs font-semibold hover:bg-accent hover:text-white transition-colors cursor-pointer"
+                              >
+                                Add to Project ({session.receivedFiles.length}{" "}
+                                file
+                                {session.receivedFiles.length !== 1 ? "s" : ""})
+                              </button>
+                            </div>
+                          )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
+        </div>
+
+        {/* Footer Network Diagnostics Bar */}
+        <div className="px-6 py-3 border-t border-white/8 bg-white/2 flex items-center justify-between text-xs text-text-muted shrink-0">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+            <span className="font-medium text-text-primary">
+              LAN IP: {localIp || "Detecting…"}
+            </span>
+            {interfaces.length > 1 && (
+              <span className="text-[10px] text-text-muted">
+                ({interfaces.length} network cards available)
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 text-[11px]">
+            <Wifi className="w-3.5 h-3.5 text-accent" />
+            <span>Port 53317 (LocalSend v2)</span>
+          </div>
         </div>
       </div>
     </div>

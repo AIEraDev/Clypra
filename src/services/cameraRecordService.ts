@@ -85,16 +85,44 @@ export class CameraRecordService {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       return devices
-        .filter((d) => d.kind === "audioinput")
+        .filter((d) => d.kind === "audioinput" && Boolean(d.deviceId && d.deviceId.trim().length > 0))
         .map((d, i) => ({
           deviceId: d.deviceId,
           label: d.label || `Microphone ${i + 1}`,
-        }));
+        }))
+        .sort((a, b) => {
+          // Sort real hardware mics (MacBook Pro / Built-in) to top
+          const aBuiltIn = /macbook|built-in|internal/i.test(a.label);
+          const bBuiltIn = /macbook|built-in|internal/i.test(b.label);
+          if (aBuiltIn && !bBuiltIn) return -1;
+          if (!aBuiltIn && bBuiltIn) return 1;
+
+          // Virtual devices (BlackHole, Loopback, Soundflower, QuickTime) to bottom
+          const aVirtual = /blackhole|loopback|soundflower|virtual|aggregate|quicktime/i.test(a.label);
+          const bVirtual = /blackhole|loopback|soundflower|virtual|aggregate|quicktime/i.test(b.label);
+          if (aVirtual && !bVirtual) return 1;
+          if (!aVirtual && bVirtual) return -1;
+
+          return 0;
+        });
     } catch (err) {
       console.warn("[CameraRecordService] enumerateMics failed:", err);
       return [];
     }
   }
+
+  /**
+   * Find the best real hardware microphone available (e.g. MacBook Pro Microphone).
+   */
+  async getPreferredMicrophone(): Promise<AudioDevice | null> {
+    const mics = await this.enumerateMics();
+    const validMics = mics.filter((m) => m.deviceId && m.deviceId.trim().length > 0);
+    if (validMics.length === 0) return null;
+    const best = validMics.find((m) => /macbook|built-in|internal/i.test(m.label));
+    return best || validMics[0];
+  }
+
+
 
   // ── Recording ────────────────────────────────────────────────────────────
 

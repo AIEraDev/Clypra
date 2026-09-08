@@ -101,6 +101,7 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
   const [cameraDropdownOpen, setCameraDropdownOpen] = useState(false);
   const [micDropdownOpen, setMicDropdownOpen] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
+  const [sensorCoveredWarning, setSensorCoveredWarning] = useState(false);
 
   const service = CameraRecordService.getInstance();
 
@@ -185,9 +186,10 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
 
     // Monitor timeupdate and sample pixel luminance to verify frame rendering
     let timeTick = 0;
+    let consecutiveBlackCount = 0;
     vid.ontimeupdate = () => {
       timeTick++;
-      if (timeTick <= 5 || timeTick % 30 === 0) {
+      if (timeTick <= 5 || timeTick % 15 === 0) {
         let pixelAnalysis = "N/A";
         try {
           if (vid.videoWidth > 0 && vid.videoHeight > 0) {
@@ -209,8 +211,17 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
               const avgG = Math.round(gTotal / pxCount);
               const avgB = Math.round(bTotal / pxCount);
               const isPureBlack = avgR + avgG + avgB === 0;
+              if (isPureBlack) {
+                consecutiveBlackCount++;
+                if (consecutiveBlackCount >= 6) {
+                  setSensorCoveredWarning(true);
+                }
+              } else {
+                consecutiveBlackCount = 0;
+                setSensorCoveredWarning(false);
+              }
               pixelAnalysis = isPureBlack
-                ? "⚠️ PURE BLACK (RGB: 0,0,0) — Hardware/OS is feeding black frames"
+                ? `⚠️ PURE BLACK (RGB: 0,0,0) [count: ${consecutiveBlackCount}] — Hardware/OS is feeding black frames`
                 : `✅ LIGHT DETECTED! Avg RGB(${avgR}, ${avgG}, ${avgB})`;
             }
           }
@@ -228,8 +239,13 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
       }
     };
 
-    console.log("%c🎥 [CameraDebug] Setting vid.srcObject = stream", "color: #f59e0b;");
-    vid.srcObject = stream;
+    console.log("%c🎥 [CameraDebug] Setting vid.srcObject = video-only stream", "color: #f59e0b;");
+    // Only pass video tracks to the <video> element.
+    // In WebKit (macOS), assigning a MediaStream with audio tracks to a muted <video> element
+    // causes WebKit's audio unit to terminate the capture track with
+    // "A MediaStreamTrack ended due to a capture failure".
+    const previewStream = new MediaStream(stream.getVideoTracks());
+    vid.srcObject = previewStream;
 
     vid.play()
       .then(() => {
@@ -251,6 +267,7 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
 
   const teardown = useCallback(() => {
     console.log("%c🎥 [CameraDebug] teardown called.", "color: #94a3b8;");
+    setSensorCoveredWarning(false);
     cancelAnimationFrame(micAnimRef.current);
     micAudioCtxRef.current?.close().catch?.(() => {});
     micAudioCtxRef.current = null;
@@ -313,22 +330,55 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
     }
   }, [stopMicMeter]);
 
+  const isAcquiringStreamRef = useRef<boolean>(false);
+  const hasInitializedModalRef = useRef<boolean>(false);
+
   // ── Start camera preview ────────────────────────────────────────────────────
 
   const startCameraPreview = useCallback(
     async (targetCamId?: string | null, targetMicId?: string | null) => {
-      console.log("%c🎥 [CameraDebug] startCameraPreview invoked.", "color: #38bdf8; font-weight: bold;", {
+      if (isAcquiringStreamRef.current) {
+        console.warn("🎥 [CameraDebug] startCameraPreview already in progress, ignoring concurrent call.");
+        return;
+      }
+      isAcquiringStreamRef.current = true;
+
+      const storeState = useCameraStore.getState();
+      const effectiveMicEnabled = storeState.micEnabled;
+      const effectiveCamId = targetCamId || storeState.selectedCameraDeviceId;
+      let effectiveMicId = targetMicId || storeState.selectedMicDeviceId;
+
+      // Auto-resolve hardware mic (MacBook Pro Microphone) to avoid QuickTime 2.1 channel capture failure
+      if (!effectiveMicId && effectiveMicEnabled) {
+        try {
+          const preferredMic = await service.getPreferredMicrophone();
+          if (preferredMic && preferredMic.deviceId && preferredMic.deviceId.trim().length > 0) {
+            effectiveMicId = preferredMic.deviceId;
+            console.log(
+              "%c🎤 [CameraDebug] Auto-selected hardware microphone:",
+              "color: #a855f7; font-weight: bold;",
+              preferredMic,
+            );
+          }
+        } catch (micResolveErr) {
+          console.warn("[CameraDebug] Preferred mic pre-resolution error:", micResolveErr);
+        }
+      }
+
+      const validMicId = effectiveMicId && effectiveMicId.trim().length > 0 ? effectiveMicId : null;
+
+      console.log("%c🎥 [CameraDebug] startCameraPreview invoked (LOCKED).", "color: #38bdf8; font-weight: bold;", {
         targetCamId,
         targetMicId,
-        selectedCameraDeviceId,
-        selectedMicDeviceId,
-        micEnabled,
+        effectiveCamId,
+        effectiveMicId: validMicId,
+        micEnabled: effectiveMicEnabled,
       });
 
       setPreviewState("initializing");
       setCameraError(null);
 
-      // Clean up previous stream
+      // Clean up previous stream before opening new one
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
@@ -336,24 +386,22 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
       stopMicMeter();
 
       try {
-        const camId = targetCamId ?? selectedCameraDeviceId;
-        const micId = targetMicId ?? selectedMicDeviceId;
+        // On desktop macOS, built-in FaceTime cameras do not report facingMode: "user".
+        // Use deviceId if explicitly selected, otherwise request standard ideal 1280x720.
+        const videoConstraints: MediaTrackConstraints = targetCamId
+          ? { deviceId: { exact: targetCamId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+          : { width: { ideal: 1280 }, height: { ideal: 720 } };
 
-        const videoConstraints: MediaTrackConstraints = camId
-          ? { deviceId: { exact: camId }, width: { ideal: 1280 }, height: { ideal: 720 } }
-          : { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
-
-        const audioConstraints: boolean | MediaTrackConstraints = micEnabled
-          ? micId
-            ? { deviceId: { exact: micId } }
+        // Build audio constraints — request audio in the SAME getUserMedia call so WebKit
+        // grants permission visibility for audioinput devices before enumerateDevices().
+        const audioConstraints: boolean | MediaTrackConstraints = effectiveMicEnabled
+          ? validMicId
+            ? { deviceId: { ideal: validMicId } }
             : true
           : false;
 
-        console.log("%c🎥 [CameraDebug] Requesting getUserMedia with constraints:", "color: #f59e0b;", {
-          video: videoConstraints,
-          audio: audioConstraints,
-        });
-
+        // 1. Acquire video+audio together (ensures WebKit unlocks both device types
+        //    for enumerateDevices and avoids separate CoreAudio session contention)
         let stream: MediaStream;
         try {
           stream = await navigator.mediaDevices.getUserMedia({
@@ -361,16 +409,25 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
             audio: audioConstraints,
           });
         } catch (initialErr) {
-          console.warn("[CameraModal] Targeted camera request failed, retrying unconstrained:", initialErr);
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-            audio: micEnabled,
-          });
+          console.warn("[CameraModal] Combined video+audio request failed, trying video-only:", initialErr);
+          // Fallback: video-only if the combined request fails (e.g. mic hardware error)
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: videoConstraints,
+            });
+          } catch (videoErr) {
+            console.warn("[CameraModal] Targeted camera request failed, retrying with video: true:", videoErr);
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: true,
+            });
+          }
         }
 
-        console.log("%c✅ [CameraDebug] getUserMedia SUCCEEDED!", "color: #22c55e; font-weight: bold;", {
+        console.log("%c✅ [CameraDebug] Video getUserMedia SUCCEEDED!", "color: #22c55e; font-weight: bold;", {
           streamId: stream.id,
           active: stream.active,
+          videoTracks: stream.getVideoTracks().length,
+          audioTracks: stream.getAudioTracks().length,
         });
 
         stream.getVideoTracks().forEach((track, i) => {
@@ -389,27 +446,22 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
         });
 
         stream.getAudioTracks().forEach((track, i) => {
-          console.log(`%c🎥 [CameraDebug] AudioTrack[${i}]:`, "color: #a855f7;", {
+          console.log(`%c🎤 [CameraDebug] AudioTrack[${i}]:`, "color: #a855f7;", {
             label: track.label,
             id: track.id,
             enabled: track.enabled,
-            muted: track.muted,
             readyState: track.readyState,
             settings: track.getSettings(),
           });
+          track.onended = () => {
+            if (streamRef.current?.getAudioTracks().includes(track)) {
+              console.warn(`❌ [CameraDebug] AudioTrack[${i}] ended unexpectedly!`);
+            }
+          };
         });
 
-        streamRef.current = stream;
-
-        // Attach direct video stream to element
-        attachStreamToVideo(stream);
-
-        // Start mic meter from the same stream (zero extra getUserMedia)
-        if (micEnabled && stream.getAudioTracks().length > 0) {
-          startMicMeter(stream);
-        }
-
-        // Enumerate devices now that permission is granted
+        // 2. Now that permissions are active in WebKit for BOTH video and audio,
+        //    enumerate devices with full labels and IDs
         const [cams, mics] = await Promise.all([
           service.enumerateCameras(),
           service.enumerateMics(),
@@ -421,17 +473,81 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
         setAvailableCameras(cams);
         setAvailableMics(mics);
 
-        // Record running device IDs
+        // Record running camera ID
         const runningCamTrack = stream.getVideoTracks()[0];
         const runningCamId = runningCamTrack?.getSettings?.()?.deviceId || cams[0]?.deviceId || null;
-        if (!selectedCameraDeviceId && runningCamId) {
+        if (!storeState.selectedCameraDeviceId && runningCamId) {
           setSelectedCameraDeviceId(runningCamId);
         }
 
-        const runningMicTrack = stream.getAudioTracks()[0];
-        const runningMicId = runningMicTrack?.getSettings?.()?.deviceId || mics[0]?.deviceId || null;
-        if (!selectedMicDeviceId && runningMicId) {
-          setSelectedMicDeviceId(runningMicId);
+        // 3. If mic is enabled but the initial combined request didn't yield an audio track
+        //    (e.g. combined request failed and we fell back to video-only), try binding the
+        //    best hardware mic explicitly
+        if (effectiveMicEnabled && stream.getAudioTracks().length === 0 && mics.length > 0) {
+          const chosenMic =
+            (validMicId && mics.find((m) => m.deviceId === validMicId)) ||
+            mics.find((m) => /macbook|built-in|internal/i.test(m.label)) ||
+            mics[0];
+
+          if (chosenMic) {
+            console.log("%c🎤 [CameraDebug] Binding hardware mic (fallback):", "color: #f59e0b; font-weight: bold;", chosenMic);
+            try {
+              const audioStream = await navigator.mediaDevices.getUserMedia({
+                audio: { deviceId: { exact: chosenMic.deviceId } },
+              });
+              const audioTrack = audioStream.getAudioTracks()[0];
+              if (audioTrack) {
+                stream.addTrack(audioTrack);
+                setSelectedMicDeviceId(chosenMic.deviceId);
+              }
+            } catch (micErr) {
+              console.warn("⚠️ [CameraDebug] Fallback mic binding failed:", micErr);
+            }
+          }
+        } else if (effectiveMicEnabled && stream.getAudioTracks().length > 0) {
+          // If no specific mic was requested and the default acquired track is a virtual device (e.g. QuickTime),
+          // automatically switch to the real hardware mic (e.g. MacBook Pro Microphone).
+          let audioTrack = stream.getAudioTracks()[0];
+          const isVirtual = /quicktime|blackhole|loopback|virtual/i.test(audioTrack.label);
+          const hardwareMic = mics.find((m) => /macbook|built-in|internal/i.test(m.label));
+          if (!validMicId && isVirtual && hardwareMic) {
+            console.log("🎤 [CameraDebug] Switching from virtual sink to hardware mic:", hardwareMic);
+            try {
+              const audioStream = await navigator.mediaDevices.getUserMedia({
+                audio: { deviceId: { exact: hardwareMic.deviceId } },
+              });
+              const newTrack = audioStream.getAudioTracks()[0];
+              if (newTrack) {
+                audioTrack.onended = null;
+                stream.removeTrack(audioTrack);
+                audioTrack.stop();
+                stream.addTrack(newTrack);
+                audioTrack = newTrack;
+              }
+            } catch (switchErr) {
+              console.warn("Failed to switch to hardware mic:", switchErr);
+            }
+          }
+
+          const audioDeviceId = audioTrack?.getSettings?.()?.deviceId || hardwareMic?.deviceId;
+          if (audioDeviceId) {
+            setSelectedMicDeviceId(audioDeviceId);
+          }
+          console.log("%c✅ [CameraDebug] Audio track ready:", "color: #22c55e;", {
+            label: audioTrack.label,
+            id: audioTrack.id,
+            deviceId: audioDeviceId,
+          });
+        }
+
+        streamRef.current = stream;
+
+        // Attach direct video stream to element
+        attachStreamToVideo(stream);
+
+        // Start mic meter from the same stream
+        if (effectiveMicEnabled && stream.getAudioTracks().length > 0) {
+          startMicMeter(stream);
         }
 
         setPreviewState("live");
@@ -443,12 +559,11 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
             : err?.message || "Camera access failed. Check macOS System Settings → Privacy & Security.";
         setCameraError(msg);
         setPreviewState("error");
+      } finally {
+        isAcquiringStreamRef.current = false;
       }
     },
     [
-      selectedCameraDeviceId,
-      selectedMicDeviceId,
-      micEnabled,
       setPreviewState,
       setCameraError,
       setAvailableCameras,
@@ -466,13 +581,31 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
 
   useEffect(() => {
     if (!cameraModalOpen) {
+      hasInitializedModalRef.current = false;
       teardown();
       return;
     }
 
+    if (hasInitializedModalRef.current) {
+      return;
+    }
+    hasInitializedModalRef.current = true;
+
     let cancelled = false;
 
     (async () => {
+      try {
+        // Log diagnostics on Rust native backend & WebKit console
+        const diag = await invoke<any>("log_system_media_diagnostics");
+        console.log(
+          "%c🦀 [RustDiagnostics] System Media Diagnostics:",
+          "color: #f97316; font-weight: bold;",
+          diag,
+        );
+      } catch (diagErr) {
+        console.warn("🦀 [RustDiagnostics] log_system_media_diagnostics call:", diagErr);
+      }
+
       try {
         const permStatus = await invoke<{
           status: string;
@@ -493,7 +626,7 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
       }
 
       if (!cancelled) {
-        startCameraPreview();
+        await startCameraPreview();
       }
     })();
 
@@ -501,13 +634,6 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
       cancelled = true;
     };
   }, [cameraModalOpen, teardown, startCameraPreview, setCameraError, setPreviewState]);
-
-  // Re-bind stream if video element mounts or remounts
-  useEffect(() => {
-    if (videoRef.current && streamRef.current && !videoRef.current.srcObject) {
-      attachStreamToVideo(streamRef.current);
-    }
-  }, [attachStreamToVideo, previewState, cameraModalOpen]);
 
   // ── Recording timer ─────────────────────────────────────────────────────────
 
@@ -797,6 +923,13 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
               {selectedAspectRatio}
             </div>
           )}
+
+          {/* Sensor Covered Warning Banner */}
+          {sensorCoveredWarning && isLive && !isRecording && (
+            <div className="absolute bottom-4 left-3 right-3 z-20 px-3 py-2 rounded-xl bg-amber-500/90 text-white text-xs text-center backdrop-blur-md shadow-xl border border-amber-400/50 flex items-center justify-center gap-2 animate-in fade-in">
+              <span>⚠️ Camera sensor is receiving no light. Please check if your MacBook webcam cover / privacy slider is closed.</span>
+            </div>
+          )}
         </div>
 
         {/* ── Controls Row ──────────────────────────────────────────────── */}
@@ -872,22 +1005,26 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
         {!isRecording && isLive && (
           <div className="flex items-center gap-3 text-xs text-white/50">
             {/* Camera picker */}
-            {availableCameras.length > 1 && (
+            {availableCameras.length > 0 && (
               <div className="relative">
                 <button
                   onClick={() => {
-                    setCameraDropdownOpen((o) => !o);
-                    setMicDropdownOpen(false);
+                    if (availableCameras.length > 1) {
+                      setCameraDropdownOpen((o) => !o);
+                      setMicDropdownOpen(false);
+                    }
                   }}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/8 border border-white/10 hover:bg-white/12 transition-colors cursor-pointer text-white/70"
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/8 border border-white/10 transition-colors text-white/70 ${
+                    availableCameras.length > 1 ? "hover:bg-white/12 cursor-pointer" : "cursor-default"
+                  }`}
                 >
                   <Camera className="w-3 h-3" />
                   <span className="max-w-[120px] truncate">
-                    {currentCamera?.label ?? "Camera"}
+                    {currentCamera?.label ?? availableCameras[0]?.label ?? "Camera"}
                   </span>
-                  <ChevronDown className="w-3 h-3 opacity-60" />
+                  {availableCameras.length > 1 && <ChevronDown className="w-3 h-3 opacity-60" />}
                 </button>
-                {cameraDropdownOpen && (
+                {availableCameras.length > 1 && cameraDropdownOpen && (
                   <div className="absolute bottom-full mb-1.5 left-0 z-50 min-w-[180px] rounded-xl border border-white/10 bg-[#1a1a1e] py-1 shadow-2xl">
                     {availableCameras.map((cam) => (
                       <button
@@ -911,22 +1048,26 @@ export const CameraRecordingModal: React.FC<CameraRecordingModalProps> = ({
             )}
 
             {/* Mic picker */}
-            {micEnabled && availableMics.length > 1 && (
+            {micEnabled && availableMics.length > 0 && (
               <div className="relative">
                 <button
                   onClick={() => {
-                    setMicDropdownOpen((o) => !o);
-                    setCameraDropdownOpen(false);
+                    if (availableMics.length > 1) {
+                      setMicDropdownOpen((o) => !o);
+                      setCameraDropdownOpen(false);
+                    }
                   }}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/8 border border-white/10 hover:bg-white/12 transition-colors cursor-pointer text-white/70"
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/8 border border-white/10 transition-colors text-white/70 ${
+                    availableMics.length > 1 ? "hover:bg-white/12 cursor-pointer" : "cursor-default"
+                  }`}
                 >
                   <Mic className="w-3 h-3" />
                   <span className="max-w-[120px] truncate">
-                    {currentMic?.label ?? "Microphone"}
+                    {currentMic?.label ?? availableMics[0]?.label ?? "Microphone"}
                   </span>
-                  <ChevronDown className="w-3 h-3 opacity-60" />
+                  {availableMics.length > 1 && <ChevronDown className="w-3 h-3 opacity-60" />}
                 </button>
-                {micDropdownOpen && (
+                {availableMics.length > 1 && micDropdownOpen && (
                   <div className="absolute bottom-full mb-1.5 left-0 z-50 min-w-[180px] rounded-xl border border-white/10 bg-[#1a1a1e] py-1 shadow-2xl">
                     {availableMics.map((mic) => (
                       <button

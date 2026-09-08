@@ -118,11 +118,9 @@ export const useCameraStore = create<CameraState>()(
     }),
     {
       name: "clypra-camera-prefs",
-      // Only persist user preferences — never transient session state
+      // Only persist user preferences — never transient session state or ephemeral device IDs
       partialize: (state) => ({
         selectedAspectRatio: state.selectedAspectRatio,
-        selectedCameraDeviceId: state.selectedCameraDeviceId,
-        selectedMicDeviceId: state.selectedMicDeviceId,
         selectedResolution: state.selectedResolution,
         selectedFrameRate: state.selectedFrameRate,
         micEnabled: state.micEnabled,

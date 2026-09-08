@@ -41,7 +41,6 @@ import { DualRecordService } from "@/services/dualRecordService";
 import { useRecordingStore } from "@/store/recordingStore";
 import { useCameraStore } from "@/store/cameraStore";
 import { CameraRecordingModal } from "@/components/ui/CameraRecordingModal";
-import { TransferPanel } from "@/components/ui/TransferPanel";
 
 interface LaunchScreenProps {
   onProjectCreate: (
@@ -138,7 +137,6 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({
 
   // Camera Mode state (standalone camera-only recording)
   const { openCameraModal } = useCameraStore();
-  const [isTransferOpen, setIsTransferOpen] = useState(false);
 
   // Cleanup timer on unmount
   useEffect(() => {
@@ -643,7 +641,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({
                   <Button
                     variant="secondary"
                     size="lg"
-                    onClick={() => setIsTransferOpen(true)}
+                    onClick={() => useUIStore.getState().setTransferModal(true)}
                     className="py-2 px-4 text-base font-semibold rounded-xl transition-all cursor-pointer border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/70 hover:text-emerald-300"
                   >
                     <Smartphone className="mr-1.5 w-4 h-4" />
@@ -1357,17 +1355,6 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({
           onProjectCreate("Camera Recording", aspectRatio, defaultFrameRate, [
             filePath,
           ]);
-        }}
-      />
-
-      {/* ── Phone Transfer Panel ───────────────────────────────── */}
-      <TransferPanel
-        isOpen={isTransferOpen}
-        onClose={() => setIsTransferOpen(false)}
-        onImportFiles={(paths) => {
-          const { defaultFrameRate } = useSettingsStore.getState();
-          onProjectCreate("Phone Transfer", "9:16", defaultFrameRate, paths);
-          setIsTransferOpen(false);
         }}
       />
     </div>
