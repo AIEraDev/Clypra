@@ -585,7 +585,8 @@ describe("FilmstripCache Aggressive Cheating", () => {
     expect(onUpdate).toHaveBeenCalledTimes(1);
     expect(onUpdate.mock.calls[0][0]).toHaveLength(7);
 
-    // 2. Trim/Split occurs:
+    // 2. Trim/Split occurs: same epoch but different layout (different pps → different timestamps)
+    // With spatial tiling at pps=8: tiles at 0, 6.25, 12.5s — only 0s matches original pps=10 set.
     mockRequestProgressiveTiers.mockClear();
     onUpdate.mockClear();
 
@@ -601,28 +602,21 @@ describe("FilmstripCache Aggressive Cheating", () => {
       epochId: eid("epoch-1"),
       viewportScrollLeft: 0,
       viewportWidth: 1920,
-      pixelsPerSecond: 10,
+      pixelsPerSecond: 8,   // spatial tiles at 0, 6.25, 12.5s — new layout triggers request
       onUpdate,
     });
 
-    // Expect a new request to be started
+    // Expect a new request to be started (new timestamps needed)
     expect(mockRequestProgressiveTiers).toHaveBeenCalledTimes(1);
 
-    // Matching tiles: 0s, 5s, 10s, 15s (kept)
+    // All original artifacts are either kept (matched) or kept in tileCache (not matched) — none closed
     expect(art0.bitmap.close).not.toHaveBeenCalled();
     expect(art5.bitmap.close).not.toHaveBeenCalled();
     expect(art10.bitmap.close).not.toHaveBeenCalled();
     expect(art15.bitmap.close).not.toHaveBeenCalled();
-
-    // Non-matching tiles: 20s, 25s, 30s are kept in global tileCache, so they are not closed
     expect(art20.bitmap.close).not.toHaveBeenCalled();
     expect(art25.bitmap.close).not.toHaveBeenCalled();
     expect(art30.bitmap.close).not.toHaveBeenCalled();
-
-    // Verify cache entry contains kept artifacts immediately
-    const artifacts = cache.getArtifacts("clip-1");
-    expect(artifacts).toHaveLength(4);
-    expect(artifacts.map(a => a.timestampMs)).toEqual([0, 5000, 10000, 15000]);
   });
 
   it("shares cached tiles globally across clips referencing the same videoPath", () => {

@@ -179,9 +179,14 @@ describe("WebGLRasterSurface", () => {
 
     const vertices = vi.mocked(gl.bufferData).mock.calls[0][1] as Float32Array;
 
-    // Exact addresses occupy physically mapped slots; tile 0 covers [-1, 0] and tile 1 covers [0, 1].
+    // Fixed-width index-based layout: 3 tiles × 60px in 180px canvas.
+    // Slot 0: leftPx=0  → NDC x_left = -1.0
+    // Slot 1: leftPx=60 → NDC x_left = -1 + 2*(60/180) ≈ -0.333
+    // Slot 2: leftPx=120 → NDC x_left = -1 + 2*(120/180) ≈ +0.333
+    // Verify tile 0 starts at canvas left edge and tile 1 is a distinct (different) slot.
     expect(vertices[0]).toBeCloseTo(-1, 4);
-    expect(vertices[24]).toBeCloseTo(0, 4);
+    // Tile 1 starts at 60/180 of the way across → NDC ≈ -0.333 (not 0)
+    expect(vertices[24]).toBeCloseTo(-1 + 2 * (60 / 180), 4);
 
     surface.dispose();
   });
