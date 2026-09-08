@@ -164,9 +164,19 @@ export class FilmstripTileCache {
   }
 
   /**
-   * Find the highest-quality available fallback tile for a target timestamp and tier.
-   * Searches tiers in descending order from (targetTier - 1) down to L0.
-   * Enables smooth progressive resolution during zoom without shimmer flicker.
+   * Find the best available fallback tile for a target timestamp and tier.
+   *
+   * Searches candidate tiers in order of closeness to `targetTier`, checking
+   * both lower tiers (coarser) and higher tiers (finer) so that any cached
+   * tile at any zoom level can serve as an immediate placeholder while the
+   * target tier decodes. On ties (equal distance), the lower (coarser) tier
+   * is preferred to minimise decode pressure.
+   *
+   * Example candidate order for targetTier = L0 (index 0):
+   *   L1, L2, L3   (only upward, since L0 is the floor)
+   *
+   * Example candidate order for targetTier = L2 (index 2):
+   *   L1, L3, L0   (alternating downward/upward by distance)
    */
   findBestFallback(
     clipId: string,
@@ -176,7 +186,19 @@ export class FilmstripTileCache {
     toleranceSeconds: number = 6.0,
     effectGraphVersion?: number
   ): TileCacheEntry | null {
-    for (let tier = targetTier - 1; tier >= SpatialTier.L0; tier--) {
+    // Build a list of candidate tiers ordered by |tier - targetTier|, ties
+    // broken in favour of the lower (coarser) tier.
+    const allTiers = [SpatialTier.L0, SpatialTier.L1, SpatialTier.L2, SpatialTier.L3];
+    const candidates = allTiers
+      .filter((t) => t !== targetTier)
+      .sort((a, b) => {
+        const da = Math.abs(a - targetTier);
+        const db = Math.abs(b - targetTier);
+        if (da !== db) return da - db; // closer tier first
+        return a - b; // on tie, prefer lower (coarser) tier
+      });
+
+    for (const tier of candidates) {
       let nearest: TileCacheEntry | null = null;
       let nearestDelta = Infinity;
 

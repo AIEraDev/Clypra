@@ -143,3 +143,60 @@ describe("Coarse-to-Dense Pyramid Fallback Rendering", () => {
     expect(ctxMock.fillRect).toHaveBeenCalled();
   });
 });
+
+// ── Bidirectional Tier Fallback (findBestFallback) ───────────────────────────
+
+describe("FilmstripTileCache – bidirectional findBestFallback", () => {
+  function makeBitmap() {
+    return { width: 160, height: 90, close: () => {} } as ImageBitmap;
+  }
+
+  function makeArtifact(tier: SpatialTier, ts: number) {
+    return {
+      frameId: `f-${tier}-${ts}`,
+      contentHash: `hash-${tier}-${ts}`,
+      spatialTier: tier,
+      bitmap: makeBitmap(),
+      width: 160,
+      height: 90,
+      timestampMs: ts * 1000,
+      epochId: "epoch-1" as any,
+    };
+  }
+
+  it("returns a higher-tier (L1) tile when target is L0 and no L0 tiles are cached", () => {
+    const cache = new FilmstripTileCache(50);
+    const clipId = "clip-a";
+    const videoPath = "vid.mp4";
+
+    // Only L1 tiles cached — simulates a session where L1 was the last zoom level
+    cache.setTile({ clipId, videoPath, zoomTier: SpatialTier.L1, tileIndex: 0, timestamp: 0 }, makeArtifact(SpatialTier.L1, 0));
+    cache.setTile({ clipId, videoPath, zoomTier: SpatialTier.L1, tileIndex: 1, timestamp: 5 }, makeArtifact(SpatialTier.L1, 5));
+
+    // Ask for L0 at t=0 — no L0 tile, but L1 is 1 tier away (closest)
+    const result = cache.findBestFallback(clipId, SpatialTier.L0, 0, videoPath, 6.0);
+    expect(result).not.toBeNull();
+    expect(result!.address.zoomTier).toBe(SpatialTier.L1);
+  });
+
+  it("prefers closer tier over farther tier (L1 over L3 when target is L2)", () => {
+    const cache = new FilmstripTileCache(50);
+    const clipId = "clip-b";
+    const videoPath = "vid2.mp4";
+
+    // L1 is distance 1 from L2; L3 is also distance 1 from L2. L1 wins (lower on tie).
+    cache.setTile({ clipId, videoPath, zoomTier: SpatialTier.L1, tileIndex: 0, timestamp: 0 }, makeArtifact(SpatialTier.L1, 0));
+    cache.setTile({ clipId, videoPath, zoomTier: SpatialTier.L3, tileIndex: 0, timestamp: 0 }, makeArtifact(SpatialTier.L3, 0));
+
+    const result = cache.findBestFallback(clipId, SpatialTier.L2, 0, videoPath, 6.0);
+    expect(result).not.toBeNull();
+    expect(result!.address.zoomTier).toBe(SpatialTier.L1); // L1 preferred over L3 on tie
+  });
+
+  it("returns null when no tiles are cached at all", () => {
+    const cache = new FilmstripTileCache(50);
+    const result = cache.findBestFallback("clip-empty", SpatialTier.L0, 0, "x.mp4", 6.0);
+    expect(result).toBeNull();
+  });
+});
+
