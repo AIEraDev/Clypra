@@ -6,10 +6,73 @@ use image::ImageEncoder;
 use serde::{Deserialize, Serialize};
 use std::fs;
 
+fn urlencoding_decode(s: &str) -> String {
+    let mut bytes = Vec::with_capacity(s.len());
+    let mut chars = s.bytes();
+    while let Some(b) = chars.next() {
+        if b == b'%' {
+            let h1 = chars.next();
+            let h2 = chars.next();
+            if let (Some(c1), Some(c2)) = (h1, h2) {
+                if let Ok(val) = u8::from_str_radix(std::str::from_utf8(&[c1, c2]).unwrap_or(""), 16) {
+                    bytes.push(val);
+                    continue;
+                }
+            }
+        }
+        bytes.push(b);
+    }
+    String::from_utf8_lossy(&bytes).to_string()
+}
+
+pub fn normalize_file_path(path: &str) -> String {
+    let trimmed = path.trim();
+    let stripped = if let Some(rest) = trimmed.strip_prefix("asset://localhost/") {
+        rest
+    } else if let Some(rest) = trimmed.strip_prefix("asset://localhost%2F") {
+        rest
+    } else if let Some(rest) = trimmed.strip_prefix("http://asset.localhost/") {
+        rest
+    } else if let Some(rest) = trimmed.strip_prefix("https://asset.localhost/") {
+        rest
+    } else if let Some(rest) = trimmed.strip_prefix("asset://") {
+        rest
+    } else if let Some(rest) = trimmed.strip_prefix("file://") {
+        rest
+    } else {
+        trimmed
+    };
+
+    if stripped == trimmed {
+        return trimmed.to_string();
+    }
+
+    let mut decoded = urlencoding_decode(stripped);
+    if decoded.starts_with("//") {
+        while decoded.starts_with("//") {
+            decoded.remove(0);
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if decoded.starts_with('/') && decoded.len() > 2 && decoded.as_bytes()[2] == b':' {
+            decoded = decoded[1..].to_string();
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if !decoded.starts_with('/') {
+            decoded.insert(0, '/');
+        }
+    }
+    decoded
+}
+
 /// Unified media metadata extraction for images, videos, and audio.
 /// Professional NLE approach: single probe pipeline for all media types.
 #[tauri::command]
 pub async fn get_media_metadata(path: String) -> Result<MediaMetadata, String> {
+    let path = normalize_file_path(&path);
     let start = std::time::Instant::now();
     let filename = std::path::Path::new(&path)
         .file_name()
@@ -377,6 +440,167 @@ pub async fn extract_audio_track(path: String) -> Result<String, String> {
     );
 
     Ok(abs_path_str)
+}
+
+/// Returns a WebKit-compatible MP4 preview video path for a given media file.
+/// If the video is already in a native container (.mp4, .mov, .m4v, .webm), the original path is returned.
+/// If the video is in an unsupported container (.mkv, .avi, .flv, .wmv, etc.) or fails playback,
+/// this generates a fast stream-copied or lightweight proxy MP4 in the app cache directory.
+#[tauri::command]
+pub async fn get_or_create_preview_video(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    use tauri::Manager;
+    let path = normalize_file_path(&path);
+    let path_obj = std::path::Path::new(&path);
+    if !path_obj.exists() {
+        return Err(format!("File does not exist: {}", path));
+    }
+
+    let ext = path_obj
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    let needs_remux = matches!(
+        ext.as_str(),
+        "mkv" | "avi" | "flv" | "wmv" | "ts" | "mts" | "m2ts" | "vob" | "3gp" | "ogv"
+    );
+
+    if !needs_remux && matches!(ext.as_str(), "mp4" | "mov" | "m4v" | "webm") {
+        return Ok(path);
+    }
+
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("Failed to get app cache dir: {e}"))?
+        .join("preview_video");
+
+    tokio::fs::create_dir_all(&cache_dir)
+        .await
+        .map_err(|e| format!("Failed to create preview cache dir: {e}"))?;
+
+    let meta = std::fs::metadata(&path).map_err(|e| format!("Failed to read metadata for {}: {e}", path))?;
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let key = format!("{}:{}:{}", path, meta.len(), modified);
+    let hash = format!("{:x}", md5::compute(key.as_bytes()));
+    let output_path = cache_dir.join(format!("{}.mp4", hash));
+
+    if output_path.exists() {
+        if let Ok(m) = std::fs::metadata(&output_path) {
+            if m.len() > 1024 {
+                return Ok(output_path.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    let out_str = output_path.to_string_lossy().to_string();
+
+    // Stage 1: Ultra-fast stream remux (-c:v copy -c:a copy -sn -tag:v hvc1 -movflags +faststart)
+    let stage1_status = crate::commands::binary_resolver::create_async_command("ffmpeg")
+        .args([
+            "-y",
+            "-i",
+            &path,
+            "-c:v",
+            "copy",
+            "-c:a",
+            "copy",
+            "-sn",
+            "-tag:v",
+            "hvc1",
+            "-movflags",
+            "+faststart",
+            &out_str,
+        ])
+        .output()
+        .await;
+
+    if let Ok(ref output) = stage1_status {
+        if output.status.success() && output_path.exists() {
+            if let Ok(m) = std::fs::metadata(&output_path) {
+                if m.len() > 1024 {
+                    eprintln!("🦀 [get_or_create_preview_video] Stage 1 (stream copy) succeeded for {}", path);
+                    return Ok(out_str);
+                }
+            }
+        }
+    }
+
+    // Stage 2: Audio re-encode fallback (-c:v copy -c:a aac -b:a 192k -sn)
+    let stage2_status = crate::commands::binary_resolver::create_async_command("ffmpeg")
+        .args([
+            "-y",
+            "-i",
+            &path,
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-sn",
+            "-tag:v",
+            "hvc1",
+            "-movflags",
+            "+faststart",
+            &out_str,
+        ])
+        .output()
+        .await;
+
+    if let Ok(ref output) = stage2_status {
+        if output.status.success() && output_path.exists() {
+            if let Ok(m) = std::fs::metadata(&output_path) {
+                if m.len() > 1024 {
+                    eprintln!("🦀 [get_or_create_preview_video] Stage 2 (video copy + aac) succeeded for {}", path);
+                    return Ok(out_str);
+                }
+            }
+        }
+    }
+
+    // Stage 3: Fast proxy transcode (-c:v libx264 -preset ultrafast -crf 24 -c:a aac -sn)
+    let stage3_status = crate::commands::binary_resolver::create_async_command("ffmpeg")
+        .args([
+            "-y",
+            "-i",
+            &path,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "24",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-sn",
+            "-movflags",
+            "+faststart",
+            &out_str,
+        ])
+        .output()
+        .await;
+
+    match stage3_status {
+        Ok(output) if output.status.success() => {
+            eprintln!("🦀 [get_or_create_preview_video] Stage 3 (ultrafast proxy) succeeded for {}", path);
+            Ok(out_str)
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(format!("FFmpeg preview creation failed: {}", stderr))
+        }
+        Err(e) => Err(format!("Failed to execute FFmpeg: {}", e)),
+    }
 }
 
 #[tauri::command]

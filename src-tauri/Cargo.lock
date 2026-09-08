@@ -958,6 +958,7 @@ dependencies = [
  "ffmpeg-sys-next",
  "futures-util",
  "image",
+ "libc",
  "log",
  "md5",
  "memmap2",

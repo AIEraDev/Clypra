@@ -68,9 +68,6 @@ pub fn run() {
     }
 
     tauri::Builder::default()
-        // Native camera capture via AVFoundation (macOS) / DirectShow (Windows) / V4L2 (Linux).
-        // Registers all plugin:crabcamera|* commands automatically — no invoke_handler entries needed.
-        .plugin(crabcamera::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -224,6 +221,7 @@ pub fn run() {
             extract_poster_frame,
             extract_audio_artwork,
             extract_audio_track,
+            get_or_create_preview_video,
             probe_media_streams,
             start_audio_extraction,
             cancel_media_job,
@@ -351,11 +349,26 @@ pub fn run() {
             get_transfer_server_url,
             start_transfer_service,
             stop_transfer_service,
-            // ── Permissions ──────────────────────────────────────────────────
+            get_transfer_qr_code,
+            get_network_interfaces,
+            stage_files_for_transfer,
+            unstage_file,
+            clear_staged_files,
+            get_staged_files,
+            scan_local_network,
+            send_files_to_peer,
+            get_transfer_save_directory,
+            set_transfer_save_directory,
+            open_transfer_save_directory,
+            open_file_path,
+            show_item_in_folder,
+            update_transfer_theme,
+            // ── Permissions & Diagnostics ────────────────────────────────────
             check_camera_permission,
             check_microphone_permission,
             open_camera_privacy_settings,
             open_microphone_privacy_settings,
+            log_system_media_diagnostics,
             // ── Camera Recording Processing ──────────────────────────────────
             process_camera_recording,
         ])

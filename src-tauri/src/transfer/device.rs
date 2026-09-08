@@ -29,7 +29,7 @@ impl DeviceInfo {
             fingerprint,
             port,
             protocol: "http".to_string(),
-            download: false,
+            download: true,
         }
     }
 

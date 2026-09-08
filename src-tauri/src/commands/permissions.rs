@@ -31,7 +31,7 @@ mod macos {
     use super::MediaPermissionStatus;
     use objc2::rc::Retained;
     use objc2::runtime::AnyObject;
-    use objc2::{class, msg_send, msg_send_id};
+    use objc2::{class, msg_send};
 
     // AVAuthorizationStatus integer values (matches AVFoundation headers)
     const _NOT_DETERMINED: i64 = 0;
@@ -47,7 +47,7 @@ mod macos {
         let mut owned = s.to_owned();
         owned.push('\0');
         let ptr = owned.as_ptr() as *const i8;
-        msg_send_id![cls, stringWithUTF8String: ptr]
+        msg_send![cls, stringWithUTF8String: ptr]
     }
 
     /// Read `AVCaptureDevice.authorizationStatus(for:)` WITHOUT triggering the
@@ -172,3 +172,79 @@ pub async fn open_microphone_privacy_settings() -> Result<(), String> {
         Ok(())
     }
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemMediaDiagnostics {
+    pub camera_permission: MediaPermissionStatus,
+    pub microphone_permission: MediaPermissionStatus,
+    pub avfoundation_devices: String,
+    pub macos_clamshell_closed: bool,
+}
+
+/// Diagnostic command to inspect and log media subsystem state from the Rust native backend.
+#[command]
+pub async fn log_system_media_diagnostics() -> Result<SystemMediaDiagnostics, String> {
+    eprintln!("🦀 ================= Clypra Media Diagnostics =================");
+    let cam_perm = check_camera_permission();
+    let mic_perm = check_microphone_permission();
+    eprintln!(
+        "🦀 [MediaDiag] Camera Permission: {} (canRequest: {})",
+        cam_perm.status, cam_perm.can_request
+    );
+    eprintln!(
+        "🦀 [MediaDiag] Microphone Permission: {} (canRequest: {})",
+        mic_perm.status, mic_perm.can_request
+    );
+
+    // List AVFoundation devices using ffmpeg
+    let ffmpeg_res = std::process::Command::new("ffmpeg")
+        .args(["-f", "avfoundation", "-list_devices", "true", "-i", ""])
+        .output();
+
+    let devices_str = match ffmpeg_res {
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+            let device_lines: Vec<&str> = stderr
+                .lines()
+                .filter(|l| l.contains("AVFoundation") || (l.contains('[') && l.contains(']')))
+                .collect();
+            let summary = device_lines.join("\n");
+            eprintln!("🦀 [MediaDiag] AVFoundation Devices:\n{}", summary);
+            summary
+        }
+        Err(e) => {
+            let err_msg = format!("Failed to execute ffmpeg: {}", e);
+            eprintln!("🦀 [MediaDiag] {}", err_msg);
+            err_msg
+        }
+    };
+
+    // Check clamshell state on macOS
+    #[cfg(target_os = "macos")]
+    let clamshell_closed = {
+        let ioreg = std::process::Command::new("ioreg")
+            .args(["-r", "-k", "AppleClamshellState"])
+            .output();
+        match ioreg {
+            Ok(out) => {
+                let text = String::from_utf8_lossy(&out.stdout);
+                text.contains("\"AppleClamshellState\" = Yes")
+            }
+            Err(_) => false,
+        }
+    };
+    #[cfg(not(target_os = "macos"))]
+    let clamshell_closed = false;
+
+    eprintln!("🦀 [MediaDiag] Clamshell closed: {}", clamshell_closed);
+    eprintln!("🦀 ===========================================================");
+
+    Ok(SystemMediaDiagnostics {
+        camera_permission: cam_perm,
+        microphone_permission: mic_perm,
+        avfoundation_devices: devices_str,
+        macos_clamshell_closed: clamshell_closed,
+    })
+}
+

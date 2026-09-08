@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::body::Body;
-use axum::extract::{Query, State};
-use axum::http::{header, StatusCode};
+use axum::extract::{Path, Query, State};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -14,169 +14,395 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
+use tokio_util::io::ReaderStream;
 use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
 
+use super::device::DiscoveredDevice;
 use super::session::{IncomingFile, SessionState, TransferSession};
-use super::TransferService;
+use super::{StagedFile, TransferService};
 
-// ── Static upload page ───────────────────────────────────────────────────────
+// ── Static Web Hub page (Responsive Mobile Hub) ─────────────────────────────
 
 const UPLOAD_PAGE: &str = r#"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Send to Clypra</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<title>Clypra Local Hub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Montserrat:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&family=Roboto:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
+  :root {
+    --bg: {{BG}};
+    --card: {{CARD}};
+    --card-inner: {{CARD_INNER}};
+    --border: {{BORDER}};
+    --accent: {{ACCENT}};
+    --accent-hover: {{ACCENT_HOVER}};
+    --text: {{TEXT}};
+    --text-muted: {{TEXT_MUTED}};
+    --success: {{SUCCESS}};
+    --danger: {{DANGER}};
+    --font-family: {{FONT_FAMILY}};
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: #0f0f12;
-    color: #e2e2e7;
+    font-family: var(--font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif);
+    background: var(--bg);
+    color: var(--text);
     min-height: 100vh;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    padding: 20px;
+    padding: 16px;
   }
-  .card {
-    background: #1a1a20;
-    border: 1px solid #2e2e38;
-    border-radius: 16px;
-    padding: 36px 32px;
-    max-width: 420px;
+  .header {
     width: 100%;
-    text-align: center;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    max-width: 480px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    margin-bottom: 16px;
   }
-  .logo { font-size: 40px; margin-bottom: 12px; }
-  h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
-  p { color: #888; font-size: 14px; margin-bottom: 28px; }
-  .drop-area {
-    border: 2px dashed #3a3a4a;
+  .header-left { display: flex; align-items: center; gap: 10px; }
+  .logo-icon { font-size: 24px; }
+  .header-title { font-size: 16px; font-weight: 700; color: var(--text); }
+  .header-subtitle { font-size: 11px; color: var(--text-muted); }
+  .badge {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 600; color: var(--success);
+    background: color-mix(in srgb, var(--success) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
+    padding: 4px 10px; border-radius: 20px;
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.85); } }
+
+  .nav-tabs {
+    width: 100%;
+    max-width: 480px;
+    display: flex;
+    background: var(--card-inner);
+    border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 32px 16px;
-    cursor: pointer;
-    transition: border-color 0.2s, background 0.2s;
-    margin-bottom: 20px;
-    position: relative;
+    padding: 4px;
+    margin-bottom: 16px;
   }
-  .drop-area:hover, .drop-area.drag-over {
-    border-color: #7c5cbf;
-    background: rgba(124,92,191,0.06);
-  }
-  .drop-area input[type=file] {
-    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
-  }
-  .drop-icon { font-size: 32px; margin-bottom: 10px; }
-  .drop-label { font-size: 15px; color: #aaa; }
-  .drop-label span { color: #7c5cbf; font-weight: 600; }
-  #file-list { margin-bottom: 20px; text-align: left; }
-  .file-item {
-    display: flex; align-items: center; gap: 8px;
-    padding: 8px 10px; border-radius: 8px;
-    background: #22222a; margin-bottom: 6px;
+  .tab-btn {
+    flex: 1;
+    padding: 10px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
     font-size: 13px;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
   }
-  .file-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .file-item .size { color: #888; white-space: nowrap; }
-  button {
+  .tab-btn.active {
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+
+  .main-card {
+    width: 100%;
+    max-width: 480px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px 20px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+  }
+
+  .section-title { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+  .section-desc { font-size: 13px; color: var(--text-muted); margin-bottom: 18px; }
+  .download-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+  .download-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    background: var(--card-inner); border: 1px solid var(--border); border-radius: 12px;
+    padding: 12px 14px;
+  }
+  .file-icon { font-size: 24px; flex-shrink: 0; }
+  .file-info { flex: 1; min-width: 0; }
+  .file-name { font-size: 14px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .btn-download {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    background: var(--accent); color: #fff; text-decoration: none;
+    font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 8px;
+    white-space: nowrap; transition: background 0.2s;
+  }
+  .btn-download:hover { background: var(--accent-hover); }
+  .empty-box {
+    text-align: center; padding: 36px 16px;
+    border: 1.5px dashed var(--border); border-radius: 12px;
+    background: rgba(255,255,255,0.01);
+  }
+  .empty-icon { font-size: 36px; margin-bottom: 10px; opacity: 0.6; }
+  .empty-title { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+  .empty-desc { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 14px;
+    padding: 28px 16px;
+    text-align: center;
+    cursor: pointer;
+    position: relative;
+    margin-bottom: 16px;
+    transition: all 0.2s;
+  }
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+  .drop-zone input[type=file] {
+    position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer;
+  }
+  .drop-icon { font-size: 32px; margin-bottom: 8px; }
+  .drop-text { font-size: 14px; color: var(--text-muted); }
+  .drop-text span { color: var(--accent); font-weight: 600; }
+  .selected-files { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+  .selected-item {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--card-inner); border: 1px solid var(--border); border-radius: 10px;
+    padding: 8px 12px; font-size: 13px;
+  }
+  .remove-btn {
+    background: none; border: none; color: var(--text-muted);
+    font-size: 16px; cursor: pointer; padding: 2px 6px; border-radius: 4px;
+  }
+  .remove-btn:hover { color: var(--danger); }
+  .btn-submit {
     width: 100%; padding: 14px;
-    background: #7c5cbf; color: #fff;
+    background: var(--accent); color: #fff;
     border: none; border-radius: 10px;
-    font-size: 16px; font-weight: 600;
+    font-size: 15px; font-weight: 700;
     cursor: pointer; transition: background 0.2s;
   }
-  button:hover:not(:disabled) { background: #9470d8; }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-  #status {
-    margin-top: 16px; font-size: 14px; min-height: 22px;
-    color: #aaa;
+  .btn-submit:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-submit:disabled { opacity: 0.45; cursor: not-allowed; }
+  .progress-wrap {
+    background: var(--card-inner); border-radius: 8px; height: 8px;
+    margin-top: 14px; overflow: hidden; display: none;
   }
-  #status.error { color: #f05656; }
-  #status.success { color: #56c99a; }
-  .progress-bar-wrap {
-    background: #2a2a35; border-radius: 6px; height: 6px;
-    margin-top: 12px; overflow: hidden; display: none;
+  .progress-bar { height: 100%; background: var(--accent); width: 0%; transition: width 0.2s; }
+  .status-text {
+    margin-top: 14px; font-size: 13px; text-align: center; min-height: 20px;
+    color: var(--text-muted);
   }
-  .progress-bar { height: 100%; background: #7c5cbf; width: 0%; transition: width 0.2s; }
+  .status-text.error { color: var(--danger); font-weight: 600; }
+  .status-text.success { color: var(--success); font-weight: 600; }
 </style>
 </head>
 <body>
-<div class="card">
-  <div class="logo">🎬</div>
-  <h1>Send to Clypra</h1>
-  <p>Transfer videos and images directly to your desktop editor.</p>
-  <div class="drop-area" id="dropArea">
-    <input type="file" id="fileInput" multiple accept="video/*,image/*"/>
-    <div class="drop-icon">📁</div>
-    <div class="drop-label">Tap to pick files or <span>drag &amp; drop</span></div>
+<div class="header">
+  <div class="header-left">
+    <div class="logo-icon">🎬</div>
+    <div>
+      <div class="header-title">Clypra Local Hub</div>
+      <div class="header-subtitle" id="peerInfo">Direct WiFi Transfer</div>
+    </div>
   </div>
-  <div id="file-list"></div>
-  <button id="sendBtn" disabled>Send to Clypra</button>
-  <div id="status"></div>
-  <div class="progress-bar-wrap" id="progressWrap">
-    <div class="progress-bar" id="progressBar"></div>
+  <div class="badge">
+    <div class="dot"></div>
+    <span id="badgeText">Connected</span>
   </div>
 </div>
+
+<div class="nav-tabs">
+  <button class="tab-btn active" id="tabDownloadBtn">📥 Download from Laptop</button>
+  <button class="tab-btn" id="tabUploadBtn">📤 Send to Laptop</button>
+</div>
+
+<div class="main-card">
+  <!-- Download Pane -->
+  <div id="downloadPane">
+    <div class="section-title">Files from Clypra</div>
+    <div class="section-desc">Tap download to save files directly to your phone.</div>
+    <div id="downloadList" class="download-list"></div>
+    <div id="emptyDownload" class="empty-box" style="display: none;">
+      <div class="empty-icon">📂</div>
+      <div class="empty-title">No files ready for download</div>
+      <div class="empty-desc">On your laptop, drop files into Clypra's "Send to Phone" tab to make them available here.</div>
+    </div>
+    <div id="downloadTipNote" style="display:none; margin-top:14px; padding:10px 12px; background:rgba(90, 184, 212, 0.08); border:1px solid rgba(90, 184, 212, 0.25); border-radius:10px; font-size:11px; line-height:1.5; color:var(--text-muted);">
+      <strong style="color:var(--accent); display:block; margin-bottom:3px;">💡 Android / Chrome Note:</strong>
+      If prompted <em>"File can't be downloaded securely"</em>, tap <strong>Keep</strong>. This standard prompt appears on Chrome for direct offline WiFi transfers because local network addresses do not use external internet SSL certificates. You can also tap <strong>View 👁️</strong> to play videos or view photos directly in your browser.
+    </div>
+  </div>
+
+  <!-- Upload Pane -->
+  <div id="uploadPane" style="display: none;">
+    <div class="section-title">Send to Clypra</div>
+    <div class="section-desc">Transfer photos and 4K videos directly into Clypra editor.</div>
+    <div class="drop-zone" id="dropZone">
+      <input type="file" id="fileInput" multiple accept="video/*,image/*,audio/*,*/*"/>
+      <div class="drop-icon">📱</div>
+      <div class="drop-text">Tap to select photos & videos or <span>browse</span></div>
+    </div>
+    <div id="selectedFileList" class="selected-files"></div>
+    <button id="sendBtn" class="btn-submit" disabled>Send to Clypra</button>
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+    <div class="status-text" id="statusText"></div>
+  </div>
+</div>
+
 <script>
+  function fmtSize(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+    if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB';
+    return (b / 1073741824).toFixed(2) + ' GB';
+  }
+
+  // Tab switching
+  const tabDownloadBtn = document.getElementById('tabDownloadBtn');
+  const tabUploadBtn = document.getElementById('tabUploadBtn');
+  const downloadPane = document.getElementById('downloadPane');
+  const uploadPane = document.getElementById('uploadPane');
+
+  tabDownloadBtn.onclick = () => {
+    tabDownloadBtn.classList.add('active');
+    tabUploadBtn.classList.remove('active');
+    downloadPane.style.display = 'block';
+    uploadPane.style.display = 'none';
+    loadStagedFiles();
+  };
+
+  tabUploadBtn.onclick = () => {
+    tabUploadBtn.classList.add('active');
+    tabDownloadBtn.classList.remove('active');
+    downloadPane.style.display = 'none';
+    uploadPane.style.display = 'block';
+  };
+
+  // Download logic
+  const downloadList = document.getElementById('downloadList');
+  const emptyDownload = document.getElementById('emptyDownload');
+  const downloadTipNote = document.getElementById('downloadTipNote');
+
+  async function loadStagedFiles() {
+    try {
+      const res = await fetch('/api/transfer/files');
+      if (!res.ok) return;
+      const files = await res.json();
+      if (!Array.isArray(files) || files.length === 0) {
+        downloadList.innerHTML = '';
+        emptyDownload.style.display = 'block';
+        if (downloadTipNote) downloadTipNote.style.display = 'none';
+        return;
+      }
+      emptyDownload.style.display = 'none';
+      if (downloadTipNote) downloadTipNote.style.display = 'block';
+      downloadList.innerHTML = files.map(f => {
+        const isVideo = f.mimeType && f.mimeType.startsWith('video/');
+        const isImg = f.mimeType && f.mimeType.startsWith('image/');
+        const icon = isVideo ? '🎬' : (isImg ? '🖼️' : '📄');
+        return `
+          <div class="download-item">
+            <div class="file-icon">${icon}</div>
+            <div class="file-info">
+              <div class="file-name" title="${f.fileName}">${f.fileName}</div>
+              <div class="file-meta">${fmtSize(f.size)}</div>
+            </div>
+            <div style="display:flex; gap:6px; align-items:center;">
+              ${(isVideo || isImg) ? `
+                <a href="/api/transfer/view/${encodeURIComponent(f.id)}" target="_blank" class="btn-download" style="background:var(--card-inner); border:1px solid var(--border); color:var(--text); text-decoration:none; padding:7px 10px;">
+                  View 👁️
+                </a>
+              ` : ''}
+              <a href="/api/transfer/download/${encodeURIComponent(f.id)}" download="${f.fileName}" class="btn-download" style="text-decoration:none; padding:7px 10px;">
+                Save ⬇️
+              </a>
+            </div>
+          </div>
+        `;
+      }).join('');
+    } catch(e) {
+      console.warn('Failed to load files:', e);
+    }
+  }
+
+  loadStagedFiles();
+  setInterval(loadStagedFiles, 3500);
+
+  // Upload logic
   const fileInput = document.getElementById('fileInput');
-  const fileList  = document.getElementById('file-list');
-  const sendBtn   = document.getElementById('sendBtn');
-  const status    = document.getElementById('status');
-  const dropArea  = document.getElementById('dropArea');
+  const selectedFileList = document.getElementById('selectedFileList');
+  const sendBtn = document.getElementById('sendBtn');
   const progressWrap = document.getElementById('progressWrap');
-  const progressBar  = document.getElementById('progressBar');
+  const progressBar = document.getElementById('progressBar');
+  const statusText = document.getElementById('statusText');
+  const dropZone = document.getElementById('dropZone');
 
   let selectedFiles = [];
 
-  function fmtSize(n) {
-    if (n < 1024) return n + ' B';
-    if (n < 1048576) return (n/1024).toFixed(1) + ' KB';
-    if (n < 1073741824) return (n/1048576).toFixed(1) + ' MB';
-    return (n/1073741824).toFixed(2) + ' GB';
-  }
-
-  function renderFiles() {
-    fileList.innerHTML = '';
-    selectedFiles.forEach(f => {
+  function renderSelectedFiles() {
+    selectedFileList.innerHTML = '';
+    selectedFiles.forEach((f, idx) => {
       const div = document.createElement('div');
-      div.className = 'file-item';
-      div.innerHTML = `<span class="name">${f.name}</span><span class="size">${fmtSize(f.size)}</span>`;
-      fileList.appendChild(div);
+      div.className = 'selected-item';
+      div.innerHTML = `
+        <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">${f.name} (${fmtSize(f.size)})</span>
+        <button class="remove-btn" data-idx="${idx}">&times;</button>
+      `;
+      selectedFileList.appendChild(div);
     });
+
+    selectedFileList.querySelectorAll('.remove-btn').forEach(b => {
+      b.onclick = (e) => {
+        const i = parseInt(e.target.dataset.idx);
+        selectedFiles.splice(i, 1);
+        renderSelectedFiles();
+      };
+    });
+
     sendBtn.disabled = selectedFiles.length === 0;
   }
 
   fileInput.addEventListener('change', () => {
     selectedFiles = Array.from(fileInput.files);
-    renderFiles();
+    renderSelectedFiles();
   });
 
-  ['dragover','dragenter'].forEach(ev => dropArea.addEventListener(ev, e => {
-    e.preventDefault(); dropArea.classList.add('drag-over');
+  ['dragover', 'dragenter'].forEach(ev => dropZone.addEventListener(ev, e => {
+    e.preventDefault(); dropZone.classList.add('drag-over');
   }));
-  ['dragleave','drop'].forEach(ev => dropArea.addEventListener(ev, e => {
-    e.preventDefault(); dropArea.classList.remove('drag-over');
+  ['dragleave', 'drop'].forEach(ev => dropZone.addEventListener(ev, e => {
+    e.preventDefault(); dropZone.classList.remove('drag-over');
   }));
-  dropArea.addEventListener('drop', e => {
-    selectedFiles = Array.from(e.dataTransfer.files).filter(f =>
-      f.type.startsWith('video/') || f.type.startsWith('image/'));
-    renderFiles();
+  dropZone.addEventListener('drop', e => {
+    selectedFiles = Array.from(e.dataTransfer.files);
+    renderSelectedFiles();
   });
 
   sendBtn.addEventListener('click', async () => {
     if (!selectedFiles.length) return;
     sendBtn.disabled = true;
-    status.className = '';
-    status.textContent = 'Requesting transfer approval…';
+    statusText.className = 'status-text';
+    statusText.textContent = 'Asking Clypra on your laptop for permission…';
     progressWrap.style.display = 'none';
     progressBar.style.width = '0%';
 
     const filesPayload = {};
     selectedFiles.forEach((f, i) => {
-      filesPayload['file-' + i] = { id: 'file-' + i, fileName: f.name, size: f.size, fileType: f.type || 'application/octet-stream' };
+      filesPayload['file-' + i] = {
+        id: 'file-' + i,
+        fileName: f.name,
+        size: f.size,
+        fileType: f.type || 'application/octet-stream'
+      };
     });
 
     let prepResp;
@@ -184,51 +410,96 @@ const UPLOAD_PAGE: &str = r#"<!DOCTYPE html>
       prepResp = await fetch('/api/localsend/v2/prepare-upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ info: { alias: 'Phone', deviceType: 'mobile', fingerprint: 'web-ui' }, files: filesPayload }),
+        body: JSON.stringify({
+          info: { alias: 'Mobile Phone', deviceType: 'mobile', fingerprint: 'mobile-web' },
+          files: filesPayload
+        })
       });
     } catch(e) {
-      status.className = 'error'; status.textContent = 'Network error: ' + e.message;
-      sendBtn.disabled = false; return;
+      statusText.className = 'status-text error';
+      statusText.textContent = 'Connection error: ' + e.message;
+      sendBtn.disabled = false;
+      return;
     }
 
     if (prepResp.status === 403) {
-      status.className = 'error'; status.textContent = 'Transfer was declined.';
-      sendBtn.disabled = false; return;
+      statusText.className = 'status-text error';
+      statusText.textContent = 'Transfer was declined on laptop.';
+      sendBtn.disabled = false;
+      return;
     }
     if (!prepResp.ok) {
-      status.className = 'error'; status.textContent = 'Server error ' + prepResp.status;
-      sendBtn.disabled = false; return;
+      statusText.className = 'status-text error';
+      statusText.textContent = 'Server returned error ' + prepResp.status;
+      sendBtn.disabled = false;
+      return;
     }
 
     const { sessionId, files: tokens } = await prepResp.json();
-    status.textContent = 'Uploading…';
     progressWrap.style.display = 'block';
 
-    let uploaded = 0;
-    const total = selectedFiles.reduce((s, f) => s + f.size, 0);
+    let totalBytes = selectedFiles.reduce((s, f) => s + f.size, 0);
+    let uploadedBytes = 0;
 
     for (let i = 0; i < selectedFiles.length; i++) {
       const f = selectedFiles[i];
       const fileId = 'file-' + i;
       const token = tokens[fileId];
-      status.textContent = `Uploading ${f.name}…`;
+      statusText.textContent = `Uploading ${f.name}… (${i + 1}/${selectedFiles.length})`;
+
       try {
-        const r = await fetch(`/api/localsend/v2/upload?sessionId=${sessionId}&fileId=${fileId}&token=${encodeURIComponent(token)}`, {
-          method: 'POST', body: f, headers: { 'Content-Type': f.type || 'application/octet-stream', 'Content-Length': f.size },
+        const upResp = await fetch(`/api/localsend/v2/upload?sessionId=${sessionId}&fileId=${fileId}&token=${encodeURIComponent(token)}`, {
+          method: 'POST',
+          body: f,
+          headers: {
+            'Content-Type': f.type || 'application/octet-stream',
+            'Content-Length': f.size
+          }
         });
-        if (!r.ok) throw new Error('Upload failed: ' + r.status);
+        if (!upResp.ok) throw new Error('Upload error: ' + upResp.status);
       } catch(e) {
-        status.className = 'error'; status.textContent = e.message;
-        sendBtn.disabled = false; return;
+        statusText.className = 'status-text error';
+        statusText.textContent = 'Failed: ' + e.message;
+        sendBtn.disabled = false;
+        return;
       }
-      uploaded += f.size;
-      progressBar.style.width = Math.round((uploaded / total) * 100) + '%';
+
+      uploadedBytes += f.size;
+      const pct = Math.round((uploadedBytes / totalBytes) * 100);
+      progressBar.style.width = pct + '%';
     }
 
-    status.className = 'success';
-    status.textContent = '✅ All files sent to Clypra!';
-    selectedFiles = []; renderFiles();
+    statusText.className = 'status-text success';
+    statusText.textContent = '✅ All files transferred to Clypra successfully!';
+    selectedFiles = [];
+    renderSelectedFiles();
   });
+
+  // Dynamic Theme Synchronization with Clypra Editor
+  async function syncTheme() {
+    try {
+      const res = await fetch('/api/transfer/theme');
+      if (!res.ok) return;
+      const theme = await res.json();
+      const r = document.documentElement.style;
+      if (theme.bg) r.setProperty('--bg', theme.bg);
+      if (theme.card) r.setProperty('--card', theme.card);
+      if (theme.cardInner) r.setProperty('--card-inner', theme.cardInner);
+      if (theme.border) r.setProperty('--border', theme.border);
+      if (theme.accent) r.setProperty('--accent', theme.accent);
+      if (theme.accentHover) r.setProperty('--accent-hover', theme.accentHover);
+      if (theme.text) r.setProperty('--text', theme.text);
+      if (theme.textMuted) r.setProperty('--text-muted', theme.textMuted);
+      if (theme.success) r.setProperty('--success', theme.success);
+      if (theme.danger) r.setProperty('--danger', theme.danger);
+      if (theme.fontFamily) {
+        r.setProperty('--font-family', theme.fontFamily);
+        document.body.style.fontFamily = theme.fontFamily;
+      }
+    } catch(e) {}
+  }
+  syncTheme();
+  setInterval(syncTheme, 3000);
 </script>
 </body>
 </html>"#;
@@ -243,6 +514,7 @@ struct PrepareUploadRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 #[serde(rename_all = "camelCase")]
 struct SenderInfo {
     alias: String,
@@ -323,30 +595,199 @@ struct CancelledEventPayload {
 struct AppState {
     service: Arc<TransferService>,
     app_handle: AppHandle,
-    inbox_dir: PathBuf,
 }
 
 // ── Route handlers ────────────────────────────────────────────────────────────
 
-async fn get_upload_page() -> impl IntoResponse {
+fn render_upload_page(theme: &HashMap<String, String>) -> String {
+    let get_val = |k: &str, default: &str| -> String {
+        theme.get(k).cloned().unwrap_or_else(|| default.to_string())
+    };
+
+    UPLOAD_PAGE
+        .replace("{{BG}}", &get_val("bg", "#0d0d11"))
+        .replace("{{CARD}}", &get_val("card", "#181820"))
+        .replace("{{CARD_INNER}}", &get_val("cardInner", "#121217"))
+        .replace("{{BORDER}}", &get_val("border", "#2c2c38"))
+        .replace("{{ACCENT}}", &get_val("accent", "#7c5cbf"))
+        .replace("{{ACCENT_HOVER}}", &get_val("accentHover", "#9470d8"))
+        .replace("{{TEXT}}", &get_val("text", "#f0f0f5"))
+        .replace("{{TEXT_MUTED}}", &get_val("textMuted", "#8e8e9e"))
+        .replace("{{SUCCESS}}", &get_val("success", "#34d399"))
+        .replace("{{DANGER}}", &get_val("danger", "#f87171"))
+        .replace(
+            "{{FONT_FAMILY}}",
+            &get_val(
+                "fontFamily",
+                "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+            ),
+        )
+}
+
+async fn get_upload_page(State(state): State<AppState>) -> impl IntoResponse {
+    let theme = state.service.get_theme_colors();
+    let html = render_upload_page(&theme);
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
-        .body(Body::from(UPLOAD_PAGE))
+        .body(Body::from(html))
         .unwrap()
 }
 
-async fn post_register(State(state): State<AppState>) -> Json<Value> {
-    let info = &state.service.device_info;
-    Json(serde_json::to_value(info).unwrap_or_else(|_| json!({})))
+/// Returns current editor theme colors as JSON for client-side live theme sync.
+async fn get_theme(State(state): State<AppState>) -> Json<HashMap<String, String>> {
+    Json(state.service.get_theme_colors())
+}
+
+/// LocalSend v2 standard device info endpoint (scanned by peers during subnet scan).
+async fn get_localsend_info(State(state): State<AppState>) -> Json<Value> {
+    Json(serde_json::to_value(&state.service.device_info).unwrap_or_else(|_| json!({})))
+}
+
+/// LocalSend v2 peer registration endpoint.
+async fn post_register(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Option<Json<Value>>,
+) -> Json<Value> {
+    if let Some(Json(val)) = body {
+        if let (Some(alias), Some(fingerprint)) = (
+            val.get("alias").and_then(|v| v.as_str()),
+            val.get("fingerprint").and_then(|v| v.as_str()),
+        ) {
+            if fingerprint != state.service.device_info.fingerprint {
+                let sender_ip = headers
+                    .get("x-forwarded-for")
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| s.split(',').next().unwrap_or("unknown").trim().to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                let port = val.get("port").and_then(|v| v.as_u64()).unwrap_or(53317) as u16;
+                let device_type = val.get("deviceType").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+                let now = unix_secs();
+                state.service.discovered_devices.insert(
+                    fingerprint.to_string(),
+                    DiscoveredDevice {
+                        alias: alias.to_string(),
+                        device_type,
+                        ip: sender_ip,
+                        port,
+                        fingerprint: fingerprint.to_string(),
+                        last_seen_secs: now,
+                    },
+                );
+            }
+        }
+    }
+    Json(serde_json::to_value(&state.service.device_info).unwrap_or_else(|_| json!({})))
+}
+
+/// Returns list of files staged on laptop for mobile download.
+async fn get_staged_files(State(state): State<AppState>) -> Json<Vec<StagedFile>> {
+    let mut files: Vec<StagedFile> = state
+        .service
+        .staged_files
+        .iter()
+        .map(|e| e.value().clone())
+        .collect();
+    files.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    Json(files)
+}
+
+/// Streams a staged file to the mobile device for direct download.
+async fn download_staged_file(
+    State(state): State<AppState>,
+    Path(file_id): Path<String>,
+) -> Response {
+    let file = match state.service.staged_files.get(&file_id) {
+        Some(f) => f.clone(),
+        None => return (StatusCode::NOT_FOUND, "File not found in staged list").into_response(),
+    };
+
+    let path = std::path::PathBuf::from(&file.file_path);
+    if !path.exists() {
+        return (StatusCode::NOT_FOUND, "File missing from disk").into_response();
+    }
+
+    let opened = match tokio::fs::File::open(&path).await {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!("[Transfer] Failed to open staged file {:?}: {e}", path);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Cannot open file").into_response();
+        }
+    };
+
+    let stream = ReaderStream::new(opened);
+    let body = Body::from_stream(stream);
+
+    let mime = if file.mime_type.is_empty() {
+        "application/octet-stream".to_string()
+    } else {
+        file.mime_type.clone()
+    };
+
+    let filename_header = format!("attachment; filename=\"{}\"", file.file_name.replace('"', ""));
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, mime)
+        .header(header::CONTENT_DISPOSITION, filename_header)
+        .header(header::CONTENT_LENGTH, file.size.to_string())
+        .header(header::ACCEPT_RANGES, "bytes")
+        .body(body)
+        .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Response construction failed").into_response())
+}
+
+/// Streams a staged file to the mobile device for inline viewing / playing in browser without download prompt.
+async fn view_staged_file(
+    State(state): State<AppState>,
+    Path(file_id): Path<String>,
+) -> Response {
+    let file = match state.service.staged_files.get(&file_id) {
+        Some(f) => f.clone(),
+        None => return (StatusCode::NOT_FOUND, "File not found in staged list").into_response(),
+    };
+
+    let path = std::path::PathBuf::from(&file.file_path);
+    if !path.exists() {
+        return (StatusCode::NOT_FOUND, "File missing from disk").into_response();
+    }
+
+    let opened = match tokio::fs::File::open(&path).await {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!("[Transfer] Failed to open staged file {:?}: {e}", path);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Cannot open file").into_response();
+        }
+    };
+
+    let stream = ReaderStream::new(opened);
+    let body = Body::from_stream(stream);
+
+    let mime = if file.mime_type.is_empty() {
+        "application/octet-stream".to_string()
+    } else {
+        file.mime_type.clone()
+    };
+
+    let filename_header = format!("inline; filename=\"{}\"", file.file_name.replace('"', ""));
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, mime)
+        .header(header::CONTENT_DISPOSITION, filename_header)
+        .header(header::CONTENT_LENGTH, file.size.to_string())
+        .header(header::ACCEPT_RANGES, "bytes")
+        .body(body)
+        .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Response construction failed").into_response())
 }
 
 async fn post_prepare_upload(
     State(state): State<AppState>,
-    headers: axum::http::HeaderMap,
+    headers: HeaderMap,
     Json(body): Json<PrepareUploadRequest>,
 ) -> Response {
-    // Determine sender IP from X-Forwarded-For or connection header
     let sender_ip = headers
         .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
@@ -355,7 +796,6 @@ async fn post_prepare_upload(
 
     let session_id = Uuid::new_v4().to_string();
 
-    // Build IncomingFile list
     let mut files: Vec<IncomingFile> = body
         .files
         .values()
@@ -370,7 +810,6 @@ async fn post_prepare_upload(
 
     let total_bytes: u64 = files.iter().map(|f| f.size).sum();
 
-    // Register session in Pending state
     let session = TransferSession {
         session_id: session_id.clone(),
         sender_alias: body.info.alias.clone(),
@@ -383,11 +822,9 @@ async fn post_prepare_upload(
     };
     state.service.sessions.insert(session_id.clone(), session);
 
-    // Create consent oneshot channel
     let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
     state.service.consent_senders.insert(session_id.clone(), tx);
 
-    // Emit event to frontend
     let brief_files: Vec<IncomingFileBrief> = files
         .iter()
         .map(|f| IncomingFileBrief {
@@ -405,30 +842,25 @@ async fn post_prepare_upload(
         },
     );
 
-    // Wait up to 60 seconds for user consent
     let accepted = tokio::time::timeout(std::time::Duration::from_secs(60), rx)
         .await
-        .unwrap_or(Ok(false))  // timeout → false
-        .unwrap_or(false);     // channel closed → false
+        .unwrap_or(Ok(false))
+        .unwrap_or(false);
 
-    // Remove consent sender
     state.service.consent_senders.remove(&session_id);
 
     if !accepted {
-        // Mark rejected
         if let Some(mut s) = state.service.sessions.get_mut(&session_id) {
             s.state = SessionState::Rejected;
         }
         return (StatusCode::FORBIDDEN, Json(json!({"message": "Declined"}))).into_response();
     }
 
-    // Generate per-file tokens
     let mut token_map: HashMap<String, String> = HashMap::new();
     for file in &files {
         token_map.insert(file.id.clone(), Uuid::new_v4().to_string());
     }
 
-    // Store tokens and update state
     if let Some(mut s) = state.service.sessions.get_mut(&session_id) {
         s.state = SessionState::Accepted;
     }
@@ -455,7 +887,6 @@ async fn post_upload(
     let file_id = &params.file_id;
     let provided_token = &params.token;
 
-    // Validate token
     let stored_token_key = format!("{}:{}", session_id, file_id);
     let valid = state
         .service
@@ -468,7 +899,6 @@ async fn post_upload(
         return (StatusCode::FORBIDDEN, "Invalid token").into_response();
     }
 
-    // Get file metadata from session
     let (file_name, total_file_bytes) = {
         let session = match state.service.sessions.get(session_id) {
             Some(s) => s,
@@ -481,19 +911,17 @@ async fn post_upload(
         file_info
     };
 
-    // Mark session InProgress
     if let Some(mut s) = state.service.sessions.get_mut(session_id) {
         s.state = SessionState::InProgress;
     }
 
-    // Prepare destination path
-    let dest_dir = state.inbox_dir.join(session_id);
+    let dest_dir = state.service.get_inbox_dir();
     if let Err(e) = tokio::fs::create_dir_all(&dest_dir).await {
-        log::error!("[Transfer] Failed to create inbox dir: {e}");
+        log::error!("[Transfer] Failed to create destination dir {:?}: {e}", dest_dir);
         return (StatusCode::INTERNAL_SERVER_ERROR, "Cannot create destination directory")
             .into_response();
     }
-    let dest_path = dest_dir.join(&file_name);
+    let dest_path = get_non_colliding_path(&dest_dir, &file_name);
 
     let mut file = match tokio::fs::File::create(&dest_path).await {
         Ok(f) => f,
@@ -503,7 +931,6 @@ async fn post_upload(
         }
     };
 
-    // Stream request body to disk, emitting progress events
     use futures_util::StreamExt;
 
     let mut stream = req.into_body().into_data_stream();
@@ -521,7 +948,6 @@ async fn post_upload(
                 }
                 bytes_received += data.len() as u64;
 
-                // Update session bytes_received
                 if let Some(mut s) = state.service.sessions.get_mut(&sid) {
                     s.bytes_received += data.len() as u64;
                 }
@@ -549,7 +975,6 @@ async fn post_upload(
 
     let dest_str = dest_path.to_string_lossy().to_string();
 
-    // Record received file and check if session is complete
     let (session_complete, all_paths) = {
         if let Some(mut s) = state.service.sessions.get_mut(&sid) {
             s.received_files.push(dest_str.clone());
@@ -561,7 +986,6 @@ async fn post_upload(
         }
     };
 
-    // Remove consumed token
     state.service.file_tokens.remove(&stored_token_key);
 
     if session_complete {
@@ -594,7 +1018,6 @@ async fn post_cancel(
             session_id: session_id.clone(),
         },
     );
-    // If there's a pending consent sender, resolve it as rejected
     if let Some((_, tx)) = state.service.consent_senders.remove(session_id) {
         let _ = tx.send(false);
     }
@@ -603,12 +1026,11 @@ async fn post_cancel(
 
 // ── Server startup ────────────────────────────────────────────────────────────
 
-/// Build and start the Axum HTTP server.  Tries ports 53317, 53318, 53319
-/// before giving up.  Returns the bound port on success.
+/// Build and start the Axum HTTP server. Tries ports 53317, 53318, 53319
+/// before giving up. Returns the bound port on success.
 pub async fn start(
     service: Arc<TransferService>,
     app_handle: AppHandle,
-    inbox_dir: PathBuf,
 ) -> Result<u16, String> {
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -618,19 +1040,25 @@ pub async fn start(
     let state = AppState {
         service: service.clone(),
         app_handle,
-        inbox_dir,
     };
 
     let router = Router::new()
         .route("/", get(get_upload_page))
+        // Dynamic theme endpoint for mobile hub
+        .route("/api/transfer/theme", get(get_theme))
+        // LocalSend v2 endpoints
+        .route("/api/localsend/v2/info", get(get_localsend_info))
         .route("/api/localsend/v2/register", post(post_register))
         .route("/api/localsend/v2/prepare-upload", post(post_prepare_upload))
         .route("/api/localsend/v2/upload", post(post_upload))
         .route("/api/localsend/v2/cancel", post(post_cancel))
+        // Web Hub file download endpoints (Laptop -> Phone)
+        .route("/api/transfer/files", get(get_staged_files))
+        .route("/api/transfer/download/:file_id", get(download_staged_file))
+        .route("/api/transfer/view/:file_id", get(view_staged_file))
         .layer(cors)
         .with_state(state);
 
-    // Try up to 3 ports
     let base_port = service.server_port;
     for attempt in 0u16..3 {
         let port = base_port + attempt;
@@ -659,15 +1087,172 @@ pub async fn start(
     ))
 }
 
-/// Get the local LAN IP address by probing a UDP route to 8.8.8.8.
+// ── Multi-interface IP Discovery ─────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkInterfaceInfo {
+    pub name: String,
+    pub ip: String,
+    pub is_default: bool,
+}
+
+/// Enumerate all active IPv4 network interfaces on the system.
+pub fn list_network_interfaces() -> Vec<NetworkInterfaceInfo> {
+    let mut results = Vec::new();
+
+    #[cfg(unix)]
+    unsafe {
+        let mut ifap: *mut libc::ifaddrs = std::ptr::null_mut();
+        if libc::getifaddrs(&mut ifap) == 0 && !ifap.is_null() {
+            let mut cur = ifap;
+            while !cur.is_null() {
+                let ifa = *cur;
+                let flags = ifa.ifa_flags as i32;
+                let is_up = (flags & libc::IFF_UP) != 0;
+                let is_loopback = (flags & libc::IFF_LOOPBACK) != 0;
+                let is_running = (flags & libc::IFF_RUNNING) != 0;
+
+                if is_up && is_running && !is_loopback && !ifa.ifa_addr.is_null() {
+                    let family = (*ifa.ifa_addr).sa_family as i32;
+                    if family == libc::AF_INET {
+                        let name = std::ffi::CStr::from_ptr(ifa.ifa_name)
+                            .to_string_lossy()
+                            .into_owned();
+                        let sockaddr_in = ifa.ifa_addr as *const libc::sockaddr_in;
+                        let ip_num = u32::from_be((*sockaddr_in).sin_addr.s_addr);
+                        let ip = std::net::Ipv4Addr::from(ip_num);
+
+                        if !ip.is_loopback() && !ip.is_link_local() {
+                            let ip_str = ip.to_string();
+                            if !results.iter().any(|r: &NetworkInterfaceInfo| r.name == name && r.ip == ip_str) {
+                                results.push(NetworkInterfaceInfo {
+                                    name,
+                                    ip: ip_str,
+                                    is_default: false,
+                                });
+                            }
+                        }
+                    }
+                }
+                cur = ifa.ifa_next;
+            }
+            libc::freeifaddrs(ifap);
+        }
+    }
+
+    if results.is_empty() {
+        let targets = [
+            "8.8.8.8:80",
+            "1.1.1.1:80",
+            "192.168.1.1:80",
+            "192.168.0.1:80",
+            "10.0.0.1:80",
+            "172.20.10.1:80",
+            "192.168.43.1:80",
+        ];
+        for target in targets {
+            if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+                if socket.connect(target).is_ok() {
+                    if let Ok(local_addr) = socket.local_addr() {
+                        let ip = local_addr.ip().to_string();
+                        if ip != "127.0.0.1" && !ip.starts_with("169.254.") {
+                            results.push(NetworkInterfaceInfo {
+                                name: "lan".to_string(),
+                                ip,
+                                is_default: true,
+                            });
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let best_ip = select_best_lan_ip(&results);
+    for item in &mut results {
+        if item.ip == best_ip {
+            item.is_default = true;
+        }
+    }
+
+    results
+}
+
+fn select_best_lan_ip(interfaces: &[NetworkInterfaceInfo]) -> String {
+    // 1. Prefer en0 (standard macOS WiFi/Ethernet) or wlan
+    for iface in interfaces {
+        if iface.name == "en0" || iface.name.starts_with("wlan") {
+            return iface.ip.clone();
+        }
+    }
+    // 2. Prefer 192.168.x.x
+    for iface in interfaces {
+        if iface.ip.starts_with("192.168.") {
+            return iface.ip.clone();
+        }
+    }
+    // 3. Prefer 10.x.x.x or 172.16..31.x.x (including hotspot 172.20.10.x)
+    for iface in interfaces {
+        if iface.ip.starts_with("10.") || iface.ip.starts_with("172.") {
+            return iface.ip.clone();
+        }
+    }
+    if let Some(first) = interfaces.first() {
+        return first.ip.clone();
+    }
+
+    "127.0.0.1".to_string()
+}
+
+/// Returns the primary LAN IP address.
 pub fn local_ip() -> String {
-    std::net::UdpSocket::bind("0.0.0.0:0")
-        .and_then(|s| {
-            s.connect("8.8.8.8:80")?;
-            s.local_addr()
-        })
-        .map(|addr| addr.ip().to_string())
-        .unwrap_or_else(|_| "127.0.0.1".to_string())
+    let ifaces = list_network_interfaces();
+    if let Some(def) = ifaces.iter().find(|i| i.is_default) {
+        return def.ip.clone();
+    }
+    select_best_lan_ip(&ifaces)
+}
+
+/// Generates a real, standards-compliant QR Code as an SVG string.
+pub fn generate_qr_svg(content: &str) -> Result<String, String> {
+    use qrcode::render::svg;
+    use qrcode::QrCode;
+
+    let code = QrCode::new(content.as_bytes()).map_err(|e| e.to_string())?;
+    let svg = code
+        .render::<svg::Color>()
+        .min_dimensions(240, 240)
+        .dark_color(svg::Color("#000000"))
+        .light_color(svg::Color("#ffffff"))
+        .build();
+    Ok(svg)
+}
+
+/// Generates a non-colliding file path inside `dir` for `file_name` by appending `(1)`, `(2)`, etc.
+pub fn get_non_colliding_path(dir: &std::path::Path, file_name: &str) -> PathBuf {
+    let base_path = dir.join(file_name);
+    if !base_path.exists() {
+        return base_path;
+    }
+
+    let p = std::path::Path::new(file_name);
+    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+    for i in 1..10000 {
+        let candidate = if ext.is_empty() {
+            format!("{} ({})", stem, i)
+        } else {
+            format!("{} ({}).{}", stem, i, ext)
+        };
+        let candidate_path = dir.join(&candidate);
+        if !candidate_path.exists() {
+            return candidate_path;
+        }
+    }
+    base_path
 }
 
 /// Unix timestamp helper
@@ -676,4 +1261,42 @@ pub fn unix_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_local_ip_detection() {
+        let ip = local_ip();
+        assert!(!ip.is_empty());
+        let parsed: Result<std::net::Ipv4Addr, _> = ip.parse();
+        assert!(parsed.is_ok(), "Expected valid IPv4, got: {}", ip);
+    }
+
+    #[test]
+    fn test_list_network_interfaces() {
+        let ifaces = list_network_interfaces();
+        for iface in &ifaces {
+            assert!(!iface.ip.is_empty());
+            assert!(!iface.name.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_generate_qr_svg() {
+        let test_url = "http://192.168.1.50:53317";
+        let svg = generate_qr_svg(test_url).expect("QR generation should succeed");
+        assert!(svg.contains("<svg"));
+        assert!(svg.contains("xmlns=\"http://www.w3.org/2000/svg\""));
+        assert!(svg.contains("</svg>"));
+    }
+
+    #[test]
+    fn test_get_non_colliding_path() {
+        let tmp = std::env::temp_dir();
+        let path1 = get_non_colliding_path(&tmp, "non_existing_test_file_clypra.mp4");
+        assert_eq!(path1, tmp.join("non_existing_test_file_clypra.mp4"));
+    }
 }
