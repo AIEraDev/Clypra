@@ -91,6 +91,8 @@ export interface CreateTextClipOptions {
 
   /** Effect definition for accurate bounding box calculation */
   effectDefinition?: TextEffectDefinition;
+  /** Alias for effectDefinition */
+  styleDefinition?: TextEffectDefinition;
 
   /** Effect catalog version to pin on the created clip. */
   styleVersion?: number;
@@ -916,13 +918,14 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
     stroke,
     shadow,
     background,
-    effectDefinition,
+    effectDefinition: explicitEffectDefinition,
+    styleDefinition,
     templateDefinition,
   } = options;
 
   const resolvedEffectDefinition = resolveTextEffectDefinition(
     styleId,
-    effectDefinition,
+    explicitEffectDefinition || styleDefinition,
   );
   const effectTypography = resolveTextEffectTypography(
     resolvedEffectDefinition,

@@ -15,6 +15,8 @@ import {
   Palette,
   Star,
   ChevronRight,
+  LayoutTemplate,
+  RefreshCw,
 } from "lucide-react";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
@@ -22,12 +24,13 @@ import { useHistoryStore } from "@/store/historyStore";
 import { useTransportControls } from "@/hooks/usePlaybackClock";
 import { useCaptionStore } from "@/store/captionStore";
 import { useUIStore } from "@/store/uiStore";
+import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import { ClypraColorPicker } from "@clypra/ui-color-picker";
 import { ClypraSlider, ClypraProgressBar } from "@/components/ui/primitives";
 import { parseSubtitlesAsync } from "@/features/subtitles/parser";
 import {
-  type CaptionStyleDefinition,
-  getAllCaptionStyles,
+  getUnifiedCaptionTemplates,
+  resolveCaptionPreview,
 } from "@/features/subtitles/captionStyles";
 import {
   segmentWordTimestamps,
@@ -51,6 +54,10 @@ import {
   UpdateCaptionTrackCommand,
 } from "@/core/history/commands/CaptionCommands";
 import { ApplyCaptionTrackStyleCommand } from "@/core/history/commands/CaptionTrackStyleCommand";
+import { TextEffectsApi } from "@/features/text-effects/api/textEffectsApi";
+import { useTemplateStore } from "@/features/text-templates/templateStore";
+import type { TemplateDefinition } from "@/features/text-templates/types";
+import { toast } from "@/lib/toast";
 import {
   generateSrt,
   generateVtt,
@@ -66,7 +73,7 @@ import { platform } from "@/core/platform";
 import type { TabProps } from "../types";
 
 
-export type CaptionStylingTier = "plain" | "styles";
+export type CaptionStylingTier = "templates" | "plain";
 
 const FONT_OPTIONS = [
   "Inter Variable",
@@ -98,11 +105,19 @@ export const CaptionsTab: React.FC<TabProps> = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState<string | null>(null);
 
-  // Styling Tier state
-  const [stylingTier, setStylingTier] = useState<CaptionStylingTier>("styles");
+  // Styling Tier state (Unified: Templates & Presets vs Custom Typography)
+  const [stylingTier, setStylingTier] = useState<CaptionStylingTier>("templates");
   const [applyToAll, setApplyToAll] = useState(true);
   const [pacingPreset, setPacingPreset] = useState<CaptionPacingPreset>("standard");
-  const [selectedStyleId, setSelectedStyleId] = useState<string>("classic-yellow");
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+
+  // Cloud Caption Templates state
+  const [captionTemplates, setCaptionTemplates] = useState<TemplateDefinition[]>([]);
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
+  const [isApplyingTemplate, setIsApplyingTemplate] = useState(false);
+
+  // Caption templates strictly from cloud API (empty if none published)
+  const unifiedTemplates = getUnifiedCaptionTemplates(captionTemplates);
 
   // Plain Text custom properties state
   const [fontFamily, setFontFamily] = useState("Outfit Variable");
@@ -217,58 +232,166 @@ export const CaptionsTab: React.FC<TabProps> = () => {
         ? { color: backgroundColor, padding: backgroundPadding, borderRadius: backgroundRadius }
         : undefined,
       styleId: undefined, // Clear effect if reverting to plain text
+      styleRevisionId: undefined,
+      styleContentHash: undefined,
+      styleSnapshot: undefined,
+      styleDefinition: undefined,
       templateId: undefined,
+      templateDefinition: undefined,
+      templateSnapshot: undefined,
       ...override,
     };
 
     broadcastStyleUpdate(patch, "Customize Caption Typography");
   };
 
-  // Apply a full CaptionStyleDefinition to all caption clips
-  const handleApplyCaptionStyle = useCallback(
-    (style: CaptionStyleDefinition) => {
-      setSelectedStyleId(style.id);
-      broadcastStyleUpdate(style.patch, `Apply Caption Style: ${style.name}`);
+  // Fetch cloud caption templates from Clypra API
+  const loadCaptionTemplates = useCallback(async (forceRefresh = false) => {
+    setIsLoadingTemplates(true);
+    try {
+      const templates = await TextEffectsApi.getCaptionTemplates({ forceRefresh });
+      setCaptionTemplates(templates || []);
+    } catch (err: any) {
+      console.warn("[CaptionsTab] Cloud caption templates unavailable:", err);
+      setCaptionTemplates([]);
+    } finally {
+      setIsLoadingTemplates(false);
+    }
+  }, []);
 
-      // Sync the plain-text controls to match this style (for round-trip editing)
-      if (style.patch.fontFamily) setFontFamily(style.patch.fontFamily);
-      if (style.patch.fontSize) setFontSize(style.patch.fontSize);
-      if (style.patch.fontWeight !== undefined) setFontWeight(style.patch.fontWeight);
-      if (style.patch.color) setFillColor(style.patch.color);
-      if (style.patch.textTransform) setUppercase(style.patch.textTransform === "uppercase");
-      if (style.patch.align) setAlign(style.patch.align as any);
-      if (style.patch.valign)
-        setVerticalPosition(style.patch.valign === "middle" ? "center" : (style.patch.valign as any));
-      if (style.patch.stroke) {
+  // Fetch immediately on mount
+  useEffect(() => {
+    void loadCaptionTemplates();
+  }, [loadCaptionTemplates]);
+
+  // Synchronize selected template ID with loaded cloud templates
+  useEffect(() => {
+    if (captionTemplates.length > 0) {
+      if (!selectedTemplateId || !captionTemplates.some((t) => t.id === selectedTemplateId)) {
+        setSelectedTemplateId(captionTemplates[0].id);
+      }
+    } else {
+      setSelectedTemplateId(null);
+    }
+  }, [captionTemplates]);
+
+  // Apply a Caption Template (preset or cloud-published) to all captions on the timeline
+  const handleApplyCaptionTemplate = async (template: TemplateDefinition) => {
+    setSelectedTemplateId(template.id);
+    setIsApplyingTemplate(true);
+    try {
+      // 1. Fetch full template payload if needed and available from API
+      let fullPayload = template.templateData || template.lottieData;
+      const revisionId = (template as any).revisionId ?? (template as any).revision?.revisionId;
+      if (!fullPayload && (template as any).isCloud) {
+        try {
+          if ((template as any).isTextEffect) {
+            fullPayload = await TextEffectsApi.getFullEffect("caption", template.id, {
+              revisionId,
+            });
+          } else {
+            fullPayload = await TextEffectsApi.getTemplateData("caption", template.id, {
+              revisionId,
+            });
+          }
+        } catch (e) {
+          console.warn("[CaptionsTab] Using local template payload:", e);
+        }
+      }
+
+      const fullTemplate: TemplateDefinition = {
+        ...template,
+        templateData: fullPayload || template,
+        lottieData: fullPayload || template,
+      };
+
+      if ((template as any).isTextEffect && fullPayload) {
+        useEffectsStore.setState((state) => ({
+          definitions: {
+            ...state.definitions,
+            [template.id]: fullPayload,
+          },
+        }));
+      }
+
+      // 2. Register into useTemplateStore cache so renderers & bounds calculators resolve it instantly
+      useTemplateStore.setState((state) => {
+        const exists = state.templates.some((t) => t.id === template.id);
+        const updatedTemplates = exists
+          ? state.templates.map((t) => (t.id === template.id ? fullTemplate : t))
+          : [...state.templates, fullTemplate];
+        return {
+          templates: updatedTemplates,
+        };
+      });
+
+      // 3. Build comprehensive style patch covering typography, stroke, shadow, background & template
+      const isEffect = !!(template as any).isTextEffect || !!fullPayload?.scene;
+      const patch: Partial<TextClip> = {
+        ...(template.patch || {}),
+        templateId: isEffect ? undefined : template.id,
+        templateDefinition: isEffect ? undefined : fullTemplate,
+        templateSnapshot: isEffect ? undefined : (fullPayload || fullTemplate),
+        styleId: isEffect ? template.id : undefined,
+        styleRevisionId: isEffect ? revisionId : undefined,
+        styleContentHash: isEffect ? ((template as any).contentHash ?? fullPayload?.contentHash) : undefined,
+        styleSnapshot: isEffect ? (fullPayload?.scene ?? (template as any).styleSnapshot) : undefined,
+        styleDefinition: isEffect ? (fullPayload ?? (template as any).styleDefinition) : undefined,
+      };
+
+      // Sync plain-text controls to match this template for seamless round-trip editing in Custom tab
+      if (patch.fontFamily) setFontFamily(patch.fontFamily);
+      if (patch.fontSize) setFontSize(patch.fontSize);
+      if (patch.fontWeight !== undefined) setFontWeight(patch.fontWeight);
+      if (patch.color) setFillColor(patch.color);
+      if (patch.textTransform) setUppercase(patch.textTransform === "uppercase");
+      if (patch.align) setAlign(patch.align as any);
+      if (patch.valign)
+        setVerticalPosition(patch.valign === "middle" ? "center" : (patch.valign as any));
+      if (patch.stroke) {
         setHasStroke(true);
-        setStrokeColor(style.patch.stroke.color);
-        setStrokeWidth(style.patch.stroke.width);
-      } else if (style.patch.stroke === undefined && "stroke" in style.patch) {
+        setStrokeColor(patch.stroke.color);
+        setStrokeWidth(patch.stroke.width);
+      } else if (patch.stroke === undefined && "stroke" in patch) {
         setHasStroke(false);
       }
-      if (style.patch.shadow) {
+      if (patch.shadow) {
         setHasShadow(true);
-        setShadowColor(style.patch.shadow.color);
-        setShadowBlur(style.patch.shadow.blur);
-        setShadowOffsetY(style.patch.shadow.offsetY ?? 2);
-      } else if (style.patch.shadow === undefined && "shadow" in style.patch) {
+        setShadowColor(patch.shadow.color);
+        setShadowBlur(patch.shadow.blur);
+        setShadowOffsetY(patch.shadow.offsetY ?? 2);
+      } else if (patch.shadow === undefined && "shadow" in patch) {
         setHasShadow(false);
       }
-      if (style.patch.background) {
+      if (patch.background) {
         setHasBackground(true);
-        setBackgroundColor(style.patch.background.color);
-        setBackgroundPadding(style.patch.background.padding ?? 10);
-        setBackgroundRadius(style.patch.background.borderRadius ?? 8);
-      } else if (style.patch.background === undefined && "background" in style.patch) {
+        setBackgroundColor(patch.background.color);
+        setBackgroundPadding(patch.background.padding ?? 10);
+        setBackgroundRadius(patch.background.borderRadius ?? 8);
+      } else if (patch.background === undefined && "background" in patch) {
         setHasBackground(false);
       }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [broadcastStyleUpdate],
-  );
+
+      const targetTrackId = getOrCreateTimelineCaptionTrackId();
+      execute(
+        new ApplyCaptionTrackStyleCommand(
+          targetTrackId,
+          patch,
+          `Apply Caption Template: ${template.name || template.label || template.id}`,
+        ),
+      );
+      toast.success(`Applied template: ${template.name || template.label || "Caption Template"}`);
+    } catch (err: any) {
+      console.error("[CaptionsTab] Failed to apply caption template:", err);
+      toast.error(err.message || "Failed to load template payload");
+    } finally {
+      setIsApplyingTemplate(false);
+    }
+  };
 
   // Reset to Plain Text Default
   const handleResetToDefault = () => {
+    setSelectedTemplateId("classic-yellow");
     setFontFamily("Outfit Variable");
     setFontSize(34);
     setFontWeight(700);
@@ -292,7 +415,13 @@ export const CaptionsTab: React.FC<TabProps> = () => {
       shadow: { color: "rgba(0,0,0,0.85)", blur: 4, offsetX: 0, offsetY: 2 },
       background: undefined,
       styleId: undefined,
+      styleRevisionId: undefined,
+      styleContentHash: undefined,
+      styleSnapshot: undefined,
+      styleDefinition: undefined,
       templateId: undefined,
+      templateDefinition: undefined,
+      templateSnapshot: undefined,
       valign: "bottom",
       align: "center",
     });
@@ -324,6 +453,11 @@ export const CaptionsTab: React.FC<TabProps> = () => {
         styleVersion: 1,
       }));
 
+      const activeTemplate =
+        unifiedTemplates.find((t) => t.id === selectedTemplateId) ||
+        unifiedTemplates[0];
+      const isEffect = !!(activeTemplate as any)?.isTextEffect;
+
       // Create native timeline TextClips
       const newClips: TextClip[] = blocks.map((block, idx) =>
         createTextClip({
@@ -339,6 +473,17 @@ export const CaptionsTab: React.FC<TabProps> = () => {
           color: fillColor,
           position: verticalPosition,
           textRole: "caption",
+          templateId: isEffect ? undefined : activeTemplate?.id,
+          templateDefinition: isEffect ? undefined : (activeTemplate as any),
+          styleId: isEffect ? activeTemplate?.id : undefined,
+          styleRevisionId: isEffect ? (activeTemplate as any)?.revisionId : undefined,
+          styleContentHash: isEffect ? (activeTemplate as any)?.contentHash : undefined,
+          styleSnapshot: isEffect
+            ? (activeTemplate as any)?.styleSnapshot || (activeTemplate as any)?.templateData?.scene
+            : undefined,
+          styleDefinition: isEffect
+            ? (activeTemplate as any)?.styleDefinition || (activeTemplate as any)?.templateData
+            : undefined,
           stroke: hasStroke ? { color: strokeColor, width: strokeWidth } : undefined,
           background: hasBackground
             ? { color: backgroundColor, padding: backgroundPadding, borderRadius: backgroundRadius }
@@ -398,6 +543,11 @@ export const CaptionsTab: React.FC<TabProps> = () => {
       styleVersion: 1,
     };
 
+    const activeTemplate =
+      unifiedTemplates.find((t) => t.id === selectedTemplateId) ||
+      unifiedTemplates[0];
+    const isEffect = !!(activeTemplate as any)?.isTextEffect;
+
     const textClip = createTextClip({
       trackId: timelineTrackId,
       startTime: playheadTime,
@@ -411,7 +561,24 @@ export const CaptionsTab: React.FC<TabProps> = () => {
       color: fillColor,
       position: verticalPosition,
       textRole: "caption",
+      templateId: isEffect ? undefined : activeTemplate?.id,
+      templateDefinition: isEffect ? undefined : (activeTemplate as any),
+      styleId: isEffect ? activeTemplate?.id : undefined,
+      styleRevisionId: isEffect ? (activeTemplate as any)?.revisionId : undefined,
+      styleContentHash: isEffect ? (activeTemplate as any)?.contentHash : undefined,
+      styleSnapshot: isEffect
+        ? (activeTemplate as any)?.styleSnapshot || (activeTemplate as any)?.templateData?.scene
+        : undefined,
+      styleDefinition: isEffect
+        ? (activeTemplate as any)?.styleDefinition || (activeTemplate as any)?.templateData
+        : undefined,
       stroke: hasStroke ? { color: strokeColor, width: strokeWidth } : undefined,
+      shadow: hasShadow
+        ? { color: shadowColor, blur: shadowBlur, offsetX: 0, offsetY: shadowOffsetY }
+        : undefined,
+      background: hasBackground
+        ? { color: backgroundColor, padding: backgroundPadding, borderRadius: backgroundRadius }
+        : undefined,
     });
 
     execute(new AddCaptionCueCommand(track, newCue));
@@ -451,6 +618,10 @@ export const CaptionsTab: React.FC<TabProps> = () => {
     try {
       const captionTrack = getOrCreateActiveTrack();
       const timelineTrackId = getOrCreateTimelineCaptionTrackId();
+      const activeTemplate =
+        unifiedTemplates.find((t) => t.id === selectedTemplateId) ||
+        unifiedTemplates[0];
+      const isEffect = !!(activeTemplate as any)?.isTextEffect;
       const generatedCues: CaptionCue[] = [];
       const generatedTimelineClips: TextClip[] = [];
 
@@ -538,6 +709,17 @@ export const CaptionsTab: React.FC<TabProps> = () => {
                 color: fillColor,
                 position: verticalPosition,
                 textRole: "caption",
+                templateId: isEffect ? undefined : activeTemplate?.id,
+                templateDefinition: isEffect ? undefined : (activeTemplate as any),
+                styleId: isEffect ? activeTemplate?.id : undefined,
+                styleRevisionId: isEffect ? (activeTemplate as any)?.revisionId : undefined,
+                styleContentHash: isEffect ? (activeTemplate as any)?.contentHash : undefined,
+                styleSnapshot: isEffect
+                  ? (activeTemplate as any)?.styleSnapshot || (activeTemplate as any)?.templateData?.scene
+                  : undefined,
+                styleDefinition: isEffect
+                  ? (activeTemplate as any)?.styleDefinition || (activeTemplate as any)?.templateData
+                  : undefined,
                 words: sc.words.map((w) => ({
                   word: w.word,
                   start: w.start,
@@ -675,6 +857,81 @@ export const CaptionsTab: React.FC<TabProps> = () => {
             </div>
           </div>
 
+          {/* Default Style Template Guide & Selector */}
+          <div className="flex flex-col gap-1.5 p-2 rounded-lg bg-surface/60 border border-white/8">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-semibold uppercase text-text-muted/70 flex items-center gap-1.5">
+                <Palette className="w-3 h-3 text-accent" />
+                Default Style Template
+              </label>
+              <span className="text-[10px] text-accent font-medium">
+                Applied on generation
+              </span>
+            </div>
+
+            {/* Quick Horizontal Selector of Caption Templates */}
+            {isLoadingTemplates ? (
+              <div className="flex items-center gap-2 py-1.5 text-xs text-text-muted">
+                <RefreshCw className="w-3 h-3 text-accent animate-spin" />
+                <span className="text-[11px]">Loading templates…</span>
+              </div>
+            ) : unifiedTemplates.length > 0 ? (
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                {unifiedTemplates.map((tmpl) => {
+                  const isSelected = selectedTemplateId === tmpl.id;
+                  const p = resolveCaptionPreview(tmpl);
+                  const displayName = tmpl.name || tmpl.label || tmpl.displayName || tmpl.id;
+
+                  return (
+                    <button
+                      key={tmpl.id}
+                      type="button"
+                      onClick={() => handleApplyCaptionTemplate(tmpl)}
+                      className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs transition-all ${
+                        isSelected
+                          ? "border-accent bg-accent/15 text-white shadow-sm ring-1 ring-accent/30"
+                          : "border-white/10 bg-black/30 text-text-muted hover:border-white/20 hover:text-white"
+                      }`}
+                      title={tmpl.description || displayName}
+                    >
+                      {/* Mini Preview Dot/Pill */}
+                      <span
+                        className="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0"
+                        style={{
+                          backgroundColor: p.bgColor || (p.hasPill ? "rgba(0,0,0,0.8)" : "transparent"),
+                          color: p.textColor || "#FFFFFF",
+                          border: p.strokeColor ? `1px solid ${p.strokeColor}` : undefined,
+                          borderRadius: p.bgBorderRadius ? Math.min(p.bgBorderRadius, 8) : 4,
+                        }}
+                      >
+                        Aa
+                      </span>
+                      <span className="truncate max-w-[95px] font-medium text-[11px]">
+                        {displayName}
+                      </span>
+                      {isSelected && <Check className="w-3 h-3 text-accent shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex items-center justify-between px-2.5 py-2 rounded-lg bg-black/20 border border-white/6 text-xs text-text-muted">
+                <span className="text-[11px]">Custom Typography (no published templates)</span>
+                <button
+                  type="button"
+                  onClick={() => setStylingTier("plain")}
+                  className="text-[10px] text-accent hover:underline font-semibold cursor-pointer"
+                >
+                  Configure
+                </button>
+              </div>
+            )}
+
+            <p className="text-[10px] text-text-muted/60 leading-tight">
+              Captions will be generated with this style. You can re-style or customize anytime after generation.
+            </p>
+          </div>
+
           {/* Primary Auto-Generate CTA Button & Progress */}
           <div className="space-y-1.5">
             <button
@@ -723,20 +980,20 @@ export const CaptionsTab: React.FC<TabProps> = () => {
             </button>
           </div>
 
-          {/* Tier switcher: Caption Styles | Custom Typography */}
+          {/* Tier switcher: Templates | Custom */}
           <div className="grid grid-cols-2 gap-1 bg-background/50 p-0.5 rounded-lg border border-white/8 text-[11px]">
             <button
-              onClick={() => setStylingTier("styles")}
-              className={`flex items-center justify-center gap-1 py-1 rounded-md font-semibold transition-all ${
-                stylingTier === "styles" ? "bg-accent text-white shadow-sm" : "text-text-muted hover:text-text-primary"
+              onClick={() => setStylingTier("templates")}
+              className={`flex items-center justify-center gap-1.5 py-1 rounded-md font-semibold transition-all ${
+                stylingTier === "templates" ? "bg-accent text-white shadow-sm" : "text-text-muted hover:text-text-primary"
               }`}
             >
-              <Star className="w-3 h-3" />
-              Caption Styles
+              <LayoutTemplate className="w-3 h-3" />
+              Templates
             </button>
             <button
               onClick={() => setStylingTier("plain")}
-              className={`flex items-center justify-center gap-1 py-1 rounded-md font-semibold transition-all ${
+              className={`flex items-center justify-center gap-1.5 py-1 rounded-md font-semibold transition-all ${
                 stylingTier === "plain" ? "bg-accent text-white shadow-sm" : "text-text-muted hover:text-text-primary"
               }`}
             >
@@ -745,100 +1002,155 @@ export const CaptionsTab: React.FC<TabProps> = () => {
             </button>
           </div>
 
-          {/* ── TIER 1: Caption Style Gallery ── */}
-          {stylingTier === "styles" && (
+          {/* ── UNIFIED TIER 1: Caption Templates Gallery ── */}
+          {stylingTier === "templates" && (
             <div className="space-y-2 pt-0.5">
-              <p className="text-[9px] text-text-muted/60 font-medium">
-                Tap a style to apply it to all caption clips instantly.
-              </p>
-              {/* Style cards grid */}
-              <div className="grid grid-cols-2 gap-2">
-                {getAllCaptionStyles().map((style) => {
-                  const isSelected = selectedStyleId === style.id;
-                  const p = style.preview;
+              <div className="flex items-center justify-between">
+                <p className="text-[9px] text-text-muted/60 font-medium">
+                  Tap a template to apply it to all caption clips instantly.
+                </p>
+                <button
+                  onClick={() => loadCaptionTemplates(true)}
+                  disabled={isLoadingTemplates}
+                  className="flex items-center gap-1 text-[10px] text-text-muted hover:text-accent transition-colors disabled:opacity-50 cursor-pointer"
+                  title="Check for newly published caption templates from Clypra Studio"
+                >
+                  <RefreshCw className={`w-3 h-3 ${isLoadingTemplates ? "animate-spin" : ""}`} />
+                  Refresh
+                </button>
+              </div>
 
-                  return (
-                    <button
-                      key={style.id}
-                      onClick={() => handleApplyCaptionStyle(style)}
-                      title={style.description}
-                      className={`relative flex flex-col rounded-xl overflow-hidden border transition-all duration-150 group ${
-                        isSelected
-                          ? "border-accent shadow-[0_0_0_1.5px] shadow-accent/40 ring-1 ring-accent/30"
-                          : "border-white/10 hover:border-white/25"
-                      }`}
-                      style={{
-                        background: p.bgColor
-                          ? `linear-gradient(135deg, ${p.bgColor}40 0%, rgba(20,20,20,0.95) 100%)`
-                          : "linear-gradient(135deg, rgba(30,30,30,0.95) 0%, rgba(18,18,18,0.95) 100%)",
-                      }}
-                    >
-                      {/* Preview area */}
-                      <div
-                        className="flex items-center justify-center px-2 pt-3 pb-2"
-                        style={{ minHeight: 52 }}
+              {/* Template cards grid or empty state */}
+              {isLoadingTemplates ? (
+                <div className="flex flex-col items-center justify-center py-8 px-4 rounded-xl border border-white/6 bg-black/20 text-center gap-2">
+                  <RefreshCw className="w-5 h-5 text-accent animate-spin" />
+                  <p className="text-xs text-text-muted">Loading caption templates…</p>
+                </div>
+              ) : unifiedTemplates.length > 0 ? (
+                <div className="grid grid-cols-2 gap-2">
+                  {unifiedTemplates.map((template) => {
+                    const isSelected = selectedTemplateId === template.id;
+                    const isApplyingThis = isApplyingTemplate && selectedTemplateId === template.id;
+                    const p = resolveCaptionPreview(template);
+                    const previewImg = template.thumbnailUrl || template.previewUrl || template.thumbnail;
+                    const displayName = template.name || template.label || template.displayName || template.id;
+
+                    return (
+                      <button
+                        key={template.id}
+                        onClick={() => handleApplyCaptionTemplate(template)}
+                        disabled={isApplyingTemplate}
+                        title={template.description || displayName}
+                        className={`relative flex flex-col rounded-xl overflow-hidden border transition-all duration-150 group ${
+                          isSelected
+                            ? "border-accent shadow-[0_0_0_1.5px] shadow-accent/40 ring-1 ring-accent/30"
+                            : "border-white/10 hover:border-white/25"
+                        }`}
+                        style={{
+                          background: p?.bgColor
+                            ? `linear-gradient(135deg, ${p.bgColor}40 0%, rgba(20,20,20,0.95) 100%)`
+                            : "linear-gradient(135deg, rgba(30,30,30,0.95) 0%, rgba(18,18,18,0.95) 100%)",
+                        }}
                       >
-                        {/* Text preview */}
-                        {p.hasPill ? (
-                          <span
-                            className="text-xs font-semibold px-3 py-1 rounded-full"
-                            style={{
-                              color: p.textColor,
-                              backgroundColor: p.bgColor || "rgba(0,0,0,0.7)",
-                              fontWeight: p.fontWeight || 600,
-                              fontFamily: p.fontFamily !== "monospace" ? undefined : "monospace",
-                              border: p.strokeColor ? `1px solid ${p.strokeColor}` : undefined,
-                              borderRadius: p.bgBorderRadius || 9999,
-                            }}
+                        {/* Preview area */}
+                        <div
+                          className="flex items-center justify-center px-2 pt-3 pb-2 w-full overflow-hidden"
+                          style={{ minHeight: 52 }}
+                        >
+                          {previewImg ? (
+                            <img
+                              src={previewImg}
+                              alt={displayName}
+                              className="w-full h-full object-cover rounded"
+                            />
+                          ) : p?.hasPill ? (
+                            <span
+                              className="text-xs font-semibold px-3 py-1 rounded-full"
+                              style={{
+                                color: p.textColor,
+                                backgroundColor: p.bgColor || "rgba(0,0,0,0.7)",
+                                fontWeight: p.fontWeight || 600,
+                                fontFamily: p.fontFamily !== "monospace" ? undefined : "monospace",
+                                border: p.strokeColor ? `1px solid ${p.strokeColor}` : undefined,
+                                borderRadius: p.bgBorderRadius || 9999,
+                              }}
+                            >
+                              Aa
+                            </span>
+                          ) : (
+                            <span
+                              className="text-sm font-black tracking-wide uppercase"
+                              style={{
+                                color: p?.textColor || "#FFFFFF",
+                                fontWeight: p?.fontWeight || 700,
+                                fontFamily: p?.fontFamily !== "monospace" ? undefined : "monospace",
+                                WebkitTextStroke: p?.strokeColor
+                                  ? `${p.strokeWidth ?? 2}px ${p.strokeColor}`
+                                  : undefined,
+                                textShadow: p?.strokeColor
+                                  ? `0 0 6px ${p.strokeColor}40`
+                                  : "0 1px 4px rgba(0,0,0,0.8)",
+                              }}
+                            >
+                              Aa
+                            </span>
+                          )}
+
+                          {/* Loading overlay while applying */}
+                          {isApplyingThis && (
+                            <span className="absolute inset-0 bg-black/60 flex items-center justify-center backdrop-blur-[1px]">
+                              <RefreshCw className="w-4 h-4 text-accent animate-spin" />
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Label */}
+                        <div className="px-2 pb-2 text-center">
+                          <p
+                            className={`text-[10px] font-semibold leading-tight truncate transition-colors ${
+                              isSelected ? "text-accent" : "text-text-secondary group-hover:text-text-primary"
+                            }`}
                           >
-                            Aa
-                          </span>
-                        ) : (
-                          <span
-                            className="text-sm font-black tracking-wide uppercase"
-                            style={{
-                              color: p.textColor,
-                              fontWeight: p.fontWeight || 700,
-                              fontFamily: p.fontFamily !== "monospace" ? undefined : "monospace",
-                              WebkitTextStroke: p.strokeColor
-                                ? `${p.strokeWidth ?? 2}px ${p.strokeColor}`
-                                : undefined,
-                              textShadow: p.strokeColor
-                                ? `0 0 6px ${p.strokeColor}40`
-                                : "0 1px 4px rgba(0,0,0,0.8)",
-                            }}
-                          >
-                            Aa
+                            {displayName}
+                          </p>
+                        </div>
+
+                        {/* Active check badge */}
+                        {isSelected && !isApplyingThis && (
+                          <span className="absolute top-1.5 right-1.5 w-4 h-4 flex items-center justify-center rounded-full bg-accent text-white shadow">
+                            <Check className="w-2.5 h-2.5" />
                           </span>
                         )}
-                      </div>
-
-                      {/* Label */}
-                      <div className="px-2 pb-2 text-center">
-                        <p
-                          className={`text-[10px] font-semibold leading-tight transition-colors ${
-                            isSelected ? "text-accent" : "text-text-secondary group-hover:text-text-primary"
-                          }`}
-                        >
-                          {style.name}
-                        </p>
-                      </div>
-
-                      {/* Active check badge */}
-                      {isSelected && (
-                        <span className="absolute top-1.5 right-1.5 w-4 h-4 flex items-center justify-center rounded-full bg-accent text-white">
-                          <Check className="w-2.5 h-2.5" />
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 px-4 rounded-xl border border-dashed border-white/10 bg-black/20 text-center gap-2.5">
+                  <div className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center text-text-muted">
+                    <LayoutTemplate className="w-4 h-4 opacity-50" />
+                  </div>
+                  <div className="space-y-1 max-w-[240px]">
+                    <p className="text-xs font-semibold text-text-primary">No Caption Templates Found</p>
+                    <p className="text-[11px] text-text-muted leading-snug">
+                      Design and publish caption templates in Clypra Studio to see them here.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => loadCaptionTemplates(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-xs font-medium text-text-primary transition-all cursor-pointer"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    Refresh Templates
+                  </button>
+                </div>
+              )}
 
               {/* "Customise further" link */}
               <button
                 onClick={() => setStylingTier("plain")}
-                className="flex items-center justify-center gap-1.5 w-full py-1.5 rounded-lg border border-dashed border-white/12 text-[10px] text-text-muted hover:text-text-primary hover:border-accent/30 transition-all"
+                className="flex items-center justify-center gap-1.5 w-full py-1.5 rounded-lg border border-dashed border-white/12 text-[10px] text-text-muted hover:text-text-primary hover:border-accent/30 transition-all cursor-pointer"
               >
                 <Wand2 className="w-3 h-3" />
                 Customise further…

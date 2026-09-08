@@ -10,10 +10,22 @@
  */
 
 import type { TextClip } from "@/types";
+import type { TemplateDefinition } from "@/features/text-templates/types";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Types
 // ──────────────────────────────────────────────────────────────────────────────
+
+export interface CaptionStylePreviewConfig {
+  textColor: string;
+  bgColor?: string;
+  bgBorderRadius?: number;
+  strokeColor?: string;
+  strokeWidth?: number;
+  fontWeight?: number;
+  fontFamily?: string;
+  hasPill?: boolean;
+}
 
 export interface CaptionStyleDefinition {
   /** Unique identifier */
@@ -27,16 +39,7 @@ export interface CaptionStyleDefinition {
    * These are purely presentational CSS values for the preview card —
    * the actual clip values come from `patch`.
    */
-  preview: {
-    textColor: string;
-    bgColor?: string;
-    bgBorderRadius?: number;
-    strokeColor?: string;
-    strokeWidth?: number;
-    fontWeight?: number;
-    fontFamily?: string;
-    hasPill?: boolean;
-  };
+  preview: CaptionStylePreviewConfig;
   /**
    * The full TextClip-compatible style patch applied to all caption clips
    * when this style is selected. Keys match the TextClip interface exactly.
@@ -312,3 +315,217 @@ export function getAllCaptionStyles(
 ): CaptionStyleDefinition[] {
   return [...BUILTIN_CAPTION_STYLES, ...userStyles];
 }
+
+/**
+ * Converts a CaptionStyleDefinition into a first-class TemplateDefinition.
+ * Retains the visual preview parameters and 1-to-1 patch for direct application.
+ */
+export function captionStyleToTemplate(style: CaptionStyleDefinition): TemplateDefinition {
+  return {
+    id: style.id,
+    category: "caption",
+    name: style.name,
+    label: style.name,
+    displayName: style.name,
+    description: style.description,
+    canvasWidth: 1920,
+    canvasHeight: 1080,
+    duration: 4,
+    stylePreview: style.preview,
+    patch: style.patch,
+    layers: [
+      {
+        kind: "text",
+        id: "caption-text",
+        content: "Sample Subtitle Caption",
+        fontFamily: style.patch.fontFamily || "Outfit Variable",
+        fontSize: style.patch.fontSize || 36,
+        fontWeight: (style.patch.fontWeight as number) || 700,
+        color: style.patch.color || "#FFFFFF",
+        align: style.patch.align || "center",
+        x: 360,
+        y: 890,
+        width: 1200,
+        height: 100,
+        role: "primary",
+        textRole: "caption",
+        stroke: style.patch.stroke,
+        shadow: style.patch.shadow,
+        backgroundColor: style.patch.background?.color,
+        backgroundRadius: style.patch.background?.borderRadius,
+        padding: style.patch.background?.padding,
+        animation: {
+          in: "fade",
+          out: "fade",
+          inDuration: 0.2,
+          outDuration: 0.2,
+          hold: "full",
+        },
+        anchor: {
+          anchorPoint: "bottom-center",
+          maxWidthPercentage: 90,
+        },
+      },
+    ],
+  };
+}
+
+export const BUILTIN_CAPTION_TEMPLATES: TemplateDefinition[] =
+  BUILTIN_CAPTION_STYLES.map(captionStyleToTemplate);
+
+/**
+ * Resolves available caption templates strictly from cloud-fetched templates.
+ * Returns an empty array if no cloud templates are published or available,
+ * ensuring no hardcoded presets are displayed.
+ */
+export function getUnifiedCaptionTemplates(
+  cloudTemplates: TemplateDefinition[] = [],
+): TemplateDefinition[] {
+  return cloudTemplates;
+}
+
+/**
+ * Resolves presentational preview CSS properties from any caption template.
+ * Works seamlessly across baseline presets, engine templates, and Studio cloud templates.
+ */
+export function resolveCaptionPreview(template: TemplateDefinition): CaptionStylePreviewConfig {
+  if (template.stylePreview) {
+    return template.stylePreview;
+  }
+
+  const patch = (template as any).patch as Partial<TextClip> | undefined;
+  if (patch) {
+    return {
+      textColor: patch.color || "#FFFFFF",
+      bgColor: patch.background?.color,
+      bgBorderRadius: patch.background?.borderRadius,
+      strokeColor: patch.stroke?.color,
+      strokeWidth: patch.stroke?.width,
+      fontWeight: typeof patch.fontWeight === "number" ? patch.fontWeight : undefined,
+      fontFamily: patch.fontFamily,
+      hasPill: !!patch.background?.color,
+    };
+  }
+
+  if (Array.isArray(template.layers)) {
+    const textLayer = template.layers.find((l: any) => l.kind === "text") || template.layers[0];
+    const shapeLayer = template.layers.find((l: any) => l.kind === "shape" || l.kind === "solid");
+
+    return {
+      textColor: textLayer?.color || "#FFFFFF",
+      bgColor: shapeLayer?.fill || textLayer?.backgroundColor || undefined,
+      bgBorderRadius: shapeLayer?.borderRadius || 8,
+      strokeColor: textLayer?.stroke?.color,
+      strokeWidth: textLayer?.stroke?.width,
+      fontWeight: textLayer?.fontWeight || 700,
+      fontFamily: textLayer?.fontFamily || "Outfit Variable",
+      hasPill: !!(shapeLayer?.fill || textLayer?.backgroundColor),
+    };
+  }
+
+  return {
+    textColor: "#FFFFFF",
+    fontWeight: 700,
+  };
+}
+
+/**
+ * Converts a cloud-published TextEffect (from /text-effects/caption) into a first-class TemplateDefinition.
+ * Extracts visual properties (colors, strokes, shadows, background pills, and typography)
+ * into both a high-fidelity stylePreview and a TextClip-compatible style patch.
+ */
+export function textEffectToCaptionTemplate(effect: any): TemplateDefinition {
+  const isFull = !!(
+    effect.scene ||
+    effect.legacyConfig ||
+    effect.fillColor !== undefined ||
+    effect.panelEnabled !== undefined
+  );
+
+  const hasPill = isFull ? !!effect.panelEnabled : false;
+  const bgColor =
+    isFull && effect.panelEnabled
+      ? effect.panelColor || "rgba(0,0,0,0.75)"
+      : undefined;
+  const bgRadius =
+    isFull && effect.panelRadius !== undefined ? effect.panelRadius : 0;
+  const bgPadding =
+    isFull && effect.panelPaddingX !== undefined ? effect.panelPaddingX : 10;
+
+  const textColor = effect.fillColor || "#FFFFFF";
+  const stroke = effect.strokeEnabled
+    ? { color: effect.strokeColor || "#000000", width: effect.strokeWidth || 3 }
+    : undefined;
+  const shadow = effect.shadowEnabled
+    ? {
+        color: effect.shadowColor || "rgba(0,0,0,0.85)",
+        blur: effect.shadowBlur || 4,
+        offsetX: effect.shadowOffsetX || 0,
+        offsetY: effect.shadowOffsetY || 2,
+      }
+    : undefined;
+
+  const revisionId = effect.revisionId ?? effect.revision?.revisionId;
+  const contentHash = effect.contentHash ?? effect.revision?.contentHash;
+  const rendererVersion = effect.rendererVersion ?? effect.revision?.rendererVersion;
+
+  const patch: Partial<TextClip> = {
+    fontFamily: effect.fontFamily || "Outfit Variable",
+    fontSize: effect.fontSize || 34,
+    fontWeight: typeof effect.fontWeight === "number" ? effect.fontWeight : 700,
+    color: textColor,
+    textTransform: "uppercase",
+    align: "center",
+    valign: "bottom",
+    stroke,
+    shadow,
+    background: hasPill
+      ? {
+          color: bgColor!,
+          padding: bgPadding,
+          borderRadius: bgRadius,
+        }
+      : undefined,
+    styleId: effect.id,
+    styleRevisionId: revisionId,
+    styleContentHash: contentHash,
+    styleSnapshot: effect.scene,
+    styleDefinition: isFull ? effect : undefined,
+    templateId: undefined,
+  };
+
+  return {
+    id: effect.id,
+    category: "caption",
+    name: effect.name || effect.id,
+    label: effect.name || effect.id,
+    displayName: effect.name || effect.id,
+    description: effect.description || "",
+    thumbnailUrl: effect.thumbnail,
+    thumbnail: effect.thumbnail,
+    previewUrl: effect.thumbnail,
+    canvasWidth: effect.canvasWidth || 1920,
+    canvasHeight: effect.canvasHeight || 1080,
+    duration: 4,
+    isCloud: true,
+    isTextEffect: true,
+    revisionId,
+    contentHash,
+    rendererVersion,
+    stylePreview: {
+      textColor,
+      bgColor,
+      bgBorderRadius: bgRadius,
+      strokeColor: stroke?.color,
+      strokeWidth: stroke?.width,
+      fontWeight: typeof effect.fontWeight === "number" ? effect.fontWeight : 700,
+      fontFamily: effect.fontFamily || "Outfit Variable",
+      hasPill,
+    },
+    patch,
+    templateData: effect,
+    styleSnapshot: effect.scene,
+    styleDefinition: isFull ? effect : undefined,
+  };
+}
+

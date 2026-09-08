@@ -19,6 +19,7 @@ export const TEXT_EFFECT_CATEGORY_IDS = [
   "grunge",
   "metallic",
   "handwritten",
+  "caption",
 ] as const;
 
 export type TextEffectCategoryId = (typeof TEXT_EFFECT_CATEGORY_IDS)[number];
@@ -28,6 +29,11 @@ export const TEXT_EFFECT_CATEGORY_OPTIONS: ReadonlyArray<{
   name: string;
   description: string;
 }> = [
+  {
+    id: "caption",
+    name: "Caption",
+    description: "High-contrast, readable typography with strokes, pills, and shadows for subtitles",
+  },
   {
     id: "essentials",
     name: "Essentials",
