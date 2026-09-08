@@ -1297,3 +1297,94 @@ export function applyFontFamily(fontFamily: FontFamily) {
     rootEl.style.fontFamily = fontStack;
   }
 }
+
+export function getFontFamilyWebStack(fontFamily: FontFamily): string {
+  switch (fontFamily) {
+    case "inter":
+      return "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    case "montserrat":
+      return "'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    case "geist":
+      return "'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    case "outfit":
+      return "'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    case "roboto":
+      return "'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    case "space-grotesk":
+      return "'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    case "mono":
+      return "'JetBrains Mono', 'Fira Code', Consolas, monospace";
+    case "system":
+    default:
+      return "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+  }
+}
+
+/**
+ * Extracts live theme colors from the editor's CSS custom properties
+ * to synchronize with the mobile web hub page.
+ */
+export function extractEditorThemeColors(activeFontFamily?: FontFamily): Record<string, string> {
+  const font =
+    activeFontFamily ||
+    (typeof localStorage !== "undefined"
+      ? (JSON.parse(localStorage.getItem("clypra-settings") || "{}")?.state
+          ?.fontFamily as FontFamily)
+      : "inter") ||
+    "inter";
+  const webFontStack = getFontFamilyWebStack(font);
+
+  if (typeof window === "undefined") {
+    return {
+      bg: "#0b0e12",
+      card: "#12171d",
+      cardInner: "#1a2028",
+      border: "#27313b",
+      accent: "#5ab8d4",
+      accentHover: "#86cde0",
+      text: "#edf2f4",
+      textMuted: "#788991",
+      success: "#4fbd8a",
+      danger: "#e26061",
+      fontFamily: webFontStack,
+      fontFamilyName: font,
+    };
+  }
+  const cs = getComputedStyle(document.documentElement);
+  const getProp = (keys: string[], fallback: string) => {
+    for (const k of keys) {
+      const v = cs.getPropertyValue(k).trim();
+      if (v) return v;
+    }
+    return fallback;
+  };
+  return {
+    bg: getProp(["--clypra-theme-bg", "--color-bg", "--background"], "#0b0e12"),
+    card: getProp(["--clypra-theme-surface", "--color-surface", "--card"], "#12171d"),
+    cardInner: getProp(["--clypra-theme-surface-raised", "--color-surface-raised"], "#1a2028"),
+    border: getProp(["--clypra-theme-border", "--color-border", "--border"], "#27313b"),
+    accent: getProp(["--clypra-theme-accent", "--color-accent", "--primary"], "#5ab8d4"),
+    accentHover: getProp(["--clypra-theme-accent-soft", "--color-accent-soft"], "#86cde0"),
+    text: getProp(["--clypra-theme-text-primary", "--color-text-primary", "--foreground"], "#edf2f4"),
+    textMuted: getProp(["--clypra-theme-text-muted", "--color-text-muted", "--muted-foreground"], "#788991"),
+    success: getProp(["--clypra-status-success", "--color-snap-guide-clip"], "#4fbd8a"),
+    danger: getProp(["--clypra-theme-danger", "--color-danger", "--destructive"], "#e26061"),
+    fontFamily: webFontStack,
+    fontFamilyName: font,
+  };
+}
+
+/**
+ * Pushes live editor theme colors to the background transfer service,
+ * updating the mobile phone Web Hub page.
+ */
+export async function syncThemeToTransferService(): Promise<void> {
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const theme = extractEditorThemeColors();
+    await invoke("update_transfer_theme", { theme });
+  } catch (_err) {
+    // transfer service might not be running yet, which is expected
+  }
+}

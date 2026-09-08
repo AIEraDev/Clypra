@@ -47,6 +47,7 @@ interface UIStore {
   showExportModal: boolean;
   showNewProjectModal: boolean;
   showSettingsModal: boolean;
+  showTransferModal: boolean;
   settingsInitialTab:
     | "appearance"
     | "editor"
@@ -77,6 +78,8 @@ interface UIStore {
   toggleExportModal: () => void;
   toggleNewProjectModal: () => void;
   toggleSettingsModal: () => void;
+  toggleTransferModal: () => void;
+  setTransferModal: (open: boolean) => void;
   openSettingsModal: (
     tab?:
       | "appearance"
@@ -109,6 +112,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   showExportModal: false,
   showNewProjectModal: false,
   showSettingsModal: false,
+  showTransferModal: false,
   settingsInitialTab: null,
 
   previewMode: "program",
@@ -191,6 +195,18 @@ export const useUIStore = create<UIStore>((set, get) => ({
       showSettingsModal: !state.showSettingsModal,
       settingsInitialTab: null,
     }));
+  },
+
+  toggleTransferModal: () => {
+    set((state) => ({
+      showTransferModal: !state.showTransferModal,
+    }));
+  },
+
+  setTransferModal: (open: boolean) => {
+    set({
+      showTransferModal: open,
+    });
   },
 
   openSettingsModal: (tab) => {

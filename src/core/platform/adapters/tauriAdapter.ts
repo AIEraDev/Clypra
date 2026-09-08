@@ -1,7 +1,8 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { PlatformInterface, VideoMetadata, SelectedFile, ProjectSaveResult, RecentProjectEntry } from "../platform";
+import { toNativePath } from "@/lib/platform/pathConversion";
 
-const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://") || value.startsWith("https://");
+const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http://") || value.startsWith("https://") || value.startsWith("blob:");
 
 export class TauriPlatformAdapter implements PlatformInterface {
   type = "tauri" as const;
@@ -17,6 +18,12 @@ export class TauriPlatformAdapter implements PlatformInterface {
 
   convertFileSrc(path: string): string {
     if (!path) return "";
+    if (path.startsWith("data:") || path.startsWith("http://") || path.startsWith("https://") || path.startsWith("blob:")) {
+      return path;
+    }
+    if (path.startsWith("asset://")) {
+      return path;
+    }
     try {
       return convertFileSrc(path);
     } catch {
@@ -45,10 +52,11 @@ export class TauriPlatformAdapter implements PlatformInterface {
 
   async fileExists(path: string): Promise<boolean> {
     if (!path) return false;
-    if (isExternalOrDataUrl(path)) return true;
+    const nativePath = toNativePath(path);
+    if (isExternalOrDataUrl(nativePath)) return true;
     try {
       const { exists } = await import("@tauri-apps/plugin-fs");
-      return await exists(path);
+      return await exists(nativePath);
     } catch {
       return false;
     }
@@ -129,13 +137,14 @@ export class TauriPlatformAdapter implements PlatformInterface {
 
   async getMediaMetadata(path: string): Promise<VideoMetadata> {
     const { invoke } = await import("@tauri-apps/api/core");
+    const nativePath = toNativePath(path);
     // Try new unified command first, fallback to legacy for backward compatibility
     try {
-      return await invoke("get_media_metadata", { path });
+      return await invoke("get_media_metadata", { path: nativePath });
     } catch (error) {
       console.warn("[TauriAdapter] Falling back to legacy get_video_metadata:", error);
       try {
-        return await invoke("get_video_metadata", { path });
+        return await invoke("get_video_metadata", { path: nativePath });
       } catch (fallbackError) {
         throw new Error(`Failed to get media metadata: ${fallbackError}`);
       }
@@ -144,13 +153,14 @@ export class TauriPlatformAdapter implements PlatformInterface {
 
   async extractPosterFrame(path: string, duration: number, dpr: number): Promise<string> {
     const { invoke } = await import("@tauri-apps/api/core");
+    const nativePath = toNativePath(path);
     // Try new command with proper heuristic, fallback to legacy
     try {
-      return await invoke("extract_poster_frame_command", { videoPath: path, duration, dpr });
+      return await invoke("extract_poster_frame_command", { videoPath: nativePath, duration, dpr });
     } catch (error) {
       console.warn("[TauriAdapter] Falling back to legacy extract_poster_frame:", error);
       try {
-        return await invoke("extract_poster_frame", { path, time: 0.0 });
+        return await invoke("extract_poster_frame", { path: nativePath, time: 0.0 });
       } catch (fallbackError) {
         throw new Error(`Failed to extract poster frame: ${fallbackError}`);
       }
@@ -159,7 +169,12 @@ export class TauriPlatformAdapter implements PlatformInterface {
 
   async extractAudioArtwork(path: string): Promise<string | undefined> {
     const { invoke } = await import("@tauri-apps/api/core");
-    return invoke("extract_audio_artwork", { path });
+    return invoke("extract_audio_artwork", { path: toNativePath(path) });
+  }
+
+  async getOrCreatePreviewVideo(path: string): Promise<string> {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return invoke("get_or_create_preview_video", { path: toNativePath(path) });
   }
 
   async saveRecording(fileName: string, data: Uint8Array): Promise<string> {

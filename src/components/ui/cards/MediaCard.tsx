@@ -52,6 +52,12 @@ export const MediaCard: React.FC<MediaCardProps> = ({
     previewAsset(asset); // Switch to source preview + auto-pause program
   };
 
+  const isImage =
+    asset.type === "image" ||
+    /\.(jpg|jpeg|png|gif|webp|bmp|svg|tiff|heic|heif|avif)$/i.test(
+      asset.name || asset.path || "",
+    );
+
   return (
     <div
       ref={drag as unknown as React.Ref<HTMLDivElement>}
@@ -60,7 +66,18 @@ export const MediaCard: React.FC<MediaCardProps> = ({
       className={`group relative bg-surface-raised rounded overflow-hidden transition-all cursor-pointer ${isDragging ? "opacity-50" : ""} ${isSelected ? "ring-1 ring-accent" : ""} ${asset.isMissing ? "ring-1 ring-red-500/60" : ""}`}
     >
       <div className="aspect-video bg-surface-raised flex items-center justify-center relative">
-        {asset.type === "video" &&
+        {isImage ? (
+          <img
+            src={
+              asset.posterFrame ||
+              (isWebviewOrExternalUrl(asset.path)
+                ? asset.path
+                : platform.convertFileSrc(asset.path))
+            }
+            alt={asset.name}
+            className="w-full h-full object-contain"
+          />
+        ) : asset.type === "video" &&
         asset.posterFrame &&
         !/\.(mp4|mov|mkv|webm|flv)(%|$)/i.test(asset.posterFrame) ? (
           <img
@@ -74,22 +91,12 @@ export const MediaCard: React.FC<MediaCardProps> = ({
             duration={asset.duration}
             className="w-full h-full"
           />
-        ) : asset.type === "image" ? (
-          <img
-            src={
-              isWebviewOrExternalUrl(asset.path)
-                ? asset.path
-                : platform.convertFileSrc(asset.path)
-            }
-            alt={asset.name}
-            className="w-full h-full object-contain"
-          />
         ) : (
           <div className="w-8 h-8">
             <Film className="w-full h-full text-text-muted" />
           </div>
         )}
-        {asset.duration > 0 && (
+        {!isImage && asset.duration > 0 && (
           <div className="absolute bottom-1 right-1 bg-black/70 px-1.5 py-0.5 rounded text-[10px] text-white">
             {formatTime(asset.duration)}
           </div>

@@ -225,6 +225,8 @@ export interface MediaAsset {
   id: string;
   name: string;
   path: string;
+  /** Optional stream-compatible MP4 path for quick preview & playback */
+  previewPath?: string;
   type: "video" | "audio" | "image";
   duration: number;
   width?: number;

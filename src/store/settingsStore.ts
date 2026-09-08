@@ -5,6 +5,7 @@ import {
   applyTheme,
   isClipPalette,
   isUiTheme,
+  syncThemeToTransferService,
 } from "./themeRegistry";
 import type { SettingsStore, Theme } from "./settingsTypes";
 
@@ -69,6 +70,7 @@ export const useSettingsStore = create<SettingsStore>()(
         const clipPalette = get().clipPalette;
         set({ uiTheme, theme: uiTheme });
         applyTheme(uiTheme, clipPalette, null);
+        void syncThemeToTransferService();
       },
 
       setClipPalette: (clipPalette) => {
@@ -80,20 +82,24 @@ export const useSettingsStore = create<SettingsStore>()(
         if (theme === "custom") {
           set({ theme });
           applyTheme(theme, get().clipPalette, get().customTheme);
+          void syncThemeToTransferService();
           return;
         }
         set({ theme, uiTheme: theme, clipPalette: theme });
         applyTheme(theme, theme, null);
+        void syncThemeToTransferService();
       },
 
       setFontFamily: (fontFamily) => {
         set({ fontFamily });
         applyFontFamily(fontFamily);
+        void syncThemeToTransferService();
       },
 
       setCustomTheme: (colors) => {
         set({ customTheme: colors, theme: "custom" });
         applyTheme("custom", get().clipPalette, colors);
+        void syncThemeToTransferService();
       },
 
       resetCustomTheme: () => {
@@ -104,6 +110,7 @@ export const useSettingsStore = create<SettingsStore>()(
           clipPalette: "dark",
         });
         applyTheme("dark", "dark", null);
+        void syncThemeToTransferService();
       },
 
       setSnapToGrid: (snapToGrid) => set({ snapToGrid }),
@@ -123,6 +130,8 @@ export const useSettingsStore = create<SettingsStore>()(
       setPropertiesPanelCollapsed: (propertiesPanelCollapsed) =>
         set({ propertiesPanelCollapsed }),
       setTimelineHeight: (timelineHeight) => set({ timelineHeight }),
+      transferSaveDirectory: null,
+      setTransferSaveDirectory: (transferSaveDirectory) => set({ transferSaveDirectory }),
     }),
     {
       name: "clypra-settings",
@@ -150,6 +159,7 @@ export const useSettingsStore = create<SettingsStore>()(
         if (state) {
           applyTheme(state.theme, state.clipPalette, state.customTheme);
           applyFontFamily(state.fontFamily);
+          void syncThemeToTransferService();
         }
       },
     },
@@ -160,4 +170,5 @@ export function initSettings() {
   const state = useSettingsStore.getState();
   applyTheme(state.theme, state.clipPalette, state.customTheme);
   applyFontFamily(state.fontFamily);
+  void syncThemeToTransferService();
 }

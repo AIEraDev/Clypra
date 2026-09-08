@@ -32,16 +32,176 @@ async function mapConcurrent<T, R>(
   return results;
 }
 
+export const getMediaType = (path: string): "video" | "audio" | "image" => {
+  const lower = path.toLowerCase();
+  if (/\.(mp4|mov|mkv|webm|m4v|flv|avi|wmv|ts|mts|m2ts|3gp|ogv|vob)$/i.test(lower)) return "video";
+  if (/\.(mp3|wav|aac|ogg|flac|m4a|wma|opus|aiff)$/i.test(lower)) return "audio";
+  return "image";
+};
+
+/**
+ * Import files directly from local filesystem paths into the active project.
+ */
+export async function importMediaPaths(paths: string[]): Promise<number> {
+  if (!paths || paths.length === 0) return 0;
+
+  const fileObjects = paths.map((p) => ({
+    name: p.split(/[/\\]/).pop() || "media",
+    path: p,
+    size: 0,
+  }));
+
+  const addMediaAsset = useProjectStore.getState().addMediaAsset;
+  let importedCount = 0;
+  let skippedCount = 0;
+  let failedCount = 0;
+
+  await mapConcurrent(fileObjects, CONCURRENCY_LIMIT, async (file) => {
+    try {
+      const currentAssets = useProjectStore.getState().mediaAssets;
+      const existingAsset = currentAssets.find(
+        (a) => a.path === file.path || a.name === file.name
+      );
+      if (existingAsset) {
+        skippedCount++;
+        return;
+      }
+
+      const type = getMediaType(file.name);
+
+      try {
+        const metadata = await platform.getMediaMetadata(file.path);
+
+        let initialPoster: string | undefined;
+        if (type === "audio") {
+          initialPoster = generateSimpleWaveform({
+            width: 160,
+            height: 90,
+            barCount: 32,
+            barColor: "#22d3ee",
+            backgroundColor: "#1e293b",
+          });
+        } else if (type === "image") {
+          initialPoster = platform.convertFileSrc(file.path);
+        }
+
+        const asset: MediaAsset = {
+          id: generateId("asset"),
+          name: file.name,
+          path: file.path,
+          type,
+          duration:
+            type === "image"
+              ? DEFAULT_STILL_DURATION_SECONDS
+              : metadata.duration,
+          width: type === "audio" ? 0 : metadata.width,
+          height: type === "audio" ? 0 : metadata.height,
+          posterFrame: initialPoster,
+          size: file.size || (metadata as any).size || 0,
+        };
+
+        addMediaAsset(asset);
+        importedCount++;
+
+        if (type !== "image" && isTauriRuntime()) {
+          void probeMediaStreams(file.path)
+            .then((streams) =>
+              useProjectStore.getState().updateMediaAsset(asset.id, { streams })
+            )
+            .catch((error) =>
+              console.debug("[MediaImport] Stream metadata unavailable", error)
+            );
+        }
+
+        if (type === "video") {
+          platform
+            .extractPosterFrame(
+              file.path,
+              metadata.duration,
+              window.devicePixelRatio || 1.0
+            )
+            .then((poster) => {
+              if (poster) {
+                useProjectStore
+                  .getState()
+                  .updateMediaAsset(asset.id, { posterFrame: poster });
+              }
+            })
+            .catch((err) => {
+              console.warn(
+                `[MediaImport] Failed to extract poster for ${file.path}:`,
+                err
+              );
+            });
+
+          const ext = file.name.split('.').pop()?.toLowerCase() || '';
+          const needsRemux = ['mkv', 'avi', 'flv', 'wmv', 'ts', 'mts', 'm2ts', 'vob', '3gp', 'ogv'].includes(ext);
+          if (needsRemux && platform.getOrCreatePreviewVideo) {
+            platform
+              .getOrCreatePreviewVideo(file.path)
+              .then((previewPath) => {
+                if (previewPath) {
+                  useProjectStore
+                    .getState()
+                    .updateMediaAsset(asset.id, { previewPath });
+                }
+              })
+              .catch((err) => {
+                console.warn(
+                  `[MediaImport] Failed to optimize preview for ${file.path}:`,
+                  err
+                );
+              });
+          }
+        } else if (type === "audio") {
+          platform
+            .extractAudioArtwork(file.path)
+            .then((cover) => {
+              if (cover) {
+                useProjectStore
+                  .getState()
+                  .updateMediaAsset(asset.id, { coverArt: cover });
+              }
+            })
+            .catch(() => {});
+        }
+      } catch (metadataError) {
+        console.error(
+          `[MediaImport] Failed to extract metadata for ${file.path}:`,
+          metadataError
+        );
+        failedCount++;
+      }
+    } catch (fileError) {
+      console.error(
+        `[MediaImport] Failed to import ${file.path}:`,
+        fileError
+      );
+      failedCount++;
+    }
+  });
+
+  if (failedCount > 0) {
+    toast.warning(
+      `${failedCount} file(s) failed to import.${
+        importedCount > 0 ? ` ${importedCount} succeeded.` : ""
+      }`
+    );
+  } else if (importedCount > 0 && skippedCount > 0) {
+    toast.warning(
+      `Imported ${importedCount} file(s). ${skippedCount} duplicate(s) skipped.`
+    );
+  } else if (skippedCount > 0) {
+    toast.info(`${skippedCount} file(s) already imported.`);
+  } else if (importedCount > 0) {
+    toast.success(`Successfully imported ${importedCount} file(s).`);
+  }
+
+  return importedCount;
+}
+
 export const useMediaImport = () => {
   const [isLoading, setIsLoading] = useState(false);
-  const { addMediaAsset, updateMediaAsset } = useProjectStore();
-
-  const getMediaType = (path: string): "video" | "audio" | "image" => {
-    const lower = path.toLowerCase();
-    if (/\.(mp4|mov|mkv|webm|m4v|flv)$/i.test(lower)) return "video";
-    if (/\.(mp3|wav|aac|ogg|flac|m4a)$/i.test(lower)) return "audio";
-    return "image";
-  };
 
   const importMedia = async () => {
     try {
@@ -51,112 +211,28 @@ export const useMediaImport = () => {
         filters: [
           {
             name: "Media",
-            extensions: ["mp4", "mov", "mkv", "webm", "m4v", "mp3", "wav", "aac", "ogg", "flac", "m4a", "jpg", "png", "webp"],
+            extensions: [
+              "mp4",
+              "mov",
+              "mkv",
+              "webm",
+              "m4v",
+              "mp3",
+              "wav",
+              "aac",
+              "ogg",
+              "flac",
+              "m4a",
+              "jpg",
+              "png",
+              "webp",
+            ],
           },
         ],
       });
 
       if (!selected || selected.length === 0) return;
-
-      let importedCount = 0;
-      let skippedCount = 0;
-      let failedCount = 0;
-
-      await mapConcurrent(selected, CONCURRENCY_LIMIT, async (file) => {
-        try {
-          const currentAssets = useProjectStore.getState().mediaAssets;
-          const existingAsset = currentAssets.find((a) => a.path === file.path || a.name === file.name);
-          if (existingAsset) {
-            skippedCount++;
-            return;
-          }
-
-          const type = getMediaType(file.name);
-
-          try {
-            // Phase 1 (Instant): Probe metadata and immediately create asset
-            const metadata = await platform.getMediaMetadata(file.path);
-
-            let initialPoster: string | undefined;
-            if (type === "audio") {
-              initialPoster = generateSimpleWaveform({
-                width: 160,
-                height: 90,
-                barCount: 32,
-                barColor: "#22d3ee",
-                backgroundColor: "#1e293b",
-              });
-            } else if (type === "image") {
-              initialPoster = platform.convertFileSrc(file.path);
-            }
-
-            const asset: MediaAsset = {
-              id: generateId("asset"),
-              name: file.name,
-              path: file.path,
-              type,
-              duration: type === "image" ? DEFAULT_STILL_DURATION_SECONDS : metadata.duration,
-              width: type === "audio" ? 0 : metadata.width,
-              height: type === "audio" ? 0 : metadata.height,
-              posterFrame: initialPoster,
-              size: file.size || (metadata as any).size || 0,
-            };
-
-            addMediaAsset(asset);
-            importedCount++;
-
-            // Stream metadata is optional and independent from the compact
-            // import probe. Cache it in the asset when the native runtime is
-            // available; older projects populate it lazily when extraction is
-            // requested.
-            if (type !== "image" && isTauriRuntime()) {
-              void probeMediaStreams(file.path)
-                .then((streams) => useProjectStore.getState().updateMediaAsset(asset.id, { streams }))
-                .catch((error) => console.debug("[MediaImport] Stream metadata unavailable", error));
-            }
-
-            // Phase 2 (Async Background): Extract poster/cover art without blocking UI
-            if (type === "video") {
-              platform
-                .extractPosterFrame(file.path, metadata.duration, window.devicePixelRatio || 1.0)
-                .then((poster) => {
-                  if (poster) {
-                    useProjectStore.getState().updateMediaAsset(asset.id, { posterFrame: poster });
-                  }
-                })
-                .catch((err) => {
-                  console.warn(`[MediaImport] Failed to extract poster for ${file.path}:`, err);
-                });
-            } else if (type === "audio") {
-              platform
-                .extractAudioArtwork(file.path)
-                .then((cover) => {
-                  if (cover) {
-                    useProjectStore.getState().updateMediaAsset(asset.id, { coverArt: cover });
-                  }
-                })
-                .catch(() => {});
-            }
-          } catch (metadataError) {
-            console.error(`[MediaImport] Failed to extract metadata for ${file.path}:`, metadataError);
-            failedCount++;
-          }
-        } catch (fileError) {
-          console.error(`[MediaImport] Failed to import ${file.path}:`, fileError);
-          failedCount++;
-        }
-      });
-
-      // Show appropriate toast notification
-      if (failedCount > 0) {
-        toast.warning(`${failedCount} file(s) failed to import.${importedCount > 0 ? ` ${importedCount} succeeded.` : ""}`);
-      } else if (importedCount > 0 && skippedCount > 0) {
-        toast.warning(`Imported ${importedCount} file(s). ${skippedCount} duplicate(s) skipped.`);
-      } else if (skippedCount > 0) {
-        toast.info(`${skippedCount} file(s) already imported.`);
-      } else if (importedCount > 0) {
-        toast.success(`Successfully imported ${importedCount} file(s).`);
-      }
+      await importMediaPaths(selected.map((s) => s.path));
     } catch (error) {
       console.error("[MediaImport] Import failed:", error);
       toast.error("Failed to open file picker");
@@ -167,6 +243,7 @@ export const useMediaImport = () => {
 
   return {
     importMedia,
+    importPaths: importMediaPaths,
     isLoading,
     toastMessage: null,
     clearToast: () => {},

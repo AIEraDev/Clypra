@@ -25,6 +25,7 @@
 
 import { create } from "zustand";
 import { platform } from "@/core/platform";
+import { toNativePath } from "@/lib/platform/pathConversion";
 import type {
   Project,
   MediaAsset,
@@ -198,6 +199,46 @@ function withProjectTransition<T>(operation: () => Promise<T>): Promise<T> {
     .then(operation)
     .finally(release);
 }
+
+export const normalizeMediaAsset = (asset: MediaAsset): MediaAsset => {
+  let normalizedPath = asset.path;
+  if (
+    normalizedPath &&
+    (normalizedPath.startsWith("asset://") ||
+      normalizedPath.startsWith("http://asset.localhost") ||
+      normalizedPath.startsWith("https://asset.localhost") ||
+      normalizedPath.startsWith("file://"))
+  ) {
+    const native = toNativePath(normalizedPath);
+    if (native && native !== normalizedPath) {
+      normalizedPath = native;
+    }
+  }
+
+  const isImageExt = /\.(jpg|jpeg|png|gif|webp|bmp|svg|tiff|heic|heif|avif)$/i.test(
+    asset.name || normalizedPath || "",
+  );
+
+  if (isImageExt && asset.type !== "image") {
+    return {
+      ...asset,
+      path: normalizedPath,
+      type: "image" as const,
+      posterFrame:
+        asset.posterFrame ||
+        (normalizedPath ? platform.convertFileSrc(normalizedPath) : undefined),
+    };
+  }
+
+  if (normalizedPath !== asset.path) {
+    return {
+      ...asset,
+      path: normalizedPath,
+    };
+  }
+
+  return asset;
+};
 
 let currentLoadId = 0;
 let initializationSequence = 0;
@@ -853,9 +894,12 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
         lastPersistedSnapshot = null;
         lastPersistedProjectId = project.id;
-        accumulatedOpfsPatches = [];
-
-        set({ project, mediaAssets: effectivePayload?.mediaAssets ?? [] });
+        set({
+          project,
+          mediaAssets: (effectivePayload?.mediaAssets ?? []).map(
+            normalizeMediaAsset,
+          ),
+        });
 
         const allPayloadClips = flattenClips(effectivePayload?.clips);
         await preloadTextEffectDefinitionsFromClips(allPayloadClips);
@@ -1060,15 +1104,18 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       }
     }),
 
-  addMediaAsset: (asset) => {
+  addMediaAsset: (rawAsset) => {
+    const asset = normalizeMediaAsset(rawAsset);
     set((state) => {
-      // Check if asset with same path already exists
-      const existingAsset = state.mediaAssets.find(
-        (a) => a.path === asset.path,
+      // Check if asset with same path or id already exists
+      const existingIndex = state.mediaAssets.findIndex(
+        (a) => a.path === asset.path || a.id === asset.id,
       );
 
-      if (existingAsset) {
-        return state; // No change
+      if (existingIndex >= 0) {
+        const updated = [...state.mediaAssets];
+        updated[existingIndex] = { ...updated[existingIndex], ...asset };
+        return { mediaAssets: updated };
       }
 
       return {
