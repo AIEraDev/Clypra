@@ -1,5 +1,5 @@
 import { SpatialTier, SPATIAL_TIER_DIMS } from "../renderEngine/types";
-import { FILMSTRIP_DENSITY_TIERS, type FilmstripTileAddress } from "./filmstripTiers";
+import { type FilmstripTileAddress } from "./filmstripTiers";
 
 /**
  * Professional timeline filmstrips keep a stable visual tile cadence in screen
@@ -72,10 +72,14 @@ export interface FilmstripTileSlot {
 }
 
 /**
- * Convert exact source-time tile addresses into deterministic fixed-width
- * visual slots. The timestamp is used only for the address match; position is
- * carried by the ordered slot metadata so renderers never infer or substitute
- * a nearest frame. The final slot is clipped by the surface bounds.
+ * Convert pixel-grid tile addresses into fixed-width visual slots.
+ *
+ * Each slot's canvas-local left position = address.tileIndex × tileWidthPx - renderWindowLeftPx.
+ * This works because generateViewportTileAddresses now sets tileIndex = floor(clipLocalPx / tileWidthPx),
+ * so the pixel-grid index carries the spatial position directly.
+ *
+ * Every slot is exactly tileWidthPx wide. The container's overflow:hidden clips any
+ * partial last tile at the clip boundary — no gaps, no stretching.
  */
 export function getFilmstripTileSlots(options: {
   addresses: readonly FilmstripTileAddress[];
@@ -87,35 +91,30 @@ export function getFilmstripTileSlots(options: {
   renderWindowLeftPx?: number;
   clipTrimIn?: number;
 }): FilmstripTileSlot[] {
-  const { addresses, clipWidthPx, trimIn, trimOut, tileWidthPx, pixelsPerSecond, renderWindowLeftPx = 0, clipTrimIn } = options;
+  const { addresses, clipWidthPx, trimIn, trimOut, tileWidthPx, renderWindowLeftPx = 0 } = options;
   const start = Math.min(trimIn, trimOut);
   const end = Math.max(trimIn, trimOut);
   if (!Number.isFinite(clipWidthPx) || clipWidthPx <= 0 || end - start <= 0 || !Number.isFinite(tileWidthPx) || tileWidthPx <= 0) {
     return [];
   }
 
-  const baseTrimIn = clipTrimIn !== undefined ? clipTrimIn : start;
-  const pps = pixelsPerSecond !== undefined && pixelsPerSecond > 0 ? pixelsPerSecond : (clipWidthPx / (end - start));
-
-  // Include any tile whose coverage interval [t, t + interval] overlaps [start, end]
+  // Sort by tileIndex (pixel-grid order) so rendering is always left-to-right.
   const sorted = [...addresses]
-    .filter((address) => {
-      const interval = FILMSTRIP_DENSITY_TIERS[address.zoomTier]?.thumbnailIntervalSeconds ?? 1.0;
-      const tileEnd = address.timestamp + interval;
-      return address.timestamp <= end && tileEnd >= start;
-    })
-    .sort((a, b) => a.timestamp - b.timestamp);
+    .filter((address) => address.timestamp <= end && address.timestamp >= start - tileWidthPx / Math.max(1, (clipWidthPx / (end - start))))
+    .sort((a, b) => a.tileIndex - b.tileIndex);
+
+  if (sorted.length === 0) return [];
 
   return sorted.map((address) => {
-    const interval = FILMSTRIP_DENSITY_TIERS[address.zoomTier]?.thumbnailIntervalSeconds ?? 1.0;
-    const clipLeftPx = (address.timestamp - baseTrimIn) * pps;
-    const canvasLeftPx = clipLeftPx - renderWindowLeftPx;
-    const widthPx = Math.max(1, interval * pps);
+    // Canvas-local left: pixel-grid position minus the render window offset
+    const leftPx = address.tileIndex * tileWidthPx - renderWindowLeftPx;
 
+    // All slots are exactly tileWidthPx wide. The container's overflow:hidden
+    // cleanly clips the last tile at the clip boundary — no special handling.
     return {
       address,
-      leftPx: canvasLeftPx,
-      widthPx,
+      leftPx,
+      widthPx: tileWidthPx,
     };
   });
 }

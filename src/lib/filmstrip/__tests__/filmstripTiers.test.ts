@@ -125,16 +125,18 @@ describe("generateViewportTileAddresses", () => {
 
     for (const addr of addresses) {
       expect(addr.timestamp).toBeGreaterThanOrEqual(10);
-      expect(addr.timestamp).toBeLessThan(20);
+      // Spatial model: tiles are clamped to [trimIn, effectiveEnd] inclusive
+      expect(addr.timestamp).toBeLessThanOrEqual(20);
     }
   });
 
-  it("generates consistent addresses across zoom tiers", () => {
-    // Same clip at different zoom tiers should have consistent grid alignment
-    const l1 = generateViewportTileAddresses({
+  it("generates consistent addresses across zoom tiers — spatial model: tile count driven by pixel width", () => {
+    // In the spatial model, tile count = ceil(visibleWidth / tileWidthPx), independent of zoomTier.
+    // L1 and L2 at the same PPS and same viewport produce IDENTICAL tile counts.
+    // The only difference is the zoomTier field (which drives decode resolution).
+    const commonOpts = {
       clipId: "clip-1",
       videoPath: "/test.mp4",
-      zoomTier: SpatialTier.L1,
       trimIn: 0,
       trimOut: 60,
       clipStartTime: 0,
@@ -143,31 +145,22 @@ describe("generateViewportTileAddresses", () => {
       viewportWidth: 1920,
       pixelsPerSecond: 50,
       overscanFactor: 1.0,
-    });
+    };
 
-    const l2 = generateViewportTileAddresses({
-      clipId: "clip-1",
-      videoPath: "/test.mp4",
-      zoomTier: SpatialTier.L2,
-      trimIn: 0,
-      trimOut: 60,
-      clipStartTime: 0,
-      clipWidthPx: 3000,
-      viewportScrollLeft: 0,
-      viewportWidth: 1920,
-      pixelsPerSecond: 50,
-      overscanFactor: 1.0,
-    });
+    const l1 = generateViewportTileAddresses({ ...commonOpts, zoomTier: SpatialTier.L1 });
+    const l2 = generateViewportTileAddresses({ ...commonOpts, zoomTier: SpatialTier.L2 });
 
-    // L2 has finer grid (500ms) so more tiles
-    expect(l2.length).toBeGreaterThan(l1.length);
+    // Same viewport + PPS → same tile count regardless of tier
+    expect(l1.length).toBe(l2.length);
 
-    // But tiles at L1 timestamps should also exist in L2 (subset)
-    const l1Timestamps = new Set(l1.map((a) => a.timestamp));
-    const l2Timestamps = new Set(l2.map((a) => a.timestamp));
-    for (const t of l1Timestamps) {
-      expect(l2Timestamps).toContain(t);
-    }
+    // Every L1 address has zoomTier L1, every L2 address has zoomTier L2
+    expect(l1.every((a) => a.zoomTier === SpatialTier.L1)).toBe(true);
+    expect(l2.every((a) => a.zoomTier === SpatialTier.L2)).toBe(true);
+
+    // Timestamps are identical (same pixel positions, same PPS → same times)
+    const l1Ts = l1.map((a) => a.timestamp);
+    const l2Ts = l2.map((a) => a.timestamp);
+    expect(l1Ts).toEqual(l2Ts);
   });
 
   it("clamps timestamps to video duration when provided", () => {

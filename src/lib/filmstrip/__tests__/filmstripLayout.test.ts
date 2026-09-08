@@ -47,7 +47,7 @@ describe("getFilmstripRenderWindow", () => {
 });
 
 describe("getFilmstripTileSlots", () => {
-  it("uses deterministic fixed-width slots for exact addresses", () => {
+  it("uses fixed-width slots at index-based positions regardless of temporal interval", () => {
     const slots = getFilmstripTileSlots({
       addresses: [0, 5, 10].map((timestamp, tileIndex) => ({
         clipId: "clip-1",
@@ -61,15 +61,18 @@ describe("getFilmstripTileSlots", () => {
       tileWidthPx: 50,
     });
 
-    expect(slots.map((slot) => [slot.leftPx, slot.widthPx])).toEqual([
-      [0, 10],
-      [50, 10],
-      [100, 10],
-    ]);
+    // 3 addresses → 3 slots at fixed index positions 0, 50, 100
+    // Every slot — including the last — is exactly 50px wide
+    expect(slots).toHaveLength(3);
+    expect(slots[0].leftPx).toBe(0);
+    expect(slots[0].widthPx).toBe(50);
+    expect(slots[1].leftPx).toBe(50);
+    expect(slots[1].widthPx).toBe(50);
+    expect(slots[2].leftPx).toBe(100);
+    expect(slots[2].widthPx).toBe(50);
   });
 
   it("ensures consecutive tiles are contiguous with zero gaps", () => {
-    const pps = 100; // 100 px/s
     const addresses = [0, 1, 2, 3, 4].map((timestamp, tileIndex) => ({
       clipId: "clip-1",
       zoomTier: SpatialTier.L1, // interval = 1.0s
@@ -83,7 +86,6 @@ describe("getFilmstripTileSlots", () => {
       trimIn: 0,
       trimOut: 5,
       tileWidthPx: 50,
-      pixelsPerSecond: pps,
     });
 
     expect(slots).toHaveLength(5);
@@ -95,8 +97,8 @@ describe("getFilmstripTileSlots", () => {
     }
   });
 
-  it("maintains rock-solid timeline world-space coordinate invariance across arbitrary scroll positions", () => {
-    // 60s clip at 50px/s => 3000px wide. Tiles generated every 1s.
+  it("maintains fixed-index position invariance: leftPx = slotIndex × tileWidthPx - renderWindowLeftPx", () => {
+    // 60 tiles, various renderWindowLeftPx offsets
     const addresses = Array.from({ length: 60 }, (_, i) => ({
       clipId: "clip-scroll-test",
       zoomTier: SpatialTier.L1,
@@ -104,37 +106,28 @@ describe("getFilmstripTileSlots", () => {
       timestamp: i * 1.0,
     }));
 
-    const pps = 50;
-    const clipTrimIn = 0;
-    const clipTrimOut = 60;
     const tileWidthPx = 50;
+    const renderWindowLeftPx = 237;
 
-    // Simulate 3 different scroll positions: 0px, 237px, and 1420px
-    const scrollPositions = [0, 237, 1420];
+    const slots = getFilmstripTileSlots({
+      addresses,
+      clipWidthPx: 3000,
+      trimIn: 0,
+      trimOut: 60,
+      tileWidthPx,
+      renderWindowLeftPx,
+    });
 
-    for (const renderWindowLeftPx of scrollPositions) {
-      const renderWindowTrimIn = clipTrimIn + renderWindowLeftPx / pps;
-      const renderWindowTrimOut = renderWindowTrimIn + 1000 / pps; // 1000px viewport
+    expect(slots.length).toBeGreaterThan(0);
 
-      const slots = getFilmstripTileSlots({
-        addresses,
-        clipWidthPx: 3000,
-        trimIn: renderWindowTrimIn,
-        trimOut: renderWindowTrimOut,
-        tileWidthPx,
-        pixelsPerSecond: pps,
-        renderWindowLeftPx,
-        clipTrimIn,
-      });
+    // Invariant: leftPx = slotIndex × tileWidthPx - renderWindowLeftPx
+    slots.forEach((slot, index) => {
+      expect(slot.leftPx).toBeCloseTo(index * tileWidthPx - renderWindowLeftPx, 4);
+    });
 
-      expect(slots.length).toBeGreaterThan(0);
-
-      // Invariant: For EVERY visible slot, (renderWindowLeftPx + slot.leftPx) MUST EQUAL (timestamp - clipTrimIn) * pps
-      for (const slot of slots) {
-        const physicalWorldX = renderWindowLeftPx + slot.leftPx;
-        const expectedWorldX = (slot.address.timestamp - clipTrimIn) * pps;
-        expect(physicalWorldX).toBeCloseTo(expectedWorldX, 4);
-      }
+    // And no gaps between consecutive slots
+    for (let i = 0; i < slots.length - 1; i++) {
+      expect(slots[i].leftPx + slots[i].widthPx).toBeCloseTo(slots[i + 1].leftPx, 4);
     }
   });
 
@@ -153,15 +146,14 @@ describe("getFilmstripTileSlots", () => {
       trimIn: 0.4,
       trimOut: 3.2,
       tileWidthPx: 50,
-      pixelsPerSecond: 50,
       renderWindowLeftPx: 20, // 0.4s * 50 = 20px
-      clipTrimIn: 0,
     });
 
     // Tile 0 (0.0s) spans [0.0s, 1.0s], which covers [0.4s, 1.0s] => MUST be present!
     const tile0 = slots.find((s) => s.address.timestamp === 0);
     expect(tile0).toBeDefined();
-    // Tile 0's canvas leftPx should be (0 - 0)*50 - 20 = -20px (clipped to canvas edge)
+    // Tile 0 is slot index 0 → leftPx = 0 * 50 - 20 = -20px (partially off-canvas left)
     expect(tile0?.leftPx).toBe(-20);
   });
 });
+
