@@ -44,7 +44,7 @@ export class RenderEngine {
   private _clipStates = new Map<string, ClipRenderState>();
   private _ismUnsubscribe: (() => void) | null = null;
 
-  private _currentZoom = 1.0;
+  private _currentZoom: number;
   private _currentVelocityState = VelocityState.Stable;
   private _currentInteractionState = InteractionState.Idle;
   private _currentViewportBounds: ViewportBounds = { x: 0, y: 0, width: 0, height: 0 };
@@ -58,11 +58,15 @@ export class RenderEngine {
       qualityPreset?: QualityPreset;
       rendererMode?: RendererMode;
       filmstripMemoryMB?: number;
+      /** Seed the engine at the project's current zoom level to avoid a tier
+       *  mismatch before the timeline's first RAF fires. Defaults to 1.0. */
+      initialZoom?: number;
     } = {},
   ) {
     this.projectId = projectId;
     this._qualityPreset = options.qualityPreset ?? QualityPreset.Medium;
     this._rendererMode = options.rendererMode ?? RendererMode.Canvas2D;
+    this._currentZoom = options.initialZoom ?? 1.0;
 
     this._ism = new InteractionStateMachine();
     const initialDpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
