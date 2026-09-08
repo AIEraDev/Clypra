@@ -41,6 +41,12 @@ import {
   FolderOpen,
   Eye,
   Image as ImageIcon,
+  HelpCircle,
+  Cable,
+  ShieldCheck,
+  ChevronRight,
+  Info,
+  Radio,
 } from "lucide-react";
 import {
   useSettingsStore,
@@ -223,7 +229,7 @@ interface TransferPanelProps {
   onClose: () => void;
   onImportFiles: (filePaths: string[]) => void;
   /** Optional initial active tab */
-  initialTab?: "send" | "receive";
+  initialTab?: "send" | "receive" | "guide";
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
@@ -246,7 +252,9 @@ export const TransferPanel: React.FC<TransferPanelProps> = ({
     transferSaveDirectory || "",
   );
 
-  const [activeTab, setActiveTab] = useState<"send" | "receive">(initialTab);
+  const [activeTab, setActiveTab] = useState<"send" | "receive" | "guide">(
+    initialTab,
+  );
   const [serverUrl, setServerUrl] = useState<string | null>(null);
   const [qrCodeSvg, setQrCodeSvg] = useState<string | null>(null);
   const [serverRunning, setServerRunning] = useState(false);
@@ -648,7 +656,7 @@ export const TransferPanel: React.FC<TransferPanelProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
       <div
-        className="relative w-full max-w-xl rounded-2xl shadow-2xl flex flex-col overflow-hidden text-text-primary"
+        className="relative w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col overflow-hidden text-text-primary"
         style={{
           background: "var(--clypra-surface-panel, #15151c)",
           border:
@@ -717,6 +725,18 @@ export const TransferPanel: React.FC<TransferPanelProps> = ({
               <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
             )}
           </button>
+
+          <button
+            onClick={() => setActiveTab("guide")}
+            className={`flex items-center gap-2 pb-3 px-3 text-sm font-semibold border-b-2 cursor-pointer transition-all ${
+              activeTab === "guide"
+                ? "border-accent text-accent"
+                : "border-transparent text-text-muted hover:text-text-primary"
+            }`}
+          >
+            <HelpCircle className="w-4 h-4" />
+            <span>Connection Guide</span>
+          </button>
         </div>
 
         {/* Save Destination Folder Bar */}
@@ -783,14 +803,52 @@ export const TransferPanel: React.FC<TransferPanelProps> = ({
             /* TAB 1: SEND TO PHONE                                       */
             /* ─────────────────────────────────────────────────────────── */
             <div className="space-y-6">
+              {/* Quick Connection Tip Banner */}
+              <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-accent/10 border border-accent/20 text-xs text-text-primary">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-7 h-7 rounded-lg bg-accent/20 flex items-center justify-center shrink-0">
+                    <Radio className="w-4 h-4 text-accent" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-text-primary truncate">
+                      Hotspot tip: Keep Mobile Data turned ON on your phone
+                    </p>
+                    <p className="text-[11px] text-text-muted truncate">
+                      Required for phone routing · 0 MB mobile data is consumed · 100% local Wi-Fi
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setActiveTab("guide")}
+                  className="shrink-0 px-2.5 py-1 rounded-lg bg-accent/20 hover:bg-accent text-accent hover:text-white text-[11px] font-semibold border border-accent/30 transition-all flex items-center gap-1 cursor-pointer"
+                >
+                  <span>View Guide</span>
+                  <ChevronRight className="w-3 h-3" />
+                </button>
+              </div>
+
               {/* Dual presentation: QR Code on left, Staged files & peers on right */}
               <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
-                <div className="md:col-span-5 flex justify-center">
+                <div className="md:col-span-5 flex flex-col items-center">
                   <QRCodeSVG
                     svg={qrCodeSvg}
                     url={serverUrl}
                     subtitle="Scan with Phone Camera to download in mobile browser"
                   />
+
+                  {/* How to download on phone */}
+                  <div className="w-full mt-3 p-3.5 rounded-xl bg-white/3 border border-white/8 space-y-1.5 text-left">
+                    <h4 className="text-[11px] font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
+                      <Download className="w-3.5 h-3.5 text-accent" />
+                      <span>How to download on phone</span>
+                    </h4>
+                    <ol className="text-xs text-text-muted space-y-1 list-decimal list-inside leading-relaxed">
+                      <li>Add files on the right to stage them for your phone.</li>
+                      <li>Scan QR code with phone camera to open Web Hub.</li>
+                      <li>Tap <strong>"Download"</strong> or <strong>"View 👁️"</strong>.</li>
+                      <li>If Chrome warns, tap <strong>"Keep"</strong> (it's 100% offline & safe).</li>
+                    </ol>
+                  </div>
                 </div>
 
                 <div className="md:col-span-7 flex flex-col gap-4">
@@ -970,11 +1028,35 @@ export const TransferPanel: React.FC<TransferPanelProps> = ({
                 )}
               </div>
             </div>
-          ) : (
+          ) : activeTab === "receive" ? (
             /* ─────────────────────────────────────────────────────────── */
             /* TAB 2: RECEIVE FROM PHONE                                  */
             /* ─────────────────────────────────────────────────────────── */
             <div className="space-y-6">
+              {/* Quick Connection Tip Banner */}
+              <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-accent/10 border border-accent/20 text-xs text-text-primary">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-7 h-7 rounded-lg bg-accent/20 flex items-center justify-center shrink-0">
+                    <Radio className="w-4 h-4 text-accent" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-text-primary truncate">
+                      Hotspot tip: Keep Mobile Data turned ON on your phone
+                    </p>
+                    <p className="text-[11px] text-text-muted truncate">
+                      Required for phone routing · 0 MB mobile data is consumed · 100% local Wi-Fi
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setActiveTab("guide")}
+                  className="shrink-0 px-2.5 py-1 rounded-lg bg-accent/20 hover:bg-accent text-accent hover:text-white text-[11px] font-semibold border border-accent/30 transition-all flex items-center gap-1 cursor-pointer"
+                >
+                  <span>View Guide</span>
+                  <ChevronRight className="w-3 h-3" />
+                </button>
+              </div>
+
               {/* Incoming consent request */}
               {consentRequest && (
                 <div className="rounded-xl border border-accent/40 bg-accent/10 p-4 shadow-lg animate-in zoom-in-95">
@@ -1039,8 +1121,9 @@ export const TransferPanel: React.FC<TransferPanelProps> = ({
 
                 <div className="md:col-span-7 space-y-3">
                   <div className="p-4 rounded-xl bg-white/3 border border-white/8 space-y-2">
-                    <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">
-                      How to upload from phone
+                    <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
+                      <Upload className="w-3.5 h-3.5 text-accent" />
+                      <span>How to upload from phone</span>
                     </h3>
                     <ol className="text-xs text-text-muted space-y-1.5 list-decimal list-inside leading-relaxed">
                       <li>Point your phone camera at the QR code.</li>
@@ -1053,6 +1136,18 @@ export const TransferPanel: React.FC<TransferPanelProps> = ({
                       </li>
                       <li>Accept the transfer prompt on your laptop.</li>
                     </ol>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-white/2 border border-white/6 text-xs text-text-muted flex items-start gap-2.5">
+                    <ShieldCheck className="w-4 h-4 text-green-400 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-text-primary text-[11px]">
+                        Lossless Direct Local Transfer
+                      </p>
+                      <p className="text-[11px] text-text-muted/80 leading-relaxed">
+                        Transfers occur untouched directly between devices over local radio hardware. No cloud, no quality degradation, and 0 MB mobile data used.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1238,6 +1333,226 @@ export const TransferPanel: React.FC<TransferPanelProps> = ({
                   })}
                 </div>
               )}
+            </div>
+          ) : (
+            /* ─────────────────────────────────────────────────────────── */
+            /* TAB 3: CONNECTION & OFFLINE GUIDE                          */
+            /* ─────────────────────────────────────────────────────────── */
+            <div className="space-y-6">
+              {/* Feature Highlights / Guarantee Banner */}
+              <div className="p-4 rounded-xl bg-accent/10 border border-accent/25 space-y-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-accent/20 flex items-center justify-center shrink-0">
+                    <ShieldCheck className="w-5 h-5 text-accent" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-text-primary">
+                      100% Offline & Zero Data Consumed
+                    </h3>
+                    <p className="text-xs text-text-muted">
+                      Transfers occur strictly between devices over local radio hardware. No cloud or internet.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-black/25 border border-white/5 text-[11px]">
+                    <span className="text-emerald-400 font-bold text-sm">0 MB</span>
+                    <span className="text-text-muted">Mobile data used</span>
+                  </div>
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-black/25 border border-white/5 text-[11px]">
+                    <span className="text-sky-400 font-bold text-sm">100%</span>
+                    <span className="text-text-muted">Offline & private</span>
+                  </div>
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-black/25 border border-white/5 text-[11px]">
+                    <span className="text-amber-400 font-bold text-sm">Lossless</span>
+                    <span className="text-text-muted">Original 4K / Audio</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Connection Methods */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold text-text-muted uppercase tracking-wider">
+                  Choose How to Connect
+                </h4>
+
+                {/* Option 1: Same Wi-Fi */}
+                <div className="p-4 rounded-xl bg-white/3 border border-white/8 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                        <Wifi className="w-4 h-4 text-emerald-400" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-text-primary">
+                          Method 1: Same Wi-Fi Network
+                        </span>
+                        <p className="text-[11px] text-text-muted">
+                          Best for Home, Studio, or Office
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
+                      Recommended
+                    </span>
+                  </div>
+                  <ol className="text-xs text-text-muted space-y-1.5 list-decimal list-inside leading-relaxed pl-1">
+                    <li>Connect both your laptop and phone to the <strong>same Wi-Fi router</strong>.</li>
+                    <li>
+                      <strong>No internet required:</strong> Even if your router has no active internet subscription, devices communicate directly over the local network.
+                    </li>
+                    <li>Point your phone camera at the QR code in Clypra to start transferring!</li>
+                  </ol>
+                </div>
+
+                {/* Option 2: Phone Hotspot */}
+                <div className="p-4 rounded-xl bg-white/3 border border-amber-500/25 space-y-3 relative overflow-hidden">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+                        <Smartphone className="w-4 h-4 text-amber-400" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-text-primary">
+                          Method 2: Phone Hotspot (Away from Wi-Fi)
+                        </span>
+                        <p className="text-[11px] text-text-muted">
+                          Best when travelling or outdoors
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400">
+                      Mobile Hotspot
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs space-y-1.5">
+                    <div className="flex items-center gap-2 text-amber-300 font-semibold">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <span>Important: Turn Mobile Data ON on your phone</span>
+                    </div>
+                    <p className="text-[11px] text-amber-200/90 leading-relaxed">
+                      <strong>Why won't Hotspot work if Mobile Data is off?</strong><br />
+                      Android and iOS automatically disable their local network DHCP router and socket bridges if Mobile Data is toggled off. When Mobile Data is off, your phone refuses to assign an IP address or route packets to your laptop.
+                    </p>
+                    <p className="text-[11px] text-emerald-300 font-medium">
+                      🛡️ <strong>Zero Data Consumption Guarantee:</strong> Even with Mobile Data toggled ON, <strong>0 MB of your cellular data plan is used</strong>. Clypra transfers files strictly over the phone-to-laptop Wi-Fi radio frequencies at up to 80+ MB/s.
+                    </p>
+                  </div>
+
+                  <ol className="text-xs text-text-muted space-y-1.5 list-decimal list-inside leading-relaxed pl-1">
+                    <li>Turn <strong>Mobile Data ON</strong> on your phone.</li>
+                    <li>Turn <strong>Personal Hotspot</strong> ON on your phone.</li>
+                    <li>Connect your laptop's Wi-Fi to your phone's hotspot.</li>
+                    <li>Scan the QR code in Clypra to send or receive files.</li>
+                  </ol>
+                </div>
+
+                {/* Option 3: Laptop Hotspot */}
+                <div className="p-4 rounded-xl bg-white/3 border border-white/8 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center">
+                        <Laptop className="w-4 h-4 text-sky-400" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-text-primary">
+                          Method 3: Laptop Hotspot (No SIM / Data Needed)
+                        </span>
+                        <p className="text-[11px] text-text-muted">
+                          100% offline without SIM card or cellular signal
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-sky-500/15 border border-sky-500/30 text-sky-400">
+                      Laptop Host
+                    </span>
+                  </div>
+                  <div className="text-xs text-text-muted space-y-2 leading-relaxed">
+                    <p>
+                      If you want to keep your phone completely offline or don't have a SIM card:
+                    </p>
+                    <ul className="space-y-1 list-disc list-inside text-[11px]">
+                      <li>
+                        <strong>macOS:</strong> Open <em>System Settings → General → Sharing → Internet Sharing</em>. Turn it on to create a local Wi-Fi hotspot from your Mac.
+                      </li>
+                      <li>
+                        <strong>Windows:</strong> Open <em>Settings → Network & Internet → Mobile Hotspot</em>. Toggle it ON.
+                      </li>
+                      <li>Connect your phone's Wi-Fi to the laptop's network and scan the QR code.</li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Option 4: USB Cable Tethering */}
+                <div className="p-4 rounded-xl bg-white/3 border border-white/8 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
+                        <Cable className="w-4 h-4 text-purple-400" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-text-primary">
+                          Method 4: USB Cable Tethering
+                        </span>
+                        <p className="text-[11px] text-text-muted">
+                          Fastest speeds (up to 10 Gbps wired) & zero wireless interference
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-400">
+                      Wired Fast
+                    </span>
+                  </div>
+                  <ol className="text-xs text-text-muted space-y-1.5 list-decimal list-inside leading-relaxed pl-1">
+                    <li>Connect phone to laptop using a USB-C or Lightning cable.</li>
+                    <li>On phone, open <strong>Settings → Hotspot / Tethering → enable USB Tethering</strong>.</li>
+                    <li>Clypra will detect the wired adapter automatically. Great for transferring 50+ GB 4K footage!</li>
+                  </ol>
+                </div>
+              </div>
+
+              {/* Troubleshooting & Browser Tips */}
+              <div className="p-4 rounded-xl bg-white/2 border border-white/6 space-y-3">
+                <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-2">
+                  <Info className="w-4 h-4 text-accent" />
+                  <span>Mobile Browser Tips & Warnings</span>
+                </h4>
+
+                <div className="space-y-2.5 text-xs text-text-muted">
+                  <div className="p-3 rounded-lg bg-black/20 border border-white/5 space-y-1">
+                    <p className="font-semibold text-text-primary text-[11px]">
+                      Android Chrome: "File can't be downloaded securely"
+                    </p>
+                    <p className="text-[11px] leading-relaxed">
+                      Because Clypra runs directly on your private home/hotspot IP (<code className="text-accent">http://192.168.x.x</code>) without routing through public cloud servers, Chrome shows this routine security check. Tap the prompt or 3 dots and select <strong>"Keep"</strong> or <strong>"Download anyway"</strong>.
+                    </p>
+                    <p className="text-[11px] text-accent">
+                      💡 <em>Alternative:</em> You can also tap <strong>"View 👁️"</strong> in the Clypra mobile web hub to view or stream photos and videos directly in your browser tab without downloading!
+                    </p>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-black/20 border border-white/5 space-y-1">
+                    <p className="font-semibold text-text-primary text-[11px]">
+                      iPhone / iPad Safari: "Do you want to download?"
+                    </p>
+                    <p className="text-[11px] leading-relaxed">
+                      Tap <strong>"Download"</strong> when Safari asks. Once downloaded, tap the blue arrow circle in the Safari URL bar to open the file or save it directly into your Photos app.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  onClick={() => setActiveTab("send")}
+                  className="px-4 py-2 rounded-xl bg-accent text-white text-xs font-semibold hover:bg-accent/90 transition-colors cursor-pointer shadow-md shadow-accent/20 flex items-center gap-1.5"
+                >
+                  <span>Go to Send / Receive</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
           )}
         </div>
