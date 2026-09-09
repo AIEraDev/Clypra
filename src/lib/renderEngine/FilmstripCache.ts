@@ -779,70 +779,122 @@ export class FilmstripCache {
       return;
     }
 
-    const timestampsMs = missingTileAddresses.map((addr) => Math.round(addr.timestamp * 1000));
+    // Partition missing tiles into:
+    // 1. Visible tiles: within the current viewport window (priority 10, playhead/center-first)
+    // 2. Overscan tiles: outside the current viewport window (priority 1, background prefetch)
+    const timeEps = 0.05;
+    const visibleMissingAddresses: FilmstripTileAddress[] = [];
+    const overscanMissingAddresses: FilmstripTileAddress[] = [];
+
+    for (const addr of missingTileAddresses) {
+      if (addr.timestamp >= visibleStartTime - timeEps && addr.timestamp <= visibleEndTime + timeEps) {
+        visibleMissingAddresses.push(addr);
+      } else {
+        overscanMissingAddresses.push(addr);
+      }
+    }
+
     let arrivedCount = 0;
 
-    // Request artifacts through the same native FrameRequest path used by the
-    // program preview. FilmstripCache still owns epochs and bitmap lifetime.
-    const cancelFn = requestFilmstripArtifacts({
-      videoPath,
-      timestampsMs,
-      spatialTier,
-      epochId,
-      clipId,
-      priority: 10,
-      onArtifact: (artifact) => {
-        // Check if entry still valid (not invalidated during async decode)
-        const currentEntry = this.entries.get(clipId);
-        if (!currentEntry) {
+    const handleArtifact = (artifact: TransportArtifact) => {
+      // Check if entry still valid (not invalidated during async decode)
+      const currentEntry = this.entries.get(clipId);
+      if (!currentEntry) {
+        artifact.bitmap.close();
+        return;
+      }
+      if (currentEntry.epochId !== epochId) {
+        artifact.bitmap.close();
+        return;
+      }
+      if (!isValidArtifact(artifact)) {
+        try {
           artifact.bitmap.close();
-          return;
-        }
-        if (currentEntry.epochId !== epochId) {
-          artifact.bitmap.close();
-          return;
-        }
-        if (!isValidArtifact(artifact)) {
-          try {
-            artifact.bitmap.close();
-          } catch {}
-          return;
-        }
+        } catch {}
+        return;
+      }
 
-        arrivedCount++;
+      arrivedCount++;
 
-        // Find the tile address this artifact belongs to
-        const matchingAddr = currentEntry.tileAddresses.find((a) => Math.abs(a.timestamp * 1000 - artifact.timestampMs) < 1);
-        if (matchingAddr) {
-          // Store in tile cache for reuse across zoom transitions
-          const t0 = typeof performance !== "undefined" ? performance.now() : 0;
-          this.tileCache.setTile(matchingAddr, artifact);
-          if (t0 > 0) {
-            recordCacheApply(artifact.spatialTier, performance.now() - t0);
-          }
+      // Find the tile address this artifact belongs to
+      const matchingAddr = currentEntry.tileAddresses.find(
+        (a) => Math.abs(a.timestamp * 1000 - artifact.timestampMs) < 1,
+      );
+      if (matchingAddr) {
+        // Store in tile cache for reuse across zoom transitions
+        const t0 = typeof performance !== "undefined" ? performance.now() : 0;
+        this.tileCache.setTile(matchingAddr, artifact);
+        if (t0 > 0) {
+          recordCacheApply(artifact.spatialTier, performance.now() - t0);
         }
+      }
 
-        // Enforce memory budget BEFORE scheduling
-        const sizeBytes = artifact.width * artifact.height * 4;
-        while (this.currentMemoryBytes + sizeBytes > this.memoryBudgetBytes && this.entries.size > 1) {
-          this._evictLRU(clipId); // Don't evict current clip
-        }
+      // Enforce memory budget BEFORE scheduling
+      const sizeBytes = artifact.width * artifact.height * 4;
+      while (this.currentMemoryBytes + sizeBytes > this.memoryBudgetBytes && this.entries.size > 1) {
+        this._evictLRU(clipId); // Don't evict current clip
+      }
 
-        // Schedule for RAF-batched update (prevents rerender storm)
-        this.scheduleArtifactUpdate(clipId, artifact);
-      },
-      onComplete: () => {
+      // Schedule for RAF-batched update (prevents rerender storm)
+      this.scheduleArtifactUpdate(clipId, artifact);
+    };
+
+    let cancelVisible: (() => void) | null = null;
+    let cancelOverscan: (() => void) | null = null;
+
+    const checkAllComplete = () => {
+      if (!cancelVisible && !cancelOverscan) {
         const currentEntry = this.entries.get(clipId);
         if (currentEntry && currentEntry.epochId === epochId) {
           currentEntry.cancelFn = null;
         }
-      },
-      onError: (err) => {
-        console.warn(`[Filmstrip ⚠️] Error decoding tiles for clip="${clipId}":`, err);
-      },
-    });
+      }
+    };
 
-    entry.cancelFn = cancelFn;
+    // 1. Dispatch visible tiles with high priority (priority 10)
+    if (visibleMissingAddresses.length > 0) {
+      cancelVisible = requestFilmstripArtifacts({
+        videoPath,
+        timestampsMs: visibleMissingAddresses.map((addr) => Math.round(addr.timestamp * 1000)),
+        spatialTier,
+        epochId,
+        clipId,
+        priority: 10,
+        onArtifact: handleArtifact,
+        onComplete: () => {
+          cancelVisible = null;
+          checkAllComplete();
+        },
+        onError: (err) => {
+          console.warn(`[Filmstrip ⚠️] Error decoding visible tiles for clip="${clipId}":`, err);
+        },
+      });
+    }
+
+    // 2. Dispatch overscan tiles with low priority (priority 1 - background prefetch)
+    if (overscanMissingAddresses.length > 0) {
+      cancelOverscan = requestFilmstripArtifacts({
+        videoPath,
+        timestampsMs: overscanMissingAddresses.map((addr) => Math.round(addr.timestamp * 1000)),
+        spatialTier,
+        epochId,
+        clipId,
+        priority: 1,
+        onArtifact: handleArtifact,
+        onComplete: () => {
+          cancelOverscan = null;
+          checkAllComplete();
+        },
+        onError: (err) => {
+          console.warn(`[Filmstrip ⚠️] Error decoding overscan tiles for clip="${clipId}":`, err);
+        },
+      });
+    }
+
+    entry.cancelFn = () => {
+      cancelVisible?.();
+      cancelOverscan?.();
+    };
   }
 
   /**
