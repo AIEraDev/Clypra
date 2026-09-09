@@ -294,6 +294,7 @@ pub fn run() {
             prewarm_decoders,
             get_render_artifact,
             get_render_artifacts_batch,
+            cancel_render_artifacts_batch,
             check_coarse_baseline_cache,
             get_decode_metrics_snapshot,
             get_sync_metrics_snapshot,
