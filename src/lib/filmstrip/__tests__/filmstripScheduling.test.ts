@@ -37,10 +37,15 @@ describe("FILMSTRIP Scheduling & Priority Pipeline", () => {
   });
 
   it("FILMSTRIP-003: Dispatches requests in strict radial proximity order from visible playhead", () => {
-    let capturedTimestampsMs: number[] = [];
+    let visibleCall: any = null;
+    let overscanCall: any = null;
 
     mockRequestArtifacts.mockImplementation((opts: any) => {
-      capturedTimestampsMs = opts.timestampsMs;
+      if (opts.priority === 10) {
+        visibleCall = opts;
+      } else {
+        overscanCall = opts;
+      }
       return vi.fn();
     });
 
@@ -65,7 +70,9 @@ describe("FILMSTRIP Scheduling & Priority Pipeline", () => {
       onUpdate: vi.fn(),
     });
 
-    expect(mockRequestArtifacts).toHaveBeenCalledTimes(1);
+    // Two-tier scheduling: visible tiles (priority 10) + overscan prefetch (priority 1)
+    expect(visibleCall).toBeDefined();
+    const capturedTimestampsMs = visibleCall.timestampsMs;
     expect(capturedTimestampsMs.length).toBeGreaterThan(0);
 
     // Visible center is ~58s (58000ms)
@@ -85,13 +92,20 @@ describe("FILMSTRIP Scheduling & Priority Pipeline", () => {
   });
 
   it("FILMSTRIP-008: Rapid playhead jump cancels previous request and re-prioritizes new center", () => {
-    const cancelFn1 = vi.fn();
-    let capturedTimestampsCall1: number[] = [];
+    const cancelFnsCall1: any[] = [];
     let capturedTimestampsCall2: number[] = [];
 
-    mockRequestArtifacts.mockImplementationOnce((opts: any) => {
-      capturedTimestampsCall1 = opts.timestampsMs;
-      return cancelFn1;
+    mockRequestArtifacts.mockImplementation((opts: any) => {
+      if (opts.epochId === ("epoch-1" as any)) {
+        const fn = vi.fn();
+        cancelFnsCall1.push(fn);
+        return fn;
+      } else {
+        if (opts.priority === 10) {
+          capturedTimestampsCall2 = opts.timestampsMs;
+        }
+        return vi.fn();
+      }
     });
 
     // Step 1: Initial position at 10s (scrollLeft = 500px, pps = 50 -> center = 15s)
@@ -112,15 +126,10 @@ describe("FILMSTRIP Scheduling & Priority Pipeline", () => {
       onUpdate: vi.fn(),
     });
 
-    expect(cancelFn1).not.toHaveBeenCalled();
+    expect(cancelFnsCall1.length).toBeGreaterThan(0);
+    cancelFnsCall1.forEach((fn) => expect(fn).not.toHaveBeenCalled());
 
     // Step 2: User jumps playhead to 90s (scrollLeft = 4000px) with new epoch
-    const cancelFn2 = vi.fn();
-    mockRequestArtifacts.mockImplementationOnce((opts: any) => {
-      capturedTimestampsCall2 = opts.timestampsMs;
-      return cancelFn2;
-    });
-
     cache.requestFilmstrip({
       clipId: "clip-scrub-1",
       videoPath: "/scrub.mp4",
@@ -138,8 +147,8 @@ describe("FILMSTRIP Scheduling & Priority Pipeline", () => {
       onUpdate: vi.fn(),
     });
 
-    // Old in-flight request must be cancelled immediately
-    expect(cancelFn1).toHaveBeenCalledTimes(1);
+    // Old in-flight requests must be cancelled immediately
+    cancelFnsCall1.forEach((fn) => expect(fn).toHaveBeenCalledTimes(1));
 
     // New request must have 90s area at index 0
     expect(capturedTimestampsCall2[0]).toBeGreaterThanOrEqual(85000);

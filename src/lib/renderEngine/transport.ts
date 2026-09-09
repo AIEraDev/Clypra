@@ -311,10 +311,12 @@ interface FilmstripBatchSubscriber {
 
 interface VideoFilmstripLane {
   inFlight: {
+    token: symbol;
     timestamps: Set<number>;
     spatialTier: SpatialTier;
     clipIds: Set<string>;
     subscribers: FilmstripBatchSubscriber[];
+    cancelFn?: () => void;
   } | null;
   queued: FilmstripBatchSubscriber[];
 }
@@ -369,7 +371,17 @@ async function fanOutFilmstripArtifact(
 
 function pumpFilmstripLane(videoPath: string): void {
   const lane = getFilmstripLane(videoPath);
-  if (lane.inFlight) return;
+  if (lane.inFlight) {
+    // If all subscribers in the current in-flight batch have cancelled (e.g. user scrolled/zoomed away),
+    // preempt it immediately so queued requests for the new viewport start without waiting.
+    const allCancelled = lane.inFlight.subscribers.every((sub) => sub.cancelled);
+    if (allCancelled) {
+      lane.inFlight.cancelFn?.();
+      lane.inFlight = null;
+    } else {
+      return;
+    }
+  }
 
   lane.queued = lane.queued.filter((sub) => !sub.cancelled);
   if (lane.queued.length === 0) {
@@ -406,7 +418,8 @@ function pumpFilmstripLane(videoPath: string): void {
     return;
   }
 
-  requestBatchRenderArtifacts({
+  const batchToken = Symbol("batch");
+  const cancelBatch = requestBatchRenderArtifacts({
     videoPath,
     timestampsMs: timestamps,
     spatialTiers: [preferredTier],
@@ -420,24 +433,30 @@ function pumpFilmstripLane(videoPath: string): void {
         if (!sub.cancelled) sub.onComplete?.();
       }
       const current = getFilmstripLane(videoPath);
-      current.inFlight = null;
-      pumpFilmstripLane(videoPath);
+      if (current.inFlight?.token === batchToken) {
+        current.inFlight = null;
+        pumpFilmstripLane(videoPath);
+      }
     },
     onError: (err) => {
       for (const sub of runNow) {
         if (!sub.cancelled) sub.onError?.(err);
       }
       const current = getFilmstripLane(videoPath);
-      current.inFlight = null;
-      pumpFilmstripLane(videoPath);
+      if (current.inFlight?.token === batchToken) {
+        current.inFlight = null;
+        pumpFilmstripLane(videoPath);
+      }
     },
   });
 
   lane.inFlight = {
+    token: batchToken,
     timestamps: new Set(timestamps),
     spatialTier: preferredTier,
     clipIds: new Set(runNow.map((sub) => sub.clipId)),
     subscribers: runNow,
+    cancelFn: cancelBatch,
   };
 }
 
@@ -742,6 +761,9 @@ export function requestBatchRenderArtifacts(opts: RequestBatchRenderArtifactsOpt
   let cancelled = false;
   const cancel = () => {
     cancelled = true;
+    if (isTauriRuntime()) {
+      invoke("cancel_render_artifacts_batch", { requestId: reqId }).catch(() => {});
+    }
   };
 
   const dispatchStartTime = typeof performance !== "undefined" ? performance.now() : 0;
