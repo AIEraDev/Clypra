@@ -12,6 +12,8 @@ import {
   Lock,
   VolumeX,
   EyeOff,
+  CheckSquare,
+  Trash2,
 } from "lucide-react";
 import type { TimelineCommand } from "./types";
 import { clipboardService } from "@/core/clipboard/clipboardService";
@@ -20,6 +22,7 @@ import { useUIStore } from "@/store/uiStore";
 import { toast } from "@/lib/toast";
 import { GapManager } from "@/lib/timeline/gapManager";
 import { toggleTrackPropertyWithHistory } from "@/core/history/trackPropertyActions";
+import { EditingActions } from "@/core/interactions";
 
 export const timelineCommands: TimelineCommand[] = [
   // ─── Clipboard ──────────────────────────────────────────────────────────────
@@ -34,7 +37,10 @@ export const timelineCommands: TimelineCommand[] = [
     isEnabled: () => clipboardService.hasClips(),
     disabledReason: () => "Clipboard is empty",
     execute: (ctx) => {
-      clipboardService.pasteClips(ctx.clickedTime, ctx.clickedTrackId || undefined);
+      clipboardService.pasteClips(
+        ctx.clickedTime,
+        ctx.clickedTrackId || undefined,
+      );
     },
   },
 
@@ -62,7 +68,11 @@ export const timelineCommands: TimelineCommand[] = [
     icon: Scissors,
     group: "gap",
     isVisible: (ctx) => Boolean(ctx.clickedTrackId),
-    isEnabled: (ctx) => Boolean(ctx.clickedTrackId && !ctx.tracks.find((track) => track.id === ctx.clickedTrackId)?.locked),
+    isEnabled: (ctx) =>
+      Boolean(
+        ctx.clickedTrackId &&
+        !ctx.tracks.find((track) => track.id === ctx.clickedTrackId)?.locked,
+      ),
     disabledReason: () => "Track is locked or no track is selected",
     execute: (ctx) => {
       if (!ctx.clickedTrackId) return;
@@ -125,7 +135,9 @@ export const timelineCommands: TimelineCommand[] = [
     execute: (ctx) => {
       if (!ctx.clickedTrackId) return;
       toggleTrackPropertyWithHistory(ctx.clickedTrackId, "locked");
-      const track = useTimelineStore.getState().tracks.find((t) => t.id === ctx.clickedTrackId);
+      const track = useTimelineStore
+        .getState()
+        .tracks.find((t) => t.id === ctx.clickedTrackId);
       toast.info(track?.locked ? "Track locked" : "Track unlocked");
     },
   },
@@ -137,18 +149,26 @@ export const timelineCommands: TimelineCommand[] = [
     icon: VolumeX,
     group: "track",
     isVisible: (ctx) => Boolean(ctx.clickedTrackId),
-    isEnabled: (ctx) => Boolean(ctx.clickedTrackId && !ctx.tracks.find((track) => track.id === ctx.clickedTrackId)?.locked),
+    isEnabled: (ctx) =>
+      Boolean(
+        ctx.clickedTrackId &&
+        !ctx.tracks.find((track) => track.id === ctx.clickedTrackId)?.locked,
+      ),
     disabledReason: () => "Unlock the track before changing mute",
     execute: (ctx) => {
       if (!ctx.clickedTrackId) return;
       const store = useTimelineStore.getState();
-      const trackBefore = store.tracks.find((track) => track.id === ctx.clickedTrackId);
+      const trackBefore = store.tracks.find(
+        (track) => track.id === ctx.clickedTrackId,
+      );
       if (trackBefore?.locked) {
         toast.info("Unlock the track before changing mute");
         return;
       }
       toggleTrackPropertyWithHistory(ctx.clickedTrackId, "muted");
-      const track = useTimelineStore.getState().tracks.find((t) => t.id === ctx.clickedTrackId);
+      const track = useTimelineStore
+        .getState()
+        .tracks.find((t) => t.id === ctx.clickedTrackId);
       toast.info(track?.muted ? "Track muted" : "Track unmuted");
     },
   },
@@ -164,8 +184,60 @@ export const timelineCommands: TimelineCommand[] = [
     execute: (ctx) => {
       if (!ctx.clickedTrackId) return;
       toggleTrackPropertyWithHistory(ctx.clickedTrackId, "visible");
-      const track = useTimelineStore.getState().tracks.find((t) => t.id === ctx.clickedTrackId);
+      const track = useTimelineStore
+        .getState()
+        .tracks.find((t) => t.id === ctx.clickedTrackId);
       toast.info(track?.visible ? "Track visible" : "Track hidden");
+    },
+  },
+
+  // ─── Track Clip Selection & Deletion ────────────────────────────────────────
+  {
+    id: "track.selectAllClips",
+    label: "Select All Clips in Track",
+    shortcutLabel: "⌘A",
+    icon: CheckSquare,
+    group: "track",
+    isVisible: (ctx) => Boolean(ctx.clickedTrackId),
+    isEnabled: (ctx) => {
+      if (!ctx.clickedTrackId) return false;
+      return ctx.clips.some((c) => c.trackId === ctx.clickedTrackId);
+    },
+    disabledReason: () => "Track has no clips",
+    execute: (ctx) => {
+      if (!ctx.clickedTrackId) return;
+      useUIStore.getState().selectAllClipsInTrack(ctx.clickedTrackId);
+    },
+  },
+  {
+    id: "track.deleteAllClips",
+    label: "Delete All Clips in Track",
+    icon: Trash2,
+    group: "track",
+    danger: true,
+    isVisible: (ctx) => Boolean(ctx.clickedTrackId),
+    isEnabled: (ctx) => {
+      if (!ctx.clickedTrackId) return false;
+      const track = ctx.tracks.find((t) => t.id === ctx.clickedTrackId);
+      if (track?.locked) return false;
+      return ctx.clips.some((c) => c.trackId === ctx.clickedTrackId);
+    },
+    disabledReason: (ctx) => {
+      const track = ctx.tracks.find((t) => t.id === ctx.clickedTrackId);
+      return track?.locked ? "Track is locked" : "Track has no clips";
+    },
+    execute: (ctx) => {
+      if (!ctx.clickedTrackId) return;
+      const ids = ctx.clips
+        .filter((c) => c.trackId === ctx.clickedTrackId)
+        .map((c) => c.id);
+      if (ids.length === 0) return;
+      const result = EditingActions.deleteSelection(ids, false);
+      if (result) {
+        toast.success(
+          `Deleted ${result.deletedClipIds.length} clip${result.deletedClipIds.length !== 1 ? "s" : ""} from track`,
+        );
+      }
     },
   },
 ];
