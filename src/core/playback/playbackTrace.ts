@@ -41,8 +41,8 @@ export function tracePlayback(
   // file alongside rollup and native-sync entries.
   perfLogService.enqueue({
     kind: "playback-trace",
-    session_id: perfLogService.getSessionId() ?? "unknown",
-    timestamp_epoch_ms: payload.tsEpochMs as number,
+    sessionId: perfLogService.getSessionId() ?? "unknown",
+    timestampEpochMs: payload.tsEpochMs as number,
     payload,
   });
 

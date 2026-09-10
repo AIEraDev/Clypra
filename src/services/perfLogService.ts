@@ -63,17 +63,17 @@ export type PerfLogKind =
 export interface PerfLogEntry {
   kind: PerfLogKind;
   /** Matches the session ID passed to `openSession`. */
-  session_id: string;
+  sessionId: string;
   /** Unix epoch ms — set by the caller at collection time. */
-  timestamp_epoch_ms: number;
+  timestampEpochMs: number;
   /** Raw payload — typed by `kind` but opaque to the Rust layer. */
   payload: unknown;
 }
 
 interface PerfLogSessionInfo {
-  session_id: string;
-  file_path: string;
-  opened_at_epoch_ms: number;
+  sessionId: string;
+  filePath: string;
+  openedAtEpochMs: number;
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
@@ -126,8 +126,8 @@ class PerfLogService {
           sessionId,
         },
       );
-      this.sessionId = info.session_id;
-      this.filePath = info.file_path;
+      this.sessionId = info.sessionId;
+      this.filePath = info.filePath;
 
       this.startFlushTimer();
       this.startSyncPollTimer();
@@ -137,8 +137,8 @@ class PerfLogService {
       // hardware context with subsequent entries without re-parsing the whole file.
       this.enqueue({
         kind: "frontend-rollup",
-        session_id: this.sessionId,
-        timestamp_epoch_ms: Date.now(),
+        sessionId: this.sessionId,
+        timestampEpochMs: Date.now(),
         payload: {
           marker: "session-open",
           userAgent:
@@ -163,7 +163,7 @@ class PerfLogService {
 
     // Always stamp with the active session ID in case the caller passed a
     // stale ID from before a project switch.
-    entry.session_id = this.sessionId;
+    entry.sessionId = this.sessionId;
 
     this.queue.push(entry);
 
@@ -219,8 +219,8 @@ class PerfLogService {
     // Write a session-close marker before the final flush.
     this.queue.push({
       kind: "frontend-rollup",
-      session_id: sessionId,
-      timestamp_epoch_ms: Date.now(),
+      sessionId,
+      timestampEpochMs: Date.now(),
       payload: { marker: "session-close" },
     });
 
@@ -365,8 +365,8 @@ class PerfLogService {
       if (!snapshot) return;
       this.enqueue({
         kind: "native-sync",
-        session_id: this.sessionId,
-        timestamp_epoch_ms: Date.now(),
+        sessionId: this.sessionId,
+        timestampEpochMs: Date.now(),
         payload: snapshot,
       });
     } catch {
@@ -383,8 +383,8 @@ class PerfLogService {
           if (!this.sessionId) return;
           this.enqueue({
             kind: "native-diagnostic",
-            session_id: this.sessionId,
-            timestamp_epoch_ms: Date.now(),
+            sessionId: this.sessionId,
+            timestampEpochMs: Date.now(),
             payload,
           });
         },
