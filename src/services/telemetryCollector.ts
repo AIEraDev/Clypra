@@ -1923,8 +1923,8 @@ class TelemetryCollector {
     // as a single request at session close instead of per-rollup API calls.
     perfLogService.enqueue({
       kind: resolvePerfLogKind(event),
-      session_id: event.sessionId ?? perfLogService.getSessionId() ?? "unknown",
-      timestamp_epoch_ms: event.timestampMs,
+      sessionId: event.sessionId ?? perfLogService.getSessionId() ?? "unknown",
+      timestampEpochMs: event.timestampMs,
       payload: event,
     });
 
