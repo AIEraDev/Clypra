@@ -1,11 +1,11 @@
-/// permissions.rs — macOS media permission helpers.
-///
-/// These commands read (and optionally request) AVFoundation / AVAudioSession
-/// permissions without going through the browser's getUserMedia path, so they
-/// work even when the Tauri WKWebView camera path is not available.
-///
-/// All commands are `#[cfg(target_os = "macos")]`-guarded; on other platforms
-/// they return `"authorized"` immediately so the JS layer stays cross-platform.
+//! permissions.rs — macOS media permission helpers.
+//!
+//! These commands read (and optionally request) AVFoundation / AVAudioSession
+//! permissions without going through the browser's getUserMedia path, so they
+//! work even when the Tauri WKWebView camera path is not available.
+//!
+//! All commands are `#[cfg(target_os = "macos")]`-guarded; on other platforms
+//! they return `"authorized"` immediately so the JS layer stays cross-platform.
 
 use serde::Serialize;
 use tauri::command;

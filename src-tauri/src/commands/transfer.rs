@@ -171,7 +171,7 @@ pub async fn get_staged_files(app: AppHandle) -> Result<Vec<StagedFile>, String>
         .iter()
         .map(|e| e.value().clone())
         .collect();
-    files.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    files.sort_by_key(|f| std::cmp::Reverse(f.created_at));
     Ok(files)
 }
 
