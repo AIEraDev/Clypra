@@ -190,6 +190,16 @@ class PerfLogService {
     return this.sessionId;
   }
 
+  /**
+   * Flushes the in-memory queue to disk without closing the session.
+   * Safe to call on visibilitychange: hidden — the session stays open
+   * so the proper close path can upload the complete file later.
+   */
+  flushToDisk(): void {
+    if (!this.sessionId || !isTauri) return;
+    void this.flushQueue();
+  }
+
   // ── Private helpers ────────────────────────────────────────────────────────
 
   private async _doCloseAndUpload(): Promise<void> {
@@ -206,28 +216,60 @@ class PerfLogService {
       payload: { marker: "session-close" },
     });
 
-    // Flush anything still queued.
-    await this.flushQueue();
-
-    // Tell Rust to close the file handle and get back the file path.
-    try {
-      const closedPath = await tauriInvoke<string>("close_perf_log_session", {
-        sessionId,
-      });
-
-      // Upload the completed file as a single request.
-      await this.uploadSessionFile(closedPath);
-    } catch (err) {
-      console.warn("[PerfLogService] Error during session close/upload:", err);
-    }
-
+    // Null sessionId AFTER capturing it so flushQueue doesn't bail early.
+    // We own the close from this point forward.
     this.sessionId = null;
     this.filePath = null;
-    this.queue = [];
 
+    // Wait for any in-flight flush to land, then flush the final batch.
+    if (this.flushInFlight) await this.flushInFlight;
+    await this._flushQueueWithSession(sessionId);
+
+    // Unsubscribe from native diagnostics before closing.
     if (this.diagnosticsUnlisten) {
       this.diagnosticsUnlisten();
       this.diagnosticsUnlisten = null;
+    }
+
+    // Tell Rust to close the file and get back the path.
+    let closedPath: string | null = null;
+    try {
+      closedPath = await tauriInvoke<string>("close_perf_log_session", {
+        sessionId,
+      });
+    } catch (err) {
+      console.warn("[PerfLogService] Failed to close perf-log session:", err);
+    }
+
+    this.queue = [];
+
+    // Upload only if we got a valid path back.
+    if (closedPath) {
+      await this.uploadSessionFile(closedPath);
+    }
+  }
+
+  /**
+   * Internal flush that uses an explicit sessionId rather than this.sessionId,
+   * so it works correctly after this.sessionId has been nulled during close.
+   */
+  private async _flushQueueWithSession(sessionId: string): Promise<void> {
+    if (this.queue.length === 0) return;
+
+    const batch = this.queue.splice(0, this.queue.length);
+
+    try {
+      await tauriInvoke<number>("append_perf_log_entries", {
+        sessionId,
+        entries: batch,
+      });
+    } catch (err) {
+      // Re-queue so data is not lost if close is retried.
+      this.queue.unshift(...batch);
+      console.warn(
+        "[PerfLogService] Failed to flush final perf-log batch:",
+        err,
+      );
     }
   }
 
@@ -254,19 +296,21 @@ class PerfLogService {
    */
   private async flushQueue(): Promise<void> {
     if (this.flushInFlight) return this.flushInFlight;
-    if (this.queue.length === 0 || !this.sessionId) return;
+    // Capture sessionId at call time — it may be nulled by closeAndUpload
+    // before the async body runs.
+    const sessionId = this.sessionId;
+    if (this.queue.length === 0 || !sessionId) return;
 
     const batch = this.queue.splice(0, this.queue.length);
 
     this.flushInFlight = (async () => {
       try {
         await tauriInvoke<number>("append_perf_log_entries", {
-          sessionId: this.sessionId,
+          sessionId,
           entries: batch,
         });
       } catch (err) {
         // Re-queue on failure so data is not silently dropped.
-        // Prepend so ordering is preserved.
         this.queue.unshift(...batch);
         console.warn(
           "[PerfLogService] Failed to append perf-log entries:",
