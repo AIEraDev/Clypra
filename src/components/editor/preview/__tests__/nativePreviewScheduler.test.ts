@@ -5,6 +5,7 @@ import {
   type NativePreviewFrame,
   type NativePreviewRequestSource,
 } from "../nativePreviewScheduler";
+import { isExpectedStaleNativePreviewError } from "../nativeVideoPreview";
 
 function makeRequest(frameIndex: number): NativeFrameRequest {
   return {
@@ -151,6 +152,30 @@ describe("NativePreviewFrameScheduler", () => {
 
     expect(load).not.toHaveBeenCalledWith(makeRequest(1));
     scheduler.dispose();
+  });
+});
+
+describe("isExpectedStaleNativePreviewError", () => {
+  it("recognizes AbortError as an expected stale error so circuit breaker never trips", () => {
+    const abortError = new DOMException("Native preview request superseded", "AbortError");
+    expect(isExpectedStaleNativePreviewError(abortError)).toBe(true);
+  });
+
+  it("recognizes TimeoutError as an expected stale error", () => {
+    const timeoutError = new DOMException("The operation timed out", "TimeoutError");
+    expect(isExpectedStaleNativePreviewError(timeoutError)).toBe(true);
+  });
+
+  it("recognizes stale / cancelled / superseded strings in error messages", () => {
+    expect(isExpectedStaleNativePreviewError(new Error("native preview frame request is stale"))).toBe(true);
+    expect(isExpectedStaleNativePreviewError(new Error("request cancelled by scheduler"))).toBe(true);
+    expect(isExpectedStaleNativePreviewError(new Error("request superseded by newer drag frame"))).toBe(true);
+    expect(isExpectedStaleNativePreviewError(new Error("operation aborted"))).toBe(true);
+  });
+
+  it("does not treat unexpected native engine failures as stale", () => {
+    expect(isExpectedStaleNativePreviewError(new Error("wgpu render pipeline failed"))).toBe(false);
+    expect(isExpectedStaleNativePreviewError(new Error("failed to decode frame at timestamp"))).toBe(false);
   });
 });
 

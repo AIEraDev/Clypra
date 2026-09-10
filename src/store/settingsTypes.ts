@@ -78,5 +78,8 @@ export interface SettingsStore {
   setSidebarCollapsed: (v: boolean) => void;
   setPropertiesPanelCollapsed: (v: boolean) => void;
   setTimelineHeight: (v: number) => void;
+  // Local Transfer Save Directory
+  transferSaveDirectory: string | null;
+  setTransferSaveDirectory: (v: string | null) => void;
 }
 

@@ -15,6 +15,7 @@ import { generateId } from "@/lib/utils/id";
 import { resolveTextEffectDefinition } from "@/lib/text/textClip";
 import type { TemplateDefinition, TemplateCustomization, TemplateElement } from "./types";
 import { resolveTextTemplateArtifact, type TextTemplateArtifact } from "@clypra-studio/engine";
+import { calculateOptimalTemplateLayout } from "@/core/render/templateScale";
 
 export interface InstantiateTemplateOptions {
   /** Target timeline track ID */
@@ -148,6 +149,15 @@ export function instantiateTextTemplateArtifact(
     ? artifact.metadata.label.replace(/^text-template-/, "").replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
     : "Text Template";
 
+  const canvasWidth = options.canvasWidth || artifact.document?.canvas?.width || 1920;
+  const canvasHeight = options.canvasHeight || artifact.document?.canvas?.height || 1080;
+  const layout = calculateOptimalTemplateLayout(
+    artifact,
+    canvasWidth,
+    canvasHeight,
+    controlValues,
+  );
+
   return {
     id: generateId("text-template"),
     name: cleanLabel,
@@ -158,12 +168,12 @@ export function instantiateTextTemplateArtifact(
     duration,
     trimIn: 0,
     trimOut: 0,
-    x: 0,
-    y: 0,
-    width: options.canvasWidth || artifact.document.canvas.width,
-    height: options.canvasHeight || artifact.document.canvas.height,
-    baseWidth: options.canvasWidth || artifact.document.canvas.width,
-    baseHeight: options.canvasHeight || artifact.document.canvas.height,
+    x: layout.contentBounds.x,
+    y: layout.contentBounds.y,
+    width: layout.contentBounds.width,
+    height: layout.contentBounds.height,
+    baseWidth: layout.contentBounds.width,
+    baseHeight: layout.contentBounds.height,
     opacity: 1,
     rotation: 0,
     mediaId: `text-template-${artifact.metadata.id}`,

@@ -50,6 +50,21 @@ function resolveClipName(
   return assetName || (clip as any)?.audioPath?.split("/").pop() || "Clip";
 }
 
+function resolveHasAudioTrack(
+  clip: Clip | null | undefined,
+  selectedAsset: any,
+  isTextClip: boolean,
+  isSticker: boolean = false,
+): boolean {
+  if (isTextClip || isSticker) return false;
+  const isAudioClip =
+    selectedAsset?.type === "audio" ||
+    clip?.kind === "audio" ||
+    !!(clip as any)?.audioPath;
+  const isVideoClip = selectedAsset?.type === "video";
+  return isAudioClip || isVideoClip || Boolean(clip?.audio);
+}
+
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 const baseClip: Clip = {
@@ -335,3 +350,37 @@ describe("regression: existing clip kinds still work correctly", () => {
     expect(newTransform.height).toBeGreaterThan(0);
   });
 });
+
+// ─── hasAudioTrack predicate regression tests ─────────────────────────────────
+
+describe("hasAudioTrack predicate", () => {
+  it("is NEVER true for text-template clips even if audio properties exist on object", () => {
+    const textTemplateWithAudio = {
+      ...textTemplateClip,
+      audio: { gainDb: 0, muted: false },
+    };
+    expect(resolveHasAudioTrack(textTemplateWithAudio as any, undefined, true)).toBe(false);
+  });
+
+  it("is NEVER true for plain text clips", () => {
+    expect(resolveHasAudioTrack(plainTextClip, undefined, true)).toBe(false);
+  });
+
+  it("is NEVER true for stickers", () => {
+    expect(resolveHasAudioTrack(stickerClip, undefined, false, true)).toBe(false);
+  });
+
+  it("is true for video clips backed by video assets", () => {
+    expect(resolveHasAudioTrack(videoClip, { type: "video" }, false)).toBe(true);
+  });
+
+  it("is true for audio clips", () => {
+    expect(resolveHasAudioTrack(audioClip, { type: "audio" }, false)).toBe(true);
+  });
+
+  it("is true for clips with standalone audioPath", () => {
+    const standaloneAudioClip = { ...baseClip, audioPath: "audio.mp3" };
+    expect(resolveHasAudioTrack(standaloneAudioClip, undefined, false)).toBe(true);
+  });
+});
+

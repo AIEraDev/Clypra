@@ -10,7 +10,7 @@ use std::time::Instant;
 
 pub const TICKS_PER_SECOND: i64 = 1_000_000;
 pub const MAX_PCM_BYTES: usize = 256 * 1024 * 1024;
-pub const MAX_MIXER_PCM_BYTES: usize = 512 * 1024 * 1024;
+pub const MAX_MIXER_PCM_BYTES: usize = 2048 * 1024 * 1024;
 pub const MAX_ACTIVE_CLIPS: usize = 64;
 /// ~5.8 ms at 44.1 kHz. Applied by the native callback after a transport
 /// discontinuity so seeking/replay cannot emit a full-scale sample step.

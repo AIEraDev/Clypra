@@ -4,8 +4,7 @@ import { DEFAULT_SRP_CONFIG, SpatialTier, TEMPORAL_TIER_INTERVALS, TemporalTier,
 export const TIMELINE_ZOOM_STEP = 0.1;
 export const TIMELINE_ZOOM_GEOMETRIC_FACTOR = 1.25;
 export const TIMELINE_ZOOM_DEFAULT = 1.0;
-export const BASE_TIMELINE_DENSITY_PPS = 100;
-export const TIMELINE_PPS_PER_ZOOM = BASE_TIMELINE_DENSITY_PPS;
+export const TIMELINE_PPS_PER_ZOOM = 100;
 export const TIMELINE_TIER_SNAP_EPSILON = 0.04;
 /** Timeline-only floor for fitting long sequences below the render tier range. */
 export const TIMELINE_OVERVIEW_ZOOM_MIN = 0.000001;

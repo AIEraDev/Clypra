@@ -41,11 +41,11 @@ export type FilmstripLayout = {
   /** Exact source-time address for every render slot. */
   tileAddresses?: readonly FilmstripTileAddress[];
   /**
-   * Optional tile cache for coarse-to-dense pyramid fallback.
-   * When a dense (L1/L2/L3) tile is absent, the renderer will look up the
-   * L0 coarse tile at the same timestamp and stretch it to fill the slot.
-   * Eliminates shimmer during zoom transitions — blurry-but-instant is better
-   * than empty while dense tiles are in-flight.
+   * Optional tile cache for pyramid fallback across spatial tiers.
+   * When the exact tile for the current epoch is absent, the renderer looks up
+   * the closest cached tile (any tier, bidirectional) at the same timestamp
+   * and center-crops it into the slot. Tiles are always drawn crisp at native
+   * resolution — no blur, no bicubic stretch.
    */
   tileCache?: FilmstripTileCache;
   /** Clip ID — required when tileCache is provided for fallback lookups. */
@@ -190,10 +190,9 @@ export class RasterSurface {
             );
             if (fallbackEntry && fallbackEntry.artifact.bitmap && fallbackEntry.artifact.bitmap.width > 0) {
               fallbackCount++;
-              // Draw with imageSmoothingEnabled to produce a smooth bicubic stretch
-              ctx.save();
-              ctx.imageSmoothingEnabled = true;
-              ctx.imageSmoothingQuality = "medium";
+              // Draw fallback tile crisp — blurry stretched fallback is worse than
+              // a pixel-perfect lower-tier frame. The correct tile will replace it
+              // in milliseconds once decoded.
               this._drawTile(
                 ctx,
                 fallbackEntry.artifact.bitmap,
@@ -204,7 +203,6 @@ export class RasterSurface {
                 slotW,
                 slotH,
               );
-              ctx.restore();
             } else {
               pendingCount++;
               this._drawPendingSlotPlaceholder(ctx, slotX, 0, slotW, slotH);
@@ -283,8 +281,9 @@ export class RasterSurface {
       ctx.beginPath();
       ctx.rect(Math.round(x), Math.round(y), Math.round(tileW), Math.round(tileH));
       ctx.clip();
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = "high";
+      // Bitmaps are decoded at the correct SpatialTier resolution by the backend.
+      // Disabling smoothing prevents the browser from blurring an already crisp bitmap.
+      ctx.imageSmoothingEnabled = false;
       ctx.drawImage(bitmap, drawX, drawY, drawW, drawH);
       ctx.restore();
     } catch (e) {

@@ -6,6 +6,7 @@
 import React from "react";
 import { Download, CheckCircle, AlertCircle, X } from "lucide-react";
 import type { DownloadState } from "@/features/audio-library/store/audioLibraryStore";
+import { ProgressBar } from "./ProgressBar";
 
 interface DownloadProgressProps {
   state: DownloadState;
@@ -65,13 +66,15 @@ export const DownloadProgress: React.FC<DownloadProgressProps> = ({ state, itemN
       {itemName && <p className="text-xs text-text-muted mb-3 truncate">{itemName}</p>}
 
       {state.status === "downloading" && (
-        <>
-          <div className="w-full bg-surface rounded-full h-2 overflow-hidden mb-2">
-            <div className="bg-accent h-full transition-all duration-300" style={{ width: `${state.progress}%` }} />
-          </div>
-          <p className="text-xs text-text-muted text-right">{state.progress}%</p>
-        </>
+        <ProgressBar
+          value={state.progress}
+          size="sm"
+          variant="gradient"
+          showValue={true}
+          className="mb-2"
+        />
       )}
+
 
       {state.status === "completed" && <p className="text-xs text-green-400">Audio ready for use</p>}
 

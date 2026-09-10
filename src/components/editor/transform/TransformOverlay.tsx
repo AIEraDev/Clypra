@@ -261,8 +261,8 @@ function getDragPreviewTransform(
 ): string {
   const startCenterX = startTransform.x + startTransform.width / 2;
   const startCenterY = startTransform.y + startTransform.height / 2;
-  const targetX = geometry.visualX ?? geometry.x;
-  const targetY = geometry.visualY ?? geometry.y;
+  const targetX = geometry.x;
+  const targetY = geometry.y;
   const nextCenterX = targetX + geometry.width / 2;
   const nextCenterY = targetY + geometry.height / 2;
   const translateX = (nextCenterX - startCenterX) * scale * zoom;
@@ -321,7 +321,43 @@ export function resolveClipVisualBounds(
     canvasWidth &&
     canvasHeight
   ) {
-    // 1. Inspect exact rendered quad from active nativeRasterBridge if available
+    // 1. Resolve artifact to inspect template authored dimensions vs clip dimensions
+    const artifact =
+      resolveTextTemplateArtifact(clip.templateSnapshot || (clip as any)) ??
+      ((clip.templateSnapshot as any)?.document?.nodes
+        ? (clip.templateSnapshot as any)
+        : (clip as any)?.document?.nodes
+          ? (clip as any)
+          : null);
+
+    const docWidth = Math.max(
+      1,
+      Math.round(Number(artifact?.document?.canvas?.width) || 1920),
+    );
+    const docHeight = Math.max(
+      1,
+      Math.round(Number(artifact?.document?.canvas?.height) || 1080),
+    );
+
+    // A template clip is full-artboard (unbounded) if it spans the full authoring artboard
+    // or the full canvas, starting at (0, 0).
+    const isFullArtboard =
+      clip.x === 0 &&
+      clip.y === 0 &&
+      ((clip.width >= docWidth && clip.height >= docHeight) ||
+        (clip.width >= canvasWidth && clip.height >= canvasHeight) ||
+        (clip.width === 1920 && clip.height === 1080));
+
+    // If already content-bounded, return clip dimensions directly
+    if (!isFullArtboard && clip.width > 0 && clip.height > 0) {
+      console.log("[TransformOverlay:VisualBounds] using content-bounded clip dimensions directly", {
+        clipId: clip.id,
+        bounds: { x: clip.x, y: clip.y, width: clip.width, height: clip.height },
+      });
+      return { x: clip.x, y: clip.y, width: clip.width, height: clip.height };
+    }
+
+    // 2. For full-artboard template, inspect exact rendered quad from active nativeRasterBridge if available
     const snapshot = getActiveSessionOrNull()?.nativeRasterBridge?.getTextSnapshot(
       clip.id,
     );
@@ -334,6 +370,10 @@ export function resolveClipVisualBounds(
       typeof snapshot.displayHeight === "number" &&
       snapshot.displayHeight > 0
     ) {
+      console.log("[TransformOverlay:VisualBounds] using nativeRasterBridge snapshot for full artboard", {
+        clipId: clip.id,
+        snapshot: { x: snapshot.x, y: snapshot.y, width: snapshot.displayWidth, height: snapshot.displayHeight },
+      });
       return {
         x: snapshot.x,
         y: snapshot.y,
@@ -342,14 +382,7 @@ export function resolveClipVisualBounds(
       };
     }
 
-    // 2. Fallback: estimate from template artifact node bounds under uniform scaling
-    const artifact =
-      resolveTextTemplateArtifact(clip.templateSnapshot || (clip as any)) ??
-      ((clip.templateSnapshot as any)?.document?.nodes
-        ? (clip.templateSnapshot as any)
-        : (clip as any)?.document?.nodes
-          ? (clip as any)
-          : null);
+    // 3. Fallback: estimate from template artifact node bounds under uniform scaling
     if (artifact?.document?.nodes && artifact.document.nodes.length > 0) {
       const layout = calculateOptimalTemplateLayout(
         artifact,
@@ -357,9 +390,13 @@ export function resolveClipVisualBounds(
         canvasHeight,
         clip.templateControlValues,
       );
+      console.log("[TransformOverlay:VisualBounds] fallback: calculated optimal template layout", {
+        clipId: clip.id,
+        contentBounds: layout.contentBounds,
+      });
       return {
-        x: (clip.x || 0) + layout.contentBounds.x,
-        y: (clip.y || 0) + layout.contentBounds.y,
+        x: layout.contentBounds.x,
+        y: layout.contentBounds.y,
         width: layout.contentBounds.width,
         height: layout.contentBounds.height,
       };
@@ -402,8 +439,10 @@ export function getHitTestCandidateDiagnostics(
   canvasWidth?: number,
   canvasHeight?: number,
 ): HitTestCandidateDiagnostic[] {
-  const visibleTrackIds = new Set(
-    tracks.filter((track) => track.visible !== false).map((track) => track.id),
+  const interactiveTrackIds = new Set(
+    tracks
+      .filter((track) => track.visible !== false && track.locked !== true)
+      .map((track) => track.id),
   );
 
   return clips
@@ -413,7 +452,7 @@ export function getHitTestCandidateDiagnostics(
       compositorClip: toCompositorClip(clip, tracks),
     }))
     .filter(({ clip }) => {
-      if (!visibleTrackIds.has(clip.trackId)) return false;
+      if (!interactiveTrackIds.has(clip.trackId)) return false;
       if (
         clip.kind === "audio" ||
         clip.kind === "filter" ||
@@ -917,16 +956,12 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
           selectedClip.sourceAspectRatio ??
           actualWidth / Math.max(1, actualHeight),
       });
-      const isTemplateClip =
-        selectedClip.kind === "text-template" || Boolean(selectedClip.templateSnapshot);
 
       transformController.updateDragGeometry({
-        x: isTemplateClip ? (selectedClip.x || 0) : actualX,
-        y: isTemplateClip ? (selectedClip.y || 0) : actualY,
-        width: isTemplateClip ? selectedClip.width : actualWidth,
-        height: isTemplateClip ? selectedClip.height : actualHeight,
-        visualX: isTemplateClip ? actualX : undefined,
-        visualY: isTemplateClip ? actualY : undefined,
+        x: actualX,
+        y: actualY,
+        width: actualWidth,
+        height: actualHeight,
         rotation: selectedClip.rotation ?? 0,
         ...(startFontSizeRef.current !== undefined
           ? { fontSize: startFontSizeRef.current }
@@ -1464,41 +1499,6 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         }
       }
 
-      const isTemplateClip =
-        selectedClip.kind === "text-template" || Boolean(selectedClip.templateSnapshot);
-
-      let templateClipX: number | undefined;
-      let templateClipY: number | undefined;
-      let templateClipWidth: number | undefined;
-      let templateClipHeight: number | undefined;
-
-      if (isTemplateClip) {
-        const visualX = newTransform.x ?? startClip.x;
-        const visualY = newTransform.y ?? startClip.y;
-        const deltaX = visualX - currentTransform.startTransform.x;
-        const deltaY = visualY - currentTransform.startTransform.y;
-        templateClipX = (selectedClip.x || 0) + deltaX;
-        templateClipY = (selectedClip.y || 0) + deltaY;
-
-        if (
-          currentTransform.handle !== "move" &&
-          currentTransform.handle !== "rotate"
-        ) {
-          const scaleRatio =
-            (newTransform.width ?? startClip.width) /
-            Math.max(1, currentTransform.startTransform.width);
-          templateClipWidth = Math.round(
-            (selectedClip.baseWidth ?? selectedClip.width) * scaleRatio,
-          );
-          templateClipHeight = Math.round(
-            (selectedClip.baseHeight ?? selectedClip.height) * scaleRatio,
-          );
-        } else {
-          templateClipWidth = selectedClip.width;
-          templateClipHeight = selectedClip.height;
-        }
-      }
-
       if (
         selectedClip.conform &&
         selectedClip.conform.sourceWidth &&
@@ -1522,12 +1522,10 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       // selection box consume this without replacing the timeline array or
       // notifying every Zustand subscriber on every pointer frame.
       transformController.updateDragGeometry({
-        x: isTemplateClip ? (templateClipX ?? selectedClip.x) : (newTransform.x ?? startClip.x),
-        y: isTemplateClip ? (templateClipY ?? selectedClip.y) : (newTransform.y ?? startClip.y),
-        width: isTemplateClip ? (templateClipWidth ?? selectedClip.width) : (newTransform.width ?? startClip.width),
-        height: isTemplateClip ? (templateClipHeight ?? selectedClip.height) : (newTransform.height ?? startClip.height),
-        visualX: isTemplateClip ? (newTransform.x ?? startClip.x) : undefined,
-        visualY: isTemplateClip ? (newTransform.y ?? startClip.y) : undefined,
+        x: newTransform.x ?? startClip.x,
+        y: newTransform.y ?? startClip.y,
+        width: newTransform.width ?? startClip.width,
+        height: newTransform.height ?? startClip.height,
         rotation: newTransform.rotation ?? startClip.rotation ?? 0,
         ...((newTransform as Partial<TextClip>).fontSize !== undefined
           ? { fontSize: (newTransform as Partial<TextClip>).fontSize }
@@ -1620,21 +1618,10 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       return;
     }
 
-    const isTemplateClip =
-      Boolean(selectedClip && (selectedClip.kind === "text-template" || Boolean(selectedClip.templateSnapshot)));
-
     // Commit to history with epoch advancement
-    const oldTransform: Record<string, any> = isTemplateClip && selectedClip
-      ? {
-          x: selectedClip.x,
-          y: selectedClip.y,
-          width: selectedClip.width,
-          height: selectedClip.height,
-          rotation: selectedClip.rotation,
-        }
-      : {
-          ...currentTransform.startTransform,
-        };
+    const oldTransform: Record<string, any> = {
+      ...currentTransform.startTransform,
+    };
     const newTransform: Record<string, any> = {
       x: finalGeometry.x,
       y: finalGeometry.y,
@@ -1651,6 +1638,26 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       oldTransform.fontSize = startFontSizeRef.current;
       newTransform.fontSize =
         finalGeometry.fontSize ?? startFontSizeRef.current;
+    }
+
+    if (
+      (selectedClip as any).kind === "text-template" ||
+      (selectedClip as any).templateId ||
+      (selectedClip as any).styleId ||
+      (selectedClip as any).styleSnapshot ||
+      (selectedClip as any).baseWidth !== undefined
+    ) {
+      if (
+        oldTransform.width !== newTransform.width ||
+        oldTransform.height !== newTransform.height
+      ) {
+        oldTransform.baseWidth =
+          (selectedClip as any).baseWidth ?? oldTransform.width;
+        oldTransform.baseHeight =
+          (selectedClip as any).baseHeight ?? oldTransform.height;
+        newTransform.baseWidth = finalGeometry.width;
+        newTransform.baseHeight = finalGeometry.height;
+      }
     }
 
     // Only create command if something actually changed
@@ -2038,6 +2045,27 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
   // Position transform box centered at the clip center, rotation applied via CSS transform
   const handleDisplayX = clipCenterScreen.x - handleDisplayWidth / 2;
   const handleDisplayY = clipCenterScreen.y - handleDisplayHeight / 2;
+
+  if (
+    selectedClip.kind === "text-template" ||
+    selectedClip.templateSnapshot ||
+    Boolean((selectedClip as any).styleId)
+  ) {
+    console.log("[TransformOverlay:RenderSelection]", {
+      clipId: selectedClip.id,
+      clipKind: selectedClip.kind,
+      styleId: (selectedClip as any).styleId,
+      clipRaw: { x: selectedClip.x, y: selectedClip.y, w: selectedClip.width, h: selectedClip.height },
+      canvas: { width: canvasWidth, height: canvasHeight },
+      visualBounds,
+      screenBox: {
+        left: handleDisplayX,
+        top: handleDisplayY,
+        width: handleDisplayWidth,
+        height: handleDisplayHeight,
+      },
+    });
+  }
 
   // Calculate canvas center for guides
   const canvasCenterX = canvasWidth / 2;

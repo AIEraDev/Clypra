@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo } from "react";
-import { CloudUpload, AlertTriangle } from "lucide-react";
+import { CloudUpload, AlertTriangle, Smartphone } from "lucide-react";
 import { platform } from "@/core/platform";
 
 import { Button } from "@/components/ui/Button";
@@ -96,6 +96,21 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
                     .catch((err) => {
                       console.warn(`[MediaTab] Failed to extract poster for ${filePath}:`, err);
                     });
+
+                  const ext = filename.split('.').pop()?.toLowerCase() || '';
+                  const needsRemux = ['mkv', 'avi', 'flv', 'wmv', 'ts', 'mts', 'm2ts', 'vob', '3gp', 'ogv'].includes(ext);
+                  if (needsRemux && platform.getOrCreatePreviewVideo) {
+                    platform
+                      .getOrCreatePreviewVideo(filePath)
+                      .then((previewPath) => {
+                        if (previewPath) {
+                          useProjectStore.getState().updateMediaAsset(asset.id, { previewPath });
+                        }
+                      })
+                      .catch((err) => {
+                        console.warn(`[MediaTab] Failed to optimize preview for ${filePath}:`, err);
+                      });
+                  }
                 }
               } else {
                 const asset = {
@@ -131,10 +146,19 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
 
   return (
     <div ref={containerRef} className={`flex-1 flex flex-col overflow-hidden transition-colors duration-200 ${isDraggingOver ? "bg-accent/5" : ""}`}>
-      <div className="p-1 border-b border-border">
-        <Button variant="secondary" size="sm" className="w-full border-dashed cursor-pointer" onClick={importMedia} disabled={isLoading}>
+      <div className="p-1 border-b border-border flex gap-1">
+        <Button variant="secondary" size="sm" className="flex-1 border-dashed cursor-pointer" onClick={importMedia} disabled={isLoading}>
           <CloudUpload className="w-4 h-4" />
           {isLoading ? "Importing..." : "Import Media"}
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          className="border-dashed cursor-pointer text-accent hover:bg-accent/10 px-2.5 shrink-0"
+          onClick={() => useUIStore.getState().setTransferModal(true)}
+          title="Transfer from Phone (Local WiFi)"
+        >
+          <Smartphone className="w-4 h-4" />
         </Button>
       </div>
 

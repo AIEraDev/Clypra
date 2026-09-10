@@ -75,6 +75,7 @@ export interface PlatformInterface {
   getMediaMetadata(path: string): Promise<VideoMetadata>;
   extractPosterFrame(path: string, duration: number, dpr: number): Promise<string>;
   extractAudioArtwork(path: string): Promise<string | undefined>;
+  getOrCreatePreviewVideo?(path: string): Promise<string>;
   saveRecording(fileName: string, data: Uint8Array): Promise<string>;
   appendRecordingChunk?(fileName: string, data: Uint8Array): Promise<void>;
   finalizeRecordingFile?(tempFileName: string, finalFileName: string): Promise<string>;

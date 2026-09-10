@@ -4,6 +4,7 @@ import { getApiHeaders, getApiBaseUrl } from "@/lib/api";
 import { convertRawConfigToDefinition } from "../lib/definitionConversion";
 import type { TextTemplateArtifact } from "@clypra-studio/engine";
 import { textTemplatePersistentCache } from "@/features/text-templates/cache/persistentCache";
+import { textEffectToCaptionTemplate } from "@/features/subtitles/captionStyles";
 
 export interface TextEffectSummary {
   id: string;
@@ -235,6 +236,82 @@ export const TextEffectsApi = {
       }
     }
     return data;
+  },
+
+  /**
+   * Fetch and cache cloud caption templates published via Clypra Studio.
+   * Leverages both Text Effects Studio (/text-effects/caption) and
+   * Template Studio (/text-templates/caption).
+   */
+  async getCaptionTemplates(options: { forceRefresh?: boolean } = {}): Promise<TemplateDefinition[]> {
+    if (options.forceRefresh) {
+      for (const key of this._effectsCache.keys()) {
+        if (key.startsWith("caption:")) this._effectsCache.delete(key);
+      }
+    } else {
+      const cached = await textTemplatePersistentCache.get("__catalog__", "caption", undefined, {
+        maxAgeMs: 30 * 60 * 1000,
+      });
+      if (Array.isArray(cached) && cached.length > 0) return cached as TemplateDefinition[];
+    }
+
+    const [effectsResult, templatesResult] = await Promise.allSettled([
+      // 1. Fetch text effects published under "caption"
+      (async () => {
+        try {
+          const summaries = await this.getEffectsByCategory("caption", options);
+          if (!summaries || summaries.length === 0) return [];
+          const hydrated = await Promise.all(
+            summaries.map(async (summary) => {
+              try {
+                const full = await this.getFullEffect("caption", summary.id, {
+                  forceRefresh: options.forceRefresh,
+                  revisionId: summary.revisionId ?? summary.revision?.revisionId,
+                });
+                return textEffectToCaptionTemplate({
+                  ...summary,
+                  ...full,
+                  thumbnail: summary.thumbnail || (full as any).thumbnail,
+                });
+              } catch (err) {
+                console.warn(`[TextEffectsApi] Failed to hydrate full effect for caption ${summary.id}:`, err);
+                return textEffectToCaptionTemplate(summary);
+              }
+            }),
+          );
+          return hydrated;
+        } catch (err) {
+          console.warn("[TextEffectsApi] Failed to fetch caption text effects:", err);
+          return [];
+        }
+      })(),
+      // 2. Fetch canonical text templates published under "caption"
+      (async () => {
+        try {
+          return await this.getTemplatesByCategory("caption", options);
+        } catch {
+          return [];
+        }
+      })(),
+    ]);
+
+    const effectsTemplates = effectsResult.status === "fulfilled" ? effectsResult.value : [];
+    const canonicalTemplates = templatesResult.status === "fulfilled" ? templatesResult.value : [];
+
+    // Deduplicate by ID
+    const mergedMap = new Map<string, TemplateDefinition>();
+    for (const t of canonicalTemplates) {
+      if (t?.id) mergedMap.set(t.id, t);
+    }
+    for (const t of effectsTemplates) {
+      if (t?.id) mergedMap.set(t.id, t);
+    }
+
+    const result = Array.from(mergedMap.values());
+    if (result.length > 0) {
+      await textTemplatePersistentCache.set("__catalog__", "caption", result);
+    }
+    return result;
   },
 
   // 5. LAZY-LOAD heavy canvas templates on-timeline placement with RAM caching

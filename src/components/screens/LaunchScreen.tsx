@@ -1,21 +1,54 @@
-import React, { useEffect, useState, useRef } from "react";
-import { Film, Image as ImageIcon, Plus, Trash2, Pencil, MoreHorizontal, Clock, ChevronRight, Sparkles, Settings, Video, FolderOpen, LayoutTemplate, FileVideo, Play, Layers } from "lucide-react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
+import {
+  Film,
+  Image as ImageIcon,
+  Plus,
+  Trash2,
+  Pencil,
+  MoreHorizontal,
+  Clock,
+  ChevronRight,
+  Sparkles,
+  Settings,
+  Video,
+  FolderOpen,
+  LayoutTemplate,
+  FileVideo,
+  Play,
+  Layers,
+  Camera,
+  Smartphone,
+} from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { isMacOSPlatform, WindowControls, WindowDragRegion } from "@/components/ui/WindowControls";
+import {
+  isMacOSPlatform,
+  WindowControls,
+  WindowDragRegion,
+} from "@/components/ui/WindowControls";
 import { Modal } from "@/components/ui/Modal";
 import { useProjectStore } from "@/store/projectStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import type { AspectRatio, MediaAsset, Project } from "@/types";
 import type { RecentProjectEntry } from "@/core/platform/platform";
-import { getProjectThumbnail, formatEditorTimecode } from "@/lib/media/projectThumbnail";
+import {
+  getProjectThumbnail,
+  formatEditorTimecode,
+} from "@/lib/media/projectThumbnail";
 import { MAX_PROJECT_NAME_LENGTH } from "@/types";
 import { useUIStore } from "@/store/uiStore";
 import { platform } from "@/core/platform";
 import { DualRecordService } from "@/services/dualRecordService";
 import { useRecordingStore } from "@/store/recordingStore";
+import { useCameraStore } from "@/store/cameraStore";
+import { CameraRecordingModal } from "@/components/ui/CameraRecordingModal";
 
 interface LaunchScreenProps {
-  onProjectCreate: (name: string, aspectRatio: AspectRatio, frameRate: 24 | 30 | 60, initialClipPaths?: string[]) => void;
+  onProjectCreate: (
+    name: string,
+    aspectRatio: AspectRatio,
+    frameRate: 24 | 30 | 60,
+    initialClipPaths?: string[],
+  ) => void;
   onProjectOpen: (project: RecentProjectEntry) => void;
 }
 
@@ -26,9 +59,9 @@ const toPreviewSrc = (value?: string) => {
   return value;
 };
 
-
 const graphemeSegmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
-const countGraphemes = (str: string): number => Array.from(graphemeSegmenter.segment(str)).length;
+const countGraphemes = (str: string): number =>
+  Array.from(graphemeSegmenter.segment(str)).length;
 
 const getProjectInitials = (name: string): string => {
   const parts = name.trim().split(/\s+/);
@@ -37,21 +70,28 @@ const getProjectInitials = (name: string): string => {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 };
 
-const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+const isTauri =
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 // Map aspect ratio to a soft accent hue for card hover glow
 const aspectRatioGlow: Record<string, string> = {
-  "16:9": "color-mix(in srgb, var(--clypra-interaction-focus) 18%, transparent)",
+  "16:9":
+    "color-mix(in srgb, var(--clypra-interaction-focus) 18%, transparent)",
   "9:16": "color-mix(in srgb, var(--clypra-clip-caption-bg) 18%, transparent)",
   "1:1": "color-mix(in srgb, var(--clypra-status-success) 18%, transparent)",
   "4:3": "color-mix(in srgb, var(--clypra-status-warning) 18%, transparent)",
 };
 
 const getAspectRatioGlow = (ratio: string) =>
-  aspectRatioGlow[ratio] ?? "color-mix(in srgb, var(--clypra-interaction-focus) 14%, transparent)";
+  aspectRatioGlow[ratio] ??
+  "color-mix(in srgb, var(--clypra-interaction-focus) 14%, transparent)";
 
-export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onProjectOpen }) => {
-  const { recentProjects, setRecentProjects, deleteProject, renameProject } = useProjectStore();
+export const LaunchScreen: React.FC<LaunchScreenProps> = ({
+  onProjectCreate,
+  onProjectOpen,
+}) => {
+  const { recentProjects, setRecentProjects, deleteProject, renameProject } =
+    useProjectStore();
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [projectToRename, setProjectToRename] = useState<Project | null>(null);
@@ -71,18 +111,32 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
   });
   // Recording active state lives in the global store so App.tsx can render the
   // floating widget overlay even after navigating away from LaunchScreen.
-  const { isRecording, setIsRecording, seconds, setSeconds, setHasWebcam, setRecordingError, reset: resetRecording } = useRecordingStore();
+  const {
+    isRecording,
+    setIsRecording,
+    seconds,
+    setSeconds,
+    setHasWebcam,
+    setRecordingError,
+    reset: resetRecording,
+  } = useRecordingStore();
   const [previewError, setPreviewError] = useState<string | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const previewScreenVideoRef = useRef<HTMLVideoElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [audioDevices, setAudioDevices] = useState<{ deviceId: string; label: string }[]>([]);
-  const [selectedAudioDeviceId, setSelectedAudioDeviceId] = useState<string>("");
+  const [audioDevices, setAudioDevices] = useState<
+    { deviceId: string; label: string }[]
+  >([]);
+  const [selectedAudioDeviceId, setSelectedAudioDeviceId] =
+    useState<string>("");
   const [previewKey, setPreviewKey] = useState(0);
   const micLevelRef = useRef<HTMLDivElement>(null);
   const [hasCameraHardware, setHasCameraHardware] = useState<boolean>(true);
   const [cameraNotice, setCameraNotice] = useState<string | null>(null);
+
+  // Camera Mode state (standalone camera-only recording)
+  const { openCameraModal } = useCameraStore();
 
   // Cleanup timer on unmount
   useEffect(() => {
@@ -108,8 +162,10 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
 
     const updateDevices = async () => {
       try {
-        const audioDevs = await DualRecordService.getInstance().enumerateAudioDevices();
-        const videoDevs = await DualRecordService.getInstance().enumerateVideoDevices();
+        const audioDevs =
+          await DualRecordService.getInstance().enumerateAudioDevices();
+        const videoDevs =
+          await DualRecordService.getInstance().enumerateVideoDevices();
         setAudioDevices(audioDevs);
 
         const hasCam = videoDevs.length > 0;
@@ -140,8 +196,9 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
     if (!isRecordOpen || isRecording) return;
 
     if (previewVideoRef.current) previewVideoRef.current.srcObject = null;
-    if (previewScreenVideoRef.current) previewScreenVideoRef.current.srcObject = null;
-    
+    if (previewScreenVideoRef.current)
+      previewScreenVideoRef.current.srcObject = null;
+
     // Stop any existing sessions/previews to prevent multi-access conflicts
     DualRecordService.getInstance().stopPreview();
     DualRecordService.getInstance().stopScreenPreview();
@@ -158,10 +215,11 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
     const setupPreviews = async () => {
       try {
         // 1. Initialize camera/microphone preview stream
-        const { stream, cameraError } = await DualRecordService.getInstance().startPreview(
-          { webcam: recordOptions.webcam, audio: recordOptions.audio },
-          selectedAudioDeviceId || undefined
-        );
+        const { stream, cameraError } =
+          await DualRecordService.getInstance().startPreview(
+            { webcam: recordOptions.webcam, audio: recordOptions.audio },
+            selectedAudioDeviceId || undefined,
+          );
 
         if (!active) return;
 
@@ -176,7 +234,9 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
 
         // 2. Coordinated mic testing using the preview stream
         if (recordOptions.audio && stream) {
-          await DualRecordService.getInstance().startMicTest(selectedAudioDeviceId);
+          await DualRecordService.getInstance().startMicTest(
+            selectedAudioDeviceId,
+          );
           if (!active) return;
 
           const pollLevel = () => {
@@ -190,7 +250,10 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
         }
       } catch (err: any) {
         console.error("[LaunchScreen] Camera/microphone setup failed:", err);
-        setPreviewError(err?.message || "Could not access camera or microphone. Check System Preferences → Privacy.");
+        setPreviewError(
+          err?.message ||
+            "Could not access camera or microphone. Check System Preferences → Privacy.",
+        );
       }
     };
 
@@ -201,7 +264,8 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
       cancelAnimationFrame(animationFrameId);
       if (!DualRecordService.getInstance().isRecording()) {
         if (previewVideoRef.current) previewVideoRef.current.srcObject = null;
-        if (previewScreenVideoRef.current) previewScreenVideoRef.current.srcObject = null;
+        if (previewScreenVideoRef.current)
+          previewScreenVideoRef.current.srcObject = null;
         DualRecordService.getInstance().stopPreview();
         DualRecordService.getInstance().stopScreenPreview();
         DualRecordService.getInstance().stopMicTest();
@@ -217,7 +281,9 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
   ]);
 
   const formatTime = (secs: number) => {
-    const m = Math.floor(secs / 60).toString().padStart(2, "0");
+    const m = Math.floor(secs / 60)
+      .toString()
+      .padStart(2, "0");
     const s = (secs % 60).toString().padStart(2, "0");
     return `${m}:${s}`;
   };
@@ -250,16 +316,22 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
       await DualRecordService.getInstance().startRecording(
         {
           ...recordOptions,
-          screenType: recordOptions.screenType === "any" ? undefined : recordOptions.screenType,
+          screenType:
+            recordOptions.screenType === "any"
+              ? undefined
+              : recordOptions.screenType,
           audioDeviceId: selectedAudioDeviceId || undefined,
           resolution: recordOptions.resolution,
           frameRate: recordOptions.frameRate,
         },
         // Callback when recording is stopped externally (OS "Stop Sharing", recorder error)
         (reason, error) => {
-          console.warn(`[LaunchScreen] Recording stopped externally: ${reason}`, error);
+          console.warn(
+            `[LaunchScreen] Recording stopped externally: ${reason}`,
+            error,
+          );
           setRecordingError(error || "Recording stopped unexpectedly");
-        }
+        },
       );
 
       // Detach preview stream from modal video element — App-level widget will re-attach it
@@ -271,7 +343,8 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
       // 2. Save window geometry snapshot and resize window to float layout
       if (isTauri) {
         try {
-          const { savePreRecordingWindowGeometry } = await import("@/lib/platform/windowState");
+          const { savePreRecordingWindowGeometry } =
+            await import("@/lib/platform/windowState");
           await savePreRecordingWindowGeometry();
 
           const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -290,7 +363,9 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
       }
     } catch (err: any) {
       console.error("[LaunchScreen] Start recording failed:", err);
-      setPreviewError(`Failed to start recording: ${err?.message || err || "Check permissions."}`);
+      setPreviewError(
+        `Failed to start recording: ${err?.message || err || "Check permissions."}`,
+      );
       setPreviewKey((k) => k + 1); // Restart preview on cancel
     }
   };
@@ -298,8 +373,6 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
   // stopCapture is handled by FloatingWidget (App.tsx renders FloatingWidget
   // when isRecording is true, replacing LaunchScreen entirely).
   // See FloatingWidget.handleStop for the actual stop logic.
-
-
 
   const menuRef = React.useRef<HTMLDivElement>(null);
   const { toggleSettingsModal } = useUIStore();
@@ -385,9 +458,12 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
     if (diffDays === 0) return "Today";
     if (diffDays === 1) return "Yesterday";
     if (diffDays < 7) return `${diffDays} days ago`;
-    return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
   };
-
 
   return (
     <div className="w-full h-full bg-bg flex flex-col overflow-hidden">
@@ -407,8 +483,14 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
 
       {/* Native title bar area. Controls are explicit because the main window is borderless. */}
       <div className="h-8 shrink-0 flex items-center gap-2 px-1 select-none">
-        {platform.type === "tauri" && !isMacNativeWindow && <WindowControls className="mr-1" />}
-        <span className={`text-xs font-semibold text-text-muted/60 shrink-0 ${isMacNativeWindow ? "ml-[76px]" : ""}`}>Clypra</span>
+        {platform.type === "tauri" && !isMacNativeWindow && (
+          <WindowControls className="mr-1" />
+        )}
+        <span
+          className={`text-xs font-semibold text-text-muted/60 shrink-0 ${isMacNativeWindow ? "ml-[76px]" : ""}`}
+        >
+          Clypra
+        </span>
         <WindowDragRegion />
       </div>
 
@@ -417,14 +499,16 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
       <div
         className="absolute inset-0 pointer-events-none ls-glow-primary"
         style={{
-          background: "radial-gradient(ellipse 80% 45% at 50% -5%, var(--clypra-interaction-focus) 0%, transparent 60%)",
+          background:
+            "radial-gradient(ellipse 80% 45% at 50% -5%, var(--clypra-interaction-focus) 0%, transparent 60%)",
         }}
       />
       {/* Warm secondary glow */}
       <div
         className="absolute inset-0 pointer-events-none ls-glow-warm"
         style={{
-          background: "radial-gradient(ellipse 55% 30% at 80% 10%, var(--clypra-clip-effect-bg) 0%, transparent 60%)",
+          background:
+            "radial-gradient(ellipse 55% 30% at 80% 10%, var(--clypra-clip-effect-bg) 0%, transparent 60%)",
         }}
       />
 
@@ -433,7 +517,10 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
         {/* Bottom scroll fade overlay */}
         <div
           className="pointer-events-none fixed bottom-0 left-0 right-0 h-16 z-20"
-          style={{ background: "linear-gradient(to top, var(--clypra-surface-app) 0%, transparent 100%)" }}
+          style={{
+            background:
+              "linear-gradient(to top, var(--clypra-surface-app) 0%, transparent 100%)",
+          }}
         />
         {/* Header / Brand */}
         <header className="flex items-center justify-between mb-10">
@@ -441,16 +528,35 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
             <div className="w-10 h-10 flex items-center justify-center relative">
               <div className="absolute inset-0 bg-accent/25 blur-2xl rounded-full"></div>
               <div className="absolute inset-0 bg-accent/10 blur-md rounded-full"></div>
-              <img src="/clypra.svg" alt="Clypra Logo" className="w-10 h-10 object-contain relative z-10 drop-shadow-[0_0_10px_var(--clypra-interaction-focus)]" />
+              <img
+                src="/clypra.svg"
+                alt="Clypra Logo"
+                className="w-10 h-10 object-contain relative z-10 drop-shadow-[0_0_10px_var(--clypra-interaction-focus)]"
+              />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-text-primary tracking-tight leading-tight">Clypra</h1>
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-accent/10 border border-accent/20 text-[10px] font-semibold text-accent tracking-wider">VIDEO EDITOR</span>
+              <h1 className="text-xl font-bold text-text-primary tracking-tight leading-tight">
+                Clypra
+              </h1>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-accent/10 border border-accent/20 text-[10px] font-semibold text-accent tracking-wider">
+                VIDEO EDITOR
+              </span>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon-sm" onClick={toggleSettingsModal} title="Settings" style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={toggleSettingsModal}
+              title="Settings"
+              style={
+                {
+                  WebkitAppRegion: "no-drag",
+                  cursor: "pointer",
+                } as React.CSSProperties
+              }
+            >
               <Settings className="w-3.5 h-3.5" />
             </Button>
           </div>
@@ -461,8 +567,10 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
           <div
             className="relative rounded-2xl overflow-hidden p-8 md:p-10 flex flex-col items-center text-center"
             style={{
-              background: "linear-gradient(135deg, var(--clypra-surface-panel) 0%, var(--clypra-surface-app) 100%)",
-              border: "1px solid color-mix(in srgb, var(--clypra-text-primary) 6%, transparent)",
+              background:
+                "linear-gradient(135deg, var(--clypra-surface-panel) 0%, var(--clypra-surface-app) 100%)",
+              border:
+                "1px solid color-mix(in srgb, var(--clypra-text-primary) 6%, transparent)",
               boxShadow: "var(--elev-shadow)",
             }}
           >
@@ -471,7 +579,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
               className="absolute top-0 left-1/2 -translate-x-1/2 w-[340px] h-[130px] rounded-full pointer-events-none"
               style={{
                 background: "var(--clypra-interaction-focus)",
-                opacity: 0.10,
+                opacity: 0.1,
                 filter: "blur(70px)",
               }}
             />
@@ -490,10 +598,20 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                 <Sparkles className="w-3 h-3" />
                 Create something amazing
               </div>
-              <h2 className="text-2xl md:text-3xl font-bold text-text-primary mb-2 tracking-tight">Start a new project</h2>
-              <p className="text-sm text-text-muted mb-6 max-w-md">Begin with a 16:9 landscape canvas, or capture your screen and face simultaneously.</p>
-              <div className="flex flex-col sm:flex-row items-center gap-3">
-                <Button variant="default" size="lg" onClick={handleStartNewProject} className="py-2 px-5 text-base font-semibold rounded-xl transition-all cursor-pointer shadow-lg shadow-accent/20">
+              <h2 className="text-2xl md:text-3xl font-bold text-text-primary mb-2 tracking-tight">
+                Start a new project
+              </h2>
+              <p className="text-sm text-text-muted mb-6 max-w-md">
+                Begin with a 16:9 landscape canvas, or capture your screen and
+                face simultaneously.
+              </p>
+              <div className="flex flex-col sm:flex-row items-center gap-3 flex-wrap justify-center">
+                <Button
+                  variant="default"
+                  size="lg"
+                  onClick={handleStartNewProject}
+                  className="py-2 px-5 text-base font-semibold rounded-xl transition-all cursor-pointer shadow-lg shadow-accent/20"
+                >
                   <Plus className="mr-1" />
                   New Project
                 </Button>
@@ -506,6 +624,28 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                   >
                     <Video className="mr-1.5 w-4 h-4" />
                     Record Screen & Camera
+                  </Button>
+                )}
+                {!platform.isCapacitor() && (
+                  <Button
+                    variant="secondary"
+                    size="lg"
+                    onClick={() => openCameraModal()}
+                    className="py-2 px-4 text-base font-semibold rounded-xl transition-all cursor-pointer border border-violet-500/40 text-violet-400 hover:bg-violet-500/10 hover:border-violet-500/70 hover:text-violet-300"
+                  >
+                    <Camera className="mr-1.5 w-4 h-4" />
+                    Camera
+                  </Button>
+                )}
+                {!platform.isCapacitor() && (
+                  <Button
+                    variant="secondary"
+                    size="lg"
+                    onClick={() => useUIStore.getState().setTransferModal(true)}
+                    className="py-2 px-4 text-base font-semibold rounded-xl transition-all cursor-pointer border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/70 hover:text-emerald-300"
+                  >
+                    <Smartphone className="mr-1.5 w-4 h-4" />
+                    Phone Transfer
                   </Button>
                 )}
               </div>
@@ -525,8 +665,12 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                 <FolderOpen className="w-4 h-4 text-accent" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-text-primary group-hover:text-accent-soft transition-colors">Import Media</p>
-                <p className="text-[11px] text-text-muted mt-0.5">Start from your files</p>
+                <p className="text-sm font-semibold text-text-primary group-hover:text-accent-soft transition-colors">
+                  Import Media
+                </p>
+                <p className="text-[11px] text-text-muted mt-0.5">
+                  Start from your files
+                </p>
               </div>
             </button>
 
@@ -540,10 +684,16 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
               </div>
               <div>
                 <div className="flex items-center gap-1.5">
-                  <p className="text-sm font-semibold text-text-primary">Templates</p>
-                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-surface-raised text-text-muted border border-white/6 uppercase tracking-wide">Soon</span>
+                  <p className="text-sm font-semibold text-text-primary">
+                    Templates
+                  </p>
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-surface-raised text-text-muted border border-white/6 uppercase tracking-wide">
+                    Soon
+                  </span>
                 </div>
-                <p className="text-[11px] text-text-muted mt-0.5">Start from a preset</p>
+                <p className="text-[11px] text-text-muted mt-0.5">
+                  Start from a preset
+                </p>
               </div>
             </div>
 
@@ -556,8 +706,12 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                 <FileVideo className="w-4 h-4 text-emerald-400" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-text-primary group-hover:text-emerald-300 transition-colors">Open File</p>
-                <p className="text-[11px] text-text-muted mt-0.5">Continue a project</p>
+                <p className="text-sm font-semibold text-text-primary group-hover:text-emerald-300 transition-colors">
+                  Open File
+                </p>
+                <p className="text-[11px] text-text-muted mt-0.5">
+                  Continue a project
+                </p>
               </div>
             </button>
           </div>
@@ -568,7 +722,9 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
           <div className="flex items-center justify-between gap-2 mb-4">
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 text-text-muted" />
-              <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider">Recent Projects</h3>
+              <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider">
+                Recent Projects
+              </h3>
               {recentProjects.length > 0 && (
                 <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface-raised border border-white/6 text-[10px] font-bold text-text-muted">
                   {recentProjects.length}
@@ -592,8 +748,12 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                 <Film className="w-6 h-6 text-text-muted/40" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-text-muted">No projects yet</p>
-                <p className="text-xs text-text-muted/50 mt-1">Your recent projects will appear here</p>
+                <p className="text-sm font-semibold text-text-muted">
+                  No projects yet
+                </p>
+                <p className="text-xs text-text-muted/50 mt-1">
+                  Your recent projects will appear here
+                </p>
               </div>
               <button
                 onClick={handleStartNewProject}
@@ -608,11 +768,18 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
               {recentProjects.map((entry) => {
                 if (entry.kind === "unreadable") {
                   return (
-                    <div key={entry.id} className="relative rounded-xl border border-danger/30 bg-surface overflow-hidden">
+                    <div
+                      key={entry.id}
+                      className="relative rounded-xl border border-danger/30 bg-surface overflow-hidden"
+                    >
                       <div className="h-[170px] bg-danger/5 flex flex-col items-center justify-center p-5 text-center">
                         <FolderOpen className="w-8 h-8 text-danger/70 mb-3" />
-                        <p className="text-xs font-semibold text-text-primary">Project needs recovery</p>
-                        <p className="text-[11px] text-text-muted mt-2 line-clamp-3">{entry.error}</p>
+                        <p className="text-xs font-semibold text-text-primary">
+                          Project needs recovery
+                        </p>
+                        <p className="text-[11px] text-text-muted mt-2 line-clamp-3">
+                          {entry.error}
+                        </p>
                         {entry.backupAvailable && (
                           <button
                             className="mt-4 px-3 py-1.5 rounded-md bg-accent text-white text-[11px] font-semibold hover:bg-accent/90"
@@ -623,8 +790,12 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                         )}
                       </div>
                       <div className="px-3.5 py-3.5">
-                        <h4 className="text-sm font-semibold text-text-primary truncate">{entry.name || entry.id}</h4>
-                        <p className="text-xs text-danger/80 mt-1">Original file was not opened or changed.</p>
+                        <h4 className="text-sm font-semibold text-text-primary truncate">
+                          {entry.name || entry.id}
+                        </h4>
+                        <p className="text-xs text-danger/80 mt-1">
+                          Original file was not opened or changed.
+                        </p>
                       </div>
                     </div>
                   );
@@ -649,16 +820,28 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                     {/* Aspect-ratio colour glow on hover */}
                     <div
                       className="absolute inset-0 rounded-xl pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-                      style={{ boxShadow: `0 0 0 1px ${cardGlow}, 0 12px 32px ${cardGlow}` }}
+                      style={{
+                        boxShadow: `0 0 0 1px ${cardGlow}, 0 12px 32px ${cardGlow}`,
+                      }}
                     />
 
                     {/* Thumbnail area */}
                     <div className="h-[170px] bg-bg flex items-center justify-center relative overflow-hidden group/stage">
                       {thumbnail ? (
                         <>
-                          <img src={thumbnail} alt="" className="absolute inset-0 h-full w-full scale-110 object-cover opacity-30 blur-2xl transition-transform duration-500 group-hover:scale-125" draggable={false} />
+                          <img
+                            src={thumbnail}
+                            alt=""
+                            className="absolute inset-0 h-full w-full scale-110 object-cover opacity-30 blur-2xl transition-transform duration-500 group-hover:scale-125"
+                            draggable={false}
+                          />
                           <div className="absolute inset-2 flex items-center justify-center overflow-hidden rounded-lg bg-black/40 backdrop-blur-xs border border-white/6 shadow-inner">
-                            <img src={thumbnail} alt="" className="max-h-full max-w-full object-contain opacity-98 shadow-lg transition-all duration-300 group-hover:scale-[1.03]" draggable={false} />
+                            <img
+                              src={thumbnail}
+                              alt=""
+                              className="max-h-full max-w-full object-contain opacity-98 shadow-lg transition-all duration-300 group-hover:scale-[1.03]"
+                              draggable={false}
+                            />
                           </div>
                         </>
                       ) : (
@@ -667,7 +850,9 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                           <div className="w-11 h-11 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent font-bold text-sm tracking-wider shadow-lg group-hover:scale-110 transition-transform duration-300">
                             {getProjectInitials(project.name)}
                           </div>
-                          <span className="text-[10px] uppercase font-mono tracking-widest text-text-muted/50 mt-2">Empty Timeline</span>
+                          <span className="text-[10px] uppercase font-mono tracking-widest text-text-muted/50 mt-2">
+                            Empty Timeline
+                          </span>
                         </div>
                       )}
 
@@ -683,51 +868,74 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
 
                       {/* Badges row */}
                       <div className="absolute top-2 left-2 flex items-center gap-1 z-10 pointer-events-none">
-                        <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-bg/85 backdrop-blur-md text-text-primary border border-white/10 shadow-sm">{project.aspectRatio}</span>
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-bg/85 backdrop-blur-md text-text-primary border border-white/10 shadow-sm">
+                          {project.aspectRatio}
+                        </span>
                         {(project as any).frameRate && (
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-bg/85 backdrop-blur-md text-text-muted border border-white/10 shadow-sm">{(project as any).frameRate}fps</span>
-                        )}
-                        {project.mediaAssets && project.mediaAssets.length > 0 && (
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-bg/85 backdrop-blur-md text-accent-soft border border-accent/20 shadow-sm flex items-center gap-1">
-                            <Layers className="w-2.5 h-2.5" />
-                            {project.mediaAssets.length}
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-bg/85 backdrop-blur-md text-text-muted border border-white/10 shadow-sm">
+                            {(project as any).frameRate}fps
                           </span>
                         )}
+                        {project.mediaAssets &&
+                          project.mediaAssets.length > 0 && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-bg/85 backdrop-blur-md text-accent-soft border border-accent/20 shadow-sm flex items-center gap-1">
+                              <Layers className="w-2.5 h-2.5" />
+                              {project.mediaAssets.length}
+                            </span>
+                          )}
                       </div>
 
                       {/* Duration Timecode Overlay (Bottom Right) */}
-                      {project.duration !== undefined && project.duration > 0 && (
-                        <div className="absolute bottom-2 right-2 z-10 pointer-events-none">
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-black/80 backdrop-blur-md text-white/90 border border-white/10 shadow-md">
-                            {formatEditorTimecode(project.duration)}
-                          </span>
-                        </div>
-                      )}
+                      {project.duration !== undefined &&
+                        project.duration > 0 && (
+                          <div className="absolute bottom-2 right-2 z-10 pointer-events-none">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-black/80 backdrop-blur-md text-white/90 border border-white/10 shadow-md">
+                              {formatEditorTimecode(project.duration)}
+                            </span>
+                          </div>
+                        )}
                     </div>
 
                     {/* Info */}
                     <div className="px-3.5 py-3.5">
-                      <h4 className="text-sm font-semibold text-text-primary truncate group-hover:text-accent-soft transition-colors">{project.name}</h4>
+                      <h4 className="text-sm font-semibold text-text-primary truncate group-hover:text-accent-soft transition-colors">
+                        {project.name}
+                      </h4>
                       <div className="flex items-center justify-between mt-1.5">
-                        <span className="text-xs text-text-muted">{formatDate(project.createdAt)}</span>
+                        <span className="text-xs text-text-muted">
+                          {formatDate(project.createdAt)}
+                        </span>
                         <ChevronRight className="w-3.5 h-3.5 text-text-muted/30 group-hover:text-accent/60 transition-colors duration-200" />
                       </div>
                     </div>
 
                     {/* More options button */}
                     <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <div onClick={(e) => handleToggleMenu(e, project.id)} className="p-1.5 rounded-lg bg-bg/80 backdrop-blur-sm border border-white/4 hover:bg-surface-raised hover:border-white/8 cursor-pointer transition-colors" title="More options">
+                      <div
+                        onClick={(e) => handleToggleMenu(e, project.id)}
+                        className="p-1.5 rounded-lg bg-bg/80 backdrop-blur-sm border border-white/4 hover:bg-surface-raised hover:border-white/8 cursor-pointer transition-colors"
+                        title="More options"
+                      >
                         <MoreHorizontal className="w-3.5 h-3.5 text-text-muted" />
                       </div>
 
                       {/* Dropdown menu */}
                       {menuOpen === project.id && (
-                        <div ref={menuRef} className="absolute top-full right-0 mt-1 z-50 min-w-[140px] rounded-lg border border-border bg-surface py-1 shadow-xl overflow-hidden">
-                          <button onClick={(e) => handleRenameClick(e, project)} className="w-full px-3 py-2 text-left flex items-center gap-2 text-sm text-text-primary hover:bg-surface-raised transition-colors cursor-pointer">
+                        <div
+                          ref={menuRef}
+                          className="absolute top-full right-0 mt-1 z-50 min-w-[140px] rounded-lg border border-border bg-surface py-1 shadow-xl overflow-hidden"
+                        >
+                          <button
+                            onClick={(e) => handleRenameClick(e, project)}
+                            className="w-full px-3 py-2 text-left flex items-center gap-2 text-sm text-text-primary hover:bg-surface-raised transition-colors cursor-pointer"
+                          >
                             <Pencil className="w-3.5 h-3.5" />
                             Rename
                           </button>
-                          <button onClick={(e) => handleDeleteClick(e, project)} className="w-full px-3 py-2 text-left flex items-center gap-2 text-sm text-danger hover:bg-surface-raised transition-colors cursor-pointer">
+                          <button
+                            onClick={(e) => handleDeleteClick(e, project)}
+                            className="w-full px-3 py-2 text-left flex items-center gap-2 text-sm text-danger hover:bg-surface-raised transition-colors cursor-pointer"
+                          >
                             <Trash2 className="w-3.5 h-3.5" />
                             Delete
                           </button>
@@ -743,7 +951,11 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
       </div>
 
       {/* Rename Modal */}
-      <Modal isOpen={!!projectToRename} onClose={() => setProjectToRename(null)} title="Rename Project">
+      <Modal
+        isOpen={!!projectToRename}
+        onClose={() => setProjectToRename(null)}
+        title="Rename Project"
+      >
         <div className="p-5 space-y-4">
           <div>
             <input
@@ -758,16 +970,30 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
               placeholder="Project name"
             />
             <div className="flex justify-end mt-1">
-              <span className={`text-[10px] font-medium ${countGraphemes(renameValue) > MAX_PROJECT_NAME_LENGTH ? "text-danger" : "text-text-muted/60"}`}>
+              <span
+                className={`text-[10px] font-medium ${countGraphemes(renameValue) > MAX_PROJECT_NAME_LENGTH ? "text-danger" : "text-text-muted/60"}`}
+              >
                 {countGraphemes(renameValue)}/{MAX_PROJECT_NAME_LENGTH}
               </span>
             </div>
           </div>
           <div className="flex gap-3 justify-end pt-2">
-            <Button variant="ghost" onClick={() => setProjectToRename(null)} disabled={isRenaming}>
+            <Button
+              variant="ghost"
+              onClick={() => setProjectToRename(null)}
+              disabled={isRenaming}
+            >
               Cancel
             </Button>
-            <Button variant="default" onClick={handleConfirmRename} disabled={isRenaming || !renameValue.trim() || countGraphemes(renameValue) > MAX_PROJECT_NAME_LENGTH}>
+            <Button
+              variant="default"
+              onClick={handleConfirmRename}
+              disabled={
+                isRenaming ||
+                !renameValue.trim() ||
+                countGraphemes(renameValue) > MAX_PROJECT_NAME_LENGTH
+              }
+            >
               {isRenaming ? "Renaming..." : "Rename"}
             </Button>
           </div>
@@ -775,18 +1001,36 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
       </Modal>
 
       {/* Delete Confirmation Modal */}
-      <Modal isOpen={!!projectToDelete} onClose={() => setProjectToDelete(null)} title="Delete Project">
+      <Modal
+        isOpen={!!projectToDelete}
+        onClose={() => setProjectToDelete(null)}
+        title="Delete Project"
+      >
         <div className="p-5 space-y-4">
           <p className="text-sm text-text-primary">
-            Are you sure you want to delete <strong>{projectToDelete?.name}</strong>?
+            Are you sure you want to delete{" "}
+            <strong>{projectToDelete?.name}</strong>?
           </p>
-          <p className="text-xs text-text-muted">This action cannot be undone. All project data will be permanently deleted.</p>
+          <p className="text-xs text-text-muted">
+            This action cannot be undone. All project data will be permanently
+            deleted.
+          </p>
 
           <div className="flex gap-3 justify-end pt-2">
-            <Button variant="secondary" className="cursor-pointer" onClick={() => setProjectToDelete(null)} disabled={isDeleting}>
+            <Button
+              variant="secondary"
+              className="cursor-pointer"
+              onClick={() => setProjectToDelete(null)}
+              disabled={isDeleting}
+            >
               Cancel
             </Button>
-            <Button variant="default" onClick={handleConfirmDelete} disabled={isDeleting} className="bg-danger hover:bg-danger/80 cursor-pointer">
+            <Button
+              variant="default"
+              onClick={handleConfirmDelete}
+              disabled={isDeleting}
+              className="bg-danger hover:bg-danger/80 cursor-pointer"
+            >
               {isDeleting ? "Deleting..." : "Delete"}
             </Button>
           </div>
@@ -797,9 +1041,10 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
       {isRecordOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 overflow-y-auto">
           <div
-            className="w-full max-w-[520px] max-h-[88vh] rounded-2xl p-5 shadow-2xl flex flex-col gap-3.5 text-slate-100 border border-white/10 overflow-y-auto"
+            className="w-full max-w-130 max-h-[88vh] rounded-2xl p-5 shadow-2xl flex flex-col gap-3.5 text-slate-100 border border-white/10 overflow-y-auto"
             style={{
-              background: "linear-gradient(160deg, var(--clypra-surface-floating) 0%, var(--clypra-surface-app) 100%)",
+              background:
+                "linear-gradient(160deg, var(--clypra-surface-floating) 0%, var(--clypra-surface-app) 100%)",
             }}
           >
             {/* Header */}
@@ -826,8 +1071,12 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-app border border-text-primary/5">
                   <div className="flex flex-col items-center justify-center text-slate-500 gap-2">
                     <span className="text-4xl">🖥️</span>
-                    <span className="text-xs font-semibold text-slate-400">Screen Capture Enabled</span>
-                    <span className="text-[10px] text-slate-500">System picker will prompt when recording starts</span>
+                    <span className="text-xs font-semibold text-slate-400">
+                      Screen Capture Enabled
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      System picker will prompt when recording starts
+                    </span>
                   </div>
                 </div>
               )}
@@ -855,7 +1104,9 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
               {!recordOptions.screen && !recordOptions.webcam && (
                 <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 gap-2">
                   <span className="text-3xl">🎙️</span>
-                  <span className="text-xs font-medium">Recording Audio Only</span>
+                  <span className="text-xs font-medium">
+                    Recording Audio Only
+                  </span>
                 </div>
               )}
 
@@ -863,7 +1114,12 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
               {cameraNotice && (
                 <div className="absolute top-2 left-2 right-2 z-20 bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[11px] px-3 py-1.5 rounded-lg flex items-center justify-between backdrop-blur-sm">
                   <span>📷 {cameraNotice}</span>
-                  <button onClick={() => setCameraNotice(null)} className="text-amber-400 hover:text-amber-200">✕</button>
+                  <button
+                    onClick={() => setCameraNotice(null)}
+                    className="text-amber-400 hover:text-amber-200"
+                  >
+                    ✕
+                  </button>
                 </div>
               )}
 
@@ -871,7 +1127,9 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
               {previewError && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center px-8 bg-black/80">
                   <span className="text-2xl">⚠️</span>
-                  <p className="text-sm text-red-400 leading-relaxed max-w-xs">{previewError}</p>
+                  <p className="text-sm text-red-400 leading-relaxed max-w-xs">
+                    {previewError}
+                  </p>
                 </div>
               )}
               {/* REC badge */}
@@ -885,11 +1143,17 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
 
             {/* Options */}
             <div className="grid grid-cols-3 gap-3">
-              {([
-                { key: "screen" as const, label: "Capture Screen", icon: "🖥️" },
-                { key: "webcam" as const, label: "Camera", icon: "📷" },
-                { key: "audio" as const, label: "Microphone", icon: "🎙️" },
-              ] as const).map(({ key, label, icon }) => (
+              {(
+                [
+                  {
+                    key: "screen" as const,
+                    label: "Capture Screen",
+                    icon: "🖥️",
+                  },
+                  { key: "webcam" as const, label: "Camera", icon: "📷" },
+                  { key: "audio" as const, label: "Microphone", icon: "🎙️" },
+                ] as const
+              ).map(({ key, label, icon }) => (
                 <label
                   key={key}
                   className={`flex flex-col items-center gap-2 p-3 rounded-xl border select-none transition-all ${
@@ -906,7 +1170,12 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                     type="checkbox"
                     className="sr-only"
                     checked={recordOptions[key]}
-                    onChange={(e) => setRecordOptions({ ...recordOptions, [key]: e.target.checked })}
+                    onChange={(e) =>
+                      setRecordOptions({
+                        ...recordOptions,
+                        [key]: e.target.checked,
+                      })
+                    }
                     disabled={isRecording}
                   />
                   <span className="text-xl">{icon}</span>
@@ -923,10 +1192,17 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                 </div>
                 <select
                   value={recordOptions.screenType}
-                  onChange={(e) => setRecordOptions({ ...recordOptions, screenType: e.target.value as any })}
+                  onChange={(e) =>
+                    setRecordOptions({
+                      ...recordOptions,
+                      screenType: e.target.value as any,
+                    })
+                  }
                   className="w-full bg-surface-app border border-text-primary/10 rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent/40 cursor-pointer"
                 >
-                  <option value="any">Standard System Picker (Let me choose)</option>
+                  <option value="any">
+                    Standard System Picker (Let me choose)
+                  </option>
                   <option value="entire">Prefer Entire Display</option>
                   <option value="window">Prefer Application Window</option>
                 </select>
@@ -937,13 +1213,20 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
             {!isRecording && (
               <div className="grid grid-cols-2 gap-2.5 p-3 rounded-xl bg-white/4 border border-white/8 text-slate-300">
                 <div className="flex flex-col gap-1.5">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Resolution</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                    Resolution
+                  </span>
                   <div className="grid grid-cols-3 gap-1 bg-surface-app p-1 rounded-lg border border-text-primary/10">
                     {(["720p", "1080p", "4k"] as const).map((res) => (
                       <button
                         key={res}
                         type="button"
-                        onClick={() => setRecordOptions({ ...recordOptions, resolution: res })}
+                        onClick={() =>
+                          setRecordOptions({
+                            ...recordOptions,
+                            resolution: res,
+                          })
+                        }
                         className={`py-1 rounded text-[11px] font-bold transition-all cursor-pointer ${
                           recordOptions.resolution === res
                             ? "bg-accent text-white shadow-sm"
@@ -957,13 +1240,17 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                 </div>
 
                 <div className="flex flex-col gap-1.5">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Frame Rate</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                    Frame Rate
+                  </span>
                   <div className="grid grid-cols-2 gap-1 bg-surface-app p-1 rounded-lg border border-text-primary/10">
                     {([30, 60] as const).map((fps) => (
                       <button
                         key={fps}
                         type="button"
-                        onClick={() => setRecordOptions({ ...recordOptions, frameRate: fps })}
+                        onClick={() =>
+                          setRecordOptions({ ...recordOptions, frameRate: fps })
+                        }
                         className={`py-1 rounded text-[11px] font-bold transition-all cursor-pointer ${
                           recordOptions.frameRate === fps
                             ? "bg-accent text-white shadow-sm"
@@ -983,9 +1270,13 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
               <div className="flex flex-col gap-2 p-3 rounded-xl bg-white/4 border border-white/8 text-slate-300">
                 <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                   <span>Microphone Source</span>
-                  {audioDevices.length > 0 && <span className="text-emerald-400 font-bold flex items-center gap-1.5 animate-pulse">● Live Testing</span>}
+                  {audioDevices.length > 0 && (
+                    <span className="text-emerald-400 font-bold flex items-center gap-1.5 animate-pulse">
+                      ● Live Testing
+                    </span>
+                  )}
                 </div>
-                
+
                 {audioDevices.length > 0 ? (
                   <div className="flex flex-col gap-2.5">
                     <select
@@ -999,24 +1290,29 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                         </option>
                       ))}
                     </select>
-                    
+
                     {/* Live Meter */}
                     <div className="flex items-center gap-3">
-                      <span className="text-[11px] text-slate-400 font-medium">Input level:</span>
+                      <span className="text-[11px] text-slate-400 font-medium">
+                        Input level:
+                      </span>
                       <div className="flex-1 h-2 rounded-full bg-surface-app overflow-hidden flex items-center p-0.5 border border-text-primary/5">
                         <div
                           ref={micLevelRef}
                           className="h-full rounded-full transition-all duration-75"
                           style={{
                             width: "0%",
-                            background: "linear-gradient(90deg, var(--clypra-status-success) 0%, var(--clypra-status-success) 70%, var(--clypra-status-warning) 85%, var(--clypra-status-error) 100%)",
+                            background:
+                              "linear-gradient(90deg, var(--clypra-status-success) 0%, var(--clypra-status-success) 70%, var(--clypra-status-warning) 85%, var(--clypra-status-error) 100%)",
                           }}
                         />
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <p className="text-xs text-slate-400">No microphone devices found.</p>
+                  <p className="text-xs text-slate-400">
+                    No microphone devices found.
+                  </p>
                 )}
               </div>
             )}
@@ -1025,25 +1321,42 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
             <div className="pt-1">
               <button
                 onClick={startCapture}
-                disabled={!recordOptions.screen && !recordOptions.webcam && !recordOptions.audio}
+                disabled={
+                  !recordOptions.screen &&
+                  !recordOptions.webcam &&
+                  !recordOptions.audio
+                }
                 className="w-full py-3.5 rounded-xl bg-red-600 hover:bg-red-500 active:bg-red-700 text-white font-bold text-sm flex items-center justify-center gap-2.5 transition-colors shadow-lg shadow-red-900/30 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-red-600"
               >
                 <span className="w-2.5 h-2.5 rounded-full bg-white" />
                 Start Capture
               </button>
-              {!recordOptions.screen && !recordOptions.webcam && !recordOptions.audio ? (
+              {!recordOptions.screen &&
+              !recordOptions.webcam &&
+              !recordOptions.audio ? (
                 <p className="text-center text-xs text-amber-400/80 mt-3">
                   Enable at least one source to start recording.
                 </p>
               ) : (
                 <p className="text-center text-xs text-slate-500 mt-3">
-                  The recording will automatically open as a new project in the editor.
+                  The recording will automatically open as a new project in the
+                  editor.
                 </p>
               )}
             </div>
           </div>
         </div>
       )}
+
+      {/* ── Camera Recording Modal ──────────────────────────────── */}
+      <CameraRecordingModal
+        onRecordingComplete={(filePath, aspectRatio) => {
+          const { defaultFrameRate } = useSettingsStore.getState();
+          onProjectCreate("Camera Recording", aspectRatio, defaultFrameRate, [
+            filePath,
+          ]);
+        }}
+      />
     </div>
   );
 };

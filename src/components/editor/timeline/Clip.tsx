@@ -207,7 +207,7 @@ const ClipInner: React.FC<ClipProps> = ({
     if (locked) return;
 
     // Selection & multi-selection
-    if (e.key === "Enter" || e.key === " ") {
+    if (e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();
       if (e.shiftKey || e.metaKey || e.ctrlKey) {
@@ -848,7 +848,7 @@ const ClipInner: React.FC<ClipProps> = ({
   return (
     <div
       ref={clipRef}
-      tabIndex={locked ? -1 : 0}
+      tabIndex={-1}
       role="button"
       aria-label={clipAccessibleName}
       aria-selected={selected ? "true" : "false"}

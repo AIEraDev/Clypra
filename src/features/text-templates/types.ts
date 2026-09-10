@@ -137,6 +137,7 @@ export interface TemplateDefinition {
   label?: string;
   thumbnail?: string;
   preview?: string;
+  stylePreview?: any;
   duration?: number;
   durationFrames?: number;
   thumbnailFrame?: number;

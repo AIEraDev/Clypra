@@ -2,6 +2,8 @@
  * Focused diagnostics for native preview audio & playback synchronization.
  */
 
+import { perfLogService } from "@/services/perfLogService";
+
 const PLAYBACK_CONSOLE_EVENTS = new Set([
   "playback-state",
   "native-present-start",
@@ -35,6 +37,15 @@ export function tracePlayback(
 
   playbackMetrics.record(payload);
 
+  // Forward to session perf log so playback-trace events appear in the NDJSON
+  // file alongside rollup and native-sync entries.
+  perfLogService.enqueue({
+    kind: "playback-trace",
+    session_id: perfLogService.getSessionId() ?? "unknown",
+    timestamp_epoch_ms: payload.tsEpochMs as number,
+    payload,
+  });
+
   const globalWithDebugFlag = globalThis as typeof globalThis & {
     __CLYPRA_DEBUG_AUDIO__?: boolean;
   };
@@ -53,9 +64,14 @@ export function tracePlayback(
   if (event === "native-frame-dropped" || event === "surface-error") {
     console.warn(`[av-sync][native-preview] ${event}`, payload);
   } else if (event === "slow-stage") {
-    console.warn(`[av-sync][slow-stage] ${details.stage ?? "unknown"} took ${details.durationMs}ms`, payload);
+    console.warn(
+      `[av-sync][slow-stage] ${details.stage ?? "unknown"} took ${details.durationMs}ms`,
+      payload,
+    );
   } else if (event === "playback-state") {
-    console.info(`[av-sync][state] -> ${details.playbackState} at ${details.time}s (frame: ${details.frameIndex})`);
+    console.info(
+      `[av-sync][state] -> ${details.playbackState} at ${details.time}s (frame: ${details.frameIndex})`,
+    );
   } else if (debugLoggingEnabled && PLAYBACK_CONSOLE_EVENTS.has(event)) {
     console.debug(`[av-sync][react][playback] ${event}`, payload);
   }
@@ -129,9 +145,12 @@ class PlaybackMetricsCollector {
     ) {
       this.lastAggregateLogMs = now;
       const snap = this.snapshot();
-      if (snap.events > 0 && (snap.droppedFrames > 0 || snap.staleFrames > 0 || this.debugEnabled)) {
+      if (
+        snap.events > 0 &&
+        (snap.droppedFrames > 0 || snap.staleFrames > 0 || this.debugEnabled)
+      ) {
         console.info(
-          `[av-sync][summary 1s] events: ${snap.events} | dropped: ${snap.droppedFrames} | stale: ${snap.staleFrames} | maxDrift: ${snap.maxDriftMs.toFixed(1)}ms | seeks: ${snap.seeks}`
+          `[av-sync][summary 1s] events: ${snap.events} | dropped: ${snap.droppedFrames} | stale: ${snap.staleFrames} | maxDrift: ${snap.maxDriftMs.toFixed(1)}ms | seeks: ${snap.seeks}`,
         );
       }
     }

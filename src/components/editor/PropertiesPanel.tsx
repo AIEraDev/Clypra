@@ -589,6 +589,9 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       stickerSourceId: selectedClip.stickerSourceId,
     };
   }
+  const isSticker =
+    selectedClip?.kind === "sticker" ||
+    Boolean(selectedClip?.mediaId?.startsWith("sticker-"));
   const isVisualClip =
     selectedAsset?.type === "video" || selectedAsset?.type === "image";
   // Audio library clips have kind="audio" and audioPath on the clip but no matching mediaAsset entry
@@ -603,7 +606,9 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       selectedClip.kind === "text-template" ||
       "text" in selectedClip);
   const hasAudioTrack =
-    isAudioClip || isVideoClip || Boolean(selectedClip?.audio); // Audio-backed clips, including text with an attached audio model
+    !isTextClip &&
+    !isSticker &&
+    (isAudioClip || isVideoClip || Boolean(selectedClip?.audio));
 
   if (!selectedClipId || !selectedClip) {
     return (
@@ -752,9 +757,6 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     );
   };
 
-  const isSticker =
-    selectedClip?.kind === "sticker" ||
-    selectedClip?.mediaId.startsWith("sticker-");
   const isFilter =
     selectedClip?.kind === "filter" ||
     selectedClip?.id.startsWith("filter-clip-");
@@ -791,6 +793,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
   return (
     <div
+      data-properties-panel="true"
       className={`min-h-0 panel-shell flex flex-col overflow-hidden transition-[width] duration-150 ${
         fillWidth && !collapsed ? "w-full flex-1" : "shrink-0"
       } ${className}`}

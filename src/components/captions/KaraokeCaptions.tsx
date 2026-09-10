@@ -120,4 +120,4 @@ export const KaraokeCaptions: React.FC = () => {
   );
 };
 
-export default KaraokeCaptions;
+

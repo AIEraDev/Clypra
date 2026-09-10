@@ -19,6 +19,7 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
+import { isProtectedInteractiveElement } from "@/core/selection/selectionCoordinator";
 import {
   getPreviewInteractionCoordinator,
   getTransformController,
@@ -104,6 +105,7 @@ import {
   getNativePreviewBlockers,
   getNativeFrameRequestKey,
   isRenderableNativePreviewFrame,
+  isExpectedStaleNativePreviewError,
 } from "./nativeVideoPreview";
 import {
   NativePreviewFrameScheduler,
@@ -132,12 +134,6 @@ import {
   releaseNativeSurface,
   releaseNativeSurfaceReadiness,
 } from "@/core/runtime/nativeSurfaceLifecycle";
-
-function isExpectedStaleNativePreviewError(error: unknown): boolean {
-  return /native preview frame request is stale|request cancelled/i.test(
-    error instanceof Error ? error.message : String(error),
-  );
-}
 
 const CANVAS_DIMENSIONS: Record<
   Exclude<AspectRatio, "original">,
@@ -949,10 +945,7 @@ export const NativeProgramPreview: React.FC = () => {
       //   nativeSurfaceReady,
       //   selectedClipIds: useUIStore.getState().selectedClipIds,
       // });
-      if (target.closest("[data-transform-handle]")) return;
-      if (target.closest("[data-playhead]")) return;
-      if (target.closest("[data-transform-overlay]")) return;
-      if (target.closest("[data-testid='program-preview-viewport']")) return;
+      if (isProtectedInteractiveElement(target)) return;
       clearSelection();
     },
     [clearSelection, isPanning, spacePressed, clock, nativeSurfaceReady],
@@ -1793,11 +1786,20 @@ export const NativeProgramPreview: React.FC = () => {
 
       // The final command is written synchronously, but React may publish its
       // new timeline snapshot on the next commit. Retain the final geometry
-      // for that handoff, then release the ephemeral override after one render.
+      // until the base clip reflects the committed properties.
       if (dragPreviewPendingCommit) {
-        dragPreviewPendingCommit = false;
-        dragPreviewClipId = null;
-        dragPreviewGeometry = null;
+        const currentClip = baseClips.find((c) => c.id === previewClipId);
+        const matchesFinal =
+          currentClip &&
+          Math.abs(currentClip.x - previewGeometry.x) < 1 &&
+          Math.abs(currentClip.y - previewGeometry.y) < 1 &&
+          Math.abs(currentClip.width - previewGeometry.width) < 1 &&
+          Math.abs(currentClip.height - previewGeometry.height) < 1;
+        if (matchesFinal) {
+          dragPreviewPendingCommit = false;
+          dragPreviewClipId = null;
+          dragPreviewGeometry = null;
+        }
       }
 
       return { clips: previewClips, previewRevision };
@@ -1962,8 +1964,10 @@ export const NativeProgramPreview: React.FC = () => {
         // after their awaited native response below.
         const playbackTargetStillCurrent = () => {
           const current = renderStateRef.current;
+          const isDragging = Boolean(dragPreviewClipId);
           return (
-            dragPreviewRevision === dragPreviewRevisionAtStart &&
+            (isDragging ||
+              dragPreviewRevision === dragPreviewRevisionAtStart) &&
             (!isPlaying ||
               (current.project?.id === state.project?.id &&
                 current.epoch === state.epoch &&
@@ -2247,13 +2251,14 @@ export const NativeProgramPreview: React.FC = () => {
           requireExactFrame: boolean = !isPlaying,
         ) => {
           const current = renderStateRef.current;
+          const isDragging = Boolean(dragPreviewClipId);
           return (
             isActive &&
             visibleRequestGeneration === targetGeneration &&
             current.project?.id === state.project?.id &&
             current.epoch === state.epoch &&
             current.clock.state === playbackState &&
-            dragPreviewRevision === dragPreviewRevisionAtStart &&
+            (isDragging || dragPreviewRevision === dragPreviewRevisionAtStart) &&
             (!requireExactFrame ||
               getFrameIndexAtTime(current.clock.time, frameRate) === frameIndex)
           );

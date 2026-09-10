@@ -184,4 +184,3 @@ const SidebarComponent: React.FC<SidebarProps> = ({
 };
 
 export const Sidebar = React.memo(SidebarComponent);
-export const EnhancedMediaPanel = Sidebar;

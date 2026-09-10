@@ -7,7 +7,10 @@ import { effectBleed, resolveTextEffectDefinition } from "../../lib/text/textCli
 import { getTextRenderMetrics, normalizeFontSize } from "../../lib/utils/fixedSizing";
 import { traceTextRenderScene } from "./textRenderTrace";
 import { resolveTemplateControlValues } from "../../lib/text/templateControls";
-import { calculateOptimalTemplateLayout } from "./templateScale";
+import {
+  calculateOptimalTemplateLayout,
+  measureTemplateContentBounds,
+} from "./templateScale";
 
 
 
@@ -75,16 +78,45 @@ function renderTemplateArtifact(
       ? layer.time - layer.clipStartTime
       : 0;
   const controlValues = templateControlValues(layer, artifact);
-  const layout = calculateOptimalTemplateLayout(
-    artifact,
-    width,
-    height,
-    controlValues,
+  const contentBounds = measureTemplateContentBounds(artifact, controlValues);
+  const docWidth = Math.max(
+    1,
+    Math.round(Number(artifact?.document?.canvas?.width) || 1920),
   );
-  const uniformWidth = layout.uniformWidth;
-  const uniformHeight = layout.uniformHeight;
-  const offsetX0 = layout.offsetX;
-  const offsetY0 = layout.offsetY;
+  const docHeight = Math.max(
+    1,
+    Math.round(Number(artifact?.document?.canvas?.height) || 1080),
+  );
+
+  const isContentBounded =
+    width < docWidth * 0.85 &&
+    height < docHeight * 0.85 &&
+    contentBounds.width > 0 &&
+    contentBounds.height > 0;
+
+  let uniformWidth: number;
+  let uniformHeight: number;
+  let offsetX0: number;
+  let offsetY0: number;
+
+  if (isContentBounded) {
+    const scale = width / Math.max(1, contentBounds.width);
+    uniformWidth = Math.max(1, Math.round(docWidth * scale));
+    uniformHeight = Math.max(1, Math.round(docHeight * scale));
+    offsetX0 = -Math.round(contentBounds.minX * scale);
+    offsetY0 = -Math.round(contentBounds.minY * scale);
+  } else {
+    const layout = calculateOptimalTemplateLayout(
+      artifact,
+      width,
+      height,
+      controlValues,
+    );
+    uniformWidth = layout.uniformWidth;
+    uniformHeight = layout.uniformHeight;
+    offsetX0 = layout.offsetX;
+    offsetY0 = layout.offsetY;
+  }
 
   ctx.save();
   // Native text raster assets are centered around the evaluated layer origin.

@@ -279,6 +279,19 @@ export function isRenderableNativePreviewFrame(
   return width > 0 && height > 0 && rgba.byteLength === width * height * 4;
 }
 
+export function isExpectedStaleNativePreviewError(error: unknown): boolean {
+  if (
+    error instanceof DOMException &&
+    (error.name === "AbortError" || error.name === "TimeoutError")
+  ) {
+    return true;
+  }
+  const msg = error instanceof Error ? error.message : String(error);
+  return /native preview frame request is stale|request cancelled|request superseded|aborted/i.test(
+    msg,
+  );
+}
+
 function isNativeFileSource(sourcePath: string): boolean {
   const value = sourcePath.trim().toLowerCase();
   if (!value || value.startsWith("data:") || value.startsWith("blob:")) return false;

@@ -399,5 +399,25 @@ describe("Text template hit testing", () => {
     // Should only hit the background video, not the text template
     expect(candidates.map((c) => c.id)).toEqual(["bg-video"]);
   });
+
+  it("resolves content-bounded text-template clip dimensions directly without layout offset", () => {
+    const tightTemplateClip = {
+      id: "tight-template",
+      trackId: "template-track",
+      kind: "text-template",
+      x: 340,
+      y: 900,
+      width: 400,
+      height: 120,
+    } as any;
+
+    const bounds = resolveClipVisualBounds(tightTemplateClip, 1080, 1920);
+    expect(bounds).toEqual({
+      x: 340,
+      y: 900,
+      width: 400,
+      height: 120,
+    });
+  });
 });
 

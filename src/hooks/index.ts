@@ -1,4 +1,11 @@
-export * from "./timeline";
+export { useTimelineAutoScroll } from "./timeline/useTimelineAutoScroll";
+export { useSplitMode } from "./timeline/useSplitMode";
+export { useTimeline } from "./timeline/useTimeline";
+export { useTimelineDrag } from "./timeline/useTimelineDrag";
+export { useTimelineTauriDrop } from "./timeline/useTimelineTauriDrop";
+export { useTimelineZoom } from "./timeline/useTimelineZoom";
+export { useAnchoredTimelineZoom } from "./timeline/useAnchoredTimelineZoom";
+export { TimelineZoomSpring } from "./timeline/useTimelineZoomSpring";
 export { useAutoUpdater } from "./useAutoUpdater";
 export { useCacheManager } from "./useCacheManager";
 export { useRenderStack, useTimelineValidation } from "./useCompositor";
@@ -15,3 +22,4 @@ export { useViewportState } from "./useViewportController";
 export { useVoiceoverRecorder } from "./useVoiceoverRecorder";
 export { useWindowSize } from "./useWindowSize";
 export { useClickOutside, type ClickOutsideTarget, type UseClickOutsideOptions } from "./useClickOutside";
+export { useGlobalSelectionDeselect } from "./useGlobalSelectionDeselect";

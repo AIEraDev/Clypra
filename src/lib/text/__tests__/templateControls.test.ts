@@ -111,4 +111,28 @@ describe("resolveTemplateControlValues", () => {
     });
     expect(values["ctrl-title"]).toBe("Preserved Control Override");
   });
+
+  it("resolves role-based and explicit layer font families", () => {
+    const values = resolveTemplateControlValues(mockArtifact, {
+      primaryFontFamily: "Montserrat",
+      secondaryFontFamily: "Roboto",
+      layerFontFamilies: {
+        "node-accent": "Space Grotesk",
+      },
+    });
+    expect(values["font-node-primary"]).toBe("Montserrat");
+    expect(values["font-node-sub"]).toBe("Roboto");
+    expect(values["font-node-accent"]).toBe("Space Grotesk");
+  });
+
+  it("populates direct node control keys for text, font, and color", () => {
+    const values = resolveTemplateControlValues(mockArtifact, {
+      layerTexts: { "node-other": "Direct Text" },
+      layerFontFamilies: { "node-other": "Outfit" },
+      layerColors: { "node-other": "#abcdef" },
+    });
+    expect(values["text-node-other"]).toBe("Direct Text");
+    expect(values["font-node-other"]).toBe("Outfit");
+    expect(values["color-node-other"]).toBe("#abcdef");
+  });
 });

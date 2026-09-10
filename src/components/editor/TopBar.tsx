@@ -1,5 +1,5 @@
 import React, { useState, useEffect, lazy, Suspense } from "react";
-import { Upload, Home, Settings, PanelLeft, PanelRight } from "lucide-react";
+import { Upload, Home, Settings, PanelLeft, PanelRight, Smartphone } from "lucide-react";
 import { Button } from "../ui/Button";
 import { useProjectStore } from "@/store/projectStore";
 import { useUIStore } from "@/store/uiStore";
@@ -20,6 +20,7 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
   const projectName = useProjectStore((s) => s.project?.name);
   const closeProject = useProjectStore((s) => s.closeProject);
   const toggleSettingsModal = useUIStore((s) => s.toggleSettingsModal);
+  const toggleTransferModal = useUIStore((s) => s.toggleTransferModal);
   const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
   const setSidebarCollapsed = useSettingsStore((s) => s.setSidebarCollapsed);
   const propertiesPanelCollapsed = useSettingsStore((s) => s.propertiesPanelCollapsed);
@@ -88,6 +89,10 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
           <div className="w-px h-3.5 bg-border/60 mx-0.5" />
 
           <LayoutPresetMenu />
+
+          <Button variant="ghost" size="icon-sm" onClick={toggleTransferModal} title="Phone Transfer (Local WiFi)" style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
+            <Smartphone className="w-3.5 h-3.5" />
+          </Button>
 
           <Button variant="ghost" size="icon-sm" onClick={toggleSettingsModal} title="Settings" style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
             <Settings className="w-3.5 h-3.5" />

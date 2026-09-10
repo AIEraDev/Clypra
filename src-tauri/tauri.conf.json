@@ -29,10 +29,6 @@
     "macOSPrivateApi": true,
     "security": {
       "csp": null,
-      "headers": {
-        "Cross-Origin-Opener-Policy": "same-origin",
-        "Cross-Origin-Embedder-Policy": "credentialless"
-      },
       "assetProtocol": {
         "enable": true,
         "scope": {
@@ -43,6 +39,8 @@
             "$DOWNLOAD/**/*",
             "$VIDEO/**/*",
             "$PUBLIC/**/*",
+            "$APPDATA/**/*",
+            "$RESOURCE/**/*",
             "/Volumes/**/*",
             "$APPCACHE/**/*"
           ]

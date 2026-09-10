@@ -115,6 +115,61 @@ export function generateVtt(track: CaptionTrack): string {
 }
 
 /**
+ * Generates SubRip (.srt) subtitle string from an array of timeline text/caption clips.
+ */
+export function generateSrtFromClips(clips: Array<{ startTime: number; duration: number; text?: string; [key: string]: any }>): string {
+  if (!clips || clips.length === 0) return "";
+
+  const sortedClips = [...clips]
+    .filter((c) => Boolean(c.text && c.text.trim()))
+    .sort((a, b) => a.startTime - b.startTime);
+
+  const blocks: string[] = [];
+
+  sortedClips.forEach((clip, index) => {
+    const text = sanitizeCueText(clip.text || "");
+    if (!text) return;
+
+    const startTicks = Math.round(clip.startTime * TICKS_PER_SECOND);
+    const endTicks = Math.round((clip.startTime + clip.duration) * TICKS_PER_SECOND);
+    const start = formatSrtTimestamp(startTicks);
+    const end = formatSrtTimestamp(endTicks);
+
+    blocks.push(`${index + 1}\n${start} --> ${end}\n${text}`);
+  });
+
+  return blocks.join("\n\n") + "\n";
+}
+
+/**
+ * Generates WebVTT (.vtt) subtitle string from an array of timeline text/caption clips.
+ */
+export function generateVttFromClips(clips: Array<{ startTime: number; duration: number; text?: string; [key: string]: any }>): string {
+  const header = "WEBVTT\n";
+  if (!clips || clips.length === 0) return header;
+
+  const sortedClips = [...clips]
+    .filter((c) => Boolean(c.text && c.text.trim()))
+    .sort((a, b) => a.startTime - b.startTime);
+
+  const blocks: string[] = [];
+
+  sortedClips.forEach((clip) => {
+    const text = sanitizeCueText(clip.text || "");
+    if (!text) return;
+
+    const startTicks = Math.round(clip.startTime * TICKS_PER_SECOND);
+    const endTicks = Math.round((clip.startTime + clip.duration) * TICKS_PER_SECOND);
+    const start = formatVttTimestamp(startTicks);
+    const end = formatVttTimestamp(endTicks);
+
+    blocks.push(`${start} --> ${end}\n${text}`);
+  });
+
+  return header + "\n" + blocks.join("\n\n") + "\n";
+}
+
+/**
  * Exports sidecar string in requested format.
  */
 export function generateSidecar(

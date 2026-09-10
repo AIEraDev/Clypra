@@ -330,13 +330,6 @@ export class ProjectSession {
       // Default to program context
       this._transportAuthority.setActiveContext("program");
 
-      // Create RenderEngine (session-owned, not singleton)
-      // Each project gets its own render engine with isolated GPU resources
-      this._renderRuntime = new RenderEngine(this.projectId, {
-        qualityPreset: QualityPreset.Medium,
-        rendererMode: RendererMode.Canvas2D,
-      });
-
       // Keep the hidden video pool for native frame extraction, but never let
       // it create a second audible HTML-media path in Tauri.
       this._previewMediaPool = new PreviewMediaPool(
@@ -347,9 +340,28 @@ export class ProjectSession {
         },
       );
 
-      // Initialize stores (timeline, UI)
+      // Initialize stores (timeline, UI) BEFORE creating RenderEngine so we
+      // can read the hydrated zoom level and seed the engine at the correct
+      // tier, eliminating the transient L1→L0 churn on first clip register.
       await this._initializeStores();
       this._onInitializationProgress?.(0.35, "Initializing preview runtime…");
+
+      // Derive initial zoom from the store that was just hydrated.
+      // TIMELINE_PPS_PER_ZOOM = 100, so zoom = pixelsPerSecond / 100.
+      const { useTimelineStore } = await import("@/store/timelineStore");
+      const { TIMELINE_PPS_PER_ZOOM } = await import("@/lib/timeline/timelineZoom");
+      const hydratedPps = useTimelineStore.getState().pixelsPerSecond;
+      const initialZoom = hydratedPps / TIMELINE_PPS_PER_ZOOM;
+
+      // Create RenderEngine (session-owned, not singleton).
+      // Each project gets its own render engine with isolated GPU resources.
+      // Seeding initialZoom ensures the first clip registers at the correct
+      // tier before Timeline.tsx's RAF fires setZoom(TIMELINE_ZOOM_MIN).
+      this._renderRuntime = new RenderEngine(this.projectId, {
+        qualityPreset: QualityPreset.Medium,
+        rendererMode: RendererMode.Canvas2D,
+        initialZoom,
+      });
 
       // Browser audio is decoded before the session becomes active, matching
       // the existing text/image session prewarm. Native CPAL already decodes

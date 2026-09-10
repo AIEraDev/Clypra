@@ -72,10 +72,23 @@ export function getCanonicalTileKey(options: {
 }
 
 /**
- * Generate tile addresses for a visible viewport using FIXED intervals.
+ * Generate tile addresses for a visible viewport using a PIXEL-GRID model.
  *
- * Unlike the old dynamic system, this uses a fixed grid per zoom tier,
- * so zooming in/out only adds/removes edge tiles — center tiles are reused.
+ * Each tile occupies exactly `tileWidthPx` screen pixels. The tile count is
+ * driven by the clip's pixel width — not by a fixed temporal interval. This
+ * is the same model used by CapCut, Premiere Pro, and DaVinci Resolve:
+ *
+ *   - Zooming in → clip is wider → more tiles, each showing a narrower time slice
+ *   - Zooming out → clip is narrower → fewer tiles, each covering more time
+ *   - Tile width on screen NEVER changes
+ *   - No gaps (ceil ensures full coverage), no stretching (all tiles identical width)
+ *
+ * `tileIndex` is the pixel-grid index: tile i starts at `i × tileWidthPx` clip-local pixels.
+ * `getFilmstripTileSlots` uses `address.tileIndex × tileWidthPx - renderWindowLeftPx` for
+ * the canvas-local left position, so every tile lands exactly where it should.
+ *
+ * The `zoomTier` (SpatialTier) controls the decode RESOLUTION only (L0=160px, L3=480px).
+ * It no longer drives tile density.
  */
 export function generateViewportTileAddresses(options: {
   clipId: string;
@@ -91,63 +104,71 @@ export function generateViewportTileAddresses(options: {
   overscanFactor: number;
   /** Optional: actual video duration to prevent requesting frames beyond video end */
   videoDuration?: number;
+  /** Fixed tile width in CSS pixels — default 50. Must match tileWidthPx used by the renderer. */
+  tileWidthPx?: number;
 }): FilmstripTileAddress[] {
-  const { clipId, videoPath, zoomTier, trimIn, trimOut, clipStartTime, clipWidthPx, viewportScrollLeft, viewportWidth, pixelsPerSecond, overscanFactor, videoDuration } = options;
+  const {
+    clipId, videoPath, zoomTier,
+    trimIn, trimOut,
+    clipStartTime, clipWidthPx,
+    viewportScrollLeft, viewportWidth,
+    pixelsPerSecond, overscanFactor,
+    videoDuration,
+    tileWidthPx = 50,
+  } = options;
 
-  const interval = FILMSTRIP_DENSITY_TIERS[zoomTier].thumbnailIntervalSeconds;
+  // ── Viewport visibility check ─────────────────────────────────────────────
 
-  // Calculate visible time range
-  const viewportStartPx = viewportScrollLeft;
-  const viewportEndPx = viewportScrollLeft + viewportWidth;
-
-  // Expand with overscan
-  const overscanPx = (viewportWidth * (overscanFactor - 1)) / 2;
-  const expandedStartPx = Math.max(0, viewportStartPx - overscanPx);
-  const expandedEndPx = viewportEndPx + overscanPx;
-
-  // Clip bounds in timeline space — use timeToPixel for rounded pixel-grid consistency.
   const clipStartPx = timeToPixel(clipStartTime, pixelsPerSecond);
   const clipEndPx = clipStartPx + clipWidthPx;
 
-  // Check if clip is visible
+  const overscanPx = (viewportWidth * (overscanFactor - 1)) / 2;
+  const expandedStartPx = Math.max(0, viewportScrollLeft - overscanPx);
+  const expandedEndPx = viewportScrollLeft + viewportWidth + overscanPx;
+
   if (clipEndPx < expandedStartPx || clipStartPx > expandedEndPx) {
-    return []; // Clip not in viewport
+    return []; // clip not in viewport
   }
 
-  // Calculate visible portion of clip
-  const visibleClipStartPx = Math.max(clipStartPx, expandedStartPx);
-  const visibleClipEndPx = Math.min(clipEndPx, expandedEndPx);
+  // ── Clip-local pixel range of the visible (+ overscan) region ────────────
 
-  // Convert to clip-local time — use pixelToTime for canonical inverse.
-  const visibleStartTime = pixelToTime(visibleClipStartPx - clipStartPx, pixelsPerSecond) + trimIn;
-  const visibleEndTime = pixelToTime(visibleClipEndPx - clipStartPx, pixelsPerSecond) + trimIn;
+  // Pixels relative to clip left edge
+  const visClipStartPx = Math.max(0, expandedStartPx - clipStartPx);
+  const visClipEndPx   = Math.min(clipWidthPx, expandedEndPx - clipStartPx);
 
+  if (visClipEndPx <= visClipStartPx) return [];
 
-  // Clamp to trim range (and video duration if provided)
+  // Effective time boundary (respects video duration)
   const effectiveEnd = videoDuration !== undefined ? Math.min(trimOut, videoDuration) : trimOut;
-  const start = Math.max(trimIn, Math.min(visibleStartTime, effectiveEnd));
-  const end = Math.max(trimIn, Math.min(visibleEndTime, effectiveEnd));
 
-  if (end <= start) return [];
+  // ── Pixel-grid tile indices for the visible region ───────────────────────
 
-  // Generate tile addresses on FIXED grid
+  // First tile whose left edge is at or before visClipStartPx
+  const firstTileIndex = Math.floor(visClipStartPx / tileWidthPx);
+  // Last tile whose left edge is before visClipEndPx
+  const lastTileIndex  = Math.ceil(visClipEndPx / tileWidthPx) - 1;
+
   const addresses: FilmstripTileAddress[] = [];
-  let tileIndex = 0;
 
-  // Align to grid: round start DOWN to nearest interval boundary
-  const gridStart = Math.floor(start / interval) * interval;
+  for (let i = firstTileIndex; i <= lastTileIndex; i++) {
+    // Pixel position of this tile's left edge (clip-local)
+    const tileLeftPx = i * tileWidthPx;
 
-  for (let t = gridStart; t < end; t += interval) {
-    // Clamp timestamp to effective range (respecting video duration) and round to prevent float precision drift
-    const rawTimestamp = Math.min(Math.max(t, trimIn), effectiveEnd);
-    const timestamp = Math.round(rawTimestamp * 10000) / 10000;
-    if (timestamp >= end && t > gridStart) break;
+    // Derive timestamp from pixel position: left edge of tile → time
+    const rawTimestamp = trimIn + pixelToTime(tileLeftPx, pixelsPerSecond);
+
+    // Clamp to [trimIn, effectiveEnd] and round to avoid float drift
+    const clampedTimestamp = Math.min(Math.max(rawTimestamp, trimIn), effectiveEnd);
+    const timestamp = Math.round(clampedTimestamp * 10000) / 10000;
+
+    // Skip tiles that are entirely beyond the effective time range
+    if (rawTimestamp > effectiveEnd) break;
 
     addresses.push({
       clipId,
       videoPath,
       zoomTier,
-      tileIndex: tileIndex++,
+      tileIndex: i,   // pixel-grid index — used by getFilmstripTileSlots for positioning
       timestamp,
     });
   }

@@ -4,11 +4,14 @@
  * Responsibilities:
  * - Collects real-time runtime frame render timings, seek latencies, and fallback events.
  * - Samples adaptively (100% on dropped frames/anomalies, 1% on smooth frames) to keep overhead near 0%.
- * - Dispatches non-blocking async batches to Clypra Performance API.
+ * - Routes all events to perfLogService for file-based accumulation. The completed session file
+ *   is uploaded as a single payload at session close instead of hundreds of per-rollup API calls.
  * - Strict Zero PII: Zero video frames, media assets, project titles, or user identities are ever collected.
  */
 
 import { getApiBaseUrl, getApiHeaders } from "@/lib/api/apiUtils";
+import { perfLogService, type PerfLogKind } from "@/services/perfLogService";
+import { getAppVersionSync } from "@/lib/app/appVersion";
 
 export interface TelemetryHardwareContext {
   osFamily: "macos" | "windows" | "linux" | "ios" | "android" | "web";
@@ -16,11 +19,26 @@ export interface TelemetryHardwareContext {
   cpuArch: "arm64" | "x86_64" | "wasm32";
   cpuCores: number;
   systemMemoryMb: number;
-  gpuVendor: "apple" | "nvidia" | "amd" | "intel" | "qualcomm" | "arm" | "software" | "unknown";
+  gpuVendor:
+    | "apple"
+    | "nvidia"
+    | "amd"
+    | "intel"
+    | "qualcomm"
+    | "arm"
+    | "software"
+    | "unknown";
   gpuModel: string;
   gpuDriverVersion?: string;
   dedicatedVramMb?: number;
-  graphicsBackend: "metal" | "d3d12" | "d3d11" | "vulkan" | "webgpu" | "webgl2" | "software";
+  graphicsBackend:
+    | "metal"
+    | "d3d12"
+    | "d3d11"
+    | "vulkan"
+    | "webgpu"
+    | "webgl2"
+    | "software";
   displayDpr: number;
   thermalThrottlingState?: "nominal" | "fair" | "serious" | "critical";
   isBatteryPowered?: boolean;
@@ -383,7 +401,18 @@ export interface TelemetryTextInteractionInput {
   interactionId?: string;
   durationUs: number;
   inputToPreviewUs?: number;
-  stageTimings?: Partial<Pick<TelemetryTextRenderInput, "fontWaitUs" | "compileUs" | "rasterUs" | "readbackUs" | "transferUs" | "paintUs" | "totalTimeUs">>;
+  stageTimings?: Partial<
+    Pick<
+      TelemetryTextRenderInput,
+      | "fontWaitUs"
+      | "compileUs"
+      | "rasterUs"
+      | "readbackUs"
+      | "transferUs"
+      | "paintUs"
+      | "totalTimeUs"
+    >
+  >;
   stageCoverage?: "complete" | "partial" | "unattributed";
   unattributedTimeUs?: number;
   renderCount?: number;
@@ -395,15 +424,47 @@ export interface TelemetryTextInteractionInput {
   layoutHeight?: number;
 }
 
-const DEFAULT_API_INGEST_URL = `${getApiBaseUrl()}/performance/telemetry/ingest/batch`;
+// @deprecated DEFAULT_API_INGEST_URL — the batch ingest endpoint has been
+// replaced by the single-file session upload (POST /telemetry/ingest/session).
+// This constant is retained only as a tombstone comment; it is no longer used.
+// TODO: delete this constant when /telemetry/ingest/batch is removed from the API.
+// const DEFAULT_API_INGEST_URL = `${getApiBaseUrl()}/performance/telemetry/ingest/batch`;
 const MAX_QUEUE_SIZE = 100;
-const MAX_OFFLINE_BATCHES = 50;
+// @deprecated MAX_OFFLINE_BATCHES — offline localStorage queue is no longer
+// used. Batches are accumulated locally in the NDJSON session file instead.
+// TODO: delete when saveToOfflineStorage / drainOfflineQueue are removed.
+// const MAX_OFFLINE_BATCHES = 50;
 const FLUSH_INTERVAL_MS = 15000;
 const NOMINAL_SAMPLE_RATE = 0.01; // 1% sample rate for smooth 60fps frames
 const ROLLUP_WINDOW_MS = import.meta.env.DEV ? 5000 : 30000;
 const SLEEP_DISCONTINUITY_THRESHOLD_MS = 1500; // Discard time gaps > 1.5s as sleep/backgrounding
 
+/**
+ * Maps a TelemetryEvent to the PerfLogKind used by perfLogService.
+ * This determines which "kind" label each line in the NDJSON file gets.
+ */
+function resolvePerfLogKind(event: TelemetryEvent): PerfLogKind {
+  if (event.fallbackEvent?.triggered) return "fallback-event";
+  if (event.exportMetrics) return "export-span";
+  if (event.aiMetrics) return "ai-inference";
+  if (event.audioMetrics) return "audio-snapshot";
+  if (event.textMetrics) return "text-rollup";
+  if (
+    event.workload.mode === "seek-cold" ||
+    event.workload.mode === "seek-warm"
+  )
+    return "seek-span";
+  if (event.workload.isSessionRollup) return "frontend-rollup";
+  return "frontend-rollup";
+}
+
 export interface TelemetryTransportStatus {
+  /**
+   * @deprecated The batch ingest endpoint has been replaced by the session
+   * file upload. This field is retained for the `__CLYPRA_PERF_TELEMETRY__`
+   * debug inspector so existing tooling does not break, but will always read
+   * "session-file" to signal the new routing.
+   */
   endpoint: string;
   pendingEvents: number;
   lastBatchId: string | null;
@@ -453,12 +514,15 @@ class SessionRollupAccumulator {
     avDriftMs?: number,
     isStale: boolean = false,
     isCancelled: boolean = false,
-    cacheHit: boolean = true
+    cacheHit: boolean = true,
   ): void {
     const now = Date.now();
 
     // Detect system sleep / backgrounding discontinuity
-    if (this.lastFrameTimestampMs > 0 && now - this.lastFrameTimestampMs > SLEEP_DISCONTINUITY_THRESHOLD_MS) {
+    if (
+      this.lastFrameTimestampMs > 0 &&
+      now - this.lastFrameTimestampMs > SLEEP_DISCONTINUITY_THRESHOLD_MS
+    ) {
       this.lastFrameTimestampMs = now;
       return;
     }
@@ -480,18 +544,30 @@ class SessionRollupAccumulator {
 
     if (this.renderTimesUs.length < 1000) {
       this.renderTimesUs.push(timings.totalTimeUs);
-      if (timings.decodeUs !== undefined) this.decodeTimesUs.push(timings.decodeUs);
-      if (timings.decoderMutexWaitUs !== undefined) this.decoderMutexWaitTimesUs.push(timings.decoderMutexWaitUs);
-      if (timings.composeUs !== undefined) this.composeTimesUs.push(timings.composeUs);
-      if (timings.conversionUploadUs !== undefined) this.uploadTimesUs.push(timings.conversionUploadUs);
-      if (timings.surfaceAcquireUs !== undefined) this.surfaceAcquireTimesUs.push(timings.surfaceAcquireUs);
-      if (timings.gpuQueueWaitUs !== undefined) this.gpuQueueWaitTimesUs.push(timings.gpuQueueWaitUs);
-      if (timings.readbackUs !== undefined) this.readbackTimesUs.push(timings.readbackUs);
-      if (timings.transferUs !== undefined) this.transferTimesUs.push(timings.transferUs);
-      if (timings.canvasPaintUs !== undefined) this.canvasPaintTimesUs.push(timings.canvasPaintUs);
-      if (timings.submitPresentUs !== undefined) this.presentTimesUs.push(timings.submitPresentUs);
-      if (timings.schedulerWaitUs !== undefined) this.schedulerWaitTimesUs.push(timings.schedulerWaitUs);
-      if (timings.ipcWaitUs !== undefined) this.ipcWaitTimesUs.push(timings.ipcWaitUs);
+      if (timings.decodeUs !== undefined)
+        this.decodeTimesUs.push(timings.decodeUs);
+      if (timings.decoderMutexWaitUs !== undefined)
+        this.decoderMutexWaitTimesUs.push(timings.decoderMutexWaitUs);
+      if (timings.composeUs !== undefined)
+        this.composeTimesUs.push(timings.composeUs);
+      if (timings.conversionUploadUs !== undefined)
+        this.uploadTimesUs.push(timings.conversionUploadUs);
+      if (timings.surfaceAcquireUs !== undefined)
+        this.surfaceAcquireTimesUs.push(timings.surfaceAcquireUs);
+      if (timings.gpuQueueWaitUs !== undefined)
+        this.gpuQueueWaitTimesUs.push(timings.gpuQueueWaitUs);
+      if (timings.readbackUs !== undefined)
+        this.readbackTimesUs.push(timings.readbackUs);
+      if (timings.transferUs !== undefined)
+        this.transferTimesUs.push(timings.transferUs);
+      if (timings.canvasPaintUs !== undefined)
+        this.canvasPaintTimesUs.push(timings.canvasPaintUs);
+      if (timings.submitPresentUs !== undefined)
+        this.presentTimesUs.push(timings.submitPresentUs);
+      if (timings.schedulerWaitUs !== undefined)
+        this.schedulerWaitTimesUs.push(timings.schedulerWaitUs);
+      if (timings.ipcWaitUs !== undefined)
+        this.ipcWaitTimesUs.push(timings.ipcWaitUs);
     }
 
     if (avDriftMs !== undefined && this.driftSamplesMs.length < 500) {
@@ -499,7 +575,10 @@ class SessionRollupAccumulator {
     }
 
     if (Object.keys(videoProfile).length > 0) {
-      this.lastKnownVideoProfile = { ...this.lastKnownVideoProfile, ...videoProfile };
+      this.lastKnownVideoProfile = {
+        ...this.lastKnownVideoProfile,
+        ...videoProfile,
+      };
     }
   }
 
@@ -539,21 +618,33 @@ class SessionRollupAccumulator {
     const durationMs = Math.max(1, Date.now() - this.windowStartMs);
     const droppedFramesRatio = this.droppedFrames / this.totalFrames;
 
-    const mean = (arr: number[]) => (arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0);
+    const mean = (arr: number[]) =>
+      arr.length > 0
+        ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length)
+        : 0;
     const p95 = (arr: number[]) => {
       if (arr.length === 0) return 0;
       const sorted = [...arr].sort((a, b) => a - b);
-      const idx = Math.min(sorted.length - 1, Math.round((sorted.length - 1) * 0.95));
+      const idx = Math.min(
+        sorted.length - 1,
+        Math.round((sorted.length - 1) * 0.95),
+      );
       return sorted[idx];
     };
-    const metricPercentiles = (arr: number[]): TelemetryMetricPercentiles | undefined => {
+    const metricPercentiles = (
+      arr: number[],
+    ): TelemetryMetricPercentiles | undefined => {
       if (arr.length === 0) return undefined;
       const sorted = [...arr].sort((a, b) => a - b);
-      const at = (pct: number) => sorted[Math.min(sorted.length - 1, Math.round((sorted.length - 1) * pct))] ?? 0;
+      const at = (pct: number) =>
+        sorted[
+          Math.min(sorted.length - 1, Math.round((sorted.length - 1) * pct))
+        ] ?? 0;
       return { p50: at(0.5), p95: at(0.95), p99: at(0.99) };
     };
 
-    const totalTimeUs = p95(this.renderTimesUs) || mean(this.renderTimesUs) || 16667;
+    const totalTimeUs =
+      p95(this.renderTimesUs) || mean(this.renderTimesUs) || 16667;
     const stageTimings: TelemetryStageTimings = {
       decodeUs: mean(this.decodeTimesUs) || undefined,
       decoderMutexWaitUs: mean(this.decoderMutexWaitTimesUs) || undefined,
@@ -571,7 +662,10 @@ class SessionRollupAccumulator {
     };
 
     const totalCacheOps = this.cacheHits + this.cacheMisses;
-    const cacheHitRatio = totalCacheOps > 0 ? Number((this.cacheHits / totalCacheOps).toFixed(3)) : 1.0;
+    const cacheHitRatio =
+      totalCacheOps > 0
+        ? Number((this.cacheHits / totalCacheOps).toFixed(3))
+        : 1.0;
     const avDriftP95Ms = p95(this.driftSamplesMs);
 
     const result = {
@@ -701,10 +795,24 @@ class TextWindowAccumulator {
   }
 
   shouldEmit(): boolean {
-    return Date.now() - this.windowStartMs >= (import.meta.env.DEV ? 5000 : 30000) && this.renderCount > 0;
+    return (
+      Date.now() - this.windowStartMs >= (import.meta.env.DEV ? 5000 : 30000) &&
+      this.renderCount > 0
+    );
   }
 
-  extract(): Omit<TelemetryTextMetrics, "kind" | "rendererPath" | "phase" | "runtimeEnvironment" | "windowDurationMs" | "operation" | "property"> & { windowStartMs: number; windowDurationMs: number } | null {
+  extract():
+    | (Omit<
+        TelemetryTextMetrics,
+        | "kind"
+        | "rendererPath"
+        | "phase"
+        | "runtimeEnvironment"
+        | "windowDurationMs"
+        | "operation"
+        | "property"
+      > & { windowStartMs: number; windowDurationMs: number })
+    | null {
     if (this.renderCount === 0) {
       this.windowStartMs = Date.now();
       return null;
@@ -712,12 +820,16 @@ class TextWindowAccumulator {
     const percentile = (values: number[]): TelemetryTextPercentiles => {
       if (values.length === 0) return { p50: 0, p95: 0, p99: 0 };
       const sorted = [...values].sort((a, b) => a - b);
-      const at = (pct: number) => sorted[Math.min(sorted.length - 1, Math.round((sorted.length - 1) * pct))] ?? 0;
+      const at = (pct: number) =>
+        sorted[
+          Math.min(sorted.length - 1, Math.round((sorted.length - 1) * pct))
+        ] ?? 0;
       return { p50: at(0.5), p95: at(0.95), p99: at(0.99) };
     };
     const stagePercentiles: TelemetryTextStagePercentiles = {};
     for (const [key, values] of this.stages) {
-      stagePercentiles[key as keyof TelemetryTextStagePercentiles] = percentile(values);
+      stagePercentiles[key as keyof TelemetryTextStagePercentiles] =
+        percentile(values);
     }
     const result = {
       windowStartMs: this.windowStartMs,
@@ -725,7 +837,11 @@ class TextWindowAccumulator {
       renderCount: this.renderCount,
       cacheHits: this.cacheHits,
       cacheMisses: this.cacheMisses,
-      cacheHitRatio: Number((this.cacheHits / Math.max(1, this.cacheHits + this.cacheMisses)).toFixed(4)),
+      cacheHitRatio: Number(
+        (
+          this.cacheHits / Math.max(1, this.cacheHits + this.cacheMisses)
+        ).toFixed(4),
+      ),
       layerCount: this.layerCount,
       outputPixels: this.outputPixels,
       renderPercentiles: percentile(this.totalTimeUs),
@@ -749,14 +865,19 @@ class TelemetryCollector {
   private flushInFlight: Promise<boolean> | null = null;
   private cachedHardware: TelemetryHardwareContext | null = null;
   private isEnabled: boolean = true;
-  private appVersion: string = "1.4.5";
+  // Version is resolved lazily from the Tauri runtime via appVersion.ts.
+  // Falls back to "unknown" until primeAppVersion() resolves (a few ms after startup).
+  private get appVersion(): string {
+    return getAppVersionSync() ?? "unknown";
+  }
   private rollupAccumulators = new Map<string, SessionRollupAccumulator>();
   private reportedNativeMeasurementIds = new Set<string>();
   private reportedAudioMeasurementIds = new Set<string>();
   private reportedTextMeasurementIds = new Set<string>();
   private textAccumulators = new Map<string, TextWindowAccumulator>();
   private transportStatus: TelemetryTransportStatus = {
-    endpoint: DEFAULT_API_INGEST_URL,
+    // Batch endpoint is gone — all data flows through perfLogService session file.
+    endpoint: "session-file",
     pendingEvents: 0,
     lastBatchId: null,
     lastBatchEventCount: 0,
@@ -777,19 +898,20 @@ class TelemetryCollector {
           this.flush();
         }
       });
-      window.addEventListener("online", () => {
-        this.drainOfflineQueue();
-      });
+      // NOTE: "online" listener removed — offline localStorage queue is no longer
+      // used. Session data is accumulated in the NDJSON file by perfLogService.
 
       // Pull-based inspection is available in every environment for the
       // current performance qualification period. It exposes transport state
       // without reintroducing console logging into the render loop.
-      (window as Window & {
-        __CLYPRA_PERF_TELEMETRY__?: {
-          getStatus: () => TelemetryTransportStatus;
-          flush: () => Promise<boolean>;
-        };
-      }).__CLYPRA_PERF_TELEMETRY__ = {
+      (
+        window as Window & {
+          __CLYPRA_PERF_TELEMETRY__?: {
+            getStatus: () => TelemetryTransportStatus;
+            flush: () => Promise<boolean>;
+          };
+        }
+      ).__CLYPRA_PERF_TELEMETRY__ = {
         getStatus: () => this.getTransportStatus(),
         flush: () => {
           this.flushRollupIfPending();
@@ -804,12 +926,16 @@ class TelemetryCollector {
     this.isEnabled = enabled;
     if (!enabled) {
       this.clearQueue();
-      for (const accumulator of this.rollupAccumulators.values()) accumulator.reset();
+      for (const accumulator of this.rollupAccumulators.values())
+        accumulator.reset();
     }
   }
 
   public setAppVersion(version: string): void {
-    this.appVersion = version;
+    // No-op: version is now read dynamically from the shared appVersion cache
+    // (see getAppVersionSync in lib/app/appVersion.ts). This method is retained
+    // for backwards-compatibility with any call sites and test stubs.
+    void version;
   }
 
   public getQueueLength(): number {
@@ -825,7 +951,7 @@ class TelemetryCollector {
 
   public clearQueue(): void {
     this.queue = [];
-    this.clearOfflineQueue();
+    // clearOfflineQueue() removed — localStorage batch queue is no longer used.
     this.reportedNativeMeasurementIds.clear();
     this.reportedAudioMeasurementIds.clear();
     this.reportedTextMeasurementIds.clear();
@@ -835,7 +961,9 @@ class TelemetryCollector {
   /**
    * Sanitizes video properties into coarse privacy-safe buckets with zero path/title data.
    */
-  public sanitizeVideoProfile(profile: Partial<TelemetryVideoProfile> = {}): TelemetryVideoProfile {
+  public sanitizeVideoProfile(
+    profile: Partial<TelemetryVideoProfile> = {},
+  ): TelemetryVideoProfile {
     const width = profile.width || 3840;
     const height = profile.height || 2160;
 
@@ -879,13 +1007,15 @@ class TelemetryCollector {
       else if (/AMD|Radeon/i.test(nativeGpu.adapterName)) hw.gpuVendor = "amd";
       else if (/Intel/i.test(nativeGpu.adapterName)) hw.gpuVendor = "intel";
       else if (/Mali/i.test(nativeGpu.adapterName)) hw.gpuVendor = "arm";
-      else if (/Adreno|Qualcomm/i.test(nativeGpu.adapterName)) hw.gpuVendor = "qualcomm";
+      else if (/Adreno|Qualcomm/i.test(nativeGpu.adapterName))
+        hw.gpuVendor = "qualcomm";
     }
 
     if (nativeGpu.backend) {
       const b = nativeGpu.backend.toLowerCase();
       if (b.includes("metal")) hw.graphicsBackend = "metal";
-      else if (b.includes("dx12") || b.includes("d3d12")) hw.graphicsBackend = "d3d12";
+      else if (b.includes("dx12") || b.includes("d3d12"))
+        hw.graphicsBackend = "d3d12";
       else if (b.includes("vulkan")) hw.graphicsBackend = "vulkan";
       else if (b.includes("webgpu")) hw.graphicsBackend = "webgpu";
     }
@@ -897,7 +1027,8 @@ class TelemetryCollector {
   public initHardwareContext(): TelemetryHardwareContext {
     if (this.cachedHardware) return this.cachedHardware;
 
-    const userAgent = typeof navigator !== "undefined" ? navigator.userAgent : "";
+    const userAgent =
+      typeof navigator !== "undefined" ? navigator.userAgent : "";
     let osFamily: TelemetryHardwareContext["osFamily"] = "web";
     let graphicsBackend: TelemetryHardwareContext["graphicsBackend"] = "webgl2";
 
@@ -924,11 +1055,16 @@ class TelemetryCollector {
     if (typeof document !== "undefined") {
       try {
         const canvas = document.createElement("canvas");
-        const gl = (canvas.getContext("webgl") || canvas.getContext("experimental-webgl")) as WebGLRenderingContext | null;
+        const gl = (canvas.getContext("webgl") ||
+          canvas.getContext(
+            "experimental-webgl",
+          )) as WebGLRenderingContext | null;
         if (gl && typeof gl.getExtension === "function") {
           const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
           if (debugInfo) {
-            const renderer = (gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) as string) || "";
+            const renderer =
+              (gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) as string) ||
+              "";
             gpuModel = renderer;
             if (/Apple/i.test(renderer)) gpuVendor = "apple";
             else if (/NVIDIA/i.test(renderer)) gpuVendor = "nvidia";
@@ -944,10 +1080,18 @@ class TelemetryCollector {
     }
 
     const cpuArch: TelemetryHardwareContext["cpuArch"] =
-      osFamily === "macos" || osFamily === "ios" || osFamily === "android" ? "arm64" : "x86_64";
+      osFamily === "macos" || osFamily === "ios" || osFamily === "android"
+        ? "arm64"
+        : "x86_64";
 
-    const cpuCores = typeof navigator !== "undefined" && navigator.hardwareConcurrency ? navigator.hardwareConcurrency : 8;
-    const displayDpr = typeof window !== "undefined" && window.devicePixelRatio ? window.devicePixelRatio : 1.0;
+    const cpuCores =
+      typeof navigator !== "undefined" && navigator.hardwareConcurrency
+        ? navigator.hardwareConcurrency
+        : 8;
+    const displayDpr =
+      typeof window !== "undefined" && window.devicePixelRatio
+        ? window.devicePixelRatio
+        : 1.0;
 
     this.cachedHardware = {
       osFamily,
@@ -977,7 +1121,7 @@ class TelemetryCollector {
     avDriftMs?: number,
     staleFrames: number = 0,
     cancelledFrames: number = 0,
-    options: TelemetryRenderOptions = {}
+    options: TelemetryRenderOptions = {},
   ): void {
     if (!this.isEnabled) return;
 
@@ -1002,7 +1146,11 @@ class TelemetryCollector {
     const isAnomaly = droppedRatio > 0.05 || timings.totalTimeUs > 16667;
 
     // Adaptive sampling: 100% on dropped frames / latency SLA overruns, 1% on nominal smooth frames
-    if (!options.forceSample && !isAnomaly && Math.random() > NOMINAL_SAMPLE_RATE) {
+    if (
+      !options.forceSample &&
+      !isAnomaly &&
+      Math.random() > NOMINAL_SAMPLE_RATE
+    ) {
       return;
     }
 
@@ -1030,7 +1178,13 @@ class TelemetryCollector {
         mode: workloadMode,
         durationMs: Math.round(timings.totalTimeUs / 1000),
         targetFps: fullVideoProfile.nominalFps,
-        renderedFps: timings.totalTimeUs > 0 ? Math.min(fullVideoProfile.nominalFps, 1000000 / timings.totalTimeUs) : fullVideoProfile.nominalFps,
+        renderedFps:
+          timings.totalTimeUs > 0
+            ? Math.min(
+                fullVideoProfile.nominalFps,
+                1000000 / timings.totalTimeUs,
+              )
+            : fullVideoProfile.nominalFps,
         totalFrames: totalFrames || 1,
         droppedFrames: droppedFrames || 0,
         droppedFramesRatio: droppedRatio,
@@ -1083,9 +1237,10 @@ class TelemetryCollector {
         mode: "playback",
         durationMs: Math.round(snapshot.windowDurationMs),
         targetFps: 60,
-        renderedFps: snapshot.windowDurationMs > 0
-          ? renderedFrames / (snapshot.windowDurationMs / 1000)
-          : 0,
+        renderedFps:
+          snapshot.windowDurationMs > 0
+            ? renderedFrames / (snapshot.windowDurationMs / 1000)
+            : 0,
         totalFrames: renderedFrames,
         droppedFrames: underruns,
         droppedFramesRatio: Number(
@@ -1097,7 +1252,10 @@ class TelemetryCollector {
         peakRamMb: 0,
         cacheHitRatio: snapshot.bufferHitRatio ?? 1,
         stageTimings: {
-          totalTimeUs: Math.max(0, Math.round(snapshot.stageTimings.totalTimeUs)),
+          totalTimeUs: Math.max(
+            0,
+            Math.round(snapshot.stageTimings.totalTimeUs),
+          ),
         },
         isSessionRollup: true,
       },
@@ -1114,7 +1272,9 @@ class TelemetryCollector {
    */
   public recordTextRender(input: TelemetryTextRenderInput): void {
     if (!this.isEnabled || input.totalTimeUs < 0) return;
-    const runtimeEnvironment = import.meta.env.DEV ? "development" : "production";
+    const runtimeEnvironment = import.meta.env.DEV
+      ? "development"
+      : "production";
     const key = JSON.stringify([
       input.sessionId || "text-runtime",
       input.kind,
@@ -1133,10 +1293,25 @@ class TelemetryCollector {
     if (accumulator.shouldEmit()) this.flushTextWindowsIfPending();
   }
 
-  public recordTextCacheHit(input: Pick<TelemetryTextRenderInput, "kind" | "rendererPath" | "phase" | "sessionId">): void {
+  public recordTextCacheHit(
+    input: Pick<
+      TelemetryTextRenderInput,
+      "kind" | "rendererPath" | "phase" | "sessionId"
+    >,
+  ): void {
     if (!this.isEnabled) return;
-    const runtimeEnvironment = import.meta.env.DEV ? "development" : "production";
-    const key = JSON.stringify([input.sessionId || "text-runtime", input.kind, input.rendererPath, input.phase, "render", "none", runtimeEnvironment]);
+    const runtimeEnvironment = import.meta.env.DEV
+      ? "development"
+      : "production";
+    const key = JSON.stringify([
+      input.sessionId || "text-runtime",
+      input.kind,
+      input.rendererPath,
+      input.phase,
+      "render",
+      "none",
+      runtimeEnvironment,
+    ]);
     let accumulator = this.textAccumulators.get(key);
     if (!accumulator) {
       accumulator = new TextWindowAccumulator();
@@ -1149,8 +1324,24 @@ class TelemetryCollector {
   public flushTextWindowsIfPending(): void {
     for (const [key, accumulator] of this.textAccumulators) {
       if (!accumulator.shouldEmit()) continue;
-      const values = JSON.parse(key) as [string, TelemetryTextKind, TelemetryTextRendererPath, TelemetryTextPhase, TelemetryTextOperation, TelemetryTextProperty | "none", "development" | "production"];
-      const [sessionId, kind, rendererPath, phase, operation, property, runtimeEnvironment] = values;
+      const values = JSON.parse(key) as [
+        string,
+        TelemetryTextKind,
+        TelemetryTextRendererPath,
+        TelemetryTextPhase,
+        TelemetryTextOperation,
+        TelemetryTextProperty | "none",
+        "development" | "production",
+      ];
+      const [
+        sessionId,
+        kind,
+        rendererPath,
+        phase,
+        operation,
+        property,
+        runtimeEnvironment,
+      ] = values;
       const summary = accumulator.extract();
       if (!summary) continue;
       const measurementId = `text:${sessionId}:${kind}:${rendererPath}:${phase}:${operation}:${property}:${summary.windowStartMs}`;
@@ -1177,7 +1368,8 @@ class TelemetryCollector {
           mode: phase === "interactive-preview" ? "frame-step" : "playback",
           durationMs: Math.round(summary.windowDurationMs),
           targetFps: 60,
-          renderedFps: totalTimeUs > 0 ? Math.min(60, 1_000_000 / totalTimeUs) : 60,
+          renderedFps:
+            totalTimeUs > 0 ? Math.min(60, 1_000_000 / totalTimeUs) : 60,
           totalFrames: summary.renderCount,
           droppedFrames: 0,
           droppedFramesRatio: 0,
@@ -1217,19 +1409,26 @@ class TelemetryCollector {
    */
   public recordTextInteraction(input: TelemetryTextInteractionInput): void {
     if (!this.isEnabled || input.durationUs < 0) return;
-    const runtimeEnvironment = import.meta.env.DEV ? "development" : "production";
+    const runtimeEnvironment = import.meta.env.DEV
+      ? "development"
+      : "production";
     const phase = input.phase ?? "interactive-preview";
     const sessionId = input.sessionId || "text-runtime";
     const now = Date.now();
-    const percentile = { p50: Math.round(input.durationUs), p95: Math.round(input.durationUs), p99: Math.round(input.durationUs) };
+    const percentile = {
+      p50: Math.round(input.durationUs),
+      p95: Math.round(input.durationUs),
+      p99: Math.round(input.durationUs),
+    };
     const interactionStagePercentiles: TelemetryTextStagePercentiles = {};
     for (const [key, value] of Object.entries(input.stageTimings || {})) {
       if (typeof value !== "number") continue;
-      interactionStagePercentiles[key as keyof TelemetryTextStagePercentiles] = {
-        p50: Math.max(0, Math.round(value)),
-        p95: Math.max(0, Math.round(value)),
-        p99: Math.max(0, Math.round(value)),
-      };
+      interactionStagePercentiles[key as keyof TelemetryTextStagePercentiles] =
+        {
+          p50: Math.max(0, Math.round(value)),
+          p95: Math.max(0, Math.round(value)),
+          p99: Math.max(0, Math.round(value)),
+        };
     }
     const measurementId = `text-interaction:${sessionId}:${input.interactionId || `${input.operation}-${now}`}`;
     if (this.reportedTextMeasurementIds.has(measurementId)) return;
@@ -1281,7 +1480,10 @@ class TelemetryCollector {
         cacheMisses: 0,
         cacheHitRatio: 1,
         layerCount: 1,
-        outputPixels: Math.max(0, Math.round((input.layoutWidth || 0) * (input.layoutHeight || 0))),
+        outputPixels: Math.max(
+          0,
+          Math.round((input.layoutWidth || 0) * (input.layoutHeight || 0)),
+        ),
         renderPercentiles: { p50: 0, p95: 0, p99: 0 },
         // For interaction events stagePercentiles must mirror interactionStagePercentiles.
         // The render-window stagePercentiles field is meaningless for a transaction
@@ -1293,8 +1495,20 @@ class TelemetryCollector {
         interactionPercentiles: percentile,
         interactionStagePercentiles,
         interactionRenderCount: input.renderCount ?? 0,
-        stageCoverage: input.stageCoverage ?? (Object.keys(interactionStagePercentiles).length > 0 ? "partial" : "unattributed"),
-        unattributedTimeUs: Math.max(0, Math.round(input.unattributedTimeUs ?? (Object.keys(interactionStagePercentiles).length > 0 ? 0 : input.durationUs))),
+        stageCoverage:
+          input.stageCoverage ??
+          (Object.keys(interactionStagePercentiles).length > 0
+            ? "partial"
+            : "unattributed"),
+        unattributedTimeUs: Math.max(
+          0,
+          Math.round(
+            input.unattributedTimeUs ??
+              (Object.keys(interactionStagePercentiles).length > 0
+                ? 0
+                : input.durationUs),
+          ),
+        ),
         interactionDurationUs: Math.round(input.durationUs),
         inputToPreviewUs: input.inputToPreviewUs,
         contentLength: input.contentLength,
@@ -1312,7 +1526,7 @@ class TelemetryCollector {
   public recordSeekSpan(
     seekLatencyMs: number,
     isColdSeek: boolean = true,
-    videoProfile: Partial<TelemetryVideoProfile> = {}
+    videoProfile: Partial<TelemetryVideoProfile> = {},
   ): void {
     if (!this.isEnabled) return;
 
@@ -1420,7 +1634,7 @@ class TelemetryCollector {
     inferenceDurationMs: number,
     throughputFps?: number,
     realTimeFactor?: number,
-    success: boolean = true
+    success: boolean = true,
   ): void {
     if (!this.isEnabled) return;
 
@@ -1468,7 +1682,7 @@ class TelemetryCollector {
     fromBackend: string,
     toBackend: string,
     reasonCode: string,
-    stackSnippet?: string
+    stackSnippet?: string,
   ): void {
     if (!this.isEnabled) return;
 
@@ -1570,7 +1784,8 @@ class TelemetryCollector {
     const timings: TelemetryStageTimings = {
       decodeUs: last.decodeTimeUs,
       decoderMutexWaitUs: last.decoderMutexWaitUs,
-      conversionUploadUs: last.conversionUploadUs ?? last.conversionTimeUs ?? last.uploadTimeUs,
+      conversionUploadUs:
+        last.conversionUploadUs ?? last.conversionTimeUs ?? last.uploadTimeUs,
       composeUs: last.composeTimeUs,
       surfaceAcquireUs: last.surfaceAcquireUs,
       gpuQueueWaitUs: last.gpuQueueWaitUs,
@@ -1584,7 +1799,9 @@ class TelemetryCollector {
     const dropped = last.dropped === true;
     const stale = last.stale === true;
     const cancelled = last.cancelled === true;
-    const avDriftMs = nativeSync?.av_drift ? nativeSync.av_drift.p95_abs_micros / 1000 : 0;
+    const avDriftMs = nativeSync?.av_drift
+      ? nativeSync.av_drift.p95_abs_micros / 1000
+      : 0;
 
     this.recordRenderSpan(
       timings,
@@ -1609,7 +1826,7 @@ class TelemetryCollector {
             ? "cancelled"
             : stale
               ? "stale"
-              : last.dropReason ?? "native-present-drop"
+              : (last.dropReason ?? "native-present-drop")
           : undefined,
         forceSample: previewContext?.scenario === "qualification",
         cacheHit: last.cacheHit,
@@ -1618,7 +1835,7 @@ class TelemetryCollector {
         // only, so Native samples can feed the session rollup without being
         // double-counted by a second frontend frame stream.
         includeInRollup: previewContext?.view === "native",
-      }
+      },
     );
   }
 
@@ -1631,7 +1848,10 @@ class TelemetryCollector {
       const rollup = accumulator.extractRollupAndReset();
       if (!rollup) continue;
 
-      const previewContext = key === "default" ? undefined : JSON.parse(key) as TelemetryPreviewContext;
+      const previewContext =
+        key === "default"
+          ? undefined
+          : (JSON.parse(key) as TelemetryPreviewContext);
       const fullVideoProfile = this.sanitizeVideoProfile(rollup.videoProfile);
       this.enqueueEvent({
         eventId: `evt_rollup_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -1653,7 +1873,10 @@ class TelemetryCollector {
           targetFps: fullVideoProfile.nominalFps,
           renderedFps:
             rollup.stageTimings.totalTimeUs > 0
-              ? Math.min(fullVideoProfile.nominalFps, 1000000 / rollup.stageTimings.totalTimeUs)
+              ? Math.min(
+                  fullVideoProfile.nominalFps,
+                  1000000 / rollup.stageTimings.totalTimeUs,
+                )
               : fullVideoProfile.nominalFps,
           totalFrames: rollup.totalFrames,
           droppedFrames: rollup.droppedFrames,
@@ -1676,7 +1899,9 @@ class TelemetryCollector {
     this.flushTextWindowsIfPending();
   }
 
-  private getRollupAccumulator(previewContext?: TelemetryPreviewContext): SessionRollupAccumulator {
+  private getRollupAccumulator(
+    previewContext?: TelemetryPreviewContext,
+  ): SessionRollupAccumulator {
     const key = previewContext ? JSON.stringify(previewContext) : "default";
     let accumulator = this.rollupAccumulators.get(key);
     if (!accumulator) {
@@ -1692,6 +1917,16 @@ class TelemetryCollector {
       this.queue.shift();
     }
     this.queue.push(event);
+
+    // Route every event to the file-based session log.
+    // perfLogService batches and writes to disk; the completed file is uploaded
+    // as a single request at session close instead of per-rollup API calls.
+    perfLogService.enqueue({
+      kind: resolvePerfLogKind(event),
+      session_id: event.sessionId ?? perfLogService.getSessionId() ?? "unknown",
+      timestamp_epoch_ms: event.timestampMs,
+      payload: event,
+    });
 
     if (this.queue.length >= 30) {
       this.flush();
@@ -1722,121 +1957,39 @@ class TelemetryCollector {
   }
 
   private async flushQueued(): Promise<boolean> {
-    if (this.queue.length === 0) return true;
-
-    // Back off when remote endpoint fails repeatedly to prevent event-loop congestion
-    if (
-      this.transportStatus.consecutiveFailures >= 3 &&
-      this.transportStatus.lastFailureAtMs &&
-      Date.now() - this.transportStatus.lastFailureAtMs < 60_000
-    ) {
-      return false;
-    }
-
-    const eventsToFlush = [...this.queue];
+    // All events are forwarded to perfLogService.enqueue() inside enqueueEvent().
+    // The completed session file is uploaded as a single request at session close
+    // via perfLogService.closeAndUpload(), keeping the remote DB at one row per
+    // session instead of one row per rollup window.
+    // The queue is cleared here to stay within the MAX_QUEUE_SIZE memory bound.
     this.queue = [];
-
-    const payload = {
-      batchId: `batch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      sentAtMs: Date.now(),
-      events: eventsToFlush,
-    };
-    this.transportStatus = {
-      ...this.transportStatus,
-      lastBatchId: payload.batchId,
-      lastBatchEventCount: payload.events.length,
-      lastAttemptAtMs: payload.sentAtMs,
-      pendingEvents: this.queue.length,
-    };
-
-    try {
-      if (typeof navigator !== "undefined" && typeof fetch === "function") {
-        const res = await fetch(DEFAULT_API_INGEST_URL, {
-          method: "POST",
-          headers: {
-            ...getApiHeaders(),
-            "X-Clypra-Client": "tauri-desktop",
-          },
-          body: JSON.stringify(payload),
-        });
-
-        if (res.ok) {
-          this.drainOfflineQueue();
-          this.transportStatus = {
-            ...this.transportStatus,
-            lastSuccessAtMs: Date.now(),
-            lastFailureAtMs: null,
-            consecutiveFailures: 0,
-            pendingEvents: this.queue.length,
-          };
-          return true;
-        } else {
-          this.saveToOfflineStorage(payload);
-          this.transportStatus = {
-            ...this.transportStatus,
-            lastFailureAtMs: Date.now(),
-            consecutiveFailures: this.transportStatus.consecutiveFailures + 1,
-            pendingEvents: this.queue.length,
-          };
-          return false;
-        }
-      }
-      return true;
-    } catch {
-      // Offline fallback: save batch to offline storage with bounded capacity
-      this.saveToOfflineStorage(payload);
-      this.transportStatus = {
-        ...this.transportStatus,
-        lastFailureAtMs: Date.now(),
-        consecutiveFailures: this.transportStatus.consecutiveFailures + 1,
-        pendingEvents: this.queue.length,
-      };
-      return false;
-    }
+    return true;
   }
 
-  private saveToOfflineStorage(batch: { batchId: string; sentAtMs: number; events: TelemetryEvent[] }): void {
-    try {
-      if (typeof localStorage === "undefined") return;
-      const key = "clypra:telemetry:offline_queue";
-      const raw = localStorage.getItem(key);
-      const queue: Array<{ batchId: string; sentAtMs: number; events: TelemetryEvent[] }> = raw ? JSON.parse(raw) : [];
-      if (queue.length >= MAX_OFFLINE_BATCHES) {
-        queue.shift(); // Bound storage
-      }
-      queue.push(batch);
-      localStorage.setItem(key, JSON.stringify(queue));
-    } catch {
-      // Storage unavailable or disabled
-    }
+  /**
+   * @deprecated MARKED FOR DELETION
+   * saveToOfflineStorage, drainOfflineQueue, and clearOfflineQueue are all
+   * dead code. The localStorage offline batch queue was the companion to the
+   * now-removed /telemetry/ingest/batch endpoint. Session data is accumulated
+   * in the NDJSON file by perfLogService and uploaded once at session close.
+   * Remove these three methods when the batch path is fully cleaned up.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private saveToOfflineStorage(_batch: {
+    batchId: string;
+    sentAtMs: number;
+    events: TelemetryEvent[];
+  }): void {
+    // no-op — offline queue removed
   }
 
   private async drainOfflineQueue(): Promise<void> {
-    try {
-      if (typeof localStorage === "undefined") return;
-      const key = "clypra:telemetry:offline_queue";
-      const raw = localStorage.getItem(key);
-      if (!raw) return;
-      const queue: Array<{ batchId: string; sentAtMs: number; events: TelemetryEvent[] }> = JSON.parse(raw);
-      if (queue.length === 0) return;
-
-      localStorage.removeItem(key);
-      for (const batch of queue) {
-        await fetch(DEFAULT_API_INGEST_URL, {
-          method: "POST",
-          headers: {
-            ...getApiHeaders(),
-            "X-Clypra-Client": "tauri-desktop",
-          },
-          body: JSON.stringify(batch),
-        }).catch(() => {});
-      }
-    } catch {
-      // Safe non-blocking catch
-    }
+    // no-op — offline queue removed
   }
 
   private clearOfflineQueue(): void {
+    // no-op — offline queue removed; kept to avoid breaking any call sites
+    // that haven't been updated yet.
     try {
       if (typeof localStorage !== "undefined") {
         localStorage.removeItem("clypra:telemetry:offline_queue");

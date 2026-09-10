@@ -59,6 +59,19 @@ static GLOBAL_ATLAS_HITS: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
 static GLOBAL_TIER_CACHE_HITS: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
 static GLOBAL_DECODES: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
 
+/// Registry of active thumbnail batch cancellation flags.
+/// Allows frontend to preempt abandoned batches on zoom/scroll immediately.
+static ACTIVE_THUMBNAIL_BATCHES: Lazy<DashMap<String, Arc<std::sync::atomic::AtomicBool>>> =
+    Lazy::new(DashMap::new);
+
+/// Cancel an in-flight thumbnail batch request by requestId.
+#[tauri::command]
+pub fn cancel_render_artifacts_batch(request_id: String) {
+    if let Some(flag) = ACTIVE_THUMBNAIL_BATCHES.get(&request_id) {
+        flag.store(true, Ordering::Relaxed);
+    }
+}
+
 #[tauri::command]
 pub async fn init_thumbnail_cache(app_handle: tauri::AppHandle) -> Result<(), String> {
     // Initialize cache directory
@@ -690,6 +703,21 @@ pub async fn get_render_artifacts_batch(
     let req_id = request_id.as_deref().unwrap_or("unknown");
     let video_id = format!("{:x}", md5::compute(&video_path));
 
+    let cancel_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    if let Some(ref id) = request_id {
+        ACTIVE_THUMBNAIL_BATCHES.insert(id.clone(), cancel_flag.clone());
+    }
+
+    struct BatchGuard<'a>(&'a Option<String>);
+    impl<'a> Drop for BatchGuard<'a> {
+        fn drop(&mut self) {
+            if let Some(ref id) = self.0 {
+                ACTIVE_THUMBNAIL_BATCHES.remove(id);
+            }
+        }
+    }
+    let _guard = BatchGuard(&request_id);
+
     let tiers: Vec<SpatialTier> = spatial_tiers
         .iter()
         .filter_map(|s| SpatialTier::from_label(s).ok())
@@ -802,6 +830,10 @@ pub async fn get_render_artifacts_batch(
         .clone();
     let _batch_gate = gate.lock().await;
 
+    if cancel_flag.load(Ordering::Relaxed) {
+        return Ok(());
+    }
+
     // A concurrent batch may have filled TIER_CACHE while we waited.
     let mut still_missing: Vec<u64> = Vec::new();
     for timestamp_ms in missing_timestamps {
@@ -859,6 +891,10 @@ pub async fn get_render_artifacts_batch(
 
     // Process in chunks of 12 with a single decoder lock and forward sweep per chunk
     for chunk in missing_timestamps.chunks(12) {
+        if cancel_flag.load(Ordering::Relaxed) {
+            break;
+        }
+
         let chunk_secs: Vec<f64> = chunk.iter().map(|&ms| ms as f64 / 1000.0).collect();
         let decoded_batch = {
             let mut dec = decoder_arc.lock().await;
@@ -874,6 +910,9 @@ pub async fn get_render_artifacts_batch(
         }
 
         for decoded_frame in decoded_batch.frames {
+            if cancel_flag.load(Ordering::Relaxed) {
+                break;
+            }
             decodes += 1;
             let timestamp_ms = (decoded_frame.target_ts_secs * 1000.0).round() as u64;
             let content_hash = FrameContentHash::compute(

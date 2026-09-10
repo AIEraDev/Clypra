@@ -49,9 +49,6 @@ export function register(id: string, Engine: EffectEngineClass): void {
  */
 export const allTextEffects: TextEffectDefinition[] = _definitions;
 
-/** @deprecated use allTextEffects */
-export const allEffects = allTextEffects;
-
 /**
  * Returns true when a registered engine exists for the given effect id.
  */

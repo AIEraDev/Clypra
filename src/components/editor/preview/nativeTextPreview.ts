@@ -236,11 +236,27 @@ export async function paintTextLayersToCanvas(
             : (layer.blendMode as GlobalCompositeOperation);
     }
     const isAbsolute = asset.positionMode === "absolute";
+    const isTemplateOrEffect =
+      layer.clipKind === "text-template" ||
+      Boolean(layer.templateId) ||
+      Boolean(layer.styleId);
+    const posX =
+      isAbsolute
+        ? isTemplateOrEffect && typeof layer.x === "number"
+          ? layer.x + (asset.bleedX ?? 0)
+          : asset.x
+        : layer.x;
+    const posY =
+      isAbsolute
+        ? isTemplateOrEffect && typeof layer.y === "number"
+          ? layer.y + (asset.bleedY ?? 0)
+          : asset.y
+        : layer.y;
     const centerX = isAbsolute
-      ? asset.x + asset.width / 2
+      ? posX + asset.width / 2
       : layer.x + layer.width / 2;
     const centerY = isAbsolute
-      ? asset.y + asset.height / 2
+      ? posY + asset.height / 2
       : layer.y + layer.height / 2;
     ctx.translate(centerX, centerY);
     ctx.rotate((layer.rotation * Math.PI) / 180);

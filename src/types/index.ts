@@ -225,6 +225,8 @@ export interface MediaAsset {
   id: string;
   name: string;
   path: string;
+  /** Optional stream-compatible MP4 path for quick preview & playback */
+  previewPath?: string;
   type: "video" | "audio" | "image";
   duration: number;
   width?: number;
@@ -582,6 +584,7 @@ export interface TextClip extends Clip {
   fontSize: number;
   fontWeight?: string | number;
   fontStyle?: "normal" | "italic";
+  textTransform?: "uppercase" | "lowercase" | "capitalize" | "none";
   color: string;
   backgroundColor?: string;
   align: "left" | "center" | "right";
@@ -601,6 +604,9 @@ export interface TextClip extends Clip {
   /** Effect parameters captured when this clip was created. */
   parameterOverrides?: Record<string, any>;
   templateId?: string;
+  templateDefinition?: any;
+  templateSnapshot?: any;
+  templateControlValues?: Record<string, unknown>;
   customization?: any;
   /** Role of the text clip: caption for subtitles, title for decorative text/graphics */
   textRole?: "caption" | "title";

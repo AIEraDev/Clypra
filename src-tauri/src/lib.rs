@@ -18,10 +18,15 @@ pub mod preview_golden;
 pub mod golden_harness;
 pub mod sync_metrics;
 pub mod thumbnail_engine;
+pub mod transfer;
 pub mod wgpu_compositor;
 
 use commands::*;
 use diagnostics::crash_handler::{get_unreported_crashes, mark_crash_reported, purge_crash_reports};
+use diagnostics::{
+    open_perf_log_session, append_perf_log_entries, close_perf_log_session,
+    upload_perf_log_session, list_perf_log_files, purge_perf_logs,
+};
 use thumbnail_engine::init_thumbnail_engine;
 
 #[tauri::command]
@@ -188,6 +193,22 @@ pub fn run() {
                 }
             }
 
+            // Initialize LocalSend-compatible phone transfer service
+            let transfer_svc = Arc::new(transfer::TransferService::new());
+            app.manage(transfer_svc.clone());
+            {
+                let transfer_app = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Ok(data_dir) = transfer_app.path().app_data_dir() {
+                        let inbox = data_dir.join("transfer_inbox");
+                        let _ = std::fs::create_dir_all(&inbox);
+                        if let Err(e) = transfer_svc.start(transfer_app, inbox).await {
+                            log::warn!("[Transfer] Failed to start: {e}");
+                        }
+                    }
+                });
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -204,6 +225,7 @@ pub fn run() {
             extract_poster_frame,
             extract_audio_artwork,
             extract_audio_track,
+            get_or_create_preview_video,
             probe_media_streams,
             start_audio_extraction,
             cancel_media_job,
@@ -276,6 +298,7 @@ pub fn run() {
             prewarm_decoders,
             get_render_artifact,
             get_render_artifacts_batch,
+            cancel_render_artifacts_batch,
             check_coarse_baseline_cache,
             get_decode_metrics_snapshot,
             get_sync_metrics_snapshot,
@@ -321,6 +344,45 @@ pub fn run() {
             get_unreported_crashes,
             mark_crash_reported,
             purge_crash_reports,
+            // ── Session performance log (file-based, one upload per session) ─────
+            open_perf_log_session,
+            append_perf_log_entries,
+            close_perf_log_session,
+            upload_perf_log_session,
+            list_perf_log_files,
+            purge_perf_logs,
+            // Phone ↔ laptop file transfer (LocalSend protocol)
+            get_transfer_service_status,
+            get_discovered_devices,
+            accept_transfer_session,
+            reject_transfer_session,
+            cancel_transfer_session,
+            get_transfer_sessions,
+            get_transfer_server_url,
+            start_transfer_service,
+            stop_transfer_service,
+            get_transfer_qr_code,
+            get_network_interfaces,
+            stage_files_for_transfer,
+            unstage_file,
+            clear_staged_files,
+            get_staged_files,
+            scan_local_network,
+            send_files_to_peer,
+            get_transfer_save_directory,
+            set_transfer_save_directory,
+            open_transfer_save_directory,
+            open_file_path,
+            show_item_in_folder,
+            update_transfer_theme,
+            // ── Permissions & Diagnostics ────────────────────────────────────
+            check_camera_permission,
+            check_microphone_permission,
+            open_camera_privacy_settings,
+            open_microphone_privacy_settings,
+            log_system_media_diagnostics,
+            // ── Camera Recording Processing ──────────────────────────────────
+            process_camera_recording,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

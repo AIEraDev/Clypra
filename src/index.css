@@ -919,3 +919,146 @@ input[type="range"]:focus-visible {
   cursor: row-resize !important;
   pointer-events: auto;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   Clypra Professional Slider & Progress Bar Theme Styling
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes indeterminate {
+  0% {
+    left: -40%;
+  }
+  50% {
+    left: 20%;
+    width: 60%;
+  }
+  100% {
+    left: 100%;
+    width: 40%;
+  }
+}
+
+/* Global <input type="range"> reset and styling for sleek NLE appearance */
+input[type="range"] {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  vertical-align: middle;
+}
+
+input[type="range"]:focus {
+  outline: none;
+}
+
+input[type="range"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* WebKit Track (macOS Safari & Tauri WKWebView) */
+input[type="range"]::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 5px;
+  background: var(--clypra-theme-border, #27313b);
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+input[type="range"]:hover::-webkit-slider-runnable-track {
+  background: var(--clypra-theme-border-soft, #35414e);
+}
+
+/* WebKit Thumb */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid var(--clypra-theme-accent, #5ab8d4);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5), 0 0 6px rgba(90, 184, 212, 0.35);
+  cursor: pointer;
+  margin-top: -4px; /* (5px track - 13px thumb) / 2 */
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+input[type="range"]:hover::-webkit-slider-thumb {
+  transform: scale(1.2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6), 0 0 10px var(--clypra-theme-accent, #5ab8d4);
+}
+
+input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.3);
+  background: var(--clypra-theme-accent-soft, #86cde0);
+  box-shadow: 0 0 12px var(--clypra-theme-accent, #5ab8d4);
+}
+
+/* Firefox Track & Thumb */
+input[type="range"]::-moz-range-track {
+  width: 100%;
+  height: 5px;
+  background: var(--clypra-theme-border, #27313b);
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+input[type="range"]::-moz-range-progress {
+  height: 5px;
+  background: var(--clypra-theme-accent, #5ab8d4);
+  border-radius: 9999px;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid var(--clypra-theme-accent, #5ab8d4);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
+
+/* Global <progress> element styling */
+progress {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  border: none;
+  border-radius: 9999px;
+  overflow: hidden;
+  background: var(--clypra-theme-surface-panel, #0f141a);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+progress::-webkit-progress-bar {
+  background: var(--clypra-theme-surface-panel, #0f141a);
+  border-radius: 9999px;
+}
+
+progress::-webkit-progress-value {
+  background: linear-gradient(90deg, var(--clypra-theme-accent, #5ab8d4), var(--clypra-theme-accent-soft, #86cde0));
+  border-radius: 9999px;
+  transition: width 0.25s ease;
+}
+
+progress::-moz-progress-bar {
+  background: linear-gradient(90deg, var(--clypra-theme-accent, #5ab8d4), var(--clypra-theme-accent-soft, #86cde0));
+  border-radius: 9999px;
+}
+

@@ -42,7 +42,26 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [sourceVideoError, setSourceVideoError] = useState(false);
+  const [isOptimizingPreview, setIsOptimizingPreview] = useState(false);
   const sourceCtxRef = useRef<SourcePlaybackContext | null>(null);
+
+  const isImage = Boolean(
+    sourceAsset &&
+      (sourceAsset.type === "image" ||
+        /\.(jpg|jpeg|png|gif|webp|bmp|svg|tiff|heic|heif|avif)$/i.test(
+          sourceAsset.name || sourceAsset.path || "",
+        )),
+  );
+  const isLottie = Boolean(
+    isImage &&
+      sourceAsset &&
+      (sourceAsset.stickerFormat === "lottie" || sourceAsset.path?.endsWith(".json")),
+  );
+  const isStillImage = isImage && !isLottie;
+
+  const rawExt = (sourceAsset?.path || "").split("?")[0].split("#")[0].split(".").pop()?.toLowerCase() || "";
+  const needsRemux = ["mkv", "avi", "flv", "wmv", "ts", "mts", "m2ts", "vob", "3gp", "ogv"].includes(rawExt);
+  const isVideoPendingOptimization = !isImage && sourceAsset?.type === "video" && needsRemux && !(sourceAsset as any)?.previewPath;
 
   const [lottieData, setLottieData] = useState<object | null>(null);
   const [lottieError, setLottieError] = useState<string | null>(null);
@@ -56,7 +75,7 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
       session?.transportAuthority?.setActiveContext("source");
     }
 
-    if (sourceAsset?.type === "text") return;
+    if (sourceAsset?.type === "text" || isStillImage) return;
 
     const ctx = session?.sourceContext;
     if (!ctx) return;
@@ -84,13 +103,37 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
       ctx.setMediaElement(null);
       sourceCtxRef.current = null;
     };
-  }, [claimTransportOnMount, sourceAsset?.id, sourceAsset?.type]);
+  }, [claimTransportOnMount, sourceAsset?.id, sourceAsset?.type, isStillImage]);
 
   useEffect(() => {
     setSourceVideoError(false);
     const assetDuration = sourceAsset?.duration;
     setDuration(typeof assetDuration === "number" && Number.isFinite(assetDuration) && assetDuration > 0 ? assetDuration : 0);
-  }, [sourceAsset?.id, sourceAsset?.type, sourceAsset?.path]);
+
+    if (!isImage && sourceAsset?.type === "video" && sourceAsset.path) {
+      if (needsRemux && !(sourceAsset as any).previewPath && platform.getOrCreatePreviewVideo) {
+        setIsOptimizingPreview(true);
+        platform
+          .getOrCreatePreviewVideo(sourceAsset.path)
+          .then((previewPath) => {
+            if (previewPath) {
+              useProjectStore.getState().updateMediaAsset(sourceAsset.id, { previewPath });
+              const cur = useUIStore.getState().sourceAsset;
+              if (cur && cur.id === sourceAsset.id) {
+                useUIStore.setState({ sourceAsset: { ...cur, previewPath } as any });
+              }
+              setSourceVideoError(false);
+            }
+          })
+          .catch((err) => {
+            console.warn("[SourcePreview] Video optimization failed:", err);
+          })
+          .finally(() => {
+            setIsOptimizingPreview(false);
+          });
+      }
+    }
+  }, [sourceAsset?.id, sourceAsset?.type, sourceAsset?.path, (sourceAsset as any)?.previewPath, needsRemux, isImage]);
 
   // Virtual clock for text preview
   useEffect(() => {
@@ -297,7 +340,12 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
       return;
     }
 
-    const mediaAsset = sourceAsset as MediaAsset;
+    let mediaAsset = sourceAsset as MediaAsset;
+    if (isImage && mediaAsset.type !== "image") {
+      mediaAsset = { ...mediaAsset, type: "image" };
+      useProjectStore.getState().updateMediaAsset(mediaAsset.id, { type: "image" });
+    }
+
     if (!mediaAsset.id.startsWith("audio-library-") && !mediaAsset.id.startsWith("sticker-")) {
       addMediaAsset(mediaAsset);
     }
@@ -318,12 +366,54 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
   };
 
   // Calculate marked duration
-  const markedDuration = sourceInPoint !== null && sourceOutPoint !== null ? sourceOutPoint - sourceInPoint : null;
-  const hasMarks = sourceInPoint !== null || sourceOutPoint !== null;
-  const hasCompleteMarks = sourceInPoint !== null && sourceOutPoint !== null;
+  const markedDuration =
+    !isStillImage && sourceInPoint !== null && sourceOutPoint !== null
+      ? sourceOutPoint - sourceInPoint
+      : null;
+  const hasMarks =
+    !isStillImage && (sourceInPoint !== null || sourceOutPoint !== null);
+  const hasCompleteMarks =
+    !isStillImage && sourceInPoint !== null && sourceOutPoint !== null;
 
-  const sourcePath = sourceAsset.path ? (isExternalOrDataUrl(sourceAsset.path) ? sourceAsset.path : platform.convertFileSrc(sourceAsset.path)) : "";
-  const mediaLabel = sourceAsset.type === "video" ? "video" : sourceAsset.type === "audio" ? "audio" : sourceAsset.type === "text" ? "text" : "image";
+  const handleVideoError = useCallback(() => {
+    if (
+      !isImage &&
+      sourceAsset?.type === "video" &&
+      sourceAsset.path &&
+      !(sourceAsset as any).previewPath &&
+      platform.getOrCreatePreviewVideo &&
+      !isOptimizingPreview
+    ) {
+      setIsOptimizingPreview(true);
+      platform
+        .getOrCreatePreviewVideo(sourceAsset.path)
+        .then((previewPath) => {
+          if (previewPath) {
+            useProjectStore.getState().updateMediaAsset(sourceAsset.id, { previewPath });
+            const cur = useUIStore.getState().sourceAsset;
+            if (cur && cur.id === sourceAsset.id) {
+              useUIStore.setState({ sourceAsset: { ...cur, previewPath } as any });
+            }
+            setSourceVideoError(false);
+          } else {
+            setSourceVideoError(true);
+          }
+        })
+        .catch((err) => {
+          console.error("[SourcePreview] Recovery optimization failed:", err);
+          setSourceVideoError(true);
+        })
+        .finally(() => {
+          setIsOptimizingPreview(false);
+        });
+    } else {
+      setSourceVideoError(true);
+    }
+  }, [sourceAsset, isOptimizingPreview, isImage]);
+
+  const effectiveSourcePath = (sourceAsset as any)?.previewPath || sourceAsset?.path || (sourceAsset as any)?.posterFrame;
+  const sourcePath = effectiveSourcePath ? (isExternalOrDataUrl(effectiveSourcePath) ? effectiveSourcePath : platform.convertFileSrc(effectiveSourcePath)) : "";
+  const mediaLabel = isImage ? "image" : sourceAsset.type === "video" ? "video" : sourceAsset.type === "audio" ? "audio" : sourceAsset.type === "text" ? "text" : "image";
 
   return (
     <div data-preview-space="source" className="flex-1 flex flex-col min-h-0 bg-bg">
@@ -377,27 +467,8 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
       {/* ── Video Area ─────────────────────────────────────────────── */}
       <div className="flex-1 flex items-center justify-center overflow-hidden checkerboard relative">
         <div className="w-full h-full flex items-center justify-center relative z-10">
-          {sourceAsset.type === "video" ? (
-            <div className="relative w-full h-full flex items-center justify-center">
-              <VideoSourcePreview
-                videoRef={videoRef}
-                src={sourcePath}
-                onLoadedMetadata={(event) => {
-                  const mediaDuration = Number(event.currentTarget.duration);
-                  if (Number.isFinite(mediaDuration) && mediaDuration > 0) {
-                    setDuration(mediaDuration);
-                  }
-                }}
-                onError={() => setSourceVideoError(true)}
-              />
-              {sourceVideoError && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/55 pointer-events-none">
-                  <span className="rounded bg-black/80 px-3 py-1.5 text-xs text-red-200">Unable to load source video</span>
-                </div>
-              )}
-            </div>
-          ) : sourceAsset.type === "image" ? (
-            sourceAsset.stickerFormat === "lottie" || sourceAsset.path?.endsWith(".json") ? (
+          {isImage ? (
+            isLottie ? (
               lottieError ? (
                 <div className="text-red-400 text-xs">{lottieError}</div>
               ) : lottieData ? (
@@ -423,6 +494,51 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
             ) : (
               <ImageSourcePreview src={sourcePath} alt={sourceAsset.name} />
             )
+          ) : sourceAsset.type === "video" ? (
+            <div className="relative w-full h-full flex items-center justify-center">
+              {isOptimizingPreview || isVideoPendingOptimization ? (
+                <div className="relative w-full h-full flex items-center justify-center">
+                  {(sourceAsset as any).posterFrame && (
+                    <img
+                      src={(sourceAsset as any).posterFrame}
+                      alt={sourceAsset.name}
+                      className="w-full h-full object-contain filter brightness-75"
+                    />
+                  )}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 gap-3 backdrop-blur-[2px]">
+                    <Loader2 className="w-8 h-8 text-accent animate-spin" />
+                    <span className="text-xs font-semibold text-white bg-black/75 px-3.5 py-1.5 rounded-full border border-white/10 shadow-lg">
+                      Preparing video for preview playback…
+                    </span>
+                  </div>
+                </div>
+              ) : sourceVideoError && (sourceAsset as any).posterFrame ? (
+                <div className="relative w-full h-full flex items-center justify-center">
+                  <img
+                    src={(sourceAsset as any).posterFrame}
+                    alt={sourceAsset.name}
+                    className="w-full h-full object-contain"
+                  />
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 p-4 text-center pointer-events-none gap-2">
+                    <span className="rounded-lg bg-black/80 px-3 py-1.5 text-xs font-medium text-red-300 border border-red-500/20 shadow-md">
+                      Unable to load source video
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <VideoSourcePreview
+                  videoRef={videoRef}
+                  src={sourcePath}
+                  onLoadedMetadata={(event) => {
+                    const mediaDuration = Number(event.currentTarget.duration);
+                    if (Number.isFinite(mediaDuration) && mediaDuration > 0) {
+                      setDuration(mediaDuration);
+                    }
+                  }}
+                  onError={handleVideoError}
+                />
+              )}
+            </div>
           ) : sourceAsset.type === "text" ? (
             <TextSourcePreview preset={sourceTextPreset} />
           ) : (
@@ -431,10 +547,16 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
         </div>
       </div>
 
-      {sourceAsset.type === "text" ? (
+      {sourceAsset.type === "text" || isStillImage ? (
         <div className="flex items-center justify-between h-10 px-4 shrink-0 border-t border-border/30 bg-surface/30">
-          <span className="text-[11px] text-text-muted font-medium select-none">Procedural Style Preview</span>
-          <button onClick={handleAddToTimeline} className="flex items-center gap-1.5 px-3 h-7 rounded text-[11px] font-semibold bg-accent hover:bg-accent-soft active:scale-95 text-white cursor-pointer transition-all duration-150 shadow-sm" title="Add text to timeline">
+          <span className="text-[11px] text-text-muted font-medium select-none">
+            {sourceAsset.type === "text" ? "Procedural Style Preview" : "Still Image"}
+          </span>
+          <button
+            onClick={handleAddToTimeline}
+            className="flex items-center gap-1.5 px-3 h-7 rounded text-[11px] font-semibold bg-accent hover:bg-accent-soft active:scale-95 text-white cursor-pointer transition-all duration-150 shadow-sm"
+            title={sourceAsset.type === "text" ? "Add text to timeline" : "Add to Timeline"}
+          >
             <Plus className="w-3.5 h-3.5" />
             Add to Timeline
           </button>

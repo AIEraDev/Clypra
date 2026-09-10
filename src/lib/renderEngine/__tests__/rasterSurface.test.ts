@@ -167,13 +167,13 @@ describe("RasterSurface", () => {
     expect(bitmap.close).not.toHaveBeenCalled();
   });
 
-  it("imageSmoothingEnabled is true with high quality during drawTile", () => {
+  it("imageSmoothingEnabled is false during drawTile — bitmaps are already at correct resolution", () => {
     const { canvas, ctx } = makeCanvas();
     const surface = new RasterSurface(canvas);
     surface.drawFilmstrip([makeArtifact(1000)], layout({ clipWidthPx: 60 }));
-    // After drawTile, imageSmoothingEnabled should be true with high quality for smooth downscaling/fallback
-    expect(ctx.imageSmoothingEnabled).toBe(true);
-    expect(ctx.imageSmoothingQuality).toBe("high");
+    // Smoothing is disabled: backend bitmaps are pre-scaled to the correct SpatialTier
+    // resolution. Enabling smoothing would only blur crisp thumbnails.
+    expect(ctx.imageSmoothingEnabled).toBe(false);
     surface.dispose();
   });
 

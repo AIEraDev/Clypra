@@ -454,7 +454,8 @@ export class PreviewMediaPool {
         // Get or create cached element
         let managed = this.videoCache.get(cacheKey);
         if (!managed) {
-          const sourcePath = isWebviewOrExternalUrl(asset.path) ? asset.path : convertFileSrc(asset.path);
+          const effectivePath = asset.previewPath || asset.path;
+          const sourcePath = isWebviewOrExternalUrl(effectivePath) ? effectivePath : convertFileSrc(effectivePath);
           managed = this.createVideo(cacheKey, clip.id, clip.mediaId, sourcePath);
         } else {
           // Element exists - update its binding
@@ -691,7 +692,8 @@ export class PreviewMediaPool {
 
       const trimIn = clip.trimIn || 0;
       const normalizedTrimIn = Math.round(trimIn * 1000) / 1000;
-      const sourcePath = isWebviewOrExternalUrl(asset.path) ? asset.path : convertFileSrc(asset.path);
+      const effectivePath = asset.previewPath || asset.path;
+      const sourcePath = isWebviewOrExternalUrl(effectivePath) ? effectivePath : convertFileSrc(effectivePath);
       const cacheKey = clip.id;
 
       if (this.videoCache.has(cacheKey)) {

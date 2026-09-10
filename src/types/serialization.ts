@@ -63,6 +63,7 @@ export interface RustMediaAsset {
   id: string;
   name: string;
   path: string;
+  previewPath?: string;
   type: "video" | "audio" | "image";
   duration: number;
   width?: number;
@@ -336,6 +337,7 @@ export function fromRustMediaAsset(rust: RustMediaAsset): MediaAsset {
     id: rust.id,
     name: rust.name,
     path: rust.path,
+    previewPath: rust.previewPath,
     type: rust.type,
     duration: rust.duration,
     width: rust.width,
@@ -558,6 +560,7 @@ export function toRustMediaAsset(frontend: MediaAsset): RustMediaAsset {
     id: frontend.id,
     name: frontend.name,
     path: frontend.path,
+    previewPath: frontend.previewPath,
     type: frontend.type,
     duration: frontend.duration,
     width: frontend.width,
