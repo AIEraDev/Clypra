@@ -117,7 +117,7 @@ const App = () => {
         // Open a stable session ID scoped to this app launch. The session file
         // accumulates all telemetry locally and is uploaded as a single payload
         // when the window closes, replacing hundreds of per-rollup API calls.
-        if (platform.isTauri()) {
+        if (platform.isTauri() && !perfLogService.getSessionId()) {
           const launchSessionId = `launch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           void perfLogService.openSession(launchSessionId);
         }
@@ -638,6 +638,13 @@ const App = () => {
 
       const { closeProject } = useProjectStore.getState();
       await closeProject(); // closeProject handles saving internally
+
+      // Upload the completed perf-log session for this project, then open
+      // a fresh session so the next project gets its own log file.
+      void perfLogService.closeAndUpload().then(() => {
+        const nextSessionId = `launch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        void perfLogService.openSession(nextSessionId);
+      });
 
       updateStep("save", "completed");
       updateStep("session", "completed");
