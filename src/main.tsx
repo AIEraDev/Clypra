@@ -115,13 +115,16 @@ window.addEventListener(
 
 // ── Perf-log visibility flush ──────────────────────────────────────────────────
 // Best-effort: when the window is hidden (task switch, OS sleep, backgrounded
-// web view) attempt to flush + upload the session log so data is not lost if
-// the process is killed by the OS without triggering a clean close event.
+// web view) flush the in-memory queue to disk so data is not lost if the
+// process is killed by the OS.
+// We do NOT close+upload here because the user may come back — the session
+// stays open so the proper close path (App.tsx requestAppClose) can upload
+// the complete file. closeAndUpload() is only called from App.tsx exit paths.
 document.addEventListener(
   "visibilitychange",
   () => {
     if (document.visibilityState === "hidden") {
-      void perfLogService.closeAndUpload();
+      void perfLogService.flushToDisk();
     }
   },
   { passive: true },
