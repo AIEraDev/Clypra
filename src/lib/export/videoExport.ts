@@ -10,17 +10,30 @@
  */
 
 import { platform } from "../../core/platform";
-import { evaluateTimelineSceneCached, clearEvaluationCache } from "../../core/evaluation/evaluator";
+import {
+  evaluateTimelineSceneCached,
+  clearEvaluationCache,
+} from "../../core/evaluation/evaluator";
 import { getResourceCache } from "../../core/resources/ResourceCache";
 import { getActiveAudioClips } from "../../core/timeline/audioClips";
 import { PRESET_CONFIGS } from "./exportPresets";
-import type { Clip, Track, MediaAsset, Project, TransitionTimelineItem } from "../../types";
+import type {
+  Clip,
+  Track,
+  MediaAsset,
+  Project,
+  TransitionTimelineItem,
+} from "../../types";
 import type { ExportAudioClip, ExportProgress } from "../../types/export";
 import { buildNativeFrameRequest } from "@/components/editor/preview/nativeVideoPreview";
 import { isTauriRuntime, renderNativeFrame } from "@/lib/platform/tauri";
 import { NativeRasterBridge } from "@/core/render/nativeRasterBridge";
 import type { SmartOverlayClip } from "@/types/smartOverlay";
-import { verifyExportDependencies, ExportBlockedError, type MissingTextEffect } from "./exportPreflight";
+import {
+  verifyExportDependencies,
+  ExportBlockedError,
+  type MissingTextEffect,
+} from "./exportPreflight";
 import { telemetryCollector } from "@/services/telemetryCollector";
 
 /**
@@ -134,23 +147,54 @@ export interface VideoExportResult {
  * @returns Export result
  */
 export function isWebCodecsSupported(): boolean {
-  return typeof VideoEncoder !== "undefined" && typeof AudioEncoder !== "undefined";
+  return (
+    typeof VideoEncoder !== "undefined" && typeof AudioEncoder !== "undefined"
+  );
 }
 
-export async function exportVideo(config: VideoExportConfig): Promise<VideoExportResult> {
+export async function exportVideo(
+  config: VideoExportConfig,
+): Promise<VideoExportResult> {
   if (platform.isCapacitor()) {
-    throw new Error("[videoExport] Native video export is not available in the Capacitor runtime");
+    throw new Error(
+      "[videoExport] Native video export is not available in the Capacitor runtime",
+    );
   }
   if (!isTauriRuntime()) {
-    throw new Error("[videoExport] Native video export requires the desktop runtime");
+    throw new Error(
+      "[videoExport] Native video export requires the desktop runtime",
+    );
   }
 
-  const { clips, tracks, transitions = [], assets, project, epoch, startTime, endTime, outputPath, frameRate = project?.frameRate || 30, width = project?.canvasWidth || 1920, height = project?.canvasHeight || 1080, codec = "h264", preset = "medium", crf = 23, pixelFormat = "yuv420p", onProgress, onSessionReady, signal } = config;
+  const {
+    clips,
+    tracks,
+    transitions = [],
+    assets,
+    project,
+    epoch,
+    startTime,
+    endTime,
+    outputPath,
+    frameRate = project?.frameRate || 30,
+    width = project?.canvasWidth || 1920,
+    height = project?.canvasHeight || 1080,
+    codec = "h264",
+    preset = "medium",
+    crf = 23,
+    pixelFormat = "yuv420p",
+    onProgress,
+    onSessionReady,
+    signal,
+  } = config;
 
   // Preflight dependency check: enforce §1.2 zero silent-fallback contract
   const preflight = await verifyExportDependencies(clips as any, { assets });
   if (!preflight.ready) {
-    if (preflight.missingImageAssets.length > 0 || preflight.missingAudioAssets.length > 0) {
+    if (
+      preflight.missingImageAssets.length > 0 ||
+      preflight.missingAudioAssets.length > 0
+    ) {
       throw new ExportBlockedError(
         preflight.missingEffects,
         preflight.missingImageAssets,
@@ -162,7 +206,7 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
     }
     console.warn(
       "[videoExport] ⚠️ FORCE EXPORT OPT-IN: Uncached offline text effects will degrade to base typography:",
-      preflight.missingEffects
+      preflight.missingEffects,
     );
   }
 
@@ -203,7 +247,13 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
   };
 
   // This replaces 20+ lines of inline filtering/mapping with a single function call
-  const audioClips: ExportAudioClip[] = getActiveAudioClips(clips, tracks, assets, startTime, endTime);
+  const audioClips: ExportAudioClip[] = getActiveAudioClips(
+    clips,
+    tracks,
+    assets,
+    startTime,
+    endTime,
+  );
 
   // Start FFmpeg export session
   const sessionId = await invoke<string>("start_video_export", {
@@ -244,16 +294,21 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
     if (signal.aborted) {
       await performCancel();
     } else {
-      signal.addEventListener("abort", () => {
-        performCancel().catch(() => {});
-      }, { once: true });
+      signal.addEventListener(
+        "abort",
+        () => {
+          performCancel().catch(() => {});
+        },
+        { once: true },
+      );
     }
   }
 
   // EX-2 fix: Batch size reduced from 30 → 10 frames.
-  // At 1080p a single frame is ~8 MB (1920×1080×4). BATCH_SIZE=30 caused a ~248 MB
-  // contiguous allocation per flush (plus the 30 source frames still in memory = ~496 MB peak).
-  // BATCH_SIZE=10 caps that at ~83 MB batch + ~83 MB source = ~166 MB peak — safe on 4 GB machines.
+  // At 1080p a single RGBA frame is ~8 MB (1920×1080×4). At 4K (3840×2160) it is ~32 MB.
+  // BATCH_SIZE=10 caps peak memory at ~320 MB batch + ~320 MB source ≈ 640 MB for 4K,
+  // and ~83 MB + ~83 MB ≈ 166 MB for 1080p — acceptable on a 4 GB machine at any resolution
+  // the export dimension validator admits (max 7680×4320).
   const BATCH_SIZE = 10;
   const frameBuffer: Uint8Array[] = [];
   const frameSize = width * height * 4; // RGBA bytes per frame
@@ -319,41 +374,62 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       const time = frameTimes[i];
 
       // Evaluate scene for this frame using the canonical evaluator
-      const scene = evaluateTimelineSceneCached(time, clips, tracks, assets, project, epoch, transitions);
+      const scene = evaluateTimelineSceneCached(
+        time,
+        clips,
+        tracks,
+        assets,
+        project,
+        epoch,
+        transitions,
+      );
       let frameBytes: Uint8Array;
       const frameKey = startFrameIndex + i;
-      const rasterLayers = await nativeRasterBridge.rasterize(scene, { frameKey });
+      const rasterLayers = await nativeRasterBridge.rasterize(scene, {
+        frameKey,
+      });
       const activeSmartOverlays = clips.filter(
         (clip): clip is SmartOverlayClip =>
-          clip.kind === "smart-overlay" && time >= clip.startTime && time < clip.startTime + clip.duration,
+          clip.kind === "smart-overlay" &&
+          time >= clip.startTime &&
+          time < clip.startTime + clip.duration,
       );
-      const smartOverlayRasters = await nativeRasterBridge.rasterizeSmartOverlays(
-        activeSmartOverlays,
-        time,
-        scene.metadata.canvasWidth,
-        scene.metadata.canvasHeight,
-        { frameKey },
+      const smartOverlayRasters =
+        await nativeRasterBridge.rasterizeSmartOverlays(
+          activeSmartOverlays,
+          time,
+          scene.metadata.canvasWidth,
+          scene.metadata.canvasHeight,
+          { frameKey },
+        );
+      // The native compositor renders directly at outputWidth × outputHeight.
+      // to_video_project_request() in Rust applies scale_x = outputW/canvasW and
+      // scale_y = outputH/canvasH to every layer's coordinates before compositing,
+      // so export resolution may freely differ from the project canvas size (e.g. a
+      // 4K export of a 1080p project). No intermediate resize blit is needed — the
+      // GPU renders natively at the requested output resolution.
+      const nativeRequest = buildNativeFrameRequest(
+        scene,
+        `${project?.id ?? "export"}:${epoch}`,
+        frameKey,
+        frameRate,
+        width,
+        height,
+        [...rasterLayers, ...smartOverlayRasters],
+        { mode: "frameStep", quality: "full" },
       );
-      const nativeRequest = width === scene.metadata.canvasWidth && height === scene.metadata.canvasHeight
-        ? buildNativeFrameRequest(
-            scene,
-            `${project?.id ?? "export"}:${epoch}`,
-            frameKey,
-            frameRate,
-            width,
-            height,
-            [...rasterLayers, ...smartOverlayRasters],
-            { mode: "frameStep", quality: "full" },
-          )
-        : null;
       if (nativeRequest) {
         try {
           frameBytes = new Uint8Array(await renderNativeFrame(nativeRequest));
         } catch (error) {
-          throw new Error(`[videoExport] Native frame ${i} failed: ${error instanceof Error ? error.message : String(error)}`);
+          throw new Error(
+            `[videoExport] Native frame ${i} failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
         }
       } else {
-        throw new Error(`[videoExport] Frame ${i} is outside the native compositor contract`);
+        throw new Error(
+          `[videoExport] Frame ${i} is outside the native compositor contract`,
+        );
       }
       frameBuffer.push(frameBytes);
 
@@ -415,7 +491,12 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
           width,
           height,
           nominalFps: frameRate,
-          codec: codec === "h265" ? "hevc" : codec === "prores" ? "prores422" : "h264",
+          codec:
+            codec === "h265"
+              ? "hevc"
+              : codec === "prores"
+                ? "prores422"
+                : "h264",
         },
       });
       // Try to cancel on error
@@ -436,10 +517,14 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
   }
 
   const totalTimeMs = Date.now() - startTimeMs;
-  const avgTimePerFrameMs = completedFrames > 0 ? totalTimeMs / completedFrames : 0;
+  const avgTimePerFrameMs =
+    completedFrames > 0 ? totalTimeMs / completedFrames : 0;
   const mediaDurationMs = Math.max(1, (endTime - startTime) * 1000);
   const realTimeFactor = totalTimeMs / mediaDurationMs;
-  const exportFps = completedFrames > 0 && totalTimeMs > 0 ? completedFrames / (totalTimeMs / 1000) : 0;
+  const exportFps =
+    completedFrames > 0 && totalTimeMs > 0
+      ? completedFrames / (totalTimeMs / 1000)
+      : 0;
 
   telemetryCollector.recordExportSpan({
     exportDurationMs: totalTimeMs,
@@ -456,7 +541,8 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       width,
       height,
       nominalFps: frameRate,
-      codec: codec === "h265" ? "hevc" : codec === "prores" ? "prores422" : "h264",
+      codec:
+        codec === "h265" ? "hevc" : codec === "prores" ? "prores422" : "h264",
     },
   });
 
@@ -466,7 +552,9 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
     totalTimeMs,
     avgTimePerFrameMs,
     cancelled,
-    ...(preflight.missingEffects.length > 0 ? { degradedTextEffects: preflight.missingEffects } : {}),
+    ...(preflight.missingEffects.length > 0
+      ? { degradedTextEffects: preflight.missingEffects }
+      : {}),
   };
 }
 

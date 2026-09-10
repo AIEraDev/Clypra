@@ -35,6 +35,7 @@
 
 import { create } from "zustand";
 import type { MediaAsset } from "@/types";
+import { useTimelineStore } from "@/store/timelineStore";
 
 interface UIStore {
   selectedClipIds: string[]; // Multi-select support
@@ -69,6 +70,7 @@ interface UIStore {
 
   selectClip: (clipId: string | null) => void;
   toggleClipSelection: (clipId: string) => void;
+  selectAllClipsInTrack: (trackId: string) => void;
   selectGap: (gapId: string | null) => void;
   selectTransition: (transitionId: string | null) => void;
   clearSelection: () => void;
@@ -155,6 +157,17 @@ export const useUIStore = create<UIStore>((set, get) => ({
         selectedTransitionId: null,
         selectedGapId: null, // TL-07 fix: Clear gap selection when toggling clip selection
       };
+    });
+  },
+
+  selectAllClipsInTrack: (trackId) => {
+    const clips = useTimelineStore
+      .getState()
+      .clips.filter((c) => c.trackId === trackId);
+    set({
+      selectedClipIds: clips.map((c) => c.id),
+      selectedGapId: null,
+      selectedTransitionId: null,
     });
   },
 

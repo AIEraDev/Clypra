@@ -7,7 +7,13 @@
  */
 
 import { evaluateTimelineSceneCached } from "../../core/evaluation/evaluator";
-import type { Clip, Track, MediaAsset, Project, TransitionTimelineItem } from "../../types";
+import type {
+  Clip,
+  Track,
+  MediaAsset,
+  Project,
+  TransitionTimelineItem,
+} from "../../types";
 import { buildNativeFrameRequest } from "@/components/editor/preview/nativeVideoPreview";
 import { isTauriRuntime, renderNativeFrame } from "@/lib/platform/tauri";
 import { NativeRasterBridge } from "@/core/render/nativeRasterBridge";
@@ -72,25 +78,40 @@ export async function exportFrame(options: ExportFrameOptions): Promise<Blob> {
     quality = 0.92,
   } = options;
 
-  const scene = evaluateTimelineSceneCached(time, clips, tracks, assets, project, epoch, transitions);
+  const scene = evaluateTimelineSceneCached(
+    time,
+    clips,
+    tracks,
+    assets,
+    project,
+    epoch,
+    transitions,
+  );
 
   // Native Tauri export is authoritative for a project-sized scene that the
   // native graph can represent. Only explicit native errors are returned to
   // the caller.
   if (!isTauriRuntime()) {
-    throw new Error("[ExportFrame] Native frame export requires the desktop runtime");
+    throw new Error(
+      "[ExportFrame] Native frame export requires the desktop runtime",
+    );
   }
 
-  if (width !== scene.metadata.canvasWidth || height !== scene.metadata.canvasHeight) {
-    throw new Error("[ExportFrame] Native export requires project-sized output dimensions");
-  }
+  // The native compositor renders directly at outputWidth × outputHeight.
+  // to_video_project_request() in Rust applies scale_x = outputW/canvasW and
+  // scale_y = outputH/canvasH to every layer's coordinates before compositing,
+  // so output dimensions may freely differ from the project canvas size.
   const nativeRasterBridge = new NativeRasterBridge();
   try {
     const frameKey = Math.round(time * (project?.frameRate || 30));
-    const rasterLayers = await nativeRasterBridge.rasterize(scene, { frameKey });
+    const rasterLayers = await nativeRasterBridge.rasterize(scene, {
+      frameKey,
+    });
     const activeSmartOverlays = clips.filter(
       (clip): clip is SmartOverlayClip =>
-        clip.kind === "smart-overlay" && time >= clip.startTime && time < clip.startTime + clip.duration,
+        clip.kind === "smart-overlay" &&
+        time >= clip.startTime &&
+        time < clip.startTime + clip.duration,
     );
     const smartOverlayRasters = await nativeRasterBridge.rasterizeSmartOverlays(
       activeSmartOverlays,
@@ -110,25 +131,33 @@ export async function exportFrame(options: ExportFrameOptions): Promise<Blob> {
       { mode: "frameStep", quality: "full" },
     );
     if (!nativeRequest) {
-      throw new Error("[ExportFrame] Frame is outside the native compositor contract");
+      throw new Error(
+        "[ExportFrame] Frame is outside the native compositor contract",
+      );
     }
     let rgba: ArrayBuffer;
     try {
       rgba = await renderNativeFrame(nativeRequest);
     } catch (error) {
-      throw new Error(`[ExportFrame] Native frame export failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `[ExportFrame] Native frame export failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext("2d");
-    if (!context) throw new Error("[ExportFrame] Failed to create native export canvas");
+    if (!context)
+      throw new Error("[ExportFrame] Failed to create native export canvas");
     const image = context.createImageData(width, height);
     image.data.set(new Uint8ClampedArray(rgba));
     context.putImageData(image, 0, 0);
     return await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(
-        (blob) => blob ? resolve(blob) : reject(new Error("[ExportFrame] Failed to encode native frame")),
+        (blob) =>
+          blob
+            ? resolve(blob)
+            : reject(new Error("[ExportFrame] Failed to encode native frame")),
         format === "jpeg" ? "image/jpeg" : "image/png",
         quality,
       );
@@ -144,7 +173,10 @@ export async function exportFrame(options: ExportFrameOptions): Promise<Blob> {
  * @param options - Export options
  * @param filename - Output filename
  */
-export async function exportFrameAndDownload(options: ExportFrameOptions, filename?: string): Promise<void> {
+export async function exportFrameAndDownload(
+  options: ExportFrameOptions,
+  filename?: string,
+): Promise<void> {
   const blob = await exportFrame(options);
 
   // Generate filename if not provided
@@ -168,7 +200,10 @@ export async function exportFrameAndDownload(options: ExportFrameOptions, filena
  * @param options - Export options
  * @param savePath - Path to save the file
  */
-export async function exportFrameToFile(options: ExportFrameOptions, savePath: string): Promise<void> {
+export async function exportFrameToFile(
+  options: ExportFrameOptions,
+  savePath: string,
+): Promise<void> {
   const blob = await exportFrame(options);
 
   // FIX (BUG-M3): Convert blob to Uint8Array and write via Tauri's binary IPC.

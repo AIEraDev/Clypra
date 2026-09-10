@@ -51,6 +51,7 @@ import { EmptyTimelineDropZone } from "./EmptyTimelineDropZone";
 import { ClipContextMenu } from "./ClipContextMenu";
 import { TimelineEmptySpaceContextMenu } from "./TimelineEmptySpaceContextMenu";
 import { GapContextMenu } from "./GapContextMenu";
+import { TrackContextMenu } from "./TrackContextMenu";
 import { AudioStreamPicker } from "./AudioStreamPicker";
 import { MediaJobIndicator } from "./MediaJobIndicator";
 import { RenameClipDialog } from "./RenameClipDialog";
@@ -90,6 +91,11 @@ export const Timeline: React.FC = () => {
     position: { x: number; y: number };
   } | null>(null);
 
+  const [trackLabelContextMenu, setTrackLabelContextMenu] = useState<{
+    trackId: string;
+    position: { x: number; y: number };
+  } | null>(null);
+
   const [emptySpaceContextMenu, setEmptySpaceContextMenu] = useState<{
     clickedTrackId: string | null;
     clickedTime: number;
@@ -108,9 +114,23 @@ export const Timeline: React.FC = () => {
     (e: React.MouseEvent, clipId: string, trackId: string) => {
       setEmptySpaceContextMenu(null);
       setGapContextMenu(null);
+      setTrackLabelContextMenu(null);
       setClipContextMenu({
         clickedClipId: clipId,
         clickedTrackId: trackId,
+        position: { x: e.clientX, y: e.clientY },
+      });
+    },
+    [],
+  );
+
+  const handleTrackLabelContextMenu = useCallback(
+    (e: React.MouseEvent, trackId: string) => {
+      setClipContextMenu(null);
+      setEmptySpaceContextMenu(null);
+      setGapContextMenu(null);
+      setTrackLabelContextMenu({
+        trackId,
         position: { x: e.clientX, y: e.clientY },
       });
     },
@@ -121,6 +141,7 @@ export const Timeline: React.FC = () => {
     (e: React.MouseEvent, trackId: string, time: number) => {
       setClipContextMenu(null);
       setGapContextMenu(null);
+      setTrackLabelContextMenu(null);
       setEmptySpaceContextMenu({
         clickedTrackId: trackId,
         clickedTime: time,
@@ -138,6 +159,7 @@ export const Timeline: React.FC = () => {
     }) => {
       setClipContextMenu(null);
       setEmptySpaceContextMenu(null);
+      setTrackLabelContextMenu(null);
       setGapContextMenu(params);
     },
     [],
@@ -155,8 +177,7 @@ export const Timeline: React.FC = () => {
       if (!container) return;
       const rect = container.getBoundingClientRect();
       const clickedTime = timelinePixelToTime(
-        getTimelineLaneClientX(e.clientX, rect.left, hasClips) +
-          scrollLeft,
+        getTimelineLaneClientX(e.clientX, rect.left, hasClips) + scrollLeft,
         pixelsPerSecond,
       );
       setClipContextMenu(null);
@@ -627,7 +648,10 @@ export const Timeline: React.FC = () => {
         container.scrollLeft,
         hasClips,
       );
-      const time = Math.max(0, Math.min(pixelToTime(x, pixelsPerSecond), duration));
+      const time = Math.max(
+        0,
+        Math.min(pixelToTime(x, pixelsPerSecond), duration),
+      );
 
       const frameRate = getPlaybackClock().frameRate;
       transportSeek(clampAndSnapProgramTime(time, duration, frameRate));
@@ -835,7 +859,11 @@ export const Timeline: React.FC = () => {
                   return (
                     <React.Fragment key={track.id}>
                       {/* LEFT: Track label — sticky left, scrolls vertically with clips */}
-                      <TrackLabel track={visualTrack} visualSpec={visualSpec} />
+                      <TrackLabel
+                        track={visualTrack}
+                        visualSpec={visualSpec}
+                        onContextMenu={handleTrackLabelContextMenu}
+                      />
 
                       {/* RIGHT: Track clips — scrolls both directions */}
                       <div
@@ -970,6 +998,14 @@ export const Timeline: React.FC = () => {
           position={clipContextMenu.position}
           onClose={() => setClipContextMenu(null)}
           onRename={(clipId) => setRenameClipId(clipId)}
+        />
+      )}
+
+      {trackLabelContextMenu && (
+        <TrackContextMenu
+          trackId={trackLabelContextMenu.trackId}
+          position={trackLabelContextMenu.position}
+          onClose={() => setTrackLabelContextMenu(null)}
         />
       )}
 

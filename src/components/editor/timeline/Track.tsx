@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Lock } from "lucide-react";
 import { useDrop } from "react-dnd";
 import { useUIStore } from "@/store/uiStore";
@@ -377,6 +383,20 @@ const TrackInner: React.FC<TrackProps> = ({
     onTrackContextMenu?.(e, track.id, Math.max(0, clickedTime));
   };
 
+  // Cmd+A (Mac) / Ctrl+A (Win/Linux) while this track row is focused
+  // selects all clips on this track only, overriding the global select-all.
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      const isMeta = e.metaKey || e.ctrlKey;
+      if (isMeta && e.key === "a") {
+        e.preventDefault();
+        e.stopPropagation();
+        useUIStore.getState().selectAllClipsInTrack(track.id);
+      }
+    },
+    [track.id],
+  );
+
   return (
     <div
       ref={(node) => {
@@ -384,7 +404,15 @@ const TrackInner: React.FC<TrackProps> = ({
       }}
       data-track-id={track.id}
       onContextMenu={handleTrackContextMenu}
-      className={`relative transition-colors mb-0 bg-surface-raised/40 ${selectedTrackId === track.id ? "bg-timeline-track-active" : ""} ${isOver && canDrop ? "bg-editor-drop/10" : ""} ${track.locked ? "bg-surface-app/45" : ""}`}
+      onKeyDown={handleKeyDown}
+      // tabIndex makes the row focusable so keyboard events land here.
+      // outline-none removes the browser default focus ring (timeline has its own selection highlight).
+      tabIndex={-1}
+      // Focus this row when the mouse enters so Cmd+A works without an extra click.
+      onMouseEnter={(e) =>
+        (e.currentTarget as HTMLDivElement).focus({ preventScroll: true })
+      }
+      className={`relative transition-colors mb-0 bg-surface-raised/40 outline-none ${selectedTrackId === track.id ? "bg-timeline-track-active" : ""} ${isOver && canDrop ? "bg-editor-drop/10" : ""} ${track.locked ? "bg-surface-app/45" : ""}`}
       style={{ height: `${visualSpec.height}px` }}
     >
       {/* Clips layer */}

@@ -7,7 +7,13 @@
  */
 
 import { evaluateTimelineSceneCached } from "../../core/evaluation/evaluator";
-import type { Clip, Track, MediaAsset, Project, TransitionTimelineItem } from "../../types";
+import type {
+  Clip,
+  Track,
+  MediaAsset,
+  Project,
+  TransitionTimelineItem,
+} from "../../types";
 import { buildNativeFrameRequest } from "@/components/editor/preview/nativeVideoPreview";
 import { isTauriRuntime, renderNativeFrame } from "@/lib/platform/tauri";
 import { NativeRasterBridge } from "@/core/render/nativeRasterBridge";
@@ -57,7 +63,11 @@ export interface ExportSequenceOptions {
   quality?: number;
 
   /** Progress callback */
-  onProgress?: (progress: number, currentFrame: number, totalFrames: number) => void;
+  onProgress?: (
+    progress: number,
+    currentFrame: number,
+    totalFrames: number,
+  ) => void;
 
   /** Frame callback (receives each frame as it's rendered) */
   onFrame?: (frameNumber: number, blob: Blob) => Promise<void>;
@@ -89,7 +99,6 @@ export interface ExportSequenceResult {
   cancelled: boolean;
 }
 
-
 /**
  * Export an image sequence.
  *
@@ -99,7 +108,9 @@ export interface ExportSequenceResult {
  * @param options - Export options
  * @returns Export result
  */
-export async function exportSequence(options: ExportSequenceOptions): Promise<ExportSequenceResult> {
+export async function exportSequence(
+  options: ExportSequenceOptions,
+): Promise<ExportSequenceResult> {
   const {
     clips,
     tracks,
@@ -156,7 +167,8 @@ export async function exportSequence(options: ExportSequenceOptions): Promise<Ex
   readbackCanvas.width = width;
   readbackCanvas.height = height;
   const readbackContext = readbackCanvas.getContext("2d");
-  if (!readbackContext) throw new Error("[ExportSequence] Failed to create native readback canvas");
+  if (!readbackContext)
+    throw new Error("[ExportSequence] Failed to create native readback canvas");
 
   const nativeFrameToBlob = async (rgba: ArrayBuffer): Promise<Blob> => {
     const image = readbackContext.createImageData(width, height);
@@ -164,7 +176,12 @@ export async function exportSequence(options: ExportSequenceOptions): Promise<Ex
     readbackContext.putImageData(image, 0, 0);
     return new Promise<Blob>((resolve, reject) => {
       readbackCanvas.toBlob(
-        (blob) => blob ? resolve(blob) : reject(new Error("[ExportSequence] Failed to encode native frame")),
+        (blob) =>
+          blob
+            ? resolve(blob)
+            : reject(
+                new Error("[ExportSequence] Failed to encode native frame"),
+              ),
         format === "jpeg" ? "image/jpeg" : "image/png",
         quality,
       );
@@ -175,7 +192,9 @@ export async function exportSequence(options: ExportSequenceOptions): Promise<Ex
   let cancelled = false;
 
   if (!isTauriRuntime()) {
-    throw new Error("[ExportSequence] Native image-sequence export requires the desktop runtime");
+    throw new Error(
+      "[ExportSequence] Native image-sequence export requires the desktop runtime",
+    );
   }
   const nativeRasterBridge = new NativeRasterBridge();
 
@@ -187,41 +206,62 @@ export async function exportSequence(options: ExportSequenceOptions): Promise<Ex
 
       const time = frameTimes[i];
       try {
-        const scene = evaluateTimelineSceneCached(time, clips, tracks, assets, project, epoch, transitions);
+        const scene = evaluateTimelineSceneCached(
+          time,
+          clips,
+          tracks,
+          assets,
+          project,
+          epoch,
+          transitions,
+        );
         let blob: Blob;
         const frameKey = startFrameIndex + i;
-        const rasterLayers = await nativeRasterBridge.rasterize(scene, { frameKey });
+        const rasterLayers = await nativeRasterBridge.rasterize(scene, {
+          frameKey,
+        });
         const activeSmartOverlays = clips.filter(
           (clip): clip is SmartOverlayClip =>
-            clip.kind === "smart-overlay" && time >= clip.startTime && time < clip.startTime + clip.duration,
+            clip.kind === "smart-overlay" &&
+            time >= clip.startTime &&
+            time < clip.startTime + clip.duration,
         );
-        const smartOverlayRasters = await nativeRasterBridge.rasterizeSmartOverlays(
-          activeSmartOverlays,
-          time,
-          scene.metadata.canvasWidth,
-          scene.metadata.canvasHeight,
-          { frameKey },
+        const smartOverlayRasters =
+          await nativeRasterBridge.rasterizeSmartOverlays(
+            activeSmartOverlays,
+            time,
+            scene.metadata.canvasWidth,
+            scene.metadata.canvasHeight,
+            { frameKey },
+          );
+        // The native compositor renders directly at outputWidth × outputHeight.
+        // to_video_project_request() in Rust applies scale_x = outputW/canvasW and
+        // scale_y = outputH/canvasH to every layer's coordinates before compositing,
+        // so output dimensions may freely differ from the project canvas size.
+        const nativeRequest = buildNativeFrameRequest(
+          scene,
+          `${project?.id ?? "export"}:${epoch}`,
+          frameKey,
+          frameRate,
+          width,
+          height,
+          [...rasterLayers, ...smartOverlayRasters],
+          { mode: "frameStep", quality: "full" },
         );
-        const nativeRequest = width === scene.metadata.canvasWidth && height === scene.metadata.canvasHeight
-          ? buildNativeFrameRequest(
-              scene,
-              `${project?.id ?? "export"}:${epoch}`,
-              frameKey,
-              frameRate,
-              width,
-              height,
-              [...rasterLayers, ...smartOverlayRasters],
-              { mode: "frameStep", quality: "full" },
-            )
-          : null;
         if (nativeRequest) {
           try {
-            blob = await nativeFrameToBlob(await renderNativeFrame(nativeRequest));
+            blob = await nativeFrameToBlob(
+              await renderNativeFrame(nativeRequest),
+            );
           } catch (error) {
-            throw new Error(`[ExportSequence] Native frame failed: ${error instanceof Error ? error.message : String(error)}`);
+            throw new Error(
+              `[ExportSequence] Native frame failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
           }
         } else {
-          throw new Error("[ExportSequence] Frame is outside the native compositor contract");
+          throw new Error(
+            "[ExportSequence] Frame is outside the native compositor contract",
+          );
         }
 
         if (onFrame) {
@@ -231,7 +271,11 @@ export async function exportSequence(options: ExportSequenceOptions): Promise<Ex
         completedFrames++;
 
         if (onProgress) {
-          onProgress(completedFrames / totalFrames, completedFrames, totalFrames);
+          onProgress(
+            completedFrames / totalFrames,
+            completedFrames,
+            totalFrames,
+          );
         }
       } catch (err) {
         throw err;
@@ -248,7 +292,8 @@ export async function exportSequence(options: ExportSequenceOptions): Promise<Ex
   }
 
   const totalTimeMs = Date.now() - startTimeMs;
-  const avgTimePerFrameMs = completedFrames > 0 ? totalTimeMs / completedFrames : 0;
+  const avgTimePerFrameMs =
+    completedFrames > 0 ? totalTimeMs / completedFrames : 0;
 
   return {
     totalFrames: completedFrames,
@@ -267,7 +312,7 @@ export function cancelExport(): void {
   // This is a no-op in the new API. Pass onCancelReady to exportSequence instead.
   console.warn(
     "[ExportSequence] cancelExport() is deprecated. Use the cancel() function provided " +
-    "via the onCancelReady callback in exportSequence options.",
+      "via the onCancelReady callback in exportSequence options.",
   );
 }
 
@@ -275,7 +320,10 @@ export function cancelExport(): void {
  * Export sequence and download as ZIP.
  * (Placeholder download behavior)
  */
-export async function exportSequenceAndDownload(options: ExportSequenceOptions, filename?: string): Promise<void> {
+export async function exportSequenceAndDownload(
+  options: ExportSequenceOptions,
+  filename?: string,
+): Promise<void> {
   const frames: { frameNumber: number; blob: Blob }[] = [];
 
   await exportSequence({
