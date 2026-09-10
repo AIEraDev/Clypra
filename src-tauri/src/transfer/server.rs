@@ -691,7 +691,7 @@ async fn get_staged_files(State(state): State<AppState>) -> Json<Vec<StagedFile>
         .iter()
         .map(|e| e.value().clone())
         .collect();
-    files.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    files.sort_by_key(|f| std::cmp::Reverse(f.created_at));
     Json(files)
 }
 

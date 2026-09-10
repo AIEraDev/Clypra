@@ -239,7 +239,7 @@ pub async fn upload_perf_log_session(
         .filter(|line| !line.trim().is_empty())
         .map(|line| {
             serde_json::from_str::<serde_json::Value>(line)
-                .unwrap_or_else(|_| serde_json::Value::Null)
+                .unwrap_or(serde_json::Value::Null)
         })
         .filter(|v| !v.is_null())
         .collect();
@@ -382,10 +382,8 @@ pub fn purge_perf_logs(
             .and_then(|epoch_str| epoch_str.parse::<u64>().ok())
             .unwrap_or(0);
 
-        if now.saturating_sub(created_at) > max_age_ms {
-            if fs::remove_file(&path).is_ok() {
-                deleted += 1;
-            }
+        if now.saturating_sub(created_at) > max_age_ms && fs::remove_file(&path).is_ok() {
+            deleted += 1;
         }
     }
 
