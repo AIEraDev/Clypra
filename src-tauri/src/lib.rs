@@ -23,6 +23,10 @@ pub mod wgpu_compositor;
 
 use commands::*;
 use diagnostics::crash_handler::{get_unreported_crashes, mark_crash_reported, purge_crash_reports};
+use diagnostics::{
+    open_perf_log_session, append_perf_log_entries, close_perf_log_session,
+    upload_perf_log_session, list_perf_log_files, purge_perf_logs,
+};
 use thumbnail_engine::init_thumbnail_engine;
 
 #[tauri::command]
@@ -340,6 +344,13 @@ pub fn run() {
             get_unreported_crashes,
             mark_crash_reported,
             purge_crash_reports,
+            // ── Session performance log (file-based, one upload per session) ─────
+            open_perf_log_session,
+            append_perf_log_entries,
+            close_perf_log_session,
+            upload_perf_log_session,
+            list_perf_log_files,
+            purge_perf_logs,
             // Phone ↔ laptop file transfer (LocalSend protocol)
             get_transfer_service_status,
             get_discovered_devices,

@@ -1,6 +1,11 @@
 pub mod crash_handler;
+pub mod perf_log;
 
 pub use crash_handler::NativeCrashReport;
+pub use perf_log::{
+    open_perf_log_session, append_perf_log_entries, close_perf_log_session,
+    upload_perf_log_session, list_perf_log_files, purge_perf_logs,
+};
 
 use serde::Serialize;
 use std::sync::OnceLock;
