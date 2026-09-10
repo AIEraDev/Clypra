@@ -32,6 +32,7 @@ import { toggleTrackPropertyWithHistory } from "@/core/history/trackPropertyActi
 interface TrackLabelProps {
   track: Track;
   visualSpec?: TrackVisualSpec;
+  onContextMenu?: (e: React.MouseEvent, trackId: string) => void;
 }
 
 const TRACK_ROLE_ICONS: Record<TrackVisualRole, typeof Video> = {
@@ -55,13 +56,9 @@ const TRACK_ROLE_ICONS: Record<TrackVisualRole, typeof Video> = {
 export const TrackLabel: React.FC<TrackLabelProps> = ({
   track,
   visualSpec: visualSpecProp,
+  onContextMenu,
 }) => {
-  const {
-    tracks,
-    clips,
-    gaps,
-    mainVideoTrackId,
-  } = useTimelineStore();
+  const { tracks, clips, gaps, mainVideoTrackId } = useTimelineStore();
   const { selectedTrackId, selectTrack } = useUIStore();
   const visualSpec =
     visualSpecProp ??
@@ -78,6 +75,7 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({
 
   return (
     <div
+      data-track-label
       className={`group relative flex items-center gap-2 px-2 transition-colors bg-surface-raised ${isSelected ? "bg-timeline-track-selected ring-1 ring-inset ring-timeline-track-active" : "hover:bg-timeline-track-hover"} ${isEmpty ? "opacity-70" : ""} ${track.locked ? "bg-timeline-track-active/60" : ""}`}
       style={{
         height: `${visualSpec.height}px`,
@@ -89,6 +87,11 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({
         flexShrink: 0,
       }}
       onClick={() => selectTrack(track.id)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onContextMenu?.(e, track.id);
+      }}
     >
       <div
         className={`absolute left-0 top-0 h-full w-0.5 ${isSelected ? "bg-timeline-track-label" : "bg-transparent"}`}
