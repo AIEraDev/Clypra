@@ -67,9 +67,11 @@ Tauri command boundary
 
 All runtimes emit bounded numerical telemetry
         |
+        v  collected into NDJSON session file (perfLogService)
+        |  uploaded as single POST on window close
         v
-clypra-api -> Neon performance_telemetry_events
-        |
+clypra-api -> Neon session_perf_logs (one row per session)
+        |     JSONB expansion at query time feeds analytics engine
         v
 clypra-studio Admin performance pages
 ```
@@ -79,7 +81,7 @@ clypra-studio Admin performance pages
 - editor controls, selection, overlays, property panels, and visual state;
 - user intents such as play, pause, seek, edit, undo, and redo;
 - the WebView editing surface and its DOM hit-testing;
-- bounded client telemetry buffering and asynchronous API upload.
+- bounded client telemetry buffering and session-file accumulation via `perfLogService`.
 
 React does not choose the native playback frame on every display tick and does
 not issue a heavy Tauri command for every native frame.
@@ -99,14 +101,14 @@ core timing machine remains independently testable.
 
 ## 3. Program Preview output contract
 
-| State or operation | Authoritative output | Interaction behavior |
-| --- | --- | --- |
-| Continuous playback | Native child surface | Surface is pointer-transparent; DOM capture plane handles an edit intent |
-| Paused | WebView/DOM canvas | Selection, handles, focus, and accessibility are active |
-| Seeking/scrubbing | WebView/DOM canvas | Latest seek wins; stale responses cannot present |
-| Transform/edit gesture | WebView/DOM canvas plus DOM overlay | Optimistic local movement; one commit on release |
-| Native initialization failure | Existing bounded runtime fallback only | No persistent user mode; failure remains diagnosable |
-| Qualification | Explicit diagnostics workflow | Uses the same snapshot and settings for each path |
+| State or operation            | Authoritative output                   | Interaction behavior                                                     |
+| ----------------------------- | -------------------------------------- | ------------------------------------------------------------------------ |
+| Continuous playback           | Native child surface                   | Surface is pointer-transparent; DOM capture plane handles an edit intent |
+| Paused                        | WebView/DOM canvas                     | Selection, handles, focus, and accessibility are active                  |
+| Seeking/scrubbing             | WebView/DOM canvas                     | Latest seek wins; stale responses cannot present                         |
+| Transform/edit gesture        | WebView/DOM canvas plus DOM overlay    | Optimistic local movement; one commit on release                         |
+| Native initialization failure | Existing bounded runtime fallback only | No persistent user mode; failure remains diagnosable                     |
+| Qualification                 | Explicit diagnostics workflow          | Uses the same snapshot and settings for each path                        |
 
 The Native surface is a retained session resource, not a React component side
 effect. `nativeSurfaceLifecycle` owns configure, resize, presentation ordering,
@@ -354,9 +356,14 @@ continue producing duplicate windows or growing telemetry indefinitely.
 
 ## 8. Telemetry and analysis source of truth
 
-The existing `performance_telemetry_events` table in `clypra-api` remains the
-storage foundation. Events and rollups carry the identity needed to prevent
-cross-path contamination:
+`session_perf_logs` in `clypra-api` is the storage foundation.
+One row per editor session holds the complete NDJSON entry array in an
+`entries` JSONB column plus denormalised summary columns (`os_family`,
+`gpu_vendor`, `app_version`, `received_at`) for fast B-tree-indexed
+dashboard filtering.
+
+Events and rollups carry the identity needed to prevent cross-path
+contamination:
 
 - `sessionId`;
 - `qualificationRunId` when applicable;
@@ -364,8 +371,9 @@ cross-path contamination:
 - `measurementId` for idempotent insertion;
 - frame sequence/sample kind/drop reason/deadline where applicable.
 
-The API accepts batches asynchronously, reports `persisted` and
-`deduplicated`, and uses the unique measurement identity to ignore duplicate
+The API accepts a single session-file upload per session
+(`POST /performance/telemetry/ingest/session`), expands `entries` JSONB at
+query time, and uses the unique measurement identity to ignore duplicate
 logical measurements. Percentiles never mix unrelated measurement sources.
 
 The canonical inspection surfaces are:
@@ -381,14 +389,14 @@ surface.
 
 ### Confidence and SLA policy
 
-| Measurement | Target |
-| --- | ---: |
-| Continuous playback render P95 | <= 16.67 ms |
-| Session dropped-frame ratio | <= 1% |
-| Seek/paused interaction P95 | <= 100 ms |
-| Native present P95 | near zero |
-| Audio callback work P95 | below the device callback budget |
-| Text total render P95 | <= 16.67 ms for the qualified playback cohort |
+| Measurement                    |                                        Target |
+| ------------------------------ | --------------------------------------------: |
+| Continuous playback render P95 |                                   <= 16.67 ms |
+| Session dropped-frame ratio    |                                         <= 1% |
+| Seek/paused interaction P95    |                                     <= 100 ms |
+| Native present P95             |                                     near zero |
+| Audio callback work P95        |              below the device callback budget |
+| Text total render P95          | <= 16.67 ms for the qualified playback cohort |
 
 Confidence is based on measured frames, not API row count:
 
@@ -403,14 +411,14 @@ used as evidence that a qualification run has enough samples.
 
 The following findings are development evidence, not production guarantees:
 
-| Area | Observed evidence | Architectural conclusion |
-| --- | --- | --- |
-| Native preview | Approximately 7–9 ms render P95 in later runs; present cost near zero | Keep Native as the continuous playback path |
-| WebView preview | Transfer/readback observations around 189–242 ms P95; paused interaction also showed large decode tails | Do not unify WebView readback with Native playback |
-| Native audio | Approximately 2.25–2.75 ms callback P95 with zero underruns in observed runs | Audio callback is not the reported text freeze bottleneck in those runs |
-| Text interactive preview | Approximately 91 ms P95 in a small normal-text sample | Text edit/raster path needs coalescing and better warm-cache behavior |
-| Text session prewarm | Approximately 186 ms cold sample with most time in font wait/raster | Pay cold font work at bounded startup/prewarm, not during repeated edits |
-| Text cache behavior | Color, layout, and effect inputs participate in the raster identity | Paint/layout invalidation must remain explicit so visual changes are immediate without redoing unrelated work |
+| Area                     | Observed evidence                                                                                       | Architectural conclusion                                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Native preview           | Approximately 7–9 ms render P95 in later runs; present cost near zero                                   | Keep Native as the continuous playback path                                                                   |
+| WebView preview          | Transfer/readback observations around 189–242 ms P95; paused interaction also showed large decode tails | Do not unify WebView readback with Native playback                                                            |
+| Native audio             | Approximately 2.25–2.75 ms callback P95 with zero underruns in observed runs                            | Audio callback is not the reported text freeze bottleneck in those runs                                       |
+| Text interactive preview | Approximately 91 ms P95 in a small normal-text sample                                                   | Text edit/raster path needs coalescing and better warm-cache behavior                                         |
+| Text session prewarm     | Approximately 186 ms cold sample with most time in font wait/raster                                     | Pay cold font work at bounded startup/prewarm, not during repeated edits                                      |
+| Text cache behavior      | Color, layout, and effect inputs participate in the raster identity                                     | Paint/layout invalidation must remain explicit so visual changes are immediate without redoing unrelated work |
 
 Small samples must remain visibly marked as insufficient or preliminary. They
 are useful for finding a bottleneck, but not for declaring a path qualified.
