@@ -25,9 +25,17 @@
  * - It does NOT block any audio/video hot path — all Tauri invocations are fire-and-forget.
  */
 
-import { isTauri } from "@/core/platform/platform";
 import { getApiBaseUrl, getApiKey } from "@/lib/api/apiUtils";
 import { getAppVersion, getAppVersionSync } from "@/lib/app/appVersion";
+
+// ── Tauri runtime guard ───────────────────────────────────────────────────────
+// Evaluated lazily at call time, not at module-load time. The module-level
+// `isTauri` constant from platform.ts is evaluated when the module is first
+// imported — which can happen before Tauri injects `__TAURI_INTERNALS__` into
+// the window, freezing the value as false for the entire session.
+function isTauriRuntime(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -109,7 +117,7 @@ class PerfLogService {
    * Call this as early as possible in the app lifecycle (e.g. root component mount).
    */
   async openSession(sessionId: string): Promise<void> {
-    if (!isTauri) return;
+    if (!isTauriRuntime()) return;
 
     try {
       const info = await tauriInvoke<PerfLogSessionInfo>(
@@ -151,7 +159,7 @@ class PerfLogService {
    * No-op if no session is open or not running in Tauri.
    */
   enqueue(entry: PerfLogEntry): void {
-    if (!this.sessionId || !isTauri) return;
+    if (!this.sessionId || !isTauriRuntime()) return;
 
     // Always stamp with the active session ID in case the caller passed a
     // stale ID from before a project switch.
@@ -174,7 +182,7 @@ class PerfLogService {
    *   - `visibilitychange` → hidden (best-effort for backgrounded web views)
    */
   async closeAndUpload(): Promise<void> {
-    if (!this.sessionId || !isTauri) return;
+    if (!this.sessionId || !isTauriRuntime()) return;
 
     // Deduplicate concurrent close calls (e.g. close-requested + visibility change).
     if (this.closeInFlight) return this.closeInFlight;
@@ -196,7 +204,7 @@ class PerfLogService {
    * so the proper close path can upload the complete file later.
    */
   flushToDisk(): void {
-    if (!this.sessionId || !isTauri) return;
+    if (!this.sessionId || !isTauriRuntime()) return;
     void this.flushQueue();
   }
 
