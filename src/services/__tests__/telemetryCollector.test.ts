@@ -26,7 +26,7 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
       { decodeUs: 18000, composeUs: 6000, totalTimeUs: 25000 },
       10, // 10 dropped frames
       60, // 60 total frames -> >5% dropped frames
-      { codec: "hevc", resolutionBucket: "4k", nominalFps: 60 }
+      { codec: "hevc", resolutionBucket: "4k", nominalFps: 60 },
     );
 
     expect(telemetryCollector.getQueueLength()).toBe(1);
@@ -52,14 +52,22 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
       null,
       nativeRender,
       {},
-      { view: "native", surface: "native-surface", runtimeEnvironment: "development" },
+      {
+        view: "native",
+        surface: "native-surface",
+        runtimeEnvironment: "development",
+      },
       "sequence:1:request-1:42",
     );
     telemetryCollector.recordNativeSyncSnapshot(
       null,
       nativeRender,
       {},
-      { view: "native", surface: "native-surface", runtimeEnvironment: "development" },
+      {
+        view: "native",
+        surface: "native-surface",
+        runtimeEnvironment: "development",
+      },
       "sequence:1:request-1:42",
     );
 
@@ -75,54 +83,63 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
     expect(telemetryCollector.getQueueLength()).toBe(1);
   });
 
-  it("records a hardware fallback event and dispatches batch immediately", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
-      ok: true,
-      status: 202,
-    } as any);
+  it("records a hardware fallback event and enqueues it for session-file upload", () => {
+    // recordFallbackEvent enqueues the event then immediately calls flush(),
+    // which drains this.queue to 0 (the event was already forwarded to
+    // perfLogService.enqueue() inside enqueueEvent before the drain).
+    // Capture the event via a spy on the internal enqueueEvent path.
+    const enqueuedEvents: unknown[] = [];
+    const originalEnqueue = (telemetryCollector as any).enqueueEvent.bind(
+      telemetryCollector,
+    );
+    vi.spyOn(telemetryCollector as any, "enqueueEvent").mockImplementation(
+      (event: unknown) => {
+        enqueuedEvents.push(event);
+        originalEnqueue(event);
+      },
+    );
 
     telemetryCollector.recordFallbackEvent(
       "webgpu",
       "webgl2",
       "GPUAdapterNotFoundError",
-      "Error: Adapter not found"
+      "Error: Adapter not found",
     );
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url, options] = fetchSpy.mock.calls[0];
-    expect(url).toContain("/performance/telemetry/ingest/batch");
-    expect((options as any).method).toBe("POST");
-    expect((options as any).headers["X-Clypra-Client"]).toBe("tauri-desktop");
+    // Exactly one event was enqueued …
+    expect(enqueuedEvents).toHaveLength(1);
 
-    const parsedBody = JSON.parse((options as any).body);
-    expect(parsedBody.events.length).toBe(1);
-    expect(parsedBody.events[0].fallbackEvent.reasonCode).toBe("GPUAdapterNotFoundError");
+    // … and it carries the correct fallback payload.
+    const event = enqueuedEvents[0] as any;
+    expect(event.fallbackEvent.triggered).toBe(true);
+    expect(event.fallbackEvent.fromBackend).toBe("webgpu");
+    expect(event.fallbackEvent.toBackend).toBe("webgl2");
+    expect(event.fallbackEvent.reasonCode).toBe("GPUAdapterNotFoundError");
+
+    // Queue is 0 because flush() was called immediately (high-priority).
+    expect(telemetryCollector.getQueueLength()).toBe(0);
+
+    // No network fetch — data goes to the session NDJSON file via perfLogService.
+    expect(
+      vi.isMockFunction(globalThis.fetch)
+        ? (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length
+        : 0,
+    ).toBe(0);
   });
 
   it("respects enabled flag and stops enqueuing when disabled", () => {
     telemetryCollector.setEnabled(false);
-    telemetryCollector.recordRenderSpan(
-      { totalTimeUs: 30000 },
-      20,
-      60
-    );
+    telemetryCollector.recordRenderSpan({ totalTimeUs: 30000 }, 20, 60);
 
     expect(telemetryCollector.getQueueLength()).toBe(0);
   });
 
   it("flushes bounded queue cleanly via flush()", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue({
-      ok: true,
-      status: 202,
-    } as any);
-
-    telemetryCollector.recordRenderSpan(
-      { totalTimeUs: 25000 },
-      10,
-      60
-    );
+    telemetryCollector.recordRenderSpan({ totalTimeUs: 25000 }, 10, 60);
     expect(telemetryCollector.getQueueLength()).toBe(1);
 
+    // flush() drains the in-memory queue (data was already forwarded to
+    // perfLogService.enqueue() inside enqueueEvent). No fetch() is made.
     const success = await telemetryCollector.flush();
     expect(success).toBe(true);
     expect(telemetryCollector.getQueueLength()).toBe(0);
@@ -139,7 +156,12 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
       encodeTimeUs: 1800000,
       peakRamMb: 1024,
       success: true,
-      videoProfile: { width: 3840, height: 2160, nominalFps: 60, codec: "hevc" },
+      videoProfile: {
+        width: 3840,
+        height: 2160,
+        nominalFps: 60,
+        codec: "hevc",
+      },
     });
 
     expect(telemetryCollector.getQueueLength()).toBe(1);
@@ -177,7 +199,13 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
   });
 
   it("records AI inference tasks like whisper and auto-reframe", () => {
-    telemetryCollector.recordAIInferenceSpan("whisper-captions", 320, 0, 0.25, true);
+    telemetryCollector.recordAIInferenceSpan(
+      "whisper-captions",
+      320,
+      0,
+      0.25,
+      true,
+    );
     expect(telemetryCollector.getQueueLength()).toBe(1);
   });
 
@@ -216,7 +244,7 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
         60,
         { resolutionBucket: "4k", codec: "hevc" },
         "playback",
-        2.5
+        2.5,
       );
     }
 
@@ -249,8 +277,14 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
     expect(event.sampleKind).toBe("interaction");
     expect(event.textMetrics.stageCoverage).toBe("complete");
     expect(event.textMetrics.unattributedTimeUs).toBe(0);
-    expect(event.textMetrics.interactionStagePercentiles.rasterUs).toEqual({ p50: 5000, p95: 5000, p99: 5000 });
-    expect(event.textMetrics.stagePercentiles).toEqual(event.textMetrics.interactionStagePercentiles);
+    expect(event.textMetrics.interactionStagePercentiles.rasterUs).toEqual({
+      p50: 5000,
+      p95: 5000,
+      p99: 5000,
+    });
+    expect(event.textMetrics.stagePercentiles).toEqual(
+      event.textMetrics.interactionStagePercentiles,
+    );
   });
 
   it("records canvas drag text interaction with unattributed stage coverage", () => {
@@ -275,4 +309,3 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
     expect(event.textMetrics.interactionStagePercentiles).toEqual({});
   });
 });
-
