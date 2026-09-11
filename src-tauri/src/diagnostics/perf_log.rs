@@ -280,7 +280,57 @@ pub async fn upload_perf_log_session(
         return Err(format!("Upload rejected — HTTP {status}: {body}"));
     }
 
+    // Mark as uploaded by renaming extension so next launch doesn't re-upload it.
+    let uploaded_path = format!("{file_path}.uploaded");
+    let _ = fs::rename(&file_path, &uploaded_path);
+
     Ok(())
+}
+
+/// Uploads any pending (un-uploaded) session files from previous runs.
+/// This runs on application startup to ensure sessions terminated abruptly or
+/// closed without network access are reliably ingested on the next session.
+#[tauri::command]
+pub async fn upload_pending_perf_logs(
+    app: tauri::AppHandle,
+    api_base_url: String,
+    api_key: String,
+) -> Result<usize, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to resolve app data dir: {e}"))?;
+
+    let log_dir = get_perf_log_dir(&app_data_dir);
+    if !log_dir.exists() {
+        return Ok(0);
+    }
+
+    let open_paths: std::collections::HashSet<PathBuf> = SESSIONS
+        .iter()
+        .map(|s| s.value().file_path.clone())
+        .collect();
+
+    let mut pending: Vec<String> = Vec::new();
+    if let Ok(entries) = fs::read_dir(&log_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("ndjson")
+                && !open_paths.contains(&path)
+            {
+                pending.push(path.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    let mut uploaded_count = 0usize;
+    for file_path in pending {
+        if upload_perf_log_session(file_path, api_base_url.clone(), api_key.clone()).await.is_ok() {
+            uploaded_count += 1;
+        }
+    }
+
+    Ok(uploaded_count)
 }
 
 /// Returns metadata for all completed perf-log files on disk.
@@ -367,7 +417,8 @@ pub fn purge_perf_logs(
         let entry = entry.map_err(|e| format!("Directory entry error: {e}"))?;
         let path = entry.path();
 
-        if path.extension().and_then(|s| s.to_str()) != Some("ndjson") {
+        let ext = path.extension().and_then(|s| s.to_str());
+        if ext != Some("ndjson") && ext != Some("uploaded") {
             continue;
         }
         if open_paths.contains(&path) {

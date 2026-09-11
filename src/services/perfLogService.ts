@@ -147,9 +147,33 @@ class PerfLogService {
           appEnvironment: import.meta.env.DEV ? "beta" : "production",
         },
       });
+
+      // Asynchronously retry uploading any pending session logs from previous runs / offline sessions.
+      void this.retryPendingUploads();
     } catch (err) {
       // Non-fatal — the app continues without file logging.
       console.warn("[PerfLogService] Failed to open perf-log session:", err);
+    }
+  }
+
+  /**
+   * Retries uploading any un-uploaded session logs left on disk from previous runs
+   * (e.g. from app force-close, crash, or network outage).
+   */
+  private async retryPendingUploads(): Promise<void> {
+    if (!isTauriRuntime()) return;
+    try {
+      const uploadedCount = await tauriInvoke<number>("upload_pending_perf_logs", {
+        apiBaseUrl: getApiBaseUrl(),
+        apiKey: getApiKey(),
+      });
+      if (uploadedCount > 0) {
+        console.log(
+          `[PerfLogService] Uploaded ${uploadedCount} pending session log(s) from previous run.`,
+        );
+      }
+    } catch (err) {
+      console.warn("[PerfLogService] Failed to upload pending perf logs:", err);
     }
   }
 

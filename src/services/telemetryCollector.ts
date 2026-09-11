@@ -42,6 +42,7 @@ export interface TelemetryHardwareContext {
   displayDpr: number;
   thermalThrottlingState?: "nominal" | "fair" | "serious" | "critical";
   isBatteryPowered?: boolean;
+  isHybridGpu?: boolean;
 }
 
 export interface TelemetryVideoProfile {
@@ -1093,6 +1094,11 @@ class TelemetryCollector {
         ? window.devicePixelRatio
         : 1.0;
 
+    const isHybridGpu =
+      osFamily === "windows" &&
+      (/Laptop|Mobile/i.test(gpuModel) ||
+        (/NVIDIA/i.test(gpuModel) && /Intel|Radeon/i.test(userAgent)));
+
     this.cachedHardware = {
       osFamily,
       osVersion: "production",
@@ -1103,6 +1109,7 @@ class TelemetryCollector {
       gpuModel,
       graphicsBackend,
       displayDpr,
+      isHybridGpu,
     };
 
     return this.cachedHardware;
