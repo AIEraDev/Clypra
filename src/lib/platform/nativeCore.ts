@@ -555,6 +555,8 @@ export interface NativeFrameRequest {
     | "prefetch";
   scrubVelocityPxPerSecond?: number;
   requestedAtMs?: number;
+  isScrubbing?: boolean;
+  allowKeyframeApprox?: boolean;
 }
 
 export type NativeFrameRequestInput = Omit<

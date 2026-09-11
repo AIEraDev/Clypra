@@ -33,6 +33,28 @@ describe("SeekController", () => {
     expect(qualityForScrubVelocity(-3_000)).toBe("quarter");
   });
 
+  it("sets isScrubbing and allowKeyframeApprox defaults and respects overrides", () => {
+    const controller = new SeekController();
+
+    const scrub = controller.request({ time: 1, mode: "scrub", velocityPxPerSecond: 500 });
+    expect(scrub.isScrubbing).toBe(true);
+    expect(scrub.allowKeyframeApprox).toBe(true);
+
+    const seek = controller.request({ time: 2, mode: "seek" });
+    expect(seek.isScrubbing).toBe(false);
+    expect(seek.allowKeyframeApprox).toBe(false);
+
+    const exactScrub = controller.request({
+      time: 3,
+      mode: "scrub",
+      quality: "full",
+      allowKeyframeApprox: false,
+    });
+    expect(exactScrub.isScrubbing).toBe(true);
+    expect(exactScrub.quality).toBe("full");
+    expect(exactScrub.allowKeyframeApprox).toBe(false);
+  });
+
   it("does not accept requests after disposal", () => {
     const controller = new SeekController();
     controller.dispose();
