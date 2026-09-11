@@ -9,12 +9,12 @@ use crate::native_core::{
     BodyEffectSnapshot, ColorGradeSnapshot, FramePacket, FrameRequest, FrameTime,
     NativeFrameService, NativeFrameServiceStats, NativePerformanceSampleBatch,
     NativeSurfacePresentation, NativeSurfacePresentationTimings, PerformanceSample, PixelFormat,
-    PreviewMode, TextLayerSnapshot, TransitionSnapshot, DEFAULT_TIME_SCALE,
+    PreviewMode, QualityTier, TextLayerSnapshot, TransitionSnapshot, DEFAULT_TIME_SCALE,
     NATIVE_CORE_CONTRACT_VERSION,
 };
 use crate::sync_metrics::SYNC_METRICS;
 use crate::thumbnail_engine::decoder::{
-    get_preview_decoder, get_preview_decoder_for_stream, VideoColorMetadata,
+    get_preview_decoder, get_preview_decoder_for_stream, DecodeFrameOptions, VideoColorMetadata,
 };
 use crate::wgpu_compositor::multi_track_composer::TransitionUniforms;
 use crate::wgpu_compositor::{
@@ -144,9 +144,17 @@ fn native_presentation_timing(
         .checked_div(frame_timescale as u128)
         .unwrap_or(0);
     let frame_position_ticks = frame_position_ticks.min(i64::MAX as u128) as i64;
+
+    // Pass the median inter-callback spacing from the lock-free ring buffer.
+    // This is the correct interval measure for the freshness threshold — the
+    // actual hardware cadence, not a processing-duration proxy.
     SYNC_METRICS
         .av_drift
-        .record(frame_position_ticks.saturating_sub(status.audio_position_ticks as i64));
+        .record_with_freshness(
+            frame_position_ticks.saturating_sub(status.audio_position_ticks as i64),
+            status.clock_freshness_us,
+            status.median_callback_interval_us,
+        );
     let age = status.audio_position_ticks as i128 - frame_position_ticks as i128;
     let frame_age_ticks = age.clamp(i64::MIN as i128, i64::MAX as i128) as i64;
     let decision = decide_native_presentation_timing(
@@ -521,6 +529,14 @@ pub struct NativeVideoProjectFrameRequest {
     pub text_layers: Vec<TextLayerSnapshot>,
     #[serde(default)]
     pub transition: Option<TransitionSnapshot>,
+    #[serde(default)]
+    pub quality: QualityTier,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub is_scrubbing: Option<bool>,
+    #[serde(default)]
+    pub allow_keyframe_approx: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -850,6 +866,10 @@ fn to_video_project_request(
         raster_layers,
         text_layers,
         transition: request.project.transition.clone(),
+        quality: request.quality,
+        mode: request.mode.clone(),
+        is_scrubbing: request.is_scrubbing,
+        allow_keyframe_approx: request.allow_keyframe_approx,
     })
 }
 
@@ -1562,39 +1582,172 @@ async fn render_native_video_project_frame_bytes_timed(
     let canvas_width = request.canvas_width as f32;
     let canvas_height = request.canvas_height as f32;
 
-    // Decode before taking the GPU session lock so a slow seek cannot block
-    // another already-decoded preview frame from submitting work.
-    let (decoded_frames, decode_timings) = decode_native_video_layers(&request, None).await?;
-    let decode_time_us = decode_timings.decode_time_us;
-
-    let mut session = state.lock().await;
-    let gpu = Arc::clone(&session.gpu);
-    let conversion_started = Instant::now();
     let mut textures = Vec::with_capacity(
         request.layers.len() + request.raster_layers.len() + request.text_layers.len(),
     );
     let mut views = Vec::with_capacity(request.layers.len() + request.raster_layers.len());
-    for (layer, (y_plane, uv_plane, width, height, color)) in
-        request.layers.iter().zip(decoded_frames.iter())
-    {
-        let params = color_params(color)?;
-        let layer_key = if !layer.layer_id.is_empty() {
-            &layer.layer_id
-        } else {
-            &layer.video_path
+    let mut decode_time_us = 0u32;
+    let mut decoder_mutex_wait_us = 0u64;
+
+    // ── Windows Phase 2: zero-copy D3D11VA → DXGI → wgpu ─────────────────────
+    // On Windows with D3D11VA hardware decode, attempt to decode frames into DXGI
+    // shared NT handles and import them into wgpu directly without an
+    // `av_hwframe_transfer_data` (VRAM→RAM) + `queue.write_texture` (RAM→VRAM) round-trip.
+    #[cfg(target_os = "windows")]
+    let dxgi_frames_result = if !request.layers.is_empty() {
+        use crate::thumbnail_engine::decoder::DecodeFrameOptions;
+        let decode_options = DecodeFrameOptions {
+            allow_keyframe_approx: request.allow_keyframe_approx.unwrap_or(false)
+                || request.is_scrubbing.unwrap_or(false)
+                || request.mode.as_deref() == Some("scrub"),
+            quality: request.quality,
         };
-        let texture = session.render_nv12_frame_to_texture(
-            layer_key,
-            *width,
-            *height,
-            *width,
-            *height,
-            y_plane,
-            uv_plane,
-            &params,
-        )?;
-        views.push(texture.create_view(&wgpu::TextureViewDescriptor::default()));
-        textures.push(texture);
+
+        let mut frames = Vec::with_capacity(request.layers.len());
+        let mut all_succeeded = true;
+        let mut max_dec_us = 0u32;
+        let mut total_wait_us = 0u64;
+
+        for layer in &request.layers {
+            let stream_id = if !layer.layer_id.is_empty() {
+                &layer.layer_id
+            } else {
+                ""
+            };
+            let lock_started = Instant::now();
+            let decoder = match get_preview_decoder_for_stream(&layer.video_path, stream_id).await {
+                Ok(d) => d,
+                Err(_) => {
+                    all_succeeded = false;
+                    break;
+                }
+            };
+            let mut guard = decoder.lock().await;
+            let wait_us = lock_started.elapsed().as_micros() as u64;
+            total_wait_us = total_wait_us.saturating_add(wait_us);
+
+            let mut frame_color = VideoColorMetadata::default();
+            let mut width = 0u32;
+            let mut height = 0u32;
+            let decode_started = Instant::now();
+            match guard.decode_frame_dxgi_windows(
+                layer.time_secs,
+                decode_options,
+                || false,
+                &mut frame_color,
+                &mut width,
+                &mut height,
+            ) {
+                Ok(Some(shared)) => {
+                    let dec_us = decode_started.elapsed().as_micros().min(u32::MAX as u128) as u32;
+                    max_dec_us = max_dec_us.max(dec_us);
+                    let stream_color = guard.metadata().color;
+                    let color = merge_color_metadata(frame_color, &stream_color);
+                    frames.push((shared, width, height, color));
+                }
+                _ => {
+                    all_succeeded = false;
+                    break;
+                }
+            }
+        }
+
+        if all_succeeded && frames.len() == request.layers.len() {
+            Some((frames, max_dec_us, total_wait_us))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let mut session = state.lock().await;
+    let gpu = Arc::clone(&session.gpu);
+    let conversion_started = Instant::now();
+
+    #[cfg(target_os = "windows")]
+    let mut dxgi_active = false;
+
+    #[cfg(target_os = "windows")]
+    if let Some((frames, max_dec_us, total_wait_us)) = dxgi_frames_result {
+        use crate::wgpu_compositor::dxgi_import;
+        let mut import_all_ok = true;
+        for (layer, (shared, width, height, color)) in request.layers.iter().zip(frames.into_iter()) {
+            let layer_key = if !layer.layer_id.is_empty() {
+                &layer.layer_id
+            } else {
+                &layer.video_path
+            };
+            let params = match color_params(&color) {
+                Ok(p) => p,
+                Err(_) => {
+                    import_all_ok = false;
+                    break;
+                }
+            };
+            if let Some(imported) = dxgi_import::import_into_wgpu(&session.gpu.device, shared) {
+                match session.render_nv12_from_imported_texture(layer_key, width, height, &imported, &params) {
+                    Ok(texture) => {
+                        views.push(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+                        textures.push(texture);
+                    }
+                    Err(_) => {
+                        import_all_ok = false;
+                        break;
+                    }
+                }
+            } else {
+                import_all_ok = false;
+                break;
+            }
+        }
+
+        if import_all_ok {
+            decode_time_us = max_dec_us;
+            decoder_mutex_wait_us = total_wait_us;
+            dxgi_active = true;
+        } else {
+            views.clear();
+            textures.clear();
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    let need_cpu_decode = !dxgi_active;
+    #[cfg(not(target_os = "windows"))]
+    let need_cpu_decode = true;
+
+    if need_cpu_decode {
+        // Decode before taking the GPU session lock so a slow seek cannot block
+        // another already-decoded preview frame from submitting work.
+        drop(session);
+        let (decoded_frames, decode_timings) = decode_native_video_layers(&request, None).await?;
+        decode_time_us = decode_timings.decode_time_us;
+        decoder_mutex_wait_us = decode_timings.decoder_mutex_wait_us;
+
+        session = state.lock().await;
+        for (layer, (y_plane, uv_plane, width, height, color)) in
+            request.layers.iter().zip(decoded_frames.iter())
+        {
+            let params = color_params(color)?;
+            let layer_key = if !layer.layer_id.is_empty() {
+                &layer.layer_id
+            } else {
+                &layer.video_path
+            };
+            let texture = session.render_nv12_frame_to_texture(
+                layer_key,
+                *width,
+                *height,
+                *width,
+                *height,
+                y_plane,
+                uv_plane,
+                &params,
+            )?;
+            views.push(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+            textures.push(texture);
+        }
     }
     for layer in &request.raster_layers {
         let texture = session.get_or_upload_rgba_layer_to_texture(
@@ -1782,7 +1935,7 @@ async fn render_native_video_project_frame_bytes_timed(
             conversion_time_us,
             compose_time_us: compose_time_us.min(u32::MAX as u64) as u32,
             readback_time_us: readback_time_us.min(u32::MAX as u64) as u32,
-            decoder_mutex_wait_us: decode_timings.decoder_mutex_wait_us,
+            decoder_mutex_wait_us,
         },
     ))
 }
@@ -1794,6 +1947,13 @@ async fn decode_native_video_layers(
     if request.layers.is_empty() {
         return Ok((Vec::new(), NativeDecodeTimings::default()));
     }
+
+    let decode_options = DecodeFrameOptions {
+        allow_keyframe_approx: request.allow_keyframe_approx.unwrap_or(false)
+            || request.is_scrubbing.unwrap_or(false)
+            || request.mode.as_deref() == Some("scrub"),
+        quality: request.quality,
+    };
 
     if request.layers.len() == 1 {
         let layer = &request.layers[0];
@@ -1810,7 +1970,7 @@ async fn decode_native_video_layers(
         let stream_color = guard.metadata().color;
         let cancel = cancellation;
         let (y_plane, uv_plane, width, height, frame_color) = guard
-            .decode_frame_raw_nv12_with_cancel(layer.time_secs, || {
+            .decode_frame_raw_nv12_with_options(layer.time_secs, decode_options, || {
                 cancel
                     .as_ref()
                     .map(|(latest, generation)| latest.load(Ordering::Acquire) > *generation)
@@ -1858,7 +2018,7 @@ async fn decode_native_video_layers(
             let decode_started = Instant::now();
             let stream_color = guard.metadata().color;
             let (y_plane, uv_plane, width, height, frame_color) = guard
-                .decode_frame_raw_nv12_with_cancel(time_secs, || {
+                .decode_frame_raw_nv12_with_options(time_secs, decode_options, || {
                     cancel
                         .as_ref()
                         .map(|(latest, generation)| latest.load(Ordering::Acquire) > *generation)
@@ -3430,6 +3590,8 @@ mod tests {
             mode: None,
             scrub_velocity_px_per_second: None,
             requested_at_ms: None,
+            is_scrubbing: None,
+            allow_keyframe_approx: None,
         };
 
         let legacy = super::to_video_project_request(&request).expect("request should convert");
