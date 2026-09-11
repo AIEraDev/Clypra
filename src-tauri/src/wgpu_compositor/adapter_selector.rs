@@ -44,13 +44,19 @@ impl GpuContext {
                     .into_iter()
                     .map(|adapter| {
                         let info = adapter.get_info();
-                        let score = match info.device_type {
+                        #[allow(unused_mut)]
+                        let mut score = match info.device_type {
                             DeviceType::DiscreteGpu => 1000,
                             DeviceType::IntegratedGpu => 200,
                             DeviceType::VirtualGpu => 50,
                             DeviceType::Cpu => 10,
                             DeviceType::Other => 0,
                         };
+                        #[cfg(target_os = "windows")]
+                        if info.backend == wgpu::Backend::Dx12 {
+                            // Boost DX12 backend on Windows so D3D11VA DXGI shared texture import succeeds
+                            score += 500;
+                        }
                         (score, adapter)
                     })
                     .collect();

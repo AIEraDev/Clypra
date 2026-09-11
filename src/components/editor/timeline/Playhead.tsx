@@ -77,6 +77,7 @@ export const Playhead: React.FC<PlayheadProps> = ({
   // ✅ PERFORMANCE OPTIMIZED: Throttled state updates to reduce React render storms
   const lastScrollUpdateRef = useRef(0);
   const lastSeekUpdateRef = useRef(0);
+  const stationaryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const SCROLL_THROTTLE = 33; // ~30fps (acceptable for scroll UI sync)
   const SEEK_THROTTLE = 16; // ~60fps (smooth playhead movement)
 
@@ -84,6 +85,10 @@ export const Playhead: React.FC<PlayheadProps> = ({
   useEffect(() => {
     if (!isDragging) {
       scrollVelocityRef.current = 0;
+      if (stationaryTimerRef.current) {
+        clearTimeout(stationaryTimerRef.current);
+        stationaryTimerRef.current = null;
+      }
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
@@ -148,6 +153,17 @@ export const Playhead: React.FC<PlayheadProps> = ({
           velocityPxPerSecond: pointerVelocityRef.current,
         });
         lastSeekUpdateRef.current = now;
+
+        if (stationaryTimerRef.current) {
+          clearTimeout(stationaryTimerRef.current);
+        }
+        stationaryTimerRef.current = setTimeout(() => {
+          transportSeek(newTime, {
+            mode: "scrub",
+            quality: "full",
+            allowKeyframeApprox: false,
+          });
+        }, 150);
       }
 
       rafRef.current = requestAnimationFrame(tick);
@@ -156,6 +172,10 @@ export const Playhead: React.FC<PlayheadProps> = ({
     rafRef.current = requestAnimationFrame(tick);
 
     return () => {
+      if (stationaryTimerRef.current) {
+        clearTimeout(stationaryTimerRef.current);
+        stationaryTimerRef.current = null;
+      }
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
@@ -223,12 +243,17 @@ export const Playhead: React.FC<PlayheadProps> = ({
         pointerIdRef.current !== null &&
         e.pointerId === pointerIdRef.current
       ) {
+        if (stationaryTimerRef.current) {
+          clearTimeout(stationaryTimerRef.current);
+          stationaryTimerRef.current = null;
+        }
         // The scrub stream may have been rendered at reduced quality. Re-issue
         // the final exact target so the released playhead always settles on a
         // full-quality frame.
         transportSeek(getPlaybackClock().time, {
           mode: "seek",
           quality: "full",
+          allowKeyframeApprox: false,
         });
         if (scrubInteractionRef.current) {
           previewInteractionCoordinator.commit(scrubInteractionRef.current, false);
@@ -251,6 +276,10 @@ export const Playhead: React.FC<PlayheadProps> = ({
     };
 
     const handleWindowBlur = () => {
+      if (stationaryTimerRef.current) {
+        clearTimeout(stationaryTimerRef.current);
+        stationaryTimerRef.current = null;
+      }
       // Stop drag if window loses focus
       setIsDragging(false);
       scrollVelocityRef.current = 0;
@@ -267,6 +296,10 @@ export const Playhead: React.FC<PlayheadProps> = ({
     const handlePointerCancel = (e: PointerEvent) => {
       if (pointerIdRef.current !== null && e.pointerId !== pointerIdRef.current)
         return;
+      if (stationaryTimerRef.current) {
+        clearTimeout(stationaryTimerRef.current);
+        stationaryTimerRef.current = null;
+      }
       setIsDragging(false);
       scrollVelocityRef.current = 0;
       pointerIdRef.current = null;
@@ -308,6 +341,10 @@ export const Playhead: React.FC<PlayheadProps> = ({
       window.removeEventListener("blur", handleWindowBlur);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       clearDragCursorLock();
+      if (stationaryTimerRef.current) {
+        clearTimeout(stationaryTimerRef.current);
+        stationaryTimerRef.current = null;
+      }
       if (scrubInteractionRef.current) {
         previewInteractionCoordinator.cancel(scrubInteractionRef.current);
         scrubInteractionRef.current = null;

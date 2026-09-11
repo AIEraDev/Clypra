@@ -6,13 +6,33 @@
 //! - Sequential decoding optimization (avoids seeking during scrubbing)
 //! - Display-aware geometry (respects SAR/DAR/rotation)
 
+use crate::native_core::QualityTier;
 use dashmap::DashMap;
 use ffmpeg_next as ffmpeg;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
+
+pub const MAX_RAW_NV12_CACHE_ENTRIES: usize = 16;
+
+#[derive(Clone)]
+pub struct CachedNv12Frame {
+    pub pts: i64,
+    pub y_plane: Arc<[u8]>,
+    pub uv_plane: Arc<[u8]>,
+    pub width: u32,
+    pub height: u32,
+    pub color: VideoColorMetadata,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DecodeFrameOptions {
+    pub allow_keyframe_approx: bool,
+    pub quality: QualityTier,
+}
 
 /// Explicit color metadata carried from FFmpeg into the native render path.
 ///
@@ -360,6 +380,7 @@ pub struct VideoDecoder {
     /// the last raw frame so that boundary does not force a second FFmpeg
     /// seek/decode before playback has even begun.
     last_raw_nv12: Option<(i64, Arc<[u8]>, Arc<[u8]>, u32, u32, VideoColorMetadata)>,
+    raw_nv12_cache: VecDeque<CachedNv12Frame>,
 }
 
 impl VideoDecoder {
@@ -526,6 +547,7 @@ impl VideoDecoder {
             stream_metadata,
             state: DecoderState::new(),
             last_raw_nv12: None,
+            raw_nv12_cache: VecDeque::with_capacity(MAX_RAW_NV12_CACHE_ENTRIES),
         })
     }
 
@@ -1246,6 +1268,34 @@ impl VideoDecoder {
         Self::hw_to_cpu_frame(frame)
     }
 
+    /// Attempt to extract a DXGI NT shared handle from a D3D11VA hardware frame
+    /// **without copying data to CPU RAM** (Phase 2 zero-copy path).
+    ///
+    /// Returns `Some(handle)` when:
+    ///   1. We are on Windows (`cfg!(target_os = "windows")`).
+    ///   2. The frame pixel format is `D3D11` (hardware surface, not yet transferred).
+    ///   3. The `IDXGIResource1::CreateSharedHandle` call succeeds.
+    ///
+    /// Returns `None` in all other cases; the caller must fall back to the
+    /// standard `to_cpu_frame` + `extract_nv12_planes` path.
+    ///
+    /// The returned `D3d11SharedFrame.nt_handle` is an NT kernel handle that
+    /// **must be closed** (via `wgpu_compositor::dxgi_import::import_into_wgpu`,
+    /// which closes it internally) before the next frame is decoded.
+    #[cfg(target_os = "windows")]
+    pub fn try_extract_dxgi_shared_handle(
+        frame: &ffmpeg::frame::Video,
+    ) -> Option<crate::wgpu_compositor::dxgi_import::D3d11SharedFrame> {
+        if frame.format() != ffmpeg::format::Pixel::D3D11 {
+            return None;
+        }
+        // SAFETY: `frame.as_ptr()` is a valid, non-null AVFrame* and the
+        // hardware context is still live because the frame is in scope.
+        unsafe {
+            crate::wgpu_compositor::dxgi_import::extract_shared_handle(frame.as_ptr())
+        }
+    }
+
     /// Extract raw NV12 planes (Y plane + interleaved UV plane) directly from a decoded frame without CPU sws_scale.
     pub fn extract_nv12_planes(
         &self,
@@ -1334,6 +1384,22 @@ impl VideoDecoder {
         timestamp_secs: f64,
         is_cancelled: F,
     ) -> Result<(Arc<[u8]>, Arc<[u8]>, u32, u32, VideoColorMetadata), String> {
+        self.decode_frame_raw_nv12_with_options(
+            timestamp_secs,
+            DecodeFrameOptions::default(),
+            is_cancelled,
+        )
+    }
+
+    /// Optimized decoding: decodes directly to NV12 without CPU sws_scale RGBA conversion.
+    /// Returns (y_plane, uv_plane, width, height, color).
+    /// Used for zero-copy GPU shader-based YUV conversion via wgpu_compositor.
+    pub fn decode_frame_raw_nv12_with_options<F: Fn() -> bool>(
+        &mut self,
+        timestamp_secs: f64,
+        options: DecodeFrameOptions,
+        is_cancelled: F,
+    ) -> Result<(Arc<[u8]>, Arc<[u8]>, u32, u32, VideoColorMetadata), String> {
         if is_cancelled() {
             return Err("Native preview request cancelled".to_string());
         }
@@ -1355,6 +1421,22 @@ impl VideoDecoder {
         let frame_duration_secs = (1.0 / stream_fps.max(1.0)).min(0.2);
         let pts_tolerance =
             ((frame_duration_secs * 0.95) * self.time_base.1 as f64 / self.time_base.0 as f64).round().max(1.0) as i64;
+
+        // 1. Check LRU ring-buffer cache for recently decoded frames
+        if let Some(pos) = self
+            .raw_nv12_cache
+            .iter()
+            .position(|cached| (cached.pts - target_pts).abs() <= pts_tolerance)
+        {
+            let cached = self.raw_nv12_cache.remove(pos).unwrap();
+            let y_clone = Arc::clone(&cached.y_plane);
+            let uv_clone = Arc::clone(&cached.uv_plane);
+            let width = cached.width;
+            let height = cached.height;
+            let color = cached.color.clone();
+            self.raw_nv12_cache.push_back(cached);
+            return Ok((y_clone, uv_clone, width, height, color));
+        }
 
         if let Some((cached_pts, y, uv, width, height, color)) = &self.last_raw_nv12 {
             if (*cached_pts - target_pts).abs() <= pts_tolerance {
@@ -1392,6 +1474,34 @@ impl VideoDecoder {
 
         let mut best_frame = ffmpeg::frame::Video::empty();
         let mut found = false;
+
+        // Fast path for scrubbing / keyframe-only approximation:
+        // When allow_keyframe_approx is requested, seek directly to the prior keyframe and return
+        // the immediate I-frame without decoding subsequent P/B delta frames forward to target.
+        if options.allow_keyframe_approx && needs_seek {
+            'keyframe_decode: for (stream, packet) in self.input_ctx.packets() {
+                if is_cancelled() {
+                    return Err("Native preview request cancelled".to_string());
+                }
+                if stream.index() != self.stream_index {
+                    continue;
+                }
+                if self.decoder.send_packet(&packet).is_err() {
+                    continue;
+                }
+                let mut frame = ffmpeg::frame::Video::empty();
+                while self.decoder.receive_frame(&mut frame).is_ok() {
+                    if is_cancelled() {
+                        return Err("Native preview request cancelled".to_string());
+                    }
+                    let pts = frame.pts().unwrap_or(0);
+                    self.state.current_pts = pts;
+                    best_frame = frame;
+                    found = true;
+                    break 'keyframe_decode;
+                }
+            }
+        }
 
         // Drain any frame already buffered in the codec DPB before reading new packets from container
         let mut buffered = ffmpeg::frame::Video::empty();
@@ -1560,7 +1670,195 @@ impl VideoDecoder {
             result.3,
             result.4.clone(),
         ));
+        if self.raw_nv12_cache.len() >= MAX_RAW_NV12_CACHE_ENTRIES {
+            self.raw_nv12_cache.pop_front();
+        }
+        self.raw_nv12_cache.push_back(CachedNv12Frame {
+            pts: target_pts,
+            y_plane: Arc::clone(&y_arc),
+            uv_plane: Arc::clone(&uv_arc),
+            width: result.2,
+            height: result.3,
+            color: result.4.clone(),
+        });
         Ok((y_arc, uv_arc, result.2, result.3, result.4))
+    }
+
+    /// Windows-only: attempt to decode the frame at `timestamp_secs` and return
+    /// a zero-copy DXGI shared handle instead of copying NV12 data to CPU RAM.
+    ///
+    /// Returns:
+    ///   * `Ok(Some(handle))` — D3D11VA frame successfully extracted; the caller
+    ///     must pass the handle to `dxgi_import::import_into_wgpu` and then
+    ///     call `session.render_nv12_from_imported_texture`.
+    ///   * `Ok(None)` — frame is not D3D11VA (software decode, VAAPI, etc.);
+    ///     caller must fall back to `decode_frame_raw_nv12_with_options`.
+    ///   * `Err(e)` — seek or decode failed.
+    ///
+    /// Important: this method holds the `best_frame` alive through the DXGI
+    /// extraction.  The NT handle is closed by `import_into_wgpu`; the caller
+    /// must not free the decoder between extraction and import.
+    #[cfg(target_os = "windows")]
+    pub fn decode_frame_dxgi_windows<F: Fn() -> bool>(
+        &mut self,
+        timestamp_secs: f64,
+        options: DecodeFrameOptions,
+        is_cancelled: F,
+        out_color: &mut VideoColorMetadata,
+        out_width: &mut u32,
+        out_height: &mut u32,
+    ) -> Result<Option<crate::wgpu_compositor::dxgi_import::D3d11SharedFrame>, String> {
+        if is_cancelled() {
+            return Err("Native preview request cancelled".to_string());
+        }
+        let ts = self.clamp_timestamp(timestamp_secs);
+        let target_pts = (ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
+        let stream_fps = if self.stream_metadata.average_frame_rate_den > 0
+            && self.stream_metadata.average_frame_rate_num > 0
+        {
+            self.stream_metadata.average_frame_rate_num as f64
+                / self.stream_metadata.average_frame_rate_den as f64
+        } else {
+            30.0
+        };
+        let frame_duration_secs = (1.0 / stream_fps.max(1.0)).min(0.2);
+        let pts_tolerance = ((frame_duration_secs * 0.95)
+            * self.time_base.1 as f64
+            / self.time_base.0 as f64)
+            .round()
+            .max(1.0) as i64;
+
+        let sequential_window = (2.0 * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
+        self.state.update_sequential(target_pts);
+
+        let backward_distance = self.state.current_pts - target_pts;
+        let is_backward = target_pts < self.state.current_pts;
+        let needs_seek = self.state.current_pts < 0
+            || (is_backward && backward_distance > pts_tolerance)
+            || (!is_backward
+                && !self.state.can_decode_forward(target_pts, sequential_window));
+
+        if needs_seek {
+            if is_cancelled() {
+                return Err("Native preview request cancelled".to_string());
+            }
+            unsafe {
+                let ret = ffmpeg::ffi::av_seek_frame(
+                    self.input_ctx.as_mut_ptr(),
+                    self.stream_index as i32,
+                    target_pts,
+                    ffmpeg::ffi::AVSEEK_FLAG_BACKWARD,
+                );
+                if ret < 0 {
+                    return Err(format!("Seek failed at {}s", ts));
+                }
+            }
+            self.decoder.flush();
+            self.state.current_pts = -1;
+            self.state.gop_start_pts = target_pts;
+        }
+
+        let mut best_frame = ffmpeg::frame::Video::empty();
+        let mut found = false;
+
+        // Keyframe-only fast path (scrubbing)
+        if options.allow_keyframe_approx && needs_seek {
+            'kf: for (stream, packet) in self.input_ctx.packets() {
+                if is_cancelled() {
+                    return Err("Native preview request cancelled".to_string());
+                }
+                if stream.index() != self.stream_index {
+                    continue;
+                }
+                if self.decoder.send_packet(&packet).is_err() {
+                    continue;
+                }
+                let mut frame = ffmpeg::frame::Video::empty();
+                while self.decoder.receive_frame(&mut frame).is_ok() {
+                    if is_cancelled() {
+                        return Err("Native preview request cancelled".to_string());
+                    }
+                    let pts = frame.pts().unwrap_or(0);
+                    self.state.current_pts = pts;
+                    best_frame = frame;
+                    found = true;
+                    break 'kf;
+                }
+            }
+        }
+
+        // Drain DPB
+        let mut buffered = ffmpeg::frame::Video::empty();
+        while self.decoder.receive_frame(&mut buffered).is_ok() {
+            if is_cancelled() {
+                return Err("Native preview request cancelled".to_string());
+            }
+            let pts = buffered.pts().unwrap_or(0);
+            self.state.current_pts = pts;
+            let frame_ts = pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
+            if frame_ts >= ts - (1.0 / 60.0) {
+                best_frame = buffered;
+                found = true;
+                break;
+            }
+            best_frame = buffered;
+            buffered = ffmpeg::frame::Video::empty();
+        }
+
+        if !found {
+            'dec: for (stream, packet) in self.input_ctx.packets() {
+                if is_cancelled() {
+                    return Err("Native preview request cancelled".to_string());
+                }
+                if stream.index() != self.stream_index {
+                    continue;
+                }
+                if self.decoder.send_packet(&packet).is_err() {
+                    continue;
+                }
+                let mut frame = ffmpeg::frame::Video::empty();
+                while self.decoder.receive_frame(&mut frame).is_ok() {
+                    if is_cancelled() {
+                        return Err("Native preview request cancelled".to_string());
+                    }
+                    let pts = frame.pts().unwrap_or(0);
+                    self.state.current_pts = pts;
+                    let frame_ts =
+                        pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
+                    best_frame = frame;
+                    if frame_ts >= ts - (1.0 / 60.0) {
+                        found = true;
+                        break 'dec;
+                    }
+                    frame = ffmpeg::frame::Video::empty();
+                }
+            }
+        }
+
+        if !found && best_frame.width() == 0 {
+            return Err(format!("No frame found at {}s", ts));
+        }
+
+        // Check if this is a D3D11VA hardware frame — if so, try zero-copy.
+        if best_frame.format() == ffmpeg::format::Pixel::D3D11 {
+            // Capture color metadata before potentially consuming the frame.
+            let meta = self.frame_metadata(&best_frame);
+            *out_color = normalize_converted_nv12_color(meta.color);
+            *out_width = best_frame.width();
+            *out_height = best_frame.height();
+
+            if let Some(shared) = Self::try_extract_dxgi_shared_handle(&best_frame) {
+                // Zero-copy succeeded — return the handle without touching CPU.
+                return Ok(Some(shared));
+            }
+            // If CreateSharedHandle failed (e.g., Optimus with cross-adapter),
+            // fall through to the CPU copy path below.
+        }
+
+        // CPU fallback: same as decode_frame_raw_nv12_with_options terminal section.
+        // (We do NOT populate the LRU cache here because this method's caller
+        //  is expected to call the CPU path directly on None, which will cache.)
+        Ok(None)
     }
 
     /// Scale YUV frame to RGBA
@@ -2218,5 +2516,64 @@ mod still_image_tests {
         assert!(height > 0);
         assert_eq!(y_plane.len(), (width * height) as usize);
         assert_eq!(uv_plane.len(), (width * height / 2) as usize);
+    }
+
+    #[test]
+    fn raw_nv12_lru_cache_serves_repeated_queries_without_redecode() {
+        use std::sync::Arc;
+
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../public/clypra.png");
+        let mut decoder = VideoDecoder::open(
+            fixture
+                .to_str()
+                .expect("repository fixture path should be valid UTF-8"),
+        )
+        .expect("repository PNG fixture should open through FFmpeg");
+
+        let opts = super::DecodeFrameOptions {
+            allow_keyframe_approx: false,
+            quality: crate::native_core::QualityTier::Full,
+        };
+
+        // First decode primes the cache
+        let (y1, uv1, w1, h1, _) = decoder
+            .decode_frame_raw_nv12_with_options(0.0, opts, || false)
+            .expect("first decode should succeed");
+        assert_eq!(decoder.raw_nv12_cache.len(), 1);
+
+        // Second decode with exact same timestamp hits the LRU cache
+        let (y2, uv2, w2, h2, _) = decoder
+            .decode_frame_raw_nv12_with_options(0.0, opts, || false)
+            .expect("cache hit decode should succeed");
+
+        assert_eq!(w1, w2);
+        assert_eq!(h1, h2);
+        assert!(Arc::ptr_eq(&y1, &y2), "Y plane Arc should be shared from LRU cache");
+        assert!(Arc::ptr_eq(&uv1, &uv2), "UV plane Arc should be shared from LRU cache");
+    }
+
+    #[test]
+    fn raw_nv12_lru_cache_evicts_oldest_when_exceeding_capacity() {
+        use std::collections::VecDeque;
+        use std::sync::Arc;
+        use super::{CachedNv12Frame, VideoColorMetadata, MAX_RAW_NV12_CACHE_ENTRIES};
+
+        let mut cache: VecDeque<CachedNv12Frame> = VecDeque::new();
+        for i in 0..25 {
+            if cache.len() >= MAX_RAW_NV12_CACHE_ENTRIES {
+                cache.pop_front();
+            }
+            cache.push_back(CachedNv12Frame {
+                pts: i,
+                y_plane: Arc::from(vec![i as u8]),
+                uv_plane: Arc::from(vec![(i * 2) as u8]),
+                width: 1920,
+                height: 1080,
+                color: VideoColorMetadata::default(),
+            });
+        }
+        assert_eq!(cache.len(), MAX_RAW_NV12_CACHE_ENTRIES);
+        assert_eq!(cache.front().unwrap().pts, 9); // 0..9 evicted, 9 is now front
+        assert_eq!(cache.back().unwrap().pts, 24);
     }
 }

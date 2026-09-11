@@ -16,6 +16,13 @@ pub const MAX_ACTIVE_CLIPS: usize = 64;
 /// discontinuity so seeking/replay cannot emit a full-scale sample step.
 const TRANSPORT_RAMP_FRAMES: u32 = 256;
 
+/// Number of inter-callback interval slots in the lock-free ring buffer.
+/// 8 slots × ~11.6 ms (512 frames / 44.1 kHz) ≈ 93 ms of history.
+/// Enough to produce a stable median and detect both cold-start and stalls.
+/// Must stay small: all slots are written from the real-time audio callback
+/// with no lock and no allocation.
+const INTERVAL_RING_SIZE: usize = 8;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativeAudioStatus {
@@ -39,6 +46,20 @@ pub struct NativeAudioStatus {
     pub callback_time_us: u64,
     pub callback_max_time_us: u64,
     pub callback_over_budget_count: u64,
+    /// Microseconds since the last CPAL callback advanced the audio clock.
+    /// `None` if the stream has never fired a callback (clock never started).
+    /// Used by A/V drift suppression: when this value exceeds the adaptive
+    /// freshness threshold, drift samples are flagged rather than counted as
+    /// real synchronization error.
+    pub clock_freshness_us: Option<u64>,
+    /// Median inter-callback spacing in microseconds, derived from the last
+    /// INTERVAL_RING_SIZE callback intervals recorded by the audio thread.
+    /// `None` when fewer than 2 callbacks have fired (ring not yet seeded).
+    /// This is the value used to compute the adaptive staleness threshold in
+    /// `DriftAccumulator::record_with_freshness()` — replaces the previous
+    /// lifetime-mean-of-processing-duration that was orders of magnitude
+    /// smaller than the actual inter-callback spacing.
+    pub median_callback_interval_us: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -660,6 +681,26 @@ struct NativeAudioClockInner {
     callback_over_budget_count: Arc<AtomicU64>,
     mixer: Arc<RwLock<NativeAudioMixer>>,
     last_error: Arc<Mutex<Option<String>>>,
+    /// Fixed reference point set at `NativeAudioClock::new()`. Used to
+    /// convert `last_callback_ns` (nanoseconds from this epoch) back into
+    /// an `Instant` for freshness calculations without storing an `Instant`
+    /// in an atomic. Only read from non-callback contexts.
+    clock_epoch: Instant,
+    /// Nanoseconds elapsed from `clock_epoch` at the time of the most recent
+    /// CPAL callback. Zero means no callback has fired yet.
+    /// Written with `Relaxed` ordering inside the audio callback (lock-free,
+    /// no heap allocation). Read with `Acquire` in `status()`.
+    last_callback_ns: Arc<AtomicU64>,
+    /// Lock-free ring buffer of the last INTERVAL_RING_SIZE inter-callback
+    /// spacing values, in microseconds. Each slot is written by the CPAL
+    /// callback (Relaxed store) as: `(current_callback_ns - prev_callback_ns) / 1_000`.
+    /// Zero slots have never been written (ring not yet full on first few callbacks).
+    /// Read from `status()` to compute the median for the freshness threshold.
+    /// Must never be accessed under a lock from the audio callback.
+    interval_ring: Arc<[AtomicU64; INTERVAL_RING_SIZE]>,
+    /// Monotonically incrementing cursor into `interval_ring`.
+    /// Written from the callback (Relaxed). Read from `status()` (Acquire).
+    interval_cursor: Arc<AtomicU64>,
 }
 
 pub struct NativeAudioClock {
@@ -691,6 +732,13 @@ impl NativeAudioClock {
                 callback_over_budget_count: Arc::new(AtomicU64::new(0)),
                 mixer: Arc::new(RwLock::new(NativeAudioMixer::default())),
                 last_error: Arc::new(Mutex::new(None)),
+                clock_epoch: Instant::now(),
+                last_callback_ns: Arc::new(AtomicU64::new(0)),
+                interval_ring: Arc::new([
+                    AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0),
+                    AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0),
+                ]),
+                interval_cursor: Arc::new(AtomicU64::new(0)),
             },
         }
     }
@@ -717,6 +765,15 @@ impl NativeAudioClock {
         self.inner.callback_time_us.store(0, Ordering::Release);
         self.inner.callback_max_time_us.store(0, Ordering::Release);
         self.inner.callback_over_budget_count.store(0, Ordering::Release);
+        // Reset the freshness tracker so the new stream starts with a clean slate.
+        // Zero is the sentinel for "no callback has fired yet".
+        self.inner.last_callback_ns.store(0, Ordering::Release);
+        // Clear the interval ring so stale spacings from a previous stream
+        // session don't seed the median on restart.
+        for slot in self.inner.interval_ring.iter() {
+            slot.store(0, Ordering::Release);
+        }
+        self.inner.interval_cursor.store(0, Ordering::Release);
 
         let host = cpal::default_host();
         let host_name = format!("{:?}", host.id());
@@ -750,6 +807,11 @@ impl NativeAudioClock {
         let callback_over_budget_count = self.inner.callback_over_budget_count.clone();
         let mixer = self.inner.mixer.clone();
         let last_error = self.inner.last_error.clone();
+        // Freshness tracker — cloned into every format variant of build_audio_stream.
+        let last_callback_ns = self.inner.last_callback_ns.clone();
+        let clock_epoch = self.inner.clock_epoch;
+        let interval_ring = self.inner.interval_ring.clone();
+        let interval_cursor = self.inner.interval_cursor.clone();
 
         let stream = match sample_format {
             cpal::SampleFormat::I8 => build_audio_stream::<i8>(
@@ -772,6 +834,10 @@ impl NativeAudioClock {
                 callback_over_budget_count.clone(),
                 mixer,
                 last_error,
+                last_callback_ns.clone(),
+                clock_epoch,
+                interval_ring.clone(),
+                interval_cursor.clone(),
             ),
             cpal::SampleFormat::F32 => build_audio_stream::<f32>(
                 &device,
@@ -793,6 +859,10 @@ impl NativeAudioClock {
                 callback_over_budget_count.clone(),
                 mixer,
                 last_error,
+                last_callback_ns.clone(),
+                clock_epoch,
+                interval_ring.clone(),
+                interval_cursor.clone(),
             ),
             cpal::SampleFormat::I16 => build_audio_stream::<i16>(
                 &device,
@@ -814,6 +884,10 @@ impl NativeAudioClock {
                 callback_over_budget_count.clone(),
                 mixer,
                 last_error,
+                last_callback_ns.clone(),
+                clock_epoch,
+                interval_ring.clone(),
+                interval_cursor.clone(),
             ),
             cpal::SampleFormat::I24 => build_audio_stream::<cpal::I24>(
                 &device,
@@ -835,6 +909,10 @@ impl NativeAudioClock {
                 callback_over_budget_count.clone(),
                 mixer,
                 last_error,
+                last_callback_ns.clone(),
+                clock_epoch,
+                interval_ring.clone(),
+                interval_cursor.clone(),
             ),
             cpal::SampleFormat::I32 => build_audio_stream::<i32>(
                 &device,
@@ -856,6 +934,10 @@ impl NativeAudioClock {
                 callback_over_budget_count.clone(),
                 mixer,
                 last_error,
+                last_callback_ns.clone(),
+                clock_epoch,
+                interval_ring.clone(),
+                interval_cursor.clone(),
             ),
             cpal::SampleFormat::I64 => build_audio_stream::<i64>(
                 &device,
@@ -877,6 +959,10 @@ impl NativeAudioClock {
                 callback_over_budget_count.clone(),
                 mixer,
                 last_error,
+                last_callback_ns.clone(),
+                clock_epoch,
+                interval_ring.clone(),
+                interval_cursor.clone(),
             ),
             cpal::SampleFormat::U8 => build_audio_stream::<u8>(
                 &device,
@@ -898,6 +984,10 @@ impl NativeAudioClock {
                 callback_over_budget_count.clone(),
                 mixer,
                 last_error,
+                last_callback_ns.clone(),
+                clock_epoch,
+                interval_ring.clone(),
+                interval_cursor.clone(),
             ),
             cpal::SampleFormat::U16 => build_audio_stream::<u16>(
                 &device,
@@ -919,6 +1009,10 @@ impl NativeAudioClock {
                 callback_over_budget_count.clone(),
                 mixer,
                 last_error,
+                last_callback_ns.clone(),
+                clock_epoch,
+                interval_ring.clone(),
+                interval_cursor.clone(),
             ),
             cpal::SampleFormat::U24 => build_audio_stream::<cpal::U24>(
                 &device,
@@ -940,6 +1034,10 @@ impl NativeAudioClock {
                 callback_over_budget_count.clone(),
                 mixer,
                 last_error,
+                last_callback_ns.clone(),
+                clock_epoch,
+                interval_ring.clone(),
+                interval_cursor.clone(),
             ),
             cpal::SampleFormat::U32 => build_audio_stream::<u32>(
                 &device,
@@ -961,6 +1059,10 @@ impl NativeAudioClock {
                 callback_over_budget_count.clone(),
                 mixer,
                 last_error,
+                last_callback_ns.clone(),
+                clock_epoch,
+                interval_ring.clone(),
+                interval_cursor.clone(),
             ),
             cpal::SampleFormat::U64 => build_audio_stream::<u64>(
                 &device,
@@ -982,6 +1084,10 @@ impl NativeAudioClock {
                 callback_over_budget_count.clone(),
                 mixer,
                 last_error,
+                last_callback_ns.clone(),
+                clock_epoch,
+                interval_ring.clone(),
+                interval_cursor.clone(),
             ),
             cpal::SampleFormat::F64 => build_audio_stream::<f64>(
                 &device,
@@ -1003,6 +1109,10 @@ impl NativeAudioClock {
                 callback_over_budget_count,
                 mixer,
                 last_error,
+                last_callback_ns.clone(),
+                clock_epoch,
+                interval_ring.clone(),
+                interval_cursor.clone(),
             ),
             unsupported => {
                 return Err(format!(
@@ -1159,6 +1269,50 @@ impl NativeAudioClock {
             .ok()
             .and_then(|error| error.clone());
 
+        // Compute how stale the audio clock is. last_callback_ns == 0 means
+        // the callback has never fired (stream not yet started or just reset).
+        let clock_freshness_us = {
+            let last_ns = self.inner.last_callback_ns.load(Ordering::Acquire);
+            if last_ns == 0 {
+                None
+            } else {
+                let now_ns = self.inner.clock_epoch.elapsed().as_nanos().min(u64::MAX as u128) as u64;
+                Some(now_ns.saturating_sub(last_ns) / 1_000)
+            }
+        };
+
+        // Compute median inter-callback spacing from the lock-free ring.
+        // Read all INTERVAL_RING_SIZE slots; discard zeros (never-written slots).
+        // A median over the non-zero values is used by record_with_freshness()
+        // as the adaptive threshold base — replacing the old lifetime-mean of
+        // callback processing duration, which was two to three orders of magnitude
+        // smaller than the actual inter-callback spacing.
+        let median_callback_interval_us = {
+            let cursor = self.inner.interval_cursor.load(Ordering::Acquire);
+            if cursor == 0 {
+                // No intervals recorded yet (fewer than 2 callbacks have fired).
+                None
+            } else {
+                let mut values: [u64; INTERVAL_RING_SIZE] = [0; INTERVAL_RING_SIZE];
+                let mut count = 0usize;
+                for slot in self.inner.interval_ring.iter() {
+                    let v = slot.load(Ordering::Relaxed);
+                    if v > 0 {
+                        values[count] = v;
+                        count += 1;
+                    }
+                }
+                if count == 0 {
+                    None
+                } else {
+                    // Sort the populated prefix and take the middle element.
+                    values[..count].sort_unstable();
+                    let mid = count / 2;
+                    Some(values[mid])
+                }
+            }
+        };
+
         NativeAudioStatus {
             available: self.inner.sample_rate.is_some(),
             running: self.inner.stream.is_some() && last_error.is_none(),
@@ -1183,6 +1337,8 @@ impl NativeAudioClock {
                 .inner
                 .callback_over_budget_count
                 .load(Ordering::Acquire),
+            clock_freshness_us,
+            median_callback_interval_us,
         }
     }
 
@@ -1242,6 +1398,17 @@ fn build_audio_stream<T>(
     callback_over_budget_count: Arc<AtomicU64>,
     mixer: Arc<RwLock<NativeAudioMixer>>,
     last_error: Arc<Mutex<Option<String>>>,
+    // Nanoseconds from `clock_epoch` written at the start of each callback.
+    // Zero is the sentinel for "never fired". Written with Relaxed ordering —
+    // the audio thread must never block or allocate.
+    last_callback_ns: Arc<AtomicU64>,
+    // Fixed epoch used to compute nanoseconds-since-epoch inside the callback.
+    clock_epoch: Instant,
+    // Lock-free ring buffer of inter-callback intervals (µs). Written from the
+    // callback with no lock. Must be exactly INTERVAL_RING_SIZE elements.
+    interval_ring: Arc<[AtomicU64; INTERVAL_RING_SIZE]>,
+    // Monotonically incrementing write cursor for interval_ring.
+    interval_cursor: Arc<AtomicU64>,
 ) -> Result<cpal::Stream, cpal::Error>
 where
     T: SizedSample + FromSample<f32>,
@@ -1250,6 +1417,31 @@ where
         config,
         move |data: &mut [T], _| {
             callback_count.fetch_add(1, Ordering::Relaxed);
+
+            // Record the timestamp of this callback invocation so that the
+            // A/V drift freshness guard can determine whether the audio clock
+            // was actively advancing at the moment a drift sample was taken.
+            // Relaxed ordering is sufficient: the value is a best-effort
+            // monotonic hint, not a synchronisation point.
+            let callback_ns = clock_epoch.elapsed().as_nanos().min(u64::MAX as u128) as u64;
+            // Avoid the zero sentinel — if elapsed is genuinely 0 ns, treat
+            // it as 1 ns so a freshly-started clock isn't mistaken for
+            // "never fired".
+            let callback_ns = callback_ns.max(1);
+
+            // Record inter-callback spacing in the lock-free ring buffer.
+            // Compute spacing before overwriting last_callback_ns.
+            // Zero in last_callback_ns means "first callback" — skip that slot
+            // so the ring only holds genuine interval measurements.
+            let prev_ns = last_callback_ns.load(Ordering::Relaxed);
+            if prev_ns != 0 {
+                let spacing_us = callback_ns.saturating_sub(prev_ns) / 1_000;
+                let cursor = interval_cursor.fetch_add(1, Ordering::Relaxed);
+                let slot = (cursor as usize) % INTERVAL_RING_SIZE;
+                interval_ring[slot].store(spacing_us, Ordering::Relaxed);
+            }
+
+            last_callback_ns.store(callback_ns, Ordering::Relaxed);
 
             if !playing.load(Ordering::Acquire) || muted.load(Ordering::Acquire) {
                 for sample in data.iter_mut() {

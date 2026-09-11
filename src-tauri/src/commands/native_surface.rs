@@ -153,11 +153,23 @@ fn choose_surface_format(formats: &[wgpu::TextureFormat]) -> Option<wgpu::Textur
 }
 
 fn choose_present_mode(modes: &[wgpu::PresentMode]) -> Option<wgpu::PresentMode> {
-    modes
-        .iter()
-        .copied()
-        .find(|mode| *mode == wgpu::PresentMode::Fifo)
-        .or_else(|| modes.first().copied())
+    // 1. Mailbox: Triple-buffering with lowest latency, no tearing, and no cross-adapter DWM stalls
+    if let Some(mode) = modes.iter().copied().find(|m| *m == wgpu::PresentMode::Mailbox) {
+        return Some(mode);
+    }
+    // 2. FifoRelaxed: Avoids the 60fps -> 30fps stutter cliff on hybrid laptops if late by < 1ms
+    if let Some(mode) = modes.iter().copied().find(|m| *m == wgpu::PresentMode::FifoRelaxed) {
+        return Some(mode);
+    }
+    // 3. AutoVsync: Modern wgpu adaptive VSync mode
+    if let Some(mode) = modes.iter().copied().find(|m| *m == wgpu::PresentMode::AutoVsync) {
+        return Some(mode);
+    }
+    // 4. Fifo: Strict VSync baseline fallback
+    if let Some(mode) = modes.iter().copied().find(|m| *m == wgpu::PresentMode::Fifo) {
+        return Some(mode);
+    }
+    modes.first().copied()
 }
 
 fn configure_surface(
@@ -449,6 +461,15 @@ mod tests {
     fn prefers_fifo_presentation() {
         let modes = [wgpu::PresentMode::Immediate, wgpu::PresentMode::Fifo];
         assert_eq!(choose_present_mode(&modes), Some(wgpu::PresentMode::Fifo));
+    }
+
+    #[test]
+    fn prefers_mailbox_and_relaxed_over_fifo() {
+        let modes_mailbox = [wgpu::PresentMode::Immediate, wgpu::PresentMode::Fifo, wgpu::PresentMode::Mailbox];
+        assert_eq!(choose_present_mode(&modes_mailbox), Some(wgpu::PresentMode::Mailbox));
+
+        let modes_relaxed = [wgpu::PresentMode::Immediate, wgpu::PresentMode::Fifo, wgpu::PresentMode::FifoRelaxed];
+        assert_eq!(choose_present_mode(&modes_relaxed), Some(wgpu::PresentMode::FifoRelaxed));
     }
 
     #[test]

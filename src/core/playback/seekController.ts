@@ -12,6 +12,8 @@ export interface SeekIntentInput {
   velocityPxPerSecond?: number;
   quality?: SeekQuality;
   targetFrame?: number;
+  isScrubbing?: boolean;
+  allowKeyframeApprox?: boolean;
 }
 
 export interface SeekIntent extends SeekIntentInput {
@@ -20,6 +22,8 @@ export interface SeekIntent extends SeekIntentInput {
   issuedAtMs: number;
   velocityPxPerSecond: number;
   quality: SeekQuality;
+  isScrubbing: boolean;
+  allowKeyframeApprox: boolean;
 }
 
 export type SeekIntentListener = (intent: SeekIntent) => void;
@@ -49,9 +53,11 @@ export class SeekController {
     const velocity = Number.isFinite(input.velocityPxPerSecond)
       ? input.velocityPxPerSecond ?? 0
       : 0;
+    const isScrubbing = input.isScrubbing ?? (input.mode === "scrub");
     const quality = input.quality ?? (
       input.mode === "scrub" ? qualityForScrubVelocity(velocity) : "full"
     );
+    const allowKeyframeApprox = input.allowKeyframeApprox ?? (input.mode === "scrub");
     const intent: SeekIntent = {
       ...input,
       generation: ++this.generation,
@@ -59,6 +65,8 @@ export class SeekController {
       issuedAtMs: performance.now(),
       velocityPxPerSecond: velocity,
       quality,
+      isScrubbing,
+      allowKeyframeApprox,
     };
     this.currentIntent = intent;
     this.listeners.forEach((listener) => listener(intent));

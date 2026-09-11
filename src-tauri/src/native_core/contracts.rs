@@ -6,9 +6,10 @@ use std::fmt;
 pub const NATIVE_CORE_CONTRACT_VERSION: u32 = 2;
 pub const DEFAULT_TIME_SCALE: u32 = 1_000_000;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum QualityTier {
+    #[default]
     Full,
     Half,
     Quarter,
@@ -693,6 +694,10 @@ pub struct FrameRequest {
     pub scrub_velocity_px_per_second: Option<f64>,
     #[serde(default)]
     pub requested_at_ms: Option<f64>,
+    #[serde(default)]
+    pub is_scrubbing: Option<bool>,
+    #[serde(default)]
+    pub allow_keyframe_approx: Option<bool>,
 }
 
 /// Per-frame state for the persistent native playback renderer.
@@ -1507,6 +1512,7 @@ impl FrameRequest {
         cache_request.mode = None;
         cache_request.scrub_velocity_px_per_second = None;
         cache_request.requested_at_ms = None;
+        cache_request.is_scrubbing = None;
 
         // Project revision bumps and compositor clear colors/transitions do not alter raw decoded frames.
         cache_request.project.project_revision.clear();
@@ -1673,6 +1679,8 @@ mod tests {
             mode: None,
             scrub_velocity_px_per_second: None,
             requested_at_ms: None,
+            is_scrubbing: None,
+            allow_keyframe_approx: None,
         }
     }
 
