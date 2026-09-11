@@ -995,6 +995,7 @@ dependencies = [
  "web-time",
  "wgpu",
  "whisper-rs",
+ "windows 0.58.0",
  "woff2-patched",
 ]
 

@@ -107,3 +107,14 @@ proptest = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# D3D11/DXGI COM interop for Phase 2 zero-copy texture sharing (D3D11VA → wgpu DX12).
+# Only the features actually used are listed to keep compile time minimal.
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Direct3D12",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+] }

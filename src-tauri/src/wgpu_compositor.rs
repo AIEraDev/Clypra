@@ -74,6 +74,12 @@ pub use scopes::{
     VideoScopePayload,
 };
 
+/// Zero-copy D3D11VA → wgpu texture import (Windows discrete GPU only).
+/// On non-Windows platforms this module is an empty stub so call-sites can
+/// reference it unconditionally behind `#[cfg(target_os = "windows")]`.
+#[cfg(target_os = "windows")]
+pub mod dxgi_import;
+
 pub struct NativeWgpuRenderer {
     pub instance: wgpu::Instance,
     pub adapter: wgpu::Adapter,
@@ -380,6 +386,141 @@ impl NativePreviewSession {
             source_width.div_ceil(2) * 2,
             params,
         );
+
+        Ok(target_texture)
+    }
+
+    /// Render an NV12 frame that was imported zero-copy from a D3D11VA shared
+    /// DXGI texture — **no PCIe transfer, no `queue.write_texture` call**.
+    ///
+    /// The `imported` texture views are the NV12 biplanar views created by
+    /// [`crate::wgpu_compositor::dxgi_import::import_into_wgpu`].  They are
+    /// bound directly into the existing YUV→RGBA pipeline, which expects the
+    /// same `(R8Unorm Y, Rg8Unorm UV)` layout that the CPU-upload path also
+    /// produces.
+    ///
+    /// Windows-only; the CPU path remains the canonical path on all platforms.
+    #[cfg(target_os = "windows")]
+    pub fn render_nv12_from_imported_texture(
+        &mut self,
+        layer_key: &str,
+        source_width: u32,
+        source_height: u32,
+        imported: &crate::wgpu_compositor::dxgi_import::ImportedNv12Texture,
+        params: &ColorTransformUniforms,
+    ) -> Result<Arc<wgpu::Texture>, String> {
+        if source_width == 0 || source_height == 0 {
+            return Err("Source dimensions must be non-zero".to_string());
+        }
+
+        // Retrieve or create the output RGBA target texture.
+        let target_texture = if let Some(existing) = self.layer_textures.get(layer_key) {
+            if existing.width() == source_width && existing.height() == source_height {
+                Arc::clone(existing)
+            } else {
+                let t = Arc::new(self.gpu.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("Native Project Video Layer (DXGI)"),
+                    size: wgpu::Extent3d {
+                        width: source_width,
+                        height: source_height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                }));
+                self.layer_textures.insert(layer_key.to_string(), Arc::clone(&t));
+                t
+            }
+        } else {
+            let t = Arc::new(self.gpu.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Native Project Video Layer (DXGI)"),
+                size: wgpu::Extent3d {
+                    width: source_width,
+                    height: source_height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            }));
+            self.layer_textures.insert(layer_key.to_string(), Arc::clone(&t));
+            t
+        };
+
+        let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Build a one-shot bind group using the imported biplanar views.
+        // We do not use the ring buffer here — the texture lifetime is tied to
+        // the AVFrame reference (managed by the decoder pool), so it must be
+        // consumed entirely before this function returns and the frame is freed.
+        let uniform_buffer = self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("DXGI Color Params Uniform"),
+            size: std::mem::size_of::<ColorTransformUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.gpu.queue.write_buffer(&uniform_buffer, 0, bytemuck::bytes_of(params));
+
+        let bind_group = self.gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("DXGI YUV BindGroup"),
+            layout: &self.yuv_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&imported.y_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&imported.uv_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: uniform_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+        // Encode a single-pass YUV→RGBA render using the existing pipeline.
+        let mut encoder = self.gpu.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor { label: Some("DXGI YUV→RGBA") },
+        );
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("DXGI YUV Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        self.gpu.queue.submit(std::iter::once(encoder.finish()));
 
         Ok(target_texture)
     }
