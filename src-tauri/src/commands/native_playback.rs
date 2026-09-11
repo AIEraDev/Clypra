@@ -1076,6 +1076,8 @@ mod tests {
             mode: Some("playback".to_string()),
             scrub_velocity_px_per_second: None,
             requested_at_ms: None,
+            is_scrubbing: None,
+            allow_keyframe_approx: None,
             project: crate::native_core::ProjectSnapshot {
                 schema_version: 1,
                 project_revision: "test:1".to_string(),

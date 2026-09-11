@@ -1863,9 +1863,14 @@ export const NativeProgramPreview: React.FC = () => {
                 isPlaying && latestSeekIntent.mode !== "scrub"
                   ? ("playback" as const)
                   : latestSeekIntent.mode,
-              quality: renderTarget.quality,
+              quality:
+                latestSeekIntent.mode === "scrub" && latestSeekIntent.quality !== "full"
+                  ? latestSeekIntent.quality
+                  : renderTarget.quality,
               velocityPxPerSecond: latestSeekIntent.velocityPxPerSecond,
               requestedAtMs: latestSeekIntent.issuedAtMs,
+              isScrubbing: latestSeekIntent.isScrubbing,
+              allowKeyframeApprox: latestSeekIntent.allowKeyframeApprox,
             }
           : isPlaying
             ? { mode: "playback" as const, quality: renderTarget.quality }

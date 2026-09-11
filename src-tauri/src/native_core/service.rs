@@ -322,6 +322,8 @@ mod tests {
             mode: None,
             scrub_velocity_px_per_second: None,
             requested_at_ms: None,
+            is_scrubbing: None,
+            allow_keyframe_approx: None,
         }
     }
 

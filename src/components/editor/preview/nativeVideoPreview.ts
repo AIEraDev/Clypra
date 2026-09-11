@@ -1282,6 +1282,8 @@ export function buildNativeFrameRequest(
     quality?: NativeFrameRequest["quality"];
     velocityPxPerSecond?: number;
     requestedAtMs?: number;
+    isScrubbing?: boolean;
+    allowKeyframeApprox?: boolean;
   } = {},
 ): NativeFrameRequest | null {
   const request = buildNativeVideoProjectRequest(scene, rasterLayers);
@@ -1362,5 +1364,7 @@ export function buildNativeFrameRequest(
     ...(intent.mode ? { mode: intent.mode } : {}),
     ...(intent.velocityPxPerSecond !== undefined ? { scrubVelocityPxPerSecond: intent.velocityPxPerSecond } : {}),
     ...(intent.requestedAtMs !== undefined ? { requestedAtMs: intent.requestedAtMs } : {}),
+    ...(intent.isScrubbing !== undefined ? { isScrubbing: intent.isScrubbing } : {}),
+    ...(intent.allowKeyframeApprox !== undefined ? { allowKeyframeApprox: intent.allowKeyframeApprox } : {}),
   });
 }
