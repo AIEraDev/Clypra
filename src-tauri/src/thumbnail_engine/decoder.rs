@@ -1490,7 +1490,7 @@ impl VideoDecoder {
                     continue;
                 }
                 let mut frame = ffmpeg::frame::Video::empty();
-                while self.decoder.receive_frame(&mut frame).is_ok() {
+                if self.decoder.receive_frame(&mut frame).is_ok() {
                     if is_cancelled() {
                         return Err("Native preview request cancelled".to_string());
                     }
@@ -1774,7 +1774,7 @@ impl VideoDecoder {
                     continue;
                 }
                 let mut frame = ffmpeg::frame::Video::empty();
-                while self.decoder.receive_frame(&mut frame).is_ok() {
+                if self.decoder.receive_frame(&mut frame).is_ok() {
                     if is_cancelled() {
                         return Err("Native preview request cancelled".to_string());
                     }
