@@ -29,7 +29,7 @@
 
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::Graphics::Direct3D11::{
-    ID3D11Device, ID3D11Texture2D, D3D11_TEXTURE2D_DESC,
+    ID3D11Texture2D, D3D11_TEXTURE2D_DESC,
 };
 use windows::Win32::Graphics::Direct3D12::{
     ID3D12Device, ID3D12Resource, D3D12_RESOURCE_DESC, D3D12_RESOURCE_DIMENSION_TEXTURE2D,
@@ -101,13 +101,11 @@ pub unsafe fn extract_shared_handle(
     let resource: IDXGIResource1 = texture.cast().ok()?;
 
     // DXGI_SHARED_RESOURCE_READ = 0x80000000
-    let mut nt_handle = HANDLE::default();
-    resource
+    let nt_handle: HANDLE = resource
         .CreateSharedHandle(
             None,           // default security
             0x8000_0000u32, // DXGI_SHARED_RESOURCE_READ
             PCWSTR::null(), // no name
-            &mut nt_handle,
         )
         .ok()?;
 
@@ -168,9 +166,11 @@ pub fn import_into_wgpu(device: &wgpu::Device, shared: D3d11SharedFrame) -> Opti
             let d3d12_device: &ID3D12Device = hal_device.raw_device();
 
             // Open the D3D11 texture's DXGI handle as a D3D12 resource.
-            let d3d12_resource: ID3D12Resource = d3d12_device
-                .OpenSharedHandle(nt_handle)
+            let mut d3d12_resource: Option<ID3D12Resource> = None;
+            d3d12_device
+                .OpenSharedHandle(nt_handle, &mut d3d12_resource)
                 .ok()?;
+            let d3d12_resource: ID3D12Resource = d3d12_resource?;
 
             // Verify the format is NV12 as expected.
             let resource_desc: D3D12_RESOURCE_DESC = d3d12_resource.GetDesc();
