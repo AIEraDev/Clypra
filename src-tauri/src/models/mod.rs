@@ -50,6 +50,8 @@ pub struct Project {
     #[serde(default)]
     pub thumbnail: Option<String>,
     #[serde(default)]
+    pub creator_thumbnails: Option<serde_json::Value>,
+    #[serde(default)]
     pub media_assets: Vec<serde_json::Value>,
     #[serde(default)]
     pub main_video_track_id: Option<String>,

@@ -64,10 +64,7 @@ export const Playhead: React.FC<PlayheadProps> = ({
   const currentTime = clockState.time;
 
   // ✅ Use canonical timeToPixel helper for playhead left calculation
-  const left = Math.max(
-    0,
-    timelineTimeToPixel(currentTime, pixelsPerSecond),
-  );
+  const left = Math.max(0, timelineTimeToPixel(currentTime, pixelsPerSecond));
 
   useLayoutEffect(() => {
     recordPlayheadPaint();
@@ -256,7 +253,10 @@ export const Playhead: React.FC<PlayheadProps> = ({
           allowKeyframeApprox: false,
         });
         if (scrubInteractionRef.current) {
-          previewInteractionCoordinator.commit(scrubInteractionRef.current, false);
+          previewInteractionCoordinator.commit(
+            scrubInteractionRef.current,
+            false,
+          );
           scrubInteractionRef.current = null;
         }
         setIsDragging(false);
@@ -414,7 +414,7 @@ export const Playhead: React.FC<PlayheadProps> = ({
         bottom: 0,
         width: "8px",
         marginLeft: "-4px",
-        zIndex: 100,
+        zIndex: 40,
         touchAction: "none",
       }}
       onLostPointerCapture={() => {

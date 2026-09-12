@@ -147,12 +147,64 @@ export interface Project {
   markers?: TimelineMarker[];
   /** Optional live preview snapshot / cover image data URL */
   thumbnail?: string;
+  /** First-class exported/customized creator thumbnails (multi-variant support) */
+  creatorThumbnails?: CreatorThumbnail[];
   /** Timeline schema version for forward-compatible project migrations. */
   timelineSchemaVersion?: number;
   /** Version of the first-class audio clip model. */
   audioModelVersion?: number;
   /** Version of the first-class caption model. */
   captionModelVersion?: number;
+}
+
+export type ThumbnailPlatformPresetKind =
+  | "youtube"
+  | "shorts"
+  | "tiktok"
+  | "instagram"
+  | "custom";
+
+export interface ThumbnailPlatformPreset {
+  kind: ThumbnailPlatformPresetKind;
+  label: string;
+  width: number;
+  height: number;
+  aspectRatioLabel: string;
+}
+
+export interface ThumbnailOverlayLayer {
+  id: string;
+  kind: "text" | "badge";
+  text: string;
+  fontFamily: string;
+  fontSize: number;
+  fontWeight: string;
+  color: string;
+  outlineColor?: string;
+  outlineWidth?: number;
+  shadowColor?: string;
+  shadowBlur?: number;
+  backgroundColor?: string;
+  backgroundPadding?: number;
+  borderRadius?: number;
+  /** Normalized position 0.0 - 1.0 */
+  x: number;
+  /** Normalized position 0.0 - 1.0 */
+  y: number;
+  rotation?: number;
+  opacity?: number;
+  align?: "left" | "center" | "right";
+}
+
+export interface CreatorThumbnail {
+  id: string;
+  label: string;
+  timestampMs: number;
+  platformPreset: ThumbnailPlatformPreset;
+  overlayLayers: ThumbnailOverlayLayer[];
+  exportedDataUrl?: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export type TrackType =

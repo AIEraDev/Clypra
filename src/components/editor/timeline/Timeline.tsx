@@ -703,7 +703,7 @@ export const Timeline: React.FC = () => {
         <div
           className="absolute top-[40px] left-0 right-0 bottom-0 bg-(--color-timeline-ruler-bg)"
           style={{
-            zIndex: 120,
+            zIndex: 49,
             width: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px`,
             minWidth: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px`,
           }}
@@ -743,7 +743,7 @@ export const Timeline: React.FC = () => {
                 position: "sticky",
                 top: 0,
                 left: 0,
-                zIndex: 150,
+                zIndex: 49,
                 height: "24px",
                 width: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px`,
                 minWidth: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px`,
@@ -951,7 +951,7 @@ export const Timeline: React.FC = () => {
                   left: hasClips ? `${TIMELINE_TRACK_LABEL_WIDTH_PX}px` : "0px",
                   bottom: 0,
                   width: `${contentWidth}px`,
-                  zIndex: 100,
+                  zIndex: 45,
                 }}
               >
                 <Playhead

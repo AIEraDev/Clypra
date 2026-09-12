@@ -28,6 +28,7 @@ import { platform } from "@/core/platform";
 import { toNativePath } from "@/lib/platform/pathConversion";
 import type {
   Project,
+  CreatorThumbnail,
   MediaAsset,
   TransitionTimelineItem,
   TimelineMarker,
@@ -144,6 +145,9 @@ interface ProjectStore {
   promptRelinkMedia: (assetId: string) => Promise<boolean>;
   updateProject: (updates: Partial<Project>) => void;
   setProjectThumbnail: (thumbnail: string) => void;
+  addCreatorThumbnail: (thumbnail: CreatorThumbnail) => void;
+  updateCreatorThumbnail: (id: string, patch: Partial<CreatorThumbnail>) => void;
+  removeCreatorThumbnail: (id: string) => void;
   setRecentProjects: (projects: RecentProjectEntry[]) => void;
   renameProject: (projectId: string, newName: string) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
@@ -1458,6 +1462,50 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         recentProjects: updatedRecent,
       };
     });
+  },
+
+  addCreatorThumbnail: (thumbnail) => {
+    set((state) => {
+      if (!state.project) return state;
+      const existing = state.project.creatorThumbnails ?? [];
+      const updatedProject = {
+        ...state.project,
+        creatorThumbnails: [...existing, thumbnail],
+        updatedAt: Date.now(),
+      };
+      return { project: updatedProject };
+    });
+    get().scheduleAutoSave();
+  },
+
+  updateCreatorThumbnail: (id, patch) => {
+    set((state) => {
+      if (!state.project) return state;
+      const existing = state.project.creatorThumbnails ?? [];
+      const updatedProject = {
+        ...state.project,
+        creatorThumbnails: existing.map((t) =>
+          t.id === id ? { ...t, ...patch, updatedAt: Date.now() } : t,
+        ),
+        updatedAt: Date.now(),
+      };
+      return { project: updatedProject };
+    });
+    get().scheduleAutoSave();
+  },
+
+  removeCreatorThumbnail: (id) => {
+    set((state) => {
+      if (!state.project) return state;
+      const existing = state.project.creatorThumbnails ?? [];
+      const updatedProject = {
+        ...state.project,
+        creatorThumbnails: existing.filter((t) => t.id !== id),
+        updatedAt: Date.now(),
+      };
+      return { project: updatedProject };
+    });
+    get().scheduleAutoSave();
   },
 
   setRecentProjects: (projects) => {

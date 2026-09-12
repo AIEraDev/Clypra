@@ -50,6 +50,7 @@ export interface RustProject {
   gaps?: RustGap[];
   markers?: TimelineMarker[];
   thumbnail?: string | null;
+  creator_thumbnails?: any[] | null;
   timeline_schema_version?: number | null;
   audio_model_version?: number | null;
   caption_model_version?: number | null;
@@ -320,6 +321,7 @@ export function fromRustProject(rust: RustProject): Project {
     canvasBackground: rust.canvas_background ?? undefined,
     markers: rust.markers ?? undefined,
     thumbnail: rust.thumbnail ?? undefined,
+    creatorThumbnails: rust.creator_thumbnails ?? undefined,
     timelineSchemaVersion: rust.timeline_schema_version ?? 1,
     audioModelVersion: rust.audio_model_version ?? AUDIO_MODEL_VERSION,
     captionModelVersion: rust.caption_model_version ?? CAPTION_MODEL_VERSION,
@@ -539,6 +541,7 @@ export function toRustProject(
     gaps: options?.gaps?.map(toRustGap) ?? [],
     markers: options?.markers ?? [],
     thumbnail: frontend.thumbnail,
+    creator_thumbnails: frontend.creatorThumbnails ?? undefined,
     timeline_schema_version: frontend.timelineSchemaVersion ?? 1,
     audio_model_version: frontend.audioModelVersion ?? AUDIO_MODEL_VERSION,
     caption_model_version: frontend.captionModelVersion ?? CAPTION_MODEL_VERSION,

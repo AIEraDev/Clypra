@@ -1113,3 +1113,36 @@ export async function getRenderCacheStats(): Promise<{
   }
   return invoke("get_render_cache_stats");
 }
+
+export interface ExportCreatorThumbnailPayload {
+  dataUrl?: string;
+  rgbaBytes?: number[] | Uint8Array;
+  width?: number;
+  height?: number;
+  outputPath: string;
+  format?: "png" | "jpeg" | "webp";
+  quality?: number;
+}
+
+export interface ExportCreatorThumbnailResult {
+  outputPath: string;
+  bytesWritten: number;
+  width: number;
+  height: number;
+  format: string;
+}
+
+/**
+ * Save a creator thumbnail to the filesystem using native disk IO and format encoding.
+ */
+export async function exportCreatorThumbnail(
+  payload: ExportCreatorThumbnailPayload,
+): Promise<ExportCreatorThumbnailResult> {
+  if (!isTauriRuntime()) {
+    throw new Error("exportCreatorThumbnail requires the Tauri runtime");
+  }
+  return invoke<ExportCreatorThumbnailResult>("export_creator_thumbnail", {
+    payload,
+  });
+}
+
