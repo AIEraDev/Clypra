@@ -36,7 +36,7 @@ use windows::Win32::Graphics::Direct3D12::{
 };
 use windows::Win32::Graphics::Dxgi::IDXGIResource1;
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_NV12;
-use windows::core::{ComInterface, PCWSTR};
+use windows::core::{Interface, PCWSTR};
 
 /// Raw handles needed to import a D3D11VA frame into wgpu without a PCIe copy.
 pub struct D3d11SharedFrame {
@@ -49,6 +49,10 @@ pub struct D3d11SharedFrame {
     /// Decoded luma height in pixels.
     pub height: u32,
 }
+
+// Windows NT kernel handles are process-wide and thread-safe to transfer across threads.
+unsafe impl Send for D3d11SharedFrame {}
+unsafe impl Sync for D3d11SharedFrame {}
 
 impl Drop for D3d11SharedFrame {
     fn drop(&mut self) {
@@ -161,7 +165,7 @@ pub fn import_into_wgpu(device: &wgpu::Device, shared: D3d11SharedFrame) -> Opti
             let hal_device = hal_device?;
 
             // Get the raw ID3D12Device so we can open the DXGI shared handle.
-            let d3d12_device: &ID3D12Device = hal_device.raw_device().as_ref();
+            let d3d12_device: &ID3D12Device = hal_device.raw_device();
 
             // Open the D3D11 texture's DXGI handle as a D3D12 resource.
             let d3d12_resource: ID3D12Resource = d3d12_device
@@ -177,26 +181,18 @@ pub fn import_into_wgpu(device: &wgpu::Device, shared: D3d11SharedFrame) -> Opti
             }
 
             // Wrap the D3D12 resource as a wgpu HAL texture.
-            // `create_texture_from_raw` is the wgpu 24.x DX12 HAL entry point.
+            // `texture_from_raw` is the wgpu 24.x DX12 HAL entry point.
             let hal_texture = <Dx12 as wgpu::hal::Api>::Device::texture_from_raw(
                 d3d12_resource,
-                &wgpu::hal::TextureDescriptor {
-                    label: Some("D3D11VA NV12 ZeroCopy"),
-                    size: wgpu::Extent3d {
-                        width,
-                        height,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    // NV12 is the closest match; wgpu DX12 backend maps this
-                    // to DXGI_FORMAT_NV12 under the hood.
-                    format: wgpu::TextureFormat::NV12,
-                    usage: wgpu::TextureUses::RESOURCE,
-                    memory_flags: wgpu::hal::MemoryFlags::empty(),
-                    view_formats: vec![],
+                wgpu::TextureFormat::NV12,
+                wgpu::TextureDimension::D2,
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
                 },
+                1,
+                1,
             );
 
             // Promote to wgpu::Texture.
@@ -245,5 +241,5 @@ pub fn import_into_wgpu(device: &wgpu::Device, shared: D3d11SharedFrame) -> Opti
     };
 
     // `shared` is dropped here, calling D3d11SharedFrame::drop which closes nt_handle safely.
-    result.flatten()
+    result
 }

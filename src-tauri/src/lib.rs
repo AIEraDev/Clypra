@@ -317,6 +317,7 @@ pub fn run() {
             cancel_native_timeline_export,
             check_ffmpeg_available,
             get_ffmpeg_version,
+            export_creator_thumbnail,
             // Whisper model management & local AI caption commands
             download_whisper_model,
             delete_whisper_model,
