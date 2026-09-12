@@ -94,8 +94,11 @@ pub unsafe fn extract_shared_handle(
 
     // Borrow the COM pointer — do NOT call AddRef/Release; FFmpeg owns this.
     // We use windows-rs `from_raw_borrowed` which creates a non-owning borrow.
+    // Bind the cast to a named local first: MSVC's stricter NLL rules reject
+    // the inline temporary `&(texture_raw as *mut _)` with E0716.
+    let texture_ptr = texture_raw as *mut _;
     let texture: &ID3D11Texture2D =
-        windows::core::from_raw_borrowed(&(texture_raw as *mut _))?;
+        windows::core::from_raw_borrowed(&texture_ptr)?;
 
     // Get DXGI resource interface so we can create an NT shared handle.
     let resource: IDXGIResource1 = texture.cast().ok()?;
