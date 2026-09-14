@@ -9,6 +9,7 @@ include!(concat!(env!("OUT_DIR"), "/canonical_limits.rs"));
 #[serde(rename_all = "camelCase")]
 pub struct CanonicalGpuLimitsJson {
     pub max_bind_groups: u32,
+    #[serde(alias = "maxTextureDimension2D")]
     pub max_texture_dimension_2d: u32,
     pub max_sampled_textures_per_shader_stage: u32,
     pub max_samplers_per_shader_stage: u32,
@@ -52,4 +53,29 @@ pub fn validate_adapter_limits(adapter: &wgpu::Adapter) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_canonical_wgpu_limits_deserialization() {
+        let limits = get_canonical_wgpu_limits();
+        assert_eq!(limits.max_bind_groups, 4);
+        assert_eq!(limits.max_texture_dimension_2d, 4096);
+        assert_eq!(limits.max_sampled_textures_per_shader_stage, 16);
+        assert_eq!(limits.max_samplers_per_shader_stage, 8);
+        assert_eq!(limits.max_storage_buffers_per_shader_stage, 4);
+        assert_eq!(limits.max_storage_buffer_binding_size, 134217728);
+        assert_eq!(limits.max_uniform_buffers_per_shader_stage, 8);
+        assert_eq!(limits.max_uniform_buffer_binding_size, 65536);
+
+        // Test using_resolution merges with larger adapter limit
+        let mut adapter_mock = limits.clone();
+        adapter_mock.max_texture_dimension_2d = 8192;
+        let resolved = limits.using_resolution(adapter_mock);
+        assert_eq!(resolved.max_texture_dimension_2d, 8192);
+        assert_eq!(resolved.max_bind_groups, 4);
+    }
 }

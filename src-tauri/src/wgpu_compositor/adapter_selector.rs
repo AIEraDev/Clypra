@@ -10,6 +10,9 @@ pub struct SelectedGpuInfo {
     pub vendor_id: u32,
     pub device_id: u32,
     pub is_discrete: bool,
+    pub meets_canonical_limits: bool,
+    pub limit_warnings: Vec<String>,
+    pub max_texture_dimension_2d: u32,
 }
 
 pub struct GpuContext {
@@ -120,6 +123,19 @@ impl GpuContext {
 
         let info = best_adapter.get_info();
         let is_discrete = info.device_type == DeviceType::DiscreteGpu;
+        let adapter_limits = best_adapter.limits();
+
+        let canonical_limits = super::limits::get_canonical_wgpu_limits();
+        let limit_validation = super::limits::validate_adapter_limits(&best_adapter);
+        let mut limit_warnings = Vec::new();
+        let meets_canonical_limits = match limit_validation {
+            Ok(()) => true,
+            Err(e) => {
+                log::warn!("⚠️ GPU adapter below canonical limits baseline: {}", e);
+                limit_warnings.push(e);
+                false
+            }
+        };
 
         let gpu_info = SelectedGpuInfo {
             name: info.name.clone(),
@@ -128,13 +144,17 @@ impl GpuContext {
             vendor_id: info.vendor,
             device_id: info.device,
             is_discrete,
+            meets_canonical_limits,
+            limit_warnings,
+            max_texture_dimension_2d: adapter_limits.max_texture_dimension_2d,
         };
 
         log::info!(
-            "🎮 Bound Clypra Media Engine to: {} ({:?}, Backend: {:?})",
+            "🎮 Bound Clypra Media Engine to: {} ({:?}, Backend: {:?}, Canonical Baseline: {})",
             gpu_info.name,
             gpu_info.device_type,
-            gpu_info.backend
+            gpu_info.backend,
+            gpu_info.meets_canonical_limits,
         );
 
         let available_features = best_adapter.features();
@@ -143,12 +163,14 @@ impl GpuContext {
             required_features |= wgpu::Features::TEXTURE_FORMAT_16BIT_NORM;
         }
 
+        let required_limits = canonical_limits.using_resolution(adapter_limits);
+
         let (device, queue) = best_adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("Native Wgpu Device"),
                     required_features,
-                    required_limits: best_adapter.limits(),
+                    required_limits,
                     memory_hints: wgpu::MemoryHints::Performance,
                 },
                 None,

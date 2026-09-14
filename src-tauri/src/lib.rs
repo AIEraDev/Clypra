@@ -166,6 +166,9 @@ pub fn run() {
                             gpu_ctx.info.backend.clone(),
                             gpu_ctx.info.device_type.clone(),
                             surface_available,
+                            gpu_ctx.info.meets_canonical_limits,
+                            gpu_ctx.info.limit_warnings.clone(),
+                            Some(gpu_ctx.info.max_texture_dimension_2d),
                         );
                     }
 

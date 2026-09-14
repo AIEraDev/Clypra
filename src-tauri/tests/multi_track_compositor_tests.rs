@@ -897,6 +897,160 @@ async fn test_body_glow_mask_binding() {
 }
 
 // -----------------------------------------------------------------------------
+// Test 9b: Body Effect AlphaCutout and MaskedStroke Morphology
+// -----------------------------------------------------------------------------
+#[tokio::test]
+#[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
+async fn test_body_effect_cutout_and_stroke_morphology() {
+    let ctx = HeadlessGpuContext::new().await;
+    let width = 64;
+    let height = 64;
+    let compositor = MultiTrackCompositor::new(&ctx.device, &ctx.queue, width, height);
+
+    // Source is solid green (0, 255, 0, 255)
+    let (_source_texture, source_view) =
+        ctx.create_solid_texture(width, height, [0, 255, 0, 255]);
+
+    // Mask with white subject in center 32x32, black background
+    let mut mask_data = vec![0u8; (width * height * 4) as usize];
+    for y in 0..height {
+        for x in 0..width {
+            let idx = ((y * width + x) * 4) as usize;
+            if x >= 16 && x < 48 && y >= 16 && y < 48 {
+                mask_data[idx] = 255;
+                mask_data[idx + 1] = 255;
+                mask_data[idx + 2] = 255;
+                mask_data[idx + 3] = 255; // alpha 255
+            } else {
+                mask_data[idx] = 0;
+                mask_data[idx + 1] = 0;
+                mask_data[idx + 2] = 0;
+                mask_data[idx + 3] = 0; // alpha 0
+            }
+        }
+    }
+
+    let mask_texture = ctx.device.create_texture_with_data(
+        &ctx.queue,
+        &wgpu::TextureDescriptor {
+            label: Some("Square Subject Mask Texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        },
+        wgpu::util::TextureDataOrder::LayerMajor,
+        &mask_data,
+    );
+    let mask_view = mask_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+    // 1. Test AlphaCutout (Type 4): Center is preserved, corner is discarded / 0 alpha
+    let cutout_layers = vec![CompositeLayer {
+        texture_view: &source_view,
+        lut: None,
+        z_index: 0,
+        opacity: 1.0,
+        blend_mode: BlendMode::Normal,
+        transform: LayerTransform::default(),
+        crop: CropMargins::default(),
+        color_grade: ColorGradeUniforms::default(),
+        chroma_key: ChromaKeyUniforms::default(),
+        mask_view: Some(&mask_view),
+        body_effect: BodyEffectUniforms {
+            color: [1.0, 1.0, 1.0, 0.0],
+            params: [4.0, 1.0, 4.0, 0.0], // Type 4, strength 1.0, feather 4.0
+        },
+    }];
+
+    let cutout_output = compositor
+        .render_to_rgba_bytes_with_size(
+            &ctx.device,
+            &ctx.queue,
+            width,
+            height,
+            &cutout_layers,
+            Some(wgpu::Color::TRANSPARENT),
+        )
+        .await
+        .expect("AlphaCutout render failed");
+
+    // Center pixel (32, 32) is inside the mask: should be solid green
+    let center_pixel = get_pixel(&cutout_output, width, 32, 32);
+    assert_eq!(center_pixel[1], 255, "center pixel should retain full green");
+    assert_eq!(center_pixel[3], 255, "center pixel should retain full alpha");
+
+    // Corner pixel (4, 4) is outside the mask: should be completely discarded / alpha 0
+    let corner_pixel = get_pixel(&cutout_output, width, 4, 4);
+    assert_eq!(corner_pixel[3], 0, "corner pixel outside mask must be transparent");
+
+    // 2. Test MaskedStroke (Type 1): Outline contour around the mask boundary
+    let stroke_layers = vec![CompositeLayer {
+        texture_view: &source_view,
+        lut: None,
+        z_index: 0,
+        opacity: 1.0,
+        blend_mode: BlendMode::Normal,
+        transform: LayerTransform::default(),
+        crop: CropMargins::default(),
+        color_grade: ColorGradeUniforms::default(),
+        chroma_key: ChromaKeyUniforms::default(),
+        mask_view: Some(&mask_view),
+        body_effect: BodyEffectUniforms {
+            color: [1.0, 0.0, 1.0, 0.0], // Magenta stroke
+            params: [1.0, 1.0, 2.0, 0.0], // Type 1, strength 1.0, radius 2.0
+        },
+    }];
+
+    let stroke_output = compositor
+        .render_to_rgba_bytes(&ctx.device, &ctx.queue, &stroke_layers)
+        .await
+        .expect("MaskedStroke render failed");
+
+    // Pixel near boundary (16, 32) should have magenta added (red and blue > 0)
+    let edge_pixel = get_pixel(&stroke_output, width, 16, 32);
+    assert!(
+        edge_pixel[0] > 0 && edge_pixel[2] > 0,
+        "edge pixel at mask boundary should contain magenta stroke"
+    );
+
+    // 3. Test MaskedDualBlur (Type 5): Core and diffuse aura glow
+    let dual_blur_layers = vec![CompositeLayer {
+        texture_view: &source_view,
+        lut: None,
+        z_index: 0,
+        opacity: 1.0,
+        blend_mode: BlendMode::Normal,
+        transform: LayerTransform::default(),
+        crop: CropMargins::default(),
+        color_grade: ColorGradeUniforms::default(),
+        chroma_key: ChromaKeyUniforms::default(),
+        mask_view: Some(&mask_view),
+        body_effect: BodyEffectUniforms {
+            color: [0.0, 1.0, 1.0, 0.0], // Cyan dual blur
+            params: [5.0, 1.0, 4.0, 0.0], // Type 5, strength 1.0, radius 4.0
+        },
+    }];
+
+    let dual_blur_output = compositor
+        .render_to_rgba_bytes(&ctx.device, &ctx.queue, &dual_blur_layers)
+        .await
+        .expect("MaskedDualBlur render failed");
+
+    let aura_pixel = get_pixel(&dual_blur_output, width, 14, 32);
+    assert!(
+        aura_pixel[2] > 0,
+        "diffuse aura pixel outside the mask should have blue channel added"
+    );
+}
+
+// -----------------------------------------------------------------------------
 // Test 10: Custom .cube Inversion LUT Color Transformation
 // -----------------------------------------------------------------------------
 #[tokio::test]

@@ -704,11 +704,18 @@ fn validate_video_project_request(request: &NativeVideoProjectFrameRequest) -> R
                 || !matches!(
                     effect.renderer.as_str(),
                     "body_outline"
+                        | "MaskedStroke"
                         | "body_glow"
                         | "body_segmentation_glow"
+                        | "MaskedGlow"
                         | "body_particles"
+                        | "particle_emitter"
+                        | "ParticleEmitter"
                         | "body_cutout"
                         | "subject_cutout"
+                        | "AlphaCutout"
+                        | "body_dual_blur"
+                        | "MaskedDualBlur"
                 )
                 || !effect.color_r.is_finite()
                 || !effect.color_g.is_finite()
@@ -1014,10 +1021,11 @@ fn body_effect_from_snapshot(snapshot: Option<&BodyEffectSnapshot>) -> BodyEffec
         return BodyEffectUniforms::default();
     };
     let renderer_type = match effect.renderer.as_str() {
-        "body_outline" => 1.0,
-        "body_glow" | "body_segmentation_glow" => 2.0,
-        "body_particles" => 3.0,
-        "body_cutout" | "subject_cutout" => 4.0,
+        "body_outline" | "MaskedStroke" => 1.0,
+        "body_glow" | "body_segmentation_glow" | "MaskedGlow" => 2.0,
+        "body_particles" | "particle_emitter" | "ParticleEmitter" => 3.0,
+        "body_cutout" | "subject_cutout" | "AlphaCutout" => 4.0,
+        "body_dual_blur" | "MaskedDualBlur" => 5.0,
         _ => 0.0,
     };
     BodyEffectUniforms {

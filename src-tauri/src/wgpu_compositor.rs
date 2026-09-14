@@ -23,6 +23,9 @@ pub use yuv_ring_buffer::{
     render_yuv_frame, ColorTransformUniforms, YuvFrameSlot, YuvPixelFormat, YuvTextureRingBuffer,
 };
 
+pub mod limits;
+pub use limits::{get_canonical_wgpu_limits, validate_adapter_limits};
+
 pub mod adapter_selector;
 pub use adapter_selector::{GpuContext, SelectedGpuInfo};
 

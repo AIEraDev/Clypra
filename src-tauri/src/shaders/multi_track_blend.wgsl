@@ -259,6 +259,56 @@ fn sample_body_mask(uv: vec2<f32>) -> f32 {
     return textureSampleLevel(t_mask, s_mask, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)), 0.0).a;
 }
 
+struct MaskConditioning {
+    center: f32,
+    gaussian_smooth: f32,
+    eroded: f32,   // Local minimum (morphological choke)
+    dilated: f32,  // Local maximum (morphological spread)
+};
+
+// High-precision 9-tap separable Gaussian and morphological filter.
+// Conditioned mask samples eliminate neural segmentation stepping, haloing, and edge buzz.
+fn condition_body_mask(uv: vec2<f32>, radius_px: f32, mask_dims: vec2<f32>) -> MaskConditioning {
+    let texel = 1.0 / max(mask_dims, vec2<f32>(1.0));
+    let offset = texel * max(radius_px, 1.0);
+
+    let m_c = sample_body_mask(uv);
+    var min_val = m_c;
+    var max_val = m_c;
+
+    // 4 Cardinal samples:
+    let m_r = sample_body_mask(uv + vec2<f32>(offset.x, 0.0));
+    let m_l = sample_body_mask(uv - vec2<f32>(offset.x, 0.0));
+    let m_t = sample_body_mask(uv + vec2<f32>(0.0, offset.y));
+    let m_b = sample_body_mask(uv - vec2<f32>(0.0, offset.y));
+
+    min_val = min(min_val, min(min(m_r, m_l), min(m_t, m_b)));
+    max_val = max(max_val, max(max(m_r, m_l), max(m_t, m_b)));
+
+    // 4 Diagonal samples (0.7071 factor for radial symmetry):
+    let diag = offset * 0.7071068;
+    let m_tr = sample_body_mask(uv + vec2<f32>(diag.x, diag.y));
+    let m_tl = sample_body_mask(uv + vec2<f32>(-diag.x, diag.y));
+    let m_br = sample_body_mask(uv + vec2<f32>(diag.x, -diag.y));
+    let m_bl = sample_body_mask(uv + vec2<f32>(-diag.x, -diag.y));
+
+    min_val = min(min_val, min(min(m_tr, m_tl), min(m_br, m_bl)));
+    max_val = max(max_val, max(max(m_tr, m_tl), max(m_br, m_bl)));
+
+    // 9-Tap Normalized Gaussian Weighted Kernel:
+    // Center: 0.2042 | Cardinal: 4 * 0.1238 = 0.4952 | Diagonal: 4 * 0.0751 = 0.3004 (Sum = 0.9998)
+    let gaussian = m_c * 0.2042 +
+        (m_r + m_l + m_t + m_b) * 0.1238 +
+        (m_tr + m_tl + m_br + m_bl) * 0.0751;
+
+    var result: MaskConditioning;
+    result.center = m_c;
+    result.gaussian_smooth = gaussian;
+    result.eroded = min_val;
+    result.dilated = max_val;
+    return result;
+}
+
 // Stable pseudo-random values keep body particles deterministic for a given
 // cell/time without uploading a particle buffer from the frontend.
 fn hash12(p: vec2<f32>) -> f32 {
@@ -346,57 +396,75 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var rgb = keyed_color.rgb;
 
     // Body effects use the segmentation alpha channel as a native texture
-    // binding. Type 1 is outline, type 2 is glow, type 3 is particles,
-    // and type 4 is body_cutout / subject isolation.
+    // binding. Type 1 is outline/stroke, type 2 is glow/aura, type 3 is particles,
+    // type 4 is body_cutout / subject isolation, and type 5 is dual-blur glow.
     let body_type = layer.body_effect.params.x;
     if (body_type > 0.0 && layer.body_effect.params.y > 0.0) {
         let body_dimensions = vec2<f32>(textureDimensions(t_mask));
-        let body_offset = vec2<f32>(max(layer.body_effect.params.z, 1.0)) /
-            max(body_dimensions, vec2<f32>(1.0));
-        let center_mask = sample_body_mask(sample_uv);
-        var neighbor_max = center_mask;
-        neighbor_max = max(neighbor_max, sample_body_mask(sample_uv + vec2<f32>(body_offset.x, 0.0)));
-        neighbor_max = max(neighbor_max, sample_body_mask(sample_uv - vec2<f32>(body_offset.x, 0.0)));
-        neighbor_max = max(neighbor_max, sample_body_mask(sample_uv + vec2<f32>(0.0, body_offset.y)));
-        neighbor_max = max(neighbor_max, sample_body_mask(sample_uv - vec2<f32>(0.0, body_offset.y)));
+        let cond = condition_body_mask(sample_uv, layer.body_effect.params.z, body_dimensions);
+
         if (body_type < 1.5) {
-            let edge = max(neighbor_max - center_mask, 0.0) * layer.body_effect.params.y;
+            // Type 1: MaskedStroke / body_outline (clean morphological contour edge band)
+            let edge = max(cond.dilated - cond.eroded, 0.0) * layer.body_effect.params.y;
             rgb = clamp(rgb + layer.body_effect.color.xyz * edge, vec3<f32>(0.0), vec3<f32>(1.0));
         } else if (body_type < 2.5) {
-            let halo = (neighbor_max + center_mask) * 0.5 * layer.body_effect.params.y;
+            // Type 2: MaskedGlow / body_glow / aura (outer dilated halo with smooth falloff)
+            let halo = (cond.dilated + cond.center) * 0.5 * layer.body_effect.params.y;
             rgb = clamp(rgb + layer.body_effect.color.xyz * halo, vec3<f32>(0.0), vec3<f32>(1.0));
         } else if (body_type < 3.5) {
-            // One candidate particle per deterministic grid cell. The native
-            // count is bounded to 40 by the frontend, keeping this pass cheap
-            // while retaining animated, mask-constrained particles.
+            // Type 3: body_particles / flame aura (procedural particles with curl turbulence & thermal buoyancy)
             let count = clamp(floor(layer.body_effect.params.z), 1.0, 40.0);
             let grid = max(2.0, ceil(sqrt(count)));
             let cell = floor(in.uv * grid);
             let cell_index = cell.y * grid + cell.x;
             if (cell_index < count) {
                 let time = layer.body_effect.params.w;
-                let jitter = vec2<f32>(
-                    hash12(cell + vec2<f32>(17.0, time * 0.73)),
-                    hash12(cell + vec2<f32>(41.0, time * 1.11))
+                let seed = hash12(cell + vec2<f32>(73.0, 5.0));
+
+                // Convective upward thermal drift + cyclical age
+                let age = fract(time * 0.4 + seed);
+                let curl_noise = sin(in.uv.y * 12.0 + time * 3.0 + seed * 6.28) * 0.12;
+                let buoyancy = vec2<f32>(curl_noise, -age * 0.35);
+
+                let base_jitter = vec2<f32>(
+                    hash12(cell + vec2<f32>(17.0, floor(time * 0.73))),
+                    hash12(cell + vec2<f32>(41.0, floor(time * 1.11)))
                 );
+                let jitter = base_jitter + buoyancy;
+
                 let particle_uv = (cell + jitter) / grid;
-                let particle_radius = 0.055 + hash12(cell + vec2<f32>(73.0, 5.0)) * 0.045;
+                let particle_radius = (0.055 + seed * 0.045) * (1.0 - age * 0.3);
                 let cell_uv = fract(in.uv * grid);
                 let distance_to_particle = distance(cell_uv, jitter);
                 let particle_shape = 1.0 - smoothstep(0.0, particle_radius, distance_to_particle);
                 let particle_mask = sample_body_mask(particle_uv);
-                let particles = particle_shape * particle_mask * layer.body_effect.params.y;
-                rgb = clamp(rgb + layer.body_effect.color.xyz * particles, vec3<f32>(0.0), vec3<f32>(1.0));
+
+                // Thermal lifetime falloff
+                let life_alpha = (1.0 - age * 0.5) * particle_shape * particle_mask * layer.body_effect.params.y;
+
+                // Hot core ramping: high-energy white at center, outer flame color at perimeter
+                let hot_core = smoothstep(particle_radius * 0.5, 0.0, distance_to_particle);
+                let flame_color = mix(layer.body_effect.color.xyz, vec3<f32>(1.0, 1.0, 1.0), hot_core * 0.4);
+
+                rgb = clamp(rgb + flame_color * life_alpha, vec3<f32>(0.0), vec3<f32>(1.0));
             }
-        } else {
-            // Type 4: body_cutout / subject isolation
-            // Adjustable feathering from params.z (default 4px)
-            let feather = clamp(layer.body_effect.params.z * 0.05, 0.001, 0.49);
-            let cutout_alpha = smoothstep(0.5 - feather, 0.5 + feather, center_mask) * layer.body_effect.params.y;
+        } else if (body_type < 4.5) {
+            // Type 4: AlphaCutout / body_cutout / subject isolation
+            // High-precision Gaussian feather and morphological choke:
+            let feather = clamp(layer.body_effect.params.z * 0.02, 0.001, 0.49);
+            // Slight default choke (0.2) contracts boundary inwards to eliminate background color bleeding
+            let conditioned_mask = mix(cond.gaussian_smooth, cond.eroded, 0.2);
+            let cutout_alpha = smoothstep(0.5 - feather, 0.5 + feather, conditioned_mask) * layer.body_effect.params.y;
             keyed_color.a = keyed_color.a * cutout_alpha;
             if (keyed_color.a <= 0.0001) {
                 discard;
             }
+        } else {
+            // Type 5: MaskedDualBlur (Core + Diffuse Glow)
+            let core = max(cond.dilated - cond.center, 0.0);
+            let diffuse = max(cond.dilated - cond.eroded, 0.0) * 0.6;
+            let dual = (core * 1.5 + diffuse) * layer.body_effect.params.y;
+            rgb = clamp(rgb + layer.body_effect.color.xyz * dual, vec3<f32>(0.0), vec3<f32>(1.0));
         }
     }
 

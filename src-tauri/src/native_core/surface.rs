@@ -55,6 +55,9 @@ pub struct NativeGpuRuntimeStatus {
     pub device_type: Option<String>,
     pub surface_available: bool,
     pub failure_reason: Option<String>,
+    pub meets_canonical_limits: bool,
+    pub limit_warnings: Vec<String>,
+    pub max_texture_dimension_2d: Option<u32>,
 }
 
 impl NativeGpuRuntimeStatus {
@@ -68,6 +71,9 @@ impl NativeGpuRuntimeStatus {
             device_type: None,
             surface_available: false,
             failure_reason: None,
+            meets_canonical_limits: false,
+            limit_warnings: Vec::new(),
+            max_texture_dimension_2d: None,
         }
     }
 
@@ -76,6 +82,9 @@ impl NativeGpuRuntimeStatus {
         backend: String,
         device_type: String,
         surface_available: bool,
+        meets_canonical_limits: bool,
+        limit_warnings: Vec<String>,
+        max_texture_dimension_2d: Option<u32>,
     ) -> Self {
         Self {
             contract_version: NATIVE_CORE_CONTRACT_VERSION,
@@ -86,6 +95,9 @@ impl NativeGpuRuntimeStatus {
             device_type: Some(device_type),
             surface_available,
             failure_reason: None,
+            meets_canonical_limits,
+            limit_warnings,
+            max_texture_dimension_2d,
         }
     }
 
@@ -99,6 +111,9 @@ impl NativeGpuRuntimeStatus {
             device_type: None,
             surface_available,
             failure_reason: Some(reason),
+            meets_canonical_limits: false,
+            limit_warnings: Vec::new(),
+            max_texture_dimension_2d: None,
         }
     }
 }

@@ -1142,11 +1142,18 @@ impl FrameRequest {
                     || !matches!(
                         body_effect.renderer.as_str(),
                         "body_outline"
+                            | "MaskedStroke"
                             | "body_glow"
                             | "body_segmentation_glow"
+                            | "MaskedGlow"
                             | "body_particles"
+                            | "particle_emitter"
+                            | "ParticleEmitter"
                             | "body_cutout"
                             | "subject_cutout"
+                            | "AlphaCutout"
+                            | "body_dual_blur"
+                            | "MaskedDualBlur"
                     )
                     || !body_effect.color_r.is_finite()
                     || !body_effect.color_g.is_finite()

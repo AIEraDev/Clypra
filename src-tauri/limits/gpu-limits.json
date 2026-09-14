@@ -1,0 +1,10 @@
+{
+  "maxBindGroups": 4,
+  "maxTextureDimension2D": 4096,
+  "maxSampledTexturesPerShaderStage": 16,
+  "maxSamplersPerShaderStage": 8,
+  "maxStorageBuffersPerShaderStage": 4,
+  "maxStorageBufferBindingSize": 134217728,
+  "maxUniformBuffersPerShaderStage": 8,
+  "maxUniformBufferBindingSize": 65536
+}
