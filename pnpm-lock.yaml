@@ -18,8 +18,8 @@ importers:
         specifier: ^8.0.1
         version: 8.0.1(@capacitor/core@8.5.0)
       '@clypra-studio/engine':
-        specifier: 1.8.0
-        version: 1.8.0
+        specifier: 1.8.1
+        version: 1.8.1
       '@clypra/ui-color-picker':
         specifier: 0.2.1
         version: 0.2.1(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -165,6 +165,9 @@ importers:
       '@capacitor/ios':
         specifier: ^8.4.0
         version: 8.5.0(@capacitor/core@8.5.0)
+      '@clypra-studio/shaders':
+        specifier: 0.2.0
+        version: 0.2.0
       '@tailwindcss/vite':
         specifier: ^4.2.2
         version: 4.3.3(vite@7.3.6(@types/node@26.2.0)(jiti@2.7.0)(lightningcss@1.32.0))
@@ -411,14 +414,14 @@ packages:
   '@capacitor/synapse@1.0.4':
     resolution: {integrity: sha512-/C1FUo8/OkKuAT4nCIu/34ny9siNHr9qtFezu4kxm6GY1wNFxrCFWjfYx5C1tUhVGz3fxBABegupkpjXvjCHrw==}
 
-  '@clypra-studio/engine@1.8.0':
-    resolution: {integrity: sha512-LUqYfWmGPyuL6pYzBOM5ivlkXIQRAMJEhfNJj43YwW8MYqSPafNbkY6n/xt9eM4MmouRuska//BGMqKOJR82cQ==}
+  '@clypra-studio/engine@1.8.1':
+    resolution: {integrity: sha512-3glwktWq5TULe3SaDUGJbL8VGhADyGdOtMykyFf4ij7SX0FmF7VQ6nVHBuvfLYUBElPCYpULei4D/f15LU1ajQ==}
 
-  '@clypra-studio/shaders@0.1.5':
-    resolution: {integrity: sha512-HxaREVUzAbPqC4dq+VCKDQCdWdJIY/HDOJ3+k/Le6ReSrI8UN2OWPIbki2h/qrppIvfZFxCZ0Lcm/ZnQZEM6LA==}
+  '@clypra-studio/shaders@0.2.0':
+    resolution: {integrity: sha512-W7HoeJPymNirWWkE4a8A+7RM3TT/L2zRhptZOcYfoUvZEG4MRJY1HkGdkRj6i8kHnHilz/pn+MRSO07MmfMEVA==}
 
-  '@clypra-studio/types@0.5.0':
-    resolution: {integrity: sha512-omk9MKNggf92epjrWJeqC6c9C3pDUtRfG+WaPCX0LaBTkEA46igw0qFvvP/ONwCmtToSbNq9SctgtUsQ2wkPtw==}
+  '@clypra-studio/types@0.6.0':
+    resolution: {integrity: sha512-ZYFQc94PILh+SUTXlKkF1w8BwFs5HOwdeUL6pTDGN6Jp0hLZYo/bPZqXpI3W0pNFszYRPCpkL8+enr1cXSGaAw==}
 
   '@clypra/ui-color-picker@0.2.1':
     resolution: {integrity: sha512-m8oftv1K7/sRHc7gauLsv7avdLhsSPKVs0DhXRlYDOuUhvLEgMWXgqiIGucrinhwTC7UfqdSejlsGWz9NDlNpQ==}
@@ -4211,17 +4214,17 @@ snapshots:
 
   '@capacitor/synapse@1.0.4': {}
 
-  '@clypra-studio/engine@1.8.0':
+  '@clypra-studio/engine@1.8.1':
     dependencies:
-      '@clypra-studio/shaders': 0.1.5
-      '@clypra-studio/types': 0.5.0
+      '@clypra-studio/shaders': 0.2.0
+      '@clypra-studio/types': 0.6.0
       jszip: 3.10.1
       lottie-web: 5.13.0
       zod: 4.4.3
 
-  '@clypra-studio/shaders@0.1.5': {}
+  '@clypra-studio/shaders@0.2.0': {}
 
-  '@clypra-studio/types@0.5.0': {}
+  '@clypra-studio/types@0.6.0': {}
 
   '@clypra/ui-color-picker@0.2.1(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
