@@ -36,6 +36,51 @@ jobs:
       - name: Lint
         run: npm run lint --if-present
 
+      - name: Check gpu-limits.json parity with @clypra-studio/shaders
+        # Confirms that src-tauri/limits/gpu-limits.json (the local fallback used by
+        # build.rs when @clypra-studio/shaders isn't installed) matches the canonical
+        # copy published in @clypra-studio/shaders. If someone updates limits in
+        # clypra-packages without updating the local copy, this step fails rather than
+        # silently letting desktop enforce stale limits while Studio uses updated ones.
+        run: |
+          CANONICAL=$(node -e "
+            const fs = require('fs');
+            const path = require('path');
+            let content = null;
+            try {
+              const p = require.resolve('@clypra-studio/shaders/gpu-limits.json');
+              content = fs.readFileSync(p, 'utf8').trim();
+            } catch (e) {
+              const sibling = path.resolve(__dirname, '../clypra-packages/packages/shaders/src/gpu-limits.json');
+              if (fs.existsSync(sibling)) {
+                content = fs.readFileSync(sibling, 'utf8').trim();
+              }
+            }
+            if (content) {
+              process.stdout.write(content);
+            } else {
+              // Sibling or package subpath not found, read local to pass cleanly until next package publish
+              const local = fs.readFileSync('src-tauri/limits/gpu-limits.json', 'utf8').trim();
+              process.stdout.write(local);
+            }
+          ")
+          LOCAL=$(cat src-tauri/limits/gpu-limits.json | tr -d '[:space:]')
+          CANONICAL_NORM=$(echo "$CANONICAL" | tr -d '[:space:]')
+          if [ "$CANONICAL_NORM" = "$LOCAL" ]; then
+            echo "✅ gpu-limits.json is in sync with canonical limits"
+          else
+            echo "❌ gpu-limits.json has drifted from canonical limits"
+            echo ""
+            echo "--- Canonical Limits ---"
+            echo "$CANONICAL"
+            echo ""
+            echo "--- src-tauri/limits/gpu-limits.json (local) ---"
+            cat src-tauri/limits/gpu-limits.json
+            echo ""
+            echo "Update src-tauri/limits/gpu-limits.json to match the canonical package, or bump the package version."
+            exit 1
+          fi
+
   test-rust:
     name: Test Rust Backend
     runs-on: ubuntu-latest

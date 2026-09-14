@@ -194,10 +194,37 @@ Notes: <anything relevant — driver quirks, fallback path, etc.>
 | Date       | Platform         | GPU                                | Driver        | Backend | minimal max err | raster max err |
 | ---------- | ---------------- | ---------------------------------- | ------------- | ------- | --------------- | -------------- |
 | 2026-08-21 | macOS (Apple M1) | Apple M1                           | Metal default | Metal   | 0               | 0              |
-| —          | Windows          | _pending — required before v0.1.0_ | —             | DX12    | —               | —              |
-| —          | Linux            | _pending — required before v0.1.0_ | —             | Vulkan  | —               | —              |
+| —          | Windows          | _not yet run — see priority note below_ | —        | DX12    | —               | —              |
+| —          | Linux            | _not yet run — see priority note below_ | —        | Vulkan  | —               | —              |
 
 The macOS Metal reference is the baseline. All other platforms diff against it.
+
+> [!CAUTION]
+> **Live unvalidated code paths — priority before next user-facing release**
+>
+> The Windows DX12 and Linux Vulkan hardware runs were originally gated as "required
+> before v0.1.0." The project shipped from `0.1.0-alpha.1` to `1.5.0` without these
+> runs being completed. As of 2026-09-14, the following production code paths have
+> **never been checked against a real-hardware pixel baseline**:
+>
+> - **NV12→RGBA color-space conversion** (FFmpeg native export path, replaces the old
+>   `HTMLVideoElement` DOM seeking approach) — subtle YCbCr rounding differences are
+>   invisible in Metal-only development and would show as slightly wrong colors on
+>   every Windows/Linux export without throwing any error.
+> - **Zero-copy DXGI shared texture import** (shipped in 1.5.0) — DX12 texture format
+>   alignment issues would also be silent, appearing as mangled frames only on affected
+>   discrete GPU + driver combinations.
+> - **Vulkan subgroup behaviour and NV12 texture sampling** on Linux discrete hardware.
+>
+> CI green on these platforms means WARP/Lavapipe software rasterizers passed —
+> it does not mean real discrete GPU hardware was validated. A user reporting
+> "exports look off on Windows" would need this log filled in to distinguish a
+> driver-level color bug from a code regression.
+>
+> **To unblock:** run `cargo build --release && cargo run --release -- render ...`
+> in `crates/clypra-native-cli` on a physical Windows machine with a discrete GPU
+> and a physical Linux machine with Vulkan drivers, follow the format above, and
+> fill in the table.
 
 ### WASM parity (Phase 1 — pending `clypra-render-wasm`)
 

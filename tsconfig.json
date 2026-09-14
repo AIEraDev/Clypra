@@ -31,7 +31,8 @@
       "@clypra-studio/shaders": ["../clypra-packages/packages/shaders/src/index.ts"],
       "@clypra-studio/shaders/*": ["../clypra-packages/packages/shaders/src/*"],
       "@clypra-studio/engine": ["../clypra-packages/packages/clypra-engine/src/index.ts"],
-      "@clypra-studio/engine/*": ["../clypra-packages/packages/clypra-engine/src/*"]
+      "@clypra-studio/engine/*": ["../clypra-packages/packages/clypra-engine/src/*"],
+      "@gpu-limits": ["./src-tauri/limits/gpu-limits.json"]
     },
 
     /* Test type declarations */

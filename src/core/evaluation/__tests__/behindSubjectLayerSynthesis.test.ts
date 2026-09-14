@@ -8,6 +8,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { evaluateTimelineScene as evaluateScene } from "../evaluator";
 import type { TextClip, VideoClip, Track, MediaAsset, Project } from "@/types";
+import type {
+  SkeletalAnchorConfig,
+  TorsoAnchors,
+  ParticleEmitterConfig,
+} from "@clypra-studio/types";
 import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 
 // Mock Tauri API
@@ -196,5 +201,276 @@ describe("Behind Subject Layer Synthesis", () => {
     expect(scene.audioLayers).toHaveLength(1);
     expect(scene.audioLayers[0].clipId).toBe(videoClip.id);
     expect(scene.audioLayers.some((a) => a.clipId.includes("subject-cutout"))).toBe(false);
+  });
+
+  const dummyTorsoFacingForward: TorsoAnchors = {
+    leftShoulder: { x: 0.3875, y: 0.3, z: 0, visibility: 1 },
+    rightShoulder: { x: 0.6125, y: 0.3, z: 0, visibility: 1 },
+    neck: { x: 0.5, y: 0.3, z: 0, visibility: 1 },
+    spineCenter: { x: 0.5, y: 0.5, z: 0, visibility: 1 },
+    leftWrist: { x: 0.2, y: 0.7, z: 0, visibility: 1 },
+    rightWrist: { x: 0.8, y: 0.7, z: 0, visibility: 1 },
+    torsoOrientation: { x: 0, y: 0, z: 0, w: 1 },
+    ...({
+      hipCenter: { x: 0.5, y: 0.7, z: 0, visibility: 1 },
+      torsoWidth: 0.25,
+      torsoHeight: 0.4,
+    } as any),
+  };
+
+  const dummyTorsoTurningRight: TorsoAnchors = {
+    ...dummyTorsoFacingForward,
+    torsoOrientation: { x: 0, y: 0.2588, z: 0, w: 0.9659 }, // +30 deg yaw
+  };
+
+  it("synthesizes skeletal dual-wing sprites and sorts far wing behind subject cutout and near wing in front in auto-yaw mode", () => {
+    const videoWithWings: VideoClip = {
+      ...videoClip,
+      id: "video-wings",
+      ...({
+        torsoAnchors: dummyTorsoTurningRight,
+        skeletalAnchorConfig: {
+          anchorKeypoint: "spineCenter",
+          depthMode: "auto-yaw",
+          dualSprite: {
+            leftAnchorKeypoint: "leftShoulder",
+            rightAnchorKeypoint: "rightShoulder",
+            leftSpriteUri: "/assets/effects/wings_left.png",
+            rightSpriteUri: "/assets/effects/wings_right.png",
+          },
+        } satisfies SkeletalAnchorConfig,
+      } as any),
+    };
+
+    const scene = evaluateScene(1.0, [videoWithWings], tracks, assets, project);
+
+    // Visual layers should contain:
+    // 1. Base video (video-wings)
+    // 2. Left wing (video-wings:skeletal-left) - sorted behind because yaw > 10
+    // 3. Foreground subject cutout (video-wings:subject-cutout)
+    // 4. Right wing (video-wings:skeletal-right) - sorted in front because yaw > 10
+    expect(scene.visualLayers).toHaveLength(4);
+
+    const baseMedia = scene.visualLayers.find((l) => l.layerId === "video-wings");
+    const leftWing = scene.visualLayers.find((l) => l.layerId === "video-wings:skeletal-left");
+    const rightWing = scene.visualLayers.find((l) => l.layerId === "video-wings:skeletal-right");
+    const cutout = scene.visualLayers.find((l) => l.layerId === "video-wings:subject-cutout");
+
+    expect(baseMedia).toBeDefined();
+    expect(leftWing).toBeDefined();
+    expect(rightWing).toBeDefined();
+    expect(cutout).toBeDefined();
+
+    // 3D Parallax Occlusion Order:
+    // Base video (0) < Left Wing (1) < Subject Cutout (2) < Right Wing (3)
+    expect(baseMedia!.zIndex).toBeLessThan(leftWing!.zIndex);
+    expect(leftWing!.zIndex).toBeLessThan(cutout!.zIndex);
+    expect(cutout!.zIndex).toBeLessThan(rightWing!.zIndex);
+  });
+
+  it("synthesizes both wings behind subject when depthMode is behind-subject", () => {
+    const videoWithWings: VideoClip = {
+      ...videoClip,
+      id: "video-wings-behind",
+      ...({
+        torsoAnchors: dummyTorsoFacingForward,
+        skeletalAnchorConfig: {
+          anchorKeypoint: "spineCenter",
+          depthMode: "behind-subject",
+          dualSprite: {
+            leftAnchorKeypoint: "leftShoulder",
+            rightAnchorKeypoint: "rightShoulder",
+            leftSpriteUri: "/assets/effects/wings_left.png",
+            rightSpriteUri: "/assets/effects/wings_right.png",
+          },
+        } satisfies SkeletalAnchorConfig,
+      } as any),
+    };
+
+    const scene = evaluateScene(1.0, [videoWithWings], tracks, assets, project);
+
+    expect(scene.visualLayers).toHaveLength(4);
+    const leftWing = scene.visualLayers.find((l) => l.layerId === "video-wings-behind:skeletal-left");
+    const rightWing = scene.visualLayers.find((l) => l.layerId === "video-wings-behind:skeletal-right");
+    const cutout = scene.visualLayers.find((l) => l.layerId === "video-wings-behind:subject-cutout");
+
+    expect(leftWing!.zIndex).toBeLessThan(cutout!.zIndex);
+    expect(rightWing!.zIndex).toBeLessThan(cutout!.zIndex);
+  });
+
+  it("synthesizes single main skeletal sprite anchored to neck behind subject", () => {
+    const videoWithHalo: VideoClip = {
+      ...videoClip,
+      id: "video-halo",
+      ...({
+        torsoAnchors: dummyTorsoFacingForward,
+        skeletalAnchorConfig: {
+          anchorKeypoint: "neck",
+          depthMode: "behind-subject",
+          spriteAssetUri: "/assets/effects/halo.png",
+        } satisfies SkeletalAnchorConfig,
+      } as any),
+    };
+
+    const scene = evaluateScene(1.0, [videoWithHalo], tracks, assets, project);
+
+    expect(scene.visualLayers).toHaveLength(3);
+    const baseMedia = scene.visualLayers.find((l) => l.layerId === "video-halo");
+    const halo = scene.visualLayers.find((l) => l.layerId === "video-halo:skeletal-main");
+    const cutout = scene.visualLayers.find((l) => l.layerId === "video-halo:subject-cutout");
+
+    expect(baseMedia).toBeDefined();
+    expect(halo).toBeDefined();
+    expect(cutout).toBeDefined();
+    expect(baseMedia!.zIndex).toBeLessThan(halo!.zIndex);
+    expect(halo!.zIndex).toBeLessThan(cutout!.zIndex);
+  });
+
+  it("synthesizes procedural particle emitter layer behind subject when behindSubject is true", () => {
+    const videoWithParticles: VideoClip = {
+      ...videoClip,
+      id: "video-particles",
+      ...({
+        torsoAnchors: dummyTorsoFacingForward,
+        behindSubject: true,
+        particleEmitterConfig: {
+          emitterType: "contour",
+          anchorSource: "spine",
+          particleCount: 150,
+          lifetimeSec: 1.5,
+          speed: 90,
+          turbulence: 30,
+          gravity: -50,
+          colorStart: "#ff6600",
+          colorEnd: "#ffff00",
+          blendMode: "screen",
+        } satisfies ParticleEmitterConfig,
+      } as any),
+    };
+
+    const scene = evaluateScene(1.0, [videoWithParticles], tracks, assets, project);
+
+    // Should contain:
+    // 1. Base video (video-particles)
+    // 2. Synthesized particle emitter layer (video-particles:particle-emitter)
+    // 3. Synthesized foreground subject cutout (video-particles:subject-cutout)
+    expect(scene.visualLayers).toHaveLength(3);
+
+    const baseMedia = scene.visualLayers.find((l) => l.layerId === "video-particles");
+    const particleLayer = scene.visualLayers.find(
+      (l) => l.layerId === "video-particles:particle-emitter",
+    );
+    const cutoutLayer = scene.visualLayers.find(
+      (l) => l.layerId === "video-particles:subject-cutout",
+    );
+
+    expect(baseMedia).toBeDefined();
+    expect(particleLayer).toBeDefined();
+    expect(cutoutLayer).toBeDefined();
+
+    // 3D Sandwich Ordering: Base (0) < Particles (1) < Cutout (2)
+    expect(baseMedia!.zIndex).toBeLessThan(particleLayer!.zIndex);
+    expect(particleLayer!.zIndex).toBeLessThan(cutoutLayer!.zIndex);
+
+    // Check particle layer effect configuration
+    if (particleLayer && particleLayer.layerType === "media") {
+      expect(particleLayer.effects).toBeDefined();
+      const particleEffect = particleLayer.effects?.find(
+        (fx) => fx.renderer === "body_particles",
+      );
+      expect(particleEffect).toBeDefined();
+      expect(particleEffect?.type).toBe("body_effect");
+      expect(particleEffect?.parameters?.particleCount).toBe(150);
+      expect(particleEffect?.parameters?.particleColor).toBe("#ff6600");
+    }
+
+    // Zero audio duplication
+    expect(scene.audioLayers).toHaveLength(1);
+    expect(scene.audioLayers[0].clipId).toBe("video-particles");
+  });
+
+  it("synthesizes particle emitter layer in front of subject when behindSubject is false", () => {
+    const videoWithFrontParticles: VideoClip = {
+      ...videoClip,
+      id: "video-particles-front",
+      ...({
+        torsoAnchors: dummyTorsoFacingForward,
+        behindSubject: false,
+        particleEmitterConfig: {
+          emitterType: "point",
+          anchorSource: "wrists",
+          particleCount: 100,
+          lifetimeSec: 1.0,
+          colorStart: "#00ffff",
+        } satisfies ParticleEmitterConfig,
+      } as any),
+    };
+
+    const scene = evaluateScene(1.0, [videoWithFrontParticles], tracks, assets, project);
+
+    // Only 2 layers: base video and foreground particle layer (no cutout needed)
+    expect(scene.visualLayers).toHaveLength(2);
+    const baseMedia = scene.visualLayers.find((l) => l.layerId === "video-particles-front");
+    const particleLayer = scene.visualLayers.find(
+      (l) => l.layerId === "video-particles-front:particle-emitter",
+    );
+
+    expect(baseMedia).toBeDefined();
+    expect(particleLayer).toBeDefined();
+    expect(particleLayer!.zIndex).toBeGreaterThan(baseMedia!.zIndex);
+    expect(scene.visualLayers.some((l) => l.layerId.endsWith(":subject-cutout"))).toBe(false);
+  });
+
+  it("synthesizes cutout layer when clip declares layerZOrder: 'behind-subject' (manifest compositing spec)", () => {
+    const textClip = createTextClip({
+      id: "text-layer-zorder",
+      text: "Behind Person Headline (layerZOrder)",
+      layerZOrder: "behind-subject",
+      subjectFeather: 5,
+    });
+
+    const scene = evaluateScene(3.0, [videoClip, textClip], tracks, assets, project);
+
+    expect(scene.visualLayers).toHaveLength(3);
+    const baseMedia = scene.visualLayers.find(
+      (l) => l.layerType === "media" && !l.layerId.endsWith(":subject-cutout"),
+    );
+    const textLayer = scene.visualLayers.find((l) => l.layerType === "text");
+    const cutoutLayer = scene.visualLayers.find(
+      (l) => l.layerType === "media" && l.layerId.endsWith(":subject-cutout"),
+    );
+
+    expect(baseMedia).toBeDefined();
+    expect(textLayer).toBeDefined();
+    expect(cutoutLayer).toBeDefined();
+    expect(baseMedia!.zIndex).toBeLessThan(textLayer!.zIndex);
+    expect(cutoutLayer!.zIndex).toBeGreaterThan(textLayer!.zIndex);
+
+    const cutoutEffect = cutoutLayer?.effects?.find((fx) => fx.renderer === "body_cutout");
+    expect(cutoutEffect).toBeDefined();
+    expect(cutoutEffect?.parameters?.feather).toBe(5);
+  });
+
+  it("synthesizes cutout layer with custom feather when clip declares compositing: { layerZOrder: 'behind-subject', feather: 8 }", () => {
+    const textClip = createTextClip({
+      id: "text-compositing-spec",
+      text: "Behind Person Headline (compositing spec)",
+      compositing: {
+        layerZOrder: "behind-subject",
+        feather: 8,
+      },
+    });
+
+    const scene = evaluateScene(3.0, [videoClip, textClip], tracks, assets, project);
+
+    expect(scene.visualLayers).toHaveLength(3);
+    const cutoutLayer = scene.visualLayers.find(
+      (l) => l.layerType === "media" && l.layerId.endsWith(":subject-cutout"),
+    );
+
+    expect(cutoutLayer).toBeDefined();
+    const cutoutEffect = cutoutLayer?.effects?.find((fx) => fx.renderer === "body_cutout");
+    expect(cutoutEffect).toBeDefined();
+    expect(cutoutEffect?.parameters?.feather).toBe(8);
   });
 });

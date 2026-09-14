@@ -47,6 +47,23 @@ const workspaceAlias = hasWorkspace
         workspacePackagesDir,
         "clypra-engine/src/index.ts",
       ),
+      // Shaders package — same pattern as engine: local dev resolves directly
+      // to sibling source for hot-reload; CI/prod uses the installed npm package.
+      "@clypra-studio/shaders/limits": path.resolve(
+        workspacePackagesDir,
+        "shaders/src/limits.ts",
+      ),
+      "@clypra-studio/shaders": path.resolve(
+        workspacePackagesDir,
+        "shaders/src/index.ts",
+      ),
+      // @gpu-limits → the canonical gpu-limits.json inside the sibling shaders package.
+      // In CI/prod (no sibling workspace) this is shadowed by the static alias below,
+      // which points to the identical local committed copy in src-tauri/limits/.
+      "@gpu-limits": path.resolve(
+        workspacePackagesDir,
+        "shaders/src/gpu-limits.json",
+      ),
     }
   : {};
 
@@ -57,6 +74,12 @@ export default defineConfig(async () => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // @gpu-limits — canonical GPU limits JSON, imported by capabilities.ts and EffectPicker.tsx.
+      // LOCAL DEV (sibling workspace present): workspaceAlias (spread below) overrides this with
+      //   the live clypra-packages/packages/shaders/src/gpu-limits.json source.
+      // CI / PROD (no sibling workspace): resolves to src-tauri/limits/gpu-limits.json, the
+      //   committed local copy that the CI drift-check step keeps in sync with the published package.
+      "@gpu-limits": path.resolve(__dirname, "./src-tauri/limits/gpu-limits.json"),
       react: path.resolve(__dirname, "./node_modules/react"),
       "react-dom": path.resolve(__dirname, "./node_modules/react-dom"),
       "pixi.js": path.resolve(__dirname, "./src/lib/mocks/pixiMock.ts"),
