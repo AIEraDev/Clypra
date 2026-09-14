@@ -85,6 +85,9 @@ export interface NativeGpuRuntimeStatus {
   deviceType: string | null;
   surfaceAvailable: boolean;
   failureReason: string | null;
+  meetsCanonicalLimits?: boolean;
+  limitWarnings?: string[];
+  maxTextureDimension2D?: number | null;
 }
 
 export interface NativePerformanceBudget {

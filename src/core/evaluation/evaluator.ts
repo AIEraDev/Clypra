@@ -44,6 +44,12 @@ import {
 } from "@clypra-studio/engine";
 import { resolveCanonicalFamily } from "@/core/fonts/fontRegistry";
 import { traceCutoutEvent } from "@/core/playback/cutoutPipelineTrace";
+import { calculateSkeletalSpriteTransforms } from "@/features/body-effects/capture/skeletalAnchorCalculator";
+import type {
+  SkeletalAnchorConfig,
+  TorsoAnchors,
+  ParticleEmitterConfig,
+} from "@clypra-studio/types";
 
 const isExternalOrDataUrl = (value: string) =>
   value.startsWith("data:") ||
@@ -68,6 +74,178 @@ import { evaluateEffectiveAudioState } from "@/core/audio/effectiveAudioState";
 import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import { expandCompoundClips } from "@/core/timeline/compoundClips";
 import { compareCompositorClips } from "@/core/compositor/ordering";
+
+function resolveSkeletalConfig(clip: Clip): SkeletalAnchorConfig | undefined {
+  if ((clip as any).skeletalAnchorConfig) {
+    return (clip as any).skeletalAnchorConfig as SkeletalAnchorConfig;
+  }
+  if ((clip as any).params?.skeletalAnchorConfig) {
+    return (clip as any).params.skeletalAnchorConfig as SkeletalAnchorConfig;
+  }
+  if (Array.isArray(clip.effects)) {
+    for (const fx of clip.effects) {
+      if ((fx as any).skeletalAnchorConfig) {
+        return (fx as any).skeletalAnchorConfig as SkeletalAnchorConfig;
+      }
+      if ((fx as any).parameters?.skeletalAnchorConfig) {
+        return (fx as any).parameters.skeletalAnchorConfig as SkeletalAnchorConfig;
+      }
+      if ((fx as any).params?.skeletalAnchorConfig) {
+        return (fx as any).params.skeletalAnchorConfig as SkeletalAnchorConfig;
+      }
+      if (
+        (fx as any).primitive === "SkeletalSpriteAnchor" ||
+        fx.renderer === "skeletal_sprite" ||
+        fx.effectId === "ANGEL_WINGS" ||
+        (fx as any).name === "ANGEL_WINGS"
+      ) {
+        return ((fx as any).parameters || (fx as any).params) as SkeletalAnchorConfig;
+      }
+    }
+  }
+  if (
+    clip.kind === "body-effect" &&
+    ((clip as any).mediaId === "ANGEL_WINGS" || (clip as any).renderer === "skeletal_sprite")
+  ) {
+    return (clip as any).params as SkeletalAnchorConfig;
+  }
+  return undefined;
+}
+
+function resolveParticleConfig(clip: Clip): ParticleEmitterConfig | undefined {
+  if ((clip as any).particleEmitterConfig) {
+    return (clip as any).particleEmitterConfig as ParticleEmitterConfig;
+  }
+  if ((clip as any).params?.particleEmitterConfig) {
+    return (clip as any).params.particleEmitterConfig as ParticleEmitterConfig;
+  }
+  if ((clip as any).parameters?.particleEmitterConfig) {
+    return (clip as any).parameters.particleEmitterConfig as ParticleEmitterConfig;
+  }
+  if (clip.effects && Array.isArray(clip.effects)) {
+    for (const fx of clip.effects) {
+      if ((fx as any).particleEmitterConfig) {
+        return (fx as any).particleEmitterConfig as ParticleEmitterConfig;
+      }
+      if ((fx as any).parameters?.particleEmitterConfig) {
+        return (fx as any).parameters.particleEmitterConfig as ParticleEmitterConfig;
+      }
+      if ((fx as any).params?.particleEmitterConfig) {
+        return (fx as any).params.particleEmitterConfig as ParticleEmitterConfig;
+      }
+      if (
+        fx.renderer === "body_particles" ||
+        fx.renderer === "particle_emitter" ||
+        fx.renderer === "ParticleEmitter" ||
+        (fx as any).primitive === "ParticleEmitter"
+      ) {
+        return ((fx as any).parameters || (fx as any).params || fx) as unknown as ParticleEmitterConfig;
+      }
+    }
+  }
+  if (
+    clip.kind === "body-effect" &&
+    ((clip as any).mediaId === "BODY_PARTICLES" ||
+      (clip as any).renderer === "body_particles" ||
+      (clip as any).renderer === "particle_emitter" ||
+      (clip as any).primitive === "ParticleEmitter")
+  ) {
+    return ((clip as any).params || (clip as any).parameters || clip) as ParticleEmitterConfig;
+  }
+  return undefined;
+}
+
+function resolveTorsoAnchors(
+  clip: Clip,
+  sortedClips: Clip[],
+): TorsoAnchors | undefined {
+  if ((clip as any).torsoAnchors) {
+    return (clip as any).torsoAnchors as TorsoAnchors;
+  }
+  const underlying = sortedClips.find(
+    (c) =>
+      c.id !== clip.id &&
+      (c.kind === "video" || (c as any).mediaType === "video") &&
+      Boolean((c as any).torsoAnchors),
+  );
+  return (underlying as any)?.torsoAnchors as TorsoAnchors | undefined;
+}
+
+/**
+ * Determines whether a visual layer or its associated clip/effects declare
+ * that it should be rendered behind the segmented subject cutout.
+ *
+ * Supports:
+ * - layer.layerZOrder === "behind-subject"
+ * - layer.behindSubject === true
+ * - layer.compositing?.layerZOrder === "behind-subject"
+ * - layer.effects declaring layerZOrder === "behind-subject"
+ * - clip.layerZOrder === "behind-subject"
+ * - clip.behindSubject === true
+ * - clip.compositing?.layerZOrder === "behind-subject"
+ * - clip.params?.layerZOrder === "behind-subject" || clip.params?.behindSubject === true
+ * - clip.parameters?.layerZOrder === "behind-subject" || clip.parameters?.behindSubject === true
+ * - clip.manifest?.compositing?.layerZOrder === "behind-subject"
+ * - clip.effects declaring layerZOrder === "behind-subject"
+ */
+export function isBehindSubjectLayer(
+  layer: {
+    layerId: string;
+    clipId?: string;
+    behindSubject?: boolean;
+    layerZOrder?: "behind-subject" | "in-front";
+    compositing?: { layerZOrder?: string; [key: string]: any };
+    effects?: readonly any[];
+    [key: string]: any;
+  },
+  clips: readonly Clip[],
+): boolean {
+  if (layer.layerId.endsWith(":subject-cutout")) return false;
+
+  // Direct layer properties
+  if (layer.layerZOrder === "behind-subject") return true;
+  if (Boolean(layer.behindSubject)) return true;
+  if (layer.compositing?.layerZOrder === "behind-subject") return true;
+
+  // Layer effects
+  if (layer.effects && Array.isArray(layer.effects)) {
+    for (const fx of layer.effects) {
+      if (fx.layerZOrder === "behind-subject") return true;
+      if (fx.compositing?.layerZOrder === "behind-subject") return true;
+      if (fx.parameters?.layerZOrder === "behind-subject") return true;
+      if (Boolean(fx.parameters?.behindSubject)) return true;
+      if (fx.params?.layerZOrder === "behind-subject") return true;
+      if (Boolean(fx.params?.behindSubject)) return true;
+    }
+  }
+
+  // Associated clip properties
+  const clip = clips.find((c) => c.id === layer.clipId);
+  if (clip) {
+    if ((clip as any).layerZOrder === "behind-subject") return true;
+    if (Boolean((clip as any).behindSubject)) return true;
+    if ((clip as any).compositing?.layerZOrder === "behind-subject") return true;
+    if ((clip as any).params?.layerZOrder === "behind-subject") return true;
+    if (Boolean((clip as any).params?.behindSubject)) return true;
+    if ((clip as any).parameters?.layerZOrder === "behind-subject") return true;
+    if (Boolean((clip as any).parameters?.behindSubject)) return true;
+    if ((clip as any).manifest?.compositing?.layerZOrder === "behind-subject") return true;
+    if ((clip as any).bodyEffect?.manifest?.compositing?.layerZOrder === "behind-subject") return true;
+
+    if ((clip as any).effects && Array.isArray((clip as any).effects)) {
+      for (const fx of (clip as any).effects) {
+        if (fx.layerZOrder === "behind-subject") return true;
+        if (fx.compositing?.layerZOrder === "behind-subject") return true;
+        if (fx.parameters?.layerZOrder === "behind-subject") return true;
+        if (Boolean(fx.parameters?.behindSubject)) return true;
+        if (fx.params?.layerZOrder === "behind-subject") return true;
+        if (Boolean(fx.params?.behindSubject)) return true;
+      }
+    }
+  }
+
+  return false;
+}
 
 /**
  * Evaluate the NLE timeline at a specific time.
@@ -549,61 +727,260 @@ export function evaluateTimelineScene(
     visualLayers.push(mediaLayer);
   }
 
-  // ─── 3.1 Synthesize Foreground Subject Cutouts for "Behind Subject" Overlays ───
-  const behindSubjectClips = sortedClips.filter((c) => Boolean((c as any).behindSubject));
-  if (behindSubjectClips.length > 0) {
-    const synthesizedCutouts: EvaluatedMediaLayer[] = [];
-    const mediaLayers = visualLayers.filter(
-      (layer): layer is EvaluatedMediaLayer =>
-        layer.layerType === "media" &&
-        !layer.layerId.endsWith(":subject-cutout") &&
-        (layer.mediaType === "video" || layer.mediaType === "image"),
+  // ─── 3.0 Synthesize Skeletal VFX Anchor Sprite Layers ─────────────────────
+  const synthesizedSkeletalSprites: EvaluatedMediaLayer[] = [];
+  const canvasWidth = project?.canvasWidth ?? 1920;
+  const canvasHeight = project?.canvasHeight ?? 1080;
+
+  for (const clip of sortedClips) {
+    const skeletalConfig = resolveSkeletalConfig(clip);
+    if (!skeletalConfig) continue;
+
+    const torsoAnchors = resolveTorsoAnchors(clip, sortedClips);
+    if (!torsoAnchors) continue;
+
+    // Find the media layer associated with this clip (or underlying media) to anchor z-index
+    const baseMediaLayer =
+      visualLayers.find((l) => l.clipId === clip.id && l.layerType === "media") ||
+      visualLayers.find((l) => l.layerType === "media" && !l.layerId.endsWith(":subject-cutout"));
+    const baseZ = baseMediaLayer ? baseMediaLayer.zIndex : 0;
+
+    const resolved = calculateSkeletalSpriteTransforms(
+      torsoAnchors,
+      canvasWidth,
+      canvasHeight,
+      skeletalConfig,
     );
 
-    for (const behindClip of behindSubjectClips) {
-      const overlayLayers = visualLayers.filter((layer) => layer.clipId === behindClip.id);
-      for (const overlayLayer of overlayLayers) {
-        const feather = typeof (behindClip as any).subjectFeather === "number"
-          ? (behindClip as any).subjectFeather
-          : 4;
+    // If the source clip was an image or body-effect clip dedicated to this sprite,
+    // remove its placeholder layer so the synthesized skeletal sprite layer(s) replace it.
+    if (clip.kind === "image" || (clip as any).kind === "body-effect") {
+      const idx = visualLayers.findIndex((l) => l.clipId === clip.id);
+      if (idx !== -1) {
+        visualLayers.splice(idx, 1);
+      }
+    }
 
-        const underlyingMedia = mediaLayers.filter((media) => media.zIndex < overlayLayer.zIndex);
-        for (const media of underlyingMedia) {
-          const cutoutLayerId = `${media.layerId}:subject-cutout`;
-          if (synthesizedCutouts.some((s) => s.layerId === cutoutLayerId)) continue;
+    const makeSpriteLayer = (
+      subId: string,
+      transform: import("@/features/body-effects/capture/skeletalAnchorCalculator").ResolvedAnchorTransform,
+      isSecondary: boolean,
+    ): EvaluatedMediaLayer => {
+      const spriteW = Math.round(transform.width);
+      const spriteH = Math.round(transform.height);
+      const spriteX = Math.round(transform.x - spriteW / 2);
+      const spriteY = Math.round(transform.y - spriteH / 2);
+      const spriteZ = transform.isBehindSubject
+        ? baseZ + (isSecondary ? 0.21 : 0.2)
+        : baseZ + (isSecondary ? 0.81 : 0.8);
 
-          synthesizedCutouts.push({
-            ...media,
-            layerId: cutoutLayerId,
-            zIndex: overlayLayer.zIndex + 0.5,
-            effects: [
-              ...(media.effects ?? []),
-              {
-                effectId: `fx-body-cutout-${media.layerId}`,
-                type: "body_effect" as const,
-                renderer: "body_cutout",
-                parameters: {
-                  feather,
-                },
-                intensity: 1.0,
-                localTime: media.sourceTime,
-              },
-            ],
-          });
+      return {
+        layerId: `${clip.id}:skeletal-${subId}`,
+        clipId: clip.id,
+        role: "overlay",
+        clipKind: "image",
+        zIndex: spriteZ,
+        layerType: "media",
+        mediaId: `skeletal-sprite-${subId}`,
+        mediaType: "image",
+        sourcePath: transform.spriteUri
+          ? isExternalOrDataUrl(transform.spriteUri)
+            ? transform.spriteUri
+            : convertFileSrc(transform.spriteUri)
+          : "",
+        x: spriteX,
+        y: spriteY,
+        width: spriteW,
+        height: spriteH,
+        rotation: Math.round(transform.rotationDeg * 100) / 100,
+        opacity: Math.max(0, Math.min(1, (clip.opacity ?? 1.0) * transform.opacity)),
+        inTransition: false,
+        blendMode: (skeletalConfig as any).blendMode || "normal",
+        sourceTime: 0,
+        ...((transform.isBehindSubject
+          ? { behindSubject: true, layerZOrder: "behind-subject" as const }
+          : { layerZOrder: "in-front" as const }) as any),
+      };
+    };
 
-          traceCutoutEvent(
-            "eval",
-            `Synthesized cutout layer '${cutoutLayerId}' behind '${behindClip.id}'`,
-            {
-              behindClipId: behindClip.id,
-              targetMediaId: media.mediaId,
-              cutoutLayerId,
-              feather,
-              textZIndex: overlayLayer.zIndex,
-              cutoutZIndex: overlayLayer.zIndex + 0.5,
-            },
-          );
+    if (resolved.main) {
+      synthesizedSkeletalSprites.push(makeSpriteLayer("main", resolved.main, false));
+    }
+    if (resolved.left) {
+      synthesizedSkeletalSprites.push(makeSpriteLayer("left", resolved.left, false));
+    }
+    if (resolved.right) {
+      synthesizedSkeletalSprites.push(makeSpriteLayer("right", resolved.right, true));
+    }
+  }
+
+  if (synthesizedSkeletalSprites.length > 0) {
+    visualLayers.push(...synthesizedSkeletalSprites);
+  }
+
+  // ─── 3.0b Synthesize Skeletal Particle Emitter Layers ───────────────────────
+  const synthesizedParticleLayers: EvaluatedMediaLayer[] = [];
+
+  for (const clip of sortedClips) {
+    const particleConfig = resolveParticleConfig(clip);
+    if (!particleConfig) continue;
+
+    const torsoAnchors = resolveTorsoAnchors(clip, sortedClips);
+    const baseMediaLayer =
+      visualLayers.find((l) => l.clipId === clip.id && l.layerType === "media") ||
+      visualLayers.find(
+        (l) =>
+          l.layerType === "media" &&
+          !l.layerId.endsWith(":subject-cutout") &&
+          !l.layerId.includes(":skeletal-") &&
+          !l.layerId.includes(":particle-"),
+      );
+    const baseZ = baseMediaLayer ? baseMediaLayer.zIndex : 0;
+
+    const isBehind =
+      (particleConfig as any).layerZOrder === "behind-subject" ||
+      (particleConfig as any).compositing?.layerZOrder === "behind-subject" ||
+      Boolean((particleConfig as any).behindSubject) ||
+      (clip as any).layerZOrder === "behind-subject" ||
+      (clip as any).compositing?.layerZOrder === "behind-subject" ||
+      Boolean((clip as any).behindSubject) ||
+      Boolean((clip as any).params?.behindSubject) ||
+      (clip as any).params?.layerZOrder === "behind-subject";
+
+    // If the source clip was an image or body-effect clip dedicated to this particle emitter,
+    // remove its placeholder layer so the synthesized particle layer replaces it.
+    if (clip.kind === "image" || (clip as any).kind === "body-effect") {
+      const idx = visualLayers.findIndex((l) => l.clipId === clip.id);
+      if (idx !== -1) {
+        visualLayers.splice(idx, 1);
+      }
+    }
+
+    const particleZ = isBehind ? baseZ + 0.2 : baseZ + 0.8;
+
+    synthesizedParticleLayers.push({
+      layerId: `${clip.id}:particle-emitter`,
+      clipId: clip.id,
+      role: "overlay",
+      clipKind: "image",
+      zIndex: particleZ,
+      layerType: "media",
+      mediaId: `particle-emitter-${clip.id}`,
+      mediaType: "image",
+      sourcePath: "",
+      x: 0,
+      y: 0,
+      width: canvasWidth,
+      height: canvasHeight,
+      rotation: 0,
+      opacity: Math.max(0, Math.min(1, clip.opacity ?? 1.0)),
+      inTransition: false,
+      blendMode: (particleConfig.blendMode as BlendMode) || "screen",
+      sourceTime: Math.max(0, time - clip.startTime),
+      ...(isBehind
+        ? { behindSubject: true, layerZOrder: "behind-subject" as const }
+        : { layerZOrder: "in-front" as const }),
+      effects: [
+        {
+          effectId: `fx-particles-${clip.id}`,
+          type: "body_effect" as const,
+          renderer: "body_particles",
+          parameters: {
+            ...particleConfig,
+            particleCount: particleConfig.particleCount ?? 120,
+            particleColor: particleConfig.colorStart || "#ff8800",
+            glowColor: particleConfig.colorStart || "#ff8800",
+            driftSpeed: particleConfig.speed ?? 40,
+            turbulence: particleConfig.turbulence ?? 25,
+            anchorSource: particleConfig.anchorSource ?? "silhouette",
+            torsoAnchors,
+          },
+          intensity: typeof (clip as any).intensity === "number" ? (clip as any).intensity : 1.0,
+          localTime: Math.max(0, time - clip.startTime),
+        },
+      ],
+    });
+  }
+
+  if (synthesizedParticleLayers.length > 0) {
+    visualLayers.push(...synthesizedParticleLayers);
+  }
+
+  // ─── 3.1 Synthesize Foreground Subject Cutouts for "Behind Subject" Overlays ───
+  const mediaLayers = visualLayers.filter(
+    (layer): layer is EvaluatedMediaLayer =>
+      layer.layerType === "media" &&
+      !layer.layerId.endsWith(":subject-cutout") &&
+      !layer.layerId.includes(":skeletal-") &&
+      !layer.layerId.includes(":particle-") &&
+      (layer.mediaType === "video" || layer.mediaType === "image"),
+  );
+
+  const behindSubjectOverlays = visualLayers.filter((layer) => {
+    if (layer.layerId.endsWith(":subject-cutout")) return false;
+    if (mediaLayers.some((m) => m.layerId === layer.layerId)) return false;
+
+    return isBehindSubjectLayer(layer, sortedClips);
+  });
+
+  if (behindSubjectOverlays.length > 0) {
+    const synthesizedCutouts: EvaluatedMediaLayer[] = [];
+
+    for (const overlayLayer of behindSubjectOverlays) {
+      const clip = sortedClips.find((c) => c.id === overlayLayer.clipId);
+      const feather =
+        typeof (overlayLayer as any).subjectFeather === "number"
+          ? (overlayLayer as any).subjectFeather
+          : typeof (clip as any)?.subjectFeather === "number"
+            ? (clip as any).subjectFeather
+            : typeof (clip as any)?.compositing?.feather === "number"
+              ? (clip as any).compositing.feather
+              : 4;
+
+      const underlyingMedia = mediaLayers.filter((media) => media.zIndex < overlayLayer.zIndex);
+      for (const media of underlyingMedia) {
+        const cutoutLayerId = `${media.layerId}:subject-cutout`;
+        const targetCutoutZIndex = overlayLayer.zIndex + 0.5;
+        const existingCutout = synthesizedCutouts.find((s) => s.layerId === cutoutLayerId);
+
+        if (existingCutout) {
+          if (targetCutoutZIndex > existingCutout.zIndex) {
+            (existingCutout as any).zIndex = targetCutoutZIndex;
+          }
+          continue;
         }
+
+        synthesizedCutouts.push({
+          ...media,
+          layerId: cutoutLayerId,
+          zIndex: targetCutoutZIndex,
+          effects: [
+            ...(media.effects ?? []),
+            {
+              effectId: `fx-body-cutout-${media.layerId}`,
+              type: "body_effect" as const,
+              renderer: "body_cutout",
+              parameters: {
+                feather,
+              },
+              intensity: 1.0,
+              localTime: media.sourceTime,
+            },
+          ],
+        });
+
+        traceCutoutEvent(
+          "eval",
+          `Synthesized cutout layer '${cutoutLayerId}' behind '${overlayLayer.layerId}'`,
+          {
+            behindClipId: overlayLayer.clipId,
+            targetMediaId: media.mediaId,
+            cutoutLayerId,
+            feather,
+            textZIndex: overlayLayer.zIndex,
+            cutoutZIndex: targetCutoutZIndex,
+          },
+        );
       }
     }
 

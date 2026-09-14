@@ -80,6 +80,24 @@ interface BaseVisualLayer {
   /** Active effects at this time (future) */
   readonly effects?: EvaluatedEffect[];
 
+  // ─── Subject Occlusion & Z-Order ─────────────────────────────────────────
+
+  /** Whether this layer renders behind the foreground subject */
+  readonly behindSubject?: boolean;
+
+  /** Z-order relative to subject: "behind-subject" or "in-front" */
+  readonly layerZOrder?: "behind-subject" | "in-front";
+
+  /** Compositing specification for subject occlusion */
+  readonly compositing?: {
+    readonly layerZOrder?: "behind-subject" | "in-front";
+    readonly feather?: number;
+    readonly [key: string]: any;
+  };
+
+  /** Soft edge feathering in pixels for subject cutout (default 4) */
+  readonly subjectFeather?: number;
+
   // ─── Masks (Phase 3) ──────────────────────────────────────────────────────
 
   /** Active masks at this time (future) */

@@ -373,6 +373,14 @@ export interface Clip {
   baseHeight?: number;
   /** When true, places this overlay clip behind foreground segmented subject(s) */
   behindSubject?: boolean;
+  /** Z-order relative to subject: "behind-subject" or "in-front" */
+  layerZOrder?: "behind-subject" | "in-front";
+  /** Compositing specification for subject occlusion */
+  compositing?: {
+    layerZOrder?: "behind-subject" | "in-front";
+    feather?: number;
+    [key: string]: any;
+  };
   /** Soft edge feathering in pixels for subject cutout (default 4) */
   subjectFeather?: number;
   // Transform constraints
