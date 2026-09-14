@@ -92,6 +92,8 @@ export interface EffectPreset {
     captureType?: "silhouette_mask" | "skeletal_pose" | "hybrid_body" | string;
     maskCategory?: "person" | "hair" | "face" | "clothing" | string;
     keypoints?: string[];
+    minTextureDimension2D?: number;
+    requiresCanonicalLimits?: boolean;
   };
 
   compositing?: {

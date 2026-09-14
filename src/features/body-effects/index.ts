@@ -14,4 +14,5 @@ export * from "./capabilities";
 export * from "./capture/cadenceDecimator";
 export * from "./capture/hybridJoinCoordinator";
 export * from "./capture/bodyCaptureClient";
+export * from "./cache/assetBundleManager";
 

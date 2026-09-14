@@ -439,6 +439,13 @@ export class NativeRasterBridge {
     for (const assetId of assetIds) {
       this.registeredAssetIds.delete(assetId);
       this.animatedStickerRenderer.evictFrame(assetId);
+      for (const [layerId, snapshot] of this.textSnapshotsByLayerId.entries()) {
+        if (snapshot.assetId === assetId) {
+          this.textSnapshotsByLayerId.delete(layerId);
+          this.textSnapshotKeysByLayerId.delete(layerId);
+          this.textSnapshotBleedByLayerId.delete(layerId);
+        }
+      }
     }
   }
 

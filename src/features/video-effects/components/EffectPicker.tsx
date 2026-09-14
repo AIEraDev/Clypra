@@ -3,7 +3,15 @@ import { Search, Sparkles, AlertCircle, Star, Download, Plus, AlertTriangle } fr
 import type { EffectPreset } from "../types";
 import { VideoEffectsApi } from "../api/videoEffectsApi";
 import { useFavoritesStore } from "@/store/favoritesStore";
-import { evaluateEffectCompatibility, LOCAL_ENGINE_CAPABILITIES } from "@/features/body-effects/capabilities";
+import {
+  evaluateEffectCompatibility,
+  getActiveEngineCapabilities,
+  syncEngineCapabilitiesWithGpuStatus,
+  isGpuStatusKnown,
+} from "@/features/body-effects/capabilities";
+import { isTauriRuntime, getNativeGpuStatus } from "@/lib/platform/tauri";
+// Canonical GPU limits — same file build.rs reads. The @gpu-limits alias is defined in vite.config.ts.
+import GPU_LIMITS from "@gpu-limits";
 
 interface EffectPickerProps {
   selectedCategory?: string;
@@ -17,10 +25,72 @@ export function EffectPicker({ selectedCategory: propCategory, onSelect }: Effec
   const [effects, setEffects] = useState<EffectPreset[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Tracks whether real GPU hardware data has been received from the Tauri IPC layer.
+  // Effects grid must not render until this resolves: otherwise compatibility badges
+  // are evaluated against the "unknown" default and an incompatible effect could
+  // appear available during the async startup window before real adapter limits land.
+  const [gpuStatusKnown, setGpuStatusKnown] = useState<boolean>(
+    // On non-Tauri runtimes (web preview) there's no hardware to probe — treat as known.
+    !isTauriRuntime() || isGpuStatusKnown(),
+  );
+  // Set when all retries have been exhausted. Enables a manual "Retry" affordance
+  // so users aren't locked out for the entire session by a single transient IPC failure.
+  const [gpuStatusError, setGpuStatusError] = useState<boolean>(false);
 
   const { favorites, downloadedEffects, downloadingIds, toggleFavorite, startDownload, completeDownload } = useFavoritesStore();
 
+  const probeGpuStatus = async () => {
+    if (!isTauriRuntime()) return;
+
+    // Exponential backoff: attempt 1 immediately, attempt 2 after 800ms, attempt 3 after 2s.
+    const delays = [0, 800, 2000];
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < delays.length; attempt++) {
+      if (delays[attempt] > 0) {
+        await new Promise((r) => setTimeout(r, delays[attempt]));
+      }
+      try {
+        const status = await getNativeGpuStatus();
+        if (status) {
+          syncEngineCapabilitiesWithGpuStatus(status);
+        }
+        setGpuStatusError(false);
+        setGpuStatusKnown(true);
+        return; // success — stop retrying
+      } catch (err) {
+        lastError = err;
+        console.warn(`[EffectPicker] GPU status probe attempt ${attempt + 1} failed:`, err);
+      }
+    }
+
+    // All retries exhausted. Fail closed:
+    // Seed a pessimistic stub so both gating checks run with real values.
+    //   - meetsCanonicalLimits: false                      → Gate 1 fires for unannotated + canonical effects
+    //   - maxTextureDimension2D: GPU_LIMITS.maxTextureDimension2D → Gate 2 fires against our own baseline.
+    //     Semantics: "adapter cannot be confirmed to meet our baseline" — not a recalled WebGPU spec floor.
+    //     This also means Gate 2 will fire for any effect requiring more than our baseline permits,
+    //     even if it has requiresCanonicalLimits: false (it opted out of Gate 1, Gate 2 still runs).
+    syncEngineCapabilitiesWithGpuStatus({
+      contractVersion: 0,
+      state: "failed",
+      available: false,
+      adapterName: null,
+      backend: null,
+      deviceType: null,
+      surfaceAvailable: false,
+      failureReason: String(lastError),
+      meetsCanonicalLimits: false,
+      maxTextureDimension2D: GPU_LIMITS.maxTextureDimension2D,
+      limitWarnings: ["GPU status IPC failed after 3 attempts — pessimistic hardware floor applied"],
+    });
+    console.error("[EffectPicker] GPU status probe failed after all retries — fail-closed applied:", lastError);
+    setGpuStatusError(true);
+    setGpuStatusKnown(true);
+  };
+
   useEffect(() => {
+    probeGpuStatus();
     loadBodyEffects();
   }, []);
 
@@ -95,6 +165,39 @@ export function EffectPicker({ selectedCategory: propCategory, onSelect }: Effec
           </div>
         )}
 
+        {/* Hardware probe pending: hold the grid until real GPU limits are known.
+            Without this gate, compatibility badges are evaluated against undefined
+            meetsCanonicalLimits and an incompatible effect would appear available
+            for however long the Tauri IPC adapter query takes to resolve. */}
+        {!loading && !gpuStatusKnown && (
+          <div className="flex items-center justify-center h-40 gap-2 text-xs text-text-muted">
+            <div className="animate-spin rounded-full h-3 w-3 border-2 border-text-muted border-t-transparent" />
+            <span>Checking hardware compatibility…</span>
+          </div>
+        )}
+
+        {/* GPU probe permanently failed: grid shows with pessimistic caps applied (fail-closed).
+            Offer a manual retry so users aren't stuck UNSUPPORTED for the whole session
+            due to a single transient IPC failure. */}
+        {!loading && gpuStatusKnown && gpuStatusError && (
+          <div className="flex items-center justify-between gap-2 p-2 mb-1.5 bg-amber-500/10 border border-amber-500/25 rounded-lg text-xs text-amber-400">
+            <div className="flex items-center gap-1.5">
+              <AlertTriangle className="h-3 w-3 shrink-0" />
+              <span>Hardware check failed — compatibility badges may be conservative.</span>
+            </div>
+            <button
+              onClick={() => {
+                setGpuStatusKnown(false);
+                setGpuStatusError(false);
+                probeGpuStatus();
+              }}
+              className="shrink-0 px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 rounded text-amber-300 cursor-pointer transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {error && (
           <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400">
             <AlertCircle className="h-4 w-4 shrink-0" />
@@ -102,17 +205,19 @@ export function EffectPicker({ selectedCategory: propCategory, onSelect }: Effec
           </div>
         )}
 
-        {!loading && !error && filteredEffects.length === 0 && (
+        {!loading && gpuStatusKnown && !error && filteredEffects.length === 0 && (
           <div className="flex flex-col items-center justify-center h-40 gap-1 text-xs text-text-muted">
             <p>No matching effects found</p>
             <p className="opacity-60">Try another search or category</p>
           </div>
         )}
 
-        {!loading && !error && filteredEffects.length > 0 && (
+        {!loading && gpuStatusKnown && !error && filteredEffects.length > 0 && (
           <div className="grid grid-cols-3 gap-1.5">
             {filteredEffects.map((effect) => {
-              // Evaluate compatibility against local engine capabilities
+              // Evaluate compatibility against live engine capabilities.
+              // getActiveEngineCapabilities() reflects real adapter limits once
+              // syncEngineCapabilitiesWithGpuStatus() has fired and React has re-rendered.
               let isCompatible = true;
               let incompatibleReason: string | undefined;
 
@@ -124,6 +229,8 @@ export function EffectPicker({ selectedCategory: propCategory, onSelect }: Effec
                       captureType: effect.requirements.captureType as any,
                       maskCategory: (effect.requirements.maskCategory as any) ?? "person",
                       requiredLandmarks: effect.requirements.keypoints,
+                      minTextureDimension2D: effect.requirements.minTextureDimension2D,
+                      requiresCanonicalLimits: effect.requirements.requiresCanonicalLimits,
                     },
                     compositing: {
                       primitive: effect.compositing.primitive as any,
@@ -131,7 +238,7 @@ export function EffectPicker({ selectedCategory: propCategory, onSelect }: Effec
                       blendMode: (effect.compositing.blendMode as any) ?? "normal",
                     },
                   },
-                  LOCAL_ENGINE_CAPABILITIES,
+                  getActiveEngineCapabilities(),
                 );
                 isCompatible = evalResult.compatible;
                 incompatibleReason = evalResult.reason;

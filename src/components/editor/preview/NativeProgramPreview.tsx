@@ -138,6 +138,7 @@ import {
   releaseNativeSurface,
   releaseNativeSurfaceReadiness,
 } from "@/core/runtime/nativeSurfaceLifecycle";
+import { syncEngineCapabilitiesWithGpuStatus } from "@/features/body-effects/capabilities";
 
 const CANVAS_DIMENSIONS: Record<
   Exclude<AspectRatio, "original">,
@@ -535,6 +536,7 @@ export const NativeProgramPreview: React.FC = () => {
               backend: status.backend,
               deviceType: status.deviceType,
             });
+            syncEngineCapabilitiesWithGpuStatus(status);
           }
         })
         .catch(() => {});
