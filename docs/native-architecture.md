@@ -1,7 +1,8 @@
 # Native Media Architecture
 
 Program Preview performance changes must follow the
-[Program Preview Performance Runbook](program-preview-performance-runbook.md)
+[Program Preview Performance Runbook](program-preview-performance-runbook.md),
+the [Windows Physical Machine Testing Runbook](windows-physical-machine-testing-runbook.md),
 and the [Native Performance Contract](performance-contract.md). These documents
 are the durable guardrails for path separation, stale-frame handling, telemetry,
 and release validation.

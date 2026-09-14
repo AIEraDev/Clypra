@@ -34,3 +34,7 @@ final embedded surface still requires a dedicated child/overlay implementation
 and resize/recovery tests. A dedicated native monitor window is the supported
 fallback if WebView stacking cannot meet the input, resize, and latency
 requirements on a platform.
+
+For the comprehensive end-to-end Windows setup, DX12 device-loss recovery,
+and physical machine test execution protocol, see the
+[Windows Physical Machine Testing Runbook](windows-physical-machine-testing-runbook.md).
