@@ -61,6 +61,9 @@ export const Playhead: React.FC<PlayheadProps> = ({
     null,
   );
   const dragOffsetRef = useRef(0); // Offset captured at drag start for smooth anchor
+  // Cached for the rAF playback-animation loop — stays current without causing re-mounts.
+  const pixelsPerSecondRef = useRef(pixelsPerSecond);
+  pixelsPerSecondRef.current = pixelsPerSecond;
   const clearDragCursorLock = () => {
     document.body.style.userSelect = "";
     document.body.classList.remove("cursor-lock-col");
@@ -68,13 +71,52 @@ export const Playhead: React.FC<PlayheadProps> = ({
 
   const currentTime = clockState.time;
 
-  // ✅ Use canonical timeToPixel helper for playhead left calculation
+  // ✅ Use canonical timeToPixel helper for playhead left calculation.
+  // This value drives the paused / scrub position via React state.
   const left = Math.max(0, timelineTimeToPixel(currentTime, pixelsPerSecond));
 
+  // ── Playback animation: rAF loop at up to 60 fps ────────────────────────
+  // During playback the clock subscription is deliberately throttled to 10fps
+  // to avoid React render storms. The useLayoutEffect below would therefore
+  // only fire ~10×/s, producing the 113ms paint-jitter observed on M1.
+  // Instead, while playing, we read `getPlaybackClock().time` imperatively
+  // every rAF and write `el.style.left` directly — no React re-render needed.
+  useEffect(() => {
+    if (clockState.state !== "playing" || isDragging) return;
+
+    let animRafId: number;
+    const loop = () => {
+      const el = playheadRef.current;
+      if (!el) {
+        animRafId = requestAnimationFrame(loop);
+        return;
+      }
+      const clock = getPlaybackClock();
+      if (clock.state !== "playing") {
+        // Playback stopped — React layoutEffect resumes position ownership.
+        return;
+      }
+      const pos = Math.max(0, timelineTimeToPixel(clock.time, pixelsPerSecondRef.current));
+      el.style.left = `${pos}px`;
+      recordPlayheadPaint();
+      recordSeekResolved();
+      animRafId = requestAnimationFrame(loop);
+    };
+
+    animRafId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(animRafId);
+  }, [clockState.state, isDragging]);
+
+  // ── Paused / scrub: keep DOM position in sync via React ─────────────────
+  // At 10fps this is perfectly acceptable; the user cannot perceive jitter
+  // when the playhead is stationary or being dragged (separate rAF loop below).
   useLayoutEffect(() => {
+    if (clockState.state === "playing" && !isDragging) return;
+    const el = playheadRef.current;
+    if (el) el.style.left = `${left}px`;
     recordPlayheadPaint();
     recordSeekResolved();
-  }, [left, pixelsPerSecond]);
+  }, [left, pixelsPerSecond, clockState.state, isDragging]);
 
   // ✅ PERFORMANCE OPTIMIZED: Throttled state updates to reduce React render storms
   const lastScrollUpdateRef = useRef(0);
@@ -406,7 +448,11 @@ export const Playhead: React.FC<PlayheadProps> = ({
       data-timeline-interactive="true"
       className="absolute select-none pointer-events-none"
       style={{
-        left: `${left}px`,
+        // `left` is intentionally omitted from the React style object.
+        // During playback it is written imperatively by the rAF animation loop
+        // above to achieve 60fps position updates without React re-renders.
+        // During pause/scrub the useLayoutEffect above writes it to the DOM.
+        // The initial value is set there too; React never owns this property.
         top: 0,
         bottom: 0,
         width: "8px",
