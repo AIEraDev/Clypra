@@ -2654,6 +2654,27 @@ struct LookaheadWorkerState {
 static LOOKAHEAD_WORKER: std::sync::Mutex<Option<LookaheadWorkerState>> =
     std::sync::Mutex::new(None);
 
+/// Read the capability-probe-selected quality tier from the active render session.
+///
+/// The startup probe in `configure_native_playback_render` writes the chosen
+/// tier into `render_session.snapshot.quality` via `set_preview_quality()`.
+/// This helper propagates that decision into the lookahead worker so that
+/// pre-decode frames use the same scaled resolution as foreground frames —
+/// critical on constrained iGPUs where `Proxy` (÷4) is chosen at probe time.
+///
+/// Returns `None` if no render session is active, letting the caller fall back
+/// to the per-request quality embedded in the frame request itself.
+fn current_lookahead_quality(
+    app: &tauri::AppHandle,
+) -> Option<crate::native_core::QualityTier> {
+    let playback = app.try_state::<Arc<std::sync::Mutex<
+        crate::commands::native_playback::NativePlaybackRuntime,
+    >>>()?;
+    let runtime_arc = playback.inner().clone();
+    let runtime = runtime_arc.lock().ok()?;
+    runtime.render_session_quality()
+}
+
 /// Non-blocking lookahead pre-decode worker.
 /// Pre-decodes upcoming frames sequentially into `NativePreviewFrameQueue`
 /// ahead of the presentation playhead. Because sequential forward decoding in FFmpeg
@@ -3120,7 +3141,7 @@ pub(crate) async fn present_native_frame_internal(
         // the single bounded worker is running before reporting the drop so
         // the next audio deadline can consume newly ready work. The scheduler
         // coalesces an already-running worker for this generation.
-        schedule_lookahead_predecode(app.clone(), request.clone(), 16, None);
+        schedule_lookahead_predecode(app.clone(), request.clone(), 16, current_lookahead_quality(&app));
         let probe = surface_state
             .lock()
             .unwrap_or_else(|poisoned| {
@@ -3799,7 +3820,7 @@ pub(crate) async fn present_native_frame_internal(
     );
 
     if request.mode.as_deref() != Some("prefetch") && request.mode.as_deref() != Some("scrub") {
-        schedule_lookahead_predecode(app.clone(), request.clone(), 16, None);
+        schedule_lookahead_predecode(app.clone(), request.clone(), 16, current_lookahead_quality(&app));
     }
 
     Ok(NativeSurfacePresentation {

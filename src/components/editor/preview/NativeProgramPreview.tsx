@@ -3883,7 +3883,30 @@ export const NativeProgramPreview: React.FC = () => {
           latest.project !== lastRenderedProject ||
           getFrameIndexAtTime(latest.clock.time, latest.clock.frameRate) !==
             lastRenderedFrameIndex;
-        if (hasPendingVisualChange) scheduleNextFrame();
+        if (hasPendingVisualChange) {
+          const renderMs = performance.now() - renderStartedAt;
+          const frameRateHz = latest.clock.frameRate > 0 ? latest.clock.frameRate : 30;
+          const frameIntervalMs = 1000 / frameRateHz;
+          // If the render took longer than one frame budget we are running below
+          // target FPS. Re-scheduling via rAF at 60 Hz would fire the next
+          // render before the previous result is consumed and waste IPC budget.
+          // Instead pace the next tick to the project frame rate so wakeups
+          // align with audio-clock frame boundaries. This is especially
+          // important on constrained iGPUs (Intel HD 520) where a single D3D12
+          // submit can take 17+ ms against a 33 ms budget.
+          if (latest.clock.state === "playing" && renderMs > frameIntervalMs) {
+            const delay = Math.max(0, frameIntervalMs - (renderMs % frameIntervalMs));
+            if (!frameScheduled && isActive) {
+              frameScheduled = true;
+              rafId = window.setTimeout(() => {
+                frameScheduled = false;
+                void renderLoop();
+              }, delay) as unknown as number;
+            }
+          } else {
+            scheduleNextFrame();
+          }
+        }
       }
     };
 

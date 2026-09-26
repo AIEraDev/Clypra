@@ -2046,7 +2046,17 @@ impl VideoDecoder {
             }
         }
 
+        // Budget: 3 s maximum scan per seek. On constrained iGPUs (Intel HD 520)
+        // HEVC GOPs can span 2–4 s of packets. Without a budget, a single
+        // backward seek blocks the decode thread for 7–14 s (measured in
+        // session `launch-1790401877377-4m5myb`). When the budget is reached
+        // we return the best partial frame decoded so far (a nearby keyframe)
+        // as a stale-ok approximation rather than failing with `Err("No frame
+        // found")`, which would force a full pipeline restart.
+        const SEEK_SCAN_BUDGET: Duration = Duration::from_secs(3);
+
         if !found {
+            let scan_deadline = Instant::now();
             'decode: for (stream, packet) in self.input_ctx.packets() {
                 if is_cancelled() {
                     return Err("Native preview request cancelled".to_string());
@@ -2073,6 +2083,12 @@ impl VideoDecoder {
                     best_frame = frame;
                     frame = ffmpeg::frame::Video::empty();
                 }
+                // Bail out after the budget to prevent multi-second stalls on
+                // long-GOP HEVC files. `best_frame` holds the most recent
+                // keyframe decoded so far — close enough for interactive preview.
+                if scan_deadline.elapsed() > SEEK_SCAN_BUDGET {
+                    break 'decode;
+                }
             }
         }
 
@@ -2095,6 +2111,7 @@ impl VideoDecoder {
                     self.state.current_pts = -1;
                     self.state.gop_start_pts = retry_pts;
 
+                    let retry_scan_deadline = Instant::now();
                     'retry_decode: for (stream, packet) in self.input_ctx.packets() {
                         if is_cancelled() {
                             return Err("Native preview request cancelled".to_string());
@@ -2120,6 +2137,9 @@ impl VideoDecoder {
                                 break 'retry_decode;
                             }
                             frame = ffmpeg::frame::Video::empty();
+                        }
+                        if retry_scan_deadline.elapsed() > SEEK_SCAN_BUDGET {
+                            break 'retry_decode;
                         }
                     }
                 }
