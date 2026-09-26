@@ -1188,7 +1188,15 @@ pub async fn configure_native_playback_render(
     // The probe completed concurrently with GPU warmup. Apply its result
     // before the first lookahead frame is queued, so one session revision
     // still uses a single, deterministic decode scale.
-    let lookahead_quality = capability_policy.lookahead_quality();
+    // Respect the most conservative constraint between the requested snapshot quality
+    // (from frontend hardware policy) and the measured capability probe.
+    let probe_quality = capability_policy.lookahead_quality();
+    let lookahead_quality = match (snapshot_clone.quality, probe_quality) {
+        (QualityTier::Proxy, _) | (_, QualityTier::Proxy) => QualityTier::Proxy,
+        (QualityTier::Quarter, _) | (_, QualityTier::Quarter) => QualityTier::Quarter,
+        (QualityTier::Half, _) | (_, QualityTier::Half) => QualityTier::Half,
+        _ => QualityTier::Full,
+    };
 
     // Apply the decision before the worker can start. This keeps the warmup
     // request and the audio-driven refill path on the same quality policy.

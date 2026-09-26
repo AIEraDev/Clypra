@@ -23,6 +23,44 @@ export interface PreviewPerformanceObservation {
   dropped: boolean;
 }
 
+const QUALITY_RANK: Record<NativeQualityTier, number> = {
+  full: 3,
+  half: 2,
+  quarter: 1,
+  proxy: 0,
+};
+
+/**
+ * Detects legacy Intel integrated GPUs (Gen 7 through Gen 11).
+ * These architectures (HD Graphics, UHD Graphics, Iris/Iris Pro/Iris Plus)
+ * have 24-48 execution units and share DDR3/DDR4 system memory, making real-time
+ * 4K or 1440p preview impossible without downscaling.
+ * Modern Iris Xe (Gen 12) and discrete/integrated Arc are excluded here.
+ */
+export function isLegacyIntelIntegratedGpu(
+  adapterName: string | null | undefined,
+): boolean {
+  if (!adapterName || !/intel/i.test(adapterName)) return false;
+  const adapter = adapterName.toLowerCase();
+  // Iris Xe and Arc are modern architectures with higher execution unit counts.
+  if (/(?:iris.*xe|arc)/i.test(adapter)) return false;
+  // Match any Intel HD Graphics, UHD Graphics, or older Iris/Iris Pro/Iris Plus
+  return /(?:hd graphics|uhd graphics|iris)/i.test(adapter);
+}
+
+/**
+ * Detects modern Intel integrated graphics (Iris Xe, integrated Arc).
+ */
+export function isModernIntelIntegratedGpu(
+  adapterName: string | null | undefined,
+): boolean {
+  if (!adapterName || !/intel/i.test(adapterName)) return false;
+  const adapter = adapterName.toLowerCase();
+  // Exclude discrete Arc GPUs (e.g. Arc A770, A750, A380, B580)
+  if (/arc.*(?:a[0-9]{3}|b[0-9]{3})/i.test(adapter)) return false;
+  return /(?:iris.*xe|arc)/i.test(adapter);
+}
+
 /**
  * Session-scoped backpressure policy for integrated Intel graphics. It moves
  * down one rung only after a sustained bad window, avoiding a quality change
@@ -53,21 +91,45 @@ export class PreviewPerformancePolicyController {
     return true;
   }
 
-  policyFor(adapterName: string | null | undefined, canvasWidth: number, canvasHeight: number): PreviewHardwarePolicy {
-    const baseline = selectPreviewHardwarePolicy(adapterName, canvasWidth, canvasHeight);
-    if (!adapterName || Math.max(canvasWidth, canvasHeight) < 3_500) return baseline;
+  policyFor(
+    adapterName: string | null | undefined,
+    canvasWidth: number,
+    canvasHeight: number,
+    mediaWidth?: number,
+    mediaHeight?: number,
+  ): PreviewHardwarePolicy {
+    const baseline = selectPreviewHardwarePolicy(
+      adapterName,
+      canvasWidth,
+      canvasHeight,
+      mediaWidth,
+      mediaHeight,
+    );
+    if (!adapterName) return baseline;
     if (!/intel/i.test(adapterName)) return baseline;
 
-    const adapter = adapterName.toLowerCase();
-    // Legacy HD is already at the strongest safe policy.
-    if (/intel.*(?:hd graphics )?(?:5[0-9]0|520)/.test(adapter)) return baseline;
+    // If baseline is already at proxy, no further escalation needed.
+    if (baseline.capabilityPolicy === "proxy") return baseline;
+
     if (this.escalation === 0) return baseline;
     if (this.escalation === 1) {
       return baseline.capabilityPolicy === "full"
-        ? { capabilityPolicy: "reduced", maxDimension: 1_920, maximumQuality: "half" }
-        : { capabilityPolicy: "proxy", maxDimension: 1_280, maximumQuality: "proxy" };
+        ? {
+            capabilityPolicy: "reduced",
+            maxDimension: 1_920,
+            maximumQuality: "half",
+          }
+        : {
+            capabilityPolicy: "proxy",
+            maxDimension: 1_280,
+            maximumQuality: "proxy",
+          };
     }
-    return { capabilityPolicy: "proxy", maxDimension: 1_280, maximumQuality: "proxy" };
+    return {
+      capabilityPolicy: "proxy",
+      maxDimension: 1_280,
+      maximumQuality: "proxy",
+    };
   }
 }
 
@@ -75,20 +137,22 @@ export function selectPreviewHardwarePolicy(
   adapterName: string | null | undefined,
   canvasWidth: number,
   canvasHeight: number,
+  mediaWidth?: number,
+  mediaHeight?: number,
 ): PreviewHardwarePolicy {
-  const maxCanvasDimension = Math.max(canvasWidth, canvasHeight);
-  if (maxCanvasDimension < 3_500 || !adapterName) return FULL_POLICY;
+  if (!adapterName) return FULL_POLICY;
+  const maxWorkloadDimension = Math.max(
+    canvasWidth,
+    canvasHeight,
+    mediaWidth ?? 0,
+    mediaHeight ?? 0,
+  );
 
-  const adapter = adapterName.toLowerCase();
-  if (/intel.*(?:hd graphics )?(?:5[0-9]0|520)/.test(adapter)) {
-    return {
-      capabilityPolicy: "proxy",
-      maxDimension: 1_280,
-      maximumQuality: "proxy",
-    };
-  }
-
-  if (/intel.*uhd graphics 630/.test(adapter)) {
+  // 1440p (>=2500) and 4K (>=3500) on legacy Intel integrated GPUs
+  if (
+    maxWorkloadDimension >= 2_500 &&
+    isLegacyIntelIntegratedGpu(adapterName)
+  ) {
     return {
       capabilityPolicy: "proxy",
       maxDimension: 1_280,
@@ -109,9 +173,18 @@ export function applyPreviewHardwarePolicy(
   const scale = maxDimension
     ? Math.min(1, maxDimension / Math.max(width, height))
     : 1;
+
+  let effectiveQuality = quality;
+  if (policy.maximumQuality) {
+    effectiveQuality =
+      QUALITY_RANK[quality] > QUALITY_RANK[policy.maximumQuality]
+        ? policy.maximumQuality
+        : quality;
+  }
+
   return {
     width: Math.max(1, Math.round(width * scale)),
     height: Math.max(1, Math.round(height * scale)),
-    quality: policy.maximumQuality ?? quality,
+    quality: effectiveQuality,
   };
 }
