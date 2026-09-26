@@ -627,6 +627,7 @@ export const NativeProgramPreview: React.FC = () => {
               backend: status.backend,
               deviceType: status.deviceType,
             });
+            forceRepaintNativeProgramPreview();
           }
         })
         .catch(() => {});
@@ -687,6 +688,8 @@ export const NativeProgramPreview: React.FC = () => {
               nativeGpuAdapterNameRef.current,
               renderStateRef.current.canvasWidth,
               renderStateRef.current.canvasHeight,
+              profile.width,
+              profile.height,
             ).capabilityPolicy,
           );
         }
@@ -715,6 +718,8 @@ export const NativeProgramPreview: React.FC = () => {
               nativeGpuAdapterNameRef.current,
               renderStateRef.current.canvasWidth,
               renderStateRef.current.canvasHeight,
+              profile.width,
+              profile.height,
             ).capabilityPolicy,
           );
         }
@@ -1322,6 +1327,14 @@ export const NativeProgramPreview: React.FC = () => {
           : tier === PreviewQualityTier.Playback
             ? "half"
             : "full";
+      const maxMediaWidth = state.mediaAssets.reduce(
+        (max, a) => Math.max(max, a.width ?? 0),
+        0,
+      );
+      const maxMediaHeight = state.mediaAssets.reduce(
+        (max, a) => Math.max(max, a.height ?? 0),
+        0,
+      );
       return applyPreviewHardwarePolicy(
         Math.max(1, profile.maxWidth),
         Math.max(1, profile.maxHeight),
@@ -1330,6 +1343,8 @@ export const NativeProgramPreview: React.FC = () => {
           nativeGpuAdapterNameRef.current,
           state.canvasWidth,
           state.canvasHeight,
+          maxMediaWidth,
+          maxMediaHeight,
         ),
       );
     };
@@ -2305,9 +2320,11 @@ export const NativeProgramPreview: React.FC = () => {
                   ? effectiveRenderTarget.quality
                   : isSettling
                     ? ("full" as const)
-                    : latestSeekIntent.quality !== "full"
-                      ? latestSeekIntent.quality
-                      : effectiveRenderTarget.quality,
+                    : isPlaying
+                      ? effectiveRenderTarget.quality
+                      : latestSeekIntent.quality !== "full"
+                        ? latestSeekIntent.quality
+                        : effectiveRenderTarget.quality,
               velocityPxPerSecond: latestSeekIntent.velocityPxPerSecond,
               requestedAtMs: latestSeekIntent.issuedAtMs,
               isScrubbing: latestSeekIntent.isScrubbing,
@@ -2316,8 +2333,8 @@ export const NativeProgramPreview: React.FC = () => {
                 : latestSeekIntent.allowKeyframeApprox,
             }
           : isPlaying
-            ? { mode: "playback" as const, quality: renderTarget.quality }
-            : undefined;
+            ? { mode: "playback" as const, quality: effectiveRenderTarget.quality }
+            : { quality: effectiveRenderTarget.quality };
 
         const timeChanged = frameIndex !== lastRenderedFrameIndex;
         const epochChanged = state.epoch !== lastRenderedEpoch;

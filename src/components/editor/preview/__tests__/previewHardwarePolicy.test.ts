@@ -62,4 +62,59 @@ describe("preview hardware policy", () => {
       controller.policyFor("Intel(R) Iris(R) Xe Graphics", 3840, 2160),
     ).toEqual({ capabilityPolicy: "full" });
   });
+
+  it("uses a proxy-sized preview for 1440p Intel HD 520", () => {
+    const policy = selectPreviewHardwarePolicy(
+      "Intel(R) HD Graphics 520",
+      2560,
+      1440,
+    );
+    expect(policy.capabilityPolicy).toBe("proxy");
+    expect(applyPreviewHardwarePolicy(2560, 1440, "full", policy)).toEqual({
+      width: 1280,
+      height: 720,
+      quality: "proxy",
+    });
+  });
+
+  it("uses a proxy-sized preview for Intel UHD 620 and Iris Plus 655", () => {
+    const uhdPolicy = selectPreviewHardwarePolicy(
+      "Intel(R) UHD Graphics 620",
+      3840,
+      2160,
+    );
+    expect(uhdPolicy.capabilityPolicy).toBe("proxy");
+
+    const irisPolicy = selectPreviewHardwarePolicy(
+      "Intel(R) Iris(R) Plus Graphics 655",
+      3840,
+      2160,
+    );
+    expect(irisPolicy.capabilityPolicy).toBe("proxy");
+  });
+
+  it("recognizes 4K media workload even on a 1080p canvas", () => {
+    const policy = selectPreviewHardwarePolicy(
+      "Intel(R) HD Graphics 520",
+      1920,
+      1080,
+      3840,
+      2160,
+    );
+    expect(policy.capabilityPolicy).toBe("proxy");
+    expect(policy.maxDimension).toBe(1280);
+    expect(policy.maximumQuality).toBe("proxy");
+  });
+
+  it("clamps quality rank down without promoting already lower tiers", () => {
+    const halfPolicy = {
+      capabilityPolicy: "reduced" as const,
+      maxDimension: 1920,
+      maximumQuality: "half" as const,
+    };
+    // full is clamped to half
+    expect(applyPreviewHardwarePolicy(1920, 1080, "full", halfPolicy).quality).toBe("half");
+    // quarter is preserved (not promoted to half)
+    expect(applyPreviewHardwarePolicy(1920, 1080, "quarter", halfPolicy).quality).toBe("quarter");
+  });
 });
