@@ -100,7 +100,7 @@ export class DetachAudioCommand implements Command {
       clips: [
         ...state.clips.map((clip) => (
           clip.id === this.sourceClip.id
-            ? { ...clip, ...synchronizeClipAudioProperties(clip, { volume: 0 }) }
+            ? { ...clip, ...synchronizeClipAudioProperties(clip, { volume: 0, audio: { linkState: "detached" } }) }
             : clip
         )),
         cloneClipSnapshot(this.audioClip),

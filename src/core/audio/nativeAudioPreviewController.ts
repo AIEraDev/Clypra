@@ -88,6 +88,8 @@ export class NativeAudioPreviewController {
   private pendingSource: NativeAudioPreviewSource | null = null;
   private sourceUpdateScheduled = false;
   private installedSnapshot: NativeAudioTimelineSnapshot | null = null;
+  /** Epoch of a play/restart transport transition currently in flight. */
+  private pendingPlayEpoch: number | null = null;
   private outputVolume = 1;
   private outputMuted = false;
   private initializationUs = 0;
@@ -281,6 +283,7 @@ export class NativeAudioPreviewController {
     this.pollHandle = null;
     this.clock.clearNativeClockPosition();
     this.clock.setNativeClockAuthority(false);
+    this.pendingPlayEpoch = null;
     const pendingTransport = this.transportQueue;
     const pendingSourceSync = this.sourceSyncQueue;
     this.transportQueue = Promise.resolve();
@@ -325,6 +328,7 @@ export class NativeAudioPreviewController {
     const transportEpoch = this.currentTransportEpoch();
 
     if (state.state === "playing" && previous?.state !== "playing") {
+      this.pendingPlayEpoch = transportEpoch;
       this.restartPolling(true);
       const interaction = this.beginInteraction("play");
       this.enqueueTransport(async () => {
@@ -333,6 +337,9 @@ export class NativeAudioPreviewController {
           !this.isCurrentTransportEpoch(transportEpoch) ||
           this.clock.state !== "playing"
         ) {
+          if (this.pendingPlayEpoch === transportEpoch) {
+            this.pendingPlayEpoch = null;
+          }
           this.finishInteraction(interaction, commandStartedAt, "superseded");
           return;
         }
@@ -359,6 +366,10 @@ export class NativeAudioPreviewController {
         } catch (error) {
           this.finishInteraction(interaction, commandStartedAt, "failed");
           throw error;
+        } finally {
+          if (this.pendingPlayEpoch === transportEpoch) {
+            this.pendingPlayEpoch = null;
+          }
         }
       }, "seek-then-play");
     } else if (state.state !== "playing" && previous?.state === "playing") {
@@ -556,6 +567,12 @@ export class NativeAudioPreviewController {
     // must not stop or overwrite the restart.
     const transportEpoch = this.currentTransportEpoch();
     const expectedState = this.clock.state;
+    // If a play/restart transport run is still in-flight on the native side,
+    // do not poll or adopt stale positions from the previous run (which may
+    // still be at durationTicks) to prevent immediate spurious completion.
+    if (this.pendingPlayEpoch !== null) {
+      return;
+    }
     try {
       const nativeState =
         expectedState === "playing"
@@ -565,7 +582,8 @@ export class NativeAudioPreviewController {
         !this.active ||
         this.disposed ||
         !this.isCurrentTransportEpoch(transportEpoch) ||
-        this.clock.state !== expectedState
+        this.clock.state !== expectedState ||
+        this.pendingPlayEpoch !== null
       ) {
         return;
       }
@@ -580,11 +598,18 @@ export class NativeAudioPreviewController {
       // A native graph can report position 0 while it is warming up. Never
       // treat a missing/stale zero duration as an end signal; the timeline
       // duration is the only valid terminal boundary.
+      // Additionally, guard against stale end-of-timeline samples immediately
+      // after a restart by requiring the clock to have advanced beyond the start threshold.
       const durationTicks = secondsToTicks(this.source.duration);
+      const minPlayheadCompletionThreshold = Math.min(
+        0.2,
+        this.source.duration / 2,
+      );
       if (
         this.clock.state === "playing" &&
         durationTicks > 0 &&
-        positionTicks >= durationTicks
+        positionTicks >= durationTicks &&
+        this.clock.time >= minPlayheadCompletionThreshold
       ) {
         console.info("[NativeAudioController] Reached timeline end duration:", {
           positionTicks,
