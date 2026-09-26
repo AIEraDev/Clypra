@@ -543,6 +543,7 @@ export const NativeProgramPreview: React.FC = () => {
   // a measurement when the editor is idle.
   const lastNativeSampleSequenceRef = useRef(0);
   const nativeGpuAdapterNameRef = useRef<string | null>(null);
+  const nativeGpuDeviceTypeRef = useRef<string | null>(null);
   const previewPerformancePolicyRef = useRef(
     new PreviewPerformancePolicyController(),
   );
@@ -622,6 +623,7 @@ export const NativeProgramPreview: React.FC = () => {
         .then((status) => {
           if (status) {
             nativeGpuAdapterNameRef.current = status.adapterName;
+            nativeGpuDeviceTypeRef.current = status.deviceType ?? null;
             telemetryCollector.updateFromNativeGpu({
               adapterName: status.adapterName,
               backend: status.backend,
@@ -690,6 +692,7 @@ export const NativeProgramPreview: React.FC = () => {
               renderStateRef.current.canvasHeight,
               profile.width,
               profile.height,
+              nativeGpuDeviceTypeRef.current,
             ).capabilityPolicy,
           );
         }
@@ -720,6 +723,7 @@ export const NativeProgramPreview: React.FC = () => {
               renderStateRef.current.canvasHeight,
               profile.width,
               profile.height,
+              nativeGpuDeviceTypeRef.current,
             ).capabilityPolicy,
           );
         }
@@ -1345,6 +1349,7 @@ export const NativeProgramPreview: React.FC = () => {
           state.canvasHeight,
           maxMediaWidth,
           maxMediaHeight,
+          nativeGpuDeviceTypeRef.current,
         ),
       );
     };
