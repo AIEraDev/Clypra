@@ -161,6 +161,7 @@ export class ProjectSession {
   private _nativeRasterIdlePrewarmTimer: ReturnType<typeof setTimeout> | null =
     null;
   private _fontIdlePrewarmTimer: ReturnType<typeof setTimeout> | null = null;
+  private _filmstripPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
   private _nativeRasterPrewarmInFlight: Promise<boolean> | null = null;
   private _nativePreviewStartupUnlisten: UnlistenFn | null = null;
   private _nativePreviewStartupTimeout: ReturnType<typeof setTimeout> | null =
@@ -480,7 +481,15 @@ export class ProjectSession {
       // M1). Pre-warm the coarse thumbnail tier for every video clip here,
       // fire-and-forget, so the OPFS atlas and Rust thumbnail cache are already
       // populated before the user can scroll the filmstrip.
-      void this._prewarmFilmstripCoarseBaseline();
+      //
+      // Defer this by 4 seconds so the immediate viewport filmstrip fetch and
+      // program preview have exclusive access to decoder/GPU queues during open.
+      this._filmstripPrewarmTimer = setTimeout(() => {
+        this._filmstripPrewarmTimer = null;
+        if (this._state === "active") {
+          void this._prewarmFilmstripCoarseBaseline();
+        }
+      }, 4000);
 
       // ── Telemetry: record session creation ──────────────────────────────
       lifecycleMonitor.record("SESSION_CREATE", {
@@ -573,6 +582,10 @@ export class ProjectSession {
       if (this._fontIdlePrewarmTimer !== null) {
         clearTimeout(this._fontIdlePrewarmTimer);
         this._fontIdlePrewarmTimer = null;
+      }
+      if (this._filmstripPrewarmTimer !== null) {
+        clearTimeout(this._filmstripPrewarmTimer);
+        this._filmstripPrewarmTimer = null;
       }
       this._cancelRAFLoops();
       this._playback = null;

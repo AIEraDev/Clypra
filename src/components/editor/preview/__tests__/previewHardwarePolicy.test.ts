@@ -3,6 +3,7 @@ import {
   applyPreviewHardwarePolicy,
   classifyGpuTier,
   isAmdIntegratedGpu,
+  isAppleSiliconGpu,
   isLegacyIntelIntegratedGpu,
   isModernIntelIntegratedGpu,
   isNvidiaMxGpu,
@@ -221,6 +222,26 @@ describe("isSoftwareRenderer", () => {
     expect(isSoftwareRenderer("Microsoft Basic Render Driver")).toBe(true));
   it("rejects real GPUs", () =>
     expect(isSoftwareRenderer("Intel(R) HD Graphics 520")).toBe(false));
+});
+
+describe("isAppleSiliconGpu", () => {
+  it("matches Apple M1", () =>
+    expect(isAppleSiliconGpu("Apple M1")).toBe(true));
+  it("matches Apple M2 Max", () =>
+    expect(isAppleSiliconGpu("Apple M2 Max")).toBe(true));
+  it("matches Apple M3 Ultra", () =>
+    expect(isAppleSiliconGpu("Apple M3 Ultra")).toBe(true));
+  it("rejects Intel GPU", () =>
+    expect(isAppleSiliconGpu("Intel(R) Iris(R) Xe Graphics")).toBe(false));
+  it("rejects AMD GPU", () =>
+    expect(isAppleSiliconGpu("AMD Radeon RX 6800 XT")).toBe(false));
+  it("rejects Nvidia GPU", () =>
+    expect(isAppleSiliconGpu("NVIDIA GeForce RTX 4090")).toBe(false));
+  it("rejects null or empty", () => {
+    expect(isAppleSiliconGpu(null)).toBe(false);
+    expect(isAppleSiliconGpu(undefined)).toBe(false);
+    expect(isAppleSiliconGpu("")).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -544,5 +565,46 @@ describe("PreviewPerformancePolicyController", () => {
         "IntegratedGpu",
       ),
     ).toEqual({ capabilityPolicy: "full" });
+  });
+
+  it("does NOT escalate backpressure for Apple Silicon (Apple M1/M2/M3)", () => {
+    const controller = new PreviewPerformancePolicyController();
+    // Heavy drop burst
+    for (let index = 0; index < 60; index += 1) {
+      controller.observe({ totalTimeUs: 20_000, dropped: true });
+    }
+    expect(
+      controller.policyFor(
+        "Apple M1",
+        3840,
+        2160,
+        undefined,
+        undefined,
+        "IntegratedGpu",
+      ),
+    ).toEqual({ capabilityPolicy: "full" });
+  });
+
+  it("caps capable-igpu (Intel Iris Xe) at reduced tier instead of dropping to proxy", () => {
+    const controller = new PreviewPerformancePolicyController();
+    // First burst: escalates to 1 (reduced)
+    for (let index = 0; index < 12; index += 1) {
+      controller.observe({ totalTimeUs: index < 3 ? 20_000 : 10_000, dropped: false });
+    }
+    // Second burst: escalates to 2
+    for (let index = 0; index < 12; index += 1) {
+      controller.observe({ totalTimeUs: index < 3 ? 20_000 : 10_000, dropped: false });
+    }
+    // Should stay at reduced (1080p half) rather than falling back to unaccelerated software proxy
+    expect(
+      controller.policyFor(
+        "Intel(R) Iris(R) Xe Graphics",
+        3840,
+        2160,
+        undefined,
+        undefined,
+        "IntegratedGpu",
+      ),
+    ).toMatchObject({ capabilityPolicy: "reduced", maximumQuality: "half" });
   });
 });

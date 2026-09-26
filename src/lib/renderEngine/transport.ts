@@ -382,8 +382,28 @@ function pumpFilmstripLane(videoPath: string): void {
     // If all subscribers in the current in-flight batch have cancelled (e.g. user scrolled/zoomed away),
     // preempt it immediately so queued requests for the new viewport start without waiting.
     const allCancelled = lane.inFlight.subscribers.every((sub) => sub.cancelled);
-    if (allCancelled) {
+    const inFlightPriority = Math.max(
+      ...lane.inFlight.subscribers.map((sub) => sub.priority),
+      0,
+    );
+    const maxQueuedPriority = Math.max(
+      ...lane.queued.filter((sub) => !sub.cancelled).map((sub) => sub.priority),
+      0,
+    );
+    const shouldPreemptForHighPriority =
+      maxQueuedPriority >= 10 && inFlightPriority <= 3;
+
+    if (allCancelled || shouldPreemptForHighPriority) {
       lane.inFlight.cancelFn?.();
+      if (shouldPreemptForHighPriority) {
+        // Re-queue non-cancelled subscribers from the preempted background batch
+        // so background preload/prefetch can resume once the interactive viewport has finished.
+        for (const sub of lane.inFlight.subscribers) {
+          if (!sub.cancelled) {
+            lane.queued.push(sub);
+          }
+        }
+      }
       lane.inFlight = null;
     } else {
       return;
