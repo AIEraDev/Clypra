@@ -471,6 +471,32 @@ export class PlaybackClock {
   }
 
   /**
+   * Finish the current program at its terminal boundary.
+   *
+   * This is intentionally separate from pause(): consumers can distinguish a
+   * user pause from natural media completion by observing the terminal time
+   * transition. Native and browser clock paths must use this shared method so
+   * both clear late samples and cancel their RAF consistently.
+   */
+  complete(): void {
+    if (this._duration <= 0) {
+      this.pause();
+      return;
+    }
+
+    this._generation++;
+    if (this._rafId !== null) {
+      cancelAnimationFrame(this._rafId);
+      this._rafId = null;
+    }
+    this._isSeeking = false;
+    this._time = this._duration;
+    this._state = "paused";
+    this._nativeClockPosition = null;
+    this._notifyListeners();
+  }
+
+  /**
    * Stop playback (pause + reset to 0).
    * PB-BUG-002 fix: Batches all state changes into a single notification
    * instead of firing 3 separate notifications (pause, seek, stopped).
@@ -638,16 +664,7 @@ export class PlaybackClock {
 
     // Update time
     if (newTime >= this._duration) {
-      // Reached end
-      this._time = this._duration;
-      this._state = "paused";
-      this._rafId = null; // Clear RAF ID when stopping
-      // Bug 8 fix: clear the native clock position so late-arriving IPC samples
-      // from the native audio controller cannot move the scrubber past duration
-      // after end-of-timeline auto-pause. `stop()` already clears this; `pause()`
-      // from end-of-timeline was the only path that did not.
-      this._nativeClockPosition = null;
-      this._notifyListeners();
+      this.complete();
       return;
     }
 

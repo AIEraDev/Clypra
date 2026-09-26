@@ -32,6 +32,7 @@ import {
   type TelemetryInteractionOutcome,
 } from "@/services/telemetryCollector";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
+import type { TransportAuthority } from "@/core/playback/TransportAuthority";
 
 const NATIVE_PREVIEW_AUDIO_OPTIONS = { preserveTransportPitch: true } as const;
 
@@ -53,6 +54,8 @@ export interface NativeAudioPreviewSource {
 export interface NativeAudioPreviewControllerOptions {
   clock: PlaybackClock;
   source: NativeAudioPreviewSource;
+  /** Session-owned epoch source. Native completions from an old epoch are ignored. */
+  transportAuthority?: TransportAuthority;
   onError?: (error: Error) => void;
 }
 
@@ -64,6 +67,7 @@ export class NativeAudioPreviewController {
   private readonly clock: PlaybackClock;
   private source: NativeAudioPreviewSource;
   private readonly onError?: (error: Error) => void;
+  private readonly transportAuthority?: TransportAuthority;
   private unsubscribe: (() => void) | null = null;
   private pollHandle: ReturnType<typeof setInterval> | null = null;
   /**
@@ -78,8 +82,6 @@ export class NativeAudioPreviewController {
   private active = false;
   private disposed = false;
   private commandRevision = 0;
-  /** Latest transport-state intent. Older queued play/pause commands are stale. */
-  private transportIntentRevision = 0;
   /** Latest paused seek intent. Rapid scrubs collapse to the newest target. */
   private seekIntentRevision = 0;
   /** Timeline edits collapse to the newest candidate instead of queuing rebuilds. */
@@ -102,6 +104,7 @@ export class NativeAudioPreviewController {
     this.clock = options.clock;
     this.source = options.source;
     this.onError = options.onError;
+    this.transportAuthority = options.transportAuthority;
   }
 
   get isActive(): boolean {
@@ -312,11 +315,7 @@ export class NativeAudioPreviewController {
         "set-speed",
       );
     }
-    const stateChanged = state.state !== previous?.state;
-    if (stateChanged) {
-      this.transportIntentRevision += 1;
-    }
-    const transportIntentRevision = this.transportIntentRevision;
+    const transportEpoch = this.currentTransportEpoch();
 
     if (state.state === "playing" && previous?.state !== "playing") {
       this.restartPolling(true);
@@ -324,7 +323,7 @@ export class NativeAudioPreviewController {
       this.enqueueTransport(async () => {
         const commandStartedAt = performance.now();
         if (
-          this.transportIntentRevision !== transportIntentRevision ||
+          !this.isCurrentTransportEpoch(transportEpoch) ||
           this.clock.state !== "playing"
         ) {
           this.finishInteraction(interaction, commandStartedAt, "superseded");
@@ -336,7 +335,7 @@ export class NativeAudioPreviewController {
           await seekNativeAudio(secondsToTicks(this.clock.time));
           interaction.telemetry.audioSeekUs = elapsedUs(seekStartedAt);
           if (
-            this.transportIntentRevision !== transportIntentRevision ||
+            !this.isCurrentTransportEpoch(transportEpoch) ||
             this.clock.state !== "playing"
           ) {
             this.finishInteraction(interaction, commandStartedAt, "superseded");
@@ -361,7 +360,7 @@ export class NativeAudioPreviewController {
       this.enqueueTransport(async () => {
         const commandStartedAt = performance.now();
         if (
-          this.transportIntentRevision !== transportIntentRevision ||
+          !this.isCurrentTransportEpoch(transportEpoch) ||
           this.clock.state === "playing"
         ) {
           this.finishInteraction(interaction, commandStartedAt, "superseded");
@@ -377,7 +376,7 @@ export class NativeAudioPreviewController {
           // Space may have restarted playback while the native pause was in
           // flight. Never let this old end-of-timeline command seek the new
           // playback run back to its former terminal position.
-          if (!this.isCurrentPauseIntent(transportIntentRevision)) {
+          if (!this.isCurrentPauseIntent(transportEpoch)) {
             this.finishInteraction(interaction, commandStartedAt, "superseded");
             return;
           }
@@ -387,7 +386,7 @@ export class NativeAudioPreviewController {
             Math.max(0, Math.floor(targetTime * this.clock.frameRate)),
           );
           interaction.telemetry.audioSeekUs = elapsedUs(seekStartedAt);
-          if (!this.isCurrentPauseIntent(transportIntentRevision)) {
+          if (!this.isCurrentPauseIntent(transportEpoch)) {
             this.finishInteraction(interaction, commandStartedAt, "superseded");
             return;
           }
@@ -492,11 +491,19 @@ export class NativeAudioPreviewController {
 
   /** Dynamic check used after awaits; TypeScript narrowing cannot model an
    * external keyboard event changing the transport while native IPC is pending. */
-  private isCurrentPauseIntent(revision: number): boolean {
+  private isCurrentPauseIntent(epoch: number): boolean {
     return (
-      this.transportIntentRevision === revision &&
+      this.isCurrentTransportEpoch(epoch) &&
       this.clock.state !== "playing"
     );
+  }
+
+  private currentTransportEpoch(): number {
+    return this.transportAuthority?.getTransportEpoch() ?? 0;
+  }
+
+  private isCurrentTransportEpoch(epoch: number): boolean {
+    return this.transportAuthority?.isCurrentTransportEpoch(epoch) ?? true;
   }
 
   private beginInteraction(name: TelemetryInteractionName): TimedInteraction {
@@ -540,7 +547,7 @@ export class NativeAudioPreviewController {
     // A status request can resolve after the user starts a new transport run.
     // Its position belongs to the previous run (often exactly `duration`) and
     // must not stop or overwrite the restart.
-    const transportIntentRevision = this.transportIntentRevision;
+    const transportEpoch = this.currentTransportEpoch();
     const expectedState = this.clock.state;
     try {
       const nativeState =
@@ -550,7 +557,7 @@ export class NativeAudioPreviewController {
       if (
         !this.active ||
         this.disposed ||
-        this.transportIntentRevision !== transportIntentRevision ||
+        !this.isCurrentTransportEpoch(transportEpoch) ||
         this.clock.state !== expectedState
       ) {
         return;
@@ -576,7 +583,7 @@ export class NativeAudioPreviewController {
           positionTicks,
           durationTicks,
         });
-        this.clock.pause();
+        this.clock.complete();
       }
     } catch (error) {
       this.reportError(error);

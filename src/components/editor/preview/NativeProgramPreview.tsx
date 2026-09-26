@@ -31,6 +31,7 @@ import {
 } from "@/core/interactions";
 import { useViewportState } from "@/hooks/useViewportController";
 import { PreviewTransport } from "./PreviewTransport";
+import { useNativeSurfaceController } from "./useNativeSurfaceController";
 import { TransformOverlayMemoized as TransformOverlay } from "../transform/TransformOverlay";
 import { ConnectedSpatialMotionPath } from "./SpatialMotionPath";
 import { SafeOverlay } from "../viewport/SafeOverlay";
@@ -72,10 +73,8 @@ import {
 } from "@/core/playback/nativePerfTelemetry";
 import type { SeekIntent } from "@/core/playback/seekController";
 import {
-  getNativePreviewSurfaceGeometry,
   cancelNativePreviewRequests,
   isTauriRuntime,
-  onNativePreviewWindowMoved,
   presentNativeFrame,
   configureNativePlaybackRender,
   updateNativePlaybackRender,
@@ -89,12 +88,9 @@ import {
   listenForNativePlaybackStats,
   listenForNativeMaskEviction,
   listenForNativeRasterEviction,
-  listenForGpuReady,
-  listenForGpuFailed,
   type NativePlaybackStatsPayload,
 } from "@/lib/platform/tauri";
 import { telemetryCollector } from "@/services/telemetryCollector";
-import type { NativeSurfaceGeometry } from "@/lib/platform/nativeCore";
 import type { TelemetryPreviewContext } from "@/services/telemetryCollector";
 
 import type { SmartOverlayClip } from "@/types/smartOverlay";
@@ -142,15 +138,8 @@ import {
   type NativeRasterLayerSnapshot,
 } from "@/lib/platform/nativeCore";
 import {
-  claimNativeSurfaceReadiness,
-  configureNativeSurface,
-  failNativeSurfaceReadiness,
   hideNativeSurfaceWhenIdle,
-  isNativeSurfaceRequestSuperseded,
-  markNativeSurfaceReady,
   presentOnNativeSurface,
-  releaseNativeSurface,
-  releaseNativeSurfaceReadiness,
 } from "@/core/runtime/nativeSurfaceLifecycle";
 
 const CANVAS_DIMENSIONS: Record<
@@ -492,45 +481,9 @@ export const NativeProgramPreview: React.FC = () => {
   const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
   const [showSafeOverlay, setShowSafeOverlay] = useState(false);
   const [scopesOpen, setScopesOpen] = useState(false);
-  const [nativeSurfaceReady, setNativeSurfaceReady] = useState(false);
-  const [nativeSurfaceError, setNativeSurfaceError] = useState<string | null>(
-    null,
-  );
-  // Audit 4.6 fix: mirror nativeSurfaceReady in a ref so the render loop can read the
-  // latest value imperatively without nativeSurfaceReady being listed in the effect deps.
-  // Having it in deps caused the entire render loop to restart (RAF cancelled, blank frame)
-  // on every native surface probe and window resize.
-  const nativeSurfaceReadyRef = useRef(false);
-  const nativeSurfaceErrorRef = useRef<string | null>(null);
-
-  // GPU readiness gate — true once the Rust background GPU init spawn has
-  // finished and registered Arc<GpuContext> + Arc<NativePreviewSession>.
-  // Without this gate the surface setup effect fires probe_native_surface
-  // before try_state::<Arc<GpuContext>>() is populated, getting
-  // "Native GPU context is not initialized" on every fast Windows startup.
-  // Non-Tauri runtimes skip GPU init entirely, so they start as ready.
-  const [gpuReady, setGpuReady] = useState(!isTauriRuntime());
   const nativeOnlyBlockersKeyRef = useRef("");
 
   const previewContainerRef = useRef<HTMLDivElement>(null);
-  const nativeSurfaceTargetRef = useRef<HTMLDivElement>(null);
-  const [nativeSurfaceTarget, setNativeSurfaceTarget] =
-    useState<HTMLDivElement | null>(null);
-  const nativeSurfaceTargetCallback = useCallback(
-    (node: HTMLDivElement | null) => {
-      nativeSurfaceTargetRef.current = node;
-      setNativeSurfaceTarget(node);
-    },
-    [],
-  );
-  const nativeSurfaceConfiguredRef = useRef(false);
-  const nativeSurfaceGeometrySettledRef = useRef(false);
-  // Incremented each time the native surface transitions to ready/settled.
-  // The render loop watches this to reset readback circuit-breakers (nativeBlockedKey,
-  // nativeFailureCount, nativeRetryAt) so the first frame always gets a clean retry
-  // opportunity after geometry is established — even if early attempts failed while
-  // the Rust decoder was still warming up.
-  const nativeSurfaceReadyRevisionRef = useRef(0);
   const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
   const previewContainerCallback = useCallback(
     (node: HTMLDivElement | null) => {
@@ -924,276 +877,22 @@ export const NativeProgramPreview: React.FC = () => {
     };
   }, [canvasEl, project?.id, projectInitializing, epoch]);
 
-  // GPU readiness gate: listen for the one-shot clypra://gpu-ready event
-  // emitted by lib.rs after app.manage(gpu_ctx) completes. On Windows the
-  // DX12 adapter + device creation can take 500–2000 ms, so the surface setup
-  // effect must not fire until the GPU is actually available. A poll fallback
-  // handles the rare case where the event fires before this effect mounts
-  // (e.g. hot-reload in dev mode after GPU was already initialized).
-  useEffect(() => {
-    if (!isTauriRuntime()) return;
-
-    let disposed = false;
-
-    let pollTimer: ReturnType<typeof setInterval> | null = null;
-    const checkNow = () => {
-      void getNativeGpuStatus()
-        .then((status) => {
-          if (disposed) return;
-          if (status.state === "ready") {
-            setGpuReady(true);
-            if (pollTimer) {
-              clearInterval(pollTimer);
-              pollTimer = null;
-            }
-          } else if (status.state === "failed") {
-            if (pollTimer) {
-              clearInterval(pollTimer);
-              pollTimer = null;
-            }
-            const message = `GPU initialization failed: ${status.failureReason || "Unknown failure"}`;
-            nativeSurfaceErrorRef.current = message;
-            setNativeSurfaceError(message);
-          }
-        })
-        .catch(() => {
-          // get_native_gpu_status not yet registered — spawn hasn't called
-          // app.manage(native_gpu_status) yet. The event or next poll will catch it.
-        });
-    };
-    checkNow();
-    pollTimer = setInterval(checkNow, 150);
-
-    let unlistenReady: (() => void) | null = null;
-    let unlistenFailed: (() => void) | null = null;
-
-    void listenForGpuReady(() => {
-      if (!disposed) {
-        setGpuReady(true);
-        if (pollTimer) {
-          clearInterval(pollTimer);
-          pollTimer = null;
-        }
-      }
-    }).then((unlisten) => {
-      if (disposed) unlisten();
-      else unlistenReady = unlisten;
-    });
-
-    void listenForGpuFailed((error) => {
-      if (!disposed) {
-        // Surface setup effect will gate and show a diagnostic.
-        const message = `GPU initialization failed: ${error}`;
-        nativeSurfaceErrorRef.current = message;
-        setNativeSurfaceError(message);
-        if (pollTimer) {
-          clearInterval(pollTimer);
-          pollTimer = null;
-        }
-      }
-    }).then((unlisten) => {
-      if (disposed) unlisten();
-      else unlistenFailed = unlisten;
-    });
-
-    return () => {
-      disposed = true;
-      if (pollTimer) {
-        clearInterval(pollTimer);
-        pollTimer = null;
-      }
-      unlistenReady?.();
-      unlistenFailed?.();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // mount-only — GPU init is a one-time process per app lifetime
-
-  // The native presenter is hosted in a transparent child surface positioned
-  // over the displayed program viewport and configured only in Tauri.
-  useEffect(() => {
-    const target = nativeSurfaceTargetRef.current || nativeSurfaceTarget;
-    if (
-      !isTauriRuntime() ||
-      !project?.id ||
-      !target ||
-      !nativeSurfaceViewportReady ||
-      !gpuReady
-    ) {
-      return;
-    }
-    const readinessToken = claimNativeSurfaceReadiness(project.id);
-    // tracePlayback("surface-setup-start", {
-    //   projectId: project.id,
-    //   generation: readinessToken.generation,
-    //   viewport: `${Math.round(displayWidth)}x${Math.round(displayHeight)}`,
-    // });
-
-    let active = true;
-    let syncInFlight = false;
-    let syncRequested = false;
-    let appliedGeometryKey = "";
-
-    const geometryKey = (geometry: NativeSurfaceGeometry): string =>
-      [
-        geometry.xPhysical,
-        geometry.yPhysical,
-        geometry.widthPhysical,
-        geometry.heightPhysical,
-        geometry.devicePixelRatio,
-      ].join(":");
-
-    const syncSurface = () => {
-      syncRequested = true;
-      if (syncInFlight) return;
-      syncInFlight = true;
-      nativeSurfaceErrorRef.current = null;
-      setNativeSurfaceError(null);
-
-      void (async () => {
-        try {
-          while (active && syncRequested) {
-            syncRequested = false;
-            const currentTarget =
-              nativeSurfaceTargetRef.current || nativeSurfaceTarget;
-            if (!currentTarget) break;
-
-            const geometry =
-              await getNativePreviewSurfaceGeometry(currentTarget);
-            if (!active) break;
-            const nextGeometryKey = geometryKey(geometry);
-            if (
-              nextGeometryKey === appliedGeometryKey &&
-              nativeSurfaceConfiguredRef.current
-            )
-              continue;
-
-            // Geometry changes are handled as a non-destructive transaction by
-            // the shared surface coordinator. Keep the retained native frame
-            // visible while the child window moves; hiding here exposes an
-            // empty DOM canvas and causes the resize blank-frame regression.
-            await configureNativeSurface(project.id, geometry);
-            if (!active) break;
-            nativeSurfaceConfiguredRef.current = true;
-            appliedGeometryKey = nextGeometryKey;
-            nativeSurfaceGeometrySettledRef.current = true;
-            if (active) {
-              nativeSurfaceReadyRef.current = true;
-              nativeSurfaceErrorRef.current = null;
-              setNativeSurfaceError(null);
-              setNativeSurfaceReady(true);
-              markNativeSurfaceReady(readinessToken);
-              // Increment the surface-ready revision so the render loop can
-              // detect the geometry-settled transition and clear readback
-              // circuit-breakers (nativeBlockedKey / nativeFailureCount) that
-              // may have tripped while the Rust decoder was still warming up.
-              nativeSurfaceReadyRevisionRef.current += 1;
-              console.log(
-                "%c[preview-diag] native surface READY — revision=" + nativeSurfaceReadyRevisionRef.current,
-                "color:#6366f1;font-weight:bold",
-                { projectId: project.id, pendingRepaint: !_globalPreviewForceRepaintFn },
-              );
-              // Force a repaint: the loop was waiting for the surface to be
-              // ready before attempting readback. Now that it is, we need both
-              // forceRenderNeeded=true AND the circuit-breaker reset above.
-              forceRepaintNativeProgramPreview();
-            }
-          }
-        } catch (error) {
-          if (isNativeSurfaceRequestSuperseded(error)) {
-            // A newer geometry or project transaction owns the coordinator.
-            // This request is obsolete, not a surface failure.
-            return;
-          }
-          nativeSurfaceConfiguredRef.current = false;
-          nativeSurfaceGeometrySettledRef.current = false;
-          if (active) {
-            const message =
-              error instanceof Error ? error.message : String(error);
-            nativeSurfaceErrorRef.current = message;
-            setNativeSurfaceError(message);
-            nativeSurfaceReadyRef.current = false;
-            setNativeSurfaceReady(false);
-            failNativeSurfaceReadiness(readinessToken, error);
-          }
-        } finally {
-          syncInFlight = false;
-          // A ResizeObserver/position sample can arrive while the IPC resize
-          // is in flight. Drain the newest geometry instead of losing it.
-          if (active && syncRequested) syncSurface();
-        }
-      })();
-    };
-
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-    const requestSync = (immediate: boolean = false) => {
-      if (immediate || clock.state === "playing") {
-        if (debounceTimer) {
-          clearTimeout(debounceTimer);
-          debounceTimer = null;
-        }
-        syncSurface();
-      } else {
-        if (debounceTimer) clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => {
-          debounceTimer = null;
-          if (active) syncSurface();
-        }, 100);
-      }
-    };
-
-    const handleWindowResize = () => requestSync(false);
-
-    requestSync(true);
-    let unlistenWindowMoved: (() => void | Promise<void>) | null = null;
-    void onNativePreviewWindowMoved(() => requestSync(false))
-      .then((unlisten) => {
-        if (active) {
-          unlistenWindowMoved = unlisten;
-        } else {
-          void Promise.resolve(unlisten()).catch(() => undefined);
-        }
-      })
-      .catch(() => undefined);
-    const resizeObserver =
-      typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(() => requestSync(false))
-        : null;
-    resizeObserver?.observe(target);
-    window.addEventListener("resize", handleWindowResize);
-
-    const unsubscribeClockSync = clock.subscribe((clockState) => {
-      if (clockState.state === "playing") {
-        requestSync(true);
-      }
-    });
-
-    return () => {
-      active = false;
-      if (debounceTimer) clearTimeout(debounceTimer);
-      unsubscribeClockSync();
-      resizeObserver?.disconnect();
-      if (unlistenWindowMoved) {
-        void Promise.resolve(unlistenWindowMoved()).catch(() => undefined);
-      }
-      window.removeEventListener("resize", handleWindowResize);
-      nativeSurfaceConfiguredRef.current = false;
-      nativeSurfaceGeometrySettledRef.current = false;
-      nativeSurfaceReadyRef.current = false;
-      nativeSurfaceErrorRef.current = null;
-      setNativeSurfaceError(null);
-      setNativeSurfaceReady(false);
-      releaseNativeSurfaceReadiness(readinessToken);
-      void releaseNativeSurface(project.id).catch(() => undefined);
-    };
-    // The boolean viewport dependency retries setup when the initial layout
-    // changes from zero-sized placeholder to a real preview. It remains stable
-    // during ordinary resize events, which keeps this effect from remounting on
-    // every pixel change; ResizeObserver handles those through syncSurface().
-    // gpuReady transitions from false→true exactly once on Windows (when the
-    // DX12 spawn finishes), re-running this effect at the right moment.
-    // nativeSurfaceTarget ensures setup triggers as soon as the viewport div mounts.
-  }, [project?.id, nativeSurfaceViewportReady, gpuReady, nativeSurfaceTarget]);
-
+  const nativeSurface = useNativeSurfaceController({
+    projectId: project?.id,
+    clock,
+    viewportReady: nativeSurfaceViewportReady,
+    onSurfaceReady: forceRepaintNativeProgramPreview,
+  });
+  const {
+    ready: nativeSurfaceReady,
+    error: nativeSurfaceError,
+    targetCallback: nativeSurfaceTargetCallback,
+    readyRef: nativeSurfaceReadyRef,
+    errorRef: nativeSurfaceErrorRef,
+    configuredRef: nativeSurfaceConfiguredRef,
+    geometrySettledRef: nativeSurfaceGeometrySettledRef,
+    readyRevisionRef: nativeSurfaceReadyRevisionRef,
+  } = nativeSurface;
   const previewBackgroundLayer = useMemo(() => {
     return getCanvasBackgroundLayer(project?.canvasBackground);
   }, [project?.canvasBackground]);
@@ -2907,6 +2606,11 @@ export const NativeProgramPreview: React.FC = () => {
           nativePreviewScheduler.setVisibleGeneration(visibleRequestGeneration);
         }
         const targetGeneration = visibleRequestGeneration;
+        // One session-owned epoch fences every asynchronous transport result.
+        // Scheduler generations only describe frame demand; they cannot prove
+        // a native audio position belongs to the current play/seek run.
+        const targetTransportEpoch =
+          capturedSession.transportAuthority?.getTransportEpoch() ?? 0;
         // Do not hand the visible surface to native video until native audio has
         // supplied its first hardware-clock sample. Before that point the
         // Wait for the native audio clock before handing continuous playback to
@@ -3471,6 +3175,9 @@ export const NativeProgramPreview: React.FC = () => {
                         if (
                           isPlaying &&
                           nativePlaybackRenderSnapshotInFlight === null &&
+                          capturedSession.transportAuthority?.isCurrentTransportEpoch(
+                            targetTransportEpoch,
+                          ) &&
                           typeof presentation.audioPositionTicks === "number" &&
                           presentation.audioPositionTicks > 0 &&
                           typeof presentation.frameAgeTicks === "number" &&
