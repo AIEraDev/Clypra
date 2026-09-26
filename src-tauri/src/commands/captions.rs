@@ -138,7 +138,7 @@ pub async fn generate_auto_captions(
     model_size: Option<String>,
     language: Option<String>,
 ) -> Result<Vec<SubtitleSegment>, String> {
-    eprintln!(
+    log::debug!(
         "🦀 [generate_auto_captions] Starting captioning for: {} model: {:?} language: {:?}",
         video_path, model_size, language
     );
@@ -162,7 +162,7 @@ pub async fn generate_auto_captions(
         .ok_or_else(|| "Failed to convert model path to string".to_string())?
         .to_string();
 
-    eprintln!(
+    log::debug!(
         "🦀 [generate_auto_captions] Using verified model at: {}",
         model_path_str
     );
@@ -199,7 +199,7 @@ pub async fn generate_auto_captions(
 
     // 3. Zero-copy cast to f32 slice via bytemuck
     let audio_data: &[f32] = cast_slice(&output.stdout);
-    eprintln!(
+    log::debug!(
         "🦀 [generate_auto_captions] {} samples extracted ({:.2}s)",
         audio_data.len(),
         audio_data.len() as f64 / 16000.0
@@ -315,7 +315,7 @@ pub async fn generate_auto_captions(
             });
         }
 
-        eprintln!(
+        log::debug!(
             "🦀 [generate_auto_captions] Generated {} segments",
             segments.len()
         );

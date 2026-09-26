@@ -1172,12 +1172,36 @@ pub async fn configure_native_playback_render(
     // for a decode probe *after* the expensive Windows pipeline compilation.
     // Join them before the worker starts so first presentation remains exact
     // and the chosen quality policy still applies to the first lookahead.
-    let pipeline_warmup = crate::commands::native_preview::prepare_native_preview_pipelines(
-        &app,
-        canvas_w,
-        canvas_h,
-        target_format,
-    );
+    let output_w = if snapshot_clone.output_width > 0 {
+        snapshot_clone.output_width
+    } else {
+        canvas_w
+    };
+    let output_h = if snapshot_clone.output_height > 0 {
+        snapshot_clone.output_height
+    } else {
+        canvas_h
+    };
+
+    let pipeline_warmup = async {
+        crate::commands::native_preview::prepare_native_preview_pipelines(
+            &app,
+            output_w,
+            output_h,
+            target_format,
+        )
+        .await?;
+        if output_w != canvas_w || output_h != canvas_h {
+            crate::commands::native_preview::prepare_native_preview_pipelines(
+                &app,
+                canvas_w,
+                canvas_h,
+                target_format,
+            )
+            .await?;
+        }
+        Ok::<(), String>(())
+    };
     let capability_probe = probe_decode_capability(&snapshot_clone);
     let (pipeline_warmup_result, (capability_policy, capability_probe_us)) =
         tokio::join!(pipeline_warmup, capability_probe);
@@ -1276,12 +1300,22 @@ pub async fn update_native_playback_render(
         }
     };
 
-    let (old_w, old_h) = {
+    let (old_w, old_h, old_out_w, old_out_h) = {
         let current = session.snapshot.read();
-        (current.project.canvas_width, current.project.canvas_height)
+        (
+            current.project.canvas_width,
+            current.project.canvas_height,
+            current.output_width,
+            current.output_height,
+        )
     };
 
-    if snapshot.project.canvas_width != old_w || snapshot.project.canvas_height != old_h {
+    let dims_changed = snapshot.project.canvas_width != old_w
+        || snapshot.project.canvas_height != old_h
+        || snapshot.output_width != old_out_w
+        || snapshot.output_height != old_out_h;
+
+    if dims_changed {
         let target_format = if let Some(surface_runtime) = app
             .try_state::<Arc<std::sync::Mutex<crate::commands::native_surface::NativeSurfaceRuntime>>>()
         {
@@ -1294,13 +1328,33 @@ pub async fn update_native_playback_render(
         }
         .unwrap_or(wgpu::TextureFormat::Rgba8UnormSrgb);
 
+        let out_w = if snapshot.output_width > 0 {
+            snapshot.output_width
+        } else {
+            snapshot.project.canvas_width
+        };
+        let out_h = if snapshot.output_height > 0 {
+            snapshot.output_height
+        } else {
+            snapshot.project.canvas_height
+        };
+
         crate::commands::native_preview::prepare_native_preview_pipelines(
             &app,
-            snapshot.project.canvas_width,
-            snapshot.project.canvas_height,
+            out_w,
+            out_h,
             target_format,
         )
         .await?;
+        if out_w != snapshot.project.canvas_width || out_h != snapshot.project.canvas_height {
+            crate::commands::native_preview::prepare_native_preview_pipelines(
+                &app,
+                snapshot.project.canvas_width,
+                snapshot.project.canvas_height,
+                target_format,
+            )
+            .await?;
+        }
     }
 
     let snapshot_clone = snapshot.clone();

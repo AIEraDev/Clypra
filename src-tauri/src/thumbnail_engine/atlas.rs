@@ -238,7 +238,7 @@ impl AtlasBuilder {
             return Err(format!("Failed to commit atlas file: {}", e));
         }
 
-        eprintln!(
+        log::debug!(
             "[AtlasBuilder] Atomically saved atlas: {} ({} thumbnails, {} bytes)",
             path.display(),
             self.count,
@@ -278,7 +278,7 @@ pub async fn load_from_atlas_resilient(
     let atlas_data = match tokio::fs::read(&location.atlas_path).await {
         Ok(data) => {
             if data.is_empty() {
-                eprintln!(
+                log::debug!(
                     "[load_from_atlas] Quarantining 0-byte truncated atlas: {:?}",
                     location.atlas_path
                 );
@@ -295,7 +295,7 @@ pub async fn load_from_atlas_resilient(
     let atlas_img = match image::load_from_memory(&atlas_data) {
         Ok(img) => img.to_rgba8(),
         Err(e) => {
-            eprintln!(
+            log::debug!(
                 "[load_from_atlas] Corrupted WebP detected in {:?}. Auto-quarantining file: {}",
                 location.atlas_path, e
             );
@@ -309,7 +309,7 @@ pub async fn load_from_atlas_resilient(
 
     // Bounds check within the atlas dimensions
     if x + thumb_width > atlas_img.width() || y + thumb_height > atlas_img.height() {
-        eprintln!(
+        log::debug!(
             "[load_from_atlas] Tile location ({}, {}) with dims {}x{} exceeds atlas dims {}x{}",
             x,
             y,
@@ -369,7 +369,7 @@ pub async fn prune_disk_cache_if_needed(cache_dir: &PathBuf) {
         return;
     }
 
-    eprintln!(
+    log::debug!(
         "[prune_disk_cache] Cache usage {} bytes exceeds limit {} bytes. Pruning oldest files...",
         current_bytes, limit
     );
@@ -409,7 +409,7 @@ pub async fn prune_disk_cache_if_needed(cache_dir: &PathBuf) {
         }
     }
 
-    eprintln!("[prune_disk_cache] Pruned {} atlas files.", pruned_count);
+    log::debug!("[prune_disk_cache] Pruned {} atlas files.", pruned_count);
 }
 
 /// Purge all thumbnail and render atlases from the disk cache.

@@ -111,7 +111,7 @@ pub fn resolve_model_file_path(
 /// Download a Whisper model directly from Hugging Face GGML CDN with progress tracking and cancellation support
 #[tauri::command]
 pub async fn download_whisper_model(app: tauri::AppHandle, size: String) -> Result<(), String> {
-    eprintln!(
+    log::debug!(
         "🦀 [download_whisper_model] Starting download for model: {}",
         size
     );
@@ -139,8 +139,8 @@ pub async fn download_whisper_model(app: tauri::AppHandle, size: String) -> Resu
         .unwrap_or(&size);
     let file_path = models_dir.join(format!("ggml-{}.bin", clean_size));
 
-    eprintln!("🦀 [download_whisper_model] Downloading from: {}", url);
-    eprintln!("🦀 [download_whisper_model] Saving to: {:?}", file_path);
+    log::debug!("🦀 [download_whisper_model] Downloading from: {}", url);
+    log::debug!("🦀 [download_whisper_model] Saving to: {:?}", file_path);
 
     // Create cancellation token
     let cancel_token = CancellationToken::new();
@@ -204,7 +204,7 @@ async fn perform_download(
     }
 
     let total_size = response.content_length().unwrap_or(0);
-    eprintln!(
+    log::debug!(
         "🦀 [download_whisper_model] Total size: {} MB",
         total_size / 1_048_576
     );
@@ -223,7 +223,7 @@ async fn perform_download(
         tokio::select! {
             // Check for cancellation
             _ = cancel_token.cancelled() => {
-                eprintln!("🦀 [download_whisper_model] Download cancelled");
+                log::debug!("🦀 [download_whisper_model] Download cancelled");
                 // Clean up partial file
                 let _ = tokio::fs::remove_file(&part_path).await;
                 return Err("Download cancelled".to_string());
@@ -247,7 +247,7 @@ async fn perform_download(
                             let bytes_since_last = downloaded - last_downloaded;
                             let speed = (bytes_since_last as f64 / elapsed_secs) as u64;
 
-                            eprintln!("🦀 [download] Progress: {}/{} MB ({:.1}%) @ {} MB/s",
+                            log::debug!("🦀 [download] Progress: {}/{} MB ({:.1}%) @ {} MB/s",
                                 downloaded / 1_048_576,
                                 total_size / 1_048_576,
                                 (downloaded as f64 / total_size as f64) * 100.0,
@@ -300,7 +300,7 @@ async fn perform_download(
         .await
         .map_err(|e| format!("Failed to finalize model file: {}", e))?;
 
-    eprintln!(
+    log::debug!(
         "🦀 [download_whisper_model] Download completed and verified: {} MB",
         downloaded / 1_048_576
     );
@@ -331,9 +331,9 @@ pub async fn delete_whisper_model(app: tauri::AppHandle, size: String) -> Result
         tokio::fs::remove_file(&model_path)
             .await
             .map_err(|e| format!("Failed to delete model file: {}", e))?;
-        eprintln!("🦀 [delete_whisper_model] Deleted model: {:?}", model_path);
+        log::debug!("🦀 [delete_whisper_model] Deleted model: {:?}", model_path);
     } else {
-        eprintln!("🦀 [delete_whisper_model] Model not found for: {}", size);
+        log::debug!("🦀 [delete_whisper_model] Model not found for: {}", size);
     }
 
     Ok(())
@@ -386,12 +386,12 @@ pub async fn cancel_whisper_download(app: tauri::AppHandle, size: String) -> Res
 
     if let Some(token) = tasks.get(&size) {
         token.cancel();
-        eprintln!(
+        log::debug!(
             "🦀 [cancel_whisper_download] Cancelled download for: {}",
             size
         );
     } else {
-        eprintln!(
+        log::debug!(
             "🦀 [cancel_whisper_download] No active download found for: {}",
             size
         );

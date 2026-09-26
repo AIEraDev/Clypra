@@ -30,7 +30,7 @@ pub async fn trim_video(
         return Err("Trim duration must be positive (end must be after start)".to_string());
     }
 
-    eprintln!(
+    log::debug!(
         "🦀 [trim_video] Trimming: {} → {} ({}s – {}s, duration: {:.2}s)",
         input_path, output_path, start_seconds, end_seconds, duration
     );
@@ -58,11 +58,11 @@ pub async fn trim_video(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        eprintln!("🦀 [trim_video] FFmpeg trim failed: {}", stderr);
+        log::debug!("🦀 [trim_video] FFmpeg trim failed: {}", stderr);
         return Err(format!("FFmpeg trim failed: {}", stderr));
     }
 
-    eprintln!("🦀 [trim_video] Trim successful: {}", output_path);
+    log::debug!("🦀 [trim_video] Trim successful: {}", output_path);
     Ok(output_path)
 }
 
@@ -77,7 +77,7 @@ pub async fn process_camera_recording(
     aspect_ratio: String,
     mirror: bool,
 ) -> Result<String, String> {
-    eprintln!(
+    log::debug!(
         "🦀 [process_camera_recording] Processing: {} → {} (ratio: {}, mirror: {})",
         input_path, output_path, aspect_ratio, mirror
     );
@@ -149,7 +149,7 @@ pub async fn process_camera_recording(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        eprintln!(
+        log::debug!(
             "🦀 [process_camera_recording] FFmpeg processing failed: {}",
             stderr
         );
@@ -161,6 +161,6 @@ pub async fn process_camera_recording(
         let _ = std::fs::remove_file(&input_path);
     }
 
-    eprintln!("🦀 [process_camera_recording] Success: {}", output_path);
+    log::debug!("🦀 [process_camera_recording] Success: {}", output_path);
     Ok(output_path)
 }

@@ -159,7 +159,7 @@ pub async fn extract_poster_frame_command(
             let encode_ms = encode_start.elapsed().as_millis();
             let total_ms = total_start.elapsed().as_millis();
 
-            eprintln!(
+            log::debug!(
                 "[extract_poster] [{}] total={}ms (webp_encode={}ms, size={}x{})",
                 filename, total_ms, encode_ms, out_w, out_h
             );
@@ -169,7 +169,7 @@ pub async fn extract_poster_frame_command(
             Ok(format!("data:image/webp;base64,{}", base64_data))
         }
         Err(native_err) => {
-            eprintln!(
+            log::warn!(
                 "[extract_poster] Native decode failed for {}: {}; attempting CLI fallback",
                 filename, native_err
             );
@@ -474,7 +474,7 @@ pub async fn decode_frames_streaming(
         let decoder = match get_decoder(&video_path).await {
             Ok(d) => d,
             Err(e) => {
-                eprintln!("[decode_frames_streaming] Failed to get decoder: {}", e);
+                log::warn!("[decode_frames_streaming] Failed to get decoder: {}", e);
                 return;
             }
         };
@@ -507,7 +507,7 @@ pub async fn decode_frames_streaming(
                         Ok(Err(e)) => {
                             frames_failed += 1;
                             if frames_failed <= 5 {
-                                eprintln!("[decode_frames_streaming] Decode failed at {}s (deduplicated): {}", time, e);
+                                log::debug!("[decode_frames_streaming] Decode failed at {}s (deduplicated): {}", time, e);
                             }
                             continue;
                         }
@@ -518,7 +518,7 @@ pub async fn decode_frames_streaming(
                                 Err(e) => {
                                     frames_failed += 1;
                                     if frames_failed <= 5 {
-                                        eprintln!(
+                                        log::debug!(
                                             "[decode_frames_streaming] Decode failed at {}s: {}",
                                             time, e
                                         );
@@ -545,7 +545,7 @@ pub async fn decode_frames_streaming(
                             IN_FLIGHT_EXTRACTIONS.remove(&key);
                             frames_failed += 1;
                             if frames_failed <= 5 {
-                                eprintln!(
+                                log::debug!(
                                     "[decode_frames_streaming] Decode failed at {}s: {}",
                                     time, e
                                 );
@@ -562,7 +562,7 @@ pub async fn decode_frames_streaming(
                     match encode_rgba_to_webp_data_url(&rgba_bytes, actual_width, actual_height) {
                         Ok(url) => url,
                         Err(e) => {
-                            eprintln!(
+                            log::warn!(
                                 "[decode_frames_streaming] WebP encoding failed at {}s: {}",
                                 time, e
                             );
@@ -591,7 +591,7 @@ pub async fn decode_frames_streaming(
                     if let Err(e) =
                         atlas_builder.add_thumbnail(rgba_bytes, *actual_width, *actual_height)
                     {
-                        eprintln!(
+                        log::warn!(
                             "[decode_frames_streaming] Failed to add thumbnail to atlas: {}",
                             e
                         );
@@ -605,7 +605,7 @@ pub async fn decode_frames_streaming(
             // Save atlas to disk (background persistence)
             if let Some((_, first_location, _, _)) = locations.first() {
                 if let Err(e) = atlas_builder.save(&first_location.atlas_path).await {
-                    eprintln!("[decode_frames_streaming] Failed to save atlas: {}", e);
+                    log::warn!("[decode_frames_streaming] Failed to save atlas: {}", e);
                 }
             }
 
@@ -752,7 +752,7 @@ pub async fn get_render_artifact(
                 let _ = on_artifact.send(artifact);
             }
             Err(e) => {
-                eprintln!(
+                log::warn!(
                     "[get_render_artifact] Downsample failed for {:?}: {}",
                     tier, e
                 );
@@ -1063,7 +1063,7 @@ pub async fn get_render_artifacts_batch(
                         }
                     }
                     Err(e) => {
-                        eprintln!("[batch:error] req={} tier={:?} error={}", req_id, tier, e);
+                        log::warn!("[batch:error] req={} tier={:?} error={}", req_id, tier, e);
                     }
                 }
             }
@@ -1155,7 +1155,7 @@ pub async fn clear_disk_cache() -> Result<usize, String> {
     (*TIER_CACHE).clear();
     GLOBAL_CACHE.clear().await;
 
-    eprintln!(
+    log::info!(
         "[clear_disk_cache] Cleared {} atlas files and reset in-memory caches.",
         count
     );
