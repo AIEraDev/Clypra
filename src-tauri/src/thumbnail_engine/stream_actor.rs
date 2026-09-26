@@ -524,7 +524,17 @@ impl StreamDecoderActor {
                     Ok(None) => {
                         // Software or non-D3D11 frame; proceed to CPU fallback below
                     }
-                    Err(err) => return Err(err),
+                    Err(err) => {
+                        if err.contains("cancelled") {
+                            return Err(err);
+                        }
+                        log::warn!(
+                            "[StreamActor] DXGI decode failed at {}s: {}, attempting CPU NV12 fallback",
+                            target_time,
+                            err
+                        );
+                        // Non-fatal: proceed to CPU NV12 fallback below
+                    }
                 }
             }
 

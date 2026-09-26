@@ -122,6 +122,28 @@ describe("TransportAuthority", () => {
       expect(mockProgramContext.pause).toHaveBeenCalledTimes(1);
     });
 
+    it("seeks to 0 when toggling playback at the terminal boundary", () => {
+      mockProgramContext.getState = vi.fn(() => "paused" as any);
+      mockProgramContext.getDuration = vi.fn(() => 41.366667);
+      mockProgramContext.getTime = vi.fn(() => 41.366667);
+
+      authority.togglePlayback();
+
+      expect(mockProgramContext.seek).toHaveBeenCalledWith(0);
+      expect(mockProgramContext.play).toHaveBeenCalledTimes(1);
+    });
+
+    it("seeks to 0 when calling play at the terminal boundary", () => {
+      mockProgramContext.getState = vi.fn(() => "paused" as any);
+      mockProgramContext.getDuration = vi.fn(() => 41.366667);
+      mockProgramContext.getTime = vi.fn(() => 41.366667);
+
+      authority.play();
+
+      expect(mockProgramContext.seek).toHaveBeenCalledWith(0);
+      expect(mockProgramContext.play).toHaveBeenCalledTimes(1);
+    });
+
     it("seek delegates to active context", () => {
       authority.seek(5);
       expect(mockProgramContext.seek).toHaveBeenCalledWith(5);
