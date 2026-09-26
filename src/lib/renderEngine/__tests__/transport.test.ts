@@ -461,4 +461,41 @@ describe("requestFilmstripArtifacts coalescing", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(mockInvoke).toHaveBeenCalledTimes(2);
   });
+
+  it("preempts in-flight low-priority background batch when high-priority viewport arrives", async () => {
+    registerActiveEpoch("clip-preempt", eid("epoch-preempt"));
+    mockInvoke.mockImplementation(() => new Promise<void>(() => {})); // Never resolves on its own
+
+    // 1. Dispatch low-priority background batch (priority: 0)
+    requestFilmstripArtifacts({
+      videoPath: "/preempt.mp4",
+      timestampsMs: [1000, 2000, 3000],
+      spatialTier: SpatialTier.L0,
+      epochId: eid("epoch-preempt"),
+      clipId: "clip-preempt",
+      priority: 0,
+      onArtifact: vi.fn(),
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockInvoke).toHaveBeenCalledTimes(1);
+    expect(mockInvoke.mock.calls[0][0]).toBe("get_render_artifacts_batch");
+
+    // 2. Dispatch high-priority interactive viewport batch (priority: 10)
+    requestFilmstripArtifacts({
+      videoPath: "/preempt.mp4",
+      timestampsMs: [5000, 6000],
+      spatialTier: SpatialTier.L1,
+      epochId: eid("epoch-preempt"),
+      clipId: "clip-preempt",
+      priority: 10,
+      onArtifact: vi.fn(),
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+    // Preemption triggers cancel_render_artifacts_batch and immediately starts the priority 10 batch
+    const invokeCalls = mockInvoke.mock.calls.map((c) => c[0]);
+    expect(invokeCalls).toContain("cancel_render_artifacts_batch");
+    expect(invokeCalls.filter((c) => c === "get_render_artifacts_batch")).toHaveLength(2);
+  });
 });

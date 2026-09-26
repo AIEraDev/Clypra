@@ -679,10 +679,20 @@ export const NativeProgramPreview: React.FC = () => {
       if (nativeSampleBatch) {
         for (let index = 0; index < samples.length; index += 1) {
           const sample = samples[index];
-          previewPerformancePolicyRef.current.observe({
-            totalTimeUs: sample.totalTimeUs,
-            dropped: sample.dropped === true,
-          });
+          // A "lookahead-miss", "cancelled", or "stale" sample is a queue scheduling
+          // or transport event (e.g. seeking or scrubbing faster than pre-decode),
+          // NOT a GPU or compositor overload. Observing them as dropped causes
+          // false backpressure escalation.
+          const isTransportDrop =
+            sample.dropReason === "lookahead-miss" ||
+            sample.dropReason === "cancelled" ||
+            sample.dropReason === "stale";
+          if (!isTransportDrop) {
+            previewPerformancePolicyRef.current.observe({
+              totalTimeUs: sample.totalTimeUs,
+              dropped: sample.dropped === true,
+            });
+          }
           const sequence = nativeSampleBatch.firstSequence + index;
           telemetryCollector.recordNativeSyncSnapshot(
             nativeSync,

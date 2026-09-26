@@ -151,6 +151,18 @@ export function isSoftwareRenderer(
   );
 }
 
+/**
+ * Detects Apple Silicon GPUs (M1 through M4, Pro/Max/Ultra).
+ * These feature unified memory with dedicated VideoToolbox hardware decoders.
+ * They should never be demoted to unaccelerated software proxy decode.
+ */
+export function isAppleSiliconGpu(
+  adapterName: string | null | undefined,
+): boolean {
+  if (!adapterName) return false;
+  return /apple/i.test(adapterName);
+}
+
 // ---------------------------------------------------------------------------
 // Primary classifier — probe-driven, vendor-string as fallback
 // ---------------------------------------------------------------------------
@@ -298,8 +310,16 @@ export class PreviewPerformancePolicyController {
     // Discrete GPUs do not participate in backpressure escalation — they can
     // always handle the workload better than an iGPU. Software renderers
     // already get the worst tier from selectPreviewHardwarePolicy.
+    // Apple Silicon (M-series) has unified memory and dedicated hardware decode;
+    // in Clypra, escalating Apple Silicon to proxy causes an unintended fallback
+    // to unaccelerated cpu-rgba decode (~500ms), inducing severe drop loops.
     const tier = classifyGpuTier(adapterName, deviceType);
-    if (tier === "discrete" || tier === "software" || tier === "unknown") {
+    if (
+      tier === "discrete" ||
+      tier === "software" ||
+      tier === "unknown" ||
+      isAppleSiliconGpu(adapterName)
+    ) {
       return baseline;
     }
 
@@ -311,6 +331,11 @@ export class PreviewPerformancePolicyController {
       return baseline.capabilityPolicy === "full"
         ? REDUCED_1080_POLICY
         : PROXY_POLICY;
+    }
+    // Capable iGPUs stay at reduced (1080p half) rather than falling back to
+    // unaccelerated software proxy decode. Only legacy iGPUs drop to proxy.
+    if (tier === "capable-igpu") {
+      return REDUCED_1080_POLICY;
     }
     return PROXY_POLICY;
   }
