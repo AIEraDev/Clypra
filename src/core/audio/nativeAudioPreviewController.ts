@@ -99,6 +99,13 @@ export class NativeAudioPreviewController {
     installedClipCount: number;
     playCommandUs?: number;
   } | null = null;
+  /**
+   * Guards against an infinite restart loop after a silent-timeout.
+   * On Windows Intel iGPU drivers the CPAL stream sometimes initialises before
+   * the D3D12 audio device is fully enumerated, producing only silent callbacks.
+   * We attempt one automatic restart (500 ms delay) before surfacing the error.
+   */
+  private silentTimeoutRetried = false;
 
   constructor(options: NativeAudioPreviewControllerOptions) {
     this.clock = options.clock;
@@ -634,6 +641,43 @@ export class NativeAudioPreviewController {
       if (nonSilentFramesDelta > 0) {
         this.finishStartupProbe("audible", diagnostics, callbackCountDelta, nonSilentFramesDelta);
       } else if (elapsedUs(probe.startedAt) >= 1_500_000) {
+        // On Windows Intel iGPU (D3D12) the CPAL stream can initialise before
+        // the audio device finishes D3D12 enumeration, resulting in 155+
+        // silent callbacks with no output. A single automatic restart of the
+        // native audio stream (stop → 500 ms → play) recovers from this.
+        // We only attempt this once to prevent an infinite silent loop.
+        if (!diagnostics.status.lastError && !this.silentTimeoutRetried && this.active && !this.disposed) {
+          this.silentTimeoutRetried = true;
+          console.info(
+            "[NativeAudioController] Silent-timeout detected — attempting one-time CPAL stream restart",
+          );
+          try {
+            await stopNativeAudio();
+            await new Promise<void>((resolve) => setTimeout(resolve, 500));
+            if (!this.active || this.disposed) return;
+            // Re-apply output settings and restart from current clock position.
+            await setNativeAudioOutput(this.outputVolume, this.outputMuted);
+            await seekNativeAudio(secondsToTicks(this.clock.time));
+            const nativeState = await nativePlayFromAudio();
+            // Reset the probe window so the restarted stream gets a full 1.5 s.
+            probe.startedAt = performance.now();
+            probe.callbackCount = 0;
+            probe.nonSilentFrames = 0;
+            if (this.startupProbe) this.startupProbe.playCommandUs = undefined;
+            this.adoptNativePosition(nativeState.audioPositionTicks);
+            console.info("[NativeAudioController] CPAL stream restarted after silent-timeout");
+          } catch (restartError) {
+            console.warn("[NativeAudioController] CPAL restart failed:", restartError);
+            this.finishStartupProbe(
+              "failed",
+              diagnostics,
+              callbackCountDelta,
+              nonSilentFramesDelta,
+              `silent-timeout-restart-failed: ${String(restartError)}`,
+            );
+          }
+          return;
+        }
         this.finishStartupProbe(
           diagnostics.status.lastError ? "failed" : "silent-timeout",
           diagnostics,

@@ -839,6 +839,15 @@ impl NativePlaybackRuntime {
         self.render_session.clone()
     }
 
+    /// Expose the capability-probe-selected quality tier for inter-module use
+    /// (e.g. the lookahead predecode worker in native_preview.rs).  Returns
+    /// `None` when no render session is active.
+    pub fn render_session_quality(&self) -> Option<crate::native_core::QualityTier> {
+        self.render_session
+            .as_ref()
+            .map(|s| s.snapshot.read().quality)
+    }
+
     pub fn submit_render_demand(&self, demand: NativePlaybackFrameDemand) -> Result<(), String> {
         self.render_session
             .as_ref()
