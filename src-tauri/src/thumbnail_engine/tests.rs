@@ -652,7 +652,7 @@ fn test_eviction_priority_ultra_high_before_medium_low() {
     // Build the eviction list: high_priority first, then low_priority
     let eviction_list: Vec<Entry> = high_priority
         .into_iter()
-        .chain(low_priority.into_iter())
+        .chain(low_priority)
         .collect();
 
     let total = eviction_list.len();
@@ -688,11 +688,11 @@ fn test_eviction_priority_ultra_high_before_medium_low() {
     // This confirms priority trumps LRU ordering across density tiers.
     let ultra_hot_pos = eviction_list
         .iter()
-        .position(|e| e.5 == PathBuf::from("/ultra_hot"))
+        .position(|e| e.5 == "/ultra_hot")
         .expect("ultra_hot entry should be in eviction list");
     let medium_cold_pos = eviction_list
         .iter()
-        .position(|e| e.5 == PathBuf::from("/medium_cold"))
+        .position(|e| e.5 == "/medium_cold")
         .expect("medium_cold entry should be in eviction list");
 
     assert!(
@@ -1068,9 +1068,7 @@ fn test_pixel_video_decoder_rotation_and_nv12() {
         "Display dimensions should be swapped (portrait)"
     );
 
-    let (y, uv, w, h, _color) = decoder
-        .decode_frame_raw_nv12(0.5)
-        .expect("decode raw nv12");
+    let (y, uv, w, h, _color) = decoder.decode_frame_raw_nv12(0.5).expect("decode raw nv12");
     assert_eq!(
         (w, h),
         (3840, 2160),

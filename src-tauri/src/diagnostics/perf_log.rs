@@ -341,9 +341,7 @@ pub async fn upload_perf_log_session(
         // Try gzip on attempts 1 and 2; attempt 3 falls back to uncompressed JSON
         let use_gzip = attempt < max_attempts;
 
-        let mut request = client
-            .post(&url)
-            .header("Content-Type", "application/json");
+        let mut request = client.post(&url).header("Content-Type", "application/json");
 
         if !api_key.is_empty() {
             request = request
@@ -354,13 +352,22 @@ pub async fn upload_perf_log_session(
         let request = if use_gzip {
             request
                 .header("Content-Encoding", "gzip")
-                .header("X-Clypra-Perf-Uncompressed-Bytes", uncompressed_bytes.to_string())
+                .header(
+                    "X-Clypra-Perf-Uncompressed-Bytes",
+                    uncompressed_bytes.to_string(),
+                )
                 .body(compressed.clone())
         } else {
             request.body(json.clone())
         };
 
-        eprintln!("[perf_log] Attempt {}/{} mode={} sending to {}", attempt, max_attempts, if use_gzip { "gzip" } else { "raw" }, url);
+        eprintln!(
+            "[perf_log] Attempt {}/{} mode={} sending to {}",
+            attempt,
+            max_attempts,
+            if use_gzip { "gzip" } else { "raw" },
+            url
+        );
         match request.send().await {
             Ok(response) => {
                 let status = response.status();
@@ -371,7 +378,10 @@ pub async fn upload_perf_log_session(
                     return Ok(());
                 } else {
                     let body_text = response.text().await.unwrap_or_default();
-                    eprintln!("[perf_log] Attempt {} rejected: {} - {}", attempt, status, body_text);
+                    eprintln!(
+                        "[perf_log] Attempt {} rejected: {} - {}",
+                        attempt, status, body_text
+                    );
                     last_err = format!(
                         "Upload rejected — HTTP {status} (attempt {attempt}/{max_attempts}, mode={}, entries={}, raw_bytes={}): {body_text}",
                         if use_gzip { "gzip" } else { "raw_json" },
@@ -436,7 +446,9 @@ pub async fn upload_pending_perf_logs(
 
     let mut uploaded_count = 0usize;
     for file_path in pending {
-        match upload_perf_log_session(file_path.clone(), api_base_url.clone(), api_key.clone()).await {
+        match upload_perf_log_session(file_path.clone(), api_base_url.clone(), api_key.clone())
+            .await
+        {
             Ok(_) => {
                 uploaded_count += 1;
             }
@@ -607,7 +619,9 @@ mod tests {
 
         let mut decoder = GzDecoder::new(&compressed[..]);
         let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed).expect("decompress gzip");
+        decoder
+            .read_to_end(&mut decompressed)
+            .expect("decompress gzip");
 
         assert_eq!(decompressed.len(), uncompressed_len);
         let recovered: serde_json::Value =

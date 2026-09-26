@@ -524,7 +524,6 @@ impl FrameScheduler {
 mod tests {
     use super::*;
     use crate::wgpu_compositor::frame_request::PreviewQuality;
-    use std::sync::atomic::AtomicU64;
 
     // -----------------------------------------------------------------------
     // Pure type / key tests (no GPU required)
@@ -606,30 +605,4 @@ mod tests {
         // Matches Cancelled variant — no GPU or async needed.
         assert!(matches!(ticket.inner, TicketInner::Cancelled));
     }
-
-    // -----------------------------------------------------------------------
-    // Scheduler tests with a CPU-only mock producer
-    // (no GPU required — FrameResource is produced by the mock)
-    // -----------------------------------------------------------------------
-
-    // We cannot construct a real FrameResource without a GPU device.
-    // GPU-dependent scheduler tests live in tests/audit_regressions.rs
-    // where TestGpuContext provides a real device+queue.
-    //
-    // The tests below verify scheduler state logic using only the
-    // production_count observable and the synchronous cache API.
-
-    /// Simple mock that counts invocations and returns a pre-provided resource.
-    struct CountingProducer {
-        count: Arc<AtomicU64>,
-        /// The resource to return. Wrapped in Option so we can detect
-        /// when produce() is called unexpectedly.
-        resource: Arc<FrameResource>,
-    }
-
-    // CountingProducer cannot be constructed here without a GPU.
-    // See tests/audit_regressions.rs for the full GPU-backed tests.
-    //
-    // The unit tests below therefore only exercise the pure-Rust parts of
-    // FrameScheduler (key derivation, config, error display).
 }

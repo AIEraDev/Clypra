@@ -54,9 +54,15 @@ impl MediaRuntime {
         let trimmed = first_line.trim();
 
         let version_part = if let Some(after_version) = trimmed.strip_prefix("ffmpeg version ") {
-            after_version.split_whitespace().next().unwrap_or(after_version)
+            after_version
+                .split_whitespace()
+                .next()
+                .unwrap_or(after_version)
         } else if let Some(after_ffmpeg) = trimmed.strip_prefix("ffmpeg ") {
-            after_ffmpeg.split_whitespace().next().unwrap_or(after_ffmpeg)
+            after_ffmpeg
+                .split_whitespace()
+                .next()
+                .unwrap_or(after_ffmpeg)
         } else if let Some((before_copyright, _)) = trimmed.split_once("Copyright") {
             before_copyright.trim()
         } else {
@@ -164,15 +170,27 @@ mod tests {
     #[test]
     fn parse_clean_version_strips_copyright_banner_and_developers_statement() {
         let banner1 = "ffmpeg version 8.0 Copyright (c) 2000-2025 the FFmpeg developers\nbuilt with Apple clang...";
-        assert_eq!(MediaRuntime::parse_clean_version(banner1).as_deref(), Some("8.0"));
+        assert_eq!(
+            MediaRuntime::parse_clean_version(banner1).as_deref(),
+            Some("8.0")
+        );
 
         let banner2 = "ffmpeg version 7.1-clypra Copyright (c) 2000-2024 the FFmpeg developers";
-        assert_eq!(MediaRuntime::parse_clean_version(banner2).as_deref(), Some("7.1-clypra"));
+        assert_eq!(
+            MediaRuntime::parse_clean_version(banner2).as_deref(),
+            Some("7.1-clypra")
+        );
 
         let banner3 = "ffmpeg version n6.1.2-1ubuntu1 (c) developers";
-        assert_eq!(MediaRuntime::parse_clean_version(banner3).as_deref(), Some("n6.1.2-1ubuntu1"));
+        assert_eq!(
+            MediaRuntime::parse_clean_version(banner3).as_deref(),
+            Some("n6.1.2-1ubuntu1")
+        );
 
         let banner4 = "ffmpeg 7.0 Copyright (c)";
-        assert_eq!(MediaRuntime::parse_clean_version(banner4).as_deref(), Some("7.0"));
+        assert_eq!(
+            MediaRuntime::parse_clean_version(banner4).as_deref(),
+            Some("7.0")
+        );
     }
 }

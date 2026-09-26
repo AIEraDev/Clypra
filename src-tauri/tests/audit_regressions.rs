@@ -124,8 +124,8 @@ async fn test_regression_odd_width_and_arbitrary_stride_padding() {
         let mut ring =
             Nv12TextureRingBuffer::new(&ctx.device, &layout, &sampler, &sampler, width, height, 2);
 
-        let uv_width = (width + 1) / 2;
-        let uv_height = (height + 1) / 2;
+        let uv_width = width.div_ceil(2);
+        let uv_height = height.div_ceil(2);
 
         let y_plane = vec![128u8; (width * height) as usize];
         let uv_plane = vec![128u8; (uv_width * 2 * uv_height) as usize];
@@ -183,8 +183,8 @@ async fn test_regression_yuv_hdr_odd_width_p010() {
 
     let width = 853u32;
     let height = 480u32;
-    let uv_width = (width + 1) / 2;
-    let uv_height = (height + 1) / 2;
+    let uv_width = width.div_ceil(2);
+    let uv_height = height.div_ceil(2);
 
     let mut ring_nv12 = YuvTextureRingBuffer::new(
         &ctx.device,
@@ -1575,9 +1575,8 @@ async fn test_phase5_performance_manager_invariants() {
 
     // Invariant 12: 0 misses (after reset) → policy recovers to normal
     manager.reset();
-    assert_eq!(
-        manager.policy().background_paused,
-        false,
+    assert!(
+        !manager.policy().background_paused,
         "Invariant 15: reset() must restore PolicyState to default"
     );
     assert_eq!(

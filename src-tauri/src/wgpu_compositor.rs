@@ -2549,7 +2549,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_pixel_hevc_frame_composition() {
-        let video_path = "/Users/AIEraDev/Documents/clypra-testing-assets/PXL_20260722_122750919.mp4";
+        let video_path =
+            "/Users/AIEraDev/Documents/clypra-testing-assets/PXL_20260722_122750919.mp4";
         if !std::path::Path::new(video_path).exists() {
             println!("Video asset not found, skipping");
             return;
@@ -2567,7 +2568,11 @@ mod tests {
 
         println!(
             "Decoded: width={}, height={}, color={:?}, y_len={}, uv_len={}",
-            width, height, color, y_plane.len(), uv_plane.len()
+            width,
+            height,
+            color,
+            y_plane.len(),
+            uv_plane.len()
         );
 
         let renderer = match NativeWgpuRenderer::new().await {
@@ -2678,7 +2683,7 @@ mod tests {
         let mut min_rgb = [255u8; 3];
         let mut max_rgb = [0u8; 3];
         for chunk in rgba.chunks_exact(4) {
-            let (r, g, b, a) = (chunk[0], chunk[1], chunk[2], chunk[3]);
+            let (r, g, b) = (chunk[0], chunk[1], chunk[2]);
             if r > 0 || g > 0 || b > 0 {
                 non_black_count += 1;
                 min_rgb[0] = min_rgb[0].min(r);
@@ -2695,13 +2700,10 @@ mod tests {
             "Pixels: total={}, non_black={}, min_rgb={:?}, max_rgb={:?}",
             total_pixels, non_black_count, min_rgb, max_rgb
         );
-        println!(
-            "First 16 RGBA pixels: {:?}",
-            &rgba[..64]
-        );
+        println!("First 16 RGBA pixels: {:?}", &rgba[..64]);
         println!(
             "Middle RGBA pixels (row 270): {:?}",
-            &rgba[(270 * 960 + 480) * 4 .. (270 * 960 + 484) * 4]
+            &rgba[(270 * 960 + 480) * 4..(270 * 960 + 484) * 4]
         );
     }
 }

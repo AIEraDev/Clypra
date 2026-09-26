@@ -68,18 +68,18 @@ async fn test_gpu_transition_pipeline_initialization_and_render() {
         view_formats: &[],
     });
 
-    let red_data = vec![255u8, 0, 0, 255].repeat((width * height) as usize);
-    let blue_data = vec![0u8, 0, 255, 255].repeat((width * height) as usize);
+    let red_data = [255u8, 0, 0, 255].repeat((width * height) as usize);
+    let blue_data = [0u8, 0, 255, 255].repeat((width * height) as usize);
 
     renderer.queue.write_texture(
-        wgpu::ImageCopyTexture {
+        wgpu::TexelCopyTextureInfo {
             texture: &texture_a,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
         &red_data,
-        wgpu::ImageDataLayout {
+        wgpu::TexelCopyBufferLayout {
             offset: 0,
             bytes_per_row: Some(width * 4),
             rows_per_image: Some(height),
@@ -92,14 +92,14 @@ async fn test_gpu_transition_pipeline_initialization_and_render() {
     );
 
     renderer.queue.write_texture(
-        wgpu::ImageCopyTexture {
+        wgpu::TexelCopyTextureInfo {
             texture: &texture_b,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
         &blue_data,
-        wgpu::ImageDataLayout {
+        wgpu::TexelCopyBufferLayout {
             offset: 0,
             bytes_per_row: Some(width * 4),
             rows_per_image: Some(height),

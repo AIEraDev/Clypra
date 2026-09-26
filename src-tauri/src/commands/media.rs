@@ -444,7 +444,9 @@ async fn probe_video_codec(path: &str) -> Option<String> {
         .ok()?;
 
     if output.status.success() {
-        let codec = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
+        let codec = String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .to_lowercase();
         if !codec.is_empty() {
             return Some(codec);
         }
@@ -1047,4 +1049,3 @@ mod tests {
         }
     }
 }
-

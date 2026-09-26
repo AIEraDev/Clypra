@@ -430,7 +430,8 @@ fn apply_export_codec_args(
                 cmd.arg("-c:v").arg(&encoder.codec_name);
                 cmd.arg("-tag:v").arg("hvc1");
                 cmd.arg("-b:v").arg(target_bitrate.to_string());
-                cmd.arg("-maxrate").arg((target_bitrate * 10 / 7).to_string());
+                cmd.arg("-maxrate")
+                    .arg((target_bitrate * 10 / 7).to_string());
                 cmd.arg("-bufsize").arg((target_bitrate * 2).to_string());
                 cmd.arg("-allow_sw").arg("1");
                 cmd.arg("-realtime").arg("1");
@@ -441,7 +442,8 @@ fn apply_export_codec_args(
             } else {
                 cmd.arg("-c:v").arg(&encoder.codec_name);
                 cmd.arg("-b:v").arg(target_bitrate.to_string());
-                cmd.arg("-maxrate").arg((target_bitrate * 10 / 7).to_string());
+                cmd.arg("-maxrate")
+                    .arg((target_bitrate * 10 / 7).to_string());
                 cmd.arg("-bufsize").arg((target_bitrate * 2).to_string());
                 cmd.arg("-allow_sw").arg("1");
                 cmd.arg("-realtime").arg("1");
@@ -455,7 +457,8 @@ fn apply_export_codec_args(
             cmd.arg("-c:v").arg(&encoder.codec_name);
             cmd.arg("-preset").arg("p4");
             cmd.arg("-b:v").arg(target_bitrate.to_string());
-            cmd.arg("-maxrate").arg((target_bitrate * 10 / 7).to_string());
+            cmd.arg("-maxrate")
+                .arg((target_bitrate * 10 / 7).to_string());
             cmd.arg("-bufsize").arg((target_bitrate * 2).to_string());
             cmd.arg("-bf").arg("0");
             cmd.arg("-g").arg(gop_size.to_string());
@@ -474,42 +477,41 @@ fn apply_export_codec_args(
                 cmd.arg("-tag:v").arg("hvc1");
             }
         }
-        HwAccelType::Software => {
-            match config.codec.as_str() {
-                "h264" => {
-                    cmd.arg("-c:v").arg("libx264");
-                    cmd.arg("-preset").arg(&config.preset);
-                    cmd.arg("-crf").arg(config.crf.to_string());
-                    cmd.arg("-pix_fmt").arg(&config.pixel_format);
-                    cmd.arg("-g").arg(gop_size.to_string());
-                    cmd.arg("-keyint_min").arg(gop_size.to_string());
-                    cmd.arg("-x264-params").arg("scenecut=0:open_gop=0");
-                    cmd.arg("-force_key_frames").arg("expr:eq(n,0)");
-                }
-                "h265" | "hevc" => {
-                    cmd.arg("-c:v").arg("libx265");
-                    cmd.arg("-tag:v").arg("hvc1");
-                    cmd.arg("-preset").arg(&config.preset);
-                    cmd.arg("-crf").arg(config.crf.to_string());
-                    cmd.arg("-pix_fmt").arg(&config.pixel_format);
-                    cmd.arg("-g").arg(gop_size.to_string());
-                    cmd.arg("-keyint_min").arg(gop_size.to_string());
-                    cmd.arg("-x265-params").arg("scenecut=0:open-gop=0:force-idr=1");
-                }
-                "prores" => {
-                    cmd.arg("-c:v").arg("prores_ks");
-                    let (prores_profile, prores_pix_fmt) = match config.pixel_format.as_str() {
-                        "yuva444p10le" | "yuv444p10le" => ("4444", "yuva444p10le"),
-                        "yuv422p10le" => ("hq", "yuv422p10le"),
-                        "yuv422p" => ("standard", "yuv422p10le"),
-                        _ => ("hq", "yuv422p10le"),
-                    };
-                    cmd.arg("-profile:v").arg(prores_profile);
-                    cmd.arg("-pix_fmt").arg(prores_pix_fmt);
-                }
-                _ => return Err(format!("Unsupported codec: {}", config.codec)),
+        HwAccelType::Software => match config.codec.as_str() {
+            "h264" => {
+                cmd.arg("-c:v").arg("libx264");
+                cmd.arg("-preset").arg(&config.preset);
+                cmd.arg("-crf").arg(config.crf.to_string());
+                cmd.arg("-pix_fmt").arg(&config.pixel_format);
+                cmd.arg("-g").arg(gop_size.to_string());
+                cmd.arg("-keyint_min").arg(gop_size.to_string());
+                cmd.arg("-x264-params").arg("scenecut=0:open_gop=0");
+                cmd.arg("-force_key_frames").arg("expr:eq(n,0)");
             }
-        }
+            "h265" | "hevc" => {
+                cmd.arg("-c:v").arg("libx265");
+                cmd.arg("-tag:v").arg("hvc1");
+                cmd.arg("-preset").arg(&config.preset);
+                cmd.arg("-crf").arg(config.crf.to_string());
+                cmd.arg("-pix_fmt").arg(&config.pixel_format);
+                cmd.arg("-g").arg(gop_size.to_string());
+                cmd.arg("-keyint_min").arg(gop_size.to_string());
+                cmd.arg("-x265-params")
+                    .arg("scenecut=0:open-gop=0:force-idr=1");
+            }
+            "prores" => {
+                cmd.arg("-c:v").arg("prores_ks");
+                let (prores_profile, prores_pix_fmt) = match config.pixel_format.as_str() {
+                    "yuva444p10le" | "yuv444p10le" => ("4444", "yuva444p10le"),
+                    "yuv422p10le" => ("hq", "yuv422p10le"),
+                    "yuv422p" => ("standard", "yuv422p10le"),
+                    _ => ("hq", "yuv422p10le"),
+                };
+                cmd.arg("-profile:v").arg(prores_profile);
+                cmd.arg("-pix_fmt").arg(prores_pix_fmt);
+            }
+            _ => return Err(format!("Unsupported codec: {}", config.codec)),
+        },
     }
     Ok(())
 }
@@ -1198,7 +1200,8 @@ pub async fn render_and_write_export_frame(
                 // source frame. Only recover the terminal export frame; an earlier miss
                 // is a real project/media error and must still surface to the caller.
                 let session = session_arc.lock().await;
-                let is_terminal_frame = session.current_frame.saturating_add(1) >= session.total_frames;
+                let is_terminal_frame =
+                    session.current_frame.saturating_add(1) >= session.total_frames;
                 let fallback = if is_terminal_frame {
                     session.last_composited_frame.clone()
                 } else {
@@ -1223,7 +1226,10 @@ pub async fn render_and_write_export_frame(
     if rgba.len() != expected_size {
         return Err(format!(
             "Rendered frame size mismatch: expected {} bytes ({}x{}x4), got {} bytes",
-            expected_size, session.width, session.height, rgba.len()
+            expected_size,
+            session.width,
+            session.height,
+            rgba.len()
         ));
     }
 
@@ -1331,7 +1337,8 @@ pub async fn render_and_write_export_frames_batch(
         if rgba.len() != expected_size {
             return Err(format!(
                 "Batch frame size mismatch: expected {} bytes, got {} bytes",
-                expected_size, rgba.len()
+                expected_size,
+                rgba.len()
             ));
         }
         stdin

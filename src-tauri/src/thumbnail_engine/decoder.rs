@@ -1945,7 +1945,9 @@ impl VideoDecoder {
             return Ok((y_clone, uv_clone, width, height, color));
         }
 
-        if let Some((cached_pts, y, uv, width, height, color, quality, is_approx)) = &self.last_raw_nv12 {
+        if let Some((cached_pts, y, uv, width, height, color, quality, is_approx)) =
+            &self.last_raw_nv12
+        {
             if *quality == options.quality
                 && (!*is_approx || options.allow_keyframe_approx)
                 && (*cached_pts - target_pts).abs() <= pts_tolerance
@@ -2162,20 +2164,10 @@ impl VideoDecoder {
                     normalize_converted_nv12_color(frame_color),
                 ))
             } else {
-                scale_frame_to_nv12(
-                    &cpu_frame,
-                    target_width,
-                    target_height,
-                    frame_color.clone(),
-                )
+                scale_frame_to_nv12(&cpu_frame, target_width, target_height, frame_color.clone())
             }
         } else {
-            scale_frame_to_nv12(
-                &cpu_frame,
-                target_width,
-                target_height,
-                frame_color.clone(),
-            )
+            scale_frame_to_nv12(&cpu_frame, target_width, target_height, frame_color.clone())
         }?;
         let y_arc: Arc<[u8]> = Arc::from(result.0);
         let uv_arc: Arc<[u8]> = Arc::from(result.1);
@@ -2599,7 +2591,7 @@ impl VideoDecoder {
 /// NV12 has two planes:
 ///   - Y plane: one byte per pixel, stride == width
 ///   - UV plane: interleaved U/V pairs, one pair per 2×2 luma block,
-///               stride == width (same as luma), height == ceil(luma_h / 2)
+///     stride == width (same as luma), height == ceil(luma_h / 2)
 ///
 /// Returns `(rotated_y, rotated_uv, out_width, out_height)`.
 /// For 90° and 270° the output dimensions are the transpose of the input.
@@ -2715,7 +2707,6 @@ pub fn rotate_nv12(
         _ => (y_src.to_vec(), uv_src.to_vec(), w as u32, h as u32),
     }
 }
-
 
 // ─── Global Decoder Pool with LRU Eviction ──────────────────────────────────
 // One decoder per video path. Created on first use, reused with LRU tracking.
@@ -3197,7 +3188,7 @@ mod still_image_tests {
         let is_hw_supported = VideoDecoder::macos_supports_hw_av1();
         // On M1/M2/Intel, VTIsHardwareDecodeSupported('av01') is false.
         // On M3/M4, it is true. Either is valid, but the query must run safely and return a bool.
-        assert!(is_hw_supported == true || is_hw_supported == false);
+        let _: bool = is_hw_supported;
     }
 
     #[test]
@@ -3361,13 +3352,13 @@ mod still_image_tests {
 
         // Exact request (allow_keyframe_approx == false): must NOT match
         let exact_match = cache.iter().position(|cached| {
-            (!cached.is_approximate || false) && (cached.pts - target_pts).abs() <= pts_tolerance
+            !cached.is_approximate && (cached.pts - target_pts).abs() <= pts_tolerance
         });
         assert_eq!(exact_match, None);
 
         // Approximate request (allow_keyframe_approx == true): matches
         let approx_match = cache.iter().position(|cached| {
-            (!cached.is_approximate || true) && (cached.pts - target_pts).abs() <= pts_tolerance
+            (cached.pts - target_pts).abs() <= pts_tolerance
         });
         assert_eq!(approx_match, Some(0));
     }
@@ -3409,7 +3400,9 @@ mod still_image_tests {
         }
 
         println!("=== TEST: extract_poster_frame_command with CLI fallback ===");
-        let poster_res = crate::commands::thumbnail::extract_poster_frame_command(path.to_string(), 17.8, 2.0).await;
+        let poster_res =
+            crate::commands::thumbnail::extract_poster_frame_command(path.to_string(), 17.8, 2.0)
+                .await;
         println!(
             "extract_poster_frame_command result: is_ok={}, len={}",
             poster_res.is_ok(),
@@ -3418,15 +3411,29 @@ mod still_image_tests {
         if let Err(ref e) = poster_res {
             println!("extract_poster_frame_command error: {}", e);
         }
-        assert!(poster_res.is_ok(), "extract_poster_frame_command failed: {:?}", poster_res.err());
+        assert!(
+            poster_res.is_ok(),
+            "extract_poster_frame_command failed: {:?}",
+            poster_res.err()
+        );
         let poster_data = poster_res.unwrap();
         assert!(poster_data.starts_with("data:image/webp;base64,"));
-        println!("Poster extraction succeeded! Data URL length: {} chars", poster_data.len());
+        println!(
+            "Poster extraction succeeded! Data URL length: {} chars",
+            poster_data.len()
+        );
 
         // Also test legacy command fallback
         println!("=== TEST: legacy extract_poster_frame ===");
         let legacy_res = crate::commands::media::extract_poster_frame(path.to_string(), 2.0).await;
-        assert!(legacy_res.is_ok(), "legacy extract_poster_frame failed: {:?}", legacy_res.err());
-        println!("Legacy poster extraction succeeded! Data URL length: {} chars", legacy_res.unwrap().len());
+        assert!(
+            legacy_res.is_ok(),
+            "legacy extract_poster_frame failed: {:?}",
+            legacy_res.err()
+        );
+        println!(
+            "Legacy poster extraction succeeded! Data URL length: {} chars",
+            legacy_res.unwrap().len()
+        );
     }
 }
