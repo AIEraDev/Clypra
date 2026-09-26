@@ -884,7 +884,7 @@ async fn run_native_export(
             let segment_rss = match run_ffmpeg(&args, &cancellation).await {
                 Ok(rss) => rss,
                 Err(err) if active_encoder.hw_type != HwAccelType::Software => {
-                    eprintln!(
+                    log::debug!(
                         "[run_native_export] Hardware encoder {:?} failed on segment {}: {}. Falling back to software encoder.",
                         active_encoder.hw_type, index, err
                     );

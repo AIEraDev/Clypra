@@ -157,7 +157,7 @@ impl DensityCache {
             }
 
             if removed > 0 || viewport_protected > 0 {
-                eprintln!(
+                log::debug!(
                     "[DensityCache] Evicted {} frames (protected {} viewport frames) from {} density cache",
                     removed, viewport_protected, self.density.label()
                 );
@@ -329,7 +329,7 @@ impl ThumbnailCache {
             return;
         }
 
-        eprintln!(
+        log::debug!(
             "[ThumbnailCache] Cache size {}MB exceeds 200MB limit, evicting with weighted scoring...",
             current_size / (1024 * 1024)
         );
@@ -358,7 +358,7 @@ impl ThumbnailCache {
         let total_frames = scored_frames.len();
         let to_remove = ((total_frames / 5).max(1)).min(total_frames);
 
-        eprintln!(
+        log::debug!(
             "[ThumbnailCache] Evicting {} of {} frames using weighted scoring",
             to_remove, total_frames
         );
@@ -370,7 +370,7 @@ impl ThumbnailCache {
                 .get(total_frames / 2)
                 .map(|(_, _, _, s, _)| *s)
                 .unwrap_or(0);
-            eprintln!(
+            log::debug!(
                 "[ThumbnailCache] Score distribution: lowest={}, median={}, highest={}",
                 lowest_score, median_score, highest_score
             );
@@ -399,7 +399,7 @@ impl ThumbnailCache {
             }
         }
 
-        eprintln!(
+        log::debug!(
             "[ThumbnailCache] Eviction complete: removed {} frames, protected {} viewport frames, new size ~{}MB",
             removed,
             viewport_protected,

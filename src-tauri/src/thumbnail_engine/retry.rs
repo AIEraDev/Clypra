@@ -78,12 +78,12 @@ pub async fn extract_with_retry(
             Ok(path) => return Ok(path),
             Err(e) => match e {
                 ExtractionError::CodecError(_) => {
-                    eprintln!("[Extract] Codec error (no retry): {}", e);
+                    log::debug!("[Extract] Codec error (no retry): {}", e);
                     return Err(e);
                 }
                 ExtractionError::Timeout => {
                     if let Some(lower) = density.lower() {
-                        eprintln!(
+                        log::debug!(
                             "[Extract] Timeout at density {:?}, retrying with lower density {:?}",
                             density, lower
                         );
@@ -92,12 +92,12 @@ pub async fn extract_with_retry(
                         ))
                         .await;
                     }
-                    eprintln!("[Extract] Timeout at lowest density, giving up");
+                    log::debug!("[Extract] Timeout at lowest density, giving up");
                     return Err(e);
                 }
                 ExtractionError::ProcessSpawn(_) => {
                     if attempts >= max_attempts {
-                        eprintln!(
+                        log::debug!(
                             "[Extract] Max retries ({}) exceeded for process spawn error: {}",
                             max_attempts, e
                         );
@@ -105,14 +105,14 @@ pub async fn extract_with_retry(
                     }
 
                     tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
-                    eprintln!(
+                    log::debug!(
                         "[Extract] Retry {} after {}ms (process spawn error)",
                         attempts, backoff_ms
                     );
                     backoff_ms *= 4;
                 }
                 _ => {
-                    eprintln!("[Extract] Non-retriable error: {}", e);
+                    log::debug!("[Extract] Non-retriable error: {}", e);
                     return Err(e);
                 }
             },

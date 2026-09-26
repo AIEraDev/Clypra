@@ -183,14 +183,14 @@ pub struct SystemMediaDiagnostics {
 /// Diagnostic command to inspect and log media subsystem state from the Rust native backend.
 #[command]
 pub async fn log_system_media_diagnostics() -> Result<SystemMediaDiagnostics, String> {
-    eprintln!("🦀 ================= Clypra Media Diagnostics =================");
+    log::debug!("🦀 ================= Clypra Media Diagnostics =================");
     let cam_perm = check_camera_permission();
     let mic_perm = check_microphone_permission();
-    eprintln!(
+    log::debug!(
         "🦀 [MediaDiag] Camera Permission: {} (canRequest: {})",
         cam_perm.status, cam_perm.can_request
     );
-    eprintln!(
+    log::debug!(
         "🦀 [MediaDiag] Microphone Permission: {} (canRequest: {})",
         mic_perm.status, mic_perm.can_request
     );
@@ -208,12 +208,12 @@ pub async fn log_system_media_diagnostics() -> Result<SystemMediaDiagnostics, St
                 .filter(|l| l.contains("AVFoundation") || (l.contains('[') && l.contains(']')))
                 .collect();
             let summary = device_lines.join("\n");
-            eprintln!("🦀 [MediaDiag] AVFoundation Devices:\n{}", summary);
+            log::debug!("🦀 [MediaDiag] AVFoundation Devices:\n{}", summary);
             summary
         }
         Err(e) => {
             let err_msg = format!("Failed to execute ffmpeg: {}", e);
-            eprintln!("🦀 [MediaDiag] {}", err_msg);
+            log::debug!("🦀 [MediaDiag] {}", err_msg);
             err_msg
         }
     };
@@ -235,8 +235,8 @@ pub async fn log_system_media_diagnostics() -> Result<SystemMediaDiagnostics, St
     #[cfg(not(target_os = "macos"))]
     let clamshell_closed = false;
 
-    eprintln!("🦀 [MediaDiag] Clamshell closed: {}", clamshell_closed);
-    eprintln!("🦀 ===========================================================");
+    log::debug!("🦀 [MediaDiag] Clamshell closed: {}", clamshell_closed);
+    log::debug!("🦀 ===========================================================");
 
     Ok(SystemMediaDiagnostics {
         camera_permission: cam_perm,

@@ -361,7 +361,7 @@ pub async fn upload_perf_log_session(
             request.body(json.clone())
         };
 
-        eprintln!(
+        log::debug!(
             "[perf_log] Attempt {}/{} mode={} sending to {}",
             attempt,
             max_attempts,
@@ -371,14 +371,14 @@ pub async fn upload_perf_log_session(
         match request.send().await {
             Ok(response) => {
                 let status = response.status();
-                eprintln!("[perf_log] Attempt {} received status: {}", attempt, status);
+                log::debug!("[perf_log] Attempt {} received status: {}", attempt, status);
                 if status.is_success() {
                     let uploaded_path = format!("{file_path}.uploaded");
                     let _ = fs::rename(&file_path, &uploaded_path);
                     return Ok(());
                 } else {
                     let body_text = response.text().await.unwrap_or_default();
-                    eprintln!(
+                    log::debug!(
                         "[perf_log] Attempt {} rejected: {} - {}",
                         attempt, status, body_text
                     );
@@ -391,7 +391,7 @@ pub async fn upload_perf_log_session(
             }
             Err(e) => {
                 let formatted = format_reqwest_error(&e);
-                eprintln!("[perf_log] Attempt {} failed: {}", attempt, formatted);
+                log::debug!("[perf_log] Attempt {} failed: {}", attempt, formatted);
                 last_err = format!(
                     "Upload request failed (attempt {attempt}/{max_attempts}, mode={}, entries={}, raw_bytes={}, gzip_bytes={}): {formatted}",
                     if use_gzip { "gzip" } else { "raw_json" },
@@ -461,7 +461,7 @@ pub async fn upload_pending_perf_logs(
                     || e.contains("No such file")
                     || e.contains("os error 2");
                 if !is_not_found {
-                    eprintln!("[perf_log] Pending session upload failed for '{file_path}': {e}");
+                    log::debug!("[perf_log] Pending session upload failed for '{file_path}': {e}");
                 }
             }
         }

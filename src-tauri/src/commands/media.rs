@@ -97,7 +97,7 @@ pub async fn get_media_metadata(path: String) -> Result<MediaMetadata, String> {
     };
 
     if let Ok(ref meta) = result {
-        eprintln!(
+        log::debug!(
             "🦀 [get_media_metadata] [{}] Probed in {:?} ({}x{}, {:.2}s)",
             filename,
             start.elapsed(),
@@ -106,7 +106,7 @@ pub async fn get_media_metadata(path: String) -> Result<MediaMetadata, String> {
             meta.duration
         );
     } else if let Err(ref e) = result {
-        eprintln!(
+        log::debug!(
             "🦀 [get_media_metadata] [{}] Failed in {:?}: {}",
             filename,
             start.elapsed(),
@@ -169,7 +169,7 @@ pub async fn get_video_render_metadata(path: String) -> Result<VideoStreamMetada
 async fn get_image_metadata(path: &str) -> Result<MediaMetadata, String> {
     use image::GenericImageView;
 
-    eprintln!("🦀 [get_image_metadata] Loading image: {}", path);
+    log::debug!("🦀 [get_image_metadata] Loading image: {}", path);
 
     // Load image to extract metadata
     let img = image::open(path).map_err(|e| format!("Failed to open image: {}", e))?;
@@ -189,7 +189,7 @@ async fn get_image_metadata(path: &str) -> Result<MediaMetadata, String> {
     // Get file size
     let size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
 
-    eprintln!(
+    log::debug!(
         "🦀 [get_image_metadata] Dimensions: {}×{}, Alpha: {}",
         width, height, has_alpha
     );
@@ -223,7 +223,7 @@ async fn get_video_metadata_internal(path: &str) -> Result<MediaMetadata, String
 
             let size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
 
-            eprintln!(
+            log::debug!(
                 "🦀 [get_video_metadata_internal] Display dimensions: {}×{}, Rotation: {}°",
                 width, height, rotation
             );
@@ -264,12 +264,12 @@ async fn get_video_metadata_internal(path: &str) -> Result<MediaMetadata, String
 #[deprecated(note = "Use get_media_metadata instead")]
 #[tauri::command]
 pub async fn get_video_metadata(path: String) -> Result<VideoMetadata, String> {
-    eprintln!("⚠️  DEPRECATED: get_video_metadata called, use get_media_metadata instead");
+    log::debug!("⚠️  DEPRECATED: get_video_metadata called, use get_media_metadata instead");
     get_video_metadata_internal(&path).await
 }
 
 async fn get_audio_duration(path: &str) -> Result<f64, String> {
-    eprintln!(
+    log::debug!(
         "[get_audio_duration] Attempting to get duration for: {}",
         path
     );
@@ -287,28 +287,28 @@ async fn get_audio_duration(path: &str) -> Result<f64, String> {
         .output()
         .await
         .map_err(|e| {
-            eprintln!("[get_audio_duration] Failed to run ffprobe: {}", e);
+            log::debug!("[get_audio_duration] Failed to run ffprobe: {}", e);
             format!("Failed to run ffprobe: {}", e)
         })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        eprintln!("[get_audio_duration] ffprobe failed: {}", stderr);
+        log::debug!("[get_audio_duration] ffprobe failed: {}", stderr);
         return Err(format!("ffprobe failed: {}", stderr));
     }
 
     let duration_str = String::from_utf8_lossy(&output.stdout);
-    eprintln!("[get_audio_duration] ffprobe output: {}", duration_str);
+    log::debug!("[get_audio_duration] ffprobe output: {}", duration_str);
 
     let duration = duration_str.trim().parse::<f64>().map_err(|e| {
-        eprintln!(
+        log::debug!(
             "[get_audio_duration] Failed to parse duration '{}': {}",
             duration_str, e
         );
         format!("Failed to parse duration: {}", e)
     })?;
 
-    eprintln!(
+    log::debug!(
         "[get_audio_duration] Successfully parsed duration: {}s",
         duration
     );
@@ -317,7 +317,7 @@ async fn get_audio_duration(path: &str) -> Result<f64, String> {
 
 #[tauri::command]
 pub async fn extract_poster_frame(path: String, time: f64) -> Result<String, String> {
-    eprintln!(
+    log::debug!(
         "[extract_poster_frame] Extracting frame at {}s from {}",
         time, path
     );
@@ -326,7 +326,7 @@ pub async fn extract_poster_frame(path: String, time: f64) -> Result<String, Str
 
 #[tauri::command]
 pub async fn extract_audio_artwork(path: String) -> Result<Option<String>, String> {
-    eprintln!("[extract_audio_artwork] Extracting artwork from: {}", path);
+    log::debug!("[extract_audio_artwork] Extracting artwork from: {}", path);
 
     let output = crate::commands::binary_resolver::create_async_command("ffmpeg")
         .args([
@@ -346,14 +346,14 @@ pub async fn extract_audio_artwork(path: String) -> Result<Option<String>, Strin
         .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
 
     if !output.status.success() || output.stdout.is_empty() {
-        eprintln!("[extract_audio_artwork] No artwork found");
+        log::debug!("[extract_audio_artwork] No artwork found");
         return Ok(None);
     }
 
     let encoded = base64::engine::general_purpose::STANDARD.encode(&output.stdout);
     let mime_type = "image/jpeg"; // Most audio artwork is JPEG
 
-    eprintln!(
+    log::debug!(
         "[extract_audio_artwork] Extracted artwork ({} bytes)",
         output.stdout.len()
     );
@@ -362,7 +362,7 @@ pub async fn extract_audio_artwork(path: String) -> Result<Option<String>, Strin
 
 #[tauri::command]
 pub async fn extract_audio_track(path: String) -> Result<String, String> {
-    eprintln!("🦀 [extract_audio_track] Extracting audio from: {}", path);
+    log::debug!("🦀 [extract_audio_track] Extracting audio from: {}", path);
 
     // Use system temp directory to avoid triggering file watchers in dev mode
     let temp_dir = std::env::temp_dir();
@@ -415,7 +415,7 @@ pub async fn extract_audio_track(path: String) -> Result<String, String> {
         .to_str()
         .ok_or("Failed to convert absolute path to string")?
         .to_string();
-    eprintln!(
+    log::debug!(
         "🦀 [extract_audio_track] Extracted audio saved to: {}",
         abs_path_str
     );
@@ -583,7 +583,7 @@ pub async fn get_or_create_preview_video(
             if output.status.success() && output_path.exists() {
                 if let Ok(m) = std::fs::metadata(&output_path) {
                     if m.len() > 1024 {
-                        eprintln!(
+                        log::debug!(
                             "🦀 [get_or_create_preview_video] Stage 1 (stream copy) succeeded for {}",
                             path
                         );
@@ -619,14 +619,14 @@ pub async fn get_or_create_preview_video(
             if output.status.success() && output_path.exists() {
                 if let Ok(m) = std::fs::metadata(&output_path) {
                     if m.len() > 1024 {
-                        eprintln!("🦀 [get_or_create_preview_video] Stage 2 (video copy + aac) succeeded for {}", path);
+                        log::debug!("🦀 [get_or_create_preview_video] Stage 2 (video copy + aac) succeeded for {}", path);
                         return Ok(out_str);
                     }
                 }
             }
         }
     } else {
-        eprintln!(
+        log::debug!(
             "🦀 [get_or_create_preview_video] Video codec {:?} cannot be stream copied for browser preview; jumping to Stage 3 transcode for {}",
             codec_ref, path
         );
@@ -660,7 +660,7 @@ pub async fn get_or_create_preview_video(
 
     match stage3_status {
         Ok(output) if output.status.success() => {
-            eprintln!(
+            log::debug!(
                 "🦀 [get_or_create_preview_video] Stage 3 (ultrafast proxy) succeeded for {}",
                 path
             );
@@ -686,7 +686,7 @@ pub async fn transcribe_audio_local(
     let model = model_size.unwrap_or_else(|| "tiny".to_string());
     let lang_param = language.unwrap_or_else(|| "auto".to_string());
 
-    eprintln!(
+    log::debug!(
         "🦀 [transcribe_audio_local] Transcribing: {} (model: {}, lang: {})",
         audio_path, model, lang_param
     );
@@ -717,7 +717,7 @@ pub async fn transcribe_audio_local(
         .join("whisper")
         .to_string_lossy()
         .to_string();
-    eprintln!(
+    log::debug!(
         "🦀 [transcribe_audio_local] Models directory: {}",
         models_dir
     );
@@ -773,7 +773,7 @@ pub async fn transcribe_audio_local(
         .to_str()
         .ok_or("Failed to convert script path to string")?
         .to_string();
-    eprintln!(
+    log::debug!(
         "🦀 [transcribe_audio_local] Resolved script path: {}",
         script_path_str
     );
@@ -814,7 +814,7 @@ pub async fn transcribe_audio_local(
     };
 
     if let Some(ref p) = prompt {
-        eprintln!(
+        log::debug!(
             "🦀 [transcribe_audio_local] Using language hint prompt: {}",
             p
         );
@@ -839,7 +839,7 @@ pub async fn transcribe_audio_local(
         args.push(format!("--prompt={}", p));
     }
 
-    eprintln!(
+    log::debug!(
         "🦀 [transcribe_audio_local] Executing command: uv {}",
         args.join(" ")
     );
@@ -852,7 +852,7 @@ pub async fn transcribe_audio_local(
         .await
         .map_err(|e| format!("Failed to execute uv transcription: {}", e))?;
 
-    eprintln!(
+    log::debug!(
         "🦀 [transcribe_audio_local] Command completed with status: {}",
         output.status
     );
@@ -862,7 +862,7 @@ pub async fn transcribe_audio_local(
         || audio_path.starts_with(&std::env::temp_dir().to_string_lossy().to_string());
     if is_temp_audio {
         if let Err(e) = tokio::fs::remove_file(&audio_path).await {
-            eprintln!(
+            log::debug!(
                 "⚠️ [transcribe_audio_local] Failed to clean up temporary audio file: {}",
                 e
             );
@@ -872,14 +872,14 @@ pub async fn transcribe_audio_local(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
-        eprintln!("🦀 [transcribe_audio_local] Transcription failed!");
-        eprintln!("  stdout: {}", stdout);
-        eprintln!("  stderr: {}", stderr);
+        log::debug!("🦀 [transcribe_audio_local] Transcription failed!");
+        log::debug!("  stdout: {}", stdout);
+        log::debug!("  stderr: {}", stderr);
         return Err(format!("Whisper transcription failed: {}", stderr));
     }
 
     let stdout_str = String::from_utf8_lossy(&output.stdout);
-    eprintln!(
+    log::debug!(
         "🦀 [transcribe_audio_local] Transcription successful, output length: {} bytes",
         stdout_str.len()
     );

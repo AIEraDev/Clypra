@@ -3889,7 +3889,7 @@ pub async fn render_native_frame(
     request: FrameRequest,
 ) -> Result<tauri::ipc::Response, String> {
     let started = Instant::now();
-    eprintln!(
+    log::debug!(
         "[preview-diag][rust] render_native_frame called: frame={} mode={:?} quality={:?}",
         request.frame_time.frame_index, request.mode, request.quality,
     );
@@ -3898,7 +3898,7 @@ pub async fn render_native_frame(
             "Unsupported native core contract version: {}",
             request.contract_version
         );
-        eprintln!(
+        log::error!(
             "[preview-diag][rust] render_native_frame contract version mismatch: {}",
             err
         );
@@ -3977,14 +3977,14 @@ pub async fn render_native_frame(
     let legacy_request = match to_video_project_request(&request) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!(
+            log::error!(
                 "[preview-diag][rust] to_video_project_request FAILED: {}",
                 e
             );
             return Err(e);
         }
     };
-    eprintln!(
+    log::debug!(
         "[preview-diag][rust] rendering legacy video request: layers={}, rasters={}, texts={}, clear_color={:?}",
         legacy_request.layers.len(),
         legacy_request.raster_layers.len(),
@@ -3994,14 +3994,14 @@ pub async fn render_native_frame(
     let (rgba, stage_timings) =
         match render_native_video_project_frame_bytes_timed(app.clone(), legacy_request).await {
             Ok(res) => {
-                eprintln!(
-                "[preview-diag][rust] render_native_video_project_frame_bytes_timed OK: bytes={}",
-                res.0.len()
-            );
+                log::debug!(
+                    "[preview-diag][rust] render_native_video_project_frame_bytes_timed OK: bytes={}",
+                    res.0.len()
+                );
                 res
             }
             Err(e) => {
-                eprintln!(
+                log::error!(
                     "[preview-diag][rust] render_native_video_project_frame_bytes_timed FAILED: {}",
                     e
                 );

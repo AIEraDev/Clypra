@@ -459,12 +459,50 @@ impl SyncMetricsRegistry {
         if !resolve_seek {
             return;
         }
-        let Some((requested_ticks, requested_at)) = self.pending_seeks.lock().pop_front() else {
+        let mut pending = self.pending_seeks.lock();
+        if pending.is_empty() {
+            return;
+        }
+
+        // 1. Drain ancient pending seeks (>2s old) abandoned during past rapid scrubbing runs.
+        while let Some((_, requested_at)) = pending.front() {
+            if requested_at.elapsed().as_millis() > 2000 {
+                pending.pop_front();
+            } else {
+                break;
+            }
+        }
+        if pending.is_empty() {
+            return;
+        }
+
+        // 2. Look for a seek request whose target matches the presented frame timestamp.
+        let match_tolerance = SEEK_CORRECTNESS_TOLERANCE_MICROS.max(50_000);
+        let matching_idx = pending.iter().position(|(requested_ticks, _)| {
+            (presented_ticks - *requested_ticks).saturating_abs() <= match_tolerance
+        });
+
+        let (requested_ticks, requested_at, correct) = if let Some(idx) = matching_idx {
+            // Found matching target. Drain this seek and any earlier seeks that were
+            // superseded when the user scrubbed past them.
+            let matched = pending.remove(idx).unwrap();
+            for _ in 0..idx {
+                pending.pop_front();
+            }
+            (matched.0, matched.1, true)
+        } else if !measure_pacing {
+            // Paused interactive scrub/seek frame presentation: resolve the latest seek target.
+            let (target_ticks, target_at) = pending.pop_back().unwrap();
+            pending.clear();
+            let is_correct = (presented_ticks - target_ticks).saturating_abs() <= match_tolerance;
+            (target_ticks, target_at, is_correct)
+        } else {
+            // In active continuous playback (measure_pacing == true), do not pop unrelated
+            // ancient scrub seeks against nominal playback frames.
             return;
         };
+
         let latency_micros = requested_at.elapsed().as_micros().min(i64::MAX as u128) as i64;
-        let correct = (presented_ticks - requested_ticks).saturating_abs()
-            <= SEEK_CORRECTNESS_TOLERANCE_MICROS;
         let mut events = self.seek_events.lock();
         events.push_back(SeekEvent {
             requested_ticks,
@@ -734,5 +772,28 @@ mod tests {
         assert_eq!(snapshot.seeks.correct, MAX_SEEK_EVENTS as u64);
         assert_eq!(snapshot.seeks.events.first().unwrap().requested_ticks, 10);
         assert_eq!(registry.take_and_reset().seeks.n, 0);
+    }
+
+    #[test]
+    fn rapid_scrub_superseded_seeks_do_not_poison_continuous_playback() {
+        let registry = SyncMetricsRegistry::default();
+        // User rapidly scrubs across timeline positions
+        registry.record_seek_requested(10_000_000);
+        registry.record_seek_requested(15_000_000);
+        registry.record_seek_requested(20_000_000);
+        registry.record_seek_requested(25_000_000);
+
+        // Frame presented at 25s matches the latest active scrub target
+        registry.record_frame_presented_with_options(25_000_000, 33_333, false, true);
+        assert_eq!(registry.pending_seeks.lock().len(), 0);
+
+        // Continuous playback begins: nominal frames must not pop phantom seeks
+        registry.record_frame_presented_with_options(25_033_333, 33_333, true, true);
+        registry.record_frame_presented_with_options(25_066_666, 33_333, true, true);
+
+        let snapshot = registry.take_and_reset();
+        assert_eq!(snapshot.seeks.n, 1);
+        assert_eq!(snapshot.seeks.correct, 1);
+        assert_eq!(snapshot.seeks.events[0].requested_ticks, 25_000_000);
     }
 }

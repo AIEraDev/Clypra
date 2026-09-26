@@ -354,11 +354,11 @@ async fn has_audio_stream(path: &str) -> bool {
             if out.status.success() {
                 let stdout = String::from_utf8_lossy(&out.stdout);
                 let has_audio = stdout.contains("audio");
-                eprintln!("[has_audio_stream] {} → has_audio={}", path, has_audio);
+                log::debug!("[has_audio_stream] {} → has_audio={}", path, has_audio);
                 has_audio
             } else {
                 let stderr = String::from_utf8_lossy(&out.stderr);
-                eprintln!(
+                log::debug!(
                     "[has_audio_stream] ffprobe non-zero exit for {}: {}",
                     path,
                     stderr.trim()
@@ -367,7 +367,7 @@ async fn has_audio_stream(path: &str) -> bool {
             }
         }
         Err(e) => {
-            eprintln!("[has_audio_stream] Could not spawn ffprobe: {}", e);
+            log::debug!("[has_audio_stream] Could not spawn ffprobe: {}", e);
             false
         }
     }
@@ -567,7 +567,7 @@ pub async fn start_video_export(
             if *probe_results.get(&clip.path).unwrap_or(&false) {
                 valid_audio_clips.push(clip.clone());
             } else {
-                eprintln!(
+                log::debug!(
                     "[start_video_export] Skipping file (no audio stream found): {}",
                     clip.path
                 );
@@ -759,7 +759,7 @@ pub async fn start_video_export(
         .stderr(Stdio::piped());
 
     // Log the full FFmpeg command for debugging
-    eprintln!("[start_video_export] FFmpeg command: {:?}", cmd);
+    log::debug!("[start_video_export] FFmpeg command: {:?}", cmd);
 
     super::native_export::acquire_export_slot()?;
     let mut child = match cmd.spawn() {
@@ -806,7 +806,7 @@ pub async fn start_video_export(
         .await
         .insert(session_id.clone(), Arc::new(Mutex::new(session)));
 
-    eprintln!(
+    log::debug!(
         "[start_video_export] Started session {} ({}x{} @ {}fps, {} frames, codec={})",
         session_id,
         config.width,
@@ -980,7 +980,7 @@ pub async fn write_export_frame(request: Request<'_>) -> Result<(), String> {
             .cloned()
             .fold(0.0f64, f64::max);
 
-        eprintln!(
+        log::debug!(
             "[write_export_frame] Session {}: {}/{} frames ({:.1}%) @ {:.1} fps, ETA {:.1}s | Frame write: avg={:.2}ms max={:.2}ms",
             session_id,
             session.current_frame,
@@ -995,7 +995,7 @@ pub async fn write_export_frame(request: Request<'_>) -> Result<(), String> {
         // Log detailed performance every 5 seconds
         if session.last_perf_log_time.elapsed().as_secs() >= 5 {
             session.last_perf_log_time = std::time::Instant::now();
-            eprintln!(
+            log::debug!(
                 "[EXPORT_PERF] Session {}: fps={:.1}, frame_write_avg={:.2}ms, frame_write_max={:.2}ms, frames={}/{}",
                 session_id,
                 fps,
@@ -1150,7 +1150,7 @@ pub async fn write_export_frames_batch(request: Request<'_>) -> Result<(), Strin
     let batch_duration = batch_start.elapsed().as_secs_f64() * 1000.0;
     let batch_fps = frame_count as f64 / (batch_duration / 1000.0);
 
-    eprintln!(
+    log::debug!(
         "[write_export_frames_batch] Session {}: Wrote {} frames in {:.2}ms ({:.2}ms/frame, {:.1} fps) | Total: {}/{} ({:.1}%) @ {:.1} fps overall, ETA {:.1}s",
         session_id,
         frame_count,
@@ -1212,7 +1212,7 @@ pub async fn render_and_write_export_frame(
                 let Some(fallback) = fallback else {
                     return Err(error);
                 };
-                eprintln!(
+                log::debug!(
                     "[render_and_write_export_frame] Recovering terminal source EOF for session {} by repeating the preceding composition: {}",
                     session_id, error
                 );
@@ -1472,7 +1472,7 @@ pub async fn finalize_video_export(session_id: String) -> Result<ExportTimings, 
             return Err(format!("Failed to commit final export file: {}", e));
         }
 
-        eprintln!(
+        log::debug!(
             "[finalize_video_export] Session {} completed successfully in {:.2}s ({} frames, ffmpeg={:.0}ms)",
             session_id,
             total_export_ms / 1000.0,
@@ -1491,7 +1491,7 @@ pub async fn finalize_video_export(session_id: String) -> Result<ExportTimings, 
     } else {
         let _ = tokio::fs::remove_file(&temp_output_path).await;
         let stderr = String::from_utf8_lossy(&output.stderr);
-        eprintln!(
+        log::debug!(
             "[finalize_video_export] Session {} failed:\n{}",
             session_id, stderr
         );
@@ -1526,7 +1526,7 @@ pub async fn cancel_video_export(session_id: String) -> Result<(), String> {
     // Kill FFmpeg process if running
     if let Some(mut child) = process {
         if let Err(e) = child.kill().await {
-            eprintln!(
+            log::debug!(
                 "[cancel_video_export] Could not kill FFmpeg (already exited?): {}",
                 e
             );
@@ -1538,18 +1538,18 @@ pub async fn cancel_video_export(session_id: String) -> Result<(), String> {
 
     // Clean up temporary partial file
     if let Err(e) = tokio::fs::remove_file(&temp_output_path).await {
-        eprintln!(
+        log::debug!(
             "[cancel_video_export] Could not delete temporary file {:?}: {}",
             temp_output_path, e
         );
     } else {
-        eprintln!(
+        log::debug!(
             "[cancel_video_export] Deleted temporary output: {:?}",
             temp_output_path
         );
     }
 
-    eprintln!(
+    log::debug!(
         "[cancel_video_export] Session {} cancelled ({} frames written)",
         session_id, current_frame
     );
