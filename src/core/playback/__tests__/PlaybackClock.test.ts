@@ -186,4 +186,17 @@ describe("PlaybackClock: RAF Generation Counter", () => {
     expect(clock.state).toBe("playing");
     expect(clock.time).toBe(0);
   });
+
+  it("completes at the exact terminal boundary and can restart cleanly", () => {
+    clock.play();
+    clock.complete();
+
+    expect(clock.state).toBe("paused");
+    expect(clock.time).toBe(10);
+    expect(rafCallbacks.size).toBe(0);
+
+    clock.play();
+    expect(clock.state).toBe("playing");
+    expect(clock.time).toBe(0);
+  });
 });

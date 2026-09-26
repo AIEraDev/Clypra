@@ -22,7 +22,7 @@ fn get_available_test_assets() -> Vec<PathBuf> {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() && path.extension().map_or(false, |ext| ext == "mp4") {
+            if path.is_file() && path.extension().is_some_and(|ext| ext == "mp4") {
                 assets.push(path);
             }
         }
@@ -195,7 +195,7 @@ async fn test_multi_stacked_concurrent_playback_performance() {
         Some(f) => f,
         None => assets[0].clone(),
     };
-    let second_video = other_assets.get(0).unwrap_or(&assets[1]).clone();
+    let second_video = other_assets.first().unwrap_or(&assets[1]).clone();
     let third_video = other_assets.get(1).unwrap_or(&assets[0]).clone();
 
     println!("\n==========================================================================================================");

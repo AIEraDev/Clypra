@@ -492,7 +492,13 @@ impl SyncMetricsRegistry {
             let mut events = self.seek_events.lock();
             seek_snapshot(events.drain(..).collect())
         };
-        snapshot_with(av_drift, frame_pacing, dropped_frames, lookahead_misses, seeks)
+        snapshot_with(
+            av_drift,
+            frame_pacing,
+            dropped_frames,
+            lookahead_misses,
+            seeks,
+        )
     }
 
     pub fn snapshot(&self) -> SyncMetricsSnapshot {

@@ -131,6 +131,44 @@ describe("TransportAuthority", () => {
       authority.setSpeed(0.5);
       expect(mockProgramContext.setSpeed).toHaveBeenCalledWith(0.5);
     });
+
+    it("publishes one monotonic epoch for each transport intent", () => {
+      const events: Array<{ epoch: number; kind: string }> = [];
+      authority.subscribeToTransportEvents((event) => events.push(event));
+
+      authority.play();
+      authority.pause();
+      authority.seek(5);
+
+      expect(events.map((event) => event.kind)).toEqual([
+        "play",
+        "pause",
+        "seek",
+      ]);
+      expect(events.map((event) => event.epoch)).toEqual([
+        events[0].epoch,
+        events[0].epoch + 1,
+        events[0].epoch + 2,
+      ]);
+    });
+  });
+
+  it("advances a completion epoch only for a natural terminal transition", () => {
+    let emitState: ((state: any) => void) | undefined;
+    mockProgramContext.subscribe = vi.fn((listener) => {
+      emitState = listener;
+      return () => {};
+    });
+    authority.registerContext(mockProgramContext);
+    const events: string[] = [];
+    authority.subscribeToTransportEvents((event) => events.push(event.kind));
+
+    emitState?.({ time: 90, duration: 100, speed: 1, state: "playing" });
+    emitState?.({ time: 50, duration: 100, speed: 1, state: "paused" });
+    emitState?.({ time: 100, duration: 100, speed: 1, state: "playing" });
+    emitState?.({ time: 100, duration: 100, speed: 1, state: "paused" });
+
+    expect(events).toEqual(["completed"]);
   });
 
   describe("missing context handling", () => {

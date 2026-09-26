@@ -1,9 +1,24 @@
 import type { PlaybackContext, PlaybackContextType, PlaybackContextStateSnapshot } from "./PlaybackContext";
 import { SeekController, type SeekIntentInput } from "./seekController";
 import { recordSeekRequested } from "@/lib/playback/syncMetrics";
+import type { PlaybackState } from "./PlaybackClock";
 
 export type AuthorityContextSwitchListener = (type: PlaybackContextType | null) => void;
 export type AuthorityStateListener = (state: PlaybackContextStateSnapshot) => void;
+export type TransportEventKind =
+  | "play"
+  | "pause"
+  | "stop"
+  | "seek"
+  | "context-switch"
+  | "completed";
+export interface TransportEvent {
+  epoch: number;
+  kind: TransportEventKind;
+  contextType: PlaybackContextType | null;
+  time: number;
+}
+export type TransportEventListener = (event: TransportEvent) => void;
 
 /**
  * Transport Authority - Single source of truth for playback ownership.
@@ -18,6 +33,9 @@ export class TransportAuthority {
   private _switchListeners = new Set<AuthorityContextSwitchListener>();
   private _stateListeners = new Set<AuthorityStateListener>();
   private _ctxUnsubscribe: (() => void) | null = null;
+  private _transportEpoch = 0;
+  private _lastContextState: PlaybackState | null = null;
+  private _transportListeners = new Set<TransportEventListener>();
   /**
    * BUG-4 fix: Reference-counted pause latch for scrubbing.
    * Replaces the single `_wasPlayingBeforeScrub` boolean which was corrupted by
@@ -44,24 +62,48 @@ export class TransportAuthority {
       console.warn(`[TransportAuthority] No context registered for type: ${type}`);
       return;
     }
+    if (this.activeContext === next) {
+      return;
+    }
 
     this.seekController.invalidate();
 
-    // Pause previous context before switching
-    if (this.activeContext && this.activeContext !== next) {
-      this.activeContext.pause();
-    }
-
-    // Unsubscribe from previous context state
+    // Detach the old context before pausing it. Its state transition belongs
+    // to the context handoff, not a natural completion of the newly active
+    // program, and must never emit a terminal transport event.
     if (this._ctxUnsubscribe) {
       this._ctxUnsubscribe();
       this._ctxUnsubscribe = null;
     }
 
+    if (this.activeContext) {
+      this.activeContext.pause();
+    }
+
     this.activeContext = next;
+    this._lastContextState = null;
+    // Advance only after the new context becomes active, so observers get a
+    // self-consistent event (new owner + new position) rather than the stale
+    // context that was just detached.
+    this._advanceTransportEpoch("context-switch");
 
     // Subscribe to new context's state changes
     this._ctxUnsubscribe = next.subscribe((snapshot) => {
+      const previous = this._lastContextState;
+      this._lastContextState = snapshot.state;
+      // Command transitions advance the epoch before they reach the context.
+      // The context subscription owns only the implicit terminal transition
+      // emitted when media naturally reaches the end of a program sequence.
+      if (
+        previous === "playing" &&
+        previous !== snapshot.state &&
+        snapshot.duration > 0 &&
+        snapshot.time >= snapshot.duration
+      ) {
+        this._advanceTransportEpoch(
+          "completed",
+        );
+      }
       this._notifyStateListeners(snapshot);
     });
 
@@ -79,6 +121,7 @@ export class TransportAuthority {
   // ─── Unified Transport Controls ────────────────────────────────────────
 
   play(): void {
+    this._advanceTransportEpoch("play");
     this.issueTransportIntent("playback");
     this.activeContext?.play();
   }
@@ -88,23 +131,30 @@ export class TransportAuthority {
     const context = this.activeContext;
     if (!context) return;
     if (context.getState() === "playing") {
+      this._advanceTransportEpoch("pause");
+      this.issueTransportIntent("seek");
       context.pause();
     } else {
+      this._advanceTransportEpoch("play");
+      this.issueTransportIntent("playback");
       context.play();
     }
   }
 
   pause(): void {
+    this._advanceTransportEpoch("pause");
     this.issueTransportIntent("seek");
     this.activeContext?.pause();
   }
 
   stop(): void {
+    this._advanceTransportEpoch("stop");
     this.issueTransportIntent("seek");
     this.activeContext?.stop();
   }
 
   seek(time: number, intent: Omit<SeekIntentInput, "time"> = { mode: "seek" }): void {
+    this._advanceTransportEpoch("seek");
     recordSeekRequested();
     const isPlaying = this.getState() === "playing";
     this.seekController.request({
@@ -176,6 +226,16 @@ export class TransportAuthority {
     );
   }
 
+  /** Monotonic session transport revision. Async native work must capture and
+   * validate this before it writes time, state, or pixels back to the UI. */
+  getTransportEpoch(): number {
+    return this._transportEpoch;
+  }
+
+  isCurrentTransportEpoch(epoch: number): boolean {
+    return epoch === this._transportEpoch;
+  }
+
   // ─── Subscriptions ─────────────────────────────────────────────────────
 
   subscribeToContextSwitch(listener: AuthorityContextSwitchListener): () => void {
@@ -186,6 +246,11 @@ export class TransportAuthority {
   subscribeToState(listener: AuthorityStateListener): () => void {
     this._stateListeners.add(listener);
     return () => this._stateListeners.delete(listener);
+  }
+
+  subscribeToTransportEvents(listener: TransportEventListener): () => void {
+    this._transportListeners.add(listener);
+    return () => this._transportListeners.delete(listener);
   }
 
   private _notifySwitchListeners(type: PlaybackContextType | null): void {
@@ -206,6 +271,7 @@ export class TransportAuthority {
     }
     this._switchListeners.clear();
     this._stateListeners.clear();
+    this._transportListeners.clear();
     this._scrubPauseDepth = 0;
     this.contexts.forEach((ctx) => ctx.dispose());
     this.contexts.clear();
@@ -219,5 +285,17 @@ export class TransportAuthority {
       return;
     }
     this.seekController.request({ time: context.getTime(), mode });
+  }
+
+  private _advanceTransportEpoch(kind: TransportEventKind): void {
+    this._transportEpoch += 1;
+    this._transportListeners.forEach((listener) =>
+      listener({
+        epoch: this._transportEpoch,
+        kind,
+        contextType: this.getActiveType(),
+        time: this.getTime(),
+      }),
+    );
   }
 }

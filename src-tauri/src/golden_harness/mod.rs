@@ -241,9 +241,9 @@ mod tests {
         let expected = vec![128u8; 64 * 64 * 4];
 
         // Introduce a subtle 1-subpixel drift (simulating driver float rounding)
-        for i in 0..actual.len() {
+        for (i, value) in actual.iter_mut().enumerate() {
             if i % 2 == 0 {
-                actual[i] = 129;
+                *value = 129;
             }
         }
 

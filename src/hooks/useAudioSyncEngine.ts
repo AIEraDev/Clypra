@@ -276,6 +276,8 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
 
     const adapter = createAudioPlaybackAdapter({
       clock: getPlaybackClock(),
+      transportAuthority:
+        getActiveSessionOrNull()?.transportAuthority ?? undefined,
       forceKind: "native",
       onError: (error) => {
         console.warn("[useAudioSyncEngine] Audio adapter error:", error);

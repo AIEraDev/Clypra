@@ -195,7 +195,7 @@ mod tests {
         #[test]
         fn proptest_audio_volume_validation(vol in -100.0f64..200.0f64) {
             let res = validate_audio_volume(vol);
-            if vol.is_nan() || vol.is_infinite() || vol < 0.0 || vol > 10.0 {
+            if !vol.is_finite() || !(0.0..=10.0).contains(&vol) {
                 prop_assert!(res.is_err());
             } else {
                 prop_assert!(res.is_ok());

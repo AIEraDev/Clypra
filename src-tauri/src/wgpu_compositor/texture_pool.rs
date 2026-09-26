@@ -611,8 +611,8 @@ mod tests {
                     let mut ring =
                         Nv12TextureRingBuffer::new(&device, &layout, &sampler, &sampler, w, h, 2);
 
-                    let uv_w = (w + 1) / 2;
-                    let uv_h = (h + 1) / 2;
+                    let uv_w = w.div_ceil(2);
+                    let uv_h = h.div_ceil(2);
 
                     let y_frame = vec![128u8; (w * h) as usize];
                     let uv_frame = vec![128u8; (uv_w * 2 * uv_h) as usize];

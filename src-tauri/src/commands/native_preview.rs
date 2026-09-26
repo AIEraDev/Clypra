@@ -567,10 +567,7 @@ fn deadline_aware_lookahead_count(
         .unwrap_or(MIN_LOOKAHEAD_FRAMES)
         .max(MIN_LOOKAHEAD_FRAMES);
 
-    configured_count
-        .min(latency_cap)
-        .max(decode_floor)
-        .max(1)
+    configured_count.min(latency_cap).max(decode_floor).max(1)
 }
 
 fn default_clear_color() -> [f32; 4] {
@@ -2122,15 +2119,14 @@ async fn render_native_video_project_frame_bytes_timed(
                     // always receives an already-upright texture and applies only the
                     // user/author rotation via the transform matrix.
                     let (tex_w, tex_h);
-                    let texture = if *source_rotation != 0 {
-                        let (ry, ruv, rw, rh) =
-                            crate::thumbnail_engine::decoder::rotate_nv12(
-                                y_plane,
-                                uv_plane,
-                                *width,
-                                *height,
-                                *source_rotation,
-                            );
+                    if *source_rotation != 0 {
+                        let (ry, ruv, rw, rh) = crate::thumbnail_engine::decoder::rotate_nv12(
+                            y_plane,
+                            uv_plane,
+                            *width,
+                            *height,
+                            *source_rotation,
+                        );
                         tex_w = rw;
                         tex_h = rh;
                         session.render_nv12_frame_to_texture(
@@ -2142,8 +2138,7 @@ async fn render_native_video_project_frame_bytes_timed(
                         session.render_nv12_frame_to_texture(
                             layer_key, tex_w, tex_h, tex_w, tex_h, y_plane, uv_plane, &params,
                         )?
-                    };
-                    texture
+                    }
                 }
             };
             views.push(texture.create_view(&wgpu::TextureViewDescriptor::default()));
@@ -3511,15 +3506,14 @@ pub(crate) async fn present_native_frame_internal(
                     Some((y_plane, uv_plane)) => {
                         used_cpu_nv12 = true;
                         let (tex_w, tex_h);
-                        let texture = if *source_rotation != 0 {
-                            let (ry, ruv, rw, rh) =
-                                crate::thumbnail_engine::decoder::rotate_nv12(
-                                    y_plane,
-                                    uv_plane,
-                                    *width,
-                                    *height,
-                                    *source_rotation,
-                                );
+                        if *source_rotation != 0 {
+                            let (ry, ruv, rw, rh) = crate::thumbnail_engine::decoder::rotate_nv12(
+                                y_plane,
+                                uv_plane,
+                                *width,
+                                *height,
+                                *source_rotation,
+                            );
                             tex_w = rw;
                             tex_h = rh;
                             session.render_nv12_frame_to_texture(
@@ -3531,8 +3525,7 @@ pub(crate) async fn present_native_frame_internal(
                             session.render_nv12_frame_to_texture(
                                 layer_key, tex_w, tex_h, tex_w, tex_h, y_plane, uv_plane, &params,
                             )?
-                        };
-                        texture
+                        }
                     }
                     None => {
                         crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled();
@@ -3877,16 +3870,17 @@ pub async fn render_native_frame(
     let started = Instant::now();
     eprintln!(
         "[preview-diag][rust] render_native_frame called: frame={} mode={:?} quality={:?}",
-        request.frame_time.frame_index,
-        request.mode,
-        request.quality,
+        request.frame_time.frame_index, request.mode, request.quality,
     );
     if request.contract_version != NATIVE_CORE_CONTRACT_VERSION {
         let err = format!(
             "Unsupported native core contract version: {}",
             request.contract_version
         );
-        eprintln!("[preview-diag][rust] render_native_frame contract version mismatch: {}", err);
+        eprintln!(
+            "[preview-diag][rust] render_native_frame contract version mismatch: {}",
+            err
+        );
         return Err(err);
     }
     if request.mode.as_deref() != Some("frameStep") {
@@ -3962,7 +3956,10 @@ pub async fn render_native_frame(
     let legacy_request = match to_video_project_request(&request) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("[preview-diag][rust] to_video_project_request FAILED: {}", e);
+            eprintln!(
+                "[preview-diag][rust] to_video_project_request FAILED: {}",
+                e
+            );
             return Err(e);
         }
     };
@@ -3973,22 +3970,23 @@ pub async fn render_native_frame(
         legacy_request.text_layers.len(),
         legacy_request.clear_color,
     );
-    let (rgba, stage_timings) = match render_native_video_project_frame_bytes_timed(app.clone(), legacy_request).await {
-        Ok(res) => {
-            eprintln!(
+    let (rgba, stage_timings) =
+        match render_native_video_project_frame_bytes_timed(app.clone(), legacy_request).await {
+            Ok(res) => {
+                eprintln!(
                 "[preview-diag][rust] render_native_video_project_frame_bytes_timed OK: bytes={}",
                 res.0.len()
             );
-            res
-        }
-        Err(e) => {
-            eprintln!(
-                "[preview-diag][rust] render_native_video_project_frame_bytes_timed FAILED: {}",
-                e
-            );
-            return Err(e);
-        }
-    };
+                res
+            }
+            Err(e) => {
+                eprintln!(
+                    "[preview-diag][rust] render_native_video_project_frame_bytes_timed FAILED: {}",
+                    e
+                );
+                return Err(e);
+            }
+        };
     if request.mode.as_deref() != Some("frameStep") {
         if let Some(generation) = request.generation {
             if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>()
@@ -4227,10 +4225,12 @@ mod tests {
 
     #[test]
     fn full_range_rec601_selects_the_explicit_matrix() {
-        let mut color = VideoColorMetadata::default();
-        color.range = "full".to_string();
-        color.matrix = "bt601_625".to_string();
-        color.transfer = "bt709".to_string();
+        let color = VideoColorMetadata {
+            range: "full".to_string(),
+            matrix: "bt601_625".to_string(),
+            transfer: "bt709".to_string(),
+            ..Default::default()
+        };
 
         let params = color_params(&color).expect("Rec.601 SDR should be supported");
         assert_eq!(params.color_space, 3);
@@ -4239,22 +4239,28 @@ mod tests {
 
     #[test]
     fn unsupported_partial_metadata_is_rejected() {
-        let mut color = VideoColorMetadata::default();
-        color.matrix = "bt2020_ncl".to_string();
-        color.transfer = "unspecified".to_string();
+        let color = VideoColorMetadata {
+            matrix: "bt2020_ncl".to_string(),
+            transfer: "unspecified".to_string(),
+            ..Default::default()
+        };
 
         assert!(color_params(&color).is_err());
     }
 
     #[test]
     fn frame_color_metadata_wins_with_stream_fallbacks() {
-        let mut stream = VideoColorMetadata::default();
-        stream.range = "full".to_string();
-        stream.matrix = "bt601_625".to_string();
-        stream.transfer = "bt709".to_string();
+        let stream = VideoColorMetadata {
+            range: "full".to_string(),
+            matrix: "bt601_625".to_string(),
+            transfer: "bt709".to_string(),
+            ..Default::default()
+        };
 
-        let mut frame = VideoColorMetadata::default();
-        frame.matrix = "bt709".to_string();
+        let frame = VideoColorMetadata {
+            matrix: "bt709".to_string(),
+            ..Default::default()
+        };
 
         let merged = merge_color_metadata(frame, &stream);
         assert_eq!(merged.range, "full");

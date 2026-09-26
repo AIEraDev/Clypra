@@ -453,18 +453,7 @@ impl PerformanceManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wgpu_compositor::frame_request::PreviewQuality;
-    use crate::wgpu_compositor::frame_scheduler::{FrameKey, SequenceId};
     use std::time::{Duration, Instant};
-
-    fn make_key() -> FrameKey {
-        FrameKey {
-            sequence_id: SequenceId(1),
-            timestamp_us: 1_000_000,
-            quality: PreviewQuality::Full,
-            render_revision: 0,
-        }
-    }
 
     fn make_miss(now: Instant) -> FrameTelemetry {
         FrameTelemetry {

@@ -7,6 +7,7 @@
 
 import type { Clip, MediaAsset, Track } from "@/types";
 import { PlaybackClock, getPlaybackClock } from "@/core/playback/PlaybackClock";
+import type { TransportAuthority } from "@/core/playback/TransportAuthority";
 import { isTauriRuntime, getNativeAudioDiagnostics } from "@/lib/platform/tauri";
 import {
   NativeAudioPreviewController,
@@ -57,6 +58,7 @@ export interface AudioPlaybackAdapter {
 
 export interface CreateAudioPlaybackAdapterOptions {
   clock?: PlaybackClock;
+  transportAuthority?: TransportAuthority;
   forceKind?: "native" | "web-audio";
   onError?: (error: Error) => void;
 }
@@ -68,10 +70,12 @@ export class NativeAudioPlaybackAdapter implements AudioPlaybackAdapter {
   readonly kind = "native" as const;
   private controller: NativeAudioPreviewController | null = null;
   private readonly clock: PlaybackClock;
+  private readonly transportAuthority?: TransportAuthority;
   private readonly onError?: (error: Error) => void;
 
   constructor(options: CreateAudioPlaybackAdapterOptions = {}) {
     this.clock = options.clock ?? getPlaybackClock();
+    this.transportAuthority = options.transportAuthority;
     this.onError = options.onError;
   }
 
@@ -86,6 +90,7 @@ export class NativeAudioPlaybackAdapter implements AudioPlaybackAdapter {
     this.controller = new NativeAudioPreviewController({
       clock: this.clock,
       source: source as NativeAudioPreviewSource,
+      transportAuthority: this.transportAuthority,
       onError: this.onError,
     });
     await this.controller.initialize();
