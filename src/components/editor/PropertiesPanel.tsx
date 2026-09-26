@@ -14,7 +14,9 @@ import {
   ChevronLeft,
   Sliders,
   Zap,
+  VolumeX,
 } from "lucide-react";
+import { clipHasAudio } from "@/core/media/mediaAudioDetection";
 import { useUIStore } from "@/store/uiStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
@@ -620,7 +622,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     selectedAsset?.type === "audio" ||
     selectedClip?.kind === "audio" ||
     !!(selectedClip as any)?.audioPath;
-  const isVideoClip = selectedAsset?.type === "video"; // Video clips have audio tracks
+  const isVideoClip = selectedAsset?.type === "video";
   const isTextClip =
     selectedClip &&
     (selectedClip.kind === "text" ||
@@ -629,7 +631,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const hasAudioTrack =
     !isTextClip &&
     !isSticker &&
-    (isAudioClip || isVideoClip || Boolean(selectedClip?.audio));
+    clipHasAudio(selectedClip, selectedAsset);
 
   if (!selectedClipId || !selectedClip) {
     return (
@@ -1020,6 +1022,19 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     : undefined
               }
             />
+          )}
+
+          {/* No audio stream banner for silent video clips */}
+          {isVideoClip && !hasAudioTrack && (
+            <div className="rounded-lg border border-border/40 bg-surface-raised/40 p-3 text-xs text-text-muted flex items-start gap-2.5">
+              <VolumeX className="w-4 h-4 text-text-muted/70 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium text-text-secondary">No Audio Stream</p>
+                <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">
+                  This video contains no embedded audio. You can add music or voiceover from the sidebar.
+                </p>
+              </div>
+            </div>
           )}
 
           {/* Text Styling (text clip + text tab) */}

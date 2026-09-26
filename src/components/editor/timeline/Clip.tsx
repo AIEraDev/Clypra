@@ -20,6 +20,7 @@ import {
   getPreviewInteractionCoordinator,
   type PreviewInteractionToken,
 } from "@/core/interactions";
+import { clipHasAudio } from "@/core/media/mediaAudioDetection";
 
 import { timeToPixel, pixelToTime } from "@/lib/timeline/timelineViewport";
 
@@ -181,8 +182,9 @@ const ClipInner: React.FC<ClipProps> = ({
   const left = timeToPixel(clip.startTime, pixelsPerSecond);
   const right = timeToPixel(clip.startTime + clip.duration, pixelsPerSecond);
   const width = right - left;
+  const hasAudio = clipHasAudio(clip, mediaAsset);
   const clipMetaRowHeightPx = 20;
-  const clipAudioRowHeightPx = 16;
+  const clipAudioRowHeightPx = hasAudio ? 16 : 0;
   const clipFilmstripHeightPx = Math.max(
     1,
     trackHeightPx - clipMetaRowHeightPx - clipAudioRowHeightPx,
@@ -1139,7 +1141,7 @@ const ClipInner: React.FC<ClipProps> = ({
                 isExpanded={isKeyframeExpanded}
                 onToggleExpand={() => toggleKeyframeLane(clip.id)}
               />
-              {mediaAsset.type === "video" && mediaAsset.path && (
+              {mediaAsset.type === "video" && mediaAsset.path && hasAudio && (
                 <div
                   data-testid="clip-audio-waveform"
                   className="relative h-4 shrink-0 border-t border-clypra-clip-waveform-border bg-clypra-clip-waveform-bg px-0.5"

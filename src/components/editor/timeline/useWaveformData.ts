@@ -65,6 +65,13 @@ export function useWaveformData({
     : platform.convertFileSrc(audioPath);
 
   useEffect(() => {
+    if (!audioPath || !audioPath.trim()) {
+      setWaveformData([]);
+      setIsLoading(false);
+      setHasError(false);
+      return;
+    }
+
     const sourceCacheKey = `waveform-v1:${resolvedPath}:${mediaDuration ?? "unknown"}:source:${WAVEFORM_SOURCE_BUCKETS}`;
     const cacheKey = `${sourceCacheKey}:${sourceStart.toFixed(3)}:${visibleSourceDuration.toFixed(3)}:${sampleCount}`;
     let isCancelled = false;

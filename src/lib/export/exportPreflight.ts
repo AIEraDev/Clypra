@@ -12,6 +12,7 @@ import { expandCompoundClips } from "@/core/timeline/compoundClips";
 import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import { getTextEffectCache } from "@/features/text-effects/cache/persistentCache";
 import { isKnownFont } from "@/core/fonts/fontRegistry";
+import { clipHasAudio } from "@/core/media/mediaAudioDetection";
 
 export interface MissingTextEffect {
   clipId: string;
@@ -124,31 +125,10 @@ export async function verifyExportDependencies(
     }
 
     for (const clip of flattenedClips) {
-      // Non-audio clips (text templates, plain text, images, shapes) never reference audio assets
-      if (
-        clip.kind === "text" ||
-        clip.kind === "text-template" ||
-        clip.kind === "image" ||
-        clip.role === "text" ||
-        (typeof clip.mediaId === "string" && clip.mediaId.startsWith("text-template-"))
-      ) {
-        continue;
-      }
-
       const asset = options.assets.find((candidate) => candidate.id === clip.mediaId);
-      const directAudioPath = (clip as any).audioPath as string | undefined;
-      const hasAudioStream =
-        asset?.streams && asset.streams.length > 0
-          ? asset.streams.some((s) => s.type === "audio")
-          : true;
-      const isAudioClip =
-        clip.kind === "audio" ||
-        asset?.type === "audio" ||
-        (asset?.type === "video" && hasAudioStream) ||
-        Boolean(directAudioPath) ||
-        clip.role === "audio";
-      if (!isAudioClip) continue;
+      if (!clipHasAudio(clip, asset)) continue;
 
+      const directAudioPath = (clip as any).audioPath as string | undefined;
       const audioId = clip.mediaId || directAudioPath || "unknown-audio";
       if (checkedAudioIds.has(audioId)) continue;
       checkedAudioIds.add(audioId);

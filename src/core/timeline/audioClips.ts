@@ -13,6 +13,7 @@ import { toNativePath } from "@/lib/platform/pathConversion";
 import { expandCompoundClips } from "./compoundClips";
 import { buildAudioAutomationSlice, evaluateEffectiveAudioState, isTrackAudible } from "@/core/audio/effectiveAudioState";
 import { getClipAudioProperties } from "@/types/audio";
+import { clipHasAudio } from "@/core/media/mediaAudioDetection";
 
 export interface ExportAudioClipConfig {
   /** Stable timeline clip identity used by native mixer replacement. */
@@ -82,18 +83,7 @@ export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: Medi
 
       // Find asset
       const asset = assets.find((a) => a.id === clip.mediaId);
-      const directAudioPath = (clip as any).audioPath as string | undefined;
-      const hasAudioStream =
-        asset?.streams && asset.streams.length > 0
-          ? asset.streams.some((s) => s.type === "audio")
-          : true;
-      const isAudioClip =
-        clip.kind === "audio" ||
-        asset?.type === "audio" ||
-        (asset?.type === "video" && hasAudioStream) ||
-        !!directAudioPath;
-
-      if (!isAudioClip) return false;
+      if (!clipHasAudio(clip, asset)) return false;
 
       // Check if clip overlaps with export time range
       const clipStart = clip.startTime;
