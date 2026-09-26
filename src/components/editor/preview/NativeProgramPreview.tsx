@@ -85,6 +85,7 @@ import {
   getNativeGpuStatus,
   registerNativeRasterAsset,
   renderNativeFrame,
+  queueNativeFrame,
   listenForNativePlaybackStats,
   listenForNativeMaskEviction,
   listenForNativeRasterEviction,
@@ -531,6 +532,9 @@ export const NativeProgramPreview: React.FC = () => {
     textInFlight: new Map<string, Promise<void>>(),
     textCompleted: new Set<string>(),
     textFailedAt: new Map<string, number>(),
+    videoInFlight: new Map<string, Promise<void>>(),
+    videoCompleted: new Set<string>(),
+    videoFailedAt: new Map<string, number>(),
   });
   const qualityManagerSigRef = useRef<string>("");
   const previewTelemetryContextRef = useRef<TelemetryPreviewContext>({
@@ -1175,6 +1179,12 @@ export const NativeProgramPreview: React.FC = () => {
       nativePrefetchStateRef.current.textCompleted;
     const nativeTextPrefetchFailedAt =
       nativePrefetchStateRef.current.textFailedAt;
+    const nativeVideoPrefetchInFlight =
+      nativePrefetchStateRef.current.videoInFlight;
+    const nativeVideoPrefetchCompleted =
+      nativePrefetchStateRef.current.videoCompleted;
+    const nativeVideoPrefetchFailedAt =
+      nativePrefetchStateRef.current.videoFailedAt;
     let nativeTextPrefetchTimer: number | null = null;
 
     let nativeSurfaceShown = false;
@@ -2126,19 +2136,140 @@ export const NativeProgramPreview: React.FC = () => {
       nativeTextPrefetchInFlight.set(key, task);
     };
 
-    // Never start text preparation in the same turn as the first play intent.
-    // Canvas rasterization can occupy the WebView thread even though the
-    // function is async; give the first native frame and audio clock a head
-    // start, then warm the next text boundary from an idle timer.
+    /**
+     * Cross-clip lookahead pre-seeding:
+     * When active playback approaches an upcoming video clip boundary (within 1.5 seconds),
+     * evaluate the upcoming clip's initial frame and submit a low-priority background
+     * prefetch via queueNativeFrame. This warms the stream decoder actor, primes its forward
+     * cache, and deposits the opening frame into NativePreviewFrameQueue so crossing the
+     * clip transition hits the cache at ~100% instead of dropping to 0%.
+     */
+    const prefetchUpcomingNativeVideo = (currentFrame: number): void => {
+      const state = renderStateRef.current;
+      const project = state.project;
+      if (!project || !isTauriRuntime() || state.clock.state !== "playing") {
+        return;
+      }
+
+      const frameRate = Math.max(1, project.frameRate ?? 30);
+      const currentTime = getFrameStartTime(
+        currentFrame / frameRate,
+        frameRate,
+      );
+      const horizonTime = currentTime + 1.5;
+      const assetMap = new Map(state.mediaAssets.map((a) => [a.id, a]));
+      const isVideoClip = (clip: (typeof state.clips)[number]) => {
+        if (clip.kind === "video") return true;
+        const asset = assetMap.get(clip.mediaId);
+        return asset?.type === "video";
+      };
+
+      const upcomingVideoClip = state.clips
+        .filter(
+          (clip) =>
+            isVideoClip(clip) &&
+            clip.startTime > currentTime &&
+            clip.startTime <= horizonTime,
+        )
+        .sort((left, right) => left.startTime - right.startTime)[0];
+
+      if (!upcomingVideoClip) return;
+
+      const targetFrame = Math.ceil(upcomingVideoClip.startTime * frameRate);
+      const revision = `${project.id ?? "unknown-project"}:${state.epoch}`;
+      const key = `${revision}:video:${upcomingVideoClip.id}:${targetFrame}`;
+
+      if (
+        nativeVideoPrefetchCompleted.has(key) ||
+        nativeVideoPrefetchInFlight.has(key)
+      ) {
+        return;
+      }
+      const previousFailureAt = nativeVideoPrefetchFailedAt.get(key) ?? 0;
+      if (performance.now() - previousFailureAt < 1000) return;
+
+      const task = (async () => {
+        const time = getFrameStartTime(targetFrame / frameRate, frameRate);
+        const scene = evaluateTimelineSceneCached(
+          time,
+          state.clips,
+          state.tracks,
+          state.mediaAssets,
+          project,
+          state.epoch,
+          state.transitions,
+          state.sceneVersions,
+        );
+
+        const hasVideo = scene.visualLayers.some(
+          (layer) => layer.layerType === "media",
+        );
+        if (!hasVideo) return;
+
+        const baseRenderTarget = getNativeRenderTarget(state, false);
+        const prefetchRequest = buildNativeFrameRequest(
+          scene,
+          revision,
+          targetFrame,
+          frameRate,
+          baseRenderTarget.width,
+          baseRenderTarget.height,
+          [],
+          {
+            mode: "prefetch",
+            generation: visibleRequestGeneration,
+          },
+        );
+
+        if (!prefetchRequest || prefetchRequest.project.videoLayers.length === 0) {
+          return;
+        }
+
+        await queueNativeFrame(prefetchRequest);
+
+        const current = renderStateRef.current;
+        if (
+          !isActive ||
+          current.project?.id !== project.id ||
+          current.epoch !== state.epoch
+        ) {
+          return;
+        }
+        nativeVideoPrefetchCompleted.add(key);
+        while (nativeVideoPrefetchCompleted.size > 64) {
+          const oldestKey = nativeVideoPrefetchCompleted.values().next().value;
+          if (oldestKey === undefined) break;
+          nativeVideoPrefetchCompleted.delete(oldestKey);
+        }
+        nativeVideoPrefetchFailedAt.delete(key);
+      })()
+        .catch((error) => {
+          nativeVideoPrefetchFailedAt.set(key, performance.now());
+          console.warn("[native-preview] video-prefetch-failed", {
+            frameIndex: targetFrame,
+            clipId: upcomingVideoClip.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        })
+        .finally(() => {
+          nativeVideoPrefetchInFlight.delete(key);
+        });
+
+      nativeVideoPrefetchInFlight.set(key, task);
+    };
+
+    // Never start text/video prefetch preparation in the same turn as the first play intent.
+    // Give the first native frame and audio clock a head start, then warm upcoming
+    // boundaries from an idle timer.
     const scheduleUpcomingNativeTextPrefetch = (): void => {
       if (nativeTextPrefetchTimer !== null) return;
       nativeTextPrefetchTimer = window.setTimeout(() => {
         nativeTextPrefetchTimer = null;
         const current = renderStateRef.current;
         if (!current.project) return;
-        prefetchUpcomingNativeText(
-          getFrameIndexAtTime(current.clock.time, current.clock.frameRate),
-        );
+        const currentFrame = getFrameIndexAtTime(current.clock.time, current.clock.frameRate);
+        prefetchUpcomingNativeText(currentFrame);
+        prefetchUpcomingNativeVideo(currentFrame);
       }, 100);
     };
 
