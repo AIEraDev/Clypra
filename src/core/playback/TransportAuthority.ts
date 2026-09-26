@@ -121,6 +121,10 @@ export class TransportAuthority {
   // ─── Unified Transport Controls ────────────────────────────────────────
 
   play(): void {
+    const duration = this.getDuration();
+    if (duration > 0 && this.getTime() >= duration) {
+      this.seek(0, { mode: "playback" });
+    }
     this._advanceTransportEpoch("play");
     this.issueTransportIntent("playback");
     this.activeContext?.play();
@@ -135,6 +139,10 @@ export class TransportAuthority {
       this.issueTransportIntent("seek");
       context.pause();
     } else {
+      const duration = this.getDuration();
+      if (duration > 0 && this.getTime() >= duration) {
+        this.seek(0, { mode: "playback" });
+      }
       this._advanceTransportEpoch("play");
       this.issueTransportIntent("playback");
       context.play();

@@ -3623,8 +3623,16 @@ export const NativeProgramPreview: React.FC = () => {
                     error.name === "AbortError",
                 });
                 nativeFrontendPerfSpans.delete(readbackRequestKey);
-                nativeRetryAt = performance.now() + 250;
-                if (nativeOnlyMode) {
+                const isPlaybackOrTransition =
+                  isPlaying ||
+                  state.clock.state === "playing" ||
+                  deferWebViewFallbackForNativeStartup ||
+                  !targetStillCurrent();
+                const isEofHiccup =
+                  error instanceof Error &&
+                  error.message.includes("No frame found at") &&
+                  timeToRender >= (state.project?.duration ?? 0) - 0.1;
+                if (nativeOnlyMode && !isPlaybackOrTransition && !stale && !isEofHiccup) {
                   toast.error(
                     [
                       "Native-only preview",
