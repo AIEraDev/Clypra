@@ -688,11 +688,11 @@ fn test_eviction_priority_ultra_high_before_medium_low() {
     // This confirms priority trumps LRU ordering across density tiers.
     let ultra_hot_pos = eviction_list
         .iter()
-        .position(|e| e.5 == "/ultra_hot")
+        .position(|e| e.5.to_str() == Some("/ultra_hot"))
         .expect("ultra_hot entry should be in eviction list");
     let medium_cold_pos = eviction_list
         .iter()
-        .position(|e| e.5 == "/medium_cold")
+        .position(|e| e.5.to_str() == Some("/medium_cold"))
         .expect("medium_cold entry should be in eviction list");
 
     assert!(
