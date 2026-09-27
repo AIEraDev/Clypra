@@ -77,6 +77,7 @@ export type PerfLogKind =
   | "worker-rollup"
   | "animation-eval"
   | "worker-error"
+  | "media-preview-diagnostic"
   | "project-session-load"
   | "project-session-close";
 
