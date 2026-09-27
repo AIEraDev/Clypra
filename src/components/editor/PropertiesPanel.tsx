@@ -30,6 +30,7 @@ import {
   calculateClipDimensions,
   type ClipFitModeExtended,
 } from "@/lib/timeline/timelineClip";
+import type { ClipConform } from "@clypra-studio/engine";
 import { resolveTextClipStyleUpdate } from "@/lib/text/textClip";
 import type { Clip, TextClip } from "@/types";
 import { usePresetStore } from "@/store/presetStore";
@@ -759,6 +760,26 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       project.canvasHeight,
       fitMode,
     );
+    const conformMode: ClipConform["mode"] =
+      fitMode === "cover" || fitMode === "fill"
+        ? "fill"
+        : fitMode === "stretch"
+        ? "stretch"
+        : fitMode === "original"
+        ? "none"
+        : "fit";
+    const nextConform = selectedClip.conform
+      ? {
+          ...selectedClip.conform,
+          mode: conformMode,
+          sourceWidth: selectedClip.conform.sourceWidth || selectedAsset.width || 0,
+          sourceHeight: selectedClip.conform.sourceHeight || selectedAsset.height || 0,
+          userOffsetX: 0,
+          userOffsetY: 0,
+          userScale: 1,
+        }
+      : undefined;
+
     executePreviewCommand(
       new TransformClipCommand(
         selectedClip.id,
@@ -768,6 +789,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           width: selectedClip.width,
           height: selectedClip.height,
           fitMode: selectedClip.fitMode,
+          ...(selectedClip.conform ? { conform: selectedClip.conform } : {}),
         },
         {
           x: rect.x,
@@ -775,6 +797,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           width: rect.width,
           height: rect.height,
           fitMode,
+          ...(nextConform ? { conform: nextConform } : {}),
         },
       ),
     );

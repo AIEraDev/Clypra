@@ -173,6 +173,16 @@ export function useNativeSurfaceController({
             markNativeSurfaceReady(readinessToken);
             readyRevisionRef.current += 1;
             onSurfaceReady();
+
+            tracePlayback("surface-geometry-sync", {
+              projectId,
+              xPhysical: geometry.xPhysical,
+              yPhysical: geometry.yPhysical,
+              widthPhysical: geometry.widthPhysical,
+              heightPhysical: geometry.heightPhysical,
+              dpr: geometry.devicePixelRatio,
+              isPlaying: clock.state === "playing",
+            });
           }
         } catch (caught) {
           if (isNativeSurfaceRequestSuperseded(caught)) return;
@@ -211,7 +221,7 @@ export function useNativeSurfaceController({
     requestSync(true);
     const handleWindowResize = () => requestSync(false);
     let unlistenWindowMoved: (() => void | Promise<void>) | null = null;
-    void onNativePreviewWindowMoved(() => requestSync(false))
+    void onNativePreviewWindowMoved(() => requestSync(clock.state === "playing"))
       .then((unlisten) => {
         if (active) unlistenWindowMoved = unlisten;
         else void Promise.resolve(unlisten()).catch(() => undefined);

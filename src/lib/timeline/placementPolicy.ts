@@ -12,7 +12,7 @@ export interface PlacementPolicy {
  * Keep this as the single source of truth for default placement behavior.
  */
 export const DEFAULT_PLACEMENT_POLICY: PlacementPolicy = {
-  defaultVisualFitMode: "cover",
+  defaultVisualFitMode: "contain",
   centerAnchor: true,
   autoAdaptSequenceForFirstVisualClip: true,
 };
@@ -22,13 +22,13 @@ export type AddPlacementIntent = "playhead";
 
 /**
  * Professional default fit policy by media class:
- * - Video: cover (full-frame editorial baseline)
+ * - Video: contain (preserve full frame and aspect ratio with letterbox/pillarbox by default)
  * - Image: contain (preserve full still content by default)
  */
 export function resolveDefaultFitModeForAsset(asset: Pick<MediaAsset, "type"> & { id?: string }): ClipFitModeExtended {
   if (asset.id?.startsWith("sticker-")) return "original";
   if (asset.type === "image") return "contain";
-  if (asset.type === "video") return "cover";
+  if (asset.type === "video") return "contain";
   return DEFAULT_PLACEMENT_POLICY.defaultVisualFitMode;
 }
 

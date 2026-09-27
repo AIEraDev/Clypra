@@ -120,8 +120,8 @@ describe("resolveAddToTimelinePlacement", () => {
 });
 
 describe("resolveDefaultFitModeForAsset", () => {
-  it("returns cover for video assets", () => {
-    expect(resolveDefaultFitModeForAsset({ type: "video" })).toBe("cover");
+  it("returns contain for video assets", () => {
+    expect(resolveDefaultFitModeForAsset({ type: "video" })).toBe("contain");
   });
 
   it("returns contain for image assets", () => {

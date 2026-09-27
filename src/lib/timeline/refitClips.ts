@@ -64,13 +64,18 @@ export function refitClipsForCanvasChange(
     if (!asset) continue;
     if (asset.type !== "video" && asset.type !== "image") continue;
 
-    const fitMode: ClipFitModeExtended = (clip as any).fitMode ?? DEFAULT_PLACEMENT_POLICY.defaultVisualFitMode;
+    const rawFitMode: ClipFitModeExtended = (clip as any).fitMode ?? DEFAULT_PLACEMENT_POLICY.defaultVisualFitMode;
+    const existingConformMode = (clip as any).conform?.mode;
+    const fitMode: ClipFitModeExtended =
+      existingConformMode === "fit" ? "contain" : rawFitMode;
     const newDims = calculateClipDimensions(asset, newCanvasWidth, newCanvasHeight, fitMode);
 
     let nextConform = (clip as any).conform;
     if (nextConform) {
       const conformMode =
-        fitMode === "cover" || fitMode === "fill"
+        existingConformMode === "fit" || fitMode === "contain"
+          ? "fit"
+          : fitMode === "cover" || fitMode === "fill"
           ? "fill"
           : fitMode === "stretch"
           ? "stretch"

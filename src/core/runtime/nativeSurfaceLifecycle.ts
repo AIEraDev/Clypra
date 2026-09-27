@@ -136,7 +136,9 @@ export function configureNativeSurface(
         ? await resizeNativeSurface(geometry)
         : await probeNativeSurface(geometry);
 
-    await hideNativeSurface().catch(() => undefined);
+    if (!nativeSurfaceConfigured || ownerChanged) {
+      await hideNativeSurface().catch(() => undefined);
+    }
 
     nativeSurfaceOwner = ownerProjectId;
     nativeSurfaceGeometryKey = requestedGeometryKey;

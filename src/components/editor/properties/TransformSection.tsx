@@ -345,6 +345,34 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                     Path
                   </button>
                 )}
+                {isVisualClip && (
+                  <div className="flex items-center gap-0.5 bg-surface-base/80 p-0.5 rounded border border-border/50">
+                    <button
+                      type="button"
+                      onClick={() => handleApplyFit("contain")}
+                      className={`px-1.5 py-0.5 text-[9px] rounded transition-all cursor-pointer ${
+                        (selectedClip.conform?.mode === "fit" || (!selectedClip.conform && selectedClip.fitMode === "contain"))
+                          ? "bg-accent/20 text-accent font-semibold"
+                          : "text-text-muted hover:text-text-primary hover:bg-surface-raised"
+                      }`}
+                      title="Fit: Preserve full frame (Letterbox/Pillarbox)"
+                    >
+                      Fit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleApplyFit("cover")}
+                      className={`px-1.5 py-0.5 text-[9px] rounded transition-all cursor-pointer ${
+                        (selectedClip.conform?.mode === "fill" || (!selectedClip.conform && selectedClip.fitMode === "cover"))
+                          ? "bg-accent/20 text-accent font-semibold"
+                          : "text-text-muted hover:text-text-primary hover:bg-surface-raised"
+                      }`}
+                      title="Fill: Scale to fill canvas and crop overflow"
+                    >
+                      Fill
+                    </button>
+                  </div>
+                )}
                 <button
                   onClick={handleCenterOnCanvas}
                   className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] text-text-muted hover:text-accent hover:bg-accent/10 rounded transition-all cursor-pointer"
