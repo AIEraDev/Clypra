@@ -87,6 +87,8 @@ export class SourcePlaybackContext implements PlaybackContext {
       // SP-5 fix: If playhead is at or past outPoint, wrap to inPoint (or 0 if no inPoint is set)
       // so pressing Play restarts playback across the active region.
       this.seek(this._inPoint !== null ? this._inPoint : 0);
+    } else if (this.getDuration() > 0 && this.getTime() >= this.getDuration()) {
+      this.seek(0);
     }
 
     this._mediaElement.play().catch((err) => {

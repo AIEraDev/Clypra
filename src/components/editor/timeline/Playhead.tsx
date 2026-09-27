@@ -123,7 +123,7 @@ export const Playhead: React.FC<PlayheadProps> = ({
   const lastSeekUpdateRef = useRef(0);
   const stationaryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const SCROLL_THROTTLE = 33; // ~30fps (acceptable for scroll UI sync)
-  const SEEK_THROTTLE = 16; // ~60fps (smooth playhead movement)
+  const SEEK_THROTTLE = 33; // ~30fps (halves IPC/decoder interrupts on low-end GPUs)
 
   // ✅ Continuous loop: scroll FIRST, then derive playhead from pointer
   useEffect(() => {
@@ -189,6 +189,13 @@ export const Playhead: React.FC<PlayheadProps> = ({
       const snappedTime =
         pixelsPerFrame > 3 ? snapToFrameBoundary(rawTime, frameRate) : rawTime;
       const newTime = clampAndSnapProgramTime(snappedTime, duration, frameRate);
+
+      // Direct DOM update for 60fps responsive visual needle tracking while dragging
+      const el = playheadRef.current;
+      if (el) {
+        const visualPos = Math.max(0, timelineTimeToPixel(newTime, pixelsPerSecond));
+        el.style.left = `${visualPos}px`;
+      }
 
       // Throttled scrub calls (reduce clock update frequency)
       if (now - lastSeekUpdateRef.current >= SEEK_THROTTLE) {

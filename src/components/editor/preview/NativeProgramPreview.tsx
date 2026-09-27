@@ -3717,7 +3717,6 @@ export const NativeProgramPreview: React.FC = () => {
                     nativeFrontendPerfSpans.get(readbackRequestKey);
                   frontendSpan?.finish({ stale: true });
                   nativeFrontendPerfSpans.delete(readbackRequestKey);
-                  forceRenderNeeded = true;
                   return;
                 }
                 exactNativeFrame = loadedFrame;
@@ -3750,7 +3749,6 @@ export const NativeProgramPreview: React.FC = () => {
                   frontendSpan?.finish({ stale: true });
                   nativeFrontendPerfSpans.delete(readbackRequestKey);
                   nativeRetryAt = 0;
-                  forceRenderNeeded = true;
                   return;
                 }
                 if (nativeFailureKey !== nativeRequestKey) {
@@ -3815,7 +3813,6 @@ export const NativeProgramPreview: React.FC = () => {
             // Playback prefetch uses the retained native surface path instead.
 
             if (!targetStillCurrent()) {
-              forceRenderNeeded = true;
               return;
             }
 
@@ -3963,7 +3960,6 @@ export const NativeProgramPreview: React.FC = () => {
               ?.clearRect(0, 0, smartCanvas.width, smartCanvas.height);
 
             if (!targetStillCurrent()) {
-              forceRenderNeeded = true;
               return;
             }
 
