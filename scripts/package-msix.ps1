@@ -39,7 +39,7 @@ if (-not $Version) {
             $Version = $rawVersion
         }
     } else {
-        $Version = "1.5.3.0"
+        $Version = "1.5.4.0"
     }
 }
 
