@@ -349,9 +349,9 @@ describe("timelineClip timing helpers", () => {
       expect(clip.duration).toBe(clip.trimOut - clip.trimIn);
     });
 
-    it("uses cover as the default visual fit mode", () => {
+    it("uses contain as the default visual fit mode", () => {
       const asset: MediaAsset = {
-        id: "media-cover-default",
+        id: "media-contain-default",
         name: "portrait.mp4",
         path: "/portrait.mp4",
         type: "video",
@@ -369,7 +369,39 @@ describe("timelineClip timing helpers", () => {
         height: 1080,
       });
 
+      // Contain should fully fit inside the frame (pillarbox) and preserve full frame.
+      expect(clip.fitMode).toBe("contain");
+      expect(clip.conform?.mode).toBe("fit");
+      expect(clip.height).toBe(1080);
+      expect(clip.width).toBeLessThan(1920);
+      expect(clip.y).toBe(0);
+      expect(clip.x).toBeGreaterThan(0);
+    });
+
+    it("supports cover fit mode when explicitly requested", () => {
+      const asset: MediaAsset = {
+        id: "media-cover-explicit",
+        name: "portrait.mp4",
+        path: "/portrait.mp4",
+        type: "video",
+        duration: 10,
+        width: 1080,
+        height: 1920,
+        size: 1000,
+      };
+
+      const clip = createClipFromAsset({
+        asset,
+        trackId: "track-1",
+        startTime: 0,
+        width: 1920,
+        height: 1080,
+        fitMode: "cover",
+      });
+
       // Cover should fill width and overflow/crop height for portrait-in-landscape.
+      expect(clip.fitMode).toBe("cover");
+      expect(clip.conform?.mode).toBe("fill");
       expect(clip.width).toBe(1920);
       expect(clip.height).toBeGreaterThan(1080);
       expect(clip.x).toBe(0);

@@ -320,6 +320,29 @@ export class PlaybackClock {
     this._time = effectiveTime;
   }
 
+  /**
+   * Hard resynchronization called on foreground wakeup or urgent audio sync.
+   * Unlike setNativeClockPosition, this unconditionally overrides the native
+   * position, clears forward extrapolation, resets receivedAtMs to now, increments
+   * generation, and broadcasts immediately to all listeners.
+   */
+  resyncNativeClockPosition(time: number, speed: number = this._speed): void {
+    if (!Number.isFinite(time)) return;
+    const validSpeed = Number.isFinite(speed)
+      ? Math.max(0.1, Math.min(4, speed))
+      : this._speed;
+    const clampedTime = Math.max(0, Math.min(time, this._duration));
+
+    this._nativeClockPosition = {
+      time: clampedTime,
+      receivedAtMs: performance.now(),
+      speed: validSpeed,
+    };
+    this._time = clampedTime;
+    this._generation++;
+    this._notifyListeners();
+  }
+
   /** Stop consuming native samples and return to the local audio clock. */
   clearNativeClockPosition(): void {
     this._nativeClockPosition = null;

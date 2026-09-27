@@ -83,10 +83,10 @@ describe("Timeline Placement & Snapping System", () => {
   });
 
   describe("resolveDefaultFitModeForAsset", () => {
-    it("should resolve cover for video and contain for image", () => {
-      expect(resolveDefaultFitModeForAsset({ type: "video" })).toBe("cover");
+    it("should resolve contain for video and image", () => {
+      expect(resolveDefaultFitModeForAsset({ type: "video" })).toBe("contain");
       expect(resolveDefaultFitModeForAsset({ type: "image" })).toBe("contain");
-      expect(resolveDefaultFitModeForAsset({ type: "audio" })).toBe("cover"); // fallback
+      expect(resolveDefaultFitModeForAsset({ type: "audio" })).toBe("contain"); // fallback
     });
   });
 

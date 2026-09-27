@@ -34,6 +34,8 @@ import {
 } from "@/services/telemetryCollector";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import type { TransportAuthority } from "@/core/playback/TransportAuthority";
+import { appLifecycleCoordinator } from "@/core/runtime/AppLifecycleCoordinator";
+import { tracePlayback } from "@/core/playback/playbackTrace";
 
 const NATIVE_PREVIEW_AUDIO_OPTIONS = { preserveTransportPitch: true } as const;
 
@@ -84,6 +86,7 @@ export class NativeAudioPreviewController {
   private active = false;
   private disposed = false;
   private commandRevision = 0;
+  private unlistenLifecycle: (() => void) | null = null;
   /** Latest paused seek intent. Rapid scrubs collapse to the newest target. */
   private seekIntentRevision = 0;
   /** Timeline edits collapse to the newest candidate instead of queuing rebuilds. */
@@ -246,6 +249,13 @@ export class NativeAudioPreviewController {
       this.unsubscribe = this.clock.subscribe((state) =>
         this.handleClockState(state),
       );
+      this.unlistenLifecycle = appLifecycleCoordinator.onForegroundWakeup(() => {
+        if (!this.active || this.disposed) return;
+        if (this.clock.state === "playing") {
+          void this.resyncFromHardwareAudio();
+          this.restartPolling(true);
+        }
+      });
       this.restartPolling(this.clock.state === "playing");
 
       await Promise.all([
@@ -281,6 +291,8 @@ export class NativeAudioPreviewController {
     this.active = false;
     this.unsubscribe?.();
     this.unsubscribe = null;
+    this.unlistenLifecycle?.();
+    this.unlistenLifecycle = null;
     if (this.pollHandle) clearInterval(this.pollHandle);
     this.pollHandle = null;
     this.clock.clearNativeClockPosition();
@@ -525,6 +537,43 @@ export class NativeAudioPreviewController {
     }
     const position = positionTicks / 1_000_000;
     this.clock.setNativeClockPosition(position, this.clock.speed);
+  }
+
+  /**
+   * Urgent out-of-band hardware audio clock query and hard-resync.
+   * Invoked upon foreground wakeup or window re-focus to eliminate any
+   * time extrapolation drift accumulated while the webview was backgrounded.
+   */
+  async resyncFromHardwareAudio(): Promise<void> {
+    if (!this.active || this.disposed) return;
+    try {
+      const nativeState = await nativeTickFromAudio();
+      const positionTicks =
+        "audioPositionTicks" in nativeState
+          ? nativeState.audioPositionTicks
+          : 0;
+      const durationTicks = secondsToTicks(this.source.duration);
+      const isStaleTerminalSample =
+        this.clock.time < 0.5 &&
+        this.source.duration > 1.0 &&
+        durationTicks > 0 &&
+        positionTicks >= durationTicks - 100_000;
+
+      if (!isStaleTerminalSample) {
+        const position = positionTicks / 1_000_000;
+        const previousTime = this.clock.time;
+        const driftMs = Math.round(Math.abs(previousTime - position) * 1000);
+        this.clock.resyncNativeClockPosition(position, this.clock.speed);
+        tracePlayback("hardware-audio-resync", {
+          previousTime,
+          position,
+          driftMs,
+          speed: this.clock.speed,
+        });
+      }
+    } catch (error) {
+      console.warn("[NativeAudioController] resyncFromHardwareAudio failed:", error);
+    }
   }
 
   /** Dynamic check used after awaits; TypeScript narrowing cannot model an

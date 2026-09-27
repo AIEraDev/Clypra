@@ -199,4 +199,17 @@ describe("PlaybackClock: RAF Generation Counter", () => {
     expect(clock.state).toBe("playing");
     expect(clock.time).toBe(0);
   });
+
+  it("resyncNativeClockPosition overrides extrapolated drift without ratchet lockout", () => {
+    clock.play();
+    clock.setNativeClockPosition(5.0, 1.0);
+    expect(clock.time).toBeCloseTo(5.0, 2);
+
+    const notified = vi.fn();
+    clock.subscribe(notified);
+
+    clock.resyncNativeClockPosition(3.5, 1.0);
+    expect(clock.time).toBeCloseTo(3.5, 2);
+    expect(notified).toHaveBeenCalled();
+  });
 });

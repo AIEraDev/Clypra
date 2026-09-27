@@ -23,6 +23,7 @@ import {
   subscribeToSessionChanges,
   type ProjectSession,
 } from "@/core/runtime/ProjectSession";
+import { appLifecycleCoordinator } from "@/core/runtime/AppLifecycleCoordinator";
 import { isProtectedInteractiveElement } from "@/core/selection/selectionCoordinator";
 import {
   getPreviewInteractionCoordinator,
@@ -4138,6 +4139,28 @@ export const NativeProgramPreview: React.FC = () => {
         .catch(() => undefined);
     }
 
+    const unsubscribeLifecycleWakeup = appLifecycleCoordinator.onForegroundWakeup(() => {
+      if (!isActive) return;
+      nativeContinuousFailureStreak = 0;
+      nativeContinuousBlockedRevision = "";
+      nativePlaybackRenderFailed = false;
+      nativeBlockedKey = "";
+      nativeFailureKey = "";
+      nativeFailureCount = 0;
+      lastNativePlaybackRequestKey = "";
+      nativeRetryAt = 0;
+      nativePlaybackInFlight = null;
+      visibleRequestGeneration += 1;
+      nativePreviewScheduler.setVisibleGeneration(visibleRequestGeneration);
+      forceRenderNeeded = true;
+      scheduleNextFrame();
+    });
+
+    const unsubscribeLifecycleSleep = appLifecycleCoordinator.onBackgroundSleep(() => {
+      if (!isActive) return;
+      lastNativePlaybackRequestKey = "";
+    });
+
     scheduleNextFrame();
     return () => {
       // tracePlayback("playback-loop-stop", {
@@ -4149,6 +4172,8 @@ export const NativeProgramPreview: React.FC = () => {
       //   renderInFlight,
       // });
       isActive = false;
+      unsubscribeLifecycleWakeup();
+      unsubscribeLifecycleSleep();
       if (unlistenMaskEviction) unlistenMaskEviction();
       if (unlistenRasterEviction) unlistenRasterEviction();
       unsubscribeClock();
