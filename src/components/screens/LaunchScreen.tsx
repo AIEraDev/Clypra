@@ -30,6 +30,7 @@ import {
   getProjectThumbnail,
   formatEditorTimecode,
 } from "@/lib/media/projectThumbnail";
+import { generateRandomProjectName } from "@/lib/project/projectNameGenerator";
 import { MAX_PROJECT_NAME_LENGTH } from "@/types";
 import { useUIStore } from "@/store/uiStore";
 import { platform } from "@/core/platform";
@@ -387,7 +388,9 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({
 
   const handleStartNewProject = () => {
     const { defaultFrameRate } = useSettingsStore.getState();
-    onProjectCreate("Untitled Project", "16:9", defaultFrameRate);
+    const existingNames = recentProjects.map((p) => p.name);
+    const projectName = generateRandomProjectName(existingNames);
+    onProjectCreate(projectName, "16:9", defaultFrameRate);
   };
 
   const handleDeleteClick = (e: React.MouseEvent, project: Project) => {
