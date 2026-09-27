@@ -1,5 +1,4 @@
 import { isTauriRuntime } from "@/lib/platform/tauri";
-import { tracePlayback } from "@/core/playback/playbackTrace";
 
 export type AppLifecycleState = "foreground" | "backgrounded";
 export type LifecycleListener = () => void;
@@ -86,15 +85,7 @@ export class AppLifecycleCoordinator {
 
   private transitionTo(newState: AppLifecycleState): void {
     if (newState === this.state) return;
-    const oldState = this.state;
     this.state = newState;
-
-    tracePlayback("app-lifecycle-transition", {
-      fromState: oldState,
-      toState: newState,
-      timestamp: Date.now(),
-    });
-
     if (newState === "foreground") {
       console.info("[AppLifecycle] App returned to FOREGROUND — triggering wakeup resync");
       for (const listener of this.wakeupListeners) {

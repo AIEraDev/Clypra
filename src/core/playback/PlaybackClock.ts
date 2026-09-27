@@ -321,10 +321,9 @@ export class PlaybackClock {
   }
 
   /**
-   * Hard resynchronization called on foreground wakeup or urgent audio sync.
-   * Unlike setNativeClockPosition, this unconditionally overrides the native
-   * position, clears forward extrapolation, resets receivedAtMs to now, increments
-   * generation, and broadcasts immediately to all listeners.
+   * Unconditionally resync the clock to the authoritative hardware audio time,
+   * bypassing the forward monotonic clamp (used on foreground wakeup, un-occlusion,
+   * and post-stall drift recovery).
    */
   resyncNativeClockPosition(time: number, speed: number = this._speed): void {
     if (!Number.isFinite(time)) return;

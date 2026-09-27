@@ -33,6 +33,7 @@ import {
   type TelemetryInteractionOutcome,
 } from "@/services/telemetryCollector";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
+import { appLifecycleCoordinator } from "@/core/runtime/AppLifecycleCoordinator";
 import type { TransportAuthority } from "@/core/playback/TransportAuthority";
 import { appLifecycleCoordinator } from "@/core/runtime/AppLifecycleCoordinator";
 import { tracePlayback } from "@/core/playback/playbackTrace";
@@ -72,6 +73,7 @@ export class NativeAudioPreviewController {
   private readonly onError?: (error: Error) => void;
   private readonly transportAuthority?: TransportAuthority;
   private unsubscribe: (() => void) | null = null;
+  private unlistenLifecycle: (() => void) | null = null;
   private pollHandle: ReturnType<typeof setInterval> | null = null;
   /**
    * Transport has a dedicated short-command lane. Play/pause/seek must never
@@ -561,15 +563,7 @@ export class NativeAudioPreviewController {
 
       if (!isStaleTerminalSample) {
         const position = positionTicks / 1_000_000;
-        const previousTime = this.clock.time;
-        const driftMs = Math.round(Math.abs(previousTime - position) * 1000);
         this.clock.resyncNativeClockPosition(position, this.clock.speed);
-        tracePlayback("hardware-audio-resync", {
-          previousTime,
-          position,
-          driftMs,
-          speed: this.clock.speed,
-        });
       }
     } catch (error) {
       console.warn("[NativeAudioController] resyncFromHardwareAudio failed:", error);

@@ -205,6 +205,8 @@ describe("PlaybackClock: RAF Generation Counter", () => {
     clock.setNativeClockPosition(5.0, 1.0);
     expect(clock.time).toBeCloseTo(5.0, 2);
 
+    // Normal setNativeClockPosition would clamp forward if time is smaller than extrapolated:
+    // With resyncNativeClockPosition, it forces backward snap to true audio hardware time:
     const notified = vi.fn();
     clock.subscribe(notified);
 

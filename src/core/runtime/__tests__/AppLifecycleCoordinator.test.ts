@@ -30,7 +30,8 @@ describe("AppLifecycleCoordinator", () => {
     });
     document.dispatchEvent(new Event("visibilitychange"));
 
-    vi.advanceTimersByTime(50);
+    // Advance through debounce timer (150ms)
+    vi.advanceTimersByTime(200);
 
     expect(coordinator.getState()).toBe("backgrounded");
     expect(coordinator.isBackgrounded()).toBe(true);
@@ -47,7 +48,7 @@ describe("AppLifecycleCoordinator", () => {
       get: () => true,
     });
     document.dispatchEvent(new Event("visibilitychange"));
-    vi.advanceTimersByTime(50);
+    vi.advanceTimersByTime(200);
 
     // Return to foreground
     Object.defineProperty(document, "hidden", {
@@ -72,9 +73,11 @@ describe("AppLifecycleCoordinator", () => {
     coordinator.onBackgroundSleep(onSleep);
     coordinator.onForegroundWakeup(onWakeup);
 
+    // Window blurs
     window.dispatchEvent(new Event("blur"));
-    vi.advanceTimersByTime(5); // < 16ms
+    vi.advanceTimersByTime(50); // < 150ms
 
+    // Focus returns quickly
     Object.defineProperty(document, "hidden", {
       configurable: true,
       get: () => false,
@@ -85,7 +88,7 @@ describe("AppLifecycleCoordinator", () => {
     });
     window.dispatchEvent(new Event("focus"));
 
-    vi.advanceTimersByTime(50);
+    vi.advanceTimersByTime(200);
 
     expect(coordinator.getState()).toBe("foreground");
     expect(onSleep).not.toHaveBeenCalled();
@@ -95,21 +98,23 @@ describe("AppLifecycleCoordinator", () => {
     const onWakeup = vi.fn();
     const unsubscribe = coordinator.onForegroundWakeup(onWakeup);
 
+    // Go background
     Object.defineProperty(document, "hidden", {
       configurable: true,
       get: () => true,
     });
     document.dispatchEvent(new Event("visibilitychange"));
-    vi.advanceTimersByTime(50);
+    vi.advanceTimersByTime(200);
 
+    // Unsubscribe before wakeup
     unsubscribe();
 
+    // Wakeup
     Object.defineProperty(document, "hidden", {
       configurable: true,
       get: () => false,
     });
     window.dispatchEvent(new Event("focus"));
-    vi.advanceTimersByTime(50);
 
     expect(onWakeup).not.toHaveBeenCalled();
   });
