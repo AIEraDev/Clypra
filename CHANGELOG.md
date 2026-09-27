@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [1.5.4] - 2026-09-27
+
+### 🚀 Features & Architecture
+
+- **Creative Random Project Name Generator** — new projects automatically receive creative, aesthetic cinematic titles (e.g., "Velvet Horizon", "Solar Drift", "Amber Echo", "Crimson Peak") sampled from a curated pool of 77 adjectives and 80 nouns (>6,160 combinations) with collision avoidance against existing projects, replacing generic "Untitled Project" placeholders (#412).
+- **Playback Speed, Freeze Frames & Speed Ramps** — introduced the unified `PlaybackMapping` contract with full timeline visualization and inspector controls for variable playback speed (0.1×–100×), freeze frame insertion, and reverse playback support (#383, #384).
+- **Inspector Fit & Fill Aspect Controls** — added dedicated Fit (letterbox/pillarbox to show 100% of media) and Fill (crop to fill canvas) toggle buttons to the clip inspector transform section, synchronizing both `fitMode` and `conform` atomically via undo/redo command (#410).
+- **Microsoft Store MSIX Packaging Pipeline** — automated sidecar verification, MSIX packaging scripts, manifest generation, and GitHub Actions CI workflow for Microsoft Store distribution (#385, #386).
+
+### 🐛 Bug Fixes
+
+- **macOS Cocoa Child Window Locking** — locked the native preview surface window to the parent Clypra window using `addChildWindow:ordered:1isize` (`NSWindowAbove`). Fixed the issue where moving, resizing, or switching spaces left the native surface floating independently as a detached "Tauri App" on the desktop while the timeline canvas froze (#410).
+- **App Lifecycle & Background Resync** — added `AppLifecycleCoordinator` to handle `visibilitychange`, `window.focus`/`blur`, and Tauri `onFocusChanged`. Cleanly pauses/sleeps rendering during background transitions and immediately resyncs hardware audio DAC clock drift (`resyncFromHardwareAudio()`) and resets circuit-breaker failure counts on foreground wakeups (#409, #410).
+- **Conform & Canvas Refit Split-Brain Resolved** — unified default visual fit policy to `"contain"` and conform mode to `"fit"`. Switching project canvas aspect ratio (e.g. 9:16 to 16:9) now letterboxes/pillarboxes instead of mutating into `"fill"` and cropping subjects (#410).
+- **Spacebar Replay Flash & Jump-to-End Race Condition** — fixed the race condition on Windows/Intel where pressing Spacebar at timeline end briefly restarted playback for 1 frame and immediately jumped back to the end due to stale atomic terminal position samples (#406, #408).
+- **100ms Redundant Seek Storm Eliminated** — corrected `isPlayingJump` in `nativeAudioPreviewController.ts` which was erroneously firing redundant IPC seek commands every 100ms during normal continuous playback (#408).
+- **1,664 Stale Frames Infinite Render Loop Fixed** — removed obsolete `forceRenderNeeded = true` flags on stale/superseded frame errors that were causing continuous 30fps re-requests while paused (#408).
+- **Silent Media Playback Hitch Eliminated** — resolved a 500ms audio stutter on clips with no audio tracks by integrating an active audio clip check that bypasses CPAL audio stream probes when no audible clips exist (#406).
+- **Native Preview Surface Initialization Fix** — imported `tracePlayback` in `useNativeSurfaceController.ts`, fixing a runtime `ReferenceError` that prevented the retained WGPU surface from initializing on startup (#411).
+
+### ⚡ Performance
+
+- **Apple Silicon Backpressure Exemption** — exempted Apple Silicon M1/M2/M3 GPUs from scrub-induced proxy quality downgrades, preventing false degradation to CPU-RGBA software decode and eliminating dropped frames (#405).
+- **Scrubbing IPC Throttling & Decoupled Playhead** — throttled IPC seek dispatches to ~30fps on constrained GPUs while keeping DOM playhead needle updates at 60fps, preventing decoder mutex saturation on Intel HD 520 hardware (#408).
+- **Filmstrip Priority Preemption & Deferral** — deferred coarse baseline thumbnail prewarming until after session open and added visible-viewport priority preemption, reducing project load time to under 100ms and achieving 100% cache hit rates on subsequent scrubs (#404, #405).
+- **Dynamic Intel iGPU Proxy Tiering** — implemented Phase 2 dynamic proxy resolution scaling and GPU JIT pipeline pre-warming to prevent stutter during scrub bursts on integrated graphics (#400, #402).
+
 ## [1.5.3] - 2026-09-22
 
 ### 🐛 Bug Fixes
