@@ -20,6 +20,7 @@ import {
   isTauriRuntime,
   registerNativeImageAsset,
   registerNativeRasterAsset,
+  unregisterNativeRasterAsset,
 } from "@/lib/platform/tauri";
 import type { NativeRasterLayerSnapshot } from "@/lib/platform/nativeCore";
 import { buildNativeImageAssetId } from "@/core/render/nativeRasterAssetIds";
@@ -450,6 +451,8 @@ export class NativeRasterBridge {
       this.animatedStickerRenderer.evictFrame(assetId);
       this.assetsById.delete(assetId);
       this.textAssetsById.delete(assetId);
+      this.imageCache.delete(assetId);
+      this.imageSourcesById.delete(assetId);
 
       for (const [layerId, snap] of this.textSnapshotsByLayerId.entries()) {
         if (snap.assetId === assetId) {
@@ -464,6 +467,38 @@ export class NativeRasterBridge {
         if (snap.assetId === assetId) {
           this.stickerSnapshotsByLayerId.delete(layerId);
           this.stickerSnapshotKeysByLayerId.delete(layerId);
+        }
+      }
+    }
+  }
+
+  /**
+   * Invalidate and purge all raster assets for a given source file path or asset identity.
+   * Immediately reclaims GPU VRAM and JS memory (NLE-style media invalidation).
+   */
+  async invalidateMediaAsset(sourcePath: string): Promise<void> {
+    if (!sourcePath) return;
+    const normalized = sourcePath.trim().toLowerCase();
+    const assetIdsToEvict: string[] = [];
+
+    for (const [assetId, info] of this.imageSourcesById.entries()) {
+      const infoPath = info.sourcePath?.trim().toLowerCase() || "";
+      if (infoPath === normalized || infoPath.endsWith(normalized) || normalized.endsWith(infoPath)) {
+        assetIdsToEvict.push(assetId);
+      }
+    }
+
+    for (const assetId of assetIdsToEvict) {
+      this.imageCache.delete(assetId);
+      this.imageSourcesById.delete(assetId);
+      this.registeredAssetIds.delete(assetId);
+      this.assetsById.delete(assetId);
+
+      if (isTauriRuntime()) {
+        try {
+          await unregisterNativeRasterAsset(assetId);
+        } catch {
+          // Non-fatal if native runtime is not active
         }
       }
     }

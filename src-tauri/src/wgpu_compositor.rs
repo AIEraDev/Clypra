@@ -847,6 +847,11 @@ impl NativePreviewSession {
         self.mask_registration_history.remove(asset_id);
     }
 
+    pub fn remove_rgba_layer(&mut self, asset_id: &str) {
+        self.rgba_layers.remove(asset_id);
+        self.mask_registration_history.remove(asset_id);
+    }
+
     pub fn transparent_mask_placeholder(&self) -> Arc<wgpu::Texture> {
         Arc::clone(&self.transparent_mask_placeholder)
     }

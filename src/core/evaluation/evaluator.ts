@@ -526,6 +526,7 @@ export function evaluateTimelineScene(
     if (
       clip.kind === "audio" ||
       !asset ||
+      asset.isMissing ||
       (asset.type !== "video" && asset.type !== "image")
     )
       continue;
@@ -724,7 +725,7 @@ export function evaluateTimelineScene(
       asset?.type === "video" ||
       Boolean(directAudioPath) ||
       Boolean(clip.audio);
-    if (!hasAudio || (!asset && !directAudioPath)) continue;
+    if (!hasAudio || (!asset && !directAudioPath) || asset?.isMissing) continue;
 
     const sourceTime = resolveClipSourceTime(clip, evalTime, {
       clampToRange: true,

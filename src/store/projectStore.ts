@@ -1226,6 +1226,21 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     );
     if (hasChanges) {
       set({ mediaAssets: updatedAssets });
+      const newlyMissing = updatedAssets.filter(
+        (a, i) => a.isMissing && !assets[i]?.isMissing,
+      );
+      if (newlyMissing.length > 0) {
+        import("@/core/runtime/ProjectSession")
+          .then(({ getActiveSessionOrNull }) => {
+            const session = getActiveSessionOrNull();
+            if (session) {
+              for (const asset of newlyMissing) {
+                void session.invalidateMissingMediaAsset(asset);
+              }
+            }
+          })
+          .catch(() => undefined);
+      }
     }
 
     return missingIds;
@@ -1385,6 +1400,18 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           await import("@/core/audio/waveformService");
         clearWaveformServiceCache();
       } catch {}
+
+      // Invalidate old path cache for the target asset so fresh media loads
+      if (targetAsset.path) {
+        import("@/core/runtime/ProjectSession")
+          .then(({ getActiveSessionOrNull }) => {
+            const session = getActiveSessionOrNull();
+            if (session) {
+              void session.invalidateMissingMediaAsset(targetAsset);
+            }
+          })
+          .catch(() => undefined);
+      }
 
       // 6. Schedule auto-save
       get().scheduleAutoSave();

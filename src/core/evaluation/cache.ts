@@ -382,6 +382,7 @@ export function computeAssetsVersion(assets: MediaAsset[]): string {
         a.width ?? 0,
         a.height ?? 0,
         a.rotation ?? 0,
+        Boolean(a.isMissing),
       ].join(":"),
     )
     .join("|");

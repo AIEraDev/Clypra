@@ -3052,6 +3052,24 @@ pub async fn register_native_image_asset(
         .map(|_| ())
 }
 
+/// Evict and purge a raster/image asset from the native GPU texture cache.
+///
+/// Immediately reclaims VRAM when media goes offline or is relinked.
+#[tauri::command]
+pub async fn unregister_native_raster_asset(
+    app: tauri::AppHandle,
+    asset_id: String,
+) -> Result<(), String> {
+    if asset_id.trim().is_empty() {
+        return Ok(());
+    }
+    if let Some(preview_state) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>() {
+        let mut session = preview_state.lock().await;
+        session.remove_rgba_layer(&asset_id);
+    }
+    Ok(())
+}
+
 /// Present a versioned frame directly to the retained native surface.
 ///
 /// This is deliberately a sibling of the readback renderer rather than a
