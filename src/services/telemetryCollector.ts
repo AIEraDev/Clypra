@@ -480,7 +480,25 @@ export interface TelemetryEvent {
     reasonCode: string;
     stackSnippet?: string;
   };
+  sourcePreviewDiagnostic?: TelemetrySourcePreviewDiagnosticInput;
   timestampMs: number;
+}
+
+export interface TelemetrySourcePreviewDiagnosticInput {
+  status: "mount" | "ready" | "error" | "recovery_start" | "recovery_success" | "recovery_failed";
+  assetId?: string;
+  assetName?: string;
+  assetPath?: string;
+  mediaType?: "video" | "audio" | "image" | "text";
+  srcUrl?: string;
+  errorCode?: number;
+  errorMessage?: string;
+  networkState?: number;
+  readyState?: number;
+  duration?: number;
+  width?: number;
+  height?: number;
+  hasPreviewProxy?: boolean;
 }
 
 export type TelemetryPreviewView = "webview" | "native";
@@ -652,6 +670,7 @@ const SCRUB_INTERACTION_MIN_INTERVAL_MS = 500;
  * This determines which "kind" label each line in the NDJSON file gets.
  */
 function resolvePerfLogKind(event: TelemetryEvent): PerfLogKind {
+  if (event.sourcePreviewDiagnostic) return "media-preview-diagnostic";
   if (event.fallbackEvent?.triggered) return "fallback-event";
   if (event.exportMetrics) return "export-span";
   if (event.aiMetrics) return "ai-inference";
@@ -2777,6 +2796,68 @@ class TelemetryCollector {
 
     this.enqueueEvent(event);
     this.flush(); // Flush immediately for high-priority fallbacks
+  }
+
+  /**
+   * Records source preview lifecycle & media decode diagnostics.
+   * Tracks HTML5 video playback errors, network states, and transcode recovery outcomes.
+   */
+  public recordSourcePreviewDiagnostic(
+    input: TelemetrySourcePreviewDiagnosticInput,
+  ): void {
+    if (!this.isEnabled) return;
+
+    const hardware = this.initHardwareContext();
+    const event: TelemetryEvent = {
+      eventId: `evt_preview_diag_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      sessionId: perfLogService.getSessionId() ?? "preview-runtime",
+      timestampMs: Date.now(),
+      appVersion: this.appVersion,
+      appBuildNumber: import.meta.env.MODE || "prod",
+      appEnvironment: import.meta.env.DEV ? "beta" : "production",
+      device: hardware,
+      video: this.sanitizeVideoProfile({
+        width: input.width,
+        height: input.height,
+      }),
+      previewContext: {
+        sessionId: perfLogService.getSessionId() ?? "preview-runtime",
+        view: "webview",
+        surface: "dom-canvas",
+        scenario: "playback",
+        runtimeEnvironment: import.meta.env.DEV ? "development" : "production",
+      },
+      workload: {
+        mode: "playback",
+        durationMs: Math.round(input.duration ? input.duration * 1000 : 0),
+        targetFps: 60,
+        renderedFps: 60,
+        totalFrames: 1,
+        droppedFrames:
+          input.status === "error" || input.status === "recovery_failed" ? 1 : 0,
+        droppedFramesRatio:
+          input.status === "error" || input.status === "recovery_failed" ? 1 : 0,
+        staleFrames: 0,
+        cancelledFrames: 0,
+        peakRamMb: perfLogService.getPeakMemoryMb() || 512,
+        cacheHitRatio: input.hasPreviewProxy ? 1.0 : 0.0,
+        stageTimings: { totalTimeUs: 0 },
+      },
+      sourcePreviewDiagnostic: input,
+    };
+
+    this.enqueueEvent(event);
+
+    if (input.status === "error" || input.status === "recovery_failed") {
+      this.recordFallbackEvent(
+        "webview-html5-video",
+        input.status === "recovery_failed"
+          ? "failed-poster"
+          : "ffmpeg-proxy-transcode",
+        `MEDIA_ERR_${input.errorCode ?? "UNKNOWN"}: ${input.errorMessage || "Source video decode failure"}`,
+        `Asset: ${input.assetName || "unknown"}, Path: ${input.assetPath || "unknown"}, URL: ${input.srcUrl || "unknown"}`,
+      );
+    }
   }
 
   /**

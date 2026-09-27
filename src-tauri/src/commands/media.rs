@@ -454,6 +454,54 @@ async fn probe_video_codec(path: &str) -> Option<String> {
     None
 }
 
+async fn probe_audio_codec(path: &str) -> Option<String> {
+    let output = crate::commands::binary_resolver::create_async_command("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=codec_name",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            path,
+        ])
+        .output()
+        .await
+        .ok()?;
+
+    if output.status.success() {
+        let codec = String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .to_lowercase();
+        if !codec.is_empty() {
+            return Some(codec);
+        }
+    }
+    None
+}
+
+fn is_browser_playable_audio(codec: Option<&str>) -> bool {
+    let Some(codec) = codec else {
+        return true;
+    };
+    match codec {
+        "aac" | "mp3" | "opus" | "vorbis" | "flac" | "pcm_s16le" | "pcm_s24le" => true,
+        "ac3" | "eac3" => {
+            #[cfg(target_os = "macos")]
+            {
+                true
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
 fn is_browser_playable_video(codec: Option<&str>, ext: &str) -> bool {
     let Some(codec) = codec else {
         return matches!(ext, "mp4" | "mov" | "m4v" | "webm");
@@ -461,8 +509,26 @@ fn is_browser_playable_video(codec: Option<&str>, ext: &str) -> bool {
 
     match codec {
         "h264" | "avc1" => matches!(ext, "mp4" | "mov" | "m4v"),
-        "hevc" | "hvc1" => matches!(ext, "mp4" | "mov" | "m4v"),
-        "prores" => ext == "mov",
+        "hevc" | "hvc1" => {
+            #[cfg(target_os = "macos")]
+            {
+                matches!(ext, "mp4" | "mov" | "m4v")
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                false
+            }
+        }
+        "prores" => {
+            #[cfg(target_os = "macos")]
+            {
+                ext == "mov"
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                false
+            }
+        }
         "vp8" | "vp9" => ext == "webm",
         "av1" | "av01" => {
             #[cfg(target_os = "macos")]
@@ -484,7 +550,17 @@ fn can_stream_copy_video(codec: Option<&str>) -> bool {
         return true;
     };
     match codec {
-        "h264" | "avc1" | "hevc" | "hvc1" => true,
+        "h264" | "avc1" => true,
+        "hevc" | "hvc1" => {
+            #[cfg(target_os = "macos")]
+            {
+                true
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                false
+            }
+        }
         "av1" | "av01" => {
             #[cfg(target_os = "macos")]
             {
@@ -520,8 +596,19 @@ pub async fn get_or_create_preview_video(
 
     let probed_codec = probe_video_codec(&path).await;
     let codec_ref = probed_codec.as_deref();
+    let probed_audio_codec = probe_audio_codec(&path).await;
+    let audio_codec_ref = probed_audio_codec.as_deref();
 
-    if is_browser_playable_video(codec_ref, &ext) {
+    let audio_playable = is_browser_playable_audio(audio_codec_ref);
+    let video_playable = is_browser_playable_video(codec_ref, &ext);
+
+    if video_playable && audio_playable {
+        log::debug!(
+            "🦀 [get_or_create_preview_video] Asset is natively browser playable (video: {:?}, audio: {:?}): {}",
+            codec_ref,
+            audio_codec_ref,
+            path
+        );
         return Ok(path);
     }
 
@@ -559,38 +646,45 @@ pub async fn get_or_create_preview_video(
     let out_str = output_path.to_string_lossy().to_string();
 
     if can_stream_copy_video(codec_ref) {
-        // Stage 1: Ultra-fast stream remux (-c:v copy -c:a copy -sn -tag:v hvc1 -movflags +faststart)
-        let stage1_status = crate::commands::binary_resolver::create_async_command("ffmpeg")
-            .args([
-                "-y",
-                "-i",
-                &path,
-                "-c:v",
-                "copy",
-                "-c:a",
-                "copy",
-                "-sn",
-                "-tag:v",
-                "hvc1",
-                "-movflags",
-                "+faststart",
-                &out_str,
-            ])
-            .output()
-            .await;
+        if audio_playable {
+            // Stage 1: Ultra-fast stream remux (-c:v copy -c:a copy -sn -tag:v hvc1 -movflags +faststart)
+            let stage1_status = crate::commands::binary_resolver::create_async_command("ffmpeg")
+                .args([
+                    "-y",
+                    "-i",
+                    &path,
+                    "-c:v",
+                    "copy",
+                    "-c:a",
+                    "copy",
+                    "-sn",
+                    "-tag:v",
+                    "hvc1",
+                    "-movflags",
+                    "+faststart",
+                    &out_str,
+                ])
+                .output()
+                .await;
 
-        if let Ok(ref output) = stage1_status {
-            if output.status.success() && output_path.exists() {
-                if let Ok(m) = std::fs::metadata(&output_path) {
-                    if m.len() > 1024 {
-                        log::debug!(
-                            "🦀 [get_or_create_preview_video] Stage 1 (stream copy) succeeded for {}",
-                            path
-                        );
-                        return Ok(out_str);
+            if let Ok(ref output) = stage1_status {
+                if output.status.success() && output_path.exists() {
+                    if let Ok(m) = std::fs::metadata(&output_path) {
+                        if m.len() > 1024 {
+                            log::debug!(
+                                "🦀 [get_or_create_preview_video] Stage 1 (stream copy) succeeded for {}",
+                                path
+                            );
+                            return Ok(out_str);
+                        }
                     }
                 }
             }
+        } else {
+            log::debug!(
+                "🦀 [get_or_create_preview_video] Audio codec {:?} is not browser playable; skipping Stage 1 stream copy to re-encode audio to AAC in Stage 2",
+                audio_codec_ref
+            );
         }
 
         // Stage 2: Audio re-encode fallback (-c:v copy -c:a aac -b:a 192k -sn)
@@ -1014,9 +1108,27 @@ mod tests {
     fn test_browser_video_playability_rules() {
         assert!(is_browser_playable_video(Some("h264"), "mp4"));
         assert!(is_browser_playable_video(Some("avc1"), "mp4"));
-        assert!(is_browser_playable_video(Some("hevc"), "mov"));
-        assert!(is_browser_playable_video(Some("prores"), "mov"));
+
+        #[cfg(target_os = "macos")]
+        {
+            assert!(is_browser_playable_video(Some("hevc"), "mov"));
+            assert!(is_browser_playable_video(Some("prores"), "mov"));
+            assert!(can_stream_copy_video(Some("hevc")));
+            assert!(is_browser_playable_audio(Some("eac3")));
+            assert!(is_browser_playable_audio(Some("ac3")));
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert!(!is_browser_playable_video(Some("hevc"), "mov"));
+            assert!(!is_browser_playable_video(Some("prores"), "mov"));
+            assert!(!can_stream_copy_video(Some("hevc")));
+            assert!(!is_browser_playable_audio(Some("eac3")));
+            assert!(!is_browser_playable_audio(Some("ac3")));
+        }
+
         assert!(is_browser_playable_video(Some("vp9"), "webm"));
+        assert!(is_browser_playable_audio(Some("aac")));
+        assert!(is_browser_playable_audio(Some("mp3")));
 
         // Non-web codecs
         assert!(!is_browser_playable_video(Some("mpeg4"), "mp4"));
@@ -1031,7 +1143,6 @@ mod tests {
             }
         }
         assert!(can_stream_copy_video(Some("h264")));
-        assert!(can_stream_copy_video(Some("hevc")));
         assert!(!can_stream_copy_video(Some("mpeg4")));
     }
 

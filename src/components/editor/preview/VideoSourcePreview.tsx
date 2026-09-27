@@ -5,7 +5,7 @@ interface VideoSourcePreviewProps {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   src: string;
   onLoadedMetadata?: (event: React.SyntheticEvent<HTMLVideoElement>) => void;
-  onError?: () => void;
+  onError?: (event: React.SyntheticEvent<HTMLVideoElement, Event>) => void;
   className?: string;
 }
 
