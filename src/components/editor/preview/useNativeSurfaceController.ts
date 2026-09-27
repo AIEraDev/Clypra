@@ -19,6 +19,7 @@ import {
   releaseNativeSurfaceReadiness,
 } from "@/core/runtime/nativeSurfaceLifecycle";
 import { appLifecycleCoordinator } from "@/core/runtime/AppLifecycleCoordinator";
+import { tracePlayback } from "@/core/playback/playbackTrace";
 
 interface NativeSurfaceControllerOptions {
   projectId: string | undefined;

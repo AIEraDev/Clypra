@@ -35,7 +35,6 @@ import {
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { appLifecycleCoordinator } from "@/core/runtime/AppLifecycleCoordinator";
 import type { TransportAuthority } from "@/core/playback/TransportAuthority";
-import { appLifecycleCoordinator } from "@/core/runtime/AppLifecycleCoordinator";
 import { tracePlayback } from "@/core/playback/playbackTrace";
 
 const NATIVE_PREVIEW_AUDIO_OPTIONS = { preserveTransportPitch: true } as const;
@@ -88,7 +87,6 @@ export class NativeAudioPreviewController {
   private active = false;
   private disposed = false;
   private commandRevision = 0;
-  private unlistenLifecycle: (() => void) | null = null;
   /** Latest paused seek intent. Rapid scrubs collapse to the newest target. */
   private seekIntentRevision = 0;
   /** Timeline edits collapse to the newest candidate instead of queuing rebuilds. */
