@@ -43,7 +43,6 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [sourceVideoError, setSourceVideoError] = useState(false);
-  const [isOptimizingPreview, setIsOptimizingPreview] = useState(false);
   const sourceCtxRef = useRef<SourcePlaybackContext | null>(null);
 
   const isImage = Boolean(
@@ -62,7 +61,6 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
 
   const rawExt = (sourceAsset?.path || "").split("?")[0].split("#")[0].split(".").pop()?.toLowerCase() || "";
   const needsRemux = ["mkv", "avi", "flv", "wmv", "ts", "mts", "m2ts", "vob", "3gp", "ogv"].includes(rawExt);
-  const isVideoPendingOptimization = !isImage && sourceAsset?.type === "video" && needsRemux && !(sourceAsset as any)?.previewPath;
 
   const [lottieData, setLottieData] = useState<object | null>(null);
   const [lottieError, setLottieError] = useState<string | null>(null);
@@ -113,11 +111,14 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
 
     if (!isImage && sourceAsset?.type === "video" && sourceAsset.path) {
       if (needsRemux && !(sourceAsset as any).previewPath && platform.getOrCreatePreviewVideo) {
-        setIsOptimizingPreview(true);
+        // Silently background-optimize without blocking the video element.
+        // The video element always renders immediately against the original path (or any
+        // already-cached previewPath). If the browser can't play the format, onError or
+        // videoWidth=0 detection will trigger a forced re-transcode via triggerVideoRecovery.
         platform
           .getOrCreatePreviewVideo(sourceAsset.path)
           .then((previewPath) => {
-            if (previewPath) {
+            if (previewPath && previewPath !== sourceAsset.path) {
               useProjectStore.getState().updateMediaAsset(sourceAsset.id, { previewPath });
               const cur = useUIStore.getState().sourceAsset;
               if (cur && cur.id === sourceAsset.id) {
@@ -127,10 +128,7 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
             }
           })
           .catch((err) => {
-            console.warn("[SourcePreview] Video optimization failed:", err);
-          })
-          .finally(() => {
-            setIsOptimizingPreview(false);
+            console.warn("[SourcePreview] Background video optimization failed:", err);
           });
       }
     }
@@ -388,8 +386,7 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
         isImage ||
         sourceAsset?.type !== "video" ||
         !sourceAsset.path ||
-        !platform.getOrCreatePreviewVideo ||
-        isOptimizingPreview
+        !platform.getOrCreatePreviewVideo
       ) {
         return;
       }
@@ -400,7 +397,8 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
       }
       recoveryAttemptedRef.current[assetKey] = true;
 
-      setIsOptimizingPreview(true);
+      // Silently create a compatible proxy in the background — never block the video element.
+      // The <video> stays visible; its src switches to the proxy as soon as FFmpeg finishes.
       telemetryCollector.recordSourcePreviewDiagnostic({
         status: "recovery_start",
         assetId: sourceAsset.id,
@@ -458,13 +456,11 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
             srcUrl: sourcePath,
             errorMessage: String(err),
           });
-        })
-        .finally(() => {
-          setIsOptimizingPreview(false);
         });
     },
-    [isImage, sourceAsset, sourcePath, isOptimizingPreview]
+    [isImage, sourceAsset, sourcePath]
   );
+
 
   const handleVideoError = useCallback(
     (event?: React.SyntheticEvent<HTMLVideoElement, Event>) => {
@@ -585,23 +581,7 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
             )
           ) : sourceAsset.type === "video" ? (
             <div className="relative w-full h-full flex items-center justify-center">
-              {isOptimizingPreview || isVideoPendingOptimization ? (
-                <div className="relative w-full h-full flex items-center justify-center">
-                  {(sourceAsset as any).posterFrame && (
-                    <img
-                      src={(sourceAsset as any).posterFrame}
-                      alt={sourceAsset.name}
-                      className="w-full h-full object-contain filter brightness-75"
-                    />
-                  )}
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 gap-3 backdrop-blur-[2px]">
-                    <Loader2 className="w-8 h-8 text-accent animate-spin" />
-                    <span className="text-xs font-semibold text-white bg-black/75 px-3.5 py-1.5 rounded-full border border-white/10 shadow-lg">
-                      Preparing video for preview playback…
-                    </span>
-                  </div>
-                </div>
-              ) : sourceVideoError && (sourceAsset as any).posterFrame ? (
+              {sourceVideoError && (sourceAsset as any).posterFrame ? (
                 <div className="relative w-full h-full flex items-center justify-center">
                   <img
                     src={(sourceAsset as any).posterFrame}
@@ -663,8 +643,7 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
                     if (
                       sourceAsset?.type === "video" &&
                       el.currentTime > 0.5 &&
-                      el.videoWidth === 0 &&
-                      !isOptimizingPreview
+                      el.videoWidth === 0
                     ) {
                       console.warn(
                         "[SourcePreview] Video playing with 0 width. Triggering transcode recovery."
