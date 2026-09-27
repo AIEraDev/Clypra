@@ -25,6 +25,7 @@ import {
   syncNativeAudioTimeline,
   type NativeAudioTimelineSnapshot,
 } from "./nativeAudioTimeline";
+import { getActiveAudioClips } from "@/core/timeline/audioClips";
 import {
   telemetryCollector,
   type TelemetryInteraction,
@@ -79,6 +80,7 @@ export class NativeAudioPreviewController {
   /** Latest-value lane for expensive timeline/clip graph synchronization. */
   private sourceSyncQueue: Promise<void> = Promise.resolve();
   private lastState: PlaybackClockState | null = null;
+  private lastClockNotificationTime = performance.now();
   private active = false;
   private disposed = false;
   private commandRevision = 0;
@@ -417,12 +419,21 @@ export class NativeAudioPreviewController {
       }, "pause");
     }
 
+    const now = performance.now();
+    const elapsedWallSec = Math.max(0, (now - this.lastClockNotificationTime) / 1000);
+    this.lastClockNotificationTime = now;
+
     const frameDuration = 1 / Math.max(1, state.frameRate);
+    const expectedAdvance = elapsedWallSec * (state.speed ?? 1);
+    const advanceDelta = Math.abs((state.time - (previous?.time ?? state.time)) - expectedAdvance);
     const isPlayingJump =
       state.state === "playing" &&
       previous?.state === "playing" &&
       previous &&
-      Math.abs(state.time - previous.time) > frameDuration * 1.5;
+      (this.clock.isSeeking ||
+        Boolean(telemetryCollector.getActiveScrubSpanId()) ||
+        Boolean(getActiveSessionOrNull()?.transportAuthority?.getSeekController()?.getCurrent()) ||
+        advanceDelta > 0.4);
 
     const isPausedSeek =
       state.state !== "playing" &&
@@ -503,6 +514,15 @@ export class NativeAudioPreviewController {
 
   private adoptNativePosition(positionTicks: number): void {
     if (!Number.isFinite(positionTicks)) return;
+    const durationTicks = secondsToTicks(this.source.duration);
+    if (
+      this.clock.time < 0.5 &&
+      this.source.duration > 1.0 &&
+      durationTicks > 0 &&
+      positionTicks >= durationTicks - 100_000
+    ) {
+      return;
+    }
     const position = positionTicks / 1_000_000;
     this.clock.setNativeClockPosition(position, this.clock.speed);
   }
@@ -591,25 +611,27 @@ export class NativeAudioPreviewController {
         "audioPositionTicks" in nativeState
           ? nativeState.audioPositionTicks
           : 0;
-      const position = positionTicks / 1_000_000;
-      this.clock.setNativeClockPosition(position, this.clock.speed);
+      const durationTicks = secondsToTicks(this.source.duration);
+      const isStaleTerminalSample =
+        this.clock.time < 0.5 &&
+        this.source.duration > 1.0 &&
+        durationTicks > 0 &&
+        positionTicks >= durationTicks - 100_000;
+
+      if (!isStaleTerminalSample) {
+        const position = positionTicks / 1_000_000;
+        this.clock.setNativeClockPosition(position, this.clock.speed);
+      }
       await this.resolveStartupProbe();
 
       // A native graph can report position 0 while it is warming up. Never
       // treat a missing/stale zero duration as an end signal; the timeline
       // duration is the only valid terminal boundary.
-      // Additionally, guard against stale end-of-timeline samples immediately
-      // after a restart by requiring the clock to have advanced beyond the start threshold.
-      const durationTicks = secondsToTicks(this.source.duration);
-      const minPlayheadCompletionThreshold = Math.min(
-        0.2,
-        this.source.duration / 2,
-      );
       if (
+        !isStaleTerminalSample &&
         this.clock.state === "playing" &&
         durationTicks > 0 &&
-        positionTicks >= durationTicks &&
-        this.clock.time >= minPlayheadCompletionThreshold
+        positionTicks >= durationTicks
       ) {
         console.info("[NativeAudioController] Reached timeline end duration:", {
           positionTicks,
@@ -634,11 +656,16 @@ export class NativeAudioPreviewController {
         nonSilentFrames: diagnostics.status.nonSilentFrames,
         installedClipCount: diagnostics.installedClips.length,
       };
-      // Silence is expected when a project has no installed audio. A timeline
-      // that declared audio tracks but installed none is a first-play failure.
+      // Silence is expected when a project has no installed audio.
+      const hasAudibleClips = getActiveAudioClips(
+        this.source.clips,
+        this.source.tracks,
+        this.source.assets,
+        0,
+        this.source.duration,
+      ).length > 0;
       if (diagnostics.installedClips.length === 0) {
-        const expectedAudio = this.source.audioTrackCount > 0;
-        if (expectedAudio) {
+        if (hasAudibleClips) {
           this.finishStartupProbe(
             "failed",
             diagnostics,
@@ -659,6 +686,17 @@ export class NativeAudioPreviewController {
   private async resolveStartupProbe(): Promise<void> {
     const probe = this.startupProbe;
     if (!probe) return;
+    const hasAudibleClips = getActiveAudioClips(
+      this.source.clips,
+      this.source.tracks,
+      this.source.assets,
+      0,
+      this.source.duration,
+    ).length > 0;
+    if (!hasAudibleClips || probe.installedClipCount === 0) {
+      this.startupProbe = null;
+      return;
+    }
     try {
       const diagnostics = await getNativeAudioDiagnostics();
       const callbackCountDelta = Math.max(0, diagnostics.status.callbackCount - probe.callbackCount);

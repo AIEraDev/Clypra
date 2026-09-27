@@ -123,7 +123,8 @@ export class TransportAuthority {
   play(): void {
     const duration = this.getDuration();
     if (duration > 0 && this.getTime() >= duration) {
-      this.seek(0, { mode: "playback" });
+      this.seekController.request({ time: 0, mode: "playback" });
+      this.activeContext?.seek(0);
     }
     this._advanceTransportEpoch("play");
     this.issueTransportIntent("playback");
@@ -140,8 +141,10 @@ export class TransportAuthority {
       context.pause();
     } else {
       const duration = this.getDuration();
-      if (duration > 0 && this.getTime() >= duration) {
-        this.seek(0, { mode: "playback" });
+      const isAtEnd = duration > 0 && this.getTime() >= duration;
+      if (isAtEnd) {
+        this.seekController.request({ time: 0, mode: "playback" });
+        this.activeContext?.seek(0);
       }
       this._advanceTransportEpoch("play");
       this.issueTransportIntent("playback");
