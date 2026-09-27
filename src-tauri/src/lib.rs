@@ -408,6 +408,7 @@ pub fn run() {
             register_native_raster_asset,
             register_native_raster_asset_raw,
             register_native_image_asset,
+            unregister_native_raster_asset,
             present_native_frame,
             get_native_frame_service_stats,
             get_native_frame_service_samples,

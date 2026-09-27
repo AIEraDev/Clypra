@@ -247,6 +247,16 @@ export async function registerNativeImageAsset(options: {
   });
 }
 
+/**
+ * Evict and purge a raster/image asset from the native GPU texture cache.
+ */
+export async function unregisterNativeRasterAsset(assetId: string): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke("unregister_native_raster_asset", {
+    assetId,
+  });
+}
+
 export interface NativeProjectSolidLayer {
   color: [number, number, number, number];
   x: number;

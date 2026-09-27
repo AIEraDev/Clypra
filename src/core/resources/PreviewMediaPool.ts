@@ -472,6 +472,7 @@ export class PreviewMediaPool {
         const asset = assets.find((a) => a.id === clip.mediaId);
         const track = this.trackMap.get(clip.trackId);
         if (track?.visible === false) continue;
+        if (asset?.isMissing) continue;
 
         if (asset?.type === "video" && clip.kind !== "audio") {
           const sourcePath = isWebviewOrExternalUrl(asset.path)
@@ -1368,6 +1369,28 @@ export class PreviewMediaPool {
     if (this.container.parentNode) {
       this.container.parentNode.removeChild(this.container);
     }
+  }
+
+  /**
+   * Immediately dispose and evict all media elements associated with an offline/missing asset.
+   * Frees decoder instances, threads, and DOM memory immediately (NLE-style architecture).
+   */
+  evictMissingAsset(assetId: string): void {
+    if (!assetId) return;
+    for (const [key, managed] of this.videoCache.entries()) {
+      if (managed.mediaId === assetId) {
+        this.disposeVideo(key, managed);
+        this.videoCache.delete(key);
+        this._clipIdToManagedKey.delete(managed.clipId);
+      }
+    }
+    for (const [key, managed] of this.audios.entries()) {
+      if (managed.mediaId === assetId) {
+        this.disposeAudio(key, managed);
+        this.audios.delete(key);
+      }
+    }
+    this.mediaReadyRevision++;
   }
 
   /**

@@ -69,6 +69,7 @@ import {
 import { isTauriRuntime } from "@/lib/platform/tauri";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Clip, MediaAsset } from "@/types";
+import { appLifecycleCoordinator } from "./AppLifecycleCoordinator";
 import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
 import {
   resourceTracker,
@@ -168,6 +169,8 @@ export class ProjectSession {
     null;
   private _initializationTimingsMs: SessionLoadTimings = {};
   private _disposalTimingsMs: SessionCloseTimings = {};
+  private _mediaPresenceTimer: ReturnType<typeof setInterval> | null = null;
+  private _lifecycleWakeupUnsub: (() => void) | null = null;
 
   constructor(
     projectId: string,
@@ -491,6 +494,26 @@ export class ProjectSession {
         }
       }, 4000);
 
+      // ── Media presence monitor (NLE architecture) ─────────────────────────
+      // When the user tabs back into Clypra or on a lightweight background interval,
+      // verify that all media asset files still exist on disk. If a media file is
+      // deleted, moved, or restored while the session is running, immediately
+      // invalidate caches and update UI so the user does NOT have to restart the session.
+      this._lifecycleWakeupUnsub = appLifecycleCoordinator.onForegroundWakeup(() => {
+        if (this._state === "active") {
+          void this._checkMediaPresenceLive();
+        }
+      });
+
+      this._mediaPresenceTimer = setInterval(() => {
+        if (
+          this._state === "active" &&
+          this._transportAuthority?.getState() !== "playing"
+        ) {
+          void this._checkMediaPresenceLive();
+        }
+      }, 5000);
+
       // ── Telemetry: record session creation ──────────────────────────────
       lifecycleMonitor.record("SESSION_CREATE", {
         projectId: this.projectId,
@@ -586,6 +609,14 @@ export class ProjectSession {
       if (this._filmstripPrewarmTimer !== null) {
         clearTimeout(this._filmstripPrewarmTimer);
         this._filmstripPrewarmTimer = null;
+      }
+      if (this._mediaPresenceTimer !== null) {
+        clearInterval(this._mediaPresenceTimer);
+        this._mediaPresenceTimer = null;
+      }
+      if (this._lifecycleWakeupUnsub !== null) {
+        this._lifecycleWakeupUnsub();
+        this._lifecycleWakeupUnsub = null;
       }
       this._cancelRAFLoops();
       this._playback = null;
@@ -702,6 +733,42 @@ export class ProjectSession {
    */
   pausePreviewMedia(): void {
     this._previewMediaPool?.pauseAll();
+  }
+
+  /**
+   * Invalidate all cached GPU textures, video elements, and decoders for an offline/missing media asset.
+   * Frees system and GPU memory immediately (NLE-style architecture).
+   */
+  async invalidateMissingMediaAsset(asset: MediaAsset): Promise<void> {
+    this._previewMediaPool?.evictMissingAsset(asset.id);
+    if (asset.path) {
+      await this._nativeRasterBridge?.invalidateMediaAsset(asset.path);
+    }
+    if (asset.posterFrame) {
+      await this._nativeRasterBridge?.invalidateMediaAsset(asset.posterFrame);
+    }
+  }
+
+  /**
+   * Live watchdog check for media file presence on disk.
+   * Runs in the background and on window focus so user never has to restart the session to notice missing files.
+   */
+  private async _checkMediaPresenceLive(): Promise<void> {
+    try {
+      const { useProjectStore } = await import("@/store/projectStore");
+      const prevAssets = useProjectStore.getState().mediaAssets;
+      const missingIds = await useProjectStore.getState().checkMissingMedia();
+      const nextAssets = useProjectStore.getState().mediaAssets;
+
+      for (const next of nextAssets) {
+        const prev = prevAssets.find((p) => p.id === next.id);
+        if (next.isMissing && !prev?.isMissing) {
+          await this.invalidateMissingMediaAsset(next);
+        }
+      }
+    } catch (err) {
+      console.warn("[ProjectSession] Live media presence check failed:", err);
+    }
   }
 
   /**
