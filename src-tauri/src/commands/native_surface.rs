@@ -53,7 +53,7 @@ impl NativeSurfaceRuntime {
 
         match surface.get_current_texture() {
             Ok(texture) => Ok(texture),
-            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Other) => {
                 let configuration = self
                     .configuration
                     .as_ref()
@@ -70,7 +70,6 @@ impl NativeSurfaceRuntime {
             Err(wgpu::SurfaceError::OutOfMemory) => {
                 Err("Native surface ran out of memory".to_string())
             }
-            Err(wgpu::SurfaceError::Other) => Err("Native surface acquisition failed".to_string()),
         }
     }
 

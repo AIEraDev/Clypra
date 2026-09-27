@@ -199,4 +199,19 @@ describe("PlaybackClock: RAF Generation Counter", () => {
     expect(clock.state).toBe("playing");
     expect(clock.time).toBe(0);
   });
+
+  it("resyncNativeClockPosition overrides extrapolated drift without ratchet lockout", () => {
+    clock.play();
+    clock.setNativeClockPosition(5.0, 1.0);
+    expect(clock.time).toBeCloseTo(5.0, 2);
+
+    // Normal setNativeClockPosition would clamp forward if time is smaller than extrapolated:
+    // With resyncNativeClockPosition, it forces backward snap to true audio hardware time:
+    const notified = vi.fn();
+    clock.subscribe(notified);
+
+    clock.resyncNativeClockPosition(3.5, 1.0);
+    expect(clock.time).toBeCloseTo(3.5, 2);
+    expect(notified).toHaveBeenCalled();
+  });
 });

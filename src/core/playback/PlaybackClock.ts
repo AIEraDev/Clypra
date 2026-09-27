@@ -320,6 +320,28 @@ export class PlaybackClock {
     this._time = effectiveTime;
   }
 
+  /**
+   * Unconditionally resync the clock to the authoritative hardware audio time,
+   * bypassing the forward monotonic clamp (used on foreground wakeup, un-occlusion,
+   * and post-stall drift recovery).
+   */
+  resyncNativeClockPosition(time: number, speed: number = this._speed): void {
+    if (!Number.isFinite(time)) return;
+    const validSpeed = Number.isFinite(speed)
+      ? Math.max(0.1, Math.min(4, speed))
+      : this._speed;
+    const clampedTime = Math.max(0, Math.min(time, this._duration));
+
+    this._nativeClockPosition = {
+      time: clampedTime,
+      receivedAtMs: performance.now(),
+      speed: validSpeed,
+    };
+    this._time = clampedTime;
+    this._generation++;
+    this._notifyListeners();
+  }
+
   /** Stop consuming native samples and return to the local audio clock. */
   clearNativeClockPosition(): void {
     this._nativeClockPosition = null;
