@@ -18,6 +18,7 @@ import {
   releaseNativeSurface,
   releaseNativeSurfaceReadiness,
 } from "@/core/runtime/nativeSurfaceLifecycle";
+import { appLifecycleCoordinator } from "@/core/runtime/AppLifecycleCoordinator";
 
 interface NativeSurfaceControllerOptions {
   projectId: string | undefined;
@@ -225,9 +226,13 @@ export function useNativeSurfaceController({
     const unsubscribeClockSync = clock.subscribe((snapshot) => {
       if (snapshot.state === "playing") requestSync(true);
     });
+    const unsubscribeLifecycle = appLifecycleCoordinator.onForegroundWakeup(() => {
+      if (active) requestSync(true);
+    });
 
     return () => {
       active = false;
+      unsubscribeLifecycle();
       if (debounceTimer) clearTimeout(debounceTimer);
       unsubscribeClockSync();
       resizeObserver?.disconnect();
