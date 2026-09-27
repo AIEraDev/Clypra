@@ -380,6 +380,92 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
   const sourcePath = effectiveSourcePath ? (isExternalOrDataUrl(effectiveSourcePath) ? effectiveSourcePath : platform.convertFileSrc(effectiveSourcePath)) : "";
   const mediaLabel = isImage ? "image" : sourceAsset.type === "video" ? "video" : sourceAsset.type === "audio" ? "audio" : sourceAsset.type === "text" ? "text" : "image";
 
+  const recoveryAttemptedRef = useRef<Record<string, boolean>>({});
+
+  const triggerVideoRecovery = useCallback(
+    (reason: string, forceTranscode = false) => {
+      if (
+        isImage ||
+        sourceAsset?.type !== "video" ||
+        !sourceAsset.path ||
+        !platform.getOrCreatePreviewVideo ||
+        isOptimizingPreview
+      ) {
+        return;
+      }
+
+      const assetKey = `${sourceAsset.id}:${forceTranscode ? "force" : "normal"}`;
+      if (recoveryAttemptedRef.current[assetKey]) {
+        return;
+      }
+      recoveryAttemptedRef.current[assetKey] = true;
+
+      setIsOptimizingPreview(true);
+      telemetryCollector.recordSourcePreviewDiagnostic({
+        status: "recovery_start",
+        assetId: sourceAsset.id,
+        assetName: sourceAsset.name,
+        assetPath: sourceAsset.path,
+        mediaType: "video",
+        srcUrl: sourcePath,
+        errorMessage: reason,
+      });
+
+      platform
+        .getOrCreatePreviewVideo(sourceAsset.path, forceTranscode)
+        .then((previewPath) => {
+          if (previewPath && previewPath !== sourceAsset.path) {
+            useProjectStore.getState().updateMediaAsset(sourceAsset.id, { previewPath });
+            const cur = useUIStore.getState().sourceAsset;
+            if (cur && cur.id === sourceAsset.id) {
+              useUIStore.setState({ sourceAsset: { ...cur, previewPath } as any });
+            }
+            setSourceVideoError(false);
+            telemetryCollector.recordSourcePreviewDiagnostic({
+              status: "recovery_success",
+              assetId: sourceAsset.id,
+              assetName: sourceAsset.name,
+              assetPath: sourceAsset.path,
+              mediaType: "video",
+              srcUrl: previewPath,
+              hasPreviewProxy: true,
+            });
+          } else {
+            setSourceVideoError(true);
+            telemetryCollector.recordSourcePreviewDiagnostic({
+              status: "recovery_failed",
+              assetId: sourceAsset.id,
+              assetName: sourceAsset.name,
+              assetPath: sourceAsset.path,
+              mediaType: "video",
+              srcUrl: sourcePath,
+              errorMessage:
+                previewPath === sourceAsset.path
+                  ? "Transcoder returned original unplayable path"
+                  : "Transcoder returned empty preview path",
+            });
+          }
+        })
+        .catch((err) => {
+          console.error("[SourcePreview] Recovery optimization failed:", err);
+          setSourceVideoError(true);
+          telemetryCollector.recordSourcePreviewDiagnostic({
+            status: "recovery_failed",
+            assetId: sourceAsset.id,
+            assetName: sourceAsset.name,
+            assetPath: sourceAsset.path,
+            mediaType: "video",
+            srcUrl: sourcePath,
+            errorMessage: String(err),
+          });
+        })
+        .finally(() => {
+          setIsOptimizingPreview(false);
+        });
+    },
+    [isImage, sourceAsset, sourcePath, isOptimizingPreview]
+  );
+
   const handleVideoError = useCallback(
     (event?: React.SyntheticEvent<HTMLVideoElement, Event>) => {
       const mediaEl = event?.currentTarget as HTMLVideoElement | undefined;
@@ -413,78 +499,9 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
         currentSrc,
       });
 
-      if (
-        !isImage &&
-        sourceAsset?.type === "video" &&
-        sourceAsset.path &&
-        !(sourceAsset as any).previewPath &&
-        platform.getOrCreatePreviewVideo &&
-        !isOptimizingPreview
-      ) {
-        setIsOptimizingPreview(true);
-        telemetryCollector.recordSourcePreviewDiagnostic({
-          status: "recovery_start",
-          assetId: sourceAsset.id,
-          assetName: sourceAsset.name,
-          assetPath: sourceAsset.path,
-          mediaType: "video",
-          srcUrl: currentSrc,
-        });
-
-        platform
-          .getOrCreatePreviewVideo(sourceAsset.path)
-          .then((previewPath) => {
-            if (previewPath && previewPath !== sourceAsset.path) {
-              useProjectStore.getState().updateMediaAsset(sourceAsset.id, { previewPath });
-              const cur = useUIStore.getState().sourceAsset;
-              if (cur && cur.id === sourceAsset.id) {
-                useUIStore.setState({ sourceAsset: { ...cur, previewPath } as any });
-              }
-              setSourceVideoError(false);
-              telemetryCollector.recordSourcePreviewDiagnostic({
-                status: "recovery_success",
-                assetId: sourceAsset.id,
-                assetName: sourceAsset.name,
-                assetPath: sourceAsset.path,
-                mediaType: "video",
-                srcUrl: previewPath,
-                hasPreviewProxy: true,
-              });
-            } else {
-              setSourceVideoError(true);
-              telemetryCollector.recordSourcePreviewDiagnostic({
-                status: "recovery_failed",
-                assetId: sourceAsset.id,
-                assetName: sourceAsset.name,
-                assetPath: sourceAsset.path,
-                mediaType: "video",
-                errorMessage:
-                  previewPath === sourceAsset.path
-                    ? "Transcoder returned original unplayable path"
-                    : "Transcoder returned empty preview path",
-              });
-            }
-          })
-          .catch((err) => {
-            console.error("[SourcePreview] Recovery optimization failed:", err);
-            setSourceVideoError(true);
-            telemetryCollector.recordSourcePreviewDiagnostic({
-              status: "recovery_failed",
-              assetId: sourceAsset.id,
-              assetName: sourceAsset.name,
-              assetPath: sourceAsset.path,
-              mediaType: "video",
-              errorMessage: String(err),
-            });
-          })
-          .finally(() => {
-            setIsOptimizingPreview(false);
-          });
-      } else {
-        setSourceVideoError(true);
-      }
+      triggerVideoRecovery(errorMessage || `media_error_code_${errorCode}`, true);
     },
-    [sourceAsset, isOptimizingPreview, isImage, sourcePath, duration],
+    [sourceAsset, sourcePath, duration, triggerVideoRecovery]
   );
 
   return (
@@ -602,22 +619,69 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
                   videoRef={videoRef}
                   src={sourcePath}
                   onLoadedMetadata={(event) => {
-                    const mediaDuration = Number(event.currentTarget.duration);
+                    const el = event.currentTarget;
+                    const mediaDuration = Number(el.duration);
                     if (Number.isFinite(mediaDuration) && mediaDuration > 0) {
                       setDuration(mediaDuration);
                     }
+                    const vWidth = el.videoWidth;
+                    const vHeight = el.videoHeight;
                     telemetryCollector.recordSourcePreviewDiagnostic({
                       status: "ready",
                       assetId: sourceAsset?.id,
                       assetName: sourceAsset?.name,
                       assetPath: sourceAsset?.path,
                       mediaType: "video",
-                      srcUrl: event.currentTarget.currentSrc || sourcePath,
+                      srcUrl: el.currentSrc || sourcePath,
                       duration: mediaDuration,
-                      width: event.currentTarget.videoWidth,
-                      height: event.currentTarget.videoHeight,
+                      width: vWidth,
+                      height: vHeight,
                       hasPreviewProxy: Boolean((sourceAsset as any)?.previewPath),
                     });
+
+                    // Proactive detection: Video asset loaded but reports videoWidth === 0 (audio plays, blank screen)
+                    if (sourceAsset?.type === "video" && vWidth === 0) {
+                      console.warn(
+                        "[SourcePreview] Video metadata reported 0 width (unsupported video codec in browser). Triggering transcode recovery."
+                      );
+                      telemetryCollector.recordSourcePreviewDiagnostic({
+                        status: "blank_video_detected",
+                        assetId: sourceAsset?.id,
+                        assetName: sourceAsset?.name,
+                        assetPath: sourceAsset?.path,
+                        mediaType: "video",
+                        srcUrl: el.currentSrc || sourcePath,
+                        width: 0,
+                        height: 0,
+                        hasPreviewProxy: Boolean((sourceAsset as any)?.previewPath),
+                      });
+                      triggerVideoRecovery("video_width_zero_on_load", true);
+                    }
+                  }}
+                  onTimeUpdate={(event) => {
+                    const el = event.currentTarget;
+                    if (
+                      sourceAsset?.type === "video" &&
+                      el.currentTime > 0.5 &&
+                      el.videoWidth === 0 &&
+                      !isOptimizingPreview
+                    ) {
+                      console.warn(
+                        "[SourcePreview] Video playing with 0 width. Triggering transcode recovery."
+                      );
+                      telemetryCollector.recordSourcePreviewDiagnostic({
+                        status: "blank_video_detected",
+                        assetId: sourceAsset?.id,
+                        assetName: sourceAsset?.name,
+                        assetPath: sourceAsset?.path,
+                        mediaType: "video",
+                        srcUrl: el.currentSrc || sourcePath,
+                        width: 0,
+                        height: 0,
+                        hasPreviewProxy: Boolean((sourceAsset as any)?.previewPath),
+                      });
+                      triggerVideoRecovery("video_width_zero_during_playback", true);
+                    }
                   }}
                   onError={handleVideoError}
                 />

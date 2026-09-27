@@ -485,7 +485,7 @@ export interface TelemetryEvent {
 }
 
 export interface TelemetrySourcePreviewDiagnosticInput {
-  status: "mount" | "ready" | "error" | "recovery_start" | "recovery_success" | "recovery_failed";
+  status: "mount" | "ready" | "error" | "blank_video_detected" | "recovery_start" | "recovery_success" | "recovery_failed";
   assetId?: string;
   assetName?: string;
   assetPath?: string;

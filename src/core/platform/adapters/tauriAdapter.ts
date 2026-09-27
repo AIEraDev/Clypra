@@ -172,9 +172,12 @@ export class TauriPlatformAdapter implements PlatformInterface {
     return invoke("extract_audio_artwork", { path: toNativePath(path) });
   }
 
-  async getOrCreatePreviewVideo(path: string): Promise<string> {
+  async getOrCreatePreviewVideo(path: string, forceTranscode?: boolean): Promise<string> {
     const { invoke } = await import("@tauri-apps/api/core");
-    return invoke("get_or_create_preview_video", { path: toNativePath(path) });
+    return invoke("get_or_create_preview_video", {
+      path: toNativePath(path),
+      forceTranscode: forceTranscode ?? false,
+    });
   }
 
   async saveRecording(fileName: string, data: Uint8Array): Promise<string> {

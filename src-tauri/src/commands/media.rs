@@ -547,7 +547,7 @@ fn is_browser_playable_video(codec: Option<&str>, ext: &str) -> bool {
 
 fn can_stream_copy_video(codec: Option<&str>) -> bool {
     let Some(codec) = codec else {
-        return true;
+        return false;
     };
     match codec {
         "h264" | "avc1" => true,
@@ -575,11 +575,16 @@ fn can_stream_copy_video(codec: Option<&str>) -> bool {
     }
 }
 
+/// Cache version prefix to ensure stale or incompatible proxies (e.g. HEVC-in-MP4 on Windows)
+/// are automatically invalidated without manual user intervention.
+const PREVIEW_CACHE_VERSION: &str = "v5";
+
 /// this generates a fast stream-copied or lightweight proxy MP4 in the app cache directory.
 #[tauri::command]
 pub async fn get_or_create_preview_video(
     app: tauri::AppHandle,
     path: String,
+    force_transcode: Option<bool>,
 ) -> Result<String, String> {
     use tauri::Manager;
     let path = normalize_file_path(&path);
@@ -601,8 +606,9 @@ pub async fn get_or_create_preview_video(
 
     let audio_playable = is_browser_playable_audio(audio_codec_ref);
     let video_playable = is_browser_playable_video(codec_ref, &ext);
+    let force = force_transcode.unwrap_or(false);
 
-    if video_playable && audio_playable {
+    if !force && video_playable && audio_playable {
         log::debug!(
             "🦀 [get_or_create_preview_video] Asset is natively browser playable (video: {:?}, audio: {:?}): {}",
             codec_ref,
@@ -631,39 +637,55 @@ pub async fn get_or_create_preview_video(
         .map(|d| d.as_secs())
         .unwrap_or(0);
 
-    let key = format!("{}:{}:{}", path, meta.len(), modified);
+    // Versioned key that includes OS platform so platform-specific decode support (like HEVC on macOS vs Windows)
+    // produces distinct, correct cache artifacts.
+    let key = format!("{}:{}:{}:{}:{}", PREVIEW_CACHE_VERSION, std::env::consts::OS, path, meta.len(), modified);
     let hash = format!("{:x}", md5::compute(key.as_bytes()));
     let output_path = cache_dir.join(format!("{}.mp4", hash));
-
-    if output_path.exists() {
-        if let Ok(m) = std::fs::metadata(&output_path) {
-            if m.len() > 1024 {
-                return Ok(output_path.to_string_lossy().to_string());
-            }
-        }
-    }
-
     let out_str = output_path.to_string_lossy().to_string();
 
-    if can_stream_copy_video(codec_ref) {
+    if !force && output_path.exists() {
+        if let Ok(m) = std::fs::metadata(&output_path) {
+            if m.len() > 1024 {
+                // Defensive verification: verify the cached file's video stream is actually browser-playable on this OS.
+                let cached_vcodec = probe_video_codec(&out_str).await;
+                if is_browser_playable_video(cached_vcodec.as_deref(), "mp4") {
+                    return Ok(out_str);
+                } else {
+                    log::warn!(
+                        "🦀 [get_or_create_preview_video] Existing cache {:?} has non-playable video codec {:?}; removing and regenerating",
+                        output_path, cached_vcodec
+                    );
+                    let _ = std::fs::remove_file(&output_path);
+                }
+            }
+        }
+    } else if force && output_path.exists() {
+        let _ = std::fs::remove_file(&output_path);
+    }
+
+    let is_hevc = matches!(codec_ref, Some("hevc" | "hvc1"));
+
+    if !force && can_stream_copy_video(codec_ref) {
         if audio_playable {
-            // Stage 1: Ultra-fast stream remux (-c:v copy -c:a copy -sn -tag:v hvc1 -movflags +faststart)
+            // Stage 1: Ultra-fast stream remux (-c:v copy -c:a copy -sn)
+            let mut stage1_args = vec![
+                "-y",
+                "-i",
+                &path,
+                "-c:v",
+                "copy",
+                "-c:a",
+                "copy",
+                "-sn",
+            ];
+            if is_hevc {
+                stage1_args.extend(["-tag:v", "hvc1"]);
+            }
+            stage1_args.extend(["-movflags", "+faststart", &out_str]);
+
             let stage1_status = crate::commands::binary_resolver::create_async_command("ffmpeg")
-                .args([
-                    "-y",
-                    "-i",
-                    &path,
-                    "-c:v",
-                    "copy",
-                    "-c:a",
-                    "copy",
-                    "-sn",
-                    "-tag:v",
-                    "hvc1",
-                    "-movflags",
-                    "+faststart",
-                    &out_str,
-                ])
+                .args(&stage1_args)
                 .output()
                 .await;
 
@@ -688,24 +710,25 @@ pub async fn get_or_create_preview_video(
         }
 
         // Stage 2: Audio re-encode fallback (-c:v copy -c:a aac -b:a 192k -sn)
+        let mut stage2_args = vec![
+            "-y",
+            "-i",
+            &path,
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-sn",
+        ];
+        if is_hevc {
+            stage2_args.extend(["-tag:v", "hvc1"]);
+        }
+        stage2_args.extend(["-movflags", "+faststart", &out_str]);
+
         let stage2_status = crate::commands::binary_resolver::create_async_command("ffmpeg")
-            .args([
-                "-y",
-                "-i",
-                &path,
-                "-c:v",
-                "copy",
-                "-c:a",
-                "aac",
-                "-b:a",
-                "192k",
-                "-sn",
-                "-tag:v",
-                "hvc1",
-                "-movflags",
-                "+faststart",
-                &out_str,
-            ])
+            .args(&stage2_args)
             .output()
             .await;
 
@@ -721,8 +744,8 @@ pub async fn get_or_create_preview_video(
         }
     } else {
         log::debug!(
-            "🦀 [get_or_create_preview_video] Video codec {:?} cannot be stream copied for browser preview; jumping to Stage 3 transcode for {}",
-            codec_ref, path
+            "🦀 [get_or_create_preview_video] Video codec {:?} cannot be stream copied for browser preview (force={}); jumping to Stage 3 transcode for {}",
+            codec_ref, force, path
         );
     }
 
