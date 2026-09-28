@@ -1926,6 +1926,7 @@ export const NativeProgramPreview: React.FC = () => {
         intent.generation,
       );
       nativePreviewScheduler.setVisibleGeneration(intent.generation);
+      lastNativePlaybackRequestKey = "";
       void cancelNativePreviewRequests(intent.generation).catch(
         () => undefined,
       );
@@ -2791,6 +2792,11 @@ export const NativeProgramPreview: React.FC = () => {
           visibleRequestKey = nativeRequestKey;
           visibleRequestGeneration += 1;
           nativePreviewScheduler.setVisibleGeneration();
+        }
+        const seekGeneration = seekController?.getGeneration() ?? 0;
+        if (seekGeneration > visibleRequestGeneration) {
+          visibleRequestGeneration = seekGeneration;
+          nativePreviewScheduler.setVisibleGeneration(visibleRequestGeneration);
         }
         const interactionGeneration =
           previewInteractionCoordinator.getGeneration().revision;
