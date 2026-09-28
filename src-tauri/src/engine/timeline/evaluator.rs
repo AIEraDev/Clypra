@@ -93,7 +93,7 @@ impl TimelineEvaluator for PureTimelineEvaluator {
                     source_time,
                     transform: clip.transform.clone(),
                     opacity: clip.opacity,
-                    blend_mode: clip.blend_mode.clone(),
+                    blend_mode: clip.blend_mode,
                     z_index: effective_z_index,
                     visibility: LayerVisibility::Visible,
                     color_grade: clip.color_grade.clone(),
@@ -103,17 +103,15 @@ impl TimelineEvaluator for PureTimelineEvaluator {
             }
 
             // 6. Audio track processing
-            if track.kind == TrackKind::Audio || track.kind == TrackKind::Video {
-                if !track.muted {
-                    audio_tracks.push(AudioTrackPlan {
-                        track_id: track.id.clone(),
-                        asset_id: clip.asset_id.clone(),
-                        source_time,
-                        gain: track.volume,
-                        pan: 0.0,
-                        is_muted: false,
-                    });
-                }
+            if (track.kind == TrackKind::Audio || track.kind == TrackKind::Video) && !track.muted {
+                audio_tracks.push(AudioTrackPlan {
+                    track_id: track.id.clone(),
+                    asset_id: clip.asset_id.clone(),
+                    source_time,
+                    gain: track.volume,
+                    pan: 0.0,
+                    is_muted: false,
+                });
             }
         }
 

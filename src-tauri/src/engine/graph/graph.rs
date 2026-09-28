@@ -416,11 +416,10 @@ impl RenderGraph {
                 if layer.z_index < opaque_z {
                     // Cull all nodes associated with this layer
                     for node in self.nodes.iter_mut() {
-                        if node.name.contains(&layer.clip_id) || node.name.contains(&layer.layer_id)
+                        if (node.name.contains(&layer.clip_id) || node.name.contains(&layer.layer_id))
+                            && !node.culled
                         {
-                            if !node.culled {
-                                node.cull(CullReason::Occluded);
-                            }
+                            node.cull(CullReason::Occluded);
                         }
                     }
                 }

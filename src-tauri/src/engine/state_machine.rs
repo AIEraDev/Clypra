@@ -2,7 +2,7 @@ use super::types::MediaTime;
 use serde::{Deserialize, Serialize};
 
 /// The four distinct operating modes of the Clypra real-time media engine.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum PlaybackMode {
     /// Continuous, deadline-driven, ordered, audio-synchronized playback
     Play,
@@ -13,19 +13,15 @@ pub enum PlaybackMode {
     /// Exact target frame step (+1 / -1 frame); precision over throughput
     FrameStep,
     /// Engine is paused and holding the current frame
+    #[default]
     Idle,
 }
 
-impl Default for PlaybackMode {
-    fn default() -> Self {
-        PlaybackMode::Idle
-    }
-}
-
 /// Quality of Service (QoS) tier dynamically governed by workload telemetry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum QoSTier {
     /// Full master resolution (1080p, 4K)
+    #[default]
     Full,
     /// Half resolution (0.5x scale decode/render)
     Half,
@@ -33,12 +29,6 @@ pub enum QoSTier {
     Quarter,
     /// Pre-rendered timeline proxy
     Proxy,
-}
-
-impl Default for QoSTier {
-    fn default() -> Self {
-        QoSTier::Full
-    }
 }
 
 /// Commands accepted by the Engine Control Plane from the UI.

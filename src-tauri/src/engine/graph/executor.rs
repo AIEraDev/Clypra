@@ -142,7 +142,7 @@ impl RenderGraphExecutor {
                 PassKind::Composite { blend_mode, opacity, .. } => {
                     let bg_surf = node
                         .inputs
-                        .get(0)
+                        .first()
                         .and_then(|r| resource_surfaces.get(r))
                         .cloned()
                         .unwrap_or_else(|| {

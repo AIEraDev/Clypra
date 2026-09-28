@@ -130,9 +130,10 @@ pub struct ProxyId(pub u64);
 
 /// Resolution tier of the render graph and display compositing.
 /// Independent of source media decoding resolution.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum RenderQuality {
     /// Full canvas resolution (1.0x)
+    #[default]
     Full,
     /// Half canvas resolution (0.5x scale in compositor)
     Half,
@@ -140,32 +141,22 @@ pub enum RenderQuality {
     Quarter,
 }
 
-impl Default for RenderQuality {
-    fn default() -> Self {
-        RenderQuality::Full
-    }
-}
-
 /// Source media stream variant selected for decoding.
 /// Independent of compositor render quality.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum MediaVariant {
     /// Decode from original master media asset (e.g. 4K 10-bit HEVC)
+    #[default]
     Original,
     /// Decode from an optimized proxy stream (e.g. 1080p H.264)
     Proxy(ProxyId),
 }
 
-impl Default for MediaVariant {
-    fn default() -> Self {
-        MediaVariant::Original
-    }
-}
-
 /// Strategy for evaluating visual effects in the Render Graph under GPU load.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum EffectsPolicy {
     /// Evaluate all effects at authored quality
+    #[default]
     Full,
     /// Reduce expensive sample counts (e.g. blur radii, particle counts, multi-tap filters)
     Reduced,
@@ -175,16 +166,11 @@ pub enum EffectsPolicy {
     BypassOptional,
 }
 
-impl Default for EffectsPolicy {
-    fn default() -> Self {
-        EffectsPolicy::Full
-    }
-}
-
 /// Diagnosed system bottleneck identified by the QoS decision engine.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum Bottleneck {
     /// System is operating comfortably within deadline budgets
+    #[default]
     None,
     /// Demuxing / IO thread cannot keep up with packet demand
     Demux,
@@ -206,16 +192,11 @@ pub enum Bottleneck {
     Memory,
 }
 
-impl Default for Bottleneck {
-    fn default() -> Self {
-        Bottleneck::None
-    }
-}
-
 /// Human- and machine-readable explainable rationale for a QoS decision.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum QoSReason {
     /// System is healthy and operating within frame budget
+    #[default]
     Healthy,
     /// Decoder cannot keep pace with playback deadlines
     DecodeStarvation {
@@ -262,11 +243,6 @@ pub enum QoSReason {
     PausedQualityRestoration,
 }
 
-impl Default for QoSReason {
-    fn default() -> Self {
-        QoSReason::Healthy
-    }
-}
 
 /// Comprehensive, actionable decision produced by the QoS Engine.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

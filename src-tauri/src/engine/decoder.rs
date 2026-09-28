@@ -873,8 +873,8 @@ impl DecoderPlanner {
     pub fn select_backend(
         &self,
         request: &DecoderRequest,
-    ) -> Option<&Box<dyn VideoDecoderBackend>> {
-        self.backends.iter().find(|backend| backend.supports(request))
+    ) -> Option<&dyn VideoDecoderBackend> {
+        self.backends.iter().find(|backend| backend.supports(request)).map(|v| v.as_ref())
     }
 
     pub fn open_session(
