@@ -186,8 +186,9 @@ impl Default for LayerTransform {
 }
 
 /// Compositor blend modes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum BlendMode {
+    #[default]
     Normal,
     Multiply,
     Screen,
@@ -200,12 +201,6 @@ pub enum BlendMode {
     SoftLight,
     Difference,
     Exclusion,
-}
-
-impl Default for BlendMode {
-    fn default() -> Self {
-        BlendMode::Normal
-    }
 }
 
 /// Visibility status of a layer at time T.

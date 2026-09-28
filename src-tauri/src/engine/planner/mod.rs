@@ -212,7 +212,7 @@ impl WorkPlanner {
         self.current_revision = render_plan.project_revision;
         self.current_generation = render_plan.generation;
 
-        let frame_duration = MediaTime::from_secs_f64(1.0 / render_plan.canvas.fps.max(1.0) as f64);
+        let frame_duration = MediaTime::from_secs_f64(1.0 / render_plan.canvas.fps.max(1.0));
         let mut requests = Vec::new();
 
         // 1. Plan current active frame layers (Priority: Current)
@@ -241,7 +241,7 @@ impl WorkPlanner {
             _ => self.policy.playback_window,
         };
 
-        let lookahead_frames = (window.as_secs_f64() * render_plan.canvas.fps.max(1.0) as f64).round() as usize;
+        let lookahead_frames = (window.as_secs_f64() * render_plan.canvas.fps.max(1.0)).round() as usize;
 
         for step in 1..=lookahead_frames {
             let offset_micros = frame_duration.as_micros() * step as i64;

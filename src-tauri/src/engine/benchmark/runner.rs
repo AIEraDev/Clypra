@@ -834,7 +834,7 @@ impl HardwareBenchmarkRunner {
         out.push_str(&format!("  P95 frame: {:.1} ms\n", result.playback.p95_frame_ms));
         out.push_str(&format!("  P99 frame: {:.1} ms\n\n", result.playback.p99_frame_ms));
 
-        if let Some(ref q) = result.qos_decisions.first() {
+        if let Some(q) = result.qos_decisions.first() {
             out.push_str("QoS\n");
             out.push_str(&format!("  Media: {:?}\n", q.media_variant));
             out.push_str(&format!("  Render: {:?}\n", q.render_quality));

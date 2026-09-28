@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 /// Unified engine command sent across the boundary to the dedicated playback thread.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum EngineCommand {
     /// Playback control command (Play, Pause, Seek, Scrub, Step, etc.)
     Playback(PlaybackCommand),

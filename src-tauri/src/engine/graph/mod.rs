@@ -9,6 +9,7 @@
 
 pub mod cache;
 pub mod executor;
+#[allow(clippy::module_inception)]
 pub mod graph;
 pub mod node;
 pub mod resource_pool;

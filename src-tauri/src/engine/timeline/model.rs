@@ -7,19 +7,14 @@ pub type ClipId = String;
 pub type AssetId = String;
 
 /// Track kind determining whether the track contributes visual, audio, or metadata layers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum TrackKind {
+    #[default]
     Video,
     Audio,
     Text,
     Adjustment,
-}
-
-impl Default for TrackKind {
-    fn default() -> Self {
-        TrackKind::Video
-    }
 }
 
 /// A track in the native sequence timeline.

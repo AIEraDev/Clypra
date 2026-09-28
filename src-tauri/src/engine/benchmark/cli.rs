@@ -8,23 +8,12 @@ use std::env;
 use std::path::PathBuf;
 
 /// Parsed CLI execution options.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CliOptions {
     pub config: BenchmarkConfig,
     pub output_json_path: Option<PathBuf>,
     pub run_full_suite: bool,
     pub use_t1200_profile: bool,
-}
-
-impl Default for CliOptions {
-    fn default() -> Self {
-        Self {
-            config: BenchmarkConfig::default(),
-            output_json_path: None,
-            run_full_suite: false,
-            use_t1200_profile: false,
-        }
-    }
 }
 
 impl CliOptions {
@@ -39,60 +28,48 @@ impl CliOptions {
 
         while i < args.len() {
             match args[i].as_str() {
-                "--media" => {
-                    if i + 1 < args.len() {
-                        opts.config.media.path = PathBuf::from(&args[i + 1]);
-                        i += 1;
-                    }
+                "--media" if i + 1 < args.len() => {
+                    opts.config.media.path = PathBuf::from(&args[i + 1]);
+                    i += 1;
                 }
-                "--scenario" => {
-                    if i + 1 < args.len() {
-                        opts.config.scenario = match args[i + 1].as_str() {
-                            "playback" => BenchmarkScenario::ContinuousPlayback,
-                            "startup-cold" | "cold-startup" => BenchmarkScenario::ColdStartup,
-                            "startup-warm" | "warm-startup" => BenchmarkScenario::WarmStartup,
-                            "seek-cold" => BenchmarkScenario::SeekCold,
-                            "seek-warm" => BenchmarkScenario::SeekWarm,
-                            "scrub" | "rapid-scrub" => BenchmarkScenario::RapidScrub,
-                            "step" | "frame-step" => BenchmarkScenario::FrameStep,
-                            "multi-layer" => BenchmarkScenario::MultiLayerPlayback,
-                            "qos" => BenchmarkScenario::QoSDegradationRecovery,
-                            "memory" => BenchmarkScenario::MemoryPressure,
-                            "gap" => BenchmarkScenario::TimelineGap,
-                            "freeze" => BenchmarkScenario::ReactFreezeImmunity,
-                            "pause" => BenchmarkScenario::PauseQualityRecovery,
-                            _ => BenchmarkScenario::ContinuousPlayback,
-                        };
-                        i += 1;
-                    }
+                "--scenario" if i + 1 < args.len() => {
+                    opts.config.scenario = match args[i + 1].as_str() {
+                        "playback" => BenchmarkScenario::ContinuousPlayback,
+                        "startup-cold" | "cold-startup" => BenchmarkScenario::ColdStartup,
+                        "startup-warm" | "warm-startup" => BenchmarkScenario::WarmStartup,
+                        "seek-cold" => BenchmarkScenario::SeekCold,
+                        "seek-warm" => BenchmarkScenario::SeekWarm,
+                        "scrub" | "rapid-scrub" => BenchmarkScenario::RapidScrub,
+                        "step" | "frame-step" => BenchmarkScenario::FrameStep,
+                        "multi-layer" => BenchmarkScenario::MultiLayerPlayback,
+                        "qos" => BenchmarkScenario::QoSDegradationRecovery,
+                        "memory" => BenchmarkScenario::MemoryPressure,
+                        "gap" => BenchmarkScenario::TimelineGap,
+                        "freeze" => BenchmarkScenario::ReactFreezeImmunity,
+                        "pause" => BenchmarkScenario::PauseQualityRecovery,
+                        _ => BenchmarkScenario::ContinuousPlayback,
+                    };
+                    i += 1;
                 }
-                "--duration" => {
-                    if i + 1 < args.len() {
-                        if let Ok(secs) = args[i + 1].parse::<usize>() {
-                            opts.config.duration_frames = secs * (opts.config.target_fps as usize);
-                        }
-                        i += 1;
+                "--duration" if i + 1 < args.len() => {
+                    if let Ok(secs) = args[i + 1].parse::<usize>() {
+                        opts.config.duration_frames = secs * (opts.config.target_fps as usize);
                     }
+                    i += 1;
                 }
-                "--fps" => {
-                    if i + 1 < args.len() {
-                        if let Ok(fps) = args[i + 1].parse::<f64>() {
-                            opts.config.target_fps = fps;
-                        }
-                        i += 1;
+                "--fps" if i + 1 < args.len() => {
+                    if let Ok(fps) = args[i + 1].parse::<f64>() {
+                        opts.config.target_fps = fps;
                     }
+                    i += 1;
                 }
-                "--backend" => {
-                    if i + 1 < args.len() {
-                        opts.config.force_backend = Some(args[i + 1].clone());
-                        i += 1;
-                    }
+                "--backend" if i + 1 < args.len() => {
+                    opts.config.force_backend = Some(args[i + 1].clone());
+                    i += 1;
                 }
-                "--output" => {
-                    if i + 1 < args.len() {
-                        opts.output_json_path = Some(PathBuf::from(&args[i + 1]));
-                        i += 1;
-                    }
+                "--output" if i + 1 < args.len() => {
+                    opts.output_json_path = Some(PathBuf::from(&args[i + 1]));
+                    i += 1;
                 }
                 "--suite" => {
                     opts.run_full_suite = true;
