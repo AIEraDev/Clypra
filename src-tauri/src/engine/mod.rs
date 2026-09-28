@@ -73,8 +73,9 @@ pub use graph::{
     ResourceBarrier, ResourceId, TransientResourceDesc,
 };
 pub use hardware::{
-    AdapterId, AdapterRegistry, DecodeCapability, GpuAdapter, GpuAdapterIdentity, GpuVendor,
-    GraphicsBackend, PlaybackDevice, VideoDecodeCapabilities,
+    probe_hardware_capability, AdapterId, AdapterRegistry, CapabilityTier, DecodeCapability,
+    GpuAdapter, GpuAdapterIdentity, GpuVendor, GraphicsBackend, HardwareCapabilityProfile,
+    PlaybackDevice, RecommendedQoSConfig, VideoDecodeCapabilities,
 };
 pub use playback::{
     EngineCommand, PlaybackController, PlaybackPlanQueue, PlaybackPlanReceiver,

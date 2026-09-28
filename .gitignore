@@ -38,3 +38,6 @@ Thumbs.db
 /custom_gpu_rendering_plan.md
 tsconfig.node.tsbuildinfo
 fixtures/
+
+# Windows reserved device name (cannot be deleted)
+/nul
