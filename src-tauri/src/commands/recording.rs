@@ -32,7 +32,11 @@ pub async fn trim_video(
 
     log::debug!(
         "🦀 [trim_video] Trimming: {} → {} ({}s – {}s, duration: {:.2}s)",
-        input_path, output_path, start_seconds, end_seconds, duration
+        input_path,
+        output_path,
+        start_seconds,
+        end_seconds,
+        duration
     );
 
     let output = crate::commands::binary_resolver::create_async_command("ffmpeg")
@@ -79,7 +83,10 @@ pub async fn process_camera_recording(
 ) -> Result<String, String> {
     log::debug!(
         "🦀 [process_camera_recording] Processing: {} → {} (ratio: {}, mirror: {})",
-        input_path, output_path, aspect_ratio, mirror
+        input_path,
+        output_path,
+        aspect_ratio,
+        mirror
     );
 
     // Build filter chain

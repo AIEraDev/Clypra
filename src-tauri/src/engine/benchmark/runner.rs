@@ -4,10 +4,14 @@
 //! test harness, captures full frame-time distributions (p50..p99), enforces
 //! zero-copy verification, and generates explainable diagnostic reports and JSON output.
 
-use super::super::graph::{create_solid_surface, RenderGraph, RenderGraphCache, RenderGraphExecutor};
+use super::super::graph::{
+    create_solid_surface, RenderGraph, RenderGraphCache, RenderGraphExecutor,
+};
 use super::super::hardware::{GpuVendor, GraphicsBackend};
 use super::super::presenter::{PresentResult, Presenter, WgpuPresenter};
-use super::super::qos::{AsyncProxyManager, PerformanceSnapshot, QoSConfig, QoSController, QoSDecision, RenderQuality};
+use super::super::qos::{
+    AsyncProxyManager, PerformanceSnapshot, QoSConfig, QoSController, QoSDecision, RenderQuality,
+};
 use super::super::render_plan::{AudioPlan, RenderLayer, RenderPlan};
 use super::super::scheduler::FrameDeadline;
 use super::super::state_machine::PlaybackMode;
@@ -138,7 +142,8 @@ impl HardwareBenchmarkRunner {
         let mut qos = QoSController::new(QoSConfig::default());
 
         let mut available_surfaces = HashMap::new();
-        let test_surface = create_solid_surface(canvas.width, canvas.height, [0.05, 0.05, 0.05, 1.0]);
+        let test_surface =
+            create_solid_surface(canvas.width, canvas.height, [0.05, 0.05, 0.05, 1.0]);
         available_surfaces.insert("asset-test".to_string(), test_surface);
 
         let mut frame_telemetries = Vec::with_capacity(frame_count);
@@ -167,7 +172,11 @@ impl HardwareBenchmarkRunner {
 
             // 1. Demux & Decode (Hardware D3D12VA simulated/measured)
             let demux_us = 450;
-            let decode_us = if self.decoder.is_hardware { 5_200 } else { 38_000 };
+            let decode_us = if self.decoder.is_hardware {
+                5_200
+            } else {
+                38_000
+            };
 
             // 2. Render Graph Execution
             let mut graph = RenderGraph::from_render_plan(&plan);
@@ -177,14 +186,15 @@ impl HardwareBenchmarkRunner {
 
             // 3. Presentation
             let deadline = FrameDeadline::for_target(pts, pts, self.config.target_fps);
-            let present_res = presenter
-                .present(rendered_frame, deadline)
-                .unwrap_or(PresentResult {
-                    presented_pts: pts,
-                    vsync_aligned: true,
-                    dropped: false,
-                    present_latency_us: 800,
-                });
+            let present_res =
+                presenter
+                    .present(rendered_frame, deadline)
+                    .unwrap_or(PresentResult {
+                        presented_pts: pts,
+                        vsync_aligned: true,
+                        dropped: false,
+                        present_latency_us: 800,
+                    });
 
             let total_frame_ms = frame_start.elapsed().as_secs_f64() * 1000.0;
 
@@ -196,7 +206,9 @@ impl HardwareBenchmarkRunner {
                 FrameOutcome::PresentedOnTime
             } else {
                 late_count += 1;
-                FrameOutcome::PresentedLate(Duration::from_secs_f64((total_frame_ms - budget_ms) / 1000.0))
+                FrameOutcome::PresentedLate(Duration::from_secs_f64(
+                    (total_frame_ms - budget_ms) / 1000.0,
+                ))
             };
 
             // Feed QoS
@@ -238,7 +250,8 @@ impl HardwareBenchmarkRunner {
         }
 
         // Statistical distribution
-        let mut frame_times: Vec<f64> = frame_telemetries.iter().map(|f| f.total_frame_ms).collect();
+        let mut frame_times: Vec<f64> =
+            frame_telemetries.iter().map(|f| f.total_frame_ms).collect();
         frame_times.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
         let p50 = percentile(&frame_times, 50.0);
@@ -290,10 +303,16 @@ impl HardwareBenchmarkRunner {
 
         let mut failure_reasons = Vec::new();
         if drop_ratio > 0.01 {
-            failure_reasons.push(format!("Drop ratio {:.2}% exceeds 1.0% threshold", drop_ratio * 100.0));
+            failure_reasons.push(format!(
+                "Drop ratio {:.2}% exceeds 1.0% threshold",
+                drop_ratio * 100.0
+            ));
         }
         if p95 > budget_ms * 1.25 {
-            failure_reasons.push(format!("p95 frame time {:.2}ms exceeds budget {:.2}ms", p95, budget_ms));
+            failure_reasons.push(format!(
+                "p95 frame time {:.2}ms exceeds budget {:.2}ms",
+                p95, budget_ms
+            ));
         }
         if !transfers.is_zero_copy {
             failure_reasons.push("Zero-copy violation: memory copies detected".to_string());
@@ -317,7 +336,8 @@ impl HardwareBenchmarkRunner {
 
     /// Scenario: Cold / Warm Startup.
     fn run_startup_scenario(&self) -> BenchmarkResult {
-        let is_warm = self.config.scenario == BenchmarkScenario::WarmStartup || self.config.is_warm_run;
+        let is_warm =
+            self.config.scenario == BenchmarkScenario::WarmStartup || self.config.is_warm_run;
 
         let startup = StartupMetrics {
             process_start_us: 0,
@@ -343,7 +363,10 @@ impl HardwareBenchmarkRunner {
         let mut failure_reasons = Vec::new();
         // Target: cold startup first frame presented < 150 ms (vs old 1.5–2.4s stall!)
         if !is_warm && first_frame_total_ms > 200.0 {
-            failure_reasons.push(format!("Cold startup first frame {:.2}ms exceeds 200ms threshold", first_frame_total_ms));
+            failure_reasons.push(format!(
+                "Cold startup first frame {:.2}ms exceeds 200ms threshold",
+                first_frame_total_ms
+            ));
         }
 
         BenchmarkResult {
@@ -363,7 +386,10 @@ impl HardwareBenchmarkRunner {
     /// Scenario: Cold / Warm Seek.
     fn run_seek_scenario(&self) -> BenchmarkResult {
         let is_cold = self.config.scenario == BenchmarkScenario::SeekCold;
-        let mut temporal = TemporalController::new(super::super::planner::MediaFrameCache::new(50, 100 * 1024 * 1024));
+        let mut temporal = TemporalController::new(super::super::planner::MediaFrameCache::new(
+            50,
+            100 * 1024 * 1024,
+        ));
 
         let target_pts = MediaTime::from_secs_f64(34.5);
         let (_req, _maybe_cached) = temporal.begin_seek(target_pts, 1, "asset-test");
@@ -375,7 +401,10 @@ impl HardwareBenchmarkRunner {
         let mut failure_reasons = Vec::new();
         let max_target_ms = if is_cold { 33.3 } else { 16.7 };
         if seek_latency_ms > max_target_ms {
-            failure_reasons.push(format!("Seek latency {:.2}ms exceeds target {:.2}ms", seek_latency_ms, max_target_ms));
+            failure_reasons.push(format!(
+                "Seek latency {:.2}ms exceeds target {:.2}ms",
+                seek_latency_ms, max_target_ms
+            ));
         }
 
         BenchmarkResult {
@@ -414,7 +443,10 @@ impl HardwareBenchmarkRunner {
 
     /// Scenario: Rapid Scrubbing.
     fn run_scrub_scenario(&self) -> BenchmarkResult {
-        let mut temporal = TemporalController::new(super::super::planner::MediaFrameCache::new(50, 100 * 1024 * 1024));
+        let mut temporal = TemporalController::new(super::super::planner::MediaFrameCache::new(
+            50,
+            100 * 1024 * 1024,
+        ));
         let mut latencies_ms = Vec::new();
 
         // Simulate 20 rapid scrub requests across timeline
@@ -427,7 +459,10 @@ impl HardwareBenchmarkRunner {
         let p95 = percentile(&latencies_ms, 95.0);
         let mut failure_reasons = Vec::new();
         if p95 > 30.0 {
-            failure_reasons.push(format!("Scrub p95 latency {:.2}ms exceeds 30ms target", p95));
+            failure_reasons.push(format!(
+                "Scrub p95 latency {:.2}ms exceeds 30ms target",
+                p95
+            ));
         }
 
         BenchmarkResult {
@@ -466,7 +501,10 @@ impl HardwareBenchmarkRunner {
 
     /// Scenario: Frame Step (+1 / -1 frame precision).
     fn run_step_scenario(&self) -> BenchmarkResult {
-        let mut temporal = TemporalController::new(super::super::planner::MediaFrameCache::new(50, 100 * 1024 * 1024));
+        let mut temporal = TemporalController::new(super::super::planner::MediaFrameCache::new(
+            50,
+            100 * 1024 * 1024,
+        ));
         let step_req = temporal.step_frame(1, 60.0, 1);
         assert_eq!(step_req.target, MediaTime(16_667));
 
@@ -578,9 +616,12 @@ impl HardwareBenchmarkRunner {
         let mut qos = QoSController::new(QoSConfig::default());
         let proxy_mgr = AsyncProxyManager::new();
 
+        // Each inner loop pushes exactly window_capacity (15) frames so that
+        // the non-overlapping-window gate fires on every evaluate_window call.
+
         // 1. Unhealthy window triggers degradation
         for _ in 0..3 {
-            for _ in 0..10 {
+            for _ in 0..15 {
                 qos.record_frame_snapshot(PerformanceSnapshot {
                     decode_us: 4_000,
                     render_cpu_us: 1_000,
@@ -599,15 +640,7 @@ impl HardwareBenchmarkRunner {
         assert_eq!(qos.current_decision().render_quality, RenderQuality::Half);
 
         // 2. Recovery window triggers recovery.
-        //
-        // Flush the ring buffer (window_capacity = 15) with clean frames before
-        // starting the recovery evaluation loop. The unhealthy snapshots still
-        // residing in the ring from the degradation phase would cause the first
-        // evaluation window to diagnose a bottleneck (miss_ratio > 0.25 on a
-        // mixed window), increment consecutive_unhealthy_windows, and degrade
-        // further to Quarter before the healthy counter even begins.
-        // Pushing 15 clean frames here ensures every slot in the ring is healthy
-        // so the very first evaluate_window call sees a fully clean window.
+        // Each iteration pushes a full non-overlapping window of clean frames.
         let clean_snapshot = PerformanceSnapshot {
             decode_us: 4_000,
             render_cpu_us: 1_000,
@@ -620,12 +653,8 @@ impl HardwareBenchmarkRunner {
             deadline_missed: false,
             frame_pts: MediaTime(0),
         };
-        for _ in 0..15 {
-            qos.record_frame_snapshot(clean_snapshot.clone());
-        }
-
         for _ in 0..8 {
-            for _ in 0..10 {
+            for _ in 0..15 {
                 qos.record_frame_snapshot(clean_snapshot.clone());
             }
             qos.evaluate_window(PlaybackMode::Play, MediaTime(0), &proxy_mgr, None);
@@ -652,7 +681,7 @@ impl HardwareBenchmarkRunner {
         let proxy_mgr = AsyncProxyManager::new();
 
         for _ in 0..3 {
-            for _ in 0..10 {
+            for _ in 0..15 {
                 qos.record_frame_snapshot(PerformanceSnapshot {
                     decode_us: 4_000,
                     render_cpu_us: 1_000,
@@ -734,7 +763,9 @@ impl HardwareBenchmarkRunner {
                 audio: AudioPlan::default(),
             };
             let mut graph = RenderGraph::from_render_plan(&plan);
-            let (frame, _) = executor.execute(&mut graph, &mut cache, &HashMap::new()).unwrap();
+            let (frame, _) = executor
+                .execute(&mut graph, &mut cache, &HashMap::new())
+                .unwrap();
             assert_eq!(frame.pts, pts);
         }
 
@@ -800,39 +831,104 @@ impl HardwareBenchmarkRunner {
         out.push_str(&format!("  {:?}\n\n", result.machine.graphics_backend));
 
         out.push_str("Media\n");
-        out.push_str(&format!("  {:?} {:?}\n", result.media.codec, result.media.profile));
-        out.push_str(&format!("  {}×{}\n", result.media.width, result.media.height));
+        out.push_str(&format!(
+            "  {:?} {:?}\n",
+            result.media.codec, result.media.profile
+        ));
+        out.push_str(&format!(
+            "  {}×{}\n",
+            result.media.width, result.media.height
+        ));
         out.push_str(&format!("  {:.0} FPS\n", result.media.fps));
         out.push_str(&format!("  {}-bit\n\n", result.media.bit_depth));
 
         out.push_str("Decode\n");
         out.push_str(&format!("  {}\n", result.decoder.backend));
-        out.push_str(&format!("  Hardware: {}\n", if result.decoder.is_hardware { "YES" } else { "NO" }));
-        out.push_str(&format!("  Mean: {:.1} ms\n", result.playback.mean_decode_us as f64 / 1000.0));
-        out.push_str(&format!("  P95: {:.1} ms\n\n", result.playback.p95_frame_ms * 0.4)); // Decode component
+        out.push_str(&format!(
+            "  Hardware: {}\n",
+            if result.decoder.is_hardware {
+                "YES"
+            } else {
+                "NO"
+            }
+        ));
+        out.push_str(&format!(
+            "  Mean: {:.1} ms\n",
+            result.playback.mean_decode_us as f64 / 1000.0
+        ));
+        out.push_str(&format!(
+            "  P95: {:.1} ms\n\n",
+            result.playback.p95_frame_ms * 0.4
+        )); // Decode component
 
         out.push_str("Surface\n");
         out.push_str("  Native D3D12 resource\n");
-        out.push_str(&format!("  Zero-copy: {}\n", if result.transfers.is_zero_copy { "YES" } else { "NO" }));
-        out.push_str(&format!("  CPU readback: {} B\n", result.transfers.cpu_readback_bytes));
-        out.push_str(&format!("  CPU upload: {} B\n", result.transfers.cpu_upload_bytes));
-        out.push_str(&format!("  Cross-adapter: {} B\n\n", result.transfers.cross_adapter_bytes));
+        out.push_str(&format!(
+            "  Zero-copy: {}\n",
+            if result.transfers.is_zero_copy {
+                "YES"
+            } else {
+                "NO"
+            }
+        ));
+        out.push_str(&format!(
+            "  CPU readback: {} B\n",
+            result.transfers.cpu_readback_bytes
+        ));
+        out.push_str(&format!(
+            "  CPU upload: {} B\n",
+            result.transfers.cpu_upload_bytes
+        ));
+        out.push_str(&format!(
+            "  Cross-adapter: {} B\n\n",
+            result.transfers.cross_adapter_bytes
+        ));
 
         out.push_str("Render\n");
-        out.push_str(&format!("  Mean: {:.1} ms\n", result.playback.mean_render_us as f64 / 1000.0));
-        out.push_str(&format!("  P95: {:.1} ms\n\n", result.playback.p95_frame_ms * 0.3));
+        out.push_str(&format!(
+            "  Mean: {:.1} ms\n",
+            result.playback.mean_render_us as f64 / 1000.0
+        ));
+        out.push_str(&format!(
+            "  P95: {:.1} ms\n\n",
+            result.playback.p95_frame_ms * 0.3
+        ));
 
         out.push_str("Present\n");
-        out.push_str(&format!("  Mean: {:.1} ms\n", result.playback.mean_present_us as f64 / 1000.0));
-        out.push_str(&format!("  P95: {:.1} ms\n\n", result.playback.p95_frame_ms * 0.1));
+        out.push_str(&format!(
+            "  Mean: {:.1} ms\n",
+            result.playback.mean_present_us as f64 / 1000.0
+        ));
+        out.push_str(&format!(
+            "  P95: {:.1} ms\n\n",
+            result.playback.p95_frame_ms * 0.1
+        ));
 
         out.push_str("Playback\n");
-        out.push_str(&format!("  Target: {:.0} FPS\n", result.playback.target_fps));
-        out.push_str(&format!("  Presented: {:.1} FPS\n", result.playback.presented_fps));
-        out.push_str(&format!("  Dropped: {:.1}%\n", result.playback.drop_ratio * 100.0));
-        out.push_str(&format!("  Repeated: {:.1}%\n", result.playback.repeat_ratio * 100.0));
-        out.push_str(&format!("  P95 frame: {:.1} ms\n", result.playback.p95_frame_ms));
-        out.push_str(&format!("  P99 frame: {:.1} ms\n\n", result.playback.p99_frame_ms));
+        out.push_str(&format!(
+            "  Target: {:.0} FPS\n",
+            result.playback.target_fps
+        ));
+        out.push_str(&format!(
+            "  Presented: {:.1} FPS\n",
+            result.playback.presented_fps
+        ));
+        out.push_str(&format!(
+            "  Dropped: {:.1}%\n",
+            result.playback.drop_ratio * 100.0
+        ));
+        out.push_str(&format!(
+            "  Repeated: {:.1}%\n",
+            result.playback.repeat_ratio * 100.0
+        ));
+        out.push_str(&format!(
+            "  P95 frame: {:.1} ms\n",
+            result.playback.p95_frame_ms
+        ));
+        out.push_str(&format!(
+            "  P99 frame: {:.1} ms\n\n",
+            result.playback.p99_frame_ms
+        ));
 
         if let Some(q) = result.qos_decisions.first() {
             out.push_str("QoS\n");
@@ -889,7 +985,9 @@ pub fn probe_machine_identity() -> MachineIdentity {
         gpu_vendor: gpu.vendor.clone(),
         gpu_luid: Some(luid_u64),
         vram_bytes: gpu.dedicated_video_memory,
-        driver_version: gpu.driver_version.unwrap_or_else(|| "Generic-Driver".to_string()),
+        driver_version: gpu
+            .driver_version
+            .unwrap_or_else(|| "Generic-Driver".to_string()),
         graphics_backend,
         ffmpeg_version: "8.0-static".to_string(),
         clypra_build: "1.5.4".to_string(),
@@ -901,9 +999,22 @@ pub fn probe_machine_identity() -> MachineIdentity {
 }
 
 /// Helper function to probe decoder backend identity.
-pub fn probe_decoder_identity(_machine: &MachineIdentity, media: &BenchmarkMedia) -> DecoderIdentity {
+pub fn probe_decoder_identity(
+    machine: &MachineIdentity,
+    media: &BenchmarkMedia,
+) -> DecoderIdentity {
+    // This is telemetry identity, not a decoder-selection policy. Reporting a
+    // Windows-only D3D backend on Metal made macOS sessions impossible to
+    // diagnose correctly.
+    let backend = match machine.graphics_backend {
+        GraphicsBackend::Metal => "VideoToolbox",
+        GraphicsBackend::D3D12 => "D3D12VA",
+        GraphicsBackend::D3D11 => "D3D11VA",
+        GraphicsBackend::Vulkan => "VAAPI",
+        GraphicsBackend::Cpu => "SoftwareFFmpeg",
+    };
     DecoderIdentity {
-        backend: "D3D12VA".to_string(),
+        backend: backend.to_string(),
         is_hardware: true,
         codec: media.codec,
         profile: media.profile,

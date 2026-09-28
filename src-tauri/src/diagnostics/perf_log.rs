@@ -380,7 +380,9 @@ pub async fn upload_perf_log_session(
                     let body_text = response.text().await.unwrap_or_default();
                     log::debug!(
                         "[perf_log] Attempt {} rejected: {} - {}",
-                        attempt, status, body_text
+                        attempt,
+                        status,
+                        body_text
                     );
                     last_err = format!(
                         "Upload rejected — HTTP {status} (attempt {attempt}/{max_attempts}, mode={}, entries={}, raw_bytes={}): {body_text}",

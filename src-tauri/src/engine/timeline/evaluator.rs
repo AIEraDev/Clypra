@@ -12,19 +12,14 @@
 //! (&ProjectState, MediaTime, generation) -> RenderPlan.
 //! It performs NO GPU operations, NO decoding, NO disk I/O, NO IPC, and NO state mutation.
 
-use super::model::{ProjectState, TrackKind};
 use super::super::render_plan::{AudioPlan, AudioTrackPlan, RenderLayer, RenderPlan};
 use super::super::types::{LayerVisibility, MediaTime};
+use super::model::{ProjectState, TrackKind};
 
 /// Trait implemented by pure timeline evaluators.
 pub trait TimelineEvaluator: Send + Sync {
     /// Purely evaluates the authoritative project state at timeline timestamp T.
-    fn evaluate(
-        &self,
-        project: &ProjectState,
-        time: MediaTime,
-        generation: u64,
-    ) -> RenderPlan;
+    fn evaluate(&self, project: &ProjectState, time: MediaTime, generation: u64) -> RenderPlan;
 }
 
 /// The canonical deterministic timeline evaluator for Clypra.
@@ -38,12 +33,7 @@ impl PureTimelineEvaluator {
 }
 
 impl TimelineEvaluator for PureTimelineEvaluator {
-    fn evaluate(
-        &self,
-        project: &ProjectState,
-        time: MediaTime,
-        generation: u64,
-    ) -> RenderPlan {
+    fn evaluate(&self, project: &ProjectState, time: MediaTime, generation: u64) -> RenderPlan {
         let mut visual_layers: Vec<RenderLayer> = Vec::new();
         let mut audio_tracks: Vec<AudioTrackPlan> = Vec::new();
 

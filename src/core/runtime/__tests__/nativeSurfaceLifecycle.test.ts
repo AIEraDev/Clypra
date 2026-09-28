@@ -11,6 +11,12 @@ vi.mock("@/core/playback/playbackTrace", () => ({
   tracePlayback: vi.fn(),
 }));
 
+// Override EMBEDDED_PREVIEW_ONLY so the state machine is exercised in tests.
+vi.mock("@/lib/platform/nativeCore", () => ({
+  EMBEDDED_PREVIEW_ONLY: false,
+  NATIVE_PREVIEW_ONLY: false,
+}));
+
 import { isTauriRuntime } from "@/lib/platform/tauri";
 import {
   claimNativeSurfaceReadiness,
@@ -32,7 +38,9 @@ describe("nativeSurfaceLifecycle", () => {
 
   it("should resolve immediately if not in Tauri runtime", async () => {
     vi.mocked(isTauriRuntime).mockReturnValue(false);
-    await expect(waitForNativeSurfaceReady("non-tauri-project")).resolves.toBeUndefined();
+    await expect(
+      waitForNativeSurfaceReady("non-tauri-project"),
+    ).resolves.toBeUndefined();
   });
 
   it("should resolve successfully when markNativeSurfaceReady is called", async () => {
@@ -61,7 +69,9 @@ describe("nativeSurfaceLifecycle", () => {
 
     // Timeout set to 50ms to verify it does not hang indefinitely
     const startTime = Date.now();
-    await expect(waitForNativeSurfaceReady(projectId, 50)).resolves.toBeUndefined();
+    await expect(
+      waitForNativeSurfaceReady(projectId, 50),
+    ).resolves.toBeUndefined();
     const elapsed = Date.now() - startTime;
     expect(elapsed).toBeGreaterThanOrEqual(40);
   });

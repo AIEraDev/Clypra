@@ -3,7 +3,9 @@ use std::ops::{Add, AddAssign, Sub, SubAssign};
 
 /// Monotonic, drift-free representation of media time in microseconds (1e-6 seconds).
 /// This eliminates floating point rounding errors across long timelines.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 pub struct MediaTime(pub i64);
 
 impl MediaTime {

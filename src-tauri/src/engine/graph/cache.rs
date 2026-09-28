@@ -114,8 +114,9 @@ impl RenderGraphCache {
 
         if let Some(key) = oldest_key {
             if let Some(removed) = self.entries.remove(&key) {
-                self.current_memory_bytes =
-                    self.current_memory_bytes.saturating_sub(removed.memory_bytes);
+                self.current_memory_bytes = self
+                    .current_memory_bytes
+                    .saturating_sub(removed.memory_bytes);
                 self.eviction_count += 1;
             }
         }

@@ -53,7 +53,9 @@ impl PlaybackResolutionDemand {
         let mut best = candidates.first().copied().unwrap_or((1280, 720));
         for &cand in candidates {
             let cand_area = cand.0.saturating_mul(cand.1);
-            if cand_area >= target_area && (best.0 * best.1 < target_area || cand_area < best.0 * best.1) {
+            if cand_area >= target_area
+                && (best.0 * best.1 < target_area || cand_area < best.0 * best.1)
+            {
                 best = cand;
             }
         }
@@ -204,10 +206,7 @@ pub enum QoSReason {
         ready_depth: usize,
     },
     /// Decode deadline pressure (single-frame decode exceeds target budget)
-    DecodeDeadlinePressure {
-        measured_us: u64,
-        budget_us: u64,
-    },
+    DecodeDeadlinePressure { measured_us: u64, budget_us: u64 },
     /// Decoder throughput insufficient for nominal framerate
     DecoderThroughputInsufficient {
         measured_fps: f32,
@@ -242,7 +241,6 @@ pub enum QoSReason {
     /// Engine paused; asynchronously upgrading to full quality
     PausedQualityRestoration,
 }
-
 
 /// Comprehensive, actionable decision produced by the QoS Engine.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

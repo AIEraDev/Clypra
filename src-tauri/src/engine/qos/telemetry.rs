@@ -33,16 +33,31 @@ impl QoSTelemetry {
         out.push_str(&format!("Media: {:?}\n", decision.media_variant));
         out.push_str(&format!("Render: {:?}\n", decision.render_quality));
         out.push_str(&format!("Effects: {:?}\n", decision.effects_policy));
-        out.push_str(&format!("Lookahead Reduction: {:.0}%\n", decision.lookahead_reduction * 100.0));
+        out.push_str(&format!(
+            "Lookahead Reduction: {:.0}%\n",
+            decision.lookahead_reduction * 100.0
+        ));
         out.push_str(&format!("Reason: {:?}\n", decision.reason));
         out.push_str(&format!("Confidence: {:.2}\n", decision.confidence));
         out.push_str("────────────────────────\n");
         out.push_str("Performance Window:\n");
         out.push_str(&format!("  Decode Mean: {} us\n", window.mean_decode_us()));
-        out.push_str(&format!("  GPU Render Mean: {} us\n", window.mean_render_gpu_us()));
-        out.push_str(&format!("  Miss Ratio: {:.1}%\n", window.deadline_miss_ratio() * 100.0));
-        out.push_str(&format!("  Pool Utilization: {:.1}%\n", window.peak_pool_utilization() * 100.0));
-        out.push_str(&format!("  Ready Queue Depth: {:.1}\n", window.mean_ready_queue_depth()));
+        out.push_str(&format!(
+            "  GPU Render Mean: {} us\n",
+            window.mean_render_gpu_us()
+        ));
+        out.push_str(&format!(
+            "  Miss Ratio: {:.1}%\n",
+            window.deadline_miss_ratio() * 100.0
+        ));
+        out.push_str(&format!(
+            "  Pool Utilization: {:.1}%\n",
+            window.peak_pool_utilization() * 100.0
+        ));
+        out.push_str(&format!(
+            "  Ready Queue Depth: {:.1}\n",
+            window.mean_ready_queue_depth()
+        ));
 
         out
     }

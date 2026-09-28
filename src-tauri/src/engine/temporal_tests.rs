@@ -27,7 +27,9 @@ mod tests {
             2160,
             PixelFormat::P010,
             sync,
-            SurfaceHandle::D3D12 { resource_ptr: 0x9999 },
+            SurfaceHandle::D3D12 {
+                resource_ptr: 0x9999,
+            },
         );
         VideoFrame::new(
             asset_id,
@@ -56,11 +58,31 @@ mod tests {
         assert_eq!(req_50.target, MediaTime::from_secs_f64(50.0));
 
         // Simulate delayed frames arriving from older seeks
-        let frame_10 = create_test_video_frame(MediaTime::from_secs_f64(10.0), req_10.playback_generation, "video-1");
-        let frame_20 = create_test_video_frame(MediaTime::from_secs_f64(20.0), req_20.playback_generation, "video-1");
-        let frame_30 = create_test_video_frame(MediaTime::from_secs_f64(30.0), req_30.playback_generation, "video-1");
-        let frame_40 = create_test_video_frame(MediaTime::from_secs_f64(40.0), req_40.playback_generation, "video-1");
-        let frame_50 = create_test_video_frame(MediaTime::from_secs_f64(50.0), req_50.playback_generation, "video-1");
+        let frame_10 = create_test_video_frame(
+            MediaTime::from_secs_f64(10.0),
+            req_10.playback_generation,
+            "video-1",
+        );
+        let frame_20 = create_test_video_frame(
+            MediaTime::from_secs_f64(20.0),
+            req_20.playback_generation,
+            "video-1",
+        );
+        let frame_30 = create_test_video_frame(
+            MediaTime::from_secs_f64(30.0),
+            req_30.playback_generation,
+            "video-1",
+        );
+        let frame_40 = create_test_video_frame(
+            MediaTime::from_secs_f64(40.0),
+            req_40.playback_generation,
+            "video-1",
+        );
+        let frame_50 = create_test_video_frame(
+            MediaTime::from_secs_f64(50.0),
+            req_50.playback_generation,
+            "video-1",
+        );
 
         // INVARIANT: Stale frames can NEVER be presented!
         assert!(!controller.is_frame_presentable(&frame_10));
@@ -102,7 +124,8 @@ mod tests {
         controller.cache_decoded_frame(frame_30, MediaPriority::Next);
 
         // Seek to 30.0s -> Cache Hit!
-        let (req, maybe_frame) = controller.begin_seek(MediaTime::from_secs_f64(30.0), 1, "video-1");
+        let (req, maybe_frame) =
+            controller.begin_seek(MediaTime::from_secs_f64(30.0), 1, "video-1");
 
         assert!(maybe_frame.is_some());
         assert_eq!(maybe_frame.unwrap().pts, MediaTime::from_secs_f64(30.0));
@@ -117,11 +140,26 @@ mod tests {
         let mut controller = TemporalController::new(cache);
 
         let index = KeyframeIndex::new(vec![
-            KeyframeEntry { pts: MediaTime::from_secs_f64(0.0), byte_offset: 0 },
-            KeyframeEntry { pts: MediaTime::from_secs_f64(10.0), byte_offset: 5_000_000 },
-            KeyframeEntry { pts: MediaTime::from_secs_f64(25.0), byte_offset: 12_500_000 },
-            KeyframeEntry { pts: MediaTime::from_secs_f64(55.4), byte_offset: 27_700_000 },
-            KeyframeEntry { pts: MediaTime::from_secs_f64(70.0), byte_offset: 35_000_000 },
+            KeyframeEntry {
+                pts: MediaTime::from_secs_f64(0.0),
+                byte_offset: 0,
+            },
+            KeyframeEntry {
+                pts: MediaTime::from_secs_f64(10.0),
+                byte_offset: 5_000_000,
+            },
+            KeyframeEntry {
+                pts: MediaTime::from_secs_f64(25.0),
+                byte_offset: 12_500_000,
+            },
+            KeyframeEntry {
+                pts: MediaTime::from_secs_f64(55.4),
+                byte_offset: 27_700_000,
+            },
+            KeyframeEntry {
+                pts: MediaTime::from_secs_f64(70.0),
+                byte_offset: 35_000_000,
+            },
         ]);
 
         controller.register_keyframe_index("video-1", index);

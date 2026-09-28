@@ -21,8 +21,8 @@ pub mod frame;
 pub mod graph;
 pub mod hardware;
 pub mod interop;
-pub mod playback;
 pub mod planner;
+pub mod playback;
 pub mod presenter;
 pub mod qos;
 pub mod render_plan;
@@ -54,41 +54,38 @@ mod tests;
 // Re-export canonical domain types
 pub use benchmark::{
     probe_decoder_identity, probe_machine_identity, BenchmarkConfig, BenchmarkMedia,
-    BenchmarkResult, BenchmarkScenario, CliOptions, DecoderIdentity, FrameOutcome,
-    FrameTelemetry, HardwareBenchmarkRunner, MachineIdentity, PlaybackSummary, StartupMetrics,
-    TransferMetrics,
+    BenchmarkResult, BenchmarkScenario, CliOptions, DecoderIdentity, FrameOutcome, FrameTelemetry,
+    HardwareBenchmarkRunner, MachineIdentity, PlaybackSummary, StartupMetrics, TransferMetrics,
 };
 pub use clock::{ClockMode, EngineClock, PlaybackClock};
 pub use decoder::{
-    D3D11VADecoderBackend, D3D12VADecoderBackend, DecoderCapabilities, DecoderError, DecoderPlanner,
-    DecoderRequest, DecoderSession, DecoderSurfacePool, DecoderTelemetry, DecodeUsage,
+    D3D11VADecoderBackend, D3D12VADecoderBackend, DecodeUsage, DecoderCapabilities, DecoderError,
+    DecoderPlanner, DecoderRequest, DecoderSession, DecoderSurfacePool, DecoderTelemetry,
     EncodedPacket, RenderSurface, SeekTarget, SoftwareFFmpegBackend, StreamProfile, SurfaceBridge,
     SurfacePoolConfig, SurfaceState, VideoDecodeCapability, VideoDecoderBackend,
 };
+pub use diagnostic::{HardwareRealityReport, HardwareRealityRunner};
 pub use frame::{ColorMetadata, VideoFrame};
 pub use graph::{
     create_solid_surface, CachedNodeOutput, ColorGradeParams, CullReason, EffectSpec, GraphError,
-    GraphResourcePool, LifetimeInterval, NodeCacheKey, NodeId, OverlayType, PassKind,
-    RenderGraph, RenderGraphCache, RenderGraphExecutor, RenderGraphTelemetry, RenderPassNode,
-    ResourceBarrier, ResourceId, TransientResourceDesc,
+    GraphResourcePool, LifetimeInterval, NodeCacheKey, NodeId, OverlayType, PassKind, RenderGraph,
+    RenderGraphCache, RenderGraphExecutor, RenderGraphTelemetry, RenderPassNode, ResourceBarrier,
+    ResourceId, TransientResourceDesc,
 };
 pub use hardware::{
     probe_hardware_capability, AdapterId, AdapterRegistry, CapabilityTier, DecodeCapability,
     GpuAdapter, GpuAdapterIdentity, GpuVendor, GraphicsBackend, HardwareCapabilityProfile,
     PlaybackDevice, RecommendedQoSConfig, VideoDecodeCapabilities,
 };
-pub use playback::{
-    EngineCommand, PlaybackController, PlaybackPlanQueue, PlaybackPlanReceiver,
-};
-pub use diagnostic::{HardwareRealityReport, HardwareRealityRunner};
 pub use interop::{CpuSurfaceInterop, D3D11SurfaceInterop, D3D12SurfaceInterop, InteropMetrics};
 pub use planner::{
     CacheVariant, DecodeRange, FrameCacheKey, MediaFrameCache, MediaPriority, MediaRequest,
-    MediaWorkPlan, PerAssetQueueManager, PlaybackDirection, PlannerTelemetry, PrefetchPolicy,
+    MediaWorkPlan, PerAssetQueueManager, PlannerTelemetry, PlaybackDirection, PrefetchPolicy,
     QueueConfig, ReadyFrame, ReadyFrameQueue, ReadyTimingStatus, WorkPlanner, WorkResult,
 };
+pub use playback::{EngineCommand, PlaybackController, PlaybackPlanQueue, PlaybackPlanReceiver};
 pub use presenter::{
-    NativeDxgiPresenter, PresentationTarget, PresentResult, Presenter, PresenterError,
+    NativeDxgiPresenter, PresentResult, PresentationTarget, Presenter, PresenterError,
     RenderedFrame, WgpuPresenter,
 };
 pub use qos::{

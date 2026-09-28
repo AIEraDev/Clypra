@@ -206,7 +206,8 @@ mod tests {
             ]
         });
 
-        let state = ProjectModelAdapter::from_json_value(&json_project).expect("Parse JSON project");
+        let state =
+            ProjectModelAdapter::from_json_value(&json_project).expect("Parse JSON project");
         assert_eq!(state.settings.canvas.width, 3840);
         assert_eq!(state.settings.canvas.height, 2160);
         assert_eq!(state.sequence.tracks.len(), 1);

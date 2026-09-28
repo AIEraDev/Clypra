@@ -102,7 +102,10 @@ fn test_phase_j6_actual_adapter_identity_same_luid() {
     let runner = create_t1200_test_runner(BenchmarkScenario::ContinuousPlayback, 60);
     let machine = &runner.machine;
 
-    assert_eq!(machine.selected_decoder_adapter, machine.selected_renderer_adapter);
+    assert_eq!(
+        machine.selected_decoder_adapter,
+        machine.selected_renderer_adapter
+    );
     assert!(machine.same_adapter_zero_copy);
     assert_eq!(machine.gpu_luid, Some(0x00010042));
 }
@@ -117,7 +120,10 @@ fn test_phase_j7_decoder_identity_truth_table() {
     // Truth Table:
     // Original HW: Decoder = HW (D3D12VA), Renderer = Same Adapter -> Expected QoS = Full
     let is_hw = decoder.is_hardware && machine.same_adapter_zero_copy;
-    assert!(is_hw, "Original HW must be true for D3D12VA on same adapter");
+    assert!(
+        is_hw,
+        "Original HW must be true for D3D12VA on same adapter"
+    );
 }
 
 // ─── J8: Actual Zero-Copy Measurements ───────────────────────────────────────
@@ -127,10 +133,22 @@ fn test_phase_j8_zero_copy_measurements() {
     let result = runner.run();
     let transfers = &result.transfers;
 
-    assert_eq!(transfers.cpu_readback_bytes, 0, "CPU readback must be exactly 0");
-    assert_eq!(transfers.cpu_upload_bytes, 0, "CPU upload must be exactly 0");
-    assert_eq!(transfers.cross_adapter_bytes, 0, "Cross-adapter bytes must be exactly 0");
-    assert_eq!(transfers.gpu_copy_bytes, 0, "GPU staging copy bytes must be exactly 0");
+    assert_eq!(
+        transfers.cpu_readback_bytes, 0,
+        "CPU readback must be exactly 0"
+    );
+    assert_eq!(
+        transfers.cpu_upload_bytes, 0,
+        "CPU upload must be exactly 0"
+    );
+    assert_eq!(
+        transfers.cross_adapter_bytes, 0,
+        "Cross-adapter bytes must be exactly 0"
+    );
+    assert_eq!(
+        transfers.gpu_copy_bytes, 0,
+        "GPU staging copy bytes must be exactly 0"
+    );
     assert!(transfers.is_zero_copy);
 }
 
@@ -148,7 +166,10 @@ fn test_phase_j9_frame_time_distribution_percentiles() {
     assert!(pb.p99_frame_ms <= pb.max_frame_ms);
 
     // Budget check: 60 FPS budget = 16.67 ms. Target p95 < 16.7 ms
-    assert!(pb.p95_frame_ms < 16.7, "p95 must be within 16.67ms frame budget");
+    assert!(
+        pb.p95_frame_ms < 16.7,
+        "p95 must be within 16.67ms frame budget"
+    );
 }
 
 // ─── J10: Cold & Warm Startup Breakdown ──────────────────────────────────────
@@ -174,11 +195,17 @@ fn test_phase_j10_cold_vs_warm_startup_breakdown() {
 fn test_phase_j11_cold_and_warm_seek() {
     let mut cold_runner = create_t1200_test_runner(BenchmarkScenario::SeekCold, 1);
     let cold_res = cold_runner.run();
-    assert!(cold_res.playback.p95_frame_ms < 33.3, "Cold seek must be < 33.3 ms");
+    assert!(
+        cold_res.playback.p95_frame_ms < 33.3,
+        "Cold seek must be < 33.3 ms"
+    );
 
     let mut warm_runner = create_t1200_test_runner(BenchmarkScenario::SeekWarm, 1);
     let warm_res = warm_runner.run();
-    assert!(warm_res.playback.p95_frame_ms < 16.7, "Warm seek must be < 16.7 ms");
+    assert!(
+        warm_res.playback.p95_frame_ms < 16.7,
+        "Warm seek must be < 16.7 ms"
+    );
 }
 
 // ─── J12: Rapid Scrub Latency ────────────────────────────────────────────────
@@ -187,7 +214,10 @@ fn test_phase_j12_rapid_scrub_latency() {
     let mut runner = create_t1200_test_runner(BenchmarkScenario::RapidScrub, 20);
     let res = runner.run();
     assert!(res.passed);
-    assert!(res.playback.p95_frame_ms < 30.0, "Rapid scrub p95 latency must be < 30 ms");
+    assert!(
+        res.playback.p95_frame_ms < 30.0,
+        "Rapid scrub p95 latency must be < 30 ms"
+    );
 }
 
 // ─── J13: Multi-Layer 4K Playback ────────────────────────────────────────────
@@ -249,7 +279,9 @@ fn test_phase_j18_long_soak_playback_stability() {
 fn test_phase_j19_json_benchmark_output_schema() {
     let mut runner = create_t1200_test_runner(BenchmarkScenario::ContinuousPlayback, 60);
     let res = runner.run();
-    let json = runner.to_json(&res).expect("JSON serialization must succeed");
+    let json = runner
+        .to_json(&res)
+        .expect("JSON serialization must succeed");
 
     assert!(json.contains("\"os\": \"Windows 11 Pro\""));
     assert!(json.contains("\"backend\": \"D3D12VA\""));
@@ -262,7 +294,11 @@ fn test_phase_j19_json_benchmark_output_schema() {
 fn test_phase_j20_regression_threshold_gate() {
     let mut runner = create_t1200_test_runner(BenchmarkScenario::ContinuousPlayback, 120);
     let res = runner.run();
-    assert!(res.passed, "Regression gate must pass: {:?}", res.failure_reasons);
+    assert!(
+        res.passed,
+        "Regression gate must pass: {:?}",
+        res.failure_reasons
+    );
 
     let report = runner.format_report(&res);
     assert!(report.contains("RESULT\n  PASS"));

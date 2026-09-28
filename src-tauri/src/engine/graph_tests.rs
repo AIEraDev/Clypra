@@ -99,8 +99,14 @@ fn test_phase_h1_dag_construction_and_topological_ordering() {
     let output_idx = find_idx("OutputPass");
 
     assert!(src1_idx < grade1_idx, "Source must precede ColorGrade");
-    assert!(grade1_idx < transform1_idx, "ColorGrade must precede Transform");
-    assert!(transform1_idx < comp1_idx, "Transform must precede Composite");
+    assert!(
+        grade1_idx < transform1_idx,
+        "ColorGrade must precede Transform"
+    );
+    assert!(
+        transform1_idx < comp1_idx,
+        "Transform must precede Composite"
+    );
     assert!(clear_idx < comp1_idx, "ClearPass must precede Composite");
     assert!(comp1_idx < output_idx, "Composite must precede OutputPass");
 }
@@ -258,13 +264,11 @@ fn test_phase_h4_fullscreen_opaque_occlusion_culling() {
     };
 
     // Lower layer (e.g. background 4K video)
-    let mut bg_layer =
-        RenderLayer::video("layer-bg", "clip-bg", "asset-bg", MediaTime(1_000_000));
+    let mut bg_layer = RenderLayer::video("layer-bg", "clip-bg", "asset-bg", MediaTime(1_000_000));
     bg_layer.z_index = 0;
 
     // Upper layer: 100% opaque, fullscreen, normal blend mode
-    let mut fg_layer =
-        RenderLayer::video("layer-fg", "clip-fg", "asset-fg", MediaTime(1_000_000));
+    let mut fg_layer = RenderLayer::video("layer-fg", "clip-fg", "asset-fg", MediaTime(1_000_000));
     fg_layer.z_index = 10;
     fg_layer.opacity = 1.0;
     fg_layer.blend_mode = BlendMode::Normal;
@@ -448,13 +452,7 @@ fn test_phase_h7_multi_track_composite_and_blend_modes() {
 #[test]
 fn test_phase_h8_empty_scene_timeline_gap_fast_path() {
     let canvas = CanvasSpec::default();
-    let plan = RenderPlan::empty(
-        1,
-        1,
-        MediaTime(10_000_000),
-        canvas,
-        [0.05, 0.05, 0.05, 1.0],
-    );
+    let plan = RenderPlan::empty(1, 1, MediaTime(10_000_000), canvas, [0.05, 0.05, 0.05, 1.0]);
 
     let mut graph = RenderGraph::from_render_plan(&plan);
     let mut cache = RenderGraphCache::new(10, 10 * 1024 * 1024);
@@ -496,12 +494,8 @@ fn test_phase_h9_react_freeze_temporal_decoupling() {
     let mut presented_frames = 0;
     for i in 0..30 {
         let pts = MediaTime::from_frame_index(i, 60.0);
-        let layer = RenderLayer::video(
-            format!("layer-{i}"),
-            format!("clip-{i}"),
-            "asset-test",
-            pts,
-        );
+        let layer =
+            RenderLayer::video(format!("layer-{i}"), format!("clip-{i}"), "asset-test", pts);
 
         let plan = RenderPlan {
             generation: i as u64,

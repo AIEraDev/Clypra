@@ -161,7 +161,11 @@ pub async fn extract_poster_frame_command(
 
             log::debug!(
                 "[extract_poster] [{}] total={}ms (webp_encode={}ms, size={}x{})",
-                filename, total_ms, encode_ms, out_w, out_h
+                filename,
+                total_ms,
+                encode_ms,
+                out_w,
+                out_h
             );
 
             // Convert to base64 data URL
@@ -171,7 +175,8 @@ pub async fn extract_poster_frame_command(
         Err(native_err) => {
             log::warn!(
                 "[extract_poster] Native decode failed for {}: {}; attempting CLI fallback",
-                filename, native_err
+                filename,
+                native_err
             );
             extract_poster_frame_cli(&video_path, poster_time, max_size).await
         }
@@ -520,7 +525,8 @@ pub async fn decode_frames_streaming(
                                     if frames_failed <= 5 {
                                         log::debug!(
                                             "[decode_frames_streaming] Decode failed at {}s: {}",
-                                            time, e
+                                            time,
+                                            e
                                         );
                                     }
                                     continue;
@@ -547,7 +553,8 @@ pub async fn decode_frames_streaming(
                             if frames_failed <= 5 {
                                 log::debug!(
                                     "[decode_frames_streaming] Decode failed at {}s: {}",
-                                    time, e
+                                    time,
+                                    e
                                 );
                             }
                             continue;
@@ -564,7 +571,8 @@ pub async fn decode_frames_streaming(
                         Err(e) => {
                             log::warn!(
                                 "[decode_frames_streaming] WebP encoding failed at {}s: {}",
-                                time, e
+                                time,
+                                e
                             );
                             continue;
                         }
@@ -754,7 +762,8 @@ pub async fn get_render_artifact(
             Err(e) => {
                 log::warn!(
                     "[get_render_artifact] Downsample failed for {:?}: {}",
-                    tier, e
+                    tier,
+                    e
                 );
             }
         }

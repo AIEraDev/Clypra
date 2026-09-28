@@ -7,7 +7,9 @@
 //! - Dual producer/consumer fence synchronization
 
 use super::hardware::adapter::GpuAdapter;
-use super::surface::{ResourceState, SurfaceBackend, SurfaceHandle, SurfaceInterop, SurfaceOwner, VideoSurface};
+use super::surface::{
+    ResourceState, SurfaceBackend, SurfaceHandle, SurfaceInterop, SurfaceOwner, VideoSurface,
+};
 use serde::{Deserialize, Serialize};
 
 /// Metrics recorded during surface interop import, state transition, and release.
@@ -50,7 +52,10 @@ impl D3D12SurfaceInterop {
     }
 
     /// Verifies the surface is on the same adapter and meets zero-copy invariants.
-    pub fn verify_zero_copy_contract(&self, surface: &VideoSurface) -> Result<InteropMetrics, String> {
+    pub fn verify_zero_copy_contract(
+        &self,
+        surface: &VideoSurface,
+    ) -> Result<InteropMetrics, String> {
         if surface.backend != SurfaceBackend::D3D12 {
             return Err(format!(
                 "Expected D3D12 surface backend, found {:?}",

@@ -23,15 +23,13 @@ pub struct QueueConfig {
 
 impl QueueConfig {
     /// Dynamically derives optimal queue capacities based on engine workload.
-    pub fn derive_defaults(
-        fps: f64,
-        active_streams: usize,
-        surface_pool_capacity: usize,
-    ) -> Self {
+    pub fn derive_defaults(fps: f64, active_streams: usize, surface_pool_capacity: usize) -> Self {
         let streams = active_streams.max(1);
         let frame_budget_factor = if fps >= 50.0 { 2 } else { 1 };
 
-        let ready_frame_capacity = (streams * 2 * frame_budget_factor).min(surface_pool_capacity / 2).max(2);
+        let ready_frame_capacity = (streams * 2 * frame_budget_factor)
+            .min(surface_pool_capacity / 2)
+            .max(2);
         let decode_capacity = (ready_frame_capacity * 2).min(surface_pool_capacity).max(4);
         let demux_capacity = (decode_capacity * 2).max(8);
 
@@ -95,7 +93,9 @@ impl ReadyFrame {
         current_revision: u64,
         current_generation: u64,
     ) -> ReadyTimingStatus {
-        if self.project_revision != current_revision || self.playback_generation != current_generation {
+        if self.project_revision != current_revision
+            || self.playback_generation != current_generation
+        {
             return ReadyTimingStatus::Obsolete;
         }
 
@@ -154,11 +154,7 @@ impl ReadyFrameQueue {
     }
 
     /// Retrieves the frame matching target PTS and active generation.
-    pub fn pop_for_pts(
-        &mut self,
-        target_pts: MediaTime,
-        generation: u64,
-    ) -> Option<ReadyFrame> {
+    pub fn pop_for_pts(&mut self, target_pts: MediaTime, generation: u64) -> Option<ReadyFrame> {
         let index = self
             .frames
             .iter()
@@ -208,7 +204,10 @@ impl PerAssetQueueManager {
         if !self.asset_queues.contains_key(&request.asset_id) {
             self.round_robin_keys.push(request.asset_id.clone());
         }
-        let queue = self.asset_queues.entry(request.asset_id.clone()).or_default();
+        let queue = self
+            .asset_queues
+            .entry(request.asset_id.clone())
+            .or_default();
         queue.push_back(request);
     }
 

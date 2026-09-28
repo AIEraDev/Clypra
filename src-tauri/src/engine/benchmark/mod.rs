@@ -8,7 +8,9 @@ pub mod runner;
 pub mod types;
 
 pub use cli::CliOptions;
-pub use runner::{probe_decoder_identity, probe_machine_identity, BenchmarkConfig, HardwareBenchmarkRunner};
+pub use runner::{
+    probe_decoder_identity, probe_machine_identity, BenchmarkConfig, HardwareBenchmarkRunner,
+};
 pub use types::{
     BenchmarkMedia, BenchmarkResult, BenchmarkScenario, DecoderIdentity, FrameOutcome,
     FrameTelemetry, MachineIdentity, PlaybackSummary, StartupMetrics, TransferMetrics,

@@ -1,6 +1,4 @@
-use super::super::types::{
-    ChromaSubsampling, CodecProfile, CodecType, PixelFormat,
-};
+use super::super::types::{ChromaSubsampling, CodecProfile, CodecType, PixelFormat};
 use serde::{Deserialize, Serialize};
 
 pub type AdapterId = String;

@@ -1,7 +1,7 @@
+use super::super::types::{BlendMode, CanvasSpec, LayerTransform, MediaTime};
 use super::model::{
     Clip, MediaAssetRef, ProjectSettings, ProjectState, TimeMapping, Track, TrackKind,
 };
-use super::super::types::{BlendMode, CanvasSpec, LayerTransform, MediaTime};
 use serde_json::Value;
 
 /// Adapts serialized Clypra project models or frontend JSON into the native `ProjectState`.
@@ -40,20 +40,31 @@ impl ProjectModelAdapter {
         });
 
         // 1. Parse Assets
-        if let Some(assets) = value.get("mediaAssets").or_else(|| value.get("media_assets")).and_then(|v| v.as_array()) {
+        if let Some(assets) = value
+            .get("mediaAssets")
+            .or_else(|| value.get("media_assets"))
+            .and_then(|v| v.as_array())
+        {
             for a in assets {
                 if let (Some(id), Some(path)) = (
                     a.get("id").and_then(|v| v.as_str()),
                     a.get("path").and_then(|v| v.as_str()),
                 ) {
                     let dur_secs = a.get("duration").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    let is_missing = a.get("isMissing").or_else(|| a.get("is_missing")).and_then(|v| v.as_bool()).unwrap_or(false);
+                    let is_missing = a
+                        .get("isMissing")
+                        .or_else(|| a.get("is_missing"))
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
                     state.assets.insert(
                         id.to_string(),
                         MediaAssetRef {
                             id: id.to_string(),
                             file_path: path.to_string(),
-                            preview_path: a.get("previewPath").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                            preview_path: a
+                                .get("previewPath")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string()),
                             duration: MediaTime::from_secs_f64(dur_secs),
                             width: a.get("width").and_then(|v| v.as_u64()).map(|w| w as u32),
                             height: a.get("height").and_then(|v| v.as_u64()).map(|h| h as u32),
@@ -98,13 +109,29 @@ impl ProjectModelAdapter {
             for c in clips {
                 if let (Some(id), Some(track_id), Some(asset_id)) = (
                     c.get("id").and_then(|v| v.as_str()),
-                    c.get("trackId").or_else(|| c.get("track_id")).and_then(|v| v.as_str()),
-                    c.get("mediaId").or_else(|| c.get("asset_id")).and_then(|v| v.as_str()),
+                    c.get("trackId")
+                        .or_else(|| c.get("track_id"))
+                        .and_then(|v| v.as_str()),
+                    c.get("mediaId")
+                        .or_else(|| c.get("asset_id"))
+                        .and_then(|v| v.as_str()),
                 ) {
-                    let start_secs = c.get("startTime").or_else(|| c.get("start_time")).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let start_secs = c
+                        .get("startTime")
+                        .or_else(|| c.get("start_time"))
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0);
                     let dur_secs = c.get("duration").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    let trim_in = c.get("trimIn").or_else(|| c.get("trim_in")).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    let trim_out = c.get("trimOut").or_else(|| c.get("trim_out")).and_then(|v| v.as_f64()).unwrap_or(dur_secs);
+                    let trim_in = c
+                        .get("trimIn")
+                        .or_else(|| c.get("trim_in"))
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0);
+                    let trim_out = c
+                        .get("trimOut")
+                        .or_else(|| c.get("trim_out"))
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(dur_secs);
                     let speed = c.get("speed").and_then(|v| v.as_f64()).unwrap_or(1.0);
 
                     let timeline_start = MediaTime::from_secs_f64(start_secs);
@@ -114,8 +141,14 @@ impl ProjectModelAdapter {
 
                     let x = c.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
                     let y = c.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
-                    let width = c.get("width").and_then(|v| v.as_f64()).unwrap_or(canvas.width as f64) as f32;
-                    let height = c.get("height").and_then(|v| v.as_f64()).unwrap_or(canvas.height as f64) as f32;
+                    let width = c
+                        .get("width")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(canvas.width as f64) as f32;
+                    let height = c
+                        .get("height")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(canvas.height as f64) as f32;
                     let rotation = c.get("rotation").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
                     let opacity = c.get("opacity").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
 
@@ -130,7 +163,10 @@ impl ProjectModelAdapter {
                         id: id.to_string(),
                         track_id: track_id.to_string(),
                         asset_id: asset_id.to_string(),
-                        name: c.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                        name: c
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
                         timeline_start,
                         timeline_end,
                         source_start,
@@ -150,7 +186,11 @@ impl ProjectModelAdapter {
                         opacity,
                         blend_mode,
                         z_index: 0,
-                        effects: c.get("effects").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
+                        effects: c
+                            .get("effects")
+                            .and_then(|v| v.as_array())
+                            .cloned()
+                            .unwrap_or_default(),
                         color_grade: c.get("colorGrade").cloned(),
                         body_effect: c.get("bodyEffect").cloned(),
                     });

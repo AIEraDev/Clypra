@@ -252,10 +252,7 @@ impl DecoderSurfacePool {
         reference_frames + pipeline_depth + prefetch_depth + 4
     }
 
-    pub fn new(
-        stream: &StreamProfile,
-        backend: SurfaceBackend,
-    ) -> Self {
+    pub fn new(stream: &StreamProfile, backend: SurfaceBackend) -> Self {
         let config = SurfacePoolConfig::for_stream(stream);
         let capacity = config.capacity();
         Self {
@@ -318,10 +315,7 @@ pub trait VideoDecoderBackend: Send + Sync {
     fn supports(&self, request: &DecoderRequest) -> bool;
 
     /// Spawns a dedicated decoder session for the target request
-    fn create(
-        &self,
-        request: &DecoderRequest,
-    ) -> Result<Box<dyn DecoderSession>, DecoderError>;
+    fn create(&self, request: &DecoderRequest) -> Result<Box<dyn DecoderSession>, DecoderError>;
 }
 
 /// Active decoder session responsible for decoding packets for a specific stream.
@@ -447,10 +441,7 @@ impl VideoDecoderBackend for D3D12VADecoderBackend {
         )
     }
 
-    fn create(
-        &self,
-        request: &DecoderRequest,
-    ) -> Result<Box<dyn DecoderSession>, DecoderError> {
+    fn create(&self, request: &DecoderRequest) -> Result<Box<dyn DecoderSession>, DecoderError> {
         Ok(Box::new(D3D12VASession::new(request.stream.clone())))
     }
 }
@@ -611,10 +602,7 @@ impl VideoDecoderBackend for D3D11VADecoderBackend {
             && request.stream.width <= 4096
     }
 
-    fn create(
-        &self,
-        request: &DecoderRequest,
-    ) -> Result<Box<dyn DecoderSession>, DecoderError> {
+    fn create(&self, request: &DecoderRequest) -> Result<Box<dyn DecoderSession>, DecoderError> {
         Ok(Box::new(D3D11VASession::new(request.stream.clone())))
     }
 }
@@ -752,10 +740,7 @@ impl VideoDecoderBackend for SoftwareFFmpegBackend {
         true
     }
 
-    fn create(
-        &self,
-        request: &DecoderRequest,
-    ) -> Result<Box<dyn DecoderSession>, DecoderError> {
+    fn create(&self, request: &DecoderRequest) -> Result<Box<dyn DecoderSession>, DecoderError> {
         Ok(Box::new(SoftwareSession::new(request.stream.clone())))
     }
 }
@@ -870,11 +855,11 @@ impl DecoderPlanner {
         }
     }
 
-    pub fn select_backend(
-        &self,
-        request: &DecoderRequest,
-    ) -> Option<&dyn VideoDecoderBackend> {
-        self.backends.iter().find(|backend| backend.supports(request)).map(|v| v.as_ref())
+    pub fn select_backend(&self, request: &DecoderRequest) -> Option<&dyn VideoDecoderBackend> {
+        self.backends
+            .iter()
+            .find(|backend| backend.supports(request))
+            .map(|v| v.as_ref())
     }
 
     pub fn open_session(

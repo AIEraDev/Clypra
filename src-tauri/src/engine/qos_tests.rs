@@ -292,7 +292,10 @@ fn test_phase_i5_sustained_recovery_with_asymmetric_thresholds() {
         }
         controller.evaluate_window(PlaybackMode::Play, MediaTime(0), &proxy_mgr, None);
     }
-    assert_eq!(controller.current_decision().render_quality, RenderQuality::Half);
+    assert_eq!(
+        controller.current_decision().render_quality,
+        RenderQuality::Half
+    );
 
     // 2. Feed 5 healthy windows (less than recover_window_threshold 8)
     for _ in 0..5 {
@@ -435,12 +438,8 @@ fn test_phase_i8_scrub_mode_prioritizes_latency() {
     let proxy_mgr = create_test_proxy_manager();
 
     // Evaluate in Scrub mode
-    let decision = controller.evaluate_window(
-        PlaybackMode::Scrub,
-        MediaTime(5_000_000),
-        &proxy_mgr,
-        None,
-    );
+    let decision =
+        controller.evaluate_window(PlaybackMode::Scrub, MediaTime(5_000_000), &proxy_mgr, None);
 
     assert_eq!(decision.render_quality, RenderQuality::Half);
     assert_eq!(decision.effects_policy, EffectsPolicy::Reduced);
@@ -468,16 +467,15 @@ fn test_phase_i9_pause_graceful_quality_restoration() {
         },
         confidence: 0.9,
     }));
-    assert_eq!(controller.current_decision().render_quality, RenderQuality::Half);
+    assert_eq!(
+        controller.current_decision().render_quality,
+        RenderQuality::Half
+    );
 
     // 2. Remove manual override and simulate User pressing Pause (Idle mode)
     controller.set_manual_override(None);
-    let decision = controller.evaluate_window(
-        PlaybackMode::Idle,
-        MediaTime(10_000_000),
-        &proxy_mgr,
-        None,
-    );
+    let decision =
+        controller.evaluate_window(PlaybackMode::Idle, MediaTime(10_000_000), &proxy_mgr, None);
 
     // Invariant: Decision targets Full quality restoration
     assert_eq!(decision.render_quality, RenderQuality::Full);

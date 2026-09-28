@@ -198,7 +198,9 @@ impl EngineControlLoop {
                 if now.duration_since(self.last_presented_frame_instant) >= frame_interval {
                     self.last_presented_frame_instant = now;
                     let current_time = self.clock.tick();
-                    let plan = self.evaluator.evaluate(&self.project, current_time, self.generation);
+                    let plan =
+                        self.evaluator
+                            .evaluate(&self.project, current_time, self.generation);
                     let _ = self.plan_tx.try_send(plan);
                 }
             }
@@ -279,7 +281,9 @@ impl EngineControlLoop {
                 self.clock.set_time(target_time);
 
                 // Immediate target frame evaluation
-                let plan = self.evaluator.evaluate(&self.project, target_time, self.generation);
+                let plan = self
+                    .evaluator
+                    .evaluate(&self.project, target_time, self.generation);
                 let _ = self.plan_tx.try_send(plan);
             }
             PlaybackCommand::Scrub {
@@ -301,7 +305,9 @@ impl EngineControlLoop {
                 self.clock.set_time(target_time);
 
                 // Immediate latest scrub frame evaluation
-                let plan = self.evaluator.evaluate(&self.project, target_time, self.generation);
+                let plan = self
+                    .evaluator
+                    .evaluate(&self.project, target_time, self.generation);
                 let _ = self.plan_tx.try_send(plan);
             }
             PlaybackCommand::Step {
@@ -319,7 +325,9 @@ impl EngineControlLoop {
 
                 self.clock.set_time(target_time);
 
-                let plan = self.evaluator.evaluate(&self.project, target_time, self.generation);
+                let plan = self
+                    .evaluator
+                    .evaluate(&self.project, target_time, self.generation);
                 let _ = self.plan_tx.try_send(plan);
             }
             PlaybackCommand::SetSpeed(speed) => {

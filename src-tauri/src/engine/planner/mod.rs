@@ -16,7 +16,9 @@ use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 
 pub use cache::{CacheVariant, FrameCacheKey, MediaFrameCache};
-pub use queue::{PerAssetQueueManager, QueueConfig, ReadyFrame, ReadyFrameQueue, ReadyTimingStatus};
+pub use queue::{
+    PerAssetQueueManager, QueueConfig, ReadyFrame, ReadyFrameQueue, ReadyTimingStatus,
+};
 
 /// Fine-grained priority for scheduling decode and cache retrieval tasks.
 /// Strictly prevents background work from starving active playback frames.
@@ -222,7 +224,9 @@ impl WorkPlanner {
             }
             // Keyframe estimation: assume keyframe at least every 1 second (1000ms)
             let gop_micros = 1_000_000i64;
-            let keyframe_pts = MediaTime(layer.source_time.as_micros() - (layer.source_time.as_micros() % gop_micros));
+            let keyframe_pts = MediaTime(
+                layer.source_time.as_micros() - (layer.source_time.as_micros() % gop_micros),
+            );
             let decode_range = DecodeRange::new(keyframe_pts, layer.source_time);
 
             requests.push(MediaRequest {
@@ -241,7 +245,8 @@ impl WorkPlanner {
             _ => self.policy.playback_window,
         };
 
-        let lookahead_frames = (window.as_secs_f64() * render_plan.canvas.fps.max(1.0)).round() as usize;
+        let lookahead_frames =
+            (window.as_secs_f64() * render_plan.canvas.fps.max(1.0)).round() as usize;
 
         for step in 1..=lookahead_frames {
             let offset_micros = frame_duration.as_micros() * step as i64;
@@ -265,9 +270,13 @@ impl WorkPlanner {
                 if layer.asset_id.is_empty() {
                     continue;
                 }
-                let lookahead_source_time = MediaTime((layer.source_time.as_micros() + target_time_offset).max(0));
+                let lookahead_source_time =
+                    MediaTime((layer.source_time.as_micros() + target_time_offset).max(0));
                 let gop_micros = 1_000_000i64;
-                let keyframe_pts = MediaTime(lookahead_source_time.as_micros() - (lookahead_source_time.as_micros() % gop_micros));
+                let keyframe_pts = MediaTime(
+                    lookahead_source_time.as_micros()
+                        - (lookahead_source_time.as_micros() % gop_micros),
+                );
                 let decode_range = DecodeRange::new(keyframe_pts, lookahead_source_time);
 
                 requests.push(MediaRequest {

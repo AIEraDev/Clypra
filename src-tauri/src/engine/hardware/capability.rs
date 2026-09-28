@@ -195,7 +195,15 @@ pub fn probe_hardware_capability(
             .any(|m| gpu_model.contains(m))
         && vram_bytes < TWO_GIB;
 
-    let tier = if vram_bytes < ONE_GIB || is_constrained_intel {
+    // Apple Silicon uses unified memory, so `dedicated_video_memory` is
+    // commonly reported as zero. Treating that as a sub-1 GiB discrete GPU
+    // incorrectly selects the constrained QoS policy on capable M-series
+    // machines. Hardware HEVC support is the reliable capability signal here.
+    let is_apple_silicon = gpu_vendor.to_ascii_lowercase().contains("apple") && has_hw_hevc;
+
+    let tier = if is_apple_silicon {
+        CapabilityTier::Moderate
+    } else if vram_bytes < ONE_GIB || is_constrained_intel {
         CapabilityTier::Constrained
     } else if vram_bytes < FOUR_GIB {
         CapabilityTier::Moderate
@@ -300,13 +308,8 @@ mod tests {
     #[test]
     fn constrained_vram_below_1gib_any_vendor() {
         // Any GPU with < 1 GiB dedicated VRAM is Constrained regardless of vendor.
-        let profile = probe_hardware_capability(
-            256 * 1024 * 1024,
-            "AMD",
-            "Radeon Vega 3",
-            false,
-            false,
-        );
+        let profile =
+            probe_hardware_capability(256 * 1024 * 1024, "AMD", "Radeon Vega 3", false, false);
         assert_eq!(profile.tier, CapabilityTier::Constrained);
         assert!(!profile.has_hw_hevc);
         assert!(!profile.has_hw_av1);
@@ -363,15 +366,16 @@ mod tests {
     #[test]
     fn high_end_tier_exactly_4gib() {
         // The boundary: exactly 4 GiB → HighEnd.
-        let profile = probe_hardware_capability(
-            4_294_967_296,
-            "AMD",
-            "Radeon RX 6700 XT",
-            true,
-            false,
-        );
+        let profile =
+            probe_hardware_capability(4_294_967_296, "AMD", "Radeon RX 6700 XT", true, false);
         assert_eq!(profile.tier, CapabilityTier::HighEnd);
         assert_eq!(profile.hevc10_decode_budget_us, Some(16_667));
+    }
+
+    #[test]
+    fn apple_silicon_with_unified_memory_is_not_constrained() {
+        let profile = probe_hardware_capability(0, "Apple", "Apple M1", true, false);
+        assert_eq!(profile.tier, CapabilityTier::Moderate);
     }
 
     // -----------------------------------------------------------------------
@@ -390,7 +394,10 @@ mod tests {
         assert_eq!(profile.gpu_vendor, "NVIDIA");
         assert_eq!(profile.gpu_model, "GeForce RTX 4060");
         assert_eq!(profile.vram_bytes, 6 * 1024 * 1024 * 1024);
-        assert_eq!(profile.recommended_qos_config.target_frame_interval_us, 16_667);
+        assert_eq!(
+            profile.recommended_qos_config.target_frame_interval_us,
+            16_667
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -406,8 +413,7 @@ mod tests {
         ] {
             let p = probe_hardware_capability(vram, vendor, model, false, false);
             assert_eq!(
-                p.recommended_qos_config.target_frame_interval_us,
-                16_667,
+                p.recommended_qos_config.target_frame_interval_us, 16_667,
                 "Expected 16_667 µs for tier {:?}",
                 p.tier
             );

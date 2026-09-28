@@ -360,7 +360,8 @@ impl ThumbnailCache {
 
         log::debug!(
             "[ThumbnailCache] Evicting {} of {} frames using weighted scoring",
-            to_remove, total_frames
+            to_remove,
+            total_frames
         );
 
         if !scored_frames.is_empty() {
@@ -372,7 +373,9 @@ impl ThumbnailCache {
                 .unwrap_or(0);
             log::debug!(
                 "[ThumbnailCache] Score distribution: lowest={}, median={}, highest={}",
-                lowest_score, median_score, highest_score
+                lowest_score,
+                median_score,
+                highest_score
             );
         }
 

@@ -161,7 +161,9 @@ impl RenderGraph {
                 let mut hasher = std::collections::hash_map::DefaultHasher::new();
                 layer.layer_id.hash(&mut hasher);
                 layer.source_time.hash(&mut hasher);
-                serde_json::to_string(&layer.effects).unwrap_or_default().hash(&mut hasher);
+                serde_json::to_string(&layer.effects)
+                    .unwrap_or_default()
+                    .hash(&mut hasher);
                 let content_hash = hasher.finish();
 
                 let mut overlay_node = RenderPassNode::new(
@@ -416,7 +418,8 @@ impl RenderGraph {
                 if layer.z_index < opaque_z {
                     // Cull all nodes associated with this layer
                     for node in self.nodes.iter_mut() {
-                        if (node.name.contains(&layer.clip_id) || node.name.contains(&layer.layer_id))
+                        if (node.name.contains(&layer.clip_id)
+                            || node.name.contains(&layer.layer_id))
                             && !node.culled
                         {
                             node.cull(CullReason::Occluded);
@@ -468,11 +471,11 @@ impl RenderGraph {
 
         let mut in_degrees: HashMap<NodeId, usize> = HashMap::new();
         for &id in &active_nodes {
-            let deps = self.dependencies.get(&id).map(|d| {
-                d.iter()
-                    .filter(|dep| active_nodes.contains(dep))
-                    .count()
-            }).unwrap_or(0);
+            let deps = self
+                .dependencies
+                .get(&id)
+                .map(|d| d.iter().filter(|dep| active_nodes.contains(dep)).count())
+                .unwrap_or(0);
             in_degrees.insert(id, deps);
         }
 

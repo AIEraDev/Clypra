@@ -55,6 +55,15 @@ impl PlaybackSession {
         &self.plan
     }
 
+    /// True only after normal transport has reached the terminal timeline
+    /// frame. This deliberately differs from a user pause at an arbitrary
+    /// position so platform owners can release audio resources safely.
+    pub fn is_at_timeline_end(&self) -> bool {
+        self.plan.duration_frames > 0
+            && !self.playing
+            && self.state.audio_position_ticks >= duration_ticks(&self.plan).unwrap_or(i64::MAX)
+    }
+
     pub fn play(&mut self, clock: FrameTime) -> Result<PlaybackState, NativeCoreError> {
         validate_clock(clock)?;
         if self.plan.duration_frames == 0 {

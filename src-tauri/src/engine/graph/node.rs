@@ -57,9 +57,7 @@ pub enum CullReason {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PassKind {
     /// Clears the canvas buffer with background color
-    Clear {
-        color: [f32; 4],
-    },
+    Clear { color: [f32; 4] },
     /// Ingests a decoded source video surface
     Source {
         asset_id: String,
@@ -67,9 +65,7 @@ pub enum PassKind {
         source_time: MediaTime,
     },
     /// Color grading adjustments (LUT, lift/gamma/gain, exposure, contrast, saturation, white balance)
-    ColorGrade {
-        params: ColorGradeParams,
-    },
+    ColorGrade { params: ColorGradeParams },
     /// Geometric transform, opacity, crop, and layer effects (blur, masks)
     TransformEffect {
         transform: LayerTransform,
@@ -88,9 +84,7 @@ pub enum PassKind {
         content_hash: u64,
     },
     /// Prepares final frame for presentation swapchain
-    Output {
-        canvas: CanvasSpec,
-    },
+    Output { canvas: CanvasSpec },
 }
 
 /// Color grading parameters for a pass.

@@ -78,11 +78,8 @@ mod tests {
         assert!(deadline.time_remaining().is_some());
 
         let planner = FramePlanner::new(4);
-        let future_frames = planner.plan_ahead(
-            MediaTime::ZERO,
-            MediaTime::from_frame_index(1, 60.0),
-            4,
-        );
+        let future_frames =
+            planner.plan_ahead(MediaTime::ZERO, MediaTime::from_frame_index(1, 60.0), 4);
         assert_eq!(future_frames.len(), 4);
         assert_eq!(future_frames[0].as_micros(), 16_667);
         assert_eq!(future_frames[1].as_micros(), 33_334);

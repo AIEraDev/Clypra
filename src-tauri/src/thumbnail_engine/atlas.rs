@@ -297,7 +297,8 @@ pub async fn load_from_atlas_resilient(
         Err(e) => {
             log::debug!(
                 "[load_from_atlas] Corrupted WebP detected in {:?}. Auto-quarantining file: {}",
-                location.atlas_path, e
+                location.atlas_path,
+                e
             );
             let _ = tokio::fs::remove_file(&location.atlas_path).await;
             return Err(format!("Corrupted atlas image removed: {}", e));
@@ -371,7 +372,8 @@ pub async fn prune_disk_cache_if_needed(cache_dir: &PathBuf) {
 
     log::debug!(
         "[prune_disk_cache] Cache usage {} bytes exceeds limit {} bytes. Pruning oldest files...",
-        current_bytes, limit
+        current_bytes,
+        limit
     );
 
     let mut files: Vec<(PathBuf, std::time::SystemTime, u64)> = Vec::new();
