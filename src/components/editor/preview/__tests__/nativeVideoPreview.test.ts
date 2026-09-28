@@ -327,6 +327,17 @@ describe("buildNativeVideoProjectRequest", () => {
     expect(request?.rasterLayers?.[0].assetId).toBe("native-overlay:sample");
   });
 
+  it("accepts an empty native scene (timeline gap) and renders clear background with no blockers", () => {
+    const scene = makeScene([]);
+    const request = buildNativeVideoProjectRequest(scene);
+    expect(request).not.toBeNull();
+    expect(request?.layers).toEqual([]);
+    expect(request?.rasterLayers).toBeUndefined();
+    expect(request?.textLayers).toBeUndefined();
+    expect(request?.clearColor).toEqual([0, 0, 0, 1]);
+    expect(getNativePreviewBlockers(scene)).toEqual([]);
+  });
+
   it("uses a registered native raster background for non-solid canvas backgrounds", () => {
     const request = buildNativeVideoProjectRequest(makeScene([], [], {
       type: "gradient",

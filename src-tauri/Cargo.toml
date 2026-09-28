@@ -4,6 +4,7 @@ version = "1.5.4"
 description = "A modern, open-source video editor with native performance and GPU-accelerated preview"
 authors = ["Clypra Contributors"]
 edition = "2021"
+default-run = "clypra"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -13,6 +14,14 @@ edition = "2021"
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "tauri_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "clypra"
+path = "src/main.rs"
+
+[[bin]]
+name = "clypra-engine-benchmark"
+path = "src/bin/benchmark.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
