@@ -598,21 +598,35 @@ impl HardwareBenchmarkRunner {
         }
         assert_eq!(qos.current_decision().render_quality, RenderQuality::Half);
 
-        // 2. Recovery window triggers recovery
+        // 2. Recovery window triggers recovery.
+        //
+        // Flush the ring buffer (window_capacity = 15) with clean frames before
+        // starting the recovery evaluation loop. The unhealthy snapshots still
+        // residing in the ring from the degradation phase would cause the first
+        // evaluation window to diagnose a bottleneck (miss_ratio > 0.25 on a
+        // mixed window), increment consecutive_unhealthy_windows, and degrade
+        // further to Quarter before the healthy counter even begins.
+        // Pushing 15 clean frames here ensures every slot in the ring is healthy
+        // so the very first evaluate_window call sees a fully clean window.
+        let clean_snapshot = PerformanceSnapshot {
+            decode_us: 4_000,
+            render_cpu_us: 1_000,
+            render_gpu_us: 5_000,
+            effect_timings: HashMap::new(),
+            decode_queue_depth: 2,
+            ready_queue_depth: 4,
+            surface_pool_used: 3,
+            surface_pool_capacity: 10,
+            deadline_missed: false,
+            frame_pts: MediaTime(0),
+        };
+        for _ in 0..15 {
+            qos.record_frame_snapshot(clean_snapshot.clone());
+        }
+
         for _ in 0..8 {
             for _ in 0..10 {
-                qos.record_frame_snapshot(PerformanceSnapshot {
-                    decode_us: 4_000,
-                    render_cpu_us: 1_000,
-                    render_gpu_us: 5_000,
-                    effect_timings: HashMap::new(),
-                    decode_queue_depth: 2,
-                    ready_queue_depth: 4,
-                    surface_pool_used: 3,
-                    surface_pool_capacity: 10,
-                    deadline_missed: false,
-                    frame_pts: MediaTime(0),
-                });
+                qos.record_frame_snapshot(clean_snapshot.clone());
             }
             qos.evaluate_window(PlaybackMode::Play, MediaTime(0), &proxy_mgr, None);
         }

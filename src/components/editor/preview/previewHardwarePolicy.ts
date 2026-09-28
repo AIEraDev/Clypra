@@ -123,9 +123,7 @@ export function isAmdIntegratedGpu(
  * Detects entry-level Nvidia MX-series GPUs (discrete but weak).
  * MX 150 / 250 are legacy-igpu tier; MX 350 / 450 / 550 are capable-igpu.
  */
-export function isNvidiaMxGpu(
-  adapterName: string | null | undefined,
-): boolean {
+export function isNvidiaMxGpu(adapterName: string | null | undefined): boolean {
   if (!adapterName || !/nvidia/i.test(adapterName)) return false;
   return /\bmx\s*\d{3}/i.test(adapterName);
 }
@@ -285,7 +283,11 @@ export class PreviewPerformancePolicyController {
     return this.nativeSnapshot;
   }
 
-  observe(observation: PreviewPerformanceObservation, adapterName?: string | null, deviceType?: string | null): boolean {
+  observe(
+    observation: PreviewPerformanceObservation,
+    adapterName?: string | null,
+    deviceType?: string | null,
+  ): boolean {
     this.observations.push(observation);
     if (this.observations.length > 60) this.observations.shift();
     if (this.escalation >= 2) return false;
@@ -298,9 +300,10 @@ export class PreviewPerformancePolicyController {
     // constrained that waiting for a 12-sample window means the user already
     // experienced ~200ms of lag before quality drops. Use a tight 5-sample /
     // 2-overloaded window so escalation fires within the first burst.
-    const tier = adapterName !== undefined || deviceType !== undefined
-      ? classifyGpuTier(adapterName, deviceType)
-      : "unknown";
+    const tier =
+      adapterName !== undefined || deviceType !== undefined
+        ? classifyGpuTier(adapterName, deviceType)
+        : "unknown";
     if (tier === "legacy-igpu") {
       const hasFastBurst = this.observations.length >= 5 && overloaded >= 2;
       if (!hasFastBurst) return false;
