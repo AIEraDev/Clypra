@@ -179,7 +179,7 @@ pub struct ImportedNv12Texture {
 ///
 /// * `device` — the wgpu device (must use the DX12 backend on Windows).
 /// * `shared` — handle produced by `extract_shared_handle`; this function takes
-///              ownership and will close it regardless of success/failure.
+///   ownership and will close it regardless of success/failure.
 ///
 use crate::wgpu_compositor::render_path::DxgiFailureReason;
 
@@ -189,7 +189,7 @@ use crate::wgpu_compositor::render_path::DxgiFailureReason;
 ///
 /// * `device` — the wgpu device (must use the DX12 backend on Windows).
 /// * `shared` — handle produced by `extract_shared_handle`; this function takes
-///              ownership and will close it regardless of success/failure.
+///   ownership and will close it regardless of success/failure.
 ///
 /// # Returns
 ///
