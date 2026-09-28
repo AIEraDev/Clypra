@@ -73,8 +73,8 @@ pub use graph::{
     ResourceBarrier, ResourceId, TransientResourceDesc,
 };
 pub use hardware::{
-    AdapterId, AdapterRegistry, DecodeCapability, GpuAdapter, GpuVendor, GraphicsBackend,
-    PlaybackDevice, VideoDecodeCapabilities,
+    AdapterId, AdapterRegistry, DecodeCapability, GpuAdapter, GpuAdapterIdentity, GpuVendor,
+    GraphicsBackend, PlaybackDevice, VideoDecodeCapabilities,
 };
 pub use playback::{
     EngineCommand, PlaybackController, PlaybackPlanQueue, PlaybackPlanReceiver,
@@ -91,9 +91,10 @@ pub use presenter::{
     RenderedFrame, WgpuPresenter,
 };
 pub use qos::{
-    AsyncProxyManager, Bottleneck, EffectsPolicy, MediaVariant, PerformanceSnapshot,
-    PerformanceWindow, ProxyId, ProxyVariant, QoSConfig, QoSController, QoSDecision, QoSReason,
-    QoSTelemetry, QoSTransitionEvent, RenderQuality,
+    AsyncProxyManager, Bottleneck, DecodeStrategy, DecoderBackendId, EffectsPolicy, MediaVariant,
+    PerformanceEnvelope, PerformanceSnapshot, PerformanceWindow, PlaybackPolicySnapshot,
+    PlaybackResolutionDemand, ProxyAvailability, ProxyId, ProxyVariant, QoSConfig, QoSController,
+    QoSDecision, QoSReason, QoSTelemetry, QoSTransitionEvent, RenderQuality, Resolution,
 };
 pub use render_plan::{AudioPlan, AudioTrackPlan, RenderLayer, RenderPlan};
 pub use scheduler::{

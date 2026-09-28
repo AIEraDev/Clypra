@@ -10,6 +10,6 @@
 pub mod adapter;
 
 pub use adapter::{
-    AdapterId, AdapterRegistry, DecodeCapability, GpuAdapter, GpuVendor, GraphicsBackend,
-    PlaybackDevice, VideoDecodeCapabilities,
+    AdapterId, AdapterRegistry, DecodeCapability, GpuAdapter, GpuAdapterIdentity, GpuVendor,
+    GraphicsBackend, PlaybackDevice, VideoDecodeCapabilities,
 };

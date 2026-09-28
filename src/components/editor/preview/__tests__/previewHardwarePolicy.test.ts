@@ -607,4 +607,59 @@ describe("PreviewPerformancePolicyController", () => {
       ),
     ).toMatchObject({ capabilityPolicy: "reduced", maximumQuality: "half" });
   });
+
+  it("classifies Primary Display GPU as legacy-igpu to prevent false discrete promotion", () => {
+    expect(classifyGpuTier("Primary Display GPU", null)).toBe("legacy-igpu");
+    expect(classifyGpuTier("Primary Display GPU", "Other")).toBe("legacy-igpu");
+  });
+
+  it("gives precedence to authoritative native engine QoS snapshot over frontend heuristics", () => {
+    const controller = new PreviewPerformancePolicyController();
+
+    // With decode starvation signaled by native engine:
+    controller.updateFromNativeSnapshot({
+      mediaVariant: "Original",
+      renderQuality: "Full",
+      effectsPolicy: "Full",
+      reason: {
+        DecodeStarvation: {
+          decode_mean_us: 41171,
+          ready_depth: 0,
+        },
+      },
+      isDecodeStarved: true,
+    });
+
+    const policy = controller.policyFor(
+      "NVIDIA GeForce RTX 4090",
+      3840,
+      2160,
+      3840,
+      2160,
+      "DiscreteGpu",
+    );
+    expect(policy.capabilityPolicy).toBe("proxy");
+    expect(policy.maximumQuality).toBe("proxy");
+
+    // With render degradation signaled by native engine:
+    controller.updateFromNativeSnapshot({
+      mediaVariant: "Original",
+      renderQuality: "Quarter",
+      effectsPolicy: "Reduced",
+      reason: "GpuRenderDeadlinePressure",
+      isDecodeStarved: false,
+    });
+
+    const renderPolicy = controller.policyFor(
+      "NVIDIA GeForce RTX 4090",
+      3840,
+      2160,
+      3840,
+      2160,
+      "DiscreteGpu",
+    );
+    expect(renderPolicy.capabilityPolicy).toBe("reduced");
+    expect(renderPolicy.maximumQuality).toBe("quarter");
+    expect(renderPolicy.maxDimension).toBe(1280);
+  });
 });

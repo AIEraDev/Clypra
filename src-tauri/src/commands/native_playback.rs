@@ -1392,6 +1392,11 @@ pub fn get_engine_telemetry() -> Result<crate::engine::EngineTelemetrySnapshot, 
 }
 
 #[tauri::command]
+pub fn get_playback_policy() -> Result<crate::engine::PlaybackPolicySnapshot, String> {
+    Ok(crate::engine::ENGINE_TELEMETRY.current_playback_policy())
+}
+
+#[tauri::command]
 pub fn get_native_playback_state(app: AppHandle) -> Result<PlaybackState, String> {
     with_runtime(&app, |runtime| runtime.state())
 }

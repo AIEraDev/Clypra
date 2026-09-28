@@ -84,10 +84,12 @@ import {
   getNativeFrameServiceSamples,
   getNativeSyncMetricsSnapshot,
   getNativeGpuStatus,
+  getPlaybackPolicy,
   registerNativeRasterAsset,
   renderNativeFrame,
   queueNativeFrame,
   listenForNativePlaybackStats,
+  listenForEngineQoSDecision,
   listenForNativeMaskEviction,
   listenForNativeRasterEviction,
   type NativePlaybackStatsPayload,
@@ -622,6 +624,26 @@ export const NativeProgramPreview: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listenForEngineQoSDecision(() => {
+      getPlaybackPolicy()
+        .then((policy) => {
+          previewPerformancePolicyRef.current.updateFromNativeSnapshot(policy);
+          forceRepaintNativeProgramPreview();
+        })
+        .catch(() => {});
+    })
+      .then((fn) => {
+        unlisten = fn;
+      })
+      .catch(() => undefined);
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
+
+  useEffect(() => {
     // Probe native GPU status for accurate hardware telemetry
     if (isTauriRuntime()) {
       getNativeGpuStatus()
@@ -636,6 +658,13 @@ export const NativeProgramPreview: React.FC = () => {
             });
             forceRepaintNativeProgramPreview();
           }
+        })
+        .catch(() => {});
+
+      getPlaybackPolicy()
+        .then((policy) => {
+          previewPerformancePolicyRef.current.updateFromNativeSnapshot(policy);
+          forceRepaintNativeProgramPreview();
         })
         .catch(() => {});
     }

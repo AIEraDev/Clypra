@@ -3177,6 +3177,18 @@ pub(crate) async fn present_native_frame_internal(
             is_playback,
         );
         SYNC_METRICS.record_lookahead_miss();
+        let current_pts = crate::engine::MediaTime::from_micros(
+            (request.frame_time.ticks.max(0) as u128 * 1_000_000u128
+                / request.frame_time.timescale.max(1) as u128) as i64,
+        );
+        crate::engine::ENGINE_TELEMETRY.record_live_frame_metrics(
+            0,
+            0,
+            true,
+            0,
+            current_pts,
+            Some(&app),
+        );
         record_native_surface_sample(
             &app,
             &request,
@@ -3334,7 +3346,23 @@ pub(crate) async fn present_native_frame_internal(
     // In continuous playback, already-decoded frames must never be thrown away:
     // the heavy CPU decode cost has already been paid and GPU presentation takes <0.5ms.
     // Frame skipping occurs naturally at the scheduler boundary on the next tick.
-    let late_for_audio = late_for_audio && !legacy_request.layers.is_empty() && !is_playback;
+    // EXCEPT when severe A/V drift occurs (> 120 ms behind audio clock). In that case,
+    // presenting ancient frames only perpetuates desync. We purge stale queue frames and re-anchor.
+    let is_severely_late_for_audio = is_playback
+        && !legacy_request.layers.is_empty()
+        && frame_age_ticks > 120_000;
+
+    let late_for_audio = (late_for_audio && !legacy_request.layers.is_empty() && !is_playback)
+        || is_severely_late_for_audio;
+
+    if is_severely_late_for_audio {
+        if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
+            if let Ok(mut q) = queue.try_lock() {
+                q.discard_before(request.frame_time.frame_index);
+            }
+        }
+        schedule_lookahead_predecode(app.clone(), request.clone(), 16, current_lookahead_quality(&app));
+    }
     if !surface.accept_presentation(presentation_sequence) {
         drop(surface);
         drop(session);
@@ -3863,6 +3891,19 @@ pub(crate) async fn present_native_frame_internal(
             surface_pool_capacity: 16,
             cache_hit: queue_hit,
         },
+        Some(&app),
+    );
+
+    let frame_pts = crate::engine::MediaTime::from_micros(
+        (request.frame_time.ticks.max(0) as u128 * 1_000_000u128
+            / request.frame_time.timescale.max(1) as u128) as i64,
+    );
+    crate::engine::ENGINE_TELEMETRY.record_live_frame_metrics(
+        decode_timings.decode_time_us as u64,
+        compose_us,
+        false,
+        if queue_hit { 2 } else { 0 },
+        frame_pts,
         Some(&app),
     );
 

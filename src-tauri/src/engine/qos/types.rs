@@ -7,9 +7,122 @@
 //! - Bottleneck classification and explainable QoS decision reasons
 
 use super::super::frame::ColorMetadata;
+use super::super::hardware::DecodeCapability;
 use super::super::types::CodecType;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+
+/// Resolution dimensions (width, height).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Resolution {
+    pub width: u32,
+    pub height: u32,
+}
+
+impl Resolution {
+    pub fn new(width: u32, height: u32) -> Self {
+        Self { width, height }
+    }
+}
+
+pub type DecoderBackendId = String;
+
+/// Decode strategy selected for a media clip or timeline track.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DecodeStrategy {
+    pub media_variant: MediaVariant,
+    pub decoder_backend: DecoderBackendId,
+    pub target_decode_resolution: Option<Resolution>,
+}
+
+/// Calculated playback demand based on source media dimensions and UI viewport target.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlaybackResolutionDemand {
+    pub source_width: u32,
+    pub source_height: u32,
+    pub target_width: u32,
+    pub target_height: u32,
+    pub device_limit: Option<DecodeCapability>,
+}
+
+impl PlaybackResolutionDemand {
+    /// Selects the smallest acceptable proxy candidate that satisfies preview demand
+    /// without unnecessary over-decoding on constrained platforms.
+    pub fn select_candidate_proxy(&self, candidates: &[(u32, u32)]) -> (u32, u32) {
+        let target_area = self.target_width.saturating_mul(self.target_height).max(1);
+        let mut best = candidates.first().copied().unwrap_or((1280, 720));
+        for &cand in candidates {
+            let cand_area = cand.0.saturating_mul(cand.1);
+            if cand_area >= target_area && (best.0 * best.1 < target_area || cand_area < best.0 * best.1) {
+                best = cand;
+            }
+        }
+        best
+    }
+}
+
+/// Performance envelope comparing measured decode and render latencies against frame deadlines.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PerformanceEnvelope {
+    pub target_frame_interval_us: u64,
+    pub measured_decode_us: u64,
+    pub measured_render_us: u64,
+    pub decode_headroom_us: i64,
+    pub render_headroom_us: i64,
+    pub deadline_miss_ratio: f32,
+    pub sustained: bool,
+}
+
+impl PerformanceEnvelope {
+    pub fn from_timings(
+        target_interval_us: u64,
+        decode_us: u64,
+        render_us: u64,
+        miss_ratio: f32,
+        sustained: bool,
+    ) -> Self {
+        let decode_headroom = target_interval_us as i64 - decode_us as i64;
+        let render_headroom = target_interval_us as i64 - render_us as i64;
+        Self {
+            target_frame_interval_us: target_interval_us,
+            measured_decode_us: decode_us,
+            measured_render_us: render_us,
+            decode_headroom_us: decode_headroom,
+            render_headroom_us: render_headroom,
+            deadline_miss_ratio: miss_ratio,
+            sustained,
+        }
+    }
+
+    #[inline]
+    pub fn is_decode_starved(&self) -> bool {
+        self.decode_headroom_us < 0 || (self.sustained && self.deadline_miss_ratio > 0.20)
+    }
+
+    #[inline]
+    pub fn is_render_starved(&self) -> bool {
+        self.render_headroom_us < 0
+    }
+}
+
+/// Availability lifecycle of a proxy media stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ProxyAvailability {
+    Missing,
+    Generating,
+    Ready,
+    Failed,
+}
+
+/// Authoritative playback policy snapshot exposed by the native engine to the UI.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlaybackPolicySnapshot {
+    pub media_variant: MediaVariant,
+    pub render_quality: RenderQuality,
+    pub effects_policy: EffectsPolicy,
+    pub reason: QoSReason,
+    pub is_decode_starved: bool,
+}
 
 /// Unique identifier for a pre-generated or optimized proxy stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -108,6 +221,22 @@ pub enum QoSReason {
     DecodeStarvation {
         decode_mean_us: u64,
         ready_depth: usize,
+    },
+    /// Decode deadline pressure (single-frame decode exceeds target budget)
+    DecodeDeadlinePressure {
+        measured_us: u64,
+        budget_us: u64,
+    },
+    /// Decoder throughput insufficient for nominal framerate
+    DecoderThroughputInsufficient {
+        measured_fps: f32,
+        target_fps: f32,
+        decode_us: u64,
+    },
+    /// Preview viewport demand is small enough that decoding full master media is wasteful
+    PreviewDemandExceedsDecodeEnvelope {
+        source_res: (u32, u32),
+        target_res: (u32, u32),
     },
     /// GPU rendering / compositing is exceeding frame deadline
     GpuRenderDeadlinePressure {
