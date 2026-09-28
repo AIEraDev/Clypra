@@ -189,15 +189,29 @@ impl NativeRenderSession {
     }
 
     fn start(self: &Arc<Self>, app: AppHandle) {
-        if self.running.swap(true, Ordering::AcqRel) {
+        let was_running = self.running.swap(true, Ordering::AcqRel);
+        let generation = self.generation.load(Ordering::Acquire);
+        let quality = self.snapshot.read().quality;
+        let mut base_request = (**self.snapshot.read()).clone();
+        base_request.generation = Some(generation);
+
+        if was_running {
+            *self.last_materialized.write() = None;
+            crate::commands::native_preview::schedule_lookahead_predecode(
+                app.clone(),
+                base_request,
+                16,
+                Some(quality),
+            );
+            self.notify.notify_one();
             return;
         }
-        let base_request = (**self.snapshot.read()).clone();
+
         crate::commands::native_preview::schedule_lookahead_predecode(
             app.clone(),
             base_request,
             16,
-            None,
+            Some(quality),
         );
         let session = Arc::clone(self);
         let handle = tauri::async_runtime::spawn(async move {
@@ -239,6 +253,7 @@ impl NativeRenderSession {
     /// finish, but it can never reach presentation afterward.
     fn invalidate(&self, generation: u64) {
         self.generation.fetch_max(generation, Ordering::AcqRel);
+        *self.last_materialized.write() = None;
         if let Ok(mut pending) = self.pending.lock() {
             if pending
                 .value
@@ -595,6 +610,7 @@ impl NativeRenderSession {
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         let mut last_rendered_frame_index: Option<u64> = None;
+        let mut last_rendered_generation: u64 = 0;
         let mut frames_rendered: u64 = 0;
         let mut queue_hits: u64 = 0;
         let mut total_time_sum_us: u64 = 0;
@@ -614,6 +630,10 @@ impl NativeRenderSession {
             }
 
             let generation = self.generation.load(Ordering::Acquire);
+            if generation != last_rendered_generation {
+                last_rendered_generation = generation;
+                last_rendered_frame_index = None;
+            }
             let dynamic_demand = self.pending.lock().ok().and_then(|mut slot| slot.take());
             if let Some(demand) = &dynamic_demand {
                 if demand.generation.unwrap_or(0) < generation {
@@ -655,7 +675,7 @@ impl NativeRenderSession {
 
                     let mut request = base_request;
                     request.mode = Some("playback".to_string());
-                    let base_timeline_secs = (request.frame_time.ticks as f64)
+                    let mut base_timeline_secs = (request.frame_time.ticks as f64)
                         / (request.frame_time.timescale.max(1) as f64);
                     request.frame_time.frame_index = frame_index;
                     request.frame_time.ticks = audio_time.ticks;
@@ -664,6 +684,18 @@ impl NativeRenderSession {
                     if dynamic_demand.is_none() {
                         let audio_time_secs =
                             (audio_time.ticks as f64) / (audio_time.timescale as f64);
+                        if audio_time_secs < base_timeline_secs - 0.25 {
+                            // Temporal regression: audio jumped backward relative to old materialized request.
+                            // Invalidate stale materialized state and re-anchor from baseline snapshot.
+                            *self.last_materialized.write() = None;
+                            request = (**self.snapshot.read()).clone();
+                            request.mode = Some("playback".to_string());
+                            request.frame_time.frame_index = frame_index;
+                            request.frame_time.ticks = audio_time.ticks;
+                            request.frame_time.timescale = audio_time.timescale;
+                            base_timeline_secs = (request.frame_time.ticks as f64)
+                                / (request.frame_time.timescale.max(1) as f64);
+                        }
                         let delta_secs = (audio_time_secs - base_timeline_secs).max(0.0);
                         for layer in &mut request.project.video_layers {
                             let base_source_time_secs = (layer.source_time.ticks as f64)
@@ -1459,7 +1491,16 @@ pub fn native_seek(app: AppHandle, frame_index: u64) -> Result<PlaybackState, St
 #[tauri::command]
 pub fn native_seek_from_audio(app: AppHandle, frame_index: u64) -> Result<PlaybackState, String> {
     let clock = audio_clock_time(&app, false, false)?;
-    with_runtime(&app, |runtime| runtime.seek_from_audio(frame_index, clock))
+    let state = with_runtime(&app, |runtime| runtime.seek_from_audio(frame_index, clock))?;
+    if let Some(runtime_arc) = app.try_state::<Arc<Mutex<NativePlaybackRuntime>>>() {
+        if let Ok(runtime) = runtime_arc.inner().clone().lock() {
+            if let Some(session) = &runtime.render_session {
+                *session.last_materialized.write() = None;
+                session.notify.notify_one();
+            }
+        }
+    }
+    Ok(state)
 }
 
 #[tauri::command]
