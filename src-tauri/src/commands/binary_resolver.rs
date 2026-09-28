@@ -114,8 +114,30 @@ pub fn augmented_path() -> String {
 /// via `Command::new` causes `ERROR_EXE_MACHINE_TYPE_MISMATCH (os error 216)`:
 /// "This version of %1 is not compatible with the version of Windows you're running."
 /// Genuine Windows PE executables must begin with the `MZ` DOS magic header.
+///
+/// On macOS/Linux the repo ships shell-script stubs (starting with `#!`) in
+/// place of real binaries for non-native target triples. These stubs are valid
+/// files with the execute bit set, so a plain `is_file()` check accepts them.
+/// We reject any file whose first two bytes form a shebang (`#!`) because no
+/// real native binary (Mach-O: `\xCF\xFA` / `\xFE\xED`, ELF: `\x7FELF`) starts
+/// with those bytes. We also enforce a minimum size floor: real FFmpeg builds
+/// are tens of megabytes; any file smaller than 1 MB is certainly not a usable
+/// native binary and is rejected regardless of magic bytes.
 pub fn is_real_executable(path: &Path) -> bool {
     if !path.is_file() {
+        return false;
+    }
+
+    // Read the first 4 bytes to inspect the magic header.
+    // All real native binary formats start with a recognisable magic number
+    // that is entirely distinct from the ASCII characters used by shell/batch stubs.
+    use std::io::Read;
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut magic = [0u8; 4];
+    if f.read_exact(&mut magic).is_err() {
+        // File is smaller than 4 bytes — definitely not a real binary.
         return false;
     }
 
@@ -125,19 +147,21 @@ pub fn is_real_executable(path: &Path) -> bool {
             .extension()
             .map_or(false, |ext| ext.eq_ignore_ascii_case("exe"));
         if is_exe {
-            use std::io::{Read, Seek, SeekFrom};
-            let Ok(mut f) = std::fs::File::open(path) else {
-                return false;
-            };
+            use std::io::{Seek, SeekFrom};
 
-            // 1. Must have DOS header (at least 64 bytes) starting with "MZ" (0x4D, 0x5A)
-            let mut dos_header = [0u8; 64];
-            if f.read_exact(&mut dos_header).is_err()
-                || dos_header[0] != 0x4D
-                || dos_header[1] != 0x5A
-            {
+            // 1. Must have DOS header starting with "MZ" (0x4D, 0x5A)
+            if magic[0] != 0x4D || magic[1] != 0x5A {
                 return false;
             }
+
+            // Read the full 64-byte DOS header to reach e_lfanew at 0x3C.
+            let mut dos_rest = [0u8; 60];
+            if f.read_exact(&mut dos_rest).is_err() {
+                return false;
+            }
+            let mut dos_header = [0u8; 64];
+            dos_header[..4].copy_from_slice(&magic);
+            dos_header[4..].copy_from_slice(&dos_rest);
 
             // 2. Read e_lfanew (offset to PE header) at offset 0x3C
             let pe_offset = u32::from_le_bytes([
@@ -188,6 +212,37 @@ pub fn is_real_executable(path: &Path) -> bool {
                 // Native ARM64 hosts can execute ARM64 (0xAA64), ARM64EC (0xA641),
                 // and on Windows 11 transparently emulate AMD64 (0x8664) and i386 (0x014C).
             }
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        // Reject shell/batch stubs: they start with `#!` (shebang, 0x23 0x21).
+        // Real native binaries never start with ASCII text characters:
+        //   Mach-O 64-bit little-endian: CF FA ED FE
+        //   Mach-O 64-bit big-endian:    FE ED FA CF
+        //   Mach-O fat binary:           CA FE BA BE
+        //   ELF:                         7F 45 4C 46
+        if magic[0] == b'#' && magic[1] == b'!' {
+            log::debug!(
+                "[BinaryResolver] Rejected shell stub at {:?} (shebang header)",
+                path
+            );
+            return false;
+        }
+
+        // Enforce minimum size: real FFmpeg/FFprobe binaries are many megabytes.
+        // A file smaller than 1 MB cannot be a real native binary.
+        let Ok(meta) = std::fs::metadata(path) else {
+            return false;
+        };
+        if meta.len() < 1_000_000 {
+            log::debug!(
+                "[BinaryResolver] Rejected undersized file at {:?} ({} bytes < 1 MB minimum)",
+                path,
+                meta.len()
+            );
+            return false;
         }
     }
 
@@ -465,13 +520,49 @@ mod tests {
             );
         }
 
+        // On non-Windows these are tiny files (<1 MB) so they are rejected by the size guard.
         #[cfg(not(target_os = "windows"))]
         {
-            assert!(is_real_executable(&batch_stub));
-            assert!(is_real_executable(&pe_binary));
+            assert!(
+                !is_real_executable(&batch_stub),
+                "Tiny batch stub must be rejected on non-Windows (size guard)"
+            );
+            assert!(
+                !is_real_executable(&pe_binary),
+                "Tiny PE-header mock must be rejected on non-Windows (size guard)"
+            );
         }
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_is_real_executable_rejects_shebang_stub_on_unix() {
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        {
+            let temp_dir =
+                std::env::temp_dir().join(format!("clypra-shebang-test-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&temp_dir).expect("Failed to create temp dir");
+
+            // Shell stub like those shipped in src-tauri/bin/ for non-native triples
+            let stub = temp_dir.join("ffmpeg-x86_64-apple-darwin");
+            std::fs::write(
+                &stub,
+                b"#!/bin/sh\n# Dev helper: runs ffmpeg from PATH.\nif command -v ffmpeg >/dev/null 2>&1; then exec ffmpeg \"$@\"; fi\nexit 127\n",
+            )
+            .expect("Failed to write stub");
+            // Make it executable so the old code would have passed it
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755))
+                .expect("Failed to chmod stub");
+
+            assert!(
+                !is_real_executable(&stub),
+                "Shell stub starting with #! must be rejected (shebang)"
+            );
+
+            let _ = std::fs::remove_dir_all(&temp_dir);
+        }
     }
 
     #[test]

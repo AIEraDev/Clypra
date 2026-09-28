@@ -29,11 +29,36 @@ impl MediaRuntime {
         crate::commands::binary_resolver::resolve_binary_path("ffprobe")
     }
 
-    /// True only when both executables use Tauri's target-qualified sidecar
-    /// names. A PATH fallback remains useful for local development, but must
-    /// never be mistaken for a packaged Clypra media engine.
+    /// True when the resolved path points to a Clypra-managed sidecar rather
+    /// than an arbitrary system install.
+    ///
+    /// Two naming conventions are accepted:
+    ///
+    /// 1. **Triple-qualified** (`ffmpeg-aarch64-apple-darwin`) — used inside a
+    ///    packaged `.app` / `.exe` bundle where Tauri places the sidecar as a
+    ///    sibling of the main executable under `Contents/MacOS/` (macOS) or
+    ///    next to the `.exe` (Windows/Linux). This is the canonical production
+    ///    layout.
+    ///
+    /// 2. **Plain name** (`ffmpeg` / `ffmpeg.exe`) **adjacent to the Clypra
+    ///    executable** — Tauri copies the target-qualified sidecar from
+    ///    `src-tauri/bin/` into `target/debug/` and `target/release/` under the
+    ///    plain name during both `cargo tauri dev` and `cargo tauri build`.
+    ///    Matching only the triple-qualified name caused `bundled: false` to be
+    ///    reported for every dev and release run, which in turn allowed the
+    ///    subprocess FFmpeg path to fall through to the system install.
+    ///
+    /// The plain-name match is intentionally gated on the path being **sibling
+    /// to the current executable** so that a user-installed `/usr/local/bin/ffmpeg`
+    /// is never mistaken for the bundled sidecar.
     pub fn is_bundled_path(path: &Path, binary: &str) -> bool {
-        let expected = if cfg!(target_os = "windows") {
+        let file_name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n,
+            None => return false,
+        };
+
+        // Accept the triple-qualified name (production .app bundle layout).
+        let triple_name = if cfg!(target_os = "windows") {
             format!(
                 "{}-{}.exe",
                 binary,
@@ -46,7 +71,31 @@ impl MediaRuntime {
                 crate::commands::binary_resolver::TARGET_TRIPLE
             )
         };
-        path.file_name().and_then(|name| name.to_str()) == Some(expected.as_str())
+        if file_name == triple_name.as_str() {
+            return true;
+        }
+
+        // Accept the plain name only when the file sits next to the Clypra
+        // executable (i.e. in target/debug/, target/release/, or inside the
+        // packaged bundle's executable directory). This prevents a system-wide
+        // `ffmpeg` from being misidentified as the bundled one.
+        let plain_name = if cfg!(target_os = "windows") {
+            let base = binary.trim_end_matches(".exe");
+            format!("{}.exe", base)
+        } else {
+            binary.to_string()
+        };
+        if file_name == plain_name.as_str() {
+            if let Ok(exe_path) = std::env::current_exe() {
+                if let Some(exe_dir) = exe_path.parent() {
+                    if path.parent() == Some(exe_dir) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
     }
 
     pub fn parse_clean_version(stdout: &str) -> Option<String> {
@@ -148,8 +197,8 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn only_target_qualified_names_are_marked_as_bundled() {
-        let expected = if cfg!(target_os = "windows") {
+    fn triple_qualified_name_is_always_bundled() {
+        let triple_name = if cfg!(target_os = "windows") {
             format!(
                 "ffmpeg-{}.exe",
                 crate::commands::binary_resolver::TARGET_TRIPLE
@@ -157,14 +206,51 @@ mod tests {
         } else {
             format!("ffmpeg-{}", crate::commands::binary_resolver::TARGET_TRIPLE)
         };
-        assert!(MediaRuntime::is_bundled_path(
-            Path::new(&expected),
-            "ffmpeg"
-        ));
-        assert!(!MediaRuntime::is_bundled_path(
-            Path::new("ffmpeg"),
-            "ffmpeg"
-        ));
+        assert!(
+            MediaRuntime::is_bundled_path(Path::new(&triple_name), "ffmpeg"),
+            "Triple-qualified sidecar name must always be recognised as bundled"
+        );
+    }
+
+    #[test]
+    fn plain_name_sibling_of_exe_is_bundled() {
+        // Tauri copies the sidecar as the plain name (e.g. `ffmpeg`) into
+        // target/debug/ and target/release/ next to the app executable.
+        // Construct a path that IS a sibling of current_exe() and verify it
+        // is accepted.
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                let plain = if cfg!(target_os = "windows") {
+                    exe_dir.join("ffmpeg.exe")
+                } else {
+                    exe_dir.join("ffmpeg")
+                };
+                assert!(
+                    MediaRuntime::is_bundled_path(&plain, "ffmpeg"),
+                    "Plain-named sidecar next to the executable must be recognised as bundled"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn plain_name_outside_exe_dir_is_not_bundled() {
+        // A system-wide install (e.g. /usr/local/bin/ffmpeg) must NOT be
+        // flagged as the bundled sidecar.
+        #[cfg(not(target_os = "windows"))]
+        assert!(
+            !MediaRuntime::is_bundled_path(Path::new("/usr/local/bin/ffmpeg"), "ffmpeg"),
+            "System PATH ffmpeg must not be reported as bundled"
+        );
+        #[cfg(not(target_os = "windows"))]
+        assert!(
+            !MediaRuntime::is_bundled_path(Path::new("/opt/homebrew/bin/ffmpeg"), "ffmpeg"),
+            "Homebrew ffmpeg must not be reported as bundled"
+        );
+        assert!(
+            !MediaRuntime::is_bundled_path(Path::new("ffmpeg"), "ffmpeg"),
+            "Bare filename with no directory must not be reported as bundled"
+        );
     }
 
     #[test]
