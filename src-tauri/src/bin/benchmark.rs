@@ -1,0 +1,92 @@
+//! Standalone Clypra Native Engine Benchmark Executable
+//!
+//! Run with:
+//! cargo run --bin clypra-engine-benchmark -- --scenario playback --duration 30 --t1200 --output result.json
+
+use std::fs;
+use tauri_app_lib::engine::benchmark::{
+    BenchmarkScenario, CliOptions, HardwareBenchmarkRunner,
+};
+
+fn main() {
+    let opts = CliOptions::parse_from_args();
+
+    let mut runner = if opts.use_t1200_profile {
+        HardwareBenchmarkRunner::new_windows_t1200(opts.config.clone())
+    } else {
+        HardwareBenchmarkRunner::new(opts.config.clone())
+    };
+
+    if opts.run_full_suite {
+        println!("Running Clypra Windows NLE Native Hardware Benchmark Suite...\n");
+
+        let scenarios = [
+            BenchmarkScenario::ColdStartup,
+            BenchmarkScenario::ContinuousPlayback,
+            BenchmarkScenario::SeekCold,
+            BenchmarkScenario::SeekWarm,
+            BenchmarkScenario::RapidScrub,
+            BenchmarkScenario::FrameStep,
+            BenchmarkScenario::MultiLayerPlayback,
+            BenchmarkScenario::QoSDegradationRecovery,
+            BenchmarkScenario::MemoryPressure,
+            BenchmarkScenario::TimelineGap,
+            BenchmarkScenario::ReactFreezeImmunity,
+        ];
+
+        let mut all_passed = true;
+        let mut results = Vec::new();
+
+        for scenario in scenarios {
+            let mut scenario_config = opts.config.clone();
+            scenario_config.scenario = scenario;
+
+            let mut scenario_runner = if opts.use_t1200_profile {
+                HardwareBenchmarkRunner::new_windows_t1200(scenario_config)
+            } else {
+                HardwareBenchmarkRunner::new(scenario_config)
+            };
+
+            let res = scenario_runner.run();
+            let report = scenario_runner.format_report(&res);
+            println!("{report}\n");
+
+            if !res.passed {
+                all_passed = false;
+            }
+            results.push(res);
+        }
+
+        if let Some(ref path) = opts.output_json_path {
+            if let Ok(json) = serde_json::to_string_pretty(&results) {
+                let _ = fs::write(path, json);
+                println!("Saved benchmark suite JSON to: {}", path.display());
+            }
+        }
+
+        if all_passed {
+            println!("OVERALL SUITE RESULT: PASS\n");
+            std::process::exit(0);
+        } else {
+            eprintln!("OVERALL SUITE RESULT: FAIL\n");
+            std::process::exit(1);
+        }
+    } else {
+        let res = runner.run();
+        let report = runner.format_report(&res);
+        println!("{report}");
+
+        if let Some(ref path) = opts.output_json_path {
+            if let Ok(json) = runner.to_json(&res) {
+                let _ = fs::write(path, json);
+                println!("\nSaved benchmark result JSON to: {}", path.display());
+            }
+        }
+
+        if res.passed {
+            std::process::exit(0);
+        } else {
+            std::process::exit(1);
+        }
+    }
+}

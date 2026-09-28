@@ -12,6 +12,7 @@ pub mod audio;
 pub mod clymatte;
 pub mod commands;
 pub mod diagnostics;
+pub mod engine;
 pub mod golden_harness;
 pub mod media_runtime;
 pub mod models;
@@ -425,6 +426,7 @@ pub fn run() {
             configure_native_playback_render,
             update_native_playback_render,
             submit_native_playback_demand,
+            get_engine_telemetry,
             get_native_playback_state,
             native_play,
             native_pause,

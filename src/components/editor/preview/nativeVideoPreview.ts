@@ -1104,12 +1104,6 @@ export function buildNativeVideoProjectRequest(
   if (imageLayers.some((layer) => !rasterLayers.some((asset) =>
     hasNativeImageRasterAsset(layer, asset),
   ))) return null;
-  if (
-    mediaLayers.length === 0 &&
-    textLayers.length === 0 &&
-    rasterLayers.filter((layer) => !layer.isMask).length === 0 &&
-    backgroundMediaPath === null
-  ) return null;
   if (animatedStickerLayers.some((layer) => !rasterLayers.some((asset) =>
     !asset.isMask && asset.assetId.startsWith(`native-sticker:${layer.layerId}:`),
   ))) return null;
@@ -1331,16 +1325,6 @@ export function getNativePreviewBlockers(
     if (getNativeBodyEffect(layer, rasterLayers) === null) {
       add(`Body effect on media layer ${layer.layerId} is missing its native segmentation mask.`);
     }
-  }
-  if (
-    mediaLayers.length === 0 &&
-    imageLayers.length === 0 &&
-    animatedStickerLayers.length === 0 &&
-    textLayers.length === 0 &&
-    rasterLayers.filter((layer) => !layer.isMask).length === 0 &&
-    getNativeBackgroundMediaPath(scene) === null
-  ) {
-    add("The scene has no native-renderable visual content at the current time.");
   }
   return blockers;
 }

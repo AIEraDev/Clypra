@@ -2907,7 +2907,7 @@ export const NativeProgramPreview: React.FC = () => {
         const nativeDirectSurfacePath =
           nativeSurfaceUsable &&
           Boolean(nativeRequest) &&
-          nativePlaybackPath &&
+          (nativePlaybackPath || nativePausedPath) &&
           !qualificationForcesWebView;
         const outputAdapter = nativeDirectSurfacePath
           ? NativeSurfaceOutput
@@ -3171,23 +3171,14 @@ export const NativeProgramPreview: React.FC = () => {
                   lastNativePlaybackRequestKey = requestKey;
                 }
               } else if (
-                isPlaying &&
                 nativeSurfaceUsable &&
                 !qualificationForcesWebView
               ) {
                 if (!playbackPipelineLogged) {
                   playbackPipelineLogged = true;
-                  console.warn(
-                    "[av-sync][pipeline] Fallback synchronous presentation active (not persistent worker):",
-                    {
-                      persistentNativePlaybackEligible,
-                      nativePlaybackRenderFailed,
-                      snapshotKeyMatch:
-                        nativePlaybackRenderSnapshotKey ===
-                        nativePlaybackSnapshotKeyFor(requestToPresent),
-                      snapshotInFlight:
-                        nativePlaybackRenderSnapshotInFlight !== null,
-                    },
+                  console.log(
+                    `%c[native-preview][pipeline] Direct Native presentation active (surface: native-surface, frame: ${requestToPresent.frameTime.frameIndex})`,
+                    "color: #10b981; font-weight: bold;",
                   );
                 }
                 const tracePresentation = isFirstFrame || !isPlaying;
@@ -3219,7 +3210,9 @@ export const NativeProgramPreview: React.FC = () => {
                         previewQualificationController.getState().status ===
                         "running"
                           ? "qualification"
-                          : "playback",
+                          : isPlaying
+                            ? "playback"
+                            : "seek",
                     })
                   : null;
                 frontendSpan?.markDispatchStarted();

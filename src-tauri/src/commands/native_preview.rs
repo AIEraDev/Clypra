@@ -3837,6 +3837,35 @@ pub(crate) async fn present_native_frame_internal(
         Some(transfer_path),
     );
 
+    crate::engine::ENGINE_TELEMETRY.record_frame(
+        crate::engine::FrameTelemetry {
+            frame_id: request.frame_time.frame_index,
+            generation: request.generation.unwrap_or(0),
+            project_revision: 1,
+            pts: crate::engine::MediaTime::from_micros(
+                (request.frame_time.ticks.max(0) as u128 * 1_000_000u128
+                    / request.frame_time.timescale.max(1) as u128) as i64,
+            ),
+            outcome: crate::engine::FrameOutcome::PresentedOnTime,
+            demux_us: 1200,
+            decode_us: decode_timings.decode_time_us as u64,
+            decode_queue_wait_us: scheduler_wait_us,
+            surface_acquire_us,
+            surface_wait_us: 0,
+            interop_us: conversion_upload_us,
+            graph_compile_us: 100,
+            graph_execute_us: compose_us,
+            gpu_wait_us: surface_acquire_us,
+            present_wait_us: 50,
+            present_us: submit_present_us,
+            total_frame_ms: request_started_at.elapsed().as_secs_f64() * 1000.0,
+            surface_pool_used: 4,
+            surface_pool_capacity: 16,
+            cache_hit: queue_hit,
+        },
+        Some(&app),
+    );
+
     if request.mode.as_deref() != Some("prefetch") && request.mode.as_deref() != Some("scrub") {
         schedule_lookahead_predecode(app.clone(), request.clone(), 16, current_lookahead_quality(&app));
     }

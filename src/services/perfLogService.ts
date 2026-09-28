@@ -79,7 +79,12 @@ export type PerfLogKind =
   | "worker-error"
   | "media-preview-diagnostic"
   | "project-session-load"
-  | "project-session-close";
+  | "project-session-close"
+  | "engine-telemetry"
+  | "engine-frame-telemetry"
+  | "engine-qos-decision"
+  | "engine-seek-telemetry"
+  | "zero-copy-violation";
 
 export interface PerfLogEntry {
   kind: PerfLogKind;
@@ -147,6 +152,7 @@ class PerfLogService {
   private diagnosticsUnlisten: (() => void) | null = null;
   private playbackStartupUnlisten: (() => void) | null = null;
   private workerErrorUnlisten: (() => void) | null = null;
+  private engineUnlistens: (() => void)[] = [];
   private flushInFlight: Promise<void> | null = null;
   private closeInFlight: Promise<void> | null = null;
   /** Peak process RSS observed since the current session opened (MB). */
@@ -192,6 +198,7 @@ class PerfLogService {
       this.startSyncPollTimer();
       await this.subscribeToNativeDiagnostics();
       await this.subscribeToNativePlaybackStartup();
+      await this.subscribeToEngineEvents();
       // Start the dev-console loop (non-destructive snapshot; NDJSON forwarding
       // uses takeAndReset() inside flushFrontendSyncMetrics on the poll timer).
       startSyncMetricsFlushLoop(SYNC_POLL_INTERVAL_MS);
@@ -521,6 +528,8 @@ class PerfLogService {
       this.playbackStartupUnlisten();
       this.playbackStartupUnlisten = null;
     }
+    this.engineUnlistens.forEach((u) => u());
+    this.engineUnlistens = [];
 
     // Tell Rust to close the file and get back the path.
     let closedPath: string | null = null;
@@ -686,6 +695,7 @@ class PerfLogService {
       void this.pollNativeSyncMetrics();
       void this.pollNativeSessionTelemetry();
       void this.pollProcessMemory();
+      void this.pollEngineTelemetry();
       this.flushFilmstripSummary();
       this.flushFrontendSyncMetrics();
       this.flushWorkerSummary();
@@ -902,6 +912,76 @@ class PerfLogService {
       );
     } catch {
       // The event is optional on older builds; normal telemetry continues.
+    }
+  }
+
+  /** Subscribes to the Clypra Real-Time Engine (v2) telemetry event stream. */
+  private async subscribeToEngineEvents(): Promise<void> {
+    try {
+      const u1 = await tauriListen("clypra://engine-telemetry", (payload) => {
+        if (!this.sessionId) return;
+        this.enqueue({
+          kind: "engine-telemetry",
+          sessionId: this.sessionId,
+          timestampEpochMs: Date.now(),
+          payload,
+        });
+      });
+      const u2 = await tauriListen("clypra://engine-frame-anomaly", (payload) => {
+        if (!this.sessionId) return;
+        this.enqueue({
+          kind: "engine-frame-telemetry",
+          sessionId: this.sessionId,
+          timestampEpochMs: Date.now(),
+          payload,
+        });
+      });
+      const u3 = await tauriListen("clypra://engine-qos-decision", (payload) => {
+        if (!this.sessionId) return;
+        this.enqueue({
+          kind: "engine-qos-decision",
+          sessionId: this.sessionId,
+          timestampEpochMs: Date.now(),
+          payload,
+        });
+      });
+      const u4 = await tauriListen("clypra://engine-seek-telemetry", (payload) => {
+        if (!this.sessionId) return;
+        this.enqueue({
+          kind: "engine-seek-telemetry",
+          sessionId: this.sessionId,
+          timestampEpochMs: Date.now(),
+          payload,
+        });
+      });
+      const u5 = await tauriListen("clypra://zero-copy-violation", (payload) => {
+        if (!this.sessionId) return;
+        this.enqueue({
+          kind: "zero-copy-violation",
+          sessionId: this.sessionId,
+          timestampEpochMs: Date.now(),
+          payload,
+        });
+      });
+      this.engineUnlistens = [u1, u2, u3, u4, u5];
+    } catch (err) {
+      console.warn("[PerfLogService] Failed to subscribe to engine events:", err);
+    }
+  }
+
+  private async pollEngineTelemetry(): Promise<void> {
+    if (!this.sessionId) return;
+    try {
+      const snapshot = await tauriInvoke<unknown>("get_engine_telemetry");
+      if (!snapshot) return;
+      this.enqueue({
+        kind: "engine-telemetry",
+        sessionId: this.sessionId,
+        timestampEpochMs: Date.now(),
+        payload: snapshot,
+      });
+    } catch {
+      // Ignored if engine telemetry is unavailable
     }
   }
 
