@@ -163,14 +163,28 @@ impl QoSController {
             match &bottleneck {
                 Bottleneck::Decode => {
                     // DECODE BOTTLENECK:
-                    // Keep RenderQuality Full; switch to Proxy if available
+                    // Prefer switching to Proxy if available.
+                    // If no proxy is ready yet, downgrade RenderQuality and reduce lookahead
+                    // to relieve memory and bus contention on constrained GPUs.
                     let decode_mean = self.window.mean_decode_us();
+                    let mut proxy_switched = false;
 
                     if let Some(asset_id) = active_asset_id {
                         if let Some(ready_proxy) = proxy_manager.get_ready_proxy(asset_id) {
                             new_decision.media_variant = MediaVariant::Proxy(ready_proxy.id);
+                            proxy_switched = true;
                         }
                     }
+
+                    if !proxy_switched {
+                        new_decision.render_quality = match new_decision.render_quality {
+                            RenderQuality::Full => RenderQuality::Half,
+                            RenderQuality::Half => RenderQuality::Quarter,
+                            RenderQuality::Quarter => RenderQuality::Quarter,
+                        };
+                        new_decision.lookahead_reduction = (new_decision.lookahead_reduction + 0.25).min(0.75);
+                    }
+
                     new_decision.reason = QoSReason::DecodeStarvation {
                         decode_mean_us: decode_mean,
                         ready_depth: self.window.mean_ready_queue_depth() as usize,

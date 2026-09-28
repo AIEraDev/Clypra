@@ -207,6 +207,18 @@ impl PerformanceWindow {
             return (Bottleneck::RenderGpu, conf);
         }
 
+        // 4b. High Deadline Miss Fallback
+        // If >=25% of deadlines are missed, the system is under severe pressure.
+        // Attribute to the heavier stage rather than falsely claiming Healthy.
+        if miss_ratio >= 0.25 {
+            let conf = miss_ratio.clamp(0.6, 1.0);
+            if mean_decode >= mean_gpu {
+                return (Bottleneck::Decode, conf);
+            } else {
+                return (Bottleneck::RenderGpu, conf);
+            }
+        }
+
         // 5. System Healthy
         if miss_ratio < 0.05 && mean_decode < (budget * 7 / 10) && mean_gpu < (budget * 7 / 10) {
             return (Bottleneck::None, 0.95);

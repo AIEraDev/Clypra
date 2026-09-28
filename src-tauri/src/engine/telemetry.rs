@@ -17,6 +17,7 @@ use super::benchmark::types::{
     PlaybackSummary, TransferMetrics,
 };
 use super::graph::telemetry::RenderGraphTelemetry;
+use super::hardware::{HardwareCapabilityProfile, probe_hardware_capability};
 use super::qos::controller::{QoSConfig, QoSController};
 use super::qos::metrics::PerformanceSnapshot;
 use super::qos::proxy_manager::AsyncProxyManager;
@@ -57,6 +58,7 @@ pub struct EngineTelemetrySnapshot {
     pub qos: QoSTelemetry,
     pub graph: RenderGraphTelemetry,
     pub last_seek: Option<SeekTelemetry>,
+    pub hw_capability_tier: String,
     pub timestamp_epoch_ms: u64,
 }
 
@@ -64,6 +66,7 @@ pub struct EngineTelemetrySnapshot {
 pub struct EngineTelemetryCollector {
     machine: RwLock<MachineIdentity>,
     decoder: RwLock<DecoderIdentity>,
+    hw_profile: RwLock<HardwareCapabilityProfile>,
     transfers: RwLock<TransferMetrics>,
     recent_frames: RwLock<Vec<FrameTelemetry>>,
     qos: RwLock<QoSTelemetry>,
@@ -87,6 +90,13 @@ impl EngineTelemetryCollector {
         let machine = super::benchmark::runner::probe_machine_identity();
         let default_media = BenchmarkMedia::mock_4k60_hevc_10bit();
         let decoder = super::benchmark::runner::probe_decoder_identity(&machine, &default_media);
+        let hw_profile = probe_hardware_capability(
+            machine.vram_bytes,
+            &format!("{:?}", machine.gpu_vendor),
+            &machine.gpu_adapter,
+            decoder.is_hardware,
+            false,
+        );
         let transfers = TransferMetrics {
             cpu_readback_bytes: 0,
             cpu_upload_bytes: 0,
@@ -95,8 +105,8 @@ impl EngineTelemetryCollector {
             is_zero_copy: true,
         };
         let qos_config = QoSConfig {
-            degrade_window_threshold: 2,
-            recover_window_threshold: 8,
+            degrade_window_threshold: hw_profile.recommended_qos_config.degrade_window_threshold,
+            recover_window_threshold: hw_profile.recommended_qos_config.recover_window_threshold,
             target_fps: 60.0,
             window_capacity: 15,
         };
@@ -117,6 +127,7 @@ impl EngineTelemetryCollector {
         Self {
             machine: RwLock::new(machine),
             decoder: RwLock::new(decoder),
+            hw_profile: RwLock::new(hw_profile),
             transfers: RwLock::new(transfers),
             recent_frames: RwLock::new(Vec::with_capacity(120)),
             qos: RwLock::new(qos),
@@ -369,8 +380,14 @@ impl EngineTelemetryCollector {
             qos,
             graph,
             last_seek,
+            hw_capability_tier: format!("{:?}", self.hw_profile.read().tier),
             timestamp_epoch_ms: now_epoch_ms,
         }
+    }
+
+    /// Returns the hardware capability profile probed at startup.
+    pub fn hardware_profile(&self) -> HardwareCapabilityProfile {
+        self.hw_profile.read().clone()
     }
 }
 
