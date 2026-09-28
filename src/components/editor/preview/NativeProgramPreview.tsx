@@ -136,6 +136,7 @@ import {
 } from "@/core/playback/previewOutputAdapters";
 import { ensureNativeFontsRegistered } from "@/core/fonts/nativeFontRegistry";
 import {
+  EMBEDDED_PREVIEW_ONLY,
   NATIVE_PREVIEW_ONLY,
   createNativePlaybackFrameDemand,
   type NativeFrameRequest,
@@ -2915,6 +2916,7 @@ export const NativeProgramPreview: React.FC = () => {
           nativeContinuousBlockedRevision = "";
         }
         const nativeSurfaceUsable =
+          !EMBEDDED_PREVIEW_ONLY &&
           nativeSurfaceReadyNow &&
           nativeSurfaceGeometrySettledRef.current &&
           nativeContinuousBlockedRevision !== nativeRevision;
@@ -2929,6 +2931,7 @@ export const NativeProgramPreview: React.FC = () => {
         // transition completes; explicit GPU errors and qualification runs
         // remain eligible for the compatibility renderer.
         const deferWebViewFallbackForNativeStartup =
+          !EMBEDDED_PREVIEW_ONLY &&
           isTauriRuntime() &&
           isPlaying &&
           Boolean(nativePlaybackRequest) &&

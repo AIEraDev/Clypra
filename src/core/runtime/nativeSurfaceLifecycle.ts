@@ -9,6 +9,7 @@ import type {
   NativeSurfaceGeometry,
   NativeSurfaceProbe,
 } from "@/lib/platform/nativeCore";
+import { EMBEDDED_PREVIEW_ONLY } from "@/lib/platform/nativeCore";
 
 // Native surface commands address one process-global child window in the Tauri
 // host. Keep lifecycle operations ordered across React mounts and project
@@ -212,6 +213,7 @@ export function resetNativeSurfaceReadiness(projectId: string): void {
 }
 
 export function ensureNativeSurfaceReadiness(projectId: string): void {
+  if (EMBEDDED_PREVIEW_ONLY) return;
   const state = surfaceReadiness.get(projectId);
   if (!state || (state.settled && !state.ready)) {
     resetNativeSurfaceReadiness(projectId);
@@ -219,6 +221,7 @@ export function ensureNativeSurfaceReadiness(projectId: string): void {
 }
 
 export function isNativeSurfaceReady(projectId: string): boolean {
+  if (EMBEDDED_PREVIEW_ONLY) return true;
   const state = surfaceReadiness.get(projectId);
   return Boolean(state?.settled && state.ready);
 }
@@ -227,6 +230,8 @@ export async function waitForNativeSurfaceReady(
   projectId: string,
   timeoutMs = 3000,
 ): Promise<void> {
+  // The main WebView canvas needs no second-window startup handshake.
+  if (EMBEDDED_PREVIEW_ONLY) return;
   if (!isTauriRuntime()) return;
   let state = surfaceReadiness.get(projectId);
   if (!state) {

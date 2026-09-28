@@ -8,7 +8,10 @@ import {
   listenForGpuReady,
   onNativePreviewWindowMoved,
 } from "@/lib/platform/tauri";
-import type { NativeSurfaceGeometry } from "@/lib/platform/nativeCore";
+import {
+  EMBEDDED_PREVIEW_ONLY,
+  type NativeSurfaceGeometry,
+} from "@/lib/platform/nativeCore";
 import {
   claimNativeSurfaceReadiness,
   configureNativeSurface,
@@ -119,6 +122,13 @@ export function useNativeSurfaceController({
   }, []);
 
   useEffect(() => {
+    // A Tauri child window cannot be kept within the editor on every desktop
+    // compositor (notably Wayland). The visible preview is therefore always
+    // the canvas in the main WebView. Do not even create/configure the legacy
+    // native child surface: a hidden window can still be surfaced by platform
+    // activation or space/full-screen transitions.
+    if (EMBEDDED_PREVIEW_ONLY) return;
+
     const initialTarget = targetRef.current || target;
     if (
       !isTauriRuntime() ||
