@@ -14,6 +14,16 @@ import {
 
 
 
+/**
+ * Per-key cache for hasVisibleAlpha results.
+ * The synchronous getImageData + pixel scan is expensive on constrained GPUs
+ * (Intel HD 520 class). Because the rendered output is deterministic for a
+ * given raster key we only need to scan once per unique layer state.
+ * Capped at 256 entries — text layers are few and keys are reused heavily.
+ */
+const _alphaCheckCache = new Map<string, boolean>();
+const _ALPHA_CACHE_MAX = 256;
+
 function hasVisibleAlpha(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, width: number, height: number): boolean | null {
   try {
     const sampleWidth = Math.max(1, Math.floor(width));
@@ -29,6 +39,32 @@ function hasVisibleAlpha(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderin
   } catch {
     return null;
   }
+}
+
+/**
+ * Cached variant of hasVisibleAlpha.
+ * Returns the cached result for the given raster key if available,
+ * otherwise runs the scan and stores the result.
+ */
+function hasVisibleAlphaCached(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  width: number,
+  height: number,
+  rasterKey: string,
+): boolean | null {
+  const cached = _alphaCheckCache.get(rasterKey);
+  if (cached !== undefined) return cached;
+
+  const result = hasVisibleAlpha(ctx, width, height);
+  if (result !== null) {
+    // Evict oldest entry when at capacity (insertion-order Map)
+    if (_alphaCheckCache.size >= _ALPHA_CACHE_MAX) {
+      const oldest = _alphaCheckCache.keys().next().value;
+      if (oldest !== undefined) _alphaCheckCache.delete(oldest);
+    }
+    _alphaCheckCache.set(rasterKey, result);
+  }
+  return result;
 }
 
 function buildPlainTextEffectConfig(layer: EvaluatedTextLayer, offW: number, offH: number, fontSize: number, scaleX: number, scaleY: number): TextEffectConfig {
@@ -426,7 +462,11 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
       context: { environment: "editor", time: layer.time ?? 0, width: unscaledOffW, height: unscaledOffH },
     });
 
-    const visibleAlpha = hasVisibleAlpha(offCtx, unscaledOffW, unscaledOffH);
+    // Build a compact key from the inputs that determine rendered pixels.
+    // Avoids importing buildNativeTextRasterKey (cycle risk) while still
+    // being stable across identical frames — the dominant repeated case.
+    const alphaKey = `${layer.layerId}:${layer.styleId ?? ""}:${layer.styleVersion ?? ""}:${unscaledOffW}x${unscaledOffH}:${layer.text}`;
+    const visibleAlpha = hasVisibleAlphaCached(offCtx, unscaledOffW, unscaledOffH, alphaKey);
 
     if (layer.styleId && visibleAlpha === false) {
       const fallbackConfig = buildPlainTextEffectConfig(layer, unscaledOffW, unscaledOffH, unscaledFontSize, 1.0, 1.0);

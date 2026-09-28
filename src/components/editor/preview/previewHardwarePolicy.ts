@@ -270,7 +270,7 @@ export class PreviewPerformancePolicyController {
   private observations: PreviewPerformanceObservation[] = [];
   private escalation = 0;
 
-  observe(observation: PreviewPerformanceObservation): boolean {
+  observe(observation: PreviewPerformanceObservation, adapterName?: string | null, deviceType?: string | null): boolean {
     this.observations.push(observation);
     if (this.observations.length > 60) this.observations.shift();
     if (this.escalation >= 2) return false;
@@ -278,6 +278,22 @@ export class PreviewPerformancePolicyController {
     const overloaded = this.observations.filter(
       (sample) => sample.dropped || sample.totalTimeUs > 16_667,
     ).length;
+
+    // Legacy iGPUs (Intel HD/UHD, AMD Vega 8/11, Nvidia MX 1xx) are so
+    // constrained that waiting for a 12-sample window means the user already
+    // experienced ~200ms of lag before quality drops. Use a tight 5-sample /
+    // 2-overloaded window so escalation fires within the first burst.
+    const tier = adapterName !== undefined || deviceType !== undefined
+      ? classifyGpuTier(adapterName, deviceType)
+      : "unknown";
+    if (tier === "legacy-igpu") {
+      const hasFastBurst = this.observations.length >= 5 && overloaded >= 2;
+      if (!hasFastBurst) return false;
+      this.escalation += 1;
+      this.observations = [];
+      return true;
+    }
+
     // A short run of missed real-time frames is enough evidence to reduce
     // quality immediately. Waiting for 30 samples lets an Iris Xe/older Intel
     // queue accumulate stale work during an interactive scrub. A single cold
@@ -360,18 +376,11 @@ export function selectPreviewHardwarePolicy(
   // Software renderers always get proxy — even 1080p is too slow in realtime
   if (tier === "software") return PROXY_POLICY;
 
-  const maxWorkloadDimension = Math.max(
-    canvasWidth,
-    canvasHeight,
-    mediaWidth ?? 0,
-    mediaHeight ?? 0,
-  );
-
   // Legacy iGPU (Intel HD/UHD, AMD Vega 8/11, Nvidia MX 1xx/2xx):
-  // force proxy on ≥1440p workloads (maxDimension ≥ 2500px)
-  if (tier === "legacy-igpu" && maxWorkloadDimension >= 2_500) {
-    return PROXY_POLICY;
-  }
+  // Always force proxy regardless of canvas size. These adapters cannot
+  // sustain real-time compositing at any resolution in the editor preview.
+  // Export is unaffected — this policy is preview-path only.
+  if (tier === "legacy-igpu") return PROXY_POLICY;
 
   // All other tiers start at full quality. Backpressure escalation in
   // PreviewPerformancePolicyController handles runtime degradation.
