@@ -915,7 +915,6 @@ export async function rasterizeTextLayerForNative(
     const workerClient = getTemplateWorkerClient();
     if (workerClient) {
       try {
-        console.log(`[nativeTextPreview] Delegating template ${layer.layerId} to worker client`);
         return await workerClient.rasterize(
           layer,
           rasterKey,
@@ -979,7 +978,6 @@ export async function rasterizeTextLayerForNative(
           width: evalWidth,
           height: evalHeight,
         };
-        console.log(`[nativeTextPreview] Delegating effect ${layer.layerId} to worker client`);
         return await workerClient.rasterizeEffect(
           layer,
           canonicalScene,

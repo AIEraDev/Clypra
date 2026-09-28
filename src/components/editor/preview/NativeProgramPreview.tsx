@@ -718,10 +718,14 @@ export const NativeProgramPreview: React.FC = () => {
             sample.dropReason === "cancelled" ||
             sample.dropReason === "stale";
           if (!isTransportDrop) {
-            previewPerformancePolicyRef.current.observe({
-              totalTimeUs: sample.totalTimeUs,
-              dropped: sample.dropped === true,
-            });
+            previewPerformancePolicyRef.current.observe(
+              {
+                totalTimeUs: sample.totalTimeUs,
+                dropped: sample.dropped === true,
+              },
+              nativeGpuAdapterNameRef.current,
+              nativeGpuDeviceTypeRef.current,
+            );
           }
           const sequence = nativeSampleBatch.firstSequence + index;
           telemetryCollector.recordNativeSyncSnapshot(
