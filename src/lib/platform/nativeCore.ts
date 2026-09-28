@@ -1,14 +1,23 @@
 export const NATIVE_CORE_CONTRACT_VERSION = 2;
 export const NATIVE_CORE_TIME_SCALE = 1_000_000;
 /**
- * Tauri is the production editor runtime, so native preview is enforced there.
- * The explicit dev flag remains useful for browser harnesses that emulate the
- * desktop contract without exposing Tauri internals.
+ * Clypra's visible program preview is always embedded in the main WebView.
+ *
+ * A separate Tauri window cannot be reliably constrained to its parent across
+ * AppKit, Win32, X11, and Wayland. Native rendering is still available, but
+ * its frames are composited into the editor canvas rather than presented by a
+ * second OS window. This is deliberately a product invariant, not a
+ * platform-specific fallback.
+ */
+export const EMBEDDED_PREVIEW_ONLY = true;
+
+/**
+ * Keep the old native-only switch for browser test harnesses. A Tauri runtime
+ * must never implicitly opt into a detached native preview window.
  */
 export const NATIVE_PREVIEW_ONLY =
-  (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) ||
-  (import.meta.env.DEV &&
-    import.meta.env.VITE_CLYPRA_NATIVE_PREVIEW_ONLY === "1");
+  import.meta.env.DEV &&
+  import.meta.env.VITE_CLYPRA_NATIVE_PREVIEW_ONLY === "1";
 
 export type NativeQualityTier = "full" | "half" | "quarter" | "proxy";
 export type NativePixelFormat = "rgba8Srgb" | "rgba16Float";
