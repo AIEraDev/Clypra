@@ -17,12 +17,20 @@ use super::benchmark::types::{
     PlaybackSummary, TransferMetrics,
 };
 use super::graph::telemetry::RenderGraphTelemetry;
+use super::qos::controller::{QoSConfig, QoSController};
+use super::qos::metrics::PerformanceSnapshot;
+use super::qos::proxy_manager::AsyncProxyManager;
 use super::qos::telemetry::QoSTelemetry;
-use super::qos::types::{Bottleneck, EffectsPolicy, MediaVariant, QoSDecision, QoSReason, RenderQuality};
+use super::qos::types::{
+    Bottleneck, PerformanceEnvelope, PlaybackPolicySnapshot, QoSReason,
+};
+use super::state_machine::PlaybackMode;
 use super::temporal::SeekTelemetry;
+use super::types::MediaTime;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -59,6 +67,7 @@ pub struct EngineTelemetryCollector {
     transfers: RwLock<TransferMetrics>,
     recent_frames: RwLock<Vec<FrameTelemetry>>,
     qos: RwLock<QoSTelemetry>,
+    qos_controller: RwLock<QoSController>,
     graph: RwLock<RenderGraphTelemetry>,
     last_seek: RwLock<Option<SeekTelemetry>>,
     total_presented: AtomicU64,
@@ -85,15 +94,16 @@ impl EngineTelemetryCollector {
             gpu_copy_bytes: 0,
             is_zero_copy: true,
         };
+        let qos_config = QoSConfig {
+            degrade_window_threshold: 2,
+            recover_window_threshold: 8,
+            target_fps: 60.0,
+            window_capacity: 15,
+        };
+        let qos_controller = QoSController::new(qos_config);
+        let initial_decision = qos_controller.current_decision().clone();
         let qos = QoSTelemetry {
-            active_decision: QoSDecision {
-                media_variant: MediaVariant::Original,
-                render_quality: RenderQuality::Full,
-                effects_policy: EffectsPolicy::Full,
-                lookahead_reduction: 0.0,
-                reason: QoSReason::Healthy,
-                confidence: 1.0,
-            },
+            active_decision: initial_decision,
             diagnosed_bottleneck: Bottleneck::None,
             consecutive_unhealthy_windows: 0,
             consecutive_healthy_windows: 10,
@@ -110,6 +120,7 @@ impl EngineTelemetryCollector {
             transfers: RwLock::new(transfers),
             recent_frames: RwLock::new(Vec::with_capacity(120)),
             qos: RwLock::new(qos),
+            qos_controller: RwLock::new(qos_controller),
             graph: RwLock::new(RenderGraphTelemetry::default()),
             last_seek: RwLock::new(None),
             total_presented: AtomicU64::new(0),
@@ -181,6 +192,76 @@ impl EngineTelemetryCollector {
     /// Records Render Graph DAG execution metrics.
     pub fn record_graph(&self, graph: RenderGraphTelemetry) {
         *self.graph.write() = graph;
+    }
+
+    /// Returns the active playback policy snapshot determined by the engine QoS controller.
+    pub fn current_playback_policy(&self) -> PlaybackPolicySnapshot {
+        self.qos_controller.read().current_policy_snapshot()
+    }
+
+    /// Returns the active performance envelope against target frame budget.
+    pub fn performance_envelope(&self) -> PerformanceEnvelope {
+        self.qos_controller.read().performance_envelope()
+    }
+
+    /// Feeds live playback frame timing and deadline outcomes into the QoS controller
+    /// to drive closed-loop performance control without human guessing.
+    pub fn record_live_frame_metrics(
+        &self,
+        decode_us: u64,
+        render_us: u64,
+        missed: bool,
+        ready_depth: usize,
+        current_pts: MediaTime,
+        app: Option<&AppHandle>,
+    ) {
+        let snapshot = PerformanceSnapshot {
+            decode_us,
+            render_cpu_us: 0,
+            render_gpu_us: render_us,
+            effect_timings: HashMap::new(),
+            decode_queue_depth: 0,
+            ready_queue_depth: ready_depth,
+            surface_pool_used: 1,
+            surface_pool_capacity: 10,
+            deadline_missed: missed,
+            frame_pts: current_pts,
+        };
+
+        let (decision, _bottleneck, qos_telem) = {
+            let mut controller = self.qos_controller.write();
+            controller.record_frame_snapshot(snapshot);
+            let dummy_proxies = AsyncProxyManager::new();
+            let decision = controller.evaluate_window(
+                PlaybackMode::Play,
+                current_pts,
+                &dummy_proxies,
+                None,
+            );
+            let bottleneck = controller.last_diagnosed_bottleneck().clone();
+            let envelope = controller.performance_envelope();
+
+            let qos_telem = QoSTelemetry {
+                active_decision: decision.clone(),
+                diagnosed_bottleneck: bottleneck.clone(),
+                consecutive_unhealthy_windows: envelope.is_decode_starved() as usize,
+                consecutive_healthy_windows: 0,
+                window_mean_decode_us: decode_us,
+                window_mean_gpu_render_us: render_us,
+                window_miss_ratio: if missed { 1.0 } else { 0.0 },
+                window_pool_utilization: 0.1,
+                transition_count: controller.transition_history().len(),
+            };
+            (decision, bottleneck, qos_telem)
+        };
+
+        *self.qos.write() = qos_telem.clone();
+
+        if let Some(app) = app {
+            if missed || decision.reason != QoSReason::Healthy {
+                let _ = app.emit("clypra://engine-qos-decision", &qos_telem);
+            }
+        }
     }
 
     /// Generates full snapshot covering all edge corners of the new architecture.

@@ -9,7 +9,8 @@ use super::super::types::MediaTime;
 use super::metrics::{PerformanceSnapshot, PerformanceWindow};
 use super::proxy_manager::AsyncProxyManager;
 use super::types::{
-    Bottleneck, EffectsPolicy, MediaVariant, QoSReason, QoSDecision, RenderQuality,
+    Bottleneck, EffectsPolicy, MediaVariant, PerformanceEnvelope, PlaybackPolicySnapshot,
+    QoSReason, QoSDecision, RenderQuality,
 };
 
 /// Configuration thresholds for the QoS Controller.
@@ -163,13 +164,15 @@ impl QoSController {
                 Bottleneck::Decode => {
                     // DECODE BOTTLENECK:
                     // Keep RenderQuality Full; switch to Proxy if available
+                    let decode_mean = self.window.mean_decode_us();
+
                     if let Some(asset_id) = active_asset_id {
                         if let Some(ready_proxy) = proxy_manager.get_ready_proxy(asset_id) {
                             new_decision.media_variant = MediaVariant::Proxy(ready_proxy.id);
                         }
                     }
                     new_decision.reason = QoSReason::DecodeStarvation {
-                        decode_mean_us: self.window.mean_decode_us(),
+                        decode_mean_us: decode_mean,
                         ready_depth: self.window.mean_ready_queue_depth() as usize,
                     };
                 }
@@ -297,5 +300,33 @@ impl QoSController {
     #[inline]
     pub fn last_diagnosed_bottleneck(&self) -> &Bottleneck {
         &self.last_diagnosed_bottleneck
+    }
+
+    /// Returns the current playback policy snapshot for UI observation.
+    pub fn current_policy_snapshot(&self) -> PlaybackPolicySnapshot {
+        let decision = self.current_decision();
+        let is_decode_starved = matches!(
+            decision.reason,
+            QoSReason::DecodeStarvation { .. }
+                | QoSReason::DecodeDeadlinePressure { .. }
+                | QoSReason::DecoderThroughputInsufficient { .. }
+        );
+        PlaybackPolicySnapshot {
+            media_variant: decision.media_variant.clone(),
+            render_quality: decision.render_quality,
+            effects_policy: decision.effects_policy,
+            reason: decision.reason.clone(),
+            is_decode_starved,
+        }
+    }
+
+    /// Computes the active performance envelope against target frame budget.
+    pub fn performance_envelope(&self) -> PerformanceEnvelope {
+        let target_budget = (1_000_000.0 / self.config.target_fps) as u64;
+        let decode_us = self.window.mean_decode_us();
+        let render_us = self.window.mean_render_gpu_us();
+        let miss_ratio = self.window.deadline_miss_ratio();
+        let sustained = self.consecutive_unhealthy_windows >= self.config.degrade_window_threshold;
+        PerformanceEnvelope::from_timings(target_budget, decode_us, render_us, miss_ratio, sustained)
     }
 }

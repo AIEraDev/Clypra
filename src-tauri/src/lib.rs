@@ -427,6 +427,7 @@ pub fn run() {
             update_native_playback_render,
             submit_native_playback_demand,
             get_engine_telemetry,
+            get_playback_policy,
             get_native_playback_state,
             native_play,
             native_pause,

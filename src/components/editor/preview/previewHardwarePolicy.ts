@@ -1,4 +1,5 @@
 import type { NativeQualityTier } from "@/lib/platform/nativeCore";
+import type { PlaybackPolicySnapshot } from "@/lib/platform/tauri";
 
 /**
  * A conservative preview-only policy for GPU tiers established by production
@@ -232,7 +233,12 @@ export function classifyGpuTier(
     return isLegacyNvidiaMxGpu(name) ? "legacy-igpu" : "capable-igpu";
   }
   // Default: assume capable if we have a name but cannot classify it
-  if (name.length > 0) return "discrete";
+  if (name.length > 0) {
+    if (/primary display gpu/i.test(name)) {
+      return "legacy-igpu";
+    }
+    return "discrete";
+  }
   return "unknown";
 }
 
@@ -269,6 +275,15 @@ const REDUCED_1080_POLICY: PreviewHardwarePolicy = {
 export class PreviewPerformancePolicyController {
   private observations: PreviewPerformanceObservation[] = [];
   private escalation = 0;
+  private nativeSnapshot: PlaybackPolicySnapshot | null = null;
+
+  updateFromNativeSnapshot(snapshot: PlaybackPolicySnapshot | null): void {
+    this.nativeSnapshot = snapshot;
+  }
+
+  getNativeSnapshot(): PlaybackPolicySnapshot | null {
+    return this.nativeSnapshot;
+  }
 
   observe(observation: PreviewPerformanceObservation): boolean {
     this.observations.push(observation);
@@ -298,6 +313,25 @@ export class PreviewPerformancePolicyController {
     mediaHeight?: number,
     deviceType?: string | null,
   ): PreviewHardwarePolicy {
+    // If the native engine QoS controller has issued an authoritative policy,
+    // it takes precedence over frontend heuristics because it directly measures
+    // physical decode throughput, render deadlines, and queue starvation.
+    if (this.nativeSnapshot) {
+      if (this.nativeSnapshot.isDecodeStarved) {
+        return PROXY_POLICY;
+      }
+      if (this.nativeSnapshot.renderQuality === "Quarter") {
+        return {
+          capabilityPolicy: "reduced",
+          maxDimension: 1_280,
+          maximumQuality: "quarter",
+        };
+      }
+      if (this.nativeSnapshot.renderQuality === "Half") {
+        return REDUCED_1080_POLICY;
+      }
+      return FULL_POLICY;
+    }
     const baseline = selectPreviewHardwarePolicy(
       adapterName,
       canvasWidth,

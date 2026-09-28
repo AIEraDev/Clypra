@@ -850,24 +850,38 @@ impl HardwareBenchmarkRunner {
 pub fn probe_machine_identity() -> MachineIdentity {
     let os = std::env::consts::OS.to_string();
     let arch = std::env::consts::ARCH.to_string();
+    let gpu = crate::engine::hardware::GpuAdapterIdentity::probe();
+    let graphics_backend = match gpu.vendor {
+        GpuVendor::Apple => GraphicsBackend::Metal,
+        _ => {
+            if cfg!(target_os = "windows") {
+                GraphicsBackend::D3D12
+            } else if cfg!(target_os = "macos") {
+                GraphicsBackend::Metal
+            } else {
+                GraphicsBackend::Vulkan
+            }
+        }
+    };
+    let luid_u64 = u64::from_le_bytes(gpu.luid);
 
     MachineIdentity {
         os,
         os_version: arch,
         windows_build: None,
         cpu: "Host CPU".to_string(),
-        ram_bytes: 16 * 1024 * 1024 * 1024,
-        gpu_adapter: "Primary Display GPU".to_string(),
-        gpu_vendor: GpuVendor::Other("Generic".to_string()),
-        gpu_luid: Some(1),
-        vram_bytes: 4 * 1024 * 1024 * 1024,
-        driver_version: "Generic-Driver".to_string(),
-        graphics_backend: GraphicsBackend::D3D12,
+        ram_bytes: gpu.shared_system_memory,
+        gpu_adapter: gpu.name.clone(),
+        gpu_vendor: gpu.vendor.clone(),
+        gpu_luid: Some(luid_u64),
+        vram_bytes: gpu.dedicated_video_memory,
+        driver_version: gpu.driver_version.unwrap_or_else(|| "Generic-Driver".to_string()),
+        graphics_backend,
         ffmpeg_version: "8.0-static".to_string(),
         clypra_build: "1.5.4".to_string(),
         display_refresh_rate: 60.0,
-        selected_decoder_adapter: "Primary Display GPU".to_string(),
-        selected_renderer_adapter: "Primary Display GPU".to_string(),
+        selected_decoder_adapter: gpu.name.clone(),
+        selected_renderer_adapter: gpu.name,
         same_adapter_zero_copy: true,
     }
 }

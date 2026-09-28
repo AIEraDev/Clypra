@@ -20,6 +20,7 @@ pub use metrics::{PerformanceSnapshot, PerformanceWindow};
 pub use proxy_manager::AsyncProxyManager;
 pub use telemetry::QoSTelemetry;
 pub use types::{
-    Bottleneck, EffectsPolicy, MediaVariant, ProxyId, ProxyVariant, QoSReason, QoSDecision,
-    RenderQuality,
+    Bottleneck, DecodeStrategy, DecoderBackendId, EffectsPolicy, MediaVariant, PerformanceEnvelope,
+    PlaybackPolicySnapshot, PlaybackResolutionDemand, ProxyAvailability, ProxyId, ProxyVariant,
+    QoSReason, QoSDecision, RenderQuality, Resolution,
 };

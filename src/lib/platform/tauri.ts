@@ -499,6 +499,15 @@ export function listenForNativePlaybackStats(
   });
 }
 
+/** Listen for real-time QoS decisions emitted by the native media engine. */
+export function listenForEngineQoSDecision(
+  onDecision: (decision: unknown) => void,
+): Promise<UnlistenFn> {
+  return listen<unknown>("clypra://engine-qos-decision", (event) => {
+    onDecision(event.payload);
+  });
+}
+
 /** Listen for out-of-band mask texture eviction notifications from Rust compositor. */
 export function listenForNativeMaskEviction(
   onEvicted: (assetIds: string[]) => void,
@@ -697,6 +706,28 @@ export async function getNativeGpuStatus(): Promise<NativeGpuRuntimeStatus> {
   }
 
   return invoke<NativeGpuRuntimeStatus>("get_native_gpu_status");
+}
+
+export interface PlaybackPolicySnapshot {
+  mediaVariant: "Original" | { Proxy: number };
+  renderQuality: "Full" | "Half" | "Quarter";
+  effectsPolicy: "Full" | "Reduced" | "Minimal" | "BypassOptional";
+  reason: any;
+  isDecodeStarved: boolean;
+}
+
+export async function getPlaybackPolicy(): Promise<PlaybackPolicySnapshot> {
+  if (!isTauriRuntime()) {
+    return {
+      mediaVariant: "Original",
+      renderQuality: "Full",
+      effectsPolicy: "Full",
+      reason: "Healthy",
+      isDecodeStarved: false,
+    };
+  }
+
+  return invoke<PlaybackPolicySnapshot>("get_playback_policy");
 }
 
 export async function probeNativeSurface(
