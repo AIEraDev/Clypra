@@ -1,40 +1,79 @@
-import React, { useRef, useState, useEffect, useCallback, useMemo } from "react";
+import React, {
+  useRef,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
 import { Plus, X, RotateCcw, Play, Loader2 } from "lucide-react";
 import { platform } from "@/core/platform";
 import { useUIStore } from "@/store/uiStore";
 import { usePreviewMode } from "@/hooks/usePreviewMode";
-import { getInsertIndexForNewTrack, useTimelineStore } from "@/store/timelineStore";
+import {
+  getInsertIndexForNewTrack,
+  useTimelineStore,
+} from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { createClipFromAsset } from "@/lib/timeline/timelineClip";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { autoAdaptSequenceForFirstVisualClip } from "@/lib/timeline/sequenceAutoAspect";
-import { DEFAULT_PLACEMENT_POLICY, resolveAddToTimelinePlacement, resolveDefaultFitModeForAsset } from "@/lib/timeline/placementPolicy";
+import {
+  DEFAULT_PLACEMENT_POLICY,
+  resolveAddToTimelinePlacement,
+  resolveDefaultFitModeForAsset,
+} from "@/lib/timeline/placementPolicy";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import type { SourcePlaybackContext } from "@/core/playback";
 import { TimelinePlacementEngine } from "@/lib/timeline/placementEngine";
 import type { MediaAsset } from "@/types";
-import { formatTimecode } from "@/lib/utils/timeFormatting";
+import { formatTime } from "@/lib/utils/timeFormatting";
 import { PreviewTransport } from "./PreviewTransport";
-import { createTextClip, resolveTextEffectDefinition } from "@/lib/text/textClip";
+import {
+  createTextClip,
+  resolveTextEffectDefinition,
+} from "@/lib/text/textClip";
 import { TextSourcePreview } from "./TextSourcePreview";
 import { useStickersStore } from "@/features/stickers/store/stickersStore";
 import { VideoSourcePreview } from "./VideoSourcePreview";
 import { AudioSourcePreview } from "./AudioSourcePreview";
 import { ImageSourcePreview } from "./ImageSourcePreview";
-import { StickerSourcePreview, type StickerSourcePreviewHandle } from "./StickerSourcePreview";
+import {
+  StickerSourcePreview,
+  type StickerSourcePreviewHandle,
+} from "./StickerSourcePreview";
 import { telemetryCollector } from "@/services/telemetryCollector";
 
-const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://") || value.startsWith("blob:");
+const isExternalOrDataUrl = (value: string) =>
+  value.startsWith("data:") ||
+  value.startsWith("http") ||
+  value.startsWith("asset://") ||
+  value.startsWith("blob:");
 
 interface SourcePreviewProps {
   /** Dual-player keeps Program mounted beside Source; Program owns the default context there. */
   claimTransportOnMount?: boolean;
 }
 
-export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMount = true }) => {
-  const { sourceAsset, sourceTextPreset, sourceInPoint, sourceOutPoint, markSourceIn, markSourceOut } = useUIStore();
+export const SourcePreview: React.FC<SourcePreviewProps> = ({
+  claimTransportOnMount = true,
+}) => {
+  const {
+    sourceAsset,
+    sourceTextPreset,
+    sourceInPoint,
+    sourceOutPoint,
+    markSourceIn,
+    markSourceOut,
+  } = useUIStore();
   const { exitSourceMode } = usePreviewMode();
-  const { tracks, clips, addClip, addTrack, insertTrackAt, getTimelineEndTime } = useTimelineStore();
+  const {
+    tracks,
+    clips,
+    addClip,
+    addTrack,
+    insertTrackAt,
+    getTimelineEndTime,
+  } = useTimelineStore();
   const { project, updateProject, addMediaAsset } = useProjectStore();
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -47,20 +86,38 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
 
   const isImage = Boolean(
     sourceAsset &&
-      (sourceAsset.type === "image" ||
-        /\.(jpg|jpeg|png|gif|webp|bmp|svg|tiff|heic|heif|avif)$/i.test(
-          sourceAsset.name || sourceAsset.path || "",
-        )),
+    (sourceAsset.type === "image" ||
+      /\.(jpg|jpeg|png|gif|webp|bmp|svg|tiff|heic|heif|avif)$/i.test(
+        sourceAsset.name || sourceAsset.path || "",
+      )),
   );
   const isLottie = Boolean(
     isImage &&
-      sourceAsset &&
-      (sourceAsset.stickerFormat === "lottie" || sourceAsset.path?.endsWith(".json")),
+    sourceAsset &&
+    (sourceAsset.stickerFormat === "lottie" ||
+      sourceAsset.path?.endsWith(".json")),
   );
   const isStillImage = isImage && !isLottie;
 
-  const rawExt = (sourceAsset?.path || "").split("?")[0].split("#")[0].split(".").pop()?.toLowerCase() || "";
-  const needsRemux = ["mkv", "avi", "flv", "wmv", "ts", "mts", "m2ts", "vob", "3gp", "ogv"].includes(rawExt);
+  const rawExt =
+    (sourceAsset?.path || "")
+      .split("?")[0]
+      .split("#")[0]
+      .split(".")
+      .pop()
+      ?.toLowerCase() || "";
+  const needsRemux = [
+    "mkv",
+    "avi",
+    "flv",
+    "wmv",
+    "ts",
+    "mts",
+    "m2ts",
+    "vob",
+    "3gp",
+    "ogv",
+  ].includes(rawExt);
 
   const [lottieData, setLottieData] = useState<object | null>(null);
   const [lottieError, setLottieError] = useState<string | null>(null);
@@ -107,10 +164,20 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
   useEffect(() => {
     setSourceVideoError(false);
     const assetDuration = sourceAsset?.duration;
-    setDuration(typeof assetDuration === "number" && Number.isFinite(assetDuration) && assetDuration > 0 ? assetDuration : 0);
+    setDuration(
+      typeof assetDuration === "number" &&
+        Number.isFinite(assetDuration) &&
+        assetDuration > 0
+        ? assetDuration
+        : 0,
+    );
 
     if (!isImage && sourceAsset?.type === "video" && sourceAsset.path) {
-      if (needsRemux && !(sourceAsset as any).previewPath && platform.getOrCreatePreviewVideo) {
+      if (
+        needsRemux &&
+        !(sourceAsset as any).previewPath &&
+        platform.getOrCreatePreviewVideo
+      ) {
         // Silently background-optimize without blocking the video element.
         // The video element always renders immediately against the original path (or any
         // already-cached previewPath). If the browser can't play the format, onError or
@@ -119,20 +186,34 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
           .getOrCreatePreviewVideo(sourceAsset.path)
           .then((previewPath) => {
             if (previewPath && previewPath !== sourceAsset.path) {
-              useProjectStore.getState().updateMediaAsset(sourceAsset.id, { previewPath });
+              useProjectStore
+                .getState()
+                .updateMediaAsset(sourceAsset.id, { previewPath });
               const cur = useUIStore.getState().sourceAsset;
               if (cur && cur.id === sourceAsset.id) {
-                useUIStore.setState({ sourceAsset: { ...cur, previewPath } as any });
+                useUIStore.setState({
+                  sourceAsset: { ...cur, previewPath } as any,
+                });
               }
               setSourceVideoError(false);
             }
           })
           .catch((err) => {
-            console.warn("[SourcePreview] Background video optimization failed:", err);
+            console.warn(
+              "[SourcePreview] Background video optimization failed:",
+              err,
+            );
           });
       }
     }
-  }, [sourceAsset?.id, sourceAsset?.type, sourceAsset?.path, (sourceAsset as any)?.previewPath, needsRemux, isImage]);
+  }, [
+    sourceAsset?.id,
+    sourceAsset?.type,
+    sourceAsset?.path,
+    (sourceAsset as any)?.previewPath,
+    needsRemux,
+    isImage,
+  ]);
 
   // Virtual clock for text preview
   useEffect(() => {
@@ -167,7 +248,11 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
 
   // Load Lottie JSON from cache on demand
   useEffect(() => {
-    const isLottie = sourceAsset && sourceAsset.type === "image" && (sourceAsset.stickerFormat === "lottie" || sourceAsset.path?.endsWith(".json"));
+    const isLottie =
+      sourceAsset &&
+      sourceAsset.type === "image" &&
+      (sourceAsset.stickerFormat === "lottie" ||
+        sourceAsset.path?.endsWith(".json"));
     const lottiePath = sourceAsset?.stickerAnimationPath || sourceAsset?.path;
     if (!isLottie || !lottiePath) {
       setLottieData(null);
@@ -197,7 +282,12 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
     return () => {
       active = false;
     };
-  }, [sourceAsset?.id, sourceAsset?.path, sourceAsset?.stickerAnimationPath, sourceAsset?.stickerFormat]);
+  }, [
+    sourceAsset?.id,
+    sourceAsset?.path,
+    sourceAsset?.stickerAnimationPath,
+    sourceAsset?.stickerFormat,
+  ]);
 
   // Compute Lottie animation duration
   const lottieDuration = useMemo(() => {
@@ -211,7 +301,11 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
 
   // Reset when asset changes
   useEffect(() => {
-    const isLottie = sourceAsset && sourceAsset.type === "image" && (sourceAsset.stickerFormat === "lottie" || sourceAsset.path?.endsWith(".json"));
+    const isLottie =
+      sourceAsset &&
+      sourceAsset.type === "image" &&
+      (sourceAsset.stickerFormat === "lottie" ||
+        sourceAsset.path?.endsWith(".json"));
     if (isLottie) {
       setDuration(lottieDuration);
       setCurrentTime(0);
@@ -221,7 +315,11 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
 
   // Set duration when Lottie duration changes
   useEffect(() => {
-    const isLottie = sourceAsset && sourceAsset.type === "image" && (sourceAsset.stickerFormat === "lottie" || sourceAsset.path?.endsWith(".json"));
+    const isLottie =
+      sourceAsset &&
+      sourceAsset.type === "image" &&
+      (sourceAsset.stickerFormat === "lottie" ||
+        sourceAsset.path?.endsWith(".json"));
     if (isLottie) {
       setDuration(lottieDuration);
     }
@@ -245,7 +343,11 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
         setCurrentTime(Math.max(0, Math.min(time, 3.0)));
         return;
       }
-      const isLottie = sourceAsset && sourceAsset.type === "image" && (sourceAsset.stickerFormat === "lottie" || sourceAsset.path?.endsWith(".json"));
+      const isLottie =
+        sourceAsset &&
+        sourceAsset.type === "image" &&
+        (sourceAsset.stickerFormat === "lottie" ||
+          sourceAsset.path?.endsWith(".json"));
       if (isLottie) {
         const targetTime = Math.max(0, Math.min(time, duration));
         setCurrentTime(targetTime);
@@ -258,7 +360,13 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
       }
       sourceCtxRef.current?.seek(time);
     },
-    [sourceAsset?.type, sourceAsset?.path, sourceAsset?.stickerFormat, duration, lottieData],
+    [
+      sourceAsset?.type,
+      sourceAsset?.path,
+      sourceAsset?.stickerFormat,
+      duration,
+      lottieData,
+    ],
   );
 
   const handlePlayPause = useCallback(() => {
@@ -275,7 +383,11 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
       });
       return;
     }
-    const isLottie = sourceAsset && sourceAsset.type === "image" && (sourceAsset.stickerFormat === "lottie" || sourceAsset.path?.endsWith(".json"));
+    const isLottie =
+      sourceAsset &&
+      sourceAsset.type === "image" &&
+      (sourceAsset.stickerFormat === "lottie" ||
+        sourceAsset.path?.endsWith(".json"));
     if (isLottie) {
       setIsPlaying((prev) => {
         const next = !prev;
@@ -297,7 +409,13 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
     } else {
       ctx.play();
     }
-  }, [sourceAsset?.type, sourceAsset?.path, sourceAsset?.stickerFormat, currentTime, duration]);
+  }, [
+    sourceAsset?.type,
+    sourceAsset?.path,
+    sourceAsset?.stickerFormat,
+    currentTime,
+    duration,
+  ]);
 
   const handlePlayMarkedRegion = useCallback(() => {
     getActiveSessionOrNull()?.transportAuthority?.setActiveContext("source");
@@ -312,13 +430,17 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
 
   // SP-4 fix: Fallback to local currentTime when sourceCtxRef is not bound (e.g. for procedural text or stickers)
   const handleMarkIn = useCallback(() => {
-    const t = sourceCtxRef.current ? sourceCtxRef.current.getTime() : currentTime;
+    const t = sourceCtxRef.current
+      ? sourceCtxRef.current.getTime()
+      : currentTime;
     markSourceIn(t);
     sourceCtxRef.current?.setInPoint(t);
   }, [markSourceIn, currentTime]);
 
   const handleMarkOut = useCallback(() => {
-    const t = sourceCtxRef.current ? sourceCtxRef.current.getTime() : currentTime;
+    const t = sourceCtxRef.current
+      ? sourceCtxRef.current.getTime()
+      : currentTime;
     markSourceOut(t);
     sourceCtxRef.current?.setOutPoint(t);
   }, [markSourceOut, currentTime]);
@@ -342,10 +464,15 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
     let mediaAsset = sourceAsset as MediaAsset;
     if (isImage && mediaAsset.type !== "image") {
       mediaAsset = { ...mediaAsset, type: "image" };
-      useProjectStore.getState().updateMediaAsset(mediaAsset.id, { type: "image" });
+      useProjectStore
+        .getState()
+        .updateMediaAsset(mediaAsset.id, { type: "image" });
     }
 
-    if (!mediaAsset.id.startsWith("audio-library-") && !mediaAsset.id.startsWith("sticker-")) {
+    if (
+      !mediaAsset.id.startsWith("audio-library-") &&
+      !mediaAsset.id.startsWith("sticker-")
+    ) {
       addMediaAsset(mediaAsset);
     }
 
@@ -358,10 +485,9 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
     exitSourceMode();
   };
 
-  /** Format time as HH:MM:SS:FF (frame-accurate) */
+  /** Format time as HH:MM:SS (no frames) */
   const formatTC = (seconds: number): string => {
-    const fps = project?.frameRate ?? 30;
-    return formatTimecode(seconds, fps);
+    return formatTime(seconds);
   };
 
   // Calculate marked duration
@@ -374,9 +500,24 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
   const hasCompleteMarks =
     !isStillImage && sourceInPoint !== null && sourceOutPoint !== null;
 
-  const effectiveSourcePath = (sourceAsset as any)?.previewPath || sourceAsset?.path || (sourceAsset as any)?.posterFrame;
-  const sourcePath = effectiveSourcePath ? (isExternalOrDataUrl(effectiveSourcePath) ? effectiveSourcePath : platform.convertFileSrc(effectiveSourcePath)) : "";
-  const mediaLabel = isImage ? "image" : sourceAsset.type === "video" ? "video" : sourceAsset.type === "audio" ? "audio" : sourceAsset.type === "text" ? "text" : "image";
+  const effectiveSourcePath =
+    (sourceAsset as any)?.previewPath ||
+    sourceAsset?.path ||
+    (sourceAsset as any)?.posterFrame;
+  const sourcePath = effectiveSourcePath
+    ? isExternalOrDataUrl(effectiveSourcePath)
+      ? effectiveSourcePath
+      : platform.convertFileSrc(effectiveSourcePath)
+    : "";
+  const mediaLabel = isImage
+    ? "image"
+    : sourceAsset.type === "video"
+      ? "video"
+      : sourceAsset.type === "audio"
+        ? "audio"
+        : sourceAsset.type === "text"
+          ? "text"
+          : "image";
 
   const recoveryAttemptedRef = useRef<Record<string, boolean>>({});
 
@@ -413,10 +554,14 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
         .getOrCreatePreviewVideo(sourceAsset.path, forceTranscode)
         .then((previewPath) => {
           if (previewPath && previewPath !== sourceAsset.path) {
-            useProjectStore.getState().updateMediaAsset(sourceAsset.id, { previewPath });
+            useProjectStore
+              .getState()
+              .updateMediaAsset(sourceAsset.id, { previewPath });
             const cur = useUIStore.getState().sourceAsset;
             if (cur && cur.id === sourceAsset.id) {
-              useUIStore.setState({ sourceAsset: { ...cur, previewPath } as any });
+              useUIStore.setState({
+                sourceAsset: { ...cur, previewPath } as any,
+              });
             }
             setSourceVideoError(false);
             telemetryCollector.recordSourcePreviewDiagnostic({
@@ -458,9 +603,8 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
           });
         });
     },
-    [isImage, sourceAsset, sourcePath]
+    [isImage, sourceAsset, sourcePath],
   );
-
 
   const handleVideoError = useCallback(
     (event?: React.SyntheticEvent<HTMLVideoElement, Event>) => {
@@ -495,17 +639,25 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
         currentSrc,
       });
 
-      triggerVideoRecovery(errorMessage || `media_error_code_${errorCode}`, true);
+      triggerVideoRecovery(
+        errorMessage || `media_error_code_${errorCode}`,
+        true,
+      );
     },
-    [sourceAsset, sourcePath, duration, triggerVideoRecovery]
+    [sourceAsset, sourcePath, duration, triggerVideoRecovery],
   );
 
   return (
-    <div data-preview-space="source" className="flex-1 flex flex-col min-h-0 bg-bg">
+    <div
+      data-preview-space="source"
+      className="flex-1 flex flex-col min-h-0 bg-bg"
+    >
       {/* ── Header ─────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 h-10 shrink-0 border-b border-border/50">
         <div className="flex items-baseline gap-2">
-          <span className="text-[13px] font-semibold text-text-primary tracking-tight">Previewing</span>
+          <span className="text-[13px] font-semibold text-text-primary tracking-tight">
+            Previewing
+          </span>
           <span className="text-[13px] text-text-muted">— {mediaLabel}</span>
         </div>
         <button
@@ -526,23 +678,33 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
             {sourceInPoint !== null && (
               <div className="flex items-center gap-1.5">
                 <span className="text-text-muted">In:</span>
-                <span className="font-mono text-accent">{formatTC(sourceInPoint)}</span>
+                <span className="font-mono text-accent">
+                  {formatTC(sourceInPoint)}
+                </span>
               </div>
             )}
             {sourceOutPoint !== null && (
               <div className="flex items-center gap-1.5">
                 <span className="text-text-muted">Out:</span>
-                <span className="font-mono text-accent">{formatTC(sourceOutPoint)}</span>
+                <span className="font-mono text-accent">
+                  {formatTC(sourceOutPoint)}
+                </span>
               </div>
             )}
             {hasCompleteMarks && markedDuration !== null && (
               <div className="flex items-center gap-1.5">
                 <span className="text-text-muted">Duration:</span>
-                <span className="font-mono text-text-primary font-semibold">{markedDuration.toFixed(2)}s</span>
+                <span className="font-mono text-text-primary font-semibold">
+                  {markedDuration.toFixed(2)}s
+                </span>
               </div>
             )}
           </div>
-          <button onClick={handleClearMarks} className="flex items-center gap-1 px-2 h-5 rounded text-[10px] font-medium text-text-muted hover:text-text-primary hover:bg-white/6 transition-colors" title="Clear marks">
+          <button
+            onClick={handleClearMarks}
+            className="flex items-center gap-1 px-2 h-5 rounded text-[10px] font-medium text-text-muted hover:text-text-primary hover:bg-white/6 transition-colors"
+            title="Clear marks"
+          >
             <RotateCcw className="w-3 h-3" />
             Clear
           </button>
@@ -616,13 +778,15 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
                       duration: mediaDuration,
                       width: vWidth,
                       height: vHeight,
-                      hasPreviewProxy: Boolean((sourceAsset as any)?.previewPath),
+                      hasPreviewProxy: Boolean(
+                        (sourceAsset as any)?.previewPath,
+                      ),
                     });
 
                     // Proactive detection: Video asset loaded but reports videoWidth === 0 (audio plays, blank screen)
                     if (sourceAsset?.type === "video" && vWidth === 0) {
                       console.warn(
-                        "[SourcePreview] Video metadata reported 0 width (unsupported video codec in browser). Triggering transcode recovery."
+                        "[SourcePreview] Video metadata reported 0 width (unsupported video codec in browser). Triggering transcode recovery.",
                       );
                       telemetryCollector.recordSourcePreviewDiagnostic({
                         status: "blank_video_detected",
@@ -633,7 +797,9 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
                         srcUrl: el.currentSrc || sourcePath,
                         width: 0,
                         height: 0,
-                        hasPreviewProxy: Boolean((sourceAsset as any)?.previewPath),
+                        hasPreviewProxy: Boolean(
+                          (sourceAsset as any)?.previewPath,
+                        ),
                       });
                       triggerVideoRecovery("video_width_zero_on_load", true);
                     }
@@ -646,7 +812,7 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
                       el.videoWidth === 0
                     ) {
                       console.warn(
-                        "[SourcePreview] Video playing with 0 width. Triggering transcode recovery."
+                        "[SourcePreview] Video playing with 0 width. Triggering transcode recovery.",
                       );
                       telemetryCollector.recordSourcePreviewDiagnostic({
                         status: "blank_video_detected",
@@ -657,9 +823,14 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
                         srcUrl: el.currentSrc || sourcePath,
                         width: 0,
                         height: 0,
-                        hasPreviewProxy: Boolean((sourceAsset as any)?.previewPath),
+                        hasPreviewProxy: Boolean(
+                          (sourceAsset as any)?.previewPath,
+                        ),
                       });
-                      triggerVideoRecovery("video_width_zero_during_playback", true);
+                      triggerVideoRecovery(
+                        "video_width_zero_during_playback",
+                        true,
+                      );
                     }
                   }}
                   onError={handleVideoError}
@@ -669,7 +840,13 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
           ) : sourceAsset.type === "text" ? (
             <TextSourcePreview preset={sourceTextPreset} />
           ) : (
-            <AudioSourcePreview audioRef={audioRef} src={sourcePath} isPlaying={isPlaying} coverImage={sourceAsset.coverArt} audioName={sourceAsset.name} />
+            <AudioSourcePreview
+              audioRef={audioRef}
+              src={sourcePath}
+              isPlaying={isPlaying}
+              coverImage={sourceAsset.coverArt}
+              audioName={sourceAsset.name}
+            />
           )}
         </div>
       </div>
@@ -677,12 +854,18 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
       {sourceAsset.type === "text" || isStillImage ? (
         <div className="flex items-center justify-between h-10 px-4 shrink-0 border-t border-border/30 bg-surface/30">
           <span className="text-[11px] text-text-muted font-medium select-none">
-            {sourceAsset.type === "text" ? "Procedural Style Preview" : "Still Image"}
+            {sourceAsset.type === "text"
+              ? "Procedural Style Preview"
+              : "Still Image"}
           </span>
           <button
             onClick={handleAddToTimeline}
             className="flex items-center gap-1.5 px-3 h-7 rounded text-[11px] font-semibold bg-accent hover:bg-accent-soft active:scale-95 text-white cursor-pointer transition-all duration-150 shadow-sm"
-            title={sourceAsset.type === "text" ? "Add text to timeline" : "Add to Timeline"}
+            title={
+              sourceAsset.type === "text"
+                ? "Add text to timeline"
+                : "Add to Timeline"
+            }
           >
             <Plus className="w-3.5 h-3.5" />
             Add to Timeline
@@ -700,14 +883,26 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
           outPoint={sourceOutPoint}
           rightActions={
             <>
-              <button onClick={handleMarkIn} className={`px-1.5 @[320px]:px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer ${sourceInPoint !== null && Math.abs(currentTime - sourceInPoint) < 0.1 ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-white/6"}`} title="Mark In (I)">
+              <button
+                onClick={handleMarkIn}
+                className={`px-1.5 @[320px]:px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer ${sourceInPoint !== null && Math.abs(currentTime - sourceInPoint) < 0.1 ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-white/6"}`}
+                title="Mark In (I)"
+              >
                 IN
               </button>
-              <button onClick={handleMarkOut} className={`px-1.5 @[320px]:px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer ${sourceOutPoint !== null && Math.abs(currentTime - sourceOutPoint) < 0.1 ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-white/6"}`} title="Mark Out (O)">
+              <button
+                onClick={handleMarkOut}
+                className={`px-1.5 @[320px]:px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer ${sourceOutPoint !== null && Math.abs(currentTime - sourceOutPoint) < 0.1 ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-white/6"}`}
+                title="Mark Out (O)"
+              >
                 OUT
               </button>
               {hasCompleteMarks && (
-                <button onClick={handlePlayMarkedRegion} className="hidden @[380px]:flex items-center gap-1 px-2 h-6 rounded text-[10px] font-medium text-text-muted hover:text-text-primary hover:bg-white/6 transition-colors cursor-pointer" title="Play marked region">
+                <button
+                  onClick={handlePlayMarkedRegion}
+                  className="hidden @[380px]:flex items-center gap-1 px-2 h-6 rounded text-[10px] font-medium text-text-muted hover:text-text-primary hover:bg-white/6 transition-colors cursor-pointer"
+                  title="Play marked region"
+                >
                   <Play className="w-3 h-3" />
                   Play
                 </button>
