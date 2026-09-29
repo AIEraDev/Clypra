@@ -1010,6 +1010,7 @@ dependencies = [
  "whisper-rs",
  "windows 0.58.0",
  "woff2-patched",
+ "wsola",
 ]
 
 [[package]]
@@ -8787,6 +8788,15 @@ dependencies = [
  "windows-core 0.61.2",
  "windows-version",
  "x11-dl",
+]
+
+[[package]]
+name = "wsola"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "542a5d4e1f44b1af2eeef27a918d15d117ce326af641153efbfe436b586418f5"
+dependencies = [
+ "thiserror 2.0.18",
 ]
 
 [[package]]

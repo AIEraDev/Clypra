@@ -65,6 +65,8 @@ log = "0.4"
 # Cross-platform native audio output and hardware-clock adapter.
 cpal = "0.18.2"
 rtrb = "0.3"
+# Offline WSOLA preparation keeps pitch-correct playback out of the CPAL callback.
+wsola = "0.1.0"
 
 # Native GPU rendering via wgpu
 wgpu = "24.0"

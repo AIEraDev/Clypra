@@ -33,6 +33,32 @@ export class AdaptiveReadbackPolicy {
     return 30;
   }
 
+  /**
+   * A playback-rate change must not multiply CPU RGBA work. The presentation
+   * cadence stays in wall-clock FPS; the caller presents the newest timeline
+   * frame available at each deadline and intentionally skips obsolete source
+   * frames. This keeps audio continuous and prevents a decode queue from
+   * forming at 1.5x/2x.
+   */
+  presentationAt(speed: number, sourceFps: number): {
+    cadenceFps: number;
+    sourceFramesPerPresentation: number;
+  } {
+    const safeSpeed = Number.isFinite(speed)
+      ? Math.max(0.1, Math.min(4, speed))
+      : 1;
+    const safeSourceFps = Number.isFinite(sourceFps)
+      ? Math.max(1, sourceFps)
+      : 30;
+    return {
+      cadenceFps: this.targetCadenceFps,
+      sourceFramesPerPresentation: Math.max(
+        1,
+        Math.ceil((safeSpeed * safeSourceFps) / this.targetCadenceFps),
+      ),
+    };
+  }
+
   cap<T extends { width: number; height: number }>(target: T): T {
     const largest = Math.max(target.width, target.height);
     if (largest <= this.maxDimension) return target;

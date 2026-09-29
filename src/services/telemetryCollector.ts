@@ -350,6 +350,8 @@ export interface TelemetryAudioMetrics {
   activeVoiceCount?: number;
   syncCalls?: number;
   playingSyncCalls?: number;
+  /** Transport speed during this audio-health window. */
+  playbackSpeed?: number;
   callbackCount?: number;
   renderedFrames?: number;
   nonSilentFrames?: number;
@@ -452,6 +454,10 @@ export interface TelemetryEvent {
     readbackTier?: number;
     /** Adaptive readback target cadence in FPS (e.g., 10, 20, 24, 30). */
     readbackCadenceFps?: number;
+    /** Transport speed active when this embedded-preview request was sent. */
+    playbackSpeed?: number;
+    /** Source frames intentionally advanced between CPU-readback presentations. */
+    readbackSourceFrameStride?: number;
   };
   exportMetrics?: {
     exportDurationMs: number;
@@ -591,6 +597,8 @@ export interface TelemetryRenderOptions {
   readbackMaxDimension?: number;
   readbackTier?: number;
   readbackCadenceFps?: number;
+  playbackSpeed?: number;
+  readbackSourceFrameStride?: number;
 }
 
 export interface TelemetryAudioSnapshotInput extends TelemetryAudioMetrics {
@@ -766,6 +774,8 @@ class SessionRollupAccumulator {
   private readbackMaxDimension?: number;
   private readbackTier?: number;
   private readbackCadenceFps?: number;
+  private playbackSpeed?: number;
+  private readbackSourceFrameStride?: number;
 
   public recordThrottledAnomaly(): void {
     this.throttledAnomaliesCount++;
@@ -789,6 +799,8 @@ class SessionRollupAccumulator {
     readbackMaxDimension?: number,
     readbackTier?: number,
     readbackCadenceFps?: number,
+    playbackSpeed?: number,
+    readbackSourceFrameStride?: number,
   ): void {
     const now = Date.now();
 
@@ -884,6 +896,9 @@ class SessionRollupAccumulator {
     if (readbackTier !== undefined) this.readbackTier = readbackTier;
     if (readbackCadenceFps !== undefined)
       this.readbackCadenceFps = readbackCadenceFps;
+    if (playbackSpeed !== undefined) this.playbackSpeed = playbackSpeed;
+    if (readbackSourceFrameStride !== undefined)
+      this.readbackSourceFrameStride = readbackSourceFrameStride;
   }
 
   public recordSeek(seekLatencyMs: number): void {
@@ -919,6 +934,8 @@ class SessionRollupAccumulator {
     readbackMaxDimension?: number;
     readbackTier?: number;
     readbackCadenceFps?: number;
+    playbackSpeed?: number;
+    readbackSourceFrameStride?: number;
   } | null {
     if (this.totalFrames === 0) {
       this.windowStartMs = Date.now();
@@ -1022,6 +1039,8 @@ class SessionRollupAccumulator {
       readbackMaxDimension: this.readbackMaxDimension,
       readbackTier: this.readbackTier,
       readbackCadenceFps: this.readbackCadenceFps,
+      playbackSpeed: this.playbackSpeed,
+      readbackSourceFrameStride: this.readbackSourceFrameStride,
     };
 
     this.windowStartMs = Date.now();
@@ -1055,6 +1074,11 @@ class SessionRollupAccumulator {
     this.firstFrameVisibleMs = undefined;
     this.capabilityPolicy = undefined;
     this.capabilityProbeUs = undefined;
+    this.readbackMaxDimension = undefined;
+    this.readbackTier = undefined;
+    this.readbackCadenceFps = undefined;
+    this.playbackSpeed = undefined;
+    this.readbackSourceFrameStride = undefined;
 
     return result;
   }
@@ -1684,6 +1708,8 @@ class TelemetryCollector {
         options.readbackMaxDimension,
         options.readbackTier,
         options.readbackCadenceFps,
+        options.playbackSpeed,
+        options.readbackSourceFrameStride,
       );
 
       if (accumulator.shouldEmitRollup()) {
@@ -1820,6 +1846,8 @@ class TelemetryCollector {
         readbackMaxDimension: options.readbackMaxDimension,
         readbackTier: options.readbackTier,
         readbackCadenceFps: options.readbackCadenceFps,
+        playbackSpeed: options.playbackSpeed,
+        readbackSourceFrameStride: options.readbackSourceFrameStride,
       },
       timestampMs: Date.now(),
     };
@@ -3104,6 +3132,8 @@ class TelemetryCollector {
           readbackMaxDimension: rollup.readbackMaxDimension,
           readbackTier: rollup.readbackTier,
           readbackCadenceFps: rollup.readbackCadenceFps,
+          playbackSpeed: rollup.playbackSpeed,
+          readbackSourceFrameStride: rollup.readbackSourceFrameStride,
         },
         timestampMs: Date.now(),
       });
