@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [1.5.7] - 2026-09-29
+
+### 🐛 Bug Fixes
+
+- **Windows readback telemetry always null** — readback telemetry (readbackMaxDimension, readbackTier, readbackCadenceFps) was always null in Windows performance logs because spans were created inside the scheduler's `load()` function, which only runs on cache MISSES. On Windows with EMBEDDED_PREVIEW_ONLY=true and mostly paused/seek sessions, cache hits dominate — `load()` never fires, no spans are created, `totalFrames` stays 0, and no frontend-rollup entries are written to the log. Fixed by moving span creation to before `requestVisible()` in both the playback path and the paused/seek path so every dispatch — cache hit or miss — is recorded. macOS was unaffected because it uses the native surface path (Metal shared texture, no CPU readback bridge) whose spans are created before any cache lookup (#436).
+
+- **Readback policy not bound to all span completion paths** — readback policy (maxDimension, tier, cadenceFps) was only passed in selected completion callbacks, causing some code paths to miss telemetry. Fixed by capturing policy at request dispatch time and inheriting it in all completion handlers (success, error, cancel) (#435).
+
+- **Session startup performance log not serialized** — fixed session startup performance log serialization to ensure proper session tracking from app launch (#435).
+
+### 📊 Telemetry
+
+- **Added readback telemetry fields** — frontend-rollup events now include `readbackMaxDimension` (OS-specific limit: 960px macOS, 480px Windows), `readbackTier` (quality tier 0-5 for 320-960px), and `readbackCadenceFps` (adaptive request rate: 10/20/24/30 FPS) in workload object. Enables accurate tracking of adaptive CPU RGBA bridge performance (#433, #434).
+
 ## [1.5.6] - 2026-09-29
 
 ### 🐛 Bug Fixes
