@@ -3578,11 +3578,17 @@ export const NativeProgramPreview: React.FC = () => {
                 // Capture the policy at dispatch time. `recordReadback()` can
                 // adapt the next request before this promise settles, but the
                 // telemetry must describe the frame that was actually sent.
+                const presentation = adaptiveReadbackPolicy.presentationAt(
+                  clock.speed,
+                  effectiveFrameRate,
+                );
                 const dispatchedReadbackPolicy = {
                   readbackMaxDimension: adaptiveReadbackPolicy.maxDimension,
                   readbackTier: adaptiveReadbackPolicy.currentTier,
-                  readbackCadenceFps:
-                    adaptiveReadbackPolicy.targetCadenceFps,
+                  readbackCadenceFps: presentation.cadenceFps,
+                  playbackSpeed: clock.speed,
+                  readbackSourceFrameStride:
+                    presentation.sourceFramesPerPresentation,
                 };
                 // Create the span BEFORE requestVisible() so cache hits —
                 // which never enter load() — are recorded too.

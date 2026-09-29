@@ -58,4 +58,17 @@ describe("AdaptiveReadbackPolicy", () => {
     expect(policy.canDispatchPlayback(199)).toBe(false);
     expect(policy.canDispatchPlayback(200)).toBe(true);
   });
+
+  it("keeps CPU-readback work bounded in wall-clock time at 2x", () => {
+    const policy = new AdaptiveReadbackPolicy(480);
+
+    expect(policy.presentationAt(2, 30)).toEqual({
+      cadenceFps: 20,
+      sourceFramesPerPresentation: 3,
+    });
+    expect(policy.presentationAt(1.5, 30)).toEqual({
+      cadenceFps: 20,
+      sourceFramesPerPresentation: 3,
+    });
+  });
 });

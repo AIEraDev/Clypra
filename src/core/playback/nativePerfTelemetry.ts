@@ -32,6 +32,8 @@ export interface NativeFrontendPerfSample {
   readbackMaxDimension?: number;
   readbackTier?: number;
   readbackCadenceFps?: number;
+  playbackSpeed?: number;
+  readbackSourceFrameStride?: number;
 }
 
 export interface NativeFrontendStagePercentiles {
@@ -104,7 +106,11 @@ export class NativePerfSpan {
     /** Immutable limits used to create this WebView RGBA request. */
     private readonly readbackPolicy?: Pick<
       NativeFrontendPerfSample,
-      "readbackMaxDimension" | "readbackTier" | "readbackCadenceFps"
+      | "readbackMaxDimension"
+      | "readbackTier"
+      | "readbackCadenceFps"
+      | "playbackSpeed"
+      | "readbackSourceFrameStride"
     >,
   ) {}
 
@@ -140,6 +146,8 @@ export class NativePerfSpan {
       readbackMaxDimension?: number;
       readbackTier?: number;
       readbackCadenceFps?: number;
+      playbackSpeed?: number;
+      readbackSourceFrameStride?: number;
     } = {},
   ): void {
     if (this.finished) return;
@@ -165,6 +173,10 @@ export class NativePerfSpan {
       readbackTier: options.readbackTier ?? this.readbackPolicy?.readbackTier,
       readbackCadenceFps:
         options.readbackCadenceFps ?? this.readbackPolicy?.readbackCadenceFps,
+      playbackSpeed: options.playbackSpeed ?? this.readbackPolicy?.playbackSpeed,
+      readbackSourceFrameStride:
+        options.readbackSourceFrameStride ??
+        this.readbackPolicy?.readbackSourceFrameStride,
     });
   }
 }
@@ -206,7 +218,10 @@ class NativePerfCollector {
     previewContext?: TelemetryPreviewContext,
     readbackPolicy?: Pick<
       NativeFrontendPerfSample,
-      "readbackMaxDimension" | "readbackTier" | "readbackCadenceFps"
+      | "readbackMaxDimension"
+      | "readbackTier"
+      | "readbackCadenceFps"
+      | "playbackSpeed" | "readbackSourceFrameStride"
     >,
   ): NativePerfSpan {
     return new NativePerfSpan(
@@ -277,6 +292,8 @@ class NativePerfCollector {
         readbackMaxDimension: sample.readbackMaxDimension,
         readbackTier: sample.readbackTier,
         readbackCadenceFps: sample.readbackCadenceFps,
+        playbackSpeed: sample.playbackSpeed,
+        readbackSourceFrameStride: sample.readbackSourceFrameStride,
       },
     );
   }

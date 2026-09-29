@@ -46,6 +46,8 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
         readbackMaxDimension: 480,
         readbackTier: 1,
         readbackCadenceFps: 20,
+        playbackSpeed: 2,
+        readbackSourceFrameStride: 3,
       },
     );
 
@@ -54,6 +56,8 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
     expect(event.workload.readbackMaxDimension).toBe(480);
     expect(event.workload.readbackTier).toBe(1);
     expect(event.workload.readbackCadenceFps).toBe(20);
+    expect(event.workload.playbackSpeed).toBe(2);
+    expect(event.workload.readbackSourceFrameStride).toBe(3);
   });
 
   it("does not enqueue the same native stats sample twice", () => {
