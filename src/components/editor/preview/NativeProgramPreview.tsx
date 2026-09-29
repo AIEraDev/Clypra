@@ -689,6 +689,11 @@ export const NativeProgramPreview: React.FC = () => {
               adapterName: status.adapterName,
               backend: status.backend,
               deviceType: status.deviceType,
+              vendorId: status.vendorId,
+              deviceId: status.deviceId,
+              driver: status.driver,
+              driverInfo: status.driverInfo,
+              isSoftwareAdapter: status.isSoftwareAdapter,
             });
             forceRepaintNativeProgramPreview();
           }
@@ -3614,10 +3619,7 @@ export const NativeProgramPreview: React.FC = () => {
                     dispatchedReadbackPolicy,
                   );
                   playbackSpan.markDispatchStarted();
-                  nativeFrontendPerfSpans.set(
-                    readbackRequestKey,
-                    playbackSpan,
-                  );
+                  nativeFrontendPerfSpans.set(readbackRequestKey, playbackSpan);
                 }
                 nativePlaybackInFlight = nativePreviewScheduler
                   .requestVisible(readbackSource)
