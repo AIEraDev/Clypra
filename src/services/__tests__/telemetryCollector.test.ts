@@ -32,6 +32,30 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
     expect(telemetryCollector.getQueueLength()).toBe(1);
   });
 
+  it("records the adaptive embedded-readback policy on sampled spans", () => {
+    telemetryCollector.recordRenderSpan(
+      { totalTimeUs: 25_000 },
+      1,
+      1,
+      { nominalFps: 60 },
+      "playback",
+      undefined,
+      0,
+      0,
+      {
+        readbackMaxDimension: 480,
+        readbackTier: 1,
+        readbackCadenceFps: 20,
+      },
+    );
+
+    const event = (telemetryCollector as any).queue[0];
+    expect(event.workload.targetFps).toBe(60);
+    expect(event.workload.readbackMaxDimension).toBe(480);
+    expect(event.workload.readbackTier).toBe(1);
+    expect(event.workload.readbackCadenceFps).toBe(20);
+  });
+
   it("does not enqueue the same native stats sample twice", () => {
     const nativeRender = {
       lastSample: {
