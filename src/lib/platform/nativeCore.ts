@@ -106,6 +106,11 @@ export interface NativeGpuRuntimeStatus {
   adapterName: string | null;
   backend: string | null;
   deviceType: string | null;
+  vendorId: number | null;
+  deviceId: number | null;
+  driver: string | null;
+  driverInfo: string | null;
+  isSoftwareAdapter: boolean | null;
   surfaceAvailable: boolean;
   failureReason: string | null;
 }

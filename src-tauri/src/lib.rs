@@ -291,12 +291,20 @@ pub fn run() {
                         Ok(gpu_ctx) => {
                             if let Some(status) = &status_arc {
                                 if let Ok(mut s) = status.lock() {
-                                    *s = native_core::NativeGpuRuntimeStatus::ready(
+                                    let mut ready = native_core::NativeGpuRuntimeStatus::ready(
                                         gpu_ctx.info.name.clone(),
                                         gpu_ctx.info.backend.clone(),
                                         gpu_ctx.info.device_type.clone(),
                                         false,
                                     );
+                                    ready.set_adapter_details(
+                                        gpu_ctx.info.vendor_id,
+                                        gpu_ctx.info.device_id,
+                                        gpu_ctx.info.driver.clone(),
+                                        gpu_ctx.info.driver_info.clone(),
+                                        gpu_ctx.info.is_software_adapter,
+                                    );
+                                    *s = ready;
                                 }
                             }
                             let identity =
