@@ -1903,6 +1903,14 @@ export const NativeProgramPreview: React.FC = () => {
         }
         const request = clampReadbackRequest(rawRequest);
         const requestKey = getNativeFrameRequestKey(request);
+        // This belongs to the request, not a particular completion branch.
+        // Every scheduler result (cache hit, seek, cancellation, or playback)
+        // can then identify the applied CPU RGBA bridge budget.
+        const readbackPolicy = {
+          readbackMaxDimension: adaptiveReadbackPolicy.maxDimension,
+          readbackTier: adaptiveReadbackPolicy.currentTier,
+          readbackCadenceFps: adaptiveReadbackPolicy.targetCadenceFps,
+        };
         const frontendSpan = nativePerfCollector.isEnabled()
           ? nativePerfCollector.begin(request, {
               view: "webview",
@@ -1920,10 +1928,10 @@ export const NativeProgramPreview: React.FC = () => {
                     ? "seek"
                     : request.mode === "scrub"
                       ? "scrub"
-                      : request.mode === "frameStep"
+                    : request.mode === "frameStep"
                         ? "paused-interaction"
                         : "playback",
-            })
+            }, readbackPolicy)
           : null;
         frontendSpan?.markDispatchStarted();
         if (frontendSpan) nativeFrontendPerfSpans.set(requestKey, frontendSpan);
