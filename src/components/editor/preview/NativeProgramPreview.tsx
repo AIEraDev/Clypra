@@ -1902,41 +1902,14 @@ export const NativeProgramPreview: React.FC = () => {
           );
         }
         const request = clampReadbackRequest(rawRequest);
-        const requestKey = getNativeFrameRequestKey(request);
-        // This belongs to the request, not a particular completion branch.
-        // Every scheduler result (cache hit, seek, cancellation, or playback)
-        // can then identify the applied CPU RGBA bridge budget.
-        const readbackPolicy = {
-          readbackMaxDimension: adaptiveReadbackPolicy.maxDimension,
-          readbackTier: adaptiveReadbackPolicy.currentTier,
-          readbackCadenceFps: adaptiveReadbackPolicy.targetCadenceFps,
-        };
-        const frontendSpan = nativePerfCollector.isEnabled()
-          ? nativePerfCollector.begin(request, {
-              view: "webview",
-              surface: "dom-canvas",
-              runtimeEnvironment: import.meta.env.DEV
-                ? "development"
-                : "production",
-              sessionId: capturedSession.sessionId,
-              qualificationRunId:
-                previewQualificationController.getState().runId ?? undefined,
-              scenario:
-                previewQualificationController.getState().status === "running"
-                  ? "qualification"
-                  : request.mode === "seek"
-                    ? "seek"
-                    : request.mode === "scrub"
-                      ? "scrub"
-                    : request.mode === "frameStep"
-                        ? "paused-interaction"
-                        : "playback",
-            }, readbackPolicy)
-          : null;
-        frontendSpan?.markDispatchStarted();
-        if (frontendSpan) nativeFrontendPerfSpans.set(requestKey, frontendSpan);
+        // Spans are created at dispatch time (before requestVisible) so that
+        // cache hits — which bypass load() entirely — are also recorded.
+        // The load() function only handles the actual FFmpeg/GPU readback.
         const render = async () => {
           const readbackStartedAt = performance.now();
+          // Look up the span that was registered before requestVisible() was called.
+          const requestKey = getNativeFrameRequestKey(request);
+          const frontendSpan = nativeFrontendPerfSpans.get(requestKey);
           frontendSpan?.markIpcStarted();
           try {
             return await renderNativeFrame(request);
@@ -3611,6 +3584,35 @@ export const NativeProgramPreview: React.FC = () => {
                   readbackCadenceFps:
                     adaptiveReadbackPolicy.targetCadenceFps,
                 };
+                // Create the span BEFORE requestVisible() so cache hits —
+                // which never enter load() — are recorded too.
+                if (nativePerfCollector.isEnabled()) {
+                  const playbackSpan = nativePerfCollector.begin(
+                    readbackSource.request,
+                    {
+                      view: "webview",
+                      surface: "dom-canvas",
+                      runtimeEnvironment: import.meta.env.DEV
+                        ? "development"
+                        : "production",
+                      sessionId: capturedSession.sessionId,
+                      qualificationRunId:
+                        previewQualificationController.getState().runId ??
+                        undefined,
+                      scenario:
+                        previewQualificationController.getState().status ===
+                        "running"
+                          ? "qualification"
+                          : "playback",
+                    },
+                    dispatchedReadbackPolicy,
+                  );
+                  playbackSpan.markDispatchStarted();
+                  nativeFrontendPerfSpans.set(
+                    readbackRequestKey,
+                    playbackSpan,
+                  );
+                }
                 nativePlaybackInFlight = nativePreviewScheduler
                   .requestVisible(readbackSource)
                   .then((frame) => {
@@ -3756,6 +3758,41 @@ export const NativeProgramPreview: React.FC = () => {
                   request: readbackRequest,
                   generation: targetGeneration,
                 };
+                // Capture policy at dispatch time and create the span before
+                // requestVisible() so cache hits are recorded, not just misses.
+                const pausedReadbackPolicy = {
+                  readbackMaxDimension: adaptiveReadbackPolicy.maxDimension,
+                  readbackTier: adaptiveReadbackPolicy.currentTier,
+                  readbackCadenceFps: adaptiveReadbackPolicy.targetCadenceFps,
+                };
+                if (nativePerfCollector.isEnabled()) {
+                  const pausedSpan = nativePerfCollector.begin(
+                    readbackRequest,
+                    {
+                      view: "webview",
+                      surface: "dom-canvas",
+                      runtimeEnvironment: import.meta.env.DEV
+                        ? "development"
+                        : "production",
+                      sessionId: capturedSession.sessionId,
+                      qualificationRunId:
+                        previewQualificationController.getState().runId ??
+                        undefined,
+                      scenario:
+                        previewQualificationController.getState().status ===
+                        "running"
+                          ? "qualification"
+                          : readbackRequest.mode === "scrub"
+                            ? "scrub"
+                            : readbackRequest.mode === "frameStep"
+                              ? "paused-interaction"
+                              : "seek",
+                    },
+                    pausedReadbackPolicy,
+                  );
+                  pausedSpan.markDispatchStarted();
+                  nativeFrontendPerfSpans.set(readbackRequestKey, pausedSpan);
+                }
                 if (latestSeekIntent?.scrubSpanId) {
                   const demandDelayUs = Math.max(
                     0,
