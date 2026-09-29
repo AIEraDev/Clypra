@@ -189,20 +189,29 @@ pub fn probe_hardware_capability(
         "UHD 630",
     ];
 
-    let is_constrained_intel = gpu_vendor.contains("Intel")
+    // Adapter APIs do not normalize vendor/model casing consistently across
+    // DXGI, Vulkan, Metal, and software fallbacks. Classifying case
+    // sensitively promoted some lower-end Windows Intel adapters to a more
+    // expensive policy simply because their driver reported `intel`.
+    let normalized_vendor = gpu_vendor.to_ascii_lowercase();
+    let normalized_model = gpu_model.to_ascii_lowercase();
+    let is_constrained_intel = normalized_vendor.contains("intel")
         && CONSTRAINED_INTEL_MODELS
             .iter()
-            .any(|m| gpu_model.contains(m))
+            .any(|model| normalized_model.contains(&model.to_ascii_lowercase()))
         && vram_bytes < TWO_GIB;
 
     // Apple Silicon uses unified memory, so `dedicated_video_memory` is
     // commonly reported as zero. Treating that as a sub-1 GiB discrete GPU
     // incorrectly selects the constrained QoS policy on capable M-series
     // machines. Hardware HEVC support is the reliable capability signal here.
-    let is_apple_silicon = gpu_vendor.to_ascii_lowercase().contains("apple") && has_hw_hevc;
+    let is_apple_silicon = normalized_vendor.contains("apple") && has_hw_hevc;
 
     let tier = if is_apple_silicon {
-        CapabilityTier::Moderate
+        // Unified memory is not a tiny dedicated-VRAM budget. M-series
+        // VideoToolbox + Metal starts at full quality; measured QoS remains
+        // free to reduce quality when the actual project needs it.
+        CapabilityTier::HighEnd
     } else if vram_bytes < ONE_GIB || is_constrained_intel {
         CapabilityTier::Constrained
     } else if vram_bytes < FOUR_GIB {
@@ -306,6 +315,18 @@ mod tests {
     }
 
     #[test]
+    fn constrained_intel_detection_is_case_insensitive_for_windows_drivers() {
+        let profile = probe_hardware_capability(
+            1 * 1024 * 1024 * 1024,
+            "intel",
+            "intel(r) uhd graphics 620",
+            true,
+            false,
+        );
+        assert_eq!(profile.tier, CapabilityTier::Constrained);
+    }
+
+    #[test]
     fn constrained_vram_below_1gib_any_vendor() {
         // Any GPU with < 1 GiB dedicated VRAM is Constrained regardless of vendor.
         let profile =
@@ -375,7 +396,7 @@ mod tests {
     #[test]
     fn apple_silicon_with_unified_memory_is_not_constrained() {
         let profile = probe_hardware_capability(0, "Apple", "Apple M1", true, false);
-        assert_eq!(profile.tier, CapabilityTier::Moderate);
+        assert_eq!(profile.tier, CapabilityTier::HighEnd);
     }
 
     // -----------------------------------------------------------------------

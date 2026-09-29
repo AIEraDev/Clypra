@@ -266,9 +266,12 @@ const REDUCED_1080_POLICY: PreviewHardwarePolicy = {
  * a brief resize. It deliberately never upscales again mid-session: stable
  * editing is more valuable than oscillating detail.
  *
- * Backpressure escalation now applies to ALL GPU tiers that are not
- * `discrete`-classified, not only Intel adapters. A weak Nvidia MX 150 or
- * AMD Vega 8 under heavy load will benefit from the same reduction.
+ * Backpressure escalation applies to every accelerated tier. A device type is
+ * an initial hint, not a performance guarantee: entry-level discrete Windows
+ * GPUs, eGPU docking paths, thermal throttling, and driver fallback can all
+ * miss real-time deadlines. Apple Silicon remains the sole exception because
+ * its proxy path may require a costly CPU readback; native QoS remains able to
+ * reduce its render quality without taking that path.
  */
 export class PreviewPerformancePolicyController {
   private observations: PreviewPerformanceObservation[] = [];
@@ -360,15 +363,12 @@ export class PreviewPerformancePolicyController {
       deviceType,
     );
 
-    // Discrete GPUs do not participate in backpressure escalation — they can
-    // always handle the workload better than an iGPU. Software renderers
-    // already get the worst tier from selectPreviewHardwarePolicy.
+    // Software renderers already get the worst tier from the static policy.
     // Apple Silicon (M-series) has unified memory and dedicated hardware decode;
     // in Clypra, escalating Apple Silicon to proxy causes an unintended fallback
     // to unaccelerated cpu-rgba decode (~500ms), inducing severe drop loops.
     const tier = classifyGpuTier(adapterName, deviceType);
     if (
-      tier === "discrete" ||
       tier === "software" ||
       tier === "unknown" ||
       isAppleSiliconGpu(adapterName)
@@ -385,9 +385,10 @@ export class PreviewPerformancePolicyController {
         ? REDUCED_1080_POLICY
         : PROXY_POLICY;
     }
-    // Capable iGPUs stay at reduced (1080p half) rather than falling back to
-    // unaccelerated software proxy decode. Only legacy iGPUs drop to proxy.
-    if (tier === "capable-igpu") {
+    // Capable iGPUs and discrete adapters stay at reduced (1080p half) rather
+    // than falling back to an unaccelerated CPU proxy. Legacy iGPUs are the
+    // only class that begins on a proxy and therefore needs no second step.
+    if (tier === "capable-igpu" || tier === "discrete") {
       return REDUCED_1080_POLICY;
     }
     return PROXY_POLICY;

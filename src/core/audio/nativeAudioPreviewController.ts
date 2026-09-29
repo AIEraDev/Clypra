@@ -89,6 +89,8 @@ export class NativeAudioPreviewController {
   private commandRevision = 0;
   /** Latest paused seek intent. Rapid scrubs collapse to the newest target. */
   private seekIntentRevision = 0;
+  /** Last explicit PlaybackClock seek already sent to the native audio graph. */
+  private lastHandledClockSeekRevision = 0;
   /** Timeline edits collapse to the newest candidate instead of queuing rebuilds. */
   private pendingSource: NativeAudioPreviewSource | null = null;
   private sourceUpdateScheduled = false;
@@ -119,6 +121,9 @@ export class NativeAudioPreviewController {
     this.source = options.source;
     this.onError = options.onError;
     this.transportAuthority = options.transportAuthority;
+    // Do not replay a seek that happened before this controller became the
+    // native transport owner; initialisation performs its own exact seek.
+    this.lastHandledClockSeekRevision = this.clock.seekRevision;
   }
 
   get isActive(): boolean {
@@ -438,13 +443,14 @@ export class NativeAudioPreviewController {
     const frameDuration = 1 / Math.max(1, state.frameRate);
     const expectedAdvance = elapsedWallSec * (state.speed ?? 1);
     const advanceDelta = Math.abs((state.time - (previous?.time ?? state.time)) - expectedAdvance);
+    const hasNewClockSeek =
+      this.clock.seekRevision !== this.lastHandledClockSeekRevision;
     const isPlayingJump =
       state.state === "playing" &&
       previous?.state === "playing" &&
       previous &&
       (this.clock.isSeeking ||
-        Boolean(telemetryCollector.getActiveScrubSpanId()) ||
-        Boolean(getActiveSessionOrNull()?.transportAuthority?.getSeekController()?.getCurrent()) ||
+        hasNewClockSeek ||
         advanceDelta > 0.4);
 
     const isPausedSeek =
@@ -454,6 +460,14 @@ export class NativeAudioPreviewController {
       Math.abs(state.time - previous.time) > frameDuration * 0.5;
 
     if (isPausedSeek || isPlayingJump) {
+      // `isSeeking` is level-triggered until a visual frame settles. Native
+      // audio transport is edge-triggered: it must receive exactly one seek
+      // per explicit clock revision, otherwise every RAF notification seeks
+      // CPAL back to the same position and freezes the program playhead.
+      if (isPlayingJump && !hasNewClockSeek && !(advanceDelta > 0.4)) {
+        return;
+      }
+      this.lastHandledClockSeekRevision = this.clock.seekRevision;
       this.seekIntentRevision += 1;
       const seekIntentRevision = this.seekIntentRevision;
       const activeScrubId = telemetryCollector.getActiveScrubSpanId();
@@ -506,6 +520,10 @@ export class NativeAudioPreviewController {
             Math.max(0, Math.floor(targetTime * this.clock.frameRate)),
           );
           this.adoptNativePosition(nativeState.audioPositionTicks);
+          // Native audio accepted the transport seek. Presentation may still
+          // await a decoded frame, but that must not keep the time authority
+          // frozen or cause another audio seek on the next RAF notification.
+          this.clock.completeSeek();
           if (interaction) {
             interaction.telemetry.audioSeekUs = audioSeekUs;
             interaction.telemetry.inputToAudioUs = Math.max(
@@ -611,14 +629,6 @@ export class NativeAudioPreviewController {
       interaction: interaction.telemetry,
       totalTimeUs,
     });
-    console.debug("[NativeAudioController] transport interaction", {
-      name: interaction.telemetry.name,
-      outcome,
-      queueWaitUs: interaction.telemetry.queueWaitUs,
-      audioSeekUs: interaction.telemetry.audioSeekUs,
-      audioTransportUs: interaction.telemetry.audioTransportUs,
-      totalTimeUs,
-    });
   }
 
   private async pollNativeClock(): Promise<void> {
@@ -674,10 +684,6 @@ export class NativeAudioPreviewController {
         durationTicks > 0 &&
         positionTicks >= durationTicks
       ) {
-        console.info("[NativeAudioController] Reached timeline end duration:", {
-          positionTicks,
-          durationTicks,
-        });
         this.clock.complete();
       }
     } catch (error) {
@@ -743,6 +749,13 @@ export class NativeAudioPreviewController {
       const callbackCountDelta = Math.max(0, diagnostics.status.callbackCount - probe.callbackCount);
       const nonSilentFramesDelta = Math.max(0, diagnostics.status.nonSilentFrames - probe.nonSilentFrames);
       if (nonSilentFramesDelta > 0) {
+        // The first non-silent callback—not the play IPC completion—is the
+        // trustworthy start of a CPAL transport. Reset any UI extrapolation
+        // from the prior stream to this hardware-clock sample.
+        this.clock.resyncNativeClockPosition(
+          diagnostics.status.audioPositionTicks / 1_000_000,
+          this.clock.speed,
+        );
         this.finishStartupProbe("audible", diagnostics, callbackCountDelta, nonSilentFramesDelta);
       } else if (elapsedUs(probe.startedAt) >= 1_500_000) {
         // On Windows Intel iGPU (D3D12) the CPAL stream can initialise before
@@ -752,9 +765,6 @@ export class NativeAudioPreviewController {
         // We only attempt this once to prevent an infinite silent loop.
         if (!diagnostics.status.lastError && !this.silentTimeoutRetried && this.active && !this.disposed) {
           this.silentTimeoutRetried = true;
-          console.info(
-            "[NativeAudioController] Silent-timeout detected — attempting one-time CPAL stream restart",
-          );
           try {
             await stopNativeAudio();
             await new Promise<void>((resolve) => setTimeout(resolve, 500));
@@ -769,7 +779,6 @@ export class NativeAudioPreviewController {
             probe.nonSilentFrames = 0;
             if (this.startupProbe) this.startupProbe.playCommandUs = undefined;
             this.adoptNativePosition(nativeState.audioPositionTicks);
-            console.info("[NativeAudioController] CPAL stream restarted after silent-timeout");
           } catch (restartError) {
             console.warn("[NativeAudioController] CPAL restart failed:", restartError);
             this.finishStartupProbe(
