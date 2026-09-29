@@ -196,6 +196,7 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
             channels: status.channels ?? undefined,
             installedClipCount: diagnostics.installedClips.length,
             activeClipCount: diagnostics.activeClipIds.length,
+            playbackSpeed: status.speed,
             callbackCount,
             renderedFrames,
             nonSilentFrames: Math.max(

@@ -350,6 +350,8 @@ export interface TelemetryAudioMetrics {
   activeVoiceCount?: number;
   syncCalls?: number;
   playingSyncCalls?: number;
+  /** Transport speed during this audio-health window. */
+  playbackSpeed?: number;
   callbackCount?: number;
   renderedFrames?: number;
   nonSilentFrames?: number;
