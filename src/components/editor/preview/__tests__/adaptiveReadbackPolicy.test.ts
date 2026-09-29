@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { AdaptiveReadbackPolicy } from "../adaptiveReadbackPolicy";
+import {
+  AdaptiveReadbackPolicy,
+  defaultEmbeddedReadbackLimit,
+} from "../adaptiveReadbackPolicy";
 
 describe("AdaptiveReadbackPolicy", () => {
   it("reduces the embedded readback size after sustained over-budget transfers", () => {
@@ -35,5 +38,24 @@ describe("AdaptiveReadbackPolicy", () => {
     expect(policy.canDispatchPlayback(140)).toBe(false);
     expect(policy.canDispatchPlayback(142)).toBe(true);
     vi.restoreAllMocks();
+  });
+
+  it("starts embedded Windows playback at a bounded bridge proxy", () => {
+    const userAgent = Object.getOwnPropertyDescriptor(navigator, "userAgent");
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    });
+
+    expect(defaultEmbeddedReadbackLimit()).toBe(480);
+
+    if (userAgent) Object.defineProperty(navigator, "userAgent", userAgent);
+  });
+
+  it("uses a 10fps safety cadence at the smallest bridge tier", () => {
+    const policy = new AdaptiveReadbackPolicy(320);
+    policy.markPlaybackDispatch(100);
+    expect(policy.canDispatchPlayback(199)).toBe(false);
+    expect(policy.canDispatchPlayback(200)).toBe(true);
   });
 });
