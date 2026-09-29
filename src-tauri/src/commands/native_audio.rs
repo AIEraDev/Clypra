@@ -243,7 +243,9 @@ pub async fn replace_native_audio_clips(
             Err(error) => {
                 log::warn!(
                     "[NativeAudio] Skipping failed audio clip {}: {} (path: {})",
-                    request.clip_id, error, request.path
+                    request.clip_id,
+                    error,
+                    request.path
                 );
             }
         }

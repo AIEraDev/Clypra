@@ -451,11 +451,7 @@ impl NativePreviewFrameQueue {
                 self.entries.remove(&key);
                 self.order.retain(|entry| entry != &key);
             }
-            self.highest_frame_index = self
-                .entries
-                .values()
-                .map(|frame| frame.frame_index)
-                .max();
+            self.highest_frame_index = self.entries.values().map(|frame| frame.frame_index).max();
         }
     }
 
@@ -2711,9 +2707,7 @@ static LOOKAHEAD_WORKER: std::sync::Mutex<Option<LookaheadWorkerState>> =
 ///
 /// Returns `None` if no render session is active, letting the caller fall back
 /// to the per-request quality embedded in the frame request itself.
-fn current_lookahead_quality(
-    app: &tauri::AppHandle,
-) -> Option<crate::native_core::QualityTier> {
+fn current_lookahead_quality(app: &tauri::AppHandle) -> Option<crate::native_core::QualityTier> {
     let playback = app.try_state::<Arc<std::sync::Mutex<
         crate::commands::native_playback::NativePlaybackRuntime,
     >>>()?;
@@ -2763,10 +2757,12 @@ pub(crate) fn schedule_lookahead_predecode(
     if let Some(active) = worker_guard.as_ref() {
         let is_active = !active.finished.load(std::sync::atomic::Ordering::Acquire);
         let is_same_gen = active.generation == generation;
-        let start_f = active.start_frame.load(std::sync::atomic::Ordering::Acquire);
+        let start_f = active
+            .start_frame
+            .load(std::sync::atomic::Ordering::Acquire);
         let end_f = active.end_frame.load(std::sync::atomic::Ordering::Acquire);
-        let is_in_range = current_audio_frame >= start_f.saturating_sub(2)
-            && current_audio_frame <= end_f;
+        let is_in_range =
+            current_audio_frame >= start_f.saturating_sub(2) && current_audio_frame <= end_f;
 
         if is_active && is_same_gen && is_in_range {
             return;
@@ -3225,7 +3221,12 @@ pub(crate) async fn present_native_frame_internal(
         // the single bounded worker is running before reporting the drop so
         // the next audio deadline can consume newly ready work. The scheduler
         // coalesces an already-running worker for this generation.
-        schedule_lookahead_predecode(app.clone(), request.clone(), 16, current_lookahead_quality(&app));
+        schedule_lookahead_predecode(
+            app.clone(),
+            request.clone(),
+            16,
+            current_lookahead_quality(&app),
+        );
         let probe = surface_state
             .lock()
             .unwrap_or_else(|poisoned| {
@@ -3414,9 +3415,8 @@ pub(crate) async fn present_native_frame_internal(
     // Frame skipping occurs naturally at the scheduler boundary on the next tick.
     // EXCEPT when severe A/V drift occurs (> 120 ms behind audio clock). In that case,
     // presenting ancient frames only perpetuates desync. We purge stale queue frames and re-anchor.
-    let is_severely_late_for_audio = is_playback
-        && !legacy_request.layers.is_empty()
-        && frame_age_ticks > 120_000;
+    let is_severely_late_for_audio =
+        is_playback && !legacy_request.layers.is_empty() && frame_age_ticks > 120_000;
 
     let late_for_audio = (late_for_audio && !legacy_request.layers.is_empty() && !is_playback)
         || is_severely_late_for_audio;
@@ -3427,7 +3427,12 @@ pub(crate) async fn present_native_frame_internal(
                 q.discard_before(request.frame_time.frame_index);
             }
         }
-        schedule_lookahead_predecode(app.clone(), request.clone(), 16, current_lookahead_quality(&app));
+        schedule_lookahead_predecode(
+            app.clone(),
+            request.clone(),
+            16,
+            current_lookahead_quality(&app),
+        );
     }
     if !surface.accept_presentation(presentation_sequence) {
         drop(surface);
@@ -3974,7 +3979,12 @@ pub(crate) async fn present_native_frame_internal(
     );
 
     if request.mode.as_deref() != Some("prefetch") && request.mode.as_deref() != Some("scrub") {
-        schedule_lookahead_predecode(app.clone(), request.clone(), 16, current_lookahead_quality(&app));
+        schedule_lookahead_predecode(
+            app.clone(),
+            request.clone(),
+            16,
+            current_lookahead_quality(&app),
+        );
     }
 
     Ok(NativeSurfacePresentation {
@@ -4045,7 +4055,9 @@ pub async fn render_native_frame(
     let started = Instant::now();
     log::debug!(
         "[preview-diag][rust] render_native_frame called: frame={} mode={:?} quality={:?}",
-        request.frame_time.frame_index, request.mode, request.quality,
+        request.frame_time.frame_index,
+        request.mode,
+        request.quality,
     );
     if request.contract_version != NATIVE_CORE_CONTRACT_VERSION {
         let err = format!(
@@ -4149,9 +4161,9 @@ pub async fn render_native_frame(
         match render_native_video_project_frame_bytes_timed(app.clone(), legacy_request).await {
             Ok(res) => {
                 log::debug!(
-                    "[preview-diag][rust] render_native_video_project_frame_bytes_timed OK: bytes={}",
-                    res.0.len()
-                );
+                "[preview-diag][rust] render_native_video_project_frame_bytes_timed OK: bytes={}",
+                res.0.len()
+            );
                 res
             }
             Err(e) => {

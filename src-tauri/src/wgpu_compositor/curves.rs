@@ -264,7 +264,10 @@ mod tests {
                 y,
                 prev_y
             );
-            assert!((0.0..=1.0).contains(&y), "Output must stay clamped in [0, 1]");
+            assert!(
+                (0.0..=1.0).contains(&y),
+                "Output must stay clamped in [0, 1]"
+            );
             prev_y = y;
         }
 

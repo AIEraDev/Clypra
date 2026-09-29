@@ -1,5 +1,5 @@
-use super::model::{Clip, ClipId, MediaAssetRef, ProjectState, Track, TrackId};
 use super::super::types::{BlendMode, LayerTransform, MediaTime};
+use super::model::{Clip, ClipId, MediaAssetRef, ProjectState, Track, TrackId};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -220,7 +220,10 @@ impl ProjectState {
                     .ok_or_else(|| ProjectError::ClipNotFound(clip_id.clone()))?;
                 clip.opacity = opacity.clamp(0.0, 1.0);
             }
-            ProjectCommand::SetBlendMode { clip_id, blend_mode } => {
+            ProjectCommand::SetBlendMode {
+                clip_id,
+                blend_mode,
+            } => {
                 let clip = self
                     .sequence
                     .clips

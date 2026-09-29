@@ -117,17 +117,14 @@ impl MediaFrameCache {
     }
 
     /// Inserts a decoded frame into the cache, evicting if budget is exceeded.
-    pub fn insert(
-        &mut self,
-        key: FrameCacheKey,
-        frame: VideoFrame,
-        priority: MediaPriority,
-    ) {
+    pub fn insert(&mut self, key: FrameCacheKey, frame: VideoFrame, priority: MediaPriority) {
         // Approximate VRAM footprint: width * height * 2 (e.g. for P010 10-bit YUV)
         let byte_size = (frame.surface.width * frame.surface.height * 2) as usize;
 
         // Ensure capacity before inserting
-        while self.entries.len() >= self.max_frames || (self.current_bytes + byte_size > self.max_bytes && !self.entries.is_empty()) {
+        while self.entries.len() >= self.max_frames
+            || (self.current_bytes + byte_size > self.max_bytes && !self.entries.is_empty())
+        {
             if !self.evict_one() {
                 break;
             }

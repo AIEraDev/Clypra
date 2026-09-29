@@ -140,7 +140,9 @@ impl GraphResourcePool {
             }
 
             if let Some(slot_idx) = matched_slot {
-                self.physical_slots[slot_idx].assigned_resources.push(res_id);
+                self.physical_slots[slot_idx]
+                    .assigned_resources
+                    .push(res_id);
                 self.resource_to_slot.insert(res_id, slot_idx);
             } else {
                 let new_slot_id = self.physical_slots.len();
@@ -170,7 +172,9 @@ impl GraphResourcePool {
     /// Number of virtual resources that were aliased into another resource's slot.
     #[inline]
     pub fn aliased_count(&self) -> usize {
-        self.resources.len().saturating_sub(self.physical_slots.len())
+        self.resources
+            .len()
+            .saturating_sub(self.physical_slots.len())
     }
 
     /// Peak VRAM footprint of all allocated physical slots combined.

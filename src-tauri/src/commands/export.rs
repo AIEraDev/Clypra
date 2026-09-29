@@ -1493,7 +1493,8 @@ pub async fn finalize_video_export(session_id: String) -> Result<ExportTimings, 
         let stderr = String::from_utf8_lossy(&output.stderr);
         log::debug!(
             "[finalize_video_export] Session {} failed:\n{}",
-            session_id, stderr
+            session_id,
+            stderr
         );
         Err(format!("FFmpeg failed: {}", stderr))
     }
@@ -1540,7 +1541,8 @@ pub async fn cancel_video_export(session_id: String) -> Result<(), String> {
     if let Err(e) = tokio::fs::remove_file(&temp_output_path).await {
         log::debug!(
             "[cancel_video_export] Could not delete temporary file {:?}: {}",
-            temp_output_path, e
+            temp_output_path,
+            e
         );
     } else {
         log::debug!(
@@ -1551,7 +1553,8 @@ pub async fn cancel_video_export(session_id: String) -> Result<(), String> {
 
     log::debug!(
         "[cancel_video_export] Session {} cancelled ({} frames written)",
-        session_id, current_frame
+        session_id,
+        current_frame
     );
 
     super::native_export::release_export_slot();

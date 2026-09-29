@@ -85,7 +85,8 @@ pub async fn extract_with_retry(
                     if let Some(lower) = density.lower() {
                         log::debug!(
                             "[Extract] Timeout at density {:?}, retrying with lower density {:?}",
-                            density, lower
+                            density,
+                            lower
                         );
                         return Box::pin(extract_with_retry(
                             video_path, time, lower, width, height,
@@ -99,7 +100,8 @@ pub async fn extract_with_retry(
                     if attempts >= max_attempts {
                         log::debug!(
                             "[Extract] Max retries ({}) exceeded for process spawn error: {}",
-                            max_attempts, e
+                            max_attempts,
+                            e
                         );
                         return Err(e);
                     }
@@ -107,7 +109,8 @@ pub async fn extract_with_retry(
                     tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
                     log::debug!(
                         "[Extract] Retry {} after {}ms (process spawn error)",
-                        attempts, backoff_ms
+                        attempts,
+                        backoff_ms
                     );
                     backoff_ms *= 4;
                 }

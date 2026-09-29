@@ -163,10 +163,7 @@ mod tests {
             generation: 100,
         };
         let submit_err = session.submit(stale_packet);
-        assert_eq!(
-            submit_err,
-            Err(DecoderError::GenerationCancelled(100))
-        );
+        assert_eq!(submit_err, Err(DecoderError::GenerationCancelled(100)));
     }
 
     /// PHASE D VERTICAL SLICE ACCEPTANCE TEST:
@@ -233,9 +230,18 @@ mod tests {
         assert_eq!(telemetry.decoder_backend, "D3D12VA");
         assert!(telemetry.is_hardware);
         assert!(telemetry.zero_copy);
-        assert_eq!(telemetry.cpu_readback_bytes, 0, "Zero CPU readback invariant violated!");
-        assert_eq!(telemetry.cpu_upload_bytes, 0, "Zero CPU upload invariant violated!");
-        assert_eq!(telemetry.cross_adapter_bytes, 0, "Zero cross-adapter copy invariant violated!");
+        assert_eq!(
+            telemetry.cpu_readback_bytes, 0,
+            "Zero CPU readback invariant violated!"
+        );
+        assert_eq!(
+            telemetry.cpu_upload_bytes, 0,
+            "Zero CPU upload invariant violated!"
+        );
+        assert_eq!(
+            telemetry.cross_adapter_bytes, 0,
+            "Zero cross-adapter copy invariant violated!"
+        );
         assert_eq!(telemetry.surface_copy_count, 0);
     }
 }

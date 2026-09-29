@@ -60,7 +60,9 @@ mod tests {
 
         // Invalid direct transition: DecoderOwned cannot skip directly to Available without cancel/reset
         let mut invalid_surface = create_test_d3d12_surface(10, 0);
-        assert!(invalid_surface.transition_owner(SurfaceOwner::Renderer).is_err());
+        assert!(invalid_surface
+            .transition_owner(SurfaceOwner::Renderer)
+            .is_err());
     }
 
     #[test]
@@ -78,7 +80,12 @@ mod tests {
         assert!(surface.is_safe_to_reuse(60));
     }
 
-    fn create_test_adapter(name: &str, vendor: crate::engine::hardware::GpuVendor, luid_val: u64, is_discrete: bool) -> GpuAdapter {
+    fn create_test_adapter(
+        name: &str,
+        vendor: crate::engine::hardware::GpuVendor,
+        luid_val: u64,
+        is_discrete: bool,
+    ) -> GpuAdapter {
         GpuAdapter {
             id: format!("adapter-{name}"),
             vendor,
@@ -92,7 +99,12 @@ mod tests {
 
     #[test]
     fn test_phase_e3_zero_copy_decoder_frames_no_double_pooling() {
-        let adapter = create_test_adapter("NVIDIA RTX 4080", crate::engine::hardware::GpuVendor::Nvidia, 0x1000, true);
+        let adapter = create_test_adapter(
+            "NVIDIA RTX 4080",
+            crate::engine::hardware::GpuVendor::Nvidia,
+            0x1000,
+            true,
+        );
         let interop = D3D12SurfaceInterop::new(&adapter);
         let surface = create_test_d3d12_surface(1, 0);
 
@@ -106,7 +118,12 @@ mod tests {
 
     #[test]
     fn test_phase_e5_d3d12_resource_barrier_state_transitions() {
-        let adapter = create_test_adapter("Intel UHD Graphics 770", crate::engine::hardware::GpuVendor::Intel, 0x1000, false);
+        let adapter = create_test_adapter(
+            "Intel UHD Graphics 770",
+            crate::engine::hardware::GpuVendor::Intel,
+            0x1000,
+            false,
+        );
         let interop = D3D12SurfaceInterop::new(&adapter);
         let mut surface = create_test_d3d12_surface(1, 0);
 
@@ -133,7 +150,12 @@ mod tests {
 
     #[test]
     fn test_phase_e6_dual_producer_consumer_fences() {
-        let adapter = create_test_adapter("NVIDIA T1200 Laptop GPU", crate::engine::hardware::GpuVendor::Nvidia, 0x2000, true);
+        let adapter = create_test_adapter(
+            "NVIDIA T1200 Laptop GPU",
+            crate::engine::hardware::GpuVendor::Nvidia,
+            0x2000,
+            true,
+        );
         let interop = D3D12SurfaceInterop::new(&adapter);
         let mut surface = create_test_d3d12_surface(107, 0);
 
@@ -167,11 +189,8 @@ mod tests {
             generation: 1,
         };
 
-        let deadline = FrameDeadline::for_target(
-            MediaTime::from_micros(16_667),
-            MediaTime::ZERO,
-            60.0,
-        );
+        let deadline =
+            FrameDeadline::for_target(MediaTime::from_micros(16_667), MediaTime::ZERO, 60.0);
         let result = presenter.present(frame, deadline).unwrap();
         assert!(!result.dropped);
         assert!(result.vsync_aligned);
@@ -181,7 +200,12 @@ mod tests {
 
     #[test]
     fn test_phase_e0_e10_hardware_reality_diagnostic_telemetry() {
-        let adapter = create_test_adapter("NVIDIA T1200 Laptop GPU", crate::engine::hardware::GpuVendor::Nvidia, 0x5000, true);
+        let adapter = create_test_adapter(
+            "NVIDIA T1200 Laptop GPU",
+            crate::engine::hardware::GpuVendor::Nvidia,
+            0x5000,
+            true,
+        );
 
         let report = HardwareRealityRunner::run_diagnostic(&adapter).unwrap();
 

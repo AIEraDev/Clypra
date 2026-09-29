@@ -4,9 +4,7 @@
 //! cargo run --bin clypra-engine-benchmark -- --scenario playback --duration 30 --t1200 --output result.json
 
 use std::fs;
-use tauri_app_lib::engine::benchmark::{
-    BenchmarkScenario, CliOptions, HardwareBenchmarkRunner,
-};
+use tauri_app_lib::engine::benchmark::{BenchmarkScenario, CliOptions, HardwareBenchmarkRunner};
 
 fn main() {
     let opts = CliOptions::parse_from_args();

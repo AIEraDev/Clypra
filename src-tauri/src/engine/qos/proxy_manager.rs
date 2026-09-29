@@ -65,7 +65,10 @@ impl AsyncProxyManager {
         };
 
         self.proxies.insert(proxy_id, variant);
-        self.asset_to_proxies.entry(asset_id).or_default().push(proxy_id);
+        self.asset_to_proxies
+            .entry(asset_id)
+            .or_default()
+            .push(proxy_id);
         proxy_id
     }
 

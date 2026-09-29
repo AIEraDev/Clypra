@@ -55,7 +55,9 @@ mod tests {
             2160,
             PixelFormat::P010,
             sync,
-            SurfaceHandle::D3D12 { resource_ptr: 0x9999 },
+            SurfaceHandle::D3D12 {
+                resource_ptr: 0x9999,
+            },
         );
         VideoFrame::new(
             asset_id,
@@ -91,7 +93,10 @@ mod tests {
         let current_requests: Vec<_> = work_plan.current_frame_requests().collect();
         assert_eq!(current_requests.len(), 1);
         assert_eq!(current_requests[0].priority, MediaPriority::Current);
-        assert_eq!(current_requests[0].source_time, MediaTime::from_secs_f64(10.0));
+        assert_eq!(
+            current_requests[0].source_time,
+            MediaTime::from_secs_f64(10.0)
+        );
 
         // Lookahead requests exist and start with Next priority
         let lookahead_requests: Vec<_> = work_plan.lookahead_requests().collect();
@@ -250,18 +255,30 @@ mod tests {
 
         // Current and Next frames MUST still be present in cache!
         assert!(cache
-            .get(&FrameCacheKey::original("asset-1", MediaTime::from_secs_f64(1.0)))
+            .get(&FrameCacheKey::original(
+                "asset-1",
+                MediaTime::from_secs_f64(1.0)
+            ))
             .is_some());
         assert!(cache
-            .get(&FrameCacheKey::original("asset-1", MediaTime::from_secs_f64(1.016)))
+            .get(&FrameCacheKey::original(
+                "asset-1",
+                MediaTime::from_secs_f64(1.016)
+            ))
             .is_some());
 
         // Lookahead and Background are gone
         assert!(cache
-            .get(&FrameCacheKey::original("asset-1", MediaTime::from_secs_f64(1.050)))
+            .get(&FrameCacheKey::original(
+                "asset-1",
+                MediaTime::from_secs_f64(1.050)
+            ))
             .is_none());
         assert!(cache
-            .get(&FrameCacheKey::original("asset-1", MediaTime::from_secs_f64(10.0)))
+            .get(&FrameCacheKey::original(
+                "asset-1",
+                MediaTime::from_secs_f64(10.0)
+            ))
             .is_none());
     }
 

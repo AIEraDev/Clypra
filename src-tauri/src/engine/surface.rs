@@ -63,7 +63,10 @@ pub struct GpuFence {
 
 impl GpuFence {
     pub fn new(fence_id: u64, raw_handle: usize) -> Self {
-        Self { fence_id, raw_handle }
+        Self {
+            fence_id,
+            raw_handle,
+        }
     }
 }
 
@@ -116,18 +119,14 @@ impl SurfaceSync {
 #[derive(Debug, Clone)]
 pub enum SurfaceHandle {
     /// Direct3D 12 ID3D12Resource raw pointer address
-    D3D12 {
-        resource_ptr: usize,
-    },
+    D3D12 { resource_ptr: usize },
     /// Direct3D 11 ID3D11Texture2D raw pointer address + optional DXGI shared NT handle
     D3D11 {
         texture_ptr: usize,
         shared_handle: Option<usize>,
     },
     /// Apple Metal MTLTexture object address
-    Metal {
-        texture_id: usize,
-    },
+    Metal { texture_id: usize },
     /// CPU-accessible pixel buffer in system memory
     Cpu {
         buffer: Arc<Vec<u8>>,
@@ -221,7 +220,9 @@ impl VideoSurface {
     pub fn is_safe_to_reuse(&self, current_gpu_consumer_val: u64) -> bool {
         self.owner == SurfaceOwner::Available
             || (self.owner == SurfaceOwner::GpuInFlight
-                && self.sync.is_safe_for_decoder_reuse(current_gpu_consumer_val))
+                && self
+                    .sync
+                    .is_safe_for_decoder_reuse(current_gpu_consumer_val))
     }
 }
 
@@ -248,11 +249,19 @@ pub trait SurfaceInterop: Send + Sync {
     fn can_import(&self, surface: &VideoSurface) -> bool;
 
     /// Transitions GPU resource barrier state (e.g. VideoDecodeWrite -> PixelShaderResource)
-    fn transition_barrier(&self, surface: &mut VideoSurface, target_state: ResourceState) -> Result<(), String>;
+    fn transition_barrier(
+        &self,
+        surface: &mut VideoSurface,
+        target_state: ResourceState,
+    ) -> Result<(), String>;
 
     /// Acquires synchronization on the surface before rendering
     fn acquire_for_render(&self, surface: &mut VideoSurface) -> Result<(), String>;
 
     /// Releases synchronization on the surface after presentation completes
-    fn release_from_render(&self, surface: &mut VideoSurface, consumer_fence_val: u64) -> Result<(), String>;
+    fn release_from_render(
+        &self,
+        surface: &mut VideoSurface,
+        consumer_fence_val: u64,
+    ) -> Result<(), String>;
 }

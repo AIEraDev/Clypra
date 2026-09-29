@@ -49,10 +49,7 @@ pub enum PlaybackCommand {
         generation: u64,
     },
     /// Step by delta frames (e.g. +1 or -1)
-    Step {
-        delta_frames: i32,
-        generation: u64,
-    },
+    Step { delta_frames: i32, generation: u64 },
     /// Adjust playback speed multiplier
     SetSpeed(f64),
     /// Override quality tier manually or via QoS policy

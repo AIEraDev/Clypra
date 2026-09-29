@@ -53,7 +53,9 @@ impl NativeSurfaceRuntime {
 
         match surface.get_current_texture() {
             Ok(texture) => Ok(texture),
-            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Other) => {
+            Err(
+                wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Other,
+            ) => {
                 let configuration = self
                     .configuration
                     .as_ref()
@@ -235,7 +237,9 @@ fn configure_surface(
         #[cfg(target_os = "macos")]
         unsafe {
             let parent = app.get_window("main").unwrap_or(window);
-            if let (Ok(ns_win), Ok(parent_ns_win)) = (surface_window.ns_window(), parent.ns_window()) {
+            if let (Ok(ns_win), Ok(parent_ns_win)) =
+                (surface_window.ns_window(), parent.ns_window())
+            {
                 let _: () = objc2::msg_send![
                     parent_ns_win as *mut objc2::runtime::AnyObject,
                     addChildWindow: ns_win as *mut objc2::runtime::AnyObject,

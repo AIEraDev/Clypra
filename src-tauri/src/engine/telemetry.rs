@@ -17,14 +17,12 @@ use super::benchmark::types::{
     PlaybackSummary, TransferMetrics,
 };
 use super::graph::telemetry::RenderGraphTelemetry;
-use super::hardware::{HardwareCapabilityProfile, probe_hardware_capability};
+use super::hardware::{probe_hardware_capability, HardwareCapabilityProfile};
 use super::qos::controller::{QoSConfig, QoSController};
 use super::qos::metrics::PerformanceSnapshot;
 use super::qos::proxy_manager::AsyncProxyManager;
 use super::qos::telemetry::QoSTelemetry;
-use super::qos::types::{
-    Bottleneck, PerformanceEnvelope, PlaybackPolicySnapshot, QoSReason,
-};
+use super::qos::types::{Bottleneck, PerformanceEnvelope, PlaybackPolicySnapshot, QoSReason};
 use super::state_machine::PlaybackMode;
 use super::temporal::SeekTelemetry;
 use super::types::MediaTime;
@@ -143,7 +141,10 @@ impl EngineTelemetryCollector {
 
     /// Records presentation or drop of a frame in the real-time engine.
     pub fn record_frame(&self, frame: FrameTelemetry, app: Option<&AppHandle>) {
-        if matches!(frame.outcome, FrameOutcome::PresentedOnTime | FrameOutcome::PresentedLate(_)) {
+        if matches!(
+            frame.outcome,
+            FrameOutcome::PresentedOnTime | FrameOutcome::PresentedLate(_)
+        ) {
             self.total_presented.fetch_add(1, Ordering::Relaxed);
         } else if matches!(frame.outcome, FrameOutcome::Dropped) {
             self.total_dropped.fetch_add(1, Ordering::Relaxed);
@@ -152,7 +153,11 @@ impl EngineTelemetryCollector {
         // Live check for zero-copy invariants
         let (readback, upload, cross_adapter) = {
             let t = self.transfers.read();
-            (t.cpu_readback_bytes, t.cpu_upload_bytes, t.cross_adapter_bytes)
+            (
+                t.cpu_readback_bytes,
+                t.cpu_upload_bytes,
+                t.cross_adapter_bytes,
+            )
         };
         if readback > 0 || upload > 0 || cross_adapter > 0 {
             if let Some(app) = app {
@@ -176,7 +181,10 @@ impl EngineTelemetryCollector {
 
         // Emit high-priority telemetry if frame dropped or late
         if let Some(app) = app {
-            if matches!(frame.outcome, FrameOutcome::Dropped | FrameOutcome::PresentedLate(_)) {
+            if matches!(
+                frame.outcome,
+                FrameOutcome::Dropped | FrameOutcome::PresentedLate(_)
+            ) {
                 let _ = app.emit("clypra://engine-frame-anomaly", &frame);
             }
         }
@@ -208,6 +216,12 @@ impl EngineTelemetryCollector {
     /// Returns the active playback policy snapshot determined by the engine QoS controller.
     pub fn current_playback_policy(&self) -> PlaybackPolicySnapshot {
         self.qos_controller.read().current_policy_snapshot()
+    }
+
+    /// Discard control-loop observations from a previous transport run before
+    /// a new audio clock is allowed to drive playback.
+    pub fn begin_playback_run(&self) {
+        self.qos_controller.write().begin_transport();
     }
 
     /// Returns the active performance envelope against target frame budget.
@@ -243,24 +257,27 @@ impl EngineTelemetryCollector {
             let mut controller = self.qos_controller.write();
             controller.record_frame_snapshot(snapshot);
             let dummy_proxies = AsyncProxyManager::new();
-            let decision = controller.evaluate_window(
-                PlaybackMode::Play,
-                current_pts,
-                &dummy_proxies,
-                None,
-            );
+            let decision =
+                controller.evaluate_window(PlaybackMode::Play, current_pts, &dummy_proxies, None);
             let bottleneck = controller.last_diagnosed_bottleneck().clone();
-            let envelope = controller.performance_envelope();
+            let (
+                window_decode_us,
+                window_render_us,
+                window_miss_ratio,
+                window_pool_utilization,
+                unhealthy_windows,
+                healthy_windows,
+            ) = controller.window_metrics();
 
             let qos_telem = QoSTelemetry {
                 active_decision: decision.clone(),
                 diagnosed_bottleneck: bottleneck.clone(),
-                consecutive_unhealthy_windows: envelope.is_decode_starved() as usize,
-                consecutive_healthy_windows: 0,
-                window_mean_decode_us: decode_us,
-                window_mean_gpu_render_us: render_us,
-                window_miss_ratio: if missed { 1.0 } else { 0.0 },
-                window_pool_utilization: 0.1,
+                consecutive_unhealthy_windows: unhealthy_windows,
+                consecutive_healthy_windows: healthy_windows,
+                window_mean_decode_us: window_decode_us,
+                window_mean_gpu_render_us: window_render_us,
+                window_miss_ratio,
+                window_pool_utilization,
                 transition_count: controller.transition_history().len(),
             };
             (decision, bottleneck, qos_telem)
@@ -345,18 +362,38 @@ impl EngineTelemetryCollector {
                 presented_late_count: late,
                 dropped_count: dropped,
                 repeated_count: 0,
-                drop_ratio: if total > 0 { dropped as f64 / total as f64 } else { 0.0 },
+                drop_ratio: if total > 0 {
+                    dropped as f64 / total as f64
+                } else {
+                    0.0
+                },
                 repeat_ratio: 0.0,
-                deadline_miss_ratio: if total > 0 { (dropped + late) as f64 / total as f64 } else { 0.0 },
+                deadline_miss_ratio: if total > 0 {
+                    (dropped + late) as f64 / total as f64
+                } else {
+                    0.0
+                },
                 consecutive_misses_max: 0,
                 p50_frame_ms: p50,
                 p90_frame_ms: p90,
                 p95_frame_ms: p95,
                 p99_frame_ms: p99,
                 max_frame_ms: max_f,
-                mean_decode_us: if total > 0 { decode_sum / total as u64 } else { 0 },
-                mean_render_us: if total > 0 { render_sum / total as u64 } else { 0 },
-                mean_present_us: if total > 0 { present_sum / total as u64 } else { 0 },
+                mean_decode_us: if total > 0 {
+                    decode_sum / total as u64
+                } else {
+                    0
+                },
+                mean_render_us: if total > 0 {
+                    render_sum / total as u64
+                } else {
+                    0
+                },
+                mean_present_us: if total > 0 {
+                    present_sum / total as u64
+                } else {
+                    0
+                },
             }
         };
 

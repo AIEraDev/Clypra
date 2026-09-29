@@ -191,7 +191,9 @@ async fn get_image_metadata(path: &str) -> Result<MediaMetadata, String> {
 
     log::debug!(
         "🦀 [get_image_metadata] Dimensions: {}×{}, Alpha: {}",
-        width, height, has_alpha
+        width,
+        height,
+        has_alpha
     );
 
     Ok(MediaMetadata {
@@ -225,7 +227,9 @@ async fn get_video_metadata_internal(path: &str) -> Result<MediaMetadata, String
 
             log::debug!(
                 "🦀 [get_video_metadata_internal] Display dimensions: {}×{}, Rotation: {}°",
-                width, height, rotation
+                width,
+                height,
+                rotation
             );
 
             Ok(MediaMetadata {
@@ -303,7 +307,8 @@ async fn get_audio_duration(path: &str) -> Result<f64, String> {
     let duration = duration_str.trim().parse::<f64>().map_err(|e| {
         log::debug!(
             "[get_audio_duration] Failed to parse duration '{}': {}",
-            duration_str, e
+            duration_str,
+            e
         );
         format!("Failed to parse duration: {}", e)
     })?;
@@ -319,7 +324,8 @@ async fn get_audio_duration(path: &str) -> Result<f64, String> {
 pub async fn extract_poster_frame(path: String, time: f64) -> Result<String, String> {
     log::debug!(
         "[extract_poster_frame] Extracting frame at {}s from {}",
-        time, path
+        time,
+        path
     );
     crate::commands::thumbnail::extract_poster_frame_command(path, time.max(1.0), 1.0).await
 }
@@ -639,7 +645,14 @@ pub async fn get_or_create_preview_video(
 
     // Versioned key that includes OS platform so platform-specific decode support (like HEVC on macOS vs Windows)
     // produces distinct, correct cache artifacts.
-    let key = format!("{}:{}:{}:{}:{}", PREVIEW_CACHE_VERSION, std::env::consts::OS, path, meta.len(), modified);
+    let key = format!(
+        "{}:{}:{}:{}:{}",
+        PREVIEW_CACHE_VERSION,
+        std::env::consts::OS,
+        path,
+        meta.len(),
+        modified
+    );
     let hash = format!("{:x}", md5::compute(key.as_bytes()));
     let output_path = cache_dir.join(format!("{}.mp4", hash));
     let out_str = output_path.to_string_lossy().to_string();
@@ -669,16 +682,7 @@ pub async fn get_or_create_preview_video(
     if !force && can_stream_copy_video(codec_ref) {
         if audio_playable {
             // Stage 1: Ultra-fast stream remux (-c:v copy -c:a copy -sn)
-            let mut stage1_args = vec![
-                "-y",
-                "-i",
-                &path,
-                "-c:v",
-                "copy",
-                "-c:a",
-                "copy",
-                "-sn",
-            ];
+            let mut stage1_args = vec!["-y", "-i", &path, "-c:v", "copy", "-c:a", "copy", "-sn"];
             if is_hevc {
                 stage1_args.extend(["-tag:v", "hvc1"]);
             }
@@ -711,16 +715,7 @@ pub async fn get_or_create_preview_video(
 
         // Stage 2: Audio re-encode fallback (-c:v copy -c:a aac -b:a 192k -sn)
         let mut stage2_args = vec![
-            "-y",
-            "-i",
-            &path,
-            "-c:v",
-            "copy",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            "-sn",
+            "-y", "-i", &path, "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-sn",
         ];
         if is_hevc {
             stage2_args.extend(["-tag:v", "hvc1"]);
@@ -805,7 +800,9 @@ pub async fn transcribe_audio_local(
 
     log::debug!(
         "🦀 [transcribe_audio_local] Transcribing: {} (model: {}, lang: {})",
-        audio_path, model, lang_param
+        audio_path,
+        model,
+        lang_param
     );
 
     // Get app data directory for models

@@ -190,8 +190,13 @@ impl PerformanceWindow {
         }
 
         // 3. Decode Starvation / Decoder Bottleneck
-        // Signs: High decode time or empty ready queue with misses and high decode time
-        if mean_decode > budget || (ready_depth < 1.0 && miss_ratio > 0.25 && mean_decode > (budget * 7 / 10)) {
+        // A shallow lookahead queue is normal for low-latency playback. It is
+        // evidence of decode starvation only when decode work itself consumes
+        // most of the frame budget; queue depth alone must never downgrade
+        // quality.
+        if mean_decode > budget
+            || (ready_depth < 1.0 && miss_ratio > 0.25 && mean_decode > (budget * 9 / 10))
+        {
             let conf = if mean_decode > budget {
                 ((mean_decode as f32 / budget as f32) * 0.8).clamp(0.7, 1.0)
             } else {
@@ -208,15 +213,11 @@ impl PerformanceWindow {
         }
 
         // 4b. High Deadline Miss Fallback
-        // If >=25% of deadlines are missed, the system is under severe pressure.
-        // Attribute to the heavier stage rather than falsely claiming Healthy.
+        // Misses without a near-budget stage are not actionable evidence for
+        // a quality downgrade (they can be caused by a blocked UI thread or a
+        // compositor wake-up). Do not mislabel them as decode starvation.
         if miss_ratio >= 0.25 {
-            let conf = miss_ratio.clamp(0.6, 1.0);
-            if mean_decode >= mean_gpu {
-                return (Bottleneck::Decode, conf);
-            } else {
-                return (Bottleneck::RenderGpu, conf);
-            }
+            return (Bottleneck::None, 0.6);
         }
 
         // 5. System Healthy

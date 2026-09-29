@@ -899,6 +899,13 @@ impl NativePlaybackRuntime {
         }
     }
 
+    fn is_at_timeline_end(&self) -> bool {
+        self.session
+            .as_ref()
+            .map(PlaybackSession::is_at_timeline_end)
+            .unwrap_or(false)
+    }
+
     pub fn invalidate_render_generation(&self, generation: u64) {
         if let Some(session) = &self.render_session {
             session.invalidate(generation);
@@ -1167,7 +1174,10 @@ pub async fn configure_native_playback_render(
             ready_after_us: None,
         },
     );
-    let _ = app.emit("clypra://engine-telemetry", &crate::engine::ENGINE_TELEMETRY.snapshot());
+    let _ = app.emit(
+        "clypra://engine-telemetry",
+        &crate::engine::ENGINE_TELEMETRY.snapshot(),
+    );
     let should_start = {
         let mut runtime = state
             .lock()
@@ -1476,8 +1486,12 @@ pub fn native_seek(app: AppHandle, frame_index: u64) -> Result<PlaybackState, St
             decode_to_target_us: 2000,
             surface_ready_us: 500,
             present_us: 400,
-            target_pts: crate::engine::MediaTime::from_micros((frame_index as f64 / 60.0 * 1_000_000.0) as i64),
-            keyframe_pts: crate::engine::MediaTime::from_micros((frame_index as f64 / 60.0 * 1_000_000.0) as i64),
+            target_pts: crate::engine::MediaTime::from_micros(
+                (frame_index as f64 / 60.0 * 1_000_000.0) as i64,
+            ),
+            keyframe_pts: crate::engine::MediaTime::from_micros(
+                (frame_index as f64 / 60.0 * 1_000_000.0) as i64,
+            ),
             cache_hit: false,
             is_scrub: false,
             generation: 1,
@@ -1511,6 +1525,9 @@ pub fn native_tick(app: AppHandle, clock: FrameTime) -> Result<PlaybackState, St
 #[tauri::command]
 pub fn native_play_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
     let clock = audio_clock_time(&app, true, true)?;
+    // A resumed/restarted CPAL stream has a new clock epoch. QoS observations
+    // from the previous run must not immediately degrade this one.
+    crate::engine::ENGINE_TELEMETRY.begin_playback_run();
     let state = with_runtime(&app, |runtime| runtime.play_from_audio(clock))?;
     set_audio_playing(&app, true)?;
     if let Some(runtime) = app.try_state::<Arc<Mutex<NativePlaybackRuntime>>>() {
@@ -1548,7 +1565,41 @@ pub fn native_pause_from_audio(app: AppHandle) -> Result<PlaybackState, String> 
 #[tauri::command]
 pub fn native_tick_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
     let clock = audio_clock_time(&app, true, false)?;
-    with_runtime(&app, |runtime| runtime.tick(clock))
+    let state = with_runtime(&app, |runtime| runtime.tick(clock))?;
+
+    // Terminal playback is a lifecycle boundary, not a silent pause. Release
+    // the CPAL stream immediately so it cannot keep a stale clock/buffer alive
+    // until the next Space press, then let the next play create a fresh epoch.
+    let reached_end = runtime(&app)
+        .ok()
+        .and_then(|runtime| {
+            runtime
+                .lock()
+                .ok()
+                .map(|runtime| runtime.is_at_timeline_end())
+        })
+        .unwrap_or(false);
+    if reached_end {
+        if let Some(audio) = app.try_state::<Arc<Mutex<NativeAudioClock>>>() {
+            if let Ok(mut audio) = audio.inner().clone().lock() {
+                audio.stop();
+            }
+        }
+        if let Some(runtime) = app.try_state::<Arc<Mutex<NativePlaybackRuntime>>>() {
+            if let Ok(runtime) = runtime.inner().clone().lock() {
+                runtime.stop_render(app.clone());
+            }
+        }
+        let _ = app.emit(
+            "clypra://playback-ended",
+            serde_json::json!({
+                "reason": "timeline-end",
+                "positionTicks": state.audio_position_ticks,
+                "presentedFrame": state.presented_frame,
+            }),
+        );
+    }
+    Ok(state)
 }
 
 #[cfg(test)]

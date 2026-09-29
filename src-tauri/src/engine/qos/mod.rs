@@ -22,5 +22,5 @@ pub use telemetry::QoSTelemetry;
 pub use types::{
     Bottleneck, DecodeStrategy, DecoderBackendId, EffectsPolicy, MediaVariant, PerformanceEnvelope,
     PlaybackPolicySnapshot, PlaybackResolutionDemand, ProxyAvailability, ProxyId, ProxyVariant,
-    QoSReason, QoSDecision, RenderQuality, Resolution,
+    QoSDecision, QoSReason, RenderQuality, Resolution,
 };

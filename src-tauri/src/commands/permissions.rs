@@ -188,11 +188,13 @@ pub async fn log_system_media_diagnostics() -> Result<SystemMediaDiagnostics, St
     let mic_perm = check_microphone_permission();
     log::debug!(
         "🦀 [MediaDiag] Camera Permission: {} (canRequest: {})",
-        cam_perm.status, cam_perm.can_request
+        cam_perm.status,
+        cam_perm.can_request
     );
     log::debug!(
         "🦀 [MediaDiag] Microphone Permission: {} (canRequest: {})",
-        mic_perm.status, mic_perm.can_request
+        mic_perm.status,
+        mic_perm.can_request
     );
 
     // List AVFoundation devices using ffmpeg

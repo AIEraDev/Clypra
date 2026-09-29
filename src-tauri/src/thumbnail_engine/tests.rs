@@ -650,10 +650,7 @@ fn test_eviction_priority_ultra_high_before_medium_low() {
     low_priority.sort_by(sort_fn);
 
     // Build the eviction list: high_priority first, then low_priority
-    let eviction_list: Vec<Entry> = high_priority
-        .into_iter()
-        .chain(low_priority)
-        .collect();
+    let eviction_list: Vec<Entry> = high_priority.into_iter().chain(low_priority).collect();
 
     let total = eviction_list.len();
     assert_eq!(total, 5, "Should have 5 total entries");

@@ -140,7 +140,9 @@ pub async fn generate_auto_captions(
 ) -> Result<Vec<SubtitleSegment>, String> {
     log::debug!(
         "🦀 [generate_auto_captions] Starting captioning for: {} model: {:?} language: {:?}",
-        video_path, model_size, language
+        video_path,
+        model_size,
+        language
     );
 
     // 1. Resolve model path from app data dir

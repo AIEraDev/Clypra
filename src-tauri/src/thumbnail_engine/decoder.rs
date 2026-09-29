@@ -3468,9 +3468,9 @@ mod still_image_tests {
         assert_eq!(exact_match, None);
 
         // Approximate request (allow_keyframe_approx == true): matches
-        let approx_match = cache.iter().position(|cached| {
-            (cached.pts - target_pts).abs() <= pts_tolerance
-        });
+        let approx_match = cache
+            .iter()
+            .position(|cached| (cached.pts - target_pts).abs() <= pts_tolerance);
         assert_eq!(approx_match, Some(0));
     }
 

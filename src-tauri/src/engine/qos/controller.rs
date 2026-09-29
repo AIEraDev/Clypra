@@ -10,7 +10,7 @@ use super::metrics::{PerformanceSnapshot, PerformanceWindow};
 use super::proxy_manager::AsyncProxyManager;
 use super::types::{
     Bottleneck, EffectsPolicy, MediaVariant, PerformanceEnvelope, PlaybackPolicySnapshot,
-    QoSReason, QoSDecision, RenderQuality,
+    QoSDecision, QoSReason, RenderQuality,
 };
 
 /// Configuration thresholds for the QoS Controller.
@@ -55,6 +55,10 @@ pub struct QoSController {
     consecutive_healthy_windows: usize,
     last_diagnosed_bottleneck: Bottleneck,
     transition_history: Vec<QoSTransitionEvent>,
+    /// Number of newly recorded frames since the last control-loop decision.
+    /// A rolling window must not be re-evaluated for every overlapping frame:
+    /// doing so turns a 250 ms observation window into a 16 ms oscillator.
+    samples_since_evaluation: usize,
     pending_paused_upgrade: bool,
     manual_override: Option<QoSDecision>,
 }
@@ -70,6 +74,7 @@ impl QoSController {
             consecutive_healthy_windows: 0,
             last_diagnosed_bottleneck: Bottleneck::None,
             transition_history: Vec::new(),
+            samples_since_evaluation: 0,
             pending_paused_upgrade: false,
             manual_override: None,
         }
@@ -88,6 +93,18 @@ impl QoSController {
     /// Records a new frame performance snapshot and updates rolling window.
     pub fn record_frame_snapshot(&mut self, snapshot: PerformanceSnapshot) {
         self.window.push(snapshot);
+        self.samples_since_evaluation = self.samples_since_evaluation.saturating_add(1);
+    }
+
+    /// Starts a fresh transport observation period. Metrics collected before a
+    /// pause, seek, or device restart cannot describe the next playback run.
+    pub fn begin_transport(&mut self) {
+        self.window.clear();
+        self.samples_since_evaluation = 0;
+        self.consecutive_unhealthy_windows = 0;
+        self.consecutive_healthy_windows = 0;
+        self.last_diagnosed_bottleneck = Bottleneck::None;
+        self.current_decision = QoSDecision::default();
     }
 
     /// Evaluates the current performance window and updates QoS state.
@@ -140,6 +157,17 @@ impl QoSController {
             _ => {}
         }
 
+        // Evaluate complete, non-overlapping observation windows only. This
+        // makes the configured degrade/recover thresholds represent windows,
+        // rather than consecutive RAF ticks, and prevents Full/Half/Quarter
+        // churn from a single transient frame.
+        if self.window.len() < self.config.window_capacity
+            || self.samples_since_evaluation < self.config.window_capacity
+        {
+            return self.current_decision.clone();
+        }
+        self.samples_since_evaluation = 0;
+
         // 2. Diagnose Bottleneck from Rolling Performance Window
         let (bottleneck, confidence) = self.window.diagnose_bottleneck();
         self.last_diagnosed_bottleneck = bottleneck.clone();
@@ -156,7 +184,9 @@ impl QoSController {
 
         // 3. Hysteresis Check: Only degrade after N consecutive bad windows,
         // and only recover after M consecutive good windows (M > N)
-        if is_unhealthy && self.consecutive_unhealthy_windows >= self.config.degrade_window_threshold {
+        if is_unhealthy
+            && self.consecutive_unhealthy_windows >= self.config.degrade_window_threshold
+        {
             let mut new_decision = self.current_decision.clone();
             new_decision.confidence = confidence;
 
@@ -182,7 +212,8 @@ impl QoSController {
                             RenderQuality::Half => RenderQuality::Quarter,
                             RenderQuality::Quarter => RenderQuality::Quarter,
                         };
-                        new_decision.lookahead_reduction = (new_decision.lookahead_reduction + 0.25).min(0.75);
+                        new_decision.lookahead_reduction =
+                            (new_decision.lookahead_reduction + 0.25).min(0.75);
                     }
 
                     new_decision.reason = QoSReason::DecodeStarvation {
@@ -213,11 +244,7 @@ impl QoSController {
                         EffectsPolicy::Minimal => EffectsPolicy::BypassOptional,
                         EffectsPolicy::BypassOptional => EffectsPolicy::BypassOptional,
                     };
-                    let effect_mean = self
-                        .window
-                        .dominant_effect()
-                        .map(|(_, us)| us)
-                        .unwrap_or(0);
+                    let effect_mean = self.window.dominant_effect().map(|(_, us)| us).unwrap_or(0);
                     new_decision.reason = QoSReason::ExpensiveEffectPressure {
                         effect_name: effect_name.clone(),
                         effect_mean_us: effect_mean,
@@ -226,17 +253,21 @@ impl QoSController {
                 Bottleneck::SurfacePool | Bottleneck::Memory => {
                     // MEMORY / SURFACE PRESSURE:
                     // Reduce lookahead and trigger proactive cache eviction
-                    new_decision.lookahead_reduction = (new_decision.lookahead_reduction + 0.25).min(0.75);
+                    new_decision.lookahead_reduction =
+                        (new_decision.lookahead_reduction + 0.25).min(0.75);
                     new_decision.reason = QoSReason::SurfaceMemoryPressure {
                         pool_utilization_pct: self.window.peak_pool_utilization(),
-                        vram_used_bytes: (self.window.peak_pool_utilization() * 100_000_000.0) as usize,
+                        vram_used_bytes: (self.window.peak_pool_utilization() * 100_000_000.0)
+                            as usize,
                     };
                 }
                 _ => {}
             }
 
             self.apply_decision(new_decision, current_pts, bottleneck);
-        } else if !is_unhealthy && self.consecutive_healthy_windows >= self.config.recover_window_threshold {
+        } else if !is_unhealthy
+            && self.consecutive_healthy_windows >= self.config.recover_window_threshold
+        {
             // RECOVERY (after M consecutive healthy windows)
             let mut new_decision = self.current_decision.clone();
             new_decision.confidence = confidence;
@@ -259,7 +290,8 @@ impl QoSController {
             }
 
             if new_decision.lookahead_reduction > 0.0 {
-                new_decision.lookahead_reduction = (new_decision.lookahead_reduction - 0.25).max(0.0);
+                new_decision.lookahead_reduction =
+                    (new_decision.lookahead_reduction - 0.25).max(0.0);
             }
 
             if matches!(new_decision.media_variant, MediaVariant::Proxy(_)) {
@@ -341,6 +373,25 @@ impl QoSController {
         let render_us = self.window.mean_render_gpu_us();
         let miss_ratio = self.window.deadline_miss_ratio();
         let sustained = self.consecutive_unhealthy_windows >= self.config.degrade_window_threshold;
-        PerformanceEnvelope::from_timings(target_budget, decode_us, render_us, miss_ratio, sustained)
+        PerformanceEnvelope::from_timings(
+            target_budget,
+            decode_us,
+            render_us,
+            miss_ratio,
+            sustained,
+        )
+    }
+
+    /// Metrics from the same rolling window used to make QoS decisions.
+    /// Diagnostics must never mix those decisions with a single-frame sample.
+    pub fn window_metrics(&self) -> (u64, u64, f32, f32, usize, usize) {
+        (
+            self.window.mean_decode_us(),
+            self.window.mean_render_gpu_us(),
+            self.window.deadline_miss_ratio(),
+            self.window.peak_pool_utilization(),
+            self.consecutive_unhealthy_windows,
+            self.consecutive_healthy_windows,
+        )
     }
 }

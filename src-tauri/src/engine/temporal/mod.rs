@@ -247,11 +247,7 @@ impl TemporalController {
 
     /// Initiates or updates a Scrub(T) operation with latest-request-wins semantics.
     /// Advances generation to immediately invalidate in-flight scrub jobs.
-    pub fn begin_scrub(
-        &mut self,
-        target: MediaTime,
-        project_revision: u64,
-    ) -> TemporalRequest {
+    pub fn begin_scrub(&mut self, target: MediaTime, project_revision: u64) -> TemporalRequest {
         self.current_revision = project_revision;
         // Invalidate older in-flight scrub requests
         self.current_generation += 1;

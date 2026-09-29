@@ -30,7 +30,12 @@ pub struct Track {
 }
 
 impl Track {
-    pub fn new(id: impl Into<String>, name: impl Into<String>, kind: TrackKind, z_index: i32) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        kind: TrackKind,
+        z_index: i32,
+    ) -> Self {
         Self {
             id: id.into(),
             name: name.into(),
@@ -59,7 +64,11 @@ impl TimeMapping {
         Self {
             timeline_start,
             source_start,
-            playback_rate: if playback_rate == 0.0 { 1.0 } else { playback_rate },
+            playback_rate: if playback_rate == 0.0 {
+                1.0
+            } else {
+                playback_rate
+            },
         }
     }
 

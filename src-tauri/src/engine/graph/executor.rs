@@ -91,11 +91,7 @@ impl RenderGraphExecutor {
             // Execute pass
             let produced_surface = match &node.kind {
                 PassKind::Clear { color } => {
-                    create_solid_surface(
-                        graph.canvas.width,
-                        graph.canvas.height,
-                        *color,
-                    )
+                    create_solid_surface(graph.canvas.width, graph.canvas.height, *color)
                 }
                 PassKind::Source { asset_id, .. } => {
                     if let Some(surf) = available_surfaces.get(asset_id) {
@@ -124,7 +120,9 @@ impl RenderGraphExecutor {
                         });
                     apply_simulated_color_grade(in_surf, params)
                 }
-                PassKind::TransformEffect { transform, opacity, .. } => {
+                PassKind::TransformEffect {
+                    transform, opacity, ..
+                } => {
                     let in_surf = node
                         .inputs
                         .first()
@@ -139,7 +137,11 @@ impl RenderGraphExecutor {
                         });
                     apply_simulated_transform(in_surf, transform, *opacity)
                 }
-                PassKind::Composite { blend_mode, opacity, .. } => {
+                PassKind::Composite {
+                    blend_mode,
+                    opacity,
+                    ..
+                } => {
                     let bg_surf = node
                         .inputs
                         .first()
@@ -209,11 +211,7 @@ impl RenderGraphExecutor {
             .final_resource
             .and_then(|r| resource_surfaces.remove(&r))
             .unwrap_or_else(|| {
-                create_solid_surface(
-                    graph.canvas.width,
-                    graph.canvas.height,
-                    graph.clear_color,
-                )
+                create_solid_surface(graph.canvas.width, graph.canvas.height, graph.clear_color)
             });
 
         let rendered_frame = RenderedFrame {
