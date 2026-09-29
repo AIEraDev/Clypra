@@ -1,4 +1,7 @@
-import type { NativeFrameRequest, NativePreviewMode } from "@/lib/platform/nativeCore";
+import type {
+  NativeFrameRequest,
+  NativePreviewMode,
+} from "@/lib/platform/nativeCore";
 import { telemetryCollector } from "@/services/telemetryCollector";
 import type {
   TelemetryOperationMode,
@@ -18,9 +21,17 @@ export interface NativeFrontendPerfSample {
   dropped: boolean;
   stale: boolean;
   cancelled: boolean;
-  dropReason?: "stale" | "cancelled" | "late-for-audio" | "present-failed" | "lookahead-miss";
+  dropReason?:
+    | "stale"
+    | "cancelled"
+    | "late-for-audio"
+    | "present-failed"
+    | "lookahead-miss";
   previewContext?: TelemetryPreviewContext;
   stageTimings?: Partial<TelemetryStageTimings>;
+  readbackMaxDimension?: number;
+  readbackTier?: number;
+  readbackCadenceFps?: number;
 }
 
 export interface NativeFrontendStagePercentiles {
@@ -46,7 +57,10 @@ const RING_CAPACITY = 600;
 
 function readTraceFlag(): boolean {
   try {
-    return typeof localStorage !== "undefined" && localStorage.getItem(TRACE_STORAGE_KEY) === "1";
+    return (
+      typeof localStorage !== "undefined" &&
+      localStorage.getItem(TRACE_STORAGE_KEY) === "1"
+    );
   } catch {
     return false;
   }
@@ -64,7 +78,9 @@ function stagePercentiles(
 ): NativeFrontendStagePercentiles {
   const values = samples
     .map(pick)
-    .filter((value): value is number => value !== undefined && Number.isFinite(value));
+    .filter(
+      (value): value is number => value !== undefined && Number.isFinite(value),
+    );
   return {
     p50: percentile(values, 0.5),
     p95: percentile(values, 0.95),
@@ -103,14 +119,24 @@ export class NativePerfSpan {
     this.ipcStartedAt = null;
   }
 
-  finish(options: {
-    canvasPaintMs?: number;
-    dropped?: boolean;
-    stale?: boolean;
-    cancelled?: boolean;
-    dropReason?: "stale" | "cancelled" | "late-for-audio" | "present-failed" | "lookahead-miss";
-    stageTimings?: Partial<TelemetryStageTimings>;
-  } = {}): void {
+  finish(
+    options: {
+      canvasPaintMs?: number;
+      dropped?: boolean;
+      stale?: boolean;
+      cancelled?: boolean;
+      dropReason?:
+        | "stale"
+        | "cancelled"
+        | "late-for-audio"
+        | "present-failed"
+        | "lookahead-miss";
+      stageTimings?: Partial<TelemetryStageTimings>;
+      readbackMaxDimension?: number;
+      readbackTier?: number;
+      readbackCadenceFps?: number;
+    } = {},
+  ): void {
     if (this.finished) return;
     this.markIpcFinished();
     this.finished = true;
@@ -129,12 +155,18 @@ export class NativePerfSpan {
       dropReason: options.dropReason,
       previewContext: this.previewContext,
       stageTimings: options.stageTimings,
+      readbackMaxDimension: options.readbackMaxDimension,
+      readbackTier: options.readbackTier,
+      readbackCadenceFps: options.readbackCadenceFps,
     });
   }
 }
 
 class NativePerfCollector {
-  private readonly samples = new Map<NativePreviewMode, NativeFrontendPerfSample[]>();
+  private readonly samples = new Map<
+    NativePreviewMode,
+    NativeFrontendPerfSample[]
+  >();
   // Keep the frontend/native boundary observable in every build for now. The
   // collector is bounded and forwards through the existing batched transport;
   // the user telemetry setting can still disable it intentionally.
@@ -162,8 +194,16 @@ class NativePerfCollector {
     return this.enabled;
   }
 
-  begin(request: NativeFrameRequest, previewContext?: TelemetryPreviewContext): NativePerfSpan {
-    return new NativePerfSpan(this, request, normalizeMode(request.mode), previewContext);
+  begin(
+    request: NativeFrameRequest,
+    previewContext?: TelemetryPreviewContext,
+  ): NativePerfSpan {
+    return new NativePerfSpan(
+      this,
+      request,
+      normalizeMode(request.mode),
+      previewContext,
+    );
   }
 
   record(sample: NativeFrontendPerfSample): void {
@@ -182,10 +222,10 @@ class NativePerfCollector {
         // render/readback, payload serialization, and canvas-bound response
         // delivery. Native stage samples carry the decomposition.
         ipcWaitUs: Math.round(sample.ipcMs * 1000),
-      canvasPaintUs:
-        sample.canvasPaintMs !== undefined
-          ? Math.round(sample.canvasPaintMs * 1000)
-          : undefined,
+        canvasPaintUs:
+          sample.canvasPaintMs !== undefined
+            ? Math.round(sample.canvasPaintMs * 1000)
+            : undefined,
         // The native invoke boundary includes the RGBA payload transfer for
         // WebView. Surface that measured bridge duration as transfer cost;
         // native-sample readback remains the GPU/CPU readback measurement.
@@ -210,18 +250,21 @@ class NativePerfCollector {
         frameSequence: sample.frameIndex,
         deadlineUs: 16_667,
         dropReason: sample.dropped
-          ? sample.dropReason ??
+          ? (sample.dropReason ??
             (sample.cancelled
               ? "cancelled"
               : sample.stale
                 ? "stale"
-                : "present-failed")
+                : "present-failed"))
           : undefined,
         forceSample: sample.previewContext?.scenario === "qualification",
         // Native stage samples are the authoritative frame stream. The
         // frontend span is still retained for boundary diagnostics, but must
         // not count the same native frame a second time in session totals.
         includeInRollup: sample.previewContext?.view !== "native",
+        readbackMaxDimension: sample.readbackMaxDimension,
+        readbackTier: sample.readbackTier,
+        readbackCadenceFps: sample.readbackCadenceFps,
       },
     );
   }
