@@ -129,7 +129,10 @@ import {
   NativePreviewFrameScheduler,
   type NativePreviewRequestSource,
 } from "./nativePreviewScheduler";
-import { AdaptiveReadbackPolicy } from "./adaptiveReadbackPolicy";
+import {
+  AdaptiveReadbackPolicy,
+  defaultEmbeddedReadbackLimit,
+} from "./adaptiveReadbackPolicy";
 import { previewQualificationController } from "@/core/playback/previewPerformanceContract";
 import {
   NativeSurfaceOutput,
@@ -247,19 +250,8 @@ export function forceRepaintNativeProgramPreview(): void {
  * export path. Keep the transfer bounded even when a large editor viewport or
  * DPR would otherwise make every RGBA frame expensive.
  */
-const WEBVIEW_MAX_OUTPUT_DIMENSION = 960;
-const LOW_POWER_WEBVIEW_MAX_OUTPUT_DIMENSION = 720;
-
 function getWebViewReadbackLimit(): number {
-  // A full RGBA frame crosses the Rust/WebView boundary on this path. Four or
-  // fewer logical cores is a reliable low-power signal on the affected Intel
-  // laptops; reducing the proxy from 960px to 720px cuts transfer bytes by
-  // 44% while retaining a useful interactive preview.
-  return typeof navigator !== "undefined" &&
-    typeof navigator.hardwareConcurrency === "number" &&
-    navigator.hardwareConcurrency <= 4
-    ? LOW_POWER_WEBVIEW_MAX_OUTPUT_DIMENSION
-    : WEBVIEW_MAX_OUTPUT_DIMENSION;
+  return defaultEmbeddedReadbackLimit();
 }
 
 function capWebViewRenderTarget(target: {

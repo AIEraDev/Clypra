@@ -8,7 +8,7 @@
  * and native-surface quality are never affected.
  */
 export class AdaptiveReadbackPolicy {
-  private static readonly DIMENSIONS = [480, 600, 720, 840, 960] as const;
+  private static readonly DIMENSIONS = [320, 480, 600, 720, 840, 960] as const;
   private tier: number;
   private slowSamples = 0;
   private fastSamples = 0;
@@ -40,7 +40,8 @@ export class AdaptiveReadbackPolicy {
   markPlaybackDispatch(now = performance.now()): void {
     // A CPU readback must not try to chase a 60fps source. The tier controls
     // both bytes per frame and cadence; audio remains the clock authority.
-    const intervalMs = this.tier <= 1 ? 50 : this.tier === 2 ? 1000 / 24 : 1000 / 30;
+    const intervalMs =
+      this.tier === 0 ? 100 : this.tier === 1 ? 50 : this.tier <= 3 ? 1000 / 24 : 1000 / 30;
     this.nextPlaybackDispatchAt = now + intervalMs;
   }
 
@@ -80,4 +81,21 @@ export class AdaptiveReadbackPolicy {
     }
     return index;
   }
+}
+
+/**
+ * The embedded Windows WebView bridge serializes each RGBA payload through
+ * the UI-process boundary. It is not a shared D3D texture import, so driving
+ * it at the same 960px/30fps policy as Metal-backed macOS makes even powerful
+ * Windows GPUs wait behind CPU copy and WebView paint work. Start at a
+ * bounded 480px/20fps visual proxy there; the native audio clock still runs
+ * at full precision and adaptive policy can reduce further under pressure.
+ */
+export function defaultEmbeddedReadbackLimit(): number {
+  if (typeof navigator === "undefined") return 960;
+  if (/windows/i.test(navigator.userAgent)) return 480;
+  return typeof navigator.hardwareConcurrency === "number" &&
+    navigator.hardwareConcurrency <= 4
+    ? 720
+    : 960;
 }

@@ -177,6 +177,10 @@ class NativePerfCollector {
       {
         ...sample.stageTimings,
         schedulerWaitUs: Math.round(sample.dispatchMs * 1000),
+        // This is intentionally the end-to-end WebView bridge duration, not
+        // a claim about queueing inside Tauri IPC alone. It includes native
+        // render/readback, payload serialization, and canvas-bound response
+        // delivery. Native stage samples carry the decomposition.
         ipcWaitUs: Math.round(sample.ipcMs * 1000),
       canvasPaintUs:
         sample.canvasPaintMs !== undefined
