@@ -3,6 +3,7 @@ use crate::audio::mixer::{AudioClipConfig, DecodedAudioClip};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SizedSample};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -12,6 +13,9 @@ pub const TICKS_PER_SECOND: i64 = 1_000_000;
 pub const MAX_PCM_BYTES: usize = 256 * 1024 * 1024;
 pub const MAX_MIXER_PCM_BYTES: usize = 2048 * 1024 * 1024;
 pub const MAX_ACTIVE_CLIPS: usize = 64;
+/// Prepared time-stretched audio is deliberately bounded independently from the
+/// source PCM budget. This keeps a speed change safe on lower-memory machines.
+const MAX_PITCH_CACHE_BYTES: usize = 256 * 1024 * 1024;
 /// ~5.8 ms at 44.1 kHz. Applied by the native callback after a transport
 /// discontinuity so seeking/replay cannot emit a full-scale sample step.
 const TRANSPORT_RAMP_FRAMES: u32 = 256;
@@ -217,9 +221,18 @@ impl From<NativePcmClip> for DecodedAudioClip {
     }
 }
 
+#[derive(Debug, Clone)]
+struct PitchCache {
+    tempo_milli: u32,
+    samples: Arc<[f32]>,
+}
+
 #[derive(Debug, Default)]
 pub struct NativeAudioMixer {
     clips: Vec<NativePcmClip>,
+    /// Prepared only outside the audio callback. The callback reads this while
+    /// holding its existing non-blocking mixer read lock.
+    pitch_cache: HashMap<String, PitchCache>,
 }
 
 impl NativeAudioMixer {
@@ -264,6 +277,7 @@ impl NativeAudioMixer {
             .find(|existing| existing.id == clip.id)
         {
             *existing = clip;
+            self.pitch_cache.clear();
             return Ok(status);
         }
         if self.clips.len() >= MAX_ACTIVE_CLIPS {
@@ -272,11 +286,13 @@ impl NativeAudioMixer {
             ));
         }
         self.clips.push(clip);
+        self.pitch_cache.clear();
         Ok(status)
     }
 
     pub fn clear(&mut self) {
         self.clips.clear();
+        self.pitch_cache.clear();
     }
 
     /// Replace the complete graph only after every clip has been decoded and
@@ -303,7 +319,43 @@ impl NativeAudioMixer {
             ));
         }
         self.clips = clips;
+        self.pitch_cache.clear();
         Ok(())
+    }
+
+    fn install_pitch_cache(&mut self, tempo_milli: u32, values: HashMap<String, Arc<[f32]>>) {
+        self.pitch_cache = values
+            .into_iter()
+            .map(|(id, samples)| {
+                (
+                    id,
+                    PitchCache {
+                        tempo_milli,
+                        samples,
+                    },
+                )
+            })
+            .collect();
+    }
+
+    fn clear_pitch_cache(&mut self) {
+        self.pitch_cache.clear();
+    }
+
+    fn sample_at(
+        &self,
+        clip: &NativePcmClip,
+        timeline_ticks: i64,
+        output_channel: usize,
+        playback_speed: f32,
+    ) -> Option<f32> {
+        sample_at_with_cache(
+            clip,
+            self.pitch_cache.get(&clip.id),
+            timeline_ticks,
+            output_channel,
+            playback_speed,
+        )
     }
 
     pub fn update_clip_parameters(
@@ -391,7 +443,7 @@ impl NativeAudioMixer {
                 let mut value = 0.0_f32;
                 for (clip_index, clip) in self.clips.iter().enumerate() {
                     if let Some(sample) =
-                        sample_at(clip, timeline_ticks, channel_index, playback_speed)
+                        self.sample_at(clip, timeline_ticks, channel_index, playback_speed)
                     {
                         let clip_diagnostic = &mut inspection.clip_diagnostics[clip_index];
                         if !clip_diagnostic.active {
@@ -483,7 +535,7 @@ impl NativeAudioMixer {
                     .clips
                     .iter()
                     .filter_map(|clip| {
-                        sample_at(clip, timeline_ticks, channel_index, playback_speed)
+                        self.sample_at(clip, timeline_ticks, channel_index, playback_speed)
                     })
                     .sum::<f32>()
                     * master_gain
@@ -498,8 +550,19 @@ impl NativeAudioMixer {
     }
 }
 
+#[cfg(test)]
 fn sample_at(
     clip: &NativePcmClip,
+    timeline_ticks: i64,
+    output_channel: usize,
+    playback_speed: f32,
+) -> Option<f32> {
+    sample_at_with_cache(clip, None, timeline_ticks, output_channel, playback_speed)
+}
+
+fn sample_at_with_cache(
+    clip: &NativePcmClip,
+    pitch_cache: Option<&PitchCache>,
     timeline_ticks: i64,
     output_channel: usize,
     playback_speed: f32,
@@ -521,19 +584,20 @@ fn sample_at(
     }
 
     let source_position = relative_ticks as f64 * clip_sample_rate as f64 / TICKS_PER_SECOND as f64;
-    let interpolate_channel = |source_position: f64, source_channel: usize| {
+    let interpolate = |samples: &[f32], source_position: f64, source_channel: usize| {
         let source_index = source_position.floor().max(0.0) as usize;
         let source_fraction = (source_position - source_index as f64) as f32;
         let source_frame = source_index.saturating_mul(clip_channels);
         let channel = source_channel.min(clip_channels - 1);
-        let first = clip.samples.get(source_frame + channel).copied()?;
-        let second = clip
-            .samples
+        let first = samples.get(source_frame + channel).copied()?;
+        let second = samples
             .get(source_frame.saturating_add(clip_channels) + channel)
             .copied()
             .unwrap_or(first);
         Some(first + (second - first) * source_fraction)
     };
+    let interpolate_channel =
+        |position: f64, channel: usize| interpolate(&clip.samples, position, channel);
     let pitch_preserved_channel = |source_channel: usize| {
         // Granular overlap-add time stretch: grain centers advance at transport
         // speed while samples inside each grain remain at their native rate.
@@ -566,8 +630,24 @@ fn sample_at(
             None
         }
     };
+    let cache_matches_speed = pitch_cache.is_some_and(|cache| {
+        cache.tempo_milli == (playback_speed.clamp(0.1, 4.0) * 1_000.0).round() as u32
+    });
     let sample_channel = |source_channel: usize| {
         if clip.preserve_pitch && (playback_speed - 1.0).abs() > 0.001 {
+            if cache_matches_speed {
+                // WSOLA output is indexed in wall-clock time. The timeline is
+                // already moving at `playback_speed`, so divide back to obtain
+                // the prepared output position.
+                let cache = pitch_cache.expect("cache_matches_speed requires a cache");
+                return interpolate(
+                    &cache.samples,
+                    source_position / playback_speed.clamp(0.1, 4.0) as f64,
+                    source_channel,
+                );
+            }
+            // A rate change may arrive before background preparation finishes.
+            // Keep the bounded real-time fallback briefly rather than silence.
             pitch_preserved_channel(source_channel)
         } else {
             interpolate_channel(source_position, source_channel)
@@ -678,6 +758,10 @@ struct NativeAudioClockInner {
     position_ticks: Arc<AtomicI64>,
     playing: Arc<AtomicBool>,
     speed_milli: Arc<AtomicU32>,
+    /// Cancels obsolete background WSOLA jobs when speed or graph changes.
+    pitch_cache_generation: Arc<AtomicU64>,
+    /// Ensures rate scrubbing cannot create competing CPU-heavy WSOLA jobs.
+    pitch_cache_worker_running: Arc<AtomicBool>,
     volume_milli: Arc<AtomicU32>,
     muted: Arc<AtomicBool>,
     transport_ramp_frames: Arc<AtomicU32>,
@@ -733,6 +817,8 @@ impl NativeAudioClock {
                 position_ticks: Arc::new(AtomicI64::new(0)),
                 playing: Arc::new(AtomicBool::new(false)),
                 speed_milli: Arc::new(AtomicU32::new(1_000)),
+                pitch_cache_generation: Arc::new(AtomicU64::new(0)),
+                pitch_cache_worker_running: Arc::new(AtomicBool::new(false)),
                 volume_milli: Arc::new(AtomicU32::new(1_000)),
                 muted: Arc::new(AtomicBool::new(false)),
                 transport_ramp_frames: Arc::new(AtomicU32::new(0)),
@@ -1164,6 +1250,12 @@ impl NativeAudioClock {
         self.inner.played_frames.store(0, Ordering::Release);
         self.inner.position_ticks.store(0, Ordering::Release);
         self.inner.speed_milli.store(1_000, Ordering::Release);
+        self.inner
+            .pitch_cache_generation
+            .fetch_add(1, Ordering::AcqRel);
+        if let Ok(mut mixer) = self.inner.mixer.write() {
+            mixer.clear_pitch_cache();
+        }
         self.inner.volume_milli.store(1_000, Ordering::Release);
         self.inner.muted.store(false, Ordering::Release);
         self.inner.transport_ramp_frames.store(0, Ordering::Release);
@@ -1189,9 +1281,113 @@ impl NativeAudioClock {
         } else {
             1.0
         };
+        let speed_milli = (safe_speed * 1_000.0).round() as u32;
+        let previous = self.inner.speed_milli.swap(speed_milli, Ordering::AcqRel);
+        if previous != speed_milli {
+            self.request_pitch_cache();
+        }
+    }
+
+    /// Build the pitch-preserving representation on a normal worker thread.
+    /// This is never called by CPAL's real-time callback: its only work is a
+    /// cache lookup plus interpolation under a non-blocking read lock.
+    fn request_pitch_cache(&self) {
+        let tempo_milli = self.inner.speed_milli.load(Ordering::Acquire);
         self.inner
-            .speed_milli
-            .store((safe_speed * 1_000.0).round() as u32, Ordering::Release);
+            .pitch_cache_generation
+            .fetch_add(1, Ordering::AcqRel);
+
+        if tempo_milli == 1_000 {
+            if let Ok(mut mixer) = self.inner.mixer.write() {
+                mixer.clear_pitch_cache();
+            }
+            return;
+        }
+
+        let worker_running = self.inner.pitch_cache_worker_running.clone();
+        if worker_running.swap(true, Ordering::AcqRel) {
+            return;
+        }
+
+        let mixer = self.inner.mixer.clone();
+        let current_speed = self.inner.speed_milli.clone();
+        let current_generation = self.inner.pitch_cache_generation.clone();
+        let worker_running_in_thread = worker_running.clone();
+        let spawn_result = std::thread::Builder::new()
+            .name("clypra-audio-wsola".to_string())
+            .spawn(move || {
+                loop {
+                    let job_generation = current_generation.load(Ordering::Acquire);
+                    let job_tempo_milli = current_speed.load(Ordering::Acquire);
+                    if job_tempo_milli == 1_000 {
+                        if let Ok(mut mixer) = mixer.write() {
+                            mixer.clear_pitch_cache();
+                        }
+                    } else {
+                        let clips = mixer
+                            .read()
+                            .map(|mixer| mixer.clips.clone())
+                            .unwrap_or_default();
+                        let mut prepared = HashMap::new();
+                        let mut used_bytes = 0usize;
+                        let tempo = job_tempo_milli as f32 / 1_000.0;
+
+                        for clip in clips.into_iter().filter(|clip| clip.preserve_pitch) {
+                            if current_generation.load(Ordering::Acquire) != job_generation {
+                                break;
+                            }
+                            if clip.sample_rate == 0
+                                || clip.channels == 0
+                                || clip.samples.is_empty()
+                            {
+                                continue;
+                            }
+                            let Ok(samples) = wsola::stretch(
+                                &clip.samples,
+                                clip.sample_rate,
+                                clip.channels,
+                                tempo,
+                            ) else {
+                                continue;
+                            };
+                            let bytes = samples.len().saturating_mul(std::mem::size_of::<f32>());
+                            if used_bytes.saturating_add(bytes) > MAX_PITCH_CACHE_BYTES {
+                                continue;
+                            }
+                            used_bytes = used_bytes.saturating_add(bytes);
+                            prepared.insert(clip.id, Arc::<[f32]>::from(samples));
+                        }
+
+                        if current_speed.load(Ordering::Acquire) == job_tempo_milli
+                            && current_generation.load(Ordering::Acquire) == job_generation
+                        {
+                            if let Ok(mut mixer) = mixer.write() {
+                                if current_speed.load(Ordering::Acquire) == job_tempo_milli
+                                    && current_generation.load(Ordering::Acquire) == job_generation
+                                {
+                                    mixer.install_pitch_cache(job_tempo_milli, prepared);
+                                }
+                            }
+                        }
+                    }
+
+                    if current_generation.load(Ordering::Acquire) == job_generation {
+                        worker_running_in_thread.store(false, Ordering::Release);
+                        // A request can land between the generation check and
+                        // dropping this flag. Reacquire it to guarantee that
+                        // latest request still gets a worker.
+                        if current_generation.load(Ordering::Acquire) != job_generation
+                            && !worker_running_in_thread.swap(true, Ordering::AcqRel)
+                        {
+                            continue;
+                        }
+                        return;
+                    }
+                }
+            });
+        if spawn_result.is_err() {
+            worker_running.store(false, Ordering::Release);
+        }
     }
 
     pub fn set_output(&self, volume: f32, muted: bool) {
@@ -1227,25 +1423,36 @@ impl NativeAudioClock {
     }
 
     pub fn install_clip(&mut self, clip: NativePcmClip) -> Result<NativeAudioClipStatus, String> {
-        self.inner
+        let result = self
+            .inner
             .mixer
             .write()
             .map_err(|_| "native audio mixer lock poisoned".to_string())?
-            .install_clip(clip)
+            .install_clip(clip);
+        if result.is_ok() {
+            self.request_pitch_cache();
+        }
+        result
     }
 
     pub fn clear_clip(&mut self) {
         if let Ok(mut mixer) = self.inner.mixer.write() {
             mixer.clear();
         }
+        self.request_pitch_cache();
     }
 
     pub fn replace_clips(&mut self, clips: Vec<NativePcmClip>) -> Result<(), String> {
-        self.inner
+        let result = self
+            .inner
             .mixer
             .write()
             .map_err(|_| "native audio mixer lock poisoned".to_string())?
-            .replace_clips(clips)
+            .replace_clips(clips);
+        if result.is_ok() {
+            self.request_pitch_cache();
+        }
+        result
     }
 
     pub fn update_clip_parameters(
@@ -2097,6 +2304,39 @@ mod tests {
         let mut output = [0.0_f32; 20];
         mixer.mix_into(&mut output, 1, 100, 0, 1.0, 2.0);
         assert!(output.iter().all(|sample| (*sample - 0.75).abs() < 0.001));
+    }
+
+    #[test]
+    fn mixer_uses_prepared_wsola_samples_after_a_speed_change() {
+        let clip = NativePcmClip {
+            id: "prepared".to_string(),
+            sample_rate: 4,
+            channels: 1,
+            samples: vec![0.1; 4].into(),
+            timeline_start_ticks: 0,
+            duration_ticks: TICKS_PER_SECOND,
+            gain: 1.0,
+            pan: 0.0,
+            fade_in_ticks: 0,
+            fade_out_ticks: 0,
+            fade_in_curve: "linear".to_string(),
+            fade_out_curve: "linear".to_string(),
+            volume_keyframes: Vec::new(),
+            channel_mode: "auto".to_string(),
+            downmix: "auto".to_string(),
+            channel_map: None,
+            preserve_pitch: true,
+        };
+        let mut mixer = NativeAudioMixer::default();
+        mixer.install_clip(clip).unwrap();
+        mixer.install_pitch_cache(
+            2_000,
+            HashMap::from([("prepared".to_string(), Arc::<[f32]>::from(vec![0.8, 0.8]))]),
+        );
+
+        let mut output = [0.0_f32; 2];
+        mixer.mix_into(&mut output, 1, 4, 0, 1.0, 2.0);
+        assert_eq!(output, [0.8, 0.8]);
     }
 
     #[test]
