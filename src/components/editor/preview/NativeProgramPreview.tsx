@@ -254,11 +254,14 @@ function getWebViewReadbackLimit(): number {
   return defaultEmbeddedReadbackLimit();
 }
 
-function capWebViewRenderTarget(target: {
-  width: number;
-  height: number;
-  quality: NativeFrameRequest["quality"];
-}, maxDimension = getWebViewReadbackLimit()): typeof target {
+function capWebViewRenderTarget(
+  target: {
+    width: number;
+    height: number;
+    quality: NativeFrameRequest["quality"];
+  },
+  maxDimension = getWebViewReadbackLimit(),
+): typeof target {
   const largest = Math.max(target.width, target.height);
   const limit = maxDimension;
   if (largest <= limit) return target;
@@ -1226,7 +1229,8 @@ export const NativeProgramPreview: React.FC = () => {
     let nativeBlockedKey = "";
     // Track the surface-ready revision so renderLoop() can detect when the
     // native surface becomes newly settled and reset readback circuit-breakers.
-    let lastSeenNativeSurfaceReadyRevision = nativeSurfaceReadyRevisionRef.current;
+    let lastSeenNativeSurfaceReadyRevision =
+      nativeSurfaceReadyRevisionRef.current;
     let nativePlaybackInFlight: Promise<void> | null = null;
     let nativePlaybackRenderSnapshotKey = "";
     let nativePlaybackRenderSnapshotInFlight: Promise<void> | null = null;
@@ -2303,7 +2307,10 @@ export const NativeProgramPreview: React.FC = () => {
           },
         );
 
-        if (!prefetchRequest || prefetchRequest.project.videoLayers.length === 0) {
+        if (
+          !prefetchRequest ||
+          prefetchRequest.project.videoLayers.length === 0
+        ) {
           return;
         }
 
@@ -2349,7 +2356,10 @@ export const NativeProgramPreview: React.FC = () => {
         nativeTextPrefetchTimer = null;
         const current = renderStateRef.current;
         if (!current.project) return;
-        const currentFrame = getFrameIndexAtTime(current.clock.time, current.clock.frameRate);
+        const currentFrame = getFrameIndexAtTime(
+          current.clock.time,
+          current.clock.frameRate,
+        );
         prefetchUpcomingNativeText(currentFrame);
         prefetchUpcomingNativeVideo(currentFrame);
       }, 100);
@@ -2554,7 +2564,10 @@ export const NativeProgramPreview: React.FC = () => {
                 : latestSeekIntent.allowKeyframeApprox,
             }
           : isPlaying
-            ? { mode: "playback" as const, quality: effectiveRenderTarget.quality }
+            ? {
+                mode: "playback" as const,
+                quality: effectiveRenderTarget.quality,
+              }
             : { quality: effectiveRenderTarget.quality };
 
         const timeChanged = frameIndex !== lastRenderedFrameIndex;
@@ -2587,7 +2600,8 @@ export const NativeProgramPreview: React.FC = () => {
         const mediaReadyChanged =
           mediaReadyRevision !== lastRenderedMediaReadyRevision;
 
-        const needsInitialFrame = !isPlaying && nativeDisplayedFrameRef.current === null;
+        const needsInitialFrame =
+          !isPlaying && nativeDisplayedFrameRef.current === null;
 
         const mightNeedRender =
           isPlaying ||
@@ -2816,8 +2830,12 @@ export const NativeProgramPreview: React.FC = () => {
         // very first renderLoop() iteration fired.
         const currentNativeSurfaceReadyRevision =
           nativeSurfaceReadyRevisionRef.current;
-        if (currentNativeSurfaceReadyRevision !== lastSeenNativeSurfaceReadyRevision) {
-          lastSeenNativeSurfaceReadyRevision = currentNativeSurfaceReadyRevision;
+        if (
+          currentNativeSurfaceReadyRevision !==
+          lastSeenNativeSurfaceReadyRevision
+        ) {
+          lastSeenNativeSurfaceReadyRevision =
+            currentNativeSurfaceReadyRevision;
           nativeRetryAt = 0;
           nativeRetryKey = "";
           nativeFailureKey = "";
@@ -3115,7 +3133,10 @@ export const NativeProgramPreview: React.FC = () => {
           const generationMatches =
             visibleRequestGeneration === targetGeneration ||
             (!isPlaying && nativeDisplayedFrameRef.current === null);
-          const currentFrameIndex = getFrameIndexAtTime(current.clock.time, frameRate);
+          const currentFrameIndex = getFrameIndexAtTime(
+            current.clock.time,
+            frameRate,
+          );
           const matches =
             isActive &&
             generationMatches &&
@@ -3124,8 +3145,7 @@ export const NativeProgramPreview: React.FC = () => {
             current.clock.state === playbackState &&
             (isDragging ||
               dragPreviewRevision === dragPreviewRevisionAtStart) &&
-            (!requireExactFrame ||
-              currentFrameIndex === frameIndex);
+            (!requireExactFrame || currentFrameIndex === frameIndex);
           return matches;
         };
 
@@ -3231,10 +3251,7 @@ export const NativeProgramPreview: React.FC = () => {
                   nativeSurfaceShown = true;
                   lastNativePlaybackRequestKey = requestKey;
                 }
-              } else if (
-                nativeSurfaceUsable &&
-                !qualificationForcesWebView
-              ) {
+              } else if (nativeSurfaceUsable && !qualificationForcesWebView) {
                 const tracePresentation = isFirstFrame || !isPlaying;
                 if (tracePresentation) {
                   // tracePlayback("native-present-start", {
@@ -3582,7 +3599,12 @@ export const NativeProgramPreview: React.FC = () => {
                   .then((frame) => {
                     const frontendSpan =
                       nativeFrontendPerfSpans.get(readbackRequestKey);
-                    frontendSpan?.finish();
+                    frontendSpan?.finish({
+                      readbackMaxDimension: adaptiveReadbackPolicy.maxDimension,
+                      readbackTier: adaptiveReadbackPolicy.currentTier,
+                      readbackCadenceFps:
+                        adaptiveReadbackPolicy.targetCadenceFps,
+                    });
                     nativeFrontendPerfSpans.delete(readbackRequestKey);
                     const current = renderStateRef.current;
                     if (
@@ -3775,10 +3797,12 @@ export const NativeProgramPreview: React.FC = () => {
                   "color:#ef4444;font-weight:bold",
                   {
                     attempt: nativeFailureCount,
-                    error: error instanceof Error ? error.message : String(error),
+                    error:
+                      error instanceof Error ? error.message : String(error),
                     frameIndex,
                     surfaceReady: nativeSurfaceReadyRef.current,
-                    surfaceGeometrySettled: nativeSurfaceGeometrySettledRef.current,
+                    surfaceGeometrySettled:
+                      nativeSurfaceGeometrySettledRef.current,
                     willBlock: nativeFailureCount >= 3,
                   },
                 );
@@ -3806,7 +3830,12 @@ export const NativeProgramPreview: React.FC = () => {
                   error instanceof Error &&
                   error.message.includes("No frame found at") &&
                   timeToRender >= (state.project?.duration ?? 0) - 0.1;
-                if (nativeOnlyMode && !isPlaybackOrTransition && !stale && !isEofHiccup) {
+                if (
+                  nativeOnlyMode &&
+                  !isPlaybackOrTransition &&
+                  !stale &&
+                  !isEofHiccup
+                ) {
                   toast.error(
                     [
                       "Native-only preview",
@@ -4000,7 +4029,8 @@ export const NativeProgramPreview: React.FC = () => {
             lastRenderedFrameIndex;
         if (hasPendingVisualChange) {
           const renderMs = performance.now() - renderStartedAt;
-          const frameRateHz = latest.clock.frameRate > 0 ? latest.clock.frameRate : 30;
+          const frameRateHz =
+            latest.clock.frameRate > 0 ? latest.clock.frameRate : 30;
           const frameIntervalMs = 1000 / frameRateHz;
           // If the render took longer than one frame budget we are running below
           // target FPS. Re-scheduling via rAF at 60 Hz would fire the next
@@ -4010,7 +4040,10 @@ export const NativeProgramPreview: React.FC = () => {
           // important on constrained iGPUs (Intel HD 520) where a single D3D12
           // submit can take 17+ ms against a 33 ms budget.
           if (latest.clock.state === "playing" && renderMs > frameIntervalMs) {
-            const delay = Math.max(0, frameIntervalMs - (renderMs % frameIntervalMs));
+            const delay = Math.max(
+              0,
+              frameIntervalMs - (renderMs % frameIntervalMs),
+            );
             if (!frameScheduled && isActive) {
               frameScheduled = true;
               rafId = window.setTimeout(() => {
@@ -4111,27 +4144,30 @@ export const NativeProgramPreview: React.FC = () => {
         .catch(() => undefined);
     }
 
-    const unsubscribeLifecycleWakeup = appLifecycleCoordinator.onForegroundWakeup(() => {
-      if (!isActive) return;
-      nativeContinuousFailureStreak = 0;
-      nativeContinuousBlockedRevision = "";
-      nativePlaybackRenderFailed = false;
-      nativeBlockedKey = "";
-      nativeFailureKey = "";
-      nativeFailureCount = 0;
-      lastNativePlaybackRequestKey = "";
-      nativeRetryAt = 0;
-      nativePlaybackInFlight = null;
-      visibleRequestGeneration += 1;
-      nativePreviewScheduler.setVisibleGeneration(visibleRequestGeneration);
-      forceRenderNeeded = true;
-      scheduleNextFrame();
-    });
+    const unsubscribeLifecycleWakeup =
+      appLifecycleCoordinator.onForegroundWakeup(() => {
+        if (!isActive) return;
+        nativeContinuousFailureStreak = 0;
+        nativeContinuousBlockedRevision = "";
+        nativePlaybackRenderFailed = false;
+        nativeBlockedKey = "";
+        nativeFailureKey = "";
+        nativeFailureCount = 0;
+        lastNativePlaybackRequestKey = "";
+        nativeRetryAt = 0;
+        nativePlaybackInFlight = null;
+        visibleRequestGeneration += 1;
+        nativePreviewScheduler.setVisibleGeneration(visibleRequestGeneration);
+        forceRenderNeeded = true;
+        scheduleNextFrame();
+      });
 
-    const unsubscribeLifecycleSleep = appLifecycleCoordinator.onBackgroundSleep(() => {
-      if (!isActive) return;
-      lastNativePlaybackRequestKey = "";
-    });
+    const unsubscribeLifecycleSleep = appLifecycleCoordinator.onBackgroundSleep(
+      () => {
+        if (!isActive) return;
+        lastNativePlaybackRequestKey = "";
+      },
+    );
 
     scheduleNextFrame();
     return () => {

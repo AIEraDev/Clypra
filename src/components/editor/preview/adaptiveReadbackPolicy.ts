@@ -22,6 +22,17 @@ export class AdaptiveReadbackPolicy {
     return AdaptiveReadbackPolicy.DIMENSIONS[this.tier];
   }
 
+  get currentTier(): number {
+    return this.tier;
+  }
+
+  get targetCadenceFps(): number {
+    if (this.tier === 0) return 10;
+    if (this.tier === 1) return 20;
+    if (this.tier <= 3) return 24;
+    return 30;
+  }
+
   cap<T extends { width: number; height: number }>(target: T): T {
     const largest = Math.max(target.width, target.height);
     if (largest <= this.maxDimension) return target;
@@ -41,7 +52,13 @@ export class AdaptiveReadbackPolicy {
     // A CPU readback must not try to chase a 60fps source. The tier controls
     // both bytes per frame and cadence; audio remains the clock authority.
     const intervalMs =
-      this.tier === 0 ? 100 : this.tier === 1 ? 50 : this.tier <= 3 ? 1000 / 24 : 1000 / 30;
+      this.tier === 0
+        ? 100
+        : this.tier === 1
+          ? 50
+          : this.tier <= 3
+            ? 1000 / 24
+            : 1000 / 30;
     this.nextPlaybackDispatchAt = now + intervalMs;
   }
 
@@ -63,7 +80,10 @@ export class AdaptiveReadbackPolicy {
       this.slowSamples = 0;
       // Recover conservatively so a brief fast patch does not make preview
       // oscillate between resolutions.
-      if (this.fastSamples >= 90 && this.tier < AdaptiveReadbackPolicy.DIMENSIONS.length - 1) {
+      if (
+        this.fastSamples >= 90 &&
+        this.tier < AdaptiveReadbackPolicy.DIMENSIONS.length - 1
+      ) {
         this.tier += 1;
         this.fastSamples = 0;
       }
@@ -76,7 +96,11 @@ export class AdaptiveReadbackPolicy {
 
   private static closestTier(maxDimension: number): number {
     let index = 0;
-    for (let candidate = 0; candidate < this.DIMENSIONS.length; candidate += 1) {
+    for (
+      let candidate = 0;
+      candidate < this.DIMENSIONS.length;
+      candidate += 1
+    ) {
       if (this.DIMENSIONS[candidate] <= maxDimension) index = candidate;
     }
     return index;
