@@ -101,6 +101,11 @@ export class NativePerfSpan {
     private readonly request: NativeFrameRequest,
     private readonly mode: NativePreviewMode,
     private readonly previewContext?: TelemetryPreviewContext,
+    /** Immutable limits used to create this WebView RGBA request. */
+    private readonly readbackPolicy?: Pick<
+      NativeFrontendPerfSample,
+      "readbackMaxDimension" | "readbackTier" | "readbackCadenceFps"
+    >,
   ) {}
 
   markDispatchStarted(): void {
@@ -155,9 +160,11 @@ export class NativePerfSpan {
       dropReason: options.dropReason,
       previewContext: this.previewContext,
       stageTimings: options.stageTimings,
-      readbackMaxDimension: options.readbackMaxDimension,
-      readbackTier: options.readbackTier,
-      readbackCadenceFps: options.readbackCadenceFps,
+      readbackMaxDimension:
+        options.readbackMaxDimension ?? this.readbackPolicy?.readbackMaxDimension,
+      readbackTier: options.readbackTier ?? this.readbackPolicy?.readbackTier,
+      readbackCadenceFps:
+        options.readbackCadenceFps ?? this.readbackPolicy?.readbackCadenceFps,
     });
   }
 }
@@ -197,12 +204,17 @@ class NativePerfCollector {
   begin(
     request: NativeFrameRequest,
     previewContext?: TelemetryPreviewContext,
+    readbackPolicy?: Pick<
+      NativeFrontendPerfSample,
+      "readbackMaxDimension" | "readbackTier" | "readbackCadenceFps"
+    >,
   ): NativePerfSpan {
     return new NativePerfSpan(
       this,
       request,
       normalizeMode(request.mode),
       previewContext,
+      readbackPolicy,
     );
   }
 
