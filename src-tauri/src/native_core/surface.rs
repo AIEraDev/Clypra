@@ -53,6 +53,11 @@ pub struct NativeGpuRuntimeStatus {
     pub adapter_name: Option<String>,
     pub backend: Option<String>,
     pub device_type: Option<String>,
+    pub vendor_id: Option<u32>,
+    pub device_id: Option<u32>,
+    pub driver: Option<String>,
+    pub driver_info: Option<String>,
+    pub is_software_adapter: Option<bool>,
     pub surface_available: bool,
     pub failure_reason: Option<String>,
 }
@@ -66,6 +71,11 @@ impl NativeGpuRuntimeStatus {
             adapter_name: None,
             backend: None,
             device_type: None,
+            vendor_id: None,
+            device_id: None,
+            driver: None,
+            driver_info: None,
+            is_software_adapter: None,
             surface_available: false,
             failure_reason: None,
         }
@@ -84,6 +94,11 @@ impl NativeGpuRuntimeStatus {
             adapter_name: Some(adapter_name),
             backend: Some(backend),
             device_type: Some(device_type),
+            vendor_id: None,
+            device_id: None,
+            driver: None,
+            driver_info: None,
+            is_software_adapter: None,
             surface_available,
             failure_reason: None,
         }
@@ -97,6 +112,11 @@ impl NativeGpuRuntimeStatus {
             adapter_name: None,
             backend: None,
             device_type: None,
+            vendor_id: None,
+            device_id: None,
+            driver: None,
+            driver_info: None,
+            is_software_adapter: None,
             surface_available,
             failure_reason: Some(reason),
         }
@@ -106,6 +126,24 @@ impl NativeGpuRuntimeStatus {
     /// native window handles may only be touched on the UI thread.
     pub fn set_surface_available(&mut self, available: bool) {
         self.surface_available = available;
+    }
+
+    /// Enrich a ready status with the immutable adapter identity captured at
+    /// startup. Kept separate from `ready` for existing callers that only
+    /// know the display fields.
+    pub fn set_adapter_details(
+        &mut self,
+        vendor_id: u32,
+        device_id: u32,
+        driver: String,
+        driver_info: String,
+        is_software_adapter: bool,
+    ) {
+        self.vendor_id = Some(vendor_id);
+        self.device_id = Some(device_id);
+        self.driver = Some(driver);
+        self.driver_info = Some(driver_info);
+        self.is_software_adapter = Some(is_software_adapter);
     }
 }
 

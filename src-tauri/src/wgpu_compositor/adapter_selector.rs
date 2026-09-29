@@ -11,6 +11,13 @@ pub struct SelectedGpuInfo {
     pub vendor_id: u32,
     pub device_id: u32,
     pub is_discrete: bool,
+    /// Backend-reported driver name. This is essential when comparing older
+    /// Intel devices, where driver behavior varies by backend.
+    pub driver: String,
+    /// Backend-reported driver version/details, when exposed by the backend.
+    pub driver_info: String,
+    /// A CPU adapter is a software rasterizer (for example WARP on Windows).
+    pub is_software_adapter: bool,
 }
 
 #[cfg(target_os = "windows")]
@@ -172,13 +179,19 @@ impl GpuContext {
             vendor_id: info.vendor,
             device_id: info.device,
             is_discrete,
+            driver: info.driver.clone(),
+            driver_info: info.driver_info.clone(),
+            is_software_adapter: info.device_type == DeviceType::Cpu,
         };
 
         log::info!(
-            "🎮 Bound Clypra Media Engine to: {} ({:?}, Backend: {:?})",
+            "🎮 Bound Clypra Media Engine to: {} ({:?}, Backend: {:?}, Driver: {} {}, Software: {})",
             gpu_info.name,
             gpu_info.device_type,
-            gpu_info.backend
+            gpu_info.backend,
+            gpu_info.driver,
+            gpu_info.driver_info,
+            gpu_info.is_software_adapter,
         );
 
         let available_features = best_adapter.features();
