@@ -146,6 +146,8 @@ async function tauriListen(
 class PerfLogService {
   private sessionId: string | null = null;
   private filePath: string | null = null;
+  /** Serializes startup so React remounts cannot create parallel launch logs. */
+  private openInFlight: Promise<void> | null = null;
   private queue: PerfLogEntry[] = [];
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private syncPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -182,6 +184,20 @@ class PerfLogService {
   async openSession(sessionId: string): Promise<void> {
     if (!isTauriRuntime()) return;
 
+    // `App` can be mounted twice in development (and during some HMR paths).
+    // The native session id is only known after the async invoke resolves, so
+    // checking `this.sessionId` alone leaves a window where two callers can
+    // each create a different file. One app launch must own one active file.
+    if (this.sessionId) return;
+    if (this.openInFlight) return this.openInFlight;
+
+    this.openInFlight = this.openSessionImpl(sessionId).finally(() => {
+      this.openInFlight = null;
+    });
+    return this.openInFlight;
+  }
+
+  private async openSessionImpl(sessionId: string): Promise<void> {
     try {
       const info = await tauriInvoke<PerfLogSessionInfo>(
         "open_perf_log_session",
