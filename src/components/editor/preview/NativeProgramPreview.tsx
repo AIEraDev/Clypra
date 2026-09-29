@@ -3594,16 +3594,22 @@ export const NativeProgramPreview: React.FC = () => {
                   request: readbackRequest,
                 };
                 adaptiveReadbackPolicy.markPlaybackDispatch();
+                // Capture the policy at dispatch time. `recordReadback()` can
+                // adapt the next request before this promise settles, but the
+                // telemetry must describe the frame that was actually sent.
+                const dispatchedReadbackPolicy = {
+                  readbackMaxDimension: adaptiveReadbackPolicy.maxDimension,
+                  readbackTier: adaptiveReadbackPolicy.currentTier,
+                  readbackCadenceFps:
+                    adaptiveReadbackPolicy.targetCadenceFps,
+                };
                 nativePlaybackInFlight = nativePreviewScheduler
                   .requestVisible(readbackSource)
                   .then((frame) => {
                     const frontendSpan =
                       nativeFrontendPerfSpans.get(readbackRequestKey);
                     frontendSpan?.finish({
-                      readbackMaxDimension: adaptiveReadbackPolicy.maxDimension,
-                      readbackTier: adaptiveReadbackPolicy.currentTier,
-                      readbackCadenceFps:
-                        adaptiveReadbackPolicy.targetCadenceFps,
+                      ...dispatchedReadbackPolicy,
                     });
                     nativeFrontendPerfSpans.delete(readbackRequestKey);
                     const current = renderStateRef.current;
@@ -3624,6 +3630,7 @@ export const NativeProgramPreview: React.FC = () => {
                     const frontendSpan =
                       nativeFrontendPerfSpans.get(readbackRequestKey);
                     frontendSpan?.finish({
+                      ...dispatchedReadbackPolicy,
                       stale: true,
                       cancelled:
                         error instanceof DOMException &&

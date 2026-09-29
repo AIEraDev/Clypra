@@ -1813,6 +1813,13 @@ class TelemetryCollector {
         renderPath: options.renderPath,
         capabilityPolicy: options.capabilityPolicy,
         capabilityProbeUs: options.capabilityProbeUs,
+        // `targetFps` above describes the timeline/source rate. Keep the
+        // embedded CPU-readback limit separate so sampled anomalies can be
+        // interpreted against the cadence the presentation path actually
+        // requested.
+        readbackMaxDimension: options.readbackMaxDimension,
+        readbackTier: options.readbackTier,
+        readbackCadenceFps: options.readbackCadenceFps,
       },
       timestampMs: Date.now(),
     };
