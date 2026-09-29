@@ -31,6 +31,11 @@ export interface TelemetryHardwareContext {
     | "unknown";
   gpuModel: string;
   gpuDriverVersion?: string;
+  gpuVendorId?: number;
+  gpuDeviceId?: number;
+  gpuDriver?: string;
+  gpuDriverInfo?: string;
+  isSoftwareAdapter?: boolean;
   dedicatedVramMb?: number;
   graphicsBackend:
     | "metal"
@@ -1551,6 +1556,11 @@ class TelemetryCollector {
     adapterName: string | null;
     backend: string | null;
     deviceType: string | null;
+    vendorId: number | null;
+    deviceId: number | null;
+    driver: string | null;
+    driverInfo: string | null;
+    isSoftwareAdapter: boolean | null;
   }): void {
     const hw = this.initHardwareContext();
     if (nativeGpu.adapterName) {
@@ -1566,6 +1576,30 @@ class TelemetryCollector {
         hw.graphicsBackend = "d3d12";
       else if (b.includes("vulkan")) hw.graphicsBackend = "vulkan";
       else if (b.includes("webgpu")) hw.graphicsBackend = "webgpu";
+    }
+
+    // Add new GPU diagnostic fields
+    if (nativeGpu.vendorId != null) {
+      hw.gpuVendorId = nativeGpu.vendorId;
+    }
+    if (nativeGpu.deviceId != null) {
+      hw.gpuDeviceId = nativeGpu.deviceId;
+    }
+    if (nativeGpu.driver) {
+      hw.gpuDriver = nativeGpu.driver;
+    }
+    if (nativeGpu.driverInfo) {
+      hw.gpuDriverInfo = nativeGpu.driverInfo;
+      // Also use as gpuDriverVersion for backward compatibility
+      hw.gpuDriverVersion = nativeGpu.driverInfo;
+    }
+    if (nativeGpu.isSoftwareAdapter != null) {
+      hw.isSoftwareAdapter = nativeGpu.isSoftwareAdapter;
+      // If software adapter, override vendor and backend
+      if (nativeGpu.isSoftwareAdapter) {
+        hw.gpuVendor = "software";
+        hw.graphicsBackend = "software";
+      }
     }
   }
 

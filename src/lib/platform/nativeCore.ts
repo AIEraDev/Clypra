@@ -106,6 +106,11 @@ export interface NativeGpuRuntimeStatus {
   adapterName: string | null;
   backend: string | null;
   deviceType: string | null;
+  vendorId: number | null;
+  deviceId: number | null;
+  driver: string | null;
+  driverInfo: string | null;
+  isSoftwareAdapter: boolean | null;
   surfaceAvailable: boolean;
   failureReason: string | null;
 }
@@ -132,7 +137,13 @@ export interface NativePerformanceSample {
   quality?: NativeQualityTier;
   strategy?: "HOT" | "WARM" | "COLD";
   /** Actual decoded-frame transfer path, not the scheduling/cache strategy. */
-  transferPath?: "dxgi-zero-copy" | "cpu-nv12" | "cpu-rgba" | "mixed" | "gpu-raster" | string;
+  transferPath?:
+    | "dxgi-zero-copy"
+    | "cpu-nv12"
+    | "cpu-rgba"
+    | "mixed"
+    | "gpu-raster"
+    | string;
   cancelled?: boolean;
   stale?: boolean;
   dropped?: boolean;
@@ -289,7 +300,12 @@ export interface NativeSurfacePresentation {
   mode?: "playback" | "scrub" | "seek" | "frameStep";
   stale?: boolean;
   cancelled?: boolean;
-  dropReason?: "stale" | "cancelled" | "late-for-audio" | "present-failed" | "lookahead-miss";
+  dropReason?:
+    | "stale"
+    | "cancelled"
+    | "late-for-audio"
+    | "present-failed"
+    | "lookahead-miss";
   timings?: {
     totalUs: number;
     decodeUs: number;

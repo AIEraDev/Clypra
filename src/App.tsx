@@ -26,6 +26,7 @@ import { useRecordingStore } from "@/store/recordingStore";
 import { FloatingWidget } from "@/components/ui/FloatingWidget";
 import { ScreenRecordingPreviewModal } from "@/components/ui/ScreenRecordingPreviewModal";
 import { useAutoUpdater } from "@/hooks/useAutoUpdater";
+import { useGpuTelemetryInit } from "@/hooks/useGpuTelemetryInit";
 import { UpdateBanner } from "@/components/ui/UpdateBanner";
 import { Toaster } from "sonner";
 import { ProjectLoadingModal } from "./components/ui/modals/ProjectLoadingModal";
@@ -77,6 +78,9 @@ const App = () => {
   const [isSavingBeforeClose, setIsSavingBeforeClose] = useState(false);
   const closingWindowRef = useRef(false);
   const closingProjectRef = useRef(false);
+
+  // Initialize GPU telemetry with hardware diagnostics
+  useGpuTelemetryInit();
   const { isRecording, previewRecording, setPreviewRecording } =
     useRecordingStore();
   const autoUpdater = useAutoUpdater();
