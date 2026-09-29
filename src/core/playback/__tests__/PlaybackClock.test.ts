@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { PlaybackClock } from "../PlaybackClock";
+import { PlaybackClock, getPlaybackClock, resetPlaybackClock } from "../PlaybackClock";
 
 // Mock AudioContext
 class MockAudioContext {
@@ -79,6 +79,19 @@ describe("PlaybackClock: RAF Generation Counter", () => {
       cb();
     }
     expect(clock.time).toBe(5.0);
+  });
+
+  it("exposes a stable revision so native consumers can handle each seek once", () => {
+    const initialRevision = clock.seekRevision;
+
+    clock.seek(2);
+    expect(clock.seekRevision).toBe(initialRevision + 1);
+    // Completing presentation does not create a new transport intent.
+    clock.completeSeek();
+    expect(clock.seekRevision).toBe(initialRevision + 1);
+
+    clock.seek(4);
+    expect(clock.seekRevision).toBe(initialRevision + 2);
   });
 
   it("should pause playback and cancel RAF when seek explicitly requests keepPlaying: false", () => {
@@ -213,5 +226,23 @@ describe("PlaybackClock: RAF Generation Counter", () => {
     clock.resyncNativeClockPosition(3.5, 1.0);
     expect(clock.time).toBeCloseTo(3.5, 2);
     expect(notified).toHaveBeenCalled();
+  });
+
+  it("preserves global clock identity across a project reset", () => {
+    const shared = getPlaybackClock();
+    const listener = vi.fn();
+    shared.subscribe(listener);
+    shared.setDuration(10);
+    shared.play();
+
+    resetPlaybackClock();
+
+    expect(getPlaybackClock()).toBe(shared);
+    expect(shared.getState()).toMatchObject({
+      time: 0,
+      duration: 0,
+      state: "stopped",
+    });
+    expect(listener).toHaveBeenCalled();
   });
 });

@@ -523,12 +523,13 @@ describe("PreviewPerformancePolicyController", () => {
     expect(policy.capabilityPolicy).toBe("proxy");
   });
 
-  it("does NOT escalate backpressure for discrete AMD RX 6800 XT", () => {
+  it("reduces a discrete AMD GPU only after sustained measured pressure", () => {
     const controller = new PreviewPerformancePolicyController();
     for (let index = 0; index < 60; index += 1) {
       controller.observe({ totalTimeUs: 20_000, dropped: true });
     }
-    // Discrete GPU — backpressure skipped, always full
+    // Device type is an initial hint, not proof that this runtime can sustain
+    // the active project (driver fallback and external displays can change it).
     expect(
       controller.policyFor(
         "AMD Radeon RX 6800 XT",
@@ -538,10 +539,10 @@ describe("PreviewPerformancePolicyController", () => {
         undefined,
         "DiscreteGpu",
       ),
-    ).toEqual({ capabilityPolicy: "full" });
+    ).toMatchObject({ capabilityPolicy: "reduced", maximumQuality: "half" });
   });
 
-  it("does NOT escalate backpressure for Nvidia RTX discrete", () => {
+  it("reduces a discrete Nvidia GPU only after sustained measured pressure", () => {
     const controller = new PreviewPerformancePolicyController();
     for (let index = 0; index < 60; index += 1) {
       controller.observe({ totalTimeUs: 20_000, dropped: true });
@@ -555,7 +556,7 @@ describe("PreviewPerformancePolicyController", () => {
         undefined,
         "DiscreteGpu",
       ),
-    ).toEqual({ capabilityPolicy: "full" });
+    ).toMatchObject({ capabilityPolicy: "reduced", maximumQuality: "half" });
   });
 
   it("does not react to isolated cold frames", () => {

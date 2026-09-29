@@ -174,6 +174,18 @@ export class PlaybackClock {
   }
 
   /**
+   * Monotonic identity of the latest explicit transport seek.
+   *
+   * Consumers must use this to deduplicate side effects (native audio seeks,
+   * decoder seeks, telemetry) rather than treating `isSeeking` as an event.
+   * `isSeeking` deliberately remains true until presentation settles and can
+   * therefore span many clock notifications.
+   */
+  get seekRevision(): number {
+    return this._seekRevision;
+  }
+
+  /**
    * Get current time (imperative read).
    * This is how consumers should read time - NOT via React state.
    */
@@ -603,8 +615,10 @@ export class PlaybackClock {
   /**
    * Complete the seeking state and align playback start times.
    */
-  completeSeek(): void {
-    if (!this._isSeeking) return;
+  completeSeek(): number | null {
+    if (!this._isSeeking) return null;
+
+    const elapsedMs = Math.max(0, performance.now() - this._seekStartedAtMs);
 
     this._isSeeking = false;
     if (
@@ -616,6 +630,7 @@ export class PlaybackClock {
       this._playStartClockTime = this._time;
     }
     this._notifyListeners();
+    return elapsedMs;
   }
 
   // ─── RAF Loop (Private) ────────────────────────────────────────────────────
@@ -786,6 +801,41 @@ export class PlaybackClock {
     this._audioContext = null;
     this._ownsAudioContext = false;
   }
+
+  /**
+   * Reset project-scoped transport state without replacing this object.
+   *
+   * React transport controls subscribe to the clock instance. Replacing the
+   * global singleton during a project switch leaves those controls subscribed
+   * to an orphaned clock while imperative consumers resolve the new one.
+   */
+  resetForProject(): void {
+    if (this._rafId !== null) {
+      cancelAnimationFrame(this._rafId);
+      this._rafId = null;
+    }
+    this._generation++;
+    this._state = "stopped";
+    this._time = 0;
+    this._duration = 0;
+    this._speed = 1;
+    this._isSeeking = false;
+    this._seekStartedAtMs = 0;
+    this._nativeClockPosition = null;
+    this._nativeClockAuthority = false;
+    this._clipFreezeMap.clear();
+    this._stallStartAudioTime = null;
+    if (this._audioContext && this._ownsAudioContext) {
+      // Tests and browser polyfills may expose only the timing subset of
+      // AudioContext. Production contexts always implement close().
+      if (typeof this._audioContext.close === "function") {
+        void this._audioContext.close();
+      }
+    }
+    this._audioContext = null;
+    this._ownsAudioContext = false;
+    this._notifyListeners();
+  }
 }
 
 /**
@@ -807,11 +857,9 @@ export function getPlaybackClock(audioContext?: AudioContext): PlaybackClock {
 }
 
 /**
- * Reset global playback clock (for testing).
+ * Reset project-scoped clock state while preserving the singleton identity.
+ * Mounted UI subscribers must remain attached across project transitions.
  */
 export function resetPlaybackClock(): void {
-  if (globalClock) {
-    globalClock.dispose();
-  }
-  globalClock = null;
+  globalClock?.resetForProject();
 }

@@ -23,6 +23,7 @@ import {
   NATIVE_CORE_CONTRACT_VERSION,
 } from "@/lib/platform/nativeCore";
 import { recordFirstArtifactLatency } from "./filmstripMetrics";
+import { getPlaybackClock } from "@/core/playback/PlaybackClock";
 
 // ─── SAB Detection ────────────────────────────────────────────────────────────
 
@@ -220,6 +221,13 @@ export function requestNativeFilmstripArtifacts(opts: RequestNativeFilmstripArti
   }
 
   const dispatch = () => {
+    // Filmstrip tiles are background decoration but share the hardware decode
+    // and GPU queues with program playback. Yield them while transport runs
+    // so a long tile decode cannot create an A/V pacing spike.
+    if (getPlaybackClock().state === "playing") {
+      if (!cancelled) window.setTimeout(dispatch, 100);
+      return;
+    }
     while (!cancelled && active < Math.max(1, concurrency) && nextIndex < total) {
       const timestampMs = Math.max(0, Math.round(timestampsMs[nextIndex++]));
       active++;
@@ -378,6 +386,23 @@ async function fanOutFilmstripArtifact(
 
 function pumpFilmstripLane(videoPath: string): void {
   const lane = getFilmstripLane(videoPath);
+  // Filmstrip requests share native decode and GPU resources with the program
+  // preview. They are always preemptible while transport is playing: cancel
+  // the current batch, preserve its subscribers, and retry after playback has
+  // yielded the hardware queues.
+  if (getPlaybackClock().state === "playing") {
+    if (lane.inFlight) {
+      lane.inFlight.cancelFn?.();
+      for (const sub of lane.inFlight.subscribers) {
+        if (!sub.cancelled) lane.queued.push(sub);
+      }
+      lane.inFlight = null;
+    }
+    if (lane.queued.some((sub) => !sub.cancelled)) {
+      window.setTimeout(() => pumpFilmstripLane(videoPath), 100);
+    }
+    return;
+  }
   if (lane.inFlight) {
     // If all subscribers in the current in-flight batch have cancelled (e.g. user scrolled/zoomed away),
     // preempt it immediately so queued requests for the new viewport start without waiting.

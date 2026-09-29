@@ -65,22 +65,27 @@ fn decode_audio_clip_sync(
     match decode_with_ffmpeg_next(path, &config, target_sample_rate, target_channels) {
         Ok((clip, _reached_source_end)) if !is_materially_truncated(&clip, &config) => Ok(clip),
         Ok((clip, _reached_source_end)) => {
-            // A clip is allowed to end at the source boundary. In that case
-            // the requested timeline range can be longer than the remaining
-            // media, and a shorter decoded buffer is correct rather than a
-            // decoder failure. Only recover through the CLI when the source
-            // still contains enough media for the requested range.
-            if is_expected_source_end(path, &clip, &config) {
-                return Ok(clip);
+            // Never trust a materially short in-process decode for preview
+            // playback. Container duration metadata can be shorter than the
+            // playable stream, which previously made an apparently valid clip
+            // go silent before its timeline end. Ask the independent CLI
+            // decoder to verify the PCM range even when this looks like EOF.
+            match decode_with_ffmpeg_cli(path, &config, target_sample_rate, target_channels) {
+                Ok(recovered) => Ok(recovered),
+                // A genuinely short source remains valid if CLI recovery is
+                // unavailable. The caller can then surface its exact native
+                // clip duration instead of treating it as a callback failure.
+                Err(error) if is_expected_source_end(path, &clip, &config) => {
+                    log::warn!(
+                        "[NativeAudio] CLI recovery unavailable for source-bound clip {}; retaining {} decoded ticks: {}",
+                        config.id,
+                        decoded_duration_ticks(&clip),
+                        error
+                    );
+                    Ok(clip)
+                }
+                Err(error) => Err(error),
             }
-
-            // A successful decode with far fewer samples than the requested
-            // timeline range is not a usable result. Installing it lets the
-            // mixer report an "active" clip that has no PCM after its short
-            // buffer ends—the exact failure observed with the 31.8s MP3 that
-            // decoded to 0.8s. Use the established FFmpeg CLI decoder as an
-            // explicit decoder-backend recovery, not as a playback fallback.
-            decode_with_ffmpeg_cli(path, &config, target_sample_rate, target_channels)
         }
         Err(err) => {
             // If there is simply no audio stream in the media container, do not attempt CLI decode.
@@ -97,15 +102,23 @@ fn decode_audio_clip_sync(
     }
 }
 
-/// The in-process decoder must produce nearly all of a requested clip range.
-/// A small tolerance covers encoder delay, packet boundaries, and a clip that
-/// genuinely reaches the end of its source. Anything larger is a decode
-/// failure, not silence that the mixer should be asked to conceal.
+/// The in-process decoder must produce the complete requested clip range.
+///
+/// The prior two-percent allowance was much too large for preview audio: on
+/// an 83-second clip it could accept more than 1.6 seconds of missing PCM.
+/// The mixer would then keep the timeline clip active but have no samples to
+/// emit at its tail. Keep only a small, codec-boundary allowance; anything
+/// beyond it is recovered through the independent FFmpeg CLI decoder before
+/// the graph is installed.
 fn is_materially_truncated(clip: &DecodedAudioClip, requested: &AudioClipConfig) -> bool {
     if requested.duration_ticks <= 0 {
         return false;
     }
-    let tolerance_ticks = (requested.duration_ticks / 50).max(250_000);
+    // AAC/MP3 priming and resampler packet boundaries are measured in
+    // milliseconds, not percent of the full source duration. 100 ms is
+    // deliberately generous while preventing audible end-of-clip gaps.
+    const TOLERANCE_TICKS: i64 = 100_000;
+    let tolerance_ticks = requested.duration_ticks.min(TOLERANCE_TICKS);
     decoded_duration_ticks(clip) < requested.duration_ticks.saturating_sub(tolerance_ticks)
 }
 
@@ -145,7 +158,8 @@ fn is_expected_source_end_for_duration(
         return false;
     }
 
-    let tolerance_ticks = (expected_ticks / 50).max(250_000);
+    const TOLERANCE_TICKS: i64 = 100_000;
+    let tolerance_ticks = expected_ticks.min(TOLERANCE_TICKS);
     decoded_ticks >= expected_ticks.saturating_sub(tolerance_ticks)
 }
 
@@ -316,6 +330,28 @@ fn decode_with_ffmpeg_next(
                 )?;
             }
         }
+    }
+
+    // `swr_convert_frame` can retain a final resampling delay after the
+    // decoder itself has reached EOF.  Dropping that delay makes the decoded
+    // PCM shorter than its source—most visible at the end of AAC video clips.
+    // Drain it before calculating the installed clip duration so the mixer
+    // has every sample the timeline says it owns.
+    let mut flushed_frame = ffmpeg::frame::Audio::empty();
+    loop {
+        let pending = resampler
+            .flush(&mut flushed_frame)
+            .map_err(|error| format!("Failed to flush audio resampler: {error}"))?;
+        if flushed_frame.samples() == 0 {
+            break;
+        }
+        append_valid_samples(&flushed_frame, target_channels, &mut all_samples, 0)?;
+        if pending.is_none() {
+            break;
+        }
+        // The next flush call needs a fresh output frame. Reusing a non-empty
+        // frame may cause FFmpeg to retain its old allocation/sample count.
+        flushed_frame = ffmpeg::frame::Audio::empty();
     }
 
     if all_samples.is_empty() {
@@ -558,7 +594,7 @@ mod tests {
     }
 
     #[test]
-    fn normal_encoder_delay_does_not_trigger_decoder_recovery() {
+    fn sub_packet_encoder_delay_does_not_trigger_decoder_recovery() {
         let config = AudioClipConfig {
             id: "clip".to_string(),
             path: "fixture.mp3".to_string(),
@@ -574,11 +610,36 @@ mod tests {
             config: config.clone(),
             sample_rate: 48_000,
             channels: 2,
-            // 9.95 seconds remains inside the two-percent tolerance.
+            // 9.95 seconds remains inside the 100 ms codec-boundary tolerance.
             samples: vec![0.0; 48_000 * 2 * 9 + 45_600 * 2].into(),
         };
 
         assert!(!is_materially_truncated(&complete, &config));
+    }
+
+    #[test]
+    fn audible_tail_gap_triggers_decoder_recovery_regardless_of_clip_length() {
+        let config = AudioClipConfig {
+            id: "long-aac".to_string(),
+            path: "fixture.mp4".to_string(),
+            timeline_start_ticks: 0,
+            source_start_ticks: 0,
+            duration_ticks: 83_114_667,
+            gain: 1.0,
+            fade_in_ticks: 0,
+            fade_out_ticks: 0,
+            track_id: None,
+        };
+        let truncated = DecodedAudioClip {
+            config: config.clone(),
+            sample_rate: 44_100,
+            channels: 2,
+            // An 80-second decode formerly passed the two-percent test for
+            // sufficiently long sources, leaving a reproducible silent tail.
+            samples: vec![0.0; 80 * 44_100 * 2].into(),
+        };
+
+        assert!(is_materially_truncated(&truncated, &config));
     }
 
     #[test]
