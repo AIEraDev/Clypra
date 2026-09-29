@@ -6,6 +6,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [1.5.6] - 2026-09-29
+
+### 🐛 Bug Fixes
+
+- **Native preview embedded in editor canvas** — native preview is now always rendered inside Clypra's main editor canvas instead of a separate Tauri/OS child window. Prevents the preview from escaping and overlapping dialogs, appearing on a different Space/desktop on macOS, or failing to track the app window on Windows, X11, and Wayland. Covers `nativeCore.ts`, `useNativeSurfaceController.ts`, `NativeProgramPreview.tsx`, and `nativeSurfaceLifecycle.ts` (#428).
+
+- **Source preview timecode no longer shows frame counter** — replaced `formatTimecode` (MM:SS:FF) with `formatTime` (MM:SS / HH:MM:SS) in `SourcePreview` so the player transport no longer shows a rapidly counting frames segment next to current and total time (#427).
+
+- **QoS oscillation causing audio cracking** — QoS controller was evaluating on every RAF tick (every 16ms) instead of complete non-overlapping 250ms windows, causing Full→Half→Quarter→Full quality thrashing hundreds of times per minute. Surface resize churn from the oscillation interrupted the CPAL audio pipeline. Fixed by requiring `window_capacity` (15) new samples between evaluations (#429).
+
+- **Audio stops near end of clip** — when video reached the terminal frame the CPAL stream was not closed promptly, draining to silence and stalling. Fixed with explicit terminal-frame stream close emitting `clypra://playback-ended` (#429).
+
+- **Restart desync after silence gap** — on restart after the audio dropout, the video clock was not re-anchored to the new CPAL stream. `begin_transport()` now resets the full QoS state (window, counters, decision) before each new play run (#429).
+
+- **Persistent -12ms AV drift from first frame** — CPAL `firstAudibleUs=51ms` was not fed into the video clock anchor. `nativeAudioPreviewController` now hard-reanchors the UI clock to the first non-silent hardware callback, eliminating inherited extrapolation from any prior stream (#430).
+
+- **Preview transport stuck at 00:00** — `NativeProgramPreview` was reading transport time from a React subscription snapshot that could remain stale after a project reset. Transport time is now driven from a 30 Hz RAF read of `getPlaybackClock()` — the same singleton used by the timeline playhead. Project resets reset state on the existing clock instance so mounted controls retain valid subscriptions (#430).
+
+- **Seek storm at 00:02 (130ms repeated seeks)** — `nativeAudioPreviewController` fired one native audio seek per RAF notification while a frame was settling. Transport acknowledgement is now separated from visual-frame settlement; native audio receives exactly one seek per monotonic `seekRevision` increment (#430).
+
+- **Audio goes silent before end of long clips** — in-process FFmpeg resampler tail samples were not drained at EOF and any decode shortfall >100ms was silently accepted, causing long clips to lose seconds of audio. Decoder now drains the resampler at EOF, treats shortfall >100ms as invalid, and recovers through the independent CLI FFmpeg decoder before installing audio into the mixer (#430).
+
+### ⚡ Performance
+
+- **Filmstrip no longer competes with playback** — filmstrip thumbnail batch jobs are deferred and cancelled while playback is running, preventing thumbnail decoding from competing with the audio/video decoder for memory bandwidth. Session data showed a 659ms filmstrip artifact job causing max AV drift to grow from 38ms to 157ms over a session (#430).
+
+- **Adaptive embedded-preview readback cap** — new `adaptiveReadbackPolicy.ts` monitors WebView readback/IPC duration and automatically steps the canvas resolution cap down under pressure: 960→840→720→600→480px. Fallback FPS paces at 30fps, dropping to 24/20fps at reduced tiers. Quality recovers only after 90 consecutive fast transfers, preventing oscillation. Affects only the CPU-RGBA embedded canvas fallback path (#430).
+
+### 🔧 Architecture
+
+- **PlaybackClock monotonic `seekRevision`** — `PlaybackClock` exposes a monotonic seek identity counter. Consumers deduplicate seek side effects (native audio seeks, decoder seeks, telemetry) by identity rather than reacting to every `isSeeking` notification. Global clock identity now survives project resets (#430).
+
+- **Apple Silicon `HighEnd` capability tier** — Apple Silicon with VideoToolbox is now classified as `HighEnd` (was `Constrained`/`Moderate`), starting at full quality with QoS degrading only under real measured pressure (#429, #430).
+
+- **Intel GPU detection case-insensitive** — driver strings reporting `intel` (lowercase) were bypassing constrained policies. Detection is now case-insensitive (#430).
+
+- **UHD 630 2GB boundary corrected to `Moderate`** (#430).
+
+- **Low-end Windows discrete GPUs start constrained** — entry-level discrete GPUs (GT 1030, GTX 750 Ti class) no longer assumed fast just because they are discrete. Quality degrades only under sustained measured frame pressure (#430).
+
+### 🛠️ CI / Testing
+
+- **Clippy `-D warnings` clean across all engine v2 Rust code** — 20 Clippy lint errors in the native realtime engine v2 code fixed: `derivable_impls`, `collapsible_match`, `needless_borrow`, `borrowed_box`, `get_first`, `module_inception`, `large_enum_variant`, `cast_lossless`, `clone_on_copy` (#426).
+
 ## [1.5.5] - 2026-09-28
 
 ### � Features & Architecture
