@@ -200,7 +200,7 @@ impl NativeRenderSession {
             crate::commands::native_preview::schedule_lookahead_predecode(
                 app.clone(),
                 base_request,
-                16,
+                crate::commands::native_preview::NATIVE_PREVIEW_LOOKAHEAD_FRAMES,
                 Some(quality),
             );
             self.notify.notify_one();
@@ -210,7 +210,7 @@ impl NativeRenderSession {
         crate::commands::native_preview::schedule_lookahead_predecode(
             app.clone(),
             base_request,
-            16,
+            crate::commands::native_preview::NATIVE_PREVIEW_LOOKAHEAD_FRAMES,
             Some(quality),
         );
         let session = Arc::clone(self);
@@ -1311,7 +1311,7 @@ pub async fn configure_native_playback_render(
         crate::commands::native_preview::schedule_lookahead_predecode(
             app.clone(),
             snapshot_clone,
-            16,
+            crate::commands::native_preview::NATIVE_PREVIEW_LOOKAHEAD_FRAMES,
             Some(lookahead_quality),
         );
     }
@@ -1407,7 +1407,7 @@ pub async fn update_native_playback_render(
     crate::commands::native_preview::schedule_lookahead_predecode(
         app.clone(),
         snapshot_clone,
-        16,
+        crate::commands::native_preview::NATIVE_PREVIEW_LOOKAHEAD_FRAMES,
         Some(lookahead_quality),
     );
 
