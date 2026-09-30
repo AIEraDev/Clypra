@@ -1283,7 +1283,7 @@ impl MultiTrackCompositor {
             is_gl,
         )
         .await
-        .map(|(bytes, _, _)| bytes)
+        .map(|(bytes, _, _, _)| bytes)
     }
 
     /// Render to RGBA bytes and return CPU-observable composition and readback
@@ -1297,7 +1297,7 @@ impl MultiTrackCompositor {
         layers: &[CompositeLayer<'_>],
         clear_color: Option<wgpu::Color>,
         #[cfg(target_arch = "wasm32")] is_gl: bool,
-    ) -> Result<(Vec<u8>, u64, u64), String> {
+    ) -> Result<(Vec<u8>, u64, u64, u64), String> {
         let texture_desc = wgpu::TextureDescriptor {
             label: Some("Compositor Render Target"),
             size: wgpu::Extent3d {
@@ -1358,6 +1358,10 @@ impl MultiTrackCompositor {
 
         queue.submit(Some(encoder.finish()));
 
+        // This bracket distinguishes command encoding/submission from the
+        // driver-visible wait for GPU completion and CPU mapping. It is a
+        // coarse CPU-side measurement when timestamp queries are unavailable.
+        let map_started = Instant::now();
         let buffer_slice = output_buffer.slice(..);
 
         // map_async bridges a GPU callback into async/await. The two targets
@@ -1436,6 +1440,7 @@ impl MultiTrackCompositor {
         };
 
         map_err.map_err(|e| e.to_string())?;
+        let map_wait_us = map_started.elapsed().as_micros() as u64;
 
         let mapped_range = buffer_slice.get_mapped_range();
         let mut unpadded_rgba = Vec::with_capacity((width * height * bytes_per_pixel) as usize);
@@ -1453,6 +1458,7 @@ impl MultiTrackCompositor {
             unpadded_rgba,
             compose_us,
             readback_started.elapsed().as_micros() as u64,
+            map_wait_us,
         ))
     }
 
@@ -1566,7 +1572,7 @@ impl MultiTrackCompositor {
             is_gl,
         )
         .await
-        .map(|(bytes, _, _)| bytes)
+        .map(|(bytes, _, _, _)| bytes)
     }
 
     /// Render a transition and return CPU-observable composition and readback
@@ -1582,7 +1588,7 @@ impl MultiTrackCompositor {
         to_view: &wgpu::TextureView,
         uniforms: &TransitionUniforms,
         #[cfg(target_arch = "wasm32")] is_gl: bool,
-    ) -> Result<(Vec<u8>, u64, u64), String> {
+    ) -> Result<(Vec<u8>, u64, u64, u64), String> {
         self.render_transition_with_overlays_to_rgba_bytes_timed(
             device,
             queue,
@@ -1614,7 +1620,7 @@ impl MultiTrackCompositor {
         overlays: &[CompositeLayer<'_>],
         clear_color: Option<wgpu::Color>,
         #[cfg(target_arch = "wasm32")] is_gl: bool,
-    ) -> Result<(Vec<u8>, u64, u64), String> {
+    ) -> Result<(Vec<u8>, u64, u64, u64), String> {
         let texture_desc = wgpu::TextureDescriptor {
             label: Some("Transition Render Target"),
             size: wgpu::Extent3d {
@@ -1687,6 +1693,9 @@ impl MultiTrackCompositor {
 
         queue.submit(Some(encoder.finish()));
 
+        // See the non-transition path above. This is deliberately measured
+        // around map_async rather than attributed to IPC.
+        let map_started = Instant::now();
         let buffer_slice = output_buffer.slice(..);
 
         // map_async bridges a GPU callback into async/await. The two targets
@@ -1765,6 +1774,7 @@ impl MultiTrackCompositor {
         };
 
         map_err.map_err(|e| e.to_string())?;
+        let map_wait_us = map_started.elapsed().as_micros() as u64;
 
         let mapped_range = buffer_slice.get_mapped_range();
         let mut unpadded_rgba = Vec::with_capacity((width * height * bytes_per_pixel) as usize);
@@ -1782,6 +1792,7 @@ impl MultiTrackCompositor {
             unpadded_rgba,
             compose_us,
             readback_started.elapsed().as_micros() as u64,
+            map_wait_us,
         ))
     }
 }

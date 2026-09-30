@@ -17,6 +17,8 @@ export interface NativeFrontendPerfSample {
   dispatchMs: number;
   ipcMs: number;
   canvasPaintMs?: number;
+  /** Time from canvas draw completion to the next rAF callback. */
+  paintRafMs?: number;
   totalMs: number;
   dropped: boolean;
   stale: boolean;
@@ -48,10 +50,14 @@ export interface NativeFrontendModeStats {
   dispatch: NativeFrontendStagePercentiles;
   ipc: NativeFrontendStagePercentiles;
   canvasPaint: NativeFrontendStagePercentiles;
+  paintRaf: NativeFrontendStagePercentiles;
   total: NativeFrontendStagePercentiles;
   droppedCount: number;
   staleCount: number;
   cancelledCount: number;
+  nativeSurfaceCount: number;
+  bridgeCount: number;
+  bridgeFallbackReasons: Record<string, number>;
 }
 
 const TRACE_STORAGE_KEY = "clypra:debug:native-perf";
@@ -153,7 +159,7 @@ export class NativePerfSpan {
     if (this.finished) return;
     this.markIpcFinished();
     this.finished = true;
-    this.collector.record({
+    const record = (paintRafMs?: number) => this.collector.record({
       requestId: this.request.requestId,
       generation: this.request.generation,
       frameIndex: this.request.frameTime.frameIndex,
@@ -161,6 +167,7 @@ export class NativePerfSpan {
       dispatchMs: Math.max(0, this.dispatchStartedAt - this.startedAt),
       ipcMs: this.ipcMs,
       canvasPaintMs: options.canvasPaintMs,
+      paintRafMs,
       totalMs: Math.max(0, performance.now() - this.startedAt),
       dropped: options.dropped === true,
       stale: options.stale === true,
@@ -178,6 +185,20 @@ export class NativePerfSpan {
         options.readbackSourceFrameStride ??
         this.readbackPolicy?.readbackSourceFrameStride,
     });
+    // Canvas APIs are synchronous but do not prove that the browser compositor
+    // presented the pixels. A following rAF is the least-invasive WebView
+    // boundary we can observe without introducing a per-frame IPC reply.
+    if (
+      options.canvasPaintMs !== undefined &&
+      typeof requestAnimationFrame !== "undefined"
+    ) {
+      const paintCommittedAt = performance.now();
+      requestAnimationFrame(() =>
+        record(Math.max(0, performance.now() - paintCommittedAt)),
+      );
+    } else {
+      record();
+    }
   }
 }
 
@@ -253,6 +274,10 @@ class NativePerfCollector {
           sample.canvasPaintMs !== undefined
             ? Math.round(sample.canvasPaintMs * 1000)
             : undefined,
+        webviewPaintRafUs:
+          sample.paintRafMs !== undefined
+            ? Math.round(sample.paintRafMs * 1000)
+            : undefined,
         // The native invoke boundary includes the RGBA payload transfer for
         // WebView. Surface that measured bridge duration as transfer cost;
         // native-sample readback remains the GPU/CPU readback measurement.
@@ -300,15 +325,28 @@ class NativePerfCollector {
 
   statsFor(mode: NativePreviewMode): NativeFrontendModeStats {
     const samples = this.samples.get(mode) ?? [];
+    const bridgeFallbackReasons: Record<string, number> = {};
+    for (const sample of samples) {
+      const reason = sample.previewContext?.presenterFallbackReason;
+      if (reason) bridgeFallbackReasons[reason] = (bridgeFallbackReasons[reason] ?? 0) + 1;
+    }
     return {
       mode,
       dispatch: stagePercentiles(samples, (sample) => sample.dispatchMs),
       ipc: stagePercentiles(samples, (sample) => sample.ipcMs),
       canvasPaint: stagePercentiles(samples, (sample) => sample.canvasPaintMs),
+      paintRaf: stagePercentiles(samples, (sample) => sample.paintRafMs),
       total: stagePercentiles(samples, (sample) => sample.totalMs),
       droppedCount: samples.filter((sample) => sample.dropped).length,
       staleCount: samples.filter((sample) => sample.stale).length,
       cancelledCount: samples.filter((sample) => sample.cancelled).length,
+      nativeSurfaceCount: samples.filter(
+        (sample) => sample.previewContext?.presenterMode === "native-surface",
+      ).length,
+      bridgeCount: samples.filter(
+        (sample) => sample.previewContext?.presenterMode === "bridge",
+      ).length,
+      bridgeFallbackReasons,
     };
   }
 

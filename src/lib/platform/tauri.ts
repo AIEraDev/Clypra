@@ -363,6 +363,22 @@ export async function renderNativeFrame(
   return invoke<ArrayBuffer>("render_native_frame", { request: nativeRequest });
 }
 
+/**
+ * Measure the raw Tauri binary response bridge without decode or GPU work.
+ * Diagnostics callers should run this only on demand; production preview must
+ * never use it.
+ */
+export async function renderNativePreviewTransportProbe(
+  byteLength = 518 * 1024,
+): Promise<ArrayBuffer> {
+  if (!isTauriRuntime()) {
+    throw new Error("renderNativePreviewTransportProbe requires the Tauri runtime");
+  }
+  return invoke<ArrayBuffer>("render_native_preview_transport_probe", {
+    byteLength: Math.max(1, Math.min(4 * 1024 * 1024, Math.floor(byteLength))),
+  });
+}
+
 /** Register a bundled/editor font in the strict native font registry. */
 export async function registerNativeFont(
   fontId: string,
