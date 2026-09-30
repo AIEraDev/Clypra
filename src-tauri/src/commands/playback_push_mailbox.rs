@@ -76,6 +76,12 @@ impl<T: Send + 'static> PlaybackPushMailbox<T> {
         if generation < state.generation {
             return;
         }
+        // Playback submits many frame demands for one generation. Only an
+        // actual generation change is a fence/reset; treating every demand as
+        // one would defeat watermark flow control.
+        if state.active && generation == state.generation {
+            return;
+        }
         if state.pending.take().is_some() {
             state.counters.superseded_mailbox += 1;
         }
@@ -238,6 +244,18 @@ mod tests {
         assert!(!mailbox.submit(1, 2, ()));
         assert!(!mailbox.acknowledge(1, 1));
         assert_eq!(mailbox.counters().superseded_mailbox, 1);
+    }
+
+    #[test]
+    fn same_generation_does_not_reset_the_consumption_watermark() {
+        let mailbox = PlaybackPushMailbox::default();
+        mailbox.begin_generation(1);
+        mailbox.submit(1, 1, ());
+        // Simulate the first send before acknowledging it.
+        let _ = mailbox.next_delivery_or_wait().unwrap();
+        assert!(mailbox.acknowledge(1, 1));
+        mailbox.begin_generation(1);
+        assert!(!mailbox.acknowledge(1, 1));
     }
 
     #[test]

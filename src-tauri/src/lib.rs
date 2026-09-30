@@ -248,6 +248,9 @@ pub fn run() {
                     commands::native_preview::NATIVE_PREVIEW_QUEUE_CAPACITY,
                 ),
             )));
+            app.manage(Arc::new(
+                commands::native_preview::NativePlaybackPushRuntime::default(),
+            ));
             app.manage(Arc::new(Mutex::new(
                 commands::native_playback::NativePlaybackRuntime::new(),
             )));
@@ -435,6 +438,10 @@ pub fn run() {
             render_native_preview_frame,
             render_native_preview_transport_probe,
             stream_native_playback_frames,
+            open_native_playback_push_stream,
+            submit_native_playback_push_frame,
+            acknowledge_native_playback_push_frame,
+            close_native_playback_push_stream,
             get_native_push_transport_capabilities,
             render_native_project_frame,
             render_native_video_project_frame,
