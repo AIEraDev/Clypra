@@ -1316,6 +1316,11 @@ export const NativeProgramPreview: React.FC = () => {
       NativeRasterLayerSnapshot
     >();
     const nativeFrontendPerfSpans = new Map<string, NativePerfSpan>();
+    const pushRequestKeysByFrameId = new Map<number, string>();
+    const pushTimingsByRequestKey = new Map<
+      string,
+      { receivedAtMs: number; t8EpochUs: bigint }
+    >();
 
     const standaloneVideoCache = new Map<string, HTMLVideoElement>();
     const standaloneImageCache = new Map<string, HTMLImageElement>();
@@ -1969,6 +1974,17 @@ export const NativeProgramPreview: React.FC = () => {
     const playbackPushBridge = previewPushBridgeEnabled
       ? new PlaybackPushBridge({
           paint: (packet) => {
+            const requestKey = pushRequestKeysByFrameId.get(
+              Number(packet.frameId),
+            );
+            if (requestKey) {
+              nativeFrontendPerfSpans.get(requestKey)?.markIpcFinished();
+              nativeDisplayedFrameRequestKeyRef.current = requestKey;
+              pushTimingsByRequestKey.set(requestKey, {
+                receivedAtMs: performance.now(),
+                t8EpochUs: packet.t8EpochUs,
+              });
+            }
             nativeDisplayedFrameRef.current = {
               rgba: packet.pixels.slice().buffer,
               width: packet.width,
@@ -1983,8 +1999,9 @@ export const NativeProgramPreview: React.FC = () => {
               watermark.consumedDeliverySeq,
             ).catch(() => undefined);
           },
-          onStreamStall: () => {
-            console.warn("[native-preview] push-stream-stall");
+          onReceiverIdle: () => {
+            nativePerfCollector.recordPushBridgeReceiverIdle();
+            console.debug("[native-preview] push-receiver-idle");
           },
         })
       : null;
@@ -1995,7 +2012,11 @@ export const NativeProgramPreview: React.FC = () => {
       if (pushBridgeReady) return true;
       if (!pushBridgeOpening) {
         pushBridgeOpening = openNativePlaybackPushStream(generation, (packet) => {
-          playbackPushBridge.receive(packet);
+          if (playbackPushBridge.receive(packet)) {
+            nativePerfCollector.recordPushBridgeFrame();
+          } else {
+            nativePerfCollector.recordPushBridgeRejectedGeneration();
+          }
         })
           .then(() => {
             pushBridgeReady = true;
@@ -3710,8 +3731,29 @@ export const NativeProgramPreview: React.FC = () => {
                   const generation = BigInt(targetGeneration);
                   void ensurePlaybackPushBridge(generation).then((ready) => {
                     if (!ready || !isActive || renderStateRef.current.clock.state !== "playing") return;
-                    void ensureNativeRequestFonts(readbackRequest)
-                      .then(() => submitNativePlaybackPushFrame(readbackRequest))
+                    // The push stream is fenced by the playback generation.
+                    // `readbackRequest` can originate from an older cache
+                    // key with no generation field; stamp the target before
+                    // it crosses Rust so a valid frame is never rejected as
+                    // generation zero.
+                    const pushRequest = {
+                      ...readbackRequest,
+                      generation: targetGeneration,
+                    };
+                    void ensureNativeRequestFonts(pushRequest)
+                      .then(() => {
+                        // Correlate source identity separately from delivery
+                        // sequence: Rust may supersede source frames before
+                        // they receive a monotonically increasing delivery id.
+                        pushRequestKeysByFrameId.set(
+                          pushRequest.frameTime.frameIndex,
+                          readbackRequestKey,
+                        );
+                        nativeFrontendPerfSpans
+                          .get(readbackRequestKey)
+                          ?.markIpcStarted();
+                        return submitNativePlaybackPushFrame(pushRequest);
+                      })
                       .catch((error) => {
                         pushBridgeFailed = true;
                         console.warn("[native-preview] push-frame-submit-failed", error);
@@ -4073,10 +4115,24 @@ export const NativeProgramPreview: React.FC = () => {
               const frontendSpan =
                 nativeFrontendPerfSpans.get(paintedRequestKey);
               if (frontendSpan) {
+                const pushTimings = pushTimingsByRequestKey.get(
+                  paintedRequestKey,
+                );
+                const nowEpochUs = BigInt(
+                  Math.round((performance.timeOrigin + performance.now()) * 1_000),
+                );
                 frontendSpan.finish({
                   canvasPaintMs,
+                  transport: pushTimings ? "push-channel" : "invoke",
+                  transportReceiveMs: pushTimings
+                    ? Math.max(0, (Number(BigInt(Math.round((performance.timeOrigin + pushTimings.receivedAtMs) * 1_000)) - pushTimings.t8EpochUs)) / 1_000)
+                    : undefined,
+                  frameAgeAtPaintMs: pushTimings
+                    ? Math.max(0, Number(nowEpochUs - pushTimings.t8EpochUs) / 1_000)
+                    : undefined,
                 });
                 nativeFrontendPerfSpans.delete(paintedRequestKey);
+                pushTimingsByRequestKey.delete(paintedRequestKey);
               }
               if (latestSeekIntent?.scrubSpanId) {
                 const elapsedSinceInputUs = Math.max(

@@ -144,6 +144,13 @@ impl<T: Send + 'static> PlaybackPushMailbox<T> {
             .clone()
     }
 
+    pub fn is_active(&self) -> bool {
+        self.state
+            .lock()
+            .expect("push mailbox lock poisoned")
+            .active
+    }
+
     fn next_delivery_or_wait(&self) -> Option<Delivery<T>> {
         let mut state = self.state.lock().expect("push mailbox lock poisoned");
         loop {

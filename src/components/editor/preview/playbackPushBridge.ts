@@ -29,7 +29,8 @@ export type PlaybackPushBridgeOptions = {
   paint: (packet: PlaybackPushPacket) => void;
   /** Batched, out-of-band feedback. It must never gate packet receipt. */
   reportWatermark: (watermark: PlaybackPushWatermark) => void;
-  onStreamStall?: () => void;
+  /** Receiver-side silence only; Rust owns authoritative stream-stall state. */
+  onReceiverIdle?: () => void;
   watermarkIntervalMs?: number;
   watermarkFrameInterval?: number;
   watchdogMs?: number;
@@ -153,7 +154,10 @@ export class PlaybackPushBridge {
     this.watchdogTimer = window.setInterval(() => {
       if (this.stopped || performance.now() - this.lastProgressAtMs < this.watchdogMs) return;
       this.lastProgressAtMs = performance.now();
-      this.options.onStreamStall?.();
+      // JS cannot know whether Rust has frames in flight. This is therefore
+      // receiver silence, not a transport failure; the mailbox watchdog is
+      // the sole authority for `stream_stall` telemetry.
+      this.options.onReceiverIdle?.();
     }, this.watchdogMs);
   }
 }

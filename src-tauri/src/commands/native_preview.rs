@@ -51,6 +51,18 @@ pub struct NativePlaybackPushRuntime {
     sender_started: std::sync::atomic::AtomicBool,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativePlaybackPushStatus {
+    pub active: bool,
+    pub sender_started: bool,
+    pub render_worker_started: bool,
+    pub superseded_mailbox: u64,
+    pub stream_stall: u64,
+    pub stall_recovered: u64,
+    pub closed_channel: u64,
+}
+
 struct PushBridgeFrame {
     rgba: Vec<u8>,
     width: u32,
@@ -73,6 +85,21 @@ fn push_runtime(app: &tauri::AppHandle) -> Result<Arc<NativePlaybackPushRuntime>
     app.try_state::<Arc<NativePlaybackPushRuntime>>()
         .map(|state| Arc::clone(&state))
         .ok_or_else(|| "Native playback push runtime is unavailable".to_string())
+}
+
+impl NativePlaybackPushRuntime {
+    fn status(&self) -> NativePlaybackPushStatus {
+        let counters = self.mailbox.counters();
+        NativePlaybackPushStatus {
+            active: self.mailbox.is_active(),
+            sender_started: self.sender_started.load(Ordering::Acquire),
+            render_worker_started: self.render_worker_started.load(Ordering::Acquire),
+            superseded_mailbox: counters.superseded_mailbox,
+            stream_stall: counters.stream_stall,
+            stall_recovered: counters.stall_recovered,
+            closed_channel: counters.closed_channel,
+        }
+    }
 }
 
 fn push_packet(
@@ -106,6 +133,10 @@ fn push_packet(
 
 async fn run_push_render_worker(app: tauri::AppHandle, runtime: Arc<NativePlaybackPushRuntime>) {
     loop {
+        // Create the notification future before inspecting the mailbox. If a
+        // submit lands in the tiny interval between `take()` and `await`, the
+        // permit is retained by Notify instead of being lost forever.
+        let notified = runtime.render_notify.notified();
         let request = {
             runtime
                 .latest_render
@@ -114,7 +145,7 @@ async fn run_push_render_worker(app: tauri::AppHandle, runtime: Arc<NativePlayba
                 .take()
         };
         let Some(request) = request else {
-            runtime.render_notify.notified().await;
+            notified.await;
             continue;
         };
         let generation = request.generation.unwrap_or_default();
@@ -151,6 +182,7 @@ pub struct NativePreviewPerformanceReport {
     /// Per-interaction p95 diagnosis. This is an evidence summary, not an
     /// automated policy change: it tells the maintainer which phase to pursue.
     pub stage_diagnoses: Vec<NativePreviewStageDiagnosis>,
+    pub push_bridge: Option<NativePlaybackPushStatus>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -4819,6 +4851,9 @@ pub async fn get_native_preview_performance_report(
         preview,
         session,
         stage_diagnoses,
+        push_bridge: app
+            .try_state::<Arc<NativePlaybackPushRuntime>>()
+            .map(|state| state.status()),
     })
 }
 
