@@ -18,6 +18,8 @@ pub struct FrameCache {
     current_bytes: usize,
     entries: HashMap<String, CacheEntry>,
     order: VecDeque<String>,
+    eviction_count: u64,
+    rejected_entry_count: u64,
 }
 
 impl FrameCache {
@@ -32,6 +34,8 @@ impl FrameCache {
             current_bytes: 0,
             entries: HashMap::new(),
             order: VecDeque::new(),
+            eviction_count: 0,
+            rejected_entry_count: 0,
         })
     }
 
@@ -47,6 +51,14 @@ impl FrameCache {
         self.entries.len()
     }
 
+    pub fn eviction_count(&self) -> u64 {
+        self.eviction_count
+    }
+
+    pub fn rejected_entry_count(&self) -> u64 {
+        self.rejected_entry_count
+    }
+
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
@@ -60,6 +72,7 @@ impl FrameCache {
     pub fn insert(&mut self, key: String, packet: FramePacket) -> bool {
         let bytes = packet.data.len();
         if bytes > self.max_bytes {
+            self.rejected_entry_count = self.rejected_entry_count.saturating_add(1);
             return false;
         }
 
@@ -74,6 +87,7 @@ impl FrameCache {
             };
             if let Some(removed) = self.entries.remove(&oldest) {
                 self.current_bytes = self.current_bytes.saturating_sub(removed.bytes);
+                self.eviction_count = self.eviction_count.saturating_add(1);
             }
         }
 
@@ -92,6 +106,8 @@ impl FrameCache {
         self.entries.clear();
         self.order.clear();
         self.current_bytes = 0;
+        self.eviction_count = 0;
+        self.rejected_entry_count = 0;
     }
 }
 

@@ -272,6 +272,9 @@ export interface NativeFrameServiceStats {
   cacheMisses: number;
   cachedEntries: number;
   cachedBytes: number;
+  cacheBudgetBytes: number;
+  cacheEvictionCount: number;
+  cacheRejectedEntryCount: number;
   lastSample: NativePerformanceSample | null;
   lastSampleSequence?: number;
   windowStartedAtMs?: number;

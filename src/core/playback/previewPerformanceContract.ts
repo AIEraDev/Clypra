@@ -67,6 +67,7 @@ class PreviewQualificationController {
   private listeners = new Set<(state: PreviewQualificationState) => void>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private callbacks: PreviewQualificationCallbacks = {};
+  private paths: PreviewPerformancePath[] = ["native", "webview"];
 
   getState(): PreviewQualificationState {
     return { ...this.state, completedPaths: [...this.state.completedPaths] };
@@ -81,20 +82,23 @@ class PreviewQualificationController {
   start(
     callbacks: PreviewQualificationCallbacks = {},
     durationMs: number = PREVIEW_PERFORMANCE_BUDGETS.qualificationDurationMs,
+    paths: readonly PreviewPerformancePath[] = ["native", "webview"],
   ): PreviewQualificationState {
     this.cancel(false);
     this.callbacks = callbacks;
+    this.paths = paths.length > 0 ? [...paths] : ["webview"];
+    const firstPath = this.paths[0] ?? "webview";
     this.state = {
       status: "running",
       runId: makeRunId(),
-      path: "native",
+      path: firstPath,
       scenario: "qualification",
       durationMs: Math.max(1_000, Math.round(durationMs)),
       startedAtMs: Date.now(),
       completedPaths: [],
     };
     this.emit();
-    this.callbacks.onPathChange?.("native");
+    this.callbacks.onPathChange?.(firstPath);
     this.schedulePathChange();
     return this.getState();
   }
@@ -116,32 +120,35 @@ class PreviewQualificationController {
       this.timer = null;
       if (this.state.status !== "running") return;
 
-      if (this.state.path === "native") {
-        if (this.callbacks.isSnapshotValid && !this.callbacks.isSnapshotValid()) {
-          this.cancel();
-          return;
-        }
-        this.state = {
-          ...this.state,
-          path: "webview",
-          completedPaths: [...this.state.completedPaths, "native"],
-          startedAtMs: Date.now(),
-        };
-        this.emit();
-        this.callbacks.onPathChange?.("webview");
-        this.schedulePathChange();
-        return;
-      }
-
       if (this.callbacks.isSnapshotValid && !this.callbacks.isSnapshotValid()) {
         this.cancel();
         return;
       }
+      const currentPath = this.state.path;
+      const currentIndex = currentPath === null ? -1 : this.paths.indexOf(currentPath);
+      const nextPath = this.paths[currentIndex + 1];
+      if (nextPath) {
+        this.state = {
+          ...this.state,
+          path: nextPath,
+          completedPaths: currentPath
+            ? [...this.state.completedPaths, currentPath]
+            : this.state.completedPaths,
+          startedAtMs: Date.now(),
+        };
+        this.emit();
+        this.callbacks.onPathChange?.(nextPath);
+        this.schedulePathChange();
+        return;
+      }
+
       this.state = {
         ...this.state,
         status: "complete",
         path: null,
-        completedPaths: [...this.state.completedPaths, "webview"],
+        completedPaths: currentPath
+          ? [...this.state.completedPaths, currentPath]
+          : this.state.completedPaths,
       };
       this.emit();
       this.callbacks.onComplete?.();
@@ -165,5 +172,5 @@ export function startPreviewQualificationFromDiagnostics(
   callbacks: PreviewQualificationCallbacks = {},
   durationMs: number = PREVIEW_PERFORMANCE_BUDGETS.qualificationDurationMs,
 ): PreviewQualificationState {
-  return previewQualificationController.start(callbacks, durationMs);
+  return previewQualificationController.start(callbacks, durationMs, ["webview"]);
 }

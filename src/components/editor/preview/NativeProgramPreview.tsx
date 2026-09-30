@@ -3009,7 +3009,9 @@ export const NativeProgramPreview: React.FC = () => {
         // Keep the presenter decision explicit in telemetry. A slow bridge
         // sample is otherwise indistinguishable from a native surface that
         // was expected to engage but never did.
-        const presenterFallbackReason = qualificationForcesWebView
+        const presenterFallbackReason = EMBEDDED_PREVIEW_ONLY
+          ? "policy-override"
+          : qualificationForcesWebView
           ? "policy-override"
           : nativeSurfaceErrorNow
             ? "surface-creation-failed"
