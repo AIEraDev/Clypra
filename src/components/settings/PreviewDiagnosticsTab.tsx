@@ -210,11 +210,11 @@ export const PreviewDiagnosticsTab: React.FC = () => {
       // Same 20 fps cadence across sizes isolates a fixed per-message delay
       // from a size-scaled copy/serialization cost. The final burst measures
       // whether this candidate has enough sustained rate for Tier 1.
-      const [fullPaced, smallPaced, fullBurst] = await Promise.all([
-        run("518 KB paced", 480 * 270 * 4, 20, 50),
-        run("1 KB paced", 1024, 20, 50),
-        run("518 KB burst", 480 * 270 * 4, 60, 0),
-      ]);
+      // Run serially. Parallel diagnostic streams compete for the same
+      // WebView Channel dispatcher and turn this into a queueing benchmark.
+      const fullPaced = await run("518 KB paced", 480 * 270 * 4, 20, 50);
+      const smallPaced = await run("1 KB paced", 1024, 20, 50);
+      const fullBurst = await run("518 KB burst", 480 * 270 * 4, 60, 0);
       setPushGateResult(
         `${fullPaced.label} t8→t9 p50/p95 ${fullPaced.p50.toFixed(1)}/${fullPaced.p95.toFixed(1)} ms; ${smallPaced.label} ${smallPaced.p50.toFixed(1)}/${smallPaced.p95.toFixed(1)} ms; ${fullBurst.label} ${fullBurst.fps.toFixed(1)} FPS. ${fullPaced.p95 < 100 && fullBurst.fps >= 20 ? "Gate passed." : "Gate failed; do not enable push playback."}`,
       );

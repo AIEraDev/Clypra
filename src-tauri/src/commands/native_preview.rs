@@ -113,10 +113,13 @@ pub fn get_native_push_transport_capabilities(
                 if let Ok(mut value) = shared_buffer_out.lock() {
                     *value = supported;
                 }
-                
+
                 // BrowserVersionString now requires an output parameter
                 let mut version_string = windows_core::PWSTR::null();
-                if environment.BrowserVersionString(&mut version_string).is_ok() {
+                if environment
+                    .BrowserVersionString(&mut version_string)
+                    .is_ok()
+                {
                     if let Ok(mut value) = runtime_version_out.lock() {
                         let version = version_string.to_string().unwrap_or_default();
                         *value = Some(version);
@@ -1962,39 +1965,44 @@ pub fn stream_native_playback_frames(
     }
     let pace = std::time::Duration::from_millis(u64::from(pace_ms.unwrap_or(0).min(1000)));
 
-    for delivery_seq in 1..=u64::from(frame_count) {
-        let t8_epoch_us = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|error| format!("System clock unavailable: {error}"))?
-            .as_micros()
-            .min(u64::MAX as u128) as u64;
-        let mut packet = vec![0_u8; HEADER_BYTES + pixel_bytes];
-        packet[0..4].copy_from_slice(&MAGIC.to_le_bytes());
-        packet[4..6].copy_from_slice(&VERSION.to_le_bytes());
-        packet[6..8].copy_from_slice(&(HEADER_BYTES as u16).to_le_bytes());
-        packet[8..16].copy_from_slice(&generation.to_le_bytes());
-        packet[16..24].copy_from_slice(&delivery_seq.to_le_bytes());
-        // This is intentionally a source-frame identity, not a delivery
-        // sequence. Phase 2b will allow it to skip when mailbox work is
-        // superseded; the two counters must never be conflated.
-        packet[24..32].copy_from_slice(&delivery_seq.to_le_bytes());
-        packet[32..40].copy_from_slice(&t8_epoch_us.to_le_bytes());
-        packet[40..44].copy_from_slice(&WIDTH.to_le_bytes());
-        packet[44..48].copy_from_slice(&HEIGHT.to_le_bytes());
-        packet[48..52].copy_from_slice(&STRIDE.to_le_bytes());
+    // `Channel::send` may schedule WebView work, but a synchronous command
+    // remains active until this function returns. Sleeping here made the old
+    // diagnostic measure command lifetime rather than t8 → t9. Return now;
+    // the background sender is the actual one-way transport being evaluated.
+    std::thread::spawn(move || {
+        for delivery_seq in 1..=u64::from(frame_count) {
+            let t8_epoch_us = match SystemTime::now().duration_since(UNIX_EPOCH) {
+                Ok(duration) => duration.as_micros().min(u64::MAX as u128) as u64,
+                Err(_) => break,
+            };
+            let mut packet = vec![0_u8; HEADER_BYTES + pixel_bytes];
+            packet[0..4].copy_from_slice(&MAGIC.to_le_bytes());
+            packet[4..6].copy_from_slice(&VERSION.to_le_bytes());
+            packet[6..8].copy_from_slice(&(HEADER_BYTES as u16).to_le_bytes());
+            packet[8..16].copy_from_slice(&generation.to_le_bytes());
+            packet[16..24].copy_from_slice(&delivery_seq.to_le_bytes());
+            // This is intentionally a source-frame identity, not a delivery
+            // sequence. Phase 2b will allow it to skip when mailbox work is
+            // superseded; the two counters must never be conflated.
+            packet[24..32].copy_from_slice(&delivery_seq.to_le_bytes());
+            packet[32..40].copy_from_slice(&t8_epoch_us.to_le_bytes());
+            packet[40..44].copy_from_slice(&WIDTH.to_le_bytes());
+            packet[44..48].copy_from_slice(&HEIGHT.to_le_bytes());
+            packet[48..52].copy_from_slice(&STRIDE.to_le_bytes());
 
-        if on_frame
-            .send(tauri::ipc::InvokeResponseBody::Raw(packet))
-            .is_err()
-        {
-            // A WebView reload or closed diagnostics pane is normal teardown,
-            // not an application-level playback error.
-            break;
+            if on_frame
+                .send(tauri::ipc::InvokeResponseBody::Raw(packet))
+                .is_err()
+            {
+                // A WebView reload or closed diagnostics pane is normal
+                // teardown, not an application-level playback error.
+                break;
+            }
+            if !pace.is_zero() {
+                std::thread::sleep(pace);
+            }
         }
-        if !pace.is_zero() {
-            std::thread::sleep(pace);
-        }
-    }
+    });
     Ok(())
 }
 
