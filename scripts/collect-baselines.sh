@@ -1,5 +1,9 @@
 #!/bin/bash
-# Collect performance baselines for Phase 0 decision gate
+# Collect synthetic engine baselines for Phase 0.
+#
+# This does not launch the desktop WebView and therefore cannot validate
+# GPU→CPU readback or IPC. Use the desktop session-ID workflow in
+# benchmarks/README.md for DX12-vs-Vulkan preview comparisons.
 #
 # Usage: ./scripts/collect-baselines.sh [gpu-name] [backend]
 # Example: ./scripts/collect-baselines.sh hd520 dx12
@@ -17,8 +21,8 @@ echo "🎯 Collecting baselines for ${GPU_NAME} (${BACKEND})"
 echo "📁 Output directory: ${OUTPUT_DIR}"
 echo ""
 
-# Scenarios to benchmark
-SCENARIOS=("playback" "scrub" "seek" "paused-interaction")
+# Scenario names are intentionally limited to the benchmark CLI contract.
+SCENARIOS=("playback" "scrub" "seek-cold" "pause")
 DURATION=30
 RUNS=3
 
@@ -45,7 +49,7 @@ echo "🎉 Baseline collection complete!"
 echo "📊 Results saved to: ${OUTPUT_DIR}"
 echo ""
 echo "Next steps:"
-echo "  1. Copy performance reports from the app"
-echo "  2. Run: npm run analyze-baseline -- ${OUTPUT_DIR}"
-echo "  3. Compare with other GPU/backend combinations"
+echo "  1. Run: npm run analyze-baseline -- ${OUTPUT_DIR}"
+echo "  2. Compare synthetic engine runs with other configurations"
+echo "  3. Use desktop session IDs for authoritative preview/IPC analysis"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

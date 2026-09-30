@@ -13,5 +13,6 @@ pub use runner::{
 };
 pub use types::{
     BenchmarkMedia, BenchmarkResult, BenchmarkScenario, DecoderIdentity, FrameOutcome,
-    FrameTelemetry, MachineIdentity, PlaybackSummary, StartupMetrics, TransferMetrics,
+    FrameTelemetry, MachineIdentity, PlaybackSummary, RepeatedBenchmarkResult,
+    RepeatedBenchmarkSummary, StartupMetrics, TransferMetrics,
 };

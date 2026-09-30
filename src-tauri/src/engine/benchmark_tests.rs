@@ -50,6 +50,22 @@ fn test_phase_j1_real_windows_benchmark_executable_compilation() {
     assert!(opts.use_t1200_profile);
 }
 
+#[test]
+fn repeated_benchmark_summary_uses_median_and_measured_spread() {
+    let mut runner = create_t1200_test_runner(BenchmarkScenario::ContinuousPlayback, 60);
+    let first = runner.run();
+    let mut second = first.clone();
+    second.playback.p95_frame_ms = 20.0;
+    let mut third = first.clone();
+    third.playback.p95_frame_ms = 10.0;
+
+    let repeated = HardwareBenchmarkRunner::summarize_repeated(vec![first, second, third]);
+    assert_eq!(repeated.summary.run_count, 3);
+    assert_eq!(repeated.summary.median_p95_frame_ms, 10.0);
+    assert_eq!(repeated.summary.p95_relative_spread, 1.0);
+    assert_eq!(repeated.summary.p95_regression_threshold, 2.0);
+}
+
 // ─── J2: Real Media Metadata & Stream Probing ────────────────────────────────
 #[test]
 fn test_phase_j2_real_media_probe_and_metadata() {

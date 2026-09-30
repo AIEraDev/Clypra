@@ -26,7 +26,7 @@ benchmarks/
 
 ## Collecting Baselines
 
-### 1. Run Baseline Collection
+### 1. Synthetic engine benchmark (optional)
 
 ```bash
 # From clypra root directory
@@ -40,11 +40,47 @@ benchmarks/
 ```
 
 This will:
-- Run 3 benchmark iterations for each scenario (playback, scrub, seek, paused-interaction)
+- Run 3 benchmark iterations for each supported synthetic scenario (playback,
+  scrub, cold seek, paused-quality recovery)
 - Each scenario runs for 30 seconds
 - Output saved to `benchmarks/baselines/{gpu}/{backend}/{timestamp}/`
 
-### 2. Analyze Individual Baseline
+This is a renderer/engine harness. It does **not** exercise the desktop
+WebView readback or IPC path, so it must not be used to choose DX12 versus
+Vulkan for the editor preview.
+
+### 2. Desktop-session baseline (authoritative for preview)
+
+Launch the desktop app separately for each requested Windows backend, run the
+same fixed playback/scrub/paused-seek workload, then record the generated
+session ID. The copied performance report must show the matching **actual**
+backend before the session is accepted.
+
+```powershell
+$env:WGPU_BACKEND = "dx12"; .\Clypra.exe
+$env:WGPU_BACKEND = "vulkan"; .\Clypra.exe
+```
+
+Create a manifest for the session analyzer:
+
+```json
+[
+  { "id": "launch-dx12-session", "requestedBackend": "dx12" },
+  { "id": "launch-vulkan-session", "requestedBackend": "vulkan" }
+]
+```
+
+Then run:
+
+```bash
+cd clypra-api
+npm run analyze -- --file sessions.json --output hd520-backends.json
+```
+
+The analyzer prints `requested` and `actual` backend and labels a mismatch.
+Only matched sessions belong in a backend comparison.
+
+### 3. Analyze Individual Synthetic Baseline
 
 ```bash
 cd clypra-api
@@ -58,7 +94,7 @@ Output includes:
 - Dominant stage per scenario (decode, demux, readback, IPC, composition, presentation)
 - Recommended optimization priority
 
-### 3. Compare Multiple Baselines
+### 4. Compare Multiple Synthetic Baselines
 
 ```bash
 cd clypra-api

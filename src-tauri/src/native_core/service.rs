@@ -225,6 +225,9 @@ impl NativeFrameService {
                 decoder_mutex_wait: optional_stage_percentiles(&samples, |sample| {
                     sample.decoder_mutex_wait_us
                 }),
+                demux_wait: optional_stage_percentiles(&samples, |sample| {
+                    sample.demux_wait_us
+                }),
                 gpu_queue_wait: optional_stage_percentiles(&samples, |sample| {
                     sample.gpu_queue_wait_us
                 }),

@@ -221,3 +221,27 @@ pub struct BenchmarkResult {
     pub passed: bool,
     pub failure_reasons: Vec<String>,
 }
+
+/// Statistical summary of repeated, identically configured benchmark runs.
+///
+/// `p95_relative_spread` is the largest absolute deviation from the median,
+/// divided by the median. The regression tolerance is deliberately derived
+/// from measured variance so a fixed 10% gate does not flap on consumer PCs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RepeatedBenchmarkSummary {
+    pub run_count: usize,
+    pub passed_run_count: usize,
+    pub median_p95_frame_ms: f64,
+    pub median_p99_frame_ms: f64,
+    pub median_presented_fps: f64,
+    pub p95_relative_spread: f64,
+    pub p95_regression_threshold: f64,
+}
+
+/// JSON artifact for a controlled baseline. Keep all individual runs: the
+/// summary is convenient for comparison, but cannot replace raw evidence.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RepeatedBenchmarkResult {
+    pub runs: Vec<BenchmarkResult>,
+    pub summary: RepeatedBenchmarkSummary,
+}
