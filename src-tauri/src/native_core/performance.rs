@@ -262,6 +262,7 @@ pub struct ModeStats {
     pub queue_residency: StagePercentiles,
     pub ipc_wait: StagePercentiles,
     pub decoder_mutex_wait: StagePercentiles,
+    pub demux_wait: StagePercentiles,
     pub gpu_queue_wait: StagePercentiles,
     pub surface_acquire: StagePercentiles,
     pub submit_present: StagePercentiles,

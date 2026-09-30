@@ -19,7 +19,8 @@ use super::super::temporal::TemporalController;
 use super::super::types::{CanvasSpec, MediaTime, PixelFormat};
 use super::types::{
     BenchmarkMedia, BenchmarkResult, BenchmarkScenario, DecoderIdentity, FrameOutcome,
-    FrameTelemetry, MachineIdentity, PlaybackSummary, StartupMetrics, TransferMetrics,
+    FrameTelemetry, MachineIdentity, PlaybackSummary, RepeatedBenchmarkResult,
+    RepeatedBenchmarkSummary, StartupMetrics, TransferMetrics,
 };
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -122,6 +123,41 @@ impl HardwareBenchmarkRunner {
             BenchmarkScenario::ReactFreezeImmunity => self.run_freeze_scenario(),
             BenchmarkScenario::PauseQualityRecovery => self.run_pause_scenario(),
         }
+    }
+
+    /// Summarize repeat runs from one unchanged benchmark configuration.
+    pub fn summarize_repeated(runs: Vec<BenchmarkResult>) -> RepeatedBenchmarkResult {
+        let median = |mut values: Vec<f64>| {
+            values.sort_by(f64::total_cmp);
+            let middle = values.len() / 2;
+            if values.len() % 2 == 0 {
+                (values[middle - 1] + values[middle]) / 2.0
+            } else {
+                values[middle]
+            }
+        };
+        let p95_values: Vec<f64> = runs.iter().map(|run| run.playback.p95_frame_ms).collect();
+        let median_p95_frame_ms = median(p95_values.clone());
+        let p95_relative_spread = if median_p95_frame_ms > 0.0 {
+            p95_values
+                .iter()
+                .map(|value| (value - median_p95_frame_ms).abs() / median_p95_frame_ms)
+                .fold(0.0_f64, f64::max)
+        } else {
+            0.0
+        };
+        let summary = RepeatedBenchmarkSummary {
+            run_count: runs.len(),
+            passed_run_count: runs.iter().filter(|run| run.passed).count(),
+            median_p95_frame_ms,
+            median_p99_frame_ms: median(runs.iter().map(|run| run.playback.p99_frame_ms).collect()),
+            median_presented_fps: median(
+                runs.iter().map(|run| run.playback.presented_fps).collect(),
+            ),
+            p95_relative_spread,
+            p95_regression_threshold: 0.10_f64.max(p95_relative_spread * 2.0),
+        };
+        RepeatedBenchmarkResult { runs, summary }
     }
 
     /// Scenario: Continuous Playback (30+ seconds deadline-driven playback).

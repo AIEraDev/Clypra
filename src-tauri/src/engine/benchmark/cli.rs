@@ -8,12 +8,27 @@ use std::env;
 use std::path::PathBuf;
 
 /// Parsed CLI execution options.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct CliOptions {
     pub config: BenchmarkConfig,
     pub output_json_path: Option<PathBuf>,
     pub run_full_suite: bool,
     pub use_t1200_profile: bool,
+    /// Number of identical runs used to estimate normal machine variance.
+    /// Phase 0 baselines should use at least three.
+    pub runs: usize,
+}
+
+impl Default for CliOptions {
+    fn default() -> Self {
+        Self {
+            config: BenchmarkConfig::default(),
+            output_json_path: None,
+            run_full_suite: false,
+            use_t1200_profile: false,
+            runs: 1,
+        }
+    }
 }
 
 impl CliOptions {
@@ -67,6 +82,12 @@ impl CliOptions {
                     opts.config.force_backend = Some(args[i + 1].clone());
                     i += 1;
                 }
+                "--runs" if i + 1 < args.len() => {
+                    if let Ok(runs) = args[i + 1].parse::<usize>() {
+                        opts.runs = runs.max(1);
+                    }
+                    i += 1;
+                }
                 "--output" if i + 1 < args.len() => {
                     opts.output_json_path = Some(PathBuf::from(&args[i + 1]));
                     i += 1;
@@ -104,6 +125,7 @@ fn print_help() {
            --duration <SECS>      Duration in seconds for playback test (default: 30)\n\
            --fps <FPS>            Target timeline framerate (default: 60)\n\
            --backend <BACKEND>    Force decoder backend (d3d12, d3d11, software)\n\
+           --runs <N>             Repeat the identical run N times (use 3 for a baseline)\n\
            --output <PATH.json>   Export structured benchmark results to JSON\n\
            --suite                Run the complete Windows NLE benchmark suite\n\
            --t1200                Use calibrated Windows 11 NVIDIA T1200 hardware profile\n\

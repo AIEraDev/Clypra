@@ -9,12 +9,6 @@ use tauri_app_lib::engine::benchmark::{BenchmarkScenario, CliOptions, HardwareBe
 fn main() {
     let opts = CliOptions::parse_from_args();
 
-    let mut runner = if opts.use_t1200_profile {
-        HardwareBenchmarkRunner::new_windows_t1200(opts.config.clone())
-    } else {
-        HardwareBenchmarkRunner::new(opts.config.clone())
-    };
-
     if opts.run_full_suite {
         println!("Running Clypra Windows NLE Native Hardware Benchmark Suite...\n");
 
@@ -70,18 +64,42 @@ fn main() {
             std::process::exit(1);
         }
     } else {
-        let res = runner.run();
-        let report = runner.format_report(&res);
-        println!("{report}");
+        let mut runs = Vec::with_capacity(opts.runs);
+        for run_index in 0..opts.runs {
+            let mut runner = if opts.use_t1200_profile {
+                HardwareBenchmarkRunner::new_windows_t1200(opts.config.clone())
+            } else {
+                HardwareBenchmarkRunner::new(opts.config.clone())
+            };
+            let result = runner.run();
+            println!(
+                "Run {}/{}\n{}",
+                run_index + 1,
+                opts.runs,
+                runner.format_report(&result)
+            );
+            runs.push(result);
+        }
+        let repeated = HardwareBenchmarkRunner::summarize_repeated(runs);
+        println!(
+            "Repeat summary\n  Runs: {} ({} passed)\n  Median p95 frame: {:.2} ms\n  Median p99 frame: {:.2} ms\n  Median presented FPS: {:.2}\n  p95 spread: {:.2}%\n  Regression threshold: {:.2}%\n",
+            repeated.summary.run_count,
+            repeated.summary.passed_run_count,
+            repeated.summary.median_p95_frame_ms,
+            repeated.summary.median_p99_frame_ms,
+            repeated.summary.median_presented_fps,
+            repeated.summary.p95_relative_spread * 100.0,
+            repeated.summary.p95_regression_threshold * 100.0,
+        );
 
         if let Some(ref path) = opts.output_json_path {
-            if let Ok(json) = runner.to_json(&res) {
+            if let Ok(json) = serde_json::to_string_pretty(&repeated) {
                 let _ = fs::write(path, json);
-                println!("\nSaved benchmark result JSON to: {}", path.display());
+                println!("\nSaved repeated benchmark JSON to: {}", path.display());
             }
         }
 
-        if res.passed {
+        if repeated.summary.passed_run_count == repeated.summary.run_count {
             std::process::exit(0);
         } else {
             std::process::exit(1);

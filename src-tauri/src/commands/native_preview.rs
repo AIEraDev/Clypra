@@ -6,7 +6,7 @@ use crate::native_core::playback::{
     native_presentation_timing as decide_native_presentation_timing, VideoFrameTimingDecision,
 };
 use crate::native_core::{
-    BodyEffectSnapshot, ColorGradeSnapshot, FramePacket, FrameRequest, FrameTime,
+    BodyEffectSnapshot, ColorGradeSnapshot, FramePacket, FrameRequest, FrameTime, ModeStats,
     NativeFrameService, NativeFrameServiceStats, NativeGpuRuntimeStatus,
     NativePerformanceSampleBatch, NativeSurfacePresentation, NativeSurfacePresentationTimings,
     PerformanceSample, PixelFormat, PreviewMode, QualityTier, TextLayerSnapshot,
@@ -54,6 +54,107 @@ pub struct NativePreviewPerformanceReport {
     pub gpu: Option<NativeGpuRuntimeStatus>,
     pub preview: Option<NativeFrameServiceStats>,
     pub session: crate::wgpu_compositor::SessionSnapshot,
+    /// Per-interaction p95 diagnosis. This is an evidence summary, not an
+    /// automated policy change: it tells the maintainer which phase to pursue.
+    pub stage_diagnoses: Vec<NativePreviewStageDiagnosis>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativePreviewStageDiagnosis {
+    pub mode: PreviewMode,
+    pub sample_count: usize,
+    pub dominant_stage: String,
+    pub dominant_p95_us: u64,
+    /// `prioritize-decode` triggers the Phase 0 decode decision gate. Other
+    /// values intentionally preserve uncertainty instead of crediting a
+    /// throughput gain to the wrong pipeline stage.
+    pub recommended_next_step: String,
+}
+
+fn diagnose_mode_stats(mode: &ModeStats) -> Option<NativePreviewStageDiagnosis> {
+    let stages = [
+        ("decode", mode.decode.p95, "prioritize-decode"),
+        (
+            "decoder_mutex_wait",
+            mode.decoder_mutex_wait.p95,
+            "prioritize-decode",
+        ),
+        ("demux_wait", mode.demux_wait.p95, "prioritize-decode"),
+        (
+            "conversion_upload",
+            mode.conversion_upload.p95,
+            "investigate-render-upload",
+        ),
+        ("compose", mode.compose.p95, "investigate-render-upload"),
+        (
+            "gpu_queue_wait",
+            mode.gpu_queue_wait.p95,
+            "investigate-render-upload",
+        ),
+        ("readback", mode.readback.p95, "investigate-bridge"),
+        ("ipc_wait", mode.ipc_wait.p95, "investigate-bridge"),
+        ("present", mode.present.p95, "investigate-bridge"),
+        (
+            "scheduler_wait",
+            mode.scheduler_wait.p95,
+            "investigate-queue",
+        ),
+        (
+            "lookahead_wait",
+            mode.lookahead_wait.p95,
+            "investigate-queue",
+        ),
+        (
+            "queue_residency",
+            mode.queue_residency.p95,
+            "investigate-queue",
+        ),
+        (
+            "surface_acquire",
+            mode.surface_acquire.p95,
+            "investigate-queue",
+        ),
+        (
+            "submit_present",
+            mode.submit_present.p95,
+            "investigate-queue",
+        ),
+        (
+            "cold_start_init",
+            mode.cold_start_init.p95,
+            "warm-up-or-cache",
+        ),
+    ];
+    let (dominant_stage, dominant_p95_us, recommendation) = stages
+        .into_iter()
+        .filter_map(|(stage, p95, recommendation)| p95.map(|value| (stage, value, recommendation)))
+        .max_by_key(|(_, value, _)| *value)?;
+    let sample_count = [
+        mode.decode.sample_count,
+        mode.decoder_mutex_wait.sample_count,
+        mode.demux_wait.sample_count,
+        mode.conversion_upload.sample_count,
+        mode.compose.sample_count,
+        mode.readback.sample_count,
+        mode.ipc_wait.sample_count,
+        mode.present.sample_count,
+    ]
+    .into_iter()
+    .max()
+    .unwrap_or(0);
+
+    Some(NativePreviewStageDiagnosis {
+        mode: mode.mode,
+        sample_count,
+        dominant_stage: dominant_stage.to_string(),
+        dominant_p95_us,
+        recommended_next_step: if sample_count < 30 {
+            "collect-more-samples".to_string()
+        } else {
+            recommendation.to_string()
+        },
+    })
 }
 
 /// Register an editor font before a frame request references it. The native
@@ -4321,6 +4422,16 @@ pub async fn get_native_preview_performance_report(
     } else {
         None
     };
+    let stage_diagnoses = preview
+        .as_ref()
+        .map(|stats| {
+            stats
+                .mode_stats
+                .iter()
+                .filter_map(diagnose_mode_stats)
+                .collect()
+        })
+        .unwrap_or_default();
 
     let session = app
         .try_state::<Arc<SessionTelemetryCollector>>()
@@ -4336,6 +4447,7 @@ pub async fn get_native_preview_performance_report(
         gpu,
         preview,
         session,
+        stage_diagnoses,
     })
 }
 

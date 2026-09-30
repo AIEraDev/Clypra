@@ -127,6 +127,22 @@ export interface NativePreviewPerformanceReport {
   gpu: NativeGpuRuntimeStatus | null;
   preview: NativeFrameServiceStats | null;
   session: NativeSessionSnapshot;
+  stageDiagnoses: NativePreviewStageDiagnosis[];
+}
+
+export interface NativePreviewStageDiagnosis {
+  mode: NativePreviewMode;
+  sampleCount: number;
+  dominantStage: string;
+  dominantP95Us: number;
+  recommendedNextStep:
+    | "prioritize-decode"
+    | "investigate-bridge"
+    | "investigate-render-upload"
+    | "investigate-queue"
+    | "warm-up-or-cache"
+    | "collect-more-samples"
+    | string;
 }
 
 export interface NativePerformanceBudget {
@@ -237,6 +253,7 @@ export interface NativeModeStats {
   queueResidency: NativeStagePercentiles;
   ipcWait: NativeStagePercentiles;
   decoderMutexWait: NativeStagePercentiles;
+  demuxWait: NativeStagePercentiles;
   gpuQueueWait: NativeStagePercentiles;
   surfaceAcquire: NativeStagePercentiles;
   submitPresent: NativeStagePercentiles;
