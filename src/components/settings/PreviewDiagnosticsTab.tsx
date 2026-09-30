@@ -130,9 +130,9 @@ export const PreviewDiagnosticsTab: React.FC = () => {
   const running = state.status === "running";
   const pathLabel =
     state.path === "native"
-      ? "Native"
-      : state.path === "webview"
-        ? "WebView"
+      ? "Native surface"
+    : state.path === "webview"
+        ? "WebView bridge"
         : "—";
 
   return (
@@ -142,10 +142,10 @@ export const PreviewDiagnosticsTab: React.FC = () => {
           Preview diagnostics
         </h2>
         <p className="mt-1 max-w-lg text-xs leading-relaxed text-text-muted">
-          Run the same timeline through Native and WebView for{" "}
-          {PREVIEW_PERFORMANCE_BUDGETS.qualificationDurationMs / 1000}s per
-          path. Results are sent automatically to the API and reviewed in Studio
-          Admin.
+          Run the embedded WebView preview for{" "}
+          {PREVIEW_PERFORMANCE_BUDGETS.qualificationDurationMs / 1000}s. The
+          report records its presenter mode and fallback reason, so it cannot
+          be mistaken for a native-surface qualification.
         </p>
       </div>
       <div className="rounded-lg border border-white/8 bg-white/2 p-3 text-xs text-text-muted">

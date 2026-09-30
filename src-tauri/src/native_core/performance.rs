@@ -196,6 +196,9 @@ pub struct NativeFrameServiceStats {
     pub cache_misses: u64,
     pub cached_entries: usize,
     pub cached_bytes: usize,
+    pub cache_budget_bytes: usize,
+    pub cache_eviction_count: u64,
+    pub cache_rejected_entry_count: u64,
     pub last_sample: Option<PerformanceSample>,
     /// Monotonically increases for every newly recorded sample. Consumers
     /// polling stats can use this cursor to avoid reporting the same sample

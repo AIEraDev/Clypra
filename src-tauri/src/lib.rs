@@ -227,7 +227,9 @@ pub fn run() {
             // Native frame contracts/cache are session-independent runtime
             // infrastructure. Project sessions provide the snapshot identity.
             app.manage(tokio::sync::Mutex::new(
-                native_core::NativeFrameService::new(1_073_741_824)
+                // CPU RGBA bridge frames are intentionally bounded. A 1 GiB
+                // cache retained hundreds of unique M1 frames in one session.
+                native_core::NativeFrameService::new(268_435_456)
                     .expect("native frame cache budget must be valid"),
             ));
 

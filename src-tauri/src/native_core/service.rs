@@ -249,6 +249,9 @@ impl NativeFrameService {
             cache_misses: self.cache_misses,
             cached_entries: self.cache.len(),
             cached_bytes: self.cache.current_bytes(),
+            cache_budget_bytes: self.cache.max_bytes(),
+            cache_eviction_count: self.cache.eviction_count(),
+            cache_rejected_entry_count: self.cache.rejected_entry_count(),
             last_sample: self.last_sample.clone(),
             last_sample_sequence: self.last_sample_sequence,
             window_started_at_ms: self
