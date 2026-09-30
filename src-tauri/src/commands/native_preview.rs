@@ -1971,10 +1971,6 @@ pub fn stream_native_playback_frames(
     // the background sender is the actual one-way transport being evaluated.
     std::thread::spawn(move || {
         for delivery_seq in 1..=u64::from(frame_count) {
-            let t8_epoch_us = match SystemTime::now().duration_since(UNIX_EPOCH) {
-                Ok(duration) => duration.as_micros().min(u64::MAX as u128) as u64,
-                Err(_) => break,
-            };
             let mut packet = vec![0_u8; HEADER_BYTES + pixel_bytes];
             packet[0..4].copy_from_slice(&MAGIC.to_le_bytes());
             packet[4..6].copy_from_slice(&VERSION.to_le_bytes());
@@ -1985,10 +1981,18 @@ pub fn stream_native_playback_frames(
             // sequence. Phase 2b will allow it to skip when mailbox work is
             // superseded; the two counters must never be conflated.
             packet[24..32].copy_from_slice(&delivery_seq.to_le_bytes());
-            packet[32..40].copy_from_slice(&t8_epoch_us.to_le_bytes());
             packet[40..44].copy_from_slice(&WIDTH.to_le_bytes());
             packet[44..48].copy_from_slice(&HEIGHT.to_le_bytes());
             packet[48..52].copy_from_slice(&STRIDE.to_le_bytes());
+
+            // t8 must bracket transport delivery, not packet allocation.
+            // Keep this immediately adjacent to `send`: on a weak machine
+            // allocating/filling half a MiB is measurable work of its own.
+            let t8_epoch_us = match SystemTime::now().duration_since(UNIX_EPOCH) {
+                Ok(duration) => duration.as_micros().min(u64::MAX as u128) as u64,
+                Err(_) => break,
+            };
+            packet[32..40].copy_from_slice(&t8_epoch_us.to_le_bytes());
 
             if on_frame
                 .send(tauri::ipc::InvokeResponseBody::Raw(packet))
