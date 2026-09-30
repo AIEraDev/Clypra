@@ -269,12 +269,35 @@ pub fn run() {
             {
                 let gpu_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    // Use PRIMARY backends only — avoids scanning Vulkan/OpenGL drivers
-                    // that can stall for seconds on some Windows GPU configurations.
+                    // Production defaults to DX12 on Windows, but Phase 0
+                    // baseline runs must be able to select Vulkan without a
+                    // source change. Set either `CLYPRA_WGPU_BACKEND` or the
+                    // conventional `WGPU_BACKEND` to `dx12` or `vulkan` before
+                    // launching the app. The chosen request is included in
+                    // the copied performance report alongside the actual
+                    // adapter backend.
                     #[cfg(target_os = "windows")]
-                    let backends = wgpu::Backends::DX12;
+                    let (backends, requested_backend) = {
+                        let requested = std::env::var("CLYPRA_WGPU_BACKEND")
+                            .ok()
+                            .or_else(|| std::env::var("WGPU_BACKEND").ok())
+                            .map(|value| value.trim().to_ascii_lowercase())
+                            .filter(|value| !value.is_empty());
+                        let backends = match requested.as_deref() {
+                            Some("dx12") => wgpu::Backends::DX12,
+                            Some("vulkan") => wgpu::Backends::VULKAN,
+                            Some(value) => {
+                                log::warn!(
+                                    "Ignoring unsupported Windows backend request '{value}'; use dx12 or vulkan"
+                                );
+                                wgpu::Backends::DX12
+                            }
+                            None => wgpu::Backends::DX12,
+                        };
+                        (backends, requested)
+                    };
                     #[cfg(not(target_os = "windows"))]
-                    let backends = wgpu::Backends::PRIMARY;
+                    let (backends, requested_backend) = (wgpu::Backends::PRIMARY, None);
 
                     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
                         backends,
@@ -304,6 +327,7 @@ pub fn run() {
                                         gpu_ctx.info.driver_info.clone(),
                                         gpu_ctx.info.is_software_adapter,
                                     );
+                                    ready.set_requested_backend(requested_backend.clone());
                                     *s = ready;
                                 }
                             }
@@ -337,10 +361,12 @@ pub fn run() {
                             log::error!("Native GPU initialization failed: {error}");
                             if let Some(status) = &status_arc {
                                 if let Ok(mut s) = status.lock() {
-                                    *s = native_core::NativeGpuRuntimeStatus::failed(
+                                    let mut failed = native_core::NativeGpuRuntimeStatus::failed(
                                         error.clone(),
                                         false,
                                     );
+                                    failed.set_requested_backend(requested_backend.clone());
+                                    *s = failed;
                                 }
                             }
                             // Notify the webview of the failure so it can surface
