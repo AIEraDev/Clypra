@@ -152,15 +152,33 @@ export const PreviewDiagnosticsTab: React.FC = () => {
     setPushGateResult(null);
     try {
       const run = async (label: string, payloadBytes: number, frameCount: number, paceMs: number) => {
-        const samples: number[] = [];
+        const receiveSamples: number[] = [];
+        const paintSamples: number[] = [];
         const expectedBytes = 52 + payloadBytes;
+        const rgbaBytes = 480 * 270 * 4;
+        // The gate's t11 is deliberately a real canvas write followed by rAF,
+        // rather than merely an rAF after receipt. It is still a diagnostic
+        // canvas, so label it as a paint boundary rather than physical scanout.
+        const canvas = payloadBytes === rgbaBytes ? document.createElement("canvas") : null;
+        const context = canvas?.getContext("2d") ?? null;
+        if (canvas) {
+          canvas.width = 480;
+          canvas.height = 270;
+        }
         const startedAt = performance.now();
         await new Promise<void>((resolve, reject) => {
         const timeout = window.setTimeout(
           () => reject(new Error(`Push Channel ${label} timed out`)),
           Math.max(5_000, frameCount * Math.max(paceMs, 1) + 2_000),
         );
-        let receivedFrames = 0;
+        let completedFrames = 0;
+        const completeFrame = () => {
+          completedFrames += 1;
+          if (completedFrames === frameCount) {
+            window.clearTimeout(timeout);
+            resolve();
+          }
+        };
         void streamNativePlaybackFrames(1n, (packet) => {
           try {
             if (packet.byteLength !== expectedBytes) {
@@ -179,14 +197,20 @@ export const PreviewDiagnosticsTab: React.FC = () => {
               throw new Error("Unexpected push-bridge frame layout");
             }
             // t8 is epoch-based so it can cross the Rust/JS monotonic-clock
-            // boundary. This is intentionally t8 → t9 only; canvas painting
-            // and watermark flow control belong to Phase 2b.
+            // boundary. t9 is delivery to JS; t11 is a canvas paint plus rAF
+            // boundary, recorded below for full RGBA-sized frames.
             const t9EpochUs = Math.round((performance.timeOrigin + performance.now()) * 1_000);
-            samples.push(Math.max(0, (t9EpochUs - t8EpochUs) / 1_000));
-            receivedFrames += 1;
-            if (receivedFrames === frameCount) {
-              window.clearTimeout(timeout);
-              resolve();
+            receiveSamples.push(Math.max(0, (t9EpochUs - t8EpochUs) / 1_000));
+            if (context && payloadBytes === rgbaBytes) {
+              const pixels = new Uint8ClampedArray(packet, headerBytes, rgbaBytes);
+              context.putImageData(new ImageData(pixels, width, height), 0, 0);
+              requestAnimationFrame(() => {
+                const t11EpochUs = Math.round((performance.timeOrigin + performance.now()) * 1_000);
+                paintSamples.push(Math.max(0, (t11EpochUs - t8EpochUs) / 1_000));
+                completeFrame();
+              });
+            } else {
+              completeFrame();
             }
           } catch (error) {
             window.clearTimeout(timeout);
@@ -197,13 +221,18 @@ export const PreviewDiagnosticsTab: React.FC = () => {
           reject(error);
         });
         });
-        samples.sort((left, right) => left - right);
+        receiveSamples.sort((left, right) => left - right);
+        paintSamples.sort((left, right) => left - right);
         const percentile = (fraction: number) =>
-          samples[Math.round((samples.length - 1) * fraction)] ?? 0;
+          receiveSamples[Math.round((receiveSamples.length - 1) * fraction)] ?? 0;
+        const paintPercentile = (fraction: number) =>
+          paintSamples[Math.round((paintSamples.length - 1) * fraction)] ?? null;
         return {
           label,
           p50: percentile(0.5),
           p95: percentile(0.95),
+          paintP50: paintPercentile(0.5),
+          paintP95: paintPercentile(0.95),
           fps: (frameCount * 1_000) / Math.max(1, performance.now() - startedAt),
         };
       };
@@ -216,7 +245,7 @@ export const PreviewDiagnosticsTab: React.FC = () => {
       const smallPaced = await run("1 KB paced", 1024, 20, 50);
       const fullBurst = await run("518 KB burst", 480 * 270 * 4, 60, 0);
       setPushGateResult(
-        `${fullPaced.label} t8→t9 p50/p95 ${fullPaced.p50.toFixed(1)}/${fullPaced.p95.toFixed(1)} ms; ${smallPaced.label} ${smallPaced.p50.toFixed(1)}/${smallPaced.p95.toFixed(1)} ms; ${fullBurst.label} ${fullBurst.fps.toFixed(1)} FPS. ${fullPaced.p95 < 100 && fullBurst.fps >= 20 ? "Gate passed." : "Gate failed; do not enable push playback."}`,
+        `${fullPaced.label} t8→t9 p50/p95 ${fullPaced.p50.toFixed(1)}/${fullPaced.p95.toFixed(1)} ms; t8→t11 canvas+rAF ${fullPaced.paintP50?.toFixed(1) ?? "—"}/${fullPaced.paintP95?.toFixed(1) ?? "—"} ms; ${smallPaced.label} ${smallPaced.p50.toFixed(1)}/${smallPaced.p95.toFixed(1)} ms; ${fullBurst.label} ${fullBurst.fps.toFixed(1)} FPS. ${fullPaced.p95 < 100 && fullBurst.fps >= 20 ? "Gate passed." : "Gate failed; do not enable push playback."}`,
       );
     } catch (error) {
       console.warn("[PreviewDiagnostics] Push transport gate failed", error);
