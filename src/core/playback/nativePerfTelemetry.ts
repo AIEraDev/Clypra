@@ -97,6 +97,15 @@ function stagePercentiles(
   };
 }
 
+export function previewFrameDeadlineUs(sample: NativeFrontendPerfSample): number {
+  // Playback frames deliberately follow the adaptive readback cadence. Using
+  // a fixed 60 Hz deadline marks every expected 30 Hz bridge frame as jank.
+  if (sample.mode === "playback" && (sample.readbackCadenceFps ?? 0) > 0) {
+    return Math.round(1_000_000 / (sample.readbackCadenceFps as number));
+  }
+  return 16_667;
+}
+
 export class NativePerfSpan {
   private readonly startedAt = performance.now();
   private dispatchStartedAt = this.startedAt;
@@ -300,7 +309,7 @@ class NativePerfCollector {
         measurementSource: "frontend-span",
         sampleKind: "frame-anomaly",
         frameSequence: sample.frameIndex,
-        deadlineUs: 16_667,
+        deadlineUs: previewFrameDeadlineUs(sample),
         dropReason: sample.dropped
           ? (sample.dropReason ??
             (sample.cancelled
