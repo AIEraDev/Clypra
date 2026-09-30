@@ -105,6 +105,8 @@ export interface NativeGpuRuntimeStatus {
   available: boolean;
   adapterName: string | null;
   backend: string | null;
+  /** Backend requested for a controlled launch; `backend` is actual. */
+  requestedBackend: string | null;
   deviceType: string | null;
   vendorId: number | null;
   deviceId: number | null;

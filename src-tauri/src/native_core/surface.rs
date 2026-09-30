@@ -52,6 +52,10 @@ pub struct NativeGpuRuntimeStatus {
     pub available: bool,
     pub adapter_name: Option<String>,
     pub backend: Option<String>,
+    /// Backend requested at process startup for controlled A/B runs. The
+    /// adapter `backend` field remains the authoritative backend actually in
+    /// use.
+    pub requested_backend: Option<String>,
     pub device_type: Option<String>,
     pub vendor_id: Option<u32>,
     pub device_id: Option<u32>,
@@ -70,6 +74,7 @@ impl NativeGpuRuntimeStatus {
             available: false,
             adapter_name: None,
             backend: None,
+            requested_backend: None,
             device_type: None,
             vendor_id: None,
             device_id: None,
@@ -93,6 +98,7 @@ impl NativeGpuRuntimeStatus {
             available: true,
             adapter_name: Some(adapter_name),
             backend: Some(backend),
+            requested_backend: None,
             device_type: Some(device_type),
             vendor_id: None,
             device_id: None,
@@ -111,6 +117,7 @@ impl NativeGpuRuntimeStatus {
             available: false,
             adapter_name: None,
             backend: None,
+            requested_backend: None,
             device_type: None,
             vendor_id: None,
             device_id: None,
@@ -126,6 +133,10 @@ impl NativeGpuRuntimeStatus {
     /// native window handles may only be touched on the UI thread.
     pub fn set_surface_available(&mut self, available: bool) {
         self.surface_available = available;
+    }
+
+    pub fn set_requested_backend(&mut self, requested_backend: Option<String>) {
+        self.requested_backend = requested_backend;
     }
 
     /// Enrich a ready status with the immutable adapter identity captured at
