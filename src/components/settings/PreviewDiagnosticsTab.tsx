@@ -5,6 +5,7 @@ import {
   getNativePreviewPerformanceReport,
   isTauriRuntime,
   renderNativePreviewTransportProbe,
+  streamNativePlaybackFrames,
 } from "@/lib/platform/tauri";
 import { toast } from "@/lib/toast";
 import { useProjectStore } from "@/store/projectStore";
@@ -35,6 +36,8 @@ export const PreviewDiagnosticsTab: React.FC = () => {
   const [reportCopied, setReportCopied] = useState(false);
   const [runningTransportProbe, setRunningTransportProbe] = useState(false);
   const [transportProbeResult, setTransportProbeResult] = useState<string | null>(null);
+  const [runningPushGate, setRunningPushGate] = useState(false);
+  const [pushGateResult, setPushGateResult] = useState<string | null>(null);
 
   useEffect(() => previewQualificationController.subscribe(setState), []);
 
@@ -127,6 +130,72 @@ export const PreviewDiagnosticsTab: React.FC = () => {
     }
   };
 
+  const runPushTransportGate = async () => {
+    if (!isTauriRuntime() || runningPushGate) return;
+    setRunningPushGate(true);
+    setPushGateResult(null);
+    try {
+      const samples: number[] = [];
+      const expectedBytes = 52 + 480 * 270 * 4;
+      const received = new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(
+          () => reject(new Error("Push Channel delivered fewer than 20 frames within 5 seconds")),
+          5_000,
+        );
+        let receivedFrames = 0;
+        void streamNativePlaybackFrames(1n, (packet) => {
+          try {
+            if (packet.byteLength !== expectedBytes) {
+              throw new Error(`Unexpected push packet: ${packet.byteLength} bytes`);
+            }
+            const view = new DataView(packet);
+            if (view.getUint32(0, true) !== 0x4350_4652 || view.getUint16(4, true) !== 1) {
+              throw new Error("Unsupported push-bridge packet header");
+            }
+            const headerBytes = view.getUint16(6, true);
+            const t8EpochUs = Number(view.getBigUint64(32, true));
+            const width = view.getUint32(40, true);
+            const height = view.getUint32(44, true);
+            const stride = view.getUint32(48, true);
+            if (headerBytes !== 52 || width !== 480 || height !== 270 || stride !== 1920) {
+              throw new Error("Unexpected push-bridge frame layout");
+            }
+            // t8 is epoch-based so it can cross the Rust/JS monotonic-clock
+            // boundary. This is intentionally t8 → t9 only; canvas painting
+            // and watermark flow control belong to Phase 2b.
+            const t9EpochUs = Math.round((performance.timeOrigin + performance.now()) * 1_000);
+            samples.push(Math.max(0, (t9EpochUs - t8EpochUs) / 1_000));
+            receivedFrames += 1;
+            if (receivedFrames === 20) {
+              window.clearTimeout(timeout);
+              resolve();
+            }
+          } catch (error) {
+            window.clearTimeout(timeout);
+            reject(error);
+          }
+        }).catch((error) => {
+          window.clearTimeout(timeout);
+          reject(error);
+        });
+      });
+      await received;
+      samples.sort((left, right) => left - right);
+      const percentile = (fraction: number) =>
+        samples[Math.round((samples.length - 1) * fraction)] ?? 0;
+      const p50 = percentile(0.5);
+      const p95 = percentile(0.95);
+      setPushGateResult(
+        `Push Channel t8→t9, 518 KB: p50 ${p50.toFixed(1)} ms · p95 ${p95.toFixed(1)} ms (20 frames)${p95 >= 100 ? " — gate failed; do not enable push playback." : " — gate passed."}`,
+      );
+    } catch (error) {
+      console.warn("[PreviewDiagnostics] Push transport gate failed", error);
+      setPushGateResult("Push Channel gate failed; do not enable push playback. See diagnostics log.");
+    } finally {
+      setRunningPushGate(false);
+    }
+  };
+
   const running = state.status === "running";
   const pathLabel =
     state.path === "native"
@@ -208,6 +277,19 @@ export const PreviewDiagnosticsTab: React.FC = () => {
         </Button>
         {transportProbeResult && (
           <p className="text-xs text-text-muted">{transportProbeResult}</p>
+        )}
+      </div>
+      <div className="space-y-2">
+        <Button
+          variant="secondary"
+          onClick={() => void runPushTransportGate()}
+          disabled={!isTauriRuntime() || runningPushGate}
+          className="cursor-pointer"
+        >
+          {runningPushGate ? "Measuring push Channel…" : "Run push-bridge transport gate"}
+        </Button>
+        {pushGateResult && (
+          <p className="text-xs text-text-muted">{pushGateResult}</p>
         )}
       </div>
       <p className="text-xs text-text-muted">
