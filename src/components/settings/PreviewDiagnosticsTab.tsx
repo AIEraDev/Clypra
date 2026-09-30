@@ -18,6 +18,7 @@ import {
   startPreviewQualificationFromDiagnostics,
   type PreviewQualificationState,
 } from "@/core/playback/previewPerformanceContract";
+import { nativePerfCollector } from "@/core/playback/nativePerfTelemetry";
 
 /** Desktop-only diagnostics action; this is intentionally not an editor telemetry HUD. */
 export const PreviewDiagnosticsTab: React.FC = () => {
@@ -68,7 +69,16 @@ export const PreviewDiagnosticsTab: React.FC = () => {
     if (!isTauriRuntime() || copyingReport) return;
     setCopyingReport(true);
     try {
-      const report = await getNativePreviewPerformanceReport();
+      const nativeReport = await getNativePreviewPerformanceReport();
+      const report = {
+        ...nativeReport,
+        // Native samples explain decode/composition/readback; this bounded
+        // local summary completes the trace with the WebView-side boundary.
+        frontend: {
+          units: "milliseconds",
+          modeStats: nativePerfCollector.allStats(),
+        },
+      };
       await navigator.clipboard.writeText(JSON.stringify(report, null, 2));
       setReportCopied(true);
       window.setTimeout(() => setReportCopied(false), 2_000);
@@ -155,7 +165,7 @@ export const PreviewDiagnosticsTab: React.FC = () => {
         </Button>
       </div>
       <p className="text-xs text-text-muted">
-        The copied report contains local runtime and aggregate preview metrics.
+        The copied report contains local native and WebView stage percentiles.
         It does not send data automatically or include project/media paths.
       </p>
       {!isTauriRuntime() && (
