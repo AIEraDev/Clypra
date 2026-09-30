@@ -3,6 +3,7 @@ import { Activity, Check, Copy, Play, Square } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import {
   getNativePreviewPerformanceReport,
+  getNativePushTransportCapabilities,
   isTauriRuntime,
   renderNativePreviewTransportProbe,
   streamNativePlaybackFrames,
@@ -38,6 +39,21 @@ export const PreviewDiagnosticsTab: React.FC = () => {
   const [transportProbeResult, setTransportProbeResult] = useState<string | null>(null);
   const [runningPushGate, setRunningPushGate] = useState(false);
   const [pushGateResult, setPushGateResult] = useState<string | null>(null);
+  const [pushCapabilities, setPushCapabilities] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    void getNativePushTransportCapabilities()
+      .then((caps) => {
+        const candidates = [
+          caps.channel ? "Channel" : null,
+          caps.customProtocolLongPoll ? "protocol long-poll" : null,
+          caps.webview2SharedBuffer ? "WebView2 shared buffer" : null,
+        ].filter(Boolean).join(", ");
+        setPushCapabilities(`Transport candidates: ${candidates || "none"}${caps.webviewRuntime ? ` · WebView ${caps.webviewRuntime}` : ""}`);
+      })
+      .catch(() => setPushCapabilities("Transport candidate discovery failed."));
+  }, []);
 
   useEffect(() => previewQualificationController.subscribe(setState), []);
 
@@ -135,12 +151,14 @@ export const PreviewDiagnosticsTab: React.FC = () => {
     setRunningPushGate(true);
     setPushGateResult(null);
     try {
-      const samples: number[] = [];
-      const expectedBytes = 52 + 480 * 270 * 4;
-      const received = new Promise<void>((resolve, reject) => {
+      const run = async (label: string, payloadBytes: number, frameCount: number, paceMs: number) => {
+        const samples: number[] = [];
+        const expectedBytes = 52 + payloadBytes;
+        const startedAt = performance.now();
+        await new Promise<void>((resolve, reject) => {
         const timeout = window.setTimeout(
-          () => reject(new Error("Push Channel delivered fewer than 20 frames within 5 seconds")),
-          5_000,
+          () => reject(new Error(`Push Channel ${label} timed out`)),
+          Math.max(5_000, frameCount * Math.max(paceMs, 1) + 2_000),
         );
         let receivedFrames = 0;
         void streamNativePlaybackFrames(1n, (packet) => {
@@ -166,7 +184,7 @@ export const PreviewDiagnosticsTab: React.FC = () => {
             const t9EpochUs = Math.round((performance.timeOrigin + performance.now()) * 1_000);
             samples.push(Math.max(0, (t9EpochUs - t8EpochUs) / 1_000));
             receivedFrames += 1;
-            if (receivedFrames === 20) {
+            if (receivedFrames === frameCount) {
               window.clearTimeout(timeout);
               resolve();
             }
@@ -174,19 +192,31 @@ export const PreviewDiagnosticsTab: React.FC = () => {
             window.clearTimeout(timeout);
             reject(error);
           }
-        }).catch((error) => {
+        }, { frameCount, payloadBytes, paceMs }).catch((error) => {
           window.clearTimeout(timeout);
           reject(error);
         });
-      });
-      await received;
-      samples.sort((left, right) => left - right);
-      const percentile = (fraction: number) =>
-        samples[Math.round((samples.length - 1) * fraction)] ?? 0;
-      const p50 = percentile(0.5);
-      const p95 = percentile(0.95);
+        });
+        samples.sort((left, right) => left - right);
+        const percentile = (fraction: number) =>
+          samples[Math.round((samples.length - 1) * fraction)] ?? 0;
+        return {
+          label,
+          p50: percentile(0.5),
+          p95: percentile(0.95),
+          fps: (frameCount * 1_000) / Math.max(1, performance.now() - startedAt),
+        };
+      };
+      // Same 20 fps cadence across sizes isolates a fixed per-message delay
+      // from a size-scaled copy/serialization cost. The final burst measures
+      // whether this candidate has enough sustained rate for Tier 1.
+      const [fullPaced, smallPaced, fullBurst] = await Promise.all([
+        run("518 KB paced", 480 * 270 * 4, 20, 50),
+        run("1 KB paced", 1024, 20, 50),
+        run("518 KB burst", 480 * 270 * 4, 60, 0),
+      ]);
       setPushGateResult(
-        `Push Channel t8→t9, 518 KB: p50 ${p50.toFixed(1)} ms · p95 ${p95.toFixed(1)} ms (20 frames)${p95 >= 100 ? " — gate failed; do not enable push playback." : " — gate passed."}`,
+        `${fullPaced.label} t8→t9 p50/p95 ${fullPaced.p50.toFixed(1)}/${fullPaced.p95.toFixed(1)} ms; ${smallPaced.label} ${smallPaced.p50.toFixed(1)}/${smallPaced.p95.toFixed(1)} ms; ${fullBurst.label} ${fullBurst.fps.toFixed(1)} FPS. ${fullPaced.p95 < 100 && fullBurst.fps >= 20 ? "Gate passed." : "Gate failed; do not enable push playback."}`,
       );
     } catch (error) {
       console.warn("[PreviewDiagnostics] Push transport gate failed", error);
@@ -290,6 +320,9 @@ export const PreviewDiagnosticsTab: React.FC = () => {
         </Button>
         {pushGateResult && (
           <p className="text-xs text-text-muted">{pushGateResult}</p>
+        )}
+        {pushCapabilities && (
+          <p className="text-xs text-text-muted">{pushCapabilities}</p>
         )}
       </div>
       <p className="text-xs text-text-muted">

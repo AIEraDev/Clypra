@@ -1006,9 +1006,11 @@ dependencies = [
  "uuid",
  "walkdir",
  "web-time",
+ "webview2-com",
  "wgpu",
  "whisper-rs",
  "windows 0.58.0",
+ "windows-core 0.61.2",
  "woff2-patched",
  "wsola",
 ]
