@@ -74,7 +74,10 @@ export const PreviewDiagnosticsTab: React.FC = () => {
       window.setTimeout(() => setReportCopied(false), 2_000);
       toast.success("Performance report copied");
     } catch (error) {
-      console.warn("[PreviewDiagnostics] Failed to copy performance report", error);
+      console.warn(
+        "[PreviewDiagnostics] Failed to copy performance report",
+        error,
+      );
       toast.error("Could not copy the performance report");
     } finally {
       setCopyingReport(false);
@@ -116,19 +119,28 @@ export const PreviewDiagnosticsTab: React.FC = () => {
       <div className="flex gap-2">
         <Button
           onClick={start}
+          className="cursor-pointer"
           disabled={!isTauriRuntime() || !project?.id || running}
         >
           <Play className="mr-2 h-4 w-4" />
           Run 30-second qualification
         </Button>
-        <Button variant="secondary" onClick={cancel} disabled={!running}>
+        <Button
+          variant="secondary"
+          className="cursor-pointer"
+          onClick={cancel}
+          disabled={!running}
+        >
           <Square className="mr-2 h-4 w-4" />
           Cancel
         </Button>
+      </div>
+      <div>
         <Button
           variant="secondary"
           onClick={() => void copyPerformanceReport()}
           disabled={!isTauriRuntime() || copyingReport}
+          className="cursor-pointer"
         >
           {reportCopied ? (
             <Check className="mr-2 h-4 w-4" />
