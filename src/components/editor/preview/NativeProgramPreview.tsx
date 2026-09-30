@@ -87,6 +87,10 @@ import {
   getPlaybackPolicy,
   registerNativeRasterAsset,
   renderNativeFrame,
+  openNativePlaybackPushStream,
+  submitNativePlaybackPushFrame,
+  acknowledgeNativePlaybackPushFrame,
+  closeNativePlaybackPushStream,
   queueNativeFrame,
   listenForNativePlaybackStats,
   listenForEngineQoSDecision,
@@ -129,6 +133,7 @@ import {
   NativePreviewFrameScheduler,
   type NativePreviewRequestSource,
 } from "./nativePreviewScheduler";
+import { PlaybackPushBridge } from "./playbackPushBridge";
 import {
   AdaptiveReadbackPolicy,
   defaultEmbeddedReadbackLimit,
@@ -1954,6 +1959,59 @@ export const NativeProgramPreview: React.FC = () => {
       },
     });
 
+    // Deliberately off by default. This is enabled only for the live Phase 2b
+    // benchmark so the invoke bridge remains the unconditional rollback path.
+    const previewPushBridgeEnabled =
+      import.meta.env.VITE_CLYPRA_PREVIEW_PUSH_BRIDGE === "1";
+    let pushBridgeReady = false;
+    let pushBridgeOpening: Promise<void> | null = null;
+    let pushBridgeFailed = false;
+    const playbackPushBridge = previewPushBridgeEnabled
+      ? new PlaybackPushBridge({
+          paint: (packet) => {
+            nativeDisplayedFrameRef.current = {
+              rgba: packet.pixels.slice().buffer,
+              width: packet.width,
+              height: packet.height,
+            };
+            forceRenderNeeded = true;
+            wakeNativeRenderLoopRef.current?.();
+          },
+          reportWatermark: (watermark) => {
+            void acknowledgeNativePlaybackPushFrame(
+              watermark.generation,
+              watermark.consumedDeliverySeq,
+            ).catch(() => undefined);
+          },
+          onStreamStall: () => {
+            console.warn("[native-preview] push-stream-stall");
+          },
+        })
+      : null;
+
+    const ensurePlaybackPushBridge = async (generation: bigint) => {
+      if (!playbackPushBridge || pushBridgeFailed) return false;
+      playbackPushBridge.beginGeneration(generation);
+      if (pushBridgeReady) return true;
+      if (!pushBridgeOpening) {
+        pushBridgeOpening = openNativePlaybackPushStream(generation, (packet) => {
+          playbackPushBridge.receive(packet);
+        })
+          .then(() => {
+            pushBridgeReady = true;
+          })
+          .catch((error) => {
+            pushBridgeFailed = true;
+            console.warn("[native-preview] push-stream-open-failed", error);
+          })
+          .finally(() => {
+            pushBridgeOpening = null;
+          });
+      }
+      await pushBridgeOpening;
+      return pushBridgeReady;
+    };
+
     const unsubscribeSeekIntent = seekController?.subscribe((intent) => {
       latestSeekIntent = intent;
       visibleRequestGeneration = Math.max(
@@ -3648,6 +3706,18 @@ export const NativeProgramPreview: React.FC = () => {
                   playbackSpan.markDispatchStarted();
                   nativeFrontendPerfSpans.set(readbackRequestKey, playbackSpan);
                 }
+                if (previewPushBridgeEnabled && !pushBridgeFailed) {
+                  const generation = BigInt(targetGeneration);
+                  void ensurePlaybackPushBridge(generation).then((ready) => {
+                    if (!ready || !isActive || renderStateRef.current.clock.state !== "playing") return;
+                    void ensureNativeRequestFonts(readbackRequest)
+                      .then(() => submitNativePlaybackPushFrame(readbackRequest))
+                      .catch((error) => {
+                        pushBridgeFailed = true;
+                        console.warn("[native-preview] push-frame-submit-failed", error);
+                      });
+                  });
+                } else {
                 nativePlaybackInFlight = nativePreviewScheduler
                   .requestVisible(readbackSource)
                   .then((frame) => {
@@ -3697,6 +3767,7 @@ export const NativeProgramPreview: React.FC = () => {
                   .finally(() => {
                     nativePlaybackInFlight = null;
                   });
+                }
               }
             }
           }
@@ -4286,6 +4357,8 @@ export const NativeProgramPreview: React.FC = () => {
       unsubscribeTransformGeometry();
       unsubscribeTransformEnd();
       nativePreviewScheduler.dispose();
+      playbackPushBridge?.stop();
+      if (pushBridgeReady) void closeNativePlaybackPushStream().catch(() => undefined);
       if (nativeTextPrefetchTimer !== null) {
         window.clearTimeout(nativeTextPrefetchTimer);
         nativeTextPrefetchTimer = null;
