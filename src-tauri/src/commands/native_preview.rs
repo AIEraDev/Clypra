@@ -122,7 +122,7 @@ pub fn get_native_push_transport_capabilities(
                         *value = Some(version);
                         // Free the allocated string memory
                         if !version_string.is_null() {
-                            let _ = windows_core::imp::CoTaskMemFree(Some(version_string.0 as *const _ as *const _));
+                            windows_core::imp::CoTaskMemFree(version_string.0 as *const _);
                         }
                     }
                 }
