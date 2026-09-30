@@ -115,6 +115,18 @@ export interface NativeGpuRuntimeStatus {
   failureReason: string | null;
 }
 
+/** User-initiated local diagnostics snapshot; safe to serialize or copy. */
+export interface NativePreviewPerformanceReport {
+  reportVersion: number;
+  capturedAtMs: number;
+  applicationVersion: string;
+  operatingSystem: string;
+  architecture: string;
+  gpu: NativeGpuRuntimeStatus | null;
+  preview: NativeFrameServiceStats | null;
+  session: NativeSessionSnapshot;
+}
+
 export interface NativePerformanceBudget {
   targetFps: number;
   maxFrameRenderTimeUs: number;

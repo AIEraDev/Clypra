@@ -421,6 +421,7 @@ pub fn run() {
             present_native_frame,
             get_native_frame_service_stats,
             get_native_frame_service_samples,
+            get_native_preview_performance_report,
             reset_native_preview_runtime,
             get_native_gpu_status,
             probe_native_surface,

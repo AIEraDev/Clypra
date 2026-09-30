@@ -11,6 +11,7 @@ import type {
   NativeAudioStatus,
   NativeAudioClipStatus,
   NativeGpuRuntimeStatus,
+  NativePreviewPerformanceReport,
   NativePlaybackPlan,
   NativePlaybackFrameDemand,
   NativePlaybackState,
@@ -678,6 +679,17 @@ export async function getNativeFrameServiceSamples(
   );
 }
 
+/**
+ * Gets the explicit, local-only native-preview diagnostic report. Callers can
+ * copy `JSON.stringify(report, null, 2)` only after user action.
+ */
+export async function getNativePreviewPerformanceReport(): Promise<NativePreviewPerformanceReport> {
+  if (!isTauriRuntime()) {
+    throw new Error("getNativePreviewPerformanceReport requires the Tauri runtime");
+  }
+  return invoke<NativePreviewPerformanceReport>("get_native_preview_performance_report");
+}
+
 export async function getNativeSyncMetricsSnapshot(): Promise<NativeSyncMetricsSnapshot> {
   if (!isTauriRuntime()) {
     throw new Error("getNativeSyncMetricsSnapshot requires the Tauri runtime");
@@ -1275,4 +1287,3 @@ export async function exportCreatorThumbnail(
     payload,
   });
 }
-

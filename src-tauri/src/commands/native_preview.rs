@@ -7,10 +7,10 @@ use crate::native_core::playback::{
 };
 use crate::native_core::{
     BodyEffectSnapshot, ColorGradeSnapshot, FramePacket, FrameRequest, FrameTime,
-    NativeFrameService, NativeFrameServiceStats, NativePerformanceSampleBatch,
-    NativeSurfacePresentation, NativeSurfacePresentationTimings, PerformanceSample, PixelFormat,
-    PreviewMode, QualityTier, TextLayerSnapshot, TransitionSnapshot, DEFAULT_TIME_SCALE,
-    NATIVE_CORE_CONTRACT_VERSION,
+    NativeFrameService, NativeFrameServiceStats, NativeGpuRuntimeStatus,
+    NativePerformanceSampleBatch, NativeSurfacePresentation, NativeSurfacePresentationTimings,
+    PerformanceSample, PixelFormat, PreviewMode, QualityTier, TextLayerSnapshot,
+    TransitionSnapshot, DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION,
 };
 use crate::sync_metrics::SYNC_METRICS;
 #[cfg(target_os = "windows")]
@@ -39,6 +39,22 @@ use crate::thumbnail_engine::stream_actor::DecodedVideoPlanes;
 
 type DecodedNativeVideoFrame = (DecodedVideoPlanes, u32, u32, VideoColorMetadata, u32);
 static NATIVE_SURFACE_PRESENTATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+/// A user-initiated, copyable snapshot of the native preview environment and
+/// telemetry. This endpoint is read-only: it never enables automatic field
+/// telemetry and it never adds samples to the performance windows.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativePreviewPerformanceReport {
+    pub report_version: u32,
+    pub captured_at_ms: u64,
+    pub application_version: String,
+    pub operating_system: String,
+    pub architecture: String,
+    pub gpu: Option<NativeGpuRuntimeStatus>,
+    pub preview: Option<NativeFrameServiceStats>,
+    pub session: crate::wgpu_compositor::SessionSnapshot,
+}
 
 /// Register an editor font before a frame request references it. The native
 /// renderer never substitutes a different family for an unregistered font.
@@ -4284,6 +4300,43 @@ pub async fn get_native_frame_service_samples(
         .await
         .samples_since(after_sequence, limit.unwrap_or(256));
     Ok(batch)
+}
+
+/// Return a single JSON-ready snapshot suitable for a user to copy into a
+/// benchmark issue. It deliberately contains only local runtime metadata and
+/// aggregate performance counters; source paths, project contents, and media
+/// names are not included.
+#[tauri::command]
+pub async fn get_native_preview_performance_report(
+    app: tauri::AppHandle,
+) -> Result<NativePreviewPerformanceReport, String> {
+    use crate::wgpu_compositor::SessionTelemetryCollector;
+
+    let gpu = app
+        .try_state::<Arc<std::sync::Mutex<NativeGpuRuntimeStatus>>>()
+        .and_then(|state| state.lock().ok().map(|status| status.clone()));
+
+    let preview = if let Some(service) = app.try_state::<tokio::sync::Mutex<NativeFrameService>>() {
+        Some(service.lock().await.stats())
+    } else {
+        None
+    };
+
+    let session = app
+        .try_state::<Arc<SessionTelemetryCollector>>()
+        .map(|state| state.snapshot())
+        .unwrap_or_else(|| SessionTelemetryCollector::new().snapshot());
+
+    Ok(NativePreviewPerformanceReport {
+        report_version: 1,
+        captured_at_ms: crate::native_core::performance::now_ms(),
+        application_version: env!("CARGO_PKG_VERSION").to_string(),
+        operating_system: std::env::consts::OS.to_string(),
+        architecture: std::env::consts::ARCH.to_string(),
+        gpu,
+        preview,
+        session,
+    })
 }
 
 /// Reset all per-project native preview state on project close.
