@@ -124,6 +124,13 @@ pub struct PerformanceSample {
     pub compose_us: Option<u64>,
     #[serde(default)]
     pub readback_us: Option<u64>,
+    /// CPU-side bracket from texture-copy submission to map_async completion.
+    /// `timestamp_query_available` states whether this is a GPU timestamp or
+    /// the portable (coarse) CPU bracket used on older adapters.
+    #[serde(default)]
+    pub map_wait_us: Option<u64>,
+    #[serde(default)]
+    pub timestamp_query_available: Option<bool>,
     #[serde(default)]
     pub present_us: Option<u64>,
     #[serde(default)]
@@ -255,6 +262,9 @@ pub struct ModeStats {
     pub conversion_upload: StagePercentiles,
     pub compose: StagePercentiles,
     pub readback: StagePercentiles,
+    /// Submit-to-map_async-complete CPU bracket; see sample metadata for
+    /// whether a true GPU timestamp query was available.
+    pub map_wait: StagePercentiles,
     pub present: StagePercentiles,
     pub scheduler_wait: StagePercentiles,
     pub lookahead_wait: StagePercentiles,
@@ -348,6 +358,8 @@ mod tests {
             conversion_upload_us: None,
             compose_us: None,
             readback_us: None,
+            map_wait_us: None,
+            timestamp_query_available: None,
             present_us: None,
             scheduler_wait_us: None,
             lookahead_wait_us: None,

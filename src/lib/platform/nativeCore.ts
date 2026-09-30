@@ -185,6 +185,10 @@ export interface NativePerformanceSample {
   conversionUploadUs?: number;
   composeUs?: number;
   readbackUs?: number;
+  /** Coarse CPU bracket from readback submission to map_async completion. */
+  mapWaitUs?: number;
+  /** False means mapWaitUs is a portable CPU bracket, not a GPU query. */
+  timestampQueryAvailable?: boolean;
   presentUs?: number;
   schedulerWaitUs?: number;
   lookaheadWaitUs?: number;
@@ -246,6 +250,7 @@ export interface NativeModeStats {
   conversionUpload: NativeStagePercentiles;
   compose: NativeStagePercentiles;
   readback: NativeStagePercentiles;
+  mapWait: NativeStagePercentiles;
   present: NativeStagePercentiles;
   schedulerWait: NativeStagePercentiles;
   lookaheadWait: NativeStagePercentiles;

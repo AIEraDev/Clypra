@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button";
 import {
   getNativePreviewPerformanceReport,
   isTauriRuntime,
+  renderNativePreviewTransportProbe,
 } from "@/lib/platform/tauri";
 import { toast } from "@/lib/toast";
 import { useProjectStore } from "@/store/projectStore";
@@ -32,6 +33,8 @@ export const PreviewDiagnosticsTab: React.FC = () => {
   const [startedFromPause, setStartedFromPause] = useState(false);
   const [copyingReport, setCopyingReport] = useState(false);
   const [reportCopied, setReportCopied] = useState(false);
+  const [runningTransportProbe, setRunningTransportProbe] = useState(false);
+  const [transportProbeResult, setTransportProbeResult] = useState<string | null>(null);
 
   useEffect(() => previewQualificationController.subscribe(setState), []);
 
@@ -91,6 +94,36 @@ export const PreviewDiagnosticsTab: React.FC = () => {
       toast.error("Could not copy the performance report");
     } finally {
       setCopyingReport(false);
+    }
+  };
+
+  const runTransportProbe = async () => {
+    if (!isTauriRuntime() || runningTransportProbe) return;
+    setRunningTransportProbe(true);
+    setTransportProbeResult(null);
+    try {
+      const samples: number[] = [];
+      // The default payload is deliberately comparable with the 480px RGBA
+      // fallback (~518 KB), and no preview/GPU work occurs inside this loop.
+      for (let index = 0; index < 20; index += 1) {
+        const startedAt = performance.now();
+        const bytes = await renderNativePreviewTransportProbe();
+        if (bytes.byteLength !== 518 * 1024) {
+          throw new Error(`Unexpected probe payload: ${bytes.byteLength} bytes`);
+        }
+        samples.push(performance.now() - startedAt);
+      }
+      samples.sort((left, right) => left - right);
+      const percentile = (fraction: number) =>
+        samples[Math.round((samples.length - 1) * fraction)] ?? 0;
+      setTransportProbeResult(
+        `518 KB bridge-only: p50 ${percentile(0.5).toFixed(1)} ms · p95 ${percentile(0.95).toFixed(1)} ms (20 runs)`,
+      );
+    } catch (error) {
+      console.warn("[PreviewDiagnostics] Transport probe failed", error);
+      setTransportProbeResult("Bridge-only probe failed; see diagnostics log.");
+    } finally {
+      setRunningTransportProbe(false);
     }
   };
 
@@ -163,6 +196,19 @@ export const PreviewDiagnosticsTab: React.FC = () => {
               ? "Copied"
               : "Copy performance report"}
         </Button>
+      </div>
+      <div className="space-y-2">
+        <Button
+          variant="secondary"
+          onClick={() => void runTransportProbe()}
+          disabled={!isTauriRuntime() || runningTransportProbe}
+          className="cursor-pointer"
+        >
+          {runningTransportProbe ? "Measuring bridge…" : "Run 518 KB bridge-only probe"}
+        </Button>
+        {transportProbeResult && (
+          <p className="text-xs text-text-muted">{transportProbeResult}</p>
+        )}
       </div>
       <p className="text-xs text-text-muted">
         The copied report contains local native and WebView stage percentiles.

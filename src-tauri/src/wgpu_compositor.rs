@@ -2660,7 +2660,7 @@ mod tests {
             chroma_key: ChromaKeyUniforms::default(),
         };
 
-        let (rgba, compose_us, readback_us) = compositor
+        let (rgba, compose_us, readback_us, map_wait_us) = compositor
             .render_to_rgba_bytes_with_size_timed(
                 &gpu.device,
                 &gpu.queue,
@@ -2678,10 +2678,11 @@ mod tests {
             .expect("render_to_rgba_bytes");
 
         println!(
-            "Composited RGBA: bytes={}, compose_us={}, readback_us={}",
+            "Composited RGBA: bytes={}, compose_us={}, readback_us={}, map_wait_us={}",
             rgba.len(),
             compose_us,
-            readback_us
+            readback_us,
+            map_wait_us
         );
 
         let mut non_black_count = 0usize;

@@ -567,6 +567,9 @@ export const NativeProgramPreview: React.FC = () => {
     width: number;
     height: number;
   } | null>(null);
+  // The frame payload itself stays compatible with the scheduler contract;
+  // retain its correlation key beside it until the canvas paint completes.
+  const nativeDisplayedFrameRequestKeyRef = useRef("");
   // Persist text-prefetch identity across native surface/canvas effect
   // restarts. Text prewarming is isolated from the visible video decoder path.
   const nativePrefetchStateRef = useRef({
@@ -1108,6 +1111,7 @@ export const NativeProgramPreview: React.FC = () => {
 
   useEffect(() => {
     nativeDisplayedFrameRef.current = null;
+    nativeDisplayedFrameRequestKeyRef.current = "";
   }, [project?.id]);
 
   useEffect(() => {
@@ -3002,6 +3006,20 @@ export const NativeProgramPreview: React.FC = () => {
           nativePlaybackPath &&
           (!nativeSurfaceUsable || qualificationForcesWebView) &&
           !deferWebViewFallbackForNativeStartup;
+        // Keep the presenter decision explicit in telemetry. A slow bridge
+        // sample is otherwise indistinguishable from a native surface that
+        // was expected to engage but never did.
+        const presenterFallbackReason = qualificationForcesWebView
+          ? "policy-override"
+          : nativeSurfaceErrorNow
+            ? "surface-creation-failed"
+            : !nativeSurfaceReadyNow
+              ? "unknown"
+              : !nativeSurfaceGeometrySettledRef.current
+                ? "resize"
+                : nativeContinuousBlockedRevision === nativeRevision
+                  ? "device-lost"
+                  : "unknown";
         const telemetryScenario =
           qualification.status === "running"
             ? "qualification"
@@ -3029,11 +3047,15 @@ export const NativeProgramPreview: React.FC = () => {
           ? {
               view: outputAdapter.path,
               surface: outputAdapter.surface,
+              presenterMode: "native-surface",
               ...telemetryContextBase,
             }
           : {
               view: outputAdapter.path,
               surface: outputAdapter.surface,
+              presenterMode: "bridge",
+              presenterFallbackReason:
+                nativeReadbackFallbackPath ? presenterFallbackReason : undefined,
               ...telemetryContextBase,
             };
         // Capture composition complexity from the evaluated scene—not clip
@@ -3256,6 +3278,7 @@ export const NativeProgramPreview: React.FC = () => {
                   ? nativePerfCollector.begin(requestToPresent, {
                       view: "native",
                       surface: "native-surface",
+                      presenterMode: "native-surface",
                       runtimeEnvironment: import.meta.env.DEV
                         ? "development"
                         : "production",
@@ -3603,6 +3626,8 @@ export const NativeProgramPreview: React.FC = () => {
                     {
                       view: "webview",
                       surface: "dom-canvas",
+                      presenterMode: "bridge",
+                      presenterFallbackReason,
                       runtimeEnvironment: import.meta.env.DEV
                         ? "development"
                         : "production",
@@ -3624,12 +3649,6 @@ export const NativeProgramPreview: React.FC = () => {
                 nativePlaybackInFlight = nativePreviewScheduler
                   .requestVisible(readbackSource)
                   .then((frame) => {
-                    const frontendSpan =
-                      nativeFrontendPerfSpans.get(readbackRequestKey);
-                    frontendSpan?.finish({
-                      ...dispatchedReadbackPolicy,
-                    });
-                    nativeFrontendPerfSpans.delete(readbackRequestKey);
                     const current = renderStateRef.current;
                     if (
                       isActive &&
@@ -3639,9 +3658,20 @@ export const NativeProgramPreview: React.FC = () => {
                     ) {
                       if (frame) {
                         nativeDisplayedFrameRef.current = frame;
+                        nativeDisplayedFrameRequestKeyRef.current = readbackRequestKey;
                       }
                       nativeContinuousFailureStreak = 0;
                       forceRenderNeeded = true;
+                    } else {
+                      // The bridge response was received but a newer target
+                      // owns presentation; close its trace as superseded.
+                      const frontendSpan =
+                        nativeFrontendPerfSpans.get(readbackRequestKey);
+                      frontendSpan?.finish({
+                        ...dispatchedReadbackPolicy,
+                        stale: true,
+                      });
+                      nativeFrontendPerfSpans.delete(readbackRequestKey);
                     }
                   })
                   .catch((error) => {
@@ -3779,6 +3809,8 @@ export const NativeProgramPreview: React.FC = () => {
                     {
                       view: "webview",
                       surface: "dom-canvas",
+                      presenterMode: "bridge",
+                      presenterFallbackReason: "paused-exact-frame",
                       runtimeEnvironment: import.meta.env.DEV
                         ? "development"
                         : "production",
@@ -3828,6 +3860,7 @@ export const NativeProgramPreview: React.FC = () => {
                 exactNativeFrame = loadedFrame;
                 nativeFrame = loadedFrame;
                 nativeDisplayedFrameRef.current = loadedFrame;
+                nativeDisplayedFrameRequestKeyRef.current = readbackRequestKey;
                 nativeRetryAt = 0;
               } catch (error) {
                 // Keep the last native frame visible for this render boundary, then
@@ -3961,14 +3994,16 @@ export const NativeProgramPreview: React.FC = () => {
               );
               canvasPaintMs = performance.now() - browserPaintStarted;
             }
-            if (nativeFrame && canvasEl && exactNativeFrame !== null) {
+            if (nativeFrame && canvasEl) {
+              const paintedRequestKey =
+                nativeDisplayedFrameRequestKeyRef.current || nativeRequestKey;
               const frontendSpan =
-                nativeFrontendPerfSpans.get(nativeRequestKey);
+                nativeFrontendPerfSpans.get(paintedRequestKey);
               if (frontendSpan) {
                 frontendSpan.finish({
                   canvasPaintMs,
                 });
-                nativeFrontendPerfSpans.delete(nativeRequestKey);
+                nativeFrontendPerfSpans.delete(paintedRequestKey);
               }
               if (latestSeekIntent?.scrubSpanId) {
                 const elapsedSinceInputUs = Math.max(

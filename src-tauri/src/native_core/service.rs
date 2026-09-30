@@ -208,6 +208,7 @@ impl NativeFrameService {
                 }),
                 compose: optional_stage_percentiles(&samples, |sample| sample.compose_us),
                 readback: optional_stage_percentiles(&samples, |sample| sample.readback_us),
+                map_wait: optional_stage_percentiles(&samples, |sample| sample.map_wait_us),
                 present: optional_stage_percentiles(&samples, |sample| sample.present_us),
                 scheduler_wait: optional_stage_percentiles(&samples, |sample| {
                     sample.scheduler_wait_us

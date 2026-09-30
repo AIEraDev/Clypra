@@ -99,6 +99,8 @@ export interface TelemetryStageTimings {
   surfaceAcquireUs?: number;
   gpuQueueWaitUs?: number;
   readbackUs?: number;
+  /** CPU-side submit-to-map_async-complete bracket. */
+  mapWaitUs?: number;
   submitPresentUs?: number;
   schedulerWaitUs?: number;
   lookaheadWaitUs?: number;
@@ -107,6 +109,8 @@ export interface TelemetryStageTimings {
   ipcWaitUs?: number;
   transferUs?: number;
   canvasPaintUs?: number;
+  /** Time from canvas draw completion to the next rAF callback. */
+  webviewPaintRafUs?: number;
   totalTimeUs: number;
 }
 
@@ -128,6 +132,7 @@ export interface TelemetryStagePercentiles {
   surfaceAcquireUs?: TelemetryMetricPercentiles;
   gpuQueueWaitUs?: TelemetryMetricPercentiles;
   readbackUs?: TelemetryMetricPercentiles;
+  mapWaitUs?: TelemetryMetricPercentiles;
   submitPresentUs?: TelemetryMetricPercentiles;
   schedulerWaitUs?: TelemetryMetricPercentiles;
   lookaheadWaitUs?: TelemetryMetricPercentiles;
@@ -136,6 +141,7 @@ export interface TelemetryStagePercentiles {
   ipcWaitUs?: TelemetryMetricPercentiles;
   transferUs?: TelemetryMetricPercentiles;
   canvasPaintUs?: TelemetryMetricPercentiles;
+  webviewPaintRafUs?: TelemetryMetricPercentiles;
   totalTimeUs?: TelemetryMetricPercentiles;
 }
 
@@ -577,6 +583,18 @@ export interface TelemetryPreviewContext {
   view: TelemetryPreviewView;
   surface: TelemetryPreviewSurface;
   runtimeEnvironment: TelemetryRuntimeEnvironment;
+  /** Presenter selected for this frame, independently of decoder path. */
+  presenterMode?: "native-surface" | "bridge";
+  /** Why a continuous frame used the bridge instead of the retained surface. */
+  presenterFallbackReason?:
+    | "surface-creation-failed"
+    | "adapter-unsupported"
+    | "resize"
+    | "occlusion"
+    | "device-lost"
+    | "policy-override"
+    | "paused-exact-frame"
+    | "unknown";
   sessionId?: string;
   qualificationRunId?: string;
   scenario?: TelemetryPreviewScenario;
@@ -754,8 +772,10 @@ class SessionRollupAccumulator {
   private surfaceAcquireTimesUs: number[] = [];
   private gpuQueueWaitTimesUs: number[] = [];
   private readbackTimesUs: number[] = [];
+  private mapWaitTimesUs: number[] = [];
   private transferTimesUs: number[] = [];
   private canvasPaintTimesUs: number[] = [];
+  private webviewPaintRafTimesUs: number[] = [];
   private presentTimesUs: number[] = [];
   private schedulerWaitTimesUs: number[] = [];
   private lookaheadWaitTimesUs: number[] = [];
@@ -865,10 +885,14 @@ class SessionRollupAccumulator {
         this.gpuQueueWaitTimesUs.push(timings.gpuQueueWaitUs);
       if (timings.readbackUs !== undefined)
         this.readbackTimesUs.push(timings.readbackUs);
+      if (timings.mapWaitUs !== undefined)
+        this.mapWaitTimesUs.push(timings.mapWaitUs);
       if (timings.transferUs !== undefined)
         this.transferTimesUs.push(timings.transferUs);
       if (timings.canvasPaintUs !== undefined)
         this.canvasPaintTimesUs.push(timings.canvasPaintUs);
+      if (timings.webviewPaintRafUs !== undefined)
+        this.webviewPaintRafTimesUs.push(timings.webviewPaintRafUs);
       if (timings.submitPresentUs !== undefined)
         this.presentTimesUs.push(timings.submitPresentUs);
       if (timings.schedulerWaitUs !== undefined)
@@ -986,8 +1010,10 @@ class SessionRollupAccumulator {
       surfaceAcquireUs: mean(this.surfaceAcquireTimesUs) || undefined,
       gpuQueueWaitUs: mean(this.gpuQueueWaitTimesUs) || undefined,
       readbackUs: mean(this.readbackTimesUs) || undefined,
+      mapWaitUs: mean(this.mapWaitTimesUs) || undefined,
       transferUs: mean(this.transferTimesUs) || undefined,
       canvasPaintUs: mean(this.canvasPaintTimesUs) || undefined,
+      webviewPaintRafUs: mean(this.webviewPaintRafTimesUs) || undefined,
       submitPresentUs: mean(this.presentTimesUs) || undefined,
       schedulerWaitUs: mean(this.schedulerWaitTimesUs) || undefined,
       lookaheadWaitUs: mean(this.lookaheadWaitTimesUs) || undefined,
@@ -1027,8 +1053,10 @@ class SessionRollupAccumulator {
         surfaceAcquireUs: metricPercentiles(this.surfaceAcquireTimesUs),
         gpuQueueWaitUs: metricPercentiles(this.gpuQueueWaitTimesUs),
         readbackUs: metricPercentiles(this.readbackTimesUs),
+        mapWaitUs: metricPercentiles(this.mapWaitTimesUs),
         transferUs: metricPercentiles(this.transferTimesUs),
         canvasPaintUs: metricPercentiles(this.canvasPaintTimesUs),
+        webviewPaintRafUs: metricPercentiles(this.webviewPaintRafTimesUs),
         submitPresentUs: metricPercentiles(this.presentTimesUs),
         schedulerWaitUs: metricPercentiles(this.schedulerWaitTimesUs),
         lookaheadWaitUs: metricPercentiles(this.lookaheadWaitTimesUs),
@@ -1066,8 +1094,10 @@ class SessionRollupAccumulator {
     this.surfaceAcquireTimesUs = [];
     this.gpuQueueWaitTimesUs = [];
     this.readbackTimesUs = [];
+    this.mapWaitTimesUs = [];
     this.transferTimesUs = [];
     this.canvasPaintTimesUs = [];
+    this.webviewPaintRafTimesUs = [];
     this.presentTimesUs = [];
     this.schedulerWaitTimesUs = [];
     this.lookaheadWaitTimesUs = [];
@@ -1108,8 +1138,10 @@ class SessionRollupAccumulator {
     this.surfaceAcquireTimesUs = [];
     this.gpuQueueWaitTimesUs = [];
     this.readbackTimesUs = [];
+    this.mapWaitTimesUs = [];
     this.transferTimesUs = [];
     this.canvasPaintTimesUs = [];
+    this.webviewPaintRafTimesUs = [];
     this.presentTimesUs = [];
     this.schedulerWaitTimesUs = [];
     this.lookaheadWaitTimesUs = [];
@@ -2996,6 +3028,9 @@ class TelemetryCollector {
         conversionTimeUs?: number;
         uploadTimeUs?: number;
         conversionUploadUs?: number;
+        readbackUs?: number;
+        mapWaitUs?: number;
+        timestampQueryAvailable?: boolean;
         decoderMutexWaitUs?: number;
         actorWaitUs?: number;
         gpuQueueWaitUs?: number;
@@ -3051,7 +3086,8 @@ class TelemetryCollector {
       composeUs: last.composeTimeUs,
       surfaceAcquireUs: last.surfaceAcquireUs,
       gpuQueueWaitUs: last.gpuQueueWaitUs,
-      readbackUs: last.readbackTimeUs,
+      readbackUs: last.readbackUs ?? last.readbackTimeUs,
+      mapWaitUs: last.mapWaitUs,
       schedulerWaitUs: last.schedulerWaitUs,
       lookaheadWaitUs: last.lookaheadWaitUs,
       coldStartInitUs: last.coldStartInitUs,

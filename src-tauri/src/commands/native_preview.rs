@@ -93,6 +93,7 @@ fn diagnose_mode_stats(mode: &ModeStats) -> Option<NativePreviewStageDiagnosis> 
             "investigate-render-upload",
         ),
         ("readback", mode.readback.p95, "investigate-bridge"),
+        ("map_wait", mode.map_wait.p95, "investigate-readback"),
         ("ipc_wait", mode.ipc_wait.p95, "investigate-bridge"),
         ("present", mode.present.p95, "investigate-bridge"),
         (
@@ -136,6 +137,7 @@ fn diagnose_mode_stats(mode: &ModeStats) -> Option<NativePreviewStageDiagnosis> 
         mode.demux_wait.sample_count,
         mode.conversion_upload.sample_count,
         mode.compose.sample_count,
+        mode.map_wait.sample_count,
         mode.readback.sample_count,
         mode.ipc_wait.sample_count,
         mode.present.sample_count,
@@ -428,6 +430,8 @@ fn record_native_surface_sample(
         conversion_upload_us,
         compose_us,
         readback_us: None,
+        map_wait_us: None,
+        timestamp_query_available: None,
         present_us: submit_present_us,
         scheduler_wait_us: Some(scheduler_wait_us),
         lookahead_wait_us,
@@ -1817,6 +1821,31 @@ pub async fn render_native_preview_frame(
     Ok(tauri::ipc::Response::new(rgba))
 }
 
+/// Diagnostics-only transport isolation probe.
+///
+/// Returns a deterministic RGBA-sized byte buffer through the exact same
+/// Tauri `Response` path as `render_native_frame`, without decode, wgpu, or
+/// compositor work. The WebView-side loop owns timing so this command does
+/// not add another clock domain or telemetry IPC message per iteration.
+#[tauri::command]
+pub fn render_native_preview_transport_probe(
+    byte_length: Option<usize>,
+) -> Result<tauri::ipc::Response, String> {
+    const DEFAULT_BYTES: usize = 518 * 1024;
+    const MAX_BYTES: usize = 4 * 1024 * 1024;
+    let byte_length = byte_length.unwrap_or(DEFAULT_BYTES);
+    if byte_length == 0 || byte_length > MAX_BYTES {
+        return Err(format!(
+            "transport probe byte_length must be between 1 and {MAX_BYTES}"
+        ));
+    }
+    let mut bytes = vec![0u8; byte_length];
+    for (index, byte) in bytes.iter_mut().enumerate() {
+        *byte = (index & 0xff) as u8;
+    }
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 /// Render a project-sized frame from deterministic solid layers.
 ///
 /// This establishes the native timeline compositor contract independently of
@@ -1957,6 +1986,9 @@ struct NativeRenderStageTimings {
     conversion_time_us: u32,
     compose_time_us: u32,
     readback_time_us: u32,
+    /// CPU-side bracket from readback submission to map_async completion.
+    /// This is intentionally marked separately from GPU timestamp queries.
+    map_wait_us: u32,
     decoder_mutex_wait_us: u64,
 }
 
@@ -2461,7 +2493,7 @@ async fn render_native_video_project_frame_bytes_timed(
         b: request.clear_color[2].clamp(0.0, 1.0) as f64,
         a: request.clear_color[3].clamp(0.0, 1.0) as f64,
     };
-    let (rgba, compose_time_us, readback_time_us) =
+    let (rgba, compose_time_us, readback_time_us, map_wait_us) =
         if let Some(transition) = request.transition.as_ref() {
             let (from_layer, to_layer) = build_transition_sources(&request, &layers)?;
             let from_texture = create_transition_source_texture(
@@ -2495,7 +2527,7 @@ async fn render_native_video_project_frame_bytes_timed(
                 Some(clear_color),
             )?;
             let overlays = if layers.len() > 2 { &layers[2..] } else { &[] };
-            let (rgba, compositor_compose_us, readback_us) = compositor
+            let (rgba, compositor_compose_us, readback_us, map_wait_us) = compositor
                 .render_transition_with_overlays_to_rgba_bytes_timed(
                     &gpu.device,
                     &gpu.queue,
@@ -2508,7 +2540,7 @@ async fn render_native_video_project_frame_bytes_timed(
                     Some(clear_color),
                 )
                 .await?;
-            (rgba, compositor_compose_us, readback_us)
+            (rgba, compositor_compose_us, readback_us, map_wait_us)
         } else {
             compositor
                 .render_to_rgba_bytes_with_size_timed(
@@ -2528,6 +2560,7 @@ async fn render_native_video_project_frame_bytes_timed(
             conversion_time_us,
             compose_time_us: compose_time_us.min(u32::MAX as u64) as u32,
             readback_time_us: readback_time_us.min(u32::MAX as u64) as u32,
+            map_wait_us: map_wait_us.min(u32::MAX as u64) as u32,
             decoder_mutex_wait_us,
         },
     ))
@@ -4245,6 +4278,8 @@ pub async fn render_native_frame(
                 conversion_upload_us: None,
                 compose_us: None,
                 readback_us: None,
+                map_wait_us: None,
+                timestamp_query_available: None,
                 present_us: None,
                 scheduler_wait_us: None,
                 lookahead_wait_us: None,
@@ -4358,6 +4393,11 @@ pub async fn render_native_frame(
             conversion_upload_us: Some(u64::from(stage_timings.conversion_time_us)),
             compose_us: Some(u64::from(stage_timings.compose_time_us)),
             readback_us: Some(u64::from(stage_timings.readback_time_us)),
+            map_wait_us: Some(u64::from(stage_timings.map_wait_us)),
+            // The current compatibility path deliberately uses a portable
+            // CPU bracket. A timestamp-query implementation may replace this
+            // later without changing the telemetry schema.
+            timestamp_query_available: Some(false),
             present_us: None,
             scheduler_wait_us: None,
             lookahead_wait_us: None,

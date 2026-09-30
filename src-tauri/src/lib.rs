@@ -431,6 +431,7 @@ pub fn run() {
             decode_frame_gpu,
             decode_export_frame,
             render_native_preview_frame,
+            render_native_preview_transport_probe,
             render_native_project_frame,
             render_native_video_project_frame,
             get_video_scopes,
