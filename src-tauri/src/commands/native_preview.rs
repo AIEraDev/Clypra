@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager};
 
@@ -39,6 +39,89 @@ use crate::thumbnail_engine::stream_actor::DecodedVideoPlanes;
 
 type DecodedNativeVideoFrame = (DecodedVideoPlanes, u32, u32, VideoColorMetadata, u32);
 static NATIVE_SURFACE_PRESENTATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+/// Benchmark-only owner for the Phase 2b playback push path. It is not opened
+/// by default and therefore cannot change the invoke bridge until the caller
+/// explicitly opts into a measured session.
+pub struct NativePlaybackPushRuntime {
+    mailbox: Arc<crate::commands::playback_push_mailbox::PlaybackPushMailbox<PushBridgeFrame>>,
+    latest_render: Mutex<Option<FrameRequest>>,
+    render_notify: tokio::sync::Notify,
+    render_worker_started: std::sync::atomic::AtomicBool,
+    sender_started: std::sync::atomic::AtomicBool,
+}
+
+struct PushBridgeFrame {
+    rgba: Vec<u8>,
+    width: u32,
+    height: u32,
+}
+
+impl Default for NativePlaybackPushRuntime {
+    fn default() -> Self {
+        Self {
+            mailbox: Arc::new(Default::default()),
+            latest_render: Mutex::new(None),
+            render_notify: tokio::sync::Notify::new(),
+            render_worker_started: std::sync::atomic::AtomicBool::new(false),
+            sender_started: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+}
+
+fn push_runtime(app: &tauri::AppHandle) -> Result<Arc<NativePlaybackPushRuntime>, String> {
+    app.try_state::<Arc<NativePlaybackPushRuntime>>()
+        .map(|state| Arc::clone(&state))
+        .ok_or_else(|| "Native playback push runtime is unavailable".to_string())
+}
+
+fn push_packet(delivery: crate::commands::playback_push_mailbox::Delivery<PushBridgeFrame>) -> Result<tauri::ipc::InvokeResponseBody, ()> {
+    const HEADER_BYTES: usize = 52;
+    let width = delivery.payload.width;
+    let height = delivery.payload.height;
+    let stride = width.checked_mul(4).ok_or(())?;
+    if delivery.payload.rgba.len() != stride as usize * height as usize { return Err(()); }
+    let mut packet = vec![0_u8; HEADER_BYTES + delivery.payload.rgba.len()];
+    packet[0..4].copy_from_slice(&0x4350_4652_u32.to_le_bytes());
+    packet[4..6].copy_from_slice(&1_u16.to_le_bytes());
+    packet[6..8].copy_from_slice(&(HEADER_BYTES as u16).to_le_bytes());
+    packet[8..16].copy_from_slice(&delivery.generation.to_le_bytes());
+    packet[16..24].copy_from_slice(&delivery.delivery_seq.to_le_bytes());
+    packet[24..32].copy_from_slice(&delivery.frame_id.to_le_bytes());
+    let t8 = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| ())?.as_micros() as u64;
+    packet[32..40].copy_from_slice(&t8.to_le_bytes());
+    packet[40..44].copy_from_slice(&width.to_le_bytes());
+    packet[44..48].copy_from_slice(&height.to_le_bytes());
+    packet[48..52].copy_from_slice(&stride.to_le_bytes());
+    packet[HEADER_BYTES..].copy_from_slice(&delivery.payload.rgba);
+    Ok(tauri::ipc::InvokeResponseBody::Raw(packet))
+}
+
+async fn run_push_render_worker(app: tauri::AppHandle, runtime: Arc<NativePlaybackPushRuntime>) {
+    loop {
+        let request = {
+            runtime
+                .latest_render
+                .lock()
+                .expect("push render mailbox lock poisoned")
+                .take()
+        };
+        let Some(request) = request else {
+            runtime.render_notify.notified().await;
+            continue;
+        };
+        let generation = request.generation.unwrap_or_default();
+        let frame_id = request.frame_time.frame_index;
+        if let Ok(rgba) = render_frame_request_rgba(&app, &request).await {
+            // The sender owns transport; this producer only replaces a slot.
+            let _ = runtime.mailbox.submit(generation, frame_id, PushBridgeFrame {
+                rgba,
+                width: request.output_width,
+                height: request.output_height,
+            });
+        }
+    }
+}
 
 /// A user-initiated, copyable snapshot of the native preview environment and
 /// telemetry. This endpoint is read-only: it never enables automatic field
