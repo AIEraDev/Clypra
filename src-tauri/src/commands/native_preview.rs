@@ -108,14 +108,22 @@ pub fn get_native_push_transport_capabilities(
                 let supported = environment.cast::<ICoreWebView2Environment12>().is_ok()
                     && webview_core
                         .as_ref()
-                        .and_then(|core| core.cast::<ICoreWebView2_17>().ok())
-                        .is_some();
+                        .map(|core| core.cast::<ICoreWebView2_17>().is_ok())
+                        .unwrap_or(false);
                 if let Ok(mut value) = shared_buffer_out.lock() {
                     *value = supported;
                 }
-                if let Ok(version) = environment.BrowserVersionString() {
+                
+                // BrowserVersionString now requires an output parameter
+                let mut version_string = windows_core::PWSTR::null();
+                if environment.BrowserVersionString(&mut version_string).is_ok() {
                     if let Ok(mut value) = runtime_version_out.lock() {
-                        *value = Some(version.to_string());
+                        let version = version_string.to_string().unwrap_or_default();
+                        *value = Some(version);
+                        // Free the allocated string memory
+                        if !version_string.is_null() {
+                            let _ = windows_core::imp::CoTaskMemFree(Some(version_string.0 as *const _ as *const _));
+                        }
                     }
                 }
             });
