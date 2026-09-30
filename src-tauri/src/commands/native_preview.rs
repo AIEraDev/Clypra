@@ -72,6 +72,71 @@ pub struct NativePreviewStageDiagnosis {
     pub recommended_next_step: String,
 }
 
+/// Runtime-discovered candidates for the Phase 2 bridge transport gate. This
+/// intentionally describes capability only: selection is made by the measured
+/// p95/FPS gate, never by operating system, adapter vendor, or wgpu backend.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativePushTransportCapabilities {
+    pub channel: bool,
+    pub custom_protocol_long_poll: bool,
+    pub webview2_shared_buffer: bool,
+    pub webview_runtime: Option<String>,
+}
+
+#[tauri::command]
+pub fn get_native_push_transport_capabilities(
+    #[cfg_attr(not(target_os = "windows"), allow(unused_variables))] app: tauri::AppHandle,
+) -> NativePushTransportCapabilities {
+    #[cfg(target_os = "windows")]
+    {
+        use std::sync::{Arc, Mutex};
+        use webview2_com::Microsoft::Web::WebView2::Win32::{
+            ICoreWebView2Environment12, ICoreWebView2_17,
+        };
+        use windows_core::Interface;
+
+        let shared_buffer = Arc::new(Mutex::new(false));
+        let runtime_version = Arc::new(Mutex::new(None));
+        if let Some(window) = app.get_webview_window("main") {
+            let shared_buffer_out = Arc::clone(&shared_buffer);
+            let runtime_version_out = Arc::clone(&runtime_version);
+            let _ = window.with_webview(move |webview| unsafe {
+                let environment = webview.environment();
+                let controller = webview.controller();
+                let webview_core = controller.CoreWebView2();
+                let supported = environment.cast::<ICoreWebView2Environment12>().is_ok()
+                    && webview_core
+                        .as_ref()
+                        .and_then(|core| core.cast::<ICoreWebView2_17>().ok())
+                        .is_some();
+                if let Ok(mut value) = shared_buffer_out.lock() {
+                    *value = supported;
+                }
+                if let Ok(version) = environment.BrowserVersionString() {
+                    if let Ok(mut value) = runtime_version_out.lock() {
+                        *value = Some(version.to_string());
+                    }
+                }
+            });
+        }
+        return NativePushTransportCapabilities {
+            channel: true,
+            custom_protocol_long_poll: true,
+            webview2_shared_buffer: shared_buffer.lock().map(|value| *value).unwrap_or(false),
+            webview_runtime: runtime_version.lock().ok().and_then(|value| value.clone()),
+        };
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    NativePushTransportCapabilities {
+        channel: true,
+        custom_protocol_long_poll: true,
+        webview2_shared_buffer: false,
+        webview_runtime: None,
+    }
+}
+
 fn diagnose_mode_stats(mode: &ModeStats) -> Option<NativePreviewStageDiagnosis> {
     let stages = [
         ("decode", mode.decode.p95, "prioritize-decode"),
@@ -1863,6 +1928,8 @@ pub fn render_native_preview_transport_probe(
 pub fn stream_native_playback_frames(
     generation: u64,
     frame_count: Option<u32>,
+    payload_bytes: Option<usize>,
+    pace_ms: Option<u32>,
     on_frame: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>,
 ) -> Result<(), String> {
     const MAGIC: u32 = 0x4350_4652; // "RFPC" in little-endian byte order.
@@ -1872,11 +1939,20 @@ pub fn stream_native_playback_frames(
     const HEIGHT: u32 = 270;
     const STRIDE: u32 = WIDTH * 4;
     const MAX_FRAMES: u32 = 120;
+    const MIN_PAYLOAD_BYTES: usize = 1024;
+    const MAX_PAYLOAD_BYTES: usize = 4 * 1024 * 1024;
 
     let frame_count = frame_count.unwrap_or(20).clamp(1, MAX_FRAMES);
-    let pixel_bytes = (STRIDE as usize)
+    let default_pixel_bytes = (STRIDE as usize)
         .checked_mul(HEIGHT as usize)
         .ok_or_else(|| "Push-bridge probe frame size overflow".to_string())?;
+    let pixel_bytes = payload_bytes.unwrap_or(default_pixel_bytes);
+    if !(MIN_PAYLOAD_BYTES..=MAX_PAYLOAD_BYTES).contains(&pixel_bytes) {
+        return Err(format!(
+            "push-bridge payload_bytes must be between {MIN_PAYLOAD_BYTES} and {MAX_PAYLOAD_BYTES}"
+        ));
+    }
+    let pace = std::time::Duration::from_millis(u64::from(pace_ms.unwrap_or(0).min(1000)));
 
     for delivery_seq in 1..=u64::from(frame_count) {
         let t8_epoch_us = SystemTime::now()
@@ -1906,6 +1982,9 @@ pub fn stream_native_playback_frames(
             // A WebView reload or closed diagnostics pane is normal teardown,
             // not an application-level playback error.
             break;
+        }
+        if !pace.is_zero() {
+            std::thread::sleep(pace);
         }
     }
     Ok(())

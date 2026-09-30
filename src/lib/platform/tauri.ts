@@ -388,7 +388,11 @@ export async function renderNativePreviewTransportProbe(
 export async function streamNativePlaybackFrames(
   generation: bigint,
   onFrame: (packet: ArrayBuffer) => void,
-  frameCount = 20,
+  options: {
+    frameCount?: number;
+    payloadBytes?: number;
+    paceMs?: number;
+  } = {},
 ): Promise<void> {
   if (!isTauriRuntime()) {
     throw new Error("streamNativePlaybackFrames requires the Tauri runtime");
@@ -400,9 +404,26 @@ export async function streamNativePlaybackFrames(
     // 2a diagnostic generation is deliberately tiny; production code will
     // keep its own checked u64-to-wire conversion with the stream state.
     generation: Number(generation),
-    frameCount: Math.max(1, Math.min(120, Math.floor(frameCount))),
+    frameCount: Math.max(1, Math.min(120, Math.floor(options.frameCount ?? 20))),
+    payloadBytes: Math.max(1024, Math.min(4 * 1024 * 1024, Math.floor(options.payloadBytes ?? 480 * 270 * 4))),
+    paceMs: Math.max(0, Math.min(1000, Math.floor(options.paceMs ?? 0))),
     onFrame: channel,
   });
+}
+
+export interface NativePushTransportCapabilities {
+  channel: boolean;
+  customProtocolLongPoll: boolean;
+  webview2SharedBuffer: boolean;
+  webviewRuntime?: string | null;
+}
+
+/** Candidate discovery for the measured Phase 2 transport selector. */
+export async function getNativePushTransportCapabilities(): Promise<NativePushTransportCapabilities> {
+  if (!isTauriRuntime()) {
+    return { channel: false, customProtocolLongPoll: false, webview2SharedBuffer: false };
+  }
+  return invoke<NativePushTransportCapabilities>("get_native_push_transport_capabilities");
 }
 
 /** Register a bundled/editor font in the strict native font registry. */
