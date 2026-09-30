@@ -379,6 +379,32 @@ export async function renderNativePreviewTransportProbe(
   });
 }
 
+/**
+ * Phase 2a only: exercise the candidate one-way playback Channel with the
+ * same approximately-518 KiB RGBA payload used by the bridge probe. The
+ * packet begins with a versioned binary header; production playback is not
+ * switched to this transport until its t8 → t9 gate passes.
+ */
+export async function streamNativePlaybackFrames(
+  generation: bigint,
+  onFrame: (packet: ArrayBuffer) => void,
+  frameCount = 20,
+): Promise<void> {
+  if (!isTauriRuntime()) {
+    throw new Error("streamNativePlaybackFrames requires the Tauri runtime");
+  }
+  const channel = new Channel<ArrayBuffer>();
+  channel.onmessage = onFrame;
+  return invoke("stream_native_playback_frames", {
+    // Tauri's serde boundary expects a JSON number for Rust `u64`. The Phase
+    // 2a diagnostic generation is deliberately tiny; production code will
+    // keep its own checked u64-to-wire conversion with the stream state.
+    generation: Number(generation),
+    frameCount: Math.max(1, Math.min(120, Math.floor(frameCount))),
+    onFrame: channel,
+  });
+}
+
 /** Register a bundled/editor font in the strict native font registry. */
 export async function registerNativeFont(
   fontId: string,

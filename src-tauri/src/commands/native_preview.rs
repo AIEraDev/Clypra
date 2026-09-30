@@ -32,7 +32,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager};
 
 use crate::thumbnail_engine::stream_actor::DecodedVideoPlanes;
@@ -1844,6 +1844,71 @@ pub fn render_native_preview_transport_probe(
         *byte = (index & 0xff) as u8;
     }
     Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Phase 2a transport gate for the playback push bridge.
+///
+/// This deliberately streams deterministic RGBA-sized buffers through a Tauri
+/// `Channel`, rather than the invoke-response route used by
+/// `render_native_frame`. It does not render or decode: its only job is to
+/// prove (or reject) Channel delivery before the production playback pipeline
+/// is moved to it. Every packet has the production header layout followed by
+/// tightly packed RGBA8 pixels.
+///
+/// Header layout (little endian, 52 bytes):
+/// magic u32, version u16, header_bytes u16, generation u64,
+/// delivery_seq u64, frame_id u64, t8_epoch_us u64, width u32,
+/// height u32, stride u32.
+#[tauri::command]
+pub fn stream_native_playback_frames(
+    generation: u64,
+    frame_count: Option<u32>,
+    on_frame: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>,
+) -> Result<(), String> {
+    const MAGIC: u32 = 0x4350_4652; // "RFPC" in little-endian byte order.
+    const VERSION: u16 = 1;
+    const HEADER_BYTES: usize = 52;
+    const WIDTH: u32 = 480;
+    const HEIGHT: u32 = 270;
+    const STRIDE: u32 = WIDTH * 4;
+    const MAX_FRAMES: u32 = 120;
+
+    let frame_count = frame_count.unwrap_or(20).clamp(1, MAX_FRAMES);
+    let pixel_bytes = (STRIDE as usize)
+        .checked_mul(HEIGHT as usize)
+        .ok_or_else(|| "Push-bridge probe frame size overflow".to_string())?;
+
+    for delivery_seq in 1..=u64::from(frame_count) {
+        let t8_epoch_us = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| format!("System clock unavailable: {error}"))?
+            .as_micros()
+            .min(u64::MAX as u128) as u64;
+        let mut packet = vec![0_u8; HEADER_BYTES + pixel_bytes];
+        packet[0..4].copy_from_slice(&MAGIC.to_le_bytes());
+        packet[4..6].copy_from_slice(&VERSION.to_le_bytes());
+        packet[6..8].copy_from_slice(&(HEADER_BYTES as u16).to_le_bytes());
+        packet[8..16].copy_from_slice(&generation.to_le_bytes());
+        packet[16..24].copy_from_slice(&delivery_seq.to_le_bytes());
+        // This is intentionally a source-frame identity, not a delivery
+        // sequence. Phase 2b will allow it to skip when mailbox work is
+        // superseded; the two counters must never be conflated.
+        packet[24..32].copy_from_slice(&delivery_seq.to_le_bytes());
+        packet[32..40].copy_from_slice(&t8_epoch_us.to_le_bytes());
+        packet[40..44].copy_from_slice(&WIDTH.to_le_bytes());
+        packet[44..48].copy_from_slice(&HEIGHT.to_le_bytes());
+        packet[48..52].copy_from_slice(&STRIDE.to_le_bytes());
+
+        if on_frame
+            .send(tauri::ipc::InvokeResponseBody::Raw(packet))
+            .is_err()
+        {
+            // A WebView reload or closed diagnostics pane is normal teardown,
+            // not an application-level playback error.
+            break;
+        }
+    }
+    Ok(())
 }
 
 /// Render a project-sized frame from deterministic solid layers.
