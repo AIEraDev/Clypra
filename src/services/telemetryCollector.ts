@@ -826,6 +826,7 @@ class SessionRollupAccumulator {
     readbackCadenceFps?: number,
     playbackSpeed?: number,
     readbackSourceFrameStride?: number,
+    deadlineUs: number = 16_667,
   ): void {
     const now = Date.now();
 
@@ -863,7 +864,7 @@ class SessionRollupAccumulator {
     if (cacheHit) this.cacheHits++;
     else this.cacheMisses++;
 
-    if (timings.totalTimeUs > 25000) {
+    if (timings.totalTimeUs > deadlineUs) {
       this.jankEvents++;
     }
 
@@ -1776,6 +1777,7 @@ class TelemetryCollector {
         options.readbackCadenceFps,
         options.playbackSpeed,
         options.readbackSourceFrameStride,
+        options.deadlineUs ?? 16_667,
       );
 
       if (accumulator.shouldEmitRollup()) {
@@ -1784,7 +1786,8 @@ class TelemetryCollector {
     }
 
     const droppedRatio = normalizedDroppedFrames / normalizedTotalFrames;
-    const isAnomaly = droppedRatio > 0.05 || timings.totalTimeUs > 16667;
+    const isAnomaly =
+      droppedRatio > 0.05 || timings.totalTimeUs > (options.deadlineUs ?? 16_667);
 
     const hasDroppedFrame =
       normalizedDroppedFrames > 0 ||
