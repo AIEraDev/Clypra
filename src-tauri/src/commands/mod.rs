@@ -16,6 +16,7 @@ pub mod native_playback;
 pub mod native_preview;
 pub mod native_surface;
 pub mod permissions;
+pub mod playback_push_mailbox;
 pub mod project;
 pub mod recording;
 pub mod render_target_manager;
