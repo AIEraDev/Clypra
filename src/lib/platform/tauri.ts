@@ -411,6 +411,48 @@ export async function streamNativePlaybackFrames(
   });
 }
 
+/**
+ * Phase 2b benchmark transport. It is opt-in per session: callers retain the
+ * invoke-response bridge unless they explicitly open this stream.
+ */
+export async function openNativePlaybackPushStream(
+  generation: bigint,
+  onFrame: (packet: ArrayBuffer) => void,
+): Promise<void> {
+  if (!isTauriRuntime()) throw new Error("openNativePlaybackPushStream requires the Tauri runtime");
+  const channel = new Channel<ArrayBuffer>();
+  channel.onmessage = onFrame;
+  await invoke("open_native_playback_push_stream", { generation: Number(generation), onFrame: channel });
+}
+
+export async function submitNativePlaybackPushFrame(request: NativeFrameRequest): Promise<void> {
+  if (!isTauriRuntime()) return;
+  const nativeRequest: NativeFrameRequest = {
+    ...request,
+    project: {
+      ...request.project,
+      videoLayers: request.project.videoLayers.map((layer) => ({ ...layer, videoPath: toNativePath(layer.videoPath) })),
+    },
+  };
+  await invoke("submit_native_playback_push_frame", { request: nativeRequest });
+}
+
+export async function acknowledgeNativePlaybackPushFrame(
+  generation: bigint,
+  consumedDeliverySeq: bigint,
+): Promise<boolean> {
+  if (!isTauriRuntime()) return false;
+  return invoke<boolean>("acknowledge_native_playback_push_frame", {
+    generation: Number(generation),
+    consumedDeliverySeq: Number(consumedDeliverySeq),
+  });
+}
+
+export async function closeNativePlaybackPushStream(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke("close_native_playback_push_stream");
+}
+
 export interface NativePushTransportCapabilities {
   channel: boolean;
   customProtocolLongPoll: boolean;

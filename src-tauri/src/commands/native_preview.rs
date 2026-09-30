@@ -75,12 +75,16 @@ fn push_runtime(app: &tauri::AppHandle) -> Result<Arc<NativePlaybackPushRuntime>
         .ok_or_else(|| "Native playback push runtime is unavailable".to_string())
 }
 
-fn push_packet(delivery: crate::commands::playback_push_mailbox::Delivery<PushBridgeFrame>) -> Result<tauri::ipc::InvokeResponseBody, ()> {
+fn push_packet(
+    delivery: crate::commands::playback_push_mailbox::Delivery<PushBridgeFrame>,
+) -> Result<tauri::ipc::InvokeResponseBody, ()> {
     const HEADER_BYTES: usize = 52;
     let width = delivery.payload.width;
     let height = delivery.payload.height;
     let stride = width.checked_mul(4).ok_or(())?;
-    if delivery.payload.rgba.len() != stride as usize * height as usize { return Err(()); }
+    if delivery.payload.rgba.len() != stride as usize * height as usize {
+        return Err(());
+    }
     let mut packet = vec![0_u8; HEADER_BYTES + delivery.payload.rgba.len()];
     packet[0..4].copy_from_slice(&0x4350_4652_u32.to_le_bytes());
     packet[4..6].copy_from_slice(&1_u16.to_le_bytes());
@@ -88,7 +92,10 @@ fn push_packet(delivery: crate::commands::playback_push_mailbox::Delivery<PushBr
     packet[8..16].copy_from_slice(&delivery.generation.to_le_bytes());
     packet[16..24].copy_from_slice(&delivery.delivery_seq.to_le_bytes());
     packet[24..32].copy_from_slice(&delivery.frame_id.to_le_bytes());
-    let t8 = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| ())?.as_micros() as u64;
+    let t8 = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| ())?
+        .as_micros() as u64;
     packet[32..40].copy_from_slice(&t8.to_le_bytes());
     packet[40..44].copy_from_slice(&width.to_le_bytes());
     packet[44..48].copy_from_slice(&height.to_le_bytes());
@@ -114,11 +121,15 @@ async fn run_push_render_worker(app: tauri::AppHandle, runtime: Arc<NativePlayba
         let frame_id = request.frame_time.frame_index;
         if let Ok(rgba) = render_frame_request_rgba(&app, &request).await {
             // The sender owns transport; this producer only replaces a slot.
-            let _ = runtime.mailbox.submit(generation, frame_id, PushBridgeFrame {
-                rgba,
-                width: request.output_width,
-                height: request.output_height,
-            });
+            let _ = runtime.mailbox.submit(
+                generation,
+                frame_id,
+                PushBridgeFrame {
+                    rgba,
+                    width: request.output_width,
+                    height: request.output_height,
+                },
+            );
         }
     }
 }
@@ -2090,6 +2101,69 @@ pub fn stream_native_playback_frames(
             }
         }
     });
+    Ok(())
+}
+
+/// Open one benchmark-only playback stream. This does not alter the default
+/// invoke bridge; the frontend must explicitly opt into this command.
+#[tauri::command]
+pub fn open_native_playback_push_stream(
+    app: tauri::AppHandle,
+    generation: u64,
+    on_frame: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>,
+) -> Result<(), String> {
+    let runtime = push_runtime(&app)?;
+    if runtime.sender_started.swap(true, Ordering::AcqRel) {
+        return Err("Native playback push stream is already open".to_string());
+    }
+    runtime.mailbox.begin_generation(generation);
+    let channel = on_frame.clone();
+    let mailbox = Arc::clone(&runtime.mailbox);
+    mailbox.spawn_sender(move |delivery| {
+        let packet = push_packet(delivery)?;
+        channel.send(packet).map_err(|_| ())
+    });
+    if !runtime.render_worker_started.swap(true, Ordering::AcqRel) {
+        let worker_runtime = Arc::clone(&runtime);
+        tauri::async_runtime::spawn(run_push_render_worker(app, worker_runtime));
+    }
+    Ok(())
+}
+
+/// Producer-side playback update. This returns immediately; rendering and
+/// transport happen on their respective workers.
+#[tauri::command]
+pub fn submit_native_playback_push_frame(
+    app: tauri::AppHandle,
+    request: FrameRequest,
+) -> Result<(), String> {
+    let runtime = push_runtime(&app)?;
+    let generation = request.generation.unwrap_or_default();
+    runtime.mailbox.begin_generation(generation);
+    let mut latest = runtime
+        .latest_render
+        .lock()
+        .map_err(|_| "Native playback push render mailbox lock is poisoned".to_string())?;
+    *latest = Some(request);
+    drop(latest);
+    runtime.render_notify.notify_one();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn acknowledge_native_playback_push_frame(
+    app: tauri::AppHandle,
+    generation: u64,
+    consumed_delivery_seq: u64,
+) -> Result<bool, String> {
+    Ok(push_runtime(&app)?
+        .mailbox
+        .acknowledge(generation, consumed_delivery_seq))
+}
+
+#[tauri::command]
+pub fn close_native_playback_push_stream(app: tauri::AppHandle) -> Result<(), String> {
+    push_runtime(&app)?.mailbox.close();
     Ok(())
 }
 
