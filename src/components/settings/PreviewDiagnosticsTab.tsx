@@ -1,7 +1,11 @@
 import React, { useEffect, useState } from "react";
-import { Activity, Play, Square } from "lucide-react";
+import { Activity, Check, Copy, Play, Square } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { isTauriRuntime } from "@/lib/platform/tauri";
+import {
+  getNativePreviewPerformanceReport,
+  isTauriRuntime,
+} from "@/lib/platform/tauri";
+import { toast } from "@/lib/toast";
 import { useProjectStore } from "@/store/projectStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import {
@@ -25,6 +29,8 @@ export const PreviewDiagnosticsTab: React.FC = () => {
     previewQualificationController.getState(),
   );
   const [startedFromPause, setStartedFromPause] = useState(false);
+  const [copyingReport, setCopyingReport] = useState(false);
+  const [reportCopied, setReportCopied] = useState(false);
 
   useEffect(() => previewQualificationController.subscribe(setState), []);
 
@@ -55,6 +61,23 @@ export const PreviewDiagnosticsTab: React.FC = () => {
     if (startedFromPause) {
       pause();
       setStartedFromPause(false);
+    }
+  };
+
+  const copyPerformanceReport = async () => {
+    if (!isTauriRuntime() || copyingReport) return;
+    setCopyingReport(true);
+    try {
+      const report = await getNativePreviewPerformanceReport();
+      await navigator.clipboard.writeText(JSON.stringify(report, null, 2));
+      setReportCopied(true);
+      window.setTimeout(() => setReportCopied(false), 2_000);
+      toast.success("Performance report copied");
+    } catch (error) {
+      console.warn("[PreviewDiagnostics] Failed to copy performance report", error);
+      toast.error("Could not copy the performance report");
+    } finally {
+      setCopyingReport(false);
     }
   };
 
@@ -102,7 +125,27 @@ export const PreviewDiagnosticsTab: React.FC = () => {
           <Square className="mr-2 h-4 w-4" />
           Cancel
         </Button>
+        <Button
+          variant="secondary"
+          onClick={() => void copyPerformanceReport()}
+          disabled={!isTauriRuntime() || copyingReport}
+        >
+          {reportCopied ? (
+            <Check className="mr-2 h-4 w-4" />
+          ) : (
+            <Copy className="mr-2 h-4 w-4" />
+          )}
+          {copyingReport
+            ? "Preparing report…"
+            : reportCopied
+              ? "Copied"
+              : "Copy performance report"}
+        </Button>
       </div>
+      <p className="text-xs text-text-muted">
+        The copied report contains local runtime and aggregate preview metrics.
+        It does not send data automatically or include project/media paths.
+      </p>
       {!isTauriRuntime() && (
         <p className="text-xs text-text-muted">
           Preview qualification is available in the Tauri desktop app only.
