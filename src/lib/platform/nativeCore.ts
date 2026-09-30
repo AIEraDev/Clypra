@@ -128,6 +128,17 @@ export interface NativePreviewPerformanceReport {
   preview: NativeFrameServiceStats | null;
   session: NativeSessionSnapshot;
   stageDiagnoses: NativePreviewStageDiagnosis[];
+  pushBridge: NativePlaybackPushStatus | null;
+}
+
+export interface NativePlaybackPushStatus {
+  active: boolean;
+  senderStarted: boolean;
+  renderWorkerStarted: boolean;
+  supersededMailbox: number;
+  streamStall: number;
+  stallRecovered: number;
+  closedChannel: number;
 }
 
 export interface NativePreviewStageDiagnosis {

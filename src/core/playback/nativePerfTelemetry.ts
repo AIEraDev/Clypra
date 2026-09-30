@@ -19,6 +19,11 @@ export interface NativeFrontendPerfSample {
   canvasPaintMs?: number;
   /** Time from canvas draw completion to the next rAF callback. */
   paintRafMs?: number;
+  /** Rust send timestamp (t8) to WebView receipt (t9), for push transport. */
+  transportReceiveMs?: number;
+  /** Rust send timestamp (t8) to the canvas paint boundary (t11). */
+  frameAgeAtPaintMs?: number;
+  transport?: "invoke" | "push-channel";
   totalMs: number;
   dropped: boolean;
   stale: boolean;
@@ -51,6 +56,8 @@ export interface NativeFrontendModeStats {
   ipc: NativeFrontendStagePercentiles;
   canvasPaint: NativeFrontendStagePercentiles;
   paintRaf: NativeFrontendStagePercentiles;
+  transportReceive: NativeFrontendStagePercentiles;
+  frameAgeAtPaint: NativeFrontendStagePercentiles;
   total: NativeFrontendStagePercentiles;
   droppedCount: number;
   staleCount: number;
@@ -58,6 +65,14 @@ export interface NativeFrontendModeStats {
   nativeSurfaceCount: number;
   bridgeCount: number;
   bridgeFallbackReasons: Record<string, number>;
+  transportCounts: Record<string, number>;
+}
+
+export interface NativePushBridgeFrontendStats {
+  paintedFrames: number;
+  rejectedGenerationPackets: number;
+  /** WebView receive silence; not equivalent to Rust flow-control stall. */
+  receiverIdle: number;
 }
 
 const TRACE_STORAGE_KEY = "clypra:debug:native-perf";
@@ -148,6 +163,9 @@ export class NativePerfSpan {
   finish(
     options: {
       canvasPaintMs?: number;
+      transportReceiveMs?: number;
+      frameAgeAtPaintMs?: number;
+      transport?: "invoke" | "push-channel";
       dropped?: boolean;
       stale?: boolean;
       cancelled?: boolean;
@@ -183,6 +201,9 @@ export class NativePerfSpan {
       ipcMs: this.ipcMs,
       canvasPaintMs: options.canvasPaintMs,
       paintRafMs,
+      transportReceiveMs: options.transportReceiveMs,
+      frameAgeAtPaintMs: options.frameAgeAtPaintMs,
+      transport: options.transport,
       totalMs: deliveryTotalMs,
       dropped: options.dropped === true,
       stale: options.stale === true,
@@ -226,6 +247,11 @@ class NativePerfCollector {
   // collector is bounded and forwards through the existing batched transport;
   // the user telemetry setting can still disable it intentionally.
   private enabled = true;
+  private pushBridge: NativePushBridgeFrontendStats = {
+    paintedFrames: 0,
+    rejectedGenerationPackets: 0,
+    receiverIdle: 0,
+  };
 
   constructor() {
     for (const mode of [
@@ -341,9 +367,11 @@ class NativePerfCollector {
   statsFor(mode: NativePreviewMode): NativeFrontendModeStats {
     const samples = this.samples.get(mode) ?? [];
     const bridgeFallbackReasons: Record<string, number> = {};
+    const transportCounts: Record<string, number> = {};
     for (const sample of samples) {
       const reason = sample.previewContext?.presenterFallbackReason;
       if (reason) bridgeFallbackReasons[reason] = (bridgeFallbackReasons[reason] ?? 0) + 1;
+      if (sample.transport) transportCounts[sample.transport] = (transportCounts[sample.transport] ?? 0) + 1;
     }
     return {
       mode,
@@ -351,6 +379,8 @@ class NativePerfCollector {
       ipc: stagePercentiles(samples, (sample) => sample.ipcMs),
       canvasPaint: stagePercentiles(samples, (sample) => sample.canvasPaintMs),
       paintRaf: stagePercentiles(samples, (sample) => sample.paintRafMs),
+      transportReceive: stagePercentiles(samples, (sample) => sample.transportReceiveMs),
+      frameAgeAtPaint: stagePercentiles(samples, (sample) => sample.frameAgeAtPaintMs),
       total: stagePercentiles(samples, (sample) => sample.totalMs),
       droppedCount: samples.filter((sample) => sample.dropped).length,
       staleCount: samples.filter((sample) => sample.stale).length,
@@ -362,6 +392,7 @@ class NativePerfCollector {
         (sample) => sample.previewContext?.presenterMode === "bridge",
       ).length,
       bridgeFallbackReasons,
+      transportCounts,
     };
   }
 
@@ -376,6 +407,22 @@ class NativePerfCollector {
     ].map((mode) => this.statsFor(mode as NativePreviewMode));
   }
 
+  recordPushBridgeFrame(): void {
+    this.pushBridge.paintedFrames += 1;
+  }
+
+  recordPushBridgeRejectedGeneration(): void {
+    this.pushBridge.rejectedGenerationPackets += 1;
+  }
+
+  recordPushBridgeReceiverIdle(): void {
+    this.pushBridge.receiverIdle += 1;
+  }
+
+  pushBridgeStats(): NativePushBridgeFrontendStats {
+    return { ...this.pushBridge };
+  }
+
   dump(mode?: NativePreviewMode): NativeFrontendPerfSample[] {
     if (mode) return [...(this.samples.get(mode) ?? [])];
     return [...this.samples.values()].flatMap((bucket) => bucket);
@@ -383,6 +430,7 @@ class NativePerfCollector {
 
   clear(): void {
     for (const bucket of this.samples.values()) bucket.length = 0;
+    this.pushBridge = { paintedFrames: 0, rejectedGenerationPackets: 0, receiverIdle: 0 };
   }
 }
 

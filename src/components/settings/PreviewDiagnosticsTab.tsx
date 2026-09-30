@@ -99,6 +99,7 @@ export const PreviewDiagnosticsTab: React.FC = () => {
         frontend: {
           units: "milliseconds",
           modeStats: nativePerfCollector.allStats(),
+          pushBridge: nativePerfCollector.pushBridgeStats(),
         },
       };
       await navigator.clipboard.writeText(JSON.stringify(report, null, 2));

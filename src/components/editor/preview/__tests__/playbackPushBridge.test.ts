@@ -43,7 +43,7 @@ describe("PlaybackPushBridge", () => {
           generation: watermark.generation,
           consumedDeliverySeq: watermark.consumedDeliverySeq,
         }),
-      onStreamStall: () => { stalls += 1; },
+      onReceiverIdle: () => { stalls += 1; },
       ...options,
     });
 
@@ -97,7 +97,7 @@ describe("PlaybackPushBridge", () => {
     expect(watermarks[watermarks.length - 1]).toEqual({ generation: 8n, consumedDeliverySeq: 53n });
   });
 
-  it("fires the watchdog after 500 ms and a later packet resumes cleanly", () => {
+  it("reports receiver idle after 500 ms and a later packet resumes cleanly", () => {
     const receiver = bridge();
     receiver.beginGeneration(9n);
     vi.advanceTimersByTime(500);
