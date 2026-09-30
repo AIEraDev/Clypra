@@ -168,6 +168,12 @@ export class NativePerfSpan {
     if (this.finished) return;
     this.markIpcFinished();
     this.finished = true;
+    // The synchronous canvas draw is the delivery boundary. The following
+    // rAF is retained as a separate compositor-observation metric; including
+    // it in `totalMs` waits for another frame tick and turns a 30 FPS bridge
+    // delivery into a misleading ~15 FPS latency measurement.
+    const deliveredAt = performance.now();
+    const deliveryTotalMs = Math.max(0, deliveredAt - this.startedAt);
     const record = (paintRafMs?: number) => this.collector.record({
       requestId: this.request.requestId,
       generation: this.request.generation,
@@ -177,7 +183,7 @@ export class NativePerfSpan {
       ipcMs: this.ipcMs,
       canvasPaintMs: options.canvasPaintMs,
       paintRafMs,
-      totalMs: Math.max(0, performance.now() - this.startedAt),
+      totalMs: deliveryTotalMs,
       dropped: options.dropped === true,
       stale: options.stale === true,
       cancelled: options.cancelled === true,
