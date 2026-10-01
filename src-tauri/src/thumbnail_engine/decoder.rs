@@ -137,7 +137,7 @@ impl Default for VideoColorMetadata {
 }
 
 /// Stream-level metadata used to configure deterministic frame decoding.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoStreamMetadata {
     pub width: u32,
@@ -159,6 +159,19 @@ pub struct VideoStreamMetadata {
     pub container_format: String,
     #[serde(default)]
     pub is_hardware_accelerated: bool,
+}
+
+impl VideoStreamMetadata {
+    pub fn average_frame_rate_milli(&self) -> Option<u32> {
+        let (num, den) = if self.average_frame_rate_num > 0 && self.average_frame_rate_den > 0 {
+            (self.average_frame_rate_num, self.average_frame_rate_den)
+        } else if self.nominal_frame_rate_num > 0 && self.nominal_frame_rate_den > 0 {
+            (self.nominal_frame_rate_num, self.nominal_frame_rate_den)
+        } else {
+            return None;
+        };
+        Some(((i64::from(num) * 1_000) / i64::from(den)).clamp(0, i64::from(u32::MAX)) as u32)
+    }
 }
 
 /// Metadata for one decoded frame, including the timestamp selected by the
@@ -393,6 +406,17 @@ struct DecoderState {
     sequential_hits: u32,
 }
 
+/// Per-request facts retained by the long-lived decoder. These are deliberately
+/// request-scoped rather than cumulative so a performance sample can identify
+/// re-seeking and GOP amplification without guessing from elapsed time.
+#[derive(Debug, Clone, Copy, Default)]
+struct DecodeActivity {
+    seek_count: u32,
+    frames_decoded: u32,
+    hardware_frame_download_us: Option<u64>,
+    scale_colorspace_us: u64,
+}
+
 impl DecoderState {
     fn new() -> Self {
         Self {
@@ -462,6 +486,7 @@ pub struct VideoDecoder {
     raw_nv12_cache: VecDeque<CachedNv12Frame>,
     /// Accumulated microsecond duration spent demuxing packets from container I/O during the last decode request.
     last_demux_us: u32,
+    last_decode_activity: DecodeActivity,
 }
 
 impl VideoDecoder {
@@ -479,6 +504,16 @@ impl VideoDecoder {
 
     pub fn last_demux_us(&self) -> u32 {
         self.last_demux_us
+    }
+
+    pub fn last_decode_activity(&self) -> (u32, u32, Option<u64>, u64) {
+        let activity = self.last_decode_activity;
+        (
+            activity.seek_count,
+            activity.frames_decoded,
+            activity.hardware_frame_download_us,
+            activity.scale_colorspace_us,
+        )
     }
 
     fn clamp_timestamp(&self, timestamp_secs: f64) -> f64 {
@@ -657,6 +692,7 @@ impl VideoDecoder {
             last_raw_nv12: None,
             raw_nv12_cache: VecDeque::with_capacity(MAX_RAW_NV12_CACHE_ENTRIES),
             last_demux_us: 0,
+            last_decode_activity: DecodeActivity::default(),
         })
     }
 
@@ -1942,6 +1978,7 @@ impl VideoDecoder {
             let height = cached.height;
             let color = cached.color.clone();
             self.raw_nv12_cache.push_back(cached);
+            self.last_decode_activity = DecodeActivity::default();
             return Ok((y_clone, uv_clone, width, height, color));
         }
 
@@ -1952,6 +1989,7 @@ impl VideoDecoder {
                 && (!*is_approx || options.allow_keyframe_approx)
                 && (*cached_pts - target_pts).abs() <= pts_tolerance
             {
+                self.last_decode_activity = DecodeActivity::default();
                 return Ok((
                     Arc::clone(y),
                     Arc::clone(uv),
@@ -1971,6 +2009,7 @@ impl VideoDecoder {
             || (!is_backward && !self.state.can_decode_forward(target_pts, sequential_window));
 
         let mut demux_time_us = 0u32;
+        let mut frames_decoded = 0u32;
 
         if needs_seek {
             if is_cancelled() {
@@ -2014,6 +2053,7 @@ impl VideoDecoder {
                 }
                 let mut frame = ffmpeg::frame::Video::empty();
                 if self.decoder.receive_frame(&mut frame).is_ok() {
+                    frames_decoded = frames_decoded.saturating_add(1);
                     if is_cancelled() {
                         return Err("Native preview request cancelled".to_string());
                     }
@@ -2030,6 +2070,7 @@ impl VideoDecoder {
         if !found {
             let mut buffered = ffmpeg::frame::Video::empty();
             while self.decoder.receive_frame(&mut buffered).is_ok() {
+                frames_decoded = frames_decoded.saturating_add(1);
                 if is_cancelled() {
                     return Err("Native preview request cancelled".to_string());
                 }
@@ -2069,6 +2110,7 @@ impl VideoDecoder {
                 }
                 let mut frame = ffmpeg::frame::Video::empty();
                 while self.decoder.receive_frame(&mut frame).is_ok() {
+                    frames_decoded = frames_decoded.saturating_add(1);
                     if is_cancelled() {
                         return Err("Native preview request cancelled".to_string());
                     }
@@ -2124,6 +2166,7 @@ impl VideoDecoder {
                         }
                         let mut frame = ffmpeg::frame::Video::empty();
                         while self.decoder.receive_frame(&mut frame).is_ok() {
+                            frames_decoded = frames_decoded.saturating_add(1);
                             if is_cancelled() {
                                 return Err("Native preview request cancelled".to_string());
                             }
@@ -2151,6 +2194,7 @@ impl VideoDecoder {
         if !found && self.decoder.send_eof().is_ok() {
             let mut frame = ffmpeg::frame::Video::empty();
             while self.decoder.receive_frame(&mut frame).is_ok() {
+                frames_decoded = frames_decoded.saturating_add(1);
                 if is_cancelled() {
                     return Err("Native preview request cancelled".to_string());
                 }
@@ -2166,7 +2210,14 @@ impl VideoDecoder {
             return Err(format!("No frame found at {}s", ts));
         }
 
+        let hardware_download_started = Instant::now();
         let cpu_frame = self.to_cpu_frame(best_frame)?;
+        let hardware_frame_download_us = self.stream_metadata.is_hardware_accelerated.then(|| {
+            hardware_download_started
+                .elapsed()
+                .as_micros()
+                .min(u64::MAX as u128) as u64
+        });
         let frame_color = self.frame_metadata(&cpu_frame).color;
         let (target_width, target_height) =
             nv12_dimensions_for_quality(cpu_frame.width(), cpu_frame.height(), options.quality);
@@ -2174,6 +2225,7 @@ impl VideoDecoder {
         // cache labels or output geometry. Before this, a `proxy` CPU fallback
         // still uploaded/composited the source 4K NV12 surface, which is the
         // exact failure mode observed on the Intel HD 520 beta session.
+        let scale_started = Instant::now();
         let result = if target_width == cpu_frame.width() && target_height == cpu_frame.height() {
             if let Some(nv12) = self.extract_nv12_planes(&cpu_frame) {
                 Ok((
@@ -2189,6 +2241,7 @@ impl VideoDecoder {
         } else {
             scale_frame_to_nv12(&cpu_frame, target_width, target_height, frame_color.clone())
         }?;
+        let scale_colorspace_us = scale_started.elapsed().as_micros().min(u64::MAX as u128) as u64;
         let y_arc: Arc<[u8]> = Arc::from(result.0);
         let uv_arc: Arc<[u8]> = Arc::from(result.1);
         let is_approx = options.allow_keyframe_approx
@@ -2217,6 +2270,12 @@ impl VideoDecoder {
             is_approximate: is_approx,
         });
         self.last_demux_us = demux_time_us;
+        self.last_decode_activity = DecodeActivity {
+            seek_count: u32::from(needs_seek),
+            frames_decoded,
+            hardware_frame_download_us,
+            scale_colorspace_us,
+        };
         Ok((y_arc, uv_arc, result.2, result.3, result.4))
     }
 

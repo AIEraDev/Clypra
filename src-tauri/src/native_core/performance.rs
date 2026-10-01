@@ -180,6 +180,33 @@ pub struct PerformanceSample {
     /// Whether hardware decoding acceleration is active for the frame stream.
     #[serde(default)]
     pub is_hardware_accelerated: Option<bool>,
+    /// Number of container seeks performed to satisfy this decode request.
+    /// Playback should normally remain at zero after its initial warm-up.
+    #[serde(default)]
+    pub decoder_seek_count: Option<u32>,
+    /// Frames emitted by the decoder while resolving this request. Comparing
+    /// this with delivered frames exposes GOP re-decode amplification.
+    #[serde(default)]
+    pub decoder_frames_decoded: Option<u32>,
+    /// CPU transfer time for a hardware-decoded frame, when that frame had to
+    /// be downloaded before preview conversion.
+    #[serde(default)]
+    pub hardware_frame_download_us: Option<u64>,
+    /// CPU scale / colorspace conversion to preview NV12 planes. This is kept
+    /// separate from packet decode and GPU upload.
+    #[serde(default)]
+    pub scale_colorspace_us: Option<u64>,
+    /// Source media facts needed to interpret a decode measurement.
+    #[serde(default)]
+    pub source_width: Option<u32>,
+    #[serde(default)]
+    pub source_height: Option<u32>,
+    #[serde(default)]
+    pub source_bits_per_raw_sample: Option<u8>,
+    #[serde(default)]
+    /// Source average frame rate multiplied by 1,000 to preserve common
+    /// fractional rates while keeping the sample comparable/Eq-friendly.
+    pub source_frame_rate_milli: Option<u32>,
 }
 
 impl PerformanceSample {
@@ -276,6 +303,14 @@ pub struct ModeStats {
     pub ipc_wait: StagePercentiles,
     pub decoder_mutex_wait: StagePercentiles,
     pub demux_wait: StagePercentiles,
+    /// Actual container seeks per decoded frame request. Steady playback
+    /// should approach zero once the decoder is warm.
+    pub decoder_seek_count: StagePercentiles,
+    /// Decoder output-frame count per request; values above one reveal GOP
+    /// amplification rather than a simple presentation-rate problem.
+    pub decoder_frames_decoded: StagePercentiles,
+    pub hardware_frame_download: StagePercentiles,
+    pub scale_colorspace: StagePercentiles,
     pub gpu_queue_wait: StagePercentiles,
     pub surface_acquire: StagePercentiles,
     pub submit_present: StagePercentiles,
@@ -379,6 +414,14 @@ mod tests {
             demux_wait_us: None,
             container_format: None,
             is_hardware_accelerated: None,
+            decoder_seek_count: None,
+            decoder_frames_decoded: None,
+            hardware_frame_download_us: None,
+            scale_colorspace_us: None,
+            source_width: None,
+            source_height: None,
+            source_bits_per_raw_sample: None,
+            source_frame_rate_milli: None,
         };
         assert!(sample.exceeds_render_budget(&budget));
     }
