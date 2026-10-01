@@ -174,6 +174,9 @@ pub struct NativePreviewPerformanceReport {
     pub report_version: u32,
     pub captured_at_ms: u64,
     pub application_version: String,
+    /// Rust's active Cargo profile. Performance percentiles from debug builds
+    /// must never be compared with release qualification baselines.
+    pub build_profile: String,
     pub operating_system: String,
     pub architecture: String,
     pub gpu: Option<NativeGpuRuntimeStatus>,
@@ -438,6 +441,14 @@ struct NativeDecodeTimings {
     demux_wait_us: Option<u64>,
     container_format: Option<String>,
     is_hardware_accelerated: Option<bool>,
+    decoder_seek_count: Option<u32>,
+    decoder_frames_decoded: Option<u32>,
+    hardware_frame_download_us: Option<u64>,
+    scale_colorspace_us: Option<u64>,
+    source_width: Option<u32>,
+    source_height: Option<u32>,
+    source_bits_per_raw_sample: Option<u8>,
+    source_frame_rate_milli: Option<u32>,
 }
 
 struct QueuedNativeFrame {
@@ -650,6 +661,14 @@ fn record_native_surface_sample(
         demux_wait_us: decode_timings.demux_wait_us,
         container_format: decode_timings.container_format.clone(),
         is_hardware_accelerated: decode_timings.is_hardware_accelerated,
+        decoder_seek_count: decode_timings.decoder_seek_count,
+        decoder_frames_decoded: decode_timings.decoder_frames_decoded,
+        hardware_frame_download_us: decode_timings.hardware_frame_download_us,
+        scale_colorspace_us: decode_timings.scale_colorspace_us,
+        source_width: decode_timings.source_width,
+        source_height: decode_timings.source_height,
+        source_bits_per_raw_sample: decode_timings.source_bits_per_raw_sample,
+        source_frame_rate_milli: decode_timings.source_frame_rate_milli,
     });
 }
 
@@ -2333,7 +2352,7 @@ pub async fn get_video_scopes(
 /// Decode, color-convert, and composite real video layers in native Rust/wgpu.
 /// This internal function returns bytes so versioned frame-service commands can
 /// add caching and stale-request handling without duplicating the renderer.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone)]
 struct NativeRenderStageTimings {
     decode_time_us: u32,
     conversion_time_us: u32,
@@ -2343,6 +2362,7 @@ struct NativeRenderStageTimings {
     /// This is intentionally marked separately from GPU timestamp queries.
     map_wait_us: u32,
     decoder_mutex_wait_us: u64,
+    decode_telemetry: NativeDecodeTimings,
 }
 
 fn resolve_mask_view<'a>(
@@ -2441,6 +2461,7 @@ async fn render_native_video_project_frame_bytes_timed(
     let mut views = Vec::with_capacity(request.layers.len() + request.raster_layers.len());
     let mut decode_time_us = 0u32;
     let mut decoder_mutex_wait_us = 0u64;
+    let mut decode_telemetry = NativeDecodeTimings::default();
 
     // ── Capability-Negotiated Render Path Selection ───────────────────────────
     // Before decoding, inspect the session's negotiated DXGI state. If zero-copy
@@ -2526,7 +2547,7 @@ async fn render_native_video_project_frame_bytes_timed(
 
     let mut session = state.lock().await;
     let gpu = Arc::clone(&session.gpu);
-    let conversion_started = Instant::now();
+    let mut conversion_started = Instant::now();
 
     #[allow(unused_mut)]
     let mut render_path = FrameRenderPath::GpuUploadRing;
@@ -2623,8 +2644,13 @@ async fn render_native_video_project_frame_bytes_timed(
         let (decoded_frames, decode_timings) = decode_native_video_layers(&request, None).await?;
         decode_time_us = decode_timings.decode_time_us;
         decoder_mutex_wait_us = decode_timings.decoder_mutex_wait_us;
+        decode_telemetry = decode_timings;
 
         session = state.lock().await;
+        // The prior timer was started before awaiting CPU decode, making
+        // `conversionUpload` cumulative with decode. Start it at the actual
+        // GPU-upload/format-conversion boundary instead.
+        conversion_started = Instant::now();
         for (layer, (planes, width, height, color, source_rotation)) in
             request.layers.iter().zip(decoded_frames.iter())
         {
@@ -2915,6 +2941,7 @@ async fn render_native_video_project_frame_bytes_timed(
             readback_time_us: readback_time_us.min(u32::MAX as u64) as u32,
             map_wait_us: map_wait_us.min(u32::MAX as u64) as u32,
             decoder_mutex_wait_us,
+            decode_telemetry,
         },
     ))
 }
@@ -2962,6 +2989,11 @@ async fn decode_native_video_layers(
         let demux_us = actor_frame.demux_us;
         let container_format = actor_frame.container_format.clone();
         let is_hw = actor_frame.is_hardware_accelerated;
+        let decoder_seek_count = actor_frame.decoder_seek_count;
+        let decoder_frames_decoded = actor_frame.decoder_frames_decoded;
+        let hardware_frame_download_us = actor_frame.hardware_frame_download_us;
+        let scale_colorspace_us = actor_frame.scale_colorspace_us;
+        let source = actor_frame.source_metadata.clone();
         let decoded = actor_frame.into_native_video_frame();
         return Ok((
             vec![decoded],
@@ -2972,6 +3004,14 @@ async fn decode_native_video_layers(
                 demux_wait_us: Some(u64::from(demux_us)),
                 container_format: Some(container_format),
                 is_hardware_accelerated: Some(is_hw),
+                decoder_seek_count: Some(decoder_seek_count),
+                decoder_frames_decoded: Some(decoder_frames_decoded),
+                hardware_frame_download_us,
+                scale_colorspace_us: Some(scale_colorspace_us),
+                source_width: Some(source.width),
+                source_height: Some(source.height),
+                source_bits_per_raw_sample: Some(source.bits_per_raw_sample),
+                source_frame_rate_milli: source.average_frame_rate_milli(),
             },
         ));
     }
@@ -3077,6 +3117,10 @@ async fn decode_native_video_layers(
             demux_wait_us: Some(max_demux_us),
             container_format: primary_container,
             is_hardware_accelerated: Some(all_hw),
+            // Multi-layer aggregation currently records the critical-path
+            // maximum. Per-stream decode activity is intentionally omitted
+            // until the report can represent one row per source.
+            ..NativeDecodeTimings::default()
         },
     ))
 }
@@ -4649,6 +4693,14 @@ pub async fn render_native_frame(
                 demux_wait_us: None,
                 container_format: None,
                 is_hardware_accelerated: None,
+                decoder_seek_count: None,
+                decoder_frames_decoded: None,
+                hardware_frame_download_us: None,
+                scale_colorspace_us: None,
+                source_width: None,
+                source_height: None,
+                source_bits_per_raw_sample: None,
+                source_frame_rate_milli: None,
             });
             record_successful_readback_metrics(&app, &request);
             return Ok(tauri::ipc::Response::new(packet.data));
@@ -4764,9 +4816,17 @@ pub async fn render_native_frame(
             submit_present_us: None,
             capability_policy: None,
             capability_probe_us: None,
-            demux_wait_us: None,
-            container_format: None,
-            is_hardware_accelerated: None,
+            demux_wait_us: stage_timings.decode_telemetry.demux_wait_us,
+            container_format: stage_timings.decode_telemetry.container_format.clone(),
+            is_hardware_accelerated: stage_timings.decode_telemetry.is_hardware_accelerated,
+            decoder_seek_count: stage_timings.decode_telemetry.decoder_seek_count,
+            decoder_frames_decoded: stage_timings.decode_telemetry.decoder_frames_decoded,
+            hardware_frame_download_us: stage_timings.decode_telemetry.hardware_frame_download_us,
+            scale_colorspace_us: stage_timings.decode_telemetry.scale_colorspace_us,
+            source_width: stage_timings.decode_telemetry.source_width,
+            source_height: stage_timings.decode_telemetry.source_height,
+            source_bits_per_raw_sample: stage_timings.decode_telemetry.source_bits_per_raw_sample,
+            source_frame_rate_milli: stage_timings.decode_telemetry.source_frame_rate_milli,
         });
     }
 
@@ -4845,6 +4905,11 @@ pub async fn get_native_preview_performance_report(
         report_version: 1,
         captured_at_ms: crate::native_core::performance::now_ms(),
         application_version: env!("CARGO_PKG_VERSION").to_string(),
+        build_profile: if cfg!(debug_assertions) {
+            "debug".to_string()
+        } else {
+            "release".to_string()
+        },
         operating_system: std::env::consts::OS.to_string(),
         architecture: std::env::consts::ARCH.to_string(),
         gpu,

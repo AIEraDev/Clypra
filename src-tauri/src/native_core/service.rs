@@ -229,6 +229,18 @@ impl NativeFrameService {
                 demux_wait: optional_stage_percentiles(&samples, |sample| {
                     sample.demux_wait_us
                 }),
+                decoder_seek_count: optional_stage_percentiles(&samples, |sample| {
+                    sample.decoder_seek_count.map(u64::from)
+                }),
+                decoder_frames_decoded: optional_stage_percentiles(&samples, |sample| {
+                    sample.decoder_frames_decoded.map(u64::from)
+                }),
+                hardware_frame_download: optional_stage_percentiles(&samples, |sample| {
+                    sample.hardware_frame_download_us
+                }),
+                scale_colorspace: optional_stage_percentiles(&samples, |sample| {
+                    sample.scale_colorspace_us
+                }),
                 gpu_queue_wait: optional_stage_percentiles(&samples, |sample| {
                     sample.gpu_queue_wait_us
                 }),
@@ -386,6 +398,14 @@ mod tests {
             demux_wait_us: None,
             container_format: None,
             is_hardware_accelerated: None,
+            decoder_seek_count: None,
+            decoder_frames_decoded: None,
+            hardware_frame_download_us: None,
+            scale_colorspace_us: None,
+            source_width: None,
+            source_height: None,
+            source_bits_per_raw_sample: None,
+            source_frame_rate_milli: None,
         }
     }
 

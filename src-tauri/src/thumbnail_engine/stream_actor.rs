@@ -24,7 +24,7 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 
 use crate::thumbnail_engine::decoder::{
     get_preview_decoder_for_stream, preview_pool_key, DecodeFrameOptions, VideoColorMetadata,
-    VideoDecoder,
+    VideoDecoder, VideoStreamMetadata,
 };
 use clypra_native_core::QualityTier;
 
@@ -92,6 +92,11 @@ pub struct DecodedActorFrame {
     pub demux_us: u32,
     pub container_format: String,
     pub is_hardware_accelerated: bool,
+    pub decoder_seek_count: u32,
+    pub decoder_frames_decoded: u32,
+    pub hardware_frame_download_us: Option<u64>,
+    pub scale_colorspace_us: u64,
+    pub source_metadata: VideoStreamMetadata,
 }
 
 impl DecodedActorFrame {
@@ -183,6 +188,15 @@ impl StreamDecoderActorHandle {
                     cache.push_back(item);
                 }
                 hit.from_prime_cache = true;
+                // These timings describe the frame's original decode. The
+                // presentation request consumed an already-ready frame, so
+                // reporting them here would falsely inflate live playback
+                // seek/amplification metrics.
+                hit.decode_us = 0;
+                hit.decoder_seek_count = 0;
+                hit.decoder_frames_decoded = 0;
+                hit.hardware_frame_download_us = None;
+                hit.scale_colorspace_us = 0;
                 hit.actor_wait_us = start.elapsed().as_micros().min(u64::MAX as u128) as u64;
                 return Ok(hit);
             }
@@ -481,6 +495,7 @@ impl StreamDecoderActor {
             let mutex_wait_us = mutex_started.elapsed().as_micros() as u64;
             let decode_started = Instant::now();
             let stream_color = guard.metadata().color;
+            let source_metadata = guard.metadata();
             let container_format = guard.container_format().to_string();
             let is_hardware_accelerated = guard.is_hardware_accelerated();
             let source_rotation = guard.rotation();
@@ -507,6 +522,8 @@ impl StreamDecoderActor {
                         );
                         let is_approx = guard.is_last_frame_approximate();
                         let demux_us = guard.last_demux_us();
+                        let (seek_count, frames_decoded, download_us, scale_us) =
+                            guard.last_decode_activity();
                         return Ok((
                             DecodedVideoPlanes::D3d11(Arc::new(shared)),
                             width,
@@ -519,6 +536,11 @@ impl StreamDecoderActor {
                             container_format,
                             is_hardware_accelerated,
                             source_rotation,
+                            seek_count,
+                            frames_decoded,
+                            download_us,
+                            scale_us,
+                            source_metadata,
                         ));
                     }
                     Ok(None) => {
@@ -542,6 +564,8 @@ impl StreamDecoderActor {
                 guard.decode_frame_raw_nv12_with_options(target_time, options, is_cancelled);
             let is_approx = guard.is_last_frame_approximate();
             let demux_us = guard.last_demux_us();
+            let (seek_count, frames_decoded, download_us, scale_us) =
+                guard.last_decode_activity();
 
             let decode_us = decode_started.elapsed().as_micros().min(u32::MAX as u128) as u32;
 
@@ -566,6 +590,11 @@ impl StreamDecoderActor {
                         container_format,
                         is_hardware_accelerated,
                         source_rotation,
+                        seek_count,
+                        frames_decoded,
+                        download_us,
+                        scale_us,
+                        source_metadata,
                     ))
                 }
                 Err(err) => Err(err),
@@ -586,6 +615,11 @@ impl StreamDecoderActor {
             container_format,
             is_hardware_accelerated,
             source_rotation,
+            decoder_seek_count,
+            decoder_frames_decoded,
+            hardware_frame_download_us,
+            scale_colorspace_us,
+            source_metadata,
         ) = result?;
 
         Ok(DecodedActorFrame {
@@ -604,6 +638,11 @@ impl StreamDecoderActor {
             demux_us,
             container_format,
             is_hardware_accelerated,
+            decoder_seek_count,
+            decoder_frames_decoded,
+            hardware_frame_download_us,
+            scale_colorspace_us,
+            source_metadata,
         })
     }
 }
@@ -689,6 +728,11 @@ mod tests {
             demux_us: 10,
             container_format: "mp4".to_string(),
             is_hardware_accelerated: false,
+            decoder_seek_count: 0,
+            decoder_frames_decoded: 0,
+            hardware_frame_download_us: None,
+            scale_colorspace_us: 0,
+            source_metadata: VideoStreamMetadata::default(),
         };
 
         prime_cache.lock().await.push_back(cached_frame);
@@ -743,6 +787,11 @@ mod tests {
             demux_us: 10,
             container_format: "mp4".to_string(),
             is_hardware_accelerated: false,
+            decoder_seek_count: 0,
+            decoder_frames_decoded: 0,
+            hardware_frame_download_us: None,
+            scale_colorspace_us: 0,
+            source_metadata: VideoStreamMetadata::default(),
         };
         prime_cache.lock().await.push_back(approx_frame);
 
