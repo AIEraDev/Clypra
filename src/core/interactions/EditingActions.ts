@@ -34,6 +34,9 @@ import {
   GroupClipsCommand,
   UngroupClipsCommand,
   SwapClipsCommand,
+  SlipClipCommand,
+  SlideClipCommand,
+  RollClipCommand,
   validateGroupSelection,
 } from "../history/commands";
 import type { Clip } from "@/types";
@@ -49,12 +52,16 @@ import { perfLogService } from "@/services/perfLogService";
 // Timeline edit telemetry types
 // ---------------------------------------------------------------------------
 
-export type TimelineEditOperation = "split" | "move" | "trim";
+export type TimelineEditOperation = "split" | "move" | "trim" | "slip" | "slide" | "roll";
 
 export interface TimelineEditTelemetry {
   operation: TimelineEditOperation;
-  /** Primary clip involved (for split and move; trim may affect multiple). */
+  /** Primary clip involved (for split, move, slip, slide, roll). */
   clipId?: string;
+  /** Secondary clip involved (for roll edit: incoming clip). */
+  secondaryClipId?: string;
+  /** Delta applied in seconds (for slip, slide, roll). */
+  deltaApplied?: number;
   /** For split: the time the split was applied (seconds). */
   splitTime?: number;
   /** For split: which UI surface triggered the action. */
@@ -63,14 +70,21 @@ export interface TimelineEditTelemetry {
   fromTrackId?: string;
   /** For move: destination track ID after the move. */
   toTrackId?: string;
-  /** For move: original start time (seconds). */
+  /** For move/slide: original start time (seconds). */
   fromTime?: number;
-  /** For move: committed start time (seconds). */
+  /** For move/slide: committed start time (seconds). */
   toTime?: number;
-  /** For trim: number of clips affected by the trim gesture. */
+  /** For trim/slide/roll: number of clips affected by the gesture. */
   trimClipCount?: number;
+  /** For slip: boundaries before and after. */
+  fromTrimIn?: number;
+  toTrimIn?: number;
+  fromTrimOut?: number;
+  toTrimOut?: number;
   /** Whether the operation completed successfully (false = rolled back). */
   success: boolean;
+  /** Error message if operation failed. */
+  error?: string;
   /** Wall-clock duration of the interaction from start to commit (ms). */
   durationMs: number;
 }
@@ -717,6 +731,339 @@ export class EditingActions {
    */
   static canSplitAtPlayhead(): boolean {
     return this.getClipsUnderPlayhead().length > 0;
+  }
+
+  /**
+   * Slips the source media window inside the clip by deltaSeconds without
+   * changing the clip's position on the timeline or its duration.
+   */
+  static slipClip(clipId: string, deltaSeconds: number): {
+    success: boolean;
+    error?: string;
+    newTrimIn?: number;
+    newTrimOut?: number;
+  } {
+    const t0 = performance.now();
+    const timeline = useTimelineStore.getState();
+    const clip = timeline.clips.find((c) => c.id === clipId);
+    if (!clip) {
+      this.recordTimelineEdit({ operation: "slip", clipId, success: false, error: "Clip not found", durationMs: performance.now() - t0 });
+      return { success: false, error: "Clip not found" };
+    }
+    if (clip.kind === "compound") {
+      this.recordTimelineEdit({ operation: "slip", clipId, success: false, error: "Compound clips cannot be slipped", durationMs: performance.now() - t0 });
+      return { success: false, error: "Compound clips cannot be slipped" };
+    }
+
+    const track = timeline.tracks.find((t) => t.id === clip.trackId);
+    if (track?.locked) {
+      this.recordTimelineEdit({ operation: "slip", clipId, success: false, error: "Track is locked", durationMs: performance.now() - t0 });
+      return { success: false, error: "Track is locked" };
+    }
+
+    const assets = useProjectStore.getState().mediaAssets;
+    const asset = assets.find((a) => a.id === clip.mediaId);
+    const maxDuration = asset?.duration ?? Infinity;
+
+    const proposedTrimIn = clip.trimIn + deltaSeconds;
+    const maxTrimIn = Number.isFinite(maxDuration)
+      ? Math.max(0, maxDuration - clip.duration)
+      : Infinity;
+
+    const newTrimIn = Math.max(0, Math.min(maxTrimIn, proposedTrimIn));
+    const newTrimOut = newTrimIn + clip.duration;
+
+    if (Math.abs(newTrimIn - clip.trimIn) < 0.0001) {
+      const err = deltaSeconds > 0 ? "Reached end of source media" : "Reached beginning of source media";
+      this.recordTimelineEdit({ operation: "slip", clipId, success: false, error: err, durationMs: performance.now() - t0 });
+      return {
+        success: false,
+        error: err,
+      };
+    }
+
+    useHistoryStore.getState().execute(
+      new SlipClipCommand(clip.id, clip.trimIn, clip.trimOut, newTrimIn, newTrimOut)
+    );
+
+    this.recordTimelineEdit({
+      operation: "slip",
+      clipId: clip.id,
+      deltaApplied: newTrimIn - clip.trimIn,
+      fromTrimIn: clip.trimIn,
+      toTrimIn: newTrimIn,
+      fromTrimOut: clip.trimOut,
+      toTrimOut: newTrimOut,
+      trimClipCount: 1,
+      success: true,
+      durationMs: performance.now() - t0,
+    });
+
+    return { success: true, newTrimIn, newTrimOut };
+  }
+
+  /**
+   * Slides a clip along the timeline by deltaSeconds, adjusting the preceding
+   * clip's out-point and succeeding clip's in-point to preserve total sequence length.
+   */
+  static slideClip(clipId: string, deltaSeconds: number): {
+    success: boolean;
+    error?: string;
+    deltaApplied?: number;
+  } {
+    const t0 = performance.now();
+    const timeline = useTimelineStore.getState();
+    const clip = timeline.clips.find((c) => c.id === clipId);
+    if (!clip) {
+      this.recordTimelineEdit({ operation: "slide", clipId, success: false, error: "Clip not found", durationMs: performance.now() - t0 });
+      return { success: false, error: "Clip not found" };
+    }
+    if (clip.kind === "compound") {
+      this.recordTimelineEdit({ operation: "slide", clipId, success: false, error: "Compound clips cannot be slid", durationMs: performance.now() - t0 });
+      return { success: false, error: "Compound clips cannot be slid" };
+    }
+
+    const track = timeline.tracks.find((t) => t.id === clip.trackId);
+    if (track?.locked) {
+      this.recordTimelineEdit({ operation: "slide", clipId, success: false, error: "Track is locked", durationMs: performance.now() - t0 });
+      return { success: false, error: "Track is locked" };
+    }
+
+    const trackClips = timeline.clips
+      .filter((c) => c.trackId === clip.trackId)
+      .sort((a, b) => a.startTime - b.startTime);
+
+    const idx = trackClips.findIndex((c) => c.id === clip.id);
+    const prevClip = idx > 0 ? trackClips[idx - 1] : null;
+    const nextClip = idx < trackClips.length - 1 ? trackClips[idx + 1] : null;
+
+    const assets = useProjectStore.getState().mediaAssets;
+    const prevAsset = prevClip ? assets.find((a) => a.id === prevClip.mediaId) : null;
+    const nextAsset = nextClip ? assets.find((a) => a.id === nextClip.mediaId) : null;
+
+    const project = useProjectStore.getState().project;
+    const minClipDuration = 1 / (project?.frameRate ?? 30);
+
+    let minAllowedDelta = -Infinity;
+    let maxAllowedDelta = Infinity;
+
+    // Timeline start boundary
+    minAllowedDelta = Math.max(minAllowedDelta, -clip.startTime);
+
+    if (prevClip) {
+      const prevMinDurationDelta = -(prevClip.duration - minClipDuration);
+      minAllowedDelta = Math.max(minAllowedDelta, prevMinDurationDelta);
+
+      if (prevAsset?.duration) {
+        const prevMaxGrowth = prevAsset.duration - prevClip.trimOut;
+        maxAllowedDelta = Math.min(maxAllowedDelta, Math.max(0, prevMaxGrowth));
+      }
+    }
+
+    if (nextClip) {
+      const nextMinDurationDelta = nextClip.duration - minClipDuration;
+      maxAllowedDelta = Math.min(maxAllowedDelta, nextMinDurationDelta);
+
+      const nextMinTrimDelta = -nextClip.trimIn;
+      minAllowedDelta = Math.max(minAllowedDelta, nextMinTrimDelta);
+    }
+
+    const effectiveDelta = Math.max(minAllowedDelta, Math.min(maxAllowedDelta, deltaSeconds));
+
+    if (Math.abs(effectiveDelta) < 0.0001) {
+      const err = deltaSeconds > 0 ? "Cannot slide right (boundary reached)" : "Cannot slide left (boundary reached)";
+      this.recordTimelineEdit({ operation: "slide", clipId, success: false, error: err, durationMs: performance.now() - t0 });
+      return {
+        success: false,
+        error: err,
+      };
+    }
+
+    const beforeClips: Clip[] = [clip];
+    const afterClips: Clip[] = [{ ...clip, startTime: clip.startTime + effectiveDelta }];
+
+    if (prevClip) {
+      beforeClips.push(prevClip);
+      afterClips.push({
+        ...prevClip,
+        duration: prevClip.duration + effectiveDelta,
+        trimOut: prevClip.trimOut + effectiveDelta,
+      });
+    }
+
+    if (nextClip) {
+      beforeClips.push(nextClip);
+      afterClips.push({
+        ...nextClip,
+        startTime: nextClip.startTime + effectiveDelta,
+        duration: nextClip.duration - effectiveDelta,
+        trimIn: nextClip.trimIn + effectiveDelta,
+      });
+    }
+
+    useHistoryStore.getState().execute(new SlideClipCommand(beforeClips, afterClips));
+    this.recordTimelineEdit({
+      operation: "slide",
+      clipId: clip.id,
+      deltaApplied: effectiveDelta,
+      fromTime: clip.startTime,
+      toTime: clip.startTime + effectiveDelta,
+      trimClipCount: (prevClip ? 1 : 0) + 1 + (nextClip ? 1 : 0),
+      success: true,
+      durationMs: performance.now() - t0,
+    });
+    return { success: true, deltaApplied: effectiveDelta };
+  }
+
+  /**
+   * Rolls the cut point between two adjacent clips on the same track by deltaSeconds.
+   * Extends/contracts the outgoing clip while simultaneously contracting/extending the incoming clip,
+   * keeping overall sequence duration and outer boundaries invariant.
+   */
+  static rollEdit(
+    outgoingClipId: string,
+    incomingClipId: string,
+    deltaSeconds: number,
+  ): {
+    success: boolean;
+    error?: string;
+    deltaApplied?: number;
+  } {
+    const t0 = performance.now();
+    const timeline = useTimelineStore.getState();
+    const clipA = timeline.clips.find((c) => c.id === outgoingClipId);
+    const clipB = timeline.clips.find((c) => c.id === incomingClipId);
+
+    if (!clipA || !clipB) {
+      this.recordTimelineEdit({ operation: "roll", clipId: outgoingClipId, secondaryClipId: incomingClipId, success: false, error: "Clip not found", durationMs: performance.now() - t0 });
+      return { success: false, error: "Clip not found" };
+    }
+    if (clipA.trackId !== clipB.trackId) {
+      this.recordTimelineEdit({ operation: "roll", clipId: outgoingClipId, secondaryClipId: incomingClipId, success: false, error: "Clips must be on the same track", durationMs: performance.now() - t0 });
+      return { success: false, error: "Clips must be on the same track" };
+    }
+    if (clipA.kind === "compound" || clipB.kind === "compound") {
+      this.recordTimelineEdit({ operation: "roll", clipId: outgoingClipId, secondaryClipId: incomingClipId, success: false, error: "Compound clips cannot be rolled", durationMs: performance.now() - t0 });
+      return { success: false, error: "Compound clips cannot be rolled" };
+    }
+
+    const track = timeline.tracks.find((t) => t.id === clipA.trackId);
+    if (track?.locked) {
+      this.recordTimelineEdit({ operation: "roll", clipId: outgoingClipId, secondaryClipId: incomingClipId, success: false, error: "Track is locked", durationMs: performance.now() - t0 });
+      return { success: false, error: "Track is locked" };
+    }
+
+    const cutA = clipA.startTime + clipA.duration;
+    if (Math.abs(cutA - clipB.startTime) > 0.001) {
+      this.recordTimelineEdit({ operation: "roll", clipId: outgoingClipId, secondaryClipId: incomingClipId, success: false, error: "Clips must share an adjacent cut point", durationMs: performance.now() - t0 });
+      return { success: false, error: "Clips must share an adjacent cut point" };
+    }
+
+    const assets = useProjectStore.getState().mediaAssets;
+    const assetA = assets.find((a) => a.id === clipA.mediaId);
+
+    const project = useProjectStore.getState().project;
+    const minClipDuration = 1 / (project?.frameRate ?? 30);
+
+    // Delta limits
+    let minAllowedDelta = -Infinity;
+    let maxAllowedDelta = Infinity;
+
+    // Outgoing clip (clipA): duration + delta >= minClipDuration -> delta >= -(duration - min)
+    minAllowedDelta = Math.max(minAllowedDelta, -(clipA.duration - minClipDuration));
+
+    // Incoming clip (clipB): duration - delta >= minClipDuration -> delta <= (duration - min)
+    maxAllowedDelta = Math.min(maxAllowedDelta, clipB.duration - minClipDuration);
+
+    // Outgoing media max duration limit
+    if (assetA?.duration && Number.isFinite(assetA.duration)) {
+      const maxGrowthA = assetA.duration - clipA.trimOut;
+      maxAllowedDelta = Math.min(maxAllowedDelta, Math.max(0, maxGrowthA));
+    }
+
+    // Incoming media trimIn >= 0 -> trimIn + delta >= 0 -> delta >= -trimIn
+    minAllowedDelta = Math.max(minAllowedDelta, -clipB.trimIn);
+
+    const effectiveDelta = Math.max(minAllowedDelta, Math.min(maxAllowedDelta, deltaSeconds));
+
+    if (Math.abs(effectiveDelta) < 0.0001) {
+      const err = deltaSeconds > 0 ? "Cannot roll right (boundary reached)" : "Cannot roll left (boundary reached)";
+      this.recordTimelineEdit({ operation: "roll", clipId: outgoingClipId, secondaryClipId: incomingClipId, success: false, error: err, durationMs: performance.now() - t0 });
+      return {
+        success: false,
+        error: err,
+      };
+    }
+
+    const afterClipA: Clip = {
+      ...clipA,
+      duration: clipA.duration + effectiveDelta,
+      trimOut: clipA.trimOut + effectiveDelta,
+    };
+
+    const afterClipB: Clip = {
+      ...clipB,
+      startTime: clipB.startTime + effectiveDelta,
+      duration: clipB.duration - effectiveDelta,
+      trimIn: clipB.trimIn + effectiveDelta,
+    };
+
+    useHistoryStore.getState().execute(new RollClipCommand([clipA, clipB], [afterClipA, afterClipB]));
+    this.recordTimelineEdit({
+      operation: "roll",
+      clipId: clipA.id,
+      secondaryClipId: clipB.id,
+      deltaApplied: effectiveDelta,
+      trimClipCount: 2,
+      success: true,
+      durationMs: performance.now() - t0,
+    });
+    return { success: true, deltaApplied: effectiveDelta };
+  }
+
+  /**
+   * Rolls the cut point on the specified clip.
+   * If edge === "outgoing", rolls cut between this clip and the adjacent clip to its right.
+   * If edge === "incoming", rolls cut between the adjacent clip to its left and this clip.
+   */
+  static rollClipEdge(
+    clipId: string,
+    edge: "incoming" | "outgoing",
+    deltaSeconds: number,
+  ): {
+    success: boolean;
+    error?: string;
+    deltaApplied?: number;
+  } {
+    const t0 = performance.now();
+    const timeline = useTimelineStore.getState();
+    const clip = timeline.clips.find((c) => c.id === clipId);
+    if (!clip) {
+      this.recordTimelineEdit({ operation: "roll", clipId, success: false, error: "Clip not found", durationMs: performance.now() - t0 });
+      return { success: false, error: "Clip not found" };
+    }
+
+    const trackClips = timeline.clips
+      .filter((c) => c.trackId === clip.trackId)
+      .sort((a, b) => a.startTime - b.startTime);
+
+    const idx = trackClips.findIndex((c) => c.id === clip.id);
+
+    if (edge === "outgoing") {
+      const nextClip = idx < trackClips.length - 1 ? trackClips[idx + 1] : null;
+      if (!nextClip) {
+        this.recordTimelineEdit({ operation: "roll", clipId, success: false, error: "No adjacent clip to roll with", durationMs: performance.now() - t0 });
+        return { success: false, error: "No adjacent clip to roll with" };
+      }
+      return this.rollEdit(clip.id, nextClip.id, deltaSeconds);
+    } else {
+      const prevClip = idx > 0 ? trackClips[idx - 1] : null;
+      if (!prevClip) {
+        this.recordTimelineEdit({ operation: "roll", clipId, success: false, error: "No adjacent clip to roll with", durationMs: performance.now() - t0 });
+        return { success: false, error: "No adjacent clip to roll with" };
+      }
+      return this.rollEdit(prevClip.id, clip.id, deltaSeconds);
+    }
   }
 
   /**

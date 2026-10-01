@@ -128,6 +128,18 @@ const DEFAULT_SHORTCUTS: Omit<ShortcutAction, "binding">[] = [
     category: "Transport",
     defaultBinding: { key: "ArrowRight" },
   },
+  {
+    id: "shuttle-forward",
+    label: "Shuttle Forward (1x / 2x / 4x)",
+    category: "Transport",
+    defaultBinding: { key: "l" },
+  },
+  {
+    id: "shuttle-reverse",
+    label: "Shuttle Reverse / Slow Down",
+    category: "Transport",
+    defaultBinding: { key: "j" },
+  },
   // Source Mode
   {
     id: "mark-source-in",
@@ -225,6 +237,24 @@ const DEFAULT_SHORTCUTS: Omit<ShortcutAction, "binding">[] = [
     label: "Swap Clips",
     category: "Edit",
     defaultBinding: { key: "S", ctrl: true, shift: true },
+  },
+  {
+    id: "slip-clip",
+    label: "Slip Clip (Hold Y + Arrow)",
+    category: "Edit",
+    defaultBinding: { key: "y" },
+  },
+  {
+    id: "slide-clip",
+    label: "Slide Clip (Hold U + Arrow)",
+    category: "Edit",
+    defaultBinding: { key: "u" },
+  },
+  {
+    id: "roll-edit",
+    label: "Roll Cut Point (Hold N + Arrow)",
+    category: "Edit",
+    defaultBinding: { key: "n" },
   },
   {
     id: "select-all",

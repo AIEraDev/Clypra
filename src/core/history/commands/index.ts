@@ -37,3 +37,6 @@ export {
   DeleteStickerCommand,
   UpdateStickerSettingsCommand,
 } from "./StickerCommands";
+export { SlipClipCommand } from "./SlipClipCommand";
+export { SlideClipCommand } from "./SlideClipCommand";
+export { RollClipCommand } from "./RollClipCommand";

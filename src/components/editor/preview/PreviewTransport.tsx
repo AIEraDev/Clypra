@@ -1,5 +1,7 @@
 import React, { useRef, useCallback, useEffect, useState } from "react";
 import { Play, Pause, SkipBack, SkipForward } from "lucide-react";
+import { parseSmpteTimecode } from "@/lib/timecode";
+import { EditorFeatureTelemetry } from "@/services/editorFeatureTelemetry";
 
 interface PreviewTransportProps {
   currentTime: number;
@@ -8,6 +10,7 @@ interface PreviewTransportProps {
   onPlayPause: () => void;
   onSeek: (time: number) => void;
   formatTime: (seconds: number) => string;
+  frameRate?: number;
 
   // Scrub callbacks
   onScrubStart?: (time: number) => void;
@@ -49,9 +52,50 @@ export const PreviewTransport: React.FC<PreviewTransportProps> = ({
   leftActions,
   rightActions,
   disabled = false,
+  frameRate = 30,
 }) => {
   const scrubRef = useRef<HTMLDivElement>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
+  const [isEditingTimecode, setIsEditingTimecode] = useState(false);
+  const [timecodeInputValue, setTimecodeInputValue] = useState("");
+  const timecodeInputRef = useRef<HTMLInputElement>(null);
+
+  const commitTimecodeJump = useCallback(() => {
+    const trimmed = timecodeInputValue.trim();
+    if (trimmed) {
+      const t0 = performance.now();
+      const parsed = parseSmpteTimecode(trimmed, currentTime, frameRate);
+      if (parsed.success && parsed.seconds !== undefined) {
+        const clamped = Math.max(0, Math.min(duration > 0 ? duration : Infinity, parsed.seconds));
+        onSeek(clamped);
+        EditorFeatureTelemetry.recordTimecodeJump({
+          rawInput: trimmed,
+          fromTime: currentTime,
+          toTime: clamped,
+          deltaSeconds: clamped - currentTime,
+          isRelative: parsed.isRelative ?? false,
+          frameRate,
+          dropFrame: parsed.dropFrame ?? false,
+          durationMs: performance.now() - t0,
+          success: true,
+        });
+      } else {
+        EditorFeatureTelemetry.recordTimecodeJump({
+          rawInput: trimmed,
+          fromTime: currentTime,
+          toTime: currentTime,
+          deltaSeconds: 0,
+          isRelative: false,
+          frameRate,
+          dropFrame: false,
+          durationMs: performance.now() - t0,
+          success: false,
+          error: parsed.error || "Failed to parse timecode",
+        });
+      }
+    }
+    setIsEditingTimecode(false);
+  }, [timecodeInputValue, currentTime, frameRate, duration, onSeek]);
 
   const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
 
@@ -147,13 +191,44 @@ export const PreviewTransport: React.FC<PreviewTransportProps> = ({
             className="flex items-baseline gap-1 select-none shrink-0 font-mono tracking-tight"
             style={{ fontVariantNumeric: "tabular-nums" }}
           >
-            <span
-              className={`text-[11px] font-semibold ${
-                disabled ? "text-text-muted" : "text-accent"
-              }`}
-            >
-              {formatTime(currentTime)}
-            </span>
+            {isEditingTimecode ? (
+              <input
+                ref={timecodeInputRef}
+                type="text"
+                autoFocus
+                value={timecodeInputValue}
+                onChange={(e) => setTimecodeInputValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    commitTimecodeJump();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    setIsEditingTimecode(false);
+                  }
+                }}
+                onBlur={commitTimecodeJump}
+                placeholder={formatTime(currentTime)}
+                className="w-20 px-1 py-0.5 text-[11px] font-semibold font-mono bg-surface-raised border border-accent rounded text-text-primary outline-none"
+              />
+            ) : (
+              <span
+                onClick={() => {
+                  if (!disabled) {
+                    setTimecodeInputValue("");
+                    setIsEditingTimecode(true);
+                  }
+                }}
+                className={`text-[11px] font-semibold ${
+                  disabled
+                    ? "text-text-muted cursor-not-allowed"
+                    : "text-accent cursor-pointer hover:underline"
+                }`}
+                title={disabled ? undefined : "Click to jump to timecode (e.g. +10, -1:00, 01:23:00)"}
+              >
+                {formatTime(currentTime)}
+              </span>
+            )}
             <span className="text-[10px] text-text-muted/40 hidden @[300px]:inline">
               /
             </span>

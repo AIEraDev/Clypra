@@ -75,6 +75,7 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({
     getTimelineEndTime,
   } = useTimelineStore();
   const { project, updateProject, addMediaAsset } = useProjectStore();
+  const frameRate = project?.frameRate ?? 30;
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const lottiePlayerRef = useRef<StickerSourcePreviewHandle>(null);
@@ -876,6 +877,7 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({
           currentTime={currentTime}
           duration={duration}
           isPlaying={isPlaying}
+          frameRate={frameRate}
           onPlayPause={handlePlayPause}
           onSeek={handleSeek}
           formatTime={formatTC}

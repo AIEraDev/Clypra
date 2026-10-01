@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { useTransportControls, useTransportSnapshot } from "./usePlaybackClock";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
@@ -16,9 +16,10 @@ import { formatSplitMessage } from "@/lib/timeline/clipName";
 import { clipboardService } from "@/core/clipboard/clipboardService";
 import { toggleTrackPropertyWithHistory } from "@/core/history/trackPropertyActions";
 import { useSettingsStore } from "@/store/settingsStore";
+import { EditorFeatureTelemetry } from "@/services/editorFeatureTelemetry";
 
 export const useKeyboardShortcuts = () => {
-  const { pause, seek, setActiveContext, togglePlayback } = useTransportControls();
+  const { play, pause, seek, setSpeed, setActiveContext, togglePlayback } = useTransportControls();
   const { time: transportTime } = useTransportSnapshot();
   const { addMarker } = useTimelineStore();
   const { selectedClipIds, selectClip, selectTrack, previewMode, exitSourceMode, markSourceIn, markSourceOut } = useUIStore();
@@ -27,8 +28,52 @@ export const useKeyboardShortcuts = () => {
   const { zoomByStep, fitSequence } = useAnchoredTimelineZoom();
 
   const frameRate = project?.frameRate ?? 30;
+  const kPressedRef = useRef(false);
+  const yPressedRef = useRef(false);
+  const uPressedRef = useRef(false);
+  const nPressedRef = useRef(false);
 
   useEffect(() => {
+    const stepFrame = (direction: -1 | 1) => {
+      const session = getActiveSessionOrNull();
+      const clock = getPlaybackClock();
+      const oneFrame = 1 / frameRate;
+      let target = 0;
+      if (previewMode === "source") {
+        const sourceTime = session?.sourceContext?.getTime() ?? 0;
+        const sourceDuration = session?.sourceContext?.getDuration() ?? Infinity;
+        target =
+          direction > 0
+            ? Math.min(sourceDuration, sourceTime + oneFrame)
+            : Math.max(0, sourceTime - oneFrame);
+        seek?.(target, {
+          source: "keyboard-seek",
+          mode: "frameStep",
+          quality: "full",
+          allowKeyframeApprox: false,
+        });
+      } else {
+        const liveTime = clock.time;
+        const projectDuration = clock.duration || (project?.duration ?? Infinity);
+        target =
+          direction > 0
+            ? Math.min(projectDuration, liveTime + oneFrame)
+            : Math.max(0, liveTime - oneFrame);
+        seek?.(target, {
+          source: "keyboard-seek",
+          mode: "frameStep",
+          quality: "full",
+          allowKeyframeApprox: false,
+        });
+      }
+      EditorFeatureTelemetry.recordShuttle({
+        action: "jog-step",
+        direction: direction > 0 ? "step-forward" : "step-backward",
+        frameRate,
+        playheadTime: target,
+      });
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't capture shortcuts when typing in input fields
       const target = e.target as HTMLElement;
@@ -38,7 +83,7 @@ export const useKeyboardShortcuts = () => {
 
       const isMeta = e.ctrlKey || e.metaKey;
 
-      // ─── Transport (context-aware) ───────────────────────────────────────
+      // ─── Transport & J/K/L Shuttle (context-aware) ───────────────────────
 
       if (e.code === "Space") {
         e.preventDefault();
@@ -46,10 +91,121 @@ export const useKeyboardShortcuts = () => {
         return;
       }
 
-      if (e.key === "k") {
+      // J / K / L Shuttle Transport (DaVinci / Premiere standard)
+      const isJ = !isMeta && !e.altKey && (e.key.toLowerCase() === "j" || e.code === "KeyJ");
+      const isK = !isMeta && !e.altKey && (e.key.toLowerCase() === "k" || e.code === "KeyK");
+      const isL = !isMeta && !e.altKey && (e.key.toLowerCase() === "l" || e.code === "KeyL");
+
+      if (isK) {
         e.preventDefault();
+        kPressedRef.current = true;
+        const clock = getPlaybackClock();
+        const prevSpeed = clock.speed;
         pause();
+        setSpeed(1.0);
+        EditorFeatureTelemetry.recordShuttle({
+          action: "shuttle-speed",
+          fromSpeed: prevSpeed,
+          toSpeed: 0,
+          direction: "pause",
+          frameRate,
+          playheadTime: clock.time,
+        });
         return;
+      }
+
+      if (isL) {
+        e.preventDefault();
+        if (kPressedRef.current) {
+          stepFrame(1);
+          return;
+        }
+
+        const clock = getPlaybackClock();
+        const isPlaying = clock.state === "playing";
+        if (!isPlaying) {
+          setSpeed(1.0);
+          play();
+          EditorFeatureTelemetry.recordShuttle({
+            action: "shuttle-speed",
+            fromSpeed: 0,
+            toSpeed: 1.0,
+            direction: "forward",
+            frameRate,
+            playheadTime: clock.time,
+          });
+        } else {
+          const currentSpeed = clock.speed;
+          let targetSpeed = 1.0;
+          if (currentSpeed < 1.0) {
+            targetSpeed = 1.0;
+          } else if (currentSpeed < 2.0) {
+            targetSpeed = 2.0;
+          } else if (currentSpeed < 4.0) {
+            targetSpeed = 4.0;
+          } else {
+            targetSpeed = currentSpeed;
+          }
+          setSpeed(targetSpeed);
+          EditorFeatureTelemetry.recordShuttle({
+            action: "shuttle-speed",
+            fromSpeed: currentSpeed,
+            toSpeed: targetSpeed,
+            direction: "forward",
+            frameRate,
+            playheadTime: clock.time,
+          });
+        }
+        return;
+      }
+
+      if (isJ) {
+        e.preventDefault();
+        if (kPressedRef.current) {
+          stepFrame(-1);
+          return;
+        }
+
+        const clock = getPlaybackClock();
+        const isPlaying = clock.state === "playing";
+        if (isPlaying) {
+          const currentSpeed = clock.speed;
+          let targetSpeed = 1.0;
+          let direction: "forward" | "pause" = "forward";
+          if (currentSpeed > 2.0) {
+            targetSpeed = 2.0;
+            setSpeed(2.0);
+          } else if (currentSpeed > 1.0) {
+            targetSpeed = 1.0;
+            setSpeed(1.0);
+          } else {
+            pause();
+            setSpeed(1.0);
+            targetSpeed = 0;
+            direction = "pause";
+          }
+          EditorFeatureTelemetry.recordShuttle({
+            action: "shuttle-speed",
+            fromSpeed: currentSpeed,
+            toSpeed: targetSpeed,
+            direction,
+            frameRate,
+            playheadTime: clock.time,
+          });
+        } else {
+          stepFrame(-1);
+        }
+        return;
+      }
+
+      if (!isMeta && !e.altKey && (e.key.toLowerCase() === "y" || e.code === "KeyY")) {
+        yPressedRef.current = true;
+      }
+      if (!isMeta && !e.altKey && (e.key.toLowerCase() === "u" || e.code === "KeyU")) {
+        uPressedRef.current = true;
+      }
+      if (!isMeta && !e.altKey && (e.key.toLowerCase() === "n" || e.code === "KeyN")) {
+        nPressedRef.current = true;
       }
 
       // ─── Seeking (context-aware) ─────────────────────────────────────────
@@ -60,6 +216,75 @@ export const useKeyboardShortcuts = () => {
 
       // Do not hijack Alt+Arrow (which nudges clips) or Meta/Ctrl+Arrow
       if (!e.altKey && !isMeta && (isArrowLeft || isArrowRight)) {
+        // ─── Slip / Slide / Roll Shortcuts ────────────────────────────────
+        if (selectedClipIds.length === 1 && (yPressedRef.current || uPressedRef.current)) {
+          e.preventDefault();
+          const targetId = selectedClipIds[0];
+          const dir = isArrowRight ? 1 : -1;
+          const frames = e.shiftKey ? 10 : 1;
+          const delta = (dir * frames) / frameRate;
+
+          if (yPressedRef.current) {
+            const res = EditingActions.slipClip(targetId, delta);
+            if (res.success) {
+              toast.info(`Slipped ${dir > 0 ? "later" : "earlier"} by ${frames} frame${frames > 1 ? "s" : ""}`);
+            } else if (res.error) {
+              toast.error(res.error);
+            }
+            return;
+          }
+
+          if (uPressedRef.current) {
+            const res = EditingActions.slideClip(targetId, delta);
+            if (res.success) {
+              toast.info(`Slid ${dir > 0 ? "right" : "left"} by ${frames} frame${frames > 1 ? "s" : ""}`);
+            } else if (res.error) {
+              toast.error(res.error);
+            }
+            return;
+          }
+        }
+
+        if (nPressedRef.current && (selectedClipIds.length === 1 || selectedClipIds.length === 2)) {
+          e.preventDefault();
+          const dir = isArrowRight ? 1 : -1;
+          const frames = e.shiftKey ? 10 : 1;
+          const delta = (dir * frames) / frameRate;
+
+          if (selectedClipIds.length === 1) {
+            const clip = useTimelineStore.getState().clips.find((c) => c.id === selectedClipIds[0]);
+            if (clip) {
+              const hasOutgoing = useTimelineStore.getState().clips.some(
+                (o) => o.trackId === clip.trackId && Math.abs(clip.startTime + clip.duration - o.startTime) < 0.001,
+              );
+              const res = hasOutgoing
+                ? EditingActions.rollClipEdge(clip.id, "outgoing", delta)
+                : EditingActions.rollClipEdge(clip.id, "incoming", delta);
+              if (res.success) {
+                toast.info(`Rolled cut point ${dir > 0 ? "right" : "left"} by ${frames} frame${frames > 1 ? "s" : ""}`);
+              } else if (res.error) {
+                toast.error(res.error);
+              }
+            }
+            return;
+          }
+
+          if (selectedClipIds.length === 2) {
+            const clips = useTimelineStore.getState().clips;
+            const [c1, c2] = selectedClipIds.map((id) => clips.find((c) => c.id === id));
+            if (c1 && c2 && c1.trackId === c2.trackId) {
+              const [left, right] = c1.startTime <= c2.startTime ? [c1, c2] : [c2, c1];
+              const res = EditingActions.rollEdit(left.id, right.id, delta);
+              if (res.success) {
+                toast.info(`Rolled cut point ${dir > 0 ? "right" : "left"} by ${frames} frame${frames > 1 ? "s" : ""}`);
+              } else if (res.error) {
+                toast.error(res.error);
+              }
+            }
+            return;
+          }
+        }
+
         e.preventDefault();
         const session = getActiveSessionOrNull();
         const clock = getPlaybackClock();
@@ -550,9 +775,24 @@ export const useKeyboardShortcuts = () => {
       }
     };
 
+    const handleKeyUp = (e: KeyboardEvent) => {
+      const isK = e.key.toLowerCase() === "k" || e.code === "KeyK";
+      const isY = e.key.toLowerCase() === "y" || e.code === "KeyY";
+      const isU = e.key.toLowerCase() === "u" || e.code === "KeyU";
+      const isN = e.key.toLowerCase() === "n" || e.code === "KeyN";
+      if (isK) kPressedRef.current = false;
+      if (isY) yPressedRef.current = false;
+      if (isU) uPressedRef.current = false;
+      if (isN) nPressedRef.current = false;
+    };
+
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [transportTime, frameRate, selectedClipIds, previewMode, togglePlayback, pause, seek, setActiveContext, zoomByStep, fitSequence, selectClip, selectTrack, exitSourceMode, markSourceIn, markSourceOut, addMarker, undo, redo]);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [transportTime, frameRate, selectedClipIds, previewMode, togglePlayback, play, pause, seek, setSpeed, setActiveContext, zoomByStep, fitSequence, selectClip, selectTrack, exitSourceMode, markSourceIn, markSourceOut, addMarker, undo, redo]);
 
   // Listen for native desktop application menu events ("menu-undo", "menu-redo").
   // On macOS, native menu bar accelerators (Cmd+Z / Shift+Cmd+Z) trigger menu events.
