@@ -8,6 +8,7 @@
 import type { Clip, Track, MediaAsset, TrackType } from "@/types";
 import { generateId } from "@/lib/utils/id";
 import type { OTIOTimeline, OTIOTrackChild, OTIOClip, OTIOGap } from "./otioExporter";
+import { EditorFeatureTelemetry } from "@/services/editorFeatureTelemetry";
 
 export interface OTIOImportResult {
   projectName: string;
@@ -182,8 +183,30 @@ export function importFromOTIO(otioInput: string | OTIOTimeline): OTIOImportResu
       mediaAssets,
     };
 
+    const validation = EditorFeatureTelemetry.validateOtioImport({ tracks, clips });
+    EditorFeatureTelemetry.recordOtio({
+      action: "import",
+      trackCount: tracks.length,
+      clipCount: clips.length,
+      gapCount,
+      missingMediaCount,
+      durationMs: performance.now() - t0,
+      success: validation.valid,
+      validationWarnings: validation.errors.length > 0 ? validation.errors : undefined,
+    });
+
     return result;
   } catch (err: any) {
+    EditorFeatureTelemetry.recordOtio({
+      action: "import",
+      trackCount: 0,
+      clipCount: 0,
+      gapCount,
+      missingMediaCount,
+      durationMs: performance.now() - t0,
+      success: false,
+      error: err?.message || String(err),
+    });
     throw err;
   }
 }

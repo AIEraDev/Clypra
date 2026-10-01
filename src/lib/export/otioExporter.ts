@@ -9,6 +9,7 @@
  */
 
 import type { Clip, Track, MediaAsset } from "@/types";
+import { EditorFeatureTelemetry } from "@/services/editorFeatureTelemetry";
 
 // ─── OTIO Schema Typings ──────────────────────────────────────────────────────
 
@@ -309,8 +310,30 @@ export function exportToOTIO(options: OTIOExportOptions): OTIOTimeline {
       },
     };
 
+    const validation = EditorFeatureTelemetry.validateOtioExport(timeline);
+    EditorFeatureTelemetry.recordOtio({
+      action: "export",
+      trackCount: options.tracks.length,
+      clipCount: options.clips.length,
+      gapCount,
+      missingMediaCount,
+      durationMs: performance.now() - t0,
+      success: validation.valid,
+      validationWarnings: validation.errors.length > 0 ? validation.errors : undefined,
+    });
+
     return timeline;
   } catch (err: any) {
+    EditorFeatureTelemetry.recordOtio({
+      action: "export",
+      trackCount: options.tracks?.length ?? 0,
+      clipCount: options.clips?.length ?? 0,
+      gapCount,
+      missingMediaCount,
+      durationMs: performance.now() - t0,
+      success: false,
+      error: err?.message || String(err),
+    });
     throw err;
   }
 }

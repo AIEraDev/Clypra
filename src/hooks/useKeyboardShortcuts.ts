@@ -16,6 +16,7 @@ import { formatSplitMessage } from "@/lib/timeline/clipName";
 import { clipboardService } from "@/core/clipboard/clipboardService";
 import { toggleTrackPropertyWithHistory } from "@/core/history/trackPropertyActions";
 import { useSettingsStore } from "@/store/settingsStore";
+import { EditorFeatureTelemetry } from "@/services/editorFeatureTelemetry";
 
 export const useKeyboardShortcuts = () => {
   const { play, pause, seek, setSpeed, setActiveContext, togglePlayback } = useTransportControls();
@@ -65,6 +66,12 @@ export const useKeyboardShortcuts = () => {
           allowKeyframeApprox: false,
         });
       }
+      EditorFeatureTelemetry.recordShuttle({
+        action: "jog-step",
+        direction: direction > 0 ? "step-forward" : "step-backward",
+        frameRate,
+        playheadTime: target,
+      });
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -92,8 +99,18 @@ export const useKeyboardShortcuts = () => {
       if (isK) {
         e.preventDefault();
         kPressedRef.current = true;
+        const clock = getPlaybackClock();
+        const prevSpeed = clock.speed;
         pause();
         setSpeed(1.0);
+        EditorFeatureTelemetry.recordShuttle({
+          action: "shuttle-speed",
+          fromSpeed: prevSpeed,
+          toSpeed: 0,
+          direction: "pause",
+          frameRate,
+          playheadTime: clock.time,
+        });
         return;
       }
 
@@ -109,6 +126,14 @@ export const useKeyboardShortcuts = () => {
         if (!isPlaying) {
           setSpeed(1.0);
           play();
+          EditorFeatureTelemetry.recordShuttle({
+            action: "shuttle-speed",
+            fromSpeed: 0,
+            toSpeed: 1.0,
+            direction: "forward",
+            frameRate,
+            playheadTime: clock.time,
+          });
         } else {
           const currentSpeed = clock.speed;
           let targetSpeed = 1.0;
@@ -122,6 +147,14 @@ export const useKeyboardShortcuts = () => {
             targetSpeed = currentSpeed;
           }
           setSpeed(targetSpeed);
+          EditorFeatureTelemetry.recordShuttle({
+            action: "shuttle-speed",
+            fromSpeed: currentSpeed,
+            toSpeed: targetSpeed,
+            direction: "forward",
+            frameRate,
+            playheadTime: clock.time,
+          });
         }
         return;
       }
@@ -151,6 +184,14 @@ export const useKeyboardShortcuts = () => {
             targetSpeed = 0;
             direction = "pause";
           }
+          EditorFeatureTelemetry.recordShuttle({
+            action: "shuttle-speed",
+            fromSpeed: currentSpeed,
+            toSpeed: targetSpeed,
+            direction,
+            frameRate,
+            playheadTime: clock.time,
+          });
         } else {
           stepFrame(-1);
         }

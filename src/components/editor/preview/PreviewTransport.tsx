@@ -1,6 +1,7 @@
 import React, { useRef, useCallback, useEffect, useState } from "react";
 import { Play, Pause, SkipBack, SkipForward } from "lucide-react";
 import { parseSmpteTimecode } from "@/lib/timecode";
+import { EditorFeatureTelemetry } from "@/services/editorFeatureTelemetry";
 
 interface PreviewTransportProps {
   currentTime: number;
@@ -62,12 +63,35 @@ export const PreviewTransport: React.FC<PreviewTransportProps> = ({
   const commitTimecodeJump = useCallback(() => {
     const trimmed = timecodeInputValue.trim();
     if (trimmed) {
+      const t0 = performance.now();
       const parsed = parseSmpteTimecode(trimmed, currentTime, frameRate);
       if (parsed.success && parsed.seconds !== undefined) {
         const clamped = Math.max(0, Math.min(duration > 0 ? duration : Infinity, parsed.seconds));
         onSeek(clamped);
-
-
+        EditorFeatureTelemetry.recordTimecodeJump({
+          rawInput: trimmed,
+          fromTime: currentTime,
+          toTime: clamped,
+          deltaSeconds: clamped - currentTime,
+          isRelative: parsed.isRelative ?? false,
+          frameRate,
+          dropFrame: parsed.dropFrame ?? false,
+          durationMs: performance.now() - t0,
+          success: true,
+        });
+      } else {
+        EditorFeatureTelemetry.recordTimecodeJump({
+          rawInput: trimmed,
+          fromTime: currentTime,
+          toTime: currentTime,
+          deltaSeconds: 0,
+          isRelative: false,
+          frameRate,
+          dropFrame: false,
+          durationMs: performance.now() - t0,
+          success: false,
+          error: parsed.error || "Failed to parse timecode",
+        });
       }
     }
     setIsEditingTimecode(false);
