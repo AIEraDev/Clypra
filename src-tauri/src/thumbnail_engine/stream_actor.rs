@@ -170,6 +170,33 @@ impl StreamDecoderActorHandle {
         is_prefetch: bool,
         generation: u64,
     ) -> Result<DecodedActorFrame, String> {
+        self.decode_frame_with_policy(time_secs, options, is_prefetch, false, generation)
+            .await
+    }
+
+    /// Playback is a forward-only stream, not an exact-frame query. If the
+    /// WebView asks for an older timestamp after a decode stall, serve the
+    /// newest already-decoded eligible frame instead of seeking backwards and
+    /// re-decoding an entire GOP. Exact seek/scrub continues through
+    /// `decode_frame` above.
+    pub async fn decode_playback_frame(
+        &self,
+        time_secs: f64,
+        options: DecodeFrameOptions,
+        generation: u64,
+    ) -> Result<DecodedActorFrame, String> {
+        self.decode_frame_with_policy(time_secs, options, false, true, generation)
+            .await
+    }
+
+    async fn decode_frame_with_policy(
+        &self,
+        time_secs: f64,
+        options: DecodeFrameOptions,
+        is_prefetch: bool,
+        playback_latest_frame_wins: bool,
+        generation: u64,
+    ) -> Result<DecodedActorFrame, String> {
         let start = Instant::now();
         let frame_duration = self.frame_duration_secs.max(0.001);
         let tolerance = (frame_duration * 0.95).max(0.001);
@@ -199,6 +226,38 @@ impl StreamDecoderActorHandle {
                 hit.scale_colorspace_us = 0;
                 hit.actor_wait_us = start.elapsed().as_micros().min(u64::MAX as u128) as u64;
                 return Ok(hit);
+            }
+
+            // A completion that arrives late during playback must never force
+            // the decoder backwards merely to satisfy an obsolete clock tick.
+            // The ring is tiny by design, so choose only a frame that is at
+            // least as new as the requested time (within one frame) and keep
+            // exact requests on the strict branch above.
+            if playback_latest_frame_wins {
+                if let Some((pos, _)) = cache
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, frame)| {
+                        !frame.is_approximate
+                            && frame.quality == options.quality
+                            && frame.time_secs + tolerance >= time_secs
+                    })
+                    .max_by(|(_, left), (_, right)| left.time_secs.total_cmp(&right.time_secs))
+                {
+                    let mut hit = cache[pos].clone();
+                    if pos != cache.len() - 1 {
+                        let item = cache.remove(pos).unwrap();
+                        cache.push_back(item);
+                    }
+                    hit.from_prime_cache = true;
+                    hit.decode_us = 0;
+                    hit.decoder_seek_count = 0;
+                    hit.decoder_frames_decoded = 0;
+                    hit.hardware_frame_download_us = None;
+                    hit.scale_colorspace_us = 0;
+                    hit.actor_wait_us = start.elapsed().as_micros().min(u64::MAX as u128) as u64;
+                    return Ok(hit);
+                }
             }
         }
 
@@ -851,6 +910,67 @@ mod tests {
         handle.invalidate(42);
         assert_eq!(current_generation.load(Ordering::Acquire), 42);
         assert!(cancel_in_flight.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn playback_uses_newest_eligible_cached_frame_without_seeking_back() {
+        let (urgent_tx, _urgent_rx) = mpsc::channel(1);
+        let (prefetch_tx, _prefetch_rx) = mpsc::channel(1);
+        let prime_cache = Arc::new(Mutex::new(VecDeque::new()));
+        prime_cache.lock().await.push_back(DecodedActorFrame {
+            time_secs: 2.0,
+            planes: DecodedVideoPlanes::Cpu {
+                y: Arc::from(vec![0u8; 16]),
+                uv: Arc::from(vec![0u8; 8]),
+            },
+            width: 4,
+            height: 4,
+            source_rotation: 0,
+            color: VideoColorMetadata::default(),
+            decode_us: 99,
+            decoder_mutex_wait_us: 0,
+            actor_wait_us: 0,
+            from_prime_cache: false,
+            quality: QualityTier::Full,
+            is_approximate: false,
+            demux_us: 0,
+            container_format: "mp4".to_string(),
+            is_hardware_accelerated: false,
+            decoder_seek_count: 1,
+            decoder_frames_decoded: 99,
+            hardware_frame_download_us: None,
+            scale_colorspace_us: 0,
+            source_metadata: VideoStreamMetadata::default(),
+        });
+        let handle = StreamDecoderActorHandle {
+            key: "playback-cache-test".to_string(),
+            urgent_tx,
+            prefetch_tx,
+            current_generation: Arc::new(AtomicU64::new(0)),
+            cancel_in_flight: Arc::new(AtomicBool::new(false)),
+            prime_cache,
+            frame_duration_secs: 1.0 / 30.0,
+        };
+
+        // The requested clock time is older than the decoded cursor. Exact
+        // seek would re-seek here; playback must show the current frame.
+        let frame = handle
+            .decode_playback_frame(
+                1.8,
+                DecodeFrameOptions {
+                    allow_keyframe_approx: false,
+                    quality: QualityTier::Full,
+                },
+                0,
+            )
+            .await
+            .expect("latest playback cache frame should satisfy late request");
+
+        assert_eq!(frame.time_secs, 2.0);
+        assert!(frame.from_prime_cache);
+        assert_eq!(frame.decode_us, 0);
+        assert_eq!(frame.decoder_seek_count, 0);
+        assert_eq!(frame.decoder_frames_decoded, 0);
     }
 
     #[tokio::test]
