@@ -242,7 +242,8 @@ export interface NativePerformanceSample {
   codecName?: string;
   hardwareFramesDownloaded?: number;
   stageOverlapUs?: number;
-  servedFromCache?: boolean;
+  /** How this request was satisfied by the decoder. */
+  servedFrom?: "decoded-in-request" | "ready-cache" | "reused-current";
   dropReason?:
     | "stale"
     | "cancelled"
@@ -300,6 +301,8 @@ export interface NativeModeStats {
   surfaceAcquire: NativeStagePercentiles;
   submitPresent: NativeStagePercentiles;
   stageOverlap: NativeStagePercentiles;
+  /** Time within each invoke not attributed to any measured stage (µs). */
+  unaccounted: NativeStagePercentiles;
   uniqueFramesDelivered: number;
   repeatedFramesDelivered: number;
   deliveredUniqueFps: number | null;

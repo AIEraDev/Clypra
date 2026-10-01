@@ -61,7 +61,7 @@ pub mod native_core {
     };
     pub use crate::performance::{
         ModeStats, NativeFrameServiceStats, NativePerformanceSampleBatch, PerformanceBudget,
-        PerformanceSample, PreviewMode, StagePercentiles,
+        PerformanceSample, PreviewMode, ServedFrom, StagePercentiles,
     };
     pub use crate::sdf::{generate_padded_sdf, generate_sdf};
     pub use crate::service::NativeFrameService;
@@ -93,7 +93,7 @@ pub use glyph_cache::{global_glyph_cache, GlyphSdfCache, SdfGlyph, ShapedTextSdf
 pub use golden::{compare_rgba8, GoldenDiff};
 pub use performance::{
     ModeStats, NativeFrameServiceStats, NativePerformanceSampleBatch, PerformanceBudget,
-    PerformanceSample, PreviewMode, StagePercentiles,
+    PerformanceSample, PreviewMode, ServedFrom, StagePercentiles,
 };
 pub use sdf::{generate_padded_sdf, generate_sdf};
 pub use service::NativeFrameService;

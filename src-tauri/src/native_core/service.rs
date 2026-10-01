@@ -1,5 +1,5 @@
 use super::performance::{
-    now_ms, optional_stage_percentiles, percentile_ms, ModeStats, PreviewMode,
+    now_ms, optional_stage_percentiles, percentile_ms, ModeStats, PreviewMode, ServedFrom,
 };
 use super::{
     FrameCache, FramePacket, FrameRequest, NativeCoreError, NativeFrameServiceStats,
@@ -244,8 +244,10 @@ impl NativeFrameService {
                     continue;
                 }
                 let current_key = (sample.generation, sample.frame_index);
-                let is_repeated = sample.served_from_cache == Some(true)
-                    || last_delivered_key == Some(current_key);
+                let is_repeated = matches!(
+                    sample.served_from,
+                    Some(ServedFrom::ReadyCache) | Some(ServedFrom::ReusedCurrent)
+                ) || last_delivered_key == Some(current_key);
                 if is_repeated {
                     repeated_frames_delivered += 1;
                 } else {
@@ -267,7 +269,10 @@ impl NativeFrameService {
             let decoded_samples: Vec<PerformanceSample> = samples
                 .iter()
                 .filter(|s| {
-                    s.served_from_cache != Some(true)
+                    // Exclude requests that were satisfied from any cache path without
+                    // new FFmpeg decode work; their decode_us reflects 0 or noise.
+                    s.served_from != Some(ServedFrom::ReadyCache)
+                        && s.served_from != Some(ServedFrom::ReusedCurrent)
                         && s.decode_us.is_some()
                         && s.decode_us != Some(0)
                 })
@@ -333,6 +338,9 @@ impl NativeFrameService {
                 }),
                 stage_overlap: optional_stage_percentiles(&samples, |sample| {
                     sample.stage_overlap_us
+                }),
+                unaccounted: optional_stage_percentiles(&samples, |sample| {
+                    sample.unaccounted_us
                 }),
                 unique_frames_delivered,
                 repeated_frames_delivered,
@@ -501,7 +509,7 @@ mod tests {
             codec_name: None,
             hardware_frames_downloaded: None,
             stage_overlap_us: None,
-            served_from_cache: None,
+            served_from: None,
         }
     }
 
@@ -548,7 +556,7 @@ mod tests {
         test_sample.scale_colorspace_us = Some(6_000);
         test_sample.total_time_us = 200_000;
         test_sample.stage_overlap_us = Some(60_000);
-        test_sample.served_from_cache = Some(false);
+        test_sample.served_from = Some(ServedFrom::DecodedInRequest);
         service.record_sample(test_sample);
 
         let stats = service.stats();
@@ -575,7 +583,7 @@ mod tests {
         decoded.decode_us = Some(100_000);
         decoded.hardware_frame_download_us = Some(20_000);
         decoded.scale_colorspace_us = Some(5_000);
-        decoded.served_from_cache = Some(false);
+        decoded.served_from = Some(ServedFrom::DecodedInRequest);
         service.record_sample(decoded);
 
         // Record 5 cached frames with 0µs decode time
@@ -584,7 +592,7 @@ mod tests {
             cached.decode_us = Some(0);
             cached.hardware_frame_download_us = None;
             cached.scale_colorspace_us = None;
-            cached.served_from_cache = Some(true);
+            cached.served_from = Some(ServedFrom::ReadyCache);
             service.record_sample(cached);
         }
 
