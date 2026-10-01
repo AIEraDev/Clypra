@@ -380,6 +380,7 @@ const ConnectedProgramTransport: React.FC<ConnectedProgramTransportProps> =
         duration={props.duration || clockState.duration}
         isPlaying={clockState.state === "playing"}
         disabled={props.disabled}
+        frameRate={props.frameRate}
         onPlayPause={props.onPlayPause}
         onSeek={props.onSeek}
         onScrubStart={props.onScrubStart}
