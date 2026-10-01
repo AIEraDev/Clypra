@@ -260,12 +260,12 @@ pub fn get_native_push_transport_capabilities(
                 }
             });
         }
-        return NativePushTransportCapabilities {
+        NativePushTransportCapabilities {
             channel: true,
             custom_protocol_long_poll: true,
             webview2_shared_buffer: shared_buffer.lock().map(|value| *value).unwrap_or(false),
             webview_runtime: runtime_version.lock().ok().and_then(|value| value.clone()),
-        };
+        }
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -2567,7 +2567,7 @@ async fn render_native_video_project_frame_bytes_timed(
                 use crate::wgpu_compositor::dxgi_import;
                 let mut import_all_ok = true;
                 for (layer, (shared, width, height, color)) in
-                    request.layers.iter().zip(frames.into_iter())
+                    request.layers.iter().zip(frames)
                 {
                     let layer_key = if !layer.layer_id.is_empty() {
                         &layer.layer_id

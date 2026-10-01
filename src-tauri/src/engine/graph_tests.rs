@@ -88,7 +88,7 @@ fn test_phase_h1_dag_construction_and_topological_ordering() {
                     .map(|n| n.name.contains(name))
                     .unwrap_or(false)
             })
-            .expect(&format!("Node {name} not found in schedule"))
+            .unwrap_or_else(|| panic!("Node {name} not found in schedule"))
     };
 
     let clear_idx = find_idx("ClearPass");
