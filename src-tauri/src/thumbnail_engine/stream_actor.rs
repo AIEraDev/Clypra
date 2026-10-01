@@ -96,6 +96,7 @@ pub struct DecodedActorFrame {
     pub decoder_frames_decoded: u32,
     pub hardware_frame_download_us: Option<u64>,
     pub scale_colorspace_us: u64,
+    pub hardware_frames_downloaded: u32,
     pub source_metadata: VideoStreamMetadata,
 }
 
@@ -166,10 +167,11 @@ impl StreamDecoderActorHandle {
     pub async fn decode_frame(
         &self,
         time_secs: f64,
-        options: DecodeFrameOptions,
+        mut options: DecodeFrameOptions,
         is_prefetch: bool,
         generation: u64,
     ) -> Result<DecodedActorFrame, String> {
+        options.is_playback = false;
         self.decode_frame_with_policy(time_secs, options, is_prefetch, false, generation)
             .await
     }
@@ -182,9 +184,10 @@ impl StreamDecoderActorHandle {
     pub async fn decode_playback_frame(
         &self,
         time_secs: f64,
-        options: DecodeFrameOptions,
+        mut options: DecodeFrameOptions,
         generation: u64,
     ) -> Result<DecodedActorFrame, String> {
+        options.is_playback = true;
         self.decode_frame_with_policy(time_secs, options, false, true, generation)
             .await
     }
@@ -581,7 +584,7 @@ impl StreamDecoderActor {
                         );
                         let is_approx = guard.is_last_frame_approximate();
                         let demux_us = guard.last_demux_us();
-                        let (seek_count, frames_decoded, download_us, scale_us) =
+                        let (seek_count, frames_decoded, download_us, scale_us, hw_downloaded_count) =
                             guard.last_decode_activity();
                         return Ok((
                             DecodedVideoPlanes::D3d11(Arc::new(shared)),
@@ -599,11 +602,13 @@ impl StreamDecoderActor {
                             frames_decoded,
                             download_us,
                             scale_us,
+                            hw_downloaded_count,
                             source_metadata,
                         ));
                     }
                     Ok(None) => {
-                        // Software or non-D3D11 frame; proceed to CPU fallback below
+                        // Software or non-D3D11 frame or unsupported zero-copy; disable runtime DXGI probing
+                        crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled();
                     }
                     Err(err) => {
                         if err.contains("cancelled") {
@@ -614,6 +619,7 @@ impl StreamDecoderActor {
                             target_time,
                             err
                         );
+                        crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled();
                         // Non-fatal: proceed to CPU NV12 fallback below
                     }
                 }
@@ -623,7 +629,7 @@ impl StreamDecoderActor {
                 guard.decode_frame_raw_nv12_with_options(target_time, options, is_cancelled);
             let is_approx = guard.is_last_frame_approximate();
             let demux_us = guard.last_demux_us();
-            let (seek_count, frames_decoded, download_us, scale_us) =
+            let (seek_count, frames_decoded, download_us, scale_us, hw_downloaded_count) =
                 guard.last_decode_activity();
 
             let decode_us = decode_started.elapsed().as_micros().min(u32::MAX as u128) as u32;
@@ -653,6 +659,7 @@ impl StreamDecoderActor {
                         frames_decoded,
                         download_us,
                         scale_us,
+                        hw_downloaded_count,
                         source_metadata,
                     ))
                 }
@@ -678,6 +685,7 @@ impl StreamDecoderActor {
             decoder_frames_decoded,
             hardware_frame_download_us,
             scale_colorspace_us,
+            hardware_frames_downloaded,
             source_metadata,
         ) = result?;
 
@@ -701,6 +709,7 @@ impl StreamDecoderActor {
             decoder_frames_decoded,
             hardware_frame_download_us,
             scale_colorspace_us,
+            hardware_frames_downloaded,
             source_metadata,
         })
     }
@@ -791,6 +800,7 @@ mod tests {
             decoder_frames_decoded: 0,
             hardware_frame_download_us: None,
             scale_colorspace_us: 0,
+            hardware_frames_downloaded: 0,
             source_metadata: VideoStreamMetadata::default(),
         };
 
@@ -809,6 +819,7 @@ mod tests {
         let opts = DecodeFrameOptions {
             allow_keyframe_approx: false,
             quality: QualityTier::Full,
+            is_playback: false,
         };
 
         // Exact match
@@ -850,6 +861,7 @@ mod tests {
             decoder_frames_decoded: 0,
             hardware_frame_download_us: None,
             scale_colorspace_us: 0,
+            hardware_frames_downloaded: 0,
             source_metadata: VideoStreamMetadata::default(),
         };
         prime_cache.lock().await.push_back(approx_frame);
@@ -858,6 +870,7 @@ mod tests {
         let opts_approx = DecodeFrameOptions {
             allow_keyframe_approx: true,
             quality: QualityTier::Full,
+            is_playback: false,
         };
         let res_approx = handle
             .decode_frame(2.0, opts_approx, false, 0)
@@ -872,6 +885,7 @@ mod tests {
         let opts_exact = DecodeFrameOptions {
             allow_keyframe_approx: false,
             quality: QualityTier::Full,
+            is_playback: false,
         };
         let err_exact = handle.decode_frame(2.0, opts_exact, false, 0).await;
         assert!(
@@ -882,6 +896,7 @@ mod tests {
         let opts_half = DecodeFrameOptions {
             allow_keyframe_approx: false,
             quality: QualityTier::Half,
+            is_playback: false,
         };
         // Channel is closed, so decode_frame fails immediately
         let err = handle.decode_frame(1.0, opts_half, false, 0).await;
@@ -940,6 +955,7 @@ mod tests {
             decoder_frames_decoded: 99,
             hardware_frame_download_us: None,
             scale_colorspace_us: 0,
+            hardware_frames_downloaded: 0,
             source_metadata: VideoStreamMetadata::default(),
         });
         let handle = StreamDecoderActorHandle {
@@ -960,6 +976,7 @@ mod tests {
                 DecodeFrameOptions {
                     allow_keyframe_approx: false,
                     quality: QualityTier::Full,
+                    is_playback: true,
                 },
                 0,
             )
@@ -988,6 +1005,7 @@ mod tests {
         let opts = DecodeFrameOptions {
             allow_keyframe_approx: false,
             quality: QualityTier::Full,
+            is_playback: false,
         };
 
         // Frame 0 decode
