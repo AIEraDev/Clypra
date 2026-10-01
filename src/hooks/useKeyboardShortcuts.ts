@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { useTransportControls, useTransportSnapshot } from "./usePlaybackClock";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
@@ -18,7 +18,7 @@ import { toggleTrackPropertyWithHistory } from "@/core/history/trackPropertyActi
 import { useSettingsStore } from "@/store/settingsStore";
 
 export const useKeyboardShortcuts = () => {
-  const { pause, seek, setActiveContext, togglePlayback } = useTransportControls();
+  const { play, pause, seek, setSpeed, setActiveContext, togglePlayback } = useTransportControls();
   const { time: transportTime } = useTransportSnapshot();
   const { addMarker } = useTimelineStore();
   const { selectedClipIds, selectClip, selectTrack, previewMode, exitSourceMode, markSourceIn, markSourceOut } = useUIStore();
@@ -27,8 +27,43 @@ export const useKeyboardShortcuts = () => {
   const { zoomByStep, fitSequence } = useAnchoredTimelineZoom();
 
   const frameRate = project?.frameRate ?? 30;
+  const kPressedRef = useRef(false);
 
   useEffect(() => {
+    const stepFrame = (direction: -1 | 1) => {
+      const session = getActiveSessionOrNull();
+      const clock = getPlaybackClock();
+      const oneFrame = 1 / frameRate;
+      let target = 0;
+      if (previewMode === "source") {
+        const sourceTime = session?.sourceContext?.getTime() ?? 0;
+        const sourceDuration = session?.sourceContext?.getDuration() ?? Infinity;
+        target =
+          direction > 0
+            ? Math.min(sourceDuration, sourceTime + oneFrame)
+            : Math.max(0, sourceTime - oneFrame);
+        seek?.(target, {
+          source: "keyboard-seek",
+          mode: "frameStep",
+          quality: "full",
+          allowKeyframeApprox: false,
+        });
+      } else {
+        const liveTime = clock.time;
+        const projectDuration = clock.duration || (project?.duration ?? Infinity);
+        target =
+          direction > 0
+            ? Math.min(projectDuration, liveTime + oneFrame)
+            : Math.max(0, liveTime - oneFrame);
+        seek?.(target, {
+          source: "keyboard-seek",
+          mode: "frameStep",
+          quality: "full",
+          allowKeyframeApprox: false,
+        });
+      }
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't capture shortcuts when typing in input fields
       const target = e.target as HTMLElement;
@@ -38,7 +73,7 @@ export const useKeyboardShortcuts = () => {
 
       const isMeta = e.ctrlKey || e.metaKey;
 
-      // ─── Transport (context-aware) ───────────────────────────────────────
+      // ─── Transport & J/K/L Shuttle (context-aware) ───────────────────────
 
       if (e.code === "Space") {
         e.preventDefault();
@@ -46,11 +81,79 @@ export const useKeyboardShortcuts = () => {
         return;
       }
 
-      if (e.key === "k") {
+      // J / K / L Shuttle Transport (DaVinci / Premiere standard)
+      const isJ = !isMeta && !e.altKey && (e.key.toLowerCase() === "j" || e.code === "KeyJ");
+      const isK = !isMeta && !e.altKey && (e.key.toLowerCase() === "k" || e.code === "KeyK");
+      const isL = !isMeta && !e.altKey && (e.key.toLowerCase() === "l" || e.code === "KeyL");
+
+      if (isK) {
         e.preventDefault();
+        kPressedRef.current = true;
         pause();
+        setSpeed(1.0);
         return;
       }
+
+      if (isL) {
+        e.preventDefault();
+        if (kPressedRef.current) {
+          stepFrame(1);
+          return;
+        }
+
+        const clock = getPlaybackClock();
+        const isPlaying = clock.state === "playing";
+        if (!isPlaying) {
+          setSpeed(1.0);
+          play();
+        } else {
+          const currentSpeed = clock.speed;
+          let targetSpeed = 1.0;
+          if (currentSpeed < 1.0) {
+            targetSpeed = 1.0;
+          } else if (currentSpeed < 2.0) {
+            targetSpeed = 2.0;
+          } else if (currentSpeed < 4.0) {
+            targetSpeed = 4.0;
+          } else {
+            targetSpeed = currentSpeed;
+          }
+          setSpeed(targetSpeed);
+        }
+        return;
+      }
+
+      if (isJ) {
+        e.preventDefault();
+        if (kPressedRef.current) {
+          stepFrame(-1);
+          return;
+        }
+
+        const clock = getPlaybackClock();
+        const isPlaying = clock.state === "playing";
+        if (isPlaying) {
+          const currentSpeed = clock.speed;
+          let targetSpeed = 1.0;
+          let direction: "forward" | "pause" = "forward";
+          if (currentSpeed > 2.0) {
+            targetSpeed = 2.0;
+            setSpeed(2.0);
+          } else if (currentSpeed > 1.0) {
+            targetSpeed = 1.0;
+            setSpeed(1.0);
+          } else {
+            pause();
+            setSpeed(1.0);
+            targetSpeed = 0;
+            direction = "pause";
+          }
+        } else {
+          stepFrame(-1);
+        }
+        return;
+      }
+
 
       // ─── Seeking (context-aware) ─────────────────────────────────────────
       // PB-BUG-001 fix: Read clock.time imperatively instead of using throttled
@@ -550,9 +653,18 @@ export const useKeyboardShortcuts = () => {
       }
     };
 
+    const handleKeyUp = (e: KeyboardEvent) => {
+      const isK = e.key.toLowerCase() === "k" || e.code === "KeyK";
+      if (isK) kPressedRef.current = false;
+    };
+
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [transportTime, frameRate, selectedClipIds, previewMode, togglePlayback, pause, seek, setActiveContext, zoomByStep, fitSequence, selectClip, selectTrack, exitSourceMode, markSourceIn, markSourceOut, addMarker, undo, redo]);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [transportTime, frameRate, selectedClipIds, previewMode, togglePlayback, play, pause, seek, setSpeed, setActiveContext, zoomByStep, fitSequence, selectClip, selectTrack, exitSourceMode, markSourceIn, markSourceOut, addMarker, undo, redo]);
 
   // Listen for native desktop application menu events ("menu-undo", "menu-redo").
   // On macOS, native menu bar accelerators (Cmd+Z / Shift+Cmd+Z) trigger menu events.

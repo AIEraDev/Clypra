@@ -128,6 +128,18 @@ const DEFAULT_SHORTCUTS: Omit<ShortcutAction, "binding">[] = [
     category: "Transport",
     defaultBinding: { key: "ArrowRight" },
   },
+  {
+    id: "shuttle-forward",
+    label: "Shuttle Forward (1x / 2x / 4x)",
+    category: "Transport",
+    defaultBinding: { key: "l" },
+  },
+  {
+    id: "shuttle-reverse",
+    label: "Shuttle Reverse / Slow Down",
+    category: "Transport",
+    defaultBinding: { key: "j" },
+  },
   // Source Mode
   {
     id: "mark-source-in",
