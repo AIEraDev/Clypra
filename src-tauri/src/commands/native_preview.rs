@@ -2470,7 +2470,14 @@ async fn render_native_video_project_frame_bytes_timed(
     #[cfg(target_os = "windows")]
     let can_attempt_dxgi = !request.layers.is_empty() && {
         let session = state.lock().await;
+        // A failed/unsupported import still mutates the FFmpeg decoder while
+        // probing D3D11VA. Repeating that probe per playback frame resets the
+        // shared decoder cursor and turns a forward stream into GOP seeks.
+        // Attempt it only when the active wgpu adapter can actually consume
+        // the imported NV12 texture.
         session.dxgi_state.is_usable()
+            && session.gpu.capabilities.zero_copy_available()
+            && session.gpu.capabilities.wgpu_nv12
     };
 
     #[cfg(target_os = "windows")]
@@ -2980,9 +2987,15 @@ async fn decode_native_video_layers(
             stream_id,
         )
         .await?;
-        let actor_frame = actor
-            .decode_frame(layer.time_secs, decode_options, is_prefetch, generation)
-            .await?;
+        let actor_frame = if request.mode.as_deref() == Some("playback") {
+            actor
+                .decode_playback_frame(layer.time_secs, decode_options, generation)
+                .await?
+        } else {
+            actor
+                .decode_frame(layer.time_secs, decode_options, is_prefetch, generation)
+                .await?
+        };
         let decode_us = actor_frame.decode_us;
         let mutex_wait_us = actor_frame.decoder_mutex_wait_us;
         let actor_wait_us = actor_frame.actor_wait_us;
