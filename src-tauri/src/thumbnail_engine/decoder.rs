@@ -6,7 +6,7 @@
 //! - Sequential decoding optimization (avoids seeking during scrubbing)
 //! - Display-aware geometry (respects SAR/DAR/rotation)
 
-use crate::native_core::QualityTier;
+use crate::native_core::{performance::ServedFrom, QualityTier};
 use dashmap::DashMap;
 use ffmpeg_next as ffmpeg;
 use once_cell::sync::Lazy;
@@ -412,13 +412,30 @@ struct DecoderState {
 /// Per-request facts retained by the long-lived decoder. These are deliberately
 /// request-scoped rather than cumulative so a performance sample can identify
 /// re-seeking and GOP amplification without guessing from elapsed time.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 struct DecodeActivity {
     seek_count: u32,
     frames_decoded: u32,
     hardware_frame_download_us: Option<u64>,
     scale_colorspace_us: u64,
     hardware_frames_downloaded: u32,
+    /// How the last request was satisfied. Defaults to `DecodedInRequest` so
+    /// pre-existing paths that don't explicitly set a value are not silently
+    /// misclassified as cache hits.
+    served_from: ServedFrom,
+}
+
+impl Default for DecodeActivity {
+    fn default() -> Self {
+        Self {
+            seek_count: 0,
+            frames_decoded: 0,
+            hardware_frame_download_us: None,
+            scale_colorspace_us: 0,
+            hardware_frames_downloaded: 0,
+            served_from: ServedFrom::DecodedInRequest,
+        }
+    }
 }
 
 impl DecoderState {
@@ -483,40 +500,39 @@ pub fn decide_decoder_action(
 
     let delta = target_pts - current_pts;
 
-    if !is_playback {
-        // Paused seek / scrub: exact frame correctness
-        if delta < 0 {
-            if delta.abs() <= pts_tolerance {
-                DecoderSeekAction::ReuseCurrent
-            } else {
-                DecoderSeekAction::Seek
-            }
+    // Forward decision is identical for both modes: small delta → reuse,
+    // within window → decode forward, beyond window → seek to keyframe.
+    let decide_forward = |delta: i64| -> DecoderSeekAction {
+        if delta <= pts_tolerance {
+            DecoderSeekAction::ReuseCurrent
         } else if delta <= forward_window {
-            if delta <= pts_tolerance {
-                DecoderSeekAction::ReuseCurrent
-            } else {
-                DecoderSeekAction::DecodeForward
-            }
+            DecoderSeekAction::DecodeForward
+        } else {
+            DecoderSeekAction::Seek
+        }
+    };
+
+    if delta >= 0 {
+        return decide_forward(delta);
+    }
+
+    // delta < 0: target is behind current position.
+    if !is_playback {
+        // Paused seek / scrub: exact frame correctness matters; only allow
+        // reuse within pts_tolerance (sub-frame rounding).
+        if delta.abs() <= pts_tolerance {
+            DecoderSeekAction::ReuseCurrent
         } else {
             DecoderSeekAction::Seek
         }
     } else {
-        // Continuous playback: forward-biased, bounded jitter tolerance
-        if delta < 0 {
-            if delta.abs() <= backward_jitter_threshold {
-                DecoderSeekAction::ReuseCurrent
-            } else {
-                // Real backward jump (loop wrap, clip boundary, timeline drag)
-                DecoderSeekAction::Seek
-            }
-        } else if delta <= forward_window {
-            if delta <= pts_tolerance {
-                DecoderSeekAction::ReuseCurrent
-            } else {
-                DecoderSeekAction::DecodeForward
-            }
+        // Continuous playback: small backward drift is normal clock jitter.
+        // `backward_jitter_threshold` is capped at 1 frame duration so the
+        // served frame is never more than ~1 frame ahead of target_pts.
+        if delta.abs() <= backward_jitter_threshold {
+            DecoderSeekAction::ReuseCurrent
         } else {
-            // Large forward jump beyond window: seek to keyframe instead of walking GOP
+            // Real backward jump (loop wrap, clip boundary, timeline drag).
             DecoderSeekAction::Seek
         }
     }
@@ -580,7 +596,7 @@ impl VideoDecoder {
         self.last_demux_us
     }
 
-    pub fn last_decode_activity(&self) -> (u32, u32, Option<u64>, u64, u32) {
+    pub fn last_decode_activity(&self) -> (u32, u32, Option<u64>, u64, u32, ServedFrom) {
         let activity = self.last_decode_activity;
         (
             activity.seek_count,
@@ -588,6 +604,7 @@ impl VideoDecoder {
             activity.hardware_frame_download_us,
             activity.scale_colorspace_us,
             activity.hardware_frames_downloaded,
+            activity.served_from,
         )
     }
 
@@ -2042,7 +2059,13 @@ impl VideoDecoder {
             .round()
             .max(1.0) as i64;
 
-        let backward_jitter_threshold = pts_tolerance * 2;
+        // Allow a ready-frame cache to cover requests that are at most 1 frame
+        // behind the cached PTS.  Using exactly pts_tolerance (≈ 0.95 × frame
+        // duration) means the served frame is never more than ~1 frame ahead
+        // of the target, which is the weakest correctness guarantee consistent
+        // with smooth forward playback.  Using 2× was too loose and could
+        // deliver a frame that was visibly a full frame early.
+        let backward_jitter_threshold = pts_tolerance;
 
         // 1. Check LRU ring-buffer cache for recently decoded frames
         if options.is_playback {
@@ -2065,7 +2088,10 @@ impl VideoDecoder {
                 let height = cached.height;
                 let color = cached.color.clone();
                 self.raw_nv12_cache.push_back(cached);
-                self.last_decode_activity = DecodeActivity::default();
+                self.last_decode_activity = DecodeActivity {
+                    served_from: ServedFrom::ReadyCache,
+                    ..DecodeActivity::default()
+                };
                 return Ok((y_clone, uv_clone, width, height, color));
             }
         } else if let Some(pos) = self.raw_nv12_cache.iter().position(|cached| {
@@ -2080,7 +2106,10 @@ impl VideoDecoder {
             let height = cached.height;
             let color = cached.color.clone();
             self.raw_nv12_cache.push_back(cached);
-            self.last_decode_activity = DecodeActivity::default();
+            self.last_decode_activity = DecodeActivity {
+                served_from: ServedFrom::ReadyCache,
+                ..DecodeActivity::default()
+            };
             return Ok((y_clone, uv_clone, width, height, color));
         }
 
@@ -2098,7 +2127,10 @@ impl VideoDecoder {
                     && (*cached_pts - target_pts).abs() <= pts_tolerance
             };
             if is_hit {
-                self.last_decode_activity = DecodeActivity::default();
+                self.last_decode_activity = DecodeActivity {
+                    served_from: ServedFrom::ReadyCache,
+                    ..DecodeActivity::default()
+                };
                 return Ok((
                     Arc::clone(y),
                     Arc::clone(uv),
@@ -2128,7 +2160,10 @@ impl VideoDecoder {
 
         if action == DecoderSeekAction::ReuseCurrent {
             if let Some((_, y, uv, width, height, color, _, _)) = &self.last_raw_nv12 {
-                self.last_decode_activity = DecodeActivity::default();
+                self.last_decode_activity = DecodeActivity {
+                    served_from: ServedFrom::ReusedCurrent,
+                    ..DecodeActivity::default()
+                };
                 return Ok((
                     Arc::clone(y),
                     Arc::clone(uv),
@@ -2425,6 +2460,7 @@ impl VideoDecoder {
             hardware_frame_download_us,
             scale_colorspace_us,
             hardware_frames_downloaded,
+            served_from: ServedFrom::DecodedInRequest,
         };
         Ok((y_arc, uv_arc, result.2, result.3, result.4))
     }
@@ -4123,5 +4159,109 @@ mod still_image_tests {
         let latest_eligible = eligible.into_iter().max().unwrap();
         assert_eq!(latest_eligible, 1000);
         assert!(latest_eligible <= target_pts);
+    }
+
+    /// Regression guard: a decoder in steady-state forward playback at ~2.5 frames
+    /// per request must choose `DecodeForward`, not `Seek`, even when that delta is
+    /// larger than `pts_tolerance`. The `forward_window` absorbs normal clock drift.
+    /// Separately, a delta of exactly `forward_window + 1` must still choose `Seek`.
+    #[test]
+    fn test_decide_decoder_action_persistent_lag_does_not_thrash_seeks() {
+        // Simulate 25 FPS source in a 12800 tick/second timebase:
+        //   pts_tolerance ≈ 0.95 * (12800/25) ≈ 486 ticks
+        //   forward_window (warm, 3+ sequential hits) = 2 s * 12800 = 25600 ticks
+        let pts_tolerance: i64 = 486;
+        let forward_window: i64 = 25600;
+        let backward_jitter_threshold: i64 = pts_tolerance;
+
+        // Steady playback at ~2.5 source frames per rendered frame = ~512 ticks.
+        // 512 > pts_tolerance (486) so the action must be DecodeForward, not
+        // ReuseCurrent or Seek.
+        let steady_delta: i64 = 512;
+        assert_eq!(
+            decide_decoder_action(
+                true,
+                0,
+                steady_delta,
+                pts_tolerance,
+                forward_window,
+                backward_jitter_threshold,
+                false
+            ),
+            DecoderSeekAction::DecodeForward,
+            "steady 2.5-frame delta must decode forward, not seek"
+        );
+
+        // delta == forward_window: last valid forward-decode step before seeking.
+        assert_eq!(
+            decide_decoder_action(
+                true,
+                0,
+                forward_window,
+                pts_tolerance,
+                forward_window,
+                backward_jitter_threshold,
+                false
+            ),
+            DecoderSeekAction::DecodeForward,
+            "delta == forward_window must still decode forward"
+        );
+
+        // delta == forward_window + 1: first step beyond window, must seek.
+        assert_eq!(
+            decide_decoder_action(
+                true,
+                0,
+                forward_window + 1,
+                pts_tolerance,
+                forward_window,
+                backward_jitter_threshold,
+                false
+            ),
+            DecoderSeekAction::Seek,
+            "delta == forward_window + 1 must seek, not decode forward"
+        );
+    }
+
+    /// Verify that the tightened backward_jitter_threshold (1× frame duration, not
+    /// 2×) rejects a delta larger than one frame, which was previously accepted.
+    #[test]
+    fn test_backward_jitter_threshold_is_one_frame_not_two() {
+        let pts_tolerance: i64 = 486;
+        let forward_window: i64 = 25600;
+        let backward_jitter_threshold: i64 = pts_tolerance; // 1× frame only
+
+        // Backward delta within 1 frame (current=1000, target=520 → delta=-480).
+        // -480 abs is within pts_tolerance 486, so should reuse.
+        assert_eq!(
+            decide_decoder_action(
+                true,
+                1000,
+                520,
+                pts_tolerance,
+                forward_window,
+                backward_jitter_threshold,
+                false
+            ),
+            DecoderSeekAction::ReuseCurrent,
+            "backward delta within 1 frame must reuse current"
+        );
+
+        // Backward delta of exactly 2× pts_tolerance + 1 (was accepted before
+        // tightening, must seek with 1× threshold).
+        let target = 1000 - pts_tolerance * 2 - 1;
+        assert_eq!(
+            decide_decoder_action(
+                true,
+                1000,
+                target,
+                pts_tolerance,
+                forward_window,
+                backward_jitter_threshold,
+                false
+            ),
+            DecoderSeekAction::Seek,
+            "backward delta of 2× frame duration must seek with 1× threshold"
+        );
     }
 }

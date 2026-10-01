@@ -29,6 +29,24 @@ impl PreviewMode {
     }
 }
 
+/// Records how a frame request was satisfied so reports can distinguish
+/// true decode work from cache or in-place reuse.
+///
+/// Serialised as kebab-case strings so they are readable in JSON reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ServedFrom {
+    /// FFmpeg decoded at least one packet during this request.
+    DecodedInRequest,
+    /// Frame was returned from the ready-frame ring-buffer or last-frame slot
+    /// without issuing any new FFmpeg decode call.
+    ReadyCache,
+    /// `decide_decoder_action` returned `ReuseCurrent`; the frame at
+    /// `current_pts` (which may be slightly ahead of `target_pts` by up to
+    /// one frame duration) was returned without decoding or seeking.
+    ReusedCurrent,
+}
+
 /// Runtime limits used to protect the fast editing path during migration.
 /// Durations are integer microseconds; timestamps remain governed by FrameTime.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -221,9 +239,11 @@ pub struct PerformanceSample {
     /// indicating overlapping execution or double-counting.
     #[serde(default)]
     pub stage_overlap_us: Option<u64>,
-    /// Whether this request was satisfied from ready frame cache without new decode.
+    /// How this request was satisfied: decoded in-request, from the ready-frame
+    /// ring-buffer / last-frame cache, or by reusing the current decoder position.
+    /// `None` on legacy samples that predate this field.
     #[serde(default)]
-    pub served_from_cache: Option<bool>,
+    pub served_from: Option<ServedFrom>,
 }
 
 impl PerformanceSample {
@@ -333,6 +353,10 @@ pub struct ModeStats {
     pub surface_acquire: StagePercentiles,
     pub submit_present: StagePercentiles,
     pub stage_overlap: StagePercentiles,
+    /// Microseconds within each invoke not attributed to any measured stage.
+    /// A persistently large value here points to OS scheduling, mutex wait, or
+    /// Tauri/IPC serialization overhead that the individual stage timers miss.
+    pub unaccounted: StagePercentiles,
     pub unique_frames_delivered: usize,
     pub repeated_frames_delivered: usize,
     pub delivered_unique_fps: Option<f64>,
@@ -452,7 +476,7 @@ mod tests {
             codec_name: None,
             hardware_frames_downloaded: None,
             stage_overlap_us: None,
-            served_from_cache: None,
+            served_from: None,
         };
         assert!(sample.exceeds_render_budget(&budget));
     }

@@ -463,6 +463,7 @@ struct NativeDecodeTimings {
     source_frame_rate_milli: Option<u32>,
     codec_name: Option<String>,
     hardware_frames_downloaded: Option<u32>,
+    served_from: Option<crate::native_core::performance::ServedFrom>,
 }
 
 struct QueuedNativeFrame {
@@ -695,7 +696,11 @@ fn record_native_surface_sample(
         codec_name: decode_timings.codec_name.clone(),
         hardware_frames_downloaded: decode_timings.hardware_frames_downloaded,
         stage_overlap_us: Some(stage_overlap_us),
-        served_from_cache: Some(queue_hit),
+        served_from: if queue_hit {
+            Some(crate::native_core::performance::ServedFrom::ReadyCache)
+        } else {
+            decode_timings.served_from
+        },
     });
 }
 
@@ -3037,6 +3042,7 @@ async fn decode_native_video_layers(
         let hardware_frames_downloaded = actor_frame.hardware_frames_downloaded;
         let scale_colorspace_us = actor_frame.scale_colorspace_us;
         let source = actor_frame.source_metadata.clone();
+        let actor_served_from = actor_frame.served_from;
         let decoded = actor_frame.into_native_video_frame();
         return Ok((
             vec![decoded],
@@ -3057,6 +3063,7 @@ async fn decode_native_video_layers(
                 source_frame_rate_milli: source.average_frame_rate_milli(),
                 codec_name: Some(source.codec_name),
                 hardware_frames_downloaded: Some(hardware_frames_downloaded),
+                served_from: Some(actor_served_from),
             },
         ));
     }
@@ -4750,7 +4757,7 @@ pub async fn render_native_frame(
                 codec_name: None,
                 hardware_frames_downloaded: Some(0),
                 stage_overlap_us: Some(0),
-                served_from_cache: Some(true),
+                served_from: Some(crate::native_core::performance::ServedFrom::ReadyCache),
             });
             record_successful_readback_metrics(&app, &request);
             return Ok(tauri::ipc::Response::new(packet.data));
@@ -4887,7 +4894,7 @@ pub async fn render_native_frame(
             codec_name: stage_timings.decode_telemetry.codec_name.clone(),
             hardware_frames_downloaded: stage_timings.decode_telemetry.hardware_frames_downloaded,
             stage_overlap_us: Some(stage_overlap_us),
-            served_from_cache: Some(false),
+            served_from: stage_timings.decode_telemetry.served_from,
         });
     }
 

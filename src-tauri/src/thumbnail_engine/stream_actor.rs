@@ -98,6 +98,8 @@ pub struct DecodedActorFrame {
     pub scale_colorspace_us: u64,
     pub hardware_frames_downloaded: u32,
     pub source_metadata: VideoStreamMetadata,
+    /// How this frame request was satisfied by the decoder.
+    pub served_from: crate::native_core::performance::ServedFrom,
 }
 
 impl DecodedActorFrame {
@@ -584,7 +586,7 @@ impl StreamDecoderActor {
                         );
                         let is_approx = guard.is_last_frame_approximate();
                         let demux_us = guard.last_demux_us();
-                        let (seek_count, frames_decoded, download_us, scale_us, hw_downloaded_count) =
+                        let (seek_count, frames_decoded, download_us, scale_us, hw_downloaded_count, served_from) =
                             guard.last_decode_activity();
                         return Ok((
                             DecodedVideoPlanes::D3d11(Arc::new(shared)),
@@ -603,6 +605,7 @@ impl StreamDecoderActor {
                             download_us,
                             scale_us,
                             hw_downloaded_count,
+                            served_from,
                             source_metadata,
                         ));
                     }
@@ -629,7 +632,7 @@ impl StreamDecoderActor {
                 guard.decode_frame_raw_nv12_with_options(target_time, options, is_cancelled);
             let is_approx = guard.is_last_frame_approximate();
             let demux_us = guard.last_demux_us();
-            let (seek_count, frames_decoded, download_us, scale_us, hw_downloaded_count) =
+            let (seek_count, frames_decoded, download_us, scale_us, hw_downloaded_count, served_from) =
                 guard.last_decode_activity();
 
             let decode_us = decode_started.elapsed().as_micros().min(u32::MAX as u128) as u32;
@@ -660,6 +663,7 @@ impl StreamDecoderActor {
                         download_us,
                         scale_us,
                         hw_downloaded_count,
+                        served_from,
                         source_metadata,
                     ))
                 }
@@ -686,6 +690,7 @@ impl StreamDecoderActor {
             hardware_frame_download_us,
             scale_colorspace_us,
             hardware_frames_downloaded,
+            served_from,
             source_metadata,
         ) = result?;
 
@@ -710,6 +715,7 @@ impl StreamDecoderActor {
             hardware_frame_download_us,
             scale_colorspace_us,
             hardware_frames_downloaded,
+            served_from,
             source_metadata,
         })
     }
@@ -802,6 +808,7 @@ mod tests {
             scale_colorspace_us: 0,
             hardware_frames_downloaded: 0,
             source_metadata: VideoStreamMetadata::default(),
+            served_from: crate::native_core::performance::ServedFrom::DecodedInRequest,
         };
 
         prime_cache.lock().await.push_back(cached_frame);
@@ -863,6 +870,7 @@ mod tests {
             scale_colorspace_us: 0,
             hardware_frames_downloaded: 0,
             source_metadata: VideoStreamMetadata::default(),
+            served_from: crate::native_core::performance::ServedFrom::DecodedInRequest,
         };
         prime_cache.lock().await.push_back(approx_frame);
 
@@ -957,6 +965,7 @@ mod tests {
             scale_colorspace_us: 0,
             hardware_frames_downloaded: 0,
             source_metadata: VideoStreamMetadata::default(),
+            served_from: crate::native_core::performance::ServedFrom::DecodedInRequest,
         });
         let handle = StreamDecoderActorHandle {
             key: "playback-cache-test".to_string(),
