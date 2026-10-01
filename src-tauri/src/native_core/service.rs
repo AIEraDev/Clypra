@@ -23,7 +23,7 @@ pub struct NativeFrameService {
     // Export history is independent from the five-second HUD window. This
     // lets a delayed telemetry poll catch up without making the statistics
     // window grow or turning the service into an unbounded event log.
-    sample_history: VecDeque<(u64, PerformanceSample)>,
+    sample_history: VecDeque<(u64, u64, PerformanceSample)>,
 }
 
 impl NativeFrameService {
@@ -96,7 +96,7 @@ impl NativeFrameService {
             .push_back((now, self.last_sample_sequence, sample));
         let sample = self.last_sample.as_ref().expect("sample stored").clone();
         self.sample_history
-            .push_back((self.last_sample_sequence, sample));
+            .push_back((now, self.last_sample_sequence, sample));
         while self.sample_history.len() > 4096 {
             self.sample_history.pop_front();
         }
@@ -117,15 +117,15 @@ impl NativeFrameService {
         let oldest_sequence = self
             .sample_history
             .front()
-            .map(|(sequence, _)| *sequence)
+            .map(|(_, sequence, _)| *sequence)
             .unwrap_or(self.last_sample_sequence.saturating_add(1));
         let latest_sequence = self.last_sample_sequence;
         let cursor_truncated = after_sequence.saturating_add(1) < oldest_sequence;
         let available: Vec<(u64, PerformanceSample)> = self
             .sample_history
             .iter()
-            .filter(|(sequence, _)| *sequence > after_sequence)
-            .map(|(sequence, sample)| (*sequence, sample.clone()))
+            .filter(|(_, sequence, _)| *sequence > after_sequence)
+            .map(|(_, sequence, sample)| (*sequence, sample.clone()))
             .collect();
         let truncated = cursor_truncated || available.len() > limit;
         let samples = available
@@ -194,15 +194,96 @@ impl NativeFrameService {
         ]
         .into_iter()
         .map(|mode| {
-            let samples: Vec<PerformanceSample> = self
+            let window_entries: Vec<(u64, PerformanceSample)> = self
                 .window_samples
                 .iter()
                 .filter(|(_, _, sample)| sample.mode == Some(mode))
-                .map(|(_, _, sample)| sample.clone())
+                .map(|(ts, _, sample)| (*ts, sample.clone()))
                 .collect();
+            // Fall back to recent sample history when window has fewer than 30 samples,
+            // ensuring statistical validity when presentation rate is low.
+            let (entries, fell_back) = if window_entries.len() < 30 {
+                let history_entries: Vec<(u64, PerformanceSample)> = self
+                    .sample_history
+                    .iter()
+                    .rev()
+                    .filter(|(_, _, sample)| sample.mode == Some(mode))
+                    .take(256)
+                    .map(|(ts, _, sample)| (*ts, sample.clone()))
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
+                if history_entries.len() > window_entries.len() {
+                    (history_entries, true)
+                } else {
+                    (window_entries, false)
+                }
+            } else {
+                (window_entries, false)
+            };
+
+            let window_source = if fell_back { "history" } else { "window" }.to_string();
+
+            let sample_span_ms = if entries.len() >= 2 {
+                let first_ts = entries.first().map(|(ts, _)| *ts).unwrap_or(0);
+                let last_ts = entries.last().map(|(ts, _)| *ts).unwrap_or(0);
+                Some(last_ts.saturating_sub(first_ts))
+            } else if !entries.is_empty() {
+                Some(0)
+            } else {
+                None
+            };
+
+            let mut unique_frames_delivered = 0usize;
+            let mut repeated_frames_delivered = 0usize;
+            let mut last_delivered_key: Option<(Option<u64>, u64)> = None;
+
+            for (_, sample) in &entries {
+                if sample.dropped || sample.cancelled {
+                    continue;
+                }
+                let current_key = (sample.generation, sample.frame_index);
+                let is_repeated = sample.served_from_cache == Some(true)
+                    || last_delivered_key == Some(current_key);
+                if is_repeated {
+                    repeated_frames_delivered += 1;
+                } else {
+                    unique_frames_delivered += 1;
+                }
+                last_delivered_key = Some(current_key);
+            }
+
+            let delivered_unique_fps = match sample_span_ms {
+                Some(span_ms) if span_ms > 0 => {
+                    Some((unique_frames_delivered as f64 * 1000.0) / (span_ms as f64))
+                }
+                _ => None,
+            };
+
+            let samples: Vec<PerformanceSample> =
+                entries.into_iter().map(|(_, sample)| sample).collect();
+
+            let decoded_samples: Vec<PerformanceSample> = samples
+                .iter()
+                .filter(|s| {
+                    s.served_from_cache != Some(true)
+                        && s.decode_us.is_some()
+                        && s.decode_us != Some(0)
+                })
+                .cloned()
+                .collect();
+
             ModeStats {
                 mode,
-                decode: optional_stage_percentiles(&samples, |sample| sample.decode_us),
+                decode: optional_stage_percentiles(&decoded_samples, |sample| sample.decode_us),
+                packet_decode: optional_stage_percentiles(&decoded_samples, |sample| {
+                    sample.decode_us.map(|decode| {
+                        decode
+                            .saturating_sub(sample.hardware_frame_download_us.unwrap_or(0))
+                            .saturating_sub(sample.scale_colorspace_us.unwrap_or(0))
+                    })
+                }),
                 conversion_upload: optional_stage_percentiles(&samples, |sample| {
                     sample.conversion_upload_us
                 }),
@@ -223,22 +304,22 @@ impl NativeFrameService {
                     sample.queue_residency_us
                 }),
                 ipc_wait: optional_stage_percentiles(&samples, |sample| sample.ipc_wait_us),
-                decoder_mutex_wait: optional_stage_percentiles(&samples, |sample| {
+                decoder_mutex_wait: optional_stage_percentiles(&decoded_samples, |sample| {
                     sample.decoder_mutex_wait_us
                 }),
-                demux_wait: optional_stage_percentiles(&samples, |sample| {
+                demux_wait: optional_stage_percentiles(&decoded_samples, |sample| {
                     sample.demux_wait_us
                 }),
-                decoder_seek_count: optional_stage_percentiles(&samples, |sample| {
+                decoder_seek_count: optional_stage_percentiles(&decoded_samples, |sample| {
                     sample.decoder_seek_count.map(u64::from)
                 }),
-                decoder_frames_decoded: optional_stage_percentiles(&samples, |sample| {
+                decoder_frames_decoded: optional_stage_percentiles(&decoded_samples, |sample| {
                     sample.decoder_frames_decoded.map(u64::from)
                 }),
-                hardware_frame_download: optional_stage_percentiles(&samples, |sample| {
+                hardware_frame_download: optional_stage_percentiles(&decoded_samples, |sample| {
                     sample.hardware_frame_download_us
                 }),
-                scale_colorspace: optional_stage_percentiles(&samples, |sample| {
+                scale_colorspace: optional_stage_percentiles(&decoded_samples, |sample| {
                     sample.scale_colorspace_us
                 }),
                 gpu_queue_wait: optional_stage_percentiles(&samples, |sample| {
@@ -250,6 +331,14 @@ impl NativeFrameService {
                 submit_present: optional_stage_percentiles(&samples, |sample| {
                     sample.submit_present_us
                 }),
+                stage_overlap: optional_stage_percentiles(&samples, |sample| {
+                    sample.stage_overlap_us
+                }),
+                unique_frames_delivered,
+                repeated_frames_delivered,
+                delivered_unique_fps,
+                window_source,
+                sample_span_ms,
                 dropped_count: samples.iter().filter(|sample| sample.dropped).count(),
                 stale_count: samples.iter().filter(|sample| sample.stale).count(),
             }
@@ -382,6 +471,8 @@ mod tests {
             conversion_upload_us: None,
             compose_us: Some(1),
             readback_us: None,
+            map_wait_us: None,
+            timestamp_query_available: None,
             present_us: Some(0),
             scheduler_wait_us: None,
             lookahead_wait_us: None,
@@ -406,6 +497,11 @@ mod tests {
             source_height: None,
             source_bits_per_raw_sample: None,
             source_frame_rate_milli: None,
+            unaccounted_us: None,
+            codec_name: None,
+            hardware_frames_downloaded: None,
+            stage_overlap_us: None,
+            served_from_cache: None,
         }
     }
 
@@ -441,5 +537,72 @@ mod tests {
         let second = service.samples_since(first.next_sequence, 256);
         assert!(second.samples.is_empty());
         assert_eq!(second.next_sequence, 2);
+    }
+
+    #[test]
+    fn mode_stats_packet_decode_and_stage_overlap() {
+        let mut service = NativeFrameService::new(1024).unwrap();
+        let mut test_sample = sample(1);
+        test_sample.decode_us = Some(260_000);
+        test_sample.hardware_frame_download_us = Some(134_000);
+        test_sample.scale_colorspace_us = Some(6_000);
+        test_sample.total_time_us = 200_000;
+        test_sample.stage_overlap_us = Some(60_000);
+        test_sample.served_from_cache = Some(false);
+        service.record_sample(test_sample);
+
+        let stats = service.stats();
+        let playback_stats = stats
+            .mode_stats
+            .iter()
+            .find(|m| m.mode == PreviewMode::Playback)
+            .expect("playback mode stats present");
+
+        assert_eq!(playback_stats.decode.p50, Some(260_000));
+        assert_eq!(playback_stats.hardware_frame_download.p50, Some(134_000));
+        assert_eq!(playback_stats.scale_colorspace.p50, Some(6_000));
+        assert_eq!(playback_stats.packet_decode.p50, Some(120_000));
+        assert_eq!(playback_stats.stage_overlap.p50, Some(60_000));
+        assert_eq!(playback_stats.unique_frames_delivered, 1);
+        assert_eq!(playback_stats.repeated_frames_delivered, 0);
+    }
+
+    #[test]
+    fn mode_stats_cache_hits_do_not_dilute_decode_percentiles() {
+        let mut service = NativeFrameService::new(1024).unwrap();
+        // Record 1 freshly decoded frame
+        let mut decoded = sample(1);
+        decoded.decode_us = Some(100_000);
+        decoded.hardware_frame_download_us = Some(20_000);
+        decoded.scale_colorspace_us = Some(5_000);
+        decoded.served_from_cache = Some(false);
+        service.record_sample(decoded);
+
+        // Record 5 cached frames with 0µs decode time
+        for i in 2..=6 {
+            let mut cached = sample(i);
+            cached.decode_us = Some(0);
+            cached.hardware_frame_download_us = None;
+            cached.scale_colorspace_us = None;
+            cached.served_from_cache = Some(true);
+            service.record_sample(cached);
+        }
+
+        let stats = service.stats();
+        let playback_stats = stats
+            .mode_stats
+            .iter()
+            .find(|m| m.mode == PreviewMode::Playback)
+            .expect("playback mode stats present");
+
+        // Decode percentiles must NOT be diluted to 0 by the 5 cache hits
+        assert_eq!(playback_stats.decode.sample_count, 1);
+        assert_eq!(playback_stats.decode.p50, Some(100_000));
+        assert_eq!(playback_stats.packet_decode.sample_count, 1);
+        assert_eq!(playback_stats.packet_decode.p50, Some(75_000));
+
+        // Delivery metrics track total unique vs repeated frames
+        assert_eq!(playback_stats.unique_frames_delivered, 1);
+        assert_eq!(playback_stats.repeated_frames_delivered, 5);
     }
 }

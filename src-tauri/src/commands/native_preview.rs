@@ -279,13 +279,23 @@ pub fn get_native_push_transport_capabilities(
 
 fn diagnose_mode_stats(mode: &ModeStats) -> Option<NativePreviewStageDiagnosis> {
     let stages = [
-        ("decode", mode.decode.p95, "prioritize-decode"),
+        ("packet_decode", mode.packet_decode.p95, "prioritize-decode"),
+        (
+            "hardware_frame_download",
+            mode.hardware_frame_download.p95,
+            "investigate-hardware-download",
+        ),
         (
             "decoder_mutex_wait",
             mode.decoder_mutex_wait.p95,
             "prioritize-decode",
         ),
         ("demux_wait", mode.demux_wait.p95, "prioritize-decode"),
+        (
+            "scale_colorspace",
+            mode.scale_colorspace.p95,
+            "investigate-render-upload",
+        ),
         (
             "conversion_upload",
             mode.conversion_upload.p95,
@@ -338,6 +348,8 @@ fn diagnose_mode_stats(mode: &ModeStats) -> Option<NativePreviewStageDiagnosis> 
         .max_by_key(|(_, value, _)| *value)?;
     let sample_count = [
         mode.decode.sample_count,
+        mode.packet_decode.sample_count,
+        mode.hardware_frame_download.sample_count,
         mode.decoder_mutex_wait.sample_count,
         mode.demux_wait.sample_count,
         mode.conversion_upload.sample_count,
@@ -449,6 +461,8 @@ struct NativeDecodeTimings {
     source_height: Option<u32>,
     source_bits_per_raw_sample: Option<u8>,
     source_frame_rate_milli: Option<u32>,
+    codec_name: Option<String>,
+    hardware_frames_downloaded: Option<u32>,
 }
 
 struct QueuedNativeFrame {
@@ -608,13 +622,21 @@ fn record_native_surface_sample(
     let Ok(mut service) = service.try_lock() else {
         return;
     };
+    let total_time_us = started_at.elapsed().as_micros().min(u32::MAX as u128) as u32;
+    let stages_sum = u64::from(decode_timings.decode_time_us)
+        + conversion_upload_us.unwrap_or(0)
+        + compose_us.unwrap_or(0)
+        + submit_present_us.unwrap_or(0)
+        + scheduler_wait_us;
+    let unaccounted_us = u64::from(total_time_us).saturating_sub(stages_sum);
+    let stage_overlap_us = stages_sum.saturating_sub(u64::from(total_time_us));
     service.record_sample(PerformanceSample {
         request_id: request.request_id.clone(),
         frame_index: request.frame_time.frame_index,
         decode_time_us: decode_timings.decode_time_us,
         compose_time_us: compose_us.unwrap_or(0).min(u32::MAX as u64) as u32,
         readback_time_us: 0,
-        total_time_us: started_at.elapsed().as_micros().min(u32::MAX as u128) as u32,
+        total_time_us,
         bytes_transferred: 0,
         // A queued decode is a playback staging hit, not a NativeFrameService
         // cache hit. Keep cache-rate telemetry scoped to the RGBA cache.
@@ -669,6 +691,11 @@ fn record_native_surface_sample(
         source_height: decode_timings.source_height,
         source_bits_per_raw_sample: decode_timings.source_bits_per_raw_sample,
         source_frame_rate_milli: decode_timings.source_frame_rate_milli,
+        unaccounted_us: Some(unaccounted_us),
+        codec_name: decode_timings.codec_name.clone(),
+        hardware_frames_downloaded: decode_timings.hardware_frames_downloaded,
+        stage_overlap_us: Some(stage_overlap_us),
+        served_from_cache: Some(queue_hit),
     });
 }
 
@@ -2492,6 +2519,7 @@ async fn render_native_video_project_frame_bytes_timed(
                 || request.is_scrubbing.unwrap_or(false)
                 || request.mode.as_deref() == Some("scrub"),
             quality: request.quality,
+            is_playback: request.mode.as_deref() == Some("playback"),
         };
 
         let mut frames = Vec::with_capacity(request.layers.len());
@@ -2966,6 +2994,7 @@ async fn decode_native_video_layers(
             || request.is_scrubbing.unwrap_or(false)
             || request.mode.as_deref() == Some("scrub"),
         quality: request.quality,
+        is_playback: request.mode.as_deref() == Some("playback"),
     };
 
     let is_prefetch = request.mode.as_deref() == Some("prefetch");
@@ -3005,6 +3034,7 @@ async fn decode_native_video_layers(
         let decoder_seek_count = actor_frame.decoder_seek_count;
         let decoder_frames_decoded = actor_frame.decoder_frames_decoded;
         let hardware_frame_download_us = actor_frame.hardware_frame_download_us;
+        let hardware_frames_downloaded = actor_frame.hardware_frames_downloaded;
         let scale_colorspace_us = actor_frame.scale_colorspace_us;
         let source = actor_frame.source_metadata.clone();
         let decoded = actor_frame.into_native_video_frame();
@@ -3025,6 +3055,8 @@ async fn decode_native_video_layers(
                 source_height: Some(source.height),
                 source_bits_per_raw_sample: Some(source.bits_per_raw_sample),
                 source_frame_rate_milli: source.average_frame_rate_milli(),
+                codec_name: Some(source.codec_name),
+                hardware_frames_downloaded: Some(hardware_frames_downloaded),
             },
         ));
     }
@@ -4714,6 +4746,11 @@ pub async fn render_native_frame(
                 source_height: None,
                 source_bits_per_raw_sample: None,
                 source_frame_rate_milli: None,
+                unaccounted_us: Some(0),
+                codec_name: None,
+                hardware_frames_downloaded: Some(0),
+                stage_overlap_us: Some(0),
+                served_from_cache: Some(true),
             });
             record_successful_readback_metrics(&app, &request);
             return Ok(tauri::ipc::Response::new(packet.data));
@@ -4785,6 +4822,12 @@ pub async fn render_native_frame(
         let mut cache = cache.lock().await;
         let _ = cache.insert(&request, packet);
         let total_time_us = started.elapsed().as_micros().min(u32::MAX as u128) as u32;
+        let stages_sum = u64::from(stage_timings.decode_time_us)
+            + u64::from(stage_timings.conversion_time_us)
+            + u64::from(stage_timings.compose_time_us)
+            + u64::from(stage_timings.readback_time_us);
+        let unaccounted_us = u64::from(total_time_us).saturating_sub(stages_sum);
+        let stage_overlap_us = stages_sum.saturating_sub(u64::from(total_time_us));
         cache.record_sample(PerformanceSample {
             request_id: request.request_id.clone(),
             frame_index: request.frame_time.frame_index,
@@ -4840,6 +4883,11 @@ pub async fn render_native_frame(
             source_height: stage_timings.decode_telemetry.source_height,
             source_bits_per_raw_sample: stage_timings.decode_telemetry.source_bits_per_raw_sample,
             source_frame_rate_milli: stage_timings.decode_telemetry.source_frame_rate_milli,
+            unaccounted_us: Some(unaccounted_us),
+            codec_name: stage_timings.decode_telemetry.codec_name.clone(),
+            hardware_frames_downloaded: stage_timings.decode_telemetry.hardware_frames_downloaded,
+            stage_overlap_us: Some(stage_overlap_us),
+            served_from_cache: Some(false),
         });
     }
 

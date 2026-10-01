@@ -263,6 +263,7 @@ impl NativePreviewSession {
         let dxgi_state = if gpu.capabilities.zero_copy_available() {
             DxgiImportState::Unknown
         } else {
+            crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled();
             DxgiImportState::Disabled {
                 reason: DisableReason::UnsupportedFeature,
             }

@@ -207,6 +207,23 @@ pub struct PerformanceSample {
     /// Source average frame rate multiplied by 1,000 to preserve common
     /// fractional rates while keeping the sample comparable/Eq-friendly.
     pub source_frame_rate_milli: Option<u32>,
+    /// Microseconds within the request lifecycle not accounted for by explicitly
+    /// measured stages (such as session mutex contention or task scheduling).
+    #[serde(default)]
+    pub unaccounted_us: Option<u64>,
+    /// Stream codec name (e.g. "h264", "hevc", "vp9", "av1").
+    #[serde(default)]
+    pub codec_name: Option<String>,
+    /// Number of hardware textures downloaded from GPU memory to CPU RAM.
+    #[serde(default)]
+    pub hardware_frames_downloaded: Option<u32>,
+    /// Microseconds where the sum of component stages exceeds total request time,
+    /// indicating overlapping execution or double-counting.
+    #[serde(default)]
+    pub stage_overlap_us: Option<u64>,
+    /// Whether this request was satisfied from ready frame cache without new decode.
+    #[serde(default)]
+    pub served_from_cache: Option<bool>,
 }
 
 impl PerformanceSample {
@@ -289,6 +306,7 @@ pub struct StagePercentiles {
 pub struct ModeStats {
     pub mode: PreviewMode,
     pub decode: StagePercentiles,
+    pub packet_decode: StagePercentiles,
     pub conversion_upload: StagePercentiles,
     pub compose: StagePercentiles,
     pub readback: StagePercentiles,
@@ -314,6 +332,14 @@ pub struct ModeStats {
     pub gpu_queue_wait: StagePercentiles,
     pub surface_acquire: StagePercentiles,
     pub submit_present: StagePercentiles,
+    pub stage_overlap: StagePercentiles,
+    pub unique_frames_delivered: usize,
+    pub repeated_frames_delivered: usize,
+    pub delivered_unique_fps: Option<f64>,
+    #[serde(default)]
+    pub window_source: String,
+    #[serde(default)]
+    pub sample_span_ms: Option<u64>,
     pub dropped_count: usize,
     pub stale_count: usize,
 }
@@ -422,6 +448,11 @@ mod tests {
             source_height: None,
             source_bits_per_raw_sample: None,
             source_frame_rate_milli: None,
+            unaccounted_us: None,
+            codec_name: None,
+            hardware_frames_downloaded: None,
+            stage_overlap_us: None,
+            served_from_cache: None,
         };
         assert!(sample.exceeds_render_budget(&budget));
     }

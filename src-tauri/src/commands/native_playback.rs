@@ -1105,6 +1105,7 @@ async fn probe_decode_capability(snapshot: &FrameRequest) -> (DecodeCapabilityPo
     let probe_options = crate::thumbnail_engine::decoder::DecodeFrameOptions {
         allow_keyframe_approx: true,
         quality: QualityTier::Full,
+        is_playback: false,
     };
 
     // Bound the probe to 400 ms so the session never hangs on a completely

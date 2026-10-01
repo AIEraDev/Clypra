@@ -150,6 +150,7 @@ export interface NativePreviewStageDiagnosis {
   dominantP95Us: number;
   recommendedNextStep:
     | "prioritize-decode"
+    | "investigate-hardware-download"
     | "investigate-bridge"
     | "investigate-render-upload"
     | "investigate-queue"
@@ -237,6 +238,11 @@ export interface NativePerformanceSample {
   sourceBitsPerRawSample?: number;
   /** Source FPS × 1,000 (e.g. 29.97 FPS is 29970). */
   sourceFrameRateMilli?: number;
+  unaccountedUs?: number;
+  codecName?: string;
+  hardwareFramesDownloaded?: number;
+  stageOverlapUs?: number;
+  servedFromCache?: boolean;
   dropReason?:
     | "stale"
     | "cancelled"
@@ -273,6 +279,7 @@ export interface NativeStagePercentiles {
 export interface NativeModeStats {
   mode: NativePreviewMode;
   decode: NativeStagePercentiles;
+  packetDecode: NativeStagePercentiles;
   conversionUpload: NativeStagePercentiles;
   compose: NativeStagePercentiles;
   readback: NativeStagePercentiles;
@@ -292,6 +299,12 @@ export interface NativeModeStats {
   gpuQueueWait: NativeStagePercentiles;
   surfaceAcquire: NativeStagePercentiles;
   submitPresent: NativeStagePercentiles;
+  stageOverlap: NativeStagePercentiles;
+  uniqueFramesDelivered: number;
+  repeatedFramesDelivered: number;
+  deliveredUniqueFps: number | null;
+  windowSource: string;
+  sampleSpanMs: number | null;
   droppedCount: number;
   staleCount: number;
 }
