@@ -28,6 +28,9 @@ export const useKeyboardShortcuts = () => {
 
   const frameRate = project?.frameRate ?? 30;
   const kPressedRef = useRef(false);
+  const yPressedRef = useRef(false);
+  const uPressedRef = useRef(false);
+  const nPressedRef = useRef(false);
 
   useEffect(() => {
     const stepFrame = (direction: -1 | 1) => {
@@ -154,6 +157,15 @@ export const useKeyboardShortcuts = () => {
         return;
       }
 
+      if (!isMeta && !e.altKey && (e.key.toLowerCase() === "y" || e.code === "KeyY")) {
+        yPressedRef.current = true;
+      }
+      if (!isMeta && !e.altKey && (e.key.toLowerCase() === "u" || e.code === "KeyU")) {
+        uPressedRef.current = true;
+      }
+      if (!isMeta && !e.altKey && (e.key.toLowerCase() === "n" || e.code === "KeyN")) {
+        nPressedRef.current = true;
+      }
 
       // ─── Seeking (context-aware) ─────────────────────────────────────────
       // PB-BUG-001 fix: Read clock.time imperatively instead of using throttled
@@ -163,6 +175,75 @@ export const useKeyboardShortcuts = () => {
 
       // Do not hijack Alt+Arrow (which nudges clips) or Meta/Ctrl+Arrow
       if (!e.altKey && !isMeta && (isArrowLeft || isArrowRight)) {
+        // ─── Slip / Slide / Roll Shortcuts ────────────────────────────────
+        if (selectedClipIds.length === 1 && (yPressedRef.current || uPressedRef.current)) {
+          e.preventDefault();
+          const targetId = selectedClipIds[0];
+          const dir = isArrowRight ? 1 : -1;
+          const frames = e.shiftKey ? 10 : 1;
+          const delta = (dir * frames) / frameRate;
+
+          if (yPressedRef.current) {
+            const res = EditingActions.slipClip(targetId, delta);
+            if (res.success) {
+              toast.info(`Slipped ${dir > 0 ? "later" : "earlier"} by ${frames} frame${frames > 1 ? "s" : ""}`);
+            } else if (res.error) {
+              toast.error(res.error);
+            }
+            return;
+          }
+
+          if (uPressedRef.current) {
+            const res = EditingActions.slideClip(targetId, delta);
+            if (res.success) {
+              toast.info(`Slid ${dir > 0 ? "right" : "left"} by ${frames} frame${frames > 1 ? "s" : ""}`);
+            } else if (res.error) {
+              toast.error(res.error);
+            }
+            return;
+          }
+        }
+
+        if (nPressedRef.current && (selectedClipIds.length === 1 || selectedClipIds.length === 2)) {
+          e.preventDefault();
+          const dir = isArrowRight ? 1 : -1;
+          const frames = e.shiftKey ? 10 : 1;
+          const delta = (dir * frames) / frameRate;
+
+          if (selectedClipIds.length === 1) {
+            const clip = useTimelineStore.getState().clips.find((c) => c.id === selectedClipIds[0]);
+            if (clip) {
+              const hasOutgoing = useTimelineStore.getState().clips.some(
+                (o) => o.trackId === clip.trackId && Math.abs(clip.startTime + clip.duration - o.startTime) < 0.001,
+              );
+              const res = hasOutgoing
+                ? EditingActions.rollClipEdge(clip.id, "outgoing", delta)
+                : EditingActions.rollClipEdge(clip.id, "incoming", delta);
+              if (res.success) {
+                toast.info(`Rolled cut point ${dir > 0 ? "right" : "left"} by ${frames} frame${frames > 1 ? "s" : ""}`);
+              } else if (res.error) {
+                toast.error(res.error);
+              }
+            }
+            return;
+          }
+
+          if (selectedClipIds.length === 2) {
+            const clips = useTimelineStore.getState().clips;
+            const [c1, c2] = selectedClipIds.map((id) => clips.find((c) => c.id === id));
+            if (c1 && c2 && c1.trackId === c2.trackId) {
+              const [left, right] = c1.startTime <= c2.startTime ? [c1, c2] : [c2, c1];
+              const res = EditingActions.rollEdit(left.id, right.id, delta);
+              if (res.success) {
+                toast.info(`Rolled cut point ${dir > 0 ? "right" : "left"} by ${frames} frame${frames > 1 ? "s" : ""}`);
+              } else if (res.error) {
+                toast.error(res.error);
+              }
+            }
+            return;
+          }
+        }
+
         e.preventDefault();
         const session = getActiveSessionOrNull();
         const clock = getPlaybackClock();
@@ -655,7 +736,13 @@ export const useKeyboardShortcuts = () => {
 
     const handleKeyUp = (e: KeyboardEvent) => {
       const isK = e.key.toLowerCase() === "k" || e.code === "KeyK";
+      const isY = e.key.toLowerCase() === "y" || e.code === "KeyY";
+      const isU = e.key.toLowerCase() === "u" || e.code === "KeyU";
+      const isN = e.key.toLowerCase() === "n" || e.code === "KeyN";
       if (isK) kPressedRef.current = false;
+      if (isY) yPressedRef.current = false;
+      if (isU) uPressedRef.current = false;
+      if (isN) nPressedRef.current = false;
     };
 
     window.addEventListener("keydown", handleKeyDown);

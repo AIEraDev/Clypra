@@ -239,6 +239,24 @@ const DEFAULT_SHORTCUTS: Omit<ShortcutAction, "binding">[] = [
     defaultBinding: { key: "S", ctrl: true, shift: true },
   },
   {
+    id: "slip-clip",
+    label: "Slip Clip (Hold Y + Arrow)",
+    category: "Edit",
+    defaultBinding: { key: "y" },
+  },
+  {
+    id: "slide-clip",
+    label: "Slide Clip (Hold U + Arrow)",
+    category: "Edit",
+    defaultBinding: { key: "u" },
+  },
+  {
+    id: "roll-edit",
+    label: "Roll Cut Point (Hold N + Arrow)",
+    category: "Edit",
+    defaultBinding: { key: "n" },
+  },
+  {
     id: "select-all",
     label: "Select All Clips",
     category: "Edit",

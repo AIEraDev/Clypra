@@ -847,4 +847,182 @@ export const clipCommands: ClipCommand[] = [
       toast.info("Speed set to 2×");
     },
   },
+
+  // ─── Slip / Slide / Roll (NLE Precision Tools) ─────────────────────────────
+  {
+    id: "clip.slipEarlier",
+    label: "Slip Content Earlier",
+    shortcutLabel: "Y + ←",
+    icon: ArrowLeftRight,
+    group: "trim",
+    isVisible: (ctx) => getTargetClipIds(ctx).length === 1,
+    isEnabled: (ctx) => {
+      const ids = getTargetClipIds(ctx);
+      if (ids.length !== 1) return false;
+      const clip = ctx.clips.find((c) => c.id === ids[0]);
+      return !!clip && clip.kind !== "compound" && !ctx.tracks.find((t) => t.id === clip.trackId)?.locked;
+    },
+    execute: (ctx) => {
+      const ids = getTargetClipIds(ctx);
+      const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
+      const res = EditingActions.slipClip(ids[0], -1 / frameRate);
+      if (res.success) toast.info("Slipped earlier by 1 frame");
+      else if (res.error) toast.error(res.error);
+    },
+  },
+  {
+    id: "clip.slipLater",
+    label: "Slip Content Later",
+    shortcutLabel: "Y + →",
+    icon: ArrowLeftRight,
+    group: "trim",
+    isVisible: (ctx) => getTargetClipIds(ctx).length === 1,
+    isEnabled: (ctx) => {
+      const ids = getTargetClipIds(ctx);
+      if (ids.length !== 1) return false;
+      const clip = ctx.clips.find((c) => c.id === ids[0]);
+      return !!clip && clip.kind !== "compound" && !ctx.tracks.find((t) => t.id === clip.trackId)?.locked;
+    },
+    execute: (ctx) => {
+      const ids = getTargetClipIds(ctx);
+      const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
+      const res = EditingActions.slipClip(ids[0], 1 / frameRate);
+      if (res.success) toast.info("Slipped later by 1 frame");
+      else if (res.error) toast.error(res.error);
+    },
+  },
+  {
+    id: "clip.slideLeft",
+    label: "Slide Clip Earlier",
+    shortcutLabel: "U + ←",
+    icon: ArrowLeftRight,
+    group: "trim",
+    isVisible: (ctx) => getTargetClipIds(ctx).length === 1,
+    isEnabled: (ctx) => {
+      const ids = getTargetClipIds(ctx);
+      if (ids.length !== 1) return false;
+      const clip = ctx.clips.find((c) => c.id === ids[0]);
+      return !!clip && clip.kind !== "compound" && !ctx.tracks.find((t) => t.id === clip.trackId)?.locked;
+    },
+    execute: (ctx) => {
+      const ids = getTargetClipIds(ctx);
+      const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
+      const res = EditingActions.slideClip(ids[0], -1 / frameRate);
+      if (res.success) toast.info("Slid left by 1 frame");
+      else if (res.error) toast.error(res.error);
+    },
+  },
+  {
+    id: "clip.slideRight",
+    label: "Slide Clip Later",
+    shortcutLabel: "U + →",
+    icon: ArrowLeftRight,
+    group: "trim",
+    isVisible: (ctx) => getTargetClipIds(ctx).length === 1,
+    isEnabled: (ctx) => {
+      const ids = getTargetClipIds(ctx);
+      if (ids.length !== 1) return false;
+      const clip = ctx.clips.find((c) => c.id === ids[0]);
+      return !!clip && clip.kind !== "compound" && !ctx.tracks.find((t) => t.id === clip.trackId)?.locked;
+    },
+    execute: (ctx) => {
+      const ids = getTargetClipIds(ctx);
+      const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
+      const res = EditingActions.slideClip(ids[0], 1 / frameRate);
+      if (res.success) toast.info("Slid right by 1 frame");
+      else if (res.error) toast.error(res.error);
+    },
+  },
+  {
+    id: "clip.rollEarlier",
+    label: "Roll Cut Point Earlier",
+    shortcutLabel: "N + ←",
+    icon: ArrowLeftRight,
+    group: "trim",
+    isVisible: (ctx) => {
+      const ids = getTargetClipIds(ctx);
+      return ids.length === 1 || ids.length === 2;
+    },
+    isEnabled: (ctx) => {
+      const ids = getTargetClipIds(ctx);
+      if (ids.length === 1) {
+        const clip = ctx.clips.find((c) => c.id === ids[0]);
+        return !!clip && clip.kind !== "compound" && !ctx.tracks.find((t) => t.id === clip.trackId)?.locked;
+      }
+      if (ids.length === 2) {
+        const [c1, c2] = ids.map((id) => ctx.clips.find((c) => c.id === id));
+        return !!c1 && !!c2 && c1.trackId === c2.trackId && c1.kind !== "compound" && c2.kind !== "compound";
+      }
+      return false;
+    },
+    execute: (ctx) => {
+      const ids = getTargetClipIds(ctx);
+      const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
+      const delta = -1 / frameRate;
+      if (ids.length === 1) {
+        const clip = ctx.clips.find((c) => c.id === ids[0]);
+        if (!clip) return;
+        const hasOutgoing = ctx.clips.some((o) => o.trackId === clip.trackId && Math.abs(clip.startTime + clip.duration - o.startTime) < 0.001);
+        const res = hasOutgoing
+          ? EditingActions.rollClipEdge(clip.id, "outgoing", delta)
+          : EditingActions.rollClipEdge(clip.id, "incoming", delta);
+        if (res.success) toast.info("Rolled cut point earlier by 1 frame");
+        else if (res.error) toast.error(res.error);
+      } else if (ids.length === 2) {
+        const [c1, c2] = ids.map((id) => ctx.clips.find((c) => c.id === id));
+        if (c1 && c2) {
+          const [left, right] = c1.startTime <= c2.startTime ? [c1, c2] : [c2, c1];
+          const res = EditingActions.rollEdit(left.id, right.id, delta);
+          if (res.success) toast.info("Rolled cut point earlier by 1 frame");
+          else if (res.error) toast.error(res.error);
+        }
+      }
+    },
+  },
+  {
+    id: "clip.rollLater",
+    label: "Roll Cut Point Later",
+    shortcutLabel: "N + →",
+    icon: ArrowLeftRight,
+    group: "trim",
+    isVisible: (ctx) => {
+      const ids = getTargetClipIds(ctx);
+      return ids.length === 1 || ids.length === 2;
+    },
+    isEnabled: (ctx) => {
+      const ids = getTargetClipIds(ctx);
+      if (ids.length === 1) {
+        const clip = ctx.clips.find((c) => c.id === ids[0]);
+        return !!clip && clip.kind !== "compound" && !ctx.tracks.find((t) => t.id === clip.trackId)?.locked;
+      }
+      if (ids.length === 2) {
+        const [c1, c2] = ids.map((id) => ctx.clips.find((c) => c.id === id));
+        return !!c1 && !!c2 && c1.trackId === c2.trackId && c1.kind !== "compound" && c2.kind !== "compound";
+      }
+      return false;
+    },
+    execute: (ctx) => {
+      const ids = getTargetClipIds(ctx);
+      const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
+      const delta = 1 / frameRate;
+      if (ids.length === 1) {
+        const clip = ctx.clips.find((c) => c.id === ids[0]);
+        if (!clip) return;
+        const hasOutgoing = ctx.clips.some((o) => o.trackId === clip.trackId && Math.abs(clip.startTime + clip.duration - o.startTime) < 0.001);
+        const res = hasOutgoing
+          ? EditingActions.rollClipEdge(clip.id, "outgoing", delta)
+          : EditingActions.rollClipEdge(clip.id, "incoming", delta);
+        if (res.success) toast.info("Rolled cut point later by 1 frame");
+        else if (res.error) toast.error(res.error);
+      } else if (ids.length === 2) {
+        const [c1, c2] = ids.map((id) => ctx.clips.find((c) => c.id === id));
+        if (c1 && c2) {
+          const [left, right] = c1.startTime <= c2.startTime ? [c1, c2] : [c2, c1];
+          const res = EditingActions.rollEdit(left.id, right.id, delta);
+          if (res.success) toast.info("Rolled cut point later by 1 frame");
+          else if (res.error) toast.error(res.error);
+        }
+      }
+    },
+  },
 ];
