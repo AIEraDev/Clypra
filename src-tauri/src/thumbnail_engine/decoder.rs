@@ -415,6 +415,7 @@ struct DecoderState {
 #[derive(Debug, Clone, Copy)]
 struct DecodeActivity {
     seek_count: u32,
+    seek_time_us: u32,
     frames_decoded: u32,
     hardware_frame_download_us: Option<u64>,
     scale_colorspace_us: u64,
@@ -423,17 +424,20 @@ struct DecodeActivity {
     /// pre-existing paths that don't explicitly set a value are not silently
     /// misclassified as cache hits.
     served_from: ServedFrom,
+    hw_device_type: Option<&'static str>,
 }
 
 impl Default for DecodeActivity {
     fn default() -> Self {
         Self {
             seek_count: 0,
+            seek_time_us: 0,
             frames_decoded: 0,
             hardware_frame_download_us: None,
             scale_colorspace_us: 0,
             hardware_frames_downloaded: 0,
             served_from: ServedFrom::DecodedInRequest,
+            hw_device_type: None,
         }
     }
 }
@@ -596,15 +600,28 @@ impl VideoDecoder {
         self.last_demux_us
     }
 
-    pub fn last_decode_activity(&self) -> (u32, u32, Option<u64>, u64, u32, ServedFrom) {
+    pub fn last_decode_activity(
+        &self,
+    ) -> (
+        u32,
+        u32,
+        u32,
+        Option<u64>,
+        u64,
+        u32,
+        ServedFrom,
+        Option<&'static str>,
+    ) {
         let activity = self.last_decode_activity;
         (
             activity.seek_count,
+            activity.seek_time_us,
             activity.frames_decoded,
             activity.hardware_frame_download_us,
             activity.scale_colorspace_us,
             activity.hardware_frames_downloaded,
             activity.served_from,
+            activity.hw_device_type,
         )
     }
 
@@ -2178,6 +2195,7 @@ impl VideoDecoder {
 
         let mut demux_time_us = 0u32;
         let mut frames_decoded = 0u32;
+        let mut seek_time_us = 0u32;
 
         if needs_seek {
             if is_cancelled() {
@@ -2195,8 +2213,8 @@ impl VideoDecoder {
                     return Err(format!("Seek failed at {}s", ts));
                 }
             }
-            demux_time_us = demux_time_us
-                .saturating_add(seek_t0.elapsed().as_micros().min(u32::MAX as u128) as u32);
+            seek_time_us = seek_t0.elapsed().as_micros().min(u32::MAX as u128) as u32;
+            demux_time_us = demux_time_us.saturating_add(seek_time_us);
             self.decoder.flush();
             self.state.current_pts = -1;
             self.state.gop_start_pts = target_pts;
@@ -2456,11 +2474,32 @@ impl VideoDecoder {
         };
         self.last_decode_activity = DecodeActivity {
             seek_count: u32::from(needs_seek),
+            seek_time_us,
             frames_decoded,
             hardware_frame_download_us,
             scale_colorspace_us,
             hardware_frames_downloaded,
             served_from: ServedFrom::DecodedInRequest,
+            hw_device_type: if self.stream_metadata.is_hardware_accelerated {
+                #[cfg(target_os = "windows")]
+                {
+                    Some("d3d11va")
+                }
+                #[cfg(target_os = "macos")]
+                {
+                    Some("videotoolbox")
+                }
+                #[cfg(target_os = "linux")]
+                {
+                    Some("vaapi")
+                }
+                #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+                {
+                    None
+                }
+            } else {
+                Some("software")
+            },
         };
         Ok((y_arc, uv_arc, result.2, result.3, result.4))
     }
@@ -3909,8 +3948,9 @@ mod still_image_tests {
         assert_eq!(uv[0], 84);
         let activity = decoder.last_decode_activity();
         assert_eq!(activity.0, 0, "Seek count must be 0 for playback cache hit");
+        assert_eq!(activity.1, 0, "Seek time must be 0 for playback cache hit");
         assert_eq!(
-            activity.1, 0,
+            activity.2, 0,
             "Decoded frames must be 0 for playback cache hit"
         );
     }

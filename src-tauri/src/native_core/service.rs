@@ -239,7 +239,17 @@ impl NativeFrameService {
             let mut repeated_frames_delivered = 0usize;
             let mut last_delivered_key: Option<(Option<u64>, u64)> = None;
 
+            let mut served_from_decoded_count = 0usize;
+            let mut served_from_ready_cache_count = 0usize;
+            let mut served_from_reused_current_count = 0usize;
+
             for (_, sample) in &entries {
+                match sample.served_from {
+                    Some(ServedFrom::DecodedInRequest) => served_from_decoded_count += 1,
+                    Some(ServedFrom::ReadyCache) => served_from_ready_cache_count += 1,
+                    Some(ServedFrom::ReusedCurrent) => served_from_reused_current_count += 1,
+                    None => {}
+                }
                 if sample.dropped || sample.cancelled {
                     continue;
                 }
@@ -342,9 +352,19 @@ impl NativeFrameService {
                 unaccounted: optional_stage_percentiles(&samples, |sample| {
                     sample.unaccounted_us
                 }),
+                cache_lock_wait: optional_stage_percentiles(&samples, |sample| {
+                    sample.cache_lock_wait_us
+                }),
+                cache_insert: optional_stage_percentiles(&samples, |sample| {
+                    sample.cache_insert_us
+                }),
                 unique_frames_delivered,
                 repeated_frames_delivered,
                 delivered_unique_fps,
+                served_from_decoded_count,
+                served_from_ready_cache_count,
+                served_from_reused_current_count,
+                downloads_wasted_count: 0,
                 window_source,
                 sample_span_ms,
                 dropped_count: samples.iter().filter(|sample| sample.dropped).count(),
@@ -510,6 +530,9 @@ mod tests {
             hardware_frames_downloaded: None,
             stage_overlap_us: None,
             served_from: None,
+            cache_lock_wait_us: None,
+            cache_insert_us: None,
+            hw_device_type: None,
         }
     }
 

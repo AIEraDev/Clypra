@@ -179,6 +179,11 @@ pub struct NativePreviewPerformanceReport {
     pub build_profile: String,
     pub operating_system: String,
     pub architecture: String,
+    /// The git commit SHA that produced this binary. `None` when built outside
+    /// of git (e.g. a release tarball without `.git`).
+    pub git_commit: Option<String>,
+    /// `true` when the working tree had uncommitted changes at build time.
+    pub git_dirty: Option<bool>,
     pub gpu: Option<NativeGpuRuntimeStatus>,
     pub preview: Option<NativeFrameServiceStats>,
     pub session: crate::wgpu_compositor::SessionSnapshot,
@@ -454,6 +459,8 @@ struct NativeDecodeTimings {
     container_format: Option<String>,
     is_hardware_accelerated: Option<bool>,
     decoder_seek_count: Option<u32>,
+    /// Measured wall time of av_seek_frame + flush for this frame (0 when no seek occurred).
+    seek_time_us: Option<u32>,
     decoder_frames_decoded: Option<u32>,
     hardware_frame_download_us: Option<u64>,
     scale_colorspace_us: Option<u64>,
@@ -464,6 +471,7 @@ struct NativeDecodeTimings {
     codec_name: Option<String>,
     hardware_frames_downloaded: Option<u32>,
     served_from: Option<crate::native_core::performance::ServedFrom>,
+    hw_device_type: Option<String>,
 }
 
 struct QueuedNativeFrame {
@@ -658,7 +666,7 @@ fn record_native_surface_sample(
         stale,
         dropped,
         drop_reason: drop_reason.map(str::to_string),
-        seek_time_us: decode_timings.decode_time_us,
+        seek_time_us: decode_timings.seek_time_us.unwrap_or(0),
         conversion_time_us: conversion_upload_us.unwrap_or(0).min(u32::MAX as u64) as u32,
         upload_time_us: conversion_upload_us.unwrap_or(0).min(u32::MAX as u64) as u32,
         present_time_us: submit_present_us.unwrap_or(0).min(u32::MAX as u64) as u32,
@@ -701,6 +709,9 @@ fn record_native_surface_sample(
         } else {
             decode_timings.served_from
         },
+        hw_device_type: decode_timings.hw_device_type.clone(),
+        cache_lock_wait_us: None,
+        cache_insert_us: None,
     });
 }
 
@@ -3037,12 +3048,14 @@ async fn decode_native_video_layers(
         let container_format = actor_frame.container_format.clone();
         let is_hw = actor_frame.is_hardware_accelerated;
         let decoder_seek_count = actor_frame.decoder_seek_count;
+        let decoder_seek_time_us = actor_frame.decoder_seek_time_us;
         let decoder_frames_decoded = actor_frame.decoder_frames_decoded;
         let hardware_frame_download_us = actor_frame.hardware_frame_download_us;
         let hardware_frames_downloaded = actor_frame.hardware_frames_downloaded;
         let scale_colorspace_us = actor_frame.scale_colorspace_us;
         let source = actor_frame.source_metadata.clone();
         let actor_served_from = actor_frame.served_from;
+        let hw_device_type = actor_frame.hw_device_type.clone();
         let decoded = actor_frame.into_native_video_frame();
         return Ok((
             vec![decoded],
@@ -3054,6 +3067,7 @@ async fn decode_native_video_layers(
                 container_format: Some(container_format),
                 is_hardware_accelerated: Some(is_hw),
                 decoder_seek_count: Some(decoder_seek_count),
+                seek_time_us: Some(decoder_seek_time_us),
                 decoder_frames_decoded: Some(decoder_frames_decoded),
                 hardware_frame_download_us,
                 scale_colorspace_us: Some(scale_colorspace_us),
@@ -3064,6 +3078,7 @@ async fn decode_native_video_layers(
                 codec_name: Some(source.codec_name),
                 hardware_frames_downloaded: Some(hardware_frames_downloaded),
                 served_from: Some(actor_served_from),
+                hw_device_type,
             },
         ));
     }
@@ -4758,6 +4773,9 @@ pub async fn render_native_frame(
                 hardware_frames_downloaded: Some(0),
                 stage_overlap_us: Some(0),
                 served_from: Some(crate::native_core::performance::ServedFrom::ReadyCache),
+                hw_device_type: None,
+                cache_lock_wait_us: None,
+                cache_insert_us: None,
             });
             record_successful_readback_metrics(&app, &request);
             return Ok(tauri::ipc::Response::new(packet.data));
@@ -4853,7 +4871,7 @@ pub async fn render_native_frame(
             stale: false,
             dropped: false,
             drop_reason: None,
-            seek_time_us: stage_timings.decode_time_us,
+            seek_time_us: stage_timings.decode_telemetry.seek_time_us.unwrap_or(0),
             conversion_time_us: stage_timings.conversion_time_us,
             upload_time_us: 0,
             present_time_us: 0,
@@ -4895,6 +4913,9 @@ pub async fn render_native_frame(
             hardware_frames_downloaded: stage_timings.decode_telemetry.hardware_frames_downloaded,
             stage_overlap_us: Some(stage_overlap_us),
             served_from: stage_timings.decode_telemetry.served_from,
+            hw_device_type: stage_timings.decode_telemetry.hw_device_type.clone(),
+            cache_lock_wait_us: None,
+            cache_insert_us: None,
         });
     }
 
@@ -4970,7 +4991,7 @@ pub async fn get_native_preview_performance_report(
         .unwrap_or_else(|| SessionTelemetryCollector::new().snapshot());
 
     Ok(NativePreviewPerformanceReport {
-        report_version: 1,
+        report_version: 2,
         captured_at_ms: crate::native_core::performance::now_ms(),
         application_version: env!("CARGO_PKG_VERSION").to_string(),
         build_profile: if cfg!(debug_assertions) {
@@ -4980,6 +5001,8 @@ pub async fn get_native_preview_performance_report(
         },
         operating_system: std::env::consts::OS.to_string(),
         architecture: std::env::consts::ARCH.to_string(),
+        git_commit: option_env!("CLYPRA_GIT_COMMIT").map(String::from),
+        git_dirty: option_env!("CLYPRA_GIT_DIRTY").map(|s| s == "true"),
         gpu,
         preview,
         session,
