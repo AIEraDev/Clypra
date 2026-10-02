@@ -91,10 +91,10 @@ describe("TimelineToolbar zoom controls", () => {
   it("opens the preview quality menu into the timeline layer", () => {
     render(<TimelineToolbar />);
 
-    fireEvent.click(screen.getByTitle("Preview resolution (does not affect final export)"));
+    fireEvent.click(screen.getByTitle(/Preview resolution/i));
 
-    const menu = screen.getByText("Full 4K").closest("div");
-    expect(menu).not.toBeNull();
+    const menu = screen.getByTestId("preview-quality-menu");
+    expect(menu).toBeInTheDocument();
     expect(menu).toHaveClass("top-full");
     expect(menu).toHaveClass("z-[220]");
   });

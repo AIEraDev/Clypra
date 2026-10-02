@@ -3,14 +3,15 @@ import { ZoomIn, ZoomOut, ArrowLeftRight, Undo2, Redo2, ScissorsLineDashed, Chev
 import { Button } from "@/components/ui/Button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/Tooltip";
 import { useTimelineStore } from "@/store/timelineStore";
-import { useSettingsStore, type PreviewQuality } from "@/store/settingsStore";
+import { useSettingsStore } from "@/store/settingsStore";
 import { useHistoryStore } from "@/store/historyStore";
 import { DEFAULT_SRP_CONFIG, SpatialTier } from "@/lib/renderEngine/types";
 import { clampTimelineZoom, formatCadenceSeconds, getSrpTierForZoom, getTimelineTemporalDetail, getZoomFromRatio, getZoomRatio, snapTimelineZoomToTierAnchors, TIMELINE_TIER_LABELS, TIMELINE_ZOOM_MAX, TIMELINE_ZOOM_MIN, TIMELINE_ZOOM_STEP } from "@/lib/timeline/timelineZoom";
 import { useClipCommands, useTimelineCommands } from "@/core/commands";
-import { useAnchoredTimelineZoom } from "@/hooks";
+import { useAnchoredTimelineZoom, usePreviewQualityCapabilities } from "@/hooks";
 import type { TimelineZoomAnchor } from "@/hooks/timeline/useAnchoredTimelineZoom";
 import { VoiceoverRecorderButton } from "./VoiceoverRecorderButton";
+import { cn } from "@/lib/utils";
 
 const ZOOM_THUMB_SIZE_PX = 12;
 const ZOOM_RAIL_WIDTH_PX = 112; // w-28
@@ -39,7 +40,16 @@ const TimelineToolbarComponent: React.FC = () => {
   const undo = useHistoryStore((s) => s.undo);
   const redo = useHistoryStore((s) => s.redo);
 
-  const { previewQuality, setPreviewQuality, proxyEditingEnabled } = useSettingsStore();
+  const proxyEditingEnabled = useSettingsStore((s) => s.proxyEditingEnabled);
+  const {
+    previewQuality,
+    setPreviewQuality,
+    currentOption,
+    tierOptions,
+    gpuName,
+    is4kProject,
+    isHardwareLimited,
+  } = usePreviewQualityCapabilities();
   const [showQualityMenu, setShowQualityMenu] = useState(false);
   const zoomRailRef = useRef<HTMLDivElement>(null);
   const zoomGestureAnchorRef = useRef<TimelineZoomAnchor | null>(null);
@@ -235,38 +245,80 @@ const TimelineToolbarComponent: React.FC = () => {
           <div className="relative">
             <button
               onClick={() => setShowQualityMenu((v) => !v)}
-              className="flex items-center gap-1 px-2 py-1 rounded-md bg-surface-raised border border-white/6 text-[10px] font-semibold text-text-muted hover:text-text-primary transition-colors cursor-pointer"
-              title="Preview resolution (does not affect final export)"
+              className={cn(
+                "flex items-center gap-1 px-2 py-1 rounded-md bg-surface-raised border border-white/6 text-[10px] font-semibold transition-colors cursor-pointer",
+                isHardwareLimited
+                  ? "text-amber-400 hover:text-amber-300 border-amber-500/30"
+                  : "text-text-muted hover:text-text-primary"
+              )}
+              title={
+                isHardwareLimited
+                  ? `Preview resolution: ${currentOption.label} (${currentOption.hardwareLimitReason})`
+                  : `Preview resolution: ${currentOption.label} (does not affect final export)`
+              }
             >
-              <Zap className="w-3 h-3 text-accent" />
-              {{ full: "Full", high: "High", medium: "Med", low: "Proxy" }[previewQuality]}
+              <Zap className={cn("w-3 h-3", isHardwareLimited ? "text-amber-400" : "text-accent")} />
+              <span>{currentOption.shortLabel}</span>
+              {isHardwareLimited && (
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" title="GPU limited" />
+              )}
             </button>
             {showQualityMenu && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowQualityMenu(false)} />
-                <div className="absolute top-full right-0 mt-1.5 z-[220] bg-surface-floating border border-border rounded-lg shadow-xl overflow-hidden min-w-32 py-1">
-                  {([
-                    { value: "full" as PreviewQuality, label: "Full 4K" },
-                    { value: "high" as PreviewQuality, label: "High 1080p" },
-                    { value: "medium" as PreviewQuality, label: "Medium 720p" },
-                    { value: "low" as PreviewQuality, label: "Proxy 480p" },
-                  ]).map((tier) => (
+                <div data-testid="preview-quality-menu" className="absolute top-full right-0 mt-1.5 z-[220] bg-surface-floating border border-border rounded-lg shadow-xl overflow-hidden min-w-[210px] py-1">
+                  {tierOptions.map((tier) => (
                     <button
                       key={tier.value}
                       onClick={() => {
                         setPreviewQuality(tier.value);
                         setShowQualityMenu(false);
                       }}
-                      className={`w-full px-3 py-1.5 text-[11px] text-left transition-colors cursor-pointer flex items-center justify-between ${
+                      className={`w-full px-3 py-1.5 text-[11px] text-left transition-colors cursor-pointer flex items-center justify-between gap-3 ${
                         previewQuality === tier.value
                           ? "text-accent bg-accent/10 font-semibold"
                           : "text-text-muted hover:text-text-primary hover:bg-white/5"
                       }`}
                     >
-                      <span>{tier.label}</span>
+                      <div className="flex flex-col min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className={tier.isHardwareLimited ? "text-text-primary" : ""}>
+                            {tier.label}
+                          </span>
+                          {tier.isHardwareLimited && (
+                            <span
+                              className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30 shrink-0"
+                              title={tier.hardwareLimitReason}
+                            >
+                              Limited by GPU
+                            </span>
+                          )}
+                          {tier.isRecommended && (
+                            <span className="px-1 py-0.2 rounded text-[9px] font-medium bg-accent/15 text-accent border border-accent/25 shrink-0">
+                              Recommended
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-text-muted mt-0.5">
+                          {tier.resolutionLabel}
+                          {tier.isHardwareLimited ? " · Auto-downscaled" : ""}
+                        </span>
+                      </div>
                       {previewQuality === tier.value && <span className="text-accent text-xs">✓</span>}
                     </button>
                   ))}
+                  {gpuName && (
+                    <div className="px-3 py-1.5 mt-1 border-t border-white/6 text-[9.5px] text-text-muted flex items-center justify-between bg-white/[0.02]">
+                      <span className="truncate max-w-[140px]" title={gpuName}>
+                        {gpuName}
+                      </span>
+                      {isHardwareLimited && (
+                        <span className="text-amber-400 font-medium shrink-0">
+                          {is4kProject ? "4K downscaled" : "GPU constrained"}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </>
             )}
