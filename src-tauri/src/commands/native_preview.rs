@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager};
 
@@ -39,6 +39,22 @@ use crate::thumbnail_engine::stream_actor::DecodedVideoPlanes;
 
 type DecodedNativeVideoFrame = (DecodedVideoPlanes, u32, u32, VideoColorMetadata, u32);
 static NATIVE_SURFACE_PRESENTATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+/// Returns `true` when `CLYPRA_SKIP_PLAYBACK_CACHE_INSERT=1` (or `true`) is
+/// set in the environment. Evaluated once at first call; subsequent calls are
+/// free reads of a boolean.
+///
+/// **Default: `false`** — the old behavior is preserved unless you opt in.
+/// Set this to isolate whether the `cache.insert` cost is responsible for the
+/// ~34 ms median unaccounted time in playback mode.
+fn skip_playback_cache_insert_enabled() -> bool {
+    static FLAG: OnceLock<bool> = OnceLock::new();
+    *FLAG.get_or_init(|| {
+        std::env::var("CLYPRA_SKIP_PLAYBACK_CACHE_INSERT")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+    })
+}
 
 /// Benchmark-only owner for the Phase 2b playback push path. It is not opened
 /// by default and therefore cannot change the invoke bridge until the caller
@@ -191,6 +207,11 @@ pub struct NativePreviewPerformanceReport {
     /// automated policy change: it tells the maintainer which phase to pursue.
     pub stage_diagnoses: Vec<NativePreviewStageDiagnosis>,
     pub push_bridge: Option<NativePlaybackPushStatus>,
+    /// Whether the `CLYPRA_SKIP_PLAYBACK_CACHE_INSERT` experiment was active
+    /// during this session. When `true`, playback-mode frames were NOT inserted
+    /// into the NativeFrameService cache. Records the A/B state so unaccounted
+    /// p50 comparisons can be attributed correctly.
+    pub playback_cache_insert_skipped: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -4938,12 +4959,15 @@ pub async fn render_native_frame(
         let cache_lock_wait_us = lock_start.elapsed().as_micros().min(u64::MAX as u128) as u64;
 
         let is_playback = request.mode.as_deref() == Some("playback");
-        let cache_insert_us = if !is_playback {
+        let cache_insert_us = if is_playback && skip_playback_cache_insert_enabled() {
+            // Experiment: skip the insert for playback frames and leave
+            // cache_insert_us as None so the unaccounted delta is attributable
+            // to the insert cost. Controlled by CLYPRA_SKIP_PLAYBACK_CACHE_INSERT.
+            None
+        } else {
             let insert_start = Instant::now();
             let _ = cache.insert(&request, packet);
             Some(insert_start.elapsed().as_micros().min(u64::MAX as u128) as u64)
-        } else {
-            None
         };
 
         let total_time_us = started.elapsed().as_micros().min(u32::MAX as u128) as u32;
@@ -5110,6 +5134,7 @@ pub async fn get_native_preview_performance_report(
         push_bridge: app
             .try_state::<Arc<NativePlaybackPushRuntime>>()
             .map(|state| state.status()),
+        playback_cache_insert_skipped: skip_playback_cache_insert_enabled(),
     })
 }
 

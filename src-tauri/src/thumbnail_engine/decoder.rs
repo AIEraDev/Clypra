@@ -3442,6 +3442,63 @@ pub fn release_decoder_stream(path: &str, stream_id: &str) {
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+mod decode_frame_options_tests {
+    use super::{DecodeFrameOptions, QualityTier};
+
+    /// The two fields added for benchmark arms must default to the safe values
+    /// that preserve pre-phase-1b behaviour on every production call site.
+    ///
+    /// `skip_hw_download: false`  → hardware frames are always downloaded (no change)
+    /// `target_dimensions: None`  → output resolution is unchanged from source/quality
+    ///
+    /// If this test fails, a call site was accidentally changed to benchmark
+    /// mode in production code.
+    #[test]
+    fn production_defaults_are_safe() {
+        let opts = DecodeFrameOptions::default();
+        assert!(
+            !opts.skip_hw_download,
+            "skip_hw_download must default to false; \
+             true bypasses av_hwframe_transfer_data and is only for arm-1 benchmarking"
+        );
+        assert_eq!(
+            opts.target_dimensions, None,
+            "target_dimensions must default to None; \
+             Some(...) forces a fixed output size and is only for arm-0 benchmarking"
+        );
+        // Sanity-check the other fields haven't drifted from their zero values.
+        assert!(!opts.allow_keyframe_approx);
+        assert!(!opts.is_playback);
+        assert_eq!(opts.quality, QualityTier::Full);
+    }
+
+    /// Benchmark arm-1 construction: skip_hw_download=true should compile and
+    /// round-trip cleanly without affecting target_dimensions.
+    #[test]
+    fn arm1_options_skip_download_only() {
+        let opts = DecodeFrameOptions {
+            skip_hw_download: true,
+            target_dimensions: None,
+            ..DecodeFrameOptions::default()
+        };
+        assert!(opts.skip_hw_download);
+        assert_eq!(opts.target_dimensions, None);
+    }
+
+    /// Benchmark arm-0 construction: target_dimensions=Some(320,180) should
+    /// not accidentally enable skip_hw_download.
+    #[test]
+    fn arm0_options_target_dimensions_only() {
+        let opts = DecodeFrameOptions {
+            target_dimensions: Some((320, 180)),
+            ..DecodeFrameOptions::default()
+        };
+        assert!(!opts.skip_hw_download);
+        assert_eq!(opts.target_dimensions, Some((320, 180)));
+    }
+}
+
+#[cfg(test)]
 mod display_dimensions_tests {
     use super::ffmpeg;
 
