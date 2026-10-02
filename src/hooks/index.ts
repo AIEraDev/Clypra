@@ -23,3 +23,9 @@ export { useVoiceoverRecorder } from "./useVoiceoverRecorder";
 export { useWindowSize } from "./useWindowSize";
 export { useClickOutside, type ClickOutsideTarget, type UseClickOutsideOptions } from "./useClickOutside";
 export { useGlobalSelectionDeselect } from "./useGlobalSelectionDeselect";
+export {
+  usePreviewQualityCapabilities,
+  computeQualityOptions,
+  formatDimensionTag,
+  type PreviewQualityOption,
+} from "./usePreviewQualityCapabilities";
