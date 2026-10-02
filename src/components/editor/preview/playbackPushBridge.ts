@@ -96,6 +96,7 @@ export class PlaybackPushBridge {
   /** Bump before clearing/presenting another mode; stale packets are ignored. */
   beginGeneration(generation: bigint): void {
     if (generation < this.generation) return;
+    if (!this.stopped && generation === this.generation) return;
     this.generation = generation;
     this.acceptedInGeneration = 0;
     this.lastConsumedDeliverySeq = 0n;

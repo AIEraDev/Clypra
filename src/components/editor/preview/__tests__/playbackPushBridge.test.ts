@@ -107,4 +107,33 @@ describe("PlaybackPushBridge", () => {
     vi.advanceTimersByTime(499);
     expect(stalls).toBe(1);
   });
+
+  it("does not reset watermark or flow control state when beginGeneration is called repeatedly with the same active generation", () => {
+    const receiver = bridge({ watermarkFrameInterval: 2 });
+    receiver.beginGeneration(10n);
+    receiver.receive(makePacket(10n, 1n, 100n)); // 1st frame accepted, reports immediate watermark
+    expect(watermarks.length).toBe(1);
+
+    // Redundant call with same active generation during playback must not wipe tracking
+    receiver.beginGeneration(10n);
+    receiver.receive(makePacket(10n, 2n, 101n)); // 2nd frame accepted, triggers 2-frame interval watermark
+    expect(watermarks.length).toBe(2);
+    expect(watermarks[1]).toEqual({ generation: 10n, consumedDeliverySeq: 2n });
+    expect(painted).toEqual([100n, 101n]);
+  });
+
+  it("drops packets when stopped and resumes cleanly after beginGeneration", () => {
+    const receiver = bridge();
+    receiver.beginGeneration(11n);
+    receiver.receive(makePacket(11n, 1n, 200n));
+    expect(painted).toEqual([200n]);
+
+    receiver.stop();
+    expect(receiver.receive(makePacket(11n, 2n, 201n))).toBe(false);
+    expect(painted).toEqual([200n]); // 201n was rejected while stopped
+
+    receiver.beginGeneration(11n); // Re-activate same generation
+    expect(receiver.receive(makePacket(11n, 3n, 202n))).toBe(true);
+    expect(painted).toEqual([200n, 202n]);
+  });
 });

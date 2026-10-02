@@ -2952,8 +2952,13 @@ export const NativeProgramPreview: React.FC = () => {
         }
         if (nativeRequestKey !== visibleRequestKey) {
           visibleRequestKey = nativeRequestKey;
-          visibleRequestGeneration += 1;
-          nativePreviewScheduler.setVisibleGeneration();
+          // Continuous playback frames belong to the same generation run.
+          // Only paused frame steps or timeline edits bump generation to fence
+          // exact-frame display.
+          if (!isPlaying) {
+            visibleRequestGeneration += 1;
+            nativePreviewScheduler.setVisibleGeneration();
+          }
         }
         const seekGeneration = seekController?.getGeneration() ?? 0;
         if (seekGeneration > visibleRequestGeneration) {
@@ -4371,6 +4376,8 @@ export const NativeProgramPreview: React.FC = () => {
         nativeRetryAt = 0;
         if (newClockState.state === "playing") {
           scheduleUpcomingNativeTextPrefetch();
+        } else {
+          playbackPushBridge?.stop();
         }
       }
       scheduleNextFrame();
