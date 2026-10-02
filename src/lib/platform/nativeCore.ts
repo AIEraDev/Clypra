@@ -336,6 +336,8 @@ export interface NativeModeStats {
   servedFromReusedCurrentCount: number;
   /** Frames short-circuited via the 12-byte UNCH sentinel because the playback head has not advanced. */
   skippedUnchangedCount: number;
+  /** Lookahead frames decoded on GPU without host CPU transfer (Arm 2b in production). */
+  lookaheadDownloadsSkippedCount: number;
   /** Producer frames decoded+downloaded and then evicted before being presented. */
   downloadsWastedCount: number;
 }

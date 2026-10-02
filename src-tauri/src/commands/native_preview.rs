@@ -5314,6 +5314,10 @@ pub async fn reset_native_preview_runtime(app: tauri::AppHandle) -> Result<(), S
             .reset_dxgi_state();
     }
 
+    // 8. Reset producer download counters.
+    crate::thumbnail_engine::stream_actor::reset_producer_downloads_wasted();
+    crate::thumbnail_engine::stream_actor::reset_producer_lookahead_downloads_skipped();
+
     Ok(())
 }
 

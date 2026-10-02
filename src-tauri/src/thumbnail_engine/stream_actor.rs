@@ -119,6 +119,56 @@ pub fn reset_producer_downloads_wasted() {
     PRODUCER_DOWNLOADS_WASTED.store(0, std::sync::atomic::Ordering::Relaxed);
 }
 
+static PRODUCER_LOOKAHEAD_DOWNLOADS_SKIPPED: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+pub fn producer_lookahead_downloads_skipped() -> u64 {
+    PRODUCER_LOOKAHEAD_DOWNLOADS_SKIPPED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn reset_producer_lookahead_downloads_skipped() {
+    PRODUCER_LOOKAHEAD_DOWNLOADS_SKIPPED.store(0, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Calculate the selective hardware download stride for lookahead priming (Arm 2b).
+///
+/// On hardware decoders during active playback, downloading every single frame over
+/// PCIe on integrated GPUs (e.g. Intel HD 520) consumes 32–40 ms per frame, starving
+/// the GPU and bus. By decoding intermediate frames on the GPU without host transfer
+/// (`skip_hw_download: true`), the hardware DPB stays warm while host PCIe transfers
+/// drop by 50%–66%.
+///
+/// Returns 1 when hardware acceleration is disabled, when not playing, or when manually forced.
+pub fn calculate_download_stride(
+    frame_duration_secs: f64,
+    is_hw_accel: bool,
+    is_playback: bool,
+) -> usize {
+    if !is_hw_accel || !is_playback {
+        return 1;
+    }
+
+    if let Ok(val) = std::env::var("CLYPRA_PRODUCER_DOWNLOAD_STRIDE") {
+        if let Ok(stride) = val.trim().parse::<usize>() {
+            return stride.clamp(1, 6);
+        }
+    }
+
+    let stream_fps = if frame_duration_secs > 0.0 {
+        1.0 / frame_duration_secs
+    } else {
+        30.0
+    };
+
+    if stream_fps >= 48.0 {
+        3 // 50/60 fps -> download every 3rd frame (~16-20 fps presentation)
+    } else if stream_fps >= 23.0 {
+        2 // 24/25/30 fps -> download every 2nd frame (~12-15 fps presentation)
+    } else {
+        1 // low fps stream -> download every frame
+    }
+}
+
 impl DecodedActorFrame {
     pub fn into_native_video_frame(
         self,
@@ -528,7 +578,14 @@ impl StreamDecoderActor {
         let frame_duration = self.frame_duration_secs.max(0.001);
         let tolerance = (frame_duration * 0.95).max(0.001);
 
-        for step in 1..=2 {
+        let is_hw_accel = {
+            let guard = self.decoder.lock().await;
+            guard.is_hardware_accelerated()
+        };
+        let stride = calculate_download_stride(self.frame_duration_secs, is_hw_accel, options.is_playback);
+        let lookahead_steps = (2 * stride).min(6);
+
+        for step in 1..=lookahead_steps {
             // Check if a real job arrived
             match self.urgent_rx.try_recv() {
                 Ok(urgent_job) => return Some(urgent_job),
@@ -546,9 +603,10 @@ impl StreamDecoderActor {
             }
 
             let prime_time = base_time + step as f64 * frame_duration;
+            let is_target = step % stride == 0;
 
-            // Check if already in cache
-            {
+            // Check if already in cache (only target display frames enter prime_cache)
+            if is_target {
                 let cache = self.prime_cache.lock().await;
                 if cache.iter().any(|f| {
                     (f.time_secs - prime_time).abs() <= tolerance && f.quality == options.quality
@@ -557,19 +615,30 @@ impl StreamDecoderActor {
                 }
             }
 
+            let mut step_options = options;
+            step_options.skip_hw_download = !is_target && is_hw_accel;
+
             let current_gen = self.current_generation.load(Ordering::Acquire);
-            match self.decode_one(prime_time, options, current_gen).await {
+            match self.decode_one(prime_time, step_options, current_gen).await {
                 Ok(frame) => {
-                    let mut cache = self.prime_cache.lock().await;
-                    if cache.len() >= MAX_PRIME_CACHE_ENTRIES {
-                        if let Some(evicted) = cache.pop_front() {
-                            if evicted.served_count == 0 {
-                                PRODUCER_DOWNLOADS_WASTED
-                                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    // Only target display frames (or software frames) are placed
+                    // into prime_cache. Intermediate skipped frames have dummy planes
+                    // and serve only to advance the hardware DPB on the GPU.
+                    if is_target || !is_hw_accel {
+                        let mut cache = self.prime_cache.lock().await;
+                        if cache.len() >= MAX_PRIME_CACHE_ENTRIES {
+                            if let Some(evicted) = cache.pop_front() {
+                                if evicted.served_count == 0 {
+                                    PRODUCER_DOWNLOADS_WASTED
+                                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                }
                             }
                         }
+                        cache.push_back(frame.clone());
+                    } else {
+                        PRODUCER_LOOKAHEAD_DOWNLOADS_SKIPPED
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     }
-                    cache.push_back(frame.clone());
 
                     if let Some(app) = crate::diagnostics::app_handle() {
                         if let Some(service) = app.try_state::<tokio::sync::Mutex<crate::native_core::NativeFrameService>>() {
@@ -586,8 +655,16 @@ impl StreamDecoderActor {
                                     generation: Some(current_gen),
                                     mode: Some(crate::native_core::performance::PreviewMode::PlaybackLookahead),
                                     quality: Some(format!("{:?}", options.quality)),
-                                    strategy: Some("PRODUCER_PRIME".to_string()),
-                                    transfer_path: Some("prime-cache".to_string()),
+                                    strategy: Some(if step_options.skip_hw_download {
+                                        "PRODUCER_PRIME_SKIP_DL".to_string()
+                                    } else {
+                                        "PRODUCER_PRIME".to_string()
+                                    }),
+                                    transfer_path: Some(if step_options.skip_hw_download {
+                                        "gpu-dpb-only".to_string()
+                                    } else {
+                                        "prime-cache".to_string()
+                                    }),
                                     cancelled: false,
                                     stale: false,
                                     dropped: false,
@@ -620,15 +697,27 @@ impl StreamDecoderActor {
                                     is_hardware_accelerated: Some(frame.is_hardware_accelerated),
                                     decoder_seek_count: Some(frame.decoder_seek_count),
                                     decoder_frames_decoded: Some(frame.decoder_frames_decoded),
-                                    hardware_frame_download_us: frame.hardware_frame_download_us,
-                                    scale_colorspace_us: Some(frame.scale_colorspace_us),
+                                    hardware_frame_download_us: if step_options.skip_hw_download {
+                                        None
+                                    } else {
+                                        frame.hardware_frame_download_us
+                                    },
+                                    scale_colorspace_us: Some(if step_options.skip_hw_download {
+                                        0
+                                    } else {
+                                        frame.scale_colorspace_us
+                                    }),
                                     source_width: Some(frame.source_metadata.width),
                                     source_height: Some(frame.source_metadata.height),
                                     source_bits_per_raw_sample: Some(frame.source_metadata.bits_per_raw_sample),
                                     source_frame_rate_milli: frame.source_metadata.average_frame_rate_milli(),
                                     unaccounted_us: Some(0),
                                     codec_name: Some(frame.source_metadata.codec_name.clone()),
-                                    hardware_frames_downloaded: Some(frame.hardware_frames_downloaded),
+                                    hardware_frames_downloaded: Some(if step_options.skip_hw_download {
+                                        0
+                                    } else {
+                                        frame.hardware_frames_downloaded
+                                    }),
                                     stage_overlap_us: Some(0),
                                     served_from: Some(frame.served_from),
                                     hw_device_type: frame.hw_device_type.clone(),
@@ -1280,5 +1369,42 @@ mod tests {
         // Reset must return count to zero
         reset_producer_downloads_wasted();
         assert_eq!(producer_downloads_wasted(), 0);
+    }
+
+    #[test]
+    fn test_calculate_download_stride_rules() {
+        // 1. Software decode always downloads every frame
+        assert_eq!(calculate_download_stride(1.0 / 25.0, false, true), 1);
+        assert_eq!(calculate_download_stride(1.0 / 60.0, false, true), 1);
+
+        // 2. Non-playback modes (seek, scrub, frame-step) always download every frame
+        assert_eq!(calculate_download_stride(1.0 / 25.0, true, false), 1);
+        assert_eq!(calculate_download_stride(1.0 / 60.0, true, false), 1);
+
+        // 3. Hardware-accelerated playback adapts based on stream frame rate
+        // Standard film / broadcast (24, 25, 30 fps) -> stride 2 (~12-15 fps presentation)
+        assert_eq!(calculate_download_stride(1.0 / 24.0, true, true), 2);
+        assert_eq!(calculate_download_stride(1.0 / 25.0, true, true), 2);
+        assert_eq!(calculate_download_stride(1.0 / 30.0, true, true), 2);
+
+        // High frame rate (50, 60 fps) -> stride 3 (~16-20 fps presentation)
+        assert_eq!(calculate_download_stride(1.0 / 50.0, true, true), 3);
+        assert_eq!(calculate_download_stride(1.0 / 60.0, true, true), 3);
+
+        // Low frame rate (<= 15 fps) -> stride 1
+        assert_eq!(calculate_download_stride(1.0 / 12.0, true, true), 1);
+        assert_eq!(calculate_download_stride(1.0 / 15.0, true, true), 1);
+    }
+
+    #[test]
+    fn test_producer_lookahead_downloads_skipped_accounting() {
+        reset_producer_lookahead_downloads_skipped();
+        assert_eq!(producer_lookahead_downloads_skipped(), 0);
+
+        PRODUCER_LOOKAHEAD_DOWNLOADS_SKIPPED.fetch_add(5, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(producer_lookahead_downloads_skipped(), 5);
+
+        reset_producer_lookahead_downloads_skipped();
+        assert_eq!(producer_lookahead_downloads_skipped(), 0);
     }
 }

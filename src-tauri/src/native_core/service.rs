@@ -333,6 +333,7 @@ impl NativeFrameService {
             let mut served_from_ready_cache_count = 0usize;
             let mut served_from_reused_current_count = 0usize;
             let mut skipped_unchanged_count = 0usize;
+            let mut lookahead_downloads_skipped_count = 0usize;
 
             for (_, sample) in &entries {
                 match sample.served_from {
@@ -341,6 +342,9 @@ impl NativeFrameService {
                     Some(ServedFrom::ReusedCurrent) => served_from_reused_current_count += 1,
                     Some(ServedFrom::UnchangedSkipped) => skipped_unchanged_count += 1,
                     None => {}
+                }
+                if sample.strategy.as_deref() == Some("PRODUCER_PRIME_SKIP_DL") {
+                    lookahead_downloads_skipped_count += 1;
                 }
                 if sample.dropped || sample.cancelled {
                     continue;
@@ -460,6 +464,7 @@ impl NativeFrameService {
                 served_from_ready_cache_count,
                 served_from_reused_current_count,
                 skipped_unchanged_count,
+                lookahead_downloads_skipped_count,
                 downloads_wasted_count: 0,
                 window_source,
                 sample_span_ms,
