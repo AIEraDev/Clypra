@@ -247,7 +247,11 @@ export interface NativePerformanceSample {
   hardwareFramesDownloaded?: number;
   stageOverlapUs?: number;
   /** How this request was satisfied by the decoder. */
-  servedFrom?: "decoded-in-request" | "ready-cache" | "reused-current";
+  servedFrom?:
+    | "decoded-in-request"
+    | "ready-cache"
+    | "reused-current"
+    | "unchanged-skipped";
   /** Hardware decode device type (e.g. "d3d11va", "videotoolbox", "vaapi", "software"). */
   hwDeviceType?: string;
   /** Time waiting to acquire the NativeFrameService cache lock (consumer path). */
@@ -330,6 +334,8 @@ export interface NativeModeStats {
   servedFromReadyCacheCount: number;
   /** Frames served by reusing the most recently presented frame. */
   servedFromReusedCurrentCount: number;
+  /** Frames short-circuited via the 12-byte UNCH sentinel because the playback head has not advanced. */
+  skippedUnchangedCount: number;
   /** Producer frames decoded+downloaded and then evicted before being presented. */
   downloadsWastedCount: number;
 }

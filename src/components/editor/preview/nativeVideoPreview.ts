@@ -283,11 +283,33 @@ function hasMeaningfulObject(value: unknown): boolean {
  * renderer health must be diagnosed by the native service rather than by
  * rejecting valid RGBA payloads in the WebView.
  */
+/**
+ * Returns `true` when `buffer` is the 12-byte "UNCH" sentinel returned by
+ * Rust when the current playback frame is identical to the last delivered one.
+ *
+ * Wire format (little-endian):
+ *   bytes 0–3  : magic 0x55 0x4E 0x43 0x48  ("UNCH")
+ *   bytes 4–11 : frame_index as LE u64
+ */
+export function isUnchangedFramePayload(buffer: ArrayBuffer): boolean {
+  if (buffer.byteLength !== 12) return false;
+  const view = new Uint8Array(buffer);
+  return (
+    view[0] === 0x55 &&
+    view[1] === 0x4e &&
+    view[2] === 0x43 &&
+    view[3] === 0x48
+  );
+}
+
 export function isRenderableNativePreviewFrame(
   rgba: ArrayBuffer,
   width: number,
   height: number,
 ): boolean {
+  // Accept the lightweight UNCH sentinel (12 bytes) — the frontend retains the
+  // existing canvas content for that case, so no RGBA bytes are needed.
+  if (isUnchangedFramePayload(rgba)) return true;
   return width > 0 && height > 0 && rgba.byteLength === width * height * 4;
 }
 
