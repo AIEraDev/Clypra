@@ -386,6 +386,8 @@ pub struct ModeStats {
     /// returned as a 12-byte UNCH sentinel. The frontend retained the existing
     /// canvas content without calling `putImageData`.
     pub skipped_unchanged_count: usize,
+    /// Lookahead frames decoded on GPU without host CPU transfer (Arm 2b).
+    pub lookahead_downloads_skipped_count: usize,
     pub downloads_wasted_count: usize,
     #[serde(default)]
     pub window_source: String,
