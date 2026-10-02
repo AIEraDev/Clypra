@@ -4816,6 +4816,104 @@ pub async fn render_native_frame(
     }
     if let Some(cache) = app.try_state::<tokio::sync::Mutex<NativeFrameService>>() {
         let mut cache = cache.lock().await;
+
+        // --- Commit D: UNCH short-circuit ---
+        // Before looking up the LRU cache, check whether this playback frame is
+        // identical to the last frame we already delivered.  If so, return a
+        // lightweight 12-byte sentinel so the frontend can skip `putImageData`.
+        // The sentinel format: magic "UNCH" (4 bytes) + frame_index LE u64 (8 bytes).
+        if request.mode.as_deref() == Some("playback") {
+            if let Ok(key) = request.cache_key() {
+                if cache.should_skip_unchanged(
+                    request.mode.as_deref(),
+                    request.generation,
+                    &request,
+                    &key,
+                ) {
+                    let frame_index = request.frame_time.frame_index;
+                    let mut sentinel = [0u8; 12];
+                    sentinel[0] = 0x55; // 'U'
+                    sentinel[1] = 0x4E; // 'N'
+                    sentinel[2] = 0x43; // 'C'
+                    sentinel[3] = 0x48; // 'H'
+                    sentinel[4..12].copy_from_slice(&frame_index.to_le_bytes());
+                    cache.record_sample(PerformanceSample {
+                        request_id: request.request_id.clone(),
+                        frame_index,
+                        decode_time_us: 0,
+                        compose_time_us: 0,
+                        readback_time_us: 0,
+                        total_time_us: started
+                            .elapsed()
+                            .as_micros()
+                            .min(u32::MAX as u128) as u32,
+                        bytes_transferred: 12,
+                        cache_hit: false,
+                        generation: request.generation,
+                        mode: PreviewMode::from_request_mode(request.mode.as_deref()),
+                        quality: Some(format!("{:?}", request.quality)),
+                        strategy: Some("UNCH".to_string()),
+                        transfer_path: Some("unchanged-skip".to_string()),
+                        cancelled: false,
+                        stale: false,
+                        dropped: false,
+                        drop_reason: None,
+                        seek_time_us: 0,
+                        conversion_time_us: 0,
+                        upload_time_us: 0,
+                        present_time_us: 0,
+                        decode_us: None,
+                        conversion_upload_us: None,
+                        compose_us: None,
+                        readback_us: None,
+                        map_wait_us: None,
+                        timestamp_query_available: None,
+                        present_us: None,
+                        scheduler_wait_us: None,
+                        lookahead_wait_us: None,
+                        cold_start_init_us: None,
+                        queue_residency_us: None,
+                        ipc_wait_us: None,
+                        decoder_mutex_wait_us: None,
+                        actor_wait_us: None,
+                        gpu_queue_wait_us: None,
+                        surface_acquire_us: None,
+                        submit_present_us: None,
+                        capability_policy: None,
+                        capability_probe_us: None,
+                        demux_wait_us: None,
+                        container_format: None,
+                        is_hardware_accelerated: None,
+                        decoder_seek_count: None,
+                        decoder_frames_decoded: None,
+                        hardware_frame_download_us: None,
+                        scale_colorspace_us: None,
+                        source_width: None,
+                        source_height: None,
+                        source_bits_per_raw_sample: None,
+                        source_frame_rate_milli: None,
+                        unaccounted_us: Some(0),
+                        codec_name: None,
+                        hardware_frames_downloaded: Some(0),
+                        stage_overlap_us: Some(0),
+                        served_from: Some(
+                            crate::native_core::performance::ServedFrom::UnchangedSkipped,
+                        ),
+                        hw_device_type: None,
+                        cache_lock_wait_us: None,
+                        cache_insert_us: None,
+                    });
+                    log::debug!(
+                        "[preview-diag][rust] render_native_frame UNCH: frame={} gen={:?}",
+                        frame_index,
+                        request.generation,
+                    );
+                    return Ok(tauri::ipc::Response::new(sentinel.to_vec()));
+                }
+            }
+        }
+        // --- end Commit D ---
+
         if let Some(packet) = cache
             .get_cached(&request)
             .map_err(|error| error.to_string())?
@@ -5041,6 +5139,16 @@ pub async fn render_native_frame(
             cache_lock_wait_us: Some(cache_lock_wait_us),
             cache_insert_us,
         });
+
+        // Commit D: record this delivery so that the next identical playback
+        // RAF tick can be short-circuited via the UNCH sentinel.
+        if is_playback {
+            if let Some(gen) = request.generation {
+                if let Ok(key) = request.cache_key() {
+                    cache.record_delivered_playback(gen, &request, &key);
+                }
+            }
+        }
     }
 
     record_successful_readback_metrics(&app, &request);

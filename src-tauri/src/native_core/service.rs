@@ -7,6 +7,32 @@ use super::{
 };
 use std::collections::VecDeque;
 
+/// Identity of the most-recently delivered playback frame. Stored in
+/// `NativeFrameService` so that `render_native_frame` can short-circuit
+/// repeated RAF ticks that arrive while the video is at the same position.
+#[derive(Debug, Clone, PartialEq)]
+struct LastDeliveredPlaybackFrame {
+    generation: u64,
+    frame_index: u64,
+    output_width: u32,
+    output_height: u32,
+    /// SHA-256 prefix of `request.cache_key()` (first 16 hex chars) used to
+    /// detect layer-composition changes without storing the full key string.
+    cache_key_prefix: String,
+}
+
+impl LastDeliveredPlaybackFrame {
+    fn from_request(generation: u64, request: &FrameRequest, cache_key: &str) -> Self {
+        Self {
+            generation,
+            frame_index: request.frame_time.frame_index,
+            output_width: request.output_width,
+            output_height: request.output_height,
+            cache_key_prefix: cache_key.chars().take(16).collect(),
+        }
+    }
+}
+
 /// Reusable native frame service boundary.
 ///
 /// Commands, playback, thumbnails, and export should ask this service for a
@@ -24,6 +50,10 @@ pub struct NativeFrameService {
     // lets a delayed telemetry poll catch up without making the statistics
     // window grow or turning the service into an unbounded event log.
     sample_history: VecDeque<(u64, u64, PerformanceSample)>,
+    /// Last frame successfully delivered to the frontend during playback.
+    /// Used by the UNCH optimization to short-circuit RAF ticks that arrive
+    /// while the playback head has not advanced.
+    last_delivered_playback: Option<LastDeliveredPlaybackFrame>,
 }
 
 impl NativeFrameService {
@@ -37,6 +67,7 @@ impl NativeFrameService {
             last_sample_sequence: 0,
             window_samples: VecDeque::new(),
             sample_history: VecDeque::new(),
+            last_delivered_playback: None,
         })
     }
 
@@ -86,6 +117,7 @@ impl NativeFrameService {
         self.last_sample_sequence = 0;
         self.window_samples.clear();
         self.sample_history.clear();
+        self.last_delivered_playback = None;
     }
 
     pub fn record_sample(&mut self, sample: PerformanceSample) {
@@ -107,6 +139,64 @@ impl NativeFrameService {
         {
             self.window_samples.pop_front();
         }
+    }
+
+    /// Returns `true` when the current request is identical to the last frame
+    /// successfully delivered to the frontend during playback, meaning the
+    /// Rust side can return a lightweight `UNCH` sentinel instead of RGBA bytes.
+    ///
+    /// The check is deliberately conservative: it only fires in `"playback"`
+    /// mode, only when a generation is present, and never on the very first
+    /// frame after the service starts (i.e. when `last_delivered_playback` is
+    /// `None`).
+    pub fn should_skip_unchanged(
+        &self,
+        mode: Option<&str>,
+        generation: Option<u64>,
+        request: &FrameRequest,
+        cache_key: &str,
+    ) -> bool {
+        // Only applies during live playback — never for seek, scrub, frame-step,
+        // export, or thumbnail requests.
+        if mode != Some("playback") {
+            return false;
+        }
+        // A missing generation means the frontend has not started a play session
+        // yet; never short-circuit in that case.
+        let Some(gen) = generation else {
+            return false;
+        };
+        // Short-circuit only when we have a prior delivery to compare against.
+        let Some(last) = &self.last_delivered_playback else {
+            return false;
+        };
+        last.generation == gen
+            && last.frame_index == request.frame_time.frame_index
+            && last.output_width == request.output_width
+            && last.output_height == request.output_height
+            && last.cache_key_prefix == cache_key.chars().take(16).collect::<String>()
+    }
+
+    /// Record that `request` was just successfully delivered to the frontend
+    /// so that subsequent identical requests can be short-circuited.
+    ///
+    /// Must be called **after** the full render + cache-insert path succeeds,
+    /// never on a cache hit or UNCH short-circuit.
+    pub fn record_delivered_playback(
+        &mut self,
+        generation: u64,
+        request: &FrameRequest,
+        cache_key: &str,
+    ) {
+        self.last_delivered_playback =
+            Some(LastDeliveredPlaybackFrame::from_request(generation, request, cache_key));
+    }
+
+    /// Clear the UNCH guard so the next playback frame is always delivered
+    /// in full. Call whenever the play session ends, the project is reset,
+    /// or the generation advances.
+    pub fn clear_delivered_playback(&mut self) {
+        self.last_delivered_playback = None;
     }
 
     /// Returns samples recorded after `after_sequence`, bounded to the latest
@@ -242,12 +332,14 @@ impl NativeFrameService {
             let mut served_from_decoded_count = 0usize;
             let mut served_from_ready_cache_count = 0usize;
             let mut served_from_reused_current_count = 0usize;
+            let mut skipped_unchanged_count = 0usize;
 
             for (_, sample) in &entries {
                 match sample.served_from {
                     Some(ServedFrom::DecodedInRequest) => served_from_decoded_count += 1,
                     Some(ServedFrom::ReadyCache) => served_from_ready_cache_count += 1,
                     Some(ServedFrom::ReusedCurrent) => served_from_reused_current_count += 1,
+                    Some(ServedFrom::UnchangedSkipped) => skipped_unchanged_count += 1,
                     None => {}
                 }
                 if sample.dropped || sample.cancelled {
@@ -256,7 +348,9 @@ impl NativeFrameService {
                 let current_key = (sample.generation, sample.frame_index);
                 let is_repeated = matches!(
                     sample.served_from,
-                    Some(ServedFrom::ReadyCache) | Some(ServedFrom::ReusedCurrent)
+                    Some(ServedFrom::ReadyCache)
+                        | Some(ServedFrom::ReusedCurrent)
+                        | Some(ServedFrom::UnchangedSkipped)
                 ) || last_delivered_key == Some(current_key);
                 if is_repeated {
                     repeated_frames_delivered += 1;
@@ -283,6 +377,7 @@ impl NativeFrameService {
                     // new FFmpeg decode work; their decode_us reflects 0 or noise.
                     s.served_from != Some(ServedFrom::ReadyCache)
                         && s.served_from != Some(ServedFrom::ReusedCurrent)
+                        && s.served_from != Some(ServedFrom::UnchangedSkipped)
                         && s.decode_us.is_some()
                         && s.decode_us != Some(0)
                 })
@@ -364,6 +459,7 @@ impl NativeFrameService {
                 served_from_decoded_count,
                 served_from_ready_cache_count,
                 served_from_reused_current_count,
+                skipped_unchanged_count,
                 downloads_wasted_count: 0,
                 window_source,
                 sample_span_ms,
@@ -680,5 +776,105 @@ mod tests {
         // Verify seek_time_us is recorded independently and not aliased to decode_time_us
         let last_sample = stats.last_sample.unwrap();
         assert_eq!(last_sample.frame_index, 3);
+    }
+
+    #[test]
+    fn unch_guard_invalidation_rules() {
+        let mut service = NativeFrameService::new(1024).unwrap();
+        let mut req = request();
+        req.frame_time.frame_index = 42;
+        req.output_width = 1920;
+        req.output_height = 1080;
+        let key = req.cache_key().unwrap();
+
+        // 1. Initial state: no prior delivery, cannot skip
+        assert!(!service.should_skip_unchanged(Some("playback"), Some(1), &req, &key));
+
+        // Record successful delivery
+        service.record_delivered_playback(1, &req, &key);
+
+        // 2. Exact match in playback mode -> skip allowed
+        assert!(service.should_skip_unchanged(Some("playback"), Some(1), &req, &key));
+
+        // 3. Mode not playback (seek, scrub, frame-step, None) -> skip rejected
+        assert!(!service.should_skip_unchanged(Some("seek"), Some(1), &req, &key));
+        assert!(!service.should_skip_unchanged(Some("scrub"), Some(1), &req, &key));
+        assert!(!service.should_skip_unchanged(Some("frameStep"), Some(1), &req, &key));
+        assert!(!service.should_skip_unchanged(None, Some(1), &req, &key));
+
+        // 4. Generation mismatch or missing -> skip rejected
+        assert!(!service.should_skip_unchanged(Some("playback"), Some(2), &req, &key));
+        assert!(!service.should_skip_unchanged(Some("playback"), None, &req, &key));
+
+        // 5. Frame index mismatch -> skip rejected
+        let mut diff_frame = req.clone();
+        diff_frame.frame_time.frame_index = 43;
+        assert!(!service.should_skip_unchanged(Some("playback"), Some(1), &diff_frame, &key));
+
+        // 6. Dimension mismatch -> skip rejected
+        let mut diff_width = req.clone();
+        diff_width.output_width = 1280;
+        assert!(!service.should_skip_unchanged(Some("playback"), Some(1), &diff_width, &key));
+
+        let mut diff_height = req.clone();
+        diff_height.output_height = 720;
+        assert!(!service.should_skip_unchanged(Some("playback"), Some(1), &diff_height, &key));
+
+        // 7. Cache key mismatch (e.g. layers or visual styling changed) -> skip rejected
+        assert!(!service.should_skip_unchanged(
+            Some("playback"),
+            Some(1),
+            &req,
+            "different-cache-key-hash"
+        ));
+
+        // 8. Explicit clear -> skip rejected
+        service.clear_delivered_playback();
+        assert!(!service.should_skip_unchanged(Some("playback"), Some(1), &req, &key));
+
+        // 9. Reset -> skip rejected
+        service.record_delivered_playback(1, &req, &key);
+        assert!(service.should_skip_unchanged(Some("playback"), Some(1), &req, &key));
+        service.reset();
+        assert!(!service.should_skip_unchanged(Some("playback"), Some(1), &req, &key));
+    }
+
+    #[test]
+    fn unch_skipped_telemetry_aggregation() {
+        let mut service = NativeFrameService::new(1024).unwrap();
+
+        // Frame 1: Decoded in request
+        let mut s1 = sample(1);
+        s1.decode_us = Some(50_000);
+        s1.served_from = Some(ServedFrom::DecodedInRequest);
+        service.record_sample(s1);
+
+        // Frame 1 duplicate: UnchangedSkipped (zero decode work)
+        let mut s1_unch = sample(1);
+        s1_unch.decode_us = None;
+        s1_unch.bytes_transferred = 12;
+        s1_unch.served_from = Some(ServedFrom::UnchangedSkipped);
+        service.record_sample(s1_unch);
+
+        // Frame 2: Decoded in request
+        let mut s2 = sample(2);
+        s2.decode_us = Some(40_000);
+        s2.served_from = Some(ServedFrom::DecodedInRequest);
+        service.record_sample(s2);
+
+        let stats = service.stats();
+        let playback = stats
+            .mode_stats
+            .iter()
+            .find(|m| m.mode == PreviewMode::Playback)
+            .expect("playback mode stats present");
+
+        assert_eq!(playback.served_from_decoded_count, 2);
+        assert_eq!(playback.skipped_unchanged_count, 1);
+        assert_eq!(playback.unique_frames_delivered, 2);
+        assert_eq!(playback.repeated_frames_delivered, 1);
+
+        // Crucial: UnchangedSkipped must not pollute decode timing percentiles
+        assert_eq!(playback.decode.sample_count, 2);
     }
 }

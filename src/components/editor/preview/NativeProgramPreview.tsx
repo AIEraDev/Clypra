@@ -127,6 +127,7 @@ import {
   getNativePreviewReadinessBlockers,
   getNativeFrameRequestKey,
   isRenderableNativePreviewFrame,
+  isUnchangedFramePayload,
   isExpectedStaleNativePreviewError,
 } from "./nativeVideoPreview";
 import {
@@ -547,6 +548,7 @@ export const NativeProgramPreview: React.FC = () => {
 
   const [canvasEl, setCanvasEl] = useState<HTMLCanvasElement | null>(null);
   const canvasRef = useCallback((node: HTMLCanvasElement | null) => {
+    lastPaintedFrameRef.current = null;
     setCanvasEl(node);
   }, []);
 
@@ -576,6 +578,14 @@ export const NativeProgramPreview: React.FC = () => {
   // The frame payload itself stays compatible with the scheduler contract;
   // retain its correlation key beside it until the canvas paint completes.
   const nativeDisplayedFrameRequestKeyRef = useRef("");
+  // Track the last frame object that was actually written to the canvas. Used
+  // by the UNCH optimisation to skip redundant `putImageData` calls when the
+  // playback head has not advanced and the Rust side returned an UNCH sentinel.
+  const lastPaintedFrameRef = useRef<{
+    rgba: ArrayBuffer;
+    width: number;
+    height: number;
+  } | null>(null);
   // Persist text-prefetch identity across native surface/canvas effect
   // restarts. Text prewarming is isolated from the visible video decoder path.
   const nativePrefetchStateRef = useRef({
@@ -1118,6 +1128,7 @@ export const NativeProgramPreview: React.FC = () => {
   useEffect(() => {
     nativeDisplayedFrameRef.current = null;
     nativeDisplayedFrameRequestKeyRef.current = "";
+    lastPaintedFrameRef.current = null;
   }, [project?.id]);
 
   useEffect(() => {
@@ -1957,6 +1968,25 @@ export const NativeProgramPreview: React.FC = () => {
         ) {
           throw new Error("Native preview returned an invalid frame payload");
         }
+
+        // UNCH sentinel: Rust confirmed the frame is identical to the last
+        // delivered one.  Return the currently displayed frame directly so the
+        // canvas paint is skipped (drawNativeFrameToCanvas only repaints when
+        // the frame reference changes — see the render loop guard).
+        // The scheduler will cache the existing frame under the new requestKey
+        // as a warm-up for the next identical tick, which is safe and efficient.
+        if (isUnchangedFramePayload(rgba)) {
+          const existing = nativeDisplayedFrameRef.current;
+          if (existing) {
+            return existing;
+          }
+          // Should not happen in practice (UNCH requires a prior delivery), but
+          // treat as a miss so the next RAF tick triggers a full render.
+          throw new Error(
+            "Native preview returned UNCH but no frame has been displayed yet",
+          );
+        }
+
         return {
           rgba,
           width: request.outputWidth,
@@ -4069,14 +4099,23 @@ export const NativeProgramPreview: React.FC = () => {
 
             let canvasPaintMs: number | undefined;
             if (nativeFrame && canvasEl) {
-              const canvasPaintStarted = performance.now();
-              const drawn = drawNativeFrameToCanvas(canvasEl, nativeFrame);
-              if (!drawn) {
-                throw new Error(
-                  "Native preview returned a frame that could not be drawn to the preview canvas",
-                );
+              if (
+                nativeFrame !== lastPaintedFrameRef.current ||
+                canvasEl.width !== nativeFrame.width ||
+                canvasEl.height !== nativeFrame.height
+              ) {
+                const canvasPaintStarted = performance.now();
+                const drawn = drawNativeFrameToCanvas(canvasEl, nativeFrame);
+                if (!drawn) {
+                  throw new Error(
+                    "Native preview returned a frame that could not be drawn to the preview canvas",
+                  );
+                }
+                lastPaintedFrameRef.current = nativeFrame;
+                canvasPaintMs = performance.now() - canvasPaintStarted;
+              } else {
+                canvasPaintMs = 0;
               }
-              canvasPaintMs = performance.now() - canvasPaintStarted;
               if (
                 latestSeekIntent?.scrubSpanId &&
                 latestSeekIntent.isScrubbing

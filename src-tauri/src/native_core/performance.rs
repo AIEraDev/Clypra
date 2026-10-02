@@ -45,6 +45,12 @@ pub enum ServedFrom {
     /// `current_pts` (which may be slightly ahead of `target_pts` by up to
     /// one frame duration) was returned without decoding or seeking.
     ReusedCurrent,
+    /// Consumer short-circuit: the current playback frame is identical to the
+    /// last delivered one (same generation, frame_index, dimensions, and layer
+    /// composition). A 12-byte `UNCH` sentinel was returned instead of RGBA
+    /// bytes; the frontend retained the existing canvas content without calling
+    /// `putImageData`.
+    UnchangedSkipped,
 }
 
 /// Runtime limits used to protect the fast editing path during migration.
@@ -376,6 +382,10 @@ pub struct ModeStats {
     pub served_from_decoded_count: usize,
     pub served_from_ready_cache_count: usize,
     pub served_from_reused_current_count: usize,
+    /// Playback frames that were identical to the last delivered frame and were
+    /// returned as a 12-byte UNCH sentinel. The frontend retained the existing
+    /// canvas content without calling `putImageData`.
+    pub skipped_unchanged_count: usize,
     pub downloads_wasted_count: usize,
     #[serde(default)]
     pub window_source: String,
