@@ -27,6 +27,10 @@ pub struct NativeDiagnostic {
 
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 
+pub fn app_handle() -> Option<&'static AppHandle> {
+    APP_HANDLE.get()
+}
+
 pub fn initialize(app: &AppHandle) {
     let _ = APP_HANDLE.set(app.clone());
     if let Ok(app_data_dir) = app.path().app_data_dir() {

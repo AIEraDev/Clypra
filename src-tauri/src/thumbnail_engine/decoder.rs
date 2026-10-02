@@ -37,6 +37,8 @@ pub struct DecodeFrameOptions {
     pub allow_keyframe_approx: bool,
     pub quality: QualityTier,
     pub is_playback: bool,
+    pub skip_hw_download: bool,
+    pub target_dimensions: Option<(u32, u32)>,
 }
 
 /// NV12 chroma planes require even pixel dimensions. Keep the preview source
@@ -415,6 +417,7 @@ struct DecoderState {
 #[derive(Debug, Clone, Copy)]
 struct DecodeActivity {
     seek_count: u32,
+    seek_time_us: u32,
     frames_decoded: u32,
     hardware_frame_download_us: Option<u64>,
     scale_colorspace_us: u64,
@@ -423,17 +426,20 @@ struct DecodeActivity {
     /// pre-existing paths that don't explicitly set a value are not silently
     /// misclassified as cache hits.
     served_from: ServedFrom,
+    hw_device_type: Option<&'static str>,
 }
 
 impl Default for DecodeActivity {
     fn default() -> Self {
         Self {
             seek_count: 0,
+            seek_time_us: 0,
             frames_decoded: 0,
             hardware_frame_download_us: None,
             scale_colorspace_us: 0,
             hardware_frames_downloaded: 0,
             served_from: ServedFrom::DecodedInRequest,
+            hw_device_type: None,
         }
     }
 }
@@ -596,15 +602,28 @@ impl VideoDecoder {
         self.last_demux_us
     }
 
-    pub fn last_decode_activity(&self) -> (u32, u32, Option<u64>, u64, u32, ServedFrom) {
+    pub fn last_decode_activity(
+        &self,
+    ) -> (
+        u32,
+        u32,
+        u32,
+        Option<u64>,
+        u64,
+        u32,
+        ServedFrom,
+        Option<&'static str>,
+    ) {
         let activity = self.last_decode_activity;
         (
             activity.seek_count,
+            activity.seek_time_us,
             activity.frames_decoded,
             activity.hardware_frame_download_us,
             activity.scale_colorspace_us,
             activity.hardware_frames_downloaded,
             activity.served_from,
+            activity.hw_device_type,
         )
     }
 
@@ -2178,6 +2197,7 @@ impl VideoDecoder {
 
         let mut demux_time_us = 0u32;
         let mut frames_decoded = 0u32;
+        let mut seek_time_us = 0u32;
 
         if needs_seek {
             if is_cancelled() {
@@ -2195,8 +2215,8 @@ impl VideoDecoder {
                     return Err(format!("Seek failed at {}s", ts));
                 }
             }
-            demux_time_us = demux_time_us
-                .saturating_add(seek_t0.elapsed().as_micros().min(u32::MAX as u128) as u32);
+            seek_time_us = seek_t0.elapsed().as_micros().min(u32::MAX as u128) as u32;
+            demux_time_us = demux_time_us.saturating_add(seek_time_us);
             self.decoder.flush();
             self.state.current_pts = -1;
             self.state.gop_start_pts = target_pts;
@@ -2389,6 +2409,51 @@ impl VideoDecoder {
             return Err(format!("No frame found at {}s", ts));
         }
 
+        if options.skip_hw_download && self.stream_metadata.is_hardware_accelerated {
+            let width = best_frame.width();
+            let height = best_frame.height();
+            self.last_decode_activity = DecodeActivity {
+                seek_count: self.last_decode_activity.seek_count,
+                seek_time_us: self.last_decode_activity.seek_time_us,
+                frames_decoded,
+                hardware_frame_download_us: None,
+                scale_colorspace_us: 0,
+                hardware_frames_downloaded: 0,
+                served_from: ServedFrom::DecodedInRequest,
+                hw_device_type: self.stream_metadata.is_hardware_accelerated.then(|| {
+                    #[cfg(target_os = "windows")]
+                    {
+                        "d3d11va"
+                    }
+                    #[cfg(target_os = "macos")]
+                    {
+                        "videotoolbox"
+                    }
+                    #[cfg(target_os = "linux")]
+                    {
+                        "vaapi"
+                    }
+                    #[cfg(not(any(
+                        target_os = "windows",
+                        target_os = "macos",
+                        target_os = "linux"
+                    )))]
+                    {
+                        "hardware"
+                    }
+                }),
+            };
+            let dummy_y = Arc::from(vec![0u8; 4]);
+            let dummy_uv = Arc::from(vec![128u8; 2]);
+            return Ok((
+                dummy_y,
+                dummy_uv,
+                width,
+                height,
+                VideoColorMetadata::default(),
+            ));
+        }
+
         let hardware_download_started = Instant::now();
         let cpu_frame = self.to_cpu_frame(best_frame)?;
         let hardware_frame_download_us = self.stream_metadata.is_hardware_accelerated.then(|| {
@@ -2398,8 +2463,9 @@ impl VideoDecoder {
                 .min(u64::MAX as u128) as u64
         });
         let frame_color = self.frame_metadata(&cpu_frame).color;
-        let (target_width, target_height) =
-            nv12_dimensions_for_quality(cpu_frame.width(), cpu_frame.height(), options.quality);
+        let (target_width, target_height) = options.target_dimensions.unwrap_or_else(|| {
+            nv12_dimensions_for_quality(cpu_frame.width(), cpu_frame.height(), options.quality)
+        });
         // QualityTier must change actual decoded-plane dimensions, not merely
         // cache labels or output geometry. Before this, a `proxy` CPU fallback
         // still uploaded/composited the source 4K NV12 surface, which is the
@@ -2456,11 +2522,32 @@ impl VideoDecoder {
         };
         self.last_decode_activity = DecodeActivity {
             seek_count: u32::from(needs_seek),
+            seek_time_us,
             frames_decoded,
             hardware_frame_download_us,
             scale_colorspace_us,
             hardware_frames_downloaded,
             served_from: ServedFrom::DecodedInRequest,
+            hw_device_type: if self.stream_metadata.is_hardware_accelerated {
+                #[cfg(target_os = "windows")]
+                {
+                    Some("d3d11va")
+                }
+                #[cfg(target_os = "macos")]
+                {
+                    Some("videotoolbox")
+                }
+                #[cfg(target_os = "linux")]
+                {
+                    Some("vaapi")
+                }
+                #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+                {
+                    None
+                }
+            } else {
+                Some("software")
+            },
         };
         Ok((y_arc, uv_arc, result.2, result.3, result.4))
     }
@@ -3355,6 +3442,63 @@ pub fn release_decoder_stream(path: &str, stream_id: &str) {
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+mod decode_frame_options_tests {
+    use super::{DecodeFrameOptions, QualityTier};
+
+    /// The two fields added for benchmark arms must default to the safe values
+    /// that preserve pre-phase-1b behaviour on every production call site.
+    ///
+    /// `skip_hw_download: false`  → hardware frames are always downloaded (no change)
+    /// `target_dimensions: None`  → output resolution is unchanged from source/quality
+    ///
+    /// If this test fails, a call site was accidentally changed to benchmark
+    /// mode in production code.
+    #[test]
+    fn production_defaults_are_safe() {
+        let opts = DecodeFrameOptions::default();
+        assert!(
+            !opts.skip_hw_download,
+            "skip_hw_download must default to false; \
+             true bypasses av_hwframe_transfer_data and is only for arm-1 benchmarking"
+        );
+        assert_eq!(
+            opts.target_dimensions, None,
+            "target_dimensions must default to None; \
+             Some(...) forces a fixed output size and is only for arm-0 benchmarking"
+        );
+        // Sanity-check the other fields haven't drifted from their zero values.
+        assert!(!opts.allow_keyframe_approx);
+        assert!(!opts.is_playback);
+        assert_eq!(opts.quality, QualityTier::Full);
+    }
+
+    /// Benchmark arm-1 construction: skip_hw_download=true should compile and
+    /// round-trip cleanly without affecting target_dimensions.
+    #[test]
+    fn arm1_options_skip_download_only() {
+        let opts = DecodeFrameOptions {
+            skip_hw_download: true,
+            target_dimensions: None,
+            ..DecodeFrameOptions::default()
+        };
+        assert!(opts.skip_hw_download);
+        assert_eq!(opts.target_dimensions, None);
+    }
+
+    /// Benchmark arm-0 construction: target_dimensions=Some(320,180) should
+    /// not accidentally enable skip_hw_download.
+    #[test]
+    fn arm0_options_target_dimensions_only() {
+        let opts = DecodeFrameOptions {
+            target_dimensions: Some((320, 180)),
+            ..DecodeFrameOptions::default()
+        };
+        assert!(!opts.skip_hw_download);
+        assert_eq!(opts.target_dimensions, Some((320, 180)));
+    }
+}
+
+#[cfg(test)]
 mod display_dimensions_tests {
     use super::ffmpeg;
 
@@ -3673,6 +3817,8 @@ mod still_image_tests {
             allow_keyframe_approx: false,
             quality: crate::native_core::QualityTier::Full,
             is_playback: false,
+            skip_hw_download: false,
+            target_dimensions: None,
         };
 
         // First decode primes the cache
@@ -3895,6 +4041,8 @@ mod still_image_tests {
             allow_keyframe_approx: false,
             quality: QualityTier::Full,
             is_playback: true,
+            skip_hw_download: false,
+            target_dimensions: None,
         };
 
         // Timestamp 820 in timebase
@@ -3909,8 +4057,9 @@ mod still_image_tests {
         assert_eq!(uv[0], 84);
         let activity = decoder.last_decode_activity();
         assert_eq!(activity.0, 0, "Seek count must be 0 for playback cache hit");
+        assert_eq!(activity.1, 0, "Seek time must be 0 for playback cache hit");
         assert_eq!(
-            activity.1, 0,
+            activity.2, 0,
             "Decoded frames must be 0 for playback cache hit"
         );
     }

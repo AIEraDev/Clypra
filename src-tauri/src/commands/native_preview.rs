@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager};
 
@@ -39,6 +39,22 @@ use crate::thumbnail_engine::stream_actor::DecodedVideoPlanes;
 
 type DecodedNativeVideoFrame = (DecodedVideoPlanes, u32, u32, VideoColorMetadata, u32);
 static NATIVE_SURFACE_PRESENTATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+/// Returns `true` when `CLYPRA_SKIP_PLAYBACK_CACHE_INSERT=1` (or `true`) is
+/// set in the environment. Evaluated once at first call; subsequent calls are
+/// free reads of a boolean.
+///
+/// **Default: `false`** — the old behavior is preserved unless you opt in.
+/// Set this to isolate whether the `cache.insert` cost is responsible for the
+/// ~34 ms median unaccounted time in playback mode.
+fn skip_playback_cache_insert_enabled() -> bool {
+    static FLAG: OnceLock<bool> = OnceLock::new();
+    *FLAG.get_or_init(|| {
+        std::env::var("CLYPRA_SKIP_PLAYBACK_CACHE_INSERT")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+    })
+}
 
 /// Benchmark-only owner for the Phase 2b playback push path. It is not opened
 /// by default and therefore cannot change the invoke bridge until the caller
@@ -179,6 +195,11 @@ pub struct NativePreviewPerformanceReport {
     pub build_profile: String,
     pub operating_system: String,
     pub architecture: String,
+    /// The git commit SHA that produced this binary. `None` when built outside
+    /// of git (e.g. a release tarball without `.git`).
+    pub git_commit: Option<String>,
+    /// `true` when the working tree had uncommitted changes at build time.
+    pub git_dirty: Option<bool>,
     pub gpu: Option<NativeGpuRuntimeStatus>,
     pub preview: Option<NativeFrameServiceStats>,
     pub session: crate::wgpu_compositor::SessionSnapshot,
@@ -186,6 +207,11 @@ pub struct NativePreviewPerformanceReport {
     /// automated policy change: it tells the maintainer which phase to pursue.
     pub stage_diagnoses: Vec<NativePreviewStageDiagnosis>,
     pub push_bridge: Option<NativePlaybackPushStatus>,
+    /// Whether the `CLYPRA_SKIP_PLAYBACK_CACHE_INSERT` experiment was active
+    /// during this session. When `true`, playback-mode frames were NOT inserted
+    /// into the NativeFrameService cache. Records the A/B state so unaccounted
+    /// p50 comparisons can be attributed correctly.
+    pub playback_cache_insert_skipped: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -454,6 +480,8 @@ struct NativeDecodeTimings {
     container_format: Option<String>,
     is_hardware_accelerated: Option<bool>,
     decoder_seek_count: Option<u32>,
+    /// Measured wall time of av_seek_frame + flush for this frame (0 when no seek occurred).
+    seek_time_us: Option<u32>,
     decoder_frames_decoded: Option<u32>,
     hardware_frame_download_us: Option<u64>,
     scale_colorspace_us: Option<u64>,
@@ -464,6 +492,7 @@ struct NativeDecodeTimings {
     codec_name: Option<String>,
     hardware_frames_downloaded: Option<u32>,
     served_from: Option<crate::native_core::performance::ServedFrom>,
+    hw_device_type: Option<String>,
 }
 
 struct QueuedNativeFrame {
@@ -623,6 +652,13 @@ fn record_native_surface_sample(
     let Ok(mut service) = service.try_lock() else {
         return;
     };
+    if let Some(session_collector) =
+        app.try_state::<Arc<crate::wgpu_compositor::SessionTelemetryCollector>>()
+    {
+        if let Some(path) = transfer_path {
+            session_collector.record_frame_source(path);
+        }
+    }
     let total_time_us = started_at.elapsed().as_micros().min(u32::MAX as u128) as u32;
     let stages_sum = u64::from(decode_timings.decode_time_us)
         + conversion_upload_us.unwrap_or(0)
@@ -658,7 +694,7 @@ fn record_native_surface_sample(
         stale,
         dropped,
         drop_reason: drop_reason.map(str::to_string),
-        seek_time_us: decode_timings.decode_time_us,
+        seek_time_us: decode_timings.seek_time_us.unwrap_or(0),
         conversion_time_us: conversion_upload_us.unwrap_or(0).min(u32::MAX as u64) as u32,
         upload_time_us: conversion_upload_us.unwrap_or(0).min(u32::MAX as u64) as u32,
         present_time_us: submit_present_us.unwrap_or(0).min(u32::MAX as u64) as u32,
@@ -701,6 +737,9 @@ fn record_native_surface_sample(
         } else {
             decode_timings.served_from
         },
+        hw_device_type: decode_timings.hw_device_type.clone(),
+        cache_lock_wait_us: None,
+        cache_insert_us: None,
     });
 }
 
@@ -2525,6 +2564,8 @@ async fn render_native_video_project_frame_bytes_timed(
                 || request.mode.as_deref() == Some("scrub"),
             quality: request.quality,
             is_playback: request.mode.as_deref() == Some("playback"),
+            skip_hw_download: false,
+            target_dimensions: None,
         };
 
         let mut frames = Vec::with_capacity(request.layers.len());
@@ -3000,6 +3041,8 @@ async fn decode_native_video_layers(
             || request.mode.as_deref() == Some("scrub"),
         quality: request.quality,
         is_playback: request.mode.as_deref() == Some("playback"),
+        skip_hw_download: false,
+        target_dimensions: None,
     };
 
     let is_prefetch = request.mode.as_deref() == Some("prefetch");
@@ -3037,12 +3080,14 @@ async fn decode_native_video_layers(
         let container_format = actor_frame.container_format.clone();
         let is_hw = actor_frame.is_hardware_accelerated;
         let decoder_seek_count = actor_frame.decoder_seek_count;
+        let decoder_seek_time_us = actor_frame.decoder_seek_time_us;
         let decoder_frames_decoded = actor_frame.decoder_frames_decoded;
         let hardware_frame_download_us = actor_frame.hardware_frame_download_us;
         let hardware_frames_downloaded = actor_frame.hardware_frames_downloaded;
         let scale_colorspace_us = actor_frame.scale_colorspace_us;
         let source = actor_frame.source_metadata.clone();
         let actor_served_from = actor_frame.served_from;
+        let hw_device_type = actor_frame.hw_device_type.clone();
         let decoded = actor_frame.into_native_video_frame();
         return Ok((
             vec![decoded],
@@ -3054,6 +3099,7 @@ async fn decode_native_video_layers(
                 container_format: Some(container_format),
                 is_hardware_accelerated: Some(is_hw),
                 decoder_seek_count: Some(decoder_seek_count),
+                seek_time_us: Some(decoder_seek_time_us),
                 decoder_frames_decoded: Some(decoder_frames_decoded),
                 hardware_frame_download_us,
                 scale_colorspace_us: Some(scale_colorspace_us),
@@ -3064,6 +3110,7 @@ async fn decode_native_video_layers(
                 codec_name: Some(source.codec_name),
                 hardware_frames_downloaded: Some(hardware_frames_downloaded),
                 served_from: Some(actor_served_from),
+                hw_device_type,
             },
         ));
     }
@@ -3274,13 +3321,85 @@ pub async fn queue_native_frame(
                     QueuedNativeFrame {
                         frame_index: request.frame_time.frame_index,
                         decoded_frames,
-                        decode_timings,
+                        decode_timings: decode_timings.clone(),
                         queued_at: command_started,
                         ready_at,
                         scheduler_wait_us,
                     },
                     lifecycle_epoch,
                 );
+
+                if let Some(service) = app.try_state::<tokio::sync::Mutex<NativeFrameService>>() {
+                    if let Ok(mut service) = service.try_lock() {
+                        let total_time_us =
+                            command_started.elapsed().as_micros().min(u32::MAX as u128) as u32;
+                        let unaccounted_us = u64::from(total_time_us)
+                            .saturating_sub(u64::from(decode_timings.decode_time_us));
+                        service.record_sample(PerformanceSample {
+                            request_id: request.request_id.clone(),
+                            frame_index: request.frame_time.frame_index,
+                            decode_time_us: decode_timings.decode_time_us,
+                            compose_time_us: 0,
+                            readback_time_us: 0,
+                            total_time_us,
+                            bytes_transferred: 0,
+                            cache_hit: false,
+                            generation: request.generation,
+                            mode: Some(PreviewMode::PlaybackLookahead),
+                            quality: Some(format!("{:?}", request.quality)),
+                            strategy: Some("LOOKAHEAD_PREFETCH".to_string()),
+                            transfer_path: Some("lookahead-queue".to_string()),
+                            cancelled: false,
+                            stale: false,
+                            dropped: false,
+                            drop_reason: None,
+                            seek_time_us: decode_timings.seek_time_us.unwrap_or(0),
+                            conversion_time_us: 0,
+                            upload_time_us: 0,
+                            present_time_us: 0,
+                            decode_us: Some(u64::from(decode_timings.decode_time_us)),
+                            conversion_upload_us: None,
+                            compose_us: None,
+                            readback_us: None,
+                            map_wait_us: None,
+                            timestamp_query_available: None,
+                            present_us: None,
+                            scheduler_wait_us: Some(scheduler_wait_us),
+                            lookahead_wait_us: None,
+                            cold_start_init_us: None,
+                            queue_residency_us: None,
+                            ipc_wait_us: None,
+                            decoder_mutex_wait_us: Some(decode_timings.decoder_mutex_wait_us),
+                            actor_wait_us: decode_timings.actor_wait_us,
+                            gpu_queue_wait_us: None,
+                            surface_acquire_us: None,
+                            submit_present_us: None,
+                            capability_policy: None,
+                            capability_probe_us: None,
+                            demux_wait_us: decode_timings.demux_wait_us,
+                            container_format: decode_timings.container_format.clone(),
+                            is_hardware_accelerated: decode_timings.is_hardware_accelerated,
+                            decoder_seek_count: decode_timings.decoder_seek_count,
+                            decoder_frames_decoded: decode_timings.decoder_frames_decoded,
+                            hardware_frame_download_us: decode_timings.hardware_frame_download_us,
+                            scale_colorspace_us: decode_timings.scale_colorspace_us,
+                            source_width: decode_timings.source_width,
+                            source_height: decode_timings.source_height,
+                            source_bits_per_raw_sample: decode_timings.source_bits_per_raw_sample,
+                            source_frame_rate_milli: decode_timings.source_frame_rate_milli,
+                            unaccounted_us: Some(unaccounted_us),
+                            codec_name: decode_timings.codec_name.clone(),
+                            hardware_frames_downloaded: decode_timings.hardware_frames_downloaded,
+                            stage_overlap_us: Some(0),
+                            served_from: decode_timings.served_from.or(Some(
+                                crate::native_core::performance::ServedFrom::DecodedInRequest,
+                            )),
+                            hw_device_type: decode_timings.hw_device_type.clone(),
+                            cache_lock_wait_us: None,
+                            cache_insert_us: None,
+                        });
+                    }
+                }
             } else {
                 pending_guard.key = None;
                 queue_state.fail(&key);
@@ -4758,6 +4877,9 @@ pub async fn render_native_frame(
                 hardware_frames_downloaded: Some(0),
                 stage_overlap_us: Some(0),
                 served_from: Some(crate::native_core::performance::ServedFrom::ReadyCache),
+                hw_device_type: None,
+                cache_lock_wait_us: None,
+                cache_insert_us: None,
             });
             record_successful_readback_metrics(&app, &request);
             return Ok(tauri::ipc::Response::new(packet.data));
@@ -4825,9 +4947,29 @@ pub async fn render_native_frame(
         data: rgba.clone(),
     };
 
+    if let Some(session_collector) =
+        app.try_state::<Arc<crate::wgpu_compositor::SessionTelemetryCollector>>()
+    {
+        session_collector.record_frame_source("cpu-rgba");
+    }
+
     if let Some(cache) = app.try_state::<tokio::sync::Mutex<NativeFrameService>>() {
+        let lock_start = Instant::now();
         let mut cache = cache.lock().await;
-        let _ = cache.insert(&request, packet);
+        let cache_lock_wait_us = lock_start.elapsed().as_micros().min(u64::MAX as u128) as u64;
+
+        let is_playback = request.mode.as_deref() == Some("playback");
+        let cache_insert_us = if is_playback && skip_playback_cache_insert_enabled() {
+            // Experiment: skip the insert for playback frames and leave
+            // cache_insert_us as None so the unaccounted delta is attributable
+            // to the insert cost. Controlled by CLYPRA_SKIP_PLAYBACK_CACHE_INSERT.
+            None
+        } else {
+            let insert_start = Instant::now();
+            let _ = cache.insert(&request, packet);
+            Some(insert_start.elapsed().as_micros().min(u64::MAX as u128) as u64)
+        };
+
         let total_time_us = started.elapsed().as_micros().min(u32::MAX as u128) as u32;
         let stages_sum = u64::from(stage_timings.decode_time_us)
             + u64::from(stage_timings.conversion_time_us)
@@ -4853,7 +4995,7 @@ pub async fn render_native_frame(
             stale: false,
             dropped: false,
             drop_reason: None,
-            seek_time_us: stage_timings.decode_time_us,
+            seek_time_us: stage_timings.decode_telemetry.seek_time_us.unwrap_or(0),
             conversion_time_us: stage_timings.conversion_time_us,
             upload_time_us: 0,
             present_time_us: 0,
@@ -4895,6 +5037,9 @@ pub async fn render_native_frame(
             hardware_frames_downloaded: stage_timings.decode_telemetry.hardware_frames_downloaded,
             stage_overlap_us: Some(stage_overlap_us),
             served_from: stage_timings.decode_telemetry.served_from,
+            hw_device_type: stage_timings.decode_telemetry.hw_device_type.clone(),
+            cache_lock_wait_us: Some(cache_lock_wait_us),
+            cache_insert_us,
         });
     }
 
@@ -4970,7 +5115,7 @@ pub async fn get_native_preview_performance_report(
         .unwrap_or_else(|| SessionTelemetryCollector::new().snapshot());
 
     Ok(NativePreviewPerformanceReport {
-        report_version: 1,
+        report_version: 2,
         captured_at_ms: crate::native_core::performance::now_ms(),
         application_version: env!("CARGO_PKG_VERSION").to_string(),
         build_profile: if cfg!(debug_assertions) {
@@ -4980,6 +5125,8 @@ pub async fn get_native_preview_performance_report(
         },
         operating_system: std::env::consts::OS.to_string(),
         architecture: std::env::consts::ARCH.to_string(),
+        git_commit: option_env!("CLYPRA_GIT_COMMIT").map(String::from),
+        git_dirty: option_env!("CLYPRA_GIT_DIRTY").map(|s| s == "true"),
         gpu,
         preview,
         session,
@@ -4987,6 +5134,7 @@ pub async fn get_native_preview_performance_report(
         push_bridge: app
             .try_state::<Arc<NativePlaybackPushRuntime>>()
             .map(|state| state.status()),
+        playback_cache_insert_skipped: skip_playback_cache_insert_enabled(),
     })
 }
 

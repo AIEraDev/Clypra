@@ -357,6 +357,18 @@ impl SessionTelemetryCollector {
     pub fn frames_produced(&self) -> u64 {
         self.inner.lock().frames_produced
     }
+
+    /// Record the frame transfer path / source directly (e.g. "dxgi-zero-copy", "cpu-nv12", "cpu-rgba").
+    pub fn record_frame_source(&self, transfer_path: &str) {
+        let mut s = self.inner.lock();
+        s.frames_produced += 1;
+        match transfer_path {
+            "dxgi-zero-copy" => s.dxgi_nv12_frames += 1,
+            "cpu-nv12" => s.cpu_nv12_frames += 1,
+            "cpu-rgba" => s.cpu_rgba_frames += 1,
+            _ => s.unknown_frames += 1,
+        }
+    }
 }
 
 impl Default for SessionTelemetryCollector {
@@ -488,6 +500,22 @@ mod tests {
         assert_eq!(s.frames_by_source.cpu_nv12, 1);
         assert_eq!(s.frames_by_source.cpu_rgba, 1);
         assert_eq!(s.frames_by_source.unknown, 0);
+    }
+
+    #[test]
+    fn test_record_frame_source_direct() {
+        let c = SessionTelemetryCollector::new();
+        c.record_frame_source("dxgi-zero-copy");
+        c.record_frame_source("cpu-nv12");
+        c.record_frame_source("cpu-rgba");
+        c.record_frame_source("unknown-path");
+
+        let s = c.snapshot();
+        assert_eq!(s.frames_produced, 4);
+        assert_eq!(s.frames_by_source.dxgi_nv12, 1);
+        assert_eq!(s.frames_by_source.cpu_nv12, 1);
+        assert_eq!(s.frames_by_source.cpu_rgba, 1);
+        assert_eq!(s.frames_by_source.unknown, 1);
     }
 
     #[test]

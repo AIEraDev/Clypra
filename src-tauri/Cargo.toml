@@ -23,6 +23,10 @@ path = "src/main.rs"
 name = "clypra-engine-benchmark"
 path = "src/bin/benchmark.rs"
 
+[[bin]]
+name = "decode-throughput-bench"
+path = "src/bin/decode_throughput_bench.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

@@ -244,6 +244,15 @@ pub struct PerformanceSample {
     /// `None` on legacy samples that predate this field.
     #[serde(default)]
     pub served_from: Option<ServedFrom>,
+    /// Microseconds spent waiting for the NativeFrameService / cache lock.
+    #[serde(default)]
+    pub cache_lock_wait_us: Option<u64>,
+    /// Microseconds spent inserting/storing into the NativeFrameService cache.
+    #[serde(default)]
+    pub cache_insert_us: Option<u64>,
+    /// Hardware acceleration device backend type (e.g. "d3d11va", "videotoolbox", "vaapi", "software").
+    #[serde(default)]
+    pub hw_device_type: Option<String>,
 }
 
 impl PerformanceSample {
@@ -357,9 +366,17 @@ pub struct ModeStats {
     /// A persistently large value here points to OS scheduling, mutex wait, or
     /// Tauri/IPC serialization overhead that the individual stage timers miss.
     pub unaccounted: StagePercentiles,
+    /// Mutex lock acquisition duration for the frame service / cache.
+    pub cache_lock_wait: StagePercentiles,
+    /// Time spent inserting the rendered packet into the frame cache.
+    pub cache_insert: StagePercentiles,
     pub unique_frames_delivered: usize,
     pub repeated_frames_delivered: usize,
     pub delivered_unique_fps: Option<f64>,
+    pub served_from_decoded_count: usize,
+    pub served_from_ready_cache_count: usize,
+    pub served_from_reused_current_count: usize,
+    pub downloads_wasted_count: usize,
     #[serde(default)]
     pub window_source: String,
     #[serde(default)]
@@ -477,6 +494,9 @@ mod tests {
             hardware_frames_downloaded: None,
             stage_overlap_us: None,
             served_from: None,
+            cache_lock_wait_us: None,
+            cache_insert_us: None,
+            hw_device_type: None,
         };
         assert!(sample.exceeds_render_budget(&budget));
     }
