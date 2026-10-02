@@ -299,7 +299,7 @@ export function exportToOTIO(options: OTIOExportOptions): OTIOTimeline {
       },
       metadata: {
         clypra: {
-          version: "1.5.7",
+          version: "1.5.8",
           exportedAt: new Date().toISOString(),
         },
       },

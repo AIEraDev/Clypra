@@ -6,6 +6,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [1.5.8] - 2026-10-02
+
+### 🎬 Professional NLE Tools & Architecture
+
+- **J/K/L Shuttle Transport & Frame Jogging** — added professional multi-speed playback and transport navigation. Supports forward (L) and reverse (J) shuttle at 1x, 2x, 4x, 8x, and 16x speeds, pause/stop (K), single-frame jogging, and smooth speed step-downs. Fully integrated with playback clock and native audio-drift synchronization (#467).
+- **OpenTimelineIO (.otio) Interchange** — native bidirectional import and export for the industry-standard OpenTimelineIO interchange format. Preserves track stacks, rational time boundaries, clip sources, markers, transitions, and metadata across third-party NLEs (DaVinci Resolve, Premiere Pro, Final Cut Pro) (#467).
+- **SMPTE 12M Timecode & Click-to-Jump Navigation** — implemented strict SMPTE 12M timecode parsing, formatting, and rational time arithmetic. Users can click any timecode readout in the transport or timeline HUD to directly input timecodes (e.g. `01:23:45:12` or frame offsets) to jump the playhead instantly (#467).
+- **Precision NLE Editing Modes (Slip, Slide, Roll)** — added dedicated professional trimming tools:
+  - *Slip Tool (Y)*: Adjusts clip in/out points while preserving duration and position on the timeline.
+  - *Slide Tool (U)*: Moves clip position on the timeline while adjusting neighboring adjacent heads/tails without affecting project duration.
+  - *Roll Tool (N)*: Trims the edit point between two adjacent clips simultaneously (#467).
+
+### ⚡ Realtime Playback & Throughput Optimizations
+
+- **Short-Circuit Unchanged Playback Frames (Phase 1c / Commit D)** — in continuous playback on constrained hardware, up to 83% of presentation requests are repeat frames while waiting for new decodes. Clypra now returns a 12-byte `UNCH` sentinel (`[0x55, 0x4E, 0x43, 0x48]` + `u64` frame index), bypassing wgpu fragment compose, staging buffer copies, and 22–75ms of CPU `map_async` wait per repeat frame. The frontend skips redundant canvas repaints while maintaining full transport pacing (#471).
+- **Selective Producer Hardware Download for Lookahead Priming (Phase 2 / Arm 2b)** — production implementation of Arm 2b lookahead priming. Intermediate lookahead frames are decoded directly into the GPU's hardware DPB surface without triggering costly `av_hwframe_transfer_data` PCIe host downloads (0.6ms GPU decode vs 32–40ms host transfer on Windows D3D11VA). Only display-targeted frames undergo host transfer. Nearly doubles lookahead priming throughput (up to 647 FPS on Intel iGPUs), tripling buffer depth and preventing playback starvations (#472).
+- **Standalone 4-Arm Decode Throughput Benchmark (Phase 1b)** — added an in-engine standalone benchmark measuring raw hardware decode throughput across 4 architectural strategies:
+  - *Arm 1*: Pure GPU decode without host download (~1,350+ FPS).
+  - *Arm 2*: GPU decode with sequential host download (~340 FPS).
+  - *Arm 2b*: GPU decode with selective download every N frames (~650 FPS).
+  - *Arm 3*: Software decode fallback.
+  Includes automated validation checks, git commit/dirty status tracking, and reportVersion 2 formatting (#469, #470).
+- **Playback Generation & Cold-Start Stabilization** — fixed playback generation synchronization during rapid seeking and start transitions. Eliminates packet rejections on cold start and prevents video dropouts (#473).
+- **Granular Frame Delivery Attribution & Unaccounted Time Tracking** — added `ServedFrom` enum (`decoded-in-request`, `ready-cache`, `reused-current`, `short-circuit-unchanged`) and sub-millisecond stage unaccounted latency percentiles to pinpoint exact pipeline bottlenecks (#468, #469).
+
+### 🖥️ Hardware-Aware Preview Quality & GPU Guardrails
+
+- **Dynamic Project-Resolution Quality Tiers** — replaced hardcoded preview quality options with dynamic tiers calculated from the project canvas resolution (Full, High, Medium, Low) for 4K, 1440p, 1080p, 720p, and vertical video (9:16).
+- **Hardware Capability Guardrails & GPU Recommendations** — automatically classifies the host GPU tier (`legacy-igpu`, `mid-tier`, `discrete`, `apple-silicon`) and enforces hardware capability policies. Highlights constrained tiers (e.g. amber "Limited by GPU" badge when attempting 4K preview on legacy Intel iGPUs) and highlights the "Recommended" tier (e.g. 720p for Intel HD 520) (#474).
+
+### 📊 Telemetry & Continuous Fleet Analysis
+
+- **Full Native Performance & Benchmark Report Telemetry** — added `preview-benchmark-report` kind to the session NDJSON pipeline. Automatically captures the full native diagnostics report (seek percentiles, cache hit rates, Phase 1c UNCH short-circuit counts, Phase 2 Arm 2b skipped downloads, push bridge metrics, stage percentiles) on session close and whenever a user copies diagnostics. Uploads directly to Cloudflare R2 via `/performance/telemetry/ingest/session` (#475, #476).
+- **Preview Quality Hardware Benchmark Telemetry** — added `preview-quality-benchmark` one-shot telemetry event recording the host GPU tier, capability policy, project resolution, and quality options on app load (#475).
+- **Session Performance Analyzer Upgrades (`clypra-api`)** — extended `scripts/analyze-sessions.ts` to extract and report seek SLA compliance (p50/p95/p99), preview cache hit rates, pipeline optimization gains (unchanged short-circuits and skipped downloads), dominant stage bottlenecks, and stage diagnoses across sessions (#133).
+
+### 🛠️ CI & Build Hygiene
+
+- **Clippy `-D warnings` Clean** — resolved all compiler and benchmark lint warnings in the native engine and test harness (#470).
+- **Strict TypeScript Validation** — 100% clean `tsc --noEmit` check across all components, hooks, and services.
+
 ## [1.5.7] - 2026-09-29
 
 ### 🐛 Bug Fixes
