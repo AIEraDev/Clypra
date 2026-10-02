@@ -2420,7 +2420,7 @@ impl VideoDecoder {
                 scale_colorspace_us: 0,
                 hardware_frames_downloaded: 0,
                 served_from: ServedFrom::DecodedInRequest,
-                hw_device_type: self.stream_metadata.is_hardware_accelerated.then(|| {
+                hw_device_type: self.stream_metadata.is_hardware_accelerated.then_some({
                     #[cfg(target_os = "windows")]
                     {
                         "d3d11va"
