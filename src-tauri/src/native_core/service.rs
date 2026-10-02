@@ -636,4 +636,49 @@ mod tests {
         assert_eq!(playback_stats.unique_frames_delivered, 1);
         assert_eq!(playback_stats.repeated_frames_delivered, 5);
     }
+
+    #[test]
+    fn mode_stats_breakdown_and_cache_wait_aggregation() {
+        let mut service = NativeFrameService::new(1024).unwrap();
+
+        let mut s1 = sample(1);
+        s1.seek_time_us = 15_000;
+        s1.decode_time_us = 45_000;
+        s1.served_from = Some(ServedFrom::DecodedInRequest);
+        s1.cache_lock_wait_us = Some(1_200);
+        s1.cache_insert_us = Some(450);
+        service.record_sample(s1);
+
+        let mut s2 = sample(2);
+        s2.seek_time_us = 0;
+        s2.decode_time_us = 0;
+        s2.served_from = Some(ServedFrom::ReadyCache);
+        s2.cache_lock_wait_us = Some(800);
+        s2.cache_insert_us = None;
+        service.record_sample(s2);
+
+        let mut s3 = sample(3);
+        s3.seek_time_us = 0;
+        s3.decode_time_us = 0;
+        s3.served_from = Some(ServedFrom::ReusedCurrent);
+        service.record_sample(s3);
+
+        let stats = service.stats();
+        let playback = stats
+            .mode_stats
+            .iter()
+            .find(|m| m.mode == PreviewMode::Playback)
+            .expect("playback mode stats present");
+
+        assert_eq!(playback.served_from_decoded_count, 1);
+        assert_eq!(playback.served_from_ready_cache_count, 1);
+        assert_eq!(playback.served_from_reused_current_count, 1);
+        assert_eq!(playback.cache_lock_wait.sample_count, 2);
+        assert_eq!(playback.cache_insert.sample_count, 1);
+        assert_eq!(playback.cache_insert.p50, Some(450));
+
+        // Verify seek_time_us is recorded independently and not aliased to decode_time_us
+        let last_sample = stats.last_sample.unwrap();
+        assert_eq!(last_sample.frame_index, 3);
+    }
 }

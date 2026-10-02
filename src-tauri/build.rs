@@ -3,9 +3,16 @@ fn main() {
     println!("cargo:rerun-if-env-changed=FFMPEG_DIR");
     println!("cargo:rerun-if-env-changed=FFMPEG_STATIC");
 
-    // Re-run if git HEAD or index changes
+    // Re-run if git HEAD, active branch ref, packed-refs, or index changes
     println!("cargo:rerun-if-changed=../.git/HEAD");
     println!("cargo:rerun-if-changed=../.git/index");
+    println!("cargo:rerun-if-changed=../.git/packed-refs");
+    if let Ok(head) = std::fs::read_to_string("../.git/HEAD") {
+        if let Some(ref_path) = head.strip_prefix("ref: ") {
+            let path = format!("../.git/{}", ref_path.trim());
+            println!("cargo:rerun-if-changed={path}");
+        }
+    }
 
     let git_sha = std::process::Command::new("git")
         .args(["rev-parse", "HEAD"])

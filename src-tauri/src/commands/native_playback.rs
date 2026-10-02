@@ -1106,6 +1106,8 @@ async fn probe_decode_capability(snapshot: &FrameRequest) -> (DecodeCapabilityPo
         allow_keyframe_approx: true,
         quality: QualityTier::Full,
         is_playback: false,
+        skip_hw_download: false,
+        target_dimensions: None,
     };
 
     // Bound the probe to 400 ms so the session never hangs on a completely

@@ -631,6 +631,13 @@ fn record_native_surface_sample(
     let Ok(mut service) = service.try_lock() else {
         return;
     };
+    if let Some(session_collector) =
+        app.try_state::<Arc<crate::wgpu_compositor::SessionTelemetryCollector>>()
+    {
+        if let Some(path) = transfer_path {
+            session_collector.record_frame_source(path);
+        }
+    }
     let total_time_us = started_at.elapsed().as_micros().min(u32::MAX as u128) as u32;
     let stages_sum = u64::from(decode_timings.decode_time_us)
         + conversion_upload_us.unwrap_or(0)
@@ -2536,6 +2543,8 @@ async fn render_native_video_project_frame_bytes_timed(
                 || request.mode.as_deref() == Some("scrub"),
             quality: request.quality,
             is_playback: request.mode.as_deref() == Some("playback"),
+            skip_hw_download: false,
+            target_dimensions: None,
         };
 
         let mut frames = Vec::with_capacity(request.layers.len());
@@ -3011,6 +3020,8 @@ async fn decode_native_video_layers(
             || request.mode.as_deref() == Some("scrub"),
         quality: request.quality,
         is_playback: request.mode.as_deref() == Some("playback"),
+        skip_hw_download: false,
+        target_dimensions: None,
     };
 
     let is_prefetch = request.mode.as_deref() == Some("prefetch");
@@ -3289,13 +3300,85 @@ pub async fn queue_native_frame(
                     QueuedNativeFrame {
                         frame_index: request.frame_time.frame_index,
                         decoded_frames,
-                        decode_timings,
+                        decode_timings: decode_timings.clone(),
                         queued_at: command_started,
                         ready_at,
                         scheduler_wait_us,
                     },
                     lifecycle_epoch,
                 );
+
+                if let Some(service) = app.try_state::<tokio::sync::Mutex<NativeFrameService>>() {
+                    if let Ok(mut service) = service.try_lock() {
+                        let total_time_us =
+                            command_started.elapsed().as_micros().min(u32::MAX as u128) as u32;
+                        let unaccounted_us = u64::from(total_time_us)
+                            .saturating_sub(u64::from(decode_timings.decode_time_us));
+                        service.record_sample(PerformanceSample {
+                            request_id: request.request_id.clone(),
+                            frame_index: request.frame_time.frame_index,
+                            decode_time_us: decode_timings.decode_time_us,
+                            compose_time_us: 0,
+                            readback_time_us: 0,
+                            total_time_us,
+                            bytes_transferred: 0,
+                            cache_hit: false,
+                            generation: request.generation,
+                            mode: Some(PreviewMode::PlaybackLookahead),
+                            quality: Some(format!("{:?}", request.quality)),
+                            strategy: Some("LOOKAHEAD_PREFETCH".to_string()),
+                            transfer_path: Some("lookahead-queue".to_string()),
+                            cancelled: false,
+                            stale: false,
+                            dropped: false,
+                            drop_reason: None,
+                            seek_time_us: decode_timings.seek_time_us.unwrap_or(0),
+                            conversion_time_us: 0,
+                            upload_time_us: 0,
+                            present_time_us: 0,
+                            decode_us: Some(u64::from(decode_timings.decode_time_us)),
+                            conversion_upload_us: None,
+                            compose_us: None,
+                            readback_us: None,
+                            map_wait_us: None,
+                            timestamp_query_available: None,
+                            present_us: None,
+                            scheduler_wait_us: Some(scheduler_wait_us),
+                            lookahead_wait_us: None,
+                            cold_start_init_us: None,
+                            queue_residency_us: None,
+                            ipc_wait_us: None,
+                            decoder_mutex_wait_us: Some(decode_timings.decoder_mutex_wait_us),
+                            actor_wait_us: decode_timings.actor_wait_us,
+                            gpu_queue_wait_us: None,
+                            surface_acquire_us: None,
+                            submit_present_us: None,
+                            capability_policy: None,
+                            capability_probe_us: None,
+                            demux_wait_us: decode_timings.demux_wait_us,
+                            container_format: decode_timings.container_format.clone(),
+                            is_hardware_accelerated: decode_timings.is_hardware_accelerated,
+                            decoder_seek_count: decode_timings.decoder_seek_count,
+                            decoder_frames_decoded: decode_timings.decoder_frames_decoded,
+                            hardware_frame_download_us: decode_timings.hardware_frame_download_us,
+                            scale_colorspace_us: decode_timings.scale_colorspace_us,
+                            source_width: decode_timings.source_width,
+                            source_height: decode_timings.source_height,
+                            source_bits_per_raw_sample: decode_timings.source_bits_per_raw_sample,
+                            source_frame_rate_milli: decode_timings.source_frame_rate_milli,
+                            unaccounted_us: Some(unaccounted_us),
+                            codec_name: decode_timings.codec_name.clone(),
+                            hardware_frames_downloaded: decode_timings.hardware_frames_downloaded,
+                            stage_overlap_us: Some(0),
+                            served_from: decode_timings.served_from.or(Some(
+                                crate::native_core::performance::ServedFrom::DecodedInRequest,
+                            )),
+                            hw_device_type: decode_timings.hw_device_type.clone(),
+                            cache_lock_wait_us: None,
+                            cache_insert_us: None,
+                        });
+                    }
+                }
             } else {
                 pending_guard.key = None;
                 queue_state.fail(&key);
@@ -4843,9 +4926,26 @@ pub async fn render_native_frame(
         data: rgba.clone(),
     };
 
+    if let Some(session_collector) =
+        app.try_state::<Arc<crate::wgpu_compositor::SessionTelemetryCollector>>()
+    {
+        session_collector.record_frame_source("cpu-rgba");
+    }
+
     if let Some(cache) = app.try_state::<tokio::sync::Mutex<NativeFrameService>>() {
+        let lock_start = Instant::now();
         let mut cache = cache.lock().await;
-        let _ = cache.insert(&request, packet);
+        let cache_lock_wait_us = lock_start.elapsed().as_micros().min(u64::MAX as u128) as u64;
+
+        let is_playback = request.mode.as_deref() == Some("playback");
+        let cache_insert_us = if !is_playback {
+            let insert_start = Instant::now();
+            let _ = cache.insert(&request, packet);
+            Some(insert_start.elapsed().as_micros().min(u64::MAX as u128) as u64)
+        } else {
+            None
+        };
+
         let total_time_us = started.elapsed().as_micros().min(u32::MAX as u128) as u32;
         let stages_sum = u64::from(stage_timings.decode_time_us)
             + u64::from(stage_timings.conversion_time_us)
@@ -4914,8 +5014,8 @@ pub async fn render_native_frame(
             stage_overlap_us: Some(stage_overlap_us),
             served_from: stage_timings.decode_telemetry.served_from,
             hw_device_type: stage_timings.decode_telemetry.hw_device_type.clone(),
-            cache_lock_wait_us: None,
-            cache_insert_us: None,
+            cache_lock_wait_us: Some(cache_lock_wait_us),
+            cache_insert_us,
         });
     }
 

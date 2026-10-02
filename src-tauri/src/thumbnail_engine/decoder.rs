@@ -37,6 +37,8 @@ pub struct DecodeFrameOptions {
     pub allow_keyframe_approx: bool,
     pub quality: QualityTier,
     pub is_playback: bool,
+    pub skip_hw_download: bool,
+    pub target_dimensions: Option<(u32, u32)>,
 }
 
 /// NV12 chroma planes require even pixel dimensions. Keep the preview source
@@ -2407,6 +2409,51 @@ impl VideoDecoder {
             return Err(format!("No frame found at {}s", ts));
         }
 
+        if options.skip_hw_download && self.stream_metadata.is_hardware_accelerated {
+            let width = best_frame.width();
+            let height = best_frame.height();
+            self.last_decode_activity = DecodeActivity {
+                seek_count: self.last_decode_activity.seek_count,
+                seek_time_us: self.last_decode_activity.seek_time_us,
+                frames_decoded,
+                hardware_frame_download_us: None,
+                scale_colorspace_us: 0,
+                hardware_frames_downloaded: 0,
+                served_from: ServedFrom::DecodedInRequest,
+                hw_device_type: self.stream_metadata.is_hardware_accelerated.then(|| {
+                    #[cfg(target_os = "windows")]
+                    {
+                        "d3d11va"
+                    }
+                    #[cfg(target_os = "macos")]
+                    {
+                        "videotoolbox"
+                    }
+                    #[cfg(target_os = "linux")]
+                    {
+                        "vaapi"
+                    }
+                    #[cfg(not(any(
+                        target_os = "windows",
+                        target_os = "macos",
+                        target_os = "linux"
+                    )))]
+                    {
+                        "hardware"
+                    }
+                }),
+            };
+            let dummy_y = Arc::from(vec![0u8; 4]);
+            let dummy_uv = Arc::from(vec![128u8; 2]);
+            return Ok((
+                dummy_y,
+                dummy_uv,
+                width,
+                height,
+                VideoColorMetadata::default(),
+            ));
+        }
+
         let hardware_download_started = Instant::now();
         let cpu_frame = self.to_cpu_frame(best_frame)?;
         let hardware_frame_download_us = self.stream_metadata.is_hardware_accelerated.then(|| {
@@ -2416,8 +2463,9 @@ impl VideoDecoder {
                 .min(u64::MAX as u128) as u64
         });
         let frame_color = self.frame_metadata(&cpu_frame).color;
-        let (target_width, target_height) =
-            nv12_dimensions_for_quality(cpu_frame.width(), cpu_frame.height(), options.quality);
+        let (target_width, target_height) = options.target_dimensions.unwrap_or_else(|| {
+            nv12_dimensions_for_quality(cpu_frame.width(), cpu_frame.height(), options.quality)
+        });
         // QualityTier must change actual decoded-plane dimensions, not merely
         // cache labels or output geometry. Before this, a `proxy` CPU fallback
         // still uploaded/composited the source 4K NV12 surface, which is the
@@ -3712,6 +3760,8 @@ mod still_image_tests {
             allow_keyframe_approx: false,
             quality: crate::native_core::QualityTier::Full,
             is_playback: false,
+            skip_hw_download: false,
+            target_dimensions: None,
         };
 
         // First decode primes the cache
@@ -3934,6 +3984,8 @@ mod still_image_tests {
             allow_keyframe_approx: false,
             quality: QualityTier::Full,
             is_playback: true,
+            skip_hw_download: false,
+            target_dimensions: None,
         };
 
         // Timestamp 820 in timebase

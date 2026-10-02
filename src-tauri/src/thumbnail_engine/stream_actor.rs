@@ -20,6 +20,7 @@ use std::time::Instant;
 
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
+use tauri::Manager;
 use tokio::sync::{mpsc, oneshot, Mutex};
 
 use crate::thumbnail_engine::decoder::{
@@ -112,6 +113,10 @@ static PRODUCER_DOWNLOADS_WASTED: std::sync::atomic::AtomicU64 =
 
 pub fn producer_downloads_wasted() -> u64 {
     PRODUCER_DOWNLOADS_WASTED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn reset_producer_downloads_wasted() {
+    PRODUCER_DOWNLOADS_WASTED.store(0, std::sync::atomic::Ordering::Relaxed);
 }
 
 impl DecodedActorFrame {
@@ -333,7 +338,12 @@ impl StreamDecoderActorHandle {
 
     /// Clear the prime cache (e.g. on seek boundary).
     pub async fn clear_prime_cache(&self) {
-        self.prime_cache.lock().await.clear();
+        let mut cache = self.prime_cache.lock().await;
+        for frame in cache.drain(..) {
+            if frame.served_count == 0 {
+                PRODUCER_DOWNLOADS_WASTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
     }
 }
 
@@ -559,7 +569,75 @@ impl StreamDecoderActor {
                             }
                         }
                     }
-                    cache.push_back(frame);
+                    cache.push_back(frame.clone());
+
+                    if let Some(app) = crate::diagnostics::app_handle() {
+                        if let Some(service) = app.try_state::<tokio::sync::Mutex<crate::native_core::NativeFrameService>>() {
+                            if let Ok(mut service) = service.try_lock() {
+                                service.record_sample(crate::native_core::performance::PerformanceSample {
+                                    request_id: format!("prime:{:.3}", frame.time_secs),
+                                    frame_index: (frame.time_secs / frame_duration).round() as u64,
+                                    decode_time_us: frame.decode_us,
+                                    compose_time_us: 0,
+                                    readback_time_us: 0,
+                                    total_time_us: frame.decode_us,
+                                    bytes_transferred: 0,
+                                    cache_hit: false,
+                                    generation: Some(current_gen),
+                                    mode: Some(crate::native_core::performance::PreviewMode::PlaybackLookahead),
+                                    quality: Some(format!("{:?}", options.quality)),
+                                    strategy: Some("PRODUCER_PRIME".to_string()),
+                                    transfer_path: Some("prime-cache".to_string()),
+                                    cancelled: false,
+                                    stale: false,
+                                    dropped: false,
+                                    drop_reason: None,
+                                    seek_time_us: frame.decoder_seek_time_us,
+                                    conversion_time_us: 0,
+                                    upload_time_us: 0,
+                                    present_time_us: 0,
+                                    decode_us: Some(u64::from(frame.decode_us)),
+                                    conversion_upload_us: None,
+                                    compose_us: None,
+                                    readback_us: None,
+                                    map_wait_us: None,
+                                    timestamp_query_available: None,
+                                    present_us: None,
+                                    scheduler_wait_us: None,
+                                    lookahead_wait_us: None,
+                                    cold_start_init_us: None,
+                                    queue_residency_us: None,
+                                    ipc_wait_us: None,
+                                    decoder_mutex_wait_us: Some(frame.decoder_mutex_wait_us),
+                                    actor_wait_us: None,
+                                    gpu_queue_wait_us: None,
+                                    surface_acquire_us: None,
+                                    submit_present_us: None,
+                                    capability_policy: None,
+                                    capability_probe_us: None,
+                                    demux_wait_us: Some(u64::from(frame.demux_us)),
+                                    container_format: Some(frame.container_format.clone()),
+                                    is_hardware_accelerated: Some(frame.is_hardware_accelerated),
+                                    decoder_seek_count: Some(frame.decoder_seek_count),
+                                    decoder_frames_decoded: Some(frame.decoder_frames_decoded),
+                                    hardware_frame_download_us: frame.hardware_frame_download_us,
+                                    scale_colorspace_us: Some(frame.scale_colorspace_us),
+                                    source_width: Some(frame.source_metadata.width),
+                                    source_height: Some(frame.source_metadata.height),
+                                    source_bits_per_raw_sample: Some(frame.source_metadata.bits_per_raw_sample),
+                                    source_frame_rate_milli: frame.source_metadata.average_frame_rate_milli(),
+                                    unaccounted_us: Some(0),
+                                    codec_name: Some(frame.source_metadata.codec_name.clone()),
+                                    hardware_frames_downloaded: Some(frame.hardware_frames_downloaded),
+                                    stage_overlap_us: Some(0),
+                                    served_from: Some(frame.served_from),
+                                    hw_device_type: frame.hw_device_type.clone(),
+                                    cache_lock_wait_us: None,
+                                    cache_insert_us: None,
+                                });
+                            }
+                        }
+                    }
                 }
                 Err(_) => {
                     // Stop priming on error or cancellation
@@ -872,6 +950,8 @@ mod tests {
             allow_keyframe_approx: false,
             quality: QualityTier::Full,
             is_playback: false,
+            skip_hw_download: false,
+            target_dimensions: None,
         };
 
         // Exact match
@@ -927,6 +1007,8 @@ mod tests {
             allow_keyframe_approx: true,
             quality: QualityTier::Full,
             is_playback: false,
+            skip_hw_download: false,
+            target_dimensions: None,
         };
         let res_approx = handle
             .decode_frame(2.0, opts_approx, false, 0)
@@ -942,6 +1024,8 @@ mod tests {
             allow_keyframe_approx: false,
             quality: QualityTier::Full,
             is_playback: false,
+            skip_hw_download: false,
+            target_dimensions: None,
         };
         let err_exact = handle.decode_frame(2.0, opts_exact, false, 0).await;
         assert!(
@@ -953,6 +1037,8 @@ mod tests {
             allow_keyframe_approx: false,
             quality: QualityTier::Half,
             is_playback: false,
+            skip_hw_download: false,
+            target_dimensions: None,
         };
         // Channel is closed, so decode_frame fails immediately
         let err = handle.decode_frame(1.0, opts_half, false, 0).await;
@@ -1037,6 +1123,8 @@ mod tests {
                     allow_keyframe_approx: false,
                     quality: QualityTier::Full,
                     is_playback: true,
+                    skip_hw_download: false,
+                    target_dimensions: None,
                 },
                 0,
             )
@@ -1066,6 +1154,8 @@ mod tests {
             allow_keyframe_approx: false,
             quality: QualityTier::Full,
             is_playback: false,
+            skip_hw_download: false,
+            target_dimensions: None,
         };
 
         // Frame 0 decode
@@ -1098,5 +1188,97 @@ mod tests {
         assert_eq!(f_seek.width, f0.width);
 
         release_preview_decoder_actor_for_stream(test_asset, "test-stream-1");
+    }
+
+    #[tokio::test]
+    async fn test_wasted_download_accounting_and_reset() {
+        reset_producer_downloads_wasted();
+        assert_eq!(producer_downloads_wasted(), 0);
+
+        let prime_cache = Arc::new(Mutex::new(VecDeque::new()));
+        let (urgent_tx, _) = mpsc::channel(1);
+        let (prefetch_tx, _) = mpsc::channel(1);
+        let handle = StreamDecoderActorHandle {
+            key: "test_wasted".to_string(),
+            urgent_tx,
+            prefetch_tx,
+            current_generation: Arc::new(AtomicU64::new(0)),
+            cancel_in_flight: Arc::new(AtomicBool::new(false)),
+            prime_cache: prime_cache.clone(),
+            frame_duration_secs: 0.04,
+        };
+
+        // Add 2 frames that were never served (served_count = 0)
+        {
+            let mut cache = prime_cache.lock().await;
+            cache.push_back(DecodedActorFrame {
+                time_secs: 0.0,
+                decode_us: 1000,
+                decoder_mutex_wait_us: 100,
+                actor_wait_us: 50,
+                demux_us: 200,
+                container_format: "mp4".to_string(),
+                is_hardware_accelerated: true,
+                decoder_seek_count: 0,
+                decoder_seek_time_us: 0,
+                decoder_frames_decoded: 1,
+                hardware_frame_download_us: Some(5000),
+                hardware_frames_downloaded: 1,
+                scale_colorspace_us: 100,
+                source_metadata: VideoStreamMetadata::default(),
+                planes: DecodedVideoPlanes::Cpu {
+                    y: Arc::from(vec![0u8; 16]),
+                    uv: Arc::from(vec![0u8; 8]),
+                },
+                width: 320,
+                height: 180,
+                color: VideoColorMetadata::default(),
+                source_rotation: 0,
+                served_from: crate::native_core::performance::ServedFrom::DecodedInRequest,
+                from_prime_cache: false,
+                quality: QualityTier::Full,
+                is_approximate: false,
+                hw_device_type: Some("d3d11va".to_string()),
+                served_count: 0,
+            });
+            cache.push_back(DecodedActorFrame {
+                time_secs: 0.04,
+                decode_us: 1000,
+                decoder_mutex_wait_us: 100,
+                actor_wait_us: 50,
+                demux_us: 200,
+                container_format: "mp4".to_string(),
+                is_hardware_accelerated: true,
+                decoder_seek_count: 0,
+                decoder_seek_time_us: 0,
+                decoder_frames_decoded: 1,
+                hardware_frame_download_us: Some(5000),
+                hardware_frames_downloaded: 1,
+                scale_colorspace_us: 100,
+                source_metadata: VideoStreamMetadata::default(),
+                planes: DecodedVideoPlanes::Cpu {
+                    y: Arc::from(vec![0u8; 16]),
+                    uv: Arc::from(vec![0u8; 8]),
+                },
+                width: 320,
+                height: 180,
+                color: VideoColorMetadata::default(),
+                source_rotation: 0,
+                served_from: crate::native_core::performance::ServedFrom::DecodedInRequest,
+                from_prime_cache: false,
+                quality: QualityTier::Full,
+                is_approximate: false,
+                hw_device_type: Some("d3d11va".to_string()),
+                served_count: 0,
+            });
+        }
+
+        // Clear cache should count both unserved frames as wasted downloads
+        handle.clear_prime_cache().await;
+        assert_eq!(producer_downloads_wasted(), 2);
+
+        // Reset must return count to zero
+        reset_producer_downloads_wasted();
+        assert_eq!(producer_downloads_wasted(), 0);
     }
 }
