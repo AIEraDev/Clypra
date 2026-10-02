@@ -22,6 +22,7 @@ import {
   type PreviewQualificationState,
 } from "@/core/playback/previewPerformanceContract";
 import { nativePerfCollector } from "@/core/playback/nativePerfTelemetry";
+import { EditorFeatureTelemetry } from "@/services/editorFeatureTelemetry";
 
 /** Desktop-only diagnostics action; this is intentionally not an editor telemetry HUD. */
 export const PreviewDiagnosticsTab: React.FC = () => {
@@ -103,6 +104,7 @@ export const PreviewDiagnosticsTab: React.FC = () => {
         },
       };
       await navigator.clipboard.writeText(JSON.stringify(report, null, 2));
+      EditorFeatureTelemetry.recordPreviewBenchmarkReport(report);
       setReportCopied(true);
       window.setTimeout(() => setReportCopied(false), 2_000);
       toast.success("Performance report copied");

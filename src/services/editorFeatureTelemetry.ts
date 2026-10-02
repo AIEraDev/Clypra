@@ -150,6 +150,24 @@ export class EditorFeatureTelemetry {
   }
 
   /**
+   * Records a snapshot of the native preview performance & benchmark report
+   * (e.g. when copied from Diagnostics or during benchmark tests).
+   */
+  static recordPreviewBenchmarkReport(report: unknown): void {
+    try {
+      const sessionId = perfLogService.getSessionId() ?? "unknown";
+      perfLogService.enqueue({
+        kind: "preview-benchmark-report",
+        sessionId,
+        timestampEpochMs: Date.now(),
+        payload: report,
+      });
+    } catch {
+      // Non-blocking telemetry
+    }
+  }
+
+  /**
    * Validates an exported OTIO timeline against spec invariants.
    */
   static validateOtioExport(timeline: OTIOTimeline): { valid: boolean; errors: string[] } {
