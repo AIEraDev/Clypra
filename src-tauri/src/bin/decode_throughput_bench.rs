@@ -431,12 +431,9 @@ fn run_arm(
                 "INVALID: Arm 1 performed {downloads_performed} downloads"
             ));
         }
-    } else if arm == "2" && hw_accelerated {
-        if downloads_performed == 0 {
-            valid = false;
-            validity_notes
-                .push("INVALID: Arm 2 performed 0 downloads on hardware path".to_string());
-        }
+    } else if arm == "2" && hw_accelerated && downloads_performed == 0 {
+        valid = false;
+        validity_notes.push("INVALID: Arm 2 performed 0 downloads on hardware path".to_string());
     }
 
     ArmResult {
