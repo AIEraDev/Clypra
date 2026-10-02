@@ -28,6 +28,7 @@
 import { getApiBaseUrl, getApiKey } from "@/lib/api/apiUtils";
 import { getAppVersion, getAppVersionSync } from "@/lib/app/appVersion";
 import type { NativeSessionSnapshot } from "@/lib/platform/tauri";
+import type { NativePreviewPerformanceReport } from "@/lib/platform/nativeCore";
 import { filmstripTelemetry } from "@/lib/filmstrip/filmstripTelemetry";
 import {
   uiPlayheadDrift,
@@ -88,7 +89,8 @@ export type PerfLogKind =
   | "engine-qos-decision"
   | "engine-seek-telemetry"
   | "zero-copy-violation"
-  | "preview-quality-benchmark";
+  | "preview-quality-benchmark"
+  | "preview-benchmark-report";
 
 export interface PerfLogEntry {
   kind: PerfLogKind;
@@ -466,6 +468,46 @@ class PerfLogService {
     } catch (err) {
       console.warn(
         "[PerfLogService] Failed to capture final session telemetry:",
+        err,
+      );
+    }
+
+    // Capture the final native preview benchmark report if available.
+    // Contains reportVersion, gitCommit, gitDirty, preview (cache stats, seek percentiles,
+    // modeStats, UNCH skipped count, lookahead skipped count, stage diagnoses, etc.).
+    try {
+      if (isTauriRuntime()) {
+        const nativeReport = await tauriInvoke<NativePreviewPerformanceReport>(
+          "get_native_preview_performance_report",
+        );
+        if (nativeReport) {
+          let frontendStats: unknown = null;
+          try {
+            const { nativePerfCollector } = await import(
+              "@/core/playback/nativePerfTelemetry"
+            );
+            frontendStats = {
+              units: "milliseconds",
+              modeStats: nativePerfCollector.allStats(),
+              pushBridge: nativePerfCollector.pushBridgeStats(),
+            };
+          } catch {
+            // Frontend stats optional
+          }
+          this.queue.push({
+            kind: "preview-benchmark-report",
+            sessionId,
+            timestampEpochMs: Date.now(),
+            payload: {
+              ...nativeReport,
+              frontend: frontendStats,
+            },
+          });
+        }
+      }
+    } catch (err) {
+      console.warn(
+        "[PerfLogService] Failed to capture final preview benchmark report:",
         err,
       );
     }
