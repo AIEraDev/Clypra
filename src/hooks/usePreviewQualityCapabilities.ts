@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { EditorFeatureTelemetry } from "@/services/editorFeatureTelemetry";
 import { useSettingsStore, type PreviewQuality } from "@/store/settingsStore";
 import { useProjectStore } from "@/store/projectStore";
 import { isTauriRuntime, getNativeGpuStatus } from "@/lib/platform/tauri";
@@ -157,6 +158,51 @@ export function usePreviewQualityCapabilities() {
       };
     }
   }, []);
+
+  // Emit one-time benchmark telemetry after GPU status is resolved.
+  // Uses a separate effect so we only fire after the fetch effect sets gpuStatus.
+  const hasBenchmarkedRef = useRef(false);
+  useEffect(() => {
+    if (!gpuStatus || hasBenchmarkedRef.current) return;
+    hasBenchmarkedRef.current = true;
+
+    const { tierOptions, gpuTier, hardwarePolicy, is4kProject } = computeQualityOptions(
+      canvasWidth,
+      canvasHeight,
+      gpuStatus,
+    );
+
+    // Determine resolution bucket from project dimensions
+    const maxDim = Math.max(canvasWidth, canvasHeight);
+    const minDim = Math.min(canvasWidth, canvasHeight);
+    const resolutionBucket =
+      maxDim >= 3840 || minDim >= 2160 ? "4K" :
+      maxDim >= 2560 || minDim >= 1440 ? "1440p" :
+      maxDim >= 1920 || minDim >= 1080 ? "1080p" :
+      maxDim >= 1280 || minDim >= 720  ? "720p"  : "sub-720p";
+
+    const currentOption = tierOptions.find((t) => t.value === previewQuality) ?? tierOptions[0];
+
+    EditorFeatureTelemetry.recordPreviewQualityBenchmark({
+      gpuTier,
+      capabilityPolicy: hardwarePolicy.capabilityPolicy ?? "full",
+      policyMaxDimension: hardwarePolicy.maxDimension ?? null,
+      canvasWidth,
+      canvasHeight,
+      resolutionBucket,
+      isHardwareLimited: currentOption.isHardwareLimited,
+      previewQuality,
+      gpuModel: gpuStatus.adapterName ?? null,
+      graphicsBackend: gpuStatus.backend?.toLowerCase() ?? null,
+      tiers: tierOptions.map((t) => ({
+        value: t.value,
+        label: t.label,
+        resolutionLabel: t.resolutionLabel,
+        isHardwareLimited: t.isHardwareLimited,
+        isRecommended: t.isRecommended ?? false,
+      })),
+    });
+  }, [gpuStatus]);
 
   const { tierOptions, gpuTier, hardwarePolicy, is4kProject } = computeQualityOptions(
     canvasWidth,

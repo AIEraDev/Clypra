@@ -87,7 +87,8 @@ export type PerfLogKind =
   | "engine-frame-telemetry"
   | "engine-qos-decision"
   | "engine-seek-telemetry"
-  | "zero-copy-violation";
+  | "zero-copy-violation"
+  | "preview-quality-benchmark";
 
 export interface PerfLogEntry {
   kind: PerfLogKind;
