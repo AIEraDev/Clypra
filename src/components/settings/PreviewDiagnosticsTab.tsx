@@ -23,6 +23,7 @@ import {
 } from "@/core/playback/previewPerformanceContract";
 import { nativePerfCollector } from "@/core/playback/nativePerfTelemetry";
 import { EditorFeatureTelemetry } from "@/services/editorFeatureTelemetry";
+import { perfLogService, PerfLogService } from "@/services/perfLogService";
 
 /** Desktop-only diagnostics action; this is intentionally not an editor telemetry HUD. */
 export const PreviewDiagnosticsTab: React.FC = () => {
@@ -41,6 +42,9 @@ export const PreviewDiagnosticsTab: React.FC = () => {
   const [runningPushGate, setRunningPushGate] = useState(false);
   const [pushGateResult, setPushGateResult] = useState<string | null>(null);
   const [pushCapabilities, setPushCapabilities] = useState<string | null>(null);
+  const [telemetryOptIn, setTelemetryOptIn] = useState(() =>
+    PerfLogService.isTelemetryUploadEnabledStatic(),
+  );
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -359,8 +363,30 @@ export const PreviewDiagnosticsTab: React.FC = () => {
       </div>
       <p className="text-xs text-text-muted">
         The copied report contains local native and WebView stage percentiles.
-        It does not send data automatically or include project/media paths.
+        Performance reports are uploaded to Clypra servers when a session closes,
+        only if telemetry upload is enabled in Settings. Reports do not include
+        project paths or media file names.
       </p>
+      <div className="pt-2 border-t border-border/40 space-y-2">
+        <label className="flex items-center gap-2 text-xs text-text-primary cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={telemetryOptIn}
+            onChange={(e) => {
+              const enabled = e.target.checked;
+              setTelemetryOptIn(enabled);
+              PerfLogService.setTelemetryUploadEnabled(enabled);
+            }}
+            className="rounded border-border bg-surface text-primary focus:ring-1 focus:ring-primary"
+          />
+          <span>Share anonymous performance diagnostics with Clypra (off by default)</span>
+        </label>
+        {perfLogService.getSessionId() && (
+          <p className="text-[11px] text-text-muted font-mono">
+            Session ID: {perfLogService.getSessionId()}
+          </p>
+        )}
+      </div>
       {!isTauriRuntime() && (
         <p className="text-xs text-text-muted">
           Preview qualification is available in the Tauri desktop app only.
