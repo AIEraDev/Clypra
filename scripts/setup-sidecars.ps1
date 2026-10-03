@@ -52,8 +52,57 @@ Write-Host "[INFO] Installing static sidecars for target: $Target"
 Write-Host "============================================================"
 
 if ($Target -eq "aarch64-pc-windows-msvc") {
-    Write-Host "[WARN] Windows ARM64 host detected."
-    Write-Host "[WARN] For native ARM64, install via 'winget install Gyan.FFmpeg' or place native ARM64 binaries in src-tauri/bin/."
+    $arm64ZipUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-31-13-27/ffmpeg-n8.1.2-50-g1a748fe2cd-winarm64-gpl-8.1.zip"
+    $arm64ZipSha = "722be613f4fdb0b114671515c44a747edd86b814d4e367ca11b10df4539e6e74"
+
+    $ffmpegDest = Join-Path $binDir "ffmpeg-aarch64-pc-windows-msvc.exe"
+    $ffprobeDest = Join-Path $binDir "ffprobe-aarch64-pc-windows-msvc.exe"
+
+    if (-not $Force -and (Test-Path $ffmpegDest) -and (Test-Path $ffprobeDest)) {
+        $sizeFfmpeg = (Get-Item $ffmpegDest).Length
+        $sizeFfprobe = (Get-Item $ffprobeDest).Length
+        if ($sizeFfmpeg -gt 1000000 -and $sizeFfprobe -gt 1000000) {
+            Write-Host "[OK] Windows ARM64 sidecars already installed. Pass -Force to re-download."
+            return
+        }
+    }
+
+    $tempDir = [System.IO.Path]::GetTempPath()
+    $zipPath = Join-Path $tempDir "ffmpeg-winarm64.zip"
+    $extractDir = Join-Path $tempDir "ffmpeg-winarm64-extract"
+
+    Write-Host "[DOWNLOAD] Downloading Windows ARM64 FFmpeg package..."
+    curl.exe -fsSL "$arm64ZipUrl" -o "$zipPath"
+
+    Write-Host "[VERIFY] Verifying SHA-256 digest..."
+    $actualSha = (Get-FileHash -Algorithm SHA256 -Path "$zipPath").Hash.ToLower()
+    if ($actualSha -ne $arm64ZipSha) {
+        Remove-Item -Force "$zipPath" -ErrorAction SilentlyContinue
+        Write-Error "[ERROR] SHA-256 mismatch for Windows ARM64 FFmpeg package! Expected: $arm64ZipSha, Got: $actualSha"
+        exit 1
+    }
+    Write-Host "[VERIFIED] SHA-256 verified: $actualSha"
+
+    Write-Host "[EXTRACT] Extracting ARM64 binaries to $binDir..."
+    if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir }
+    Expand-Archive -Path "$zipPath" -DestinationPath "$extractDir" -Force
+
+    $srcFfmpeg = Get-ChildItem -Path $extractDir -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+    $srcFfprobe = Get-ChildItem -Path $extractDir -Recurse -Filter "ffprobe.exe" | Select-Object -First 1
+
+    if (-not $srcFfmpeg -or -not $srcFfprobe) {
+        Write-Error "[ERROR] Could not find ffmpeg.exe or ffprobe.exe in extracted archive!"
+        exit 1
+    }
+
+    Copy-Item -Force $srcFfmpeg.FullName $ffmpegDest
+    Copy-Item -Force $srcFfprobe.FullName $ffprobeDest
+
+    Remove-Item -Force "$zipPath" -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force "$extractDir" -ErrorAction SilentlyContinue
+
+    Write-Host "[OK] Successfully installed Windows ARM64 sidecars: ffmpeg and ffprobe"
+    return
 }
 
 foreach ($item in $artifacts) {
