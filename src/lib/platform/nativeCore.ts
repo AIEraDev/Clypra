@@ -371,6 +371,12 @@ export interface NativeFrameServiceStats {
   producerIdleTotalMs?: number;
   /** PR4: latest ahead-of-audio-clock measurement in ms (positive = ahead). */
   producerAheadOfClockMs?: number;
+  /** Hits on the VRAM SDF text layer cache. */
+  textLayerCacheHits?: number;
+  /** Hits on the native SDF glyph cache. */
+  glyphCacheHits?: number;
+  /** Misses on the native SDF glyph cache. */
+  glyphCacheMisses?: number;
 }
 
 export const NATIVE_PLAYBACK_POLICY = {

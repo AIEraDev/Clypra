@@ -1,3 +1,4 @@
+use super::performance;
 use super::performance::{
     now_ms, optional_stage_percentiles, percentile_ms, ModeStats, PreviewMode, ServedFrom,
 };
@@ -514,11 +515,13 @@ impl NativeFrameService {
                 hits as f64 / cache_samples as f64
             },
             mode_stats,
-            text_layer_cache_hits: 0,
-            lookahead_trigger_count: super::performance::lookahead_trigger_count(),
-            lookahead_trigger_dropped: super::performance::lookahead_trigger_dropped(),
-            producer_idle_total_ms: super::performance::producer_idle_total_ms(),
-            producer_ahead_of_clock_ms: super::performance::producer_ahead_of_clock_ms(),
+            text_layer_cache_hits: performance::text_layer_cache_hits(),
+            glyph_cache_hits: performance::glyph_cache_hits(),
+            glyph_cache_misses: performance::glyph_cache_misses(),
+            lookahead_trigger_count: performance::lookahead_trigger_count(),
+            lookahead_trigger_dropped: performance::lookahead_trigger_dropped(),
+            producer_idle_total_ms: performance::producer_idle_total_ms(),
+            producer_ahead_of_clock_ms: performance::producer_ahead_of_clock_ms(),
         }
     }
 }
@@ -912,5 +915,22 @@ mod tests {
 
         // Crucial: UnchangedSkipped must not pollute decode timing percentiles
         assert_eq!(playback.decode.sample_count, 2);
+    }
+
+    #[test]
+    fn test_text_cache_telemetry_is_not_literal() {
+        let service = NativeFrameService::new(1024).unwrap();
+        let initial_text_hits = performance::text_layer_cache_hits();
+        let initial_glyph_hits = performance::glyph_cache_hits();
+        let initial_glyph_misses = performance::glyph_cache_misses();
+
+        performance::record_text_layer_cache_hit();
+        performance::record_glyph_cache_hit();
+        performance::record_glyph_cache_miss();
+
+        let stats = service.stats();
+        assert_eq!(stats.text_layer_cache_hits, initial_text_hits + 1);
+        assert_eq!(stats.glyph_cache_hits, initial_glyph_hits + 1);
+        assert_eq!(stats.glyph_cache_misses, initial_glyph_misses + 1);
     }
 }
