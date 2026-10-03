@@ -293,7 +293,12 @@ export class PlaybackClock {
    * Feed the latest position from a native hardware audio clock. The value is
    * intentionally sampled rather than queried synchronously on every render.
    */
-  setNativeClockPosition(time: number, speed: number = this._speed): void {
+  setNativeClockPosition(
+    time: number,
+    speed: number = this._speed,
+    pollRttMs?: number,
+    sampledAtNs?: number,
+  ): void {
     if (!Number.isFinite(time)) return;
     const validSpeed = Number.isFinite(speed)
       ? Math.max(0.1, Math.min(4, speed))
@@ -303,7 +308,12 @@ export class PlaybackClock {
     // authoritative native sample. This measures clock/poll divergence only;
     // backend video-vs-audio drift is recorded in the native presentation path.
     const currentExtrapolated = this.time;
-    recordAudioPoll(clampedTime * 1000, currentExtrapolated * 1000);
+    recordAudioPoll(
+      clampedTime * 1000,
+      currentExtrapolated * 1000,
+      pollRttMs,
+      sampledAtNs,
+    );
 
     const backwardTolerance = Math.max(0.05, 1 / this._frameRate);
     if (

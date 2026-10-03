@@ -38,6 +38,10 @@ import type { TelemetryStickerPhase } from "@/services/telemetryCollector";
 import { LatestTextPreparationScheduler } from "@/core/render/latestTextPreparationScheduler";
 import type { NativeAnimatedStickerRaster } from "@/components/editor/preview/nativeStickerPreview";
 import { StickerRasterizerWorkerClient } from "@/core/render/stickerRasterizerWorkerClient";
+import {
+  recordRendererByClipKind,
+  recordAnimationAchievedFrame,
+} from "@/lib/playback/textMetrics";
 import { TemplateRasterizerWorkerClient } from "@/core/render/templateRasterizerWorkerClient";
 
 type UploadableNativeRaster = NativeRasterLayerSnapshot & {
@@ -793,16 +797,19 @@ export class NativeRasterBridge {
     // ── Templates: always off-thread ─────────────────────────────────────────
     if (isTemplate) {
       try {
-        return await this.templateRasterizerWorkerClient.rasterize(
+        const asset = await this.templateRasterizerWorkerClient.rasterize(
           layer,
           key,
           phase,
         );
+        recordRendererByClipKind(textKind(layer), "worker-template");
+        return asset;
       } catch (err) {
         console.warn(
           `[NativeRasterBridge] Worker template rasterize failed for ${layer.layerId}, falling back to main-thread:`,
           err,
         );
+        recordRendererByClipKind(textKind(layer), "canvas-2d-fallback");
         return rasterizeTextLayerForNative(layer, { phase });
       }
     }
@@ -863,7 +870,7 @@ export class NativeRasterBridge {
             width: evalWidth,
             height: evalHeight,
           };
-          return await this.templateRasterizerWorkerClient.rasterizeEffect(
+          const asset = await this.templateRasterizerWorkerClient.rasterizeEffect(
             layer,
             canonicalScene,
             evalWidth,
@@ -871,20 +878,30 @@ export class NativeRasterBridge {
             key,
             phase,
           );
+          recordRendererByClipKind(textKind(layer), "worker-effect");
+          return asset;
         } catch (err) {
           console.warn(
             `[NativeRasterBridge] Worker effect rasterize failed for ${layer.layerId}, falling back to main-thread:`,
             err,
           );
+          recordRendererByClipKind(textKind(layer), "canvas-2d-fallback");
         }
       }
     }
 
     // ── Plain text + legacy effects + cold definition path: main thread ────────
+    recordRendererByClipKind(textKind(layer), "canvas-2d");
     return rasterizeTextLayerForNative(layer, { phase });
   }
 
   private async prepareTextAsset(input: TextPreparationInput): Promise<void> {
+    if (
+      input.layer.animationOperation === "animation" ||
+      input.layer.time !== undefined
+    ) {
+      recordAnimationAchievedFrame(input.layer.layerId);
+    }
     const asset = await this.getTextRaster(input.layer, input.key, input.phase);
     if (input.generation !== this.textPreparationGeneration) return;
     await this.register(asset);

@@ -37,6 +37,7 @@ impl PlaybackSession {
                 dropped_frames: 0,
                 buffering: false,
                 clock_status: PlaybackClockStatus::Stopped,
+                sampled_at_ns: None,
             },
             plan,
             playing: false,

@@ -94,6 +94,8 @@ export const uiPlayheadDrift = new RollingDriftStats();
 /** Inter-paint intervals in milliseconds; maxAbs is the largest interval. */
 export const playheadPaintJitter = new RollingDriftStats();
 export const seekUserLatency = new RollingDriftStats();
+export const audioPollRtt = new RollingDriftStats();
+export const audioExtrapolationError = new RollingDriftStats();
 
 let lastPlayheadPaintMs: number | null = null;
 let nextSeekHandle = 1;
@@ -114,15 +116,23 @@ export function recordPlayheadPaint(timestampMs = nowMs()): void {
 export function recordAudioPoll(
   audioPositionMs: number,
   uiPlayheadMs: number,
+  pollRttMs?: number,
+  sampledAtNs?: number,
 ): void {
   if (!Number.isFinite(audioPositionMs) || !Number.isFinite(uiPlayheadMs))
     return;
   const driftMs = uiPlayheadMs - audioPositionMs;
   uiPlayheadDrift.record(driftMs);
+  audioExtrapolationError.record(driftMs);
+  if (pollRttMs !== undefined && Number.isFinite(pollRttMs)) {
+    audioPollRtt.record(pollRttMs);
+  }
   traceEvent("audio_poll", {
     audio_position_ms: audioPositionMs,
     ui_playhead_ms: uiPlayheadMs,
     drift_ms: driftMs,
+    poll_rtt_ms: pollRttMs ?? null,
+    sampled_at_ns: sampledAtNs ?? null,
   });
 }
 
@@ -165,14 +175,25 @@ export interface FrontendSyncMetricsSnapshot {
   ui_playhead_drift: RollingDriftSnapshot;
   playhead_paint_jitter: RollingDriftSnapshot;
   seek_user_latency: RollingDriftSnapshot;
+  audio_poll_rtt?: RollingDriftSnapshot;
+  audio_extrapolation_error?: RollingDriftSnapshot;
 }
 
 export function getSyncMetricsSnapshot(): FrontendSyncMetricsSnapshot {
-  return {
+  const snapshot: FrontendSyncMetricsSnapshot = {
     ui_playhead_drift: uiPlayheadDrift.snapshot(),
     playhead_paint_jitter: playheadPaintJitter.snapshot(),
     seek_user_latency: seekUserLatency.snapshot(),
   };
+  const rtt = audioPollRtt.snapshot();
+  if (rtt.n > 0) {
+    snapshot.audio_poll_rtt = rtt;
+  }
+  const extrap = audioExtrapolationError.snapshot();
+  if (extrap.n > 0) {
+    snapshot.audio_extrapolation_error = extrap;
+  }
+  return snapshot;
 }
 
 /** Reset process-local samples for deterministic unit tests. */
@@ -180,6 +201,8 @@ export function resetSyncMetricsForTests(): void {
   uiPlayheadDrift.takeAndReset();
   playheadPaintJitter.takeAndReset();
   seekUserLatency.takeAndReset();
+  audioPollRtt.takeAndReset();
+  audioExtrapolationError.takeAndReset();
   lastPlayheadPaintMs = null;
   pendingSeeks.clear();
   nextSeekHandle = 1;

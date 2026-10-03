@@ -671,7 +671,16 @@ export class NativeAudioPreviewController {
 
       if (!isStaleTerminalSample) {
         const position = positionTicks / 1_000_000;
-        this.clock.setNativeClockPosition(position, this.clock.speed);
+        const pollRttMs =
+          "pollRttMs" in nativeState ? (nativeState as any).pollRttMs : undefined;
+        const sampledAtNs =
+          "sampledAtNs" in nativeState ? (nativeState as any).sampledAtNs : undefined;
+        this.clock.setNativeClockPosition(
+          position,
+          this.clock.speed,
+          pollRttMs,
+          sampledAtNs,
+        );
       }
       await this.resolveStartupProbe();
 

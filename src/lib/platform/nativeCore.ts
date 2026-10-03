@@ -71,6 +71,12 @@ export interface NativeAudioStatus {
    * Undefined when fewer than 2 callbacks have fired.
    */
   medianCallbackIntervalUs?: number;
+  /**
+   * Log2 histogram of output latency (`playback − callback`) in microseconds,
+   * with 16 power-of-two buckets. Undefined when the host audio driver does
+   * not populate output timestamps.
+   */
+  outputLatencyUsHistogram?: number[];
 }
 
 export interface NativeAudioClipStatus {
@@ -912,6 +918,8 @@ export interface NativePlaybackState {
   droppedFrames: number;
   buffering: boolean;
   clockStatus: NativePlaybackClockStatus;
+  /** Native monotonic timestamp in nanoseconds captured when audio position was sampled. */
+  sampledAtNs?: number;
 }
 
 export function secondsToNativeTime(
