@@ -15,15 +15,41 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # macOS Apple Silicon (.dmg)
           - platform: "macos-latest"
             target: "aarch64-apple-darwin"
+            vcpkg_triplet: ""
             args: "--target aarch64-apple-darwin"
+
+          # macOS Intel (.dmg)
+          - platform: "macos-13"
+            target: "x86_64-apple-darwin"
+            vcpkg_triplet: ""
+            args: "--target x86_64-apple-darwin"
+
+          # Windows x64 (.exe, .msi)
           - platform: "windows-latest"
             target: "x86_64-pc-windows-msvc"
+            vcpkg_triplet: "x64-windows-static-md"
             args: ""
+
+          # Windows ARM64 (.exe)
+          - platform: "windows-latest"
+            target: "aarch64-pc-windows-msvc"
+            vcpkg_triplet: "arm64-windows-static-md"
+            args: "--target aarch64-pc-windows-msvc --bundles nsis"
+
+          # Linux x64 (.deb, .AppImage, .tar.gz)
           - platform: "ubuntu-22.04"
             target: "x86_64-unknown-linux-gnu"
+            vcpkg_triplet: ""
             args: ""
+
+          # Linux ARM64 (.deb, .AppImage, .tar.gz)
+          - platform: "ubuntu-24.04-arm"
+            target: "aarch64-unknown-linux-gnu"
+            vcpkg_triplet: ""
+            args: "--target aarch64-unknown-linux-gnu"
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -32,7 +58,7 @@ jobs:
 
       # ── Linux ──────────────────────────────────────────────────────────────
       - name: Install System Dependencies (Linux)
-        if: matrix.platform == 'ubuntu-22.04'
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -45,7 +71,7 @@ jobs:
             libasound2-dev zlib1g-dev
 
       - name: Cache Static FFmpeg (Linux)
-        if: matrix.platform == 'ubuntu-22.04'
+        if: runner.os == 'Linux'
         id: cache-ffmpeg-linux
         uses: actions/cache@v4
         with:
@@ -53,7 +79,7 @@ jobs:
           key: ffmpeg-8.0-linux-static-v5-${{ matrix.target }}
 
       - name: Build Static FFmpeg (Linux)
-        if: matrix.platform == 'ubuntu-22.04' && steps.cache-ffmpeg-linux.outputs.cache-hit != 'true'
+        if: runner.os == 'Linux' && steps.cache-ffmpeg-linux.outputs.cache-hit != 'true'
         run: |
           mkdir -p /tmp/ffmpeg-src
           curl -sL https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz | tar -xJ --strip-components=1 -C /tmp/ffmpeg-src
@@ -74,13 +100,13 @@ jobs:
           rm -rf /tmp/ffmpeg-src
 
       - name: Configure FFmpeg Environment (Linux)
-        if: matrix.platform == 'ubuntu-22.04'
+        if: runner.os == 'Linux'
         run: |
           echo "FFMPEG_DIR=${{ runner.temp }}/ffmpeg-static" >> $GITHUB_ENV
           echo "PKG_CONFIG_PATH=${{ runner.temp }}/ffmpeg-static/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> $GITHUB_ENV
 
       - name: Build Glibc / C++ Compatibility Shim (Linux)
-        if: matrix.platform == 'ubuntu-22.04'
+        if: runner.os == 'Linux'
         run: |
           mkdir -p ${{ runner.temp }}/compat
           gcc -c -fPIC scripts/glibc_compat.c -o ${{ runner.temp }}/compat/glibc_compat.o
@@ -94,7 +120,7 @@ jobs:
       # passthrough. We use a .cargo/config.toml [env] block (committed) to
       # guarantee cmake sees the flag, and also set it here for safety.
       - name: Cache Static FFmpeg (macOS)
-        if: matrix.platform == 'macos-latest'
+        if: runner.os == 'macOS'
         id: cache-ffmpeg-macos
         uses: actions/cache@v4
         with:
@@ -102,7 +128,7 @@ jobs:
           key: ffmpeg-8.0-darwin-static-v2-${{ matrix.target }}
 
       - name: Build Static FFmpeg (macOS)
-        if: matrix.platform == 'macos-latest' && steps.cache-ffmpeg-macos.outputs.cache-hit != 'true'
+        if: runner.os == 'macOS' && steps.cache-ffmpeg-macos.outputs.cache-hit != 'true'
         run: |
           brew install cmake pkg-config
           mkdir -p /tmp/ffmpeg-src
@@ -128,7 +154,7 @@ jobs:
           rm -rf /tmp/ffmpeg-src
 
       - name: Configure FFmpeg Environment (macOS)
-        if: matrix.platform == 'macos-latest'
+        if: runner.os == 'macOS'
         run: |
           echo "FFMPEG_DIR=${{ runner.temp }}/ffmpeg-static" >> $GITHUB_ENV
           echo "PKG_CONFIG_PATH=${{ runner.temp }}/ffmpeg-static/lib/pkgconfig" >> $GITHUB_ENV
@@ -140,7 +166,7 @@ jobs:
       # LLVM is already available on windows-latest at C:\Program Files\LLVM
       # (installed by the runner image). Just set LIBCLANG_PATH.
       - name: Set LIBCLANG_PATH (Windows)
-        if: matrix.platform == 'windows-latest'
+        if: runner.os == 'Windows'
         shell: powershell
         run: |
           $llvm = "C:\Program Files\LLVM\bin"
@@ -153,16 +179,16 @@ jobs:
           }
 
       - name: Install FFmpeg (Windows)
-        if: matrix.platform == 'windows-latest'
+        if: runner.os == 'Windows'
         shell: powershell
         run: |
           cd C:\vcpkg
           git pull --quiet
-          vcpkg install ffmpeg[core,avcodec,avdevice,avfilter,avformat,swresample,swscale]:x64-windows-static-md
-          echo "FFMPEG_DIR=C:/vcpkg/installed/x64-windows-static-md" >> $env:GITHUB_ENV
-          echo "PKG_CONFIG_PATH=C:/vcpkg/installed/x64-windows-static-md/lib/pkgconfig" >> $env:GITHUB_ENV
+          vcpkg install ffmpeg[core,avcodec,avdevice,avfilter,avformat,swresample,swscale]:${{ matrix.vcpkg_triplet }}
+          echo "FFMPEG_DIR=C:/vcpkg/installed/${{ matrix.vcpkg_triplet }}" >> $env:GITHUB_ENV
+          echo "PKG_CONFIG_PATH=C:/vcpkg/installed/${{ matrix.vcpkg_triplet }}/lib/pkgconfig" >> $env:GITHUB_ENV
           echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
-          echo "VCPKGRS_TRIPLET=x64-windows-static-md" >> $env:GITHUB_ENV
+          echo "VCPKGRS_TRIPLET=${{ matrix.vcpkg_triplet }}" >> $env:GITHUB_ENV
 
       # ── Toolchain ──────────────────────────────────────────────────────────
       - name: Setup Node.js
@@ -174,7 +200,7 @@ jobs:
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.target }}
 
       - name: Rust Cache
         uses: swatinem/rust-cache@v2
@@ -191,11 +217,11 @@ jobs:
       # are cryptographically verified against pinned SHA-256 digests and
       # bundled into release artifacts (replaces development stub wrappers).
       - name: Setup Verified Static FFmpeg Sidecars (macOS / Linux)
-        if: matrix.platform != 'windows-latest'
+        if: runner.os != 'Windows'
         run: bash scripts/setup-sidecars.sh --target ${{ matrix.target }} --force
 
       - name: Setup Verified Static FFmpeg Sidecars (Windows)
-        if: matrix.platform == 'windows-latest'
+        if: runner.os == 'Windows'
         shell: pwsh
         run: .\scripts\setup-sidecars.ps1 -Target ${{ matrix.target }} -Force
 
@@ -206,14 +232,14 @@ jobs:
         run: npx vitest run
 
       - name: Run Cargo Test Suite
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
       # ── macOS code-signing setup ───────────────────────────────────────────
       # Imports the Developer ID Application certificate into a temporary
       # keychain so codesign and the Tauri bundler can find it.
       - name: Import Apple Developer ID Certificate (macOS)
-        if: matrix.platform == 'macos-latest'
+        if: runner.os == 'macOS'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -258,7 +284,7 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: "Clypra v__VERSION__"
-          releaseBody: "Automated multi-platform release bundle — macOS (arm64), Windows (x64), Linux (x64)."
+          releaseBody: "Automated multi-platform release bundle — macOS (arm64, x64), Windows (x64, arm64), Linux (x64, arm64)."
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

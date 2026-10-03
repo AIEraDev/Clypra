@@ -12,6 +12,7 @@
 #   aarch64-apple-darwin
 #   x86_64-apple-darwin
 #   x86_64-unknown-linux-gnu
+#   aarch64-unknown-linux-gnu
 #   x86_64-pc-windows-msvc
 
 set -euo pipefail
@@ -29,6 +30,7 @@ get_ffmpeg_archive() {
     aarch64-apple-darwin) echo "ffmpeg-darwin-arm64.gz" ;;
     x86_64-apple-darwin) echo "ffmpeg-darwin-x64.gz" ;;
     x86_64-unknown-linux-gnu) echo "ffmpeg-linux-x64.gz" ;;
+    aarch64-unknown-linux-gnu) echo "ffmpeg-linux-arm64.gz" ;;
     x86_64-pc-windows-msvc) echo "ffmpeg-win32-x64.gz" ;;
     *) return 1 ;;
   esac
@@ -39,6 +41,7 @@ get_ffmpeg_sha() {
     aarch64-apple-darwin) echo "8923876afa8db5585022d7860ec7e589af192f441c56793971276d450ed3bbfa" ;;
     x86_64-apple-darwin) echo "929b375c1182d956c51f7ac25e0b2b0411fb01f6f407aa15c9758efeb4242106" ;;
     x86_64-unknown-linux-gnu) echo "bfe8a8fc511530457b528c48d77b5737527b504a3797a9bc4866aeca69c2dffa" ;;
+    aarch64-unknown-linux-gnu) echo "754a678672298bc68156adff58aa7385a592c2b30b1d0ae8750c45c915c4bac0" ;;
     x86_64-pc-windows-msvc) echo "8883a3dffbd0a16cf4ef95206ea05283f78908dbfb118f73c83f4951dcc06d77" ;;
     *) return 1 ;;
   esac
@@ -49,6 +52,7 @@ get_ffprobe_archive() {
     aarch64-apple-darwin) echo "ffprobe-darwin-arm64.gz" ;;
     x86_64-apple-darwin) echo "ffprobe-darwin-x64.gz" ;;
     x86_64-unknown-linux-gnu) echo "ffprobe-linux-x64.gz" ;;
+    aarch64-unknown-linux-gnu) echo "ffprobe-linux-arm64.gz" ;;
     x86_64-pc-windows-msvc) echo "ffprobe-win32-x64.gz" ;;
     *) return 1 ;;
   esac
@@ -59,6 +63,7 @@ get_ffprobe_sha() {
     aarch64-apple-darwin) echo "d986a8ec7b030899fe66a8a288ed809a3543338705a3ce178cfb85869c5d80be" ;;
     x86_64-apple-darwin) echo "d4da574d6e2e197bd259b47d69cf262df9e312af24ad960444f6d806d3d4c186" ;;
     x86_64-unknown-linux-gnu) echo "25d9b6ccb05e3d9de9e04e31e2506d8dd7f9f0418981965ac6df12e8d3afd067" ;;
+    aarch64-unknown-linux-gnu) echo "2ab6aba60ee84412dff9188720703376cb4e7aaf7e0b5e43aa8249f2acae5bf8" ;;
     x86_64-pc-windows-msvc) echo "f309e6223ad89d2fe54bccd420a7709b66fd27540674e92309578ed491a43c8d" ;;
     *) return 1 ;;
   esac
@@ -79,6 +84,8 @@ detect_host_target() {
   elif [ "$os" = "Linux" ]; then
     if [ "$arch" = "x86_64" ]; then
       echo "x86_64-unknown-linux-gnu"
+    elif [ "$arch" = "aarch64" ] || [ "$arch" = "arm64" ]; then
+      echo "aarch64-unknown-linux-gnu"
     else
       echo "❌ Unsupported Linux architecture: $arch" >&2
       exit 1
@@ -133,7 +140,7 @@ install_target() {
 
   if ! ffmpeg_archive="$(get_ffmpeg_archive "$target")" || ! ffmpeg_sha="$(get_ffmpeg_sha "$target")"; then
     echo "❌ Unknown target triple: $target" >&2
-    echo "Supported targets: aarch64-apple-darwin, x86_64-apple-darwin, x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc" >&2
+    echo "Supported targets: aarch64-apple-darwin, x86_64-apple-darwin, x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu, x86_64-pc-windows-msvc" >&2
     exit 1
   fi
 
@@ -216,7 +223,7 @@ else
         shift
         ;;
       --all)
-        TARGETS=("aarch64-apple-darwin" "x86_64-apple-darwin" "x86_64-unknown-linux-gnu" "x86_64-pc-windows-msvc")
+        TARGETS=("aarch64-apple-darwin" "x86_64-apple-darwin" "x86_64-unknown-linux-gnu" "aarch64-unknown-linux-gnu" "x86_64-pc-windows-msvc")
         shift
         ;;
       -h|--help)
