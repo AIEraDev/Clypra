@@ -98,6 +98,8 @@ export const audioPollRtt = new RollingDriftStats();
 export const audioExtrapolationError = new RollingDriftStats();
 
 let lastPlayheadPaintMs: number | null = null;
+let lastPollReceivedAtMs: number | null = null;
+let lastPollSampledAtNs: number | null = null;
 let nextSeekHandle = 1;
 const pendingSeeks = new Map<number, number>();
 const MAX_PENDING_SEEKS = 50;
@@ -118,12 +120,35 @@ export function recordAudioPoll(
   uiPlayheadMs: number,
   pollRttMs?: number,
   sampledAtNs?: number,
+  receivedAtMs = nowMs(),
 ): void {
   if (!Number.isFinite(audioPositionMs) || !Number.isFinite(uiPlayheadMs))
     return;
   const driftMs = uiPlayheadMs - audioPositionMs;
   uiPlayheadDrift.record(driftMs);
-  audioExtrapolationError.record(driftMs);
+
+  // Extrapolation error is measured as poll jitter: the elapsed time between
+  // successive polls on the JS side minus the elapsed time on the native side
+  // (Δreceived − Δsampled). That isolates IPC delay without needing a shared epoch.
+  if (
+    sampledAtNs !== undefined &&
+    Number.isFinite(sampledAtNs) &&
+    lastPollReceivedAtMs !== null &&
+    lastPollSampledAtNs !== null
+  ) {
+    const deltaReceivedMs = receivedAtMs - lastPollReceivedAtMs;
+    const deltaSampledMs = (sampledAtNs - lastPollSampledAtNs) / 1_000_000;
+    if (deltaSampledMs > 0 && deltaSampledMs < 5000 && deltaReceivedMs > 0) {
+      const jitterMs = deltaReceivedMs - deltaSampledMs;
+      audioExtrapolationError.record(jitterMs);
+    }
+  }
+
+  if (sampledAtNs !== undefined && Number.isFinite(sampledAtNs)) {
+    lastPollReceivedAtMs = receivedAtMs;
+    lastPollSampledAtNs = sampledAtNs;
+  }
+
   if (pollRttMs !== undefined && Number.isFinite(pollRttMs)) {
     audioPollRtt.record(pollRttMs);
   }
@@ -177,6 +202,7 @@ export interface FrontendSyncMetricsSnapshot {
   seek_user_latency: RollingDriftSnapshot;
   audio_poll_rtt?: RollingDriftSnapshot;
   audio_extrapolation_error?: RollingDriftSnapshot;
+  sampledAtNs?: number;
 }
 
 export function getSyncMetricsSnapshot(): FrontendSyncMetricsSnapshot {
@@ -193,6 +219,9 @@ export function getSyncMetricsSnapshot(): FrontendSyncMetricsSnapshot {
   if (extrap.n > 0) {
     snapshot.audio_extrapolation_error = extrap;
   }
+  if (lastPollSampledAtNs !== null) {
+    snapshot.sampledAtNs = lastPollSampledAtNs;
+  }
   return snapshot;
 }
 
@@ -204,6 +233,8 @@ export function resetSyncMetricsForTests(): void {
   audioPollRtt.takeAndReset();
   audioExtrapolationError.takeAndReset();
   lastPlayheadPaintMs = null;
+  lastPollReceivedAtMs = null;
+  lastPollSampledAtNs = null;
   pendingSeeks.clear();
   nextSeekHandle = 1;
 }

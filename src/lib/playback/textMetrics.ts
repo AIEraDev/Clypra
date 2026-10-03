@@ -54,11 +54,14 @@ export interface TextMetricsSnapshot {
 class TextMetricsCollector {
   private rendererByKindMap = new Map<string, Map<string, number>>();
 
-  // Upload metrics
+  // Upload metrics (running accumulators + bounded sample buffer for P95)
   private totalRegistrations = 0;
   private totalBytes = 0;
   private totalOutputPixels = 0;
-  private uploadDurationsMs: number[] = [];
+  private uploadDurationMsSum = 0;
+  private uploadDurationMsMax = 0;
+  private uploadDurationCount = 0;
+  private readonly MAX_UPLOAD_SAMPLES = 100;
   private uploadOutputPixelsList: number[] = [];
   private uploadWindowStartMs: number = Date.now();
 
@@ -66,12 +69,18 @@ class TextMetricsCollector {
   private cacheHits = 0;
   private cacheMisses = 0;
 
-  // Animation Hz metrics
+  // Animation Hz metrics (bounded tracked layers and bounded samples)
+  private readonly MAX_TRACKED_LAYERS = 64;
   private lastAnimTimestampByLayer = new Map<string, number>();
+  private animHzSum = 0;
+  private animHzMin = Number.POSITIVE_INFINITY;
+  private animHzMax = 0;
+  private animHzCount = 0;
   private animHzSamples: number[] = [];
   private readonly MAX_ANIM_SAMPLES = 100;
 
   // First-use timings
+  private readonly MAX_DYNAMIC_IMPORTS = 32;
   private dynamicImports = new Map<string, number>();
   private firstFontLoadMs: number | undefined = undefined;
 
@@ -85,16 +94,18 @@ class TextMetricsCollector {
   ): void {
     let rendererMap = this.rendererByKindMap.get(kind);
     if (!rendererMap) {
+      if (this.rendererByKindMap.size >= 16) return;
       rendererMap = new Map();
       this.rendererByKindMap.set(kind, rendererMap);
     }
+    if (rendererMap.size >= 16 && !rendererMap.has(renderer)) return;
     const current = rendererMap.get(renderer) ?? 0;
     rendererMap.set(renderer, current + 1);
   }
 
   /**
    * Record a raster asset upload over IPC.
-   * Tracks bytes, outputPixels, and upload latency.
+   * Tracks bytes, outputPixels, and upload latency using bounded memory.
    */
   recordRasterUpload(
     outputPixels: number,
@@ -105,14 +116,15 @@ class TextMetricsCollector {
     this.totalRegistrations += 1;
     this.totalBytes += Math.max(0, bytes);
     this.totalOutputPixels += outputPixels;
-    this.uploadDurationsMs.push(Math.max(0, durationMs));
-    this.uploadOutputPixelsList.push(outputPixels);
 
-    // Keep memory bounded to last 200 samples
-    if (this.uploadDurationsMs.length > 200) {
-      this.uploadDurationsMs.shift();
-    }
-    if (this.uploadOutputPixelsList.length > 200) {
+    const validDuration = Math.max(0, durationMs);
+    this.uploadDurationMsSum += validDuration;
+    this.uploadDurationMsMax = Math.max(this.uploadDurationMsMax, validDuration);
+    this.uploadDurationCount += 1;
+
+    // Bounded reservoir for P95 calculation
+    this.uploadOutputPixelsList.push(outputPixels);
+    if (this.uploadOutputPixelsList.length > this.MAX_UPLOAD_SAMPLES) {
       this.uploadOutputPixelsList.shift();
     }
   }
@@ -138,11 +150,25 @@ class TextMetricsCollector {
   recordAnimationAchievedFrame(layerId: string, timestampMs = Date.now()): void {
     const prev = this.lastAnimTimestampByLayer.get(layerId);
     this.lastAnimTimestampByLayer.set(layerId, timestampMs);
+
+    // Evict oldest tracked layer if table exceeds bound
+    if (this.lastAnimTimestampByLayer.size > this.MAX_TRACKED_LAYERS) {
+      const oldestKey = this.lastAnimTimestampByLayer.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.lastAnimTimestampByLayer.delete(oldestKey);
+      }
+    }
+
     if (prev !== undefined && timestampMs > prev) {
       const dtMs = timestampMs - prev;
       if (dtMs > 0 && dtMs < 5000) {
         // Only consider intervals between 1ms and 5s
         const hz = 1000 / dtMs;
+        this.animHzSum += hz;
+        this.animHzMin = Math.min(this.animHzMin, hz);
+        this.animHzMax = Math.max(this.animHzMax, hz);
+        this.animHzCount += 1;
+
         this.animHzSamples.push(hz);
         if (this.animHzSamples.length > this.MAX_ANIM_SAMPLES) {
           this.animHzSamples.shift();
@@ -155,7 +181,10 @@ class TextMetricsCollector {
    * Record dynamic import duration for a module.
    */
   recordDynamicImport(moduleName: string, durationMs: number): void {
-    if (!this.dynamicImports.has(moduleName)) {
+    if (
+      !this.dynamicImports.has(moduleName) &&
+      this.dynamicImports.size < this.MAX_DYNAMIC_IMPORTS
+    ) {
       this.dynamicImports.set(moduleName, Math.max(0, durationMs));
     }
   }
@@ -196,11 +225,8 @@ class TextMetricsCollector {
         : 0;
 
     const outputPixelsAvg =
-      this.uploadOutputPixelsList.length > 0
-        ? Math.round(
-            this.uploadOutputPixelsList.reduce((a, b) => a + b, 0) /
-              this.uploadOutputPixelsList.length,
-          )
+      this.totalRegistrations > 0
+        ? Math.round(this.totalOutputPixels / this.totalRegistrations)
         : 0;
 
     const sortedPixels = [...this.uploadOutputPixelsList].sort((a, b) => a - b);
@@ -208,17 +234,14 @@ class TextMetricsCollector {
     const outputPixelsP95 = sortedPixels[p95Idx] ?? 0;
 
     const durationMsAvg =
-      this.uploadDurationsMs.length > 0
+      this.uploadDurationCount > 0
         ? Number(
-            (
-              this.uploadDurationsMs.reduce((a, b) => a + b, 0) /
-              this.uploadDurationsMs.length
-            ).toFixed(2),
+            (this.uploadDurationMsSum / this.uploadDurationCount).toFixed(2),
           )
         : 0;
     const durationMsMax =
-      this.uploadDurationsMs.length > 0
-        ? Number(Math.max(...this.uploadDurationsMs).toFixed(2))
+      this.uploadDurationCount > 0
+        ? Number(this.uploadDurationMsMax.toFixed(2))
         : 0;
 
     const totalLookups = this.cacheHits + this.cacheMisses;
@@ -288,12 +311,18 @@ class TextMetricsCollector {
     this.totalRegistrations = 0;
     this.totalBytes = 0;
     this.totalOutputPixels = 0;
-    this.uploadDurationsMs = [];
+    this.uploadDurationMsSum = 0;
+    this.uploadDurationMsMax = 0;
+    this.uploadDurationCount = 0;
     this.uploadOutputPixelsList = [];
     this.uploadWindowStartMs = Date.now();
     this.cacheHits = 0;
     this.cacheMisses = 0;
     this.lastAnimTimestampByLayer.clear();
+    this.animHzSum = 0;
+    this.animHzMin = Number.POSITIVE_INFINITY;
+    this.animHzMax = 0;
+    this.animHzCount = 0;
     this.animHzSamples = [];
     this.dynamicImports.clear();
     this.firstFontLoadMs = undefined;

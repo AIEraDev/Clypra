@@ -24,6 +24,8 @@ import {
 import { nativePerfCollector } from "@/core/playback/nativePerfTelemetry";
 import { EditorFeatureTelemetry } from "@/services/editorFeatureTelemetry";
 import { perfLogService, PerfLogService } from "@/services/perfLogService";
+import { getTextMetricsSnapshot } from "@/lib/playback/textMetrics";
+import { getSyncMetricsSnapshot } from "@/lib/playback/syncMetrics";
 
 /** Desktop-only diagnostics action; this is intentionally not an editor telemetry HUD. */
 export const PreviewDiagnosticsTab: React.FC = () => {
@@ -99,6 +101,8 @@ export const PreviewDiagnosticsTab: React.FC = () => {
       const nativeReport = await getNativePreviewPerformanceReport();
       const report = {
         ...nativeReport,
+        text: getTextMetricsSnapshot(),
+        sync: getSyncMetricsSnapshot(),
         // Native samples explain decode/composition/readback; this bounded
         // local summary completes the trace with the WebView-side boundary.
         frontend: {

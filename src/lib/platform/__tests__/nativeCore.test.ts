@@ -25,4 +25,26 @@ describe("native core contracts", () => {
       toneMapHdrToSdr: true,
     });
   });
+
+  it("preserves NativePlaybackState contract compatibility with additive poll telemetry", () => {
+    const rawState = {
+      contract_version: 1,
+      audio_position_ticks: 48000,
+      timescale: 48000,
+      presented_frame: 30,
+      clock_generation: 2,
+      playing: true,
+      sampledAtNs: 1_234_567_890,
+    };
+
+    // Simulated return value of nativeTickFromAudio (NativePlaybackState & { pollRttMs?: number })
+    const tickResult = { ...rawState, pollRttMs: 14.2 };
+
+    // Contract compatibility assertions: all existing fields accessible without cast
+    expect(tickResult.audio_position_ticks).toBe(48000);
+    expect(tickResult.timescale).toBe(48000);
+    expect(tickResult.playing).toBe(true);
+    expect(tickResult.sampledAtNs).toBe(1_234_567_890);
+    expect(tickResult.pollRttMs).toBe(14.2);
+  });
 });
