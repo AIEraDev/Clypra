@@ -515,6 +515,10 @@ impl NativeFrameService {
             },
             mode_stats,
             text_layer_cache_hits: 0,
+            lookahead_trigger_count: super::performance::lookahead_trigger_count(),
+            lookahead_trigger_dropped: super::performance::lookahead_trigger_dropped(),
+            producer_idle_total_ms: super::performance::producer_idle_total_ms(),
+            producer_ahead_of_clock_ms: super::performance::producer_ahead_of_clock_ms(),
         }
     }
 }

@@ -310,7 +310,65 @@ pub struct NativeFrameServiceStats {
     /// re-rendered should contribute here, not to `cache_hits`.
     #[serde(default)]
     pub text_layer_cache_hits: u64,
+    /// Number of times schedule_lookahead_predecode was called (PR4 instrumentation).
+    #[serde(default)]
+    pub lookahead_trigger_count: u64,
+    /// Number of triggers dropped by the in-flight guard (demand-trigger diagnosis).
+    #[serde(default)]
+    pub lookahead_trigger_dropped: u64,
+    /// Total producer idle time in ms (gap between finishing one prime and starting next).
+    #[serde(default)]
+    pub producer_idle_total_ms: f64,
+    /// Most recent "ahead of audio clock" value in ms (positive = producer is ahead).
+    #[serde(default)]
+    pub producer_ahead_of_clock_ms: f64,
 }
+
+// ── PR4: Producer trigger instrumentation ──────────────────────────────────────
+// These atomics diagnose why the producer runs at ~1/3 capacity.
+// The hypothesis: schedule_lookahead_predecode triggers are frequently dropped
+// by the in-flight guard, so effective trigger rate << producer capacity.
+
+static LOOKAHEAD_TRIGGER_COUNT: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+static LOOKAHEAD_TRIGGER_DROPPED: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+static PRODUCER_IDLE_TOTAL_US: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+static PRODUCER_AHEAD_OF_CLOCK_MS_MILLI: std::sync::atomic::AtomicI64 =
+    std::sync::atomic::AtomicI64::new(0);
+
+pub fn lookahead_trigger_count() -> u64 {
+    LOOKAHEAD_TRIGGER_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+}
+pub fn lookahead_trigger_dropped() -> u64 {
+    LOOKAHEAD_TRIGGER_DROPPED.load(std::sync::atomic::Ordering::Relaxed)
+}
+pub fn producer_idle_total_ms() -> f64 {
+    PRODUCER_IDLE_TOTAL_US.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1_000.0
+}
+pub fn producer_ahead_of_clock_ms() -> f64 {
+    PRODUCER_AHEAD_OF_CLOCK_MS_MILLI.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1_000.0
+}
+pub fn record_lookahead_trigger() {
+    LOOKAHEAD_TRIGGER_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+pub fn record_lookahead_trigger_dropped() {
+    LOOKAHEAD_TRIGGER_DROPPED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+pub fn record_producer_idle_us(us: u64) {
+    PRODUCER_IDLE_TOTAL_US.fetch_add(us, std::sync::atomic::Ordering::Relaxed);
+}
+pub fn record_producer_ahead_of_clock_ms(ms: f64) {
+    PRODUCER_AHEAD_OF_CLOCK_MS_MILLI.store(
+        (ms * 1_000.0) as i64,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+}
+
 
 /// A cursor-bounded batch of native samples. The cursor belongs to the
 /// service, not to the UI, so polling this endpoint never records a new

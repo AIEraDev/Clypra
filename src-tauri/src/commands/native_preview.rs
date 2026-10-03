@@ -367,6 +367,11 @@ fn diagnose_mode_stats(mode: &ModeStats) -> Option<NativePreviewStageDiagnosis> 
             mode.cold_start_init.p95,
             "warm-up-or-cache",
         ),
+        (
+            "unaccounted",
+            mode.unaccounted.p95,
+            "investigate-unaccounted",
+        ),
     ];
     let (dominant_stage, dominant_p95_us, recommendation) = stages
         .into_iter()
@@ -375,6 +380,7 @@ fn diagnose_mode_stats(mode: &ModeStats) -> Option<NativePreviewStageDiagnosis> 
     let sample_count = [
         mode.decode.sample_count,
         mode.packet_decode.sample_count,
+        mode.unaccounted.sample_count,
         mode.hardware_frame_download.sample_count,
         mode.decoder_mutex_wait.sample_count,
         mode.demux_wait.sample_count,
@@ -3458,12 +3464,15 @@ pub(crate) fn schedule_lookahead_predecode(
         return;
     }
 
+    // PR4: count every trigger attempt
+    crate::thumbnail_engine::stream_actor::record_lookahead_trigger();
+
     let generation = base_request.generation.unwrap_or(0);
     let frame_rate = base_request.project.frame_rate.max(1);
     let fps = frame_rate as f64;
 
     // Anchor current audio playback position
-    let (current_audio_frame, _current_audio_secs) = if let Ok(audio_time) =
+    let (current_audio_frame, current_audio_secs) = if let Ok(audio_time) =
         crate::commands::native_playback::audio_clock_time(&app, true, false)
     {
         let audio_secs = (audio_time.ticks as f64) / (audio_time.timescale.max(1) as f64);
@@ -3493,9 +3502,18 @@ pub(crate) fn schedule_lookahead_predecode(
             current_audio_frame >= start_f.saturating_sub(2) && current_audio_frame <= end_f;
 
         if is_active && is_same_gen && is_in_range {
+            // PR4: count dropped trigger and record ahead-of-clock
+            crate::thumbnail_engine::stream_actor::record_lookahead_trigger_dropped();
+            let end_time_secs = end_f as f64 / fps;
+            let ahead_ms = (end_time_secs - current_audio_secs) * 1_000.0;
+            crate::thumbnail_engine::stream_actor::record_producer_ahead_of_clock_ms(ahead_ms);
             return;
         }
     }
+
+    // PR4: record ahead-of-clock when accepted (worker ends at lookahead_count frames ahead)
+    let ahead_ms = (lookahead_count as f64 / fps) * 1_000.0;
+    crate::thumbnail_engine::stream_actor::record_producer_ahead_of_clock_ms(ahead_ms);
 
     // If generation changed or audio jumped out of range, abort previous worker to free decoders immediately.
     if let Some(prev) = worker_guard.take() {
@@ -5113,7 +5131,7 @@ pub async fn render_native_frame(
             queue_residency_us: None,
             ipc_wait_us: None,
             decoder_mutex_wait_us: Some(stage_timings.decoder_mutex_wait_us),
-            actor_wait_us: None,
+            actor_wait_us: stage_timings.decode_telemetry.actor_wait_us,
             gpu_queue_wait_us: None,
             surface_acquire_us: None,
             submit_present_us: None,
