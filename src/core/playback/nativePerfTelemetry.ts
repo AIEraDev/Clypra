@@ -66,6 +66,19 @@ export interface NativeFrontendModeStats {
   bridgeCount: number;
   bridgeFallbackReasons: Record<string, number>;
   transportCounts: Record<string, number>;
+  /**
+   * Unique source frames painted per second, measured over an active-playback
+   * window (resets after 500 ms of silence). An UNCH-skipped frame is NOT
+   * counted. This is the metric that tells whether the producer delivers
+   * distinct content, not just whether requests are being answered.
+   */
+  uniqueFramesPaintedPerSecond: number | null;
+  /**
+   * Source timeline advance per wall-clock second, measured over the same
+   * active-playback window. Should be ~1.0 at 1× speed, lower if the
+   * producer can't keep up.
+   */
+  playbackClockRate: number | null;
 }
 
 export interface NativePushBridgeFrontendStats {
@@ -238,10 +251,42 @@ export class NativePerfSpan {
   }
 }
 
+/** Rolling window state for uniqueFramesPaintedPerSecond / playbackClockRate. */
+interface UniqueFrameWindow {
+  /** Distinct source frameIndex values seen in the current window. */
+  frameIndexes: Set<number>;
+  /** wall-clock time (performance.now()) of the first sample in the window. */
+  windowStartMs: number;
+  /** wall-clock time of the most recent non-dropped sample. */
+  lastSampleMs: number;
+  /** Source timeline position (in seconds) of the first sample in the window. */
+  firstSourceSecs: number | null;
+  /** Source timeline position (in seconds) of the most recent sample. */
+  lastSourceSecs: number | null;
+}
+
+function emptyUniqueFrameWindow(): UniqueFrameWindow {
+  return {
+    frameIndexes: new Set(),
+    windowStartMs: performance.now(),
+    lastSampleMs: performance.now(),
+    firstSourceSecs: null,
+    lastSourceSecs: null,
+  };
+}
+
+/** Gap longer than this (ms) resets the unique-frame window. */
+const UNIQUE_FRAME_WINDOW_RESET_MS = 500;
+
 class NativePerfCollector {
   private readonly samples = new Map<
     NativePreviewMode,
     NativeFrontendPerfSample[]
+  >();
+  /** Per-mode rolling unique-frame windows. */
+  private readonly uniqueWindows = new Map<
+    NativePreviewMode,
+    UniqueFrameWindow
   >();
   // Keep the frontend/native boundary observable in every build for now. The
   // collector is bounded and forwards through the existing batched transport;
@@ -301,6 +346,28 @@ class NativePerfCollector {
     if (!bucket) return;
     bucket.push(sample);
     if (bucket.length > RING_CAPACITY) bucket.shift();
+
+    // PR2: maintain unique-frame window for non-dropped playback samples.
+    // An UNCH-skipped frame has no frameIndex advancement — it's handled in
+    // NativeProgramPreview.tsx by not calling span.finish() at all, so
+    // dropped frames here are legitimate late/stale drops, not UNCH skips.
+    if (!sample.dropped && !sample.stale && !sample.cancelled) {
+      const nowMs = performance.now();
+      let win = this.uniqueWindows.get(sample.mode);
+      if (!win || nowMs - win.lastSampleMs > UNIQUE_FRAME_WINDOW_RESET_MS) {
+        win = emptyUniqueFrameWindow();
+        win.windowStartMs = nowMs;
+        this.uniqueWindows.set(sample.mode, win);
+      }
+      win.frameIndexes.add(sample.frameIndex);
+      win.lastSampleMs = nowMs;
+      // Derive source timeline seconds from frameIndex + cadence fps if available
+      if (sample.readbackCadenceFps && sample.readbackCadenceFps > 0) {
+        const sourceSecs = sample.frameIndex / sample.readbackCadenceFps;
+        if (win.firstSourceSecs === null) win.firstSourceSecs = sourceSecs;
+        win.lastSourceSecs = sourceSecs;
+      }
+    }
 
     telemetryCollector.recordRenderSpan(
       {
@@ -373,6 +440,26 @@ class NativePerfCollector {
       if (reason) bridgeFallbackReasons[reason] = (bridgeFallbackReasons[reason] ?? 0) + 1;
       if (sample.transport) transportCounts[sample.transport] = (transportCounts[sample.transport] ?? 0) + 1;
     }
+
+    // PR2: compute unique-frame and clock-rate metrics from the rolling window.
+    const win = this.uniqueWindows.get(mode);
+    let uniqueFramesPaintedPerSecond: number | null = null;
+    let playbackClockRate: number | null = null;
+    if (win && win.frameIndexes.size > 0) {
+      const wallSecs = (win.lastSampleMs - win.windowStartMs) / 1_000;
+      if (wallSecs >= 0.5) {
+        uniqueFramesPaintedPerSecond = win.frameIndexes.size / wallSecs;
+        if (
+          win.firstSourceSecs !== null &&
+          win.lastSourceSecs !== null &&
+          win.lastSourceSecs !== win.firstSourceSecs
+        ) {
+          const sourceSecs = win.lastSourceSecs - win.firstSourceSecs;
+          playbackClockRate = sourceSecs / wallSecs;
+        }
+      }
+    }
+
     return {
       mode,
       dispatch: stagePercentiles(samples, (sample) => sample.dispatchMs),
@@ -393,8 +480,11 @@ class NativePerfCollector {
       ).length,
       bridgeFallbackReasons,
       transportCounts,
+      uniqueFramesPaintedPerSecond,
+      playbackClockRate,
     };
   }
+
 
   allStats(): NativeFrontendModeStats[] {
     return [
@@ -430,6 +520,7 @@ class NativePerfCollector {
 
   clear(): void {
     for (const bucket of this.samples.values()) bucket.length = 0;
+    this.uniqueWindows.clear();
     this.pushBridge = { paintedFrames: 0, rejectedGenerationPackets: 0, receiverIdle: 0 };
   }
 }
