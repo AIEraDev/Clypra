@@ -592,10 +592,8 @@ fn sanitize_telemetry_json(value: &mut serde_json::Value) {
         once_cell::sync::Lazy::new(|| regex::Regex::new(r"project-[a-zA-Z0-9_-]+").unwrap());
 
     match value {
-        serde_json::Value::String(s) => {
-            if s.contains("project-") {
-                *s = PROJECT_ID_REGEX.replace_all(s, "project-anon").to_string();
-            }
+        serde_json::Value::String(s) if s.contains("project-") => {
+            *s = PROJECT_ID_REGEX.replace_all(s, "project-anon").to_string();
         }
         serde_json::Value::Array(arr) => {
             for v in arr {
@@ -698,18 +696,11 @@ mod tests {
             }
         });
         sanitize_telemetry_json(&mut sample);
-        assert_eq!(
-            sample["requestId"],
-            "project-anon:0:42:1920x1080"
-        );
+        assert_eq!(sample["requestId"], "project-anon:0:42:1920x1080");
         assert_eq!(
             sample["nested"]["measurementId"],
             "frontend:webview:bridge:project-anon:1"
         );
-        assert_eq!(
-            sample["nested"]["nonProject"],
-            "some-other-string"
-        );
+        assert_eq!(sample["nested"]["nonProject"], "some-other-string");
     }
 }
-

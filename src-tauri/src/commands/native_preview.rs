@@ -201,6 +201,7 @@ pub struct NativePreviewPerformanceReport {
     /// `true` when the working tree had uncommitted changes at build time.
     pub git_dirty: Option<bool>,
     pub gpu: Option<NativeGpuRuntimeStatus>,
+    pub audio: Option<crate::native_audio::NativeAudioStatus>,
     pub preview: Option<NativeFrameServiceStats>,
     pub session: crate::wgpu_compositor::SessionSnapshot,
     /// Per-interaction p95 diagnosis. This is an evidence summary, not an
@@ -4861,10 +4862,7 @@ pub async fn render_native_frame(
                         decode_time_us: 0,
                         compose_time_us: 0,
                         readback_time_us: 0,
-                        total_time_us: started
-                            .elapsed()
-                            .as_micros()
-                            .min(u32::MAX as u128) as u32,
+                        total_time_us: started.elapsed().as_micros().min(u32::MAX as u128) as u32,
                         bytes_transferred: 12,
                         cache_hit: false,
                         generation: request.generation,
@@ -5219,6 +5217,10 @@ pub async fn get_native_preview_performance_report(
         .try_state::<Arc<std::sync::Mutex<NativeGpuRuntimeStatus>>>()
         .and_then(|state| state.lock().ok().map(|status| status.clone()));
 
+    let audio = app
+        .try_state::<Arc<std::sync::Mutex<crate::native_audio::NativeAudioClock>>>()
+        .and_then(|clock| clock.lock().ok().map(|c| c.status()));
+
     let preview = if let Some(service) = app.try_state::<tokio::sync::Mutex<NativeFrameService>>() {
         Some(service.lock().await.stats())
     } else {
@@ -5254,6 +5256,7 @@ pub async fn get_native_preview_performance_report(
         git_commit: option_env!("CLYPRA_GIT_COMMIT").map(String::from),
         git_dirty: option_env!("CLYPRA_GIT_DIRTY").map(|s| s == "true"),
         gpu,
+        audio,
         preview,
         session,
         stage_diagnoses,

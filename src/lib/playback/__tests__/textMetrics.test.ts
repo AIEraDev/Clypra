@@ -91,7 +91,7 @@ describe("TextMetrics (v3 Telemetry)", () => {
     expect(snapshot.firstUseTimings.fontLoadMs).toBe(12.3);
   });
 
-  it("guarantees zero-PII in the snapshot schema", () => {
+  it("guarantees zero-PII and adheres to the strict telemetry allowlist schema", () => {
     recordRendererByClipKind("plain", "canvas-2d");
     recordRasterUpload(1000, 4000, 2);
     recordBrowserTextRasterCacheHit();
@@ -103,11 +103,48 @@ describe("TextMetrics (v3 Telemetry)", () => {
     const snapshot = getTextMetricsSnapshot();
     const serialized = JSON.stringify(snapshot);
 
-    // Assert that the serialized JSON only contains known metric keys and numbers/known enums
+    // 1. Assert that the serialized JSON only contains known metric keys and numbers/known enums
     expect(serialized).not.toContain("fontFamily");
     expect(serialized).not.toContain("content");
     expect(serialized).not.toContain("text");
     expect(serialized).not.toContain("userId");
     expect(serialized).not.toContain("projectId");
+
+    // 2. Strict schema allowlist validation: ensure no unexpected keys leak into telemetry
+    const allowedTopLevelKeys = new Set([
+      "rendererByKind",
+      "uploads",
+      "cache",
+      "animation",
+      "firstUseTimings",
+    ]);
+    expect(Object.keys(snapshot).every((k) => allowedTopLevelKeys.has(k))).toBe(true);
+
+    const allowedUploadKeys = new Set([
+      "totalRegistrations",
+      "totalBytes",
+      "totalOutputPixels",
+      "registrationsPerSec",
+      "bytesPerSec",
+      "outputPixelsAvg",
+      "outputPixelsP95",
+      "durationMsAvg",
+      "durationMsMax",
+    ]);
+    expect(Object.keys(snapshot.uploads).every((k) => allowedUploadKeys.has(k))).toBe(true);
+
+    const allowedCacheKeys = new Set(["hits", "misses", "hitRate"]);
+    expect(Object.keys(snapshot.cache).every((k) => allowedCacheKeys.has(k))).toBe(true);
+
+    const allowedAnimationKeys = new Set([
+      "samples",
+      "achievedHzAvg",
+      "achievedHzMin",
+      "achievedHzMax",
+    ]);
+    expect(Object.keys(snapshot.animation).every((k) => allowedAnimationKeys.has(k))).toBe(true);
+
+    const allowedFirstUseKeys = new Set(["dynamicImports", "fontLoadMs"]);
+    expect(Object.keys(snapshot.firstUseTimings).every((k) => allowedFirstUseKeys.has(k))).toBe(true);
   });
 });

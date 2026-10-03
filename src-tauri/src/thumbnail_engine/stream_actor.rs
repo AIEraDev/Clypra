@@ -591,7 +591,8 @@ impl StreamDecoderActor {
             let guard = self.decoder.lock().await;
             guard.is_hardware_accelerated()
         };
-        let stride = calculate_download_stride(self.frame_duration_secs, is_hw_accel, options.is_playback);
+        let stride =
+            calculate_download_stride(self.frame_duration_secs, is_hw_accel, options.is_playback);
         let lookahead_steps = (2 * stride).min(6);
 
         // PR4: record idle time (from call site to first actual work step)

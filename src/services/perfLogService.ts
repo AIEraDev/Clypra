@@ -34,6 +34,9 @@ import {
   uiPlayheadDrift,
   playheadPaintJitter,
   seekUserLatency,
+  audioPollRtt,
+  audioExtrapolationError,
+  getSyncMetricsSnapshot,
   startSyncMetricsFlushLoop,
 } from "@/lib/playback/syncMetrics";
 import { workerPerfCollector } from "@/core/monitoring/WorkerPerfCollector";
@@ -501,6 +504,8 @@ export class PerfLogService {
             timestampEpochMs: Date.now(),
             payload: {
               ...nativeReport,
+              text: getTextMetricsSnapshot(),
+              sync: getSyncMetricsSnapshot(),
               frontend: frontendStats,
             },
           });
@@ -539,10 +544,14 @@ export class PerfLogService {
     const finalUiDrift = uiPlayheadDrift.takeAndReset();
     const finalPaintJitter = playheadPaintJitter.takeAndReset();
     const finalSeekLatency = seekUserLatency.takeAndReset();
+    const finalAudioPollRtt = audioPollRtt.takeAndReset();
+    const finalExtrapError = audioExtrapolationError.takeAndReset();
     if (
       finalUiDrift.n > 0 ||
       finalPaintJitter.n > 0 ||
-      finalSeekLatency.n > 0
+      finalSeekLatency.n > 0 ||
+      finalAudioPollRtt.n > 0 ||
+      finalExtrapError.n > 0
     ) {
       this.queue.push({
         kind: "frontend-av-sync",
@@ -553,6 +562,9 @@ export class PerfLogService {
           uiPlayheadDrift: finalUiDrift,
           playheadPaintJitter: finalPaintJitter,
           seekUserLatency: finalSeekLatency,
+          audioPollRtt: finalAudioPollRtt.n > 0 ? finalAudioPollRtt : undefined,
+          audioExtrapolationError:
+            finalExtrapError.n > 0 ? finalExtrapError : undefined,
         },
       });
     }
@@ -918,7 +930,17 @@ export class PerfLogService {
     const uiDrift = uiPlayheadDrift.takeAndReset();
     const paintJitter = playheadPaintJitter.takeAndReset();
     const seekLatency = seekUserLatency.takeAndReset();
-    if (uiDrift.n === 0 && paintJitter.n === 0 && seekLatency.n === 0) return;
+    const pollRtt = audioPollRtt.takeAndReset();
+    const extrapError = audioExtrapolationError.takeAndReset();
+    if (
+      uiDrift.n === 0 &&
+      paintJitter.n === 0 &&
+      seekLatency.n === 0 &&
+      pollRtt.n === 0 &&
+      extrapError.n === 0
+    ) {
+      return;
+    }
     this.enqueue({
       kind: "frontend-av-sync",
       sessionId: this.sessionId,
@@ -928,6 +950,8 @@ export class PerfLogService {
         uiPlayheadDrift: uiDrift,
         playheadPaintJitter: paintJitter,
         seekUserLatency: seekLatency,
+        audioPollRtt: pollRtt.n > 0 ? pollRtt : undefined,
+        audioExtrapolationError: extrapError.n > 0 ? extrapError : undefined,
       },
     });
   }

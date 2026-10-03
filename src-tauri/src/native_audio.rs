@@ -25,7 +25,7 @@ const TRANSPORT_RAMP_FRAMES: u32 = 256;
 /// Enough to produce a stable median and detect both cold-start and stalls.
 /// Must stay small: all slots are written from the real-time audio callback
 /// with no lock and no allocation.
-const INTERVAL_RING_SIZE: usize = 8;
+pub const INTERVAL_RING_SIZE: usize = 8;
 
 /// Number of buckets in the output-latency log2 histogram.
 /// Bucket i covers the half-open interval [2^(i−1), 2^i) µs, with bucket 0
@@ -33,23 +33,63 @@ const INTERVAL_RING_SIZE: usize = 8;
 /// The range captures every expected hardware latency from sub-millisecond
 /// (JACK) through high-latency Bluetooth (≈ 200 ms). Written exclusively from
 /// the real-time callback with atomic fetch_add (Relaxed). No lock, no alloc.
-pub const OUTPUT_LATENCY_HISTOGRAM_BUCKETS: usize = 16;
+/// 512 linear 1 ms buckets (0..511 ms) + 1 overflow bucket (≥ 512 ms). Total: 513 buckets (~4 KB).
+pub const OUTPUT_LATENCY_HISTOGRAM_BUCKETS: usize = 513;
 
 /// Maps an output latency measurement in microseconds to a bucket index in
-/// `OUTPUT_LATENCY_HISTOGRAM_BUCKETS` (0..16).
-/// Bucket 0: [0, 2) µs
-/// Bucket 1: [2, 4) µs
-/// ...
-/// Bucket 14: [16384, 32768) µs
-/// Bucket 15: [32768, ∞) µs (overflow)
+/// `OUTPUT_LATENCY_HISTOGRAM_BUCKETS` (0..513).
+/// Linear 1 ms resolution:
+///   bucket 0   = [0, 1000) µs       (0 ms .. <1 ms)
+///   bucket 1   = [1000, 2000) µs    (1 ms .. <2 ms)
+///   ...
+///   bucket 511 = [511000, 512000) µs (511 ms .. <512 ms)
+///   bucket 512 = [512000, ∞) µs      (≥ 512 ms, overflow)
 #[inline]
-pub(crate) fn output_latency_bucket(us: u64) -> usize {
-    if us < 2 {
-        0
-    } else {
-        ((u64::BITS - us.leading_zeros()) as usize)
-            .saturating_sub(1)
-            .min(OUTPUT_LATENCY_HISTOGRAM_BUCKETS - 1)
+pub fn output_latency_bucket(us: u64) -> usize {
+    let ms = us / 1000;
+    (ms as usize).min(OUTPUT_LATENCY_HISTOGRAM_BUCKETS - 1)
+}
+
+#[derive(Clone)]
+pub struct OutputLatencyMetrics {
+    pub histogram: Arc<[AtomicU64; OUTPUT_LATENCY_HISTOGRAM_BUCKETS]>,
+    pub available: Arc<AtomicBool>,
+    pub last_us: Arc<AtomicU64>,
+    pub min_us: Arc<AtomicU64>,
+    pub max_us: Arc<AtomicU64>,
+    pub sum_us: Arc<AtomicU64>,
+    pub count: Arc<AtomicU64>,
+}
+
+impl Default for OutputLatencyMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl OutputLatencyMetrics {
+    pub fn new() -> Self {
+        Self {
+            histogram: Arc::new(std::array::from_fn(|_| AtomicU64::new(0))),
+            available: Arc::new(AtomicBool::new(false)),
+            last_us: Arc::new(AtomicU64::new(0)),
+            min_us: Arc::new(AtomicU64::new(u64::MAX)),
+            max_us: Arc::new(AtomicU64::new(0)),
+            sum_us: Arc::new(AtomicU64::new(0)),
+            count: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    pub fn reset(&self) {
+        for slot in self.histogram.iter() {
+            slot.store(0, Ordering::Release);
+        }
+        self.available.store(false, Ordering::Release);
+        self.last_us.store(0, Ordering::Release);
+        self.min_us.store(u64::MAX, Ordering::Release);
+        self.max_us.store(0, Ordering::Release);
+        self.sum_us.store(0, Ordering::Release);
+        self.count.store(0, Ordering::Release);
     }
 }
 
@@ -83,12 +123,21 @@ pub struct NativeAudioStatus {
     /// started. Divide by `seek_count` to obtain the mean seek latency.
     pub seek_latency_total_us: u64,
     /// Histogram of `playback − callback` output latency measurements from the
-    /// CPAL `OutputCallbackInfo::timestamp()` API. Each slot counts how many
-    /// callbacks fell into that log2 µs band:
-    ///   bucket[0] = [0, 1) µs  bucket[1] = [1, 2)  …  bucket[15] ≥ 32768 µs
+    /// CPAL `OutputCallbackInfo::timestamp()` API. 512 1-ms linear buckets
+    /// (0..511 ms) plus 1 overflow bucket (≥ 512 ms).
     /// `None` when no cpal timestamp was available (host does not populate it).
     /// Observation only — no playback behavior is modified.
-    pub output_latency_us_histogram: Option<[u64; OUTPUT_LATENCY_HISTOGRAM_BUCKETS]>,
+    pub output_latency_us_histogram: Option<Vec<u64>>,
+    /// Most recent `playback − callback` output latency measurement in microseconds.
+    pub output_latency_last_us: Option<u64>,
+    /// Minimum `playback − callback` output latency measurement in microseconds.
+    pub output_latency_min_us: Option<u64>,
+    /// Maximum `playback − callback` output latency measurement in microseconds.
+    pub output_latency_max_us: Option<u64>,
+    /// Cumulative sum of `playback − callback` output latency measurements in microseconds.
+    pub output_latency_sum_us: Option<u64>,
+    /// Total count of valid `playback − callback` output latency measurements.
+    pub output_latency_count: Option<u64>,
     /// Microseconds since the last CPAL callback advanced the audio clock.
     /// `None` if the stream has never fired a callback (clock never started).
     /// Used by A/V drift suppression: when this value exceeds the adaptive
@@ -828,17 +877,8 @@ struct NativeAudioClockInner {
     /// Monotonically incrementing cursor into `interval_ring`.
     /// Written from the callback (Relaxed). Read from `status()` (Acquire).
     interval_cursor: Arc<AtomicU64>,
-    /// Lock-free log2 histogram of CPAL output latency (`playback − callback`)
-    /// measurements in microseconds. Each element is a counter for callbacks
-    /// that fell into the corresponding half-open latency band (see
-    /// `OUTPUT_LATENCY_HISTOGRAM_BUCKETS`). Written with `fetch_add(Relaxed)`
-    /// from the audio callback — zero allocation, zero lock. `None` from
-    /// `status()` means no valid cpal timestamp was received in this session.
-    output_latency_histogram: Arc<[AtomicU64; OUTPUT_LATENCY_HISTOGRAM_BUCKETS]>,
-    /// Set to true by the callback the first time a valid cpal `playback`
-    /// timestamp is received. Lets `status()` distinguish "never received a
-    /// timestamp" (host doesn't support it) from "all zeros in histogram".
-    output_latency_available: Arc<AtomicBool>,
+    /// Lock-free linear histogram and atomics for CPAL output latency.
+    output_latency: OutputLatencyMetrics,
 }
 
 pub struct NativeAudioClock {
@@ -887,25 +927,7 @@ impl NativeAudioClock {
                     AtomicU64::new(0),
                 ]),
                 interval_cursor: Arc::new(AtomicU64::new(0)),
-                output_latency_histogram: Arc::new([
-                    AtomicU64::new(0),
-                    AtomicU64::new(0),
-                    AtomicU64::new(0),
-                    AtomicU64::new(0),
-                    AtomicU64::new(0),
-                    AtomicU64::new(0),
-                    AtomicU64::new(0),
-                    AtomicU64::new(0),
-                    AtomicU64::new(0),
-                    AtomicU64::new(0),
-                    AtomicU64::new(0),
-                    AtomicU64::new(0),
-                    AtomicU64::new(0),
-                    AtomicU64::new(0),
-                    AtomicU64::new(0),
-                    AtomicU64::new(0),
-                ]),
-                output_latency_available: Arc::new(AtomicBool::new(false)),
+                output_latency: OutputLatencyMetrics::new(),
             },
         }
     }
@@ -945,14 +967,7 @@ impl NativeAudioClock {
             slot.store(0, Ordering::Release);
         }
         self.inner.interval_cursor.store(0, Ordering::Release);
-        // Clear the output-latency histogram so stale data from a previous
-        // stream session does not contaminate the new session's distribution.
-        for slot in self.inner.output_latency_histogram.iter() {
-            slot.store(0, Ordering::Release);
-        }
-        self.inner
-            .output_latency_available
-            .store(false, Ordering::Release);
+        self.inner.output_latency.reset();
 
         let host = cpal::default_host();
         let host_name = format!("{:?}", host.id());
@@ -991,8 +1006,7 @@ impl NativeAudioClock {
         let clock_epoch = self.inner.clock_epoch;
         let interval_ring = self.inner.interval_ring.clone();
         let interval_cursor = self.inner.interval_cursor.clone();
-        let output_latency_histogram = self.inner.output_latency_histogram.clone();
-        let output_latency_available = self.inner.output_latency_available.clone();
+        let output_latency = self.inner.output_latency.clone();
 
         let stream = match sample_format {
             cpal::SampleFormat::I8 => build_audio_stream::<i8>(
@@ -1019,8 +1033,7 @@ impl NativeAudioClock {
                 clock_epoch,
                 interval_ring.clone(),
                 interval_cursor.clone(),
-                output_latency_histogram.clone(),
-                output_latency_available.clone(),
+                output_latency.clone(),
             ),
             cpal::SampleFormat::F32 => build_audio_stream::<f32>(
                 &device,
@@ -1046,8 +1059,7 @@ impl NativeAudioClock {
                 clock_epoch,
                 interval_ring.clone(),
                 interval_cursor.clone(),
-                output_latency_histogram.clone(),
-                output_latency_available.clone(),
+                output_latency.clone(),
             ),
             cpal::SampleFormat::I16 => build_audio_stream::<i16>(
                 &device,
@@ -1073,8 +1085,7 @@ impl NativeAudioClock {
                 clock_epoch,
                 interval_ring.clone(),
                 interval_cursor.clone(),
-                output_latency_histogram.clone(),
-                output_latency_available.clone(),
+                output_latency.clone(),
             ),
             cpal::SampleFormat::I24 => build_audio_stream::<cpal::I24>(
                 &device,
@@ -1100,8 +1111,7 @@ impl NativeAudioClock {
                 clock_epoch,
                 interval_ring.clone(),
                 interval_cursor.clone(),
-                output_latency_histogram.clone(),
-                output_latency_available.clone(),
+                output_latency.clone(),
             ),
             cpal::SampleFormat::I32 => build_audio_stream::<i32>(
                 &device,
@@ -1127,8 +1137,7 @@ impl NativeAudioClock {
                 clock_epoch,
                 interval_ring.clone(),
                 interval_cursor.clone(),
-                output_latency_histogram.clone(),
-                output_latency_available.clone(),
+                output_latency.clone(),
             ),
             cpal::SampleFormat::I64 => build_audio_stream::<i64>(
                 &device,
@@ -1154,8 +1163,7 @@ impl NativeAudioClock {
                 clock_epoch,
                 interval_ring.clone(),
                 interval_cursor.clone(),
-                output_latency_histogram.clone(),
-                output_latency_available.clone(),
+                output_latency.clone(),
             ),
             cpal::SampleFormat::U8 => build_audio_stream::<u8>(
                 &device,
@@ -1181,8 +1189,7 @@ impl NativeAudioClock {
                 clock_epoch,
                 interval_ring.clone(),
                 interval_cursor.clone(),
-                output_latency_histogram.clone(),
-                output_latency_available.clone(),
+                output_latency.clone(),
             ),
             cpal::SampleFormat::U16 => build_audio_stream::<u16>(
                 &device,
@@ -1208,8 +1215,7 @@ impl NativeAudioClock {
                 clock_epoch,
                 interval_ring.clone(),
                 interval_cursor.clone(),
-                output_latency_histogram.clone(),
-                output_latency_available.clone(),
+                output_latency.clone(),
             ),
             cpal::SampleFormat::U24 => build_audio_stream::<cpal::U24>(
                 &device,
@@ -1235,8 +1241,7 @@ impl NativeAudioClock {
                 clock_epoch,
                 interval_ring.clone(),
                 interval_cursor.clone(),
-                output_latency_histogram.clone(),
-                output_latency_available.clone(),
+                output_latency.clone(),
             ),
             cpal::SampleFormat::U32 => build_audio_stream::<u32>(
                 &device,
@@ -1262,8 +1267,7 @@ impl NativeAudioClock {
                 clock_epoch,
                 interval_ring.clone(),
                 interval_cursor.clone(),
-                output_latency_histogram.clone(),
-                output_latency_available.clone(),
+                output_latency.clone(),
             ),
             cpal::SampleFormat::U64 => build_audio_stream::<u64>(
                 &device,
@@ -1289,8 +1293,7 @@ impl NativeAudioClock {
                 clock_epoch,
                 interval_ring.clone(),
                 interval_cursor.clone(),
-                output_latency_histogram.clone(),
-                output_latency_available.clone(),
+                output_latency.clone(),
             ),
             cpal::SampleFormat::F64 => build_audio_stream::<f64>(
                 &device,
@@ -1316,8 +1319,7 @@ impl NativeAudioClock {
                 clock_epoch,
                 interval_ring.clone(),
                 interval_cursor.clone(),
-                output_latency_histogram.clone(),
-                output_latency_available.clone(),
+                output_latency.clone(),
             ),
             unsupported => {
                 return Err(format!(
@@ -1682,14 +1684,44 @@ impl NativeAudioClock {
             seek_latency_total_us: self.inner.seek_latency_total_us.load(Ordering::Acquire),
             output_latency_us_histogram: if self
                 .inner
-                .output_latency_available
+                .output_latency
+                .available
                 .load(Ordering::Acquire)
             {
-                let mut hist = [0u64; OUTPUT_LATENCY_HISTOGRAM_BUCKETS];
-                for (i, slot) in self.inner.output_latency_histogram.iter().enumerate() {
-                    hist[i] = slot.load(Ordering::Relaxed);
-                }
-                Some(hist)
+                Some(
+                    self.inner
+                        .output_latency
+                        .histogram
+                        .iter()
+                        .map(|s| s.load(Ordering::Relaxed))
+                        .collect(),
+                )
+            } else {
+                None
+            },
+            output_latency_last_us: if self.inner.output_latency.available.load(Ordering::Acquire) {
+                Some(self.inner.output_latency.last_us.load(Ordering::Relaxed))
+            } else {
+                None
+            },
+            output_latency_min_us: if self.inner.output_latency.available.load(Ordering::Acquire) {
+                let m = self.inner.output_latency.min_us.load(Ordering::Relaxed);
+                Some(if m == u64::MAX { 0 } else { m })
+            } else {
+                None
+            },
+            output_latency_max_us: if self.inner.output_latency.available.load(Ordering::Acquire) {
+                Some(self.inner.output_latency.max_us.load(Ordering::Relaxed))
+            } else {
+                None
+            },
+            output_latency_sum_us: if self.inner.output_latency.available.load(Ordering::Acquire) {
+                Some(self.inner.output_latency.sum_us.load(Ordering::Relaxed))
+            } else {
+                None
+            },
+            output_latency_count: if self.inner.output_latency.available.load(Ordering::Acquire) {
+                Some(self.inner.output_latency.count.load(Ordering::Relaxed))
             } else {
                 None
             },
@@ -1765,11 +1797,9 @@ fn build_audio_stream<T>(
     interval_ring: Arc<[AtomicU64; INTERVAL_RING_SIZE]>,
     // Monotonically incrementing write cursor for interval_ring.
     interval_cursor: Arc<AtomicU64>,
-    // Log2 histogram of `playback − callback` output latency in µs.
-    // Written with fetch_add(Relaxed) — zero allocation, zero lock.
-    output_latency_histogram: Arc<[AtomicU64; OUTPUT_LATENCY_HISTOGRAM_BUCKETS]>,
-    // Set to true the first time a valid cpal playback timestamp is received.
-    output_latency_available: Arc<AtomicBool>,
+    // Linear histogram and atomics for `playback − callback` output latency in µs.
+    // Written with fetch_add / store / fetch_min / fetch_max (Relaxed) — zero allocation, zero lock.
+    output_latency: OutputLatencyMetrics,
 ) -> Result<cpal::Stream, cpal::Error>
 where
     T: SizedSample + FromSample<f32>,
@@ -1804,7 +1834,7 @@ where
 
             last_callback_ns.store(callback_ns, Ordering::Relaxed);
 
-            // Record `playback − callback` latency into the log2 histogram.
+            // Record `playback − callback` latency into linear histogram and atomics.
             // `info.timestamp().playback` is the moment the hardware will
             // actually present the first sample of this buffer; subtracting
             // `callback` gives the output latency the listener experiences.
@@ -1821,12 +1851,17 @@ where
                 // top overflow bucket anyway.
                 let us = latency.as_micros().min(u64::MAX as u128) as u64;
                 let bucket = output_latency_bucket(us);
-                output_latency_histogram[bucket].fetch_add(1, Ordering::Relaxed);
+                output_latency.histogram[bucket].fetch_add(1, Ordering::Relaxed);
+                output_latency.last_us.store(us, Ordering::Relaxed);
+                output_latency.min_us.fetch_min(us, Ordering::Relaxed);
+                output_latency.max_us.fetch_max(us, Ordering::Relaxed);
+                output_latency.sum_us.fetch_add(us, Ordering::Relaxed);
+                output_latency.count.fetch_add(1, Ordering::Relaxed);
                 // Mark as available on the very first successful measurement.
                 // compare_exchange is overkill; a store is fine because the
                 // flag only ever transitions false → true.
-                if !output_latency_available.load(Ordering::Relaxed) {
-                    output_latency_available.store(true, Ordering::Relaxed);
+                if !output_latency.available.load(Ordering::Relaxed) {
+                    output_latency.available.store(true, Ordering::Relaxed);
                 }
             }
 
@@ -2690,53 +2725,94 @@ mod tests {
     #[test]
     fn test_output_latency_bucket_mapping() {
         assert_eq!(output_latency_bucket(0), 0);
-        assert_eq!(output_latency_bucket(1), 0);
-        assert_eq!(output_latency_bucket(2), 1);
-        assert_eq!(output_latency_bucket(3), 1);
-        assert_eq!(output_latency_bucket(4), 2);
-        assert_eq!(output_latency_bucket(7), 2);
-        assert_eq!(output_latency_bucket(8), 3);
-        assert_eq!(output_latency_bucket(15), 3);
-        assert_eq!(output_latency_bucket(16), 4);
-        assert_eq!(output_latency_bucket(32767), 14);
-        assert_eq!(output_latency_bucket(32768), 15);
-        assert_eq!(output_latency_bucket(100_000), 15);
-        assert_eq!(output_latency_bucket(u64::MAX), 15);
+        assert_eq!(output_latency_bucket(999), 0);
+        assert_eq!(output_latency_bucket(1000), 1);
+        assert_eq!(output_latency_bucket(1999), 1);
+        assert_eq!(output_latency_bucket(20_000), 20); // 20 ms (wired)
+        assert_eq!(output_latency_bucket(30_000), 30); // 30 ms (wired)
+        assert_eq!(output_latency_bucket(100_000), 100); // 100 ms (BT)
+        assert_eq!(output_latency_bucket(300_000), 300); // 300 ms (BT)
+        assert_eq!(output_latency_bucket(511_999), 511);
+        assert_eq!(output_latency_bucket(512_000), 512); // overflow
+        assert_eq!(output_latency_bucket(1_000_000), 512); // overflow
+        assert_eq!(output_latency_bucket(u64::MAX), 512);
     }
 
     #[test]
     fn test_output_latency_status_telemetry() {
         let clock = NativeAudioClock::new();
         let status = clock.status();
-        // Host has not provided timestamps yet, so histogram must be None
+        // Host has not provided timestamps yet, so histogram and atomics must be None
         assert_eq!(status.output_latency_us_histogram, None);
+        assert_eq!(status.output_latency_last_us, None);
+        assert_eq!(status.output_latency_min_us, None);
+        assert_eq!(status.output_latency_max_us, None);
+        assert_eq!(status.output_latency_sum_us, None);
+        assert_eq!(status.output_latency_count, None);
 
-        // Simulate lock-free atomic increments as done from the CPAL callback
-        let b2 = output_latency_bucket(5); // bucket 2
-        let b15 = output_latency_bucket(50_000); // bucket 15 (overflow)
-        clock.inner.output_latency_histogram[b2].fetch_add(3, Ordering::Relaxed);
-        clock.inner.output_latency_histogram[b15].fetch_add(1, Ordering::Relaxed);
-        clock.inner.output_latency_available.store(true, Ordering::Release);
+        // Simulate lock-free atomic updates as done from the CPAL callback
+        let b20 = output_latency_bucket(20_000); // bucket 20 (20 ms)
+        let b512 = output_latency_bucket(600_000); // bucket 512 (overflow)
+        clock.inner.output_latency.histogram[b20].fetch_add(3, Ordering::Relaxed);
+        clock.inner.output_latency.histogram[b512].fetch_add(1, Ordering::Relaxed);
+        clock
+            .inner
+            .output_latency
+            .last_us
+            .store(20_000, Ordering::Relaxed);
+        clock
+            .inner
+            .output_latency
+            .min_us
+            .fetch_min(20_000, Ordering::Relaxed);
+        clock
+            .inner
+            .output_latency
+            .max_us
+            .fetch_max(600_000, Ordering::Relaxed);
+        clock
+            .inner
+            .output_latency
+            .sum_us
+            .fetch_add(660_000, Ordering::Relaxed);
+        clock
+            .inner
+            .output_latency
+            .count
+            .fetch_add(4, Ordering::Relaxed);
+        clock
+            .inner
+            .output_latency
+            .available
+            .store(true, Ordering::Release);
 
         let status2 = clock.status();
         assert!(status2.output_latency_us_histogram.is_some());
         let hist = status2.output_latency_us_histogram.unwrap();
-        assert_eq!(hist[b2], 3);
-        assert_eq!(hist[b15], 1);
+        assert_eq!(hist.len(), OUTPUT_LATENCY_HISTOGRAM_BUCKETS);
+        assert_eq!(hist[b20], 3);
+        assert_eq!(hist[b512], 1);
         assert_eq!(hist[0], 0);
-        assert_eq!(hist[1], 0);
+        assert_eq!(status2.output_latency_last_us, Some(20_000));
+        assert_eq!(status2.output_latency_min_us, Some(20_000));
+        assert_eq!(status2.output_latency_max_us, Some(600_000));
+        assert_eq!(status2.output_latency_sum_us, Some(660_000));
+        assert_eq!(status2.output_latency_count, Some(4));
     }
 
     #[test]
     fn test_realtime_safety_callback_structures() {
-        // Assert that the histogram array in NativeAudioClockInner is fixed-size
+        // Assert that the histogram array in OutputLatencyMetrics is fixed-size
         // and contains only AtomicU64 elements — zero heap allocation and zero locks.
         let clock = NativeAudioClock::new();
-        assert_eq!(clock.inner.output_latency_histogram.len(), OUTPUT_LATENCY_HISTOGRAM_BUCKETS);
-        for slot in clock.inner.output_latency_histogram.iter() {
+        assert_eq!(
+            clock.inner.output_latency.histogram.len(),
+            OUTPUT_LATENCY_HISTOGRAM_BUCKETS
+        );
+        for slot in clock.inner.output_latency.histogram.iter() {
             assert_eq!(slot.load(Ordering::Relaxed), 0);
         }
-        // Verify output_latency_available is an atomic bool
-        assert!(!clock.inner.output_latency_available.load(Ordering::Relaxed));
+        // Verify output_latency.available is an atomic bool
+        assert!(!clock.inner.output_latency.available.load(Ordering::Relaxed));
     }
 }

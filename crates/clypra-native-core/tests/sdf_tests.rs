@@ -452,3 +452,30 @@ fn render_text_sdf_kerning_and_line_metrics() {
         (result.width * result.height) as usize
     );
 }
+
+#[test]
+fn glyph_cache_telemetry_records_real_hit_and_miss_delta() {
+    let font = test_font();
+    let hash = test_font_hash();
+    let cache = GlyphSdfCache::new(4 * 1024 * 1024);
+
+    let initial_hits = clypra_native_core::performance::glyph_cache_hits();
+    let initial_misses = clypra_native_core::performance::glyph_cache_misses();
+
+    // First call drives real get_or_insert_pinned_with_style -> slow path -> record_glyph_cache_miss()
+    let _g1 = cache.get_or_insert(&font, hash, '§', 40.0, 8.0, 4);
+    let after_miss_hits = clypra_native_core::performance::glyph_cache_hits();
+    let after_miss_misses = clypra_native_core::performance::glyph_cache_misses();
+
+    assert_eq!(after_miss_misses.saturating_sub(initial_misses), 1);
+    assert_eq!(after_miss_hits.saturating_sub(initial_hits), 0);
+
+    // Second call drives real get_or_insert_pinned_with_style -> fast path -> record_glyph_cache_hit()
+    let _g2 = cache.get_or_insert(&font, hash, '§', 40.0, 8.0, 4);
+    let after_hit_hits = clypra_native_core::performance::glyph_cache_hits();
+    let after_hit_misses = clypra_native_core::performance::glyph_cache_misses();
+
+    assert_eq!(after_hit_misses.saturating_sub(after_miss_misses), 0);
+    assert_eq!(after_hit_hits.saturating_sub(after_miss_hits), 1);
+}
+

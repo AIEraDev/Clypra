@@ -245,4 +245,52 @@ describe("PlaybackClock: RAF Generation Counter", () => {
     });
     expect(listener).toHaveBeenCalled();
   });
+
+  it("observation-only proof: setNativeClockPosition with poll telemetry produces identical currentTime to baseline", () => {
+    let mockTime = 1000.0;
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => mockTime);
+
+    try {
+      const clockBaseline = new PlaybackClock();
+      const clockTelemetry = new PlaybackClock();
+
+      clockBaseline.setDuration(30.0);
+      clockTelemetry.setDuration(30.0);
+
+      clockBaseline.play();
+      clockTelemetry.play();
+
+      // Sequence of simulated audio clock polls with varying speeds, RTTs, and timestamps
+      const testCases = [
+        { time: 0.1, speed: 1.0, rtt: 12.4, sampledNs: 1_000_000 },
+        { time: 0.5, speed: 1.0, rtt: 15.1, sampledNs: 400_000_000 },
+        { time: 1.2, speed: 1.5, rtt: 14.8, sampledNs: 1_100_000_000 },
+        { time: 1.8, speed: 1.5, rtt: 22.0, sampledNs: 1_700_000_000 },
+        // Slightly late sample within backward tolerance
+        { time: 1.78, speed: 1.5, rtt: 35.0, sampledNs: 1_750_000_000 },
+        { time: 2.5, speed: 1.0, rtt: 11.2, sampledNs: 2_400_000_000 },
+      ];
+
+      for (const tc of testCases) {
+        mockTime += 100.0;
+        // Baseline call: 2 arguments (time, speed)
+        clockBaseline.setNativeClockPosition(tc.time, tc.speed);
+        // Telemetry call: 4 arguments (time, speed, pollRttMs, sampledAtNs)
+        clockTelemetry.setNativeClockPosition(tc.time, tc.speed, tc.rtt, tc.sampledNs);
+
+        // Immediate read
+        expect(clockTelemetry.currentTime).toBe(clockBaseline.currentTime);
+        expect(clockTelemetry.time).toBe(clockBaseline.time);
+        expect(clockTelemetry.state).toBe(clockBaseline.state);
+        expect(clockTelemetry.speed).toBe(clockBaseline.speed);
+
+        // Extrapolated read 16.6ms later
+        mockTime += 16.666;
+        expect(clockTelemetry.currentTime).toBe(clockBaseline.currentTime);
+        expect(clockTelemetry.time).toBe(clockBaseline.time);
+      }
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
 });
