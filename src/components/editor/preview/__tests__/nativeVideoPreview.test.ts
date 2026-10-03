@@ -7,6 +7,7 @@ import {
   getNativePreviewReadinessBlockers,
   getNativeFrameRequestKey,
   isRenderableNativePreviewFrame,
+  isUnchangedFramePayload,
 } from "../nativeVideoPreview";
 import { buildNativeImageAssetId } from "@/core/render/nativeRasterAssetIds";
 
@@ -1235,4 +1236,58 @@ describe("buildNativeFrameRequest", () => {
     expect(request.project.textLayers?.[0].zIndex).toBe(1);
     expect(request.project.videoLayers[1].zIndex).toBe(2);
   });
+
+  describe("Commit D UNCH Sentinel Guardrails", () => {
+    it("correctly identifies a valid 12-byte UNCH sentinel with LE frame index", () => {
+      const buffer = new ArrayBuffer(12);
+      const view = new Uint8Array(buffer);
+      view[0] = 0x55; // 'U'
+      view[1] = 0x4e; // 'N'
+      view[2] = 0x43; // 'C'
+      view[3] = 0x48; // 'H'
+      const dataView = new DataView(buffer);
+      dataView.setBigUint64(4, 12345n, true);
+
+      expect(isUnchangedFramePayload(buffer)).toBe(true);
+      expect(isRenderableNativePreviewFrame(buffer, 1920, 1080)).toBe(true);
+    });
+
+    it("rejects payloads whose first 4 bytes are UNCH but byteLength is not 12", () => {
+      // 100-byte frame payload that happens to start with UNCH
+      const largeBuffer = new ArrayBuffer(100);
+      const view = new Uint8Array(largeBuffer);
+      view[0] = 0x55;
+      view[1] = 0x4e;
+      view[2] = 0x43;
+      view[3] = 0x48;
+
+      expect(isUnchangedFramePayload(largeBuffer)).toBe(false);
+      // Not an UNCH sentinel, and 100 bytes is not 1920*1080*4
+      expect(isRenderableNativePreviewFrame(largeBuffer, 1920, 1080)).toBe(false);
+
+      // Short buffer (4 bytes only)
+      const shortBuffer = new ArrayBuffer(4);
+      const shortView = new Uint8Array(shortBuffer);
+      shortView[0] = 0x55;
+      shortView[1] = 0x4e;
+      shortView[2] = 0x43;
+      shortView[3] = 0x48;
+
+      expect(isUnchangedFramePayload(shortBuffer)).toBe(false);
+      expect(isRenderableNativePreviewFrame(shortBuffer, 1920, 1080)).toBe(false);
+    });
+
+    it("rejects 12-byte payloads with incorrect magic bytes", () => {
+      const buffer = new ArrayBuffer(12);
+      const view = new Uint8Array(buffer);
+      view[0] = 0x55; // 'U'
+      view[1] = 0x4e; // 'N'
+      view[2] = 0x43; // 'C'
+      view[3] = 0x4b; // 'K' (invalid)
+
+      expect(isUnchangedFramePayload(buffer)).toBe(false);
+      expect(isRenderableNativePreviewFrame(buffer, 1920, 1080)).toBe(false);
+    });
+  });
 });
+
