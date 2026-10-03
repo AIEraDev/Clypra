@@ -101,6 +101,18 @@ pub struct PlaybackState {
     pub dropped_frames: u64,
     pub buffering: bool,
     pub clock_status: PlaybackClockStatus,
+    /// Native monotonic timestamp (nanoseconds) captured immediately before
+    /// `audio_position_ticks` is read. The frontend subtracts this from its
+    /// own wall-clock (`performance.now()` converted to ns) to measure the
+    /// IPC poll round-trip time and compute an extrapolation error bound.
+    ///
+    /// On most hosts `Instant::now().as_nanos()` is a monotonic wall-clock.
+    /// It is NOT an absolute epoch — only deltas are meaningful. The frontend
+    /// must compare two consecutive values from the same process rather than
+    /// treating the absolute number as a Unix timestamp.
+    ///
+    /// Observation only — no playback behavior is modified.
+    pub sampled_at_ns: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

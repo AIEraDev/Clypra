@@ -38,6 +38,7 @@ import {
   FONT_ALIAS_MAP,
   BUNDLED_FONT_ALIAS_SET,
 } from "./fontRegistry";
+import { recordFontLoad } from "@/lib/playback/textMetrics";
 
 export type { FontDescriptor, FontLoadResult } from "@clypra-studio/engine";
 
@@ -326,7 +327,9 @@ class LocalFontLoader {
       }
 
       this.loaded.add(key);
-      return { font: descriptor, loaded: true, loadTimeMs: loadTimeMs() };
+      const timeMs = loadTimeMs();
+      recordFontLoad(timeMs);
+      return { font: descriptor, loaded: true, loadTimeMs: timeMs };
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error";

@@ -44,6 +44,19 @@ describe("frontend sync metric collection", () => {
       ui_playhead_drift: { n: 2, avg: -0.5, maxAbs: 4 },
       playhead_paint_jitter: { n: 2, avg: 16.5, maxAbs: 17 },
       seek_user_latency: { n: 0, avg: 0, maxAbs: 0 },
+      audio_extrapolation_error: { n: 2, avg: -0.5, maxAbs: 4 },
+    });
+  });
+
+  it("records audio poll RTT when provided", () => {
+    recordAudioPoll(100, 102, 14.5, 1_000_000);
+    recordAudioPoll(200, 203, 16.5, 2_000_000);
+
+    const snapshot = getSyncMetricsSnapshot();
+    expect(snapshot.audio_poll_rtt).toEqual({
+      n: 2,
+      avg: 15.5,
+      maxAbs: 16.5,
     });
   });
 

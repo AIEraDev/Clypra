@@ -37,6 +37,7 @@ import {
   startSyncMetricsFlushLoop,
 } from "@/lib/playback/syncMetrics";
 import { workerPerfCollector } from "@/core/monitoring/WorkerPerfCollector";
+import { getTextMetricsSnapshot } from "@/lib/playback/textMetrics";
 
 // ── Tauri runtime guard ───────────────────────────────────────────────────────
 // Evaluated lazily at call time, not at module-load time. The module-level
@@ -567,6 +568,23 @@ export class PerfLogService {
       });
     }
 
+    // Flush the final text performance metrics window.
+    const finalTextSummary = getTextMetricsSnapshot();
+    if (
+      finalTextSummary.uploads.totalRegistrations > 0 ||
+      finalTextSummary.cache.hits > 0 ||
+      finalTextSummary.cache.misses > 0 ||
+      Object.keys(finalTextSummary.rendererByKind).length > 0 ||
+      finalTextSummary.animation.samples > 0
+    ) {
+      this.queue.push({
+        kind: "text-rollup",
+        sessionId,
+        timestampEpochMs: Date.now(),
+        payload: finalTextSummary,
+      });
+    }
+
     if (this.workerErrorUnlisten) {
       this.workerErrorUnlisten();
       this.workerErrorUnlisten = null;
@@ -761,6 +779,7 @@ export class PerfLogService {
       this.flushFilmstripSummary();
       this.flushFrontendSyncMetrics();
       this.flushWorkerSummary();
+      this.flushTextMetricsSummary();
     }, SYNC_POLL_INTERVAL_MS);
   }
 
@@ -924,6 +943,29 @@ export class PerfLogService {
     if (!summary || summary.totalOperations === 0) return;
     this.enqueue({
       kind: "worker-rollup",
+      sessionId: this.sessionId,
+      timestampEpochMs: Date.now(),
+      payload: summary,
+    });
+  }
+
+  /**
+   * Drains zero-PII text performance metrics into a text-rollup entry.
+   */
+  private flushTextMetricsSummary(): void {
+    if (!this.sessionId) return;
+    const summary = getTextMetricsSnapshot();
+    if (
+      summary.uploads.totalRegistrations === 0 &&
+      summary.cache.hits === 0 &&
+      summary.cache.misses === 0 &&
+      Object.keys(summary.rendererByKind).length === 0 &&
+      summary.animation.samples === 0
+    ) {
+      return;
+    }
+    this.enqueue({
+      kind: "text-rollup",
       sessionId: this.sessionId,
       timestampEpochMs: Date.now(),
       payload: summary,

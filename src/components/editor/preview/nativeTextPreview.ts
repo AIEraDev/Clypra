@@ -20,6 +20,11 @@ import {
   type TextRenderTracePhase,
   type TextRenderOperation,
 } from "@/core/render/textRenderTrace";
+import {
+  recordBrowserTextRasterCacheHit,
+  recordBrowserTextRasterCacheMiss,
+  recordDynamicImport,
+} from "@/lib/playback/textMetrics";
 
 // ─── Module-level worker client singleton ────────────────────────────────────
 //
@@ -42,7 +47,13 @@ function getTemplateWorkerClient():
     // Dynamic import to avoid a circular dependency at module load time.
     // The void-and-assign fires immediately as a module side-effect so the
     // client is ready well before the first actual template render.
+    const importStart =
+      typeof performance !== "undefined" ? performance.now() : Date.now();
     void import("@/core/render/templateRasterizerWorkerClient").then((mod) => {
+      const dur =
+        (typeof performance !== "undefined" ? performance.now() : Date.now()) -
+        importStart;
+      recordDynamicImport("templateRasterizerWorkerClient", dur);
       _templateWorkerClient = new mod.TemplateRasterizerWorkerClient();
     });
     // Null on the very first synchronous call (only). Callers fall through
@@ -162,6 +173,7 @@ export async function paintTextLayersToCanvas(
       }
       let rasterPromise = browserTextRasterCache.get(rasterKey);
       if (!rasterPromise) {
+        recordBrowserTextRasterCacheMiss();
         rasterPromise = rasterizeTextLayerForNative(layer, {
           phase,
           rendererPath: "webview-canvas",
@@ -180,6 +192,7 @@ export async function paintTextLayersToCanvas(
             browserTextRasterCache.delete(rasterKey);
         });
       } else {
+        recordBrowserTextRasterCacheHit();
         traceTextRenderCacheHit({
           kind: getTextRenderKind(layer),
           rendererPath: "webview-canvas",

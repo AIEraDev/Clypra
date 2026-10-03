@@ -1565,10 +1565,18 @@ pub fn native_pause_from_audio(app: AppHandle) -> Result<PlaybackState, String> 
     state
 }
 
+static MONOTONIC_EPOCH: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+
 #[tauri::command]
 pub fn native_tick_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
+    let sampled_at_ns = MONOTONIC_EPOCH
+        .get_or_init(Instant::now)
+        .elapsed()
+        .as_nanos()
+        .min(u64::MAX as u128) as u64;
     let clock = audio_clock_time(&app, true, false)?;
-    let state = with_runtime(&app, |runtime| runtime.tick(clock))?;
+    let mut state = with_runtime(&app, |runtime| runtime.tick(clock))?;
+    state.sampled_at_ns = Some(sampled_at_ns);
 
     // Terminal playback is a lifecycle boundary, not a silent pause. Release
     // the CPAL stream immediately so it cannot keep a stale clock/buffer alive
