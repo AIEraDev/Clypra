@@ -28,14 +28,14 @@ import { ScreenRecordingPreviewModal } from "@/components/ui/ScreenRecordingPrev
 import { useAutoUpdater } from "@/hooks/useAutoUpdater";
 import { useGpuTelemetryInit } from "@/hooks/useGpuTelemetryInit";
 import { UpdateBanner } from "@/components/ui/UpdateBanner";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 import { ProjectLoadingModal } from "./components/ui/modals/ProjectLoadingModal";
 import { TransferPanel } from "./components/ui/TransferPanel";
 import { useSettingsStore } from "@/store/settingsStore";
 import { importMediaPaths, getMediaType } from "@/hooks/useMediaImport";
 import { installNativeDiagnostics } from "@/core/runtime/nativeDiagnostics";
 import { getPreviewInteractionCoordinator } from "@/core/interactions";
-import { perfLogService } from "@/services/perfLogService";
+import { perfLogService, PerfLogService } from "@/services/perfLogService";
 
 // const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
 
@@ -124,6 +124,21 @@ const App = () => {
         if (platform.isTauri() && !perfLogService.getSessionId()) {
           const launchSessionId = `launch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           void perfLogService.openSession(launchSessionId);
+
+          // Auto-enable telemetry on first run only. If the user has already
+          // made an explicit choice (key present) we never touch their setting.
+          const TELEMETRY_ONBOARDED_KEY = "clypra.telemetryOnboardingShown";
+          if (!localStorage.getItem(TELEMETRY_ONBOARDED_KEY)) {
+            PerfLogService.setTelemetryUploadEnabled(true);
+            localStorage.setItem(TELEMETRY_ONBOARDED_KEY, "true");
+            // Delay slightly so the app finishes loading before the toast appears.
+            setTimeout(() => {
+              toast.info(
+                "Performance telemetry is enabled to help improve Clypra. You can turn it off in Settings → Preview Diagnostics.",
+                { duration: 7000 },
+              );
+            }, 2000);
+          }
         }
       } catch (error) {
         console.error("Failed to initialize app:", error);

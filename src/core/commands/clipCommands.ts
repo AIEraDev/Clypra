@@ -410,45 +410,7 @@ export const clipCommands: ClipCommand[] = [
       toast.success("Audio detached");
     },
   },
-  {
-    id: "clip.extractAudio",
-    label: "Extract Audio",
-    icon: AudioLines,
-    group: "audio",
-    isVisible: (ctx) => getTargetClipIds(ctx).some((id) => ctx.clips.some((clip) => clip.id === id && clip.kind !== "audio")),
-    isEnabled: (ctx) => {
-      const assets = useProjectStore.getState().mediaAssets;
-      return getTargetClipIds(ctx).some((id) => {
-        const clip = ctx.clips.find((candidate) => candidate.id === id);
-        const track = clip && ctx.tracks.find((candidate) => candidate.id === clip.trackId);
-        return (
-          !!clip &&
-          clip.kind !== "audio" &&
-          track?.type === "video" &&
-          !track.locked &&
-          assets.some(
-            (asset) =>
-              asset.id === clip.mediaId &&
-              asset.type === "video" &&
-              assetHasAudio(asset),
-          )
-        );
-      });
-    },
-    disabledReason: (ctx) => {
-      const assets = useProjectStore.getState().mediaAssets;
-      const clip = ctx.clips.find((candidate) => candidate.id === getTargetClipIds(ctx)[0]);
-      if (!clip) return "No clip selected";
-      const asset = assets.find((candidate) => candidate.id === clip.mediaId);
-      if (asset && !assetHasAudio(asset)) return "Video has no audio stream to extract";
-      return "Only unlocked video clips can extract audio";
-    },
-    execute: (ctx) => {
-      const clip = ctx.clips.find((candidate) => candidate.id === getTargetClipIds(ctx)[0]);
-      const asset = clip && useProjectStore.getState().mediaAssets.find((candidate) => candidate.id === clip.mediaId);
-      if (asset) void useMediaJobStore.getState().prepareExtraction(asset).catch((error) => toast.error(error instanceof Error ? error.message : "Unable to probe audio streams"));
-    },
-  },
+
   {
     id: "clip.toggleMute",
     label: "Mute / Unmute",
