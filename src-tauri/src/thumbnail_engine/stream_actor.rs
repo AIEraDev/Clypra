@@ -130,6 +130,12 @@ pub fn reset_producer_lookahead_downloads_skipped() {
     PRODUCER_LOOKAHEAD_DOWNLOADS_SKIPPED.store(0, std::sync::atomic::Ordering::Relaxed);
 }
 
+pub use crate::native_core::performance::{
+    lookahead_trigger_count, lookahead_trigger_dropped, producer_ahead_of_clock_ms,
+    producer_idle_total_ms, record_lookahead_trigger, record_lookahead_trigger_dropped,
+    record_producer_ahead_of_clock_ms, record_producer_idle_us,
+};
+
 /// Calculate the selective hardware download stride for lookahead priming (Arm 2b).
 ///
 /// On hardware decoders during active playback, downloading every single frame over
@@ -578,12 +584,21 @@ impl StreamDecoderActor {
         let frame_duration = self.frame_duration_secs.max(0.001);
         let tolerance = (frame_duration * 0.95).max(0.001);
 
+        // PR4: record idle time between finishing one prime and starting this one
+        let prime_start = std::time::Instant::now();
+
         let is_hw_accel = {
             let guard = self.decoder.lock().await;
             guard.is_hardware_accelerated()
         };
         let stride = calculate_download_stride(self.frame_duration_secs, is_hw_accel, options.is_playback);
         let lookahead_steps = (2 * stride).min(6);
+
+        // PR4: record idle time (from call site to first actual work step)
+        {
+            let idle_us = prime_start.elapsed().as_micros().min(u64::MAX as u128) as u64;
+            record_producer_idle_us(idle_us);
+        }
 
         for step in 1..=lookahead_steps {
             // Check if a real job arrived

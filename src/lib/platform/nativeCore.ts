@@ -363,6 +363,14 @@ export interface NativeFrameServiceStats {
   windowSeekP99Ms?: number;
   windowCacheHitRate?: number;
   modeStats?: NativeModeStats[];
+  /** PR4: total times schedule_lookahead_predecode was called. */
+  lookaheadTriggerCount?: number;
+  /** PR4: times a trigger was dropped by the in-flight guard. */
+  lookaheadTriggerDropped?: number;
+  /** PR4: cumulative producer idle time in ms between prime calls. */
+  producerIdleTotalMs?: number;
+  /** PR4: latest ahead-of-audio-clock measurement in ms (positive = ahead). */
+  producerAheadOfClockMs?: number;
 }
 
 export const NATIVE_PLAYBACK_POLICY = {

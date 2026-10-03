@@ -515,6 +515,10 @@ impl NativeFrameService {
             },
             mode_stats,
             text_layer_cache_hits: 0,
+            lookahead_trigger_count: super::performance::lookahead_trigger_count(),
+            lookahead_trigger_dropped: super::performance::lookahead_trigger_dropped(),
+            producer_idle_total_ms: super::performance::producer_idle_total_ms(),
+            producer_ahead_of_clock_ms: super::performance::producer_ahead_of_clock_ms(),
         }
     }
 }
@@ -841,6 +845,33 @@ mod tests {
         service.record_delivered_playback(1, &req, &key);
         assert!(service.should_skip_unchanged(Some("playback"), Some(1), &req, &key));
         service.reset();
+        assert!(!service.should_skip_unchanged(Some("playback"), Some(1), &req, &key));
+    }
+
+    #[test]
+    fn test_commit_d_generation_bump_and_canvas_clear_force_full_frame() {
+        let mut service = NativeFrameService::new(1024).unwrap();
+        let mut req = request();
+        req.frame_time.frame_index = 42;
+        req.output_width = 1920;
+        req.output_height = 1080;
+        let key = req.cache_key().unwrap();
+
+        // 1. Deliver frame in generation 1
+        service.record_delivered_playback(1, &req, &key);
+        assert!(service.should_skip_unchanged(Some("playback"), Some(1), &req, &key));
+
+        // 2. Generation bump (gen 1 -> 2) MUST reject UNCH and deliver full frame
+        assert!(!service.should_skip_unchanged(Some("playback"), Some(2), &req, &key));
+
+        // 3. Canvas resize (1920x1080 -> 1280x720) MUST reject UNCH
+        let mut resized = req.clone();
+        resized.output_width = 1280;
+        resized.output_height = 720;
+        assert!(!service.should_skip_unchanged(Some("playback"), Some(1), &resized, &key));
+
+        // 4. Canvas clear / invalidate MUST reject UNCH
+        service.clear_delivered_playback();
         assert!(!service.should_skip_unchanged(Some("playback"), Some(1), &req, &key));
     }
 
