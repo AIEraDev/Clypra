@@ -149,7 +149,7 @@ async function tauriListen(
 
 // ── PerfLogService ────────────────────────────────────────────────────────────
 
-class PerfLogService {
+export class PerfLogService {
   private sessionId: string | null = null;
   private filePath: string | null = null;
   /** Serializes startup so React remounts cannot create parallel launch logs. */
@@ -605,8 +605,8 @@ class PerfLogService {
 
     this.queue = [];
 
-    // Upload only if we got a valid path back.
-    if (closedPath) {
+    // Upload only if opt-in is enabled and not suppressed by env var.
+    if (closedPath && this.isTelemetryUploadEnabled()) {
       await this.uploadSessionFile(closedPath);
     }
   }
@@ -1051,6 +1051,47 @@ class PerfLogService {
     // Reads from the shared cache primed at startup by primeAppVersion().
     // Returns "unknown" only if called before the cache resolves (< a few ms).
     return getAppVersionSync() ?? "unknown";
+  }
+
+  /**
+   * Returns true only if the user has explicitly opted in to telemetry upload.
+   * Respects CLYPRA_DISABLE_TELEMETRY_UPLOAD env var for CI and contributors.
+   * Default is off for all installs including upgrades.
+   */
+  private isTelemetryUploadEnabled(): boolean {
+    // Env var takes precedence (contributors, CI)
+    const g = typeof globalThis !== "undefined" ? (globalThis as Record<string, unknown>) : {};
+    const proc = g.process as { env?: Record<string, string | undefined> } | undefined;
+    if (proc?.env?.CLYPRA_DISABLE_TELEMETRY_UPLOAD) {
+      return false;
+    }
+    if (typeof import.meta !== "undefined" && import.meta.env?.VITE_CLYPRA_DISABLE_TELEMETRY_UPLOAD === "1") {
+      return false;
+    }
+    // User opt-in — default false so consent is never inferred
+    try {
+      return localStorage.getItem("clypra.telemetryUploadEnabled") === "true";
+    } catch {
+      return false;
+    }
+  }
+
+  /** Enable or disable telemetry upload. Persists across sessions. */
+  static setTelemetryUploadEnabled(enabled: boolean): void {
+    try {
+      localStorage.setItem("clypra.telemetryUploadEnabled", String(enabled));
+    } catch {
+      // Private browsing mode — ignore
+    }
+  }
+
+  /** Returns the current opt-in state. */
+  static isTelemetryUploadEnabledStatic(): boolean {
+    try {
+      return localStorage.getItem("clypra.telemetryUploadEnabled") === "true";
+    } catch {
+      return false;
+    }
   }
 }
 

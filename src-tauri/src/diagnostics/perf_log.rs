@@ -270,6 +270,10 @@ pub async fn upload_perf_log_session(
     api_base_url: String,
     api_key: String,
 ) -> Result<(), String> {
+    if std::env::var("CLYPRA_DISABLE_TELEMETRY_UPLOAD").is_ok() {
+        return Ok(());
+    }
+
     // Guard against the race where the file was deleted or renamed to .uploaded
     // between the directory scan in upload_pending_perf_logs and this read.
     // This is especially common on Windows where antivirus or OS file indexing
@@ -288,7 +292,7 @@ pub async fn upload_perf_log_session(
     let raw = fs::read_to_string(&file_path)
         .map_err(|e| format!("Failed to read perf log '{file_path}': {e}"))?;
 
-    let entries: Vec<serde_json::Value> = raw
+    let mut entries: Vec<serde_json::Value> = raw
         .lines()
         .filter(|line| !line.trim().is_empty())
         .map(|line| {
@@ -296,6 +300,10 @@ pub async fn upload_perf_log_session(
         })
         .filter(|v| !v.is_null())
         .collect();
+
+    for entry in &mut entries {
+        sanitize_telemetry_json(entry);
+    }
 
     if entries.is_empty() {
         // Nothing to upload — mark as uploaded to avoid reprocessing.
@@ -577,6 +585,32 @@ pub fn purge_perf_logs(app: tauri::AppHandle, max_age_days: Option<u32>) -> Resu
     Ok(deleted)
 }
 
+/// Recursively traverses a JSON value and redacts any project identifiers (e.g. `project-1790732159574-...`)
+/// to protect user privacy before telemetry uploads.
+fn sanitize_telemetry_json(value: &mut serde_json::Value) {
+    static PROJECT_ID_REGEX: once_cell::sync::Lazy<regex::Regex> =
+        once_cell::sync::Lazy::new(|| regex::Regex::new(r"project-[a-zA-Z0-9_-]+").unwrap());
+
+    match value {
+        serde_json::Value::String(s) => {
+            if s.contains("project-") {
+                *s = PROJECT_ID_REGEX.replace_all(s, "project-anon").to_string();
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                sanitize_telemetry_json(v);
+            }
+        }
+        serde_json::Value::Object(obj) => {
+            for v in obj.values_mut() {
+                sanitize_telemetry_json(v);
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -653,4 +687,29 @@ mod tests {
         assert_eq!(entries[1]["kind"], "frontend-rollup");
         assert_eq!(entries[2]["kind"], "session-close");
     }
+
+    #[test]
+    fn test_sanitize_telemetry_json_strips_project_id() {
+        let mut sample = serde_json::json!({
+            "requestId": "project-1790732159574-abc123:0:42:1920x1080",
+            "nested": {
+                "measurementId": "frontend:webview:bridge:project-99887766:1",
+                "nonProject": "some-other-string"
+            }
+        });
+        sanitize_telemetry_json(&mut sample);
+        assert_eq!(
+            sample["requestId"],
+            "project-anon:0:42:1920x1080"
+        );
+        assert_eq!(
+            sample["nested"]["measurementId"],
+            "frontend:webview:bridge:project-anon:1"
+        );
+        assert_eq!(
+            sample["nested"]["nonProject"],
+            "some-other-string"
+        );
+    }
 }
+

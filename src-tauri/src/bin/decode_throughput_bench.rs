@@ -605,7 +605,11 @@ fn main() {
         build_profile: build_profile.to_string(),
         operating_system: std::env::consts::OS.to_string(),
         architecture: std::env::consts::ARCH.to_string(),
-        video_path: config.video_path.clone(),
+        video_path: std::path::Path::new(&config.video_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string(),
         clip_codec,
         clip_width,
         clip_height,
