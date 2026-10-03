@@ -267,6 +267,7 @@ impl GlyphSdfCache {
             let read = self.entries.read();
             if let Some(entry) = read.get(&key) {
                 self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                crate::performance::record_glyph_cache_hit();
                 let glyph = entry.glyph.clone();
                 drop(read);
                 // Update LRU touch and pin epoch if requested
@@ -285,6 +286,7 @@ impl GlyphSdfCache {
 
         self.misses
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        crate::performance::record_glyph_cache_miss();
 
         // Slow path: rasterize with fontdue and generate SDF
         let (metrics, bitmap) = font.rasterize(character, size_px);

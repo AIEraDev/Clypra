@@ -310,6 +310,12 @@ pub struct NativeFrameServiceStats {
     /// re-rendered should contribute here, not to `cache_hits`.
     #[serde(default)]
     pub text_layer_cache_hits: u64,
+    /// Hits on the native SDF glyph cache.
+    #[serde(default)]
+    pub glyph_cache_hits: u64,
+    /// Misses on the native SDF glyph cache.
+    #[serde(default)]
+    pub glyph_cache_misses: u64,
     /// Number of times schedule_lookahead_predecode was called (PR4 instrumentation).
     #[serde(default)]
     pub lookahead_trigger_count: u64,
@@ -367,6 +373,51 @@ pub fn record_producer_ahead_of_clock_ms(ms: f64) {
         (ms * 1_000.0) as i64,
         std::sync::atomic::Ordering::Relaxed,
     );
+}
+
+// ── Text & Glyph Cache Telemetry Instrumentation ──────────────────────────────
+static TEXT_LAYER_CACHE_HITS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+static TEXT_LAYER_CACHE_MISSES: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+static GLYPH_CACHE_HITS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+static GLYPH_CACHE_MISSES: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+pub fn text_layer_cache_hits() -> u64 {
+    TEXT_LAYER_CACHE_HITS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn text_layer_cache_misses() -> u64 {
+    TEXT_LAYER_CACHE_MISSES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn glyph_cache_hits() -> u64 {
+    GLYPH_CACHE_HITS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn glyph_cache_misses() -> u64 {
+    GLYPH_CACHE_MISSES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn record_text_layer_cache_hit() {
+    TEXT_LAYER_CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn record_text_layer_cache_miss() {
+    TEXT_LAYER_CACHE_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn record_glyph_cache_hit() {
+    GLYPH_CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn record_glyph_cache_miss() {
+    GLYPH_CACHE_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
 

@@ -51,10 +51,12 @@ impl TextLayerCache {
         if self.entries.contains_key(&key) {
             self.touch(key);
             self.cache_hits += 1;
+            crate::native_core::performance::record_text_layer_cache_hit();
             let entry = self.entries.get(&key)?;
             Some((&entry.texture, &entry.view))
         } else {
             self.cache_misses += 1;
+            crate::native_core::performance::record_text_layer_cache_miss();
             None
         }
     }
