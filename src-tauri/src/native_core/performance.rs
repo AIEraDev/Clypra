@@ -304,16 +304,16 @@ pub struct NativeFrameServiceStats {
     pub window_cache_hit_rate: f64,
     #[serde(default)]
     pub mode_stats: Vec<ModeStats>,
-    /// Hits on the VRAM SDF text layer cache. Kept separate from `cache_hits`
-    /// (which measures frame-level render cache hits) to avoid skewing
-    /// decode/composition telemetry. A static text layer that is never
-    /// re-rendered should contribute here, not to `cache_hits`.
+    /// Lifetime hits on the VRAM SDF text layer cache since process start.
+    /// Kept separate from `cache_hits` (which measures frame-level render cache hits)
+    /// to avoid skewing decode/composition telemetry. Expected to be 0 for projects
+    /// that only use Canvas 2D / worker text rasterization.
     #[serde(default)]
     pub text_layer_cache_hits: u64,
-    /// Hits on the native SDF glyph cache.
+    /// Lifetime hits on the native SDF glyph cache since process start.
     #[serde(default)]
     pub glyph_cache_hits: u64,
-    /// Misses on the native SDF glyph cache.
+    /// Lifetime misses on the native SDF glyph cache since process start.
     #[serde(default)]
     pub glyph_cache_misses: u64,
     /// Number of times schedule_lookahead_predecode was called (PR4 instrumentation).

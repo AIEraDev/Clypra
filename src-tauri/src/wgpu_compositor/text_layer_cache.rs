@@ -186,4 +186,69 @@ mod tests {
         let k2 = text_layer_cache_key("A", "f", 12.0, "glow", 1, r#"{"r":0.9}"#);
         assert_ne!(k1, k2);
     }
+
+    #[tokio::test]
+    async fn test_text_layer_cache_get_hit_and_miss_delta() {
+        let mut cache = TextLayerCache::new(1024 * 1024);
+
+        let initial_misses = crate::native_core::performance::text_layer_cache_misses();
+        let initial_hits = crate::native_core::performance::text_layer_cache_hits();
+
+        // Real miss through cache.get()
+        assert!(cache.get(9999).is_none());
+        let misses_after = crate::native_core::performance::text_layer_cache_misses();
+        let hits_after = crate::native_core::performance::text_layer_cache_hits();
+        assert_eq!(misses_after.saturating_sub(initial_misses), 1);
+        assert_eq!(hits_after.saturating_sub(initial_hits), 0);
+        assert_eq!(cache.cache_misses, 1);
+        assert_eq!(cache.cache_hits, 0);
+
+        // Try to obtain a wgpu device to test real hit through cache.insert() and cache.get()
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        if let Some(adapter) = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            })
+            .await
+        {
+            if let Ok((device, _queue)) = adapter
+                .request_device(&wgpu::DeviceDescriptor::default(), None)
+                .await
+            {
+                let texture = Arc::new(device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("Test Text Layer"),
+                    size: wgpu::Extent3d {
+                        width: 1,
+                        height: 1,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[],
+                }));
+                let view = Arc::new(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+
+                let key = 12345u64;
+                cache.insert(key, texture, view, 1, 1);
+
+                let hits_before = crate::native_core::performance::text_layer_cache_hits();
+                let misses_before = crate::native_core::performance::text_layer_cache_misses();
+
+                let entry = cache.get(key);
+                assert!(entry.is_some());
+
+                let hits_after = crate::native_core::performance::text_layer_cache_hits();
+                let misses_after = crate::native_core::performance::text_layer_cache_misses();
+
+                assert_eq!(hits_after.saturating_sub(hits_before), 1);
+                assert_eq!(misses_after.saturating_sub(misses_before), 0);
+                assert_eq!(cache.cache_hits, 1);
+            }
+        }
+    }
 }
