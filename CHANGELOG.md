@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [1.5.9] - 2026-10-04
+
+### ⏱️ Cold-Start Observability & Launch Milestones (Phase 1)
+
+- **Native Cold-Start Span Recorder (`cold_start.rs`)** — introduced zero-overhead startup telemetry capturing microsecond spans across the cold-start lifecycle (C0–C4). Features RAII `SpanGuard` for auto-recording on scope exit (capturing failed probes with `ok: false`), OS-measured pre-main process creation times (`GetProcessTimes` on Windows, `proc_pidinfo` with `PROC_PIDTBSDINFO` on macOS), bounded 512-span ring-buffer storage, and cumulative stage aggregates (#488).
+- **Interactive Wait & Contention Tracking** — tracks `waitedByInteractiveUs` independently from `workUs` to isolate true interactive UI blockage from background threads (e.g. `c0_gpu_init` contention calculated from user frame request overlap) (#488).
+- **Subsystem Purpose Tagging on Media Probes** — tagged container opens, codec creations, and hardware contexts with explicit functional purposes (`preview`, `filmstrip`, `waveform`, `export`, `probe`) to prevent background thumbnail generation from contaminating interactive cold playback metrics (#488).
+- **Frontend Launch Milestones & Low-End GPU Fallbacks** — recorded user-visible milestones (`windowCreatedAtUs`, `windowShownAtUs`, `domContentLoadedMs`, `appMountedMs`, `shellPaintedMs` via double rAF, `interactiveAtUs`, `firstSoundAtUs`, `firstFrameAtUs`). Added `firstFramePaintedMs` canvas fallback for low-end graphics adapters (e.g. Intel HD 520) where native presentation surface is disabled, and continuous 1.0-second smooth playback detection ($\ge 0.9 \times \text{target FPS}$) (#488).
+- **Audio Cold-Path Counters & Output Latency** — tracked `pcmBytes`, 256 MiB cap truncations (`capTruncations`), and external CLI fallbacks (`cliFallbacks`). Real-time non-silent audio callback stamps `firstSoundAtUs` alongside hardware output device latency (`firstSoundLatencyUs`) (#488).
+- **Privacy Protections & Schema Constraints** — quantized file sizes into 64 MiB buckets (`fileSizeBucketMb`) and classified drive locations (`fixed`, `removable`, `network`, `ramdisk`) without logging, storing, or transmitting file paths. Added strict nested allowlist test enforcement (#488).
+
+### 🛠️ CI & Diagnostic Benchmarking Tooling
+
+- **Windows CI Validation** — added `check-windows` job running `cargo check` on `windows-latest` with cached vcpkg static FFmpeg (#488).
+- **Resilient Asset Test Suite** — marked large testing asset performance suites as `#[ignore]` with loud panics if `CLYPRA_TEST_ASSETS_DIR` is missing when run with `-- --ignored`, and replaced brittle wall-clock assertions with steady-state vs cold relative ratios (#488).
+- **Pilot Benchmark Suite & Tooling** — added synthetic fixture generator (`scripts/generate-bench-fixtures.sh`), cross-platform hardware specification collectors (`scripts/collect-mac-hardware.sh`, `scripts/collect-windows-hardware.ps1`), and automated median/IQR report summarizer (`scripts/summarize_reports.py`) (#488).
+
 ## [1.5.8] - 2026-10-02
 
 ### 🎬 Professional NLE Tools & Architecture
