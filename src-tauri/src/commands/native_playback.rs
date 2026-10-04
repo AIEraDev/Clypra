@@ -45,6 +45,7 @@ struct NativePlaybackStartupMilestone {
     stage: &'static str,
     elapsed_us: u64,
     ready_after_us: Option<u64>,
+    started_at_us: u64,
 }
 
 #[derive(Default)]
@@ -808,18 +809,30 @@ impl NativeRenderSession {
             Ok(presentation) => {
                 if presentation.presented {
                     if !self.first_presented.swap(true, Ordering::AcqRel) {
+                        crate::cold_start::record_first_frame();
+                        let elapsed_us = self
+                            .configured_at
+                            .elapsed()
+                            .as_micros()
+                            .min(u64::MAX as u128) as u64;
+                        crate::cold_start::record_span(
+                            "c4_first_frame",
+                            self.configured_at,
+                            elapsed_us,
+                            false,
+                        );
                         let ready_after_us = self.ready_after_us.load(Ordering::Acquire);
                         let _ = app.emit(
                             "clypra://native-playback-startup",
                             NativePlaybackStartupMilestone {
                                 stage: "first-native-frame-presented",
-                                elapsed_us: self
-                                    .configured_at
+                                elapsed_us,
+                                ready_after_us: (ready_after_us > 0).then_some(ready_after_us),
+                                started_at_us: crate::cold_start::PROCESS_START
                                     .elapsed()
                                     .as_micros()
                                     .min(u64::MAX as u128)
                                     as u64,
-                                ready_after_us: (ready_after_us > 0).then_some(ready_after_us),
                             },
                         );
                     }
@@ -1175,6 +1188,10 @@ pub async fn configure_native_playback_render(
                 .as_micros()
                 .min(u64::MAX as u128) as u64,
             ready_after_us: None,
+            started_at_us: crate::cold_start::PROCESS_START
+                .elapsed()
+                .as_micros()
+                .min(u64::MAX as u128) as u64,
         },
     );
     let _ = app.emit(
@@ -1261,6 +1278,10 @@ pub async fn configure_native_playback_render(
                 .as_micros()
                 .min(u64::MAX as u128) as u64,
             ready_after_us: None,
+            started_at_us: crate::cold_start::PROCESS_START
+                .elapsed()
+                .as_micros()
+                .min(u64::MAX as u128) as u64,
         },
     );
 
@@ -1290,6 +1311,10 @@ pub async fn configure_native_playback_render(
                 .as_micros()
                 .min(u64::MAX as u128) as u64,
             ready_after_us: Some(render_session.ready_after_us.load(Ordering::Acquire)),
+            started_at_us: crate::cold_start::PROCESS_START
+                .elapsed()
+                .as_micros()
+                .min(u64::MAX as u128) as u64,
         },
     );
 
@@ -1499,6 +1524,8 @@ pub fn native_seek(app: AppHandle, frame_index: u64) -> Result<PlaybackState, St
             is_scrub: false,
             generation: 1,
             request_id: frame_index,
+            warmth: crate::engine::SeekWarmth::Warm,
+            file_cache: crate::engine::FileCacheStatus::Unknown,
         },
         Some(&app),
     );

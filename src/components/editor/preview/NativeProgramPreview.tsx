@@ -96,6 +96,7 @@ import {
   listenForEngineQoSDecision,
   listenForNativeMaskEviction,
   listenForNativeRasterEviction,
+  recordFrontendLaunchMilestones,
   type NativePlaybackStatsPayload,
 } from "@/lib/platform/tauri";
 import { telemetryCollector } from "@/services/telemetryCollector";
@@ -213,6 +214,69 @@ function getReusableCanvasImageData(
   const image = context.createImageData(width, height);
   reusableCanvasImages.set(canvas, { width, height, image });
   return image;
+}
+
+let hasRecordedFirstFramePainted = false;
+let hasRecordedSmoothPlayback = false;
+const smoothPlaybackTimestamps: number[] = [];
+let lastSmoothFrameKey: string | number | null = null;
+
+function resetSmoothPlaybackTracking(): void {
+  smoothPlaybackTimestamps.length = 0;
+  lastSmoothFrameKey = null;
+}
+
+function onFramePresentedOrPainted(
+  isPlaying: boolean,
+  targetFps: number = 30,
+  frameKey?: string | number,
+): void {
+  const now = performance.now();
+  if (!hasRecordedFirstFramePainted) {
+    hasRecordedFirstFramePainted = true;
+    requestAnimationFrame(() => {
+      const firstFramePaintedMs = Math.round(
+        performance.timeOrigin + performance.now(),
+      );
+      void recordFrontendLaunchMilestones({ firstFramePaintedMs });
+    });
+  }
+
+  if (!hasRecordedSmoothPlayback) {
+    if (!isPlaying) {
+      resetSmoothPlaybackTracking();
+      return;
+    }
+    if (frameKey !== undefined && frameKey !== null) {
+      if (frameKey === lastSmoothFrameKey) {
+        return;
+      }
+      lastSmoothFrameKey = frameKey;
+    }
+    smoothPlaybackTimestamps.push(now);
+    while (
+      smoothPlaybackTimestamps.length > 0 &&
+      now - smoothPlaybackTimestamps[0] > 1100
+    ) {
+      smoothPlaybackTimestamps.shift();
+    }
+    if (smoothPlaybackTimestamps.length >= 2) {
+      const windowDurationMs = now - smoothPlaybackTimestamps[0];
+      if (windowDurationMs >= 980) {
+        const frameCount = smoothPlaybackTimestamps.length;
+        const currentFps = (frameCount * 1000) / windowDurationMs;
+        const threshold = Math.max(15, targetFps * 0.9);
+        if (currentFps >= threshold) {
+          hasRecordedSmoothPlayback = true;
+          const smoothPlaybackAtUs = Math.round(performance.timeOrigin + now);
+          void recordFrontendLaunchMilestones({
+            smoothPlaybackAtUs,
+            smoothPlaybackTargetFps: Math.round(targetFps),
+          });
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -2066,6 +2130,7 @@ export const NativeProgramPreview: React.FC = () => {
 
     const unsubscribeSeekIntent = seekController?.subscribe((intent) => {
       latestSeekIntent = intent;
+      resetSmoothPlaybackTracking();
       visibleRequestGeneration = Math.max(
         visibleRequestGeneration,
         intent.generation,
@@ -2088,10 +2153,22 @@ export const NativeProgramPreview: React.FC = () => {
         // reconfigured by the lifecycle effect. Keep presentation in the same
         // operation lane as hide/resize so a stale cleanup cannot hide the
         // surface immediately after this frame is submitted.
-        return await presentOnNativeSurface(project.id, present);
+        const result = await presentOnNativeSurface(project.id, present);
+        onFramePresentedOrPainted(
+          true,
+          project.frameRate ?? 30,
+          request.frameTime.frameIndex,
+        );
+        return result;
       } catch (error) {
         if (!(await reRegisterTextAssetsForRequest(request))) throw error;
-        return presentOnNativeSurface(project.id, present);
+        const result = await presentOnNativeSurface(project.id, present);
+        onFramePresentedOrPainted(
+          true,
+          project.frameRate ?? 30,
+          request.frameTime.frameIndex,
+        );
+        return result;
       } finally {
         traceSlowPlaybackStage("native-present", startedAt, {
           frameIndex: request.frameTime.frameIndex,
@@ -4118,6 +4195,11 @@ export const NativeProgramPreview: React.FC = () => {
                 }
                 lastPaintedFrameRef.current = nativeFrame;
                 canvasPaintMs = performance.now() - canvasPaintStarted;
+                onFramePresentedOrPainted(
+                  isPlaying,
+                  state.project?.frameRate ?? 30,
+                  timeToRender,
+                );
               } else {
                 canvasPaintMs = 0;
               }

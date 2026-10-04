@@ -6,6 +6,7 @@ use crate::sync_metrics::SYNC_METRICS;
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use tauri::{AppHandle, Manager};
 
 fn audio_clock(app: &AppHandle) -> Result<Arc<Mutex<NativeAudioClock>>, String> {
@@ -215,6 +216,8 @@ pub async fn replace_native_audio_clips(
         )
     };
 
+    let audio_decode_started = Instant::now();
+    let clip_count = clips.len();
     let mut decoded: Vec<NativePcmClip> = Vec::with_capacity(clips.len());
     for request in clips {
         match decode_native_audio_clip(
@@ -250,6 +253,18 @@ pub async fn replace_native_audio_clips(
             }
         }
     }
+
+    let audio_work_us = audio_decode_started
+        .elapsed()
+        .as_micros()
+        .min(u64::MAX as u128) as u64;
+    crate::cold_start::record_span(
+        "c1_audio_decode_all",
+        audio_decode_started,
+        audio_work_us,
+        false,
+    );
+    log::debug!("[ColdStart] c1_audio_decode_all: {} clips", clip_count);
 
     let statuses: Vec<NativeAudioClipStatus> = decoded.iter().map(NativePcmClip::status).collect();
     log::debug!(

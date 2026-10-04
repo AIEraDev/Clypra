@@ -1895,6 +1895,8 @@ where
                     ramp_remaining as usize,
                     TRANSPORT_RAMP_FRAMES as usize,
                 ) {
+                    let latency_us = output_latency.last_us.load(Ordering::Relaxed);
+                    crate::cold_start::record_first_sound(latency_us);
                     non_silent_frames.fetch_add(
                         (data.len() / usize::from(channels.max(1))) as u64,
                         Ordering::Relaxed,

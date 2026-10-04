@@ -213,6 +213,7 @@ pub struct NativePreviewPerformanceReport {
     /// into the NativeFrameService cache. Records the A/B state so unaccounted
     /// p50 comparisons can be attributed correctly.
     pub playback_cache_insert_skipped: bool,
+    pub cold_start: crate::cold_start::ColdStartReport,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -437,13 +438,18 @@ pub fn register_native_font(font_id: String, path: String) -> Result<u64, String
 /// a filesystem path. This is the normal path for Vite-bundled WOFF2 assets.
 #[tauri::command]
 pub fn register_native_font_bytes(font_id: String, bytes: Vec<u8>) -> Result<u64, String> {
+    let mut span = crate::cold_start::SpanGuard::start("c0_font_registration");
+    span.set_interactive_blocking();
     if font_id.trim().is_empty() {
+        span.set_ok(false);
         return Err("Native font id must not be empty".to_string());
     }
     if bytes.is_empty() {
+        span.set_ok(false);
         return Err(format!("Native font '{}' has no bytes", font_id));
     }
     if bytes.len() > 32 * 1024 * 1024 {
+        span.set_ok(false);
         return Err(format!(
             "Native font '{}' exceeds the 32 MiB registration limit",
             font_id
@@ -452,12 +458,17 @@ pub fn register_native_font_bytes(font_id: String, bytes: Vec<u8>) -> Result<u64
 
     let result =
         clypra_native_core::font_registry::global_font_registry().register_font(&font_id, &bytes);
-    if let Err(error) = &result {
-        diagnostics::error(
-            "native-font",
-            "register-failed",
-            format!("{font_id}: {error}"),
-        );
+    match &result {
+        Ok(_) => {
+            span.finish_ok();
+        }
+        Err(error) => {
+            diagnostics::error(
+                "native-font",
+                "register-failed",
+                format!("{font_id}: {error}"),
+            );
+        }
     }
     result
 }
@@ -2713,6 +2724,7 @@ async fn render_native_video_project_frame_bytes_timed(
                     session.mark_dxgi_supported();
                     decode_time_us = max_dec_us;
                     decoder_mutex_wait_us = total_wait_us;
+                    decode_telemetry.actor_wait_us = Some(0);
                     render_path = FrameRenderPath::ZeroCopyDxgi;
                 } else {
                     views.clear();
@@ -5126,10 +5138,10 @@ pub async fn render_native_frame(
             scheduler_wait_us: None,
             lookahead_wait_us: None,
             cold_start_init_us: None,
-            queue_residency_us: None,
+            queue_residency_us: Some(0),
             ipc_wait_us: None,
             decoder_mutex_wait_us: Some(stage_timings.decoder_mutex_wait_us),
-            actor_wait_us: stage_timings.decode_telemetry.actor_wait_us,
+            actor_wait_us: stage_timings.decode_telemetry.actor_wait_us.or(Some(0)),
             gpu_queue_wait_us: None,
             surface_acquire_us: None,
             submit_present_us: None,
@@ -5264,6 +5276,7 @@ pub async fn get_native_preview_performance_report(
             .try_state::<Arc<NativePlaybackPushRuntime>>()
             .map(|state| state.status()),
         playback_cache_insert_skipped: skip_playback_cache_insert_enabled(),
+        cold_start: crate::cold_start::get_report(),
     })
 }
 

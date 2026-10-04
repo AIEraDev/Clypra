@@ -91,8 +91,40 @@ impl KeyframeIndex {
     }
 }
 
+/// Classification of seek pipeline readiness.
+///
+/// Semantics:
+/// - `Cold`: A new decoder or HW device was created for this request (uninitialized state).
+/// - `Warm`: An existing decoder was repositioned (re-seek or non-sequential jump).
+/// - `Hot`: Sequential frame advance or served directly from cache (no decode penalty).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SeekWarmth {
+    /// Decoder or device created for this request.
+    Cold,
+    /// Existing decoder, request needed a reposition.
+    #[default]
+    Warm,
+    /// Sequential or served from cache.
+    Hot,
+}
+
+/// Status of the OS file cache for media access.
+///
+/// OS file cache status cannot be reliably determined without kernel/OS-level
+/// event tracing (e.g., Windows ETW or macOS dtrace/ktrace). Always defaults to
+/// `Unknown` unless measured under an explicit cache-flush benchmark protocol.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FileCacheStatus {
+    #[default]
+    Unknown,
+    Hit,
+    Miss,
+}
+
 /// Decomposed latency telemetry measuring every stage of seek and scrub.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SeekTelemetry {
     pub seek_total_us: u64,
     pub cache_lookup_us: u64,
@@ -108,6 +140,35 @@ pub struct SeekTelemetry {
     pub is_scrub: bool,
     pub generation: u64,
     pub request_id: u64,
+    /// Whether this seek was cold, warm, or hot (cache hit).
+    #[serde(default)]
+    pub warmth: SeekWarmth,
+    /// Status of the OS file cache (currently `unknown`).
+    #[serde(default)]
+    pub file_cache: FileCacheStatus,
+}
+
+impl Default for SeekTelemetry {
+    fn default() -> Self {
+        Self {
+            seek_total_us: 0,
+            cache_lookup_us: 0,
+            keyframe_lookup_us: 0,
+            demux_seek_us: 0,
+            decoder_flush_us: 0,
+            decode_to_target_us: 0,
+            surface_ready_us: 0,
+            present_us: 0,
+            target_pts: MediaTime::ZERO,
+            keyframe_pts: MediaTime::ZERO,
+            cache_hit: false,
+            is_scrub: false,
+            generation: 0,
+            request_id: 0,
+            warmth: SeekWarmth::default(),
+            file_cache: FileCacheStatus::default(),
+        }
+    }
 }
 
 /// Authoritative temporal navigation controller.
@@ -215,6 +276,8 @@ impl TemporalController {
                 is_scrub: false,
                 generation: self.current_generation,
                 request_id: request.request_id.0,
+                warmth: SeekWarmth::Hot,
+                file_cache: FileCacheStatus::Unknown,
             };
             return (request, Some(cached_frame));
         }
@@ -240,6 +303,8 @@ impl TemporalController {
             is_scrub: false,
             generation: self.current_generation,
             request_id: request.request_id.0,
+            warmth: SeekWarmth::Cold,
+            file_cache: FileCacheStatus::Unknown,
         };
 
         (request, None)

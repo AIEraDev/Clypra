@@ -1,3 +1,5 @@
+import type { ColdStartReport } from "@/services/telemetryCollector";
+
 export const NATIVE_CORE_CONTRACT_VERSION = 2;
 export const NATIVE_CORE_TIME_SCALE = 1_000_000;
 /**
@@ -152,6 +154,8 @@ export interface NativePreviewPerformanceReport {
   session: NativeSessionSnapshot;
   stageDiagnoses: NativePreviewStageDiagnosis[];
   pushBridge: NativePlaybackPushStatus | null;
+  playbackCacheInsertSkipped?: boolean;
+  coldStart?: ColdStartReport;
 }
 
 export interface NativePlaybackPushStatus {
@@ -959,3 +963,6 @@ export const DEFAULT_NATIVE_COLOR_POLICY: NativeColorPolicy = {
   toneMapHdrToSdr: true,
   displayProfile: "srgb-reference",
 };
+
+export { getColdStartReport, recordFrontendLaunchMilestones, markGpuAwaited } from "./tauri";
+export type { ColdStartReport, ColdSpan } from "../../services/telemetryCollector";

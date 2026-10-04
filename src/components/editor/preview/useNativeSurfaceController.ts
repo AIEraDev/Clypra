@@ -6,6 +6,7 @@ import {
   isTauriRuntime,
   listenForGpuFailed,
   listenForGpuReady,
+  markGpuAwaited,
   onNativePreviewWindowMoved,
 } from "@/lib/platform/tauri";
 import {
@@ -66,6 +67,7 @@ export function useNativeSurfaceController({
   // fired before this component mounted.
   useEffect(() => {
     if (!isTauriRuntime()) return;
+    void markGpuAwaited();
 
     let disposed = false;
     let pollTimer: ReturnType<typeof setInterval> | null = null;

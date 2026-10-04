@@ -129,6 +129,7 @@ describe("native core contracts", () => {
       "stageDiagnoses",
       "pushBridge",
       "playbackCacheInsertSkipped",
+      "coldStart",
       "frontend",
       "text",
       "sync",
@@ -153,5 +154,136 @@ describe("native core contracts", () => {
     };
 
     expect(Object.keys(mockReport).every((k) => allowedReportKeys.has(k))).toBe(true);
+  });
+
+  it("enforces strict nested allowlist schema and privacy constraints for ColdStartReport", () => {
+    const allowedColdReportKeys = new Set([
+      "processEpochMs",
+      "preMainMs",
+      "systemUptimeSecs",
+      "milestones",
+      "audioMetrics",
+      "aggregates",
+      "droppedSpans",
+      "spans",
+    ]);
+
+    const allowedMilestonesKeys = new Set([
+      "preMainMs",
+      "windowCreatedAtUs",
+      "windowShownAtUs",
+      "domContentLoadedMs",
+      "appMountedMs",
+      "shellPaintedMs",
+      "firstSoundAtUs",
+      "firstSoundLatencyUs",
+      "interactiveAtUs",
+      "firstFrameAtUs",
+      "firstFramePaintedMs",
+      "smoothPlaybackAtUs",
+      "smoothPlaybackTargetFps",
+    ]);
+
+    const allowedAudioColdMetricsKeys = new Set([
+      "pcmBytes",
+      "capTruncations",
+      "cliFallbacks",
+    ]);
+
+    const allowedStageAggregateKeys = new Set([
+      "count",
+      "totalWorkUs",
+      "maxWorkUs",
+      "totalWaitedUs",
+      "maxWaitedUs",
+      "okCount",
+      "errCount",
+    ]);
+
+    const allowedColdSpanKeys = new Set([
+      "stage",
+      "startedAtUs",
+      "workUs",
+      "waitedByInteractiveUs",
+      "cached",
+      "ok",
+      "purpose",
+      "clipIndex",
+      "containerFormat",
+      "fileSizeBucketMb",
+      "mediaLocation",
+    ]);
+
+    // Forbidden keys that must NEVER appear due to privacy constraints
+    const forbiddenKeys = ["path", "filePath", "fileSizeBytes", "exactBytes", "url", "uri"];
+
+    const mockColdReport: import("@/services/telemetryCollector").ColdStartReport = {
+      processEpochMs: 1727999999000,
+      preMainMs: 42,
+      systemUptimeSecs: 3600,
+      milestones: {
+        preMainMs: 42,
+        windowCreatedAtUs: 15000,
+        windowShownAtUs: 25000,
+        domContentLoadedMs: 80,
+        appMountedMs: 120,
+        shellPaintedMs: 140,
+        firstSoundAtUs: 320000,
+        firstSoundLatencyUs: 15000,
+        interactiveAtUs: 150000,
+        firstFrameAtUs: 220000,
+        firstFramePaintedMs: 235,
+        smoothPlaybackAtUs: 1250000,
+        smoothPlaybackTargetFps: 30,
+      },
+      audioMetrics: {
+        pcmBytes: 1048576,
+        capTruncations: 0,
+        cliFallbacks: 0,
+      },
+      aggregates: {
+        c0_gpu_init: {
+          count: 1,
+          totalWorkUs: 45000,
+          maxWorkUs: 45000,
+          totalWaitedUs: 0,
+          maxWaitedUs: 0,
+          okCount: 1,
+          errCount: 0,
+        },
+      },
+      droppedSpans: 0,
+      spans: [
+        {
+          stage: "c2_container_open_probe",
+          startedAtUs: 180000,
+          workUs: 12000,
+          waitedByInteractiveUs: 12000,
+          cached: false,
+          ok: true,
+          purpose: "preview",
+          clipIndex: 1,
+          containerFormat: "mov,mp4,m4a,3gp,3g2,mj2",
+          fileSizeBucketMb: 128,
+          mediaLocation: "fixed",
+        },
+      ],
+    };
+
+    expect(Object.keys(mockColdReport).every((k) => allowedColdReportKeys.has(k))).toBe(true);
+    expect(Object.keys(mockColdReport.milestones).every((k) => allowedMilestonesKeys.has(k))).toBe(true);
+    expect(Object.keys(mockColdReport.audioMetrics).every((k) => allowedAudioColdMetricsKeys.has(k))).toBe(true);
+    for (const agg of Object.values(mockColdReport.aggregates)) {
+      expect(Object.keys(agg).every((k) => allowedStageAggregateKeys.has(k))).toBe(true);
+    }
+    for (const span of mockColdReport.spans) {
+      expect(Object.keys(span).every((k) => allowedColdSpanKeys.has(k))).toBe(true);
+    }
+
+    // Verify privacy invariants: ensure none of the forbidden quasi-identifiers exist
+    const jsonStr = JSON.stringify(mockColdReport);
+    for (const forbidden of forbiddenKeys) {
+      expect(jsonStr).not.toContain(`"${forbidden}":`);
+    }
   });
 });

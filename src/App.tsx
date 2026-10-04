@@ -36,6 +36,10 @@ import { importMediaPaths, getMediaType } from "@/hooks/useMediaImport";
 import { installNativeDiagnostics } from "@/core/runtime/nativeDiagnostics";
 import { getPreviewInteractionCoordinator } from "@/core/interactions";
 import { perfLogService, PerfLogService } from "@/services/perfLogService";
+import {
+  getColdStartReport,
+  recordFrontendLaunchMilestones,
+} from "@/lib/platform/tauri";
 
 // const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
 
@@ -139,6 +143,46 @@ const App = () => {
               );
             }, 2000);
           }
+
+          // Measure and record frontend launch milestones (shell painted via double rAF)
+          const navEntry = performance.getEntriesByType("navigation")[0] as
+            | PerformanceNavigationTiming
+            | undefined;
+          const domContentLoadedMs = navEntry
+            ? Math.round(performance.timeOrigin + navEntry.domContentLoadedEventEnd)
+            : undefined;
+          const appMountedMs = Math.round(performance.timeOrigin + performance.now());
+
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              const shellPaintedMs = Math.round(performance.timeOrigin + performance.now());
+              const interactiveUs = Math.round(performance.timeOrigin + performance.now());
+              void recordFrontendLaunchMilestones({
+                domContentLoadedMs,
+                appMountedMs,
+                shellPaintedMs,
+                interactiveUs,
+              })
+                .then(() => getColdStartReport())
+                .then((report) => {
+                  const totalSpans = report.spans.length;
+                  const waitedMs = report.spans.reduce(
+                    (sum, s) => sum + s.waitedByInteractiveUs / 1000,
+                    0,
+                  );
+                  console.info(
+                    `[ColdStart] ${totalSpans} spans, ${waitedMs.toFixed(1)} ms interactive wait total`,
+                    report,
+                  );
+                })
+                .catch((err) => {
+                  console.warn(
+                    "[ColdStart] Failed to record milestones / retrieve report:",
+                    err,
+                  );
+                });
+            });
+          });
         }
       } catch (error) {
         console.error("Failed to initialize app:", error);

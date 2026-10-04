@@ -10,6 +10,7 @@ use tauri::{Emitter, Manager};
 pub mod ai;
 pub mod audio;
 pub mod clymatte;
+pub mod cold_start;
 pub mod commands;
 pub mod diagnostics;
 pub mod engine;
@@ -66,6 +67,42 @@ fn get_process_memory_mb() -> u64 {
     }
 }
 
+/// Returns the cold-start span report collected since process start.
+///
+/// Call once at the end of frontend initialisation to surface C0–C4 timing
+/// data in the session telemetry report. The call is cheap: it clones a small
+/// Vec that was written only during startup.
+#[tauri::command]
+fn get_cold_start_report() -> cold_start::ColdStartReport {
+    cold_start::get_report()
+}
+
+#[tauri::command]
+fn mark_gpu_awaited() {
+    cold_start::mark_gpu_awaited();
+}
+
+#[tauri::command]
+fn record_frontend_launch_milestones(
+    dom_content_loaded_ms: Option<u64>,
+    app_mounted_ms: Option<u64>,
+    shell_painted_ms: Option<u64>,
+    interactive_us: Option<u64>,
+    first_frame_painted_ms: Option<u64>,
+    smooth_playback_at_us: Option<u64>,
+    smooth_playback_target_fps: Option<u32>,
+) {
+    cold_start::record_frontend_launch_milestones(
+        dom_content_loaded_ms,
+        app_mounted_ms,
+        shell_painted_ms,
+        interactive_us,
+        first_frame_painted_ms,
+        smooth_playback_at_us,
+        smooth_playback_target_fps,
+    );
+}
+
 #[tauri::command]
 fn set_menu_language(app: tauri::AppHandle, language: String) -> Result<(), String> {
     if let Some(menu) = app.menu() {
@@ -98,6 +135,11 @@ fn exit_app(app: tauri::AppHandle, code: Option<i32>) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Force the process-start epoch before any background work begins so that
+    // cold-start span timestamps are anchored to the real process start, not
+    // the first lazy site that happens to touch PROCESS_START.
+    cold_start::force_process_start();
+
     #[cfg(target_os = "windows")]
     {
         if std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").is_err() {
@@ -276,6 +318,10 @@ pub fn run() {
             {
                 let gpu_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
+                    // Capture start here — the span covers adapter selection,
+                    // device creation, session construction, and shader compile.
+                    let gpu_init_started = std::time::Instant::now();
+
                     // Production defaults to DX12 on Windows, but Phase 0
                     // baseline runs must be able to select Vulkan without a
                     // source change. Set either `CLYPRA_WGPU_BACKEND` or the
@@ -355,6 +401,24 @@ pub fn run() {
                             gpu_handle.manage(preview_session);
                             gpu_handle.manage(lut_cache);
                             log::info!("🖥️ GPU context initialized and registered.");
+                            // Record cold-start span: covers adapter selection,
+                            // device creation, pipeline compile, and LUT init.
+                            let ready_at_us = crate::cold_start::PROCESS_START
+                                .elapsed()
+                                .as_micros()
+                                .min(u64::MAX as u128) as u64;
+                            let awaited_at_us = crate::cold_start::get_gpu_awaited_at_us();
+                            let waited_us = if awaited_at_us > 0 {
+                                ready_at_us.saturating_sub(awaited_at_us)
+                            } else {
+                                0
+                            };
+                            crate::cold_start::record_span(
+                                "c0_gpu_init",
+                                gpu_init_started,
+                                waited_us,
+                                false,
+                            );
                             // Notify the webview that the GPU is ready so the native
                             // preview surface can be configured without polling. Both
                             // app-level and window-level emission ensure global listeners
@@ -608,6 +672,10 @@ pub fn run() {
             process_camera_recording,
             // ── Process memory telemetry ────────────────────────────────────
             get_process_memory_mb,
+            // ── Cold-start span report & milestones ────────────────────────
+            get_cold_start_report,
+            mark_gpu_awaited,
+            record_frontend_launch_milestones,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
