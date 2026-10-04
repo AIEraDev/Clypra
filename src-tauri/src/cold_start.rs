@@ -808,11 +808,19 @@ pub fn classify_media_location(path: &std::path::Path) -> &'static str {
         {
             let mut stat: libc::statfs = std::mem::zeroed();
             if libc::statfs(c_path.as_ptr(), &mut stat) == 0 {
-                let flags = stat.f_flags;
-                let is_local = (flags & (libc::MNT_LOCAL as u32)) != 0;
-                if !is_local {
+                // Common network filesystem types on Linux:
+                // NFS (0x6969), SMB/CIFS (0x517B, 0xFE534D42), AFS (0x5346414F)
+                let f_type = stat.f_type as u64;
+                let is_network = f_type == 0x6969
+                    || f_type == 0x517B
+                    || f_type == 0xFE534D42
+                    || f_type == 0x5346414F;
+                if is_network {
                     "network"
-                } else if path.starts_with("/media") || path.starts_with("/mnt") {
+                } else if path.starts_with("/media")
+                    || path.starts_with("/mnt")
+                    || path.starts_with("/run/media")
+                {
                     "removable"
                 } else {
                     "fixed"
