@@ -119,6 +119,10 @@ jobs:
       # CMAKE_OSX_DEPLOYMENT_TARGET through CARGO_BUILD_TARGET_DIR cmake
       # passthrough. We use a .cargo/config.toml [env] block (committed) to
       # guarantee cmake sees the flag, and also set it here for safety.
+      - name: Install System Dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake pkg-config nasm
+
       - name: Cache Static FFmpeg (macOS)
         if: runner.os == 'macOS'
         id: cache-ffmpeg-macos
@@ -130,7 +134,6 @@ jobs:
       - name: Build Static FFmpeg (macOS)
         if: runner.os == 'macOS' && steps.cache-ffmpeg-macos.outputs.cache-hit != 'true'
         run: |
-          brew install cmake pkg-config nasm
           mkdir -p /tmp/ffmpeg-src
           curl -sL https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz | tar -xJ --strip-components=1 -C /tmp/ffmpeg-src
           cd /tmp/ffmpeg-src
@@ -177,6 +180,16 @@ jobs:
             choco install llvm -y --no-progress
             echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
           }
+
+      - name: Configure Clang for Windows ARM64
+        if: matrix.target == 'aarch64-pc-windows-msvc'
+        shell: powershell
+        run: |
+          echo "CC=clang-cl" >> $env:GITHUB_ENV
+          echo "CXX=clang-cl" >> $env:GITHUB_ENV
+          echo "CMAKE_C_COMPILER=clang-cl" >> $env:GITHUB_ENV
+          echo "CMAKE_CXX_COMPILER=clang-cl" >> $env:GITHUB_ENV
+          "C:\Program Files\LLVM\bin" >> $env:GITHUB_PATH
 
       - name: Install FFmpeg (Windows)
         if: runner.os == 'Windows'
