@@ -1,18 +1,25 @@
 use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::cell::Cell;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
 struct CountingAllocator;
 
-static ALLOC_COUNT: AtomicUsize = AtomicUsize::new(0);
-static TRACK_ALLOC: AtomicBool = AtomicBool::new(false);
+thread_local! {
+    static TRACK_THIS_THREAD: Cell<bool> = const { Cell::new(false) };
+    static THREAD_ALLOC_COUNT: Cell<usize> = const { Cell::new(0) };
+}
 
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if TRACK_ALLOC.load(Ordering::SeqCst) {
-            ALLOC_COUNT.fetch_add(1, Ordering::SeqCst);
-        }
+        let _ = TRACK_THIS_THREAD.try_with(|track| {
+            if track.get() {
+                let _ = THREAD_ALLOC_COUNT.try_with(|count| {
+                    count.set(count.get() + 1);
+                });
+            }
+        });
         System.alloc(layout)
     }
 
@@ -38,12 +45,26 @@ fn test_audio_callback_telemetry_zero_allocations() {
     let interval_cursor = Arc::new(AtomicU64::new(0));
     let clock_epoch = Instant::now();
 
-    // Warm up / pre-fault everything
+    // Warm up / pre-fault everything: TLS, clock elapsed, bucket calculation, and atomics
     let _ = metrics.clone();
+    for i in 0..100 {
+        let callback_ns = clock_epoch.elapsed().as_nanos().min(u64::MAX as u128) as u64;
+        let _ = output_latency_bucket(i as u64);
+        metrics.min_us.fetch_min(100, Ordering::Relaxed);
+        metrics.max_us.fetch_max(100, Ordering::Relaxed);
+        metrics.sum_us.fetch_add(100, Ordering::Relaxed);
+        metrics.count.fetch_add(1, Ordering::Relaxed);
+        interval_ring[0].store(callback_ns, Ordering::Relaxed);
+    }
+    metrics.count.store(0, Ordering::Relaxed);
+    metrics.sum_us.store(0, Ordering::Relaxed);
 
-    // Start tracking allocations
-    TRACK_ALLOC.store(true, Ordering::SeqCst);
-    ALLOC_COUNT.store(0, Ordering::SeqCst);
+    // Warm up TLS on this thread before enabling tracking
+    let _ = TRACK_THIS_THREAD.try_with(|t| t.set(false));
+    let _ = THREAD_ALLOC_COUNT.try_with(|c| c.set(0));
+
+    // Start tracking allocations on this thread
+    let _ = TRACK_THIS_THREAD.try_with(|t| t.set(true));
 
     for i in 0..10_000 {
         callback_count.fetch_add(1, Ordering::Relaxed);
@@ -74,8 +95,8 @@ fn test_audio_callback_telemetry_zero_allocations() {
         }
     }
 
-    TRACK_ALLOC.store(false, Ordering::SeqCst);
-    let allocs = ALLOC_COUNT.load(Ordering::SeqCst);
+    let _ = TRACK_THIS_THREAD.try_with(|t| t.set(false));
+    let allocs = THREAD_ALLOC_COUNT.with(|c| c.get());
 
     assert_eq!(
         allocs, 0,
