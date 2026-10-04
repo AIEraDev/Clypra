@@ -250,6 +250,8 @@ impl RgbaLayerTextureCache {
 
 impl NativePreviewSession {
     pub fn new(gpu: Arc<GpuContext>) -> Self {
+        let mut _span = crate::cold_start::SpanGuard::start("c0_pipeline_compile");
+        _span.set_interactive_blocking();
         let yuv_layout = create_yuv_hdr_bind_group_layout(&gpu.device);
         let sampler = create_yuv_hdr_sampler(&gpu.device);
         let pipeline = create_yuv_hdr_render_pipeline(
@@ -269,6 +271,7 @@ impl NativePreviewSession {
             }
         };
         let transparent_mask_placeholder = Self::create_transparent_mask_placeholder(&gpu);
+        _span.finish_ok();
 
         Self {
             gpu,

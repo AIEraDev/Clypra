@@ -1214,6 +1214,7 @@ pub async fn prewarm_decoders(video_paths: Vec<String>) -> Result<usize, String>
     if video_paths.is_empty() {
         return Ok(0);
     }
+    let span = crate::cold_start::SpanGuard::start("c1_prewarm_decoders");
 
     let mut success_count = 0;
 
@@ -1238,6 +1239,9 @@ pub async fn prewarm_decoders(video_paths: Vec<String>) -> Result<usize, String>
         }
     }
 
+    if success_count > 0 {
+        span.finish_ok();
+    }
     Ok(success_count)
 }
 

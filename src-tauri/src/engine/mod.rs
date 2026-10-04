@@ -108,8 +108,8 @@ pub use telemetry::{
     ENGINE_VERSION,
 };
 pub use temporal::{
-    KeyframeEntry, KeyframeIndex, SeekTelemetry, TemporalController, TemporalDirection,
-    TemporalRequest, TemporalRequestId, TemporalState,
+    FileCacheStatus, KeyframeEntry, KeyframeIndex, SeekTelemetry, SeekWarmth, TemporalController,
+    TemporalDirection, TemporalRequest, TemporalRequestId, TemporalState,
 };
 pub use timeline::{
     Clip, ClipId, CommandEnvelope, EngineVersion, MediaAssetRef, ProjectCommand, ProjectError,

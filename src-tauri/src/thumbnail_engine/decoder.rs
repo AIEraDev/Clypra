@@ -642,26 +642,59 @@ impl VideoDecoder {
     /// Open a general-purpose CPU decoder. Background and legacy callers use
     /// this safe default because they need CPU-readable frames.
     pub fn open(path: &str) -> Result<Self, String> {
-        Self::open_internal(path, false)
+        Self::open_internal(path, false, None)
     }
 
     /// Open a background thumbnail decoder. Filmstrip extraction needs a
     /// stable CPU frame for batch scaling; some VideoToolbox frame surfaces do
     /// not support the transfer formats required by that path (EINVAL/-22).
     pub fn open_software(path: &str) -> Result<Self, String> {
-        Self::open_internal(path, false)
+        Self::open_internal(path, false, Some("filmstrip"))
     }
 
     /// Open an interactive decoder with platform hardware acceleration.
     pub fn open_hardware(path: &str) -> Result<Self, String> {
-        Self::open_internal(path, true)
+        Self::open_internal(path, true, Some("preview"))
     }
 
-    fn open_internal(path: &str, prefer_hardware: bool) -> Result<Self, String> {
+    /// Open a decoder with an explicit cold-start purpose tag.
+    pub fn open_with_purpose(
+        path: &str,
+        prefer_hardware: bool,
+        purpose: Option<&'static str>,
+    ) -> Result<Self, String> {
+        Self::open_internal(path, prefer_hardware, purpose)
+    }
+
+    fn open_internal(
+        path: &str,
+        prefer_hardware: bool,
+        purpose: Option<&'static str>,
+    ) -> Result<Self, String> {
         ffmpeg::init().map_err(|e| e.to_string())?;
         ffmpeg::util::log::set_level(ffmpeg::util::log::Level::Error);
 
-        let input_ctx = ffmpeg::format::input(&path).map_err(|e| format!("Cannot open: {}", e))?;
+        let mut probe_guard = crate::cold_start::SpanGuard::start("c2_container_open_probe");
+        if let Some(p) = purpose {
+            probe_guard.set_purpose(p);
+        }
+        let input_ctx = match ffmpeg::format::input(&path) {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                probe_guard.set_ok(false);
+                return Err(format!("Cannot open: {}", e));
+            }
+        };
+        let file_size = std::fs::metadata(path).ok().map(|m| m.len());
+        let media_loc = crate::cold_start::classify_media_location(std::path::Path::new(path));
+        let clip_idx = crate::cold_start::next_clip_index();
+        probe_guard.set_clip_info(
+            clip_idx,
+            Some(input_ctx.format().name().to_string()),
+            file_size,
+            Some(media_loc),
+        );
+        probe_guard.finish_ok();
 
         let stream = input_ctx
             .streams()
@@ -762,12 +795,28 @@ impl VideoDecoder {
 
         let container_format = input_ctx.format().name().to_string();
 
+        let mut codec_guard = crate::cold_start::SpanGuard::start("c2_codec_open");
+        if let Some(p) = purpose {
+            codec_guard.set_purpose(p);
+        }
         let (decoder, width, height, is_hardware_accelerated) = if prefer_hardware {
-            Self::open_with_hw(codec_ctx)?
+            match Self::open_with_hw(codec_ctx, purpose) {
+                Ok(res) => res,
+                Err(e) => {
+                    codec_guard.set_ok(false);
+                    return Err(e);
+                }
+            }
         } else {
-            let (dec, w, h) = Self::open_software_codec(codec_ctx)?;
-            (dec, w, h, false)
+            match Self::open_software_codec(codec_ctx) {
+                Ok((dec, w, h)) => (dec, w, h, false),
+                Err(e) => {
+                    codec_guard.set_ok(false);
+                    return Err(e);
+                }
+            }
         };
+        codec_guard.finish_ok();
 
         let stream_metadata = VideoStreamMetadata {
             width,
@@ -1196,6 +1245,7 @@ impl VideoDecoder {
 
     fn open_with_hw(
         mut ctx: ffmpeg::codec::context::Context,
+        purpose: Option<&'static str>,
     ) -> Result<(ffmpeg::codec::decoder::Video, u32, u32, bool), String> {
         #[cfg(target_os = "macos")]
         let hw_types: &[ffmpeg::ffi::AVHWDeviceType] =
@@ -1234,6 +1284,10 @@ impl VideoDecoder {
                     .unwrap_or(std::ptr::null());
 
                 let mut hw_ctx = std::ptr::null_mut();
+                let mut hw_guard = crate::cold_start::SpanGuard::start("c2_hw_device_create");
+                if let Some(p) = purpose {
+                    hw_guard.set_purpose(p);
+                }
                 let mut ret = ffmpeg::ffi::av_hwdevice_ctx_create(
                     &mut hw_ctx,
                     hw_type,
@@ -1257,6 +1311,7 @@ impl VideoDecoder {
                 }
 
                 if ret >= 0 && !hw_ctx.is_null() {
+                    hw_guard.finish_ok();
                     (*ctx.as_mut_ptr()).hw_device_ctx = ffmpeg::ffi::av_buffer_ref(hw_ctx);
                     ffmpeg::ffi::av_buffer_unref(&mut hw_ctx);
                     (*ctx.as_mut_ptr()).get_format = Some(Self::get_hw_format);
@@ -1264,6 +1319,8 @@ impl VideoDecoder {
                     let w = decoder.width();
                     let h = decoder.height();
                     return Ok((decoder, w, h, true));
+                } else {
+                    hw_guard.set_ok(false);
                 }
             }
         }
@@ -3293,6 +3350,7 @@ async fn get_or_create_decoder_in_pool(
     path: &str,
     max_pool_size: usize,
     prefer_hardware: bool,
+    purpose: &'static str,
 ) -> Result<Arc<Mutex<VideoDecoder>>, String> {
     // 1. Fast Path: Check if decoder exists in pool without holding shard lock across await
     if let Some(entry) = pool.get(key) {
@@ -3319,13 +3377,9 @@ async fn get_or_create_decoder_in_pool(
         }
     }
 
-    // 3. Create new decoder — performed outside any DashMap lock
-    let decoder = if prefer_hardware {
-        VideoDecoder::open_hardware(path)
-    } else {
-        VideoDecoder::open_software(path)
-    }
-    .map_err(|e| format!("Failed to open {}: {}", path, e))?;
+    // 3. Create new decoder with explicit purpose tag — performed outside any DashMap lock
+    let decoder = VideoDecoder::open_with_purpose(path, prefer_hardware, Some(purpose))
+        .map_err(|e| format!("Failed to open {}: {}", path, e))?;
 
     let arc_decoder = Arc::new(Mutex::new(decoder));
     let entry = Arc::new(DecoderEntry {
@@ -3346,6 +3400,7 @@ pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String>
         path,
         MAX_THUMBNAIL_DECODER_POOL_SIZE,
         false,
+        "filmstrip",
     )
     .await
 }
@@ -3371,6 +3426,7 @@ pub async fn get_preview_decoder_for_stream(
         path,
         MAX_PREVIEW_DECODER_POOL_SIZE,
         true,
+        "preview",
     )
     .await
 }
@@ -3392,6 +3448,7 @@ pub async fn acquire_preview_decoder_lease_for_stream(
         path,
         MAX_PREVIEW_DECODER_POOL_SIZE,
         true,
+        "preview",
     )
     .await?;
     let entry = PREVIEW_DECODER_POOL

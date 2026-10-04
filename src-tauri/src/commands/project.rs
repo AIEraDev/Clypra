@@ -3,7 +3,7 @@ use serde::Serialize;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::Manager;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -219,6 +219,9 @@ pub fn load_project(path: String) -> Result<String, String> {
 pub fn get_recent_projects(app: tauri::AppHandle) -> Result<Vec<RecentProjectEntry>, String> {
     let projects_dir = get_projects_dir(&app)?;
     let mut projects = Vec::new();
+    // Measure the full cost of reading + deserializing every project JSON so
+    // cold-start telemetry can surface the O(projects × clips) parse cost.
+    let parse_started = Instant::now();
 
     for entry in
         fs::read_dir(&projects_dir).map_err(|e| format!("Failed to read projects: {}", e))?
@@ -270,6 +273,13 @@ pub fn get_recent_projects(app: tauri::AppHandle) -> Result<Vec<RecentProjectEnt
         }
     }
 
+    let parse_work_us = parse_started.elapsed().as_micros().min(u64::MAX as u128) as u64;
+    crate::cold_start::record_span(
+        "c0_recent_projects_parse",
+        parse_started,
+        parse_work_us,
+        false,
+    );
     projects.sort_by_key(|entry| std::cmp::Reverse(entry.modified_at.unwrap_or(0)));
     Ok(projects)
 }
