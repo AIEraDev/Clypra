@@ -1525,7 +1525,7 @@ class TelemetryCollector {
     peakLatencyUs: 0,
     peakSeekLatencyMs: 0,
   };
-  private lastScrubInteractionMs: number = 0;
+  private lastScrubInteractionMs: number = -Infinity;
   private transportStatus: TelemetryTransportStatus = {
     // Batch endpoint is gone — all data flows through perfLogService session file.
     endpoint: "session-file",
@@ -1611,7 +1611,7 @@ class TelemetryCollector {
       peakLatencyUs: 0,
       peakSeekLatencyMs: 0,
     };
-    this.lastScrubInteractionMs = 0;
+    this.lastScrubInteractionMs = -Infinity;
   }
 
   public getThrottledAnomaliesCount(
