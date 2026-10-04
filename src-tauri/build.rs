@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods)]
+
 fn main() {
     // Tell Cargo to re-run this if these env vars change
     println!("cargo:rerun-if-env-changed=FFMPEG_DIR");

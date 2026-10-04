@@ -141,7 +141,7 @@ pub async fn open_camera_privacy_settings() -> Result<(), String> {
         // x-apple.systempreferences deep link — works on macOS 13+
         // Falls back to the general Privacy pane on older versions.
         let url = "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera";
-        std::process::Command::new("open")
+        crate::process_util::hidden_command("open")
             .arg(url)
             .spawn()
             .map_err(|e| e.to_string())?;
@@ -159,7 +159,7 @@ pub async fn open_microphone_privacy_settings() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         let url = "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
-        std::process::Command::new("open")
+        crate::process_util::hidden_command("open")
             .arg(url)
             .spawn()
             .map_err(|e| e.to_string())?;
@@ -223,7 +223,7 @@ pub async fn log_system_media_diagnostics() -> Result<SystemMediaDiagnostics, St
     // Check clamshell state on macOS
     #[cfg(target_os = "macos")]
     let clamshell_closed = {
-        let ioreg = std::process::Command::new("ioreg")
+        let ioreg = crate::process_util::hidden_command("ioreg")
             .args(["-r", "-k", "AppleClamshellState"])
             .output();
         match ioreg {

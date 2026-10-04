@@ -20,10 +20,12 @@ pub mod models;
 pub mod native_audio;
 pub mod native_core;
 pub mod preview_golden;
+pub mod process_util;
 pub mod sync_metrics;
 pub mod thumbnail_engine;
 pub mod transfer;
 pub mod wgpu_compositor;
+
 
 use commands::*;
 use diagnostics::crash_handler::{
