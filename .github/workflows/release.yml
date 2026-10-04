@@ -130,7 +130,7 @@ jobs:
       - name: Build Static FFmpeg (macOS)
         if: runner.os == 'macOS' && steps.cache-ffmpeg-macos.outputs.cache-hit != 'true'
         run: |
-          brew install cmake pkg-config
+          brew install cmake pkg-config nasm
           mkdir -p /tmp/ffmpeg-src
           curl -sL https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz | tar -xJ --strip-components=1 -C /tmp/ffmpeg-src
           cd /tmp/ffmpeg-src
