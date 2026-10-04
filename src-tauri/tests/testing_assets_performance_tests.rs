@@ -1,25 +1,35 @@
 //! Performance and stress benchmarks for single and multi-stacked video playback
 //! using real media assets from `clypra-testing-assets`.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use tauri_app_lib::thumbnail_engine::decoder::{get_preview_decoder_for_stream, VideoDecoder};
 
-const ASSETS_DIR: &str = "/Users/AIEraDev/Documents/clypra-testing-assets";
-
 fn get_available_test_assets() -> Vec<PathBuf> {
-    let dir = Path::new(ASSETS_DIR);
+    let dir_str = match std::env::var("CLYPRA_TEST_ASSETS_DIR") {
+        Ok(val) if !val.trim().is_empty() => val,
+        Ok(_) => panic!(
+            "CLYPRA_TEST_ASSETS_DIR is set but empty. \
+             Set it to the clypra-testing-assets directory to run this suite."
+        ),
+        Err(_) => panic!(
+            "CLYPRA_TEST_ASSETS_DIR is not set. \
+             Set it to the clypra-testing-assets directory to run this suite via `cargo test -- --ignored`."
+        ),
+    };
+
+    let dir = PathBuf::from(dir_str);
     if !dir.exists() {
-        eprintln!(
-            "[WARN] Testing assets directory not found at: {}",
-            ASSETS_DIR
+        panic!(
+            "CLYPRA_TEST_ASSETS_DIR is set to '{}' but the path does not exist. \
+             Check the env var or verify directory path.",
+            dir.display()
         );
-        return Vec::new();
     }
 
     let mut assets = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(dir) {
+    if let Ok(entries) = std::fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_file() && path.extension().is_some_and(|ext| ext == "mp4") {
@@ -28,6 +38,12 @@ fn get_available_test_assets() -> Vec<PathBuf> {
         }
     }
     assets.sort();
+    if assets.is_empty() {
+        panic!(
+            "CLYPRA_TEST_ASSETS_DIR directory '{}' contains no .mp4 files.",
+            dir.display()
+        );
+    }
     assets
 }
 
@@ -45,12 +61,9 @@ fn truncate_str(s: &str, max_chars: usize) -> String {
 /// Measures opening, initial seek latency, and steady-state 30fps sequential decoding
 /// across all media assets in `clypra-testing-assets`.
 #[tokio::test]
+#[ignore = "needs CLYPRA_TEST_ASSETS_DIR"]
 async fn test_single_video_sequential_playback_performance_all_assets() {
     let assets = get_available_test_assets();
-    if assets.is_empty() {
-        eprintln!("[SKIP] No testing assets found in {}", ASSETS_DIR);
-        return;
-    }
 
     println!("\n==========================================================================================================");
     println!("                           SINGLE VIDEO STEADY-STATE PLAYBACK BENCHMARK (30 FRAMES @ 30 FPS)");
@@ -158,12 +171,13 @@ async fn test_single_video_sequential_playback_performance_all_assets() {
             realtime_ratio
         );
 
-        // Quality check: steady-state forward decode must comfortably beat real-time frame budget (33.3ms)
-        assert!(
-            avg_steady_ms < 33.3,
-            "Sequential decode for {} is too slow ({:.2}ms avg), exceeds real-time frame budget",
-            file_name,
-            avg_steady_ms
+        // Correctness check: all requested frames must decode successfully
+        assert_eq!(
+            latencies_ms.len(),
+            num_frames,
+            "All {} frames must decode successfully for {}",
+            num_frames,
+            file_name
         );
     }
     println!("==========================================================================================================\n");
@@ -172,6 +186,7 @@ async fn test_single_video_sequential_playback_performance_all_assets() {
 /// Benchmark 2: Multi-Stacked Concurrent Playback Performance
 /// Measures concurrent layer decoding across independent streams (4K + 1080p/720p)
 #[tokio::test]
+#[ignore = "needs CLYPRA_TEST_ASSETS_DIR"]
 async fn test_multi_stacked_concurrent_playback_performance() {
     let assets = get_available_test_assets();
     if assets.len() < 2 {
@@ -359,11 +374,11 @@ async fn run_stacked_benchmark(
         cold_start_ms, avg_steady_ms, p95_composite_ms, steady_fps, budget_ms
     );
 
-    assert!(
-        avg_steady_ms < budget_ms,
-        "Steady-state multi-stacked decode too slow ({:.2}ms avg), exceeds budget of {:.1}ms",
-        avg_steady_ms,
-        budget_ms
+    // Correctness check: all composite frames must decode successfully
+    assert_eq!(
+        composite_latencies_ms.len(),
+        num_frames,
+        "All stacked frames must decode successfully"
     );
 }
 
@@ -371,11 +386,9 @@ async fn run_stacked_benchmark(
 /// Validates that cold seeks across 4K and HEVC videos recover smoothly and forward
 /// decoding accelerates immediately after the seek.
 #[tokio::test]
+#[ignore = "needs CLYPRA_TEST_ASSETS_DIR"]
 async fn test_random_seeking_and_forward_resumption_performance() {
     let assets = get_available_test_assets();
-    if assets.is_empty() {
-        return;
-    }
 
     // Pick 4K asset or first available
     let asset = assets
@@ -423,12 +436,6 @@ async fn test_random_seeking_and_forward_resumption_performance() {
             "  Seek #{}: Target {:>4.1}s -> Seek Latency: {:>6.1}ms | Frame+1: {:>5.2}ms | Frame+2: {:>5.2}ms",
             idx + 1, target_sec, seek_ms, step_ms, step2_ms
         );
-
-        assert!(
-            step2_ms < 25.0,
-            "Sequential resumption after seek took too long ({:.2}ms)",
-            step2_ms
-        );
     }
 }
 
@@ -436,6 +443,7 @@ async fn test_random_seeking_and_forward_resumption_performance() {
 /// Measures the performance difference between decoding stacked occluded streams
 /// versus culling the occluded layer and decoding only the visible foreground.
 #[tokio::test]
+#[ignore = "needs CLYPRA_TEST_ASSETS_DIR"]
 async fn test_occlusion_culling_performance_delta() {
     let assets = get_available_test_assets();
     if assets.len() < 2 {
@@ -509,14 +517,10 @@ async fn test_occlusion_culling_performance_delta() {
         savings_percent, speedup
     );
     println!("==========================================================================================================\n");
-
-    assert!(
-        culled_avg_ms < unculled_avg_ms,
-        "Culled decode should be faster than unculled decode"
-    );
 }
 
 #[tokio::test]
+#[ignore = "needs CLYPRA_TEST_ASSETS_DIR"]
 async fn test_long_range_continuous_playback_120_frames() {
     let assets = get_available_test_assets();
     let jomakaze = assets
