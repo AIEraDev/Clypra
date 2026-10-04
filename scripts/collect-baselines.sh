@@ -33,7 +33,7 @@ for scenario in "${SCENARIOS[@]}"; do
   
   OUTPUT_FILE="${OUTPUT_DIR}/${scenario}.json"
   
-  cargo run --manifest-path src-tauri/Cargo.toml --bin clypra-engine-benchmark --release -- \
+  cargo run --manifest-path src-tauri/Cargo.toml --example clypra-engine-benchmark --release -- \
     --scenario "$scenario" \
     --duration "$DURATION" \
     --runs "$RUNS" \

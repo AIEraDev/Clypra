@@ -4,6 +4,7 @@ version = "1.5.9"
 description = "A modern, open-source video editor with native performance and GPU-accelerated preview"
 authors = ["Clypra Contributors"]
 edition = "2021"
+autobins = false
 default-run = "clypra"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -19,13 +20,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 name = "clypra"
 path = "src/main.rs"
 
-[[bin]]
+[[example]]
 name = "clypra-engine-benchmark"
-path = "src/bin/benchmark.rs"
+path = "examples/benchmark.rs"
 
-[[bin]]
+[[example]]
 name = "decode-throughput-bench"
-path = "src/bin/decode_throughput_bench.rs"
+path = "examples/decode_throughput_bench.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
