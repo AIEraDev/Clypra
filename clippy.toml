@@ -1,0 +1,7 @@
+# Clippy configuration for Clypra
+# Enforces that all subprocess spawning uses process_util helpers to prevent console windows on Windows
+
+disallowed-methods = [
+  { path = "std::process::Command::new", reason = "use crate::process_util::hidden_command (sets CREATE_NO_WINDOW on Windows and default null stdin)" },
+  { path = "tokio::process::Command::new", reason = "use crate::process_util::hidden_tokio_command (sets CREATE_NO_WINDOW on Windows and default null stdin)" },
+]

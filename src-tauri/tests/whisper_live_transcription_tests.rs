@@ -1,6 +1,5 @@
 use bytemuck::cast_slice;
 use std::path::PathBuf;
-use std::process::Command;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 #[tokio::test]
@@ -34,7 +33,7 @@ async fn test_live_whisper_on_device_transcription() {
     );
 
     // 1. Extract 16kHz Mono f32 PCM via FFmpeg
-    let output = Command::new("ffmpeg")
+    let output = tauri_app_lib::process_util::hidden_command("ffmpeg")
         .args([
             "-i",
             audio_path.to_str().unwrap(),

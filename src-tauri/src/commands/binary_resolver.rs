@@ -388,31 +388,29 @@ fn candidate_binary_names(base_name: &str) -> Vec<String> {
 }
 
 /// Create a tokio asynchronous `Command` targeting the resolved binary or fallback name.
+/// The command is configured with `CREATE_NO_WINDOW` on Windows and default null stdin.
 pub fn create_async_command(base_name: &str) -> Command {
     let path_env = augmented_path();
-    if let Some(resolved) = resolve_binary_path(base_name) {
-        let mut cmd = Command::new(resolved);
-        cmd.env("PATH", path_env);
-        cmd
+    let mut cmd = if let Some(resolved) = resolve_binary_path(base_name) {
+        crate::process_util::hidden_tokio_command(resolved)
     } else {
-        let mut cmd = Command::new(base_name);
-        cmd.env("PATH", path_env);
-        cmd
-    }
+        crate::process_util::hidden_tokio_command(base_name)
+    };
+    cmd.env("PATH", path_env);
+    cmd
 }
 
 /// Create a standard synchronous `std::process::Command` targeting the resolved binary or fallback name.
+/// The command is configured with `CREATE_NO_WINDOW` on Windows and default null stdin.
 pub fn create_std_command(base_name: &str) -> std::process::Command {
     let path_env = augmented_path();
-    if let Some(resolved) = resolve_binary_path(base_name) {
-        let mut cmd = std::process::Command::new(resolved);
-        cmd.env("PATH", path_env);
-        cmd
+    let mut cmd = if let Some(resolved) = resolve_binary_path(base_name) {
+        crate::process_util::hidden_command(resolved)
     } else {
-        let mut cmd = std::process::Command::new(base_name);
-        cmd.env("PATH", path_env);
-        cmd
-    }
+        crate::process_util::hidden_command(base_name)
+    };
+    cmd.env("PATH", path_env);
+    cmd
 }
 
 #[cfg(test)]

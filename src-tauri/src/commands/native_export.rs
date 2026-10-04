@@ -7,8 +7,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::ipc::Channel;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-use tokio::process::Command;
 use tokio::sync::{Mutex, Notify};
 use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
@@ -605,7 +603,7 @@ async fn probe_has_audio(path: &str, cancellation: &CancellationToken) -> bool {
 async fn process_rss_bytes(pid: u32) -> Option<u64> {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        let output = Command::new("ps")
+        let output = crate::process_util::hidden_tokio_command("ps")
             .args(["-o", "rss=", "-p", &pid.to_string()])
             .output()
             .await

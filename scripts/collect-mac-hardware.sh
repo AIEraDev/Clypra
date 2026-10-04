@@ -12,4 +12,8 @@ echo "--- GPU & Displays ---"
 system_profiler SPDisplaysDataType 2>/dev/null | grep -E "Chipset Model|Total Number of Cores|Resolution|Refresh Rate|Metal Family" || true
 echo "--- Storage Type ---"
 diskutil info / 2>/dev/null | grep -E "Device / Media Name|Solid State|Protocol|Disk Size" || true
+echo "--- Power / Battery ---"
+pmset -g batt 2>/dev/null || true
+pmset -g 2>/dev/null | grep -i lowpowermode || true
 echo "==============================================="
+

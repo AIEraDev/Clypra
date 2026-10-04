@@ -959,7 +959,7 @@ pub async fn transcribe_audio_local(
     );
 
     // Call uv command to run our python script asynchronously
-    let output = tokio::process::Command::new("uv")
+    let output = crate::process_util::hidden_tokio_command("uv")
         .env("PATH", augmented_path())
         .args(&args)
         .output()

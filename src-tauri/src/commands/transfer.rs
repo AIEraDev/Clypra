@@ -470,17 +470,17 @@ pub async fn open_transfer_save_directory(app: AppHandle) -> Result<(), String> 
 
     #[cfg(target_os = "macos")]
     {
-        let _ = std::process::Command::new("open").arg(&target_dir).spawn();
+        let _ = crate::process_util::hidden_command("open").arg(&target_dir).spawn();
     }
     #[cfg(target_os = "windows")]
     {
-        let _ = std::process::Command::new("explorer")
+        let _ = crate::process_util::hidden_command("explorer")
             .arg(&target_dir)
             .spawn();
     }
     #[cfg(target_os = "linux")]
     {
-        let _ = std::process::Command::new("xdg-open")
+        let _ = crate::process_util::hidden_command("xdg-open")
             .arg(&target_dir)
             .spawn();
     }
@@ -498,17 +498,17 @@ pub async fn open_file_path(path: String) -> Result<(), String> {
 
     #[cfg(target_os = "macos")]
     {
-        let _ = std::process::Command::new("open").arg(&path).spawn();
+        let _ = crate::process_util::hidden_command("open").arg(&path).spawn();
     }
     #[cfg(target_os = "windows")]
     {
-        let _ = std::process::Command::new("cmd")
+        let _ = crate::process_util::hidden_command("cmd")
             .args(["/C", "start", "", &path])
             .spawn();
     }
     #[cfg(target_os = "linux")]
     {
-        let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
+        let _ = crate::process_util::hidden_command("xdg-open").arg(&path).spawn();
     }
     Ok(())
 }
@@ -524,20 +524,20 @@ pub async fn show_item_in_folder(path: String) -> Result<(), String> {
 
     #[cfg(target_os = "macos")]
     {
-        let _ = std::process::Command::new("open")
+        let _ = crate::process_util::hidden_command("open")
             .args(["-R", &path])
             .spawn();
     }
     #[cfg(target_os = "windows")]
     {
-        let _ = std::process::Command::new("explorer")
+        let _ = crate::process_util::hidden_command("explorer")
             .arg(format!("/select,\"{}\"", path))
             .spawn();
     }
     #[cfg(target_os = "linux")]
     {
         if let Some(parent) = p.parent() {
-            let _ = std::process::Command::new("xdg-open").arg(parent).spawn();
+            let _ = crate::process_util::hidden_command("xdg-open").arg(parent).spawn();
         }
     }
     Ok(())

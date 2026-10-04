@@ -152,7 +152,7 @@ impl MediaRuntime {
             };
         };
 
-        let output = tokio::process::Command::new(&ffmpeg_path)
+        let output = crate::process_util::hidden_tokio_command(&ffmpeg_path)
             .arg("-version")
             .output()
             .await;
