@@ -2,6 +2,7 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { AudioFadeCurve, DensityLevel, ThumbnailTile } from "../../types";
+import type { ColdStartReport } from "../../services/telemetryCollector";
 import { toNativePath } from "./pathConversion";
 import type {
   NativeFrameRequest,
@@ -835,6 +836,49 @@ export async function getNativeGpuStatus(): Promise<NativeGpuRuntimeStatus> {
   }
 
   return invoke<NativeGpuRuntimeStatus>("get_native_gpu_status");
+}
+
+/** Retrieve the cold-start span report collected by the native process since launch. */
+export async function getColdStartReport(): Promise<ColdStartReport> {
+  if (!isTauriRuntime()) {
+    return {
+      processEpochMs: 0,
+      milestones: {},
+      audioMetrics: { pcmBytes: 0, capTruncations: 0, cliFallbacks: 0 },
+      aggregates: {},
+      droppedSpans: 0,
+      spans: [],
+    };
+  }
+  return invoke<ColdStartReport>("get_cold_start_report");
+}
+
+/** Mark the instant the interactive frontend starts awaiting GPU ready. */
+export async function markGpuAwaited(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  return invoke("mark_gpu_awaited");
+}
+
+/** Record frontend launch and presentation milestones to native cold-start telemetry. */
+export async function recordFrontendLaunchMilestones(milestones: {
+  domContentLoadedMs?: number;
+  appMountedMs?: number;
+  shellPaintedMs?: number;
+  interactiveUs?: number;
+  firstFramePaintedMs?: number;
+  smoothPlaybackAtUs?: number;
+  smoothPlaybackTargetFps?: number;
+}): Promise<void> {
+  if (!isTauriRuntime()) return;
+  return invoke("record_frontend_launch_milestones", {
+    domContentLoadedMs: milestones.domContentLoadedMs,
+    appMountedMs: milestones.appMountedMs,
+    shellPaintedMs: milestones.shellPaintedMs,
+    interactiveUs: milestones.interactiveUs,
+    firstFramePaintedMs: milestones.firstFramePaintedMs,
+    smoothPlaybackAtUs: milestones.smoothPlaybackAtUs,
+    smoothPlaybackTargetFps: milestones.smoothPlaybackTargetFps,
+  });
 }
 
 export interface PlaybackPolicySnapshot {

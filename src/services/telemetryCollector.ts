@@ -114,6 +114,89 @@ export interface TelemetryStageTimings {
   totalTimeUs: number;
 }
 
+/** Media location class: fixed disk, removable drive, network share, or unknown. */
+export type MediaLocationClass = "fixed" | "removable" | "network" | "unknown";
+
+/** One timestamped span in the cold-start lifecycle. */
+export interface ColdSpan {
+  stage: string;
+  /** Microseconds from process start to when this span began. */
+  startedAtUs: number;
+  /** Wall-clock work duration of this span in microseconds. */
+  workUs: number;
+  /** Duration an interactive or UI thread was blocked awaiting this span. */
+  waitedByInteractiveUs: number;
+  /** True if the result came from a persistent cache. */
+  cached: boolean;
+  /** True if the operation succeeded; false on failure/early return. */
+  ok: boolean;
+  /** Subsystem purpose: "preview", "filmstrip", "waveform", "export", or "probe". */
+  purpose?: string;
+  /** Monotonic ordinal clip index within the session (1, 2, ...). */
+  clipIndex?: number;
+  /** Container format name (e.g. "mov,mp4,m4a,3gp,3g2,mj2"). */
+  containerFormat?: string;
+  /** Media file size quantized to 64 MiB buckets (e.g. 64, 128, 192, 256...) */
+  fileSizeBucketMb?: number;
+  /** Media location classification (never leaks path). */
+  mediaLocation?: MediaLocationClass;
+}
+
+/** Cumulative aggregate for a specific cold-start stage across the entire session. */
+export interface StageAggregate {
+  count: number;
+  totalWorkUs: number;
+  maxWorkUs: number;
+  totalWaitedUs: number;
+  maxWaitedUs: number;
+  okCount: number;
+  errCount: number;
+}
+
+/** Known audio cold-path counters. */
+export interface AudioColdMetrics {
+  pcmBytes: number;
+  capTruncations: number;
+  cliFallbacks: number;
+}
+
+/** User-visible launch and playback readiness milestones. */
+export interface LaunchMilestones {
+  preMainMs?: number;
+  windowCreatedAtUs?: number;
+  windowShownAtUs?: number;
+  domContentLoadedMs?: number;
+  appMountedMs?: number;
+  shellPaintedMs?: number;
+  firstSoundAtUs?: number;
+  firstSoundLatencyUs?: number;
+  interactiveAtUs?: number;
+  firstFrameAtUs?: number;
+  firstFramePaintedMs?: number;
+  smoothPlaybackAtUs?: number;
+  smoothPlaybackTargetFps?: number;
+}
+
+/** Cold-start report section, collected once per session. */
+export interface ColdStartReport {
+  /** Unix wall-clock milliseconds at process start. */
+  processEpochMs: number;
+  /** Pre-main time in ms (OS process creation to main() entry). */
+  preMainMs?: number;
+  /** System uptime at process start in seconds. */
+  systemUptimeSecs?: number;
+  /** User-visible milestones. */
+  milestones: LaunchMilestones;
+  /** Known audio cold-path risks. */
+  audioMetrics: AudioColdMetrics;
+  /** Aggregates per stage. */
+  aggregates: Record<string, StageAggregate>;
+  /** Spans discarded when ring buffer exceeded capacity. */
+  droppedSpans: number;
+  /** Spans in insertion order, up to ring capacity (512). */
+  spans: ColdSpan[];
+}
+
 /** Whether stage timings came from an instrumented pipeline or only a total duration. */
 export type TelemetryStageTimingsSource = "measured" | "unattributed";
 
