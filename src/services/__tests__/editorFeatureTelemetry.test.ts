@@ -34,7 +34,7 @@ const makeClip = (id: string, overrides: Partial<Clip> = {}): Clip => ({
 
 describe("EditorFeatureTelemetry & Validations", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.restoreAllMocks();
   });
 
   describe("Shuttle Telemetry", () => {
@@ -312,4 +312,43 @@ describe("EditorFeatureTelemetry & Validations", () => {
       expect(payload.error).toBe("Clip not found");
     });
   });
+
+  describe("Diagnostic Run Telemetry & Session Compilation", () => {
+    it("enqueues diagnostic-run log entry and flushes to disk", () => {
+      const enqueueSpy = vi.spyOn(perfLogService, "enqueue");
+      const flushSpy = vi.spyOn(perfLogService, "flushToDisk").mockImplementation(() => {});
+      vi.spyOn(perfLogService, "getSessionId").mockReturnValue("test-diag-session");
+
+      EditorFeatureTelemetry.recordDiagnosticRun("bridge-probe-518kb", {
+        runs: 20,
+        p50Ms: 1.25,
+        p95Ms: 2.1,
+        success: true,
+      });
+
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      const entry = enqueueSpy.mock.calls[0][0];
+      expect(entry.kind).toBe("diagnostic-run");
+      expect(entry.sessionId).toBe("test-diag-session");
+      expect((entry.payload as any).diagnosticType).toBe("bridge-probe-518kb");
+      expect((entry.payload as any).results.p50Ms).toBe(1.25);
+      expect(flushSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not throw when recordDiagnosticRun fails (non-blocking guarantee)", () => {
+      vi.spyOn(perfLogService, "enqueue").mockImplementation(() => {
+        throw new Error("Disk full");
+      });
+
+      expect(() => {
+        EditorFeatureTelemetry.recordDiagnosticRun("push-transport-gate", { failed: true });
+      }).not.toThrow();
+    });
+
+    it("compileAndRecordSessionReport safely returns in non-Tauri environment", async () => {
+      const report = await EditorFeatureTelemetry.compileAndRecordSessionReport();
+      expect(report).toBeNull();
+    });
+  });
 });
+

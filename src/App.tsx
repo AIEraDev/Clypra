@@ -39,7 +39,12 @@ import { perfLogService, PerfLogService } from "@/services/perfLogService";
 import {
   getColdStartReport,
   recordFrontendLaunchMilestones,
+  recordColdStartSpan,
+  getBenchRunConfig,
+  writeBenchReport,
+  type BenchRunConfig,
 } from "@/lib/platform/tauri";
+import { invoke } from "@tauri-apps/api/core";
 
 // const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
 
@@ -58,6 +63,8 @@ const App = () => {
     useState<RecoverySnapshot | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
   const [isClosingProject, setIsClosingProject] = useState(false);
+  const [pendingBenchConfig, setPendingBenchConfig] =
+    useState<BenchRunConfig | null>(null);
 
   useEffect(() => {
     if (!platform.isTauri()) return;
@@ -152,35 +159,83 @@ const App = () => {
             ? Math.round(performance.timeOrigin + navEntry.domContentLoadedEventEnd)
             : undefined;
           const appMountedMs = Math.round(performance.timeOrigin + performance.now());
+          const navigationStartMs = Math.round(performance.timeOrigin);
 
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
               const shellPaintedMs = Math.round(performance.timeOrigin + performance.now());
-              const interactiveUs = Math.round(performance.timeOrigin + performance.now());
-              void recordFrontendLaunchMilestones({
-                domContentLoadedMs,
-                appMountedMs,
-                shellPaintedMs,
-                interactiveUs,
-              })
-                .then(() => getColdStartReport())
-                .then((report) => {
-                  const totalSpans = report.spans.length;
-                  const waitedMs = report.spans.reduce(
-                    (sum, s) => sum + s.waitedByInteractiveUs / 1000,
-                    0,
-                  );
-                  console.info(
-                    `[ColdStart] ${totalSpans} spans, ${waitedMs.toFixed(1)} ms interactive wait total`,
-                    report,
-                  );
+
+              // Disentangle interactive from shellPainted via true main-thread quiescence:
+              // Require 5 consecutive responsive 10ms ticks (50ms continuous idle with < 4ms timer drift).
+              const detectQuiescence = (onQuiescent: (interactiveWallMs: number) => void) => {
+                const tickMs = 10;
+                const maxDriftMs = 4;
+                const requiredQuietTicks = 5;
+                let quietCount = 0;
+                let lastTick = performance.now();
+                const start = performance.now();
+                const maxWaitMs = 5000;
+
+                const timer = setInterval(() => {
+                  const now = performance.now();
+                  const elapsedSinceLast = now - lastTick;
+                  const drift = Math.abs(elapsedSinceLast - tickMs);
+                  lastTick = now;
+
+                  if (drift < maxDriftMs) {
+                    quietCount++;
+                    if (quietCount >= requiredQuietTicks) {
+                      clearInterval(timer);
+                      onQuiescent(Math.round(performance.timeOrigin + now));
+                    }
+                  } else {
+                    quietCount = 0;
+                  }
+
+                  if (now - start > maxWaitMs) {
+                    clearInterval(timer);
+                    onQuiescent(Math.round(performance.timeOrigin + now));
+                  }
+                }, tickMs);
+              };
+
+              detectQuiescence(async (interactiveWallMs) => {
+                void recordFrontendLaunchMilestones({
+                  navigationStartMs,
+                  domContentLoadedMs,
+                  appMountedMs,
+                  shellPaintedMs,
+                  interactiveUs: interactiveWallMs,
                 })
-                .catch((err) => {
-                  console.warn(
-                    "[ColdStart] Failed to record milestones / retrieve report:",
-                    err,
-                  );
-                });
+                  .then(() => getColdStartReport())
+                  .then((report) => {
+                    const totalSpans = report.spans.length;
+                    const waitedMs = report.spans.reduce(
+                      (sum, s) => sum + s.waitedByInteractiveUs / 1000,
+                      0,
+                    );
+                    console.info(
+                      `[ColdStart] ${totalSpans} spans, ${waitedMs.toFixed(1)} ms interactive wait total`,
+                      report,
+                    );
+                  })
+                  .catch((err) => {
+                    console.warn(
+                      "[ColdStart] Failed to record milestones / retrieve report:",
+                      err,
+                    );
+                  });
+
+                // Check if benchmark mode was requested
+                try {
+                  const benchConfig = await getBenchRunConfig();
+                  if (benchConfig.enabled) {
+                    setPendingBenchConfig(benchConfig);
+                  }
+                } catch (benchErr) {
+                  console.warn("[BenchRunner] Error reading benchmark config:", benchErr);
+                }
+              });
             });
           });
         }
@@ -508,12 +563,55 @@ const App = () => {
 
   const handleOpenProject = async (entry: RecentProjectEntry) => {
     try {
+      const openRequestedWallMs = Math.round(
+        performance.timeOrigin + performance.now(),
+      );
+      (window as any).__clypraProjectOpenRequestedWallMs = openRequestedWallMs;
+      (window as any).__clypraFirstFramePainted = false;
+      void recordFrontendLaunchMilestones({
+        projectOpenRequestedWallMs: openRequestedWallMs,
+      });
+      performance.mark("clypra:open_requested");
+      void recordColdStartSpan(
+        "s2_open_requested",
+        Math.round(performance.now() * 1000),
+        0,
+        0,
+        false,
+        true,
+        "open",
+      );
+
       useUIStore.getState().exitSourceMode();
 
+      const t0File = performance.now();
       const projectJson = await platform.loadProject(
         entry.kind === "unreadable" ? entry.backupPath : entry.path,
       );
+      const t1File = performance.now();
+      void recordColdStartSpan(
+        "s2_project_file_read",
+        Math.round(t0File * 1000),
+        Math.round((t1File - t0File) * 1000),
+        Math.round((t1File - t0File) * 1000),
+        false,
+        true,
+        "open",
+      );
+
+      const t0Parse = performance.now();
       const normalized = validateAndMigrateProjectPayload(projectJson);
+      const t1Parse = performance.now();
+      void recordColdStartSpan(
+        "s2_project_parse",
+        Math.round(t0Parse * 1000),
+        Math.round((t1Parse - t0Parse) * 1000),
+        Math.round((t1Parse - t0Parse) * 1000),
+        false,
+        true,
+        "open",
+      );
+
       const isRecoveryCopy = entry.kind === "unreadable";
       const project = isRecoveryCopy
         ? {
@@ -525,6 +623,20 @@ const App = () => {
           }
         : normalized.project;
 
+      const t0Media = performance.now();
+      performance.mark("clypra:media_register");
+      const t1Media = performance.now();
+      void recordColdStartSpan(
+        "s2_media_register",
+        Math.round(t0Media * 1000),
+        Math.round((t1Media - t0Media) * 1000),
+        0,
+        false,
+        true,
+        "media",
+      );
+
+      const t0Hydrate = performance.now();
       await loadProject(project, {
         mediaAssets: normalized.mediaAssets,
         tracks: normalized.tracks,
@@ -534,6 +646,16 @@ const App = () => {
         markers: normalized.markers,
         mainVideoTrackId: normalized.mainVideoTrackId,
       });
+      const t1Hydrate = performance.now();
+      void recordColdStartSpan(
+        "s2_store_hydrate",
+        Math.round(t0Hydrate * 1000),
+        Math.round((t1Hydrate - t0Hydrate) * 1000),
+        Math.round((t1Hydrate - t0Hydrate) * 1000),
+        false,
+        true,
+        "open",
+      );
 
       if (isRecoveryCopy) {
         const receipt = await useProjectStore.getState().saveCurrentProject();
@@ -606,6 +728,108 @@ const App = () => {
         );
     }
   };
+
+  const runAutomatedBench = async (benchConfig: BenchRunConfig) => {
+    console.info("[BenchRunner] Starting automated benchmark:", benchConfig);
+    try {
+      const targetPath = benchConfig.projectPath;
+      if (targetPath) {
+        console.info(`[BenchRunner] Auto-opening project: ${targetPath}`);
+        await new Promise((r) => setTimeout(r, 100));
+        await handleOpenProject({
+          id: "bench-target",
+          name: "Benchmark Project",
+          path: targetPath,
+          backupPath: targetPath,
+          backupAvailable: false,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          fps: 30,
+          width: 1920,
+          height: 1080,
+          canvasWidth: 1920,
+          canvasHeight: 1080,
+          aspectRatio: "16:9",
+          frameRate: 30,
+          duration: 0,
+          timebase: "30fps",
+          kind: "ready",
+        } as unknown as RecentProjectEntry);
+
+        // Wait for first frame to be painted (up to 15s)
+        const startWait = performance.now();
+        while (performance.now() - startWait < 15000) {
+          if ((window as any).__clypraFirstFramePainted) {
+            break;
+          }
+          await new Promise((r) => setTimeout(r, 50));
+        }
+
+        // Optional seek / play actions
+        if (benchConfig.seekTargetSecs != null) {
+          console.info(`[BenchRunner] Seeking to ${benchConfig.seekTargetSecs}s`);
+          const { getActiveSessionOrNull } = await import(
+            "@/core/runtime/ProjectSession"
+          );
+          getActiveSessionOrNull()?.transportAuthority?.seek(
+            benchConfig.seekTargetSecs,
+          );
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        if (
+          benchConfig.playDurationSecs != null &&
+          benchConfig.playDurationSecs > 0
+        ) {
+          console.info(
+            `[BenchRunner] Playing for ${benchConfig.playDurationSecs}s`,
+          );
+          const { getActiveSessionOrNull } = await import(
+            "@/core/runtime/ProjectSession"
+          );
+          getActiveSessionOrNull()?.transportAuthority?.play();
+          await new Promise((r) =>
+            setTimeout(r, benchConfig.playDurationSecs! * 1000),
+          );
+          getActiveSessionOrNull()?.transportAuthority?.pause();
+          await new Promise((r) => setTimeout(r, 300));
+        }
+      }
+
+      // Collect complete report
+      await new Promise((r) => setTimeout(r, 400));
+      const coldReport = await getColdStartReport();
+      const sessionReport = {
+        coldStart: coldReport,
+        completedAt: new Date().toISOString(),
+      };
+
+      if (benchConfig.reportOutputPath) {
+        console.info(`[BenchRunner] Writing report to ${benchConfig.reportOutputPath}`);
+        await writeBenchReport(
+          benchConfig.reportOutputPath,
+          JSON.stringify(sessionReport, null, 2),
+        );
+      }
+
+      if (benchConfig.autoExit) {
+        console.info("[BenchRunner] Benchmark complete. Exiting application.");
+        await new Promise((r) => setTimeout(r, 300));
+        await invoke("exit_app");
+      }
+    } catch (err) {
+      console.error("[BenchRunner] Error executing benchmark:", err);
+      if (benchConfig.autoExit) {
+        await invoke("exit_app");
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!pendingBenchConfig || isLoading) return;
+    const config = pendingBenchConfig;
+    setPendingBenchConfig(null);
+    void runAutomatedBench(config);
+  }, [pendingBenchConfig, isLoading]);
 
   /**
    * Restore the project state from a crash-recovery IndexedDB snapshot.

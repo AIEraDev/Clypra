@@ -37,12 +37,16 @@ static FIRST_SOUND_LATENCY_US: AtomicU64 = AtomicU64::new(0);
 static FIRST_SOUND_LATENCY_SET: AtomicBool = AtomicBool::new(false);
 static WINDOW_CREATED_AT_US: AtomicU64 = AtomicU64::new(0);
 static WINDOW_SHOWN_AT_US: AtomicU64 = AtomicU64::new(0);
+static TAURI_READY_AT_US: AtomicU64 = AtomicU64::new(0);
+static NAVIGATION_START_MS: AtomicU64 = AtomicU64::new(0);
 static DOM_CONTENT_LOADED_MS: AtomicU64 = AtomicU64::new(0);
 static APP_MOUNTED_MS: AtomicU64 = AtomicU64::new(0);
 static SHELL_PAINTED_MS: AtomicU64 = AtomicU64::new(0);
 static INTERACTIVE_AT_US: AtomicU64 = AtomicU64::new(0);
+static PROJECT_OPEN_REQUESTED_AT_US: AtomicU64 = AtomicU64::new(0);
 static FIRST_FRAME_AT_US: AtomicU64 = AtomicU64::new(0);
 static FIRST_FRAME_PAINTED_MS: AtomicU64 = AtomicU64::new(0);
+static FIRST_FRAME_PAINTED_FROM_OPEN_MS: AtomicU64 = AtomicU64::new(0);
 static SMOOTH_PLAYBACK_AT_US: AtomicU64 = AtomicU64::new(0);
 static SMOOTH_PLAYBACK_TARGET_FPS: AtomicU32 = AtomicU32::new(0);
 
@@ -147,6 +151,9 @@ pub struct LaunchMilestones {
     pub pre_main_ms: Option<u64>,
     pub window_created_at_us: Option<u64>,
     pub window_shown_at_us: Option<u64>,
+    pub tauri_ready_at_us: Option<u64>,
+    /// Webview navigation start in ms from process start (performance.timeOrigin).
+    pub navigation_start_ms: Option<u64>,
     pub dom_content_loaded_ms: Option<u64>,
     pub app_mounted_ms: Option<u64>,
     pub shell_painted_ms: Option<u64>,
@@ -156,11 +163,15 @@ pub struct LaunchMilestones {
     /// The estimated wall-clock time sound was heard is `first_sound_at_us + first_sound_latency_us`.
     pub first_sound_latency_us: Option<u64>,
     pub interactive_at_us: Option<u64>,
+    /// When project open was requested in S2, in microseconds from process start.
+    pub project_open_requested_at_us: Option<u64>,
     /// First native video frame presented to the native surface.
     pub first_frame_at_us: Option<u64>,
     /// First frame painted on the frontend canvas (in requestAnimationFrame), in ms from process start.
     /// Ensures milestones fire even on software adapters where native surface is disabled.
     pub first_frame_painted_ms: Option<u64>,
+    /// Time from project open request to first frame painted in ms (human-independent S2 duration).
+    pub first_frame_painted_from_open_ms: Option<u64>,
     /// First moment unique painted FPS stays at target for 1.0 continuous second.
     pub smooth_playback_at_us: Option<u64>,
     /// Target FPS used during the smooth playback measurement window.
@@ -458,6 +469,14 @@ pub fn record_window_shown() {
     }
 }
 
+pub fn record_tauri_ready() {
+    if TAURI_READY_AT_US.load(Ordering::Relaxed) == 0 {
+        let elapsed = PROCESS_START.elapsed().as_micros().min(u64::MAX as u128) as u64;
+        let _ =
+            TAURI_READY_AT_US.compare_exchange(0, elapsed, Ordering::AcqRel, Ordering::Relaxed);
+    }
+}
+
 pub fn record_first_sound(latency_us: u64) {
     if FIRST_SOUND_AT_US.load(Ordering::Relaxed) == 0 {
         let elapsed = PROCESS_START.elapsed().as_micros().min(u64::MAX as u128) as u64;
@@ -514,12 +533,31 @@ pub fn record_smooth_playback(us: u64, target_fps: Option<u32>) {
     }
 }
 
+pub fn record_project_open_requested() {
+    if PROJECT_OPEN_REQUESTED_AT_US.load(Ordering::Relaxed) == 0 {
+        let elapsed = PROCESS_START.elapsed().as_micros().min(u64::MAX as u128) as u64;
+        let _ = PROJECT_OPEN_REQUESTED_AT_US.compare_exchange(
+            0,
+            elapsed,
+            Ordering::AcqRel,
+            Ordering::Relaxed,
+        );
+    }
+}
+
+pub fn get_project_open_requested_at_us() -> u64 {
+    PROJECT_OPEN_REQUESTED_AT_US.load(Ordering::Relaxed)
+}
+
 pub fn record_frontend_launch_milestones(
+    navigation_start_wall_ms: Option<u64>,
     dom_content_loaded_wall_ms: Option<u64>,
     app_mounted_wall_ms: Option<u64>,
     shell_painted_wall_ms: Option<u64>,
     interactive_wall_ms: Option<u64>,
+    project_open_requested_wall_ms: Option<u64>,
     first_frame_painted_wall_ms: Option<u64>,
+    first_frame_painted_from_open_ms: Option<u64>,
     smooth_playback_wall_ms: Option<u64>,
     smooth_playback_target_fps: Option<u32>,
 ) {
@@ -533,6 +571,9 @@ pub fn record_frontend_launch_milestones(
         }
     };
 
+    if let Some(wall_ms) = navigation_start_wall_ms {
+        NAVIGATION_START_MS.store(to_elapsed_ms(wall_ms), Ordering::Relaxed);
+    }
     if let Some(wall_ms) = dom_content_loaded_wall_ms {
         DOM_CONTENT_LOADED_MS.store(to_elapsed_ms(wall_ms), Ordering::Relaxed);
     }
@@ -553,8 +594,29 @@ pub fn record_frontend_launch_milestones(
             );
         }
     }
+    if let Some(wall_ms) = project_open_requested_wall_ms {
+        let elapsed_us = to_elapsed_ms(wall_ms).saturating_mul(1000);
+        if PROJECT_OPEN_REQUESTED_AT_US.load(Ordering::Relaxed) == 0 {
+            let _ = PROJECT_OPEN_REQUESTED_AT_US.compare_exchange(
+                0,
+                elapsed_us,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            );
+        }
+    }
     if let Some(wall_ms) = first_frame_painted_wall_ms {
         record_first_frame_painted(to_elapsed_ms(wall_ms));
+    }
+    if let Some(ms) = first_frame_painted_from_open_ms {
+        if FIRST_FRAME_PAINTED_FROM_OPEN_MS.load(Ordering::Relaxed) == 0 {
+            let _ = FIRST_FRAME_PAINTED_FROM_OPEN_MS.compare_exchange(
+                0,
+                ms,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            );
+        }
     }
     if let Some(wall_ms) = smooth_playback_wall_ms {
         let elapsed_us = to_elapsed_ms(wall_ms).saturating_mul(1000);
@@ -578,6 +640,120 @@ pub fn record_audio_cli_fallback() {
     AUDIO_CLI_FALLBACKS.fetch_add(1, Ordering::Relaxed);
 }
 
+/// Record a custom span directly (e.g. from frontend performance marks or native lifecycle stages).
+pub fn record_custom_span(
+    stage: impl Into<Cow<'static, str>>,
+    started_at_us: u64,
+    work_us: u64,
+    waited_us: u64,
+    cached: bool,
+    ok: bool,
+    purpose: Option<impl Into<Cow<'static, str>>>,
+) {
+    record_span_internal(ColdSpan {
+        stage: stage.into(),
+        started_at_us,
+        work_us,
+        waited_by_interactive_us: waited_us,
+        cached,
+        ok,
+        purpose: purpose.map(Into::into),
+        clip_index: None,
+        container_format: None,
+        file_size_bucket_mb: None,
+        media_location: None,
+    });
+}
+
+/// Automated benchmark execution parameters.
+#[derive(Debug, Clone, Default, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BenchRunConfig {
+    pub enabled: bool,
+    pub project_path: Option<String>,
+    pub report_output_path: Option<String>,
+    pub seek_target_secs: Option<f64>,
+    pub play_duration_secs: Option<f64>,
+    pub auto_exit: bool,
+}
+
+/// Inspect environment and CLI arguments for benchmark run settings.
+pub fn get_bench_run_config() -> BenchRunConfig {
+    let mut config = BenchRunConfig::default();
+
+    // Check environment variables first
+    if let Ok(bench_run_env) = std::env::var("CLYPRA_BENCH_RUN") {
+        if !bench_run_env.is_empty() {
+            config.enabled = true;
+            if bench_run_env.ends_with(".json") && std::path::Path::new(&bench_run_env).is_file() {
+                if let Ok(content) = std::fs::read_to_string(&bench_run_env) {
+                    if let Ok(parsed) = serde_json::from_str::<BenchRunConfig>(&content) {
+                        return parsed;
+                    }
+                }
+            }
+        }
+    }
+    if let Ok(proj) = std::env::var("CLYPRA_BENCH_PROJECT") {
+        if !proj.is_empty() {
+            config.enabled = true;
+            config.project_path = Some(proj);
+        }
+    }
+    if let Ok(rep) = std::env::var("CLYPRA_BENCH_REPORT") {
+        if !rep.is_empty() {
+            config.enabled = true;
+            config.report_output_path = Some(rep);
+        }
+    }
+    if let Ok(exit) = std::env::var("CLYPRA_BENCH_AUTO_EXIT") {
+        if exit == "1" || exit.eq_ignore_ascii_case("true") {
+            config.enabled = true;
+            config.auto_exit = true;
+        }
+    }
+
+    // Check CLI arguments
+    let args: Vec<String> = std::env::args().collect();
+    let mut i = 0;
+    while i < args.len() {
+        let arg = &args[i];
+        if arg == "--bench-run" {
+            config.enabled = true;
+            if i + 1 < args.len() && !args[i + 1].starts_with("--") {
+                let path = &args[i + 1];
+                if path.ends_with(".json") && std::path::Path::new(path).is_file() {
+                    if let Ok(content) = std::fs::read_to_string(path) {
+                        if let Ok(parsed) = serde_json::from_str::<BenchRunConfig>(&content) {
+                            return parsed;
+                        }
+                    }
+                }
+                i += 1;
+            }
+        } else if arg == "--bench-project" && i + 1 < args.len() {
+            config.enabled = true;
+            config.project_path = Some(args[i + 1].clone());
+            i += 1;
+        } else if arg == "--bench-report" && i + 1 < args.len() {
+            config.enabled = true;
+            config.report_output_path = Some(args[i + 1].clone());
+            i += 1;
+        } else if arg == "--bench-auto-exit" {
+            config.enabled = true;
+            config.auto_exit = true;
+        }
+        i += 1;
+    }
+
+    config
+}
+
+/// Returns true only if benchmark mode was explicitly activated via CLI argument or env var.
+pub fn is_bench_mode_active() -> bool {
+    get_bench_run_config().enabled
+}
+
 /// Retrieve a clone of the current cold-start report.
 pub fn get_report() -> ColdStartReport {
     let state = match COLD_REPORT.lock() {
@@ -589,6 +765,8 @@ pub fn get_report() -> ColdStartReport {
         pre_main_ms: state.pre_main_ms,
         window_created_at_us: load_opt_u64(&WINDOW_CREATED_AT_US),
         window_shown_at_us: load_opt_u64(&WINDOW_SHOWN_AT_US),
+        tauri_ready_at_us: load_opt_u64(&TAURI_READY_AT_US),
+        navigation_start_ms: load_opt_u64(&NAVIGATION_START_MS),
         dom_content_loaded_ms: load_opt_u64(&DOM_CONTENT_LOADED_MS),
         app_mounted_ms: load_opt_u64(&APP_MOUNTED_MS),
         shell_painted_ms: load_opt_u64(&SHELL_PAINTED_MS),
@@ -599,8 +777,10 @@ pub fn get_report() -> ColdStartReport {
             None
         },
         interactive_at_us: load_opt_u64(&INTERACTIVE_AT_US),
+        project_open_requested_at_us: load_opt_u64(&PROJECT_OPEN_REQUESTED_AT_US),
         first_frame_at_us: load_opt_u64(&FIRST_FRAME_AT_US),
         first_frame_painted_ms: load_opt_u64(&FIRST_FRAME_PAINTED_MS),
+        first_frame_painted_from_open_ms: load_opt_u64(&FIRST_FRAME_PAINTED_FROM_OPEN_MS),
         smooth_playback_at_us: load_opt_u64(&SMOOTH_PLAYBACK_AT_US),
         smooth_playback_target_fps: {
             let fps = SMOOTH_PLAYBACK_TARGET_FPS.load(Ordering::Relaxed);

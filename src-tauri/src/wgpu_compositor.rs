@@ -251,7 +251,6 @@ impl RgbaLayerTextureCache {
 impl NativePreviewSession {
     pub fn new(gpu: Arc<GpuContext>) -> Self {
         let mut _span = crate::cold_start::SpanGuard::start("c0_pipeline_compile");
-        _span.set_interactive_blocking();
         let yuv_layout = create_yuv_hdr_bind_group_layout(&gpu.device);
         let sampler = create_yuv_hdr_sampler(&gpu.device);
         let pipeline = create_yuv_hdr_render_pipeline(
@@ -354,17 +353,22 @@ impl NativePreviewSession {
             return &self.compositors[index].compositor;
         }
 
+        let mut span = crate::cold_start::SpanGuard::start("c0_compositor_pipelines_compile");
+        span.set_purpose("preview");
+        let compositor = MultiTrackCompositor::new_with_target_format(
+            &self.gpu.device,
+            &self.gpu.queue,
+            width,
+            height,
+            target_format,
+        );
+        span.finish_ok();
+
         self.compositors.push(CachedCompositor {
             width,
             height,
             target_format,
-            compositor: MultiTrackCompositor::new_with_target_format(
-                &self.gpu.device,
-                &self.gpu.queue,
-                width,
-                height,
-                target_format,
-            ),
+            compositor,
         });
 
         // Keep the session bounded when a window is resized repeatedly or a

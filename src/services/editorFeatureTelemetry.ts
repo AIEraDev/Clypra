@@ -78,6 +78,12 @@ export interface PreviewQualityBenchmarkPayload {
   }>;
 }
 
+export interface DiagnosticRunTelemetryPayload {
+  diagnosticType: string;
+  results: Record<string, unknown>;
+  completedAtEpochMs: number;
+}
+
 export class EditorFeatureTelemetry {
   /**
    * Record transport shuttle transitions (1x, 2x, 4x, reverse, pause).
@@ -164,6 +170,65 @@ export class EditorFeatureTelemetry {
       });
     } catch {
       // Non-blocking telemetry
+    }
+  }
+
+  /**
+   * Records a structured diagnostic run output into session telemetry.
+   * Flushes the entry to the on-disk NDJSON file immediately so it is persisted
+   * regardless of how the session terminates.
+   */
+  static recordDiagnosticRun(diagnosticType: string, results: Record<string, unknown>): void {
+    try {
+      const sessionId = perfLogService.getSessionId() ?? "unknown";
+      perfLogService.enqueue({
+        kind: "diagnostic-run",
+        sessionId,
+        timestampEpochMs: Date.now(),
+        payload: {
+          diagnosticType,
+          results,
+          completedAtEpochMs: Date.now(),
+        },
+      });
+      perfLogService.flushToDisk();
+    } catch {
+      // Non-blocking telemetry
+    }
+  }
+
+  /**
+   * Compiles the comprehensive session performance report snapshot, merging native diagnostics
+   * (including coldStart, GPU, audio, session, stage diagnoses), text metrics, sync metrics,
+   * frontend mode stats, and optional diagnostics payloads into the session API telemetry stream.
+   */
+  static async compileAndRecordSessionReport(extraDiagnostics?: Record<string, unknown>): Promise<unknown> {
+    try {
+      const { getNativePreviewPerformanceReport, isTauriRuntime } = await import("@/lib/platform/tauri");
+      if (!isTauriRuntime()) return null;
+      const nativeReport = await getNativePreviewPerformanceReport();
+      const { getTextMetricsSnapshot } = await import("@/lib/playback/textMetrics");
+      const { getSyncMetricsSnapshot } = await import("@/lib/playback/syncMetrics");
+      const { nativePerfCollector } = await import("@/core/playback/nativePerfTelemetry");
+
+      const compiledReport = {
+        ...nativeReport,
+        text: getTextMetricsSnapshot(),
+        sync: getSyncMetricsSnapshot(),
+        frontend: {
+          units: "milliseconds",
+          modeStats: nativePerfCollector.allStats(),
+          pushBridge: nativePerfCollector.pushBridgeStats(),
+        },
+        ...(extraDiagnostics ? { diagnostics: extraDiagnostics } : {}),
+      };
+
+      EditorFeatureTelemetry.recordPreviewBenchmarkReport(compiledReport);
+      perfLogService.flushToDisk();
+      return compiledReport;
+    } catch (err) {
+      console.warn("[EditorFeatureTelemetry] Failed to compile session performance report:", err);
+      return null;
     }
   }
 

@@ -86,23 +86,67 @@ fn mark_gpu_awaited() {
 
 #[tauri::command]
 fn record_frontend_launch_milestones(
+    navigation_start_ms: Option<u64>,
     dom_content_loaded_ms: Option<u64>,
     app_mounted_ms: Option<u64>,
     shell_painted_ms: Option<u64>,
     interactive_us: Option<u64>,
+    project_open_requested_wall_ms: Option<u64>,
     first_frame_painted_ms: Option<u64>,
+    first_frame_painted_from_open_ms: Option<u64>,
     smooth_playback_at_us: Option<u64>,
     smooth_playback_target_fps: Option<u32>,
 ) {
     cold_start::record_frontend_launch_milestones(
+        navigation_start_ms,
         dom_content_loaded_ms,
         app_mounted_ms,
         shell_painted_ms,
         interactive_us,
+        project_open_requested_wall_ms,
         first_frame_painted_ms,
+        first_frame_painted_from_open_ms,
         smooth_playback_at_us,
         smooth_playback_target_fps,
     );
+}
+
+#[tauri::command]
+fn record_cold_start_span(
+    stage: String,
+    started_at_us: u64,
+    work_us: u64,
+    waited_us: u64,
+    cached: bool,
+    ok: bool,
+    purpose: Option<String>,
+) {
+    cold_start::record_custom_span(
+        stage,
+        started_at_us,
+        work_us,
+        waited_us,
+        cached,
+        ok,
+        purpose,
+    );
+}
+
+#[tauri::command]
+fn get_bench_run_config() -> cold_start::BenchRunConfig {
+    cold_start::get_bench_run_config()
+}
+
+#[tauri::command]
+fn write_bench_report(file_path: String, json_content: String) -> Result<(), String> {
+    if !cold_start::is_bench_mode_active() {
+        return Err("Benchmark report writing is only permitted when running in benchmark mode".to_string());
+    }
+    if let Some(parent) = std::path::Path::new(&file_path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(&file_path, json_content)
+        .map_err(|e| format!("Failed to write report to {file_path}: {e}"))
 }
 
 #[tauri::command]
@@ -152,16 +196,50 @@ pub fn run() {
         }
     }
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_persisted_scope::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
+    let t_builder = std::time::Instant::now();
+    let mut builder = tauri::Builder::default();
+    crate::cold_start::record_span("c0_builder_default", t_builder, 0, false);
+
+    let t_plugin_shell = std::time::Instant::now();
+    builder = builder.plugin(tauri_plugin_shell::init());
+    crate::cold_start::record_span("c0_plugin_shell", t_plugin_shell, 0, false);
+
+    let t_plugin_opener = std::time::Instant::now();
+    builder = builder.plugin(tauri_plugin_opener::init());
+    crate::cold_start::record_span("c0_plugin_opener", t_plugin_opener, 0, false);
+
+    let t_plugin_dialog = std::time::Instant::now();
+    builder = builder.plugin(tauri_plugin_dialog::init());
+    crate::cold_start::record_span("c0_plugin_dialog", t_plugin_dialog, 0, false);
+
+    let t_plugin_fs = std::time::Instant::now();
+    builder = builder.plugin(tauri_plugin_fs::init());
+    crate::cold_start::record_span("c0_plugin_fs", t_plugin_fs, 0, false);
+
+    let t_plugin_persisted = std::time::Instant::now();
+    builder = builder.plugin(tauri_plugin_persisted_scope::init());
+    crate::cold_start::record_span("c0_plugin_persisted_scope", t_plugin_persisted, 0, false);
+
+    let t_plugin_updater = std::time::Instant::now();
+    builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    crate::cold_start::record_span("c0_plugin_updater", t_plugin_updater, 0, false);
+
+    let t_plugin_process = std::time::Instant::now();
+    builder = builder.plugin(tauri_plugin_process::init());
+    crate::cold_start::record_span("c0_plugin_process", t_plugin_process, 0, false);
+
+    let builder = builder
         .setup(|app| {
+            let setup_start = std::time::Instant::now();
             diagnostics::initialize(app.handle());
+            let win_init_start = std::time::Instant::now();
+            if let Some(window) = app.get_webview_window("main") {
+                crate::cold_start::record_window_created();
+                if window.is_visible().unwrap_or(false) {
+                    crate::cold_start::record_window_shown();
+                }
+            }
+            crate::cold_start::record_span("c0_window_init", win_init_start, 0, false);
             // Use the operating system's window chrome everywhere. Besides
             // restoring native close/minimize/maximize behavior, this keeps
             // title-bar controls outside the editor layout so they cannot
@@ -469,6 +547,7 @@ pub fn run() {
                 });
             }
 
+            crate::cold_start::record_span("c0_setup_hook", setup_start, 0, false);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -678,6 +757,9 @@ pub fn run() {
             get_cold_start_report,
             mark_gpu_awaited,
             record_frontend_launch_milestones,
+            record_cold_start_span,
+            get_bench_run_config,
+            write_bench_report,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -688,7 +770,23 @@ pub fn run() {
                     let _ = window.emit("clypra://close-requested", ());
                 }
             }
-        })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        });
+
+    let build_start = std::time::Instant::now();
+    let app = builder
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+    crate::cold_start::record_span("c0_app_build", build_start, 0, false);
+
+    let run_start = std::time::Instant::now();
+    let mut ready_recorded = false;
+    app.run(move |_app_handle, event| {
+        if let tauri::RunEvent::Ready = event {
+            if !ready_recorded {
+                ready_recorded = true;
+                crate::cold_start::record_span("c0_tauri_ready", run_start, 0, false);
+                crate::cold_start::record_tauri_ready();
+            }
+        }
+    });
 }

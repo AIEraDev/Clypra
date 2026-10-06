@@ -165,14 +165,18 @@ export interface LaunchMilestones {
   preMainMs?: number;
   windowCreatedAtUs?: number;
   windowShownAtUs?: number;
+  tauriReadyAtUs?: number;
+  navigationStartMs?: number;
   domContentLoadedMs?: number;
   appMountedMs?: number;
   shellPaintedMs?: number;
   firstSoundAtUs?: number;
   firstSoundLatencyUs?: number;
   interactiveAtUs?: number;
+  projectOpenRequestedAtUs?: number;
   firstFrameAtUs?: number;
   firstFramePaintedMs?: number;
+  firstFramePaintedFromOpenMs?: number;
   smoothPlaybackAtUs?: number;
   smoothPlaybackTargetFps?: number;
 }
