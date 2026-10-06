@@ -702,11 +702,13 @@ pub fn get_bench_run_config() -> BenchRunConfig {
     }
     if let Ok(rep) = std::env::var("CLYPRA_BENCH_REPORT") {
         if !rep.is_empty() {
+            config.enabled = true;
             config.report_output_path = Some(rep);
         }
     }
     if let Ok(exit) = std::env::var("CLYPRA_BENCH_AUTO_EXIT") {
         if exit == "1" || exit.eq_ignore_ascii_case("true") {
+            config.enabled = true;
             config.auto_exit = true;
         }
     }
@@ -734,9 +736,11 @@ pub fn get_bench_run_config() -> BenchRunConfig {
             config.project_path = Some(args[i + 1].clone());
             i += 1;
         } else if arg == "--bench-report" && i + 1 < args.len() {
+            config.enabled = true;
             config.report_output_path = Some(args[i + 1].clone());
             i += 1;
         } else if arg == "--bench-auto-exit" {
+            config.enabled = true;
             config.auto_exit = true;
         }
         i += 1;
