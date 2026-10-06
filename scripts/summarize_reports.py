@@ -16,6 +16,21 @@ from collections import defaultdict
 import numpy as np
 
 
+import hashlib
+import time
+
+
+def get_file_info(file_path):
+    p = Path(file_path)
+    stat = p.stat()
+    mtime_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stat.st_mtime))
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        while chunk := f.read(65536):
+            h.update(chunk)
+    return mtime_str, h.hexdigest()
+
+
 def compute_stats(values):
     if not values:
         return "N/A"
@@ -53,6 +68,34 @@ def main():
         print(f"No JSON reports found in {dir_path}")
         sys.exit(0)
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # 0. File Integrity, Build Metadata & Focus Validity Table
+    # ──────────────────────────────────────────────────────────────────────────
+    print("=" * 130)
+    print(f"               FILE INTEGRITY, BUILD METADATA & FOCUS VALIDITY ({dir_path.name.upper()})")
+    print("=" * 130)
+    print(f"{'Filename':<22} | {'Commit':<10} | {'Dirty':<5} | {'Profile':<7} | {'Focus(Doc/Win)':<14} | {'Vis(Doc/Win)':<13} | {'Valid':<5} | {'SHA-256':<20}")
+    print("-" * 130)
+
+    for p in files:
+        report = parse_report(p)
+        if not report:
+            continue
+        mtime, sha = get_file_info(p)
+        cs = report.get("coldStart") or report
+        commit = str(cs.get("gitCommit") or "unknown")[:10]
+        dirty = str(cs.get("gitDirty", False))
+        profile = str(cs.get("buildProfile", "unknown"))
+        m = cs.get("milestones", {})
+        doc_foc = "T" if m.get("documentHasFocus") else "F"
+        win_foc = "T" if m.get("windowIsFocused") else "F"
+        doc_vis = "T" if m.get("documentVisibilityState") == "visible" else "F"
+        win_vis = "T" if m.get("windowIsVisible") else "F"
+        valid = "TRUE" if m.get("valid", True) else "FALSE"
+        inv_reason = f" ({m.get('invalidReason')})" if not m.get("valid", True) and m.get("invalidReason") else ""
+
+        print(f"{p.name:<22} | {commit:<10} | {dirty:<5} | {profile:<7} | {doc_foc}/{win_foc:<12} | {doc_vis}/{win_vis:<11} | {valid:<5} | {sha[:16]}...{inv_reason}")
+
     # Group files by scenario and warmth: e.g. "S1 (cold)", "S1 (warm)", "S2 (cold)", "S2 (warm)"
     groups = defaultdict(list)
 
@@ -77,7 +120,7 @@ def main():
     # ──────────────────────────────────────────────────────────────────────────
     # 1. Individual Run Breakdown Table
     # ──────────────────────────────────────────────────────────────────────────
-    print("=" * 120)
+    print("\n" + "=" * 120)
     print(f"                CLYPRA COLD-START RUN-BY-RUN BREAKDOWN ({dir_path.name.upper()})")
     print("=" * 120)
 
