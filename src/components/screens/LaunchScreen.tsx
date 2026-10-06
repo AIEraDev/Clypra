@@ -95,7 +95,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({
   const [renameValue, setRenameValue] = useState("");
   const [isRenaming, setIsRenaming] = useState(false);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
-  const isMacNativeWindow = isTauri && isMacOSPlatform();
+  const isMac = isMacOSPlatform();
 
   const [isRecordOpen, setIsRecordOpen] = useState(false);
   const [recordOptions, setRecordOptions] = useState({
@@ -481,11 +481,11 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({
       `}</style>
 
       <div className="h-8 shrink-0 flex items-center gap-2 px-1 select-none">
-        <span
-          className={`text-xs font-semibold text-text-muted/60 shrink-0 ${isMacNativeWindow ? "ml-[76px]" : ""}`}
-        >
-          Clypra
-        </span>
+        {!isMac && (
+          <span className="text-xs font-semibold text-text-muted/60 shrink-0">
+            Clypra
+          </span>
+        )}
         <div
           className="min-w-0 flex-1 self-stretch"
           aria-hidden="true"

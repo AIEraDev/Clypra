@@ -190,8 +190,23 @@ export interface LaunchMilestones {
   invalidReason?: string;
 }
 
+export interface MilestoneDefinitions {
+  preMain: string;
+  navigationStart: string;
+  domContentLoaded: string;
+  appMounted: string;
+  shellPainted: string;
+  interactive: string;
+  firstFrameFromOpen: string;
+  smoothPlayback: string;
+}
+
 /** Cold-start report section, collected once per session. */
 export interface ColdStartReport {
+  /** Schema version for cold-start report structure and milestone definitions. */
+  reportVersion?: number;
+  /** Frozen specifications for all user-visible milestones. */
+  milestoneDefs?: MilestoneDefinitions;
   /** Unix wall-clock milliseconds at process start. */
   processEpochMs: number;
   /** Pre-main time in ms (OS process creation to main() entry). */

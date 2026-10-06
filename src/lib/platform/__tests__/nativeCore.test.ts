@@ -158,9 +158,14 @@ describe("native core contracts", () => {
 
   it("enforces strict nested allowlist schema and privacy constraints for ColdStartReport", () => {
     const allowedColdReportKeys = new Set([
+      "reportVersion",
+      "milestoneDefs",
       "processEpochMs",
       "preMainMs",
       "systemUptimeSecs",
+      "buildProfile",
+      "gitCommit",
+      "gitDirty",
       "milestones",
       "audioMetrics",
       "aggregates",

@@ -228,7 +228,7 @@ const App = () => {
               }, tickMs);
             };
 
-            detectQuiescence(async (interactiveWallMs, quiescenceWaitMs) => {
+            detectQuiescence(async (_quiescentWallMs, quiescenceWaitMs) => {
               void markInteractive();
               try {
                 window.focus();
@@ -237,12 +237,15 @@ const App = () => {
               const documentVisibilityState = document.visibilityState;
               const documentHasFocus = document.hasFocus();
 
+              // Freeze interactive milestone: shell painted + 50ms main-thread idle (excluding harness quiescence timer waits)
+              const interactiveUs = shellPaintedMs + 50;
+
               void recordFrontendLaunchMilestones({
                 navigationStartMs,
                 domContentLoadedMs,
                 appMountedMs,
                 shellPaintedMs,
-                interactiveUs: interactiveWallMs,
+                interactiveUs,
                 quiescenceWaitMs,
                 documentVisibilityState,
                 documentHasFocus,

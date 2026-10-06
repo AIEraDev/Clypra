@@ -4,6 +4,7 @@ use crate::native_audio::{
 };
 use crate::sync_metrics::SYNC_METRICS;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -219,7 +220,94 @@ pub async fn replace_native_audio_clips(
     let audio_decode_started = Instant::now();
     let clip_count = clips.len();
     let mut decoded: Vec<NativePcmClip> = Vec::with_capacity(clips.len());
+    let mut pcm_cache: HashMap<(String, i64, i64, String, String), Arc<[f32]>> = HashMap::new();
+
     for request in clips {
+        let is_muted = request.gain <= 0.0001
+            && (request.volume_keyframes.is_empty()
+                || request.volume_keyframes.iter().all(|k| k.gain <= 0.0001));
+
+        if is_muted {
+            log::debug!(
+                "[NativeAudio] Skipping decode for muted clip {} (gain: {})",
+                request.clip_id,
+                request.gain
+            );
+            decoded.push(NativePcmClip {
+                id: request.clip_id,
+                sample_rate,
+                channels,
+                samples: Arc::from(Vec::<f32>::new()),
+                timeline_start_ticks: request.timeline_start_ticks,
+                duration_ticks: request.duration_ticks,
+                gain: 0.0,
+                pan: request.pan.clamp(-1.0, 1.0),
+                fade_in_ticks: request.fade_in_ticks.max(0),
+                fade_out_ticks: request.fade_out_ticks.max(0),
+                fade_in_curve: request.fade_in_curve,
+                fade_out_curve: request.fade_out_curve,
+                volume_keyframes: request.volume_keyframes,
+                channel_mode: request.channel_mode,
+                downmix: request.downmix,
+                channel_map: request.channel_map,
+                preserve_pitch: request.preserve_pitch,
+            });
+            continue;
+        }
+
+        let cache_key = (
+            request.path.clone(),
+            request.source_start_ticks,
+            request.duration_ticks,
+            request.channel_mode.clone(),
+            request.downmix.clone(),
+        );
+
+        if let Some(cached_samples) = pcm_cache.get(&cache_key) {
+            log::debug!(
+                "[NativeAudio] Reusing decoded PCM for duplicate source clip {} (path: {})",
+                request.clip_id,
+                request.path
+            );
+            let mut volume_keyframes = request.volume_keyframes;
+            volume_keyframes.sort_by_key(|point| point.time);
+            let channel_mode = match request.channel_mode.as_str() {
+                "mono" | "stereo" | "multichannel" => request.channel_mode,
+                _ => "auto".to_string(),
+            };
+            let downmix = match request.downmix.as_str() {
+                "mono" | "stereo" => request.downmix,
+                _ => "auto".to_string(),
+            };
+            let decode_channels = if channel_mode == "mono" || downmix == "mono" {
+                1
+            } else if channel_mode == "stereo" || downmix == "stereo" {
+                2
+            } else {
+                channels
+            };
+            decoded.push(NativePcmClip {
+                id: request.clip_id,
+                sample_rate,
+                channels: decode_channels,
+                samples: Arc::clone(cached_samples),
+                timeline_start_ticks: request.timeline_start_ticks,
+                duration_ticks: request.duration_ticks,
+                gain: request.gain.clamp(0.0, 4.0),
+                pan: request.pan.clamp(-1.0, 1.0),
+                fade_in_ticks: request.fade_in_ticks.max(0),
+                fade_out_ticks: request.fade_out_ticks.max(0),
+                fade_in_curve: request.fade_in_curve,
+                fade_out_curve: request.fade_out_curve,
+                volume_keyframes,
+                channel_mode,
+                downmix,
+                channel_map: request.channel_map.filter(|map| !map.is_empty()),
+                preserve_pitch: request.preserve_pitch,
+            });
+            continue;
+        }
+
         match decode_native_audio_clip(
             &PathBuf::from(&request.path),
             request.clip_id.clone(),
@@ -242,7 +330,10 @@ pub async fn replace_native_audio_clips(
         )
         .await
         {
-            Ok(clip) => decoded.push(clip),
+            Ok(clip) => {
+                pcm_cache.insert(cache_key, Arc::clone(&clip.samples));
+                decoded.push(clip);
+            }
             Err(error) => {
                 log::warn!(
                     "[NativeAudio] Skipping failed audio clip {}: {} (path: {})",
@@ -254,17 +345,33 @@ pub async fn replace_native_audio_clips(
         }
     }
 
-    let _audio_work_us = audio_decode_started
+    let audio_work_us = audio_decode_started
         .elapsed()
         .as_micros()
         .min(u64::MAX as u128) as u64;
+    let audio_start_us = audio_decode_started
+        .duration_since(*crate::cold_start::PROCESS_START)
+        .as_micros()
+        .min(u64::MAX as u128) as u64;
+    let audio_end_us = audio_start_us.saturating_add(audio_work_us);
+    let first_frame_us = crate::cold_start::get_first_frame_painted_at_us();
+    let waited_by_interactive_us = if first_frame_us > 0 {
+        if first_frame_us > audio_start_us {
+            first_frame_us.min(audio_end_us).saturating_sub(audio_start_us)
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
     crate::cold_start::record_span(
         "c1_audio_decode_all",
         audio_decode_started,
-        0,
+        waited_by_interactive_us,
         false,
     );
-    log::debug!("[ColdStart] c1_audio_decode_all: {} clips", clip_count);
+    log::debug!("[ColdStart] c1_audio_decode_all: {} clips (waited: {} us)", clip_count, waited_by_interactive_us);
 
     let statuses: Vec<NativeAudioClipStatus> = decoded.iter().map(NativePcmClip::status).collect();
     log::debug!(
@@ -337,4 +444,44 @@ pub fn get_native_audio_clips(app: AppHandle) -> Result<Vec<NativeAudioClipStatu
         .lock()
         .map_err(|_| "Native audio clock lock is poisoned".to_string())
         .map(|clock| clock.clip_statuses())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_muted_clip_gain_detection() {
+        let muted_req = NativeAudioClipRequest {
+            path: "/path/to/audio.mp4".to_string(),
+            clip_id: "clip_muted".to_string(),
+            timeline_start_ticks: 0,
+            source_start_ticks: 0,
+            duration_ticks: 1_000_000,
+            gain: 0.0,
+            pan: 0.0,
+            fade_in_ticks: 0,
+            fade_out_ticks: 0,
+            fade_in_curve: "linear".to_string(),
+            fade_out_curve: "linear".to_string(),
+            volume_keyframes: vec![],
+            channel_mode: "auto".to_string(),
+            downmix: "auto".to_string(),
+            channel_map: None,
+            preserve_pitch: false,
+        };
+        let is_muted = muted_req.gain <= 0.0001
+            && (muted_req.volume_keyframes.is_empty()
+                || muted_req.volume_keyframes.iter().all(|k| k.gain <= 0.0001));
+        assert!(is_muted);
+
+        let audible_req = NativeAudioClipRequest {
+            gain: 1.0,
+            ..muted_req.clone()
+        };
+        let is_audible_muted = audible_req.gain <= 0.0001
+            && (audible_req.volume_keyframes.is_empty()
+                || audible_req.volume_keyframes.iter().all(|k| k.gain <= 0.0001));
+        assert!(!is_audible_muted);
+    }
 }

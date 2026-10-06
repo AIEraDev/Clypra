@@ -191,8 +191,13 @@ export class NativeRasterBridge {
    */
   private _lastSmartOverlayClipsRef: readonly unknown[] | null = null;
   private _lastSmartOverlayClipsSerial = "";
-  private readonly animatedStickerRenderer =
-    new StickerRasterizerWorkerClient();
+  private _animatedStickerRenderer: StickerRasterizerWorkerClient | null = null;
+  private get animatedStickerRenderer(): StickerRasterizerWorkerClient {
+    if (!this._animatedStickerRenderer) {
+      this._animatedStickerRenderer = new StickerRasterizerWorkerClient();
+    }
+    return this._animatedStickerRenderer;
+  }
   private readonly stickerSnapshotsByLayerId = new Map<
     string,
     NativeRasterLayerSnapshot
@@ -452,7 +457,7 @@ export class NativeRasterBridge {
   evict(assetIds: string[]): void {
     for (const assetId of assetIds) {
       this.registeredAssetIds.delete(assetId);
-      this.animatedStickerRenderer.evictFrame(assetId);
+      this._animatedStickerRenderer?.evictFrame(assetId);
       this.assetsById.delete(assetId);
       this.textAssetsById.delete(assetId);
       this.imageCache.delete(assetId);
@@ -525,7 +530,7 @@ export class NativeRasterBridge {
     this.stickerPreparationScheduler.dispose();
     this.stickerSnapshotsByLayerId.clear();
     this.stickerSnapshotKeysByLayerId.clear();
-    this.animatedStickerRenderer.dispose();
+    this._animatedStickerRenderer?.dispose();
   }
 
   /**

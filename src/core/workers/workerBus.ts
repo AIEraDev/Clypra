@@ -136,8 +136,15 @@ export class WorkerBus<
     this.name = options.name ?? 'Worker';
     this.autoRestart = options.autoRestart ?? false;
     this.maxRestarts = options.maxRestarts ?? 3;
+    // Worker is initialized lazily on first send() or post() to reduce startup time
+  }
 
-    this.initWorker();
+  private ensureWorker(): boolean {
+    if (this._disposed) return false;
+    if (!this.worker && this._status !== 'error') {
+      this.initWorker();
+    }
+    return this.worker !== null;
   }
 
   // ─── Public API ─────────────────────────────────────────────────────────────
@@ -147,7 +154,8 @@ export class WorkerBus<
   }
 
   get isAvailable(): boolean {
-    return !this._disposed && this.worker !== null && this._status !== 'error';
+    if (this._disposed || this._status === 'error') return false;
+    return this.ensureWorker();
   }
 
   /**
@@ -172,7 +180,7 @@ export class WorkerBus<
         new WorkerBusDisposedError(this.name),
       );
     }
-    if (!this.worker) {
+    if (!this.ensureWorker()) {
       return Promise.reject(
         new WorkerBusUnavailableError(this.name),
       );
@@ -212,9 +220,9 @@ export class WorkerBus<
     payload: TRequest | Omit<TRequest, 'id'>,
     transferables: Transferable[] = [],
   ): void {
-    if (this._disposed || !this.worker) return;
+    if (this._disposed || !this.ensureWorker()) return;
     try {
-      this.worker.postMessage(payload, transferables);
+      this.worker!.postMessage(payload, transferables);
     } catch (err) {
       console.warn(`[WorkerBus:${this.name}] post() failed:`, err);
     }

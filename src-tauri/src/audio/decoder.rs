@@ -717,6 +717,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires local /Users/Shared/clypra-fixtures/clip_1440p25_gop1s.mp4"]
     fn fixture_audio_decodes_in_process_without_cli_fallback() {
         let path = std::path::Path::new("/Users/Shared/clypra-fixtures/clip_1440p25_gop1s.mp4");
         if !path.exists() {

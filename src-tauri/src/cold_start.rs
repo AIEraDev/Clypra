@@ -6,7 +6,7 @@
 //! and captures process creation / OS uptime and user-visible launch milestones.
 
 use once_cell::sync::Lazy;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -207,10 +207,49 @@ pub struct LaunchMilestones {
     pub invalid_reason: Option<String>,
 }
 
+/// Specification of cold-start milestone definitions. Frozen per report version.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MilestoneDefinitions {
+    pub pre_main: &'static str,
+    pub navigation_start: &'static str,
+    pub dom_content_loaded: &'static str,
+    pub app_mounted: &'static str,
+    pub shell_painted: &'static str,
+    pub interactive: &'static str,
+    pub first_frame_from_open: &'static str,
+    pub smooth_playback: &'static str,
+}
+
+pub const CURRENT_REPORT_VERSION: u32 = 2;
+
+pub fn get_milestone_definitions() -> MilestoneDefinitions {
+    MilestoneDefinitions {
+        pre_main: "OS process creation to native main() entry",
+        navigation_start: "Native process start to WebKit browsing context creation (performance.timeOrigin - processEpochMs)",
+        dom_content_loaded: "Native process start to DOMContentLoaded event end",
+        app_mounted: "Native process start to React App root mount",
+        shell_painted: "Native process start to double requestAnimationFrame after mount",
+        interactive: "Native process start to shell painted + 50ms main-thread idle (excluding harness quiescence timer waits)",
+        first_frame_from_open: "Project open request to first frame presented to native surface or canvas paint",
+        smooth_playback: "Native process start to first moment unique painted FPS stays at target for 1.0s",
+    }
+}
+
+impl Default for MilestoneDefinitions {
+    fn default() -> Self {
+        get_milestone_definitions()
+    }
+}
+
 /// Cold-start report section embedded in the session performance telemetry.
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ColdStartReport {
+    /// Schema version for cold-start report structure and milestone definitions.
+    pub report_version: u32,
+    /// Frozen specifications for all user-visible milestones.
+    pub milestone_defs: MilestoneDefinitions,
     /// Unix wall-clock milliseconds at process start.
     pub process_epoch_ms: u64,
     /// OS-measured duration from process creation to main() in ms.
@@ -596,6 +635,15 @@ pub fn get_project_open_requested_at_us() -> u64 {
     PROJECT_OPEN_REQUESTED_AT_US.load(Ordering::Relaxed)
 }
 
+/// Returns the presentation timestamp of the first frame (native or canvas painted) in microseconds since process start.
+pub fn get_first_frame_painted_at_us() -> u64 {
+    let native_us = FIRST_FRAME_AT_US.load(Ordering::Relaxed);
+    if native_us > 0 {
+        return native_us;
+    }
+    FIRST_FRAME_PAINTED_MS.load(Ordering::Relaxed).saturating_mul(1000)
+}
+
 pub fn record_frontend_launch_milestones(
     navigation_start_wall_ms: Option<u64>,
     dom_content_loaded_wall_ms: Option<u64>,
@@ -858,10 +906,34 @@ pub fn is_bench_mode_active() -> bool {
 
 /// Retrieve a clone of the current cold-start report.
 pub fn get_report() -> ColdStartReport {
-    let state = match COLD_REPORT.lock() {
+    let mut state = match COLD_REPORT.lock() {
         Ok(s) => s,
         Err(_) => return ColdStartReport::default(),
     };
+
+    let first_frame_us = get_first_frame_painted_at_us();
+    if first_frame_us > 0 {
+        let mut audio_waited: Option<u64> = None;
+        for span in state.ring.iter_mut() {
+            if span.stage == "c1_audio_decode_all" {
+                let span_start = span.started_at_us;
+                let span_end = span_start.saturating_add(span.work_us);
+                let waited = if first_frame_us > span_start {
+                    first_frame_us.min(span_end).saturating_sub(span_start)
+                } else {
+                    0
+                };
+                span.waited_by_interactive_us = waited;
+                audio_waited = Some(waited);
+            }
+        }
+        if let Some(waited) = audio_waited {
+            if let Some(agg) = state.aggregates.get_mut("c1_audio_decode_all") {
+                agg.total_waited_us = waited;
+                agg.max_waited_us = waited;
+            }
+        }
+    }
 
     let milestones = LaunchMilestones {
         pre_main_ms: state.pre_main_ms,
@@ -913,6 +985,8 @@ pub fn get_report() -> ColdStartReport {
     };
 
     ColdStartReport {
+        report_version: CURRENT_REPORT_VERSION,
+        milestone_defs: get_milestone_definitions(),
         process_epoch_ms: state.process_epoch_ms,
         pre_main_ms: state.pre_main_ms,
         system_uptime_secs: state.system_uptime_secs,

@@ -953,17 +953,17 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         await preloadTextEffectDefinitionsFromClips(allPayloadClips);
         if (currentLoadId !== loadId) return;
 
-        // Preload filters from clips
+        // Preload filters from clips (only initialize cache if project actually uses filters)
         try {
-          const { filterCacheManager } =
-            await import("@/features/filters/cache/filterCache");
-          await filterCacheManager.initialize();
-
           const filterClips = allPayloadClips.filter(
             (clip: any) => clip.kind === "filter" && clip.mediaId,
           );
 
           if (filterClips.length > 0) {
+            const { filterCacheManager } =
+              await import("@/features/filters/cache/filterCache");
+            await filterCacheManager.initialize();
+
             for (const clip of filterClips) {
               try {
                 // Check if already cached
