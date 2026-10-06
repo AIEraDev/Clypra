@@ -279,9 +279,9 @@ data = {
     'platform': 'apple_m1',
     'launchMethod': '$LAUNCH_METHOD',
     'gitCommit': '$GIT_COMMIT',
-    'gitDirty': $GIT_DIRTY,
+    'gitDirty': ('$GIT_DIRTY'.lower() == 'true'),
     'resultsDir': '$RESULTS_DIR',
-    'runs': [$MANIFEST_JOINED]
+    'runs': json.loads('[$MANIFEST_JOINED]')
 }
 with open('$RESULTS_DIR/manifest.json', 'w') as f:
     json.dump(data, f, indent=2)
