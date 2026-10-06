@@ -879,6 +879,24 @@ export async function markGpuAwaited(): Promise<void> {
   return invoke("mark_gpu_awaited");
 }
 
+/** Mark main thread interactive on native monotonic clock. */
+export async function markInteractive(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  return invoke("mark_interactive");
+}
+
+/** Mark project open requested on native monotonic clock. */
+export async function markProjectOpenRequested(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  return invoke("mark_project_open_requested");
+}
+
+/** Mark first frame painted on native monotonic clock. */
+export async function markFirstFramePainted(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  return invoke("mark_first_frame_painted");
+}
+
 /** Record frontend launch and presentation milestones to native cold-start telemetry. */
 export async function recordFrontendLaunchMilestones(milestones: {
   navigationStartMs?: number;
@@ -891,6 +909,12 @@ export async function recordFrontendLaunchMilestones(milestones: {
   firstFramePaintedFromOpenMs?: number;
   smoothPlaybackAtUs?: number;
   smoothPlaybackTargetFps?: number;
+  documentVisibilityState?: string;
+  documentHasFocus?: boolean;
+  windowIsFocused?: boolean;
+  windowIsVisible?: boolean;
+  quiescenceWaitMs?: number;
+  appNapDisabled?: boolean;
 }): Promise<void> {
   if (!isTauriRuntime()) return;
   return invoke("record_frontend_launch_milestones", {
@@ -904,6 +928,12 @@ export async function recordFrontendLaunchMilestones(milestones: {
     firstFramePaintedFromOpenMs: milestones.firstFramePaintedFromOpenMs,
     smoothPlaybackAtUs: milestones.smoothPlaybackAtUs,
     smoothPlaybackTargetFps: milestones.smoothPlaybackTargetFps,
+    documentVisibilityState: milestones.documentVisibilityState,
+    documentHasFocus: milestones.documentHasFocus,
+    windowIsFocused: milestones.windowIsFocused,
+    windowIsVisible: milestones.windowIsVisible,
+    quiescenceWaitMs: milestones.quiescenceWaitMs,
+    appNapDisabled: milestones.appNapDisabled,
   });
 }
 

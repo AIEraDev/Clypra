@@ -42,6 +42,8 @@ import {
   recordColdStartSpan,
   getBenchRunConfig,
   writeBenchReport,
+  markInteractive,
+  markProjectOpenRequested,
   type BenchRunConfig,
 } from "@/lib/platform/tauri";
 import { invoke } from "@tauri-apps/api/core";
@@ -65,6 +67,8 @@ const App = () => {
   const [isClosingProject, setIsClosingProject] = useState(false);
   const [pendingBenchConfig, setPendingBenchConfig] =
     useState<BenchRunConfig | null>(null);
+  const runAutomatedBenchRef =
+    useRef<((config: BenchRunConfig) => Promise<void>) | null>(null);
 
   useEffect(() => {
     if (!platform.isTauri()) return;
@@ -161,81 +165,119 @@ const App = () => {
           const appMountedMs = Math.round(performance.timeOrigin + performance.now());
           const navigationStartMs = Math.round(performance.timeOrigin);
 
-          requestAnimationFrame(() => {
+          // Robust shell-painted milestone with fallback for background/headless invocations
+          const scheduleShellPainted = (cb: () => void) => {
+            let executed = false;
+            const finish = () => {
+              if (!executed) {
+                executed = true;
+                cb();
+              }
+            };
+            const fallbackTimer = setTimeout(finish, 150);
             requestAnimationFrame(() => {
-              const shellPaintedMs = Math.round(performance.timeOrigin + performance.now());
+              requestAnimationFrame(() => {
+                clearTimeout(fallbackTimer);
+                finish();
+              });
+            });
+          };
 
-              // Disentangle interactive from shellPainted via true main-thread quiescence:
-              // Require 5 consecutive responsive 10ms ticks (50ms continuous idle with < 4ms timer drift).
-              const detectQuiescence = (onQuiescent: (interactiveWallMs: number) => void) => {
-                const tickMs = 10;
-                const maxDriftMs = 4;
-                const requiredQuietTicks = 5;
-                let quietCount = 0;
-                let lastTick = performance.now();
-                const start = performance.now();
-                const maxWaitMs = 5000;
+          scheduleShellPainted(() => {
+            const shellPaintedMs = Math.round(performance.timeOrigin + performance.now());
 
-                const timer = setInterval(() => {
-                  const now = performance.now();
-                  const elapsedSinceLast = now - lastTick;
-                  const drift = Math.abs(elapsedSinceLast - tickMs);
-                  lastTick = now;
+            // Disentangle interactive from shellPainted via true main-thread quiescence:
+            // Require 5 consecutive responsive 10ms ticks (50ms continuous idle with < 4ms timer drift).
+            const detectQuiescence = (
+              onQuiescent: (interactiveWallMs: number, quiescenceWaitMs: number) => void,
+            ) => {
+              const tickMs = 10;
+              const maxDriftMs = 4;
+              const requiredQuietTicks = 5;
+              let quietCount = 0;
+              let lastTick = performance.now();
+              const start = performance.now();
+              const maxWaitMs = 1500;
 
-                  if (drift < maxDriftMs) {
-                    quietCount++;
-                    if (quietCount >= requiredQuietTicks) {
-                      clearInterval(timer);
-                      onQuiescent(Math.round(performance.timeOrigin + now));
-                    }
-                  } else {
-                    quietCount = 0;
-                  }
+              const timer = setInterval(() => {
+                const now = performance.now();
+                const elapsedSinceLast = now - lastTick;
+                const drift = Math.abs(elapsedSinceLast - tickMs);
+                lastTick = now;
 
-                  if (now - start > maxWaitMs) {
+                if (drift < maxDriftMs) {
+                  quietCount++;
+                  if (quietCount >= requiredQuietTicks) {
                     clearInterval(timer);
-                    onQuiescent(Math.round(performance.timeOrigin + now));
+                    onQuiescent(
+                      Math.round(performance.timeOrigin + now),
+                      Math.round(now - start),
+                    );
                   }
-                }, tickMs);
-              };
+                } else {
+                  quietCount = 0;
+                }
 
-              detectQuiescence(async (interactiveWallMs) => {
-                void recordFrontendLaunchMilestones({
-                  navigationStartMs,
-                  domContentLoadedMs,
-                  appMountedMs,
-                  shellPaintedMs,
-                  interactiveUs: interactiveWallMs,
+                if (now - start > maxWaitMs) {
+                  clearInterval(timer);
+                  onQuiescent(
+                    Math.round(performance.timeOrigin + now),
+                    Math.round(now - start),
+                  );
+                }
+              }, tickMs);
+            };
+
+            detectQuiescence(async (interactiveWallMs, quiescenceWaitMs) => {
+              // Immediately stamp native monotonic clock
+              void markInteractive();
+
+              const documentVisibilityState = document.visibilityState;
+              const documentHasFocus = document.hasFocus();
+
+              void recordFrontendLaunchMilestones({
+                navigationStartMs,
+                domContentLoadedMs,
+                appMountedMs,
+                shellPaintedMs,
+                interactiveUs: interactiveWallMs,
+                quiescenceWaitMs,
+                documentVisibilityState,
+                documentHasFocus,
+                appNapDisabled: true,
+              })
+                .then(() => getColdStartReport())
+                .then((report) => {
+                  const totalSpans = report.spans.length;
+                  const waitedMs = report.spans.reduce(
+                    (sum, s) => sum + s.waitedByInteractiveUs / 1000,
+                    0,
+                  );
+                  console.info(
+                    `[ColdStart] ${totalSpans} spans, ${waitedMs.toFixed(1)} ms interactive wait total`,
+                    report,
+                  );
                 })
-                  .then(() => getColdStartReport())
-                  .then((report) => {
-                    const totalSpans = report.spans.length;
-                    const waitedMs = report.spans.reduce(
-                      (sum, s) => sum + s.waitedByInteractiveUs / 1000,
-                      0,
-                    );
-                    console.info(
-                      `[ColdStart] ${totalSpans} spans, ${waitedMs.toFixed(1)} ms interactive wait total`,
-                      report,
-                    );
-                  })
-                  .catch((err) => {
-                    console.warn(
-                      "[ColdStart] Failed to record milestones / retrieve report:",
-                      err,
-                    );
-                  });
+                .catch((err) => {
+                  console.warn(
+                    "[ColdStart] Failed to record milestones / retrieve report:",
+                    err,
+                  );
+                });
 
-                // Check if benchmark mode was requested
-                try {
-                  const benchConfig = await getBenchRunConfig();
-                  if (benchConfig.enabled) {
+              // Check if benchmark mode was requested
+              try {
+                const benchConfig = await getBenchRunConfig();
+                if (benchConfig.enabled) {
+                  if (runAutomatedBenchRef.current) {
+                    void runAutomatedBenchRef.current(benchConfig);
+                  } else {
                     setPendingBenchConfig(benchConfig);
                   }
-                } catch (benchErr) {
-                  console.warn("[BenchRunner] Error reading benchmark config:", benchErr);
                 }
-              });
+              } catch (benchErr) {
+                console.warn("[BenchRunner] Error reading benchmark config:", benchErr);
+              }
             });
           });
         }
@@ -568,6 +610,7 @@ const App = () => {
       );
       (window as any).__clypraProjectOpenRequestedWallMs = openRequestedWallMs;
       (window as any).__clypraFirstFramePainted = false;
+      void markProjectOpenRequested();
       void recordFrontendLaunchMilestones({
         projectOpenRequestedWallMs: openRequestedWallMs,
       });
@@ -734,8 +777,9 @@ const App = () => {
     try {
       const targetPath = benchConfig.projectPath;
       if (targetPath) {
+        // Fixed delay after interactive before opening: exactly 200 ms in every run
+        await new Promise((r) => setTimeout(r, 200));
         console.info(`[BenchRunner] Auto-opening project: ${targetPath}`);
-        await new Promise((r) => setTimeout(r, 100));
         await handleOpenProject({
           id: "bench-target",
           name: "Benchmark Project",
@@ -758,11 +802,16 @@ const App = () => {
 
         // Wait for first frame to be painted (up to 15s)
         const startWait = performance.now();
+        let framePainted = false;
         while (performance.now() - startWait < 15000) {
           if ((window as any).__clypraFirstFramePainted) {
+            framePainted = true;
             break;
           }
           await new Promise((r) => setTimeout(r, 50));
+        }
+        if (!framePainted) {
+          throw new Error("Benchmark timeout: first frame was not painted within 15s");
         }
 
         // Optional seek / play actions
@@ -814,15 +863,16 @@ const App = () => {
       if (benchConfig.autoExit) {
         console.info("[BenchRunner] Benchmark complete. Exiting application.");
         await new Promise((r) => setTimeout(r, 300));
-        await invoke("exit_app");
+        await invoke("exit_app", { code: 0 });
       }
     } catch (err) {
       console.error("[BenchRunner] Error executing benchmark:", err);
       if (benchConfig.autoExit) {
-        await invoke("exit_app");
+        await invoke("exit_app", { code: 1 });
       }
     }
   };
+  runAutomatedBenchRef.current = runAutomatedBench;
 
   useEffect(() => {
     if (!pendingBenchConfig || isLoading) return;

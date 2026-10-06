@@ -53,6 +53,16 @@ static SMOOTH_PLAYBACK_TARGET_FPS: AtomicU32 = AtomicU32::new(0);
 // ── Interactive wait tracking ────────────────────────────────────────────────
 static GPU_AWAITED_AT_US: AtomicU64 = AtomicU64::new(0);
 
+// ── Focus & Window State Tracking ───────────────────────────────────────────
+static DOCUMENT_VISIBILITY_STATE: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
+static DOCUMENT_HAS_FOCUS: AtomicBool = AtomicBool::new(true);
+static WINDOW_IS_FOCUSED: AtomicBool = AtomicBool::new(true);
+static WINDOW_IS_VISIBLE: AtomicBool = AtomicBool::new(true);
+static QUIESCENCE_WAIT_MS: AtomicU64 = AtomicU64::new(0);
+static APP_NAP_DISABLED: AtomicBool = AtomicBool::new(false);
+static IS_VALID_RUN: AtomicBool = AtomicBool::new(true);
+static INVALID_REASON: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
+
 // ── Clip Ordinal (Never leak file paths into telemetry) ───────────────────────
 static CLIP_ORDINAL: AtomicU64 = AtomicU64::new(0);
 
@@ -176,6 +186,22 @@ pub struct LaunchMilestones {
     pub smooth_playback_at_us: Option<u64>,
     /// Target FPS used during the smooth playback measurement window.
     pub smooth_playback_target_fps: Option<u32>,
+    /// Document visibility state ("visible", "hidden") recorded during launch milestones.
+    pub document_visibility_state: Option<String>,
+    /// Whether the document has focus (`document.hasFocus()`).
+    pub document_has_focus: Option<bool>,
+    /// Whether the native window has input focus (`window.is_focused()`).
+    pub window_is_focused: Option<bool>,
+    /// Whether the native window is visible (`window.is_visible()`).
+    pub window_is_visible: Option<bool>,
+    /// Quiescence wait time in ms before interactive milestone was confirmed.
+    pub quiescence_wait_ms: Option<u64>,
+    /// True if App Nap was explicitly disabled for the benchmark run.
+    pub app_nap_disabled: Option<bool>,
+    /// True if the run met all valid measurement criteria (focused and visible).
+    pub valid: bool,
+    /// Reason string if the run was flagged invalid (e.g. "window not focused").
+    pub invalid_reason: Option<String>,
 }
 
 /// Cold-start report section embedded in the session performance telemetry.
@@ -191,6 +217,12 @@ pub struct ColdStartReport {
     /// so a high uptime does not guarantee a warm OS file cache. Treat uptime as a hint,
     /// and rely on explicit cache clearing (e.g. RAMMap / purge) for cold testing.
     pub system_uptime_secs: Option<u64>,
+    /// Cargo profile of the running native binary: "debug" or "release".
+    pub build_profile: &'static str,
+    /// Git commit SHA of the binary at compile time.
+    pub git_commit: Option<&'static str>,
+    /// True if the binary was built from a dirty git working tree.
+    pub git_dirty: bool,
     /// User-visible milestones.
     pub milestones: LaunchMilestones,
     /// Known audio cold-path risks.
@@ -508,9 +540,21 @@ pub fn record_first_frame() {
     }
 }
 
-pub fn record_first_frame_painted(ms: u64) {
+pub fn record_window_state(is_visible: bool, is_focused: bool) {
+    WINDOW_IS_VISIBLE.store(is_visible, Ordering::Relaxed);
+    WINDOW_IS_FOCUSED.store(is_focused, Ordering::Relaxed);
+}
+
+pub fn record_first_frame_painted(ms: Option<u64>) {
+    let elapsed_us = PROCESS_START.elapsed().as_micros().min(u64::MAX as u128) as u64;
+    let ms_val = ms.unwrap_or(elapsed_us / 1000);
     if FIRST_FRAME_PAINTED_MS.load(Ordering::Relaxed) == 0 {
-        let _ = FIRST_FRAME_PAINTED_MS.compare_exchange(0, ms, Ordering::AcqRel, Ordering::Relaxed);
+        let _ = FIRST_FRAME_PAINTED_MS.compare_exchange(0, ms_val, Ordering::AcqRel, Ordering::Relaxed);
+    }
+    let open_us = PROJECT_OPEN_REQUESTED_AT_US.load(Ordering::Relaxed);
+    if open_us > 0 && FIRST_FRAME_PAINTED_FROM_OPEN_MS.load(Ordering::Relaxed) == 0 {
+        let diff_ms = elapsed_us.saturating_sub(open_us) / 1000;
+        let _ = FIRST_FRAME_PAINTED_FROM_OPEN_MS.compare_exchange(0, diff_ms, Ordering::AcqRel, Ordering::Relaxed);
     }
 }
 
@@ -560,7 +604,66 @@ pub fn record_frontend_launch_milestones(
     first_frame_painted_from_open_ms: Option<u64>,
     smooth_playback_wall_ms: Option<u64>,
     smooth_playback_target_fps: Option<u32>,
+    document_visibility_state: Option<String>,
+    document_has_focus: Option<bool>,
+    window_is_focused: Option<bool>,
+    window_is_visible: Option<bool>,
+    quiescence_wait_ms: Option<u64>,
+    app_nap_disabled: Option<bool>,
 ) {
+    if let Some(ref vis) = document_visibility_state {
+        if let Ok(mut lock) = DOCUMENT_VISIBILITY_STATE.lock() {
+            *lock = Some(vis.clone());
+        }
+        if vis != "visible" {
+            IS_VALID_RUN.store(false, Ordering::Relaxed);
+            if let Ok(mut lock) = INVALID_REASON.lock() {
+                if lock.is_none() {
+                    *lock = Some("window not visible".to_string());
+                }
+            }
+        }
+    }
+    if let Some(focus) = document_has_focus {
+        DOCUMENT_HAS_FOCUS.store(focus, Ordering::Relaxed);
+        if !focus {
+            IS_VALID_RUN.store(false, Ordering::Relaxed);
+            if let Ok(mut lock) = INVALID_REASON.lock() {
+                if lock.is_none() {
+                    *lock = Some("window not focused".to_string());
+                }
+            }
+        }
+    }
+    if let Some(foc) = window_is_focused {
+        WINDOW_IS_FOCUSED.store(foc, Ordering::Relaxed);
+        if !foc {
+            IS_VALID_RUN.store(false, Ordering::Relaxed);
+            if let Ok(mut lock) = INVALID_REASON.lock() {
+                if lock.is_none() {
+                    *lock = Some("window not focused".to_string());
+                }
+            }
+        }
+    }
+    if let Some(vis) = window_is_visible {
+        WINDOW_IS_VISIBLE.store(vis, Ordering::Relaxed);
+        if !vis {
+            IS_VALID_RUN.store(false, Ordering::Relaxed);
+            if let Ok(mut lock) = INVALID_REASON.lock() {
+                if lock.is_none() {
+                    *lock = Some("window not visible".to_string());
+                }
+            }
+        }
+    }
+    if let Some(q_ms) = quiescence_wait_ms {
+        QUIESCENCE_WAIT_MS.store(q_ms, Ordering::Relaxed);
+    }
+    if let Some(nap) = app_nap_disabled {
+        APP_NAP_DISABLED.store(nap, Ordering::Relaxed);
+    }
+
     let epoch_ms = COLD_REPORT.lock().map(|s| s.process_epoch_ms).unwrap_or(0);
 
     let to_elapsed_ms = |wall_ms: u64| -> u64 {
@@ -606,7 +709,7 @@ pub fn record_frontend_launch_milestones(
         }
     }
     if let Some(wall_ms) = first_frame_painted_wall_ms {
-        record_first_frame_painted(to_elapsed_ms(wall_ms));
+        record_first_frame_painted(Some(to_elapsed_ms(wall_ms)));
     }
     if let Some(ms) = first_frame_painted_from_open_ms {
         if FIRST_FRAME_PAINTED_FROM_OPEN_MS.load(Ordering::Relaxed) == 0 {
@@ -790,6 +893,17 @@ pub fn get_report() -> ColdStartReport {
                 Some(fps)
             }
         },
+        document_visibility_state: DOCUMENT_VISIBILITY_STATE.lock().map(|g| g.clone()).unwrap_or(None),
+        document_has_focus: Some(DOCUMENT_HAS_FOCUS.load(Ordering::Relaxed)),
+        window_is_focused: Some(WINDOW_IS_FOCUSED.load(Ordering::Relaxed)),
+        window_is_visible: Some(WINDOW_IS_VISIBLE.load(Ordering::Relaxed)),
+        quiescence_wait_ms: {
+            let q = QUIESCENCE_WAIT_MS.load(Ordering::Relaxed);
+            if q == 0 { None } else { Some(q) }
+        },
+        app_nap_disabled: Some(APP_NAP_DISABLED.load(Ordering::Relaxed)),
+        valid: IS_VALID_RUN.load(Ordering::Relaxed),
+        invalid_reason: INVALID_REASON.lock().map(|g| g.clone()).unwrap_or(None),
     };
 
     let audio_metrics = AudioColdMetrics {
@@ -802,6 +916,9 @@ pub fn get_report() -> ColdStartReport {
         process_epoch_ms: state.process_epoch_ms,
         pre_main_ms: state.pre_main_ms,
         system_uptime_secs: state.system_uptime_secs,
+        build_profile: if cfg!(debug_assertions) { "debug" } else { "release" },
+        git_commit: option_env!("CLYPRA_GIT_COMMIT"),
+        git_dirty: option_env!("CLYPRA_GIT_DIRTY").map(|s| s == "true").unwrap_or(false),
         milestones,
         audio_metrics,
         aggregates: state.aggregates.clone(),

@@ -179,6 +179,14 @@ export interface LaunchMilestones {
   firstFramePaintedFromOpenMs?: number;
   smoothPlaybackAtUs?: number;
   smoothPlaybackTargetFps?: number;
+  documentVisibilityState?: string;
+  documentHasFocus?: boolean;
+  windowIsFocused?: boolean;
+  windowIsVisible?: boolean;
+  quiescenceWaitMs?: number;
+  appNapDisabled?: boolean;
+  valid?: boolean;
+  invalidReason?: string;
 }
 
 /** Cold-start report section, collected once per session. */
@@ -189,6 +197,12 @@ export interface ColdStartReport {
   preMainMs?: number;
   /** System uptime at process start in seconds. */
   systemUptimeSecs?: number;
+  /** Cargo profile of the running native binary: "debug" or "release". */
+  buildProfile?: string;
+  /** Git commit SHA of the binary. */
+  gitCommit?: string;
+  /** True when the binary was built from a dirty working tree. */
+  gitDirty?: boolean;
   /** User-visible milestones. */
   milestones: LaunchMilestones;
   /** Known audio cold-path risks. */

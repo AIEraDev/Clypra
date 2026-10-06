@@ -98,6 +98,7 @@ import {
   listenForNativeRasterEviction,
   recordFrontendLaunchMilestones,
   recordColdStartSpan,
+  markFirstFramePainted,
   type NativePlaybackStatsPayload,
 } from "@/lib/platform/tauri";
 import { telemetryCollector } from "@/services/telemetryCollector";
@@ -239,6 +240,7 @@ function onFramePresentedOrPainted(
   if (!hasRecordedFirstFramePainted) {
     hasRecordedFirstFramePainted = true;
     (window as any).__clypraFirstFramePainted = true;
+    void markFirstFramePainted();
     requestAnimationFrame(() => {
       const firstFramePaintedMs = Math.round(
         performance.timeOrigin + performance.now(),

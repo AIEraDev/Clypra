@@ -86,6 +86,7 @@ fn mark_gpu_awaited() {
 
 #[tauri::command]
 fn record_frontend_launch_milestones(
+    app: tauri::AppHandle,
     navigation_start_ms: Option<u64>,
     dom_content_loaded_ms: Option<u64>,
     app_mounted_ms: Option<u64>,
@@ -96,7 +97,23 @@ fn record_frontend_launch_milestones(
     first_frame_painted_from_open_ms: Option<u64>,
     smooth_playback_at_us: Option<u64>,
     smooth_playback_target_fps: Option<u32>,
+    document_visibility_state: Option<String>,
+    document_has_focus: Option<bool>,
+    window_is_focused: Option<bool>,
+    window_is_visible: Option<bool>,
+    quiescence_wait_ms: Option<u64>,
+    app_nap_disabled: Option<bool>,
 ) {
+    let (actual_win_foc, actual_win_vis) = if let Some(win) = app.get_webview_window("main") {
+        (win.is_focused().ok(), win.is_visible().ok())
+    } else {
+        (None, None)
+    };
+    let win_foc = window_is_focused.or(actual_win_foc);
+    let win_vis = window_is_visible.or(actual_win_vis);
+
+    eprintln!("[Rust] record_frontend_launch_milestones: nav={:?}, dom={:?}, shell={:?}, interactive={:?}, doc_focus={:?}, doc_vis={:?}, win_foc={:?}, win_vis={:?}",
+        navigation_start_ms, dom_content_loaded_ms, shell_painted_ms, interactive_us, document_has_focus, document_visibility_state, win_foc, win_vis);
     cold_start::record_frontend_launch_milestones(
         navigation_start_ms,
         dom_content_loaded_ms,
@@ -108,7 +125,28 @@ fn record_frontend_launch_milestones(
         first_frame_painted_from_open_ms,
         smooth_playback_at_us,
         smooth_playback_target_fps,
+        document_visibility_state,
+        document_has_focus,
+        win_foc,
+        win_vis,
+        quiescence_wait_ms,
+        app_nap_disabled,
     );
+}
+
+#[tauri::command]
+fn mark_interactive() {
+    cold_start::record_interactive();
+}
+
+#[tauri::command]
+fn mark_project_open_requested() {
+    cold_start::record_project_open_requested();
+}
+
+#[tauri::command]
+fn mark_first_frame_painted() {
+    cold_start::record_first_frame_painted(None);
 }
 
 #[tauri::command]
@@ -134,7 +172,10 @@ fn record_cold_start_span(
 
 #[tauri::command]
 fn get_bench_run_config() -> cold_start::BenchRunConfig {
-    cold_start::get_bench_run_config()
+    let cfg = cold_start::get_bench_run_config();
+    eprintln!("[Rust] get_bench_run_config called: enabled={}, report={:?}, exit={}",
+        cfg.enabled, cfg.report_output_path, cfg.auto_exit);
+    cfg
 }
 
 #[tauri::command]
@@ -142,11 +183,17 @@ fn write_bench_report(file_path: String, json_content: String) -> Result<(), Str
     if !cold_start::is_bench_mode_active() {
         return Err("Benchmark report writing is only permitted when running in benchmark mode".to_string());
     }
-    if let Some(parent) = std::path::Path::new(&file_path).parent() {
+    let path = std::path::Path::new(&file_path);
+    if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    std::fs::write(&file_path, json_content)
-        .map_err(|e| format!("Failed to write report to {file_path}: {e}"))
+    let tmp_path = format!("{file_path}.tmp.{}", std::process::id());
+    std::fs::write(&tmp_path, &json_content)
+        .map_err(|e| format!("Failed to write tmp report to {tmp_path}: {e}"))?;
+    std::fs::rename(&tmp_path, path)
+        .map_err(|e| format!("Failed to atomically rename {tmp_path} to {file_path}: {e}"))?;
+    eprintln!("[Rust] write_bench_report atomically written to {}", file_path);
+    Ok(())
 }
 
 #[tauri::command]
@@ -175,8 +222,14 @@ fn set_menu_language(app: tauri::AppHandle, language: String) -> Result<(), Stri
 }
 
 #[tauri::command]
-fn exit_app(app: tauri::AppHandle, code: Option<i32>) {
-    app.exit(code.unwrap_or(0));
+fn exit_app(app: tauri::AppHandle, code: Option<i32>) -> Result<(), String> {
+    if !cold_start::is_bench_mode_active() {
+        return Err("exit_app is only permitted when running in benchmark mode".to_string());
+    }
+    let exit_code = code.unwrap_or(0);
+    eprintln!("[Rust] exit_app called with code {}", exit_code);
+    app.exit(exit_code);
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -235,9 +288,12 @@ pub fn run() {
             let win_init_start = std::time::Instant::now();
             if let Some(window) = app.get_webview_window("main") {
                 crate::cold_start::record_window_created();
-                if window.is_visible().unwrap_or(false) {
+                let is_vis = window.is_visible().unwrap_or(false);
+                let is_foc = window.is_focused().unwrap_or(false);
+                if is_vis {
                     crate::cold_start::record_window_shown();
                 }
+                crate::cold_start::record_window_state(is_vis, is_foc);
             }
             crate::cold_start::record_span("c0_window_init", win_init_start, 0, false);
             // Use the operating system's window chrome everywhere. Besides
@@ -756,10 +812,14 @@ pub fn run() {
             // ── Cold-start span report & milestones ────────────────────────
             get_cold_start_report,
             mark_gpu_awaited,
+            mark_interactive,
+            mark_project_open_requested,
+            mark_first_frame_painted,
             record_frontend_launch_milestones,
             record_cold_start_span,
             get_bench_run_config,
             write_bench_report,
+            exit_app,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
