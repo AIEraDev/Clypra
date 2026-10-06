@@ -97,6 +97,7 @@ import {
   listenForNativeMaskEviction,
   listenForNativeRasterEviction,
   recordFrontendLaunchMilestones,
+  recordColdStartSpan,
   type NativePlaybackStatsPayload,
 } from "@/lib/platform/tauri";
 import { telemetryCollector } from "@/services/telemetryCollector";
@@ -217,6 +218,9 @@ function getReusableCanvasImageData(
 }
 
 let hasRecordedFirstFramePainted = false;
+let hasRecordedTimelineEvaluate = false;
+let hasRecordedFirstFrameRequest = false;
+let hasRecordedFirstFrameReceived = false;
 let hasRecordedSmoothPlayback = false;
 const smoothPlaybackTimestamps: number[] = [];
 let lastSmoothFrameKey: string | number | null = null;
@@ -234,11 +238,31 @@ function onFramePresentedOrPainted(
   const now = performance.now();
   if (!hasRecordedFirstFramePainted) {
     hasRecordedFirstFramePainted = true;
+    (window as any).__clypraFirstFramePainted = true;
     requestAnimationFrame(() => {
       const firstFramePaintedMs = Math.round(
         performance.timeOrigin + performance.now(),
       );
-      void recordFrontendLaunchMilestones({ firstFramePaintedMs });
+      const openWallMs = (window as any).__clypraProjectOpenRequestedWallMs;
+      const firstFramePaintedFromOpenMs = openWallMs
+        ? Math.max(0, firstFramePaintedMs - openWallMs)
+        : undefined;
+      void recordFrontendLaunchMilestones({
+        firstFramePaintedMs,
+        firstFramePaintedFromOpenMs,
+      });
+      performance.mark("clypra:first_frame_painted");
+      if (openWallMs) {
+        void recordColdStartSpan(
+          "s2_first_frame_painted",
+          Math.round(performance.now() * 1000),
+          0,
+          0,
+          false,
+          true,
+          "preview",
+        );
+      }
     });
   }
 
@@ -2006,8 +2030,41 @@ export const NativeProgramPreview: React.FC = () => {
           const requestKey = getNativeFrameRequestKey(request);
           const frontendSpan = nativeFrontendPerfSpans.get(requestKey);
           frontendSpan?.markIpcStarted();
+          if (
+            !hasRecordedFirstFrameRequest &&
+            (window as any).__clypraProjectOpenRequestedWallMs
+          ) {
+            hasRecordedFirstFrameRequest = true;
+            performance.mark("clypra:first_frame_requested");
+            void recordColdStartSpan(
+              "s2_first_frame_requested",
+              Math.round(performance.now() * 1000),
+              0,
+              0,
+              false,
+              true,
+              "preview",
+            );
+          }
           try {
-            return await renderNativeFrame(request);
+            const res = await renderNativeFrame(request);
+            if (
+              !hasRecordedFirstFrameReceived &&
+              (window as any).__clypraProjectOpenRequestedWallMs
+            ) {
+              hasRecordedFirstFrameReceived = true;
+              performance.mark("clypra:first_frame_received");
+              void recordColdStartSpan(
+                "s2_first_frame_received",
+                Math.round(performance.now() * 1000),
+                0,
+                0,
+                false,
+                true,
+                "preview",
+              );
+            }
+            return res;
           } finally {
             frontendSpan?.markIpcFinished();
             adaptiveReadbackPolicy.recordReadback(
@@ -2948,6 +3005,7 @@ export const NativeProgramPreview: React.FC = () => {
           ...nativeBodyMasks,
           ...nativeSmartOverlays,
         ];
+        const t0Eval = performance.now();
         const nativeRequest = buildNativeFrameRequest(
           scene,
           `${state.project?.id ?? "unknown-project"}:${state.epoch}`,
@@ -2958,6 +3016,23 @@ export const NativeProgramPreview: React.FC = () => {
           nativeRasterLayers,
           requestIntent,
         );
+        const t1Eval = performance.now();
+        if (
+          !hasRecordedTimelineEvaluate &&
+          (window as any).__clypraProjectOpenRequestedWallMs
+        ) {
+          hasRecordedTimelineEvaluate = true;
+          performance.mark("clypra:timeline_evaluate");
+          void recordColdStartSpan(
+            "s2_timeline_evaluate",
+            Math.round(t0Eval * 1000),
+            Math.round((t1Eval - t0Eval) * 1000),
+            Math.round((t1Eval - t0Eval) * 1000),
+            false,
+            true,
+            "preview",
+          );
+        }
         const sceneTextLayers = scene.visualLayers.filter(
           (layer) => layer.layerType === "text",
         );

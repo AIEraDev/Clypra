@@ -63,15 +63,22 @@ fn decode_audio_clip_sync(
 
     // Attempt FFmpeg in-process decode first
     match decode_with_ffmpeg_next(path, &config, target_sample_rate, target_channels) {
-        Ok((clip, _reached_source_end)) if !is_materially_truncated(&clip, &config) => Ok(clip),
+        Ok((clip, _reached_source_end)) if !is_materially_truncated(&clip, &config) => {
+            crate::cold_start::add_audio_pcm_bytes((clip.samples.len() * 4) as u64);
+            Ok(clip)
+        }
         Ok((clip, _reached_source_end)) => {
+            crate::cold_start::record_audio_cli_fallback();
             // Never trust a materially short in-process decode for preview
             // playback. Container duration metadata can be shorter than the
             // playable stream, which previously made an apparently valid clip
             // go silent before its timeline end. Ask the independent CLI
             // decoder to verify the PCM range even when this looks like EOF.
             match decode_with_ffmpeg_cli(path, &config, target_sample_rate, target_channels) {
-                Ok(recovered) => Ok(recovered),
+                Ok(recovered) => {
+                    crate::cold_start::add_audio_pcm_bytes((recovered.samples.len() * 4) as u64);
+                    Ok(recovered)
+                }
                 // A genuinely short source remains valid if CLI recovery is
                 // unavailable. The caller can then surface its exact native
                 // clip duration instead of treating it as a callback failure.
@@ -82,6 +89,7 @@ fn decode_audio_clip_sync(
                         decoded_duration_ticks(&clip),
                         error
                     );
+                    crate::cold_start::add_audio_pcm_bytes((clip.samples.len() * 4) as u64);
                     Ok(clip)
                 }
                 Err(error) => Err(error),
@@ -97,7 +105,10 @@ fn decode_audio_clip_sync(
                     samples: Arc::from(Vec::<f32>::new()),
                 });
             }
-            decode_with_ffmpeg_cli(path, &config, target_sample_rate, target_channels)
+            crate::cold_start::record_audio_cli_fallback();
+            let recovered = decode_with_ffmpeg_cli(path, &config, target_sample_rate, target_channels)?;
+            crate::cold_start::add_audio_pcm_bytes((recovered.samples.len() * 4) as u64);
+            Ok(recovered)
         }
     }
 }
@@ -419,6 +430,7 @@ fn append_valid_samples(
         };
         all_samples.push(clean);
         if all_samples.len() * 4 > MAX_AUDIO_CLIP_BYTES {
+            crate::cold_start::record_audio_cap_truncation();
             return Err(format!(
                 "Decoded audio exceeds maximum {} MiB limit",
                 MAX_AUDIO_CLIP_BYTES / 1024 / 1024

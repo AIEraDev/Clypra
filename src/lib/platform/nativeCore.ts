@@ -964,5 +964,13 @@ export const DEFAULT_NATIVE_COLOR_POLICY: NativeColorPolicy = {
   displayProfile: "srgb-reference",
 };
 
-export { getColdStartReport, recordFrontendLaunchMilestones, markGpuAwaited } from "./tauri";
+export {
+  getColdStartReport,
+  recordFrontendLaunchMilestones,
+  markGpuAwaited,
+  recordColdStartSpan,
+  getBenchRunConfig,
+  writeBenchReport,
+} from "./tauri";
+export type { BenchRunConfig } from "./tauri";
 export type { ColdStartReport, ColdSpan } from "../../services/telemetryCollector";

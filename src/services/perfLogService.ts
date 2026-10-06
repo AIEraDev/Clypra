@@ -94,7 +94,8 @@ export type PerfLogKind =
   | "engine-seek-telemetry"
   | "zero-copy-violation"
   | "preview-quality-benchmark"
-  | "preview-benchmark-report";
+  | "preview-benchmark-report"
+  | "diagnostic-run";
 
 export interface PerfLogEntry {
   kind: PerfLogKind;

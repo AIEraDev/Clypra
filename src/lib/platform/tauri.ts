@@ -539,6 +539,8 @@ export async function presentNativeFrame(
   });
 }
 
+let hasRecordedNativeSessionCreate = false;
+
 /** Configure the persistent Rust-owned Native playback render graph. */
 export async function configureNativePlaybackRender(
   request: NativeFrameRequest,
@@ -556,7 +558,25 @@ export async function configureNativePlaybackRender(
       })),
     },
   };
+  const t0 = performance.now();
   await invoke("configure_native_playback_render", { snapshot: nativeRequest });
+  const t1 = performance.now();
+  if (
+    !hasRecordedNativeSessionCreate &&
+    (window as any).__clypraProjectOpenRequestedWallMs
+  ) {
+    hasRecordedNativeSessionCreate = true;
+    performance.mark("clypra:native_session_create");
+    void invoke("record_cold_start_span", {
+      stage: "s2_native_session_create",
+      startedAtUs: Math.round(t0 * 1000),
+      workUs: Math.round((t1 - t0) * 1000),
+      waitedUs: Math.round((t1 - t0) * 1000),
+      cached: false,
+      ok: true,
+      purpose: "preview",
+    });
+  }
 }
 
 /** Dynamically update the persistent Rust-owned Native playback render graph without tearing down the worker or purging lookahead. */
@@ -861,23 +881,74 @@ export async function markGpuAwaited(): Promise<void> {
 
 /** Record frontend launch and presentation milestones to native cold-start telemetry. */
 export async function recordFrontendLaunchMilestones(milestones: {
+  navigationStartMs?: number;
   domContentLoadedMs?: number;
   appMountedMs?: number;
   shellPaintedMs?: number;
   interactiveUs?: number;
+  projectOpenRequestedWallMs?: number;
   firstFramePaintedMs?: number;
+  firstFramePaintedFromOpenMs?: number;
   smoothPlaybackAtUs?: number;
   smoothPlaybackTargetFps?: number;
 }): Promise<void> {
   if (!isTauriRuntime()) return;
   return invoke("record_frontend_launch_milestones", {
+    navigationStartMs: milestones.navigationStartMs,
     domContentLoadedMs: milestones.domContentLoadedMs,
     appMountedMs: milestones.appMountedMs,
     shellPaintedMs: milestones.shellPaintedMs,
     interactiveUs: milestones.interactiveUs,
+    projectOpenRequestedWallMs: milestones.projectOpenRequestedWallMs,
     firstFramePaintedMs: milestones.firstFramePaintedMs,
+    firstFramePaintedFromOpenMs: milestones.firstFramePaintedFromOpenMs,
     smoothPlaybackAtUs: milestones.smoothPlaybackAtUs,
     smoothPlaybackTargetFps: milestones.smoothPlaybackTargetFps,
+  });
+}
+
+export interface BenchRunConfig {
+  enabled: boolean;
+  projectPath?: string;
+  reportOutputPath?: string;
+  seekTargetSecs?: number;
+  playDurationSecs?: number;
+  autoExit: boolean;
+}
+
+export async function getBenchRunConfig(): Promise<BenchRunConfig> {
+  if (!isTauriRuntime()) {
+    return { enabled: false, autoExit: false };
+  }
+  return invoke<BenchRunConfig>("get_bench_run_config");
+}
+
+export async function writeBenchReport(
+  filePath: string,
+  jsonContent: string,
+): Promise<void> {
+  if (!isTauriRuntime()) return;
+  return invoke("write_bench_report", { filePath, jsonContent });
+}
+
+export async function recordColdStartSpan(
+  stage: string,
+  startedAtUs: number,
+  workUs: number,
+  waitedUs = 0,
+  cached = false,
+  ok = true,
+  purpose?: string,
+): Promise<void> {
+  if (!isTauriRuntime()) return;
+  return invoke("record_cold_start_span", {
+    stage,
+    startedAtUs,
+    workUs,
+    waitedUs,
+    cached,
+    ok,
+    purpose,
   });
 }
 
