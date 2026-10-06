@@ -732,14 +732,7 @@ const App = () => {
   const runAutomatedBench = async (benchConfig: BenchRunConfig) => {
     console.info("[BenchRunner] Starting automated benchmark:", benchConfig);
     try {
-      let targetPath = benchConfig.projectPath;
-      if (!targetPath) {
-        const recents = await platform.getRecentProjects().catch(() => []);
-        if (recents.length > 0) {
-          targetPath = recents[0].path;
-        }
-      }
-
+      const targetPath = benchConfig.projectPath;
       if (targetPath) {
         console.info(`[BenchRunner] Auto-opening project: ${targetPath}`);
         await new Promise((r) => setTimeout(r, 100));
