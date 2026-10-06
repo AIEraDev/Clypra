@@ -30,6 +30,7 @@ pub static PROCESS_START: Lazy<Instant> = Lazy::new(Instant::now);
 static AUDIO_PCM_BYTES: AtomicU64 = AtomicU64::new(0);
 static AUDIO_CAP_TRUNCATIONS: AtomicU64 = AtomicU64::new(0);
 static AUDIO_CLI_FALLBACKS: AtomicU64 = AtomicU64::new(0);
+static AUDIO_FALLBACK_REASONS: Lazy<Mutex<Vec<String>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
 // ── Launch Milestones (One-time atomics) ──────────────────────────────────────
 static FIRST_SOUND_AT_US: AtomicU64 = AtomicU64::new(0);
@@ -151,6 +152,8 @@ pub struct AudioColdMetrics {
     pub pcm_bytes: u64,
     pub cap_truncations: u64,
     pub cli_fallbacks: u64,
+    #[serde(default)]
+    pub fallback_reasons: Vec<String>,
 }
 
 /// User-visible launch and playback readiness milestones.
@@ -732,8 +735,11 @@ pub fn record_audio_cap_truncation() {
     AUDIO_CAP_TRUNCATIONS.fetch_add(1, Ordering::Relaxed);
 }
 
-pub fn record_audio_cli_fallback() {
+pub fn record_audio_cli_fallback(reason: impl Into<String>) {
     AUDIO_CLI_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+    if let Ok(mut reasons) = AUDIO_FALLBACK_REASONS.lock() {
+        reasons.push(reason.into());
+    }
 }
 
 /// Record a custom span directly (e.g. from frontend performance marks or native lifecycle stages).
@@ -903,6 +909,7 @@ pub fn get_report() -> ColdStartReport {
         pcm_bytes: AUDIO_PCM_BYTES.load(Ordering::Relaxed),
         cap_truncations: AUDIO_CAP_TRUNCATIONS.load(Ordering::Relaxed),
         cli_fallbacks: AUDIO_CLI_FALLBACKS.load(Ordering::Relaxed),
+        fallback_reasons: AUDIO_FALLBACK_REASONS.lock().map(|r| r.clone()).unwrap_or_default(),
     };
 
     ColdStartReport {

@@ -68,29 +68,27 @@ fn decode_audio_clip_sync(
             Ok(clip)
         }
         Ok((clip, _reached_source_end)) => {
-            crate::cold_start::record_audio_cli_fallback();
-            // Never trust a materially short in-process decode for preview
-            // playback. Container duration metadata can be shorter than the
-            // playable stream, which previously made an apparently valid clip
-            // go silent before its timeline end. Ask the independent CLI
-            // decoder to verify the PCM range even when this looks like EOF.
+            let req_ms = (config.duration_ticks.max(0) / 1000) as u64;
+            let got_ms = (decoded_duration_ticks(&clip).max(0) / 1000) as u64;
+            let shortfall_ms = req_ms.saturating_sub(got_ms);
+
+            // If the source genuinely ended before the requested range, this is valid EOF,
+            // not an in-process decode truncation!
+            if is_expected_source_end(path, &clip, &config) {
+                crate::cold_start::add_audio_pcm_bytes((clip.samples.len() * 4) as u64);
+                return Ok(clip);
+            }
+
+            let reason = format!(
+                "truncated by {} ms (requested {} ms, decoded {} ms)",
+                shortfall_ms, req_ms, got_ms
+            );
+            crate::cold_start::record_audio_cli_fallback(&reason);
+
             match decode_with_ffmpeg_cli(path, &config, target_sample_rate, target_channels) {
                 Ok(recovered) => {
                     crate::cold_start::add_audio_pcm_bytes((recovered.samples.len() * 4) as u64);
                     Ok(recovered)
-                }
-                // A genuinely short source remains valid if CLI recovery is
-                // unavailable. The caller can then surface its exact native
-                // clip duration instead of treating it as a callback failure.
-                Err(error) if is_expected_source_end(path, &clip, &config) => {
-                    log::warn!(
-                        "[NativeAudio] CLI recovery unavailable for source-bound clip {}; retaining {} decoded ticks: {}",
-                        config.id,
-                        decoded_duration_ticks(&clip),
-                        error
-                    );
-                    crate::cold_start::add_audio_pcm_bytes((clip.samples.len() * 4) as u64);
-                    Ok(clip)
                 }
                 Err(error) => Err(error),
             }
@@ -105,7 +103,8 @@ fn decode_audio_clip_sync(
                     samples: Arc::from(Vec::<f32>::new()),
                 });
             }
-            crate::cold_start::record_audio_cli_fallback();
+            let reason = format!("in-process decode error: {}", err);
+            crate::cold_start::record_audio_cli_fallback(&reason);
             let recovered = decode_with_ffmpeg_cli(path, &config, target_sample_rate, target_channels)?;
             crate::cold_start::add_audio_pcm_bytes((recovered.samples.len() * 4) as u64);
             Ok(recovered)
@@ -350,9 +349,22 @@ fn decode_with_ffmpeg_next(
     // has every sample the timeline says it owns.
     let mut flushed_frame = ffmpeg::frame::Audio::empty();
     loop {
-        let pending = resampler
-            .flush(&mut flushed_frame)
-            .map_err(|error| format!("Failed to flush audio resampler: {error}"))?;
+        let delay = resampler.delay();
+        let samples_to_drain = delay.map(|d| d.output as usize).unwrap_or(0);
+        if samples_to_drain == 0 {
+            break;
+        }
+        unsafe {
+            flushed_frame.alloc(
+                resampler.output().format,
+                samples_to_drain.max(1024),
+                resampler.output().channel_layout,
+            );
+        }
+        let pending = match resampler.flush(&mut flushed_frame) {
+            Ok(p) => p,
+            Err(_) => break,
+        };
         if flushed_frame.samples() == 0 {
             break;
         }
@@ -360,8 +372,6 @@ fn decode_with_ffmpeg_next(
         if pending.is_none() {
             break;
         }
-        // The next flush call needs a fresh output frame. Reusing a non-empty
-        // frame may cause FFmpeg to retain its old allocation/sample count.
         flushed_frame = ffmpeg::frame::Audio::empty();
     }
 
@@ -519,9 +529,11 @@ fn decode_with_ffmpeg_cli(
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
 
-    let output = command
-        .output()
-        .map_err(|e| format!("Failed to spawn ffmpeg: {e}"))?;
+    let output = crate::process_util::run_command_with_timeout(
+        command,
+        std::time::Duration::from_secs(15),
+    )
+    .map_err(|e| format!("Failed to run ffmpeg: {e}"))?;
 
     if !output.status.success() {
         return Err("ffmpeg audio decoding process exited with error".to_string());
@@ -702,5 +714,29 @@ mod tests {
             &config,
             285_857_143,
         ));
+    }
+
+    #[test]
+    fn fixture_audio_decodes_in_process_without_cli_fallback() {
+        let path = std::path::Path::new("/Users/Shared/clypra-fixtures/clip_1440p25_gop1s.mp4");
+        if !path.exists() {
+            eprintln!("[SKIP] Fixture not found at {:?}", path);
+            return;
+        }
+        let config = AudioClipConfig {
+            id: "fixture_60".to_string(),
+            path: path.to_str().unwrap().to_string(),
+            timeline_start_ticks: 0,
+            source_start_ticks: 0,
+            duration_ticks: 60_000_000,
+            gain: 1.0,
+            fade_in_ticks: 0,
+            fade_out_ticks: 0,
+            track_id: None,
+        };
+        let decoded = decode_audio_clip_sync(path, config.clone(), 44_100, 2)
+            .expect("in-process decode must succeed for fixture");
+        assert!(decoded.samples.len() > 0, "must produce valid PCM samples");
+        assert!(!is_materially_truncated(&decoded, &config));
     }
 }

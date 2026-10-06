@@ -63,7 +63,16 @@ def main():
         print(f"Error: {dir_path} is not a directory", file=sys.stderr)
         sys.exit(1)
 
-    files = sorted(dir_path.glob("*.json"))
+    manifest_path = dir_path / "manifest.json"
+    manifest_data = None
+    if manifest_path.is_file():
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest_data = json.load(f)
+        except Exception:
+            pass
+
+    files = sorted([p for p in dir_path.glob("*.json") if p.name != "manifest.json"])
     if not files:
         print(f"No JSON reports found in {dir_path}")
         sys.exit(0)
@@ -74,7 +83,14 @@ def main():
     print("=" * 130)
     print(f"               FILE INTEGRITY, BUILD METADATA & FOCUS VALIDITY ({dir_path.name.upper()})")
     print("=" * 130)
-    print(f"{'Filename':<22} | {'Commit':<10} | {'Dirty':<5} | {'Profile':<7} | {'Focus(Doc/Win)':<14} | {'Vis(Doc/Win)':<13} | {'Valid':<5} | {'SHA-256':<20}")
+    if manifest_data:
+        m_runs = {r.get("file"): r for r in manifest_data.get("runs", [])}
+        print(f"Launch Method: {manifest_data.get('launchMethod', 'unknown')} | Platform: {manifest_data.get('platform', 'unknown')} | Commit: {manifest_data.get('gitCommit', '')[:10]} | Dirty: {manifest_data.get('gitDirty')}")
+        print("-" * 130)
+    else:
+        m_runs = {}
+
+    print(f"{'Filename':<22} | {'Commit':<10} | {'Dirty':<5} | {'Profile':<7} | {'Focus(Doc/Win)':<14} | {'Vis(Doc/Win)':<13} | {'Valid':<5} | {'Canary(MB/s)':<12} | {'SHA-256':<20}")
     print("-" * 130)
 
     for p in files:
@@ -83,6 +99,8 @@ def main():
             continue
         mtime, sha = get_file_info(p)
         cs = report.get("coldStart") or report
+        m_run = m_runs.get(p.name, {})
+        canary = f"{m_run.get('canaryMbS')} MB/s" if m_run.get('canaryMbS') not in (None, "null") else "N/A"
         commit = str(cs.get("gitCommit") or "unknown")[:10]
         dirty = str(cs.get("gitDirty", False))
         profile = str(cs.get("buildProfile", "unknown"))
@@ -94,7 +112,7 @@ def main():
         valid = "TRUE" if m.get("valid", True) else "FALSE"
         inv_reason = f" ({m.get('invalidReason')})" if not m.get("valid", True) and m.get("invalidReason") else ""
 
-        print(f"{p.name:<22} | {commit:<10} | {dirty:<5} | {profile:<7} | {doc_foc}/{win_foc:<12} | {doc_vis}/{win_vis:<11} | {valid:<5} | {sha[:16]}...{inv_reason}")
+        print(f"{p.name:<22} | {commit:<10} | {dirty:<5} | {profile:<7} | {doc_foc}/{win_foc:<12} | {doc_vis}/{win_vis:<11} | {valid:<5} | {canary:<12} | {sha[:16]}...{inv_reason}")
 
     # Group files by scenario and warmth: e.g. "S1 (cold)", "S1 (warm)", "S2 (cold)", "S2 (warm)"
     groups = defaultdict(list)

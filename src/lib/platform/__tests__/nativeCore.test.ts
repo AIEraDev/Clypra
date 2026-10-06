@@ -188,6 +188,7 @@ describe("native core contracts", () => {
       "pcmBytes",
       "capTruncations",
       "cliFallbacks",
+      "fallbackReasons",
     ]);
 
     const allowedStageAggregateKeys = new Set([

@@ -158,6 +158,7 @@ export interface AudioColdMetrics {
   pcmBytes: number;
   capTruncations: number;
   cliFallbacks: number;
+  fallbackReasons?: string[];
 }
 
 /** User-visible launch and playback readiness milestones. */

@@ -34,9 +34,79 @@ pub fn hidden_tokio_command<S: AsRef<OsStr>>(program: S) -> tokio::process::Comm
     #[allow(unused_mut)]
     let mut cmd = tokio::process::Command::new(program);
     cmd.stdin(Stdio::null());
+    cmd.kill_on_drop(true);
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
     cmd
+}
+
+/// Runs a synchronous `std::process::Command` with a strict timeout and kill-on-drop behavior.
+/// Concurrent reader threads prevent deadlocks on full stdout/stderr pipe buffers.
+pub fn run_command_with_timeout(
+    mut cmd: std::process::Command,
+    timeout: std::time::Duration,
+) -> Result<std::process::Output, String> {
+    use std::io::Read;
+
+    cmd.stdin(Stdio::null());
+    let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn command: {e}"))?;
+
+    let stdout_handle = child.stdout.take();
+    let stderr_handle = child.stderr.take();
+
+    let stdout_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut stream) = stdout_handle {
+            let _ = stream.read_to_end(&mut buf);
+        }
+        buf
+    });
+
+    let stderr_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut stream) = stderr_handle {
+            let _ = stream.read_to_end(&mut buf);
+        }
+        buf
+    });
+
+    let start = std::time::Instant::now();
+    let poll_interval = std::time::Duration::from_millis(20);
+
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if start.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = stdout_thread.join();
+                    let _ = stderr_thread.join();
+                    return Err(format!(
+                        "Command timed out after {} seconds",
+                        timeout.as_secs()
+                    ));
+                }
+                std::thread::sleep(poll_interval);
+            }
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = stdout_thread.join();
+                let _ = stderr_thread.join();
+                return Err(format!("Error waiting for command: {e}"));
+            }
+        }
+    };
+
+    let stdout = stdout_thread.join().unwrap_or_default();
+    let stderr = stderr_thread.join().unwrap_or_default();
+
+    Ok(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
 }
 
 #[cfg(test)]

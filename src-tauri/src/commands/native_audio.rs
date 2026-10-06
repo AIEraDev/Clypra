@@ -254,14 +254,14 @@ pub async fn replace_native_audio_clips(
         }
     }
 
-    let audio_work_us = audio_decode_started
+    let _audio_work_us = audio_decode_started
         .elapsed()
         .as_micros()
         .min(u64::MAX as u128) as u64;
     crate::cold_start::record_span(
         "c1_audio_decode_all",
         audio_decode_started,
-        audio_work_us,
+        0,
         false,
     );
     log::debug!("[ColdStart] c1_audio_decode_all: {} clips", clip_count);
