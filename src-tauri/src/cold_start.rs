@@ -626,23 +626,16 @@ pub fn record_frontend_launch_milestones(
     }
     if let Some(focus) = document_has_focus {
         DOCUMENT_HAS_FOCUS.store(focus, Ordering::Relaxed);
-        if !focus {
-            IS_VALID_RUN.store(false, Ordering::Relaxed);
-            if let Ok(mut lock) = INVALID_REASON.lock() {
-                if lock.is_none() {
-                    *lock = Some("window not focused".to_string());
-                }
-            }
-        }
     }
     if let Some(foc) = window_is_focused {
         WINDOW_IS_FOCUSED.store(foc, Ordering::Relaxed);
-        if !foc {
-            IS_VALID_RUN.store(false, Ordering::Relaxed);
-            if let Ok(mut lock) = INVALID_REASON.lock() {
-                if lock.is_none() {
-                    *lock = Some("window not focused".to_string());
-                }
+    }
+    let has_focus = document_has_focus.unwrap_or(false) || window_is_focused.unwrap_or(false);
+    if !has_focus {
+        IS_VALID_RUN.store(false, Ordering::Relaxed);
+        if let Ok(mut lock) = INVALID_REASON.lock() {
+            if lock.is_none() {
+                *lock = Some("window not focused".to_string());
             }
         }
     }

@@ -229,8 +229,10 @@ const App = () => {
             };
 
             detectQuiescence(async (interactiveWallMs, quiescenceWaitMs) => {
-              // Immediately stamp native monotonic clock
               void markInteractive();
+              try {
+                window.focus();
+              } catch {}
 
               const documentVisibilityState = document.visibilityState;
               const documentHasFocus = document.hasFocus();
