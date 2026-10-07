@@ -534,6 +534,14 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({
                 className="w-10 h-10 object-contain relative z-10 drop-shadow-[0_0_10px_var(--clypra-interaction-focus)]"
               />
             </div>
+            <div>
+              <h1 className="text-xl font-bold text-text-primary tracking-tight leading-tight">
+                Clypra
+              </h1>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-accent/10 border border-accent/20 text-[10px] font-semibold text-accent tracking-wider">
+                VIDEO EDITOR
+              </span>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
