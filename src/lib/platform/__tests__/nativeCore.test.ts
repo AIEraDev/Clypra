@@ -211,6 +211,7 @@ describe("native core contracts", () => {
       "startedAtUs",
       "workUs",
       "waitedByInteractiveUs",
+      "overlappedWithCriticalPathUs",
       "cached",
       "ok",
       "purpose",

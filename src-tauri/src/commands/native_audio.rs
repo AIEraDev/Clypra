@@ -355,23 +355,31 @@ pub async fn replace_native_audio_clips(
         .min(u64::MAX as u128) as u64;
     let audio_end_us = audio_start_us.saturating_add(audio_work_us);
     let first_frame_us = crate::cold_start::get_first_frame_painted_at_us();
-    let waited_by_interactive_us = if first_frame_us > 0 {
+    let overlapped_with_critical_path_us = if first_frame_us > 0 {
         if first_frame_us > audio_start_us {
-            first_frame_us.min(audio_end_us).saturating_sub(audio_start_us)
+            Some(first_frame_us.min(audio_end_us).saturating_sub(audio_start_us))
         } else {
-            0
+            Some(0)
         }
     } else {
-        0
+        None
     };
 
-    crate::cold_start::record_span(
+    // Audio decoding occurs in the background and does NOT block the UI thread (waited = 0).
+    // The background overlap with the critical path is recorded in overlapped_with_critical_path_us.
+    crate::cold_start::record_span_with_overlap(
         "c1_audio_decode_all",
         audio_decode_started,
-        waited_by_interactive_us,
+        0,
+        overlapped_with_critical_path_us,
         false,
+        None,
     );
-    log::debug!("[ColdStart] c1_audio_decode_all: {} clips (waited: {} us)", clip_count, waited_by_interactive_us);
+    log::debug!(
+        "[ColdStart] c1_audio_decode_all: {} clips (waited: 0 us, overlap: {:?} us)",
+        clip_count,
+        overlapped_with_critical_path_us
+    );
 
     let statuses: Vec<NativeAudioClipStatus> = decoded.iter().map(NativePcmClip::status).collect();
     log::debug!(

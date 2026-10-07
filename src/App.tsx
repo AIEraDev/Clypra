@@ -36,6 +36,7 @@ import { importMediaPaths, getMediaType } from "@/hooks/useMediaImport";
 import { installNativeDiagnostics } from "@/core/runtime/nativeDiagnostics";
 import { getPreviewInteractionCoordinator } from "@/core/interactions";
 import { perfLogService, PerfLogService } from "@/services/perfLogService";
+import { warmBackgroundWorkersAndCachesAtIdle } from "@/services/idleWarmup";
 import {
   getColdStartReport,
   recordFrontendLaunchMilestones,
@@ -186,49 +187,63 @@ const App = () => {
           scheduleShellPainted(() => {
             const shellPaintedMs = Math.round(performance.timeOrigin + performance.now());
 
-            // Disentangle interactive from shellPainted via true main-thread quiescence:
-            // Require 5 consecutive responsive 10ms ticks (50ms continuous idle with < 4ms timer drift).
-            const detectQuiescence = (
-              onQuiescent: (interactiveWallMs: number, quiescenceWaitMs: number) => void,
+            // Disentangle interactive from shellPainted via real main-thread event-loop pings:
+            // Require 3 consecutive low-latency MessageChannel round-trips (< 5ms dispatch latency)
+            const measureResponsiveness = (
+              onResponsive: (interactiveMs: number, responsivenessWaitMs: number) => void,
             ) => {
-              const tickMs = 10;
-              const maxDriftMs = 4;
-              const requiredQuietTicks = 5;
-              let quietCount = 0;
-              let lastTick = performance.now();
               const start = performance.now();
               const maxWaitMs = 1500;
+              const targetConsecutive = 3;
+              const maxPingLatencyMs = 5;
+              let consecutive = 0;
 
-              const timer = setInterval(() => {
+              const channel = new MessageChannel();
+              let timer: ReturnType<typeof setTimeout> | null = null;
+
+              const cleanup = () => {
+                if (timer) clearTimeout(timer);
+                try {
+                  channel.port1.close();
+                  channel.port2.close();
+                } catch {}
+              };
+
+              timer = setTimeout(() => {
+                cleanup();
                 const now = performance.now();
-                const elapsedSinceLast = now - lastTick;
-                const drift = Math.abs(elapsedSinceLast - tickMs);
-                lastTick = now;
+                onResponsive(
+                  Math.round(performance.timeOrigin + now),
+                  Math.round(now - start),
+                );
+              }, maxWaitMs);
 
-                if (drift < maxDriftMs) {
-                  quietCount++;
-                  if (quietCount >= requiredQuietTicks) {
-                    clearInterval(timer);
-                    onQuiescent(
+              channel.port1.onmessage = (event: MessageEvent<number>) => {
+                const pingStart = event.data;
+                const latency = performance.now() - pingStart;
+                const now = performance.now();
+
+                if (latency < maxPingLatencyMs) {
+                  consecutive++;
+                  if (consecutive >= targetConsecutive) {
+                    cleanup();
+                    onResponsive(
                       Math.round(performance.timeOrigin + now),
                       Math.round(now - start),
                     );
+                    return;
                   }
                 } else {
-                  quietCount = 0;
+                  consecutive = 0;
                 }
 
-                if (now - start > maxWaitMs) {
-                  clearInterval(timer);
-                  onQuiescent(
-                    Math.round(performance.timeOrigin + now),
-                    Math.round(now - start),
-                  );
-                }
-              }, tickMs);
+                channel.port2.postMessage(performance.now());
+              };
+
+              channel.port2.postMessage(performance.now());
             };
 
-            detectQuiescence(async (_quiescentWallMs, quiescenceWaitMs) => {
+            measureResponsiveness(async (interactiveMs, quiescenceWaitMs) => {
               void markInteractive();
               try {
                 window.focus();
@@ -237,8 +252,11 @@ const App = () => {
               const documentVisibilityState = document.visibilityState;
               const documentHasFocus = document.hasFocus();
 
-              // Freeze interactive milestone: shell painted + 50ms main-thread idle (excluding harness quiescence timer waits)
-              const interactiveUs = shellPaintedMs + 50;
+              // Real interactive milestone measured via MessageChannel responsiveness
+              const interactiveUs = interactiveMs;
+
+              // Schedule idle warming of lazy workers and filter cache after reaching interactive
+              warmBackgroundWorkersAndCachesAtIdle();
 
               void recordFrontendLaunchMilestones({
                 navigationStartMs,

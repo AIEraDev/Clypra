@@ -105,16 +105,18 @@ if [[ ! -f "$CANARY_FILE" ]]; then
     dd if=/dev/urandom of="$CANARY_FILE" bs=1M count=512 2>/dev/null
 fi
 
-# Git metadata
+# Git metadata & Binary fingerprint
 GIT_COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo "unknown")"
 GIT_DIRTY="false"
 if [[ -n "$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null)" ]]; then
     GIT_DIRTY="true"
 fi
+BINARY_SHA256="$(shasum -a 256 "$RAW_BIN" 2>/dev/null | awk '{print $1}' || echo "unknown")"
 
 echo "=============================================================================="
 echo " Starting Clypra Automated Benchmark Suite on Apple M1"
 echo " App:           $APP_BUNDLE"
+echo " Binary SHA256: ${BINARY_SHA256:0:16}..."
 echo " Launch Method: $LAUNCH_METHOD"
 echo " Results Dir:   $RESULTS_DIR"
 echo " Project:       $S2_PROJECT"
@@ -160,6 +162,30 @@ print(f"{mb_s:.1f}")
 ' "$CANARY_FILE"
 }
 
+# Wait for system load average to drop below 1.5 before running milestone benchmarks
+wait_for_system_quiet() {
+    local max_wait=60
+    local waited=0
+    while true; do
+        local load_1min
+        load_1min=$(python3 -c 'import os; print(f"{os.getloadavg()[0]:.2f}")')
+        local is_quiet
+        is_quiet=$(python3 -c "import sys; print(1 if float('$load_1min') <= 1.5 else 0)")
+        if [[ "$is_quiet" == "1" ]]; then
+            break
+        fi
+        local top_proc
+        top_proc=$(ps -A -o %cpu,comm -r 2>/dev/null | sed -n '2p' | awk '{print $1"% "$2}')
+        echo "  [QUIET-GATE] 1-min loadavg ($load_1min) > 1.5; top process: $top_proc. Waiting for system quiet..."
+        sleep 3
+        waited=$((waited + 3))
+        if [[ $waited -ge $max_wait ]]; then
+            echo "  [WARN] Waited ${waited}s for system quiet, proceeding anyway (load: $load_1min, top: $top_proc)"
+            break
+        fi
+    done
+}
+
 # In-memory array of manifest entries (formatted as JSON objects)
 MANIFEST_ENTRIES=()
 
@@ -172,6 +198,8 @@ run_single() {
 
     echo "------------------------------------------------------------------------------"
     echo ">>> Running $scenario ($warmth) #$index..."
+
+    wait_for_system_quiet
 
     local purge_exit_code="null"
     local canary_mb_s="null"
@@ -280,6 +308,7 @@ data = {
     'launchMethod': '$LAUNCH_METHOD',
     'gitCommit': '$GIT_COMMIT',
     'gitDirty': ('$GIT_DIRTY'.lower() == 'true'),
+    'binarySha256': '$BINARY_SHA256',
     'resultsDir': '$RESULTS_DIR',
     'runs': json.loads('[$MANIFEST_JOINED]')
 }

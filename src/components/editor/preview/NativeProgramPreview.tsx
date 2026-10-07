@@ -103,6 +103,7 @@ import {
 } from "@/lib/platform/tauri";
 import { telemetryCollector } from "@/services/telemetryCollector";
 import type { TelemetryPreviewContext } from "@/services/telemetryCollector";
+import { warmBackgroundWorkersAndCachesAtIdle } from "@/services/idleWarmup";
 
 import type { SmartOverlayClip } from "@/types/smartOverlay";
 import { KaraokeCaptions } from "@/components/captions/KaraokeCaptions";
@@ -253,6 +254,8 @@ function onFramePresentedOrPainted(
         firstFramePaintedMs,
         firstFramePaintedFromOpenMs,
       });
+      // Warm idle caches and workers after first frame paint
+      warmBackgroundWorkersAndCachesAtIdle();
       performance.mark("clypra:first_frame_painted");
       if (openWallMs) {
         void recordColdStartSpan(

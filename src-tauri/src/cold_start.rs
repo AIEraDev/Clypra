@@ -95,6 +95,9 @@ pub struct ColdSpan {
     pub work_us: u64,
     /// Duration an interactive or UI thread was blocked awaiting this span.
     pub waited_by_interactive_us: u64,
+    /// Duration this background task overlapped with the critical path before interactive or first frame.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overlapped_with_critical_path_us: Option<u64>,
     /// `true` if the result came from a persistent cache (skipping real work).
     pub cached: bool,
     /// `true` if the operation completed successfully; `false` on error/early return.
@@ -221,7 +224,7 @@ pub struct MilestoneDefinitions {
     pub smooth_playback: &'static str,
 }
 
-pub const CURRENT_REPORT_VERSION: u32 = 2;
+pub const CURRENT_REPORT_VERSION: u32 = 3;
 
 pub fn get_milestone_definitions() -> MilestoneDefinitions {
     MilestoneDefinitions {
@@ -230,7 +233,7 @@ pub fn get_milestone_definitions() -> MilestoneDefinitions {
         dom_content_loaded: "Native process start to DOMContentLoaded event end",
         app_mounted: "Native process start to React App root mount",
         shell_painted: "Native process start to double requestAnimationFrame after mount",
-        interactive: "Native process start to shell painted + 50ms main-thread idle (excluding harness quiescence timer waits)",
+        interactive: "Native process start to responsive main-thread event loop (3 consecutive MessageChannel ping round-trips < 5ms)",
         first_frame_from_open: "Project open request to first frame presented to native surface or canvas paint",
         smooth_playback: "Native process start to first moment unique painted FPS stays at target for 1.0s",
     }
@@ -343,6 +346,7 @@ pub struct SpanGuard {
     container_format: Option<String>,
     file_size_bucket_mb: Option<u64>,
     media_location: Option<&'static str>,
+    overlapped_with_critical_path_us: Option<u64>,
     completed: bool,
 }
 
@@ -359,6 +363,7 @@ impl SpanGuard {
             container_format: None,
             file_size_bucket_mb: None,
             media_location: None,
+            overlapped_with_critical_path_us: None,
             completed: false,
         }
     }
@@ -372,6 +377,12 @@ impl SpanGuard {
     /// Mark the interactive wait time (e.g. if the UI blocked for this operation).
     pub fn set_waited(&mut self, waited_us: u64) -> &mut Self {
         self.waited = WaitedMode::Measured(waited_us);
+        self
+    }
+
+    /// Mark the background overlap with the critical path before interactive or first frame.
+    pub fn set_overlapped_with_critical_path(&mut self, us: u64) -> &mut Self {
+        self.overlapped_with_critical_path_us = Some(us);
         self
     }
 
@@ -441,6 +452,7 @@ impl SpanGuard {
             started_at_us,
             work_us,
             waited_by_interactive_us,
+            overlapped_with_critical_path_us: self.overlapped_with_critical_path_us,
             cached: self.cached,
             ok: self.ok,
             purpose: self.purpose.clone(),
@@ -463,11 +475,12 @@ pub fn record_span(stage: &str, started: Instant, waited_by_interactive_us: u64,
     record_span_with_purpose(stage, started, waited_by_interactive_us, cached, None);
 }
 
-/// Convenience helper to record a span with an explicit subsystem purpose.
-pub fn record_span_with_purpose(
+/// Convenience helper to record a span with critical-path overlap metrics.
+pub fn record_span_with_overlap(
     stage: &str,
     started: Instant,
     waited_by_interactive_us: u64,
+    overlapped_with_critical_path_us: Option<u64>,
     cached: bool,
     purpose: Option<&'static str>,
 ) {
@@ -482,6 +495,7 @@ pub fn record_span_with_purpose(
         started_at_us,
         work_us,
         waited_by_interactive_us,
+        overlapped_with_critical_path_us,
         cached,
         ok: true,
         purpose: purpose.map(Cow::Borrowed),
@@ -490,6 +504,24 @@ pub fn record_span_with_purpose(
         file_size_bucket_mb: None,
         media_location: None,
     });
+}
+
+/// Convenience helper to record a span with an explicit subsystem purpose.
+pub fn record_span_with_purpose(
+    stage: &str,
+    started: Instant,
+    waited_by_interactive_us: u64,
+    cached: bool,
+    purpose: Option<&'static str>,
+) {
+    record_span_with_overlap(
+        stage,
+        started,
+        waited_by_interactive_us,
+        None,
+        cached,
+        purpose,
+    );
 }
 
 fn record_span_internal(span: ColdSpan) {
@@ -805,6 +837,7 @@ pub fn record_custom_span(
         started_at_us,
         work_us,
         waited_by_interactive_us: waited_us,
+        overlapped_with_critical_path_us: None,
         cached,
         ok,
         purpose: purpose.map(Into::into),

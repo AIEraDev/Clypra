@@ -126,6 +126,8 @@ export interface ColdSpan {
   workUs: number;
   /** Duration an interactive or UI thread was blocked awaiting this span. */
   waitedByInteractiveUs: number;
+  /** Duration this background task overlapped with the critical path before interactive/first frame. */
+  overlappedWithCriticalPathUs?: number;
   /** True if the result came from a persistent cache. */
   cached: boolean;
   /** True if the operation succeeded; false on failure/early return. */
