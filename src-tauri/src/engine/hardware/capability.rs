@@ -289,7 +289,7 @@ mod tests {
     fn constrained_intel_uhd_620_below_2gib() {
         // UHD 620 is explicitly listed as a constrained Intel model.
         let profile = probe_hardware_capability(
-            1 * 1024 * 1024 * 1024, // 1 GiB — above the generic <1GiB threshold
+            1024 * 1024 * 1024, // 1 GiB — above the generic <1GiB threshold
             "Intel Corporation",
             "Intel UHD Graphics 620",
             true,
@@ -317,7 +317,7 @@ mod tests {
     #[test]
     fn constrained_intel_detection_is_case_insensitive_for_windows_drivers() {
         let profile = probe_hardware_capability(
-            1 * 1024 * 1024 * 1024,
+            1024 * 1024 * 1024,
             "intel",
             "intel(r) uhd graphics 620",
             true,

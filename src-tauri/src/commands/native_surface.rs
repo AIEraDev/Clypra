@@ -328,7 +328,7 @@ fn configure_surface(
             const SWP_FRAMECHANGED: u32 = 0x0020;
             // HWND_TOP = 0 as a pseudo-handle — keeps the window at the top of
             // its z-order tier without making it system-wide always-on-top.
-            const HWND_TOP: *mut std::ffi::c_void = 0isize as *mut std::ffi::c_void;
+            const HWND_TOP: *mut std::ffi::c_void = std::ptr::null_mut::<std::ffi::c_void>();
 
             extern "system" {
                 fn GetWindowLongPtrW(hwnd: *mut std::ffi::c_void, n_index: i32) -> isize;

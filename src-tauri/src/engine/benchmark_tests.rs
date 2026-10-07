@@ -26,10 +26,12 @@ use super::benchmark::*;
 use super::types::{CodecProfile, CodecType, PixelFormat};
 
 fn create_t1200_test_runner(scenario: BenchmarkScenario, frames: usize) -> HardwareBenchmarkRunner {
-    let mut config = BenchmarkConfig::default();
-    config.scenario = scenario;
-    config.duration_frames = frames;
-    config.media = BenchmarkMedia::mock_4k60_hevc_10bit();
+    let config = BenchmarkConfig {
+        scenario,
+        duration_frames: frames,
+        media: BenchmarkMedia::mock_4k60_hevc_10bit(),
+        ..Default::default()
+    };
     HardwareBenchmarkRunner::new_windows_t1200(config)
 }
 

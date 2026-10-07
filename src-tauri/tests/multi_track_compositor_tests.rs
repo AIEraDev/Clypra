@@ -1321,10 +1321,11 @@ async fn test_burned_in_caption_preview_vs_export_pixel_parity() {
             }
 
             // In the caption text area: x in [200, 440], y in [250, 290]
-            if x >= 200 && x < 440 && y >= 250 && y < 290 {
-                if p_export != [20, 35, 45, 255] {
-                    caption_pixels_detected += 1;
-                }
+            if (200..440).contains(&x)
+                && (250..290).contains(&y)
+                && p_export != [20, 35, 45, 255]
+            {
+                caption_pixels_detected += 1;
             }
         }
     }
