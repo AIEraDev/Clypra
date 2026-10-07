@@ -23,7 +23,6 @@
         "transparent": false,
         "shadow": true,
         "titleBarStyle": "Overlay",
-        "hiddenTitle": true,
         "devtools": true
       }
     ],
