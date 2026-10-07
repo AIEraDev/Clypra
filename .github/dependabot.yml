@@ -1,0 +1,53 @@
+# Dependabot keeps dependencies up to date and opens PRs for security fixes.
+# Docs: https://docs.github.com/code-security/dependabot/dependabot-version-updates
+#
+# Ecosystems enabled: npm (frontend), Cargo (Rust backend), GitHub Actions.
+# Deliberately NOT enabled:
+#   - Gradle (android/): files are Capacitor-generated and pinned by Capacitor;
+#     bumping them independently tends to break the sync.
+#   - CocoaPods/Swift (ios/): not used for managed version updates here.
+version: 2
+updates:
+  # Frontend JavaScript / TypeScript dependencies
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "javascript"
+    groups:
+      # Collapse the noisy minor/patch bumps into a single PR per week.
+      npm-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Rust backend (Tauri) dependencies
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "rust"
+    groups:
+      cargo-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions used by the CI / release / security workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    groups:
+      actions-all:
+        patterns:
+          - "*"
