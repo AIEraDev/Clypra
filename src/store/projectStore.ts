@@ -865,10 +865,32 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         gaps: useTimelineStore.getState().gaps,
         markers: useTimelineStore.getState().markers,
       };
+      const markSubSpan = (stage: string, startMs: number) => {
+        const endMs = performance.now();
+        const durationUs = Math.round((endMs - startMs) * 1000);
+        try {
+          performance.measure(`clypra:${stage}`, { start: startMs, end: endMs });
+        } catch (_) {}
+        try {
+          void import("@/lib/platform/tauri").then(({ recordColdStartSpan }) => {
+            void recordColdStartSpan(
+              stage,
+              Math.round(startMs * 1000),
+              durationUs,
+              durationUs,
+              false,
+              true,
+              "hydrate",
+            );
+          });
+        } catch (_) {}
+      };
+
       try {
         // ═══════════════════════════════════════════════════════════════════════════════
         // PHASE 1: Dispose Previous Runtime & Reset State
         // ═══════════════════════════════════════════════════════════════════════════════
+        const tPhase1 = performance.now();
         try {
           const { disposeActiveSession } =
             await import("@/core/runtime/ProjectSession");
@@ -885,10 +907,12 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         } catch (err) {}
 
         if (currentLoadId !== loadId) return;
+        markSubSpan("s2_hydrate_dispose_prev", tPhase1);
 
         // ═══════════════════════════════════════════════════════════════════════════════
         // PHASE 2: Load Project & Media Assets
         // ═══════════════════════════════════════════════════════════════════════════════
+        const tPhase2 = performance.now();
         get().updateProjectInitialization(
           initializationId,
           "loading-assets",
@@ -922,22 +946,24 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
             normalizeMediaAsset,
           ),
         });
+        markSubSpan("s2_hydrate_phase2_assets_opfs", tPhase2);
 
+        const tFilters = performance.now();
         const allPayloadClips = flattenClips(effectivePayload?.clips);
         await preloadTextEffectDefinitionsFromClips(allPayloadClips);
         if (currentLoadId !== loadId) return;
 
-        // Preload filters from clips
+        // Preload filters from clips (only initialize cache if project actually uses filters)
         try {
-          const { filterCacheManager } =
-            await import("@/features/filters/cache/filterCache");
-          await filterCacheManager.initialize();
-
           const filterClips = allPayloadClips.filter(
             (clip: any) => clip.kind === "filter" && clip.mediaId,
           );
 
           if (filterClips.length > 0) {
+            const { filterCacheManager } =
+              await import("@/features/filters/cache/filterCache");
+            await filterCacheManager.initialize();
+
             for (const clip of filterClips) {
               try {
                 // Check if already cached
@@ -966,8 +992,10 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         }
 
         if (currentLoadId !== loadId) return;
+        markSubSpan("s2_hydrate_phase2_filters", tFilters);
 
         // Preload text templates and their fonts with persistent caching
+        const tFonts = performance.now();
         get().updateProjectInitialization(
           initializationId,
           "warming-text",
@@ -985,10 +1013,12 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         }
 
         if (currentLoadId !== loadId) return;
+        markSubSpan("s2_hydrate_phase2_fonts", tFonts);
 
         // ═══════════════════════════════════════════════════════════════════════════════
         // PHASE 3: Hydrate Timeline State
         // ═══════════════════════════════════════════════════════════════════════════════
+        const tTimeline = performance.now();
         get().updateProjectInitialization(
           initializationId,
           "hydrating-timeline",
@@ -1015,10 +1045,12 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         });
 
         if (currentLoadId !== loadId) return;
+        markSubSpan("s2_hydrate_phase3_timeline_store", tTimeline);
 
         // ═══════════════════════════════════════════════════════════════════════════════
         // PHASE 4: Initialize New Runtime Session
         // ═══════════════════════════════════════════════════════════════════════════════
+        const tSession = performance.now();
         get().updateProjectInitialization(
           initializationId,
           "starting-preview",
@@ -1038,10 +1070,12 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         });
 
         if (currentLoadId !== loadId) return;
+        markSubSpan("s2_hydrate_phase4_runtime_session", tSession);
 
         // ═══════════════════════════════════════════════════════════════════════════════
         // PHASE 5: Prewarm Video Decoders (required before opening)
         // ═══════════════════════════════════════════════════════════════════════════════
+        const tDecoders = performance.now();
         get().updateProjectInitialization(
           initializationId,
           "starting-preview",
@@ -1064,7 +1098,9 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           // optional prewarm command itself cannot be loaded.
           console.warn("[projectStore] Video decoder prewarm unavailable", err);
         }
+        markSubSpan("s2_hydrate_phase5_prewarm_decoders", tDecoders);
 
+        const tSurface = performance.now();
         get().updateProjectInitialization(
           initializationId,
           "starting-preview",
@@ -1072,10 +1108,12 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           "Waiting for native preview surface…",
         );
         await waitForNativeSurfaceReady(project.id);
+        markSubSpan("s2_hydrate_phase5_surface_wait", tSurface);
 
         // ═══════════════════════════════════════════════════════════════════════════════
         // PHASE 6: Verify Media Files on Disk (required before opening)
         // ═══════════════════════════════════════════════════════════════════════════════
+        const tMedia = performance.now();
         get().updateProjectInitialization(
           initializationId,
           "verifying-media",
@@ -1094,6 +1132,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         }
 
         if (currentLoadId !== loadId) return;
+        markSubSpan("s2_hydrate_phase6_check_media", tMedia);
         set({ isDirty: false });
         get().completeProjectInitialization(initializationId);
       } catch (error) {

@@ -98,10 +98,12 @@ import {
   listenForNativeRasterEviction,
   recordFrontendLaunchMilestones,
   recordColdStartSpan,
+  markFirstFramePainted,
   type NativePlaybackStatsPayload,
 } from "@/lib/platform/tauri";
 import { telemetryCollector } from "@/services/telemetryCollector";
 import type { TelemetryPreviewContext } from "@/services/telemetryCollector";
+import { warmBackgroundWorkersAndCachesAtIdle } from "@/services/idleWarmup";
 
 import type { SmartOverlayClip } from "@/types/smartOverlay";
 import { KaraokeCaptions } from "@/components/captions/KaraokeCaptions";
@@ -239,6 +241,7 @@ function onFramePresentedOrPainted(
   if (!hasRecordedFirstFramePainted) {
     hasRecordedFirstFramePainted = true;
     (window as any).__clypraFirstFramePainted = true;
+    void markFirstFramePainted();
     requestAnimationFrame(() => {
       const firstFramePaintedMs = Math.round(
         performance.timeOrigin + performance.now(),
@@ -251,6 +254,8 @@ function onFramePresentedOrPainted(
         firstFramePaintedMs,
         firstFramePaintedFromOpenMs,
       });
+      // Warm idle caches and workers after first frame paint
+      warmBackgroundWorkersAndCachesAtIdle();
       performance.mark("clypra:first_frame_painted");
       if (openWallMs) {
         void recordColdStartSpan(

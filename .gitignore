@@ -35,9 +35,10 @@ Thumbs.db
 *.env.*
 
 /clypra_next_releases.md
-/custom_gpu_rendering_plan.md
-tsconfig.node.tsbuildinfo
 fixtures/
 
 # Windows reserved device name (cannot be deleted)
 /nul
+
+# Benchmark results
+scripts/benchmarks/results/

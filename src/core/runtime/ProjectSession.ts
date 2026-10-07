@@ -923,6 +923,18 @@ export class ProjectSession {
         timestampEpochMs: Date.now(),
         payload: detail,
       });
+      try {
+        const { recordColdStartSpan } = await import("@/lib/platform/tauri");
+        void recordColdStartSpan(
+          `s2_session_${stage}`,
+          Math.round(startedAt * 1000),
+          Math.round(durationMs * 1000),
+          Math.round(durationMs * 1000),
+          false,
+          true,
+          "session",
+        );
+      } catch (_) {}
     }
   }
 

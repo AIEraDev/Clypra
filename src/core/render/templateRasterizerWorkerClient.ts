@@ -197,8 +197,16 @@ export class TemplateRasterizerWorkerClient {
   constructor() {
     const available = isWorkerEnvironmentAvailable();
     this.isWorkerAvailable = () =>
-      available && !this.disposed && this.worker !== null;
-    if (available) this.initWorker();
+      available && !this.disposed;
+    // Worker is initialized lazily when first template or effect is rasterized
+  }
+
+  private ensureWorker(): boolean {
+    if (this.disposed || !isWorkerEnvironmentAvailable()) return false;
+    if (!this.worker) {
+      this.initWorker();
+    }
+    return this.worker !== null;
   }
 
   private initWorker(): void {
@@ -318,7 +326,7 @@ export class TemplateRasterizerWorkerClient {
       return rasterizeTextLayerForNative(layer, { phase });
     }
 
-    if (this.worker && !this.disposed) {
+    if (this.ensureWorker() && !this.disposed) {
       try {
         const sendAt = performance.now();
         const { bitmap, offsetX, offsetY, workerRasterMs } =
@@ -427,7 +435,7 @@ export class TemplateRasterizerWorkerClient {
   ): Promise<NativeTextRasterAsset> {
     const totalStartedAt = performance.now();
 
-    if (this.worker && !this.disposed) {
+    if (this.ensureWorker() && !this.disposed) {
       try {
         const sendAt = performance.now();
         const { bitmap, offsetX, offsetY, workerRasterMs } =
@@ -490,7 +498,7 @@ export class TemplateRasterizerWorkerClient {
     workerRasterMs: number;
   }> {
     return new Promise((resolve, reject) => {
-      if (!this.worker || this.disposed) {
+      if (!this.ensureWorker() || this.disposed) {
         reject(new Error("Worker not available"));
         return;
       }
@@ -501,7 +509,7 @@ export class TemplateRasterizerWorkerClient {
         startTime: performance.now(),
         operation: operation ?? (params as any).type ?? "RENDER",
       });
-      this.worker.postMessage({ ...params, id });
+      this.worker!.postMessage({ ...params, id });
     });
   }
 

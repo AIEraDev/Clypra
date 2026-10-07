@@ -126,6 +126,8 @@ export interface ColdSpan {
   workUs: number;
   /** Duration an interactive or UI thread was blocked awaiting this span. */
   waitedByInteractiveUs: number;
+  /** Duration this background task overlapped with the critical path before interactive/first frame. */
+  overlappedWithCriticalPathUs?: number;
   /** True if the result came from a persistent cache. */
   cached: boolean;
   /** True if the operation succeeded; false on failure/early return. */
@@ -158,6 +160,7 @@ export interface AudioColdMetrics {
   pcmBytes: number;
   capTruncations: number;
   cliFallbacks: number;
+  fallbackReasons?: string[];
 }
 
 /** User-visible launch and playback readiness milestones. */
@@ -179,16 +182,45 @@ export interface LaunchMilestones {
   firstFramePaintedFromOpenMs?: number;
   smoothPlaybackAtUs?: number;
   smoothPlaybackTargetFps?: number;
+  documentVisibilityState?: string;
+  documentHasFocus?: boolean;
+  windowIsFocused?: boolean;
+  windowIsVisible?: boolean;
+  quiescenceWaitMs?: number;
+  appNapDisabled?: boolean;
+  valid?: boolean;
+  invalidReason?: string;
+}
+
+export interface MilestoneDefinitions {
+  preMain: string;
+  navigationStart: string;
+  domContentLoaded: string;
+  appMounted: string;
+  shellPainted: string;
+  interactive: string;
+  firstFrameFromOpen: string;
+  smoothPlayback: string;
 }
 
 /** Cold-start report section, collected once per session. */
 export interface ColdStartReport {
+  /** Schema version for cold-start report structure and milestone definitions. */
+  reportVersion?: number;
+  /** Frozen specifications for all user-visible milestones. */
+  milestoneDefs?: MilestoneDefinitions;
   /** Unix wall-clock milliseconds at process start. */
   processEpochMs: number;
   /** Pre-main time in ms (OS process creation to main() entry). */
   preMainMs?: number;
   /** System uptime at process start in seconds. */
   systemUptimeSecs?: number;
+  /** Cargo profile of the running native binary: "debug" or "release". */
+  buildProfile?: string;
+  /** Git commit SHA of the binary. */
+  gitCommit?: string;
+  /** True when the binary was built from a dirty working tree. */
+  gitDirty?: boolean;
   /** User-visible milestones. */
   milestones: LaunchMilestones;
   /** Known audio cold-path risks. */

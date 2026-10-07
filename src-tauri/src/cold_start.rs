@@ -6,7 +6,7 @@
 //! and captures process creation / OS uptime and user-visible launch milestones.
 
 use once_cell::sync::Lazy;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -30,6 +30,7 @@ pub static PROCESS_START: Lazy<Instant> = Lazy::new(Instant::now);
 static AUDIO_PCM_BYTES: AtomicU64 = AtomicU64::new(0);
 static AUDIO_CAP_TRUNCATIONS: AtomicU64 = AtomicU64::new(0);
 static AUDIO_CLI_FALLBACKS: AtomicU64 = AtomicU64::new(0);
+static AUDIO_FALLBACK_REASONS: Lazy<Mutex<Vec<String>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
 // ── Launch Milestones (One-time atomics) ──────────────────────────────────────
 static FIRST_SOUND_AT_US: AtomicU64 = AtomicU64::new(0);
@@ -52,6 +53,16 @@ static SMOOTH_PLAYBACK_TARGET_FPS: AtomicU32 = AtomicU32::new(0);
 
 // ── Interactive wait tracking ────────────────────────────────────────────────
 static GPU_AWAITED_AT_US: AtomicU64 = AtomicU64::new(0);
+
+// ── Focus & Window State Tracking ───────────────────────────────────────────
+static DOCUMENT_VISIBILITY_STATE: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
+static DOCUMENT_HAS_FOCUS: AtomicBool = AtomicBool::new(true);
+static WINDOW_IS_FOCUSED: AtomicBool = AtomicBool::new(true);
+static WINDOW_IS_VISIBLE: AtomicBool = AtomicBool::new(true);
+static QUIESCENCE_WAIT_MS: AtomicU64 = AtomicU64::new(0);
+static APP_NAP_DISABLED: AtomicBool = AtomicBool::new(false);
+static IS_VALID_RUN: AtomicBool = AtomicBool::new(true);
+static INVALID_REASON: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
 
 // ── Clip Ordinal (Never leak file paths into telemetry) ───────────────────────
 static CLIP_ORDINAL: AtomicU64 = AtomicU64::new(0);
@@ -84,6 +95,9 @@ pub struct ColdSpan {
     pub work_us: u64,
     /// Duration an interactive or UI thread was blocked awaiting this span.
     pub waited_by_interactive_us: u64,
+    /// Duration this background task overlapped with the critical path before interactive or first frame.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overlapped_with_critical_path_us: Option<u64>,
     /// `true` if the result came from a persistent cache (skipping real work).
     pub cached: bool,
     /// `true` if the operation completed successfully; `false` on error/early return.
@@ -141,6 +155,8 @@ pub struct AudioColdMetrics {
     pub pcm_bytes: u64,
     pub cap_truncations: u64,
     pub cli_fallbacks: u64,
+    #[serde(default)]
+    pub fallback_reasons: Vec<String>,
 }
 
 /// User-visible launch and playback readiness milestones.
@@ -176,12 +192,67 @@ pub struct LaunchMilestones {
     pub smooth_playback_at_us: Option<u64>,
     /// Target FPS used during the smooth playback measurement window.
     pub smooth_playback_target_fps: Option<u32>,
+    /// Document visibility state ("visible", "hidden") recorded during launch milestones.
+    pub document_visibility_state: Option<String>,
+    /// Whether the document has focus (`document.hasFocus()`).
+    pub document_has_focus: Option<bool>,
+    /// Whether the native window has input focus (`window.is_focused()`).
+    pub window_is_focused: Option<bool>,
+    /// Whether the native window is visible (`window.is_visible()`).
+    pub window_is_visible: Option<bool>,
+    /// Quiescence wait time in ms before interactive milestone was confirmed.
+    pub quiescence_wait_ms: Option<u64>,
+    /// True if App Nap was explicitly disabled for the benchmark run.
+    pub app_nap_disabled: Option<bool>,
+    /// True if the run met all valid measurement criteria (focused and visible).
+    pub valid: bool,
+    /// Reason string if the run was flagged invalid (e.g. "window not focused").
+    pub invalid_reason: Option<String>,
+}
+
+/// Specification of cold-start milestone definitions. Frozen per report version.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MilestoneDefinitions {
+    pub pre_main: &'static str,
+    pub navigation_start: &'static str,
+    pub dom_content_loaded: &'static str,
+    pub app_mounted: &'static str,
+    pub shell_painted: &'static str,
+    pub interactive: &'static str,
+    pub first_frame_from_open: &'static str,
+    pub smooth_playback: &'static str,
+}
+
+pub const CURRENT_REPORT_VERSION: u32 = 3;
+
+pub fn get_milestone_definitions() -> MilestoneDefinitions {
+    MilestoneDefinitions {
+        pre_main: "OS process creation to native main() entry",
+        navigation_start: "Native process start to WebKit browsing context creation (performance.timeOrigin - processEpochMs)",
+        dom_content_loaded: "Native process start to DOMContentLoaded event end",
+        app_mounted: "Native process start to React App root mount",
+        shell_painted: "Native process start to double requestAnimationFrame after mount",
+        interactive: "Native process start to responsive main-thread event loop (3 consecutive MessageChannel ping round-trips < 5ms)",
+        first_frame_from_open: "Project open request to first frame presented to native surface or canvas paint",
+        smooth_playback: "Native process start to first moment unique painted FPS stays at target for 1.0s",
+    }
+}
+
+impl Default for MilestoneDefinitions {
+    fn default() -> Self {
+        get_milestone_definitions()
+    }
 }
 
 /// Cold-start report section embedded in the session performance telemetry.
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ColdStartReport {
+    /// Schema version for cold-start report structure and milestone definitions.
+    pub report_version: u32,
+    /// Frozen specifications for all user-visible milestones.
+    pub milestone_defs: MilestoneDefinitions,
     /// Unix wall-clock milliseconds at process start.
     pub process_epoch_ms: u64,
     /// OS-measured duration from process creation to main() in ms.
@@ -191,6 +262,12 @@ pub struct ColdStartReport {
     /// so a high uptime does not guarantee a warm OS file cache. Treat uptime as a hint,
     /// and rely on explicit cache clearing (e.g. RAMMap / purge) for cold testing.
     pub system_uptime_secs: Option<u64>,
+    /// Cargo profile of the running native binary: "debug" or "release".
+    pub build_profile: &'static str,
+    /// Git commit SHA of the binary at compile time.
+    pub git_commit: Option<&'static str>,
+    /// True if the binary was built from a dirty git working tree.
+    pub git_dirty: bool,
     /// User-visible milestones.
     pub milestones: LaunchMilestones,
     /// Known audio cold-path risks.
@@ -269,6 +346,7 @@ pub struct SpanGuard {
     container_format: Option<String>,
     file_size_bucket_mb: Option<u64>,
     media_location: Option<&'static str>,
+    overlapped_with_critical_path_us: Option<u64>,
     completed: bool,
 }
 
@@ -285,6 +363,7 @@ impl SpanGuard {
             container_format: None,
             file_size_bucket_mb: None,
             media_location: None,
+            overlapped_with_critical_path_us: None,
             completed: false,
         }
     }
@@ -298,6 +377,12 @@ impl SpanGuard {
     /// Mark the interactive wait time (e.g. if the UI blocked for this operation).
     pub fn set_waited(&mut self, waited_us: u64) -> &mut Self {
         self.waited = WaitedMode::Measured(waited_us);
+        self
+    }
+
+    /// Mark the background overlap with the critical path before interactive or first frame.
+    pub fn set_overlapped_with_critical_path(&mut self, us: u64) -> &mut Self {
+        self.overlapped_with_critical_path_us = Some(us);
         self
     }
 
@@ -367,6 +452,7 @@ impl SpanGuard {
             started_at_us,
             work_us,
             waited_by_interactive_us,
+            overlapped_with_critical_path_us: self.overlapped_with_critical_path_us,
             cached: self.cached,
             ok: self.ok,
             purpose: self.purpose.clone(),
@@ -389,11 +475,12 @@ pub fn record_span(stage: &str, started: Instant, waited_by_interactive_us: u64,
     record_span_with_purpose(stage, started, waited_by_interactive_us, cached, None);
 }
 
-/// Convenience helper to record a span with an explicit subsystem purpose.
-pub fn record_span_with_purpose(
+/// Convenience helper to record a span with critical-path overlap metrics.
+pub fn record_span_with_overlap(
     stage: &str,
     started: Instant,
     waited_by_interactive_us: u64,
+    overlapped_with_critical_path_us: Option<u64>,
     cached: bool,
     purpose: Option<&'static str>,
 ) {
@@ -408,6 +495,7 @@ pub fn record_span_with_purpose(
         started_at_us,
         work_us,
         waited_by_interactive_us,
+        overlapped_with_critical_path_us,
         cached,
         ok: true,
         purpose: purpose.map(Cow::Borrowed),
@@ -416,6 +504,24 @@ pub fn record_span_with_purpose(
         file_size_bucket_mb: None,
         media_location: None,
     });
+}
+
+/// Convenience helper to record a span with an explicit subsystem purpose.
+pub fn record_span_with_purpose(
+    stage: &str,
+    started: Instant,
+    waited_by_interactive_us: u64,
+    cached: bool,
+    purpose: Option<&'static str>,
+) {
+    record_span_with_overlap(
+        stage,
+        started,
+        waited_by_interactive_us,
+        None,
+        cached,
+        purpose,
+    );
 }
 
 fn record_span_internal(span: ColdSpan) {
@@ -508,9 +614,21 @@ pub fn record_first_frame() {
     }
 }
 
-pub fn record_first_frame_painted(ms: u64) {
+pub fn record_window_state(is_visible: bool, is_focused: bool) {
+    WINDOW_IS_VISIBLE.store(is_visible, Ordering::Relaxed);
+    WINDOW_IS_FOCUSED.store(is_focused, Ordering::Relaxed);
+}
+
+pub fn record_first_frame_painted(ms: Option<u64>) {
+    let elapsed_us = PROCESS_START.elapsed().as_micros().min(u64::MAX as u128) as u64;
+    let ms_val = ms.unwrap_or(elapsed_us / 1000);
     if FIRST_FRAME_PAINTED_MS.load(Ordering::Relaxed) == 0 {
-        let _ = FIRST_FRAME_PAINTED_MS.compare_exchange(0, ms, Ordering::AcqRel, Ordering::Relaxed);
+        let _ = FIRST_FRAME_PAINTED_MS.compare_exchange(0, ms_val, Ordering::AcqRel, Ordering::Relaxed);
+    }
+    let open_us = PROJECT_OPEN_REQUESTED_AT_US.load(Ordering::Relaxed);
+    if open_us > 0 && FIRST_FRAME_PAINTED_FROM_OPEN_MS.load(Ordering::Relaxed) == 0 {
+        let diff_ms = elapsed_us.saturating_sub(open_us) / 1000;
+        let _ = FIRST_FRAME_PAINTED_FROM_OPEN_MS.compare_exchange(0, diff_ms, Ordering::AcqRel, Ordering::Relaxed);
     }
 }
 
@@ -549,6 +667,15 @@ pub fn get_project_open_requested_at_us() -> u64 {
     PROJECT_OPEN_REQUESTED_AT_US.load(Ordering::Relaxed)
 }
 
+/// Returns the presentation timestamp of the first frame (native or canvas painted) in microseconds since process start.
+pub fn get_first_frame_painted_at_us() -> u64 {
+    let native_us = FIRST_FRAME_AT_US.load(Ordering::Relaxed);
+    if native_us > 0 {
+        return native_us;
+    }
+    FIRST_FRAME_PAINTED_MS.load(Ordering::Relaxed).saturating_mul(1000)
+}
+
 pub fn record_frontend_launch_milestones(
     navigation_start_wall_ms: Option<u64>,
     dom_content_loaded_wall_ms: Option<u64>,
@@ -560,7 +687,59 @@ pub fn record_frontend_launch_milestones(
     first_frame_painted_from_open_ms: Option<u64>,
     smooth_playback_wall_ms: Option<u64>,
     smooth_playback_target_fps: Option<u32>,
+    document_visibility_state: Option<String>,
+    document_has_focus: Option<bool>,
+    window_is_focused: Option<bool>,
+    window_is_visible: Option<bool>,
+    quiescence_wait_ms: Option<u64>,
+    app_nap_disabled: Option<bool>,
 ) {
+    if let Some(ref vis) = document_visibility_state {
+        if let Ok(mut lock) = DOCUMENT_VISIBILITY_STATE.lock() {
+            *lock = Some(vis.clone());
+        }
+        if vis != "visible" {
+            IS_VALID_RUN.store(false, Ordering::Relaxed);
+            if let Ok(mut lock) = INVALID_REASON.lock() {
+                if lock.is_none() {
+                    *lock = Some("window not visible".to_string());
+                }
+            }
+        }
+    }
+    if let Some(focus) = document_has_focus {
+        DOCUMENT_HAS_FOCUS.store(focus, Ordering::Relaxed);
+    }
+    if let Some(foc) = window_is_focused {
+        WINDOW_IS_FOCUSED.store(foc, Ordering::Relaxed);
+    }
+    let has_focus = document_has_focus.unwrap_or(false) || window_is_focused.unwrap_or(false);
+    if !has_focus {
+        IS_VALID_RUN.store(false, Ordering::Relaxed);
+        if let Ok(mut lock) = INVALID_REASON.lock() {
+            if lock.is_none() {
+                *lock = Some("window not focused".to_string());
+            }
+        }
+    }
+    if let Some(vis) = window_is_visible {
+        WINDOW_IS_VISIBLE.store(vis, Ordering::Relaxed);
+        if !vis {
+            IS_VALID_RUN.store(false, Ordering::Relaxed);
+            if let Ok(mut lock) = INVALID_REASON.lock() {
+                if lock.is_none() {
+                    *lock = Some("window not visible".to_string());
+                }
+            }
+        }
+    }
+    if let Some(q_ms) = quiescence_wait_ms {
+        QUIESCENCE_WAIT_MS.store(q_ms, Ordering::Relaxed);
+    }
+    if let Some(nap) = app_nap_disabled {
+        APP_NAP_DISABLED.store(nap, Ordering::Relaxed);
+    }
+
     let epoch_ms = COLD_REPORT.lock().map(|s| s.process_epoch_ms).unwrap_or(0);
 
     let to_elapsed_ms = |wall_ms: u64| -> u64 {
@@ -606,7 +785,7 @@ pub fn record_frontend_launch_milestones(
         }
     }
     if let Some(wall_ms) = first_frame_painted_wall_ms {
-        record_first_frame_painted(to_elapsed_ms(wall_ms));
+        record_first_frame_painted(Some(to_elapsed_ms(wall_ms)));
     }
     if let Some(ms) = first_frame_painted_from_open_ms {
         if FIRST_FRAME_PAINTED_FROM_OPEN_MS.load(Ordering::Relaxed) == 0 {
@@ -636,8 +815,11 @@ pub fn record_audio_cap_truncation() {
     AUDIO_CAP_TRUNCATIONS.fetch_add(1, Ordering::Relaxed);
 }
 
-pub fn record_audio_cli_fallback() {
+pub fn record_audio_cli_fallback(reason: impl Into<String>) {
     AUDIO_CLI_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+    if let Ok(mut reasons) = AUDIO_FALLBACK_REASONS.lock() {
+        reasons.push(reason.into());
+    }
 }
 
 /// Record a custom span directly (e.g. from frontend performance marks or native lifecycle stages).
@@ -655,6 +837,7 @@ pub fn record_custom_span(
         started_at_us,
         work_us,
         waited_by_interactive_us: waited_us,
+        overlapped_with_critical_path_us: None,
         cached,
         ok,
         purpose: purpose.map(Into::into),
@@ -756,10 +939,34 @@ pub fn is_bench_mode_active() -> bool {
 
 /// Retrieve a clone of the current cold-start report.
 pub fn get_report() -> ColdStartReport {
-    let state = match COLD_REPORT.lock() {
+    let mut state = match COLD_REPORT.lock() {
         Ok(s) => s,
         Err(_) => return ColdStartReport::default(),
     };
+
+    let first_frame_us = get_first_frame_painted_at_us();
+    if first_frame_us > 0 {
+        let mut audio_waited: Option<u64> = None;
+        for span in state.ring.iter_mut() {
+            if span.stage == "c1_audio_decode_all" {
+                let span_start = span.started_at_us;
+                let span_end = span_start.saturating_add(span.work_us);
+                let waited = if first_frame_us > span_start {
+                    first_frame_us.min(span_end).saturating_sub(span_start)
+                } else {
+                    0
+                };
+                span.waited_by_interactive_us = waited;
+                audio_waited = Some(waited);
+            }
+        }
+        if let Some(waited) = audio_waited {
+            if let Some(agg) = state.aggregates.get_mut("c1_audio_decode_all") {
+                agg.total_waited_us = waited;
+                agg.max_waited_us = waited;
+            }
+        }
+    }
 
     let milestones = LaunchMilestones {
         pre_main_ms: state.pre_main_ms,
@@ -790,18 +997,35 @@ pub fn get_report() -> ColdStartReport {
                 Some(fps)
             }
         },
+        document_visibility_state: DOCUMENT_VISIBILITY_STATE.lock().map(|g| g.clone()).unwrap_or(None),
+        document_has_focus: Some(DOCUMENT_HAS_FOCUS.load(Ordering::Relaxed)),
+        window_is_focused: Some(WINDOW_IS_FOCUSED.load(Ordering::Relaxed)),
+        window_is_visible: Some(WINDOW_IS_VISIBLE.load(Ordering::Relaxed)),
+        quiescence_wait_ms: {
+            let q = QUIESCENCE_WAIT_MS.load(Ordering::Relaxed);
+            if q == 0 { None } else { Some(q) }
+        },
+        app_nap_disabled: Some(APP_NAP_DISABLED.load(Ordering::Relaxed)),
+        valid: IS_VALID_RUN.load(Ordering::Relaxed),
+        invalid_reason: INVALID_REASON.lock().map(|g| g.clone()).unwrap_or(None),
     };
 
     let audio_metrics = AudioColdMetrics {
         pcm_bytes: AUDIO_PCM_BYTES.load(Ordering::Relaxed),
         cap_truncations: AUDIO_CAP_TRUNCATIONS.load(Ordering::Relaxed),
         cli_fallbacks: AUDIO_CLI_FALLBACKS.load(Ordering::Relaxed),
+        fallback_reasons: AUDIO_FALLBACK_REASONS.lock().map(|r| r.clone()).unwrap_or_default(),
     };
 
     ColdStartReport {
+        report_version: CURRENT_REPORT_VERSION,
+        milestone_defs: get_milestone_definitions(),
         process_epoch_ms: state.process_epoch_ms,
         pre_main_ms: state.pre_main_ms,
         system_uptime_secs: state.system_uptime_secs,
+        build_profile: if cfg!(debug_assertions) { "debug" } else { "release" },
+        git_commit: option_env!("CLYPRA_GIT_COMMIT"),
+        git_dirty: option_env!("CLYPRA_GIT_DIRTY").map(|s| s == "true").unwrap_or(false),
         milestones,
         audio_metrics,
         aggregates: state.aggregates.clone(),

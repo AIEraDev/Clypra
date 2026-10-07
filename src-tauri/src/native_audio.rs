@@ -3,7 +3,7 @@ use crate::audio::mixer::{AudioClipConfig, DecodedAudioClip};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SizedSample};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -320,33 +320,32 @@ pub struct NativeAudioMixer {
 impl NativeAudioMixer {
     pub fn install_clip(&mut self, clip: NativePcmClip) -> Result<NativeAudioClipStatus, String> {
         let status = clip.status();
-        let incoming_bytes = clip
-            .samples
-            .len()
-            .saturating_mul(std::mem::size_of::<f32>());
-        let replaced_bytes = self
-            .clips
-            .iter()
-            .find(|existing| existing.id == clip.id)
-            .map(|existing| {
-                existing
-                    .samples
-                    .len()
-                    .saturating_mul(std::mem::size_of::<f32>())
-            })
-            .unwrap_or(0);
-        let total_bytes = self
-            .clips
-            .iter()
-            .map(|existing| {
-                existing
-                    .samples
-                    .len()
-                    .saturating_mul(std::mem::size_of::<f32>())
-            })
-            .sum::<usize>()
-            .saturating_sub(replaced_bytes)
-            .saturating_add(incoming_bytes);
+        let total_bytes = {
+            let mut seen = HashSet::new();
+            let mut total = 0usize;
+            for existing in &self.clips {
+                if existing.id != clip.id {
+                    let ptr = Arc::as_ptr(&existing.samples);
+                    if !existing.samples.is_empty() && seen.insert(ptr) {
+                        total = total.saturating_add(
+                            existing
+                                .samples
+                                .len()
+                                .saturating_mul(std::mem::size_of::<f32>()),
+                        );
+                    }
+                }
+            }
+            let incoming_ptr = Arc::as_ptr(&clip.samples);
+            if !clip.samples.is_empty() && seen.insert(incoming_ptr) {
+                total = total.saturating_add(
+                    clip.samples
+                        .len()
+                        .saturating_mul(std::mem::size_of::<f32>()),
+                );
+            }
+            total
+        };
         if total_bytes > MAX_MIXER_PCM_BYTES {
             return Err(format!(
                 "Native audio mixer exceeds the {} MiB PCM budget",
@@ -386,14 +385,21 @@ impl NativeAudioMixer {
                 "Native audio mixer supports at most {MAX_ACTIVE_CLIPS} active clips"
             ));
         }
-        let total_bytes = clips
-            .iter()
-            .map(|clip| {
-                clip.samples
-                    .len()
-                    .saturating_mul(std::mem::size_of::<f32>())
-            })
-            .sum::<usize>();
+        let total_bytes = {
+            let mut seen = HashSet::new();
+            let mut total = 0usize;
+            for clip in &clips {
+                let ptr = Arc::as_ptr(&clip.samples);
+                if !clip.samples.is_empty() && seen.insert(ptr) {
+                    total = total.saturating_add(
+                        clip.samples
+                            .len()
+                            .saturating_mul(std::mem::size_of::<f32>()),
+                    );
+                }
+            }
+            total
+        };
         if total_bytes > MAX_MIXER_PCM_BYTES {
             return Err(format!(
                 "Native audio mixer exceeds the {} MiB PCM budget",
