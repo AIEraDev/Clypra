@@ -27,10 +27,15 @@ export class AdaptiveReadbackPolicy {
   }
 
   get targetCadenceFps(): number {
-    if (this.tier === 0) return 10;
-    if (this.tier === 1) return 20;
-    if (this.tier <= 3) return 24;
-    return 30;
+    // Raised cadence caps at every tier.
+    // Old caps (10/20/24/30) imposed a hard 30fps ceiling even on top-tier macOS
+    // hardware where Metal-backed IPC readbacks are fast enough for 60fps.
+    // The adaptive recordReadback() mechanism degrades tiers automatically if the
+    // hardware cannot sustain the target cadence, so raising the ceiling is safe.
+    if (this.tier === 0) return 15; // was 10
+    if (this.tier === 1) return 24; // was 20 (Windows default tier)
+    if (this.tier <= 3) return 30; // was 24
+    return 60; // was 30 (macOS top-tier default)
   }
 
   /**
@@ -40,7 +45,10 @@ export class AdaptiveReadbackPolicy {
    * frames. This keeps audio continuous and prevents a decode queue from
    * forming at 1.5x/2x.
    */
-  presentationAt(speed: number, sourceFps: number): {
+  presentationAt(
+    speed: number,
+    sourceFps: number,
+  ): {
     cadenceFps: number;
     sourceFramesPerPresentation: number;
   } {
@@ -75,16 +83,17 @@ export class AdaptiveReadbackPolicy {
   }
 
   markPlaybackDispatch(now = performance.now()): void {
-    // A CPU readback must not try to chase a 60fps source. The tier controls
-    // both bytes per frame and cadence; audio remains the clock authority.
+    // Intervals derived from the updated targetCadenceFps values.
+    // Each tier's dispatch window matches its cadence so canDispatchPlayback()
+    // and targetCadenceFps stay in sync. Audio remains the clock authority.
     const intervalMs =
       this.tier === 0
-        ? 100
+        ? 1000 / 15 // ~67ms  (was 100ms / 10fps)
         : this.tier === 1
-          ? 50
+          ? 1000 / 24 // ~42ms  (was  50ms / 20fps)
           : this.tier <= 3
-            ? 1000 / 24
-            : 1000 / 30;
+            ? 1000 / 30 // ~33ms  (was 1000/24 / 24fps)
+            : 1000 / 60; // ~17ms  (was 1000/30 / 30fps)
     this.nextPlaybackDispatchAt = now + intervalMs;
   }
 
@@ -104,10 +113,15 @@ export class AdaptiveReadbackPolicy {
     if (elapsedMs < 9) {
       this.fastSamples += 1;
       this.slowSamples = 0;
-      // Recover conservatively so a brief fast patch does not make preview
-      // oscillate between resolutions.
+      // Reduced recovery threshold from 90 to 30 fast samples.
+      // The old value (90 samples at < 9ms each) required ~3 s of sustained fast
+      // readbacks to climb one tier — an asymmetric ratchet where 3 slow frames
+      // caused instant degradation but recovery took orders of magnitude longer.
+      // 30 samples (~500 ms at 60fps) is still conservative enough to avoid
+      // oscillation on borderline hardware while letting the policy recover
+      // within a reasonable time after a brief burst of IPC congestion.
       if (
-        this.fastSamples >= 90 &&
+        this.fastSamples >= 30 &&
         this.tier < AdaptiveReadbackPolicy.DIMENSIONS.length - 1
       ) {
         this.tier += 1;

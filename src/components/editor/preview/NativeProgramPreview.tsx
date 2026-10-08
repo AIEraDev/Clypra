@@ -1252,7 +1252,7 @@ export const NativeProgramPreview: React.FC = () => {
       const newWidth = containerEl.clientWidth;
       const newHeight = containerEl.clientHeight;
 
-      // Bug 7 fix: never reset to (0,0) once dimensions have been established.
+      // Never reset to (0,0) once dimensions have been established.
       // This can happen transiently when the shared previewContainerCallback
       // fires null during the placeholder → main-view commit (the placeholder
       // unmounts before the real container mounts), causing a momentary preview
@@ -1296,7 +1296,7 @@ export const NativeProgramPreview: React.FC = () => {
         dprVal,
       );
     }
-    // Bug 6 fix: `canvasWidth`/`canvasHeight` already encode the project canvas dimensions;
+    // `canvasWidth`/`canvasHeight` already encode the project canvas dimensions;
     // `project?.id` covers project-switch; no need for the full unstable `project` object.
   }, [project?.id, canvasWidth, canvasHeight, displayWidth, displayHeight]);
 
@@ -2168,13 +2168,16 @@ export const NativeProgramPreview: React.FC = () => {
       playbackPushBridge.beginGeneration(generation);
       if (pushBridgeReady) return true;
       if (!pushBridgeOpening) {
-        pushBridgeOpening = openNativePlaybackPushStream(generation, (packet) => {
-          if (playbackPushBridge.receive(packet)) {
-            nativePerfCollector.recordPushBridgeFrame();
-          } else {
-            nativePerfCollector.recordPushBridgeRejectedGeneration();
-          }
-        })
+        pushBridgeOpening = openNativePlaybackPushStream(
+          generation,
+          (packet) => {
+            if (playbackPushBridge.receive(packet)) {
+              nativePerfCollector.recordPushBridgeFrame();
+            } else {
+              nativePerfCollector.recordPushBridgeRejectedGeneration();
+            }
+          },
+        )
           .then(() => {
             pushBridgeReady = true;
           })
@@ -2815,7 +2818,7 @@ export const NativeProgramPreview: React.FC = () => {
           transportRevision !== lastRenderedTransportRevision;
         const isFirstFrame = lastRenderedFrameIndex === -1;
 
-        // Bug 2/3 fix: hoist all change-detection variables to before the heavy
+        // Hoist all change-detection variables to before the heavy
         // async rasterization and IPC calls. If nothing could have changed visually
         // since the last rendered frame, exit immediately — cutting per-RAF CPU cost
         // to near-zero during steady paused sessions or locked-off playback.
@@ -2874,7 +2877,26 @@ export const NativeProgramPreview: React.FC = () => {
           frameRate === 24 || frameRate === 30 || frameRate === 60
             ? frameRate
             : 30;
-        if (typeof capturedSession.syncPreviewMedia === "function") {
+        // Only call syncPreviewMedia when something requires it.
+        // Previously this ran on every single RAF tick during playback (~60×/s),
+        // driving PreviewPlaybackScheduler.reconcile() on every frame (O(n×clips)
+        // per tick). During steady-state play, none of the tracked signals change
+        // between consecutive frames so the call is pure waste. Gate it behind
+        // needsSync so it fires only on meaningful state transitions.
+        const playbackStateChanged =
+          playbackState !== lastRenderedPlaybackState;
+        const needsSync =
+          epochChanged ||
+          playbackStateChanged ||
+          isFirstFrame ||
+          clipsChanged ||
+          tracksChanged ||
+          transitionsChanged ||
+          projectChanged;
+        if (
+          needsSync &&
+          typeof capturedSession.syncPreviewMedia === "function"
+        ) {
           capturedSession.syncPreviewMedia(
             renderClips,
             state.mediaAssets ?? [],
@@ -3284,16 +3306,16 @@ export const NativeProgramPreview: React.FC = () => {
         const presenterFallbackReason = EMBEDDED_PREVIEW_ONLY
           ? "policy-override"
           : qualificationForcesWebView
-          ? "policy-override"
-          : nativeSurfaceErrorNow
-            ? "surface-creation-failed"
-            : !nativeSurfaceReadyNow
-              ? "unknown"
-              : !nativeSurfaceGeometrySettledRef.current
-                ? "resize"
-                : nativeContinuousBlockedRevision === nativeRevision
-                  ? "device-lost"
-                  : "unknown";
+            ? "policy-override"
+            : nativeSurfaceErrorNow
+              ? "surface-creation-failed"
+              : !nativeSurfaceReadyNow
+                ? "unknown"
+                : !nativeSurfaceGeometrySettledRef.current
+                  ? "resize"
+                  : nativeContinuousBlockedRevision === nativeRevision
+                    ? "device-lost"
+                    : "unknown";
         const telemetryScenario =
           qualification.status === "running"
             ? "qualification"
@@ -3328,8 +3350,9 @@ export const NativeProgramPreview: React.FC = () => {
               view: outputAdapter.path,
               surface: outputAdapter.surface,
               presenterMode: "bridge",
-              presenterFallbackReason:
-                nativeReadbackFallbackPath ? presenterFallbackReason : undefined,
+              presenterFallbackReason: nativeReadbackFallbackPath
+                ? presenterFallbackReason
+                : undefined,
               ...telemetryContextBase,
             };
         // Capture composition complexity from the evaluated scene—not clip
@@ -3532,6 +3555,40 @@ export const NativeProgramPreview: React.FC = () => {
                   });
                   nativeSurfaceShown = true;
                   lastNativePlaybackRequestKey = requestKey;
+
+                  // ── Native surface fire-and-forget: release render lock early ──────────
+                  // Rust owns frame delivery from this point. Holding renderInFlight
+                  // through the remaining async work (body-mask AI segmentation,
+                  // smart-overlay rasterization, WebView canvas bookkeeping) silently
+                  // drops every RAF tick that fires during that 15–30 ms window.
+                  // On a 60fps project this means every other frame is dropped whenever
+                  // bridge work exceeds the 16 ms budget — the primary cause of visible
+                  // playback jank on the native surface path.
+                  //
+                  // Commit tracking state now so the next renderLoop() starts from a
+                  // correct baseline and skips re-rendering the frame we just submitted.
+                  // Release the lock and schedule the next VSync-aligned RAF immediately.
+                  // The finally block still executes for tracing; its scheduleNextFrame()
+                  // call is a no-op because frameScheduled is already true.
+                  if (state.clock.isSeeking) {
+                    const seekLatencyMs = state.clock.completeSeek();
+                    if (seekLatencyMs !== null) {
+                      telemetryCollector.recordSeekSpan(seekLatencyMs, false);
+                    }
+                  }
+                  lastRenderedClips = state.clips;
+                  lastRenderedTracks = state.tracks;
+                  lastRenderedTransitions = state.transitions;
+                  lastRenderedProject = state.project;
+                  lastRenderedFrameIndex = frameIndex;
+                  lastRenderedEpoch = state.epoch;
+                  lastRenderedTransportRevision = transportRevision;
+                  lastRenderedMediaReadyRevision = mediaReadyRevision;
+                  lastRenderedPlaybackState = playbackState;
+                  forceRenderNeeded = false;
+                  renderInFlight = false;
+                  scheduleNextFrame();
+                  return;
                 }
               } else if (nativeSurfaceUsable && !qualificationForcesWebView) {
                 const tracePresentation = isFirstFrame || !isPlaying;
@@ -3923,7 +3980,12 @@ export const NativeProgramPreview: React.FC = () => {
                 if (previewPushBridgeEnabled && !pushBridgeFailed) {
                   const generation = BigInt(targetGeneration);
                   void ensurePlaybackPushBridge(generation).then((ready) => {
-                    if (!ready || !isActive || renderStateRef.current.clock.state !== "playing") return;
+                    if (
+                      !ready ||
+                      !isActive ||
+                      renderStateRef.current.clock.state !== "playing"
+                    )
+                      return;
                     // The push stream is fenced by the playback generation.
                     // `readbackRequest` can originate from an older cache
                     // key with no generation field; stamp the target before
@@ -3949,59 +4011,63 @@ export const NativeProgramPreview: React.FC = () => {
                       })
                       .catch((error) => {
                         pushBridgeFailed = true;
-                        console.warn("[native-preview] push-frame-submit-failed", error);
+                        console.warn(
+                          "[native-preview] push-frame-submit-failed",
+                          error,
+                        );
                       });
                   });
                 } else {
-                nativePlaybackInFlight = nativePreviewScheduler
-                  .requestVisible(readbackSource)
-                  .then((frame) => {
-                    const current = renderStateRef.current;
-                    if (
-                      isActive &&
-                      current.project?.id === state.project?.id &&
-                      current.epoch === state.epoch &&
-                      current.clock.state === "playing"
-                    ) {
-                      if (frame) {
-                        nativeDisplayedFrameRef.current = frame;
-                        nativeDisplayedFrameRequestKeyRef.current = readbackRequestKey;
+                  nativePlaybackInFlight = nativePreviewScheduler
+                    .requestVisible(readbackSource)
+                    .then((frame) => {
+                      const current = renderStateRef.current;
+                      if (
+                        isActive &&
+                        current.project?.id === state.project?.id &&
+                        current.epoch === state.epoch &&
+                        current.clock.state === "playing"
+                      ) {
+                        if (frame) {
+                          nativeDisplayedFrameRef.current = frame;
+                          nativeDisplayedFrameRequestKeyRef.current =
+                            readbackRequestKey;
+                        }
+                        nativeContinuousFailureStreak = 0;
+                        forceRenderNeeded = true;
+                      } else {
+                        // The bridge response was received but a newer target
+                        // owns presentation; close its trace as superseded.
+                        const frontendSpan =
+                          nativeFrontendPerfSpans.get(readbackRequestKey);
+                        frontendSpan?.finish({
+                          ...dispatchedReadbackPolicy,
+                          stale: true,
+                        });
+                        nativeFrontendPerfSpans.delete(readbackRequestKey);
                       }
-                      nativeContinuousFailureStreak = 0;
-                      forceRenderNeeded = true;
-                    } else {
-                      // The bridge response was received but a newer target
-                      // owns presentation; close its trace as superseded.
+                    })
+                    .catch((error) => {
                       const frontendSpan =
                         nativeFrontendPerfSpans.get(readbackRequestKey);
                       frontendSpan?.finish({
                         ...dispatchedReadbackPolicy,
                         stale: true,
+                        cancelled:
+                          error instanceof DOMException &&
+                          error.name === "AbortError",
                       });
                       nativeFrontendPerfSpans.delete(readbackRequestKey);
-                    }
-                  })
-                  .catch((error) => {
-                    const frontendSpan =
-                      nativeFrontendPerfSpans.get(readbackRequestKey);
-                    frontendSpan?.finish({
-                      ...dispatchedReadbackPolicy,
-                      stale: true,
-                      cancelled:
-                        error instanceof DOMException &&
-                        error.name === "AbortError",
+                      nativeContinuousFailureStreak += 1;
+                      lastNativePlaybackRequestKey = "";
+                      if (nativeContinuousFailureStreak >= 3) {
+                        nativeContinuousBlockedRevision = nativeRevision;
+                      }
+                      nativeRetryAt = performance.now() + 250;
+                    })
+                    .finally(() => {
+                      nativePlaybackInFlight = null;
                     });
-                    nativeFrontendPerfSpans.delete(readbackRequestKey);
-                    nativeContinuousFailureStreak += 1;
-                    lastNativePlaybackRequestKey = "";
-                    if (nativeContinuousFailureStreak >= 3) {
-                      nativeContinuousBlockedRevision = nativeRevision;
-                    }
-                    nativeRetryAt = performance.now() + 250;
-                  })
-                  .finally(() => {
-                    nativePlaybackInFlight = null;
-                  });
                 }
               }
             }
@@ -4322,20 +4388,35 @@ export const NativeProgramPreview: React.FC = () => {
               const frontendSpan =
                 nativeFrontendPerfSpans.get(paintedRequestKey);
               if (frontendSpan) {
-                const pushTimings = pushTimingsByRequestKey.get(
-                  paintedRequestKey,
-                );
+                const pushTimings =
+                  pushTimingsByRequestKey.get(paintedRequestKey);
                 const nowEpochUs = BigInt(
-                  Math.round((performance.timeOrigin + performance.now()) * 1_000),
+                  Math.round(
+                    (performance.timeOrigin + performance.now()) * 1_000,
+                  ),
                 );
                 frontendSpan.finish({
                   canvasPaintMs,
                   transport: pushTimings ? "push-channel" : "invoke",
                   transportReceiveMs: pushTimings
-                    ? Math.max(0, (Number(BigInt(Math.round((performance.timeOrigin + pushTimings.receivedAtMs) * 1_000)) - pushTimings.t8EpochUs)) / 1_000)
+                    ? Math.max(
+                        0,
+                        Number(
+                          BigInt(
+                            Math.round(
+                              (performance.timeOrigin +
+                                pushTimings.receivedAtMs) *
+                                1_000,
+                            ),
+                          ) - pushTimings.t8EpochUs,
+                        ) / 1_000,
+                      )
                     : undefined,
                   frameAgeAtPaintMs: pushTimings
-                    ? Math.max(0, Number(nowEpochUs - pushTimings.t8EpochUs) / 1_000)
+                    ? Math.max(
+                        0,
+                        Number(nowEpochUs - pushTimings.t8EpochUs) / 1_000,
+                      )
                     : undefined,
                 });
                 nativeFrontendPerfSpans.delete(paintedRequestKey);
@@ -4459,32 +4540,25 @@ export const NativeProgramPreview: React.FC = () => {
           getFrameIndexAtTime(latest.clock.time, latest.clock.frameRate) !==
             lastRenderedFrameIndex;
         if (hasPendingVisualChange) {
-          const renderMs = performance.now() - renderStartedAt;
-          const frameRateHz =
-            latest.clock.frameRate > 0 ? latest.clock.frameRate : 30;
-          const frameIntervalMs = 1000 / frameRateHz;
-          // If the render took longer than one frame budget we are running below
-          // target FPS. Re-scheduling via rAF at 60 Hz would fire the next
-          // render before the previous result is consumed and waste IPC budget.
-          // Instead pace the next tick to the project frame rate so wakeups
-          // align with audio-clock frame boundaries. This is especially
-          // important on constrained iGPUs (Intel HD 520) where a single D3D12
-          // submit can take 17+ ms against a 33 ms budget.
-          if (latest.clock.state === "playing" && renderMs > frameIntervalMs) {
-            const delay = Math.max(
-              0,
-              frameIntervalMs - (renderMs % frameIntervalMs),
-            );
-            if (!frameScheduled && isActive) {
-              frameScheduled = true;
-              rafId = window.setTimeout(() => {
-                frameScheduled = false;
-                void renderLoop();
-              }, delay) as unknown as number;
-            }
-          } else {
-            scheduleNextFrame();
-          }
+          // always schedule via requestAnimationFrame (scheduleNextFrame).
+          // The previous path used window.setTimeout(callback, delay) when the render
+          // overshot the project frame interval, attempting to re-align the next wakeup
+          // with the audio-clock frame boundary. This was counter-productive:
+          //   • setTimeout is not VSync-synchronised — it fires at an arbitrary position
+          //     in the display refresh cycle, creating a phase offset that produces
+          //     micro-stutter even when average FPS is within budget.
+          //   • The delay formula (frameInterval − renderMs % frameInterval) can schedule
+          //     wakeups 2+ VSync slots late on 30fps projects with renders ≈ 35ms.
+          //   • With the native surface path, frame delivery is already
+          //     fire-and-forget; there is no GPU work inside the RAF callback to pace.
+          //   • For the WebView readback path, adaptiveReadbackPolicy.canDispatchPlayback()
+          //     already enforces cadence; a double-throttle via setTimeout is redundant.
+          // requestAnimationFrame is compositor-VSync-aligned by design and coalesces
+          // callbacks to the next available display frame automatically. The dirty check
+          // inside renderLoop (mightNeedRender) skips work when the audio-clock has not
+          // advanced to a new frame, so 30fps projects still produce at most 30 presents
+          // per second regardless of how often RAF fires.
+          scheduleNextFrame();
         }
       }
     };
@@ -4519,7 +4593,7 @@ export const NativeProgramPreview: React.FC = () => {
     const unsubscribeClock = clock.subscribe((newClockState) => {
       forceRenderNeeded = true;
       transportRevision += 1;
-      // Bug 5/9 fix: only invalidate the prefetch cache and circuit-breakers
+      // Only invalidate the prefetch cache and circuit-breakers
       // on actual transport events (play/pause/stop state changes).
       // The clock notifies at up to 10fps during steady playback; resetting the
       // prefetch neighborhood that often discards useful look-ahead frames and
@@ -4623,7 +4697,8 @@ export const NativeProgramPreview: React.FC = () => {
       unsubscribeTransformEnd();
       nativePreviewScheduler.dispose();
       playbackPushBridge?.stop();
-      if (pushBridgeReady) void closeNativePlaybackPushStream().catch(() => undefined);
+      if (pushBridgeReady)
+        void closeNativePlaybackPushStream().catch(() => undefined);
       if (nativeTextPrefetchTimer !== null) {
         window.clearTimeout(nativeTextPrefetchTimer);
         nativeTextPrefetchTimer = null;
@@ -4653,9 +4728,9 @@ export const NativeProgramPreview: React.FC = () => {
       standaloneVideoCache.clear();
       standaloneImageCache.clear();
     };
-    // Bug 3 fix: viewport values (scale, offsetX, offsetY, canvasWidth, canvasHeight) are
+    // Viewport values (scale, offsetX, offsetY, canvasWidth, canvasHeight) are
     // now read from renderStateRef inside the loop, so they are NOT listed as deps here.
-    // Bug 6 fix: project?.id instead of full project object (updateProject always creates
+    // Project?.id instead of full project object (updateProject always creates
     // a new reference, so `project` as a dep would restart the loop on every store write).
     // Audit 4.6 fix: nativeSurfaceReady removed from deps — it is now read from
     // nativeSurfaceReadyRef.current inside the loop, preventing the loop from restarting
