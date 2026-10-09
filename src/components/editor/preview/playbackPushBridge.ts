@@ -121,21 +121,23 @@ export class PlaybackPushBridge {
     if (packet.generation !== this.generation) return false;
 
     this.options.paint(packet);
-    requestAnimationFrame(() => {
-      if (this.stopped || packet.generation !== this.generation) return;
-      this.lastConsumedDeliverySeq = packet.deliverySeq;
-      this.lastPaintedFrameId = packet.frameId;
-      this.acceptedInGeneration += 1;
-      this.lastProgressAtMs = performance.now();
-      const immediate = this.acceptedInGeneration === 1;
-      if (
-        immediate ||
-        this.acceptedInGeneration % this.watermarkFrameInterval === 0 ||
-        this.lastProgressAtMs - this.lastWatermarkAtMs >= this.watermarkIntervalMs
-      ) {
-        this.flushWatermark();
-      }
-    });
+    // Update tracking state synchronously. These are pure JS bookkeeping
+    // writes — they do not touch the DOM and do not require VSync alignment.
+    // Wrapping them in requestAnimationFrame added up to 30 extra RAF callbacks
+    // per second during 30fps playback, competing with the main render loop for
+    // the same VSync slot and adding scheduling jitter.
+    this.lastConsumedDeliverySeq = packet.deliverySeq;
+    this.lastPaintedFrameId = packet.frameId;
+    this.acceptedInGeneration += 1;
+    this.lastProgressAtMs = performance.now();
+    const immediate = this.acceptedInGeneration === 1;
+    if (
+      immediate ||
+      this.acceptedInGeneration % this.watermarkFrameInterval === 0 ||
+      this.lastProgressAtMs - this.lastWatermarkAtMs >= this.watermarkIntervalMs
+    ) {
+      this.flushWatermark();
+    }
     return true;
   }
 

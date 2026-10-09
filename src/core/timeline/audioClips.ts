@@ -161,5 +161,15 @@ export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: Medi
         channelMap: audio.channelConfig.channelMap,
         preservePitch: audio.speed.preservePitch,
       };
-    });
+    })
+    // A clip whose asset hasn't loaded yet passes clipHasAudio() (unprobed
+    // fallback returns true) but has no resolvable file path. Passing an empty
+    // path to Rust causes replaceNativeAudioClips to reject the clip silently,
+    // producing installedClips=[] even though the timeline contains audio.
+    // The startup probe then fires "no-native-audio-clips-installed", which
+    // also holds nativeAudioClockReady=false and freezes video playback.
+    // Filter these out here so only clips with a usable path reach the IPC
+    // boundary. The updateSource path re-syncs as assets hydrate.
+    .filter((config) => Boolean(config.path));
+
 }

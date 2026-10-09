@@ -3,15 +3,27 @@ import type { ColdStartReport } from "@/services/telemetryCollector";
 export const NATIVE_CORE_CONTRACT_VERSION = 2;
 export const NATIVE_CORE_TIME_SCALE = 1_000_000;
 /**
- * Clypra's visible program preview is always embedded in the main WebView.
+ * Controls whether the wgpu child-surface presenter is allowed to engage.
  *
- * A separate Tauri window cannot be reliably constrained to its parent across
- * AppKit, Win32, X11, and Wayland. Native rendering is still available, but
- * its frames are composited into the editor canvas rather than presented by a
- * second OS window. This is deliberately a product invariant, not a
- * platform-specific fallback.
+ * When true (the default), every frame is composited through the WebView IPC
+ * bridge (RGBA readback → putImageData). This was the only safe option while
+ * the child-surface z-ordering and overlay composition were untested.
+ *
+ * Set VITE_CLYPRA_NATIVE_SURFACE=1 to allow the native surface path. The
+ * surface controller will call probe_native_surface / resize_native_surface
+ * and, once geometry is settled, the render loop switches to the direct wgpu
+ * present path. On failure the bridge fallback remains active; no user-visible
+ * degradation occurs.
+ *
+ * This flag is intentionally NOT gated on DEV so that release builds on macOS
+ * can be A/B measured before the path is promoted to the default.
+ *
+ * Platform scope: macOS (Metal) only for the initial gate test.
+ * Windows (DXGI child-HWND) and Linux (wl_subsurface) require additional
+ * compositor integration work before this flag is safe there.
  */
-export const EMBEDDED_PREVIEW_ONLY = true;
+export const EMBEDDED_PREVIEW_ONLY =
+  import.meta.env.VITE_CLYPRA_NATIVE_SURFACE !== "1";
 
 /**
  * Keep the old native-only switch for browser test harnesses. A Tauri runtime

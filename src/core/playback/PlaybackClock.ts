@@ -56,11 +56,30 @@ export class PlaybackClock {
   private _nativeClockAuthority = false;
   private _playStartAudioTime: number = 0;
   private _playStartClockTime: number = 0;
+  /**
+   * Wall-clock timestamp (performance.now()) captured when play() is called on
+   * the native-authority path. Used to extrapolate time forward before the first
+   * CPAL position sample arrives — preventing the "frozen at 0" effect when audio
+   * clips haven't installed yet. Once CPAL delivers a real sample, that sample
+   * takes precedence (highest accuracy). This implements the architectural
+   * invariant: the PlaybackTimeline advances independently of audio readiness.
+   */
+  private _playStartMs: number = 0;
+
   private _nativeClockPosition: {
     time: number;
     receivedAtMs: number;
     speed: number;
   } | null = null;
+  /**
+   * Set to true when the native audio authority confirms no audio clips exist
+   * on the timeline. CPAL runs silently and never calls setNativeClockPosition,
+   * so hasNativeClockPosition would stay false indefinitely — permanently
+   * blocking nativeAudioClockReady and freezing video playback.
+   * Marking unavailable allows the video path to use the JS wall-clock frame
+   * time carried in each NativePlaybackDemand instead.
+   */
+  private _nativeAudioUnavailable = false;
 
   // Generation counter to prevent stale RAF ticks
   private _generation: number = 0;
@@ -142,8 +161,6 @@ export class PlaybackClock {
     this._clipFreezeMap.clear();
   }
 
-
-
   /** Attach the shared audio clock used by the program audio engine. */
   attachAudioContext(audioContext: AudioContext): void {
     // A browser engine may be retained from an earlier session, but it must
@@ -193,9 +210,8 @@ export class PlaybackClock {
     if (this._isSeeking) {
       return this._time;
     }
-    // If native audio is authoritative, extrapolate from the latest bounded
-    // native status sample between IPC updates. Rendering consumers still read
-    // one clock signal and do not need to know which platform owns it.
+    // CPAL position available — extrapolate from the latest hardware sample
+    // (highest accuracy, preferred path during live CPAL playback).
     if (this._state === "playing" && this._nativeClockPosition) {
       const elapsed =
         Math.max(
@@ -208,14 +224,41 @@ export class PlaybackClock {
       return Math.min(computedTime, this._duration);
     }
 
-    // Native playback may not have delivered its first sample yet. Keep the
-    // last bounded position instead of consulting a stale Web Audio context.
-    if (this._nativeClockAuthority) {
-      return this._time;
+    // Native clock authority is set but CPAL has not yet delivered its first
+    // position sample (audio clips still resolving / installing). Extrapolate
+    // forward from the wall-clock captured at play() rather than returning the
+    // frozen seek position. This is the key fix for the "video freezes until
+    // audio is ready" architectural flaw: the PlaybackTimeline must always
+    // advance independently of audio readiness.
+    //
+    // Once CPAL sends its first real sample, the branch above takes over and
+    // provides higher-accuracy hardware-clock extrapolation automatically.
+    //
+    // Staleness guard: if CPAL initialization takes longer than 2 seconds (far
+    // beyond the measured 555ms baseline), it has likely failed silently. Fall
+    // back to the frozen position rather than extrapolating indefinitely from
+    // a stale anchor, which would accumulate unbounded drift.
+    if (
+      this._state === "playing" &&
+      this._nativeClockAuthority &&
+      this._playStartMs > 0
+    ) {
+      const elapsed = Math.max(0, performance.now() - this._playStartMs) / 1000;
+      const CPAL_INIT_TIMEOUT_SEC = 2.0;
+      if (elapsed > CPAL_INIT_TIMEOUT_SEC && !this._nativeClockPosition) {
+        console.warn(
+          `[PlaybackClock] CPAL initialization exceeded ${CPAL_INIT_TIMEOUT_SEC}s without delivering a position sample. ` +
+            `Falling back to frozen time to prevent unbounded drift. Consider restarting playback.`,
+        );
+        return this._time;
+      }
+      return Math.min(
+        this._playStartClockTime + elapsed * this._speed,
+        this._duration,
+      );
     }
 
-    // If playing, calculate time synchronously based on audio context.
-    // This ensures accurate time even if requestAnimationFrame is suspended (e.g. background tab).
+    // Web Audio path (non-Tauri / browser preview).
     if (
       this._state === "playing" &&
       this._audioContext &&
@@ -270,9 +313,15 @@ export class PlaybackClock {
     return this._frameRate;
   }
 
-  /** Whether the native audio authority has supplied a usable position sample. */
+  /**
+   * True when the native audio authority has supplied a usable position sample,
+   * OR when it has confirmed that no audio clips are installed (silent project).
+   * Both conditions mean the video playback path can proceed: in the first case
+   * Rust uses the hardware audio clock; in the second it uses the JS frame time
+   * from the demand (which is correct because there is nothing to sync with).
+   */
   get hasNativeClockPosition(): boolean {
-    return this._nativeClockPosition !== null;
+    return this._nativeClockPosition !== null || this._nativeAudioUnavailable;
   }
 
   /** Whether native CPAL owns program-preview playback time. */
@@ -281,12 +330,38 @@ export class PlaybackClock {
   }
 
   /**
+   * Signal that the native audio engine started but found no clips to install.
+   * CPAL will run silently and never call setNativeClockPosition(), so the
+   * video path must not wait for an audio position that will never arrive.
+   * This is cleared automatically when the clock authority is released
+   * (i.e. when the controller is disposed or audio clips are added).
+   */
+  markNativeAudioUnavailable(): void {
+    this._nativeAudioUnavailable = true;
+  }
+
+  /** True while the audio-unavailable flag is set. Read before clearing. */
+  get nativeAudioWasUnavailable(): boolean {
+    return this._nativeAudioUnavailable;
+  }
+
+  /** Reset the audio-unavailable flag — called when clips are installed later. */
+  clearNativeAudioUnavailable(): void {
+    this._nativeAudioUnavailable = false;
+  }
+
+  /**
    * Select the native clock as the sole program-preview time authority.
    * This does not start audio; it only prevents Web Audio clock takeover.
    */
   setNativeClockAuthority(enabled: boolean): void {
     this._nativeClockAuthority = enabled;
-    if (enabled) this._stallStartAudioTime = null;
+    if (enabled) {
+      this._stallStartAudioTime = null;
+    } else {
+      // Reset audio-unavailable on release so the next session starts clean.
+      this._nativeAudioUnavailable = false;
+    }
   }
 
   /**
@@ -448,6 +523,12 @@ export class PlaybackClock {
     }
 
     if (this._nativeClockAuthority) {
+      // Capture wall-clock and timeline start position so the time getter can
+      // extrapolate forward before CPAL delivers its first hardware sample.
+      // This is what allows video to play immediately even when audio clips
+      // haven't installed yet — the timeline is no longer gated on audio.
+      this._playStartMs = performance.now();
+      this._playStartClockTime = this._time;
       this._nativeClockPosition = {
         time: this._time,
         receivedAtMs: performance.now(),
@@ -505,6 +586,7 @@ export class PlaybackClock {
     this._state = "paused";
     this._isSeeking = false;
     this._nativeClockPosition = null; // Clear native clock sample so no stale pre-pause timestamps survive
+    this._playStartMs = 0; // Clear wall-clock anchor — new play() will set a fresh one
     this._notifyListeners();
 
     // Stop RAF loop
@@ -560,7 +642,6 @@ export class PlaybackClock {
     // Per-clip freezes are session-scoped — clear them when the project stops.
     this._clipFreezeMap.clear();
 
-
     // Single notification for all changes
     this._notifyListeners();
   }
@@ -574,7 +655,9 @@ export class PlaybackClock {
     const seekRevision = ++this._seekRevision;
     const wasPlaying = this._state === "playing";
     const shouldKeepPlaying =
-      typeof options === "boolean" ? options : (options?.keepPlaying ?? wasPlaying);
+      typeof options === "boolean"
+        ? options
+        : (options?.keepPlaying ?? wasPlaying);
 
     if (!shouldKeepPlaying && wasPlaying) {
       this.pause(true);
