@@ -39,6 +39,42 @@ import { tracePlayback } from "@/core/playback/playbackTrace";
 
 const NATIVE_PREVIEW_AUDIO_OPTIONS = { preserveTransportPitch: true } as const;
 
+/**
+ * Explicit lifecycle state for the audio renderer.
+ *
+ * Distinct from PlaybackSessionState — the audio renderer may be in any of
+ * these states while the PlaybackTimeline is "playing". The renderer is an
+ * independent consumer of the timeline; it must never gate video playback.
+ *
+ *   detached   → not yet asked to participate (controller not initialized)
+ *   resolving  → waiting for asset paths to hydrate (paths are still "")
+ *   loading    → paths resolved, CPAL graph being built / clips installing
+ *   ready      → buffered and ready to output; CPAL stream open
+ *   playing    → outputting audio and sending clock positions to PlaybackClock
+ *   error      → failed; video continues unaffected
+ */
+export type AudioRendererState =
+  | "detached"
+  | "resolving"
+  | "loading"
+  | "ready"
+  | "playing"
+  | "error";
+
+/**
+ * Explicit state for audio asset source resolution.
+ *
+ * Distinct from AudioRendererState — source resolution is about whether we
+ * know WHERE the audio data is. Renderer state is about whether we are
+ * PLAYING it.
+ *
+ *   unknown    → no audio tracks on timeline (project may be truly silent)
+ *   resolving  → audio clips exist but asset.path is "" (asset not yet probed)
+ *   resolved   → all audible clips have a non-empty path
+ *   invalid    → path resolved but file is missing/unreadable
+ */
+export type AudioSourceState = "unknown" | "resolving" | "resolved" | "invalid";
+
 interface TimedInteraction {
   startedAt: number;
   telemetry: TelemetryInteraction;
@@ -115,6 +151,18 @@ export class NativeAudioPreviewController {
    * We attempt one automatic restart (500 ms delay) before surfacing the error.
    */
   private silentTimeoutRetried = false;
+  /**
+   * Explicit audio renderer lifecycle state. Transitions independently of the
+   * PlaybackTimeline — the renderer is a consumer, not an authority.
+   * Read via audioRendererState getter for telemetry / UI indicators.
+   */
+  private _rendererState: AudioRendererState = "detached";
+  /**
+   * Audio asset source resolution state. Distinguishes "we don't know where
+   * the audio is yet" (resolving) from "there is genuinely no audio" (unknown).
+   * This is the key distinction that eliminates false audio-unavailable signals.
+   */
+  private _sourceState: AudioSourceState = "unknown";
 
   constructor(options: NativeAudioPreviewControllerOptions) {
     this.clock = options.clock;
@@ -128,6 +176,23 @@ export class NativeAudioPreviewController {
 
   get isActive(): boolean {
     return this.active;
+  }
+
+  /**
+   * Current audio renderer lifecycle state.
+   * Transitions independently of the PlaybackTimeline. Use for telemetry
+   * and UI indicators (e.g. "Audio: Loading..." while video plays).
+   */
+  get audioRendererState(): AudioRendererState {
+    return this._rendererState;
+  }
+
+  /**
+   * Current audio asset source resolution state.
+   * "resolving" means paths haven't hydrated yet — NOT the same as "no audio".
+   */
+  get audioSourceState(): AudioSourceState {
+    return this._sourceState;
   }
 
   setOutput(volume: number, muted: boolean): void {
@@ -146,8 +211,8 @@ export class NativeAudioPreviewController {
    */
   updateSource(source: NativeAudioPreviewSource): void {
     this.source = source;
-    if (!this.active || this.disposed) return;
     this.pendingSource = source;
+    if (!this.active || this.disposed) return;
     if (this.sourceUpdateScheduled) return;
     this.sourceUpdateScheduled = true;
     this.enqueueSourceSync(async () => {
@@ -168,6 +233,27 @@ export class NativeAudioPreviewController {
             !this.installedSnapshot ||
             !hasSameClipLayout(this.installedSnapshot, nextSnapshot)
           ) {
+            // Determine source state before installing — distinguish "no paths yet"
+            // from "genuinely no audio clips". This is the architectural fix for
+            // false audio-unavailable signals: resolving ≠ unavailable.
+            const allClipsHavePaths = nextSource.clips
+              .filter((c) => {
+                const clipMediaId = c.mediaId || (c as any).assetId;
+                const asset = nextSource.assets.find(
+                  (a) => a.id === clipMediaId,
+                );
+                return asset !== undefined;
+              })
+              .every((c) => {
+                const clipMediaId = c.mediaId || (c as any).assetId;
+                const asset = nextSource.assets.find(
+                  (a) => a.id === clipMediaId,
+                );
+                return Boolean(asset?.path);
+              });
+
+            const wasResolving = this._rendererState === "resolving";
+            this._rendererState = "loading";
             const timeline = await syncNativeAudioTimeline(
               nextSource.clips,
               nextSource.tracks,
@@ -177,6 +263,59 @@ export class NativeAudioPreviewController {
               NATIVE_PREVIEW_AUDIO_OPTIONS,
             );
             this.installedSnapshot = timeline.snapshot;
+
+            if (timeline.snapshot.clips.length === 0) {
+              if (!allClipsHavePaths && nextSource.clips.length > 0) {
+                // Paths haven't resolved yet — not the same as "no audio".
+                // Video keeps playing via wall-clock; audio will join when
+                // updateSource() fires again with resolved paths.
+                this._sourceState = "resolving";
+                this._rendererState = "resolving";
+                // No longer call markNativeAudioUnavailable — PlaybackClock.time
+                // now advances via wall-clock independently of audio state.
+              } else {
+                // Genuinely no audio clips (silent project or all removed).
+                this._sourceState = "unknown";
+                this._rendererState = "detached";
+              }
+            } else {
+              this._sourceState = "resolved";
+              this._rendererState = "ready";
+              this.clock.clearNativeAudioUnavailable(); // keep compat for Bug 8/9 tests
+
+              // Bug 9 fix (preserved): if the clock was playing while audio was
+              // resolving, join the timeline at the current position immediately
+              // so there is no seek-back to the beginning.
+              if (
+                wasResolving &&
+                this.clock.state === "playing" &&
+                this.active &&
+                !this.disposed
+              ) {
+                // Bug 12 note: Capturing clock.time BEFORE enqueuing is correct here —
+                // the transport queue may have delay, so we want to join at the position
+                // that was current when the audio became ready, not at some later time.
+                const currentTime = this.clock.time;
+                this.enqueueTransport(async () => {
+                  if (
+                    !this.active ||
+                    this.disposed ||
+                    this.clock.state !== "playing"
+                  )
+                    return;
+                  await seekNativeAudio(secondsToTicks(currentTime));
+                  if (
+                    !this.active ||
+                    this.disposed ||
+                    this.clock.state !== "playing"
+                  )
+                    return;
+                  const nativeState = await nativePlayFromAudio();
+                  this.adoptNativePosition(nativeState.audioPositionTicks);
+                  this._rendererState = "playing";
+                }, "seek-then-play");
+              }
+            }
           } else if (
             !hasSameClipParameters(this.installedSnapshot, nextSnapshot)
           ) {
@@ -234,7 +373,27 @@ export class NativeAudioPreviewController {
         NATIVE_PREVIEW_AUDIO_OPTIONS,
       );
       this.installedSnapshot = timeline.snapshot;
+      // If no audio clips exist on this project, CPAL will run silently and
+      // never supply a native clock position. Signal this to the clock so
+      // nativeAudioClockReady (which gates the video playback demand path)
+      // becomes true immediately rather than waiting for an event that will
+      // never arrive. The video path will use the JS wall-clock frame time
+      // carried in each NativePlaybackDemand, which is correct for silent
+      // projects. Clear the flag when clips are present so normal AV-sync
+      // gating applies.
+      if (timeline.snapshot.clips.length === 0) {
+        this.clock.markNativeAudioUnavailable();
+        this._sourceState =
+          this.source.clips.length > 0 ? "resolving" : "unknown";
+        this._rendererState =
+          this.source.clips.length > 0 ? "resolving" : "detached";
+      } else {
+        this.clock.clearNativeAudioUnavailable();
+        this._sourceState = "resolved";
+        this._rendererState = "ready";
+      }
       if (this.disposed) return false;
+
       await configureNativePlayback({
         contractVersion: NATIVE_CORE_CONTRACT_VERSION,
         projectRevision: this.source.projectRevision,
@@ -254,17 +413,18 @@ export class NativeAudioPreviewController {
       this.unsubscribe = this.clock.subscribe((state) =>
         this.handleClockState(state),
       );
-      this.unlistenLifecycle = appLifecycleCoordinator.onForegroundWakeup(() => {
-        if (!this.active || this.disposed) return;
-        if (this.clock.state === "playing") {
-          void this.resyncFromHardwareAudio();
-          this.restartPolling(true);
-        }
-      });
+      this.unlistenLifecycle = appLifecycleCoordinator.onForegroundWakeup(
+        () => {
+          if (!this.active || this.disposed) return;
+          if (this.clock.state === "playing") {
+            void this.resyncFromHardwareAudio();
+            this.restartPolling(true);
+          }
+        },
+      );
       this.restartPolling(this.clock.state === "playing");
 
       await Promise.all([
-        seekNativeAudio(secondsToTicks(this.clock.time)),
         setNativeAudioSpeed(this.clock.speed),
         // Output may have been selected before asynchronous graph installation
         // completed; applying the retained value prevents first-play from
@@ -274,14 +434,47 @@ export class NativeAudioPreviewController {
       if (this.disposed) return false;
       if (this.clock.state === "playing") {
         await this.beginStartupProbe();
+        // Bug 12 fix: Read the LIVE clock position (includes wall-clock extrapolation
+        // since play() was called) immediately before starting CPAL. The old code read
+        // this.clock.time once at the start of initialize() when the clock was paused,
+        // then seeked to that stale value after ~555ms of async initialization. By that
+        // time, the video had advanced 16-18 frames, creating permanent A/V drift.
+        const livePosition = this.clock.time;
+        await seekNativeAudio(secondsToTicks(livePosition));
         const playStartedAt = performance.now();
         const nativeState = await nativePlayFromAudio();
-        if (this.startupProbe) this.startupProbe.playCommandUs = elapsedUs(playStartedAt);
+        if (this.startupProbe)
+          this.startupProbe.playCommandUs = elapsedUs(playStartedAt);
         this.adoptNativePosition(nativeState.audioPositionTicks);
       } else {
+        // Paused path: use the static paused position
+        await seekNativeAudio(secondsToTicks(this.clock.time));
         await pauseNativeAudio();
       }
       await this.pollNativeClock();
+
+      // Drain any source update that arrived while initialize() was in flight:
+      if (this.pendingSource) {
+        const pending = this.pendingSource;
+        this.updateSource(pending);
+      } else if (
+        this.source &&
+        (!this.installedSnapshot ||
+          !hasSameClipLayout(
+            this.installedSnapshot,
+            buildNativeAudioTimeline(
+              this.source.clips,
+              this.source.tracks,
+              this.source.assets,
+              0,
+              this.source.duration,
+              NATIVE_PREVIEW_AUDIO_OPTIONS,
+            ),
+          ))
+      ) {
+        this.updateSource(this.source);
+      }
+
       return true;
     } catch (error) {
       this.reportError(error);
@@ -365,6 +558,9 @@ export class NativeAudioPreviewController {
         try {
           await this.beginStartupProbe();
           const seekStartedAt = performance.now();
+          // Bug 12 note: Reading clock.time INSIDE the async callback is correct —
+          // the transport queue may have delay, so we want the live extrapolated
+          // position at execution time, not at enqueue time.
           await seekNativeAudio(secondsToTicks(this.clock.time));
           interaction.telemetry.audioSeekUs = elapsedUs(seekStartedAt);
           if (
@@ -376,9 +572,11 @@ export class NativeAudioPreviewController {
           }
           const transportStartedAt = performance.now();
           const nativeState = await nativePlayFromAudio();
-          interaction.telemetry.audioTransportUs = elapsedUs(transportStartedAt);
+          interaction.telemetry.audioTransportUs =
+            elapsedUs(transportStartedAt);
           if (this.startupProbe) {
-            this.startupProbe.playCommandUs = interaction.telemetry.audioTransportUs;
+            this.startupProbe.playCommandUs =
+              interaction.telemetry.audioTransportUs;
           }
           this.adoptNativePosition(nativeState.audioPositionTicks);
           this.finishInteraction(interaction, commandStartedAt, "completed");
@@ -409,7 +607,8 @@ export class NativeAudioPreviewController {
           const transportStartedAt = performance.now();
           await nativePauseFromAudio().catch(() => undefined);
           await pauseNativeAudio();
-          interaction.telemetry.audioTransportUs = elapsedUs(transportStartedAt);
+          interaction.telemetry.audioTransportUs =
+            elapsedUs(transportStartedAt);
           // Space may have restarted playback while the native pause was in
           // flight. Never let this old end-of-timeline command seek the new
           // playback run back to its former terminal position.
@@ -437,21 +636,24 @@ export class NativeAudioPreviewController {
     }
 
     const now = performance.now();
-    const elapsedWallSec = Math.max(0, (now - this.lastClockNotificationTime) / 1000);
+    const elapsedWallSec = Math.max(
+      0,
+      (now - this.lastClockNotificationTime) / 1000,
+    );
     this.lastClockNotificationTime = now;
 
     const frameDuration = 1 / Math.max(1, state.frameRate);
     const expectedAdvance = elapsedWallSec * (state.speed ?? 1);
-    const advanceDelta = Math.abs((state.time - (previous?.time ?? state.time)) - expectedAdvance);
+    const advanceDelta = Math.abs(
+      state.time - (previous?.time ?? state.time) - expectedAdvance,
+    );
     const hasNewClockSeek =
       this.clock.seekRevision !== this.lastHandledClockSeekRevision;
     const isPlayingJump =
       state.state === "playing" &&
       previous?.state === "playing" &&
       previous &&
-      (this.clock.isSeeking ||
-        hasNewClockSeek ||
-        advanceDelta > 0.4);
+      (this.clock.isSeeking || hasNewClockSeek || advanceDelta > 0.4);
 
     const isPausedSeek =
       state.state !== "playing" &&
@@ -471,15 +673,18 @@ export class NativeAudioPreviewController {
       this.seekIntentRevision += 1;
       const seekIntentRevision = this.seekIntentRevision;
       const activeScrubId = telemetryCollector.getActiveScrubSpanId();
-      const currentSeek =
-        getActiveSessionOrNull()?.transportAuthority?.getSeekController()?.getCurrent();
+      const currentSeek = getActiveSessionOrNull()
+        ?.transportAuthority?.getSeekController()
+        ?.getCurrent();
       const interactionName: TelemetryInteractionName =
         currentSeek?.source === "timeline-click-seek"
           ? "timeline-click-seek"
           : currentSeek?.source === "keyboard-seek"
             ? "keyboard-seek"
             : "seek";
-      const interaction = activeScrubId ? null : this.beginInteraction(interactionName);
+      const interaction = activeScrubId
+        ? null
+        : this.beginInteraction(interactionName);
       this.enqueueTransport(async () => {
         const commandStartedAt = performance.now();
         const stateBeforeSeek = this.clock.state;
@@ -510,7 +715,11 @@ export class NativeAudioPreviewController {
           ) {
             if (interaction) {
               interaction.telemetry.audioSeekUs = audioSeekUs;
-              this.finishInteraction(interaction, commandStartedAt, "superseded");
+              this.finishInteraction(
+                interaction,
+                commandStartedAt,
+                "superseded",
+              );
             } else if (activeScrubId) {
               telemetryCollector.recordScrubSuperseded(activeScrubId);
             }
@@ -582,7 +791,10 @@ export class NativeAudioPreviewController {
         this.clock.resyncNativeClockPosition(position, this.clock.speed);
       }
     } catch (error) {
-      console.warn("[NativeAudioController] resyncFromHardwareAudio failed:", error);
+      console.warn(
+        "[NativeAudioController] resyncFromHardwareAudio failed:",
+        error,
+      );
     }
   }
 
@@ -590,8 +802,7 @@ export class NativeAudioPreviewController {
    * external keyboard event changing the transport while native IPC is pending. */
   private isCurrentPauseIntent(epoch: number): boolean {
     return (
-      this.isCurrentTransportEpoch(epoch) &&
-      this.clock.state !== "playing"
+      this.isCurrentTransportEpoch(epoch) && this.clock.state !== "playing"
     );
   }
 
@@ -672,9 +883,13 @@ export class NativeAudioPreviewController {
       if (!isStaleTerminalSample) {
         const position = positionTicks / 1_000_000;
         const pollRttMs =
-          "pollRttMs" in nativeState ? (nativeState as any).pollRttMs : undefined;
+          "pollRttMs" in nativeState
+            ? (nativeState as any).pollRttMs
+            : undefined;
         const sampledAtNs =
-          "sampledAtNs" in nativeState ? (nativeState as any).sampledAtNs : undefined;
+          "sampledAtNs" in nativeState
+            ? (nativeState as any).sampledAtNs
+            : undefined;
         this.clock.setNativeClockPosition(
           position,
           this.clock.speed,
@@ -713,13 +928,14 @@ export class NativeAudioPreviewController {
         installedClipCount: diagnostics.installedClips.length,
       };
       // Silence is expected when a project has no installed audio.
-      const hasAudibleClips = getActiveAudioClips(
-        this.source.clips,
-        this.source.tracks,
-        this.source.assets,
-        0,
-        this.source.duration,
-      ).length > 0;
+      const hasAudibleClips =
+        getActiveAudioClips(
+          this.source.clips,
+          this.source.tracks,
+          this.source.assets,
+          0,
+          this.source.duration,
+        ).length > 0;
       if (diagnostics.installedClips.length === 0) {
         if (hasAudibleClips) {
           this.finishStartupProbe(
@@ -742,21 +958,28 @@ export class NativeAudioPreviewController {
   private async resolveStartupProbe(): Promise<void> {
     const probe = this.startupProbe;
     if (!probe) return;
-    const hasAudibleClips = getActiveAudioClips(
-      this.source.clips,
-      this.source.tracks,
-      this.source.assets,
-      0,
-      this.source.duration,
-    ).length > 0;
+    const hasAudibleClips =
+      getActiveAudioClips(
+        this.source.clips,
+        this.source.tracks,
+        this.source.assets,
+        0,
+        this.source.duration,
+      ).length > 0;
     if (!hasAudibleClips || probe.installedClipCount === 0) {
       this.startupProbe = null;
       return;
     }
     try {
       const diagnostics = await getNativeAudioDiagnostics();
-      const callbackCountDelta = Math.max(0, diagnostics.status.callbackCount - probe.callbackCount);
-      const nonSilentFramesDelta = Math.max(0, diagnostics.status.nonSilentFrames - probe.nonSilentFrames);
+      const callbackCountDelta = Math.max(
+        0,
+        diagnostics.status.callbackCount - probe.callbackCount,
+      );
+      const nonSilentFramesDelta = Math.max(
+        0,
+        diagnostics.status.nonSilentFrames - probe.nonSilentFrames,
+      );
       if (nonSilentFramesDelta > 0) {
         // The first non-silent callback—not the play IPC completion—is the
         // trustworthy start of a CPAL transport. Reset any UI extrapolation
@@ -765,14 +988,24 @@ export class NativeAudioPreviewController {
           diagnostics.status.audioPositionTicks / 1_000_000,
           this.clock.speed,
         );
-        this.finishStartupProbe("audible", diagnostics, callbackCountDelta, nonSilentFramesDelta);
+        this.finishStartupProbe(
+          "audible",
+          diagnostics,
+          callbackCountDelta,
+          nonSilentFramesDelta,
+        );
       } else if (elapsedUs(probe.startedAt) >= 1_500_000) {
         // On Windows Intel iGPU (D3D12) the CPAL stream can initialise before
         // the audio device finishes D3D12 enumeration, resulting in 155+
         // silent callbacks with no output. A single automatic restart of the
         // native audio stream (stop → 500 ms → play) recovers from this.
         // We only attempt this once to prevent an infinite silent loop.
-        if (!diagnostics.status.lastError && !this.silentTimeoutRetried && this.active && !this.disposed) {
+        if (
+          !diagnostics.status.lastError &&
+          !this.silentTimeoutRetried &&
+          this.active &&
+          !this.disposed
+        ) {
           this.silentTimeoutRetried = true;
           try {
             await stopNativeAudio();
@@ -789,7 +1022,10 @@ export class NativeAudioPreviewController {
             if (this.startupProbe) this.startupProbe.playCommandUs = undefined;
             this.adoptNativePosition(nativeState.audioPositionTicks);
           } catch (restartError) {
-            console.warn("[NativeAudioController] CPAL restart failed:", restartError);
+            console.warn(
+              "[NativeAudioController] CPAL restart failed:",
+              restartError,
+            );
             this.finishStartupProbe(
               "failed",
               diagnostics,
@@ -805,7 +1041,8 @@ export class NativeAudioPreviewController {
           diagnostics,
           callbackCountDelta,
           nonSilentFramesDelta,
-          diagnostics.status.lastError ?? "no-non-silent-native-callback-within-1500ms",
+          diagnostics.status.lastError ??
+            "no-non-silent-native-callback-within-1500ms",
         );
       }
     } catch (error) {
@@ -829,7 +1066,8 @@ export class NativeAudioPreviewController {
         outcome,
         initializationUs: this.initializationUs,
         playCommandUs: probe.playCommandUs,
-        firstAudibleUs: outcome === "audible" ? elapsedUs(probe.startedAt) : undefined,
+        firstAudibleUs:
+          outcome === "audible" ? elapsedUs(probe.startedAt) : undefined,
         installedClipCount: probe.installedClipCount,
         activeClipCount: diagnostics?.activeClipIds.length ?? 0,
         callbackCountDelta,
