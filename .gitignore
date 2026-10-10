@@ -23,7 +23,6 @@ scratch/
 .idea/
 *.swp
 *.swo
-.kiro/
 
 # System files
 .DS_Store
@@ -42,3 +41,6 @@ fixtures/
 
 # Benchmark results
 scripts/benchmarks/results/
+
+# Verification and test results
+test-results/

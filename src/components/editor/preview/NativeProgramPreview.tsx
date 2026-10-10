@@ -2267,11 +2267,9 @@ export const NativeProgramPreview: React.FC = () => {
       nativePlaybackRenderFailed = false;
 
       // Option 4: Zero-stutter timeline mutations under active playback.
-      // If a persistent playback session is already established and playback is running,
-      // update the existing session dynamically instead of tearing down the worker and wiping lookahead.
-      const isLiveUpdate =
-        renderStateRef.current.clock.state === "playing" &&
-        nativePlaybackRenderSnapshotKey !== "";
+      // If a persistent playback session is already established, update the existing
+      // session dynamically instead of tearing down the worker and wiping lookahead.
+      const isLiveUpdate = nativePlaybackRenderSnapshotKey !== "";
       const updatePromise = isLiveUpdate
         ? updateNativePlaybackRender(request)
         : configureNativePlaybackRender(request);
@@ -2742,7 +2740,6 @@ export const NativeProgramPreview: React.FC = () => {
           isInteracting && !isSettling,
         );
         const webViewTargetRequired =
-          !isPlaying ||
           qualificationState.path === "webview" ||
           !nativeSurfaceCanOwnPlayback;
         const renderTarget = webViewTargetRequired

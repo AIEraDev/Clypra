@@ -1,0 +1,27 @@
+{
+  "id": "eval-01-stale-preview-result",
+  "title": "Fix Stale Asynchronous Preview Frame Presentation",
+  "category": "PREVIEW_LIFECYCLE",
+  "complexity": "HIGH",
+  "taskDescription": "Under rapid scrub, asynchronous frame rendering requests can complete out of order, causing an older frame to be displayed after a newer one has already rendered. Fix this race condition in the preview frame scheduler.",
+  "expectedBehavior": "Frames must always present in monotonic sequence or drop older in-flight requests when a newer target arrives. No visual stutter or backward jumps.",
+  "architecturalConstraints": [
+    "NativeProgramPreview render loop must maintain closure epoch counter",
+    "renderInFlight must reset to false across all early returns and catch blocks",
+    "Must not introduce blocking GPU device.poll(Maintain::Wait) calls",
+    "Must append a new describe('Bug N — ...') block in ProgramPreview.renderLoop.test.ts"
+  ],
+  "acceptanceCriteria": [
+    "Out-of-order responses are rejected by epoch check",
+    "Append-only test count increases by at least 1 (>= 157)",
+    "npm run verify:fast passes cleanly"
+  ],
+  "testCommand": "npx vitest run src/components/editor/preview/__tests__/ProgramPreview.renderLoop.test.ts",
+  "scoringRubric": {
+    "correctness": 40,
+    "invariantCompliance": 20,
+    "behaviorCoverage": 15,
+    "regressionTest": 15,
+    "scopeDiscipline": 10
+  }
+}

@@ -1,0 +1,25 @@
+---
+description: Clypra engineering standards, architecture invariants, and verification workflows
+globs: *
+alwaysApply: true
+---
+
+# Clypra — Cursor Agent Standards
+
+All Cursor agents working in this repository must automatically follow the canonical instructions:
+- **Canonical Repository Rules**: Consult [`AGENTS.md`](../../AGENTS.md) for architectural invariants, coding standards, and completion checklists.
+- **Automatic Task Routing**: Automatically classify requests and activate skills per [`docs/engineering/agent-routing.md`](../../docs/engineering/agent-routing.md) without requiring manual prompt activation.
+- **Specialized Agent Rules**: Consult [`.agents/rules/`](../../.agents/rules/) for low-level invariants (architecture, cross-platform, testing, i18n, preview-performance, logging, engineering standards).
+- **Worker Compute Tiers**: Consult [`.kiro/steering/web-worker-architecture.md`](../../.kiro/steering/web-worker-architecture.md) for worker and main thread partitioning.
+- **Skills Directory**: Reusable specialized skills are documented under [`.agents/skills/`](../../.agents/skills/).
+- **Desktop vs Browser Testing**: Consult [`docs/engineering/desktop-testing-strategy.md`](../../docs/engineering/desktop-testing-strategy.md).
+
+## Primary Verification Commands
+- Typecheck: `npx tsc --noEmit`
+- Documentation integrity: `npm run docs:check`
+- i18n catalog parity: `npm run i18n:check`
+- Skills parity: `npm run skills:check`
+- Preview Render Loop: `npx vitest run src/components/editor/preview/__tests__/ProgramPreview.renderLoop.test.ts`
+- Playwright E2E: `npx playwright test`
+- Rust backend: `cargo test --manifest-path src-tauri/Cargo.toml`
+- Production build: `npm run build`

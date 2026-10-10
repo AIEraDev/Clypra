@@ -1,0 +1,26 @@
+{
+  "id": "eval-07-project-recovery-corruption",
+  "title": "Prevent Data Loss During Project Recovery from Corrupted JSON",
+  "category": "PROJECT_PERSISTENCE",
+  "complexity": "HIGH",
+  "taskDescription": "If an unexpected app crash occurs mid-write, the project file may have trailing null bytes or incomplete JSON. Implement an atomic write strategy (.tmp + rename) and graceful recovery from the backup autosave directory.",
+  "expectedBehavior": "Corrupted project loads prompt the user to recover from the latest valid autosave. Original file is never overwritten with empty state.",
+  "architecturalConstraints": [
+    "Project serialization must remain owned strictly by projectStore",
+    "Must preserve unknown schema fields on round-trip",
+    "Atomic rename must handle Windows NTFS file locking"
+  ],
+  "acceptanceCriteria": [
+    "Corrupted JSON fixture triggers recovery dialog without crashing",
+    "Valid autosave restores tracks, clips, and markers intact",
+    "Regression test added in project persistence test suite"
+  ],
+  "testCommand": "npx vitest run src/components/ui/modals/CrashRecoveryDialog.tsx",
+  "scoringRubric": {
+    "correctness": 40,
+    "invariantCompliance": 20,
+    "behaviorCoverage": 15,
+    "regressionTest": 15,
+    "scopeDiscipline": 10
+  }
+}

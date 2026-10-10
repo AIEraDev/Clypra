@@ -1,0 +1,26 @@
+{
+  "id": "eval-08-audio-sync-drift",
+  "title": "Prevent Audio/Video Desync During Rapid Seek-Then-Play",
+  "category": "AUDIO_ENGINE",
+  "complexity": "HIGH",
+  "taskDescription": "When a user seeks to a new timestamp and immediately hits Spacebar to play, the audio engine can start playback from the previous paused position rather than the newly requested playhead timestamp due to asynchronous IPC lag. Fix this seek-intent race.",
+  "expectedBehavior": "Audio playback position must anchor to the live wall-clock position of the requested seek, never playing stale audio samples from the previous pause.",
+  "architecturalConstraints": [
+    "PlaybackClock.ts remains single time authority",
+    "seekNativeAudio must be edge-triggered per seekIntentRevision",
+    "Must preserve wall-clock advancement when nativeClockAuthority=true before CPAL arrives"
+  ],
+  "acceptanceCriteria": [
+    "Audio seek-then-play matches video position within 1-frame tolerance (< 16.7ms)",
+    "Silent projects continue to advance wall-clock time immediately",
+    "Regression test added in ProgramPreview.renderLoop.test.ts"
+  ],
+  "testCommand": "npx vitest run src/components/editor/preview/__tests__/ProgramPreview.renderLoop.test.ts",
+  "scoringRubric": {
+    "correctness": 40,
+    "invariantCompliance": 20,
+    "behaviorCoverage": 15,
+    "regressionTest": 15,
+    "scopeDiscipline": 10
+  }
+}

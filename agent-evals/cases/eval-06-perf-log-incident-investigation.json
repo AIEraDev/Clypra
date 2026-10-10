@@ -1,0 +1,26 @@
+{
+  "id": "eval-06-perf-log-incident-investigation",
+  "title": "Forensic Investigation of Seek Latency Spike in Remote Session NDJSON",
+  "category": "PERFORMANCE_LOG_ANALYSIS",
+  "complexity": "HIGH",
+  "taskDescription": "A remote user reports severe UI freezing during scrub. Analyze the provided NDJSON session log, reconstruct the execution timeline, account for clock skew between frontend and native timestamps, and isolate whether the stall was CPU-bound decode latency, IPC congestion, or GPU presentation blocking.",
+  "expectedBehavior": "Produce a structured 8-part incident report with Session Inventory, Timeline, Measurements, Categorized Findings, and Recommended Remediation. Separate Observed from Hypothesis.",
+  "architecturalConstraints": [
+    "Never compare monotonic timestamps across different hosts as a single clock",
+    "Redact personal user paths and tokens from excerpts",
+    "Must not claim root cause without evidence isolating the specific bottleneck"
+  ],
+  "acceptanceCriteria": [
+    "Identifies seek-span event and corresponding engine-seek-telemetry entry",
+    "Calculates p95 seek latency accurately from raw event durations",
+    "Provides reproducible verification test proposal"
+  ],
+  "testCommand": "npm run verify:architecture",
+  "scoringRubric": {
+    "correctness": 40,
+    "invariantCompliance": 20,
+    "behaviorCoverage": 15,
+    "regressionTest": 15,
+    "scopeDiscipline": 10
+  }
+}

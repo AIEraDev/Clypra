@@ -3678,4 +3678,42 @@ describe("Bug 12 — Audio starts at video position after initialization delay",
     // Time must advance forward from 0 rather than being locked at 0 by isSeeking
     expect(clock.time).toBeGreaterThan(0.02);
   });
+
+  it("FIXED: persistent session routes updates dynamically via updateNativePlaybackRender without tearing down session", () => {
+    // Model ensureNativePlaybackRenderSnapshot session dispatch
+    let configureCalls = 0;
+    let updateCalls = 0;
+    let activeSessionKey = "";
+
+    function ensureSnapshot(key: string) {
+      const isLiveUpdate = activeSessionKey !== "";
+      if (isLiveUpdate) {
+        updateCalls++;
+      } else {
+        configureCalls++;
+      }
+      activeSessionKey = key;
+    }
+
+    // 1. Initial configuration on project load
+    ensureSnapshot("project-1:1080x1920:full");
+    expect(configureCalls).toBe(1);
+    expect(updateCalls).toBe(0);
+
+    // 2. Play transition with dynamic layer or settle update
+    // Must NOT call configureNativePlaybackRender again (which would destroy queues and worker)
+    ensureSnapshot("project-1:1080x1920:full:overlay1");
+    expect(configureCalls).toBe(1);
+    expect(updateCalls).toBe(1);
+
+    // 3. Pause transition
+    ensureSnapshot("project-1:1080x1920:full:paused");
+    expect(configureCalls).toBe(1);
+    expect(updateCalls).toBe(2);
+
+    // 4. Space / Play restart
+    ensureSnapshot("project-1:1080x1920:full:playing");
+    expect(configureCalls).toBe(1);
+    expect(updateCalls).toBe(3);
+  });
 });

@@ -1,0 +1,26 @@
+{
+  "id": "eval-09-ffmpeg-export-cancellation",
+  "title": "Clean Process Cancellation and Zombie Process Prevention During Export",
+  "category": "MEDIA_PROCESSING",
+  "complexity": "MEDIUM",
+  "taskDescription": "When an active video export is cancelled by the user or the window closes, the spawned FFmpeg sidecar process can remain orphaned in the background, consuming CPU and locking the output file. Implement guaranteed cooperative termination followed by SIGKILL if the process fails to exit within 2 seconds.",
+  "expectedBehavior": "Export cancellation immediately kills the FFmpeg child process, deletes incomplete partial output files, and restores the UI without blocking.",
+  "architecturalConstraints": [
+    "Export pipeline must never mutate timeline or project store state",
+    "Must handle Windows taskkill vs POSIX kill signals cleanly",
+    "Temporary files must be deleted in all exit paths"
+  ],
+  "acceptanceCriteria": [
+    "Cancellation signal cleanly releases file lock",
+    "No orphaned FFmpeg processes remaining in process table",
+    "Integration test verifies cancellation lifecycle"
+  ],
+  "testCommand": "npm run verify:architecture",
+  "scoringRubric": {
+    "correctness": 40,
+    "invariantCompliance": 20,
+    "behaviorCoverage": 15,
+    "regressionTest": 15,
+    "scopeDiscipline": 10
+  }
+}
