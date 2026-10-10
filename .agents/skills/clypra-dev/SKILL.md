@@ -237,9 +237,9 @@ EvaluatedScene (universal currency)     ← typed scene graph for a given time T
 ### Preview path selection
 
 ```
-VITE_CLYPRA_NATIVE_SURFACE=1 set?
-  ├── No  → EMBEDDED_PREVIEW_ONLY=true → web-canvas (IPC readback path)
-  └── Yes → native Metal surface path:
+EMBEDDED_PREVIEW_ONLY (defaults to false unless VITE_CLYPRA_NATIVE_SURFACE=0)?
+  ├── Yes (disabled) → web-canvas (IPC readback path)
+  └── No  (default)  → native Metal/DirectX 12 surface path:
 
     nativeAudioClockReady = !isTauriRuntime() || clock.hasNativeClockPosition
     nativePlaybackPath    = isTauriRuntime() && playing && nativeAudioClockReady
@@ -512,11 +512,12 @@ All bugs tested in `src/components/editor/preview/__tests__/ProgramPreview.rende
 
 | Variable | Default | Effect |
 |---|---|---|
-| `VITE_CLYPRA_NATIVE_SURFACE` | `""` | Set to `"1"` to enable Metal/wgpu native surface preview |
+| `VITE_CLYPRA_NATIVE_SURFACE` | unset (enabled) | Set to `"0"` to force WebGL/web-canvas bridge fallback |
 
 Set in `.env.local` (never commit) or inline:
 ```bash
-VITE_CLYPRA_NATIVE_SURFACE=1 pnpm tauri dev
+# Force fallback to web-canvas bridge mode:
+VITE_CLYPRA_NATIVE_SURFACE=0 pnpm tauri dev
 ```
 
 ---
@@ -551,8 +552,8 @@ VITE_CLYPRA_NATIVE_SURFACE=1 pnpm tauri dev
 # Frontend dev server (web-canvas path)
 pnpm dev
 
-# Full Tauri dev (native surface)
-VITE_CLYPRA_NATIVE_SURFACE=1 pnpm tauri dev
+# Full Tauri dev (native surface by default)
+pnpm tauri dev
 
 # TypeScript check (must pass before any commit)
 npx tsc --noEmit
