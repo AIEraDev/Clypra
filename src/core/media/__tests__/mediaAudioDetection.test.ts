@@ -42,7 +42,13 @@ describe("assetHasAudio", () => {
       size: 10240,
       streams: [
         { index: 0, type: "video", codec: "h264" },
-        { index: 1, type: "audio", codec: "aac", channels: 2, sampleRate: 48000 },
+        {
+          index: 1,
+          type: "audio",
+          codec: "aac",
+          channels: 2,
+          sampleRate: 48000,
+        },
       ],
     };
     expect(assetHasAudio(videoWithAudio)).toBe(true);
@@ -56,9 +62,7 @@ describe("assetHasAudio", () => {
       type: "video",
       duration: 15,
       size: 5120,
-      streams: [
-        { index: 0, type: "video", codec: "hevc" },
-      ],
+      streams: [{ index: 0, type: "video", codec: "hevc" }],
     };
     expect(assetHasAudio(videoWithoutAudio)).toBe(false);
   });
@@ -76,7 +80,7 @@ describe("assetHasAudio", () => {
     expect(assetHasAudio(videoEmptyStreams)).toBe(false);
   });
 
-  it("returns true for unprobed video assets (fallback before probe finishes)", () => {
+  it("returns false for unprobed video assets (wait for probe to complete)", () => {
     const unprobedVideo: MediaAsset = {
       id: "v-4",
       name: "unprobed.mp4",
@@ -84,9 +88,144 @@ describe("assetHasAudio", () => {
       type: "video",
       duration: 20,
       size: 8192,
-      // streams is undefined
+      // streams is undefined - probe not complete yet
     };
-    expect(assetHasAudio(unprobedVideo)).toBe(true);
+    // Changed behavior: return false until probe completes
+    // This prevents race condition where audio is claimed before verification
+    expect(assetHasAudio(unprobedVideo)).toBe(false);
+  });
+});
+
+describe("Bug Fix — Audio Race Condition (2025-01-26)", () => {
+  /**
+   * Root cause: Two race conditions caused "no sound on first play"
+   * 1. Stream metadata race: asset.streams === undefined before probe
+   * 2. Path hydration race: asset.path === "" before DB lookup
+   *
+   * Evidence from session trace:
+   * - First call: count=0 (path empty, filtered out)
+   * - Second call: count=1 (57ms later, path populated)
+   *
+   * Fix: Require BOTH asset.streams AND asset.path before claiming audio exists
+   */
+
+  it("returns false for video with streams but empty path (path hydration race)", () => {
+    const videoStreamsProbedButPathEmpty: MediaAsset = {
+      id: "v-race-1",
+      name: "20260927_103036.mp4",
+      path: "", // ← Path not yet hydrated from database
+      type: "video",
+      duration: 1.828,
+      size: 8388608,
+      streams: [
+        { index: 0, type: "video", codec: "h264" },
+        {
+          index: 1,
+          type: "audio",
+          codec: "aac",
+          channels: 2,
+          sampleRate: 44100,
+        },
+      ],
+    };
+    // Must return false — path needed for Rust decode
+    expect(assetHasAudio(videoStreamsProbedButPathEmpty)).toBe(false);
+  });
+
+  it("returns false for video with path but no streams (stream metadata race)", () => {
+    const videoPathHydratedButNotProbed: MediaAsset = {
+      id: "v-race-2",
+      name: "screen_recording.mp4",
+      path: "/Users/AIEraDev/Movies/screen_recording.mp4",
+      type: "video",
+      duration: 5.0,
+      size: 2097152,
+      // streams: undefined ← Probe not complete yet
+    };
+    // Must return false — streams needed to verify audio exists
+    expect(assetHasAudio(videoPathHydratedButNotProbed)).toBe(false);
+  });
+
+  it("returns true only when BOTH streams and path are available", () => {
+    const videoFullyReady: MediaAsset = {
+      id: "v-ready",
+      name: "talking_head.mp4",
+      path: "/Users/AIEraDev/Movies/talking_head.mp4",
+      type: "video",
+      duration: 10.5,
+      size: 5242880,
+      streams: [
+        { index: 0, type: "video", codec: "h264" },
+        {
+          index: 1,
+          type: "audio",
+          codec: "aac",
+          channels: 2,
+          sampleRate: 48000,
+        },
+      ],
+    };
+    // Both conditions met — safe to claim audio exists
+    expect(assetHasAudio(videoFullyReady)).toBe(true);
+  });
+
+  it("returns false for video with empty path even if streams indicate audio", () => {
+    // Simulates the exact scenario from session trace
+    const videoAtImportTime: MediaAsset = {
+      id: "asset-123",
+      name: "20260927_103036.mp4",
+      path: "", // ← Empty at import, populated 57ms later
+      type: "video",
+      duration: 1.828,
+      size: 8388608,
+      streams: [
+        { index: 0, type: "video", codec: "h264" },
+        {
+          index: 1,
+          type: "audio",
+          codec: "aac",
+          channels: 2,
+          sampleRate: 44100,
+        },
+      ],
+    };
+
+    // At T+0ms: User presses play, path still empty
+    expect(assetHasAudio(videoAtImportTime)).toBe(false);
+
+    // At T+57ms: Path populated (simulated)
+    videoAtImportTime.path = "/Users/AIEraDev/Movies/20260927_103036.mp4";
+    expect(assetHasAudio(videoAtImportTime)).toBe(true);
+  });
+
+  it("standalone audio assets still work (regression check)", () => {
+    const audioAsset: MediaAsset = {
+      id: "a-1",
+      name: "music.mp3",
+      path: "/audio/music.mp3",
+      type: "audio",
+      duration: 180,
+      size: 4194304,
+    };
+    // Audio type doesn't require streams check
+    expect(assetHasAudio(audioAsset)).toBe(true);
+  });
+
+  it("video without audio stream returns false even with path", () => {
+    const silentVideo: MediaAsset = {
+      id: "v-silent",
+      name: "animation.mp4",
+      path: "/video/animation.mp4",
+      type: "video",
+      duration: 5.0,
+      size: 1048576,
+      streams: [
+        { index: 0, type: "video", codec: "h264" },
+        // No audio stream
+      ],
+    };
+    // Correctly identified as silent
+    expect(assetHasAudio(silentVideo)).toBe(false);
   });
 });
 
@@ -109,7 +248,9 @@ describe("clipHasAudio", () => {
 
   it("returns false for non-audio clip kinds (text, sticker, image)", () => {
     expect(clipHasAudio({ ...baseClip, kind: "text" }, null)).toBe(false);
-    expect(clipHasAudio({ ...baseClip, kind: "text-template" }, null)).toBe(false);
+    expect(clipHasAudio({ ...baseClip, kind: "text-template" }, null)).toBe(
+      false,
+    );
     expect(clipHasAudio({ ...baseClip, kind: "sticker" }, null)).toBe(false);
     expect(clipHasAudio({ ...baseClip, kind: "image" }, null)).toBe(false);
   });
@@ -126,9 +267,14 @@ describe("clipHasAudio", () => {
       type: "video",
       duration: 10,
       size: 1024,
-      streams: [{ index: 0, type: "video", codec: "h264" }, { index: 1, type: "audio", codec: "aac" }],
+      streams: [
+        { index: 0, type: "video", codec: "h264" },
+        { index: 1, type: "audio", codec: "aac" },
+      ],
     };
-    expect(clipHasAudio({ ...baseClip, kind: "video" }, assetWithAudio)).toBe(true);
+    expect(clipHasAudio({ ...baseClip, kind: "video" }, assetWithAudio)).toBe(
+      true,
+    );
   });
 
   it("returns false for video clips backed by a silent video asset", () => {
@@ -141,7 +287,9 @@ describe("clipHasAudio", () => {
       size: 1024,
       streams: [{ index: 0, type: "video", codec: "h264" }],
     };
-    expect(clipHasAudio({ ...baseClip, kind: "video" }, silentAsset)).toBe(false);
+    expect(clipHasAudio({ ...baseClip, kind: "video" }, silentAsset)).toBe(
+      false,
+    );
   });
 
   it("returns false for video clips whose audio was already detached", () => {

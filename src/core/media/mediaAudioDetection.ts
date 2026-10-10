@@ -16,15 +16,24 @@ export function assetHasAudio(asset: MediaAsset | null | undefined): boolean {
   if (asset.type === "image") return false;
 
   if (asset.type === "video") {
-    if (Array.isArray(asset.streams)) {
+    // Require both stream metadata AND file path to be available before
+    // claiming audio exists. This prevents a race condition where:
+    // 1. User imports video → asset.streams=undefined, asset.path=""
+    // 2. User presses play immediately
+    // 3. This function returns true (unprobed fallback)
+    // 4. But path filter removes clip → sends 0 clips to Rust
+    // 5. Rust reports "no-native-audio-clips-installed" → audio silent
+    // 6. 50-100ms later, probe completes → retry succeeds
+    // Fix: Only return true when both streams AND path are known.
+    if (Array.isArray(asset.streams) && asset.path) {
       if (asset.streams.length === 0) {
         // Explicitly probed with zero streams (unlikely, but safe)
         return false;
       }
       return asset.streams.some((stream) => stream.type === "audio");
     }
-    // Unprobed fallback: assume true until probed
-    return true;
+    // Wait for probe to complete before claiming audio exists
+    return false;
   }
 
   return false;
@@ -72,7 +81,10 @@ export function clipHasAudio(
 
   if (clip.kind === "video") {
     // If audio was already detached into a separate audio clip, the video clip itself is silent
-    if (Boolean(clip.detachedFromClipId) || clip.audio?.linkState === "detached") {
+    if (
+      Boolean(clip.detachedFromClipId) ||
+      clip.audio?.linkState === "detached"
+    ) {
       return false;
     }
     // If asset is provided, inspect its probed streams.
