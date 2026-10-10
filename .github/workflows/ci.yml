@@ -37,6 +37,9 @@ jobs:
       - name: Validate multi-agent skills synchronization
         run: npm run skills:check
 
+      - name: Validate Architectural Invariants
+        run: npm run verify:architecture
+
       - name: Strict Type Check (tsc --noEmit)
         run: npx tsc --noEmit
 

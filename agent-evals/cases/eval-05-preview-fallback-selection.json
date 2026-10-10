@@ -1,0 +1,26 @@
+{
+  "id": "eval-05-preview-fallback-selection",
+  "title": "Graceful Fallback When Native GPU Surface Fails Initialization",
+  "category": "PREVIEW_PERFORMANCE",
+  "complexity": "HIGH",
+  "taskDescription": "When wgpu surface initialization fails on low-end hardware or virtual machines without Direct3D 12 / Metal, Clypra must smoothly transition to the DOM/canvas readback fallback without throwing an unhandled exception or leaving the preview black.",
+  "expectedBehavior": "Application logs a native-diagnostic fallback event and seamlessly mounts ProgramPreview.tsx with canvas readback. UI displays an informational banner.",
+  "architecturalConstraints": [
+    "Runtime presenter must be verified directly, never inferred from env vars alone",
+    "EvaluatedScene currency must be maintained across fallback path",
+    "Fallback state must be tracked in preview qualification state"
+  ],
+  "acceptanceCriteria": [
+    "Simulation of surface init failure automatically mounts canvas fallback",
+    "Playback controls and seeking remain functional in fallback mode",
+    "Regression test added in preview test suite"
+  ],
+  "testCommand": "npx vitest run src/components/editor/preview/__tests__/adaptiveReadbackPolicy.test.ts",
+  "scoringRubric": {
+    "correctness": 40,
+    "invariantCompliance": 20,
+    "behaviorCoverage": 15,
+    "regressionTest": 15,
+    "scopeDiscipline": 10
+  }
+}

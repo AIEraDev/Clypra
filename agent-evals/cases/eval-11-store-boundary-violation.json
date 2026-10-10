@@ -1,0 +1,26 @@
+{
+  "id": "eval-11-store-boundary-violation",
+  "title": "Refactor Cross-Store Direct Mutation into Command Pattern",
+  "category": "ARCHITECTURE_INVARIANTS",
+  "complexity": "MEDIUM",
+  "taskDescription": "A proposed feature attempts to call projectStore.getState().setProjectName(...) from inside timelineStore.ts actions. Refactor this to obey the store isolation invariant, ensuring stores own their domain exclusively and mutations are coordinated via historyStore commands or explicit action arguments.",
+  "expectedBehavior": "No direct cross-store getState() calls in store actions. Store tests pass without circular dependencies.",
+  "architecturalConstraints": [
+    "Stores must own their single domain",
+    "Must not read one store from inside another store's action function",
+    "Must pass scripts/harness/check-architecture.mjs"
+  ],
+  "acceptanceCriteria": [
+    "scripts/harness/check-architecture.mjs passes with 0 violations",
+    "Store isolation test passes cleanly",
+    "Undo/redo functionality remains intact"
+  ],
+  "testCommand": "npm run verify:architecture",
+  "scoringRubric": {
+    "correctness": 40,
+    "invariantCompliance": 20,
+    "behaviorCoverage": 15,
+    "regressionTest": 15,
+    "scopeDiscipline": 10
+  }
+}

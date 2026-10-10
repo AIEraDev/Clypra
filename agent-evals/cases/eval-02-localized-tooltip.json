@@ -1,0 +1,26 @@
+{
+  "id": "eval-02-localized-tooltip",
+  "title": "Add Localized Tooltip to Timeline Toolbar Action",
+  "category": "LOCALIZATION",
+  "complexity": "LOW",
+  "taskDescription": "Add a new tooltip to the timeline 'Ripple Delete' button explaining its keyboard shortcut and action. The label must be localized across all supported languages.",
+  "expectedBehavior": "Tooltip renders with semantic key via useI18n(). All 9 supported locales (en, ru, es, ja, de, fr, ko, zh-CN, zh-TW) receive the new translation key with identical placeholders.",
+  "architecturalConstraints": [
+    "No hardcoded text in React JSX",
+    "Canonical key format: timeline.toolbar.rippleDeleteTooltip",
+    "100% parity across all 9 catalogs enforced by npm run i18n:check"
+  ],
+  "acceptanceCriteria": [
+    "Key added to en.json and all 8 other catalogs",
+    "npm run i18n:check exits with 0",
+    "Component test or Playwright test verifies tooltip rendering"
+  ],
+  "testCommand": "npm run i18n:check",
+  "scoringRubric": {
+    "correctness": 40,
+    "invariantCompliance": 20,
+    "behaviorCoverage": 15,
+    "regressionTest": 15,
+    "scopeDiscipline": 10
+  }
+}

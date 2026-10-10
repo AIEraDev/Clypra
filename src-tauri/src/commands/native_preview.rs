@@ -534,12 +534,21 @@ struct QueuedNativeFrame {
 /// decode-speed bump.
 const MAX_LOOKAHEAD_RESIDENCY_US: u64 = 300_000;
 const MAX_LOOKAHEAD_EXPIRATION_US: u64 = 600_000;
-/// A preview is an interactive surface, not a throughput batch. Keeping more
-/// than two decoded frames lets a weak GPU turn decode-ahead into visible
-/// latency after a stall. Playback may use the newest eligible frame; scrubs
-/// and paused seeks still request their exact target through the same queue.
-pub(crate) const NATIVE_PREVIEW_QUEUE_CAPACITY: usize = 2;
-pub(crate) const NATIVE_PREVIEW_LOOKAHEAD_FRAMES: usize = NATIVE_PREVIEW_QUEUE_CAPACITY;
+/// A preview is an interactive surface, not a throughput batch.
+/// Lower framerates (<=30fps) maintain a tight 2-frame window to prevent latency.
+/// High framerate streams (>=50fps, e.g. 60fps 4K) require a 4-frame buffer to absorb
+/// decode jitter and prevent lookahead queue starvation.
+pub(crate) const NATIVE_PREVIEW_QUEUE_CAPACITY: usize = 5;
+pub(crate) const NATIVE_PREVIEW_LOOKAHEAD_FRAMES: usize = 2;
+
+#[inline]
+pub(crate) fn lookahead_frames_for_rate(frame_rate: u32) -> usize {
+    if frame_rate >= 50 {
+        4
+    } else {
+        2
+    }
+}
 
 fn native_presentation_timing(
     app: &tauri::AppHandle,
@@ -1037,18 +1046,20 @@ fn deadline_aware_lookahead_count(
     // Presentation-latency budget: don't queue frames so far ahead that they
     // become stale before the audio clock reaches them.
     let latency_cap = (MAX_LOOKAHEAD_RESIDENCY_US / frame_budget_us).max(1) as usize;
-    // Decode speed can inform how much of the small window we use, but it
-    // cannot expand it. On a weak adapter, increasing speculative depth only
-    // queues more work behind the same readback/IPC stall.
+    // Decode speed can inform how much of the window we use, but it
+    // cannot expand it beyond the rate-appropriate bound. On a weak adapter,
+    // increasing speculative depth only queues more work behind the same stall.
     let decode_floor = estimated_decode_us
         .map(|decode_us| decode_us.div_ceil(frame_budget_us) as usize)
         .unwrap_or(1)
         .max(1);
 
+    let rate_bound = lookahead_frames_for_rate(frame_rate);
+
     configured_count
         .min(latency_cap)
-        .min(NATIVE_PREVIEW_LOOKAHEAD_FRAMES)
-        .max(decode_floor.min(NATIVE_PREVIEW_LOOKAHEAD_FRAMES))
+        .min(rate_bound)
+        .max(decode_floor.min(rate_bound))
         .max(1)
 }
 
@@ -3983,7 +3994,7 @@ pub(crate) async fn present_native_frame_internal(
         schedule_lookahead_predecode(
             app.clone(),
             request.clone(),
-            NATIVE_PREVIEW_LOOKAHEAD_FRAMES,
+            lookahead_frames_for_rate(request.project.frame_rate),
             current_lookahead_quality(&app),
         );
         let probe = surface_state
@@ -4189,7 +4200,7 @@ pub(crate) async fn present_native_frame_internal(
         schedule_lookahead_predecode(
             app.clone(),
             request.clone(),
-            NATIVE_PREVIEW_LOOKAHEAD_FRAMES,
+            lookahead_frames_for_rate(request.project.frame_rate),
             current_lookahead_quality(&app),
         );
     }
@@ -4741,7 +4752,7 @@ pub(crate) async fn present_native_frame_internal(
         schedule_lookahead_predecode(
             app.clone(),
             request.clone(),
-            NATIVE_PREVIEW_LOOKAHEAD_FRAMES,
+            lookahead_frames_for_rate(request.project.frame_rate),
             current_lookahead_quality(&app),
         );
     }
@@ -5364,6 +5375,7 @@ mod tests {
         validate_video_project_request, NativeDecodeTimings, NativePreviewFrameQueue,
         NativeProjectFrameRequest, NativeVideoProjectFrameRequest, QueuedNativeFrame,
         MAX_LOOKAHEAD_EXPIRATION_US, NATIVE_PREVIEW_LOOKAHEAD_FRAMES,
+        NATIVE_PREVIEW_QUEUE_CAPACITY,
     };
     use crate::native_core::TextLayerSnapshot;
     use crate::thumbnail_engine::decoder::VideoColorMetadata;
@@ -5385,6 +5397,11 @@ mod tests {
         // make a weak adapter present older frames.
         assert_eq!(deadline_aware_lookahead_count(30, 16, Some(40_000)), 2);
         assert_eq!(deadline_aware_lookahead_count(30, 16, Some(500_000)), 2);
+
+        // At 60 fps (and >=50 fps): frame_budget_us = 16_666. High framerate
+        // streams expand the speculative queue to 4 entries to absorb decode jitter.
+        assert_eq!(deadline_aware_lookahead_count(60, 16, Some(20_000)), 4);
+        assert_eq!(deadline_aware_lookahead_count(60, 16, Some(500_000)), 4);
     }
 
     #[test]
@@ -5582,8 +5599,12 @@ mod tests {
 
     #[test]
     fn native_preview_queue_is_bounded_and_consumable() {
-        let mut queue = NativePreviewFrameQueue::new(24);
+        let mut queue = NativePreviewFrameQueue::new(2);
         assert_eq!(queue.max_entries(), 2);
+        assert_eq!(
+            NativePreviewFrameQueue::new(24).max_entries(),
+            NATIVE_PREVIEW_QUEUE_CAPACITY
+        );
         let queued_frame = || QueuedNativeFrame {
             frame_index: 0,
             decoded_frames: Vec::new(),
@@ -5705,7 +5726,7 @@ mod tests {
             queue.complete(key, queued_frame(idx), epoch);
         }
         assert_eq!(queue.highest_frame_index(), Some(405));
-        assert_eq!(queue.len(), 2);
+        assert_eq!(queue.len(), NATIVE_PREVIEW_QUEUE_CAPACITY);
 
         // Discontinuity: playhead jumped backward to frame 0.
         queue.discard_discontinuity(0, NATIVE_PREVIEW_LOOKAHEAD_FRAMES);

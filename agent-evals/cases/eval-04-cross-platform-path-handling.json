@@ -1,0 +1,25 @@
+{
+  "id": "eval-04-cross-platform-path-handling",
+  "title": "Normalize Mixed Separator Paths Across Windows and macOS",
+  "category": "CROSS_PLATFORM",
+  "complexity": "MEDIUM",
+  "taskDescription": "On Windows, media imported from network shares (UNC paths e.g. \\\\server\\share\\video.mp4) or using mixed separators (C:/Users\\name/video.mp4) causes Rust IPC commands to fail path validation. Update nativeCore.ts path conversion to normalize separators and maintain valid drive letters.",
+  "expectedBehavior": "All platform paths normalize cleanly before transmission to Tauri IPC commands without losing Windows drive letters or UNC prefixes.",
+  "architecturalConstraints": [
+    "No hardcoded string replacements using only '/' or '\\'",
+    "Must preserve POSIX absolute paths on macOS and Linux",
+    "Must respect Tauri path security capability scope"
+  ],
+  "acceptanceCriteria": [
+    "Unit test covers Windows UNC paths, drive letter paths, POSIX paths, and mixed separators",
+    "npm run verify:fast passes cleanly"
+  ],
+  "testCommand": "npx vitest run src/lib/platform/",
+  "scoringRubric": {
+    "correctness": 40,
+    "invariantCompliance": 20,
+    "behaviorCoverage": 15,
+    "regressionTest": 15,
+    "scopeDiscipline": 10
+  }
+}

@@ -200,8 +200,8 @@ impl NativeRenderSession {
             *self.last_materialized.write() = None;
             crate::commands::native_preview::schedule_lookahead_predecode(
                 app.clone(),
-                base_request,
-                crate::commands::native_preview::NATIVE_PREVIEW_LOOKAHEAD_FRAMES,
+                base_request.clone(),
+                crate::commands::native_preview::lookahead_frames_for_rate(base_request.project.frame_rate),
                 Some(quality),
             );
             self.notify.notify_one();
@@ -211,7 +211,7 @@ impl NativeRenderSession {
         crate::commands::native_preview::schedule_lookahead_predecode(
             app.clone(),
             base_request,
-            crate::commands::native_preview::NATIVE_PREVIEW_LOOKAHEAD_FRAMES,
+            crate::commands::native_preview::lookahead_frames_for_rate(self.snapshot.read().project.frame_rate),
             Some(quality),
         );
         let session = Arc::clone(self);
@@ -781,10 +781,10 @@ impl NativeRenderSession {
             }
 
             // When the audio clock is not running, only render if an explicit
-            // dynamic demand was submitted. If dynamic_demand is None, playback
-            // is paused or idle; repeatedly rendering and forcing show_surface
-            // causes the preview to leak onto the desktop while paused.
-            if dynamic_demand.is_none() {
+            // dynamic demand was submitted, or if the session has not yet presented
+            // its initial frame. Presenting the initial frame immediately (<16ms)
+            // upon session start eliminates the startup freeze while CPAL audio initializes.
+            if dynamic_demand.is_none() && self.first_presented.load(Ordering::Acquire) {
                 continue;
             }
 
@@ -1338,8 +1338,8 @@ pub async fn configure_native_playback_render(
         // no first visible frame competes with initialization for the session.
         crate::commands::native_preview::schedule_lookahead_predecode(
             app.clone(),
-            snapshot_clone,
-            crate::commands::native_preview::NATIVE_PREVIEW_LOOKAHEAD_FRAMES,
+            snapshot_clone.clone(),
+            crate::commands::native_preview::lookahead_frames_for_rate(snapshot_clone.project.frame_rate),
             Some(lookahead_quality),
         );
     }
@@ -1434,8 +1434,8 @@ pub async fn update_native_playback_render(
     let lookahead_quality = session.snapshot.read().quality;
     crate::commands::native_preview::schedule_lookahead_predecode(
         app.clone(),
-        snapshot_clone,
-        crate::commands::native_preview::NATIVE_PREVIEW_LOOKAHEAD_FRAMES,
+        snapshot_clone.clone(),
+        crate::commands::native_preview::lookahead_frames_for_rate(snapshot_clone.project.frame_rate),
         Some(lookahead_quality),
     );
 

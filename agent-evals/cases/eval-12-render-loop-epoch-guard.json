@@ -1,0 +1,26 @@
+{
+  "id": "eval-12-render-loop-epoch-guard",
+  "title": "Guard Native Render Loop Closures Against Stale State Leakage",
+  "category": "PREVIEW_LIFECYCLE",
+  "complexity": "HIGH",
+  "taskDescription": "In NativeProgramPreview.tsx, when the user rapidly switches media sources while the render loop is running, an uncompleted frame render from the previous source can resolve and update the canvas with stale pixels. Add an epoch guard and guarantee renderInFlight reset in the cleanup handler.",
+  "expectedBehavior": "When active source changes, previous render epoch is invalidated immediately. Stale resolutions are dropped silently without mutating renderStateRef or leaving renderInFlight permanently true.",
+  "architecturalConstraints": [
+    "NativeProgramPreview render loop state lives in closure variables",
+    "renderInFlight must reset to false across all exit paths",
+    "Must preserve 156-test append-only baseline in ProgramPreview.renderLoop.test.ts"
+  ],
+  "acceptanceCriteria": [
+    "Source switch under rapid RAF ticks does not display previous source frame",
+    "renderInFlight is reset on unmount and error",
+    "Regression test added to ProgramPreview.renderLoop.test.ts"
+  ],
+  "testCommand": "npx vitest run src/components/editor/preview/__tests__/ProgramPreview.renderLoop.test.ts",
+  "scoringRubric": {
+    "correctness": 40,
+    "invariantCompliance": 20,
+    "behaviorCoverage": 15,
+    "regressionTest": 15,
+    "scopeDiscipline": 10
+  }
+}

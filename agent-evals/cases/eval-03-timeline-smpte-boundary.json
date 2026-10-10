@@ -1,0 +1,26 @@
+{
+  "id": "eval-03-timeline-smpte-boundary",
+  "title": "Fix SMPTE 29.97 Drop-Frame Minute Boundary Calculation",
+  "category": "NLE_DOMAIN",
+  "complexity": "MEDIUM",
+  "taskDescription": "At minute boundaries not divisible by 10 in 29.97 fps drop-frame timecode, frames 00 and 01 must be dropped from the display representation. Fix the frame-to-timecode conversion function so it does not drift over 1-hour timelines.",
+  "expectedBehavior": "Frame index 107892 translates to 01:00:00;00 exactly. No floating point rounding drift.",
+  "architecturalConstraints": [
+    "Zero OS branching in timecode math",
+    "Integer frame arithmetic only",
+    "Must not alter non-drop-frame calculation semantics"
+  ],
+  "acceptanceCriteria": [
+    "Drop-frame minute boundaries pass 100% of unit tests",
+    "1-hour timeline frame count matches SMPTE specification exactly",
+    "Regression test added in src/lib/timecode/__tests__/"
+  ],
+  "testCommand": "npx vitest run src/lib/timecode/",
+  "scoringRubric": {
+    "correctness": 40,
+    "invariantCompliance": 20,
+    "behaviorCoverage": 15,
+    "regressionTest": 15,
+    "scopeDiscipline": 10
+  }
+}

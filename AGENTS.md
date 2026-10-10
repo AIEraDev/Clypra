@@ -67,25 +67,31 @@ Specialized rule files under [`.agents/rules/`](.agents/rules/) (`architecture.m
 ---
 
 ## 5. Canonical Developer & Verification Commands
-Always use the project's verified commands:
+`npm` is the canonical package manager for Clypra dependencies, scripts, and CI workflows. Always use the project's verified commands:
 ```bash
-# Documentation integrity
-npm run docs:check
+# Unified Architecture Invariants Check
+npm run verify:architecture
 
-# Static analysis & TypeScript typecheck (MANDATORY: 0 errors)
-npx tsc --noEmit
+# Fast Local Verification (Typecheck + Architecture + Preview render loop)
+npm run verify:fast
 
-# Focused preview render loop regression suite (155 tests)
-npx vitest run src/components/editor/preview/__tests__/ProgramPreview.renderLoop.test.ts
+# Targeted verification based on git changed files
+npm run verify:changed
 
-# Internationalization catalog parity check
-npm run i18n:check
+# Subsystem & audio integration tests
+npm run verify:integration
 
-# Fast unit & integration test runner
-npx vitest run <path/to/test.ts>
+# Media engine & timeline math regressions
+npm run verify:media
 
 # Playwright frontend browser UI tests
-npx playwright test
+npm run verify:ui
+
+# Packaged desktop application smoke validation
+npm run verify:desktop
+
+# Full comprehensive regression suite
+npm run verify:full
 
 # Rust backend tests
 cargo test --manifest-path src-tauri/Cargo.toml
@@ -93,14 +99,14 @@ cargo test --manifest-path src-tauri/Cargo.toml
 # Full frontend production build
 npm run build
 
-# Local dev server (web-canvas)
-pnpm dev
+# Local dev server (web-canvas fallback)
+npm run dev
 
 # Local desktop dev server (native Metal/wgpu preview by default)
-pnpm tauri dev
+npm run tauri dev
 
 # Local dev server with forced WebGL/web-canvas fallback
-VITE_CLYPRA_NATIVE_SURFACE=0 pnpm tauri dev
+VITE_CLYPRA_NATIVE_SURFACE=0 npm run tauri dev
 ```
 
 ---
@@ -182,7 +188,10 @@ Never fabricate metrics, treat unaligned remote clocks as directly comparable, e
 - **`release-readiness`** ([`.agents/skills/release-readiness/SKILL.md`](.agents/skills/release-readiness/SKILL.md)): Pre-release audit, packaged bundle smoke checks, and sidecar binary validation.
 - **Master Engineering References**:
   - Architecture Overview: [`docs/engineering/architecture-overview.md`](docs/engineering/architecture-overview.md)
+  - Architecture Invariants: [`docs/engineering/architecture-invariants.md`](docs/engineering/architecture-invariants.md)
   - Agent Routing & Skill Orchestration: [`docs/engineering/agent-routing.md`](docs/engineering/agent-routing.md)
+  - Agent Evaluation Harness: [`docs/engineering/agent-evaluation.md`](docs/engineering/agent-evaluation.md)
+  - Engineering Intelligence: [`docs/engineering/engineering-intelligence.md`](docs/engineering/engineering-intelligence.md)
   - Desktop vs Browser Testing: [`docs/engineering/desktop-testing-strategy.md`](docs/engineering/desktop-testing-strategy.md)
   - NLE Architecture & Semantics: [`docs/engineering/nle-architecture-and-semantics.md`](docs/engineering/nle-architecture-and-semantics.md)
   - Platform Compatibility: [`docs/engineering/platform-compatibility.md`](docs/engineering/platform-compatibility.md)
