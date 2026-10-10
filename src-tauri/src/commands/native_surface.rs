@@ -125,25 +125,23 @@ impl NativeSurfaceRuntime {
             .run_on_main_thread(move || {
                 if let Err(e) = sw.show() {
                     log::warn!("[NativeSurface] show_surface: window.show() failed: {e}");
-                    return;
-                }
-
-                // Re-assert child-window stacking on every show to survive macOS
-                // Spaces / full-screen transitions that can unparent the child.
-                #[cfg(target_os = "macos")]
-                unsafe {
-                    if let Some(parent) = &parent_clone {
-                        if let (Ok(ns_win), Ok(parent_ns_win)) =
-                            (sw.ns_window(), parent.ns_window())
-                        {
-                            let _: () = objc2::msg_send![
-                                parent_ns_win as *mut objc2::runtime::AnyObject,
-                                addChildWindow: ns_win as *mut objc2::runtime::AnyObject,
-                                ordered: 1isize // NSWindowAbove = 1
-                            ];
+                } else {
+                    // Re-assert child-window stacking on every show to survive macOS
+                    // Spaces / full-screen transitions that can unparent the child.
+                    #[cfg(target_os = "macos")]
+                    unsafe {
+                        if let Some(parent) = &parent_clone {
+                            if let (Ok(ns_win), Ok(parent_ns_win)) =
+                                (sw.ns_window(), parent.ns_window())
+                            {
+                                let _: () = objc2::msg_send![
+                                    parent_ns_win as *mut objc2::runtime::AnyObject,
+                                    addChildWindow: ns_win as *mut objc2::runtime::AnyObject,
+                                    ordered: 1isize // NSWindowAbove = 1
+                                ];
+                            }
                         }
                     }
-                }
 
                 // On Windows, ensure the surface is at the top of its z-order tier
                 // after being revealed, in case DWM has reordered windows.
@@ -176,6 +174,7 @@ impl NativeSurfaceRuntime {
                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
                         );
                     }
+                }
                 }
             })
             .map_err(|error| format!("Unable to dispatch show_surface to main thread: {error}"))?;

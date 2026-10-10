@@ -67,6 +67,31 @@ jobs:
           path: ${{ runner.temp }}/ffmpeg-static
           key: ffmpeg-8.0-darwin-static-v2-${{ matrix.platform.target }}
 
+      - name: Build Static FFmpeg (macOS)
+        if: runner.os == 'macOS' && steps.cache-ffmpeg-macos.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/ffmpeg-src
+          curl -sL https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz | tar -xJ --strip-components=1 -C /tmp/ffmpeg-src
+          cd /tmp/ffmpeg-src
+          ./configure \
+            --prefix="${{ runner.temp }}/ffmpeg-static" \
+            --enable-static \
+            --disable-shared \
+            --enable-pic \
+            --disable-programs \
+            --disable-doc \
+            --disable-network \
+            --disable-autodetect \
+            --disable-indevs \
+            --disable-outdevs \
+            --enable-videotoolbox \
+            --enable-audiotoolbox \
+            --disable-xlib \
+            --disable-libxcb \
+            --disable-indev=xcbgrab
+          make -j$(sysctl -n hw.ncpu) install
+          rm -rf /tmp/ffmpeg-src
+
       - name: Configure FFmpeg Environment (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -88,6 +113,31 @@ jobs:
             choco install llvm -y --no-progress
             echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
           }
+
+      - name: Cache FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        id: cache-ffmpeg-windows
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed\x64-windows-static-md
+          key: ffmpeg-vcpkg-x64-windows-static-md-v1
+
+      - name: Install FFmpeg (Windows)
+        if: runner.os == 'Windows' && steps.cache-ffmpeg-windows.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          cd C:\vcpkg
+          git pull --quiet
+          vcpkg install ffmpeg[core,avcodec,avdevice,avfilter,avformat,swresample,swscale]:x64-windows-static-md
+
+      - name: Configure FFmpeg Environment (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          echo "FFMPEG_DIR=C:/vcpkg/installed/x64-windows-static-md" >> $env:GITHUB_ENV
+          echo "PKG_CONFIG_PATH=C:/vcpkg/installed/x64-windows-static-md/lib/pkgconfig" >> $env:GITHUB_ENV
+          echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
+          echo "VCPKGRS_TRIPLET=x64-windows-static-md" >> $env:GITHUB_ENV
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
