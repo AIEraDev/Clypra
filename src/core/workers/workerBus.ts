@@ -92,6 +92,12 @@ export interface WorkerBusOptions {
    * Default: 3
    */
   maxRestarts?: number;
+  /**
+   * Execution time budget in milliseconds before an operation is recorded as overBudget.
+   * Defaults to 16.67 ms (single 60 FPS frame budget). Heavy I/O or background compute
+   * domains can configure higher budgets (e.g. 100-250 ms).
+   */
+  budgetMs?: number;
 }
 
 /**
@@ -111,6 +117,7 @@ export class WorkerBus<
   private readonly name: string;
   private readonly autoRestart: boolean;
   private readonly maxRestarts: number;
+  private readonly budgetMs: number;
   private restartCount = 0;
 
   /**
@@ -136,6 +143,7 @@ export class WorkerBus<
     this.name = options.name ?? 'Worker';
     this.autoRestart = options.autoRestart ?? false;
     this.maxRestarts = options.maxRestarts ?? 3;
+    this.budgetMs = options.budgetMs ?? 16.67;
     // Worker is initialized lazily on first send() or post() to reduce startup time
   }
 
@@ -329,20 +337,26 @@ export class WorkerBus<
           ? (msg as any).diffMs
           : typeof (msg as any).serializeMs === 'number'
             ? (msg as any).serializeMs
-            : typeof (msg as any).analysisMs === 'number'
-              ? (msg as any).analysisMs
-              : typeof (msg as any).parseMs === 'number'
-                ? (msg as any).parseMs
-                : typeof (msg as any).layoutMs === 'number'
-                  ? (msg as any).layoutMs
-                  : undefined;
+            : typeof (msg as any).writeMs === 'number'
+              ? (msg as any).writeMs
+              : typeof (msg as any).readMs === 'number'
+                ? (msg as any).readMs
+                : typeof (msg as any).clearMs === 'number'
+                  ? (msg as any).clearMs
+                  : typeof (msg as any).analysisMs === 'number'
+                    ? (msg as any).analysisMs
+                    : typeof (msg as any).parseMs === 'number'
+                      ? (msg as any).parseMs
+                      : typeof (msg as any).layoutMs === 'number'
+                        ? (msg as any).layoutMs
+                        : undefined;
 
     workerPerfCollector.record({
       domain: this.name,
       operation: callbacks.operation ?? (msg as any).type ?? 'RESPONSE',
       durationMs,
       workerDurationMs,
-      overBudget: durationMs > 16.67,
+      overBudget: durationMs > this.budgetMs,
     });
 
     callbacks.resolve(msg as TResponse);
