@@ -1554,13 +1554,21 @@ pub fn native_tick(app: AppHandle, clock: FrameTime) -> Result<PlaybackState, St
 
 #[tauri::command]
 pub fn native_play_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
+    // INVESTIGATION ONLY — remove before Phase 6
+    log::debug!("[TR1] native_play_from_audio handler entry");
+    
     crate::engine::ENGINE_TELEMETRY.begin_playback_run();
     
     // Architectural invariant: Audio readiness must never block video playback!
     // When audio is unavailable (silent project or clips still resolving/hydrating),
     // fall back to a zeroed FrameTime so video playback starts immediately.
-    let clock = audio_clock_time(&app, true, true)
-        .unwrap_or_else(|_| FrameTime::new(0, 0, DEFAULT_TIME_SCALE).unwrap());
+    let clock_result = audio_clock_time(&app, true, true);
+    // INVESTIGATION ONLY — remove before Phase 6
+    match &clock_result {
+        Ok(ft) => log::debug!("[TR1] audio_clock_time() → Ok(ticks={})", ft.ticks),
+        Err(e) => log::debug!("[TR1] audio_clock_time() → Err({})", e),
+    }
+    let clock = clock_result.unwrap_or_else(|_| FrameTime::new(0, 0, DEFAULT_TIME_SCALE).unwrap());
     
     let audio_available = audio_clock_time(&app, true, true).is_ok();
     let state = if audio_available {

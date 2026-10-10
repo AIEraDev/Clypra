@@ -36,6 +36,7 @@ import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { appLifecycleCoordinator } from "@/core/runtime/AppLifecycleCoordinator";
 import type { TransportAuthority } from "@/core/playback/TransportAuthority";
 import { tracePlayback } from "@/core/playback/playbackTrace";
+import { traceAudioEvent } from "@/core/playback/audioTrace"; // INVESTIGATION ONLY — remove before Phase 6
 
 const NATIVE_PREVIEW_AUDIO_OPTIONS = { preserveTransportPitch: true } as const;
 
@@ -357,6 +358,13 @@ export class NativeAudioPreviewController {
   }
 
   async initialize(): Promise<boolean> {
+    // INVESTIGATION ONLY — remove before Phase 6
+    traceAudioEvent(
+      "T3",
+      "nativeAudioPreviewController.initialize() start",
+      {},
+    );
+
     if (this.disposed || !isTauriRuntime()) return false;
     // Claim the clock before the first awaited native load so an early Play
     // action cannot create a temporary Web Audio clock during initialization.
@@ -372,6 +380,11 @@ export class NativeAudioPreviewController {
         this.source.duration,
         NATIVE_PREVIEW_AUDIO_OPTIONS,
       );
+      // INVESTIGATION ONLY — remove before Phase 6
+      traceAudioEvent("T4", "syncNativeAudioTimeline complete", {
+        clipCount: timeline.snapshot.clips.length,
+      });
+
       this.installedSnapshot = timeline.snapshot;
       // If no audio clips exist on this project, CPAL will run silently and
       // never supply a native clock position. Signal this to the clock so
@@ -394,6 +407,14 @@ export class NativeAudioPreviewController {
       }
       if (this.disposed) return false;
 
+      // INVESTIGATION ONLY — remove before Phase 6
+      traceAudioEvent("T5", "configureNativePlayback IPC send", {
+        frameRate: Math.max(1, Math.round(this.source.frameRate)),
+        durationFrames: Math.max(
+          1,
+          Math.ceil(this.source.duration * this.source.frameRate),
+        ),
+      });
       await configureNativePlayback({
         contractVersion: NATIVE_CORE_CONTRACT_VERSION,
         projectRevision: this.source.projectRevision,
@@ -440,9 +461,19 @@ export class NativeAudioPreviewController {
         // then seeked to that stale value after ~555ms of async initialization. By that
         // time, the video had advanced 16-18 frames, creating permanent A/V drift.
         const livePosition = this.clock.time;
+        // INVESTIGATION ONLY — remove before Phase 6
+        traceAudioEvent("T6", "seekNativeAudio IPC send", {
+          ticks: secondsToTicks(livePosition),
+        });
         await seekNativeAudio(secondsToTicks(livePosition));
         const playStartedAt = performance.now();
+        // INVESTIGATION ONLY — remove before Phase 6
+        traceAudioEvent("T7", "nativePlayFromAudio IPC send", {});
         const nativeState = await nativePlayFromAudio();
+        // INVESTIGATION ONLY — remove before Phase 6
+        traceAudioEvent("T7-recv", "nativePlayFromAudio IPC receive", {
+          audioPositionTicks: nativeState.audioPositionTicks,
+        });
         if (this.startupProbe)
           this.startupProbe.playCommandUs = elapsedUs(playStartedAt);
         this.adoptNativePosition(nativeState.audioPositionTicks);
@@ -561,6 +592,10 @@ export class NativeAudioPreviewController {
           // Bug 12 note: Reading clock.time INSIDE the async callback is correct —
           // the transport queue may have delay, so we want the live extrapolated
           // position at execution time, not at enqueue time.
+          // INVESTIGATION ONLY — remove before Phase 6
+          traceAudioEvent("T6", "seekNativeAudio IPC send (handleClockState)", {
+            ticks: secondsToTicks(this.clock.time),
+          });
           await seekNativeAudio(secondsToTicks(this.clock.time));
           interaction.telemetry.audioSeekUs = elapsedUs(seekStartedAt);
           if (
@@ -571,7 +606,21 @@ export class NativeAudioPreviewController {
             return;
           }
           const transportStartedAt = performance.now();
+          // INVESTIGATION ONLY — remove before Phase 6
+          traceAudioEvent(
+            "T7",
+            "nativePlayFromAudio IPC send (handleClockState)",
+            {},
+          );
           const nativeState = await nativePlayFromAudio();
+          // INVESTIGATION ONLY — remove before Phase 6
+          traceAudioEvent(
+            "T7-recv",
+            "nativePlayFromAudio IPC receive (handleClockState)",
+            {
+              audioPositionTicks: nativeState.audioPositionTicks,
+            },
+          );
           interaction.telemetry.audioTransportUs =
             elapsedUs(transportStartedAt);
           if (this.startupProbe) {

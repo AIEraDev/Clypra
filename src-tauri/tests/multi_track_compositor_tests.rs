@@ -17,18 +17,35 @@ struct HeadlessGpuContext {
 impl HeadlessGpuContext {
     async fn new() -> Self {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
+            backends: wgpu::Backends::all(),
             ..Default::default()
         });
 
-        let adapter = instance
+        let adapter = if let Some(a) = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: None,
                 force_fallback_adapter: false,
             })
             .await
-            .expect("Failed to find suitable GPU adapter");
+        {
+            a
+        } else if let Some(a) = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::None,
+                compatible_surface: None,
+                force_fallback_adapter: true,
+            })
+            .await
+        {
+            a
+        } else {
+            instance
+                .enumerate_adapters(wgpu::Backends::all())
+                .into_iter()
+                .next()
+                .expect("Failed to find suitable GPU adapter")
+        };
 
         let (device, queue) = adapter
             .request_device(

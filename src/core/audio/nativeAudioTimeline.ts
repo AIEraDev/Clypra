@@ -15,6 +15,7 @@ import {
   startNativeAudio,
   recordColdStartSpan,
 } from "@/lib/platform/tauri";
+import { traceAudioEvent } from "@/core/playback/audioTrace"; // INVESTIGATION ONLY — remove before Phase 6
 import type { NativeAudioClipStatus } from "@/lib/platform/nativeCore";
 
 export const NATIVE_AUDIO_TIME_SCALE = 1_000_000;
@@ -105,11 +106,20 @@ export async function syncNativeAudioTimeline(
   // Native decodes the complete candidate before atomically replacing the
   // current graph. This prevents clear-first gaps and stale partial installs.
   const t0Audio = performance.now();
+  // INVESTIGATION ONLY — remove before Phase 6
+  traceAudioEvent("T10", "replaceNativeAudioClips IPC send", {
+    clipCount: snapshot.clips.length,
+  });
   const installed = await replaceNativeAudioClips(snapshot.clips);
+  // INVESTIGATION ONLY — remove before Phase 6
+  traceAudioEvent("T10-recv", "replaceNativeAudioClips IPC receive", {
+    installedCount: installed.length,
+  });
   const t1Audio = performance.now();
   if (
     !hasRecordedAudioSync &&
-    (typeof window !== "undefined" && (window as any).__clypraProjectOpenRequestedWallMs)
+    typeof window !== "undefined" &&
+    (window as any).__clypraProjectOpenRequestedWallMs
   ) {
     hasRecordedAudioSync = true;
     performance.mark("clypra:audio_sync_started");

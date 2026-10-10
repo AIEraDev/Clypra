@@ -1,4 +1,5 @@
 import { recordAudioPoll } from "@/lib/playback/syncMetrics";
+import { traceAudioEvent } from "./audioTrace"; // INVESTIGATION ONLY — remove before Phase 6
 
 /**
  * Playback Clock - Continuous Time Signal
@@ -355,6 +356,18 @@ export class PlaybackClock {
    * This does not start audio; it only prevents Web Audio clock takeover.
    */
   setNativeClockAuthority(enabled: boolean): void {
+    // INVESTIGATION ONLY — remove before Phase 6
+    if (this._nativeClockAuthority !== enabled) {
+      traceAudioEvent(
+        "T8",
+        "PlaybackClock state change: nativeClockAuthority",
+        {
+          from: this._nativeClockAuthority,
+          to: enabled,
+        },
+      );
+    }
+
     this._nativeClockAuthority = enabled;
     if (enabled) {
       this._stallStartAudioTime = null;
@@ -389,6 +402,16 @@ export class PlaybackClock {
       pollRttMs,
       sampledAtNs,
     );
+
+    // INVESTIGATION ONLY — remove before Phase 6
+    traceAudioEvent("T9", "Native poll sample", {
+      position_ticks: clampedTime * 1_000_000,
+      receivedAtMs: performance.now(),
+      pollRttMs,
+      deltaFromPrevious: this._nativeClockPosition
+        ? clampedTime - this._nativeClockPosition.time
+        : null,
+    });
 
     const backwardTolerance = Math.max(0.05, 1 / this._frameRate);
     if (
@@ -510,6 +533,14 @@ export class PlaybackClock {
    * Start playback.
    */
   play(): void {
+    // INVESTIGATION ONLY — remove before Phase 6
+    traceAudioEvent("T2", "clock.play() entry", {
+      _isSeeking: this._isSeeking,
+      nativeClockAuthority: this._nativeClockAuthority,
+      seekRevision: this._seekRevision,
+      _time: this._time,
+    });
+
     if (this._state === "playing") {
       return;
     }
@@ -519,8 +550,11 @@ export class PlaybackClock {
     // to do nothing after a completed timeline.
     if (this._duration > 0 && this._time >= this._duration) {
       this._time = 0;
-      this._isSeeking = false;
     }
+
+    // Starting playback clears seeking state so that playhead extrapolation
+    // and the RAF tick loop advance immediately without a 500ms seek-timeout freeze.
+    this._isSeeking = false;
 
     if (this._nativeClockAuthority) {
       // Capture wall-clock and timeline start position so the time getter can

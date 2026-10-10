@@ -201,6 +201,9 @@ pub async fn replace_native_audio_clips(
     app: AppHandle,
     clips: Vec<NativeAudioClipRequest>,
 ) -> Result<Vec<NativeAudioClipStatus>, String> {
+    // INVESTIGATION ONLY — remove before Phase 6
+    log::debug!("[TR5] replace_native_audio_clips: {} clips requested", clips.len());
+    
     let clock = audio_clock(&app)?;
     let (sample_rate, channels) = {
         let mut clock_guard = clock
@@ -331,10 +334,16 @@ pub async fn replace_native_audio_clips(
         .await
         {
             Ok(clip) => {
+                // PHASE 2 INSTRUMENTATION: Log successful decode (before move)
+                eprintln!("[PHASE2-RUST-AUDIO] decode SUCCESS: clip={} path='{}' samples={} channels={}", 
+                    request.clip_id, request.path, clip.samples.len(), clip.channels);
                 pcm_cache.insert(cache_key, Arc::clone(&clip.samples));
                 decoded.push(clip);
             }
             Err(error) => {
+                // PHASE 2 INSTRUMENTATION: Log decode failure
+                eprintln!("[PHASE2-RUST-AUDIO] decode FAILED: clip={} path='{}' error='{}'", 
+                    request.clip_id, request.path, error);
                 log::warn!(
                     "[NativeAudio] Skipping failed audio clip {}: {} (path: {})",
                     request.clip_id,
@@ -382,6 +391,15 @@ pub async fn replace_native_audio_clips(
     );
 
     let statuses: Vec<NativeAudioClipStatus> = decoded.iter().map(NativePcmClip::status).collect();
+    
+    // PHASE 2 INSTRUMENTATION: Log before return
+    eprintln!("[PHASE2-RUST-AUDIO] replace_native_audio_clips RETURN: decoded_count={} status_count={} ts={:?}", 
+        decoded.len(), statuses.len(), Instant::now());
+    for (idx, status) in statuses.iter().enumerate() {
+        eprintln!("[PHASE2-RUST-AUDIO] status[{}] id={} sample_count={} duration_ticks={}", 
+            idx, status.id, status.sample_count, status.duration_ticks);
+    }
+    
     log::debug!(
         "[NativeAudio] Installed {} audio clips: {:?}",
         decoded.len(),
