@@ -498,4 +498,32 @@ describe("requestFilmstripArtifacts coalescing", () => {
     expect(invokeCalls).toContain("cancel_render_artifacts_batch");
     expect(invokeCalls.filter((c) => c === "get_render_artifacts_batch")).toHaveLength(2);
   });
+
+  it("cancels in-flight native batch via cancel_render_artifacts_batch when subscriber cancels", async () => {
+    registerActiveEpoch("clip-cancel-sub", eid("epoch-cancel-sub"));
+    mockInvoke.mockImplementation(() => new Promise<void>(() => {}));
+
+    const cancel = requestFilmstripArtifacts({
+      videoPath: "/cancel-sub.mp4",
+      timestampsMs: [1000, 2000],
+      spatialTier: SpatialTier.L0,
+      epochId: eid("epoch-cancel-sub"),
+      clipId: "clip-cancel-sub",
+      onArtifact: vi.fn(),
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "get_render_artifacts_batch",
+      expect.objectContaining({ videoPath: "/cancel-sub.mp4" }),
+    );
+
+    // Cancel the subscriber
+    cancel();
+
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "cancel_render_artifacts_batch",
+      expect.any(Object),
+    );
+  });
 });

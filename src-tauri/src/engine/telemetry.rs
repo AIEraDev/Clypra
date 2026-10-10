@@ -231,6 +231,11 @@ impl EngineTelemetryCollector {
 
     /// Feeds live playback frame timing and deadline outcomes into the QoS controller
     /// to drive closed-loop performance control without human guessing.
+    ///
+    /// `current_mode` must reflect the actual operating mode of the engine at the
+    /// time the frame was presented. Passing the wrong mode (e.g. always `Play`)
+    /// prevents the QoS Scrub branch from engaging its 50% lookahead reduction and
+    /// `RenderQuality::Half` downgrade during rapid 4K HEVC scrubbing (CLY-PERF-004).
     pub fn record_live_frame_metrics(
         &self,
         decode_us: u64,
@@ -238,6 +243,7 @@ impl EngineTelemetryCollector {
         missed: bool,
         ready_depth: usize,
         current_pts: MediaTime,
+        current_mode: PlaybackMode,
         app: Option<&AppHandle>,
     ) {
         let snapshot = PerformanceSnapshot {
@@ -258,7 +264,7 @@ impl EngineTelemetryCollector {
             controller.record_frame_snapshot(snapshot);
             let dummy_proxies = AsyncProxyManager::new();
             let decision =
-                controller.evaluate_window(PlaybackMode::Play, current_pts, &dummy_proxies, None);
+                controller.evaluate_window(current_mode, current_pts, &dummy_proxies, None);
             let bottleneck = controller.last_diagnosed_bottleneck().clone();
             let (
                 window_decode_us,

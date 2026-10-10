@@ -603,6 +603,7 @@ export class NativeAudioPreviewController {
             this.clock.state !== "playing"
           ) {
             this.finishInteraction(interaction, commandStartedAt, "superseded");
+            void this.resyncFromHardwareAudio();
             return;
           }
           const transportStartedAt = performance.now();
@@ -673,6 +674,7 @@ export class NativeAudioPreviewController {
           interaction.telemetry.audioSeekUs = elapsedUs(seekStartedAt);
           if (!this.isCurrentPauseIntent(transportEpoch)) {
             this.finishInteraction(interaction, commandStartedAt, "superseded");
+            void this.resyncFromHardwareAudio();
             return;
           }
           this.adoptNativePosition(targetTicks);
@@ -746,6 +748,9 @@ export class NativeAudioPreviewController {
           } else if (activeScrubId) {
             telemetryCollector.recordScrubSuperseded(activeScrubId);
           }
+          if (this.seekIntentRevision === seekIntentRevision) {
+            void this.resyncFromHardwareAudio();
+          }
           return;
         }
         try {
@@ -771,6 +776,10 @@ export class NativeAudioPreviewController {
               );
             } else if (activeScrubId) {
               telemetryCollector.recordScrubSuperseded(activeScrubId);
+            }
+            if (this.seekIntentRevision === seekIntentRevision) {
+              this.adoptNativePosition(secondsToTicks(targetTime));
+              void this.resyncFromHardwareAudio();
             }
             return;
           }
@@ -968,6 +977,7 @@ export class NativeAudioPreviewController {
     // A second Play before the first resolves replaces the old probe: only
     // the current transport intent should be judged for first-use reliability.
     if (this.startupProbe) this.finishStartupProbe("superseded");
+    this.silentTimeoutRetried = false;
     try {
       const diagnostics = await getNativeAudioDiagnostics();
       this.startupProbe = {
@@ -1029,6 +1039,33 @@ export class NativeAudioPreviewController {
         0,
         diagnostics.status.nonSilentFrames - probe.nonSilentFrames,
       );
+
+      // Check whether the timeline range currently active under the playhead has audible clips.
+      // If the playhead is over an empty gap or silence, 0 nonSilentFrames is expected and healthy.
+      const currentTime = this.clock.time;
+      const clipsInProbeWindow = getActiveAudioClips(
+        this.source.clips,
+        this.source.tracks,
+        this.source.assets,
+        Math.max(0, currentTime - 0.2),
+        currentTime + 1.5,
+      );
+      if (clipsInProbeWindow.length === 0) {
+        if (callbackCountDelta > 0) {
+          // Stream is healthy and actively delivering expected silence.
+          this.finishStartupProbe(
+            "audible",
+            diagnostics,
+            callbackCountDelta,
+            nonSilentFramesDelta,
+          );
+        } else if (elapsedUs(probe.startedAt) >= 1_500_000) {
+          // No clips in window and probe period elapsed; close probe quietly.
+          this.startupProbe = null;
+        }
+        return;
+      }
+
       if (nonSilentFramesDelta > 0) {
         // The first non-silent callback—not the play IPC completion—is the
         // trustworthy start of a CPAL transport. Reset any UI extrapolation
@@ -1047,22 +1084,23 @@ export class NativeAudioPreviewController {
         // On Windows Intel iGPU (D3D12) the CPAL stream can initialise before
         // the audio device finishes D3D12 enumeration, resulting in 155+
         // silent callbacks with no output. A single automatic restart of the
-        // native audio stream (stop → 500 ms → play) recovers from this.
+        // native audio stream recovers from this.
         // We only attempt this once to prevent an infinite silent loop.
         if (
           !diagnostics.status.lastError &&
           !this.silentTimeoutRetried &&
           this.active &&
-          !this.disposed
+          !this.disposed &&
+          this.clock.state === "playing"
         ) {
           this.silentTimeoutRetried = true;
           try {
             await stopNativeAudio();
-            await new Promise<void>((resolve) => setTimeout(resolve, 500));
-            if (!this.active || this.disposed) return;
-            // Re-apply output settings and restart from current clock position.
+            if (!this.active || this.disposed || this.clock.state !== "playing") return;
+            // Re-apply output settings and restart from current clock position without blocking UI
             await setNativeAudioOutput(this.outputVolume, this.outputMuted);
             await seekNativeAudio(secondsToTicks(this.clock.time));
+            if (!this.active || this.disposed || this.clock.state !== "playing") return;
             const nativeState = await nativePlayFromAudio();
             // Reset the probe window so the restarted stream gets a full 1.5 s.
             probe.startedAt = performance.now();

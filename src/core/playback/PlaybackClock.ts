@@ -1,4 +1,4 @@
-import { recordAudioPoll } from "@/lib/playback/syncMetrics";
+import { recordAudioPoll, resetPlayheadPaintTracking } from "@/lib/playback/syncMetrics";
 import { traceAudioEvent } from "./audioTrace"; // INVESTIGATION ONLY — remove before Phase 6
 
 /**
@@ -85,6 +85,15 @@ export class PlaybackClock {
   // Generation counter to prevent stale RAF ticks
   private _generation: number = 0;
   private _seekRevision: number = 0;
+
+  /**
+   * CLY-PERF-001: Consecutive backward native audio poll count.
+   * Tracks persistent backward clock divergence to escape desync deadlocks caused
+   * by superseded seeks or uncoordinated native transport transitions.
+   */
+  private _consecutiveBackwardPollCount: number = 0;
+  private static readonly MAX_BACKWARD_POLL_TOLERANCE = 3;
+  private static readonly MAX_BACKWARD_DRIFT_THRESHOLD_SEC = 0.2;
 
   // Stall compensation — tracks AudioContext time at the start of a synchronous
   // blocking operation (e.g. GPU shader compilation) so we can offset
@@ -392,16 +401,35 @@ export class PlaybackClock {
       ? Math.max(0.1, Math.min(4, speed))
       : this._speed;
     const clampedTime = Math.max(0, Math.min(time, this._duration));
+    const backwardTolerance = Math.max(0.05, 1 / this._frameRate);
+
+    // CLY-PERF-001: While an explicit seek is in flight, the hardware audio engine
+    // has not yet settled at the seek target. Any incoming poll whose position is
+    // far from this._time is a stale pre-seek sample and must be rejected so it does
+    // not clobber the user-commanded seek target.
+    if (this._isSeeking) {
+      if (
+        this._seekStartedAtMs > 0 &&
+        performance.now() - this._seekStartedAtMs > PlaybackClock.SEEK_TIMEOUT_MS
+      ) {
+        this.completeSeek();
+      } else if (Math.abs(clampedTime - this._time) > backwardTolerance) {
+        return;
+      }
+    }
+
     // Capture the UI-side extrapolation before replacing it with the newest
     // authoritative native sample. This measures clock/poll divergence only;
     // backend video-vs-audio drift is recorded in the native presentation path.
     const currentExtrapolated = this.time;
-    recordAudioPoll(
-      clampedTime * 1000,
-      currentExtrapolated * 1000,
-      pollRttMs,
-      sampledAtNs,
-    );
+    if (!this._isSeeking) {
+      recordAudioPoll(
+        clampedTime * 1000,
+        currentExtrapolated * 1000,
+        pollRttMs,
+        sampledAtNs,
+      );
+    }
 
     // INVESTIGATION ONLY — remove before Phase 6
     traceAudioEvent("T9", "Native poll sample", {
@@ -413,15 +441,34 @@ export class PlaybackClock {
         : null,
     });
 
-    const backwardTolerance = Math.max(0.05, 1 / this._frameRate);
+    const backwardDivergence = this._time - clampedTime;
     if (
       this._state === "playing" &&
       !this._isSeeking &&
-      clampedTime < this._time - backwardTolerance
+      backwardDivergence > backwardTolerance
     ) {
-      // Ignore stale samples that arrive from earlier playback segments or delayed polls.
+      this._consecutiveBackwardPollCount += 1;
+      // CLY-PERF-001: If the hardware audio engine persistently reports a backward
+      // position (e.g. from an uncoordinated seek, superseded transport intent,
+      // or CPAL clock jump), break out of the rejection filter and unconditionally
+      // resynchronize to the authoritative hardware clock.
+      if (
+        this._consecutiveBackwardPollCount >=
+          PlaybackClock.MAX_BACKWARD_POLL_TOLERANCE ||
+        (this._consecutiveBackwardPollCount >= 2 &&
+          backwardDivergence >=
+            PlaybackClock.MAX_BACKWARD_DRIFT_THRESHOLD_SEC)
+      ) {
+        this._consecutiveBackwardPollCount = 0;
+        this.resyncNativeClockPosition(clampedTime, validSpeed);
+        return;
+      }
+
+      // Transient backward sample: ignore to protect against out-of-order poll arrival.
       return;
     }
+
+    this._consecutiveBackwardPollCount = 0;
 
     let effectiveTime = clampedTime;
     if (this._state === "playing" && !this._isSeeking) {
@@ -447,6 +494,7 @@ export class PlaybackClock {
    */
   resyncNativeClockPosition(time: number, speed: number = this._speed): void {
     if (!Number.isFinite(time)) return;
+    this._consecutiveBackwardPollCount = 0;
     const validSpeed = Number.isFinite(speed)
       ? Math.max(0.1, Math.min(4, speed))
       : this._speed;
@@ -555,6 +603,8 @@ export class PlaybackClock {
     // Starting playback clears seeking state so that playhead extrapolation
     // and the RAF tick loop advance immediately without a 500ms seek-timeout freeze.
     this._isSeeking = false;
+    this._consecutiveBackwardPollCount = 0;
+    resetPlayheadPaintTracking();
 
     if (this._nativeClockAuthority) {
       // Capture wall-clock and timeline start position so the time getter can
@@ -619,6 +669,8 @@ export class PlaybackClock {
 
     this._state = "paused";
     this._isSeeking = false;
+    this._consecutiveBackwardPollCount = 0;
+    resetPlayheadPaintTracking();
     this._nativeClockPosition = null; // Clear native clock sample so no stale pre-pause timestamps survive
     this._playStartMs = 0; // Clear wall-clock anchor — new play() will set a fresh one
     this._notifyListeners();
@@ -650,6 +702,8 @@ export class PlaybackClock {
       this._rafId = null;
     }
     this._isSeeking = false;
+    this._consecutiveBackwardPollCount = 0;
+    resetPlayheadPaintTracking();
     this._time = this._duration;
     this._state = "paused";
     this._nativeClockPosition = null;
@@ -672,6 +726,8 @@ export class PlaybackClock {
     this._state = "stopped";
     this._time = 0;
     this._isSeeking = false;
+    this._consecutiveBackwardPollCount = 0;
+    resetPlayheadPaintTracking();
     this._nativeClockPosition = null;
     // Per-clip freezes are session-scoped — clear them when the project stops.
     this._clipFreezeMap.clear();
@@ -687,6 +743,8 @@ export class PlaybackClock {
    */
   seek(time: number, options?: { keepPlaying?: boolean } | boolean): void {
     const seekRevision = ++this._seekRevision;
+    this._consecutiveBackwardPollCount = 0;
+    resetPlayheadPaintTracking();
     const wasPlaying = this._state === "playing";
     const shouldKeepPlaying =
       typeof options === "boolean"
@@ -748,7 +806,13 @@ export class PlaybackClock {
     const elapsedMs = Math.max(0, performance.now() - this._seekStartedAtMs);
 
     this._isSeeking = false;
-    if (
+    if (this._nativeClockAuthority || this._nativeClockPosition) {
+      this._nativeClockPosition = {
+        time: this._time,
+        receivedAtMs: performance.now(),
+        speed: this._speed,
+      };
+    } else if (
       this._state === "playing" &&
       this._audioContext &&
       !this._nativeClockAuthority

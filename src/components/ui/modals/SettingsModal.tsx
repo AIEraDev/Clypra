@@ -933,8 +933,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={t("settings.modal.title")} size="lg">
       <div className="flex flex-col h-full md:flex-row overflow-hidden min-h-0">
-        {/* Sidebar */}
-        <aside className="w-full md:w-44 border-b md:border-b-0 md:border-r border-white/6 p-2 flex flex-row md:flex-col gap-1 overflow-x-auto md:overflow-x-visible md:overflow-y-auto scrollbar-thin shrink-0">
+        {/* Sidebar — fixed width, non-scrolling */}
+        <aside className="w-full md:w-56 border-b md:border-b-0 md:border-r border-white/6 p-2 flex flex-row md:flex-col gap-1 overflow-x-auto md:overflow-x-hidden shrink-0">
           {visibleTabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -942,14 +942,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-3 py-2 text-nowrap cursor-pointer rounded-lg text-[13px] font-medium transition-colors border-l-2 ${
+                className={`w-full flex items-center gap-2 px-3 py-2 overflow-hidden cursor-pointer rounded-lg text-[13px] font-medium transition-colors border-l-2 ${
                   isActive
                     ? "text-accent bg-accent/10 border-accent"
                     : "text-text-muted border-transparent hover:text-text-primary hover:bg-white/[0.03]"
                 }`}
               >
                 <Icon className="w-4 h-4 shrink-0" />
-                {getTabLabel(tab.id)}
+                <span className="truncate">{getTabLabel(tab.id)}</span>
               </button>
             );
           })}

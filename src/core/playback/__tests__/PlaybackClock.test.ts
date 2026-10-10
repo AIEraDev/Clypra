@@ -293,4 +293,124 @@ describe("PlaybackClock: RAF Generation Counter", () => {
       nowSpy.mockRestore();
     }
   });
+
+  describe("CLY-PERF-001: Desync Deadlock Escape & Backward Poll Handling", () => {
+    it("filters a single transient backward poll within tolerance or out-of-order spike", () => {
+      const clock = new PlaybackClock();
+      clock.setDuration(30.0);
+      clock.play();
+      clock.setNativeClockPosition(5.0, 1.0);
+      expect(clock.time).toBeCloseTo(5.0, 2);
+
+      // Single out-of-order poll arrived with backward divergence > 50ms tolerance (e.g. 4.90)
+      clock.setNativeClockPosition(4.90, 1.0);
+      // Filtered out to protect forward playback extrapolation:
+      expect(clock.time).toBeCloseTo(5.0, 2);
+
+      // Next poll arrives forward at 5.10
+      clock.setNativeClockPosition(5.10, 1.0);
+      expect(clock.time).toBeCloseTo(5.10, 2);
+    });
+
+    it("breaks desync deadlock when hardware audio is persistently backward by >= 200ms", () => {
+      const clock = new PlaybackClock();
+      clock.setDuration(30.0);
+      clock.play();
+
+      // UI playhead extrapolates forward to 8.0s
+      clock.setNativeClockPosition(8.0, 1.0);
+      expect(clock.time).toBeCloseTo(8.0, 2);
+
+      // First backward sample at 5.8s (reproduction of incident: 2.2s desync)
+      clock.setNativeClockPosition(5.80, 1.0);
+      // Poll 1 is held for confirmation (not yet resynced):
+      expect(clock.time).toBeCloseTo(8.0, 2);
+
+      // Second consecutive backward sample at 5.85s (divergence >= 200ms confirms real hardware position)
+      clock.setNativeClockPosition(5.85, 1.0);
+      // Deadlock broken! Clock snaps to authoritative hardware position:
+      expect(clock.time).toBeCloseTo(5.85, 2);
+
+      // Subsequent forward polls advance smoothly
+      clock.setNativeClockPosition(5.90, 1.0);
+      expect(clock.time).toBeCloseTo(5.90, 2);
+    });
+
+    it("breaks desync deadlock after 3 consecutive moderate backward polls (>50ms, <200ms)", () => {
+      const clock = new PlaybackClock();
+      clock.setDuration(30.0);
+      clock.play();
+
+      clock.setNativeClockPosition(5.0, 1.0);
+      expect(clock.time).toBeCloseTo(5.0, 2);
+
+      // Poll 1: 4.90 (100ms divergence)
+      clock.setNativeClockPosition(4.90, 1.0);
+      expect(clock.time).toBeCloseTo(5.0, 2);
+
+      // Poll 2: 4.92 (80ms divergence)
+      clock.setNativeClockPosition(4.92, 1.0);
+      expect(clock.time).toBeCloseTo(5.0, 2);
+
+      // Poll 3: 4.94 (60ms divergence) -> reaches MAX_BACKWARD_POLL_TOLERANCE (3)
+      clock.setNativeClockPosition(4.94, 1.0);
+      expect(clock.time).toBeCloseTo(4.94, 2);
+    });
+
+    it("CLY-PERF-001: rejects stale in-flight native audio poll from pre-seek position during active backward seek", () => {
+      const clock = new PlaybackClock();
+      clock.setNativeClockAuthority(true);
+      clock.setDuration(30.0);
+      clock.play();
+
+      clock.setNativeClockPosition(10.0, 1.0);
+      expect(clock.time).toBeCloseTo(10.0, 2);
+
+      // User seeks backward to 2.0s while playing
+      clock.seek(2.0);
+      expect(clock.isSeeking).toBe(true);
+      expect(clock.time).toBeCloseTo(2.0, 2);
+
+      // In-flight poll dispatched before the seek reaches the JS thread with pre-seek position
+      clock.setNativeClockPosition(10.05, 1.0);
+      // The stale poll must be rejected; clock time must stay at seek target 2.0
+      expect(clock.time).toBeCloseTo(2.0, 2);
+
+      // Once native audio arrives at the seek target, it is accepted
+      clock.setNativeClockPosition(2.02, 1.0);
+      expect(clock.time).toBeCloseTo(2.02, 2);
+
+      clock.completeSeek();
+      expect(clock.isSeeking).toBe(false);
+      expect(clock.time).toBeCloseTo(2.02, 2);
+    });
+
+    it("CLY-PERF-001: rejects stale lagging pre-seek sample during active forward seek", () => {
+      const clock = new PlaybackClock();
+      clock.setNativeClockAuthority(true);
+      clock.setDuration(30.0);
+      clock.play();
+
+      clock.setNativeClockPosition(2.0, 1.0);
+      expect(clock.time).toBeCloseTo(2.0, 2);
+
+      // User seeks forward to 15.0s
+      clock.seek(15.0);
+      expect(clock.isSeeking).toBe(true);
+      expect(clock.time).toBeCloseTo(15.0, 2);
+
+      // Lagging poll from before seek arrives
+      clock.setNativeClockPosition(2.05, 1.0);
+      // Must not wipe out seek target
+      expect(clock.time).toBeCloseTo(15.0, 2);
+
+      // Native audio completes seek to 15.0s
+      clock.setNativeClockPosition(15.01, 1.0);
+      expect(clock.time).toBeCloseTo(15.01, 2);
+
+      clock.completeSeek();
+      expect(clock.isSeeking).toBe(false);
+      expect(clock.time).toBeCloseTo(15.01, 2);
+    });
+  });
 });

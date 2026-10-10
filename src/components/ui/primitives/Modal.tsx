@@ -28,13 +28,14 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
   if (!isOpen) return null;
 
   const maxW = size === "lg" ? "max-w-[680px]" : "max-w-md";
+  const dialogH = size === "lg" ? "h-[85vh]" : "h-auto";
 
   return (
     <div className="fixed inset-0 z-10000 flex items-center justify-center p-2 sm:p-4">
       {/* Backdrop */}
       <div className="fixed inset-0 bg-black/70 backdrop-blur-[2px] animate-in fade-in duration-150" onClick={onClose} />
       {/* Dialog */}
-      <div role="dialog" aria-modal="true" aria-label={title} className={`relative ${maxW} w-[94vw] md:w-[90vw] max-h-[85vh] h-auto overflow-hidden rounded-xl border border-white/6 bg-surface shadow-2xl animate-in zoom-in-95 fade-in duration-150 flex flex-col`} style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.04), 0 24px 64px rgba(0,0,0,0.55)" }}>
+      <div role="dialog" aria-modal="true" aria-label={title} className={`relative ${maxW} ${dialogH} w-[94vw] md:w-[90vw] max-h-[85vh] overflow-hidden rounded-xl border border-white/6 bg-surface shadow-2xl animate-in zoom-in-95 fade-in duration-150 flex flex-col`} style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.04), 0 24px 64px rgba(0,0,0,0.55)" }}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 h-12 border-b border-white/6 shrink-0">
           <h2 className="text-[15px] font-semibold text-text-primary tracking-tight">{title}</h2>
@@ -43,7 +44,7 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
           </button>
         </div>
         {/* Body */}
-        <div className="overflow-y-auto min-h-0 flex-1">{children}</div>
+        <div className="overflow-hidden min-h-0 flex-1">{children}</div>
         {/* Footer */}
         {footer && <div className="px-5 py-3 border-t border-white/6 flex justify-end gap-2 shrink-0">{footer}</div>}
       </div>

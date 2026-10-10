@@ -33,7 +33,7 @@ export class ProjectWorkerClient {
           new URL("../../workers/compute.worker.ts", import.meta.url),
           { type: "module" },
         ),
-      { name: "ComputeWorker:Project", autoRestart: true },
+      { name: "ComputeWorker:Project", autoRestart: true, budgetMs: 150 },
     );
   }
 
@@ -161,10 +161,14 @@ export class ProjectWorkerClient {
     }
 
     try {
-      await this.bus.send<ClearOpfsResult>({
-        type: "CLEAR_OPFS",
-        filename,
-      } as any);
+      await this.bus.send<ClearOpfsResult>(
+        {
+          type: "CLEAR_OPFS",
+          filename,
+        } as any,
+        [],
+        { budgetMs: 1500 },
+      );
     } catch {
       // Non-fatal
     }

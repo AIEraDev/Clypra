@@ -64,4 +64,31 @@ describe("ProjectWorkerClient", () => {
     expect(res.type).toBe("PATCH_READY");
     expect(res.patch.length).toBeGreaterThan(0);
   });
+
+  it("clearOpfs dispatches with teardown budget", async () => {
+    const originalWorker = (globalThis as any).Worker;
+    (globalThis as any).Worker = class {} as any;
+    Object.defineProperty((client as any).bus, "status", {
+      value: "idle",
+      configurable: true,
+    });
+
+    try {
+      const sendSpy = vi.spyOn((client as any).bus, "send").mockResolvedValueOnce({
+        type: "OPFS_CLEARED",
+        id: "1",
+        filename: "test.json",
+        clearMs: 1,
+      });
+
+      await client.clearOpfs("test.json");
+      expect(sendSpy).toHaveBeenCalledWith(
+        { type: "CLEAR_OPFS", filename: "test.json" },
+        [],
+        { budgetMs: 1500 },
+      );
+    } finally {
+      (globalThis as any).Worker = originalWorker;
+    }
+  });
 });

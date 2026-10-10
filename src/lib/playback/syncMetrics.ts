@@ -104,10 +104,23 @@ let nextSeekHandle = 1;
 const pendingSeeks = new Map<number, number>();
 const MAX_PENDING_SEEKS = 50;
 
+/** Maximum intra-playback inter-paint interval before considering it a pause/idle gap. */
+const MAX_PAINT_INTERVAL_MS = 250;
+
+/**
+ * CLY-PERF-002: Resets the inter-paint baseline timestamp so that pauses, stops,
+ * or seek transitions do not record user pause duration as spurious inter-frame paint jitter.
+ */
+export function resetPlayheadPaintTracking(): void {
+  lastPlayheadPaintMs = null;
+}
+
 export function recordPlayheadPaint(timestampMs = nowMs()): void {
   const intervalMs =
     lastPlayheadPaintMs === null ? null : timestampMs - lastPlayheadPaintMs;
-  if (intervalMs !== null) playheadPaintJitter.record(intervalMs);
+  if (intervalMs !== null && intervalMs <= MAX_PAINT_INTERVAL_MS) {
+    playheadPaintJitter.record(intervalMs);
+  }
   lastPlayheadPaintMs = timestampMs;
   traceEvent("playhead_paint", {
     monotonic_ms: timestampMs,

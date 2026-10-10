@@ -456,17 +456,20 @@ export interface PatchResult {
 export interface WriteComplete {
   type: "WRITE_COMPLETE";
   id: string;
+  writeMs?: number;
 }
 
 export interface ReadOpfsResult {
   type: "READ_OPFS_RESULT";
   id: string;
   json: string | null;
+  readMs?: number;
 }
 
 export interface ClearOpfsResult {
   type: "CLEAR_OPFS_RESULT";
   id: string;
+  clearMs?: number;
 }
 
 export type ProjectWorkerRequest =

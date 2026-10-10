@@ -483,6 +483,15 @@ impl SyncMetricsRegistry {
         });
 
         let (requested_ticks, requested_at, correct) = if let Some(idx) = matching_idx {
+            // If in active continuous playback (measure_pacing == true), do not resolve
+            // ancient scrub seeks (>800ms old) that were abandoned when playback began;
+            // passing their timestamp during continuous playback is normal timeline progress.
+            if measure_pacing && pending[idx].1.elapsed() > std::time::Duration::from_millis(800) {
+                for _ in 0..=idx {
+                    pending.pop_front();
+                }
+                return;
+            }
             // Found matching target. Drain this seek and any earlier seeks that were
             // superseded when the user scrubbed past them.
             let matched = pending.remove(idx).unwrap();
@@ -795,5 +804,37 @@ mod tests {
         assert_eq!(snapshot.seeks.n, 1);
         assert_eq!(snapshot.seeks.correct, 1);
         assert_eq!(snapshot.seeks.events[0].requested_ticks, 25_000_000);
+    }
+
+    #[test]
+    fn continuous_playback_does_not_resolve_stale_abandoned_scrub_seeks() {
+        let registry = SyncMetricsRegistry::default();
+        // User clicked/scrubbed to 10s and 20s
+        registry.record_seek_requested(10_000_000);
+        registry.record_seek_requested(20_000_000);
+
+        // Artificially age the pending seeks past 800ms
+        {
+            let mut pending = registry.pending_seeks.lock();
+            for item in pending.iter_mut() {
+                item.1 = Instant::now() - Duration::from_millis(900);
+            }
+        }
+
+        // Playback starts from 0s and reaches 10s and 20s during continuous playback
+        registry.record_frame_presented_with_options(10_000_000, 33_333, true, true);
+        registry.record_frame_presented_with_options(20_000_000, 33_333, true, true);
+
+        // Stale seeks must NOT have been converted into 900ms+ false seek latency events
+        let snapshot = registry.take_and_reset();
+        assert_eq!(
+            snapshot.seeks.n, 0,
+            "abandoned stale scrub seeks must not record as resolved seeks during playback"
+        );
+        assert_eq!(
+            registry.pending_seeks.lock().len(),
+            0,
+            "stale seeks should be drained"
+        );
     }
 }

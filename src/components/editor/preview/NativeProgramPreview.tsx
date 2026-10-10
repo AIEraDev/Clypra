@@ -94,6 +94,7 @@ import {
   closeNativePlaybackPushStream,
   queueNativeFrame,
   listenForNativePlaybackStats,
+  listenForNativePlaybackStartup,
   listenForEngineQoSDecision,
   listenForNativeMaskEviction,
   listenForNativeRasterEviction,
@@ -1390,6 +1391,27 @@ export const NativeProgramPreview: React.FC = () => {
     let nativeTextPrefetchTimer: number | null = null;
 
     let nativeSurfaceShown = false;
+    let unlistenStartupMilestone: (() => void) | null = null;
+    let unlistenPlaybackStats: (() => void) | null = null;
+    if (isTauriRuntime()) {
+      void listenForNativePlaybackStartup(({ stage }) => {
+        if (stage === "first-native-frame-presented") {
+          nativeSurfaceShown = true;
+        }
+      }).then((fn) => {
+        if (!isActive) fn();
+        else unlistenStartupMilestone = fn;
+      });
+
+      void listenForNativePlaybackStats((stats) => {
+        if (stats.framesRendered > 0) {
+          nativeSurfaceShown = true;
+        }
+      }).then((fn) => {
+        if (!isActive) fn();
+        else unlistenPlaybackStats = fn;
+      });
+    }
     let lastNativePlaybackRequestKey = "";
     let visibleRequestKey = "";
     const seekController =
@@ -3545,7 +3567,8 @@ export const NativeProgramPreview: React.FC = () => {
                       error: msg,
                     });
                   });
-                  nativeSurfaceShown = true;
+                  // Note: nativeSurfaceShown is set once the native surface actually presents
+                  // (via first-native-frame-presented or playback stats), avoiding black flashes.
                   lastNativePlaybackRequestKey = requestKey;
 
                   // ── Native surface fire-and-forget: release render lock early ──────────
@@ -3716,7 +3739,11 @@ export const NativeProgramPreview: React.FC = () => {
                         });
                       }
                       frontendSpan?.finish({
-                        dropped: presentation.dropped,
+                        dropped:
+                          presentation.dropped &&
+                          presentation.dropReason !== "lookahead-miss" &&
+                          presentation.dropReason !== "cancelled" &&
+                          presentation.dropReason !== "stale",
                         stale: presentation.stale === true,
                         dropReason:
                           presentation.dropReason ??
@@ -4719,6 +4746,8 @@ export const NativeProgramPreview: React.FC = () => {
       });
       standaloneVideoCache.clear();
       standaloneImageCache.clear();
+      unlistenStartupMilestone?.();
+      unlistenPlaybackStats?.();
     };
     // Viewport values (scale, offsetX, offsetY, canvasWidth, canvasHeight) are
     // now read from renderStateRef inside the loop, so they are NOT listed as deps here.

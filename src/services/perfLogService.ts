@@ -221,6 +221,17 @@ export class PerfLogService {
       this.peakMemoryMb = 0; // reset peak for the new session
       this.lastNativeSyncFingerprint = null;
 
+      // Reset native session telemetry so previous app launches / sessions
+      // in the same process do not contaminate the new session with stale frame counts.
+      try {
+        await tauriInvoke<void>("reset_session_telemetry");
+      } catch (resetErr) {
+        console.warn(
+          "[PerfLogService] Failed to reset native session telemetry:",
+          resetErr,
+        );
+      }
+
       this.startFlushTimer();
       this.startSyncPollTimer();
       await this.subscribeToNativeDiagnostics();

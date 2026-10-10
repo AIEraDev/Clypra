@@ -83,6 +83,35 @@ The governing principle of the Clypra harness is:
 
 ---
 
+### Domain 8: Cross-Platform Native UI Thread Safety
+
+- **Contract**:
+  - All native window, view, and OS-level UI hierarchy operations across macOS
+    (AppKit/`NSWindow`), Windows (Win32/`HWND`), and Linux (GTK/`GtkWidget`)
+    **must execute exclusively on the main UI thread / window message loop thread.**
+  - Background tasks (Tokio workers, Tokio async commands, render loops, audio threads)
+    must **never** invoke restricted platform UI APIs directly.
+  - Approved dispatch mechanism: `window.run_on_main_thread(closure)` or `app.run_on_main_thread(closure)`.
+  - `oneshot` channels must be used when the caller needs the result of a main-thread
+    operation (as in `probe_native_surface`, `resize_native_surface`).
+  - Fire-and-forget `run_on_main_thread` is acceptable for show and hide (caller
+    does not need confirmation; state is set optimistically after dispatch).
+- **Invariants**:
+  - `NativeSurfaceRuntime::show_surface()` dispatches all window operations to the
+    main thread via `run_on_main_thread`. It never calls `window.show()`,
+    `addChildWindow:ordered:`, or `SetWindowPos` directly from Tokio workers.
+  - `NativeSurfaceRuntime::hide_surface()` sets `is_shown = false` (atomic) **before**
+    dispatching `window.hide()` so that concurrent render frames stop immediately.
+  - `NativeSurfaceRuntime::reset()` dispatches `window.close()` to the main thread.
+  - Platform-specific failure modes:
+    - **macOS**: `EXC_BREAKPOINT (SIGTRAP)` with "Must only be used from the main thread" (immediate abort).
+    - **Windows**: DWM composition failure, message loop deadlocks, or cross-thread `ERROR_ACCESS_DENIED`.
+    - **Linux**: GLib assertion warnings (`G_IS_WIDGET`), X11/Wayland connection aborts.
+  - See [`.agents/skills/tauri-native-thread-safety/SKILL.md`](../../.agents/skills/tauri-native-thread-safety/SKILL.md) for full contract,
+    audit methodology, and approved dispatch patterns.
+
+---
+
 ## 3. Mechanically Enforceable Architecture Checks
 
 | Invariant | Mechanical Rule | Enforcement Tool |
@@ -90,6 +119,7 @@ The governing principle of the Clypra harness is:
 | **Render Loop Currency** | Prohibit `timelineStore.getState()` inside `NativeProgramPreview.tsx` | `scripts/harness/check-architecture.mjs` |
 | **Store Isolation** | Prohibit store action files importing and invoking actions of other stores | `scripts/harness/check-architecture.mjs` |
 | **Preview Test Baseline** | Prohibit deleting or skipping tests in `ProgramPreview.renderLoop.test.ts` (>= 156) | `scripts/harness/check-architecture.mjs` |
+| **Native UI Thread Safety** | Prohibit bare `window.show()`, `window.hide()`, `window.close()`, and `addChildWindow` in `native_surface.rs` outside `run_on_main_thread` closures | `scripts/harness/check-architecture.mjs` |
 | **i18n Catalog Parity** | 100% key parity across all 9 supported locales | `npm run i18n:check` |
 | **Documentation Links** | 0 broken local Markdown links in documentation | `npm run docs:check` |
 | **Multi-Agent Skills Sync**| 100% sync between `.agents/skills/` and `.kiro/skills/` | `npm run skills:check` |

@@ -166,6 +166,20 @@ Handle relevant formats such as:
 * Structured JSON logs.
 * JSON Lines or NDJSON (such as Clypra's session NDJSON logs under `perf_logs/`).
 * Plain-text application logs.
+
+### Clypra Local Performance Log Locations
+
+Clypra persists rolling NDJSON session logs and crash reports locally in the platform-specific application data directory under `perf_logs/` (configured via `PERF_LOG_DIR` in `src-tauri/src/diagnostics/perf_log.rs` with application identifier `com.deenminder.clypra` from `src-tauri/tauri.conf.json`):
+
+* **macOS**: `~/Library/Application Support/com.deenminder.clypra/perf_logs/`
+* **Windows**: `%APPDATA%\com.deenminder.clypra\perf_logs\` (typically `C:\Users\<user>\AppData\Roaming\com.deenminder.clypra\perf_logs\`)
+* **Linux**: `~/.local/share/com.deenminder.clypra/perf_logs/` (or `$XDG_DATA_HOME/com.deenminder.clypra/perf_logs/`)
+
+**File naming conventions**:
+* **Active / local session logs**: `session-<epoch_ms>-<uuid>.ndjson`
+* **Uploaded session logs**: `session-<epoch_ms>-<uuid>.ndjson.uploaded`
+* **Crash reports**: `crash-<epoch_ms>-<uuid>.json` (stored in the parent application data directory `~/Library/Application Support/com.deenminder.clypra/` or `%APPDATA%\com.deenminder.clypra\`)
+
 * Rust tracing output.
 * Frontend console logs.
 * Tauri command and event diagnostics.

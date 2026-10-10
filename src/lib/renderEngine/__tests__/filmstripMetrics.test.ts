@@ -7,6 +7,7 @@ import {
   recordCacheApply,
   recordPaintCommit,
   getFrontendMetricsSnapshot,
+  FILMSTRIP_FIRST_ARTIFACT_BUDGET_MS,
 } from "../filmstripMetrics";
 import { SpatialTier } from "../types";
 
@@ -49,5 +50,9 @@ describe("filmstripMetrics", () => {
     const snapshot = getFrontendMetricsSnapshot();
     expect(snapshot["L0"].requests).toBeGreaterThanOrEqual(1);
     expect(snapshot["L0"].dispatchToFirstMs).toBe(12.3);
+  });
+
+  it("evaluates overBudget against FILMSTRIP_FIRST_ARTIFACT_BUDGET_MS (250ms)", () => {
+    expect(FILMSTRIP_FIRST_ARTIFACT_BUDGET_MS).toBe(250);
   });
 });

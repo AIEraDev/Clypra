@@ -31,6 +31,7 @@ Clypra is a high-performance native desktop video editor (`v1.5.9`) targeting ma
 13. **Active Presenter Verification**: The native GPU preview is the default, with canvas/DOM readback as fallback. Never infer the active preview path solely from environment variables; verify the runtime presenter and fallback state directly.
 14. **Diagnostic Logging & Privacy Invariant**: Local editor sessions accumulate append-only NDJSON logs in `perf_logs/`. Redact personal paths, machine IDs, and credentials. Never treat unaligned remote clocks as synchronized.
 15. **Investigation-Only Audit Default**: Defect hunts and performance investigations operate in non-destructive read-only mode by default. Validate hypotheses with tests or empirical evidence before declaring confirmed defects.
+16. **Native UI Thread Safety**: All native window, view, and OS-level UI hierarchy operations across macOS (AppKit/`NSWindow`), Windows (Win32/`HWND`), and Linux (GTK/`GtkWidget`) must execute exclusively on the main UI thread via `window.run_on_main_thread()` or `app.run_on_main_thread()`. Background tasks (Tokio workers, render loops, audio threads) must never call restricted platform APIs directly. Violation on macOS 26+ causes an immediate `EXC_BREAKPOINT (SIGTRAP)` crash. See [`.agents/skills/tauri-native-thread-safety/SKILL.md`](.agents/skills/tauri-native-thread-safety/SKILL.md).
 
 Specialized rule files under [`.agents/rules/`](.agents/rules/) (`architecture.md`, `cross-platform.md`, `testing-and-behavior.md`, `i18n-localization.md`, `preview-performance.md`, `diagnostic-logging.md`, `engineering-standards.md`) define low-level operational constraints.
 
@@ -170,7 +171,30 @@ Use the preview performance engineering skill when controlled benchmarks are nee
 
 Never fabricate metrics, treat unaligned remote clocks as directly comparable, expose sensitive diagnostic data unnecessarily, or claim a root cause without adequate evidence.
 
+### Mandatory Clypra UI/UX engineering
+For tasks involving Clypra's interface, interaction patterns, layout, design system, accessibility, or usability, automatically apply [`.agents/skills/clypra-ui-ux-engineering/SKILL.md`](.agents/skills/clypra-ui-ux-engineering/SKILL.md).
+
+Inspect existing components, design tokens, user workflows, interaction states, and relevant product constraints before making changes. Preserve established conventions unless there is a justified improvement.
+
+For non-trivial UI changes, consider keyboard operation, accessibility, localization, resizable desktop layouts, loading and error states, and adjacent workflow regressions.
+
+Use component and Playwright tests for the behaviors they can verify, and native desktop tests when real Tauri integration is affected. Distinguish verified defects from subjective design preferences, and never claim successful visual or interaction validation without evidence.
+
+### Mandatory native thread-safety engineering
+For any change involving Tauri native APIs, operating-system windows, native UI objects, graphics surfaces, platform event loops, or asynchronous access to native resources, automatically apply [`.agents/skills/tauri-native-thread-safety/SKILL.md`](.agents/skills/tauri-native-thread-safety/SKILL.md).
+
+Determine the actual thread-affinity requirements of each affected API and platform. Do not assume that all native APIs share the same threading rules.
+
+Inspect call paths from Tokio workers and other background tasks, enforce appropriate dispatch and resource-ownership boundaries, and test lifecycle races and error handling.
+
+Apply the relevant macOS/AppKit, Windows, Linux/GTK/WebView, and graphics-backend requirements to the platforms affected by the change.
+
+Run platform-specific tests where the environment permits. Treat mocked tests and successful compilation as insufficient evidence of runtime thread safety.
+
+Never claim cross-platform thread safety solely because one operating system passes.
+
 - **`AGENTS.md`**: Universal repository invariants, engineering standards, and completion checklist.
+- **`clypra-ui-ux-engineering`** ([`.agents/skills/clypra-ui-ux-engineering/SKILL.md`](.agents/skills/clypra-ui-ux-engineering/SKILL.md)): Govern design decisions, usability heuristics, WCAG 2.2 AA accessibility, interaction lifecycles, design system consistency, and desktop layout engineering.
 - **`clypra-preview-performance-engineering`** ([`.agents/skills/clypra-preview-performance-engineering/SKILL.md`](.agents/skills/clypra-preview-performance-engineering/SKILL.md)): Measure, benchmark, profile, and compare native GPU surface vs. DOM/canvas fallback, frame pacing, readback costs, and latency.
 - **`clypra-performance-log-analysis`** ([`.agents/skills/clypra-performance-log-analysis/SKILL.md`](.agents/skills/clypra-performance-log-analysis/SKILL.md)): Forensically analyze local/remote NDJSON session logs, telemetry rollups, traces, profiler captures, and performance incidents.
 - **`clypra-bug-hunter`** ([`.agents/skills/clypra-bug-hunter/SKILL.md`](.agents/skills/clypra-bug-hunter/SKILL.md)): Adversarial defect discovery, reliability audits, regression investigations, and evidence-based findings.
@@ -181,6 +205,7 @@ Never fabricate metrics, treat unaligned remote clocks as directly comparable, e
 - **`senior-engineer-decision-making`** ([`.agents/skills/senior-engineer-decision-making/SKILL.md`](.agents/skills/senior-engineer-decision-making/SKILL.md)): Problem framing, technical trade-offs, scope discipline, and challenging unsound requests.
 - **`performance-reliability-engineering`** ([`.agents/skills/performance-reliability-engineering/SKILL.md`](.agents/skills/performance-reliability-engineering/SKILL.md)): Measurement-driven optimization, memory leak prevention, queue back-pressure, and resource lifecycles.
 - **`tauri-cross-platform-engineering`** ([`.agents/skills/tauri-cross-platform-engineering/SKILL.md`](.agents/skills/tauri-cross-platform-engineering/SKILL.md)): Cross-platform contracts, WebViews (WebView2, WKWebView, WebKitGTK), native sidecars, and Three-Gate CI strategy.
+- **`tauri-native-thread-safety`** ([`.agents/skills/tauri-native-thread-safety/SKILL.md`](.agents/skills/tauri-native-thread-safety/SKILL.md)): Architecture Invariant 16 — Cross-platform native window, AppKit NSWindow, Win32 HWND, and Linux GTK UI operations must execute on the main event loop via `window.run_on_main_thread()`.
 - **`feature-implementation`** ([`.agents/skills/feature-implementation/SKILL.md`](.agents/skills/feature-implementation/SKILL.md)): Non-destructive UI features, new tools, and effect filter development.
 - **`bugfix-regression`** ([`.agents/skills/bugfix-regression/SKILL.md`](.agents/skills/bugfix-regression/SKILL.md)): Defect diagnosis, minimal fix isolation, and automated regression test creation.
 - **`code-review`** ([`.agents/skills/code-review/SKILL.md`](.agents/skills/code-review/SKILL.md)): Systematic review of PRs, diffs, concurrency bugs, and architectural boundaries.

@@ -446,6 +446,7 @@ async function getOpfsRoot(): Promise<FileSystemDirectoryHandle | null> {
 }
 
 async function handleWriteOpfs(msg: WriteOpfsRequest): Promise<void> {
+  const startMs = performance.now();
   const { id, filename, json } = msg;
   try {
     const root = await getOpfsRoot();
@@ -471,11 +472,13 @@ async function handleWriteOpfs(msg: WriteOpfsRequest): Promise<void> {
   const response: WriteComplete = {
     type: "WRITE_COMPLETE",
     id,
+    writeMs: performance.now() - startMs,
   };
   (self as unknown as Worker).postMessage(response);
 }
 
 async function handleReadOpfs(msg: ReadOpfsRequest): Promise<void> {
+  const startMs = performance.now();
   const { id, filename } = msg;
   let json: string | null = null;
   try {
@@ -494,11 +497,13 @@ async function handleReadOpfs(msg: ReadOpfsRequest): Promise<void> {
     type: "READ_OPFS_RESULT",
     id,
     json,
+    readMs: performance.now() - startMs,
   };
   (self as unknown as Worker).postMessage(response);
 }
 
 async function handleClearOpfs(msg: ClearOpfsRequest): Promise<void> {
+  const startMs = performance.now();
   const { id, filename } = msg;
   try {
     const root = await getOpfsRoot();
@@ -511,6 +516,7 @@ async function handleClearOpfs(msg: ClearOpfsRequest): Promise<void> {
   const response: ClearOpfsResult = {
     type: "CLEAR_OPFS_RESULT",
     id,
+    clearMs: performance.now() - startMs,
   };
   (self as unknown as Worker).postMessage(response);
 }

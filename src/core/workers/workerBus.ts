@@ -92,6 +92,12 @@ export interface WorkerBusOptions {
    * Default: 3
    */
   maxRestarts?: number;
+  /**
+   * Execution time budget in milliseconds before an operation is recorded as overBudget.
+   * Defaults to 16.67 ms (single 60 FPS frame budget). Heavy I/O or background compute
+   * domains can configure higher budgets (e.g. 100-250 ms).
+   */
+  budgetMs?: number;
 }
 
 /**
@@ -111,6 +117,7 @@ export class WorkerBus<
   private readonly name: string;
   private readonly autoRestart: boolean;
   private readonly maxRestarts: number;
+  private readonly budgetMs: number;
   private restartCount = 0;
 
   /**
@@ -124,6 +131,7 @@ export class WorkerBus<
       reject: (err: Error) => void;
       startTime: number;
       operation: string;
+      budgetMs?: number;
     }
   >();
 
@@ -136,6 +144,7 @@ export class WorkerBus<
     this.name = options.name ?? 'Worker';
     this.autoRestart = options.autoRestart ?? false;
     this.maxRestarts = options.maxRestarts ?? 3;
+    this.budgetMs = options.budgetMs ?? 16.67;
     // Worker is initialized lazily on first send() or post() to reduce startup time
   }
 
@@ -166,6 +175,7 @@ export class WorkerBus<
    *
    * @param payload     Message payload WITHOUT an `id` field.
    * @param transferables Transferable objects (e.g. ArrayBuffer, ImageBitmap).
+   * @param options     Optional per-request options (e.g. custom budgetMs).
    *
    * @throws WorkerBusDisposedError if dispose() has been called.
    * @throws WorkerBusUnavailableError if the worker failed to initialise.
@@ -174,6 +184,7 @@ export class WorkerBus<
   send<TResult extends TResponse>(
     payload: Omit<TRequest, 'id'>,
     transferables: Transferable[] = [],
+    options?: { budgetMs?: number },
   ): Promise<TResult> {
     if (this._disposed) {
       return Promise.reject(
@@ -196,6 +207,7 @@ export class WorkerBus<
         reject,
         startTime: performance.now(),
         operation,
+        budgetMs: options?.budgetMs,
       });
       try {
         this.worker!.postMessage(message, transferables);
@@ -329,20 +341,27 @@ export class WorkerBus<
           ? (msg as any).diffMs
           : typeof (msg as any).serializeMs === 'number'
             ? (msg as any).serializeMs
-            : typeof (msg as any).analysisMs === 'number'
-              ? (msg as any).analysisMs
-              : typeof (msg as any).parseMs === 'number'
-                ? (msg as any).parseMs
-                : typeof (msg as any).layoutMs === 'number'
-                  ? (msg as any).layoutMs
-                  : undefined;
+            : typeof (msg as any).writeMs === 'number'
+              ? (msg as any).writeMs
+              : typeof (msg as any).readMs === 'number'
+                ? (msg as any).readMs
+                : typeof (msg as any).clearMs === 'number'
+                  ? (msg as any).clearMs
+                  : typeof (msg as any).analysisMs === 'number'
+                    ? (msg as any).analysisMs
+                    : typeof (msg as any).parseMs === 'number'
+                      ? (msg as any).parseMs
+                      : typeof (msg as any).layoutMs === 'number'
+                        ? (msg as any).layoutMs
+                        : undefined;
 
+    const effectiveBudget = callbacks.budgetMs ?? this.budgetMs;
     workerPerfCollector.record({
       domain: this.name,
       operation: callbacks.operation ?? (msg as any).type ?? 'RESPONSE',
       durationMs,
       workerDurationMs,
-      overBudget: durationMs > 16.67,
+      overBudget: durationMs > effectiveBudget,
     });
 
     callbacks.resolve(msg as TResponse);

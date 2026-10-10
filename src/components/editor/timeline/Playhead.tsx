@@ -21,6 +21,7 @@ import {
 import {
   recordPlayheadPaint,
   recordSeekResolved,
+  resetPlayheadPaintTracking,
 } from "@/lib/playback/syncMetrics";
 import {
   getPreviewInteractionCoordinator,
@@ -114,7 +115,7 @@ export const Playhead: React.FC<PlayheadProps> = ({
     if (clockState.state === "playing" && !isDragging) return;
     const el = playheadRef.current;
     if (el) el.style.left = `${left}px`;
-    recordPlayheadPaint();
+    resetPlayheadPaintTracking();
     recordSeekResolved();
   }, [left, pixelsPerSecond, clockState.state, isDragging]);
 
