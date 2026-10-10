@@ -102,6 +102,7 @@ describe("native audio timeline contract", () => {
     };
     const asset: MediaAsset = {
       id: "asset", name: "voice.mp4", path: "/media/voice.mp4", type: "video", duration: 5, size: 1,
+      streams: [{ index: 0, type: "audio", codec: "aac" }],
     };
     const clip: Clip = {
       id: "clip", kind: "video", trackId: track.id, mediaId: asset.id,

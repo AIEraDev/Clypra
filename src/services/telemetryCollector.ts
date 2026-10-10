@@ -711,7 +711,10 @@ export interface TelemetryPreviewContext {
     | "resize"
     | "occlusion"
     | "device-lost"
-    | "policy-override"
+    | "embedded-only-flag" // EMBEDDED_PREVIEW_ONLY=true (bridge-only build)
+    | "qualification"      // qualification harness forced WebView path
+    | "surface-not-ready"  // wgpu surface probe/configure not yet complete
+    | "policy-override"    // kept for backwards-compat with older perf logs
     | "paused-exact-frame"
     | "unknown";
   sessionId?: string;

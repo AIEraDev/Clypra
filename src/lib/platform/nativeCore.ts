@@ -3,15 +3,20 @@ import type { ColdStartReport } from "@/services/telemetryCollector";
 export const NATIVE_CORE_CONTRACT_VERSION = 2;
 export const NATIVE_CORE_TIME_SCALE = 1_000_000;
 /**
- * Clypra's visible program preview is always embedded in the main WebView.
+ * Controls whether the wgpu child-surface presenter is allowed to engage.
  *
- * A separate Tauri window cannot be reliably constrained to its parent across
- * AppKit, Win32, X11, and Wayland. Native rendering is still available, but
- * its frames are composited into the editor canvas rather than presented by a
- * second OS window. This is deliberately a product invariant, not a
- * platform-specific fallback.
+ * When false (default), the native surface path is engaged. The surface
+ * controller calls probe_native_surface / resize_native_surface and, once
+ * geometry is settled, the render loop switches to the direct wgpu/Metal/D3D12
+ * present path. On failure the bridge fallback remains active; no user-visible
+ * degradation occurs.
+ *
+ * Set VITE_CLYPRA_NATIVE_SURFACE=0 or VITE_CLYPRA_EMBEDDED_PREVIEW_ONLY=1 to
+ * force the WebView IPC bridge readback path.
  */
-export const EMBEDDED_PREVIEW_ONLY = true;
+export const EMBEDDED_PREVIEW_ONLY =
+  import.meta.env.VITE_CLYPRA_NATIVE_SURFACE === "0" ||
+  import.meta.env.VITE_CLYPRA_EMBEDDED_PREVIEW_ONLY === "1";
 
 /**
  * Keep the old native-only switch for browser test harnesses. A Tauri runtime

@@ -44,6 +44,7 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { MAX_PROJECT_NAME_LENGTH } from "@/types";
 import { toast } from "@/lib/toast";
 import { useExportHistoryStore } from "@/store/exportHistoryStore";
+import { useI18n } from "@/i18n";
 import type {
   MissingAudioAsset,
   MissingImageAsset,
@@ -155,6 +156,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
   isOpen,
   onClose,
 }) => {
+  const { t } = useI18n();
   const { project, mediaAssets, renameProject } = useProjectStore();
   const { clips, tracks, transitions, epoch, getTimelineEndTime } =
     useTimelineStore();
@@ -712,14 +714,14 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={phase === "exporting" ? () => {} : onClose}
-      title="Export Video"
+      title={t("export.video")}
       size="lg"
     >
       <div className="flex flex-col md:flex-row min-h-[400px]">
         {/* ─── Left Sidebar: Preset Cards ─────────────────────────── */}
         <div className="w-full md:w-[200px] shrink-0 border-b md:border-b-0 md:border-r border-white/6 p-3 flex flex-row md:flex-col gap-2 overflow-x-auto scrollbar-none items-center md:items-stretch">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted px-0.5 hidden md:block">
-            Export Preset
+            {t("export.preset")}
           </div>
 
           {PRESET_ORDER.map((key) => {
@@ -877,7 +879,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                 {/* Export Details */}
                 <section>
                   <h3 className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-2.5">
-                    Export Settings
+                    {t("export.settings")}
                   </h3>
                   <div className="rounded-lg border border-white/6 bg-white/2 p-3 space-y-0.5">
                     <DetailRow
@@ -903,7 +905,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                       value={`${project?.frameRate || 30} fps`}
                     />
                     <DetailRow
-                      label="Est. File Size"
+                      label={t("export.fileSize")}
                       value={estimatedFileSize}
                       icon={HardDrive}
                     />
@@ -1009,10 +1011,10 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                     <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
                       <p className="text-[12px] font-medium text-amber-400">
-                        No content to export
+                        {t("export.noContent")}
                       </p>
                       <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">
-                        Add clips to the timeline before exporting.
+                        {t("export.addClipsPrompt")}
                       </p>
                     </div>
                   </div>
@@ -1038,7 +1040,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
               {/* Footer */}
               <div className="px-5 py-3 border-t border-white/6 flex items-center justify-end gap-2">
                 <Button variant="ghost" onClick={onClose}>
-                  Cancel
+                  {t("common.actions.cancel")}
                 </Button>
                 {platform.isCapacitor() ? (
                   <Button
@@ -1069,7 +1071,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                         : undefined,
                     }}
                   >
-                    Export
+                    {t("common.actions.export")}
                   </Button>
                 )}
               </div>
@@ -1156,7 +1158,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
               <div className="w-full max-w-[360px] text-center space-y-4">
                 <div>
                   <h3 className="text-[16px] font-bold text-text-primary tracking-tight">
-                    Export Complete!
+                    {t("export.complete")}
                   </h3>
                   <p className="text-[12px] text-text-muted mt-1 leading-relaxed">
                     Your video has been successfully generated and saved to your
@@ -1273,7 +1275,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
               <div className="w-full max-w-[320px] text-center space-y-4">
                 <div>
                   <h3 className="text-[15px] font-bold text-text-primary tracking-tight">
-                    Export Failed
+                    {t("export.failed")}
                   </h3>
                   <p className="text-[11px] text-text-muted mt-1 leading-relaxed">
                     An error occurred during the rendering and encoding process.
@@ -1293,7 +1295,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                     onClick={handleExportAnother}
                     className="text-[11px]"
                   >
-                    Try Again
+                    {t("common.actions.tryAgain")}
                   </Button>
                   <Button
                     variant="default"
@@ -1301,7 +1303,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                     onClick={onClose}
                     className="text-[11px]"
                   >
-                    Close
+                    {t("common.actions.close")}
                   </Button>
                 </div>
               </div>

@@ -1335,6 +1335,8 @@ impl NativeAudioClock {
         }
         .map_err(|error| format!("Unable to build native audio output stream: {error}"))?;
 
+        // INVESTIGATION ONLY — remove before Phase 6
+        log::debug!("[TR2] CPAL stream.play() call at timestamp: {:?}", std::time::Instant::now());
         stream
             .play()
             .map_err(|error| format!("Unable to start native audio output stream: {error}"))?;
@@ -1815,6 +1817,14 @@ where
         move |data: &mut [T], info: &cpal::OutputCallbackInfo| {
             callback_count.fetch_add(1, Ordering::Relaxed);
 
+            // INVESTIGATION ONLY — remove before Phase 6
+            // First callback detection (atomic flags, logged outside callback for real-time safety)
+            static FIRST_CALLBACK_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            if !FIRST_CALLBACK_LOGGED.swap(true, Ordering::Relaxed) {
+                // Note: actual logging happens in status() or after callback for real-time safety
+                // We just mark that the first callback occurred
+            }
+
             // Record the timestamp of this callback invocation so that the
             // A/V drift freshness guard can determine whether the audio clock
             // was actively advancing at the moment a drift sample was taken.
@@ -1901,6 +1911,14 @@ where
                     ramp_remaining as usize,
                     TRANSPORT_RAMP_FRAMES as usize,
                 ) {
+                    // INVESTIGATION ONLY — remove before Phase 6
+                    // First non-silent callback detection
+                    static FIRST_NON_SILENT_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+                    if !FIRST_NON_SILENT_LOGGED.swap(true, Ordering::Relaxed) {
+                        // Logging from audio callback is unsafe; rely on external status polling
+                        // to detect this transition via non_silent_frames counter
+                    }
+                    
                     let latency_us = output_latency.last_us.load(Ordering::Relaxed);
                     crate::cold_start::record_first_sound(latency_us);
                     non_silent_frames.fetch_add(

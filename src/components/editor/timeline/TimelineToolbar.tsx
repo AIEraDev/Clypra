@@ -12,6 +12,7 @@ import { useAnchoredTimelineZoom, usePreviewQualityCapabilities } from "@/hooks"
 import type { TimelineZoomAnchor } from "@/hooks/timeline/useAnchoredTimelineZoom";
 import { VoiceoverRecorderButton } from "./VoiceoverRecorderButton";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/i18n";
 
 const ZOOM_THUMB_SIZE_PX = 12;
 const ZOOM_RAIL_WIDTH_PX = 112; // w-28
@@ -31,6 +32,7 @@ const TIER_BAND_CLASS: Record<SpatialTier, string> = {
 };
 
 const TimelineToolbarComponent: React.FC = () => {
+  const { t } = useI18n();
   const zoomLevel = useTimelineStore((s) => s.zoomLevel);
   const pixelsPerSecond = useTimelineStore((s) => s.pixelsPerSecond);
   const tracks = useTimelineStore((s) => s.tracks);
@@ -175,13 +177,13 @@ const TimelineToolbarComponent: React.FC = () => {
     <TooltipProvider>
       <div data-timeline-interactive="true" className="border-b border-timeline-toolbar-border flex items-center p-1 gap-2">
         <div className="flex items-center gap-1">
-          <Tool label="Undo (Cmd+Z)">
+          <Tool label={`${t("common.actions.undo")} (Cmd+Z)`}>
             <Button variant="ghost" size="icon-sm" className={toolButton} onClick={undo} disabled={!historyState.canUndo}>
               <Undo2 className="w-4 h-4" />
             </Button>
           </Tool>
 
-          <Tool label="Redo (Cmd+Shift+Z)">
+          <Tool label={`${t("common.actions.redo")} (Cmd+Shift+Z)`}>
             <Button variant="ghost" size="icon-sm" className={toolButton} onClick={redo} disabled={!historyState.canRedo}>
               <Redo2 className="w-4 h-4" />
             </Button>
@@ -195,37 +197,37 @@ const TimelineToolbarComponent: React.FC = () => {
             </Tool>
           )}
 
-          <Tool label="Delete left at playhead (Q)">
+          <Tool label={t("timeline.clips.deleteLeft")}>
             <Button variant="ghost" size="icon-sm" className={toolButton} onClick={() => executeClipCommand("clip.trimStartToPlayhead")} disabled={!getClipCommand("clip.trimStartToPlayhead")?.isEnabled}>
               <ChevronLeft className="w-4 h-4" />
             </Button>
           </Tool>
 
-          <Tool label="Delete right at playhead (W)">
+          <Tool label={t("timeline.clips.deleteRight")}>
             <Button variant="ghost" size="icon-sm" className={toolButton} onClick={() => executeClipCommand("clip.trimEndToPlayhead")} disabled={!getClipCommand("clip.trimEndToPlayhead")?.isEnabled}>
               <ChevronRight className="w-4 h-4" />
             </Button>
           </Tool>
 
-          <Tool label="Split all at playhead (S)">
+          <Tool label={t("timeline.tools.split")}>
             <Button variant="ghost" size="icon-sm" className={toolButton} onClick={() => executeClipCommand("clip.splitAllAtPlayhead")} disabled={!getClipCommand("clip.splitAllAtPlayhead")?.isEnabled}>
               <ScissorsLineDashed className="w-4 h-4" />
             </Button>
           </Tool>
 
-          <Tool label="Delete selected clip(s)">
+          <Tool label={t("timeline.clips.deleteSelected")}>
             <Button variant="ghost" size="icon-sm" className={toolButton} onClick={() => executeClipCommand("clip.rippleDelete")} disabled={!getClipCommand("clip.rippleDelete")?.isEnabled}>
               <Trash2 className="w-4 h-4" />
             </Button>
           </Tool>
 
-          <Tool label="Duplicate selected clip(s) (Cmd/Ctrl+D)">
+          <Tool label={t("timeline.clips.duplicateSelected")}>
             <Button variant="ghost" size="icon-sm" className={toolButton} onClick={() => executeClipCommand("clip.duplicate")} disabled={!getClipCommand("clip.duplicate")?.isEnabled}>
               <Copy className="w-4 h-4" />
             </Button>
           </Tool>
 
-          <Tool label="Close gaps">
+          <Tool label={t("timeline.tools.closeGaps")}>
             <Button variant="ghost" size="icon-sm" className={toolButton} onClick={() => executeTimelineCommand("timeline.closeAllGaps")} disabled={!getTimelineCommand("timeline.closeAllGaps")?.isEnabled}>
               <ScissorsLineDashed className="w-4 h-4" />
             </Button>

@@ -21,6 +21,7 @@ import { useUIStore } from "@/store/uiStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { useHistoryStore } from "@/store/historyStore";
+import { useI18n } from "@/i18n";
 import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
 import {
   RelinkAudioCommand,
@@ -183,12 +184,13 @@ type TextPropertyTab = "text" | "animation" | "transform";
 
 const TEXT_TABS: {
   id: TextPropertyTab;
+  labelKey: string;
   label: string;
   icon: React.FC<{ className?: string }>;
 }[] = [
-  { id: "text", label: "Text Style", icon: Type },
-  { id: "animation", label: "Animation", icon: Sparkles },
-  { id: "transform", label: "Transform", icon: Layout },
+  { id: "text", labelKey: "properties.tabs.textStyle", label: "Text Style", icon: Type },
+  { id: "animation", labelKey: "properties.tabs.animation", label: "Animation", icon: Sparkles },
+  { id: "transform", labelKey: "properties.tabs.transform", label: "Transform", icon: Layout },
 ];
 
 export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
@@ -198,6 +200,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   onToggleCollapse,
   className = "",
 }) => {
+  const { t } = useI18n();
   const selectedClipIds = useUIStore((s) => s.selectedClipIds);
   const selectedTransitionId = useUIStore((s) => s.selectedTransitionId);
   const clearSelection = useUIStore((s) => s.clearSelection);
@@ -855,7 +858,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               <button
                 onClick={onToggleCollapse}
                 className="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-accent hover:bg-white/5 transition-colors cursor-pointer"
-                title="Expand properties panel"
+                title={t("properties.expand")}
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
               </button>
@@ -875,7 +878,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 </p>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span className={`text-[9px] font-medium ${typeInfo.color}`}>
-                    {typeInfo.label}
+                    {t(typeInfo.label)}
                   </span>
                   <span className="text-[9px] text-text-muted/40">•</span>
                   <span className="text-[9px] text-text-muted tabular-nums flex items-center gap-0.5">
@@ -888,7 +891,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 <button
                   onClick={onToggleCollapse}
                   className="w-5 h-5 flex items-center justify-center rounded text-text-muted hover:text-accent hover:bg-white/5 transition-colors cursor-pointer ml-auto shrink-0"
-                  title="Collapse properties panel"
+                  title={t("properties.collapse")}
                 >
                   <ChevronRight className="w-3.5 h-3.5" />
                 </button>
@@ -914,7 +917,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     >
                       <span className="flex items-center justify-center gap-1.5">
                         <TabIcon className="w-3 h-3" />
-                        {tab.label}
+                        {t(tab.labelKey)}
                       </span>
                     </button>
                   );
@@ -932,7 +935,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           <button
             onClick={onToggleCollapse}
             className={`w-8 h-8 rounded-lg flex items-center justify-center bg-surface-raised border border-border/40 hover:border-accent/40 transition-colors cursor-pointer ${typeInfo.color}`}
-            title={`Expand ${typeInfo.label} Properties (${clipName})`}
+            title={`Expand ${t(typeInfo.label)} Properties (${clipName})`}
           >
             <TypeIcon className="w-4 h-4" />
           </button>
@@ -950,7 +953,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                       setActivePropertyTab(tab.id);
                       onToggleCollapse?.();
                     }}
-                    title={`Open ${tab.label}`}
+                    title={t(tab.labelKey)}
                     className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors cursor-pointer ${
                       isActive
                         ? "text-accent bg-accent/15"

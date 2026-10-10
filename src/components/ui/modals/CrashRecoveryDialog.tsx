@@ -1,4 +1,5 @@
 import type { RecoverySnapshot } from "@/core/runtime/CrashRecoveryService";
+import { useI18n } from "@/i18n";
 
 interface CrashRecoveryDialogProps {
   isOpen: boolean;
@@ -9,6 +10,7 @@ interface CrashRecoveryDialogProps {
 }
 
 export const CrashRecoveryDialog: React.FC<CrashRecoveryDialogProps> = ({ isOpen, snapshot, isRestoring, onRestore, onDiscard }) => {
+  const { t } = useI18n();
   if (!isOpen || !snapshot) return null;
 
   return (
@@ -22,7 +24,7 @@ export const CrashRecoveryDialog: React.FC<CrashRecoveryDialogProps> = ({ isOpen
         </div>
 
         <h2 id="crash-recovery-title" className="text-xl font-bold text-text-primary text-center mb-2">
-          Restore Unsaved Session?
+          {t("project.unsavedSession")}
         </h2>
 
         <p className="text-sm text-text-muted text-center mb-1">
@@ -40,7 +42,7 @@ export const CrashRecoveryDialog: React.FC<CrashRecoveryDialogProps> = ({ isOpen
 
         <div className="flex gap-3">
           <button id="crash-recovery-discard-btn" onClick={onDiscard} disabled={isRestoring} className="flex-1 px-4 py-2.5 text-sm font-medium rounded-lg border border-border text-text-muted hover:text-text-primary hover:border-border-strong transition-colors disabled:opacity-50">
-            Discard
+            {t("common.actions.discard")}
           </button>
           <button id="crash-recovery-restore-btn" onClick={onRestore} disabled={isRestoring} className="flex-1 px-4 py-2.5 text-sm font-semibold rounded-lg bg-accent text-white hover:bg-accent-soft transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
             {isRestoring ? (

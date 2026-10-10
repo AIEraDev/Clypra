@@ -6,11 +6,17 @@
 - **Primary Source Language**: English (`en`) is the canonical authoring language for all user interface strings, command labels, settings, error messages, and documentation.
 - **First-Party Supported Locales**:
   - English (`en`)
+  - Russian (`ru`)
+  - Spanish (`es`)
+  - Japanese (`ja`)
+  - German (`de`)
+  - French (`fr`)
+  - Korean (`ko`)
   - Traditional Chinese (`zh-TW`)
   - Simplified Chinese (`zh-CN`)
-- **Implementation**: Managed centrally via `src/i18n/I18nProvider.tsx`.
+- **Implementation**: Managed centrally via `src/i18n/I18nProvider.tsx` and modular locale dictionaries in `src/i18n/locales/`.
 - **Persistence**: User interface language selection is stored in `localStorage` under `clypra.language` and hydrated immediately upon application mount.
-- **Scope Decision**: Clypra intentionally targets English and Chinese for its v1 desktop and web releases. Additional language expansions (Japanese, Spanish, German, French) are scheduled for subsequent community localization passes after core model freeze.
+- **Scope Decision**: Clypra provides first-party localization across major creative desktop editor userbases (English, Russian, Spanish, Japanese, German, French, Korean, Traditional Chinese, and Simplified Chinese). Additional languages are supported via community locale dictionaries.
 
 ---
 

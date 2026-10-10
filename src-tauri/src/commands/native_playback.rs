@@ -1554,12 +1554,33 @@ pub fn native_tick(app: AppHandle, clock: FrameTime) -> Result<PlaybackState, St
 
 #[tauri::command]
 pub fn native_play_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
-    let clock = audio_clock_time(&app, true, true)?;
-    // A resumed/restarted CPAL stream has a new clock epoch. QoS observations
-    // from the previous run must not immediately degrade this one.
+    // INVESTIGATION ONLY — remove before Phase 6
+    log::debug!("[TR1] native_play_from_audio handler entry");
+    
     crate::engine::ENGINE_TELEMETRY.begin_playback_run();
-    let state = with_runtime(&app, |runtime| runtime.play_from_audio(clock))?;
-    set_audio_playing(&app, true)?;
+    
+    // Architectural invariant: Audio readiness must never block video playback!
+    // When audio is unavailable (silent project or clips still resolving/hydrating),
+    // fall back to a zeroed FrameTime so video playback starts immediately.
+    let clock_result = audio_clock_time(&app, true, true);
+    // INVESTIGATION ONLY — remove before Phase 6
+    match &clock_result {
+        Ok(ft) => log::debug!("[TR1] audio_clock_time() → Ok(ticks={})", ft.ticks),
+        Err(e) => log::debug!("[TR1] audio_clock_time() → Err({})", e),
+    }
+    let clock = clock_result.unwrap_or_else(|_| FrameTime::new(0, 0, DEFAULT_TIME_SCALE).unwrap());
+    
+    let audio_available = audio_clock_time(&app, true, true).is_ok();
+    let state = if audio_available {
+        let state = with_runtime(&app, |runtime| runtime.play_from_audio(clock))?;
+        let _ = set_audio_playing(&app, true);
+        state
+    } else {
+        let state = with_runtime(&app, |runtime| runtime.play(clock))?;
+        let _ = set_audio_playing(&app, false);
+        state
+    };
+    
     if let Some(runtime) = app.try_state::<Arc<Mutex<NativePlaybackRuntime>>>() {
         runtime
             .inner()
@@ -1601,7 +1622,8 @@ pub fn native_tick_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
         .elapsed()
         .as_nanos()
         .min(u64::MAX as u128) as u64;
-    let clock = audio_clock_time(&app, true, false)?;
+    let clock = audio_clock_time(&app, true, false)
+        .unwrap_or_else(|_| FrameTime::new(0, 0, DEFAULT_TIME_SCALE).unwrap());
     let mut state = with_runtime(&app, |runtime| runtime.tick(clock))?;
     state.sampled_at_ns = Some(sampled_at_ns);
 

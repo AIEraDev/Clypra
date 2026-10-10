@@ -98,6 +98,10 @@ const createMockMediaAsset = (overrides?: Partial<MediaAsset>): MediaAsset => ({
   height: 1080,
   posterFrame: "data:image/png;base64,test",
   size: 1024000,
+  streams: [
+    { index: 0, type: "video", codec: "h264" },
+    { index: 1, type: "audio", codec: "aac" },
+  ],
   ...overrides,
 });
 

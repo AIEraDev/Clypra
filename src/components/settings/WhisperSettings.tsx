@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { useI18n } from "@/i18n";
 import {
   useCaptionStore,
   WhisperModelSize,
@@ -171,6 +172,7 @@ const MODEL_INFO: ModelInfo[] = [
 
 function LanguageSelector() {
   const { captionSettings, setLanguage } = useCaptionStore();
+  const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -191,7 +193,7 @@ function LanguageSelector() {
   return (
     <div className="space-y-1.5">
       <label className="text-[11px] font-semibold uppercase tracking-wider text-text-muted block">
-        Transcription Language
+        {t("captions.language")}
       </label>
 
       <div className="relative">
@@ -215,7 +217,7 @@ function LanguageSelector() {
               <div className="p-2 border-b border-white/6">
                 <input
                   type="text"
-                  placeholder="Search languages..."
+                  placeholder={t("common.actions.search")}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full px-3 py-1.5 bg-surface-raised/50 border border-white/6 rounded text-[12px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/40"
@@ -260,6 +262,7 @@ function ModelCard({ model }: { model: ModelInfo }) {
     updateModelDownloadState,
     resetModelState,
   } = useCaptionStore();
+  const { t, formatFileSize } = useI18n();
   const modelState = captionSettings.models[model.size];
   const isActive = captionSettings.activeModel === model.size;
   const [isDownloading, setIsDownloading] = useState(false);
@@ -418,12 +421,12 @@ function ModelCard({ model }: { model: ModelInfo }) {
             <h4 className="text-[13px] font-semibold text-text-primary capitalize">{model.size}</h4>
             {model.recommended && (
               <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-accent/15 text-accent rounded-full uppercase tracking-wide">
-                Recommended
+                {t("common.status.recommended")}
               </span>
             )}
             {isActive && (
               <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-green-500/15 text-green-400 rounded-full uppercase tracking-wide">
-                Active
+                {t("common.status.active")}
               </span>
             )}
           </div>
@@ -443,7 +446,7 @@ function ModelCard({ model }: { model: ModelInfo }) {
           className="w-full flex items-center justify-center gap-2 px-3 py-2 border border-accent/40 text-accent rounded-lg text-[12px] font-medium hover:bg-accent/8 transition-colors disabled:opacity-50 cursor-pointer"
         >
           <Download className="w-3.5 h-3.5" />
-          Download
+          {t("common.actions.download")}
         </button>
       )}
 
@@ -457,11 +460,11 @@ function ModelCard({ model }: { model: ModelInfo }) {
           </div>
           <div className="flex items-center justify-between text-[10px] font-mono text-text-muted">
             <span>
-              {formatBytes(modelState.progressBytes)} / {formatBytes(modelState.totalBytes)}
-              {modelState.speedBytesPerSec > 0 && ` · ${formatBytes(modelState.speedBytesPerSec)}/s`}
+              {formatFileSize(modelState.progressBytes)} / {formatFileSize(modelState.totalBytes)}
+              {modelState.speedBytesPerSec > 0 && ` · ${formatFileSize(modelState.speedBytesPerSec)}/s`}
             </span>
             <button onClick={handleCancel} className="text-danger hover:underline">
-              Cancel
+              {t("common.actions.cancel")}
             </button>
           </div>
         </div>
@@ -474,12 +477,12 @@ function ModelCard({ model }: { model: ModelInfo }) {
             className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-accent text-white rounded-lg text-[12px] font-medium hover:bg-accent/90 transition-colors"
           >
             <Check className="w-3.5 h-3.5" />
-            Use this model
+            {t("common.status.active")}
           </button>
           <button
             onClick={handleDelete}
             className="px-3 py-2 border border-white/8 text-text-muted rounded-lg hover:border-danger/40 hover:text-danger transition-colors"
-            title="Delete model"
+            title={t("common.actions.delete")}
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
@@ -489,11 +492,11 @@ function ModelCard({ model }: { model: ModelInfo }) {
       {modelState.status === "downloaded" && isActive && (
         <div className="flex items-center gap-2 px-3 py-2 bg-green-500/10 border border-green-500/20 rounded-lg text-[12px] text-green-400">
           <Check className="w-3.5 h-3.5" />
-          <span className="flex-1">Model active</span>
+          <span className="flex-1">{t("common.status.active")}</span>
           <button
             onClick={handleDelete}
             className="text-text-muted hover:text-danger transition-colors"
-            title="Delete model"
+            title={t("common.actions.delete")}
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
@@ -504,14 +507,14 @@ function ModelCard({ model }: { model: ModelInfo }) {
         <div className="space-y-2">
           <div className="flex items-start gap-2 p-2.5 bg-red-500/10 border border-red-500/20 rounded-lg">
             <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-red-400 flex-1">{modelState.errorMessage || "Download failed"}</p>
+            <p className="text-[11px] text-red-400 flex-1">{modelState.errorMessage || t("errors.unknown")}</p>
           </div>
           <button
             onClick={handleRetry}
             className="w-full flex items-center justify-center gap-2 px-3 py-2 border border-accent/40 text-accent rounded-lg text-[12px] font-medium hover:bg-accent/8 transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
-            Retry
+            {t("common.actions.tryAgain")}
           </button>
         </div>
       )}
@@ -562,13 +565,14 @@ function ActiveModelIndicator() {
 }
 
 export const WhisperSettings: React.FC = () => {
+  const { t } = useI18n();
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h2 className="text-[13px] font-semibold text-text-primary mb-1">Auto-Captions</h2>
+        <h2 className="text-[13px] font-semibold text-text-primary mb-1">{t("settings.tabs.captions")}</h2>
         <p className="text-[11px] text-text-muted leading-relaxed">
-          Configure Whisper speech recognition for automatic caption generation.
+          {t("captions.generator.description")}
         </p>
       </div>
 

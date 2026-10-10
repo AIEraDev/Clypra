@@ -77,6 +77,11 @@ export class NativePreviewFrameScheduler {
   /**
    * Visible work always wins. There is one active load and one replaceable
    * pending load; a newer visible request rejects the obsolete pending work.
+   *
+   * In-flight prefetch work is NOT aborted: it doesn't block visible work
+   * (pump() starts the visible entry once the prefetch slot opens) and its
+   * result lands in cache where the next frame can reuse it. Only an in-flight
+   * *visible* request for a stale key is aborted.
    */
   requestVisible(source: NativePreviewRequestSource): Promise<NativePreviewFrame> {
     if (this.disposed) return Promise.reject(new Error("Native preview scheduler disposed"));
@@ -92,10 +97,12 @@ export class NativePreviewFrameScheduler {
       this.setVisibleGeneration(generation);
     }
 
-    // A newer visible request supersedes both active and pending work. The
-    // AbortSignal lets native callers stop at packet boundaries while the
-    // generation check protects runtimes that cannot abort an IPC call.
-    this.cancelVisibleWork();
+    // Cancel only the previous *visible* in-flight request. A prefetch request
+    // in flight is harmless — its result will land in cache and the new visible
+    // entry will be started by pump() once the slot is free.
+    if (this.inFlight?.visible) {
+      this.cancelVisibleWork();
+    }
     this.replacePending(null);
     this.visibleKey = source.requestKey;
     let resolve!: (frame: NativePreviewFrame) => void;

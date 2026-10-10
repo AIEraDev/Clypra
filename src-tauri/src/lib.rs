@@ -199,12 +199,16 @@ fn write_bench_report(file_path: String, json_content: String) -> Result<(), Str
 #[tauri::command]
 fn set_menu_language(app: tauri::AppHandle, language: String) -> Result<(), String> {
     if let Some(menu) = app.menu() {
-        let labels: [&str; 6] = if language == "zh-TW" {
-            ["Clypra", "檔案", "編輯", "顯示方式", "視窗", "輔助說明"]
-        } else if language == "zh-CN" {
-            ["Clypra", "文件", "编辑", "显示", "窗口", "帮助"]
-        } else {
-            ["Clypra", "File", "Edit", "View", "Window", "Help"]
+        let labels: [&str; 6] = match language.as_str() {
+            "zh-TW" => ["Clypra", "檔案", "編輯", "顯示方式", "視窗", "輔助說明"],
+            "zh-CN" => ["Clypra", "文件", "编辑", "显示", "窗口", "帮助"],
+            "ru" => ["Clypra", "Файл", "Правка", "Вид", "Окно", "Справка"],
+            "es" => ["Clypra", "Archivo", "Edición", "Ver", "Ventana", "Ayuda"],
+            "ja" => ["Clypra", "ファイル", "編集", "表示", "ウィンドウ", "ヘルプ"],
+            "de" => ["Clypra", "Datei", "Bearbeiten", "Ansicht", "Fenster", "Hilfe"],
+            "fr" => ["Clypra", "Fichier", "Édition", "Affichage", "Fenêtre", "Aide"],
+            "ko" => ["Clypra", "파일", "편집", "보기", "윈도우", "도움말"],
+            _ => ["Clypra", "File", "Edit", "View", "Window", "Help"],
         };
 
         for (item, label) in menu

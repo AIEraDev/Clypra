@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { AlertTriangle } from "lucide-react";
+import { useI18n } from "@/i18n";
 
 interface UnsavedChangesDialogProps {
   isOpen: boolean;
@@ -18,6 +19,7 @@ export const UnsavedChangesDialog: React.FC<UnsavedChangesDialogProps> = ({
   onDiscard,
   onCancel,
 }) => {
+  const { t } = useI18n();
   useEffect(() => {
     if (!isOpen) return;
 
@@ -55,14 +57,14 @@ export const UnsavedChangesDialog: React.FC<UnsavedChangesDialogProps> = ({
         </div>
 
         <h2 id="unsaved-changes-title" className="text-xl font-bold text-text-primary text-center mb-2">
-          Save changes before closing?
+          {t("project.saveBeforeClose")}
         </h2>
 
         <p className="text-sm text-text-muted text-center mb-2">
-          Project <span className="font-semibold text-text-primary">"{projectName || "Untitled"}"</span> has unsaved changes.
+          Project <span className="font-semibold text-text-primary">"{projectName || t("common.labels.untitledProject")}"</span> has unsaved changes.
         </p>
         <p className="text-xs text-text-muted text-center mb-6">
-          If you close without saving, your recent edits will be permanently lost.
+          {t("project.closeWarning")}
         </p>
 
         <div className="flex flex-col sm:flex-row gap-2.5">
@@ -73,7 +75,7 @@ export const UnsavedChangesDialog: React.FC<UnsavedChangesDialogProps> = ({
             disabled={isSaving}
             className="flex-1 px-4 py-2.5 text-sm font-medium rounded-lg border border-border text-text-muted hover:text-text-primary hover:border-border-strong transition-colors disabled:opacity-50 cursor-pointer"
           >
-            Cancel
+            {t("common.actions.cancel")}
           </button>
           <button
             id="unsaved-changes-discard-btn"
@@ -82,7 +84,7 @@ export const UnsavedChangesDialog: React.FC<UnsavedChangesDialogProps> = ({
             disabled={isSaving}
             className="flex-1 px-4 py-2.5 text-sm font-medium rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors disabled:opacity-50 cursor-pointer"
           >
-            Don't Save
+            {t("common.actions.dontSave")}
           </button>
           <button
             id="unsaved-changes-save-btn"
@@ -100,7 +102,7 @@ export const UnsavedChangesDialog: React.FC<UnsavedChangesDialogProps> = ({
                 Saving…
               </>
             ) : (
-              "Save"
+              t("common.actions.save")
             )}
           </button>
         </div>

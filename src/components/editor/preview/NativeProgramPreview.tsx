@@ -68,6 +68,7 @@ import {
   tracePlayback,
   traceSlowPlaybackStage,
 } from "@/core/playback/playbackTrace";
+import { traceAudioEvent } from "@/core/playback/audioTrace"; // INVESTIGATION ONLY — remove before Phase 6
 import {
   nativePerfCollector,
   type NativePerfSpan,
@@ -2728,13 +2729,10 @@ export const NativeProgramPreview: React.FC = () => {
         traceFrameIndex = frameIndex;
         const frameStartTime = getFrameStartTime(timeToRender, frameRate);
         const qualificationState = previewQualificationController.getState();
-        const nativeAudioClockReadyForTarget =
-          !isTauriRuntime() || state.clock.hasNativeClockPosition;
         const nativeRevisionForTarget = `${state.project?.id ?? "unknown-project"}:${state.epoch}`;
         const nativeSurfaceCanOwnPlayback =
           nativeSurfaceReadyRef.current &&
           nativeSurfaceGeometrySettledRef.current &&
-          nativeAudioClockReadyForTarget &&
           nativeContinuousBlockedRevision !== nativeRevisionForTarget;
         const isScrubbing = Boolean(latestSeekIntent?.isScrubbing);
         const isSettling = Boolean(latestSeekIntent?.isSettling);
@@ -3156,19 +3154,17 @@ export const NativeProgramPreview: React.FC = () => {
         // a native audio position belongs to the current play/seek run.
         const targetTransportEpoch =
           capturedSession.transportAuthority?.getTransportEpoch() ?? 0;
-        // Do not hand the visible surface to native video until native audio has
-        // supplied its first hardware-clock sample. Before that point the
-        // Wait for the native audio clock before handing continuous playback to
-        // the retained surface; readback remains available while it initializes.
-        const nativeAudioClockReady =
-          !isTauriRuntime() || state.clock.hasNativeClockPosition;
+        // Architectural invariant: Video playback is independent of audio readiness.
+        // Audio is an independent renderer that joins the PlaybackTimeline when its
+        // clips are installed — it must never block the timeline from advancing.
+        // PlaybackClock.time now advances via wall-clock even before CPAL delivers its
+        // first position sample, so no audio gate is needed here.
+        // See: docs/preview/NATIVE_SURFACE_ARCHITECTURE.md — §Playback Architecture
         const nativePlaybackPath =
-          isTauriRuntime() &&
-          Boolean(nativePlaybackRequest) &&
-          isPlaying &&
-          nativeAudioClockReady;
+          isTauriRuntime() && Boolean(nativePlaybackRequest) && isPlaying;
         const nativePausedPath =
           isTauriRuntime() && Boolean(nativeRequest) && !isPlaying;
+
         // The retained native surface owns every desktop frame state. A paused
         // frame and playback both use the exact request evaluated for this tick.
         const nativePlaybackRequestKey = nativePlaybackRequest
@@ -3276,7 +3272,6 @@ export const NativeProgramPreview: React.FC = () => {
           isTauriRuntime() &&
           isPlaying &&
           Boolean(nativePlaybackRequest) &&
-          nativeAudioClockReady &&
           !nativeSurfaceUsable &&
           !nativeSurfaceErrorNow &&
           !qualificationForcesWebView &&
@@ -3285,7 +3280,6 @@ export const NativeProgramPreview: React.FC = () => {
           nativeSurfaceShown &&
           isPlaying &&
           lastNativePlaybackRequestKey === nativePlaybackRequestKey &&
-          nativeAudioClockReady &&
           nativeSurfaceUsable;
         const nativeDirectSurfacePath =
           nativeSurfaceUsable &&
@@ -3302,15 +3296,17 @@ export const NativeProgramPreview: React.FC = () => {
           !deferWebViewFallbackForNativeStartup;
         // Keep the presenter decision explicit in telemetry. A slow bridge
         // sample is otherwise indistinguishable from a native surface that
-        // was expected to engage but never did.
+        // was expected to engage but never did. Use distinct codes so forced-bridge
+        // sessions (VITE_CLYPRA_NATIVE_SURFACE=0) are distinguishable from
+        // default native sessions and qualification runs.
         const presenterFallbackReason = EMBEDDED_PREVIEW_ONLY
-          ? "policy-override"
+          ? "embedded-only-flag"
           : qualificationForcesWebView
-            ? "policy-override"
+            ? "qualification"
             : nativeSurfaceErrorNow
               ? "surface-creation-failed"
               : !nativeSurfaceReadyNow
-                ? "unknown"
+                ? "surface-not-ready"
                 : !nativeSurfaceGeometrySettledRef.current
                   ? "resize"
                   : nativeContinuousBlockedRevision === nativeRevision
@@ -3474,7 +3470,6 @@ export const NativeProgramPreview: React.FC = () => {
           if (requestToPresent) {
             const requestKey = getNativeFrameRequestKey(requestToPresent);
             if (requestKey !== lastNativePlaybackRequestKey) {
-              lastNativePlaybackRequestKey = requestKey;
               const requestSource: NativePreviewRequestSource = {
                 requestKey,
                 frameIndex: requestToPresent.frameTime.frameIndex,
@@ -4921,7 +4916,15 @@ export const NativeProgramPreview: React.FC = () => {
         disabled={clips.length === 0}
         onPlayPause={() => {
           if (clips.length === 0) return;
+          // INVESTIGATION ONLY — remove before Phase 6
+          traceAudioEvent("T0", "Play button click", {
+            source: "ConnectedProgramTransport",
+          });
           setActiveContext?.("program");
+          // INVESTIGATION ONLY — remove before Phase 6
+          if (clock.state !== "playing") {
+            traceAudioEvent("T1", "transport.play() entry", {});
+          }
           clock.state === "playing" ? transportPause() : transportPlay();
         }}
         onSeek={(time) => {

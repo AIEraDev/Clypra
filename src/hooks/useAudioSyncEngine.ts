@@ -304,7 +304,7 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
         }
         engineRef.current?.stopAllVoices(true);
         const currentSource = latestAudioSourceRef.current;
-        if (currentSource && currentSource !== source) {
+        if (currentSource) {
           adapter.updateSource(currentSource);
         }
         adapter.setOutput(options.volume ?? 100, options.muted ?? false);
@@ -334,7 +334,6 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
       return;
     if (lastProjectIdRef.current !== project.id) {
       lastProjectIdRef.current = project.id;
-      if (!adapterRef.current.isActive) return;
     }
 
     const source = latestAudioSourceRef.current;
