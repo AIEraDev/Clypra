@@ -4024,6 +4024,12 @@ pub(crate) async fn present_native_frame_internal(
             true,
             0,
             current_pts,
+            match request.mode.as_deref() {
+                Some("scrub") => crate::engine::state_machine::PlaybackMode::Scrub,
+                Some("seek") => crate::engine::state_machine::PlaybackMode::Seek,
+                Some("playback") => crate::engine::state_machine::PlaybackMode::Play,
+                _ => crate::engine::state_machine::PlaybackMode::Play,
+            },
             Some(&app),
         );
         record_native_surface_sample(
@@ -4745,6 +4751,12 @@ pub(crate) async fn present_native_frame_internal(
         false,
         if queue_hit { 2 } else { 0 },
         frame_pts,
+        match request.mode.as_deref() {
+            Some("scrub") => crate::engine::state_machine::PlaybackMode::Scrub,
+            Some("seek") => crate::engine::state_machine::PlaybackMode::Seek,
+            Some("playback") => crate::engine::state_machine::PlaybackMode::Play,
+            _ => crate::engine::state_machine::PlaybackMode::Play,
+        },
         Some(&app),
     );
 

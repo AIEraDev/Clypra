@@ -492,3 +492,98 @@ fn test_phase_i9_pause_graceful_quality_restoration() {
     controller.clear_pending_paused_upgrade();
     assert!(!controller.is_pending_paused_upgrade());
 }
+
+// ─── CLY-PERF-004 Regression: QoS Scrub Mode Was Not Engaged During 4K HEVC Scrubbing ───
+//
+// Root cause: record_live_frame_metrics() always passed PlaybackMode::Play to
+// evaluate_window(), even when the engine was in scrub mode. The QoS controller's
+// PlaybackMode::Scrub branch (lookahead_reduction: 0.5, RenderQuality::Half) was
+// therefore never reached during rapid scrubbing. The consequence was that the full
+// lookahead budget was maintained during high-velocity 4K HEVC scrubs, exhausting the
+// planner queue and causing lookaheadTriggerDropped: 68 in session logs.
+//
+// Fix: record_live_frame_metrics() now accepts PlaybackMode as a parameter and threads
+// the caller-supplied mode into evaluate_window(). Both call sites in native_preview.rs
+// now derive the mode from request.mode string (\"scrub\", \"seek\", \"playback\").
+#[test]
+fn test_cly_perf_004_regression_scrub_mode_engages_lookahead_reduction() {
+    let config = QoSConfig {
+        degrade_window_threshold: 3,
+        recover_window_threshold: 8,
+        target_fps: 60.0,
+        window_capacity: 10,
+    };
+    let mut controller = QoSController::new(config);
+    let proxy_mgr = create_test_proxy_manager();
+
+    // Bug: evaluate_window was always called with PlaybackMode::Play, even during scrub.
+    // Verify: with PlaybackMode::Play and no bottleneck, no scrub policies are applied.
+    let play_decision = controller.evaluate_window(
+        PlaybackMode::Play,
+        MediaTime(5_000_000),
+        &proxy_mgr,
+        None,
+    );
+    // At start with no frame samples, healthy decision with full quality
+    assert_ne!(play_decision.reason, QoSReason::ScrubLatencyOptimization,
+        "Play mode must NOT trigger ScrubLatencyOptimization");
+    assert_eq!(play_decision.lookahead_reduction, 0.0,
+        "Play mode must have 0% lookahead reduction when healthy");
+
+    // Fix: evaluate_window called with PlaybackMode::Scrub applies scrub policies immediately
+    let scrub_decision = controller.evaluate_window(
+        PlaybackMode::Scrub,
+        MediaTime(5_000_000),
+        &proxy_mgr,
+        None,
+    );
+    assert_eq!(scrub_decision.reason, QoSReason::ScrubLatencyOptimization,
+        "Scrub mode MUST engage ScrubLatencyOptimization reason");
+    assert_eq!(scrub_decision.lookahead_reduction, 0.5,
+        "Scrub mode MUST apply 50% lookahead reduction to prevent planner queue exhaustion");
+    assert_eq!(scrub_decision.render_quality, RenderQuality::Half,
+        "Scrub mode MUST downgrade to Half render quality for low-latency response");
+    assert_eq!(scrub_decision.effects_policy, EffectsPolicy::Reduced,
+        "Scrub mode MUST reduce effects policy");
+}
+
+#[test]
+fn test_cly_perf_004_regression_play_mode_does_not_apply_scrub_policies() {
+    // Complementary regression: verify the fix doesn't mistakenly apply scrub
+    // policies during normal Play mode, which would degrade quality unnecessarily.
+    let config = QoSConfig::default();
+    let mut controller = QoSController::new(config);
+    let proxy_mgr = create_test_proxy_manager();
+
+    // Inject healthy play-mode frames
+    for i in 0..15 {
+        let pts = MediaTime::from_frame_index(i, 60.0);
+        controller.record_frame_snapshot(PerformanceSnapshot {
+            decode_us: 4_000,
+            render_cpu_us: 1_000,
+            render_gpu_us: 3_500,
+            effect_timings: HashMap::new(),
+            decode_queue_depth: 0,
+            ready_queue_depth: 3,
+            surface_pool_used: 2,
+            surface_pool_capacity: 16,
+            deadline_missed: false,
+            frame_pts: pts,
+        });
+    }
+
+    let decision = controller.evaluate_window(
+        PlaybackMode::Play,
+        MediaTime(1_000_000),
+        &proxy_mgr,
+        None,
+    );
+
+    // In healthy Play mode, quality must remain Full
+    assert_ne!(decision.reason, QoSReason::ScrubLatencyOptimization,
+        "Healthy Play mode must NOT trigger ScrubLatencyOptimization");
+    assert_eq!(decision.render_quality, RenderQuality::Full,
+        "Healthy Play mode must maintain Full render quality");
+    assert_eq!(decision.lookahead_reduction, 0.0,
+        "Healthy Play mode must have 0% lookahead reduction");
+}
