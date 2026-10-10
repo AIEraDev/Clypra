@@ -1,6 +1,7 @@
 import React from "react";
 import { AlertTriangle, Check, LoaderCircle } from "lucide-react";
 import { useProjectStore, type ProjectInitializationPhase } from "@/store/projectStore";
+import { useI18n } from "@/i18n";
 
 const phases: Array<{ id: ProjectInitializationPhase; label: string }> = [
   { id: "preparing", label: "Prepare project" },
@@ -17,6 +18,7 @@ const phaseIndex = (phase: ProjectInitializationPhase): number => {
 };
 
 export const ProjectLoadingModal: React.FC = () => {
+  const { t } = useI18n();
   const initialization = useProjectStore((state) => state.projectInitialization);
   const clearProjectInitialization = useProjectStore((state) => state.clearProjectInitialization);
 
@@ -69,7 +71,7 @@ export const ProjectLoadingModal: React.FC = () => {
 
         {hasError && (
           <button onClick={clearProjectInitialization} className="mt-6 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent-soft">
-            Dismiss
+            {t("common.actions.dismiss")}
           </button>
         )}
         {!hasError && <p className="mt-6 text-center text-xs text-text-muted">Editing is locked until the preview session is ready.</p>}

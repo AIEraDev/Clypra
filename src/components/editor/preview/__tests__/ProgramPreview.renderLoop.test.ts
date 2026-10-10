@@ -3646,4 +3646,36 @@ describe("Bug 12 — Audio starts at video position after initialization delay",
     expect(livePosition).toBeGreaterThan(0.05); // At least 50ms
     expect(livePosition).toBeLessThan(0.2); // Not more than 200ms
   });
+
+  it("EDGE CASE: Space restart from end with seek(0) then play() clears isSeeking and advances immediately", () => {
+    const clock = new PlaybackClock();
+    clock.setDuration(10);
+    clock.setFrameRate(30);
+    clock.setNativeClockAuthority(true);
+
+    // Play until completion
+    clock.play();
+    clock.complete();
+    expect(clock.state).toBe("paused");
+    expect(clock.time).toBe(10);
+    expect(clock.isSeeking).toBe(false);
+
+    // TransportAuthority / Space restart sequence: seek(0) then play()
+    clock.seek(0);
+    expect(clock.time).toBe(0);
+    // play() must clear isSeeking so extrapolation and RAF start immediately
+    clock.play();
+    expect(clock.state).toBe("playing");
+    expect(clock.isSeeking).toBe(false);
+
+    // Spin delay to verify wall-clock extrapolation is active
+    const delayMs = 60;
+    const beforeDelayMs = performance.now();
+    while (performance.now() - beforeDelayMs < delayMs) {
+      // spin
+    }
+
+    // Time must advance forward from 0 rather than being locked at 0 by isSeeking
+    expect(clock.time).toBeGreaterThan(0.02);
+  });
 });

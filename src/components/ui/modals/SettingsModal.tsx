@@ -11,7 +11,7 @@ import { KeyboardShortcutsSettings } from "@/components/settings/KeyboardShortcu
 import { refitClipsForCanvasChange } from "@/lib/timeline/refitClips";
 import { isTauriDesktop } from "@/services/updaterService";
 import { useAutoUpdater } from "@/hooks/useAutoUpdater";
-import { useI18n } from "@/i18n/I18nProvider";
+import { useI18n, SUPPORTED_LANGUAGES, AppLanguage } from "@/i18n/I18nProvider";
 import { getVersion } from "@tauri-apps/api/app";
 import { ClypraColorPicker } from "@clypra/ui-color-picker";
 import { toast } from "@/lib/toast";
@@ -159,6 +159,7 @@ function ClipPaletteSwatch({ palette, selected, onSelect }: { palette: ClipPalet
 // ─── Custom Theme Editor ─────────────────────────────────────────────────
 function CustomThemeEditor() {
   const { customTheme, setCustomTheme, resetCustomTheme } = useSettingsStore();
+  const { t } = useI18n();
   const [baseTheme, setBaseTheme] = useState<Exclude<Theme, "custom">>("dark");
   const [editingColors, setEditingColors] = useState<Record<string, string>>(customTheme || getBaseThemeForCustomization("dark"));
   const [searchQuery, setSearchQuery] = useState("");
@@ -308,14 +309,14 @@ function CustomThemeEditor() {
         </div>
 
         {/* Reset button */}
-        <button onClick={handleReset} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-danger hover:border-danger/40 transition-colors" title="Reset to default dark theme">
+        <button onClick={handleReset} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-danger hover:border-danger/40 transition-colors" title={t("settings.theme.reset")}>
           <RotateCcw className="w-3.5 h-3.5" />
-          Reset
+          {t("common.actions.reset")}
         </button>
       </div>
 
       {/* Search */}
-      <input type="text" placeholder="Search colors..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full px-3 py-2 text-[12px] rounded-lg bg-surface-raised border border-white/6 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/40" />
+      <input type="text" placeholder={t("settings.theme.searchColors")} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full px-3 py-2 text-[12px] rounded-lg bg-surface-raised border border-white/6 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/40" />
       {importError && <p className="text-danger text-[11px] font-medium">{importError}</p>}
 
       {/* Color groups */}
@@ -361,7 +362,7 @@ function CustomThemeEditor() {
 // ─── Appearance Tab ──────────────────────────────────────────────────────
 function AppearanceTab() {
   const { theme, uiTheme, clipPalette, fontFamily, customTheme, setTheme, setUiTheme, setClipPalette, setFontFamily } = useSettingsStore();
-  const { language, setLanguage } = useI18n();
+  const { language, setLanguage, t } = useI18n();
   const [showCustomEditor, setShowCustomEditor] = useState(false);
   const themeKeys: UiTheme[] = ["dark", "midnight", "ocean", "forest", "midnight-carbon", "ember-studio", "forest-console", "slate-noir", "rose-cut"];
   const clipPaletteKeys: ClipPalette[] = CLIP_PALETTE_IDS;
@@ -370,12 +371,19 @@ function AppearanceTab() {
   return (
     <div className="space-y-7">
       <section>
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">Language</h3>
-        <SettingRow label="Interface language" description="Choose the language used throughout Clypra">
-          <select value={language} onChange={(event) => setLanguage(event.target.value as "en" | "zh-TW" | "zh-CN")} aria-label="Interface language" className="px-3 py-1.5 text-[11px] rounded-lg bg-surface-raised border border-white/6 text-text-primary focus:outline-none focus:border-accent/40">
-            <option value="en">English</option>
-            <option value="zh-TW">Traditional Chinese</option>
-            <option value="zh-CN">Simplified Chinese</option>
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">{t("settings.language.label")}</h3>
+        <SettingRow label={t("settings.language.label")} description={t("settings.language.description")}>
+          <select
+            value={language}
+            onChange={(event) => setLanguage(event.target.value as AppLanguage)}
+            aria-label={t("settings.language.label")}
+            className="px-3 py-1.5 text-[11px] rounded-lg bg-surface-raised border border-white/6 text-text-primary focus:outline-none focus:border-accent/40"
+          >
+            {SUPPORTED_LANGUAGES.map((lang) => (
+              <option key={lang.code} value={lang.code} data-no-i18n>
+                {lang.code === "en" ? lang.name : `${lang.nativeName} (${lang.name})`}
+              </option>
+            ))}
           </select>
         </SettingRow>
       </section>
@@ -383,10 +391,10 @@ function AppearanceTab() {
       {/* Themes */}
       <section>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Theme</h3>
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">{t("settings.theme.title")}</h3>
           <button onClick={() => setShowCustomEditor(!showCustomEditor)} className={`flex items-center gap-1.5 px-2 py-1 text-[10px] font-medium rounded-md transition-colors ${showCustomEditor ? "bg-accent/15 text-accent border border-accent/40" : "bg-surface-raised border border-white/6 text-text-muted hover:text-text-primary"}`}>
             <Paintbrush className="w-3 h-3" />
-            {showCustomEditor ? "Hide Editor" : "Custom Theme"}
+            {showCustomEditor ? t("settings.theme.hideEditor") : t("settings.theme.custom")}
           </button>
         </div>
 
@@ -416,7 +424,7 @@ function AppearanceTab() {
 
       {/* Font Family */}
       <section>
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">Font</h3>
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">{t("settings.font.title")}</h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {fontKeys.map((f) => {
             const meta = FONT_META[f];
@@ -896,6 +904,26 @@ function AboutTab() {
 // ─── Main Settings Modal ─────────────────────────────────────────────────
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [activeTab, setActiveTab] = useState<Tab>("appearance");
+  const { t } = useI18n();
+
+  const getTabLabel = (id: Tab): string => {
+    switch (id) {
+      case "appearance":
+        return t("settings.tabs.appearance");
+      case "editor":
+        return t("settings.tabs.editor");
+      case "shortcuts":
+        return t("settings.tabs.shortcuts");
+      case "captions":
+        return t("settings.tabs.captions");
+      case "cache":
+        return t("settings.tabs.storage");
+      case "diagnostics":
+        return t("settings.tabs.diagnostics");
+      case "about":
+        return t("settings.tabs.about");
+    }
+  };
 
   const visibleTabs = TABS.filter((tab) => {
     if (platform.isCapacitor() && tab.id === "shortcuts") return false;
@@ -903,7 +931,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   });
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Settings" size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title={t("settings.modal.title")} size="lg">
       <div className="flex flex-col h-full md:flex-row overflow-hidden min-h-0">
         {/* Sidebar */}
         <aside className="w-full md:w-44 border-b md:border-b-0 md:border-r border-white/6 p-2 flex flex-row md:flex-col gap-1 overflow-x-auto md:overflow-x-visible md:overflow-y-auto scrollbar-thin shrink-0">
@@ -921,7 +949,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 }`}
               >
                 <Icon className="w-4 h-4 shrink-0" />
-                {tab.label}
+                {getTabLabel(tab.id)}
               </button>
             );
           })}

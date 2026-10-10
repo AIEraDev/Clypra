@@ -20,6 +20,7 @@ import { LayoutPresetMenu } from "./layout/LayoutPresetMenu";
 import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
 import { forceRepaintNativeProgramPreview } from "@/components/editor/preview/NativeProgramPreview";
 import { useClickOutside } from "@/hooks";
+import { useI18n } from "@/i18n";
 
 // Lazy load ExportDialog
 const ExportDialog = lazy(() => import("../ui/ExportDialog").then((m) => ({ default: m.ExportDialog })));
@@ -36,6 +37,7 @@ interface TopBarProps {
 }
 
 const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
+  const { t } = useI18n();
   const projectName = useProjectStore((s) => s.project?.name);
   const closeProject = useProjectStore((s) => s.closeProject);
   const toggleSettingsModal = useUIStore((s) => s.toggleSettingsModal);
@@ -90,8 +92,8 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
             variant="ghost"
             size="icon-sm"
             onClick={handleClose}
-            title="Back to projects"
-            aria-label="Back to projects"
+            title={t("project.backHome")}
+            aria-label={t("project.backHome")}
             className="text-text-muted hover:text-text-primary"
             style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
           >
@@ -100,9 +102,9 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
           <div className="h-4 w-px bg-border/70" aria-hidden="true" />
           <span
             className="max-w-[180px] truncate text-xs font-semibold text-text-primary sm:max-w-[320px]"
-            title={projectName}
+            title={projectName || t("common.labels.untitledProject")}
           >
-            {projectName || "Untitled project"}
+            {projectName || t("common.labels.untitledProject")}
           </span>
         </div>
 
@@ -146,7 +148,14 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
             <Smartphone className="w-3.5 h-3.5" />
           </Button>
 
-          <Button variant="ghost" size="icon-sm" onClick={toggleSettingsModal} title="Settings" style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={toggleSettingsModal}
+            title={t("settings.modal.title")}
+            aria-label={t("settings.modal.title")}
+            style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
+          >
             <Settings className="w-3.5 h-3.5" />
           </Button>
 
@@ -159,10 +168,11 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
                 onClick={() => setShowExportDialog(true)}
                 className="text-xs h-6 px-2 rounded-r-none border-r border-accent-foreground/20"
                 style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
-                title="Export Video (MP4, MOV, ProRes)"
+                title={t("export.video")}
+                aria-label={t("export.video")}
               >
                 <Upload className="w-3.5 h-3.5 mr-1" />
-                Export
+                {t("common.actions.export")}
               </Button>
               <Button
                 variant="default"
@@ -170,7 +180,8 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
                 onClick={() => setShowExportMenu((prev) => !prev)}
                 className="h-6 w-5 px-0 rounded-l-none"
                 style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
-                title="Export options & thumbnail generator"
+                title={t("common.actions.moreOptions")}
+                aria-label={t("common.actions.moreOptions")}
               >
                 <ChevronDown className="w-3 h-3" />
               </Button>
@@ -191,7 +202,7 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
                 >
                   <VideoIcon className="w-4 h-4 text-sky-400 mt-0.5 flex-shrink-0" />
                   <div className="flex flex-col">
-                    <span className="text-xs font-medium text-neutral-100">Export Video</span>
+                    <span className="text-xs font-medium text-neutral-100">{t("export.video")}</span>
                     <span className="text-[10px] text-neutral-400 leading-tight mt-0.5">
                       MP4, MOV, ProRes with GPU acceleration
                     </span>

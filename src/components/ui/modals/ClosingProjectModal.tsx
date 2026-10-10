@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useI18n } from "@/i18n";
 
 interface ClosingProjectModalProps {
   isOpen: boolean;
@@ -14,6 +15,7 @@ interface CloseStep {
 }
 
 export const ClosingProjectModal: React.FC<ClosingProjectModalProps> = ({ isOpen, projectName, onComplete }) => {
+  const { t } = useI18n();
   const [steps, setSteps] = useState<CloseStep[]>([
     { id: "save", label: "Saving project", status: "pending" },
     { id: "session", label: "Stopping preview", status: "pending" },
@@ -89,7 +91,7 @@ export const ClosingProjectModal: React.FC<ClosingProjectModalProps> = ({ isOpen
           )}
         </div>
 
-        <h2 className="text-xl font-bold text-text-primary text-center mb-2">{hasError ? "Error Closing Project" : allCompleted ? "Project Closed" : "Closing Project"}</h2>
+        <h2 className="text-xl font-bold text-text-primary text-center mb-2">{hasError ? t("errors.closingProject") : allCompleted ? "Project Closed" : "Closing Project"}</h2>
 
         <p className="text-sm text-text-muted text-center mb-6">
           {hasError ? (
@@ -146,7 +148,7 @@ export const ClosingProjectModal: React.FC<ClosingProjectModalProps> = ({ isOpen
               }}
               className="flex-1 px-4 py-2.5 text-sm font-semibold rounded-lg bg-accent text-white hover:bg-accent-soft transition-colors"
             >
-              Force Close
+              {t("common.actions.forceClose")}
             </button>
           </div>
         )}

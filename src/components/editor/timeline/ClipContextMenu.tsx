@@ -1,6 +1,7 @@
 import React from "react";
 import { ContextMenu, type ContextMenuGroup } from "@/components/ui/ContextMenu";
 import { useClipCommands } from "@/core/commands";
+import { useI18n } from "@/i18n";
 
 export interface ClipContextMenuProps {
   clickedClipId: string | null;
@@ -17,17 +18,18 @@ export const ClipContextMenu: React.FC<ClipContextMenuProps> = ({
   onClose,
   onRename,
 }) => {
+  const { t } = useI18n();
   const { groupedCommands, executeCommand } = useClipCommands(clickedClipId, clickedTrackId);
 
   const groups: ContextMenuGroup[] = groupedCommands.map((grp) => ({
     items: grp.items.map((resolved) => ({
       id: resolved.command.id,
-      label: resolved.command.label,
+      label: t(resolved.command.label),
       icon: resolved.command.icon,
       shortcut: resolved.shortcutLabel,
       danger: resolved.command.danger,
       disabled: !resolved.isEnabled,
-      disabledReason: resolved.disabledReason,
+      disabledReason: resolved.disabledReason ? t(resolved.disabledReason) : undefined,
       onClick: () => {
         if (resolved.command.id === "clip.rename" && clickedClipId && onRename) {
           onRename(clickedClipId);

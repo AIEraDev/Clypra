@@ -6,7 +6,18 @@ import { useUIStore } from "@/store/uiStore";
 import type { TrackVisualSpec } from "@/lib/timeline/trackTypeConfig";
 
 const addClipFromAsset = vi.fn();
-const getMediaAsset = vi.fn(() => ({ id: "asset-1", name: "Clip A", type: "video", duration: 5, path: "/a", size: 1 }));
+const getMediaAsset = vi.fn(() => ({
+  id: "asset-1",
+  name: "Clip A",
+  type: "video" as const,
+  duration: 5,
+  path: "/a",
+  size: 1,
+  streams: [
+    { index: 0, type: "video" as const, codec: "h264" },
+    { index: 1, type: "audio" as const, codec: "aac" },
+  ],
+}));
 
 vi.mock("react-dnd", () => ({
   useDrop: () => [{}, () => undefined],

@@ -1,6 +1,7 @@
 import React from "react";
 import { Palette, ChevronRight, ChevronLeft } from "lucide-react";
 import { BackgroundInspectorPanel } from "./BackgroundInspectorPanel";
+import { useI18n } from "@/i18n";
 
 export interface EmptyPropertiesStateProps {
   width?: number;
@@ -17,6 +18,8 @@ export const EmptyPropertiesState: React.FC<EmptyPropertiesStateProps> = ({
   onToggleCollapse,
   className = "",
 }) => {
+  const { t } = useI18n();
+
   return (
     <div
       className={`min-h-0 panel-shell flex flex-col overflow-hidden select-none transition-[width] duration-150 ${
@@ -34,7 +37,7 @@ export const EmptyPropertiesState: React.FC<EmptyPropertiesStateProps> = ({
               <button
                 onClick={onToggleCollapse}
                 className="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-accent hover:bg-white/5 transition-colors cursor-pointer"
-                title="Expand properties panel"
+                title={t("properties.expand")}
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
               </button>
@@ -46,13 +49,13 @@ export const EmptyPropertiesState: React.FC<EmptyPropertiesStateProps> = ({
               <div className="w-5 h-5 rounded bg-accent/10 flex items-center justify-center">
                 <Palette className="w-3 h-3 text-accent" />
               </div>
-              <span className="text-xs font-semibold text-text-primary">Canvas & Background</span>
+              <span className="text-xs font-semibold text-text-primary">{t("properties.canvasAndBackground")}</span>
             </div>
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
                 className="w-5 h-5 flex items-center justify-center rounded text-text-muted hover:text-accent hover:bg-white/5 transition-colors cursor-pointer"
-                title="Collapse properties panel"
+                title={t("properties.collapse")}
               >
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
@@ -67,12 +70,12 @@ export const EmptyPropertiesState: React.FC<EmptyPropertiesStateProps> = ({
           <button
             onClick={onToggleCollapse}
             className="w-8 h-8 rounded-lg flex items-center justify-center text-accent bg-accent/10 hover:bg-accent/20 border border-accent/20 transition-colors cursor-pointer"
-            title="Expand Canvas & Background Settings"
+            title={t("Expand Canvas & Background Settings")}
           >
             <Palette className="w-4 h-4" />
           </button>
           <span className="text-[9px] font-semibold text-text-muted/60 uppercase tracking-widest [writing-mode:vertical-lr] select-none mt-2">
-            Properties
+            {t("properties.title")}
           </span>
         </div>
       ) : (

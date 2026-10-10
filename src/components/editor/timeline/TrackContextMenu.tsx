@@ -1,6 +1,7 @@
 import React from "react";
 import { ContextMenu, type ContextMenuGroup } from "@/components/ui/ContextMenu";
 import { useTimelineCommands } from "@/core/commands";
+import { useI18n } from "@/i18n";
 
 export interface TrackContextMenuProps {
   trackId: string;
@@ -20,17 +21,18 @@ export const TrackContextMenu: React.FC<TrackContextMenuProps> = ({
   position,
   onClose,
 }) => {
+  const { t } = useI18n();
   const { groupedCommands, executeCommand } = useTimelineCommands(trackId, 0);
 
   const groups: ContextMenuGroup[] = groupedCommands.map((grp) => ({
     items: grp.items.map((resolved) => ({
       id: resolved.command.id,
-      label: resolved.command.label,
+      label: t(resolved.command.label),
       icon: resolved.command.icon,
       shortcut: resolved.shortcutLabel,
       danger: resolved.command.danger,
       disabled: !resolved.isEnabled,
-      disabledReason: resolved.disabledReason,
+      disabledReason: resolved.disabledReason ? t(resolved.disabledReason) : undefined,
       onClick: () => {
         executeCommand(resolved.command.id);
         onClose();

@@ -68,6 +68,7 @@ import {
   tracePlayback,
   traceSlowPlaybackStage,
 } from "@/core/playback/playbackTrace";
+import { traceAudioEvent } from "@/core/playback/audioTrace"; // INVESTIGATION ONLY — remove before Phase 6
 import {
   nativePerfCollector,
   type NativePerfSpan,
@@ -3160,9 +3161,7 @@ export const NativeProgramPreview: React.FC = () => {
         // first position sample, so no audio gate is needed here.
         // See: docs/preview/NATIVE_SURFACE_ARCHITECTURE.md — §Playback Architecture
         const nativePlaybackPath =
-          isTauriRuntime() &&
-          Boolean(nativePlaybackRequest) &&
-          isPlaying;
+          isTauriRuntime() && Boolean(nativePlaybackRequest) && isPlaying;
         const nativePausedPath =
           isTauriRuntime() && Boolean(nativeRequest) && !isPlaying;
 
@@ -3297,9 +3296,9 @@ export const NativeProgramPreview: React.FC = () => {
           !deferWebViewFallbackForNativeStartup;
         // Keep the presenter decision explicit in telemetry. A slow bridge
         // sample is otherwise indistinguishable from a native surface that
-        // was expected to engage but never did. Use distinct codes so A/B
-        // sessions (VITE_CLYPRA_NATIVE_SURFACE=1) are distinguishable from
-        // bridge-only builds and qualification runs.
+        // was expected to engage but never did. Use distinct codes so forced-bridge
+        // sessions (VITE_CLYPRA_NATIVE_SURFACE=0) are distinguishable from
+        // default native sessions and qualification runs.
         const presenterFallbackReason = EMBEDDED_PREVIEW_ONLY
           ? "embedded-only-flag"
           : qualificationForcesWebView
@@ -4917,7 +4916,15 @@ export const NativeProgramPreview: React.FC = () => {
         disabled={clips.length === 0}
         onPlayPause={() => {
           if (clips.length === 0) return;
+          // INVESTIGATION ONLY — remove before Phase 6
+          traceAudioEvent("T0", "Play button click", {
+            source: "ConnectedProgramTransport",
+          });
           setActiveContext?.("program");
+          // INVESTIGATION ONLY — remove before Phase 6
+          if (clock.state !== "playing") {
+            traceAudioEvent("T1", "transport.play() entry", {});
+          }
           clock.state === "playing" ? transportPause() : transportPlay();
         }}
         onSeek={(time) => {
