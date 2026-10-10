@@ -56,12 +56,14 @@ When an agent receives any new request, it must automatically evaluate the task 
 | **Bug hunt, bug bash, reliability audit, defect discovery, adversarial review, find bugs** | `clypra-bug-hunter` | `bugfix-regression`, `behavior-coverage` |
 | **Crash, freeze, bug, regression, unexpected error, broken, drift, mismatch** | `bugfix-regression` | `behavior-coverage`, `clypra-media-regression-testing` |
 | **Translation, language, locale, i18n, l10n, Russian, Spanish, Japanese, German, French, Korean, Chinese, catalog, formatting** | `i18n-localization-engineering` | `behavior-coverage` |
+| **UI design, usability review, layout, component, accessibility, interaction, WCAG, design tokens, focus navigation** | `clypra-ui-ux-engineering` | `i18n-localization-engineering`, `behavior-coverage`, `tauri-cross-platform-engineering` |
 | **New tool, new button, new panel, new effect, filter, export option, new UI feature** | `feature-implementation` | `behavior-coverage`, `senior-engineer-decision-making` |
 | **Timeline math, SMPTE, timecode, framerate, fps, split, ripple, gap engine, AV sync** | `nle-domain-engineering` | `clypra-media-regression-testing`, `behavior-coverage` |
 | **Native preview, canvas/bridge, wgpu, Metal, DirectX, frame pacing, dropped frames, preview benchmark, readback cost** | `clypra-preview-performance-engineering` | `performance-reliability-engineering`, `nle-domain-engineering`, `tauri-cross-platform-engineering` |
 | **Perf logs, session logs, ndjson, telemetry analysis, remote session, frame timing trace, performance incident, latency spike** | `clypra-performance-log-analysis` | `clypra-preview-performance-engineering`, `clypra-bug-hunter`, `performance-reliability-engineering` |
 | **Lag, stutter, frame drop, high memory usage, IPC bottleneck, cache exhaustion, leaks** | `performance-reliability-engineering` | `clypra-dev` |
 | **Windows paths, macOS menus, Linux WebKitGTK, Tauri commands, IPC invoke, OS dialogs** | `tauri-cross-platform-engineering` | `architecture-design-review` |
+| **Tauri native API, OS window, HWND, NSWindow, GTK, GtkWindow, SetWindowPos, addChildWindow, run_on_main_thread, native UI thread safety, thread affinity, platform event loop, SIGTRAP, EXC_BREAKPOINT** | `tauri-native-thread-safety` | `tauri-cross-platform-engineering`, `bugfix-regression` |
 | **EvaluatedScene, thumbnail cache, filmstrip, decode pipeline, GPU compositor** | `clypra-media-regression-testing` | `nle-domain-engineering` |
 | **Subsystem boundary, store reorganization, persistence schema change, refactor** | `architecture-design-review` | `senior-engineer-decision-making` |
 | **Version bump, packaged installer (.dmg, .msi, .deb), sidecar binary, release audit** | `release-readiness` | `tauri-cross-platform-engineering` |
@@ -103,6 +105,26 @@ When an agent receives any new request, it must automatically evaluate the task 
 | Activates for   | Local/remote diagnostics, performance logs, profiler traces, session comparisons and regression investigations                      |
 | Related skills  | `clypra-preview-performance-engineering`, `clypra-bug-hunter`, `performance-reliability-engineering`, `nle-domain-engineering`      |
 | Required output | Session inventory, reconstructed timeline, findings with confidence, cross-session comparability assessment and recommended actions |
+
+### 3.5 Dedicated UI/UX Engineering Skill Registration
+
+| Field | Value |
+| :--- | :--- |
+| Skill | `clypra-ui-ux-engineering` |
+| Path | `.agents/skills/clypra-ui-ux-engineering/SKILL.md` |
+| Activates for | UI implementation, usability reviews, design consistency, accessibility, desktop layout and interaction changes |
+| Related skills | `i18n-localization-engineering`, `clypra-bug-hunter`, `tauri-cross-platform-engineering`, behavior testing and Playwright |
+| Required evidence | Relevant workflow verification, visual inspection where available, accessibility checks and actual test results |
+
+### 3.6 Dedicated Native Thread Safety Skill Registration
+
+| Field | Value |
+| :--- | :--- |
+| Skill | `tauri-native-thread-safety` |
+| Path | `.agents/skills/tauri-native-thread-safety/SKILL.md` |
+| Activates for | Native OS window operations, AppKit NSWindow, Win32 HWND, Linux GTK, graphics surfaces, run_on_main_thread, thread affinity |
+| Related skills | `tauri-cross-platform-engineering`, `bugfix-regression`, `performance-reliability-engineering` |
+| Required evidence | Thread-affinity audit, dispatch boundary verification, atomic lifecycle state transitions, unit tests, and platform checks |
 
 ---
 

@@ -546,7 +546,7 @@ pub(crate) fn lookahead_frames_for_rate(frame_rate: u32) -> usize {
     if frame_rate >= 50 {
         4
     } else {
-        2
+        NATIVE_PREVIEW_LOOKAHEAD_FRAMES
     }
 }
 

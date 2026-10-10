@@ -6,7 +6,9 @@ use std::sync::Arc;
 use tauri::Manager;
 use tokio::sync::broadcast;
 
-use crate::thumbnail_engine::decoder::{get_decoder, release_decoder};
+use crate::thumbnail_engine::decoder::{
+    get_decoder, get_preview_decoder, get_preview_decoder_for_stream, release_decoder,
+};
 use crate::thumbnail_engine::geometry::fit_preserving_aspect;
 use crate::thumbnail_engine::pyramid::RawRgbaFrame;
 use crate::thumbnail_engine::{
@@ -1225,7 +1227,17 @@ pub async fn prewarm_decoders(video_paths: Vec<String>) -> Result<usize, String>
 
         for path in chunk {
             let path = path.clone();
-            let handle = tokio::spawn(async move { get_decoder(&path).await.is_ok() });
+            let handle = tokio::spawn(async move {
+                if let Some((file_path, stream_id)) = path.split_once("::stream::") {
+                    get_preview_decoder_for_stream(file_path, stream_id)
+                        .await
+                        .is_ok()
+                } else {
+                    let thumb_ok = get_decoder(&path).await.is_ok();
+                    let preview_ok = get_preview_decoder(&path).await.is_ok();
+                    thumb_ok || preview_ok
+                }
+            });
             handles.push(handle);
         }
 
@@ -1376,3 +1388,25 @@ pub async fn check_coarse_baseline_cache(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn prewarm_decoders_empty_returns_zero() {
+        let result = prewarm_decoders(vec![]).await;
+        assert_eq!(result, Ok(0));
+    }
+
+    #[tokio::test]
+    async fn prewarm_decoders_invalid_paths_degrades_gracefully() {
+        let paths = vec![
+            "/nonexistent/video1.mp4".to_string(),
+            "/nonexistent/video2.mp4::stream::clip-99".to_string(),
+        ];
+        let result = prewarm_decoders(paths).await;
+        assert_eq!(result, Ok(0));
+    }
+}
+

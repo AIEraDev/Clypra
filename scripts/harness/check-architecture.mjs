@@ -105,6 +105,80 @@ try {
   failures.push(`Multi-Agent Skills Sync Failed: ${err.message}`);
 }
 
+// ── Check 7: Cross-Platform Native UI Thread Safety (Invariant 16) ──────────
+// Invariant: Native OS window operations (AppKit NSWindow on macOS, Win32 HWND
+// on Windows, GTK GtkWidget on Linux) must only be called from the main thread.
+// Direct calls from background Tokio threads cause EXC_BREAKPOINT SIGTRAP on
+// macOS, message loop deadlocks / DWM layer stalls on Windows, and GLib assertion
+// aborts on Linux. show_surface(), hide_surface(), and reset() must all dispatch
+// via run_on_main_thread.
+try {
+  const nativeSurfacePath = path.join(
+    root,
+    "src-tauri/src/commands/native_surface.rs",
+  );
+  const nsContent = await readFile(nativeSurfacePath, "utf8");
+
+  // Extract all text that is NOT inside a run_on_main_thread closure.
+  // Strategy: split on "run_on_main_thread" blocks, check the non-closure portions.
+  // We check for patterns that should only appear inside those closures.
+  const methodBodies = nsContent
+    // Remove single-line comments
+    .replace(/\/\/[^\n]*/g, "")
+    // Remove configure_surface (it's a free fn that is itself called on main thread)
+    .replace(/fn configure_surface[\s\S]*?(?=\n\/\/|^#\[tauri|^pub\s)/m, "");
+
+  // Detect bare window method calls (.show(), .hide(), .close()) at the method
+  // signature level (i.e., outside a run_on_main_thread closure).
+  // We look for these patterns appearing in show_surface / hide_surface / reset
+  // fn bodies BEFORE a run_on_main_thread call — that would be the violation.
+  // Because the source uses `sw.show()` inside the closure (safe), we look for
+  // surface_window.show() / window.show() / w.show() that are NOT inside closures.
+  const bareShowPattern = /\bsurface_window\s*\.\s*show\s*\(\)/;
+  const bareHidePattern = /\bwindow\s*\.\s*hide\s*\(\)\s*\.map_err/; // hide w/o dispatch
+  const bareClosePattern = /\bwindow\s*\.\s*close\s*\(\)\s*;(?!\s*\})/; // direct .close() not in closure
+
+  // Simpler check: ensure run_on_main_thread appears in each of these function bodies
+  const showSurfaceFn = nsContent.match(
+    /pub\(crate\)\s+fn\s+show_surface[\s\S]*?(?=\n\s{4}pub\(crate\)\s+fn|\n\s{4}pub\s+fn|\n\})/,
+  );
+  const hideSurfaceFn = nsContent.match(
+    /pub\(crate\)\s+fn\s+hide_surface[\s\S]*?(?=\n\s{4}pub\(crate\)\s+fn|\n\s{4}pub\s+fn|\n\})/,
+  );
+  const resetFn = nsContent.match(
+    /pub\(crate\)\s+fn\s+reset[\s\S]*?(?=\n\s{4}pub\(crate\)\s+fn|\n\s{4}pub\s+fn|\n\})/,
+  );
+
+  let nativeThreadViolations = 0;
+
+  if (showSurfaceFn && !showSurfaceFn[0].includes("run_on_main_thread")) {
+    failures.push(
+      "Architectural Violation [Domain 8, Invariant 16]: NativeSurfaceRuntime::show_surface() does not dispatch to the main thread via run_on_main_thread. Direct AppKit/Win32 window calls from Tokio workers cause EXC_BREAKPOINT SIGTRAP on macOS 26+.",
+    );
+    nativeThreadViolations++;
+  }
+  if (hideSurfaceFn && !hideSurfaceFn[0].includes("run_on_main_thread")) {
+    failures.push(
+      "Architectural Violation [Domain 8, Invariant 16]: NativeSurfaceRuntime::hide_surface() does not dispatch to the main thread via run_on_main_thread. window.hide() is an AppKit-restricted operation.",
+    );
+    nativeThreadViolations++;
+  }
+  if (resetFn && !resetFn[0].includes("run_on_main_thread")) {
+    failures.push(
+      "Architectural Violation [Domain 8, Invariant 16]: NativeSurfaceRuntime::reset() does not dispatch window.close() to the main thread via run_on_main_thread.",
+    );
+    nativeThreadViolations++;
+  }
+
+  if (nativeThreadViolations === 0) {
+    console.log(
+      "✅ [Domain 8: Native Thread Safety] show_surface, hide_surface, and reset all dispatch via run_on_main_thread (Invariant 16).",
+    );
+  }
+} catch (err) {
+  failures.push(`Native UI Thread Safety Check Failed: ${err.message}`);
+}
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 console.log("--------------------------------------------------");
 if (failures.length > 0) {

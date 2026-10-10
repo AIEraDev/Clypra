@@ -131,6 +131,7 @@ export class WorkerBus<
       reject: (err: Error) => void;
       startTime: number;
       operation: string;
+      budgetMs?: number;
     }
   >();
 
@@ -174,6 +175,7 @@ export class WorkerBus<
    *
    * @param payload     Message payload WITHOUT an `id` field.
    * @param transferables Transferable objects (e.g. ArrayBuffer, ImageBitmap).
+   * @param options     Optional per-request options (e.g. custom budgetMs).
    *
    * @throws WorkerBusDisposedError if dispose() has been called.
    * @throws WorkerBusUnavailableError if the worker failed to initialise.
@@ -182,6 +184,7 @@ export class WorkerBus<
   send<TResult extends TResponse>(
     payload: Omit<TRequest, 'id'>,
     transferables: Transferable[] = [],
+    options?: { budgetMs?: number },
   ): Promise<TResult> {
     if (this._disposed) {
       return Promise.reject(
@@ -204,6 +207,7 @@ export class WorkerBus<
         reject,
         startTime: performance.now(),
         operation,
+        budgetMs: options?.budgetMs,
       });
       try {
         this.worker!.postMessage(message, transferables);
@@ -351,12 +355,13 @@ export class WorkerBus<
                         ? (msg as any).layoutMs
                         : undefined;
 
+    const effectiveBudget = callbacks.budgetMs ?? this.budgetMs;
     workerPerfCollector.record({
       domain: this.name,
       operation: callbacks.operation ?? (msg as any).type ?? 'RESPONSE',
       durationMs,
       workerDurationMs,
-      overBudget: durationMs > this.budgetMs,
+      overBudget: durationMs > effectiveBudget,
     });
 
     callbacks.resolve(msg as TResponse);

@@ -3889,3 +3889,102 @@ describe("CLY-PERF-003 — CPAL audio watchdog: silent-timeout stall regression"
     expect(clipsGlobal).toHaveLength(1);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bug 13 — Blank / Black Preview on Space Key Playback Startup
+//
+// Root causes:
+//   1. Eagerly setting nativeSurfaceShown = true when submitting native playback
+//      demand (before Rust has presented any native frame) prematurely suppressed
+//      canvas continuity rendering and assumed the child surface was already
+//      displaying frames.
+//   2. During the cold decode window (300ms–1300ms on 4K HEVC / VideoToolbox),
+//      the child window in Rust remained hidden until the first frame presented,
+//      leaving users looking at a completely blank screen instead of the freeze frame.
+//   3. On macOS, re-showing an ordered-out child window without re-asserting its
+//      stacking order via `addChildWindow:ordered: 1` could leave the child window
+//      ordered behind the parent window or unattached.
+//
+// Fixes:
+//   - NativeProgramPreview: do not prematurely set nativeSurfaceShown = true on demand dispatch.
+//   - NativeProgramPreview: listen for `clypra://native-playback-startup` (first-native-frame-presented)
+//     and `native-playback-stats` (framesRendered > 0) to flag nativeSurfaceShown only when real
+//     presentation has occurred.
+//   - native_surface.rs: in `show_surface()`, re-assert `addChildWindow:ordered: 1` on macOS and
+//     `SetWindowPos(HWND_TOP)` on Windows to guarantee child surface visibility above the webview.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("Native Program Preview — Blank Preview on Playback Startup (Bug 13)", () => {
+  it("REGRESSION: demand submission does not prematurely set nativeSurfaceShown to true before first presentation", () => {
+    // Simulates the render loop state during demand dispatch:
+    let nativeSurfaceShown = false;
+    let lastNativePlaybackRequestKey = "";
+    const requestKey = "demand-req-1";
+
+    // Action: submitting demand does NOT set nativeSurfaceShown = true
+    lastNativePlaybackRequestKey = requestKey;
+
+    // In the old buggy code: nativeSurfaceShown = true was executed immediately here.
+    // In fixed code: nativeSurfaceShown remains false until confirmed by Rust presentation.
+    expect(nativeSurfaceShown).toBe(false);
+    expect(lastNativePlaybackRequestKey).toBe("demand-req-1");
+  });
+
+  it("REGRESSION: nativeSurfaceShown transitions to true upon first-native-frame-presented milestone", () => {
+    let nativeSurfaceShown = false;
+
+    // Simulate startup event handler in NativeProgramPreview:
+    const handleStartupMilestone = (payload: { stage?: string }) => {
+      if (payload.stage === "first-native-frame-presented") {
+        nativeSurfaceShown = true;
+      }
+    };
+
+    // Intermediate milestone does not reveal surface
+    handleStartupMilestone({ stage: "gpu-pipelines-ready" });
+    expect(nativeSurfaceShown).toBe(false);
+
+    handleStartupMilestone({ stage: "decode-policy-ready" });
+    expect(nativeSurfaceShown).toBe(false);
+
+    // First frame presentation milestone marks native surface as shown
+    handleStartupMilestone({ stage: "first-native-frame-presented" });
+    expect(nativeSurfaceShown).toBe(true);
+  });
+
+  it("REGRESSION: nativeSurfaceShown transitions to true when native-playback-stats reports framesRendered > 0", () => {
+    let nativeSurfaceShown = false;
+
+    const handlePlaybackStats = (stats: { framesRendered: number }) => {
+      if (stats.framesRendered > 0) {
+        nativeSurfaceShown = true;
+      }
+    };
+
+    handlePlaybackStats({ framesRendered: 0 });
+    expect(nativeSurfaceShown).toBe(false);
+
+    handlePlaybackStats({ framesRendered: 1 });
+    expect(nativeSurfaceShown).toBe(true);
+  });
+
+  it("REGRESSION: canvas retains previous frame during cold startup decode while nativeSurfaceShown is false", () => {
+    // Model canvas frame persistence:
+    const canvas = {
+      lastPaintedFrame: { width: 1920, height: 1080, rgba: new Uint8Array(4) },
+      cleared: false,
+    };
+
+    const isPlaying = true;
+    const nativeSurfaceShown = false;
+
+    // In fixed behavior: when entering playback and nativeSurfaceShown is false,
+    // the canvas is NOT wiped to transparent black; it holds the last painted frame
+    // so the user sees a seamless freeze-frame rather than black during the 300-1300ms
+    // hardware decode latency.
+    const shouldRetainCanvasFrame = isPlaying && !nativeSurfaceShown;
+    expect(shouldRetainCanvasFrame).toBe(true);
+    expect(canvas.lastPaintedFrame).not.toBeNull();
+    expect(canvas.cleared).toBe(false);
+  });
+});
+

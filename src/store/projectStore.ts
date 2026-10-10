@@ -1088,10 +1088,19 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
             (a) => a.type === "video",
           );
           if (videoAssets.length > 0) {
-            const videoPaths = videoAssets.map((a) => a.path);
+            const videoPaths = videoAssets.map((a) => a.path).filter(Boolean);
+            const streamKeys: string[] = [];
+            for (const track of payload?.tracks ?? []) {
+              for (const clip of track.clips ?? []) {
+                const asset = videoAssets.find((a) => a.id === clip.mediaId);
+                if (asset?.path && clip.id) {
+                  streamKeys.push(`${asset.path}::stream::${clip.id}`);
+                }
+              }
+            }
             // This is part of the open barrier so first play cannot compete
             // with native decoder initialization.
-            await prewarmDecoders(videoPaths);
+            await prewarmDecoders([...new Set([...videoPaths, ...streamKeys])]);
           }
         } catch (err) {
           // The platform helper already degrades safely; keep opening if the

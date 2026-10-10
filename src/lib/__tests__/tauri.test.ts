@@ -583,6 +583,18 @@ describe("prewarmDecoders", () => {
     expect(result).toBe(2);
   });
 
+  it("normalizes paths with stream IDs and calls prewarm_decoders", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(1);
+    const result = await prewarmDecoders([
+      "file:///Users/test/a.mp4::stream::clip-1",
+    ]);
+
+    expect(invoke).toHaveBeenCalledWith("prewarm_decoders", {
+      videoPaths: ["/Users/test/a.mp4::stream::clip-1"],
+    });
+    expect(result).toBe(1);
+  });
+
   it("gracefully catches errors and returns 0", async () => {
     vi.mocked(invoke).mockRejectedValueOnce(new Error("Channel closed"));
     const result = await prewarmDecoders(["/test/video.mp4"]);

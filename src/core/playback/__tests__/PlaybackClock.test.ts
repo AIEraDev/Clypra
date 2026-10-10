@@ -356,5 +356,61 @@ describe("PlaybackClock: RAF Generation Counter", () => {
       clock.setNativeClockPosition(4.94, 1.0);
       expect(clock.time).toBeCloseTo(4.94, 2);
     });
+
+    it("CLY-PERF-001: rejects stale in-flight native audio poll from pre-seek position during active backward seek", () => {
+      const clock = new PlaybackClock();
+      clock.setNativeClockAuthority(true);
+      clock.setDuration(30.0);
+      clock.play();
+
+      clock.setNativeClockPosition(10.0, 1.0);
+      expect(clock.time).toBeCloseTo(10.0, 2);
+
+      // User seeks backward to 2.0s while playing
+      clock.seek(2.0);
+      expect(clock.isSeeking).toBe(true);
+      expect(clock.time).toBeCloseTo(2.0, 2);
+
+      // In-flight poll dispatched before the seek reaches the JS thread with pre-seek position
+      clock.setNativeClockPosition(10.05, 1.0);
+      // The stale poll must be rejected; clock time must stay at seek target 2.0
+      expect(clock.time).toBeCloseTo(2.0, 2);
+
+      // Once native audio arrives at the seek target, it is accepted
+      clock.setNativeClockPosition(2.02, 1.0);
+      expect(clock.time).toBeCloseTo(2.02, 2);
+
+      clock.completeSeek();
+      expect(clock.isSeeking).toBe(false);
+      expect(clock.time).toBeCloseTo(2.02, 2);
+    });
+
+    it("CLY-PERF-001: rejects stale lagging pre-seek sample during active forward seek", () => {
+      const clock = new PlaybackClock();
+      clock.setNativeClockAuthority(true);
+      clock.setDuration(30.0);
+      clock.play();
+
+      clock.setNativeClockPosition(2.0, 1.0);
+      expect(clock.time).toBeCloseTo(2.0, 2);
+
+      // User seeks forward to 15.0s
+      clock.seek(15.0);
+      expect(clock.isSeeking).toBe(true);
+      expect(clock.time).toBeCloseTo(15.0, 2);
+
+      // Lagging poll from before seek arrives
+      clock.setNativeClockPosition(2.05, 1.0);
+      // Must not wipe out seek target
+      expect(clock.time).toBeCloseTo(15.0, 2);
+
+      // Native audio completes seek to 15.0s
+      clock.setNativeClockPosition(15.01, 1.0);
+      expect(clock.time).toBeCloseTo(15.01, 2);
+
+      clock.completeSeek();
+      expect(clock.isSeeking).toBe(false);
+      expect(clock.time).toBeCloseTo(15.01, 2);
+    });
   });
 });

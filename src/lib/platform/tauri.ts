@@ -627,6 +627,15 @@ export function listenForNativePlaybackStats(
   });
 }
 
+/** Listen for native playback startup milestones emitted by Rust. */
+export function listenForNativePlaybackStartup(
+  onMilestone: (payload: { stage?: string }) => void,
+): Promise<UnlistenFn> {
+  return listen<{ stage?: string }>("clypra://native-playback-startup", (event) => {
+    onMilestone(event.payload);
+  });
+}
+
 /** Listen for real-time QoS decisions emitted by the native media engine. */
 export function listenForEngineQoSDecision(
   onDecision: (decision: unknown) => void,
@@ -1461,7 +1470,13 @@ export async function prewarmDecoders(videoPaths: string[]): Promise<number> {
     return 0;
   }
 
-  const normalizedPaths = videoPaths.map((p) => toNativePath(p));
+  const normalizedPaths = videoPaths.map((p) => {
+    if (p.includes("::stream::")) {
+      const [path, streamId] = p.split("::stream::");
+      return `${toNativePath(path)}::stream::${streamId}`;
+    }
+    return toNativePath(p);
+  });
 
   try {
     const count = await invoke<number>("prewarm_decoders", {

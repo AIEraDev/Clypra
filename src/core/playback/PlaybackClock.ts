@@ -401,16 +401,35 @@ export class PlaybackClock {
       ? Math.max(0.1, Math.min(4, speed))
       : this._speed;
     const clampedTime = Math.max(0, Math.min(time, this._duration));
+    const backwardTolerance = Math.max(0.05, 1 / this._frameRate);
+
+    // CLY-PERF-001: While an explicit seek is in flight, the hardware audio engine
+    // has not yet settled at the seek target. Any incoming poll whose position is
+    // far from this._time is a stale pre-seek sample and must be rejected so it does
+    // not clobber the user-commanded seek target.
+    if (this._isSeeking) {
+      if (
+        this._seekStartedAtMs > 0 &&
+        performance.now() - this._seekStartedAtMs > PlaybackClock.SEEK_TIMEOUT_MS
+      ) {
+        this.completeSeek();
+      } else if (Math.abs(clampedTime - this._time) > backwardTolerance) {
+        return;
+      }
+    }
+
     // Capture the UI-side extrapolation before replacing it with the newest
     // authoritative native sample. This measures clock/poll divergence only;
     // backend video-vs-audio drift is recorded in the native presentation path.
     const currentExtrapolated = this.time;
-    recordAudioPoll(
-      clampedTime * 1000,
-      currentExtrapolated * 1000,
-      pollRttMs,
-      sampledAtNs,
-    );
+    if (!this._isSeeking) {
+      recordAudioPoll(
+        clampedTime * 1000,
+        currentExtrapolated * 1000,
+        pollRttMs,
+        sampledAtNs,
+      );
+    }
 
     // INVESTIGATION ONLY — remove before Phase 6
     traceAudioEvent("T9", "Native poll sample", {
@@ -422,7 +441,6 @@ export class PlaybackClock {
         : null,
     });
 
-    const backwardTolerance = Math.max(0.05, 1 / this._frameRate);
     const backwardDivergence = this._time - clampedTime;
     if (
       this._state === "playing" &&
@@ -788,7 +806,13 @@ export class PlaybackClock {
     const elapsedMs = Math.max(0, performance.now() - this._seekStartedAtMs);
 
     this._isSeeking = false;
-    if (
+    if (this._nativeClockAuthority || this._nativeClockPosition) {
+      this._nativeClockPosition = {
+        time: this._time,
+        receivedAtMs: performance.now(),
+        speed: this._speed,
+      };
+    } else if (
       this._state === "playing" &&
       this._audioContext &&
       !this._nativeClockAuthority

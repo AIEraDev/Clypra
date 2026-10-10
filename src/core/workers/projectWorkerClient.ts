@@ -161,10 +161,14 @@ export class ProjectWorkerClient {
     }
 
     try {
-      await this.bus.send<ClearOpfsResult>({
-        type: "CLEAR_OPFS",
-        filename,
-      } as any);
+      await this.bus.send<ClearOpfsResult>(
+        {
+          type: "CLEAR_OPFS",
+          filename,
+        } as any,
+        [],
+        { budgetMs: 1500 },
+      );
     } catch {
       // Non-fatal
     }

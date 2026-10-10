@@ -16,6 +16,7 @@ const NATIVE_PREVIEW_SURFACE_LABEL: &str = "native-preview-surface";
 pub struct NativeSurfaceRuntime {
     surface: Option<wgpu::Surface<'static>>,
     surface_window: Option<Window>,
+    parent_window: Option<Window>,
     probe: Option<NativeSurfaceProbe>,
     configuration: Option<wgpu::SurfaceConfiguration>,
     configured_format: Option<wgpu::TextureFormat>,
@@ -29,6 +30,7 @@ impl NativeSurfaceRuntime {
         Self {
             surface: None,
             surface_window: None,
+            parent_window: None,
             probe: None,
             configuration: None,
             configured_format: None,
@@ -100,21 +102,105 @@ impl NativeSurfaceRuntime {
         if self.is_shown.load(Ordering::Acquire) {
             return Ok(());
         }
-        self.surface_window
+        let surface_window = self
+            .surface_window
             .as_ref()
-            .ok_or_else(|| "Native preview surface window is not initialized".to_string())?
-            .show()
-            .map_err(|error| format!("Unable to show native preview surface: {error}"))?;
+            .ok_or_else(|| "Native preview surface window is not initialized".to_string())?;
+
+        // ARCHITECTURE INVARIANT 16: All AppKit NSWindow operations and Win32 window
+        // operations MUST execute on the main UI thread. This method is called from
+        // Tokio render workers (native_preview, native_playback render loops). Dispatch
+        // ALL window operations via run_on_main_thread. This is fire-and-forget
+        // (non-blocking to the caller). `is_shown` is set optimistically after successful
+        // dispatch to prevent duplicate dispatch on the next render frame.
+        // If the closure fails (logged as warn), the next frame will not retry show —
+        // a failed show indicates a window lifecycle problem that configure_surface should
+        // resolve on the next session.
+        let sw = surface_window.clone();
+
+        #[cfg(target_os = "macos")]
+        let parent_clone = self.parent_window.clone();
+
+        surface_window
+            .run_on_main_thread(move || {
+                if let Err(e) = sw.show() {
+                    log::warn!("[NativeSurface] show_surface: window.show() failed: {e}");
+                    return;
+                }
+
+                // Re-assert child-window stacking on every show to survive macOS
+                // Spaces / full-screen transitions that can unparent the child.
+                #[cfg(target_os = "macos")]
+                unsafe {
+                    if let Some(parent) = &parent_clone {
+                        if let (Ok(ns_win), Ok(parent_ns_win)) =
+                            (sw.ns_window(), parent.ns_window())
+                        {
+                            let _: () = objc2::msg_send![
+                                parent_ns_win as *mut objc2::runtime::AnyObject,
+                                addChildWindow: ns_win as *mut objc2::runtime::AnyObject,
+                                ordered: 1isize // NSWindowAbove = 1
+                            ];
+                        }
+                    }
+                }
+
+                // On Windows, ensure the surface is at the top of its z-order tier
+                // after being revealed, in case DWM has reordered windows.
+                #[cfg(target_os = "windows")]
+                unsafe {
+                    if let Ok(hwnd) = sw.hwnd() {
+                        const HWND_TOP: *mut std::ffi::c_void = 0isize as *mut std::ffi::c_void;
+                        const SWP_NOSIZE: u32 = 0x0001;
+                        const SWP_NOMOVE: u32 = 0x0002;
+                        const SWP_NOACTIVATE: u32 = 0x0010;
+                        const SWP_FRAMECHANGED: u32 = 0x0020;
+                        extern "system" {
+                            fn SetWindowPos(
+                                hwnd: *mut std::ffi::c_void,
+                                hwnd_insert_after: *mut std::ffi::c_void,
+                                x: i32,
+                                y: i32,
+                                cx: i32,
+                                cy: i32,
+                                u_flags: u32,
+                            ) -> i32;
+                        }
+                        SetWindowPos(
+                            hwnd.0,
+                            HWND_TOP,
+                            0,
+                            0,
+                            0,
+                            0,
+                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+                        );
+                    }
+                }
+            })
+            .map_err(|error| format!("Unable to dispatch show_surface to main thread: {error}"))?;
+
+        // Mark as shown optimistically after successful dispatch. The main-thread
+        // closure is queued but not yet executed; the flag prevents duplicate
+        // dispatch on the next render frame.
         self.is_shown.store(true, Ordering::Release);
         Ok(())
     }
 
     pub(crate) fn hide_surface(&self) -> Result<(), String> {
+        // Set is_shown to false immediately (before dispatch) so that concurrent
+        // render frames see the surface as hidden and stop attempting to present.
+        // window.hide() is dispatched to the main thread per Invariant 16.
         self.is_shown.store(false, Ordering::Release);
         if let Some(window) = &self.surface_window {
-            window
-                .hide()
-                .map_err(|error| format!("Unable to hide native preview surface: {error}"))?;
+            let w = window.clone();
+            // run_on_main_thread failure (e.g. event loop shut down) is non-fatal
+            // for hide — the window will be destroyed with the session anyway.
+            let _ = window.run_on_main_thread(move || {
+                if let Err(e) = w.hide() {
+                    log::warn!("[NativeSurface] hide_surface: window.hide() failed: {e}");
+                }
+            });
         }
         Ok(())
     }
@@ -146,13 +232,20 @@ impl NativeSurfaceRuntime {
         // after the next session has started.
         self.surface = None;
         let surface_window = self.surface_window.take();
+        self.parent_window = None;
         self.probe = None;
         self.configuration = None;
         self.configured_format = None;
         self.last_presentation_sequence = 0;
         self.runtime_epoch = self.runtime_epoch.wrapping_add(1);
         if let Some(window) = surface_window {
-            let _ = window.close();
+            // window.close() is a main-thread-only AppKit/Win32 operation.
+            // Dispatch to main thread per Invariant 16. Failure is non-fatal
+            // because the window will be dropped along with this struct anyway.
+            let w = window.clone();
+            let _ = window.run_on_main_thread(move || {
+                let _ = w.close();
+            });
         }
     }
 }
@@ -233,10 +326,11 @@ fn configure_surface(
         state.handle_poison_recovery("configure_surface");
         state
     });
+    let parent = app.get_window("main").unwrap_or(window);
+    runtime_state.parent_window = Some(parent.clone());
     let surface_window = if let Some(surface_window) = runtime_state.surface_window.clone() {
         #[cfg(target_os = "macos")]
         unsafe {
-            let parent = app.get_window("main").unwrap_or(window);
             if let (Ok(ns_win), Ok(parent_ns_win)) =
                 (surface_window.ns_window(), parent.ns_window())
             {
@@ -249,7 +343,6 @@ fn configure_surface(
         }
         surface_window
     } else {
-        let parent = app.get_window("main").unwrap_or(window);
         let dpr = if geometry.device_pixel_ratio > 0.0 {
             geometry.device_pixel_ratio as f64
         } else {
@@ -705,6 +798,46 @@ mod tests {
         assert!(!runtime.is_shown());
 
         runtime.reset();
+        assert!(!runtime.is_shown());
+    }
+
+    #[test]
+    fn show_surface_is_idempotent_without_window() {
+        // A runtime with no surface_window configured returns an error —
+        // it cannot dispatch to main thread without a window handle.
+        let runtime = NativeSurfaceRuntime::new();
+        let result = runtime.show_surface();
+        assert!(result.is_err(), "show_surface without window should error");
+        assert!(!runtime.is_shown(), "is_shown must remain false after error");
+    }
+
+    #[test]
+    fn hide_surface_without_window_clears_shown_flag() {
+        // hide_surface without a configured window clears is_shown without error.
+        let runtime = NativeSurfaceRuntime::new();
+        let result = runtime.hide_surface();
+        assert!(result.is_ok());
+        assert!(!runtime.is_shown());
+    }
+
+    #[test]
+    fn show_after_reset_requires_reconfiguration() {
+        let mut runtime = NativeSurfaceRuntime::new();
+        runtime.reset();
+        // After reset, no surface_window exists, so show must fail.
+        let result = runtime.show_surface();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn hide_clears_shown_flag_atomically() {
+        // Verify is_shown is false before the window.hide() call completes,
+        // so concurrent render frames see the updated flag immediately.
+        let runtime = NativeSurfaceRuntime::new();
+        // Set is_shown manually (simulating a previous successful show)
+        runtime.is_shown.store(true, Ordering::Release);
+        let _ = runtime.hide_surface();
+        // is_shown must be cleared even without a window (no window configured here)
         assert!(!runtime.is_shown());
     }
 }
