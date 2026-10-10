@@ -536,6 +536,11 @@ function enqueueFilmstripBatch(opts: RequestNativeFilmstripArtifactsOptions): ()
     lane.inFlight.subscribers.push(sub);
     return () => {
       sub.cancelled = true;
+      if (lane.inFlight && lane.inFlight.subscribers.every((s) => s.cancelled)) {
+        lane.inFlight.cancelFn?.();
+        lane.inFlight = null;
+        pumpFilmstripLane(opts.videoPath);
+      }
     };
   }
 
@@ -543,6 +548,12 @@ function enqueueFilmstripBatch(opts: RequestNativeFilmstripArtifactsOptions): ()
   pumpFilmstripLane(opts.videoPath);
   return () => {
     sub.cancelled = true;
+    lane.queued = lane.queued.filter((s) => !s.cancelled);
+    if (lane.inFlight && lane.inFlight.subscribers.every((s) => s.cancelled)) {
+      lane.inFlight.cancelFn?.();
+      lane.inFlight = null;
+      pumpFilmstripLane(opts.videoPath);
+    }
   };
 }
 

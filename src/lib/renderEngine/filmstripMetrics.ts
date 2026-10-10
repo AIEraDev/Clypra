@@ -64,6 +64,8 @@ export function recordRequestDispatched(tierInput: unknown): void {
   filmstripMetrics[tier].requestCount += 1;
 }
 
+export const FILMSTRIP_FIRST_ARTIFACT_BUDGET_MS = 250;
+
 export function recordFirstArtifactLatency(tierInput: unknown, ms: number): void {
   const tier = normalizeSpatialTier(tierInput);
   filmstripMetrics[tier].dispatchToFirstArtifactMs.record(ms);
@@ -71,7 +73,7 @@ export function recordFirstArtifactLatency(tierInput: unknown, ms: number): void
     domain: "filmstrip:artifact",
     operation: `fetch:${tier}`,
     durationMs: ms,
-    overBudget: ms > 16.67,
+    overBudget: ms > FILMSTRIP_FIRST_ARTIFACT_BUDGET_MS,
   });
 }
 
