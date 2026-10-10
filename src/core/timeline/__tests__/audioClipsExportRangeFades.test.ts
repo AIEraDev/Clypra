@@ -132,6 +132,10 @@ describe("audioClips — getActiveAudioClips range export fades", () => {
       width: 1920,
       height: 1080,
       size: 1,
+      streams: [
+        { index: 0, type: "video", codec: "h264" },
+        { index: 1, type: "audio", codec: "aac", channels: 2, sampleRate: 48000 },
+      ],
     };
     const compound: Clip = {
       id: "compound-1",
