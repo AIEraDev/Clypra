@@ -5,25 +5,18 @@ export const NATIVE_CORE_TIME_SCALE = 1_000_000;
 /**
  * Controls whether the wgpu child-surface presenter is allowed to engage.
  *
- * When true (the default), every frame is composited through the WebView IPC
- * bridge (RGBA readback → putImageData). This was the only safe option while
- * the child-surface z-ordering and overlay composition were untested.
- *
- * Set VITE_CLYPRA_NATIVE_SURFACE=1 to allow the native surface path. The
- * surface controller will call probe_native_surface / resize_native_surface
- * and, once geometry is settled, the render loop switches to the direct wgpu
+ * When false (default), the native surface path is engaged. The surface
+ * controller calls probe_native_surface / resize_native_surface and, once
+ * geometry is settled, the render loop switches to the direct wgpu/Metal/D3D12
  * present path. On failure the bridge fallback remains active; no user-visible
  * degradation occurs.
  *
- * This flag is intentionally NOT gated on DEV so that release builds on macOS
- * can be A/B measured before the path is promoted to the default.
- *
- * Platform scope: macOS (Metal) only for the initial gate test.
- * Windows (DXGI child-HWND) and Linux (wl_subsurface) require additional
- * compositor integration work before this flag is safe there.
+ * Set VITE_CLYPRA_NATIVE_SURFACE=0 or VITE_CLYPRA_EMBEDDED_PREVIEW_ONLY=1 to
+ * force the WebView IPC bridge readback path.
  */
 export const EMBEDDED_PREVIEW_ONLY =
-  import.meta.env.VITE_CLYPRA_NATIVE_SURFACE !== "1";
+  import.meta.env.VITE_CLYPRA_NATIVE_SURFACE === "0" ||
+  import.meta.env.VITE_CLYPRA_EMBEDDED_PREVIEW_ONLY === "1";
 
 /**
  * Keep the old native-only switch for browser test harnesses. A Tauri runtime

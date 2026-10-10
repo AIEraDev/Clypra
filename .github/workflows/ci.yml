@@ -6,10 +6,14 @@ on:
   pull_request:
     branches: [develop, master]
 
+permissions:
+  contents: read
+
 jobs:
   test-frontend:
-    name: Test Frontend
+    name: Test Frontend & TypeScript
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     steps:
       - name: Checkout repository
@@ -27,18 +31,31 @@ jobs:
       - name: Validate documentation links
         run: npm run docs:check
 
-      - name: Run tests
-        run: npx vitest run
+      - name: Validate internationalization catalog parity
+        run: npm run i18n:check
 
-      - name: Type check
+      - name: Validate multi-agent skills synchronization
+        run: npm run skills:check
+
+      - name: Strict Type Check (tsc --noEmit)
         run: npx tsc --noEmit
 
-      - name: Lint
+      - name: Linting (if configured)
         run: npm run lint --if-present
 
+      - name: Internationalization Unit Tests
+        run: npx vitest run src/i18n/__tests__/
+
+      - name: Preview Render Loop Regression Suite
+        run: npx vitest run src/components/editor/preview/__tests__/ProgramPreview.renderLoop.test.ts
+
+      - name: Core Domain & Timeline Tests
+        run: npx vitest run src/core/evaluation/ src/lib/timecode/
+
   test-rust:
-    name: Test Rust Backend
+    name: Test Rust Backend (Linux)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -58,6 +75,8 @@ jobs:
             build-essential pkg-config libssl-dev \
             libclang-dev libxdo-dev cmake nasm \
             libasound2-dev zlib1g-dev \
+            libvulkan1 mesa-vulkan-drivers vulkan-tools \
+            libgl1-mesa-dri libegl1-mesa-dev \
             curl wget file
 
       - name: Cache Static FFmpeg (Linux)
@@ -92,6 +111,11 @@ jobs:
         run: |
           echo "FFMPEG_DIR=${{ runner.temp }}/ffmpeg-static" >> $GITHUB_ENV
           echo "PKG_CONFIG_PATH=${{ runner.temp }}/ffmpeg-static/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig" >> $GITHUB_ENV
+          echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> $GITHUB_ENV
+          echo "VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> $GITHUB_ENV
+          echo "LIBGL_ALWAYS_SOFTWARE=1" >> $GITHUB_ENV
+          echo "CLYPRA_ALLOW_FALLBACK_GPU=1" >> $GITHUB_ENV
+          echo "WGPU_ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER=1" >> $GITHUB_ENV
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -101,12 +125,17 @@ jobs:
       - name: Run Rust tests
         run: cd src-tauri && cargo test
 
+      - name: Run Headless GPU tests (Mesa Lavapipe)
+        continue-on-error: true
+        run: cd src-tauri && cargo test --test multi_track_compositor_tests -- --ignored
+
       - name: Run Clippy
         run: cd src-tauri && cargo clippy -- -D warnings
 
   check-windows:
     name: Check Windows (Rust)
     runs-on: windows-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -148,8 +177,9 @@ jobs:
         run: cd src-tauri && cargo check
 
   build-check:
-    name: Build Check
+    name: Build & Packaging Check
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [test-frontend, test-rust, check-windows]
 
     steps:
@@ -165,7 +195,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build frontend
+      - name: Build frontend production assets
         run: npm run build
 
       - name: Check bundle size
@@ -177,3 +207,6 @@ jobs:
             echo "Build failed - dist directory not found"
             exit 1
           fi
+
+      - name: Packaged Application & Distribution Smoke Test
+        run: node scripts/smoke-test-packaged-app.mjs

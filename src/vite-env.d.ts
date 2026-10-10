@@ -2,15 +2,15 @@
 
 interface ImportMetaEnv {
   /**
-   * Set to "1" to enable the wgpu child-surface presenter on macOS.
-   * When unset (default), EMBEDDED_PREVIEW_ONLY=true and all frames go
-   * through the WebView IPC bridge. See src/lib/platform/nativeCore.ts.
+   * Native wgpu surface preview is enabled by default.
+   * Set to "0" to force WebView IPC bridge mode (EMBEDDED_PREVIEW_ONLY=true).
+   * See src/lib/platform/nativeCore.ts.
    *
    * Usage:
-   *   VITE_CLYPRA_NATIVE_SURFACE=1 pnpm tauri dev
-   *   VITE_CLYPRA_NATIVE_SURFACE=1 pnpm tauri build
+   *   VITE_CLYPRA_NATIVE_SURFACE=0 pnpm tauri dev (force bridge)
    */
-  readonly VITE_CLYPRA_NATIVE_SURFACE?: "1";
+  readonly VITE_CLYPRA_NATIVE_SURFACE?: "0" | "1";
+  readonly VITE_CLYPRA_EMBEDDED_PREVIEW_ONLY?: "1";
 
   /** Clypra API key for backend requests. */
   readonly VITE_CLYPRA_API_KEY?: string;

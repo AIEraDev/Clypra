@@ -54,12 +54,14 @@ The native surface code existed (`useNativeSurfaceController.ts`, `nativeSurface
 ### Root cause of historic bridge-only sessions
 
 ```ts
-// src/lib/platform/nativeCore.ts — BEFORE
-export const EMBEDDED_PREVIEW_ONLY = true;  // hardcoded, no path to native
-
-// AFTER — env-gated for A/B measurement and production enablement
+// BEFORE
 export const EMBEDDED_PREVIEW_ONLY =
   import.meta.env.VITE_CLYPRA_NATIVE_SURFACE !== "1";
+
+// NOW — native preview by default, env-gated opt-out
+export const EMBEDDED_PREVIEW_ONLY =
+  import.meta.env.VITE_CLYPRA_NATIVE_SURFACE === "0" ||
+  import.meta.env.VITE_CLYPRA_EMBEDDED_PREVIEW_ONLY === "1";
 ```
 
 When `EMBEDDED_PREVIEW_ONLY` is `true`:
@@ -111,26 +113,23 @@ nativeSurfaceUsable
 
 ---
 
-## 4. Enabling the Native Surface
+## 4. Native Surface Default & Fallback Configuration
 
 ### Development / testing
 
+Native surface is enabled by default:
 ```bash
-VITE_CLYPRA_NATIVE_SURFACE=1 pnpm tauri dev
+pnpm tauri dev
 ```
 
-The flag is documented in [`.env.example`](../../.env.example):
-
+To force the legacy bridge (CPU readback) path:
 ```bash
-# Enable the wgpu Metal native surface presenter (macOS only).
-# Without this flag the bridge (CPU readback) path is used.
-# Scope: macOS Metal. Has no effect on Windows or Linux.
-VITE_CLYPRA_NATIVE_SURFACE=
+VITE_CLYPRA_NATIVE_SURFACE=0 pnpm tauri dev
 ```
 
 ### Production
 
-`EMBEDDED_PREVIEW_ONLY` reads from `import.meta.env.VITE_CLYPRA_NATIVE_SURFACE`. In production builds this env var must be set at build time. The Windows gate must pass first.
+`EMBEDDED_PREVIEW_ONLY` defaults to `false`. Production builds automatically use the native GPU preview without requiring build-time environment variable overrides. Setting `VITE_CLYPRA_NATIVE_SURFACE=0` or `VITE_CLYPRA_EMBEDDED_PREVIEW_ONLY=1` forces the bridge path if needed.
 
 ### How the surface lifecycle works
 
@@ -472,7 +471,7 @@ av_drift.avg_micros within ±2000          ← AV sync healthy
 | [`src/components/editor/preview/playbackPushBridge.ts`](../../src/components/editor/preview/playbackPushBridge.ts) | Push-channel binary frame receiver. Bug 6 fixed here. |
 | [`src/components/editor/preview/nativeVideoPreview.ts`](../../src/components/editor/preview/nativeVideoPreview.ts) | `buildNativeFrameRequest()`, `getNativeFrameRequestKey()` |
 | [`src/components/editor/preview/useNativeSurfaceController.ts`](../../src/components/editor/preview/useNativeSurfaceController.ts) | Surface lifecycle (create / resize / release) |
-| [`src/components/editor/preview/nativeSurfaceLifecycle.ts`](../../src/components/editor/preview/nativeSurfaceLifecycle.ts) | Process-global surface operation queue |
+| [`src/core/runtime/nativeSurfaceLifecycle.ts`](../../src/core/runtime/nativeSurfaceLifecycle.ts) | Process-global surface operation queue |
 | [`src-tauri/src/commands/native_preview.rs`](../../src-tauri/src/commands/native_preview.rs) | Rust frame rendering + `record_frame_presented_with_options()` |
 | [`src-tauri/src/commands/native_playback.rs`](../../src-tauri/src/commands/native_playback.rs) | Rust playback runtime, `NativeRenderSession.render_loop()` |
 | [`src-tauri/src/sync_metrics.rs`](../../src-tauri/src/sync_metrics.rs) | `FramePacingAccumulator`, AV drift metrics |

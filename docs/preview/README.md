@@ -12,7 +12,8 @@ This directory contains technical documentation for Clypra's Program Preview sub
 
 ## Quick links
 
-- **Enable native surface in dev:** `VITE_CLYPRA_NATIVE_SURFACE=1 pnpm tauri dev`
+- **Run dev (native surface default):** `pnpm tauri dev`
+- **Force bridge fallback in dev:** `VITE_CLYPRA_NATIVE_SURFACE=0 pnpm tauri dev`
 - **Run regression suite:** `npx vitest run src/components/editor/preview/__tests__/ProgramPreview.renderLoop.test.ts`
 - **Session logs:** `~/Library/Application Support/com.deenminder.clypra/perf_logs/`
 - **Main render loop:** [`src/components/editor/preview/NativeProgramPreview.tsx`](../../src/components/editor/preview/NativeProgramPreview.tsx)
