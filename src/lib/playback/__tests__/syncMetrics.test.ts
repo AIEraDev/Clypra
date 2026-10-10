@@ -5,6 +5,7 @@ import {
   recordPlayheadPaint,
   recordSeekRequested,
   recordSeekResolved,
+  resetPlayheadPaintTracking,
   resetSyncMetricsForTests,
   RollingDriftStats,
 } from "../syncMetrics";
@@ -94,6 +95,51 @@ describe("frontend sync metric collection", () => {
       n: 1,
       avg: 48,
       maxAbs: 48,
+    });
+  });
+
+  it("CLY-PERF-002: ignores multi-second pause gap (> 250ms) as spurious paint jitter", () => {
+    // Normal 60Hz playback paint: 16ms interval recorded
+    recordPlayheadPaint(1000);
+    recordPlayheadPaint(1016);
+
+    // User paused for 3.5 seconds before next interaction/resume
+    recordPlayheadPaint(4516);
+
+    // Continuous playback resumes at 60Hz: 17ms interval recorded
+    recordPlayheadPaint(4533);
+
+    const snapshot = getSyncMetricsSnapshot();
+    // Only the two real intra-playback intervals (16ms and 17ms) should be recorded;
+    // the 3500ms pause interval must be filtered out:
+    expect(snapshot.playhead_paint_jitter).toEqual({
+      n: 2,
+      avg: 16.5,
+      maxAbs: 17,
+    });
+  });
+
+  it("CLY-PERF-002: resetPlayheadPaintTracking disarms paint jitter across state transitions", () => {
+    recordPlayheadPaint(1000);
+    recordPlayheadPaint(1016);
+
+    // Transport state transition (play, pause, seek, stop) resets tracking baseline
+    resetPlayheadPaintTracking();
+
+    // First paint after transition sets a fresh baseline without recording an interval
+    recordPlayheadPaint(5000);
+    expect(getSyncMetricsSnapshot().playhead_paint_jitter).toEqual({
+      n: 1,
+      avg: 16,
+      maxAbs: 16,
+    });
+
+    // Next playback frame records normally
+    recordPlayheadPaint(5016);
+    expect(getSyncMetricsSnapshot().playhead_paint_jitter).toEqual({
+      n: 2,
+      avg: 16,
+      maxAbs: 16,
     });
   });
 });
