@@ -79,7 +79,7 @@
 - Never share mutable state between main thread and workers — use `postMessage` copies or `SharedArrayBuffer` with explicit locks.
 
 ## Testing
-- `ProgramPreview.renderLoop.test.ts` is append-only. Baseline: **131 tests, 0 failures**.
+- `ProgramPreview.renderLoop.test.ts` is append-only. Baseline: **156 tests, 0 failures**.
 - Every bug fix needs a test in a `describe("Bug N — Title")` block.
 - `PlaybackClock`, `PlaybackPushBridge`, `NativePreviewFrameScheduler` are directly instantiable in tests — no mocking needed.
 - For Rust: property-based tests (proptest) for data structures; integration tests for engine pipelines; golden frame tests for compositor output.
