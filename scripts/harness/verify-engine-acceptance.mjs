@@ -499,7 +499,7 @@ async function main() {
     const cli = await resolveCli();
     if (!(await pathExists(FIXTURE))) {
       throw blocked(
-        `Golden media fixture not found at ${FIXTURE}. Generate/download Clypra golden assets with `npm run benchmark:assets` or set CLYPRA_GOLDEN_FIXTURES.`,
+        `Golden media fixture not found at ${FIXTURE}. Generate/download Clypra golden assets with npm run benchmark:assets or set CLYPRA_GOLDEN_FIXTURES.`,
       );
     }
     const metadata = await stat(FIXTURE);
