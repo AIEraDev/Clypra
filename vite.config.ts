@@ -51,7 +51,15 @@ const workspaceAlias = hasWorkspace
   : {};
 
 // https://vite.dev/config/
+const packageJson = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, "./package.json"), "utf8"),
+);
+
 export default defineConfig(async () => ({
+  define: {
+    "import.meta.env.VITE_APP_VERSION": JSON.stringify(packageJson.version),
+  },
+
   plugins: [react(), tailwindcss()],
 
   worker: {

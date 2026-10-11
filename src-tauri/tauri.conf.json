@@ -53,7 +53,10 @@
     "targets": "all",
     "publisher": "AIEraDev",
     "createUpdaterArtifacts": true,
-    "externalBin": ["bin/ffmpeg", "bin/ffprobe"],
+    "externalBin": [
+      "bin/ffmpeg",
+      "bin/ffprobe"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
