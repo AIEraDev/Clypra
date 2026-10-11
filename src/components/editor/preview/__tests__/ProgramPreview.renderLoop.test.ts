@@ -4123,5 +4123,49 @@ describe("CLY-PERF-004 — NativeAudioPreviewController Seek Precedence on Play"
   });
 });
 
+describe("CLY-PERF-001 / Bug 15 — Native Audio Failure Clock Unblock", () => {
+  it("REGRESSION: finishStartupProbe marks native audio unavailable when probe fails so video playback does not freeze", () => {
+    const clock = new PlaybackClock();
+    clock.setNativeClockAuthority(true);
+    clock.setDuration(30.0);
+
+    const source: import("@/core/audio/nativeAudioPreviewController").NativeAudioPreviewSource = {
+      projectRevision: "p1:1",
+      duration: 30.0,
+      frameRate: 30,
+      audioTrackCount: 1,
+      clips: [],
+      tracks: [],
+      assets: [],
+    };
+
+    const controller = new NativeAudioPreviewController({ clock, source });
+    (controller as any).active = true;
+    (controller as any).startupProbe = {
+      startedAt: performance.now() - 2000,
+      callbackCount: 0,
+      nonSilentFrames: 0,
+      installedClipCount: 0,
+    };
+
+    expect(clock.hasNativeClockPosition).toBe(false);
+
+    // Call finishStartupProbe with "failed" outcome
+    (controller as any).finishStartupProbe(
+      "failed",
+      undefined,
+      0,
+      0,
+      "audio-hardware-init-failed",
+    );
+
+    // Clock must unblock immediately so video playback proceeds via wall-clock demand
+    expect(clock.hasNativeClockPosition).toBe(true);
+    expect(clock.nativeAudioWasUnavailable).toBe(true);
+    controller.dispose();
+  });
+});
+
+
 
 

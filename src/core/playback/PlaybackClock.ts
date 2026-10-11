@@ -481,10 +481,15 @@ export class PlaybackClock {
       !this._isSeeking &&
       this._hasRealNativeClockSample
     ) {
-      // During active forward playback, hold the current extrapolated time
-      // rather than snapping backward on delayed IPC poll arrivals.
+      // During active forward playback, hold current extrapolated time for small
+      // jitter (<16ms) to maintain forward monotonicity, but strictly clamp to the
+      // 16ms SLA budget limit so delayed IPC polls cannot compound into unbounded drift.
+      const MAX_FORWARD_DRIFT_SEC = 0.016;
       if (clampedTime < currentExtrapolated) {
-        effectiveTime = currentExtrapolated;
+        effectiveTime = Math.min(
+          currentExtrapolated,
+          clampedTime + MAX_FORWARD_DRIFT_SEC,
+        );
       }
     }
 

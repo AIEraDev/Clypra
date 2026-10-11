@@ -160,6 +160,11 @@ pub async fn open_perf_log_session(
         },
     );
 
+    // CLY-PERF-005: Reset cumulative synchronization accumulators so each editor session
+    // starts with an isolated baseline for av_drift, lookahead misses, and seeks,
+    // preventing multi-session metric conflation across frontend reloads.
+    crate::sync_metrics::SYNC_METRICS.take_and_reset();
+
     Ok(PerfLogSessionInfo {
         session_id,
         file_path: file_path.to_string_lossy().to_string(),

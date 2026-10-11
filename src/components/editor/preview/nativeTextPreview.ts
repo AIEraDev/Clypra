@@ -888,16 +888,23 @@ export async function rasterizeTextLayerForNative(
     // loaded — skip both boundedPreviewWait calls so fontWaitMs stays 0.
     if (!getFontLoader().isLoaded(fontDescriptor)) {
       const fontStartedAt = performance.now();
+      // CLY-PERF-003: During active continuous playback, do not block the hot
+      // render loop for 1000ms if a font is loading; use a bounded budget (25ms)
+      // and fall back to browser font so playback continues smoothly at 60fps.
+      const fontWaitBudgetMs =
+        options.phase === "visible-playback" ? 25 : 750;
+      const fontsReadyBudgetMs =
+        options.phase === "visible-playback" ? 15 : 250;
       try {
         await boundedPreviewWait(
           getFontLoader().ensureFont(fontDescriptor),
-          750,
+          fontWaitBudgetMs,
           `font "${layer.fontFamily}"`,
         );
         if (typeof document !== "undefined" && document.fonts) {
           await boundedPreviewWait(
             document.fonts.ready,
-            250,
+            fontsReadyBudgetMs,
             "document.fonts.ready",
           );
         }

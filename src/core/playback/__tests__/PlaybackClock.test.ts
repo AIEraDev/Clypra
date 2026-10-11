@@ -462,6 +462,26 @@ describe("PlaybackClock: RAF Generation Counter", () => {
       expect(clock.hasNativeClockPosition).toBe(true);
       expect(clock.time).toBeCloseTo(0.02, 2);
     });
+
+    it("CLY-PERF-002: strictly clamps forward extrapolation lead to <= 16ms SLA budget under delayed IPC polls", () => {
+      const clock = new PlaybackClock();
+      clock.setNativeClockAuthority(true);
+      clock.setDuration(30.0);
+
+      clock.play();
+      clock.setNativeClockPosition(1.0, 1.0);
+      expect(clock.hasNativeClockPosition).toBe(true);
+
+      // Simulate extrapolation running ahead by 35ms (as occurred in Session 2 where drift reached 28.44ms)
+      const laggedAudioSample = 1.0;
+      (clock as any)._time = laggedAudioSample + 0.035;
+      (clock as any)._nativeClockPosition.time = laggedAudioSample + 0.035;
+
+      clock.setNativeClockPosition(laggedAudioSample, 1.0);
+      const resultingDrift = clock.time - laggedAudioSample;
+      expect(resultingDrift).toBeCloseTo(0.016, 2);
+      expect(resultingDrift).toBeLessThan(0.020);
+    });
   });
 });
 
