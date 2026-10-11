@@ -10,7 +10,7 @@
  * Do not report decoder throughput as end-to-end playback FPS.
  */
 import { spawn } from "node:child_process";
-import { access, mkdir, readFile, stat } from "node:fs/promises";
+import { access, mkdir, readFile, rm, stat } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -170,7 +170,7 @@ async function runCpuGpuParity() {
   }
   const cpu = await runCargoTests(["test", "--manifest-path", manifest, "-p", "filmcraft-render", "--lib"], "FilmCraft CPU reference renderer tests");
   const gpu = await runCargoTests(
-    ["test", "--manifest-path", manifest, "-p", "filmcraft-gpu", "--lib", "--", "--nocapture"],
+    ["test", "--manifest-path", manifest, "-p", "filmcraft-gpu", "--lib", "--", "--nocapture", "--test-threads=1"],
     "FilmCraft GPU parity tests",
     { requireGpu: true },
   );
@@ -200,6 +200,7 @@ async function decoderBench(kind, file) {
 
   await mkdir(RESULT_DIR, { recursive: true });
   const outputPath = path.join(RESULT_DIR, kind + ".json");
+  await rm(outputPath, { force: true });
   const args = [
     "run", "--release", "--manifest-path", path.join(ROOT, "src-tauri/Cargo.toml"),
     "--example", "decode-throughput-bench", "--",
