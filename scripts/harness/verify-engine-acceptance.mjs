@@ -36,7 +36,7 @@ async function gate(name, category, fn) {
   const started = Date.now();
   try {
     const result = await fn();
-    record(name, category, "PASSED", started, result || "");
+    record(name, category, "PASSED", started, typeof result === "string" ? result : "");
     console.log(`✓ [${category}] ${name}`);
     return { ok: true, value: result };
   } catch (error) {
