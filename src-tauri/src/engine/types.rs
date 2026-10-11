@@ -212,3 +212,62 @@ pub enum LayerVisibility {
     Hidden,
     Occluded,
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::MediaTime;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn frame_index_round_trips_for_integer_frame_rates(
+            frame in -1_000_000i64..1_000_000i64,
+            fps in 1u32..241u32,
+        ) {
+            let time = MediaTime::from_frame_index(frame, fps as f64);
+            prop_assert_eq!(time.as_frame_index(fps as f64), frame);
+        }
+
+        #[test]
+        fn microseconds_round_trip_through_seconds(
+            micros in -1_000_000_000_000i64..1_000_000_000_000i64,
+        ) {
+            let time = MediaTime::from_micros(micros);
+            let reconstructed = MediaTime::from_secs_f64(time.as_secs_f64());
+            prop_assert_eq!(reconstructed, time);
+        }
+
+        #[test]
+        fn adding_and_subtracting_time_preserves_the_original_value(
+            left in -1_000_000_000i64..1_000_000_000i64,
+            right in -1_000_000_000i64..1_000_000_000i64,
+        ) {
+            let a = MediaTime::from_micros(left);
+            let b = MediaTime::from_micros(right);
+            prop_assert_eq!((a + b) - b, a);
+        }
+    }
+
+    #[test]
+    fn frame_index_round_trips_at_common_fractional_rates() {
+        for fps in [23.976, 24.0, 25.0, 29.97, 30.0, 50.0, 59.94, 60.0, 120.0] {
+            for frame in [0, 1, 2, 23, 24, 100, 1_000, 100_000, 1_000_000] {
+                let time = MediaTime::from_frame_index(frame, fps);
+                assert_eq!(
+                    time.as_frame_index(fps),
+                    frame,
+                    "frame {frame} did not round-trip at {fps} fps"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_frame_rates_map_to_zero_without_division() {
+        for fps in [0.0, -1.0, f64::NEG_INFINITY] {
+            assert_eq!(MediaTime::from_frame_index(42, fps), MediaTime::ZERO);
+            assert_eq!(MediaTime::from_micros(1_000_000).as_frame_index(fps), 0);
+        }
+    }
+}
