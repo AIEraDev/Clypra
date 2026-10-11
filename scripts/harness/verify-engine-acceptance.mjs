@@ -539,7 +539,7 @@ async function main() {
         cliCanonical = canonicalSequence(after);
         await runCli(cli, ["render", "--seconds", "1.0", "--scale", "1.0", "--out", cliFramePath], cliProjectPath, { json: false });
         if (!(await pathExists(cliFramePath))) throw new Error(`CLI render did not create ${cliFramePath}`);
-        return `Imported fixture (${metadataSafeSize(FIXTURE)} bytes), applied one-frame trim, inspected state, rendered 1.0s.`;
+        return `Imported fixture (${cliResult.value.bytes} bytes), applied one-frame trim, inspected state, rendered 1.0s.`;
       });
 
       await gate("MCP workflow: import, sequence, trim, inspect, render", "CLI/MCP Parity", async () => {
@@ -643,9 +643,6 @@ async function main() {
   if (!pass) process.exitCode = 1;
 }
 
-function metadataSafeSize(file) {
-  return "verified fixture";
-}
 
 main().catch(async (error) => {
   console.error("Fatal engine acceptance harness error:", error);
