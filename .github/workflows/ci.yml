@@ -40,6 +40,9 @@ jobs:
       - name: Validate Architectural Invariants
         run: npm run verify:architecture
 
+      - name: Validate engine acceptance runner syntax
+        run: node --check scripts/harness/verify-engine-acceptance.mjs
+
       - name: Strict Type Check (tsc --noEmit)
         run: npx tsc --noEmit
 
