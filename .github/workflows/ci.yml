@@ -43,6 +43,9 @@ jobs:
       - name: Validate engine acceptance runner syntax
         run: node --check scripts/harness/verify-engine-acceptance.mjs
 
+      - name: Validate render performance runner syntax
+        run: node --check scripts/harness/verify-render-performance.mjs
+
       - name: Strict Type Check (tsc --noEmit)
         run: npx tsc --noEmit
 
