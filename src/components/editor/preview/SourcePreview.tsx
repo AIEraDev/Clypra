@@ -42,6 +42,7 @@ import {
   type StickerSourcePreviewHandle,
 } from "./StickerSourcePreview";
 import { telemetryCollector } from "@/services/telemetryCollector";
+import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
 
 const isExternalOrDataUrl = (value: string) =>
   value.startsWith("data:") ||
@@ -122,6 +123,11 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({
 
   const [lottieData, setLottieData] = useState<object | null>(null);
   const [lottieError, setLottieError] = useState<string | null>(null);
+
+  // Ensure native program preview surface is hidden while source preview is active
+  useEffect(() => {
+    void hideNativeSurfaceWhenIdle().catch(() => undefined);
+  }, []);
 
   // Get source context from active session and bind media element
   useEffect(() => {

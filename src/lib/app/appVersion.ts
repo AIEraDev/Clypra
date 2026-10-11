@@ -14,6 +14,9 @@
  */
 
 import { isTauri } from "@/core/platform/platform";
+import { APP_VERSION } from "@/config/version";
+
+export { APP_VERSION };
 
 let cachedVersion: string | null = null;
 let resolvePromise: Promise<string> | null = null;
@@ -41,13 +44,13 @@ export async function getAppVersion(): Promise<string> {
       }
     }
 
-    // Web / Capacitor — build-time injection via Vite env var.
+    // Web / Capacitor — build-time injection via Vite env var or package constant.
     const envVersion =
       (typeof import.meta !== "undefined" &&
         (import.meta as { env?: Record<string, string> }).env?.VITE_APP_VERSION) ||
       null;
 
-    cachedVersion = envVersion ?? "unknown";
+    cachedVersion = envVersion ?? APP_VERSION;
     return cachedVersion;
   })().finally(() => {
     resolvePromise = null;
@@ -58,11 +61,10 @@ export async function getAppVersion(): Promise<string> {
 
 /**
  * Synchronous read of the cached version.
- * Returns null if `getAppVersion()` has not been awaited yet.
- * Prefer `getAppVersion()` unless you are certain the value is already cached.
+ * Falls back to canonical APP_VERSION constant if not yet awaited.
  */
-export function getAppVersionSync(): string | null {
-  return cachedVersion;
+export function getAppVersionSync(): string {
+  return cachedVersion ?? APP_VERSION;
 }
 
 /**

@@ -10,6 +10,7 @@
 
 import type { Clip, Track, MediaAsset } from "@/types";
 import { EditorFeatureTelemetry } from "@/services/editorFeatureTelemetry";
+import { APP_VERSION } from "@/config/version";
 
 // ─── OTIO Schema Typings ──────────────────────────────────────────────────────
 
@@ -299,7 +300,7 @@ export function exportToOTIO(options: OTIOExportOptions): OTIOTimeline {
       },
       metadata: {
         clypra: {
-          version: "1.5.9",
+          version: APP_VERSION,
           exportedAt: new Date().toISOString(),
         },
       },

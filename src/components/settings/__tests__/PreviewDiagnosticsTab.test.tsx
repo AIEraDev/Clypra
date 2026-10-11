@@ -6,6 +6,7 @@ import * as tauriPlatform from "@/lib/platform/tauri";
 import { EditorFeatureTelemetry } from "@/services/editorFeatureTelemetry";
 import { perfLogService } from "@/services/perfLogService";
 import { useProjectStore } from "@/store/projectStore";
+import { APP_VERSION } from "@/config/version";
 
 // Mock Tauri platform functions
 vi.mock("@/lib/platform/tauri", () => ({
@@ -31,7 +32,7 @@ vi.mock("@/lib/platform/tauri", () => ({
   getNativePreviewPerformanceReport: vi.fn().mockResolvedValue({
     reportVersion: 1,
     capturedAtMs: Date.now(),
-    applicationVersion: "1.5.9",
+    applicationVersion: APP_VERSION,
     buildProfile: "release",
     operatingSystem: "macos",
     architecture: "arm64",

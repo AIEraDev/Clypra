@@ -1,6 +1,6 @@
 {
   "name": "clypra",
-  "version": "1.5.9",
+  "version": "1.6.0",
   "description": "A modern, open-source video editor built with Tauri, React, and TypeScript",
   "author": "Clypra Contributors",
   "license": "MIT",
@@ -43,6 +43,8 @@
     "verify:ui": "node scripts/harness/verify.mjs --ui",
     "verify:desktop": "node scripts/harness/verify.mjs --desktop",
     "verify:full": "node scripts/harness/verify.mjs --full",
+    "version:sync": "node scripts/bump-version.mjs",
+    "version:bump": "node scripts/bump-version.mjs",
     "predev": "node scripts/ensure-sidecars.mjs",
     "dev": "vite",
     "typecheck": "tsc --noEmit",

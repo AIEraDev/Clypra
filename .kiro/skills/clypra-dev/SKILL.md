@@ -17,7 +17,7 @@ description: >-
 
 ## 1. What Clypra Is
 
-Clypra is a **native desktop video editor** (v1.5.9) — macOS/Windows.
+Clypra is a **native desktop video editor** (v1.6.0) — macOS/Windows.
 - Non-linear editing (NLE) with a track-based timeline
 - Multi-track video, audio, text, sticker, caption, and effects support
 - Native GPU rendering via wgpu/Metal/DX12

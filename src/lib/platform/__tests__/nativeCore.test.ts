@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_NATIVE_COLOR_POLICY, frameIndexToNativeTime, secondsToNativeTime } from "../nativeCore";
+import { APP_VERSION } from "@/config/version";
 
 describe("native core contracts", () => {
   it("converts time to integral microsecond ticks", () => {
@@ -138,7 +139,7 @@ describe("native core contracts", () => {
     const mockReport = {
       reportVersion: 2,
       capturedAtMs: Date.now(),
-      applicationVersion: "1.5.9",
+      applicationVersion: APP_VERSION,
       buildProfile: "release",
       operatingSystem: "macos",
       architecture: "aarch64",

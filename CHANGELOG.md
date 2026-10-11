@@ -6,6 +6,75 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-11
+
+### 🛡️ Native UI Thread Safety & Surface Lifecycle (Architecture Invariant 16)
+
+- **Cross-Platform Main-Thread Window Operations (`native_surface.rs`)** — Enforced Architecture Invariant 16 across macOS (AppKit/`NSWindow`), Windows (Win32/`HWND`), and Linux (`GtkWidget`). All operating-system window lifecycle mutations (`show_surface`, `hide_surface`, `reset`) now dispatch strictly to the platform's main event loop via `surface_window.run_on_main_thread(...)` and `app.run_on_main_thread(...)`. Previously, calling platform UI manipulation APIs from Tokio background worker threads or asynchronous IPC commands caused severe non-deterministic deadlocks and instantaneous `EXC_BREAKPOINT (SIGTRAP)` crashes on modern macOS (macOS 15/26+) (#503, #505).
+- **macOS Space Transitions & Parent Window Stacking Hierarchy** — Re-asserts native child-window stacking order (`addChildWindow:ordered:1` with `NSWindowAbove`) inside `show_surface` on every presentation pass. This permanently resolves an AppKit defect where navigating macOS Spaces or cycling full-screen modes silently detached the native Metal rendering surface from the primary application window, leaving a detached or invisible preview (#503, #505).
+- **Clean Child Window Unparenting on Hide (`removeChildWindow:ns_win`)** — Explicitly invokes `removeChildWindow:` in `hide_surface` and initial `configure_surface` routines on macOS. Previously, hiding the surface window with `window.hide()` while remaining parented left a transparent AppKit sub-window floating above the WebView, intercepting mouse clicks and occluding the DOM canvas readback preview and source monitor. Detaching the child window on hide ensures 100% clean mouse event pass-through and pristine web-canvas fallback rendering (#505).
+- **Source Preview Space Isolation & Web Audio/Video Segregation** — Enforced absolute separation between the native hardware program preview space and the source preview space (`PreviewPanel.tsx`, `SourcePreview.tsx`, `AudioSourcePreview.tsx`). Switching into source preview mode (previewing audio library tracks, animated stickers, text effects, or uncommitted media clips) instantly dismounts the program preview canvas and signals `hideNativeSurfaceWhenIdle()`. This prevents native GPU compositing pipelines and Web Audio DOM elements from competing for audio hardware streams or display buffers (#505).
+- **Hot-Path Logging Elimination (`native_playback.rs`, `native_preview.rs`)** — Stripped high-frequency `eprintln!` logging calls from the native audio callback loops and presentation frame bridges, eliminating blocking terminal I/O latency spikes on continuous playback (#502).
+- **macOS Titlebar Duplication Elimination (`tauri.conf.json`)** — Corrected native window styling on macOS by eliminating duplicate title text rendered concurrently by AppKit and the React LaunchScreen header (#498).
+
+### ⚡ Realtime Preview Performance & Playback Jank Elimination
+
+- **Immediate Release of `renderInFlight` Gate (Bug 1)** — Released `renderInFlight = false` immediately after `submitNativePlaybackDemand()` rather than holding the lock across asynchronous rasterization, body masks, and overlay operations. Prevents dropped animation frames and guarantees backpressure does not starve subsequent presentation ticks (#499).
+- **Pure RequestAnimationFrame Pacing (Bug 2)** — Removed fallback `setTimeout` paths in the program preview render loop in favor of strict `requestAnimationFrame` scheduling, eliminating micro-stutter from non-VSync-aligned frame dispatches (#499).
+- **Redundant `syncPreviewMedia` Suppression (Bug 3)** — Added a `needsSync` dirty-check guard in `NativeProgramPreview.tsx`. Reduced DOM media synchronization calls during steady-state playback by 99.97% (over 3,500 fewer redundant reconciliations per minute) (#499).
+- **Adaptive Readback Policy Framerate Boost (Bug 4)** — Raised readback policy tier 4 and tier 5 cadence limits from 30 FPS to 60 FPS on macOS desktop environments, doubling fallback canvas smoothness (#499).
+- **Selective Scrub Cancellation (`NativePreviewFrameScheduler`, Bug 5)** — In-flight prefetch requests are no longer aborted when a new visible scrub request arrives, while obsolete visible requests are promptly cancelled. Drastically increases scrub cache hits and eliminates preview flicker (#499).
+- **Synchronous Push Bridge Accounting (Bug 6)** — Eliminated redundant `requestAnimationFrame` calls inside `PlaybackPushBridge.receive()`, ensuring watermarks fire synchronously on first packet delivery (#499).
+- **Frozen First Frame Demand Submission (Bug 7)** — Submits presentation demands immediately on the tick when snapshot readiness is confirmed, preventing playhead advancement without matching video frames (#499).
+- **Cold-Start Frame Retention & Prewarm Stream Keys (Bug 13)** — Retains existing HTML5 preview canvas pixels across cold startup decoding until the first native frame is confirmed presented by the wgpu presenter. Decoder actors are proactively prewarmed with stream keys during project load barriers to eliminate blank black frames on launch (#503).
+- **Coarse-to-Fine Timeline Seek Settling (CLY-PERF-001 / Bug 14)** — Implemented a two-stage seeking architecture for interactive timeline scrubbing (`Timeline.tsx`, `NativeProgramPreview.tsx`). Interactive mouse dragging engages low-overhead, keyframe-approximate seeking (`allowKeyframeApprox: true`) for butter-smooth 60+ FPS scrub response. When the user releases the scrub handle or stops dragging, the system automatically triggers a fine frame-accurate settle pass, delivering sub-frame precision without interactive lag (#504, #505).
+- **Bounded Stream Decoder Actor Pool with LRU Eviction (CLY-PERF-003)** — Replaced unbounded stream decoder allocation in `stream_actor.rs` and `decoder.rs` with an 8-actor LRU cache pool backed by DashMap. Inserting new media decoders dynamically prunes the oldest idle actor, eliminating file descriptor leaks, thread exhaustion, and VRAM memory creep on timelines containing dozens of overlapping video and audio clips (#504, #505).
+
+### ⏱️ Dual-Stack Audio Synchronization & Transport Hardening
+
+- **Authoritative Hardware Audio Sample Anchoring (`PlaybackClock.ts`)** — Resolved audio-to-video drift on cold playback start by introducing `_hasRealNativeClockSample` tracking. When playback initiates, the frontend wall-clock advances smoothly to prevent UI stutters while CPAL spins up hardware audio streams. When CPAL delivers its first hardware sample, `PlaybackClock` accepts this initial sample without applying forward monotonic clamping, anchoring the timeline to authentic hardware time. Subsequent polls apply forward monotonicity guards, eliminating backward timestamp regressions caused by out-of-order CPAL buffer polling (#505).
+- **Seek Intent Precedence on Rapid Playback Resumption (CLY-PERF-004)** — Fixed a critical transport synchronization defect in `NativeAudioPreviewController.ts`. Previously, when a user clicked the beginning of the timeline from the end while paused and immediately tapped the Space bar to play, the clock transitioned to `"playing"` before the asynchronous native transport queue executed the seek. The controller incorrectly marked the seek as "superseded by playing", dropping the seek command and playing from the previous end position. Transport tasks now track `seekIntentRevision` monotonically, guaranteeing that queued seeks execute faithfully regardless of state transitions (#505).
+- **Terminal Boundary Loop & Instant Spacebar Restart** — Refactored playback completion handling in `native_playback.rs` and `PlaybackClock.ts`. Reaching the end of duration now calls `audio.pause()` and `audio.seek(0)` on `NativeAudioClock` rather than destroying the audio engine state via `audio.stop()`. This preserves active audio buffer handles and allows instant, zero-latency timeline looping upon subsequent playback triggers (#505).
+- **Cold-Start Audio Synchronization (Bug 12)** — Addressed the ~555ms initialization delay of hardware audio output (CPAL). The controller now evaluates live wall-clock extrapolated time immediately before invoking native play, ensuring audio joins the timeline in perfect synchrony with advanced video frames rather than starting from the stale paused position (#500).
+- **Elimination of `assetHasAudio` Probing Races** — Resolved the "no sound on first play" defect where unprobed video clips falsely reported having no audio tracks. Both `asset.streams` and `asset.path` hydration must complete before claiming an asset lacks audio, preventing clips from being permanently filtered out of the native audio engine (#500).
+- **PlaybackClock Time Latching & Stale Poll Rejection** — Latches `PlaybackClock` timestamps during interactive scrubbing and click seeks. High-latency background audio polls that report stale pre-seek timestamps are rejected until the seek settles, eliminating visible playhead snapping and flickering (#503).
+- **Backward Poll Deadlock Escape (CLY-PERF-001)** — Implemented an automatic escape mechanism when consecutive backward audio polls exceed thresholds, preventing timeline playhead freezes (#503).
+- **Independent Wall-Clock Advancement (Bugs 8A, 8B, 9, 10, 11)** — Enabled seamless timeline playback on silent projects (projects without audio clips) by decoupling `PlaybackClock` progression from CPAL hardware callbacks. Handles empty-path filters and buffers pending audio source configurations across project load boundaries (#499).
+
+### 🌐 Internationalization & Localization (Canonical 9-Locale Parity)
+
+- **Comprehensive i18n Architecture Migration** — Completely rebuilt application internationalization on top of `i18next` and `react-i18next` with canonical semantic translation keys in `src/i18n/catalogs/en.json` (#500).
+- **100% Translation Parity Across 9 Supported Locales** — Created complete, verified translation catalogs for 9 languages:
+  - English (`en` — canonical)
+  - Spanish (`es` — Español)
+  - French (`fr` — Français)
+  - German (`de` — Deutsch)
+  - Japanese (`ja` — 日本語)
+  - Korean (`ko` — 한국어)
+  - Russian (`ru` — Русский)
+  - Simplified Chinese (`zh-CN` — 简体中文)
+  - Traditional Chinese (`zh-TW` — 繁體中文)
+- **Automated Catalog Parity Validation (`npm run i18n:check`)** — Built an automated validation harness (`scripts/check-i18n.mjs`) that mechanically checks every locale catalog against `en.json` for missing keys, orphaned keys, and interpolation variable placeholder mismatches (#500).
+- **Zero Hardcoded Text Invariant** — Migrated UI components across timeline controls, preview panels, inspector tabs, settings dialogs, export screens, and error boundaries to canonical `t("namespace.key")` tokens (#500).
+
+### 🔬 Launch Observability & Benchmark S2 Automation
+
+- **Automated Cold-Start S2 Benchmark Suite** — Built comprehensive end-to-end benchmarking infrastructure (`scripts/benchmarks/`) evaluating startup phases from process creation to true quiescence:
+  - `b122f52a`: Native startup dark window, compositor compile, and true quiescence instrumentation.
+  - `58f7d8aa`: OS-level window focus validity checks and atomic report writes.
+  - `6155ec13`: Lazy filter cache, deferred worker binding, and audio decode deduplication.
+  - `385b605f`: Measured interactive ping, audio overlap metric, and idle worker warming (#496, #497).
+
+### 📦 Build Systems, CI/CD Caching & Architectural Automation
+
+- **Centralized Canonical Version Constants (`src/config/version.ts`, `VITE_APP_VERSION`)** — Replaced fragmented, manual version strings across exporters, diagnostics, and test mocks with a single source of truth: `APP_VERSION` in `src/config/version.ts` (sourced directly from `package.json`). Injected `import.meta.env.VITE_APP_VERSION` at compile-time via `vite.config.ts`, ensuring web and desktop environments share identical version telemetry without manual edits (#505).
+- **Automated Cross-Manifest Version Synchronization Tooling (`scripts/bump-version.mjs`)** — Introduced `npm run version:sync` and `npm run version:bump` scripts that automatically synchronize semantic versioning across `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.lock`, `AGENTS.md`, and all agent skill configurations in a single atomic pass (#505).
+- **Persistent Windows vcpkg Static FFmpeg Caching** — Added persistent `ffmpeg-vcpkg-x64-windows-static-md-v1` cache across Windows CI (`ci.yml`), desktop E2E (`desktop-e2e.yml`), and release (`release.yml`) workflows, cutting Windows job execution times by over 70% and preventing CI timeouts during FFmpeg compilation (#504, #505).
+- **macOS Static FFmpeg Build Fallback** — Added automated fallback static compilation of FFmpeg 8.0 on macOS cache misses in GitHub Actions workflows, guaranteeing reliable CI builds even after cache expirations (#504, #505).
+- **Architecture Invariants Fitness Automation (`scripts/harness/check-architecture.mjs`)** — Added automated architectural verification testing EvaluatedScene currency, Zustand store isolation boundaries, documentation link integrity, 9-locale parity, and Invariant 16 native thread safety dispatches (#501, #503).
+- **Comprehensive Verification Harness Commands** — Added unified verification CLI commands: `npm run verify:fast`, `npm run verify:full`, `npm run verify:media`, `npm run verify:ui`, and `npm run verify:desktop` (#501).
+- **Append-Only Regression Test Suite Baseline** — Expanded `ProgramPreview.renderLoop.test.ts` from 122 to 166 passing regression tests with zero test deletions or skips (#499, #500, #503, #504, #505).
+
 ## [1.5.9] - 2026-10-04
 
 ### ⏱️ Cold-Start Observability & Launch Milestones (Phase 1)

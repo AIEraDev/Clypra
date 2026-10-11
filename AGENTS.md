@@ -3,7 +3,7 @@
 # Automatically loaded by: Antigravity, Kiro, Cursor, OpenAI Codex, Copilot.
 
 ## 1. Project Identity & Verified Technology Stack
-Clypra is a high-performance native desktop video editor (`v1.5.9`) targeting macOS and Windows.
+Clypra is a high-performance native desktop video editor (`v1.6.0`) targeting macOS and Windows.
 - **Frontend**: React 19 + TypeScript 5.8 + Vite 7 (`src/`)
 - **Desktop Shell & Backend**: Tauri 2.11 + Rust 2021 edition (`src-tauri/`)
 - **State Management**: Zustand v5 stores (`src/store/`)
@@ -50,7 +50,7 @@ Specialized rule files under [`.agents/rules/`](.agents/rules/) (`architecture.m
 
 ## 4. Testing & Regression Standards
 - **One Bug = One Fix + One Regression Test**: Every bug fix must include an automated regression test reproducing the original issue and guarding against regression.
-- **Append-Only Preview Suite**: `src/components/editor/preview/__tests__/ProgramPreview.renderLoop.test.ts` is an append-only regression suite (current baseline: 156 tests). Never delete or skip existing tests.
+- **Append-Only Preview Suite**: `src/components/editor/preview/__tests__/ProgramPreview.renderLoop.test.ts` is an append-only regression suite (current baseline: 166 tests). Never delete or skip existing tests.
 - **Meaningful Assertions**: Tests must verify externally observable behavior and state correctness, not internal mock shapes. Never write empty or tautological tests.
 - **Deterministic & Isolated**: Unit tests must not depend on network access, external services, or unseeded random state.
 - **Tiered Test Strategy**:

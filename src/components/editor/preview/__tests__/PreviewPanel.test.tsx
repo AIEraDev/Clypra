@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { PreviewPanel } from "../PreviewPanel";
 import { PreviewMonitorWorkspace } from "../PreviewMonitorWorkspace";
 import { useProjectStore } from "@/store/projectStore";
@@ -183,5 +183,54 @@ describe("PreviewPanel timeline rendering", () => {
     expect(document.querySelector('[data-preview-monitor="program"]')).not.toBeInTheDocument();
     // Should render single source preview
     expect(screen.getByRole("button", { name: /close/i })).toBeInTheDocument();
+  });
+
+  it("hides program preview and renders audio source preview when previewing audio", () => {
+    useUIStore.setState({
+      previewMode: "source",
+      sourceAsset: {
+        id: "audio-item-1",
+        name: "Cinematic Ambient",
+        type: "audio",
+        path: "/music/track.mp3",
+        duration: 45,
+        size: 2048,
+      },
+    });
+
+    render(<PreviewPanel />);
+
+    // Program preview canvas must be completely absent from the DOM
+    expect(screen.queryByTestId("program-preview-canvas")).not.toBeInTheDocument();
+    expect(document.querySelector('[data-preview-space="source"]')).toBeInTheDocument();
+    expect(screen.getByText(/previewing/i)).toBeInTheDocument();
+    expect(screen.getByText(/— audio/i)).toBeInTheDocument();
+    expect(document.querySelector("audio")).toHaveAttribute("src", "/music/track.mp3");
+  });
+
+  it("calls previewAsset for audio and ensures program preview is replaced by audio preview", () => {
+    useUIStore.setState({ previewMode: "program", sourceAsset: null });
+    const { rerender } = render(<PreviewPanel />);
+    expect(screen.getByTestId("program-preview-canvas")).toBeInTheDocument();
+
+    // Trigger audio preview
+    act(() => {
+      useUIStore.getState().previewAsset({
+        id: "audio-preview-2",
+        name: "Sondre Track",
+        type: "audio",
+        path: "/audio/sondre.wav",
+        duration: 78,
+        size: 5000,
+      });
+    });
+
+    rerender(<PreviewPanel />);
+    // Program preview canvas must be completely absent from the DOM
+    expect(screen.queryByTestId("program-preview-canvas")).not.toBeInTheDocument();
+    expect(document.querySelector('[data-preview-space="source"]')).toBeInTheDocument();
+    expect(screen.getByText(/previewing/i)).toBeInTheDocument();
+    expect(screen.getByText(/— audio/i)).toBeInTheDocument();
+    expect(document.querySelector("audio")).toHaveAttribute("src", "/audio/sondre.wav");
   });
 });

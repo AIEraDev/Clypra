@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { useUIStore } from "@/store/uiStore";
+import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
 import { SourcePreview } from "./SourcePreview";
 import { ProgramPreview } from "./ProgramPreview";
 
@@ -11,6 +12,12 @@ interface PreviewPanelProps {
 const PreviewPanelComponent: React.FC<PreviewPanelProps> = ({ mode }) => {
   const selectedPreviewMode = useUIStore((s) => s.previewMode);
   const previewMode = mode ?? selectedPreviewMode;
+
+  useEffect(() => {
+    if (previewMode === "source") {
+      void hideNativeSurfaceWhenIdle().catch(() => undefined);
+    }
+  }, [previewMode]);
 
   // Mount exactly one playback space at a time. Source media and program
   // preview therefore cannot share DOM media elements or render lifecycles.

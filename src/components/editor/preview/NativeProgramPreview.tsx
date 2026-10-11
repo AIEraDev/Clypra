@@ -4741,6 +4741,10 @@ export const NativeProgramPreview: React.FC = () => {
       }
       if (rafId !== null) cancelAnimationFrame(rafId);
       frameScheduled = false;
+      if (nativeSurfaceShown) {
+        nativeSurfaceShown = false;
+        void hideNativeSurfaceWhenIdle().catch(() => undefined);
+      }
       standaloneVideoCache.forEach((video) => {
         try {
           video.pause();
