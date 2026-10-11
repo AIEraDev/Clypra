@@ -208,6 +208,16 @@ describe("Clip Component", () => {
       const clipElement = screen.getByTestId("clip-clip-1");
       expect(clipElement.className).toContain("bg-timeline-clip-audio");
     });
+
+    it("renders audio clip with reduced track height (40px)", () => {
+      const clip = createMockClip({ kind: "audio" });
+      const mediaAsset = createMockMediaAsset({ type: "audio", path: "/path/to/audio.mp3" });
+      renderClip(clip, mediaAsset, { trackHeightPx: 40, trackVisualRole: "audio" });
+
+      const clipElement = screen.getByTestId("clip-clip-1");
+      expect(clipElement).toBeInTheDocument();
+      expect(clipElement.className).toContain("clip-kind-audio");
+    });
   });
 
   describe("Selection", () => {

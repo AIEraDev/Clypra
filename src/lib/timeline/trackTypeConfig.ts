@@ -88,7 +88,7 @@ export const TRACK_TYPE_CONFIG: Record<TrackType, TrackTypeConfig> = {
     displayName: "Video",
   },
   audio: {
-    height: 60,
+    height: 40,
     // Audio is a bottom-of-timeline lane. Keeping it after every visual row
     // makes the Main Track boundary deterministic even when overlays are
     // added after audio has already been placed.

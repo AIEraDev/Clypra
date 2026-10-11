@@ -1185,7 +1185,7 @@ const ClipInner: React.FC<ClipProps> = ({
                 fadeOut={clip.fadeOut}
                 fadeInCurve={clip.fadeInCurve}
                 fadeOutCurve={clip.fadeOutCurve}
-                heightPx={40}
+                heightPx={Math.max(16, trackHeightPx - 16)}
                 className="rounded-xs"
               />
               <AudioEnvelopeEditor
