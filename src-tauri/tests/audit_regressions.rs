@@ -1585,3 +1585,19 @@ async fn test_phase5_performance_manager_invariants() {
         "Invariant 15: reset() must clear telemetry ring"
     );
 }
+
+#[tokio::test]
+async fn test_cly_perf_003_preview_decoder_and_actor_pool_limits() {
+    use tauri_app_lib::thumbnail_engine::decoder::preview_pool_key;
+    use tauri_app_lib::thumbnail_engine::stream_actor::MAX_PREVIEW_ACTOR_POOL_SIZE;
+
+    // Invariant: Stream decoder actor pool size is bounded to 8 to prevent memory growth under continuous editing/splitting
+    assert_eq!(MAX_PREVIEW_ACTOR_POOL_SIZE, 8);
+
+    // Verify preview pool key generation is distinct per stream
+    let key1 = preview_pool_key("video.mp4", "clip-1");
+    let key2 = preview_pool_key("video.mp4", "clip-2");
+    assert_ne!(key1, key2);
+    assert_eq!(key1, "video.mp4::stream::clip-1");
+}
+

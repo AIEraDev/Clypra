@@ -3276,7 +3276,7 @@ pub fn rotate_nv12(
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-fn current_timestamp_ms() -> u64 {
+pub(crate) fn current_timestamp_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -3333,7 +3333,7 @@ pub(crate) static PREVIEW_DECODER_POOL: Lazy<DashMap<String, Arc<DecoderEntry>>>
 
 // Symmetric pool size limits with lock-free atomic LRU eviction
 const MAX_THUMBNAIL_DECODER_POOL_SIZE: usize = 10;
-const MAX_PREVIEW_DECODER_POOL_SIZE: usize = 32;
+const MAX_PREVIEW_DECODER_POOL_SIZE: usize = 8;
 
 #[inline]
 pub fn preview_pool_key(path: &str, stream_id: &str) -> String {
@@ -3344,18 +3344,18 @@ pub fn preview_pool_key(path: &str, stream_id: &str) -> String {
     }
 }
 
-async fn get_or_create_decoder_in_pool(
+async fn get_or_create_decoder_entry_in_pool(
     pool: &DashMap<String, Arc<DecoderEntry>>,
     key: &str,
     path: &str,
     max_pool_size: usize,
     prefer_hardware: bool,
     purpose: &'static str,
-) -> Result<Arc<Mutex<VideoDecoder>>, String> {
+) -> Result<Arc<DecoderEntry>, String> {
     // 1. Fast Path: Check if decoder exists in pool without holding shard lock across await
     if let Some(entry) = pool.get(key) {
         entry.touch();
-        return Ok(entry.decoder.clone());
+        return Ok(entry.clone());
     }
 
     // 2. LRU Eviction: Collect candidates snapshot without holding locks across await
@@ -3388,8 +3388,40 @@ async fn get_or_create_decoder_in_pool(
         lease_count: AtomicU64::new(0),
     });
 
-    pool.insert(key.to_string(), entry);
-    Ok(arc_decoder)
+    use dashmap::mapref::entry::Entry;
+    let final_entry = match pool.entry(key.to_string()) {
+        Entry::Occupied(occ) => {
+            let existing = occ.get().clone();
+            existing.touch();
+            existing
+        }
+        Entry::Vacant(vac) => {
+            vac.insert(entry.clone());
+            entry
+        }
+    };
+
+    Ok(final_entry)
+}
+
+async fn get_or_create_decoder_in_pool(
+    pool: &DashMap<String, Arc<DecoderEntry>>,
+    key: &str,
+    path: &str,
+    max_pool_size: usize,
+    prefer_hardware: bool,
+    purpose: &'static str,
+) -> Result<Arc<Mutex<VideoDecoder>>, String> {
+    let entry = get_or_create_decoder_entry_in_pool(
+        pool,
+        key,
+        path,
+        max_pool_size,
+        prefer_hardware,
+        purpose,
+    )
+    .await?;
+    Ok(entry.decoder.clone())
 }
 
 /// Thumbnail/Filmstrip background decoder pool (used for timeline thumbnail caching)
@@ -3442,7 +3474,7 @@ pub async fn acquire_preview_decoder_lease_for_stream(
     stream_id: &str,
 ) -> Result<PreviewDecoderLease, String> {
     let key = preview_pool_key(path, stream_id);
-    let decoder = get_or_create_decoder_in_pool(
+    let entry = get_or_create_decoder_entry_in_pool(
         &PREVIEW_DECODER_POOL,
         &key,
         path,
@@ -3451,13 +3483,8 @@ pub async fn acquire_preview_decoder_lease_for_stream(
         "preview",
     )
     .await?;
-    let entry = PREVIEW_DECODER_POOL
-        .get(&key)
-        .map(|value| value.value().clone())
-        .ok_or_else(|| "Preview decoder disappeared during lease acquisition".to_string())?;
     entry.lease_count.fetch_add(1, Ordering::AcqRel);
     entry.touch();
-    debug_assert!(Arc::ptr_eq(&decoder, &entry.decoder));
     Ok(PreviewDecoderLease {
         path: path.to_string(),
         entry,

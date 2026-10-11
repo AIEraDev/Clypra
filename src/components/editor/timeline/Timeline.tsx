@@ -678,8 +678,6 @@ export const Timeline: React.FC = () => {
       transportSeek(clampAndSnapProgramTime(time, duration, frameRate), {
         source: "timeline-click-seek",
         mode: "seek",
-        quality: "full",
-        allowKeyframeApprox: false,
       });
     },
     [

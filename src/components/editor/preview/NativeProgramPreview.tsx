@@ -2820,14 +2820,21 @@ export const NativeProgramPreview: React.FC = () => {
               isScrubbing: latestSeekIntent.isScrubbing,
               allowKeyframeApprox: isSettling
                 ? false
-                : latestSeekIntent.allowKeyframeApprox,
+                : (latestSeekIntent.allowKeyframeApprox ?? (isScrubbing || isCoarseSeek)),
             }
           : isPlaying
             ? {
                 mode: "playback" as const,
                 quality: effectiveRenderTarget.quality,
               }
-            : { quality: effectiveRenderTarget.quality };
+            : isInteracting
+              ? {
+                  mode: "seek" as const,
+                  quality: effectiveRenderTarget.quality,
+                  isScrubbing: true,
+                  allowKeyframeApprox: true,
+                }
+              : { quality: effectiveRenderTarget.quality };
 
         const timeChanged = frameIndex !== lastRenderedFrameIndex;
         const epochChanged = state.epoch !== lastRenderedEpoch;

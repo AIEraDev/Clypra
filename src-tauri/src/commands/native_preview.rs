@@ -3522,8 +3522,10 @@ pub(crate) fn schedule_lookahead_predecode(
             .start_frame
             .load(std::sync::atomic::Ordering::Acquire);
         let end_f = active.end_frame.load(std::sync::atomic::Ordering::Acquire);
+        let frames_ahead = end_f.saturating_sub(current_audio_frame);
+        let has_sufficient_lookahead = frames_ahead >= 2;
         let is_in_range =
-            current_audio_frame >= start_f.saturating_sub(2) && current_audio_frame <= end_f;
+            current_audio_frame >= start_f.saturating_sub(2) && has_sufficient_lookahead;
 
         if is_active && is_same_gen && is_in_range {
             // PR4: count dropped trigger and record ahead-of-clock
