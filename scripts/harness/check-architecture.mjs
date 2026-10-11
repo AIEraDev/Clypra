@@ -35,7 +35,7 @@ try {
   const testContent = await readFile(previewTestPath, "utf8");
   const testMatches = testContent.match(/\b(it|test)\s*\(/g) || [];
   const testCount = testMatches.length;
-  const MIN_BASELINE = 156;
+  const MIN_BASELINE = 166;
 
   if (testCount < MIN_BASELINE) {
     failures.push(

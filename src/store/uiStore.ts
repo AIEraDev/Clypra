@@ -36,6 +36,7 @@
 import { create } from "zustand";
 import type { MediaAsset } from "@/types";
 import { useTimelineStore } from "@/store/timelineStore";
+import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
 
 interface UIStore {
   selectedClipIds: string[]; // Multi-select support
@@ -271,6 +272,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   // by the consuming component via session.transportAuthority.setActiveContext().
   // This store only manages UI state (which panel is shown, in/out points).
   previewAsset: (asset) => {
+    void hideNativeSurfaceWhenIdle().catch(() => undefined);
     set({
       previewMode: "source",
       sourceAsset: asset as any,
@@ -281,6 +283,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   },
 
   previewTextPreset: (preset, type) => {
+    void hideNativeSurfaceWhenIdle().catch(() => undefined);
     set({
       previewMode: "source",
       sourceAsset: {

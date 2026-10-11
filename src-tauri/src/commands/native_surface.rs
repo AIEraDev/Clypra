@@ -123,58 +123,58 @@ impl NativeSurfaceRuntime {
 
         surface_window
             .run_on_main_thread(move || {
+                // Re-assert child-window stacking on every show to survive macOS
+                // Spaces / full-screen transitions that can unparent the child.
+                #[cfg(target_os = "macos")]
+                unsafe {
+                    if let Some(parent) = &parent_clone {
+                        if let (Ok(ns_win), Ok(parent_ns_win)) =
+                            (sw.ns_window(), parent.ns_window())
+                        {
+                            let _: () = objc2::msg_send![
+                                parent_ns_win as *mut objc2::runtime::AnyObject,
+                                addChildWindow: ns_win as *mut objc2::runtime::AnyObject,
+                                ordered: 1isize // NSWindowAbove = 1
+                            ];
+                        }
+                    }
+                }
+
                 if let Err(e) = sw.show() {
                     log::warn!("[NativeSurface] show_surface: window.show() failed: {e}");
                 } else {
-                    // Re-assert child-window stacking on every show to survive macOS
-                    // Spaces / full-screen transitions that can unparent the child.
-                    #[cfg(target_os = "macos")]
+                    // On Windows, ensure the surface is at the top of its z-order tier
+                    // after being revealed, in case DWM has reordered windows.
+                    #[cfg(target_os = "windows")]
                     unsafe {
-                        if let Some(parent) = &parent_clone {
-                            if let (Ok(ns_win), Ok(parent_ns_win)) =
-                                (sw.ns_window(), parent.ns_window())
-                            {
-                                let _: () = objc2::msg_send![
-                                    parent_ns_win as *mut objc2::runtime::AnyObject,
-                                    addChildWindow: ns_win as *mut objc2::runtime::AnyObject,
-                                    ordered: 1isize // NSWindowAbove = 1
-                                ];
+                        if let Ok(hwnd) = sw.hwnd() {
+                            const HWND_TOP: *mut std::ffi::c_void = 0isize as *mut std::ffi::c_void;
+                            const SWP_NOSIZE: u32 = 0x0001;
+                            const SWP_NOMOVE: u32 = 0x0002;
+                            const SWP_NOACTIVATE: u32 = 0x0010;
+                            const SWP_FRAMECHANGED: u32 = 0x0020;
+                            extern "system" {
+                                fn SetWindowPos(
+                                    hwnd: *mut std::ffi::c_void,
+                                    hwnd_insert_after: *mut std::ffi::c_void,
+                                    x: i32,
+                                    y: i32,
+                                    cx: i32,
+                                    cy: i32,
+                                    u_flags: u32,
+                                ) -> i32;
                             }
+                            SetWindowPos(
+                                hwnd.0,
+                                HWND_TOP,
+                                0,
+                                0,
+                                0,
+                                0,
+                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+                            );
                         }
                     }
-
-                // On Windows, ensure the surface is at the top of its z-order tier
-                // after being revealed, in case DWM has reordered windows.
-                #[cfg(target_os = "windows")]
-                unsafe {
-                    if let Ok(hwnd) = sw.hwnd() {
-                        const HWND_TOP: *mut std::ffi::c_void = 0isize as *mut std::ffi::c_void;
-                        const SWP_NOSIZE: u32 = 0x0001;
-                        const SWP_NOMOVE: u32 = 0x0002;
-                        const SWP_NOACTIVATE: u32 = 0x0010;
-                        const SWP_FRAMECHANGED: u32 = 0x0020;
-                        extern "system" {
-                            fn SetWindowPos(
-                                hwnd: *mut std::ffi::c_void,
-                                hwnd_insert_after: *mut std::ffi::c_void,
-                                x: i32,
-                                y: i32,
-                                cx: i32,
-                                cy: i32,
-                                u_flags: u32,
-                            ) -> i32;
-                        }
-                        SetWindowPos(
-                            hwnd.0,
-                            HWND_TOP,
-                            0,
-                            0,
-                            0,
-                            0,
-                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-                        );
-                    }
-                }
                 }
             })
             .map_err(|error| format!("Unable to dispatch show_surface to main thread: {error}"))?;
@@ -193,9 +193,24 @@ impl NativeSurfaceRuntime {
         self.is_shown.store(false, Ordering::Release);
         if let Some(window) = &self.surface_window {
             let w = window.clone();
+            #[cfg(target_os = "macos")]
+            let parent_clone = self.parent_window.clone();
             // run_on_main_thread failure (e.g. event loop shut down) is non-fatal
             // for hide — the window will be destroyed with the session anyway.
             let _ = window.run_on_main_thread(move || {
+                #[cfg(target_os = "macos")]
+                unsafe {
+                    if let Some(parent) = &parent_clone {
+                        if let (Ok(ns_win), Ok(parent_ns_win)) =
+                            (w.ns_window(), parent.ns_window())
+                        {
+                            let _: () = objc2::msg_send![
+                                parent_ns_win as *mut objc2::runtime::AnyObject,
+                                removeChildWindow: ns_win as *mut objc2::runtime::AnyObject
+                            ];
+                        }
+                    }
+                }
                 if let Err(e) = w.hide() {
                     log::warn!("[NativeSurface] hide_surface: window.hide() failed: {e}");
                 }
@@ -594,6 +609,17 @@ fn configure_surface(
     // Ensure it is explicitly hidden until active native playback calls show_surface();
     // otherwise the OS child window sits on top of the WebView and blocks the
     // HTML5 canvas readback preview during paused inspection.
+    #[cfg(target_os = "macos")]
+    unsafe {
+        if let (Ok(ns_win), Ok(parent_ns_win)) =
+            (surface_window.ns_window(), parent.ns_window())
+        {
+            let _: () = objc2::msg_send![
+                parent_ns_win as *mut objc2::runtime::AnyObject,
+                removeChildWindow: ns_win as *mut objc2::runtime::AnyObject
+            ];
+        }
+    }
     let _ = surface_window.hide();
     runtime_state.is_shown.store(false, Ordering::Release);
 

@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-11
+
+### 🛡️ Native UI Thread Safety & Surface Lifecycle (Architecture Invariant 16)
+
+- **Strict Main UI Thread Dispatch** — Enforced cross-platform native thread safety across macOS (AppKit/`NSWindow`), Windows (Win32/`HWND`), and Linux (`GtkWidget`). All OS window operations (`show_surface`, `hide_surface`, `reset`) dispatch strictly to the main event loop via `window.run_on_main_thread` / `app.run_on_main_thread`, eliminating macOS 26+ `EXC_BREAKPOINT (SIGTRAP)` crashes (#503).
+- **Native Surface Window Stacking & Space Transitions** — Re-asserts child-window hierarchy (`addChildWindow:ordered:1`) on every show to survive macOS Spaces and full-screen transitions that previously unparented child surfaces.
+- **Clean Child Window Unparenting on Hide** — Implemented macOS `removeChildWindow:ns_win` during `hide_surface` and initial `configure_surface` passes, ensuring hidden native GPU surfaces never occlude or intercept mouse input for the WebView or HTML5 canvas readback preview.
+- **Source Preview Space Isolation** — Automatically hides the native hardware program surface when previewing source assets, audio library items, stickers, or text presets. Dismounts program preview components during source preview to guarantee zero hardware audio/video channel collisions.
+
+### ⏱️ Playback Clock & Audio Synchronization Hardening
+
+- **Authoritative Hardware Sample Anchoring** — Added `_hasRealNativeClockSample` tracking to `PlaybackClock`. The first hardware audio sample delivered by CPAL anchors authoritative timeline position without monotonic clamp, eliminating startup drift while maintaining forward monotonicity for steady-state playback.
+- **Seek Precedence on Playback Resumption (CLY-PERF-004)** — Fixed `NativeAudioPreviewController` queued seek drops during rapid restart transitions. Seeks matching the current `seekIntentRevision` execute reliably even if the clock transitions to `playing` before the queued transport task runs.
+- **Terminal Boundary Restart Handling** — Preserves clean pause and seek-to-zero semantics on reaching playback duration rather than abrupt teardown, enabling instant spacebar loop and playback restarts.
+
+### ⚡ Timeline Scrubbing & Decoder Actor Pool Optimization
+
+- **Coarse-to-Fine Seek Settling (CLY-PERF-001)** — Implemented two-stage seek settling on timeline interactions. Interactive scrubbing utilizes low-overhead keyframe approximations for fluid 60+ FPS scrub response, followed by fine-frame settling upon scrub release.
+- **Bounded Stream Decoder Actor Pool (CLY-PERF-003)** — Implemented an 8-actor LRU pool eviction policy for thumbnail and preview decoders with race-free DashMap insertion semantics, preventing VRAM leaks and file descriptor exhaustion on dense multi-clip timelines.
+
+### 🛠️ Build Systems, Cross-Platform Caching & Verification
+
+- **Windows vcpkg FFmpeg Caching** — Added persistent `ffmpeg-vcpkg-x64-windows-static-md-v1` cache across Windows CI (`ci.yml`), desktop E2E (`desktop-e2e.yml`), and release (`release.yml`) workflows, cutting Windows job execution times by over 70%.
+- **macOS Static FFmpeg Build Fallback** — Added automated fallback static compilation of FFmpeg 8.0 on macOS cache misses in GitHub Actions.
+- **Architecture Invariants Fitness Automation** — Added automated fitness check script in `check-architecture.mjs` verifying Invariant 16 main-thread dispatches and expanded regression suite baseline to 166 passing tests.
+
 ## [1.5.9] - 2026-10-04
 
 ### ⏱️ Cold-Start Observability & Launch Milestones (Phase 1)

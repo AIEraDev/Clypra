@@ -1627,9 +1627,11 @@ pub fn native_tick_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
     let mut state = with_runtime(&app, |runtime| runtime.tick(clock))?;
     state.sampled_at_ns = Some(sampled_at_ns);
 
-    // Terminal playback is a lifecycle boundary, not a silent pause. Release
-    // the CPAL stream immediately so it cannot keep a stale clock/buffer alive
-    // until the next Space press, then let the next play create a fresh epoch.
+    // Terminal playback is a lifecycle boundary. Pause the CPAL audio stream
+    // and pre-seek to 0 so the stream stays warm in standby without tearing down
+    // the OS audio device. Tearing down the stream with audio.stop() causes a ~1.75s
+    // cold device initialization delay when the user restarts playback, which desyncs
+    // from the frontend timeline.
     let reached_end = runtime(&app)
         .ok()
         .and_then(|runtime| {
@@ -1641,8 +1643,9 @@ pub fn native_tick_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
         .unwrap_or(false);
     if reached_end {
         if let Some(audio) = app.try_state::<Arc<Mutex<NativeAudioClock>>>() {
-            if let Ok(mut audio) = audio.inner().clone().lock() {
-                audio.stop();
+            if let Ok(audio) = audio.inner().clone().lock() {
+                audio.pause();
+                audio.seek(0);
             }
         }
         if let Some(runtime) = app.try_state::<Arc<Mutex<NativePlaybackRuntime>>>() {

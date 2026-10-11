@@ -31,7 +31,7 @@ vi.mock("@/lib/platform/tauri", () => ({
   getNativePreviewPerformanceReport: vi.fn().mockResolvedValue({
     reportVersion: 1,
     capturedAtMs: Date.now(),
-    applicationVersion: "1.5.9",
+    applicationVersion: "1.6.0",
     buildProfile: "release",
     operatingSystem: "macos",
     architecture: "arm64",

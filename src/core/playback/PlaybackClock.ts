@@ -72,6 +72,8 @@ export class PlaybackClock {
     receivedAtMs: number;
     speed: number;
   } | null = null;
+  /** True only after a real hardware audio sample has been reported by CPAL. */
+  private _hasRealNativeClockSample = false;
   /**
    * Set to true when the native audio authority confirms no audio clips exist
    * on the timeline. CPAL runs silently and never calls setNativeClockPosition,
@@ -246,7 +248,7 @@ export class PlaybackClock {
     //
     // Staleness guard: if CPAL initialization takes longer than 2 seconds (far
     // beyond the measured 555ms baseline), it has likely failed silently. Fall
-    // back to the frozen position rather than extrapolating indefinitely from
+    // back to the frozen time rather than extrapolating indefinitely from
     // a stale anchor, which would accumulate unbounded drift.
     if (
       this._state === "playing" &&
@@ -331,7 +333,10 @@ export class PlaybackClock {
    * from the demand (which is correct because there is nothing to sync with).
    */
   get hasNativeClockPosition(): boolean {
-    return this._nativeClockPosition !== null || this._nativeAudioUnavailable;
+    return (
+      (this._nativeClockPosition !== null && this._hasRealNativeClockSample) ||
+      this._nativeAudioUnavailable
+    );
   }
 
   /** Whether native CPAL owns program-preview playback time. */
@@ -471,13 +476,19 @@ export class PlaybackClock {
     this._consecutiveBackwardPollCount = 0;
 
     let effectiveTime = clampedTime;
-    if (this._state === "playing" && !this._isSeeking) {
+    if (
+      this._state === "playing" &&
+      !this._isSeeking &&
+      this._hasRealNativeClockSample
+    ) {
       // During active forward playback, hold the current extrapolated time
       // rather than snapping backward on delayed IPC poll arrivals.
       if (clampedTime < currentExtrapolated) {
         effectiveTime = currentExtrapolated;
       }
     }
+
+    this._hasRealNativeClockSample = true;
 
     this._nativeClockPosition = {
       time: effectiveTime,
@@ -500,6 +511,7 @@ export class PlaybackClock {
       : this._speed;
     const clampedTime = Math.max(0, Math.min(time, this._duration));
 
+    this._hasRealNativeClockSample = true;
     this._nativeClockPosition = {
       time: clampedTime,
       receivedAtMs: performance.now(),
@@ -513,6 +525,7 @@ export class PlaybackClock {
   /** Stop consuming native samples and return to the local audio clock. */
   clearNativeClockPosition(): void {
     this._nativeClockPosition = null;
+    this._hasRealNativeClockSample = false;
   }
 
   /**
@@ -611,6 +624,7 @@ export class PlaybackClock {
       // extrapolate forward before CPAL delivers its first hardware sample.
       // This is what allows video to play immediately even when audio clips
       // haven't installed yet — the timeline is no longer gated on audio.
+      this._hasRealNativeClockSample = false;
       this._playStartMs = performance.now();
       this._playStartClockTime = this._time;
       this._nativeClockPosition = {
@@ -672,6 +686,7 @@ export class PlaybackClock {
     this._consecutiveBackwardPollCount = 0;
     resetPlayheadPaintTracking();
     this._nativeClockPosition = null; // Clear native clock sample so no stale pre-pause timestamps survive
+    this._hasRealNativeClockSample = false;
     this._playStartMs = 0; // Clear wall-clock anchor — new play() will set a fresh one
     this._notifyListeners();
 
@@ -707,6 +722,7 @@ export class PlaybackClock {
     this._time = this._duration;
     this._state = "paused";
     this._nativeClockPosition = null;
+    this._hasRealNativeClockSample = false;
     this._notifyListeners();
   }
 
@@ -729,6 +745,7 @@ export class PlaybackClock {
     this._consecutiveBackwardPollCount = 0;
     resetPlayheadPaintTracking();
     this._nativeClockPosition = null;
+    this._hasRealNativeClockSample = false;
     // Per-clip freezes are session-scoped — clear them when the project stops.
     this._clipFreezeMap.clear();
 
@@ -767,6 +784,7 @@ export class PlaybackClock {
       this._isSeeking = true;
       this._seekStartedAtMs = performance.now();
       this._nativeClockPosition = null;
+      this._hasRealNativeClockSample = false;
       this._notifyListeners();
       return;
     }
@@ -774,6 +792,7 @@ export class PlaybackClock {
     // Seamless seek-while-playing: Keep playing forward from target time
     this._isSeeking = true;
     this._seekStartedAtMs = performance.now();
+    this._hasRealNativeClockSample = false;
     if (this._nativeClockAuthority || this._nativeClockPosition) {
       this._nativeClockPosition = {
         time: this._time,
@@ -984,6 +1003,7 @@ export class PlaybackClock {
     this._time = 0;
     this._listeners.clear();
     this._nativeClockPosition = null;
+    this._hasRealNativeClockSample = false;
     this._nativeClockAuthority = false;
 
     if (this._audioContext && this._ownsAudioContext) {
@@ -1013,6 +1033,7 @@ export class PlaybackClock {
     this._isSeeking = false;
     this._seekStartedAtMs = 0;
     this._nativeClockPosition = null;
+    this._hasRealNativeClockSample = false;
     this._nativeClockAuthority = false;
     this._clipFreezeMap.clear();
     this._stallStartAudioTime = null;

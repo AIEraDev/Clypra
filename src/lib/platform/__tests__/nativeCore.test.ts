@@ -138,7 +138,7 @@ describe("native core contracts", () => {
     const mockReport = {
       reportVersion: 2,
       capturedAtMs: Date.now(),
-      applicationVersion: "1.5.9",
+      applicationVersion: "1.6.0",
       buildProfile: "release",
       operatingSystem: "macos",
       architecture: "aarch64",

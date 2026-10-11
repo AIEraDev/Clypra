@@ -412,5 +412,56 @@ describe("PlaybackClock: RAF Generation Counter", () => {
       expect(clock.isSeeking).toBe(false);
       expect(clock.time).toBeCloseTo(15.01, 2);
     });
+
+    it("accepts first real hardware sample without monotonic clamp and updates sample readiness", () => {
+      const clock = new PlaybackClock();
+      clock.setNativeClockAuthority(true);
+      clock.setDuration(30.0);
+
+      expect(clock.hasNativeClockPosition).toBe(false);
+
+      clock.play();
+      expect(clock.state).toBe("playing");
+      // Initially, hasNativeClockPosition is false before real hardware sample arrives
+      expect(clock.hasNativeClockPosition).toBe(false);
+
+      // First hardware sample arrives (e.g. at 0.01s). Even if UI extrapolated slightly forward,
+      // the first sample must set the authoritative hardware time without being clamped.
+      clock.setNativeClockPosition(0.01, 1.0);
+      expect(clock.hasNativeClockPosition).toBe(true);
+      expect(clock.time).toBeCloseTo(0.01, 2);
+
+      // Subsequent delayed sample lower than current extrapolation IS clamped
+      // to maintain forward monotonicity during steady-state playback.
+      const currentExtrapolated = clock.time;
+      clock.setNativeClockPosition(currentExtrapolated - 0.005, 1.0);
+      expect(clock.time).toBeGreaterThanOrEqual(currentExtrapolated);
+    });
+
+    it("resets sample readiness on pause, complete, and restart from terminal boundary", () => {
+      const clock = new PlaybackClock();
+      clock.setNativeClockAuthority(true);
+      clock.setDuration(10.0);
+
+      clock.play();
+      clock.setNativeClockPosition(5.0, 1.0);
+      expect(clock.hasNativeClockPosition).toBe(true);
+
+      // Complete at duration
+      clock.complete();
+      expect(clock.time).toBe(10.0);
+      expect(clock.hasNativeClockPosition).toBe(false);
+
+      // Space restart from terminal boundary restarts at 0
+      clock.play();
+      expect(clock.state).toBe("playing");
+      expect(clock.hasNativeClockPosition).toBe(false);
+
+      // Hardware sample arrives at restart
+      clock.setNativeClockPosition(0.02, 1.0);
+      expect(clock.hasNativeClockPosition).toBe(true);
+      expect(clock.time).toBeCloseTo(0.02, 2);
+    });
   });
 });
+

@@ -171,11 +171,17 @@ export function presentOnNativeSurface<T>(
 }
 
 /** Release ownership only after all prior presents have completed. */
-export function releaseNativeSurface(ownerProjectId: string): Promise<void> {
+export function releaseNativeSurface(ownerProjectId?: string): Promise<void> {
   nativeSurfaceRevision += 1;
   if (!isTauriRuntime()) return Promise.resolve();
   return enqueueNativeSurfaceOperation(async () => {
-    if (nativeSurfaceOwner !== ownerProjectId) return;
+    if (
+      ownerProjectId &&
+      nativeSurfaceOwner &&
+      nativeSurfaceOwner !== ownerProjectId
+    ) {
+      return;
+    }
     await hideNativeSurface().catch(() => undefined);
     nativeSurfaceOwner = null;
     nativeSurfaceGeometryKey = "";

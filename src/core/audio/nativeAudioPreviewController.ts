@@ -738,18 +738,11 @@ export class NativeAudioPreviewController {
         : this.beginInteraction(interactionName);
       this.enqueueTransport(async () => {
         const commandStartedAt = performance.now();
-        const stateBeforeSeek = this.clock.state;
-        if (
-          this.seekIntentRevision !== seekIntentRevision ||
-          (!isPlayingJump && stateBeforeSeek === "playing")
-        ) {
+        if (this.seekIntentRevision !== seekIntentRevision) {
           if (interaction) {
             this.finishInteraction(interaction, commandStartedAt, "superseded");
           } else if (activeScrubId) {
             telemetryCollector.recordScrubSuperseded(activeScrubId);
-          }
-          if (this.seekIntentRevision === seekIntentRevision) {
-            void this.resyncFromHardwareAudio();
           }
           return;
         }
@@ -762,11 +755,7 @@ export class NativeAudioPreviewController {
           if (activeScrubId) {
             telemetryCollector.recordScrubAudioSeek(activeScrubId, audioSeekUs);
           }
-          const stateAfterSeek = this.clock.state;
-          if (
-            this.seekIntentRevision !== seekIntentRevision ||
-            (!isPlayingJump && stateAfterSeek === "playing")
-          ) {
+          if (this.seekIntentRevision !== seekIntentRevision) {
             if (interaction) {
               interaction.telemetry.audioSeekUs = audioSeekUs;
               this.finishInteraction(
@@ -776,10 +765,6 @@ export class NativeAudioPreviewController {
               );
             } else if (activeScrubId) {
               telemetryCollector.recordScrubSuperseded(activeScrubId);
-            }
-            if (this.seekIntentRevision === seekIntentRevision) {
-              this.adoptNativePosition(secondsToTicks(targetTime));
-              void this.resyncFromHardwareAudio();
             }
             return;
           }
