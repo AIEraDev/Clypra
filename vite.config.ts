@@ -131,6 +131,8 @@ export default defineConfig(async () => ({
     globals: true,
     environment: "jsdom",
     setupFiles: ["./src/test-setup.ts"],
+    include: ["src/**/*.{test,spec}.?(c|m)[jt]s?(x)"],
+    exclude: ["**/node_modules/**", "**/dist/**", "**/tests/e2e/**", "**/src-tauri/**"],
     // The editor owns process-wide browser/media singletons (audio context,
     // playback clock, and resource pools). Parallel file workers can retain
     // those handles past worker teardown even though the tests themselves
