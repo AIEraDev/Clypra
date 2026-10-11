@@ -219,6 +219,33 @@ mod tests {
     use super::MediaTime;
     use proptest::prelude::*;
 
+    // Kept in sync with crates/time/src/lib.rs in AIEraDev/filmcraft by the acceptance runner.
+    const FILMCRAFT_TICKS_PER_SECOND: i128 = 254_016_000_000;
+    const BROADCAST_RATES: &[(i64, i64)] = &[
+        (24_000, 1_001),
+        (30_000, 1_001),
+        (60_000, 1_001),
+        (120_000, 1_001),
+        (24, 1),
+        (25, 1),
+        (30, 1),
+        (50, 1),
+        (60, 1),
+        (120, 1),
+    ];
+
+    fn rounded_ratio(numerator: i128, denominator: i128) -> i128 {
+        (numerator + denominator / 2) / denominator
+    }
+
+    /// Model FilmCraft's exact rational Tick grid without converting through floating-point seconds.
+    fn filmcraft_tick_model_micros(frame: i64, fps_num: i64, fps_den: i64) -> i128 {
+        let ticks_per_frame_numerator = FILMCRAFT_TICKS_PER_SECOND * i128::from(fps_den);
+        assert_eq!(ticks_per_frame_numerator % i128::from(fps_num), 0);
+        let ticks = i128::from(frame) * ticks_per_frame_numerator / i128::from(fps_num);
+        rounded_ratio(ticks * 1_000_000, FILMCRAFT_TICKS_PER_SECOND)
+    }
+
     proptest! {
         #[test]
         fn frame_index_round_trips_for_integer_frame_rates(
@@ -260,6 +287,44 @@ mod tests {
                     "frame {frame} did not round-trip at {fps} fps"
                 );
             }
+        }
+    }
+
+
+    proptest! {
+        #[test]
+        fn absolute_frame_positions_match_filmcraft_tick_grid(frame in 0_i64..1_000_000_i64) {
+            for &(fps_num, fps_den) in BROADCAST_RATES {
+                let fps = fps_num as f64 / fps_den as f64;
+                let actual_micros = i128::from(MediaTime::from_frame_index(frame, fps).as_micros());
+                let expected_micros = filmcraft_tick_model_micros(frame, fps_num, fps_den);
+                prop_assert!(
+                    (actual_micros - expected_micros).abs() <= 1,
+                    "frame {frame} at {fps_num}/{fps_den} fps: MediaTime={actual_micros}us, Tick grid={expected_micros}us"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn repeatedly_adding_a_rounded_frame_delta_exposes_fractional_rate_drift() {
+        // This is a characterization test, not an acceptable playback strategy: it quantifies
+        // why frame stepping must derive each timestamp from an absolute frame index (or exact ticks)
+        // instead of adding a rounded one-frame microsecond duration one million times.
+        const FRAME_COUNT: i128 = 1_000_000;
+        for &(fps_num, fps_den) in &[(24_000, 1_001), (30_000, 1_001), (60_000, 1_001)] {
+            let fps = fps_num as f64 / fps_den as f64;
+            let rounded_one_frame_us = i128::from(MediaTime::from_frame_index(1, fps).as_micros());
+            let absolute_us = i128::from(MediaTime::from_frame_index(FRAME_COUNT as i64, fps).as_micros());
+            let accumulated_us = rounded_one_frame_us * FRAME_COUNT;
+            let drift_us = accumulated_us - absolute_us;
+            assert!(
+                (300_000..=400_000).contains(&drift_us.abs()),
+                "expected the known ~0.333s accumulated rounding hazard at {fps_num}/{fps_den} fps, got {drift_us}us"
+            );
+            // The absolute timestamp remains within 1 microsecond of FilmCraft's integer Tick grid.
+            let expected_us = filmcraft_tick_model_micros(FRAME_COUNT as i64, fps_num, fps_den);
+            assert!((absolute_us - expected_us).abs() <= 1);
         }
     }
 
