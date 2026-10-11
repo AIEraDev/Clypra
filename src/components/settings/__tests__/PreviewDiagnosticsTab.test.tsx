@@ -9,8 +9,10 @@ import { useProjectStore } from "@/store/projectStore";
 import { APP_VERSION } from "@/config/version";
 
 // Mock Tauri platform functions
-vi.mock("@/lib/platform/tauri", () => ({
-  isTauriRuntime: vi.fn(() => true),
+vi.mock("@/lib/platform/tauri", async () => {
+  const { APP_VERSION: version } = await import("@/config/version");
+  return {
+    isTauriRuntime: vi.fn(() => true),
   getNativePushTransportCapabilities: vi.fn().mockResolvedValue({
     channel: true,
     customProtocolLongPoll: false,
@@ -29,25 +31,26 @@ vi.mock("@/lib/platform/tauri", () => ({
     avgIpcWaitUs: 2100,
     avgGpuRenderUs: 3200,
   }),
-  getNativePreviewPerformanceReport: vi.fn().mockResolvedValue({
-    reportVersion: 1,
-    capturedAtMs: Date.now(),
-    applicationVersion: APP_VERSION,
-    buildProfile: "release",
-    operatingSystem: "macos",
-    architecture: "arm64",
-    gpu: null,
-    preview: null,
-    session: {
-      framesProduced: 1800,
-      framesDropped: 0,
-      dropRatePct: 0.0,
-      sessionDurationSecs: 30.0,
-    },
-    stageDiagnoses: [],
-    pushBridge: null,
-  }),
-}));
+    getNativePreviewPerformanceReport: vi.fn().mockResolvedValue({
+      reportVersion: 1,
+      capturedAtMs: Date.now(),
+      applicationVersion: version,
+      buildProfile: "release",
+      operatingSystem: "macos",
+      architecture: "arm64",
+      gpu: null,
+      preview: null,
+      session: {
+        framesProduced: 1800,
+        framesDropped: 0,
+        dropRatePct: 0.0,
+        sessionDurationSecs: 30.0,
+      },
+      stageDiagnoses: [],
+      pushBridge: null,
+    }),
+  };
+});
 
 vi.mock("@/lib/toast", () => ({
   toast: {
