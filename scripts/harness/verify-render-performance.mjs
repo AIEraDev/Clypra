@@ -309,11 +309,22 @@ async function main() {
     await gate(expectedMedia(spec.kind).label + " decoder throughput", "Pillar 3: Throughput", () => decoderBench(spec.kind, fixture));
   }
 
-  await gate("End-to-end playback qualification boundary", "Pillar 3: Playback", async () => {
-    throw blocked(
-      "The existing decode-throughput-bench measures real decoder throughput and transfer cost, not the complete native preview loop. It does not measure timeline scheduling, GPU composition of decoded frames, native surface presentation deadlines, audio-master clock drift, or dropped visible frames. Full playback qualification remains open; do not treat decoder throughput as end-to-end 4K60 playback proof.",
-    );
-  });
+  if (process.env.CLYPRA_DECODE_ONLY === "1") {
+    collector.record({
+      name: "End-to-end playback qualification boundary",
+      category: "Pillar 3: Playback",
+      status: "SKIPPED",
+      durationMs: 0,
+      details: "Decode-only characterization was explicitly requested. This result is not a full playback qualification and must not gate migration of the primary desktop timeline.",
+    });
+    console.log("○ [Pillar 3: Playback] End-to-end qualification skipped by explicit decode-only mode.");
+  } else {
+    await gate("End-to-end playback qualification boundary", "Pillar 3: Playback", async () => {
+      throw blocked(
+        "The existing decode-throughput-bench measures real decoder throughput and transfer cost, not the complete native preview loop. It does not measure timeline scheduling, GPU composition of decoded frames, native surface presentation deadlines, audio-master clock drift, or dropped visible frames. Full playback qualification remains open; do not treat decoder throughput as end-to-end 4K60 playback proof. Set CLYPRA_DECODE_ONLY=1 only for decoder characterization, not release qualification.",
+      );
+    });
+  }
 
   const passed = collector.printSummary();
   await collector.saveJsonReport(path.relative(ROOT, REPORT_PATH));
