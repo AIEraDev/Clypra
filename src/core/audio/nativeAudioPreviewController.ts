@@ -508,6 +508,9 @@ export class NativeAudioPreviewController {
 
       return true;
     } catch (error) {
+      // CLY-PERF-001: Signal that native audio is unavailable so video playback
+      // demand does not freeze waiting indefinitely for hardware audio samples.
+      this.clock.markNativeAudioUnavailable();
       this.reportError(error);
       await this.dispose();
       return false;
@@ -1132,6 +1135,11 @@ export class NativeAudioPreviewController {
     const probe = this.startupProbe;
     if (!probe) return;
     this.startupProbe = null;
+    if (outcome === "failed" || outcome === "silent-timeout") {
+      if (!this.clock.hasNativeClockPosition) {
+        this.clock.markNativeAudioUnavailable();
+      }
+    }
     telemetryCollector.recordAudioStartup({
       sessionId: getActiveSessionOrNull()?.sessionId ?? "audio-runtime",
       metrics: {
