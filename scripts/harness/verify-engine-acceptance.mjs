@@ -173,8 +173,9 @@ function parseJsonOutput(text, label) {
 
 async function runCli(cli, args, project = null, options = {}) {
   const cliArgs = project ? ["--project", project, ...args] : [...args];
+  const cliCwd = await pathExists(path.join(FILMCRAFT_REPO, "Cargo.toml")) ? FILMCRAFT_REPO : ROOT;
   const result = await spawnCaptured(cli, cliArgs, {
-    cwd: FILMCRAFT_REPO,
+    cwd: cliCwd,
     timeoutMs: options.timeoutMs || 120_000,
     env: process.env,
   });
@@ -377,14 +378,20 @@ class McpClient {
 
 async function startMcp(cli, dataDir) {
   await mkdir(dataDir, { recursive: true });
+  const cliCwd = await pathExists(path.join(FILMCRAFT_REPO, "Cargo.toml")) ? FILMCRAFT_REPO : ROOT;
   const child = spawn(cli, ["mcp", "--data-dir", dataDir], {
-    cwd: FILMCRAFT_REPO,
+    cwd: cliCwd,
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
   const client = new McpClient(child);
-  await client.initialize();
-  return client;
+  try {
+    await client.initialize();
+    return client;
+  } catch (error) {
+    await client.close();
+    throw error;
+  }
 }
 
 async function mcpCommand(client, id, params = {}) {
