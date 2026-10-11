@@ -156,12 +156,24 @@ jobs:
             echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
           }
 
+      - name: Cache FFmpeg (Windows)
+        id: cache-ffmpeg-windows
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed\x64-windows-static-md
+          key: ffmpeg-vcpkg-x64-windows-static-md-v1
+
       - name: Install FFmpeg (Windows)
+        if: steps.cache-ffmpeg-windows.outputs.cache-hit != 'true'
         shell: powershell
         run: |
           cd C:\vcpkg
           git pull --quiet
           vcpkg install ffmpeg[core,avcodec,avdevice,avfilter,avformat,swresample,swscale]:x64-windows-static-md
+
+      - name: Configure FFmpeg Environment (Windows)
+        shell: powershell
+        run: |
           echo "FFMPEG_DIR=C:/vcpkg/installed/x64-windows-static-md" >> $env:GITHUB_ENV
           echo "PKG_CONFIG_PATH=C:/vcpkg/installed/x64-windows-static-md/lib/pkgconfig" >> $env:GITHUB_ENV
           echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV

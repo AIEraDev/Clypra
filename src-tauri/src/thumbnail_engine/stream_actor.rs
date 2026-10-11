@@ -32,6 +32,9 @@ use clypra_native_core::QualityTier;
 const MAX_PRIME_CACHE_ENTRIES: usize = 4;
 const DEFAULT_FRAME_DURATION_SECS: f64 = 1.0 / 30.0;
 
+/// Maximum number of active stream decoder actors kept resident in memory.
+pub const MAX_PREVIEW_ACTOR_POOL_SIZE: usize = 8;
+
 /// Global registry of active stream decoder actors.
 static PREVIEW_ACTOR_POOL: Lazy<DashMap<String, Arc<StreamDecoderActorHandle>>> =
     Lazy::new(DashMap::new);
@@ -227,6 +230,7 @@ pub struct StreamDecoderActorHandle {
     cancel_in_flight: Arc<AtomicBool>,
     prime_cache: Arc<Mutex<VecDeque<DecodedActorFrame>>>,
     frame_duration_secs: f64,
+    last_accessed_ms: Arc<AtomicU64>,
 }
 
 impl StreamDecoderActorHandle {
@@ -236,6 +240,11 @@ impl StreamDecoderActorHandle {
 
     pub fn frame_duration_secs(&self) -> f64 {
         self.frame_duration_secs
+    }
+
+    pub fn touch(&self) {
+        self.last_accessed_ms
+            .store(crate::thumbnail_engine::decoder::current_timestamp_ms(), Ordering::Relaxed);
     }
 
     /// Decode a frame with priority awareness and prime-cache acceleration.
@@ -425,6 +434,9 @@ impl StreamDecoderActor {
         let current_generation = Arc::new(AtomicU64::new(0));
         let cancel_in_flight = Arc::new(AtomicBool::new(false));
         let prime_cache = Arc::new(Mutex::new(VecDeque::with_capacity(MAX_PRIME_CACHE_ENTRIES)));
+        let last_accessed_ms = Arc::new(AtomicU64::new(
+            crate::thumbnail_engine::decoder::current_timestamp_ms(),
+        ));
 
         let handle = Arc::new(StreamDecoderActorHandle {
             key,
@@ -434,6 +446,7 @@ impl StreamDecoderActor {
             cancel_in_flight: cancel_in_flight.clone(),
             prime_cache: prime_cache.clone(),
             frame_duration_secs,
+            last_accessed_ms,
         });
 
         let mut actor = StreamDecoderActor {
@@ -953,7 +966,25 @@ pub async fn get_preview_decoder_actor_for_stream(
 ) -> Result<Arc<StreamDecoderActorHandle>, String> {
     let key = preview_pool_key(path, stream_id);
     if let Some(actor) = PREVIEW_ACTOR_POOL.get(&key) {
+        actor.touch();
         return Ok(actor.value().clone());
+    }
+
+    // LRU eviction when actor pool reaches capacity
+    if PREVIEW_ACTOR_POOL.len() >= MAX_PREVIEW_ACTOR_POOL_SIZE {
+        let oldest = PREVIEW_ACTOR_POOL
+            .iter()
+            .map(|kv| {
+                (
+                    kv.key().clone(),
+                    kv.value().last_accessed_ms.load(Ordering::Relaxed),
+                )
+            })
+            .min_by_key(|(_, ts)| *ts);
+
+        if let Some((oldest_key, _)) = oldest {
+            PREVIEW_ACTOR_POOL.remove(&oldest_key);
+        }
     }
 
     let decoder = get_preview_decoder_for_stream(path, stream_id).await?;
@@ -972,8 +1003,20 @@ pub async fn get_preview_decoder_actor_for_stream(
         },
     );
 
-    PREVIEW_ACTOR_POOL.insert(key, actor.clone());
-    Ok(actor)
+    use dashmap::mapref::entry::Entry;
+    let final_actor = match PREVIEW_ACTOR_POOL.entry(key) {
+        Entry::Occupied(occ) => {
+            let existing = occ.get().clone();
+            existing.touch();
+            existing
+        }
+        Entry::Vacant(vac) => {
+            vac.insert(actor.clone());
+            actor
+        }
+    };
+
+    Ok(final_actor)
 }
 
 /// Release a specific stream decoder actor from the global pool.
@@ -1049,6 +1092,7 @@ mod tests {
             cancel_in_flight,
             prime_cache: prime_cache.clone(),
             frame_duration_secs: 1.0 / 30.0,
+            last_accessed_ms: Arc::new(AtomicU64::new(0)),
         };
 
         let opts = DecodeFrameOptions {
@@ -1167,6 +1211,7 @@ mod tests {
             cancel_in_flight: cancel_in_flight.clone(),
             prime_cache,
             frame_duration_secs: 1.0 / 30.0,
+            last_accessed_ms: Arc::new(AtomicU64::new(0)),
         };
 
         handle.invalidate(42);
@@ -1217,6 +1262,7 @@ mod tests {
             cancel_in_flight: Arc::new(AtomicBool::new(false)),
             prime_cache,
             frame_duration_secs: 1.0 / 30.0,
+            last_accessed_ms: Arc::new(AtomicU64::new(0)),
         };
 
         // The requested clock time is older than the decoded cursor. Exact
@@ -1311,6 +1357,7 @@ mod tests {
             cancel_in_flight: Arc::new(AtomicBool::new(false)),
             prime_cache: prime_cache.clone(),
             frame_duration_secs: 0.04,
+            last_accessed_ms: Arc::new(AtomicU64::new(0)),
         };
 
         // Add 2 frames that were never served (served_count = 0)

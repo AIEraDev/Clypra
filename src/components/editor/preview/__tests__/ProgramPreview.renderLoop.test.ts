@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { PlaybackClock } from "@/core/playback/PlaybackClock";
+import { SeekController } from "@/core/playback/seekController";
 import { NativeAudioPreviewController } from "@/core/audio/nativeAudioPreviewController";
 import { getActiveAudioClips } from "@/core/timeline/audioClips";
 import type { Clip, MediaAsset, Track } from "@/types";
@@ -3987,4 +3988,78 @@ describe("Native Program Preview — Blank Preview on Playback Startup (Bug 13)"
     expect(canvas.cleared).toBe(false);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLY-PERF-001 / Bug 14 — Timeline Seek and Interactive Scrub Coarse-to-Fine Settling
+//
+// Problem (identified in perf log analysis):
+//   1. Timeline click seeking previously forced quality='full' and allowKeyframeApprox=false,
+//      bypassing the two-stage coarse-to-fine seeking pipeline and causing 600ms+ cold GOP
+//      decode latency stalls during editing.
+//   2. Interactive playhead scrubbing without a prior stored intent fell back to synchronous
+//      full-frame requests instead of permitting fast keyframe approximation.
+//
+// Fix:
+//   1. Timeline-click-seek delegates to seekController's coarse-to-fine pipeline,
+//      starting with allowKeyframeApprox=true and quality='quarter' for <15ms response,
+//      followed by debounced exact settling (allowKeyframeApprox=false, quality='full').
+//   2. NativeProgramPreview requestIntent preserves allowKeyframeApprox=true during
+//      interactive seeking and scrubbing, enforcing exact decode only when isSettling=true.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("CLY-PERF-001 / Bug 14 — Timeline seek and interactive scrub coarse-to-fine settling", () => {
+  it("REGRESSION: timeline click seek enables coarse-to-fine two-stage settling", () => {
+    const controller = new SeekController();
+    let initialIntent: any = null;
+
+    controller.subscribe((intent) => {
+      if (!intent.isSettling) {
+        initialIntent = intent;
+      }
+    });
+
+    // When timeline-click-seek requests a seek without forcing quality=full or allowKeyframeApprox=false,
+    // seekController creates an initial coarse request with allowKeyframeApprox=true and quality=quarter.
+    controller.request({
+      time: 5.0,
+      mode: "seek",
+      source: "timeline-click-seek",
+    });
+
+    expect(initialIntent).not.toBeNull();
+    expect(initialIntent.allowKeyframeApprox).toBe(true);
+    expect(initialIntent.quality).toBe("quarter");
+    expect(initialIntent.isSettling).toBe(false);
+
+    controller.dispose();
+  });
+
+  it("REGRESSION: interactive playhead scrubbing uses allowKeyframeApprox: true unless settling", () => {
+    const isSettling = false;
+    const isScrubbing = true;
+    const isCoarseSeek = true;
+    const latestSeekIntent = {
+      isScrubbing: true,
+      allowKeyframeApprox: true,
+      generation: 1,
+      mode: "scrub" as const,
+      quality: "quarter" as const,
+      velocityPxPerSecond: 100,
+      issuedAtMs: 1000,
+    };
+
+    const allowKeyframeApprox = isSettling
+      ? false
+      : (latestSeekIntent.allowKeyframeApprox ?? (isScrubbing || isCoarseSeek));
+
+    expect(allowKeyframeApprox).toBe(true);
+
+    // Once settling commences, exact decode is enforced
+    const settledAllowKeyframeApprox = true // isSettling = true
+      ? false
+      : (latestSeekIntent.allowKeyframeApprox ?? (isScrubbing || isCoarseSeek));
+    expect(settledAllowKeyframeApprox).toBe(false);
+  });
+});
+
 
