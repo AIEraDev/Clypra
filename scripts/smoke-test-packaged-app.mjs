@@ -200,6 +200,24 @@ if (detectedBin) {
   console.log("     Frontend bundle and packaging staging validated successfully.");
 }
 
+// ── 5. In-App Sidecar Resolution & Clean-PATH Export Engine ───────────────
+console.log("\n5. Validating in-app sidecar resolution & clean-PATH export engine...");
+if (existsSync(join(srcTauriDir, "Cargo.toml"))) {
+  const cleanExportTest = spawnSync(
+    "cargo",
+    ["test", "--manifest-path", join(srcTauriDir, "Cargo.toml"), "--test", "clean_path_packaged_export_tests", "--", "--nocapture"],
+    { stdio: "pipe", encoding: "utf8" }
+  );
+
+  assert(
+    cleanExportTest.status === 0,
+    "In-app sidecar resolution and clean-PATH wgpu export engine test passed"
+  );
+  if (cleanExportTest.status !== 0) {
+    console.error(cleanExportTest.stderr || cleanExportTest.stdout);
+  }
+}
+
 console.log("\n============================================================");
 if (failures === 0) {
   console.log(` Packaged Application Smoke Test: ALL ${passes} CHECKS PASSED! 🎉`);
