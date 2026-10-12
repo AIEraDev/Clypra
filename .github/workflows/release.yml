@@ -360,3 +360,32 @@ jobs:
 
           gh release upload "$TAG_NAME" /tmp/latest.json /tmp/updater.json --clobber --repo ${{ github.repository }}
           echo "Successfully converted and published both latest.json and updater.json with direct public download URLs!"
+
+  update-homebrew:
+    name: Dispatch Homebrew Cask Update
+    needs: [publish-tauri, sync-updater-manifests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger homebrew-tap update
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="${{ github.ref_name }}"
+          if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "main" ] || [ "$TAG_NAME" = "master" ]; then
+            TAG_NAME=$(gh release view --json tagName -q .tagName --repo ${{ github.repository }} 2>/dev/null || echo "")
+          fi
+          VERSION="${TAG_NAME#v}"
+          echo "Release version: $VERSION ($TAG_NAME)"
+
+          if [ -n "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "Dispatching update-cask event to AIEraDev/homebrew-tap..."
+            curl -s -X POST \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Authorization: token $HOMEBREW_TAP_TOKEN" \
+              https://api.github.com/repos/AIEraDev/homebrew-tap/dispatches \
+              -d "{\"event_type\": \"update-cask\", \"client_payload\": {\"version\": \"$VERSION\", \"tag\": \"$TAG_NAME\"}}"
+            echo "Successfully dispatched update-cask event to AIEraDev/homebrew-tap."
+          else
+            echo "HOMEBREW_TAP_TOKEN secret is not configured; AIEraDev/homebrew-tap will auto-sync via scheduled release polling."
+          fi

@@ -1064,7 +1064,7 @@ export const NativeProgramPreview: React.FC = () => {
           canvasEl.width = state.canvasWidth;
         if (canvasEl.height !== state.canvasHeight)
           canvasEl.height = state.canvasHeight;
-        if (scene.visualLayers.some((layer) => layer.layerType === "text")) {
+        if (scene.visualLayers.some((layer) => layer.layerType === "text" || layer.layerType === "media")) {
           await paintTextLayersToCanvas(
             canvasEl,
             scene,
@@ -4454,7 +4454,9 @@ export const NativeProgramPreview: React.FC = () => {
             if (
               !isTauriRuntime() &&
               canvasEl &&
-              scene.visualLayers.some((layer) => layer.layerType === "text")
+              scene.visualLayers.some(
+                (layer) => layer.layerType === "text" || layer.layerType === "media",
+              )
             ) {
               const browserPaintStarted = performance.now();
               await paintTextLayersToCanvas(

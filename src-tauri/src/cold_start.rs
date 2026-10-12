@@ -1092,10 +1092,12 @@ fn get_system_uptime_secs() -> Option<u64> {
 }
 
 #[cfg(target_os = "windows")]
+#[allow(clippy::upper_case_acronyms)]
 fn get_process_creation_epoch_ms() -> Option<u64> {
     type HANDLE = *mut std::ffi::c_void;
     type BOOL = i32;
     #[repr(C)]
+    #[allow(non_snake_case)]
     struct FILETIME {
         dwLowDateTime: u32,
         dwHighDateTime: u32,
@@ -1158,6 +1160,7 @@ fn get_system_uptime_secs() -> Option<u64> {
 /// Classify a filesystem path as `"fixed"`, `"removable"`, or `"network"` drive.
 /// Never logs, stores, or transmits the path.
 #[cfg(target_os = "windows")]
+#[allow(clippy::upper_case_acronyms)]
 pub fn classify_media_location(path: &std::path::Path) -> &'static str {
     type UINT = u32;
     type LPCWSTR = *const u16;

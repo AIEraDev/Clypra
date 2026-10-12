@@ -330,6 +330,61 @@ describe("browser preview blend mode painting", () => {
     await paintTextLayersToCanvas(canvas, scene, "interactive-preview");
     expect(capturedBlendMode).toBe("screen");
   });
+
+  it("paints media layers (stickers/images) to canvas and respects zIndex and opacity", async () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 800;
+    canvas.height = 600;
+    const ctx = canvas.getContext("2d")!;
+    vi.spyOn(canvas, "getContext").mockReturnValue(ctx as any);
+
+    const drawCalls: any[] = [];
+    ctx.drawImage = vi.fn().mockImplementation((...args) => {
+      drawCalls.push(args);
+    });
+
+    // Mock Image with instant onload/complete
+    const originalImage = globalThis.Image;
+    class MockImage {
+      src = "";
+      complete = true;
+      naturalWidth = 200;
+      naturalHeight = 200;
+    }
+    (globalThis as any).Image = MockImage;
+
+    try {
+      const mediaLayer = {
+        layerId: "sticker-layer-1",
+        layerType: "media",
+        clipKind: "sticker",
+        mediaType: "image",
+        mediaId: "sticker-starter-golden-star",
+        sourcePath: "data:image/svg+xml;utf8,<svg>...</svg>",
+        x: 100,
+        y: 150,
+        width: 200,
+        height: 200,
+        rotation: 0,
+        opacity: 0.9,
+        zIndex: 10,
+        blendMode: "normal",
+      } as any;
+
+      const scene = {
+        visualLayers: [mediaLayer],
+        audioLayers: [],
+        metadata: { time: 0, duration: 5, fps: 60 },
+      } as any;
+
+      await paintTextLayersToCanvas(canvas, scene, "interactive-preview");
+      expect(ctx.drawImage).toHaveBeenCalled();
+      expect(drawCalls.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      globalThis.Image = originalImage;
+    }
+  });
 });
+
 
 

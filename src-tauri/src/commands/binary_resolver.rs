@@ -145,7 +145,7 @@ pub fn is_real_executable(path: &Path) -> bool {
     {
         let is_exe = path
             .extension()
-            .map_or(false, |ext| ext.eq_ignore_ascii_case("exe"));
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"));
         if is_exe {
             use std::io::{Seek, SeekFrom};
 
@@ -172,7 +172,7 @@ pub fn is_real_executable(path: &Path) -> bool {
             ]) as u64;
 
             // Basic sanity check on PE header offset
-            if pe_offset < 64 || pe_offset > 10_000_000 {
+            if !(64..=10_000_000).contains(&pe_offset) {
                 return false;
             }
 

@@ -173,14 +173,6 @@ pub struct ImportedNv12Texture {
     pub uv_view: wgpu::TextureView,
 }
 
-/// Open a DXGI NT shared handle via the wgpu DX12 HAL and produce biplanar views.
-///
-/// # Arguments
-///
-/// * `device` — the wgpu device (must use the DX12 backend on Windows).
-/// * `shared` — handle produced by `extract_shared_handle`; this function takes
-///              ownership and will close it regardless of success/failure.
-///
 use crate::wgpu_compositor::render_path::DxgiFailureReason;
 
 /// Open a DXGI NT shared handle via the wgpu DX12 HAL and produce biplanar views.
@@ -189,7 +181,7 @@ use crate::wgpu_compositor::render_path::DxgiFailureReason;
 ///
 /// * `device` — the wgpu device (must use the DX12 backend on Windows).
 /// * `shared` — handle produced by `extract_shared_handle`; this function takes
-///              ownership and will close it regardless of success/failure.
+///   ownership and will close it regardless of success/failure.
 ///
 /// # Returns
 ///
