@@ -871,6 +871,17 @@ function AboutTab() {
         </div>
       </div>
 
+      {/* Sticker & Open Media Attributions */}
+      <div className="w-full max-w-85 bg-white/2 border border-white/8 rounded-xl p-3 flex flex-col gap-1.5">
+        <div className="flex items-center justify-between text-[11px] font-semibold text-text-primary">
+          <span>Stickers &amp; Media Credits</span>
+          <span className="text-[9px] text-text-muted font-normal">CC BY 4.0 &bull; CC0</span>
+        </div>
+        <p className="text-[10px] text-text-muted leading-relaxed">
+          Animated emojis by <span className="text-gray-300 font-medium">Google Noto Emoji</span> under CC BY 4.0. Vector shapes by <span className="text-gray-300 font-medium">Kenney</span> under CC0 1.0.
+        </p>
+      </div>
+
       <div className="flex items-center gap-4 mt-2">
         <button onClick={() => openExternalUrl("https://github.com/AIEraDev/clypra")} className="text-xs font-medium text-text-muted hover:text-accent transition-colors flex items-center gap-1.5">
           <GithubIcon className="w-3.5 h-3.5" />

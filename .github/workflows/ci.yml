@@ -55,6 +55,19 @@ jobs:
       - name: Core Domain & Timeline Tests
         run: npx vitest run src/core/evaluation/ src/lib/timecode/
 
+      - name: Execute Unified Engineering Quality Gate
+        run: npm run verify:gate:ci
+
+      - name: Upload Quality Gate Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-gate-reports
+          path: |
+            test-results/quality-gate-report.json
+            test-results/quality-gate-summary.md
+            test-results/playback-concurrency-benchmark.json
+
   test-rust:
     name: Test Rust Backend (Linux)
     runs-on: ubuntu-latest

@@ -44,15 +44,22 @@ export class NativeAnimatedStickerRenderer {
       cachedSticker = useStickersStore.getState().getCachedSticker(stickerId);
     }
 
+    let animationData = cachedSticker?.lottieData;
     let sourcePath = cachedSticker?.localAnimationPath ?? layer.stickerAnimationPath ?? "";
-    if (!sourcePath) return null;
-    if (
-      !sourcePath.startsWith("/") &&
-      !sourcePath.startsWith("file:") &&
-      !sourcePath.startsWith("asset://")
-    ) {
-      sourcePath = await join(await appCacheDir(), sourcePath);
+
+    if (!animationData) {
+      if (!sourcePath) return null;
+      if (
+        !sourcePath.startsWith("/") &&
+        !sourcePath.startsWith("file:") &&
+        !sourcePath.startsWith("asset://") &&
+        !sourcePath.startsWith("bundled://")
+      ) {
+        sourcePath = await join(await appCacheDir(), sourcePath);
+      }
+      animationData = await stickerCacheManager.readLottieJson(sourcePath);
     }
+    if (!animationData) return null;
 
     const width = Math.max(1, Math.ceil(layer.width));
     const height = Math.max(1, Math.ceil(layer.height));
@@ -64,8 +71,6 @@ export class NativeAnimatedStickerRenderer {
       entry.height !== height
     ) {
       if (entry) this.destroyEntry(entry);
-      const animationData = await stickerCacheManager.readLottieJson(sourcePath);
-      if (!animationData) return null;
 
       const container = document.createElement("div");
       container.style.position = "absolute";

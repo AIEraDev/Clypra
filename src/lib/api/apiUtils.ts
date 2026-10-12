@@ -3,8 +3,8 @@
  * Common functions used across all API clients
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://clypra-worker-api.abdulkabirmusa.com";
-const API_KEY = import.meta.env.VITE_CLYPRA_API_KEY || "";
+const API_BASE_URL = (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) || "https://clypra-worker-api.abdulkabirmusa.com";
+const API_KEY = (typeof import.meta !== "undefined" && import.meta.env?.VITE_CLYPRA_API_KEY) || "";
 
 /**
  * Create headers with API key for authenticated requests

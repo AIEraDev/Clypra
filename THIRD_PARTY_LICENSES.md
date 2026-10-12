@@ -67,3 +67,24 @@ Clypra executes FFmpeg and FFprobe as independent, standalone child processes th
 - **Whisper**: Local speech-to-text models licensed under the MIT License ([OpenAI Whisper](https://github.com/openai/whisper)).
 - **wgpu**: Safe and portable GPU abstraction in Rust licensed under MIT / Apache 2.0.
 - **Tauri**: Application framework licensed under Apache 2.0 / MIT.
+
+---
+
+## Stickers & Vector Assets
+
+The Clypra desktop application bundles and distributes open-source and Creative Commons sticker animations and vector artwork:
+
+- **Google Noto Emoji & Animated Emoji**:
+  - **Author**: Google Noto Emoji Team
+  - **Source**: [https://github.com/googlefonts/noto-emoji](https://github.com/googlefonts/noto-emoji)
+  - **License**: Creative Commons Attribution 4.0 International ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/))
+  - **Notice**: Designed by Google Noto Emoji under CC BY 4.0 license.
+
+- **Kenney Game & UI Assets**:
+  - **Author**: Kenney ([kenney.nl](https://kenney.nl))
+  - **License**: Creative Commons Zero 1.0 Universal ([CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)) Public Domain Dedication.
+
+- **Clypra Original Assets**:
+  - **Author**: Clypra Studio & Contributors
+  - **License**: Distributed with Clypra under the [MIT License](LICENSE) / LicenseRef-Clypra-Original.
+

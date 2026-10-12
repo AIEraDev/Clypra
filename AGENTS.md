@@ -76,6 +76,18 @@ npm run verify:architecture
 # Fast Local Verification (Typecheck + Architecture + Preview render loop)
 npm run verify:fast
 
+# Unified Engineering Quality Gate (4 Pillars + Baseline Regression)
+npm run verify:gate
+
+# Full release qualification quality gate
+npm run verify:gate:full
+
+# Real-media playback & concurrency benchmark
+npm run benchmark:playback
+
+# Baseline regression comparator
+npm run benchmark:compare
+
 # Targeted verification based on git changed files
 npm run verify:changed
 

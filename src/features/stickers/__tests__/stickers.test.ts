@@ -77,14 +77,17 @@ describe("Stickers Store & Cache Manager", () => {
       // Stub downloadSticker implementation
       const cacheResult = {
         id: "sticker-123",
+        sha256: "mock-sha-123",
         localImagePath: "stickers/sticker-123.png",
         localAnimationPath: "stickers/sticker-123.json",
         downloadedAt: Date.now(),
+        lastAccessedAt: Date.now(),
+        sizeBytes: 1024,
       };
       
       const downloadSpy = vi.spyOn(stickerCacheManager, "downloadSticker").mockResolvedValue(cacheResult);
       vi.spyOn(stickerCacheManager, "isCached").mockReturnValue(false);
-      vi.spyOn(stickerCacheManager, "readLottieJson").mockResolvedValue({ lottie: true });
+      const readLottieSpy = vi.spyOn(stickerCacheManager, "readLottieJson").mockResolvedValue({ lottie: true });
 
       // Run store download action
       const promise = useStickersStore.getState().startDownload(mockItem);
@@ -102,6 +105,44 @@ describe("Stickers Store & Cache Manager", () => {
       expect(completedState!.progress).toBe(100);
 
       downloadSpy.mockRestore();
+      readLottieSpy.mockRestore();
+    });
+  });
+
+  describe("Phase 4 — Offline Starters & API Integration", () => {
+    it("provides 10 bundled starter stickers with valid Lottie metadata and licenses", async () => {
+      const { STARTER_STICKERS, getStarterStickers } = await import("../starterStickers");
+      expect(STARTER_STICKERS.length).toBe(10);
+      const starters = getStarterStickers();
+      expect(starters.length).toBe(10);
+
+      for (const starter of STARTER_STICKERS) {
+        expect(starter.id).toMatch(/^starter-[a-z0-9-]+$/);
+        expect(starter.lottieData).toBeDefined();
+        expect(starter.lottieData.v).toBeDefined();
+        expect(starter.lottieData.layers).toBeInstanceOf(Array);
+        expect(starter.lottieData.layers.length).toBeGreaterThan(0);
+        expect(starter.svgThumbnail).toContain("data:image/svg+xml");
+        expect(starter.license).toBeDefined();
+        expect(starter.license?.spdx).toBeDefined();
+        expect(starter.license?.author).toBeDefined();
+      }
+    });
+
+    it("falls back to starter stickers when offline or network fails", async () => {
+      const { StickersApi } = await import("../api/stickersApi");
+      const fallback = StickersApi.getOfflineFallback();
+      expect(fallback.length).toBe(10);
+
+      const reactionFallback = StickersApi.getOfflineFallback("reaction");
+      expect(reactionFallback.length).toBeGreaterThan(0);
+      expect(reactionFallback.every((s) => s.category === "reaction")).toBe(true);
+    });
+
+    it("reads bundled Lottie JSON directly from cache manager without network", async () => {
+      const lottie = await stickerCacheManager.readLottieJson("bundled://starter-golden-star.json");
+      expect(lottie).toBeDefined();
+      expect((lottie as any).nm).toBe("Golden Star");
     });
   });
 });
