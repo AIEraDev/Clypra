@@ -1,0 +1,137 @@
+{
+  "suite": "Clypra Playback & Concurrency Quality Harness",
+  "timestamp": "2026-10-12T21:47:13.779Z",
+  "host": "darwin (arm64)",
+  "nodeVersion": "v22.22.3",
+  "provenance": {
+    "gitCommit": "30be2756253eeac34bcf2a732eaf9e0a196f8eed",
+    "gitBranch": "feat/ci-update-homebrew-on-release",
+    "hostPlatform": "darwin",
+    "hostArch": "arm64",
+    "cpuModel": "Apple M1",
+    "cpuCores": 8,
+    "totalMemoryGb": 16,
+    "workload": "Golden Production Project (1080p H.264 / 4K HEVC / Audio)",
+    "fixtureHashes": {
+      "video_1080p_60fps_h264.mp4": "f9faf6d91e9e2edd3bf09e24e24c40ea86f50fe7097782840018b31f7ccb6e9b",
+      "video_4k_30fps_hevc.mp4": "53a681d570ba1e45073a9bace90a9a18eac192bf73081a791d68498c6b6475f6",
+      "audio_music_stereo_48k.mp3": "e9ad492b971f5719ba3f051dbcb65cd76637169c07bc1c58725eaaed9b27248b"
+    },
+    "measuredAt": "2026-10-12T21:47:13.778Z"
+  },
+  "fixturesAvailable": true,
+  "microbenchmarks": {
+    "category": "Microbenchmark (In-Memory Math & Timeline Sorting)",
+    "timelineMathP95Ms": 0.009,
+    "samplesEvaluated": 100,
+    "status": "PASSED"
+  },
+  "productBenchmarks": {
+    "category": "Product Benchmark (Real Media Playback, Concurrency & Export)",
+    "description": "Evaluates end-to-end media playback, multi-track decode, background contention, and export",
+    "realMediaDecoding": {
+      "ttff4kHevcMs": 195.19,
+      "coldSeek1080pP95Ms": 224.69,
+      "warmSeekP95Ms": 2.08,
+      "scrubP95Ms": 218.52,
+      "avSyncDriftMs": 23.02
+    },
+    "concurrencyUnderLoad": {
+      "playbackP95UnderLoadMs": 829.05,
+      "backgroundTasksCompleted": 6
+    },
+    "exportPipeline": {
+      "rtf": 2.65,
+      "faststart": true,
+      "sampleRate": 48000
+    }
+  },
+  "scenarios": {
+    "scenarioA": {
+      "name": "Interactive Playback & Real Media Decoding",
+      "status": "PASSED",
+      "metrics": {
+        "ttffMs": 195.19,
+        "coldSeekP95Ms": 224.69,
+        "warmSeekP95Ms": 2.08,
+        "scrubP50Ms": 184.44,
+        "scrubP95Ms": 218.52,
+        "droppedFrameCount": 0,
+        "droppedFrameRatio": 0,
+        "avSyncDriftMs": 23.02
+      },
+      "budgets": {
+        "ttffMs": 300,
+        "coldSeekMs": 300,
+        "warmSeekMs": 25,
+        "scrubPacingP95Ms": 300,
+        "droppedFrameRatio": 0.2,
+        "avSyncDriftMs": 35
+      }
+    },
+    "scenarioB": {
+      "name": "Concurrent Workloads & Subsystem Contention",
+      "status": "PASSED",
+      "metrics": {
+        "playbackP95UnderLoadMs": 829.05,
+        "backgroundTasksCompleted": 6,
+        "avgWaveformExtractionMs": 131.85
+      },
+      "budgets": {
+        "playbackLatencyUnderLoadMs": 850,
+        "backgroundTasksCompletedMin": 4
+      }
+    },
+    "scenarioC": {
+      "name": "Reliability & Stress Recovery",
+      "status": "PASSED",
+      "metrics": {
+        "rapidSeekErrors": 0,
+        "missingMediaHandledGracefully": true,
+        "cancellationErrors": 0
+      },
+      "budgets": {
+        "rapidSeekErrors": 0,
+        "cancellationErrors": 0,
+        "missingMediaHandledGracefully": true
+      }
+    },
+    "scenarioD": {
+      "name": "Long-Duration Stability & Soak",
+      "status": "PASSED",
+      "metrics": {
+        "soakFramesEvaluated": 500,
+        "heapDeltaMb": 0.41,
+        "orphanedProcesses": 0
+      },
+      "budgets": {
+        "maxHeapDeltaMb": 35,
+        "orphanedProcesses": 0
+      }
+    },
+    "scenarioE": {
+      "name": "Golden Project Media Export Pipeline",
+      "status": "PASSED",
+      "metrics": {
+        "exportDurationSec": 0.75,
+        "rtf": 2.65,
+        "faststart": true,
+        "sampleRate": 48000,
+        "colorSpace": "bt709"
+      },
+      "budgets": {
+        "rtfMin": 1,
+        "faststartRequired": true,
+        "audioSampleRate": 48000
+      }
+    }
+  },
+  "summary": {
+    "status": "PASSED",
+    "totalScenarios": 5,
+    "passed": 5,
+    "failed": 0,
+    "blocked": 0,
+    "skipped": 0
+  }
+}
