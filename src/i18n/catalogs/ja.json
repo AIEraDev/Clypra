@@ -219,5 +219,7 @@
   "properties.collapse": "プロパティパネルを折りたたむ",
   "properties.tabs.textStyle": "テキストスタイル",
   "properties.tabs.animation": "アニメーション",
-  "properties.tabs.transform": "変形"
+  "properties.tabs.transform": "変形",
+  "audio.clip_exceeds_memory_limit": "音声クリップが長すぎるため再生できません。再生するには、タイムライン上でクリップを短く分割してください。",
+  "audio.clip_decode_failed": "音声クリップのデコードに失敗しました: {{error}}"
 }

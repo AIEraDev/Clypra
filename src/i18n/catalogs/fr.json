@@ -219,5 +219,7 @@
   "properties.collapse": "Réduire le panneau des propriétés",
   "properties.tabs.textStyle": "Style de texte",
   "properties.tabs.animation": "Animation",
-  "properties.tabs.transform": "Transformation"
+  "properties.tabs.transform": "Transformation",
+  "audio.clip_exceeds_memory_limit": "Le clip audio est trop long pour la lecture. Scindez le clip sur la timeline en sections plus courtes pour activer la lecture.",
+  "audio.clip_decode_failed": "Échec du décodage du clip audio : {{error}}"
 }

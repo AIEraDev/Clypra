@@ -219,5 +219,7 @@
   "properties.collapse": "Contraer panel de propiedades",
   "properties.tabs.textStyle": "Estilo de texto",
   "properties.tabs.animation": "Animación",
-  "properties.tabs.transform": "Transformar"
+  "properties.tabs.transform": "Transformar",
+  "audio.clip_exceeds_memory_limit": "El clip de audio es demasiado largo para reproducirse. Divide el clip en la línea de tiempo en secciones más cortas para habilitar la reproducción.",
+  "audio.clip_decode_failed": "Error al descodificar el clip de audio: {{error}}"
 }

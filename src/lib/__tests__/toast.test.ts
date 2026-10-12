@@ -60,4 +60,23 @@ describe("toast notification localization", () => {
     const { toast: sonner } = await import("sonner");
     expect(sonner.error).toHaveBeenCalledWith("Сбой экспорта", undefined);
   });
+
+  it("translates audio safety cap and decode error semantic keys", async () => {
+    await i18nInstance.changeLanguage("en");
+    const { toast: sonner } = await import("sonner");
+
+    toast.warning("audio.clip_exceeds_memory_limit");
+    expect(sonner.warning).toHaveBeenCalledWith(
+      "Audio clip exceeds the 256 MB memory limit and could not be loaded for playback.",
+      undefined,
+    );
+
+    toast.error("audio.clip_decode_failed", {
+      interpolation: { error: "Corrupted audio stream" },
+    });
+    expect(sonner.error).toHaveBeenCalledWith(
+      "Failed to decode audio clip: Corrupted audio stream",
+      { interpolation: { error: "Corrupted audio stream" } },
+    );
+  });
 });

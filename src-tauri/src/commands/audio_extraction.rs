@@ -10,7 +10,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct MediaStreamInfo {
     pub index: u32,
@@ -27,6 +27,32 @@ pub struct MediaStreamInfo {
     pub bitrate: Option<u64>,
     pub language: Option<String>,
     pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r_frame_rate: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avg_frame_rate: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pix_fmt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_space: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_transfer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_primaries: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_origin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_vfr: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_high_risk: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub risk_factors: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +139,55 @@ async fn probe_json(path: &str) -> Result<serde_json::Value, String> {
 }
 
 fn parse_streams(value: &serde_json::Value) -> Vec<MediaStreamInfo> {
+    let check_tag_pair = |mfg: Option<&str>, mdl: Option<&str>| -> (Option<String>, Option<String>) {
+        let mfg_lower = mfg.unwrap_or("").to_lowercase();
+        let mdl_lower = mdl.unwrap_or("").to_lowercase();
+        if mfg_lower.contains("google") || mdl_lower.contains("pixel") {
+            (Some("google-pixel".to_string()), mdl.map(|s| s.to_string()))
+        } else if mfg_lower.contains("apple") || mdl_lower.contains("iphone") {
+            (Some("apple-iphone".to_string()), mdl.map(|s| s.to_string()))
+        } else if mfg_lower.contains("samsung") || mdl_lower.contains("galaxy") {
+            (Some("samsung-galaxy".to_string()), mdl.map(|s| s.to_string()))
+        } else if mfg_lower.contains("sony") {
+            (Some("sony-camera".to_string()), mdl.map(|s| s.to_string()))
+        } else if mfg_lower.contains("dji") {
+            (Some("dji-drone".to_string()), mdl.map(|s| s.to_string()))
+        } else if mfg_lower.contains("gopro") {
+            (Some("gopro".to_string()), mdl.map(|s| s.to_string()))
+        } else {
+            (None, None)
+        }
+    };
+
+    let mut format_device_origin: Option<String> = None;
+    let mut format_device_model: Option<String> = None;
+    if let Some(tags) = value.get("format").and_then(|f| f.get("tags")) {
+        let mfg = tags
+            .get("com.android.manufacturer")
+            .or_else(|| tags.get("make"))
+            .and_then(|v| v.as_str());
+        let mdl = tags
+            .get("com.android.model")
+            .or_else(|| tags.get("model"))
+            .or_else(|| tags.get("com.google.android.videos.device"))
+            .and_then(|v| v.as_str());
+        let (orig, model) = check_tag_pair(mfg, mdl);
+        format_device_origin = orig;
+        format_device_model = model;
+    }
+
+    let parse_fraction = |s: Option<&str>| -> Option<f64> {
+        let s = s?;
+        let mut parts = s.split('/');
+        let num: f64 = parts.next()?.parse().ok()?;
+        let den: f64 = parts.next()?.parse().ok()?;
+        if den == 0.0 {
+            None
+        } else {
+            Some(num / den)
+        }
+    };
+
     value
         .get("streams")
         .and_then(|v| v.as_array())
@@ -141,6 +216,90 @@ fn parse_streams(value: &serde_json::Value) -> Vec<MediaStreamInfo> {
                             Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
                         })
                         .unwrap_or((0, 1));
+
+                    let width = stream.get("width").and_then(|v| v.as_u64()).map(|v| v as u32);
+                    let height = stream.get("height").and_then(|v| v.as_u64()).map(|v| v as u32);
+                    let r_frame_rate = stream.get("r_frame_rate").and_then(|v| v.as_str()).map(str::to_string);
+                    let avg_frame_rate = stream.get("avg_frame_rate").and_then(|v| v.as_str()).map(str::to_string);
+                    let pix_fmt = stream.get("pix_fmt").and_then(|v| v.as_str()).map(str::to_string);
+                    let color_space = stream.get("color_space").and_then(|v| v.as_str()).map(str::to_string);
+                    let color_transfer = stream.get("color_transfer").and_then(|v| v.as_str()).map(str::to_string);
+                    let color_primaries = stream.get("color_primaries").and_then(|v| v.as_str()).map(str::to_string);
+
+                    let mut device_origin = format_device_origin.clone();
+                    let mut device_model = format_device_model.clone();
+                    if device_origin.is_none() {
+                        if let Some(stags) = stream.get("tags") {
+                            let mfg = stags
+                                .get("com.android.manufacturer")
+                                .or_else(|| stags.get("make"))
+                                .and_then(|v| v.as_str());
+                            let mdl = stags
+                                .get("com.android.model")
+                                .or_else(|| stags.get("model"))
+                                .and_then(|v| v.as_str());
+                            let (orig, model) = check_tag_pair(mfg, mdl);
+                            if orig.is_some() {
+                                device_origin = orig;
+                                device_model = model;
+                            }
+                        }
+                    }
+
+                    let is_vfr = if stream_type == "video" {
+                        let r_fps = parse_fraction(r_frame_rate.as_deref());
+                        let avg_fps = parse_fraction(avg_frame_rate.as_deref());
+                        match (r_fps, avg_fps) {
+                            (Some(rf), Some(af)) if (rf - af).abs() > 0.08 => Some(true),
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
+
+                    let is_10bit = pix_fmt.as_ref().map(|p| p.contains("10") || p.contains("p010")).unwrap_or(false);
+                    let is_hdr = color_transfer.as_ref().map(|t| t.contains("arib") || t.contains("smpte2084") || t.contains("hlg")).unwrap_or(false);
+                    let is_pixel = device_origin.as_deref() == Some("google-pixel");
+
+                    let mut risk_factors = Vec::new();
+                    if is_pixel {
+                        risk_factors.push("google-pixel-camera-source".to_string());
+                    }
+                    if is_vfr == Some(true) {
+                        risk_factors.push("variable-frame-rate".to_string());
+                        if is_pixel {
+                            risk_factors.push("google-pixel-vfr-timing-instability".to_string());
+                        }
+                    }
+                    if is_10bit {
+                        risk_factors.push("hevc-10bit-hardware-decode".to_string());
+                        if is_pixel {
+                            risk_factors.push("google-pixel-10bit-hevc-seek-stall".to_string());
+                        }
+                    }
+                    if is_hdr {
+                        risk_factors.push("hdr-color-transfer".to_string());
+                    }
+                    if let (Some(w), Some(h)) = (width, height) {
+                        if w >= 3840 || h >= 2160 {
+                            risk_factors.push("4k-high-resolution-throughput".to_string());
+                        }
+                    }
+
+                    let is_high_risk = if is_pixel || (is_vfr == Some(true) && (is_10bit || width.unwrap_or(0) >= 3840)) {
+                        Some(true)
+                    } else if !risk_factors.is_empty() {
+                        Some(false)
+                    } else {
+                        None
+                    };
+
+                    let risk_factors_opt = if risk_factors.is_empty() {
+                        None
+                    } else {
+                        Some(risk_factors)
+                    };
+
                     Some(MediaStreamInfo {
                         index,
                         stream_type,
@@ -178,6 +337,19 @@ fn parse_streams(value: &serde_json::Value) -> Vec<MediaStreamInfo> {
                             .and_then(|v| v.get("title"))
                             .and_then(|v| v.as_str())
                             .map(str::to_string),
+                        width,
+                        height,
+                        r_frame_rate,
+                        avg_frame_rate,
+                        pix_fmt,
+                        color_space,
+                        color_transfer,
+                        color_primaries,
+                        device_origin,
+                        device_model,
+                        is_vfr,
+                        is_high_risk,
+                        risk_factors: risk_factors_opt,
                     })
                 })
                 .collect()
@@ -442,6 +614,7 @@ mod tests {
             bitrate: None,
             language: None,
             label: None,
+            ..Default::default()
         }
     }
 
@@ -498,4 +671,71 @@ mod tests {
         other.source_stream_index = 3;
         assert_ne!(first, fingerprint(&other, "streamCopy", "m4a", "copy"));
     }
+
+    #[test]
+    fn parse_streams_detects_google_pixel_vfr_and_high_risk() {
+        let json_str = r#"{
+            "format": {
+                "tags": {
+                    "com.android.manufacturer": "Google",
+                    "com.android.model": "Pixel 7 Pro"
+                }
+            },
+            "streams": [
+                {
+                    "index": 0,
+                    "codec_type": "video",
+                    "codec_name": "hevc",
+                    "width": 3840,
+                    "height": 2160,
+                    "r_frame_rate": "60/1",
+                    "avg_frame_rate": "58.42/1",
+                    "pix_fmt": "yuv420p10le",
+                    "color_space": "bt2020nc",
+                    "color_transfer": "arib-std-b67"
+                }
+            ]
+        }"#;
+        let v: serde_json::Value = serde_json::from_str(json_str).unwrap();
+        let streams = parse_streams(&v);
+        assert_eq!(streams.len(), 1);
+        let s = &streams[0];
+        assert_eq!(s.device_origin.as_deref(), Some("google-pixel"));
+        assert_eq!(s.device_model.as_deref(), Some("Pixel 7 Pro"));
+        assert_eq!(s.is_vfr, Some(true));
+        assert_eq!(s.is_high_risk, Some(true));
+        let risks = s.risk_factors.as_ref().unwrap();
+        assert!(risks.contains(&"google-pixel-camera-source".to_string()));
+        assert!(risks.contains(&"google-pixel-vfr-timing-instability".to_string()));
+        assert!(risks.contains(&"google-pixel-10bit-hevc-seek-stall".to_string()));
+    }
+
+    #[test]
+    fn parse_streams_detects_vfr_jitter_fixture() {
+        let json_str = r#"{
+            "format": {
+                "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+                "duration": "0.800000"
+            },
+            "streams": [
+                {
+                    "index": 0,
+                    "codec_type": "video",
+                    "codec_name": "h264",
+                    "width": 640,
+                    "height": 360,
+                    "r_frame_rate": "60/1",
+                    "avg_frame_rate": "75/4"
+                }
+            ]
+        }"#;
+        let v: serde_json::Value = serde_json::from_str(json_str).unwrap();
+        let streams = parse_streams(&v);
+        assert_eq!(streams.len(), 1);
+        let s = &streams[0];
+        assert_eq!(s.is_vfr, Some(true), "60fps r_frame_rate vs 18.75fps avg_frame_rate must be flagged as VFR");
+        let risks = s.risk_factors.as_ref().expect("Risk factors must be populated for VFR");
+        assert!(risks.contains(&"variable-frame-rate".to_string()), "Must flag variable-frame-rate risk factor");
+    }
 }
+

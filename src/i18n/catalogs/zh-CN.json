@@ -219,5 +219,7 @@
   "properties.collapse": "折叠属性面板",
   "properties.tabs.textStyle": "文字样式",
   "properties.tabs.animation": "动画",
-  "properties.tabs.transform": "变换"
+  "properties.tabs.transform": "变换",
+  "audio.clip_exceeds_memory_limit": "音频片段过长无法播放。请在时间轴上将其分割为较短的片段以启用播放。",
+  "audio.clip_decode_failed": "音频片段解码失败：{{error}}"
 }

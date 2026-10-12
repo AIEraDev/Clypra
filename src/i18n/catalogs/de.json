@@ -219,5 +219,7 @@
   "properties.collapse": "Eigenschaftenleiste einklappen",
   "properties.tabs.textStyle": "Textstil",
   "properties.tabs.animation": "Animation",
-  "properties.tabs.transform": "Transformieren"
+  "properties.tabs.transform": "Transformieren",
+  "audio.clip_exceeds_memory_limit": "Der Audioclip ist zu lang für die Wiedergabe. Teile den Clip auf der Timeline in kürzere Abschnitte, um die Wiedergabe zu aktivieren.",
+  "audio.clip_decode_failed": "Fehler beim Dekodieren des Audioclips: {{error}}"
 }

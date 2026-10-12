@@ -223,5 +223,7 @@
   "properties.collapse": "Свернуть панель свойств",
   "properties.tabs.textStyle": "Стиль текста",
   "properties.tabs.animation": "Анимация",
-  "properties.tabs.transform": "Трансформация"
+  "properties.tabs.transform": "Трансформация",
+  "audio.clip_exceeds_memory_limit": "Аудиоклип слишком длинный для воспроизведения. Разделите клип на таймлайне на более короткие части, чтобы включить воспроизведение.",
+  "audio.clip_decode_failed": "Не удалось декодировать аудиоклип: {{error}}"
 }
