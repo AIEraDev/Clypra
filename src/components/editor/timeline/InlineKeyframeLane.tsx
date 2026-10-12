@@ -354,9 +354,8 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
         { before: oldClip, after: updatedClip },
       ),
     );
-    updateClip(clip.id, updatedClip);
     setSelectedKeyframe(null);
-  }, [clip, selectedKeyframe, execute, updateClip]);
+  }, [clip, selectedKeyframe, execute]);
 
   if (summaryKeyframes.length === 0 && !isExpanded) {
     return null;

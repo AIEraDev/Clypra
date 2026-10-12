@@ -61,6 +61,19 @@ jobs:
       - name: Core Domain & Timeline Tests
         run: npx vitest run src/core/evaluation/ src/lib/timecode/
 
+      - name: Execute Unified Engineering Quality Gate
+        run: npm run verify:gate:ci
+
+      - name: Upload Quality Gate Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-gate-reports
+          path: |
+            test-results/quality-gate-report.json
+            test-results/quality-gate-summary.md
+            test-results/playback-concurrency-benchmark.json
+
   test-rust:
     name: Test Rust Backend (Linux)
     runs-on: ubuntu-latest
@@ -187,6 +200,8 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -196,6 +211,10 @@ jobs:
       - name: Run Cargo Check on Windows
         shell: cmd
         run: cd src-tauri && cargo check
+
+      - name: Run Cargo Clippy on Windows
+        shell: cmd
+        run: cd src-tauri && cargo clippy -- -D clippy::disallowed-methods -D warnings
 
   build-check:
     name: Build & Packaging Check

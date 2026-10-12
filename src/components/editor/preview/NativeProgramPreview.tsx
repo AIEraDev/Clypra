@@ -627,6 +627,17 @@ export const NativeProgramPreview: React.FC = () => {
   const [scopesOpen, setScopesOpen] = useState(false);
   const nativeOnlyBlockersKeyRef = useRef("");
 
+  const anyPreviewMenuOpen =
+    aspectMenuOpen || speedMenuOpen || qualityMenuOpen || scopesOpen;
+
+  useEffect(() => {
+    if (anyPreviewMenuOpen) {
+      void hideNativeSurfaceWhenIdle().catch(() => undefined);
+    } else {
+      forceRepaintNativeProgramPreview();
+    }
+  }, [anyPreviewMenuOpen]);
+
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
   const previewContainerCallback = useCallback(
@@ -1391,6 +1402,8 @@ export const NativeProgramPreview: React.FC = () => {
     let nativeTextPrefetchTimer: number | null = null;
 
     let nativeSurfaceShown = false;
+    let pendingHandoverSurfaceHide = false;
+    let handoverSafetyTimer: number | null = null;
     let unlistenStartupMilestone: (() => void) | null = null;
     let unlistenPlaybackStats: (() => void) | null = null;
     if (isTauriRuntime()) {
@@ -3318,6 +3331,13 @@ export const NativeProgramPreview: React.FC = () => {
           Boolean(nativeRequest) &&
           nativePlaybackPath &&
           !qualificationForcesWebView;
+        if (nativeDirectSurfacePath && pendingHandoverSurfaceHide) {
+          pendingHandoverSurfaceHide = false;
+          if (handoverSafetyTimer !== null) {
+            window.clearTimeout(handoverSafetyTimer);
+            handoverSafetyTimer = null;
+          }
+        }
         const outputAdapter = nativeDirectSurfacePath
           ? NativeSurfaceOutput
           : WebViewCanvasOutput;
@@ -3427,18 +3447,33 @@ export const NativeProgramPreview: React.FC = () => {
             !nativeSurfaceUsable ||
             (!nativeRequest && !nativeSurfaceOwnsCurrentFrame));
         if (nativeSurfaceNeedsHide) {
-          // tracePlayback("surface-hide-for-recovery", {
-          //   projectId: state.project?.id ?? null,
-          //   playbackState,
-          //   frameIndex,
-          //   surfaceReady: nativeSurfaceReadyNow,
-          //   surfaceUsable: nativeSurfaceUsable,
-          //   hasNativeRequest: Boolean(nativeRequest),
-          //   surfaceOwnsCurrentFrame: nativeSurfaceOwnsCurrentFrame,
-          // });
-          nativeSurfaceShown = false;
-          lastNativePlaybackRequestKey = "";
-          void hideNativeSurfaceWhenIdle().catch(() => undefined);
+          if (!nativeSurfaceUsable || !nativeRequest) {
+            // Unrecoverable surface error or empty scene: hide immediately
+            if (handoverSafetyTimer !== null) {
+              window.clearTimeout(handoverSafetyTimer);
+              handoverSafetyTimer = null;
+            }
+            pendingHandoverSurfaceHide = false;
+            nativeSurfaceShown = false;
+            lastNativePlaybackRequestKey = "";
+            void hideNativeSurfaceWhenIdle().catch(() => undefined);
+          } else if (!pendingHandoverSurfaceHide) {
+            // Handover from native playback to paused canvas readback:
+            // Retain the native surface until the first paused readback frame
+            // is painted onto canvasEl to eliminate stale-frame flash.
+            pendingHandoverSurfaceHide = true;
+            if (handoverSafetyTimer !== null) {
+              window.clearTimeout(handoverSafetyTimer);
+            }
+            handoverSafetyTimer = window.setTimeout(() => {
+              if (pendingHandoverSurfaceHide) {
+                pendingHandoverSurfaceHide = false;
+                nativeSurfaceShown = false;
+                lastNativePlaybackRequestKey = "";
+                void hideNativeSurfaceWhenIdle().catch(() => undefined);
+              }
+            }, 1000);
+          }
         }
         const clampedNativeRequestKey = nativeRequest
           ? getNativeFrameRequestKey(clampReadbackRequest(nativeRequest))
@@ -4378,6 +4413,22 @@ export const NativeProgramPreview: React.FC = () => {
                   state.project?.frameRate ?? 30,
                   timeToRender,
                 );
+
+                // Handover complete: The DOM canvas has painted the current paused frame.
+                // It is now safe to hide the native child surface without any stale frame flash.
+                if (
+                  pendingHandoverSurfaceHide ||
+                  (nativeSurfaceShown && !nativeDirectSurfacePath)
+                ) {
+                  if (handoverSafetyTimer !== null) {
+                    window.clearTimeout(handoverSafetyTimer);
+                    handoverSafetyTimer = null;
+                  }
+                  pendingHandoverSurfaceHide = false;
+                  nativeSurfaceShown = false;
+                  lastNativePlaybackRequestKey = "";
+                  void hideNativeSurfaceWhenIdle().catch(() => undefined);
+                }
               } else {
                 canvasPaintMs = 0;
               }
@@ -4747,6 +4798,11 @@ export const NativeProgramPreview: React.FC = () => {
       }
       if (rafId !== null) cancelAnimationFrame(rafId);
       frameScheduled = false;
+      if (handoverSafetyTimer !== null) {
+        window.clearTimeout(handoverSafetyTimer);
+        handoverSafetyTimer = null;
+      }
+      pendingHandoverSurfaceHide = false;
       if (nativeSurfaceShown) {
         nativeSurfaceShown = false;
         void hideNativeSurfaceWhenIdle().catch(() => undefined);

@@ -45,6 +45,7 @@ import { useHistoryStore } from "@/store/historyStore";
 import { useProjectStore } from "@/store/projectStore";
 import { DetachAudioCommand } from "@/core/history/commands/DetachAudioCommand";
 import { SwapClipsCommand } from "@/core/history/commands/SwapClipsCommand";
+import { UpdateClipCommand } from "@/core/history/commands/UpdateClipCommand";
 import { useMediaJobStore } from "@/store/mediaJobStore";
 import { validateGroupSelection } from "@/core/history/commands/CompoundClipCommands";
 import { formatSplitMessage } from "@/lib/timeline/clipName";
@@ -441,11 +442,24 @@ export const clipCommands: ClipCommand[] = [
       if (targetClips.length === 0) return;
 
       const allMuted = targetClips.every((c) => c.volume === 0);
-      store.withBatch(() => {
+      const history = useHistoryStore.getState();
+      const hasMultiple = targetClips.length > 1;
+      if (hasMultiple) history.beginTransaction("Toggle Mute Audio");
+      try {
         targetClips.forEach((clip) => {
-          store.updateClip(clip.id, { volume: allMuted ? 1.0 : 0.0 });
+          history.execute(
+            new UpdateClipCommand(
+              clip.id,
+              { volume: clip.volume },
+              { volume: allMuted ? 1.0 : 0.0 },
+            ),
+          );
         });
-      });
+        if (hasMultiple) history.commitTransaction();
+      } catch (err) {
+        if (hasMultiple) history.rollbackTransaction();
+        throw err;
+      }
       toast.info(allMuted ? `Unmuted ${targetClips.length} clip(s)` : `Muted ${targetClips.length} clip(s)`);
     },
   },
@@ -478,9 +492,24 @@ export const clipCommands: ClipCommand[] = [
       );
       if (targetClips.length === 0) return;
 
-      store.withBatch(() => {
-        targetClips.forEach((clip) => store.updateClip(clip.id, { volume: 1.0 }));
-      });
+      const history = useHistoryStore.getState();
+      const hasMultiple = targetClips.length > 1;
+      if (hasMultiple) history.beginTransaction("Reset Volume");
+      try {
+        targetClips.forEach((clip) => {
+          history.execute(
+            new UpdateClipCommand(
+              clip.id,
+              { volume: clip.volume },
+              { volume: 1.0 },
+            ),
+          );
+        });
+        if (hasMultiple) history.commitTransaction();
+      } catch (err) {
+        if (hasMultiple) history.rollbackTransaction();
+        throw err;
+      }
       toast.success("Reset clip volume to 100%");
     },
   },
@@ -655,11 +684,17 @@ export const clipCommands: ClipCommand[] = [
       const clip = ctx.clips.find((c) => c.id === ids[0]);
       if (!clip) return;
 
-      const store = useTimelineStore.getState();
+      const history = useHistoryStore.getState();
 
       // Toggle: if already frozen, unfreeze
       if (clip.playbackMapping?.kind === "freeze") {
-        store.updateClip(clip.id, { playbackMapping: { kind: "normal", speed: 1 } });
+        history.execute(
+          new UpdateClipCommand(
+            clip.id,
+            { playbackMapping: clip.playbackMapping },
+            { playbackMapping: { kind: "normal", speed: 1 } },
+          ),
+        );
         toast.info("Clip unfrozen");
         return;
       }
@@ -667,7 +702,13 @@ export const clipCommands: ClipCommand[] = [
       const clock = getPlaybackClock();
       const { sourceTime } = resolveClipSourceTime(clip, clock.time, { clampToRange: true });
       const mapping: PlaybackMapping = { kind: "freeze", atSourceTime: sourceTime };
-      store.updateClip(clip.id, { playbackMapping: mapping });
+      history.execute(
+        new UpdateClipCommand(
+          clip.id,
+          { playbackMapping: clip.playbackMapping },
+          { playbackMapping: mapping },
+        ),
+      );
       toast.success(`Frozen at ${sourceTime.toFixed(3)}s`);
     },
   },
@@ -694,7 +735,10 @@ export const clipCommands: ClipCommand[] = [
     execute: (ctx) => {
       const ids = getTargetClipIds(ctx);
       const store = useTimelineStore.getState();
-      store.withBatch(() => {
+      const history = useHistoryStore.getState();
+      const hasMultiple = ids.length > 1;
+      if (hasMultiple) history.beginTransaction("Reverse Clips");
+      try {
         ids.forEach((id) => {
           const clip = store.clips.find((c) => c.id === id);
           if (!clip) return;
@@ -706,11 +750,21 @@ export const clipCommands: ClipCommand[] = [
           const mapping: PlaybackMapping = isCurrentlyReversed
             ? { kind: "normal", speed: currentSpeed }
             : { kind: "reverse", speed: currentSpeed };
-          store.updateClip(id, { playbackMapping: mapping });
+          history.execute(
+            new UpdateClipCommand(
+              id,
+              { playbackMapping: currentMapping },
+              { playbackMapping: mapping },
+            ),
+          );
         });
-      });
+        if (hasMultiple) history.commitTransaction();
+      } catch (err) {
+        if (hasMultiple) history.rollbackTransaction();
+        throw err;
+      }
       const anyReversed = ids.some((id) => {
-        const c = store.clips.find((clip) => clip.id === id);
+        const c = useTimelineStore.getState().clips.find((clip) => clip.id === id);
         return c?.playbackMapping?.kind === "reverse";
       });
       toast.info(anyReversed ? "Clips reversed" : "Clips unreversed");
@@ -736,15 +790,28 @@ export const clipCommands: ClipCommand[] = [
     execute: (ctx) => {
       const ids = getTargetClipIds(ctx);
       const store = useTimelineStore.getState();
-      store.withBatch(() => {
+      const history = useHistoryStore.getState();
+      const hasMultiple = ids.length > 1;
+      if (hasMultiple) history.beginTransaction("Set Speed 0.5×");
+      try {
         ids.forEach((id) => {
           const clip = store.clips.find((c) => c.id === id);
           if (!clip) return;
           const isReversed = clip.playbackMapping?.kind === "reverse";
           const mapping: PlaybackMapping = { kind: isReversed ? "reverse" : "normal", speed: 0.5 };
-          store.updateClip(id, { playbackMapping: mapping });
+          history.execute(
+            new UpdateClipCommand(
+              id,
+              { playbackMapping: clip.playbackMapping },
+              { playbackMapping: mapping },
+            ),
+          );
         });
-      });
+        if (hasMultiple) history.commitTransaction();
+      } catch (err) {
+        if (hasMultiple) history.rollbackTransaction();
+        throw err;
+      }
       toast.info("Speed set to 0.5×");
     },
   },
@@ -771,9 +838,26 @@ export const clipCommands: ClipCommand[] = [
     execute: (ctx) => {
       const ids = getTargetClipIds(ctx);
       const store = useTimelineStore.getState();
-      store.withBatch(() => {
-        ids.forEach((id) => store.updateClip(id, { playbackMapping: { kind: "normal", speed: 1 } }));
-      });
+      const history = useHistoryStore.getState();
+      const hasMultiple = ids.length > 1;
+      if (hasMultiple) history.beginTransaction("Reset Speed");
+      try {
+        ids.forEach((id) => {
+          const clip = store.clips.find((c) => c.id === id);
+          if (!clip) return;
+          history.execute(
+            new UpdateClipCommand(
+              id,
+              { playbackMapping: clip.playbackMapping },
+              { playbackMapping: { kind: "normal", speed: 1 } },
+            ),
+          );
+        });
+        if (hasMultiple) history.commitTransaction();
+      } catch (err) {
+        if (hasMultiple) history.rollbackTransaction();
+        throw err;
+      }
       toast.success("Speed reset to 1×");
     },
   },
@@ -797,15 +881,28 @@ export const clipCommands: ClipCommand[] = [
     execute: (ctx) => {
       const ids = getTargetClipIds(ctx);
       const store = useTimelineStore.getState();
-      store.withBatch(() => {
+      const history = useHistoryStore.getState();
+      const hasMultiple = ids.length > 1;
+      if (hasMultiple) history.beginTransaction("Set Speed 2×");
+      try {
         ids.forEach((id) => {
           const clip = store.clips.find((c) => c.id === id);
           if (!clip) return;
           const isReversed = clip.playbackMapping?.kind === "reverse";
           const mapping: PlaybackMapping = { kind: isReversed ? "reverse" : "normal", speed: 2 };
-          store.updateClip(id, { playbackMapping: mapping });
+          history.execute(
+            new UpdateClipCommand(
+              id,
+              { playbackMapping: clip.playbackMapping },
+              { playbackMapping: mapping },
+            ),
+          );
         });
-      });
+        if (hasMultiple) history.commitTransaction();
+      } catch (err) {
+        if (hasMultiple) history.rollbackTransaction();
+        throw err;
+      }
       toast.info("Speed set to 2×");
     },
   },

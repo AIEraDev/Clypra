@@ -14,6 +14,7 @@ import { toast } from "@/lib/toast";
 import { formatSplitMessage } from "@/lib/timeline/clipName";
 
 import { clipboardService } from "@/core/clipboard/clipboardService";
+import { MoveClipCommand } from "@/core/history/commands/MoveClipCommand";
 import { toggleTrackPropertyWithHistory } from "@/core/history/trackPropertyActions";
 import { useSettingsStore } from "@/store/settingsStore";
 import { EditorFeatureTelemetry } from "@/services/editorFeatureTelemetry";
@@ -564,12 +565,27 @@ export const useKeyboardShortcuts = () => {
           return;
         }
 
-        store.withBatch(() => {
+        const historyStore = useHistoryStore.getState();
+        const hasMultiple = selectedClips.length > 1;
+        if (hasMultiple) historyStore.beginTransaction("Nudge Clips");
+        try {
           selectedClips.forEach((clip) => {
             const newStartTime = Math.max(0, clip.startTime + nudgeTime);
-            store.updateClip(clip.id, { startTime: newStartTime });
+            historyStore.execute(
+              new MoveClipCommand(
+                clip.id,
+                clip.trackId,
+                clip.trackId,
+                clip.startTime,
+                newStartTime,
+              ),
+            );
           });
-        });
+          if (hasMultiple) historyStore.commitTransaction();
+        } catch (err) {
+          if (hasMultiple) historyStore.rollbackTransaction();
+          throw err;
+        }
 
         const directionText = direction > 0 ? "right" : "left";
         toast.info(`Nudged ${selectedClips.length} clip${selectedClips.length > 1 ? "s" : ""} ${directionText} by ${nudgeAmount} frame${nudgeAmount > 1 ? "s" : ""}`);

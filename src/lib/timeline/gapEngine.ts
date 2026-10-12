@@ -148,18 +148,26 @@ export function insertGapWithRipple(trackId: string, startTime: number, duration
     },
   });
 
-  // Find protected gaps on this track after the insertion point
-  const protectedGapsAfter = existingGaps.filter((g) => g.trackId === trackId && g.protected && g.startTime >= startTime).sort((a, b) => a.startTime - b.startTime);
+  // Find protected gaps on this track after the insertion point (with 1ms epsilon)
+  const protectedGapsAfter = existingGaps.filter((g) => g.trackId === trackId && g.protected && g.startTime >= startTime - 0.001).sort((a, b) => a.startTime - b.startTime);
 
-  // If there's a protected gap, only shift clips up to that gap
+  // If there's a protected gap, only clamp shifting if the inserted gap and shifted clips fit before it without colliding
   let shiftBoundary = Infinity;
   if (protectedGapsAfter.length > 0) {
     const firstProtectedGap = protectedGapsAfter[0];
-    shiftBoundary = firstProtectedGap.startTime;
+    const newGapCollides = startTime + duration > firstProtectedGap.startTime + 0.001;
+    const clipCollides = clips.some((c) => {
+      if (c.trackId !== trackId || c.startTime < startTime - 0.001 || c.startTime >= firstProtectedGap.startTime - 0.001) return false;
+      return c.startTime + c.duration + duration > firstProtectedGap.startTime + 0.001;
+    });
+
+    if (!newGapCollides && !clipCollides) {
+      shiftBoundary = firstProtectedGap.startTime;
+    }
   }
 
-  // Find clips that need to shift (only those before the protected gap boundary)
-  const affectedClipIds = clips.filter((c) => c.trackId === trackId && c.startTime >= startTime && c.startTime < shiftBoundary).map((c) => c.id);
+  // Find clips that need to shift (only those at or after the insertion point, before shiftBoundary)
+  const affectedClipIds = clips.filter((c) => c.trackId === trackId && c.startTime >= startTime - 0.001 && c.startTime < shiftBoundary).map((c) => c.id);
 
   return {
     success: true,
@@ -319,14 +327,29 @@ export function mergeAdjacentGaps(gaps: Gap[]): Gap[] {
  * Remove all unprotected gaps from a track (pack track)
  */
 export function packTrack(trackId: string, clips: Clip[], gaps: Gap[]): { remainingGaps: Gap[]; affectedClipIds: string[] } {
-  const trackClips = clips.filter((c) => c.trackId === trackId).sort((a, b) => a.startTime - b.startTime);
+  const trackClips = clips.filter((c) => c.trackId === trackId);
   const trackGaps = gaps.filter((g) => g.trackId === trackId);
+  const protectedGaps = trackGaps.filter((g) => g.protected);
 
-  // Keep only protected gaps
-  const remainingGaps = trackGaps.filter((g) => g.protected);
+  // Chronologically order clips and protected gaps so they pack sequentially without collision
+  const items = [
+    ...trackClips.map((c) => ({ type: "clip" as const, item: c, startTime: c.startTime, duration: c.duration })),
+    ...protectedGaps.map((g) => ({ type: "gap" as const, item: g, startTime: g.startTime, duration: g.duration })),
+  ].sort((a, b) => a.startTime - b.startTime);
 
-  // All clips need to be repositioned (packed tight)
-  const affectedClipIds = trackClips.map((c) => c.id);
+  let currentTime = 0;
+  const remainingGaps: Gap[] = [];
+  const affectedClipIds: string[] = [];
+
+  for (const item of items) {
+    if (item.type === "clip") {
+      affectedClipIds.push(item.item.id);
+      currentTime += item.duration;
+    } else {
+      remainingGaps.push({ ...item.item, startTime: currentTime });
+      currentTime += item.duration;
+    }
+  }
 
   return { remainingGaps, affectedClipIds };
 }

@@ -37,6 +37,7 @@ import { appLifecycleCoordinator } from "@/core/runtime/AppLifecycleCoordinator"
 import type { TransportAuthority } from "@/core/playback/TransportAuthority";
 import { tracePlayback } from "@/core/playback/playbackTrace";
 import { traceAudioEvent } from "@/core/playback/audioTrace"; // INVESTIGATION ONLY — remove before Phase 6
+import { toast } from "@/lib/toast";
 
 const NATIVE_PREVIEW_AUDIO_OPTIONS = { preserveTransportPitch: true } as const;
 
@@ -110,6 +111,8 @@ export class NativeAudioPreviewController {
   private readonly transportAuthority?: TransportAuthority;
   private unsubscribe: (() => void) | null = null;
   private unlistenLifecycle: (() => void) | null = null;
+  private unlistenClipFailure: (() => void) | null = null;
+  private notifiedFailureClipIds = new Set<string>();
   private pollHandle: ReturnType<typeof setInterval> | null = null;
   /**
    * Transport has a dedicated short-command lane. Play/pause/seek must never
@@ -371,6 +374,37 @@ export class NativeAudioPreviewController {
     this.clock.setNativeClockAuthority(true);
     const initializationStartedAt = performance.now();
 
+    // Register failure event listener BEFORE syncing timeline to avoid missing early failures
+    if (isTauriRuntime() && !this.unlistenClipFailure) {
+      try {
+        const { listen } = await import("@tauri-apps/api/event");
+        this.unlistenClipFailure = await listen<{
+          clipId: string;
+          path: string;
+          error: string;
+          isCapExceeded: boolean;
+        }>("clypra://native-audio-clip-failed", (event) => {
+          if (this.disposed) return;
+          const clipId = event.payload.clipId;
+          if (clipId && this.notifiedFailureClipIds.has(clipId)) {
+            return; // Deduplicate to avoid toast spam on repeated timeline syncs
+          }
+          if (clipId) {
+            this.notifiedFailureClipIds.add(clipId);
+          }
+          if (event.payload.isCapExceeded) {
+            toast.warning("audio.clip_exceeds_memory_limit");
+          } else {
+            toast.error("audio.clip_decode_failed", {
+              interpolation: { error: event.payload.error },
+            });
+          }
+        });
+      } catch {
+        // ignore in headless test environment
+      }
+    }
+
     try {
       const timeline = await syncNativeAudioTimeline(
         this.source.clips,
@@ -525,6 +559,9 @@ export class NativeAudioPreviewController {
     this.unsubscribe = null;
     this.unlistenLifecycle?.();
     this.unlistenLifecycle = null;
+    this.unlistenClipFailure?.();
+    this.unlistenClipFailure = null;
+    this.notifiedFailureClipIds.clear();
     if (this.pollHandle) clearInterval(this.pollHandle);
     this.pollHandle = null;
     this.clock.clearNativeClockPosition();

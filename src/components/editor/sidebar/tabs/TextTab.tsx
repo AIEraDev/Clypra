@@ -18,6 +18,8 @@ import type { TabProps } from "../types";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { useUIStore } from "@/store/uiStore";
 import { useTimelineStore } from "@/store/timelineStore";
+import { useHistoryStore } from "@/store/historyStore";
+import { AddClipCommand } from "@/core/history/commands";
 import { useProjectStore } from "@/store/projectStore";
 import { createTextClip } from "@/lib/text/textClip";
 import { TextEffectsApi } from "@/features/text-effects/api/textEffectsApi";
@@ -253,7 +255,9 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
 
           const segments = result.segments || [];
           if (segments.length > 0) {
-            timeline.withBatch(() => {
+            const history = useHistoryStore.getState();
+            history.beginTransaction("Generate Captions");
+            try {
               segments.forEach((seg: any) => {
                 // Whisper timestamps are relative to the audio file.
                 // In Clypra, we need to map them relative to the clip's start time on the timeline,
@@ -292,11 +296,15 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                     fontFamily: "Outfit Variable",
                   });
 
-                  timeline.addClip(textClip);
+                  history.execute(new AddClipCommand(textClip));
                   count++;
                 }
               });
-            });
+              history.commitTransaction();
+            } catch (err) {
+              history.rollbackTransaction();
+              throw err;
+            }
           }
         } else {
           // Fallback context mock if not running in Tauri (e.g. browser testing or missing backend)
@@ -327,7 +335,9 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
             Math.floor(clipDuration / segmentDuration),
           );
 
-          timeline.withBatch(() => {
+          const history = useHistoryStore.getState();
+          history.beginTransaction("Generate Captions");
+          try {
             for (let i = 0; i < numSegments; i++) {
               const startTime = mediaClip.startTime + i * segmentDuration;
               const duration = Math.min(
@@ -351,10 +361,14 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                 fontFamily: "Outfit Variable",
               });
 
-              timeline.addClip(textClip);
+              history.execute(new AddClipCommand(textClip));
               count++;
             }
-          });
+            history.commitTransaction();
+          } catch (err) {
+            history.rollbackTransaction();
+            throw err;
+          }
         }
       }
 

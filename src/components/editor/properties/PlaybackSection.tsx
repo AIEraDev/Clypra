@@ -12,7 +12,8 @@
 
 import React, { useCallback } from "react";
 import { Gauge, FlipHorizontal2, Snowflake, RotateCcw } from "lucide-react";
-import { useTimelineStore } from "@/store/timelineStore";
+import { useHistoryStore } from "@/store/historyStore";
+import { UpdateClipCommand } from "@/core/history/commands";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import type { Clip, PlaybackMapping } from "@/types";
 import { resolveClipSourceTime } from "@/core/timeline/sourceTime";
@@ -58,11 +59,22 @@ const SPEED_PRESETS = [
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export const PlaybackSection: React.FC<PlaybackSectionProps> = ({ selectedClip }) => {
-  const updateClip = useTimelineStore((s) => s.updateClip);
-
   const speed = effectiveSpeed(selectedClip);
   const reversed = isReversed(selectedClip);
   const frozen = isFrozen(selectedClip);
+
+  const applyMapping = useCallback(
+    (mapping: PlaybackMapping) => {
+      useHistoryStore.getState().execute(
+        new UpdateClipCommand(
+          selectedClip.id,
+          { playbackMapping: selectedClip.playbackMapping },
+          { playbackMapping: mapping },
+        ),
+      );
+    },
+    [selectedClip.id, selectedClip.playbackMapping],
+  );
 
   // ── Apply a normal-speed mapping ──────────────────────────────────────────
 
@@ -72,9 +84,9 @@ export const PlaybackSection: React.FC<PlaybackSectionProps> = ({ selectedClip }
       const mapping: PlaybackMapping = reversed
         ? { kind: "reverse", speed: newSpeed }
         : { kind: "normal", speed: newSpeed };
-      updateClip(selectedClip.id, { playbackMapping: mapping });
+      applyMapping(mapping);
     },
-    [selectedClip.id, reversed, updateClip],
+    [reversed, applyMapping],
   );
 
   // ── Toggle reverse ────────────────────────────────────────────────────────
@@ -86,8 +98,8 @@ export const PlaybackSection: React.FC<PlaybackSectionProps> = ({ selectedClip }
 
     const nextKind = reversed ? "normal" : "reverse";
     const mapping: PlaybackMapping = { kind: nextKind, speed: currentSpeed };
-    updateClip(selectedClip.id, { playbackMapping: mapping });
-  }, [selectedClip, reversed, frozen, updateClip]);
+    applyMapping(mapping);
+  }, [selectedClip, reversed, frozen, applyMapping]);
 
   // ── Toggle freeze frame ───────────────────────────────────────────────────
 
@@ -95,7 +107,7 @@ export const PlaybackSection: React.FC<PlaybackSectionProps> = ({ selectedClip }
     if (frozen) {
       // Un-freeze: return to normal 1× playback
       const mapping: PlaybackMapping = { kind: "normal", speed: 1 };
-      updateClip(selectedClip.id, { playbackMapping: mapping });
+      applyMapping(mapping);
       return;
     }
 
@@ -106,14 +118,14 @@ export const PlaybackSection: React.FC<PlaybackSectionProps> = ({ selectedClip }
     });
 
     const mapping: PlaybackMapping = { kind: "freeze", atSourceTime: sourceTime };
-    updateClip(selectedClip.id, { playbackMapping: mapping });
-  }, [selectedClip, frozen, updateClip]);
+    applyMapping(mapping);
+  }, [selectedClip, frozen, applyMapping]);
 
   // ── Reset to 1× normal ────────────────────────────────────────────────────
 
   const handleReset = useCallback(() => {
-    updateClip(selectedClip.id, { playbackMapping: { kind: "normal", speed: 1 } });
-  }, [selectedClip.id, updateClip]);
+    applyMapping({ kind: "normal", speed: 1 });
+  }, [applyMapping]);
 
   const speedLabel = frozen
     ? "Frozen"

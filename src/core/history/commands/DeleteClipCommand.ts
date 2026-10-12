@@ -212,11 +212,34 @@ export class AddClipCommand implements Command {
       nextState.transitions = [...state.transitions, ...transitionsToAdd];
     }
 
-    if (state.gaps !== undefined && this.restoredGaps !== undefined) {
-      nextState.gaps = this.restoredGaps.map((gap) => ({
-        ...gap,
-        metadata: gap.metadata ? { ...gap.metadata } : gap.metadata,
-      }));
+    if (state.gaps !== undefined) {
+      if (this.restoredGaps !== undefined) {
+        nextState.gaps = this.restoredGaps.map((gap) => ({
+          ...gap,
+          metadata: gap.metadata ? { ...gap.metadata } : gap.metadata,
+        }));
+      } else {
+        const addedClip = clips.find((c) => c.id === this.clip.id);
+        if (addedClip) {
+          const addedStart = addedClip.startTime;
+          const addedEnd = addedStart + addedClip.duration;
+          nextState.gaps = state.gaps.flatMap((g) => {
+            if (g.trackId !== addedClip.trackId) return [g];
+            const gEnd = g.startTime + g.duration;
+            if (gEnd <= addedStart + 0.001 || g.startTime >= addedEnd - 0.001) {
+              return [g];
+            }
+            const remaining: Gap[] = [];
+            if (g.startTime < addedStart - 0.001) {
+              remaining.push({ ...g, duration: addedStart - g.startTime });
+            }
+            if (gEnd > addedEnd + 0.001) {
+              remaining.push({ ...g, startTime: addedEnd, duration: gEnd - addedEnd });
+            }
+            return remaining;
+          });
+        }
+      }
     }
 
     return nextState;

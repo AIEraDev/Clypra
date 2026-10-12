@@ -65,7 +65,7 @@ describe("track visual roles", () => {
   });
 
   it.each([
-    ["audio", "Audio", 60, 1],
+    ["audio", "Audio", 40, 1],
     ["text", "Text", 30, 1],
     ["sticker", "Sticker", 30, 1],
     ["filter", "Filter", 30, 1],

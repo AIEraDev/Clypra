@@ -20,6 +20,8 @@ import {
   getTimelineViewportEnd,
   getTimelineCanvasDuration,
 } from "@/lib/timeline/timelineClip";
+import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
+import { forceRepaintNativeProgramPreview } from "@/components/editor/preview/NativeProgramPreview";
 import {
   useTimelineDrag,
   useTimelineTauriDrop,
@@ -113,6 +115,22 @@ export const Timeline: React.FC = () => {
   } | null>(null);
 
   const [renameClipId, setRenameClipId] = useState<string | null>(null);
+
+  const anyTimelineContextMenuOpen = Boolean(
+    clipContextMenu ||
+      trackLabelContextMenu ||
+      emptySpaceContextMenu ||
+      gapContextMenu ||
+      renameClipId,
+  );
+
+  useEffect(() => {
+    if (anyTimelineContextMenuOpen) {
+      void hideNativeSurfaceWhenIdle().catch(() => undefined);
+    } else {
+      forceRepaintNativeProgramPreview();
+    }
+  }, [anyTimelineContextMenuOpen]);
 
   const handleClipContextMenu = useCallback(
     (e: React.MouseEvent, clipId: string, trackId: string) => {

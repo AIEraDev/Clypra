@@ -58,12 +58,22 @@ export function notify(
   }
 }
 
+type ToastFn = typeof sonnerToast & {
+  (message: unknown, data?: ToastOptions): string | number;
+  success: (message: unknown, data?: ToastOptions) => string | number;
+  error: (message: unknown, data?: ToastOptions) => string | number;
+  warning: (message: unknown, data?: ToastOptions) => string | number;
+  info: (message: unknown, data?: ToastOptions) => string | number;
+  message: (message: unknown, data?: ToastOptions) => string | number;
+  loading: (message: unknown, data?: ToastOptions) => string | number;
+};
+
 /**
  * Localized toast proxy wrapping Sonner's toast methods.
  */
 const toast = ((message: unknown, data?: ToastOptions) => {
   return sonnerToast(resolveToastMessage(message, data) as any, data);
-}) as typeof sonnerToast;
+}) as unknown as ToastFn;
 
 // Retain all underlying properties and methods from Sonner
 Object.assign(toast, sonnerToast);

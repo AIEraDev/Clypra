@@ -219,5 +219,7 @@
   "properties.collapse": "Collapse properties panel",
   "properties.tabs.textStyle": "Text Style",
   "properties.tabs.animation": "Animation",
-  "properties.tabs.transform": "Transform"
+  "properties.tabs.transform": "Transform",
+  "audio.clip_exceeds_memory_limit": "Audio clip is too long for playback. Split the clip on the timeline into shorter sections to enable playback.",
+  "audio.clip_decode_failed": "Failed to decode audio clip: {{error}}"
 }

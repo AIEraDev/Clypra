@@ -7,6 +7,7 @@ import { platform } from "@/core/platform";
 import { DEFAULT_STILL_DURATION_SECONDS } from "../constants/config";
 import { toast } from "@/lib/toast";
 import { isTauriRuntime, probeMediaStreams } from "@/lib/platform/tauri";
+import { telemetryCollector } from "@/services/telemetryCollector";
 
 const CONCURRENCY_LIMIT = 4;
 
@@ -105,9 +106,24 @@ export async function importMediaPaths(paths: string[]): Promise<number> {
 
         if (type !== "image" && isTauriRuntime()) {
           void probeMediaStreams(file.path)
-            .then((streams) =>
-              useProjectStore.getState().updateMediaAsset(asset.id, { streams })
-            )
+            .then((streams) => {
+              useProjectStore.getState().updateMediaAsset(asset.id, { streams });
+              const videoStream = streams.find((s) => s.type === "video");
+              if (videoStream) {
+                telemetryCollector.setLastKnownVideoProfile({
+                  codec: (videoStream.codec?.toLowerCase() as any) || "hevc",
+                  width: videoStream.width || metadata.width,
+                  height: videoStream.height || metadata.height,
+                  pacingMode: videoStream.isVfr ? "vfr" : "cfr",
+                  isVfr: videoStream.isVfr,
+                  deviceOrigin: videoStream.deviceOrigin as any,
+                  deviceModel: videoStream.deviceModel,
+                  isHighRiskProfile: videoStream.isHighRisk,
+                  bottleneckRiskFactors: videoStream.riskFactors,
+                  bitDepth: videoStream.pixFmt?.includes("10") ? 10 : 8,
+                });
+              }
+            })
             .catch((error) =>
               console.debug("[MediaImport] Stream metadata unavailable", error)
             );

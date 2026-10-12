@@ -57,7 +57,7 @@ When an agent receives any new request, it must automatically evaluate the task 
 | **Crash, freeze, bug, regression, unexpected error, broken, drift, mismatch** | `bugfix-regression` | `behavior-coverage`, `clypra-media-regression-testing` |
 | **Translation, language, locale, i18n, l10n, Russian, Spanish, Japanese, German, French, Korean, Chinese, catalog, formatting** | `i18n-localization-engineering` | `behavior-coverage` |
 | **UI design, usability review, layout, component, accessibility, interaction, WCAG, design tokens, focus navigation** | `clypra-ui-ux-engineering` | `i18n-localization-engineering`, `behavior-coverage`, `tauri-cross-platform-engineering` |
-| **New tool, new button, new panel, new effect, filter, export option, new UI feature** | `feature-implementation` | `behavior-coverage`, `senior-engineer-decision-making` |
+| **New tool, new button, new panel, new effect, filter, export option, new UI feature, subsystem upgrade** | `feature-implementation` | `behavior-coverage`, `performance-reliability-engineering`, `senior-engineer-decision-making` |
 | **Timeline math, SMPTE, timecode, framerate, fps, split, ripple, gap engine, AV sync** | `nle-domain-engineering` | `clypra-media-regression-testing`, `behavior-coverage` |
 | **Native preview, canvas/bridge, wgpu, Metal, DirectX, frame pacing, dropped frames, preview benchmark, readback cost** | `clypra-preview-performance-engineering` | `performance-reliability-engineering`, `nle-domain-engineering`, `tauri-cross-platform-engineering` |
 | **Perf logs, session logs, ndjson, telemetry analysis, remote session, frame timing trace, performance incident, latency spike** | `clypra-performance-log-analysis` | `clypra-preview-performance-engineering`, `clypra-bug-hunter`, `performance-reliability-engineering` |
@@ -125,6 +125,15 @@ When an agent receives any new request, it must automatically evaluate the task 
 | Activates for | Native OS window operations, AppKit NSWindow, Win32 HWND, Linux GTK, graphics surfaces, run_on_main_thread, thread affinity |
 | Related skills | `tauri-cross-platform-engineering`, `bugfix-regression`, `performance-reliability-engineering` |
 | Required evidence | Thread-affinity audit, dispatch boundary verification, atomic lifecycle state transitions, unit tests, and platform checks |
+
+### 3.7 Mandatory Mixed-Stack Benchmark & Deep Automation Contract
+
+For every new feature, layer type, or subsystem upgrade, the agent must automatically execute the Deep Automation Contract:
+1. **Multi-Property Mixed-Stack Testing**: Evaluate against realistic composite timelines combining Video + Audio/Music + Text + Stickers + Transforms (`goldenProjectManifest.ts`). Never benchmark features in isolation.
+2. **High-Concurrency Scalability Stress**: Benchmark 1, 10, 50, and 100+ concurrent instances, measuring latency distributions (p50, p95, max) and memory deltas over sustained loops.
+3. **Cross-Subsystem Interference & Root-Cause Explanation**: Verify zero audio thread starvation (CPAL/rtrb), zero playhead drift from `PlaybackClock.ts`, zero unintended native surface fallbacks, and identify the physical root cause of any performance bottlenecks.
+4. **Production Telemetry Hooks**: Register per-frame timings, cache statistics, and fallback triggers with `telemetryCollector` and NDJSON logs.
+5. **Deep Mathematical Oracles**: Implement golden-frame pixel diffs ($\text{PSNR} \ge 60\text{ dB}$, $\text{MSE} \le 0.0001$), audio RMS signal tests, and command undo/redo fuzzers to make manual testing optional.
 
 ---
 

@@ -179,6 +179,75 @@ try {
   failures.push(`Native UI Thread Safety Check Failed: ${err.message}`);
 }
 
+// ── Check 8: Command-Pattern Timeline Mutation Invariant (Invariant 3) ────
+// Invariant: Non-command application code across all of src/ (components, hooks,
+// features, services, core) must never directly call timeline store mutators
+// (`addClip`, `removeClip`, `moveClip`).
+// All timeline mutations affecting undo history must be dispatched via history commands.
+try {
+  const dirsToScan = [path.join(root, "src")];
+  const excludedRelPaths = new Set([
+    "src/store/timelineStore.ts",
+  ]);
+
+  async function getSourceFiles(dir) {
+    const entries = await readdir(dir, { withFileTypes: true });
+    const files = [];
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      const relPath = path.relative(root, fullPath);
+      if (entry.isDirectory()) {
+        if (
+          entry.name !== "__tests__" &&
+          entry.name !== "node_modules" &&
+          !relPath.startsWith("src/core/history/commands") &&
+          !relPath.startsWith("src/types")
+        ) {
+          files.push(...(await getSourceFiles(fullPath)));
+        }
+      } else if (
+        (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx")) &&
+        !entry.name.includes(".test.") &&
+        !entry.name.includes(".spec.") &&
+        !excludedRelPaths.has(relPath)
+      ) {
+        files.push(fullPath);
+      }
+    }
+    return files;
+  }
+
+  let mutatorViolations = 0;
+  const prohibitedMutators = ["addClip", "removeClip", "moveClip"];
+  const mutatorRegex = new RegExp(
+    `\\b(?:useTimelineStore(?:\\.getState\\(\\))?|timelineStore(?:\\.getState\\(\\))?|store|get\\(\\))\\s*(?:\\.\\s*|\\(\\s*\\(\\s*\\w+\\s*\\)\\s*=>\\s*\\w+\\.)(${prohibitedMutators.join("|")})\\b|const\\s*\\{[^}]*\\b(${prohibitedMutators.join("|")})\\b[^}]*\\}\\s*=\\s*useTimelineStore`,
+  );
+
+  for (const dir of dirsToScan) {
+    const files = await getSourceFiles(dir);
+    for (const file of files) {
+      const content = await readFile(file, "utf8");
+      const relPath = path.relative(root, file);
+      const match = content.match(mutatorRegex);
+      if (match) {
+        const mutator = match[1] || match[2];
+        failures.push(
+          `Architectural Violation [Domain 1, Invariant 3]: ${relPath} directly invokes or destructures \`${mutator}\`. Timeline mutations must dispatch via historyStore commands.`,
+        );
+        mutatorViolations++;
+      }
+    }
+  }
+
+  if (mutatorViolations === 0) {
+    console.log(
+      "✅ [Domain 1: Command-Pattern] Zero direct timeline store mutators (addClip, removeClip, moveClip) across all application source (Invariant 3).",
+    );
+  }
+} catch (err) {
+  failures.push(`Command-Pattern Invariant Check Failed: ${err.message}`);
+}
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 console.log("--------------------------------------------------");
 if (failures.length > 0) {

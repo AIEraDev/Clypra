@@ -8,6 +8,8 @@ import type { Project, AspectRatio } from "@/types";
 import { validateAndMigrateProjectPayload } from "@/types/serialization";
 import type { RecentProjectEntry } from "@/core/platform/platform";
 import { generateId } from "@/lib/utils/id";
+import { useHistoryStore } from "@/store/historyStore";
+import { AddClipCommand } from "@/core/history/commands";
 import { platform } from "@/core/platform";
 import { SettingsModal } from "./components/ui/SettingsModal";
 import { ClosingProjectModal } from "./components/ui/ClosingProjectModal";
@@ -578,7 +580,7 @@ const App = () => {
                 aspectRatioLocked: true,
                 kind: "video" as const,
               };
-              useTimelineStore.getState().addClip(screenClip);
+              useHistoryStore.getState().execute(new AddClipCommand(screenClip));
 
               // 2. Add Camera Overlay Clip on Top Track (Track 0 / PiP Placement) if dual recording
               if (cameraAsset) {
@@ -615,7 +617,7 @@ const App = () => {
                   aspectRatioLocked: true,
                   kind: "video" as const,
                 };
-                useTimelineStore.getState().addClip(cameraClip);
+                useHistoryStore.getState().execute(new AddClipCommand(cameraClip));
               }
             });
           }

@@ -10,11 +10,12 @@
 
 import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
-import type { Clip, Track } from "@/types";
+import type { Clip, Track, Gap } from "@/types";
 
 interface TimelineState {
   tracks?: Track[];
   clips: Clip[];
+  gaps?: Gap[];
   epoch: number;
 }
 
@@ -26,6 +27,7 @@ export class RippleDeleteCommand implements Command {
 
   private deletedClip: Clip | null = null;
   private shiftedClips: Array<{ id: string; originalStartTime: number }> = [];
+  private shiftedGaps: Array<{ id: string; originalStartTime: number }> = [];
   private deletedTrack: Track | null = null;
   private deletedTrackIndex: number = -1;
 
@@ -54,6 +56,25 @@ export class RippleDeleteCommand implements Command {
       id: c.id,
       originalStartTime: c.startTime,
     }));
+
+    // Find and shift all gaps on the SAME TRACK that start after the deleted clip
+    let nextGaps = state.gaps;
+    if (state.gaps) {
+      const gapsToShift = state.gaps.filter((g) => g.trackId === trackId && g.startTime >= gapStart);
+      this.shiftedGaps = gapsToShift.map((g) => ({
+        id: g.id,
+        originalStartTime: g.startTime,
+      }));
+      nextGaps = state.gaps.map((g) => {
+        if (g.trackId === trackId && g.startTime >= gapStart) {
+          return {
+            ...g,
+            startTime: Math.max(0, g.startTime - gapDuration),
+          };
+        }
+        return g;
+      });
+    }
 
     const remainingClips = state.clips.filter((c) => c.id !== this.clipId);
     const hasOtherClips = remainingClips.some((c) => c.trackId === trackId);
@@ -85,6 +106,10 @@ export class RippleDeleteCommand implements Command {
       epoch: state.epoch + 1,
     };
 
+    if (nextGaps !== undefined) {
+      nextState.gaps = nextGaps;
+    }
+
     if (state.tracks !== undefined) {
       nextState.tracks = tracks;
     }
@@ -96,7 +121,7 @@ export class RippleDeleteCommand implements Command {
     if (!this.deletedClip) {
       throw new Error("Cannot invert RippleDeleteCommand: no deleted clip stored");
     }
-    return new RippleRestoreCommand(this.deletedClip, this.shiftedClips, this.deletedTrack, this.deletedTrackIndex);
+    return new RippleRestoreCommand(this.deletedClip, this.shiftedClips, this.shiftedGaps, this.deletedTrack, this.deletedTrackIndex);
   }
 
   toJSON(): Record<string, any> {
@@ -105,6 +130,7 @@ export class RippleDeleteCommand implements Command {
       clipId: this.clipId,
       deletedClip: this.deletedClip,
       shiftedClips: this.shiftedClips,
+      shiftedGaps: this.shiftedGaps,
       deletedTrack: this.deletedTrack,
       deletedTrackIndex: this.deletedTrackIndex,
     };
@@ -114,6 +140,7 @@ export class RippleDeleteCommand implements Command {
     const cmd = new RippleDeleteCommand(data.clipId);
     cmd.deletedClip = data.deletedClip;
     cmd.shiftedClips = data.shiftedClips || [];
+    cmd.shiftedGaps = data.shiftedGaps || [];
     cmd.deletedTrack = data.deletedTrack;
     cmd.deletedTrackIndex = data.deletedTrackIndex ?? -1;
     return cmd;
@@ -135,6 +162,7 @@ class RippleRestoreCommand implements Command {
   constructor(
     private readonly clipToRestore: Clip,
     private readonly originalPositions: Array<{ id: string; originalStartTime: number }>,
+    private readonly originalGapPositions: Array<{ id: string; originalStartTime: number }> = [],
     private readonly restoredTrack?: Track | null,
     private readonly restoredTrackIndex?: number,
   ) {
@@ -151,10 +179,6 @@ class RippleRestoreCommand implements Command {
       tracks.splice(insertIndex, 0, this.restoredTrack);
     }
 
-    const gapDuration = this.clipToRestore.duration;
-    const gapStart = this.clipToRestore.startTime;
-    const trackId = this.clipToRestore.trackId;
-
     // Shift clips back to their original positions
     const clipsWithRestoredPositions = state.clips.map((c) => {
       const originalPosition = this.originalPositions.find((p) => p.id === c.id);
@@ -167,12 +191,27 @@ class RippleRestoreCommand implements Command {
       return c;
     });
 
+    let nextGaps = state.gaps;
+    if (state.gaps && this.originalGapPositions && this.originalGapPositions.length > 0) {
+      nextGaps = state.gaps.map((g) => {
+        const orig = this.originalGapPositions.find((p) => p.id === g.id);
+        if (orig) {
+          return { ...g, startTime: orig.originalStartTime };
+        }
+        return g;
+      });
+    }
+
     // Add the restored clip back
     const nextState: TimelineState = {
       ...state,
       clips: [...clipsWithRestoredPositions, this.clipToRestore],
       epoch: state.epoch + 1,
     };
+
+    if (nextGaps !== undefined) {
+      nextState.gaps = nextGaps;
+    }
 
     if (state.tracks !== undefined) {
       nextState.tracks = tracks;
@@ -190,12 +229,13 @@ class RippleRestoreCommand implements Command {
       type: "RippleRestore",
       clipToRestore: this.clipToRestore,
       originalPositions: this.originalPositions,
+      originalGapPositions: this.originalGapPositions,
       restoredTrack: this.restoredTrack,
       restoredTrackIndex: this.restoredTrackIndex,
     };
   }
 
   static fromJSON(data: Record<string, any>): RippleRestoreCommand {
-    return new RippleRestoreCommand(data.clipToRestore, data.originalPositions, data.restoredTrack, data.restoredTrackIndex);
+    return new RippleRestoreCommand(data.clipToRestore, data.originalPositions, data.originalGapPositions || [], data.restoredTrack, data.restoredTrackIndex);
   }
 }

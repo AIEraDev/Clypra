@@ -75,6 +75,17 @@ function classifyGpuVendor(
   return "unknown";
 }
 
+export type TelemetryDeviceOrigin =
+  | "google-pixel"
+  | "apple-iphone"
+  | "samsung-galaxy"
+  | "sony-camera"
+  | "dji-drone"
+  | "gopro"
+  | "screen-recording"
+  | "generic-mobile"
+  | "unknown";
+
 export interface TelemetryVideoProfile {
   container: "mp4" | "mov" | "webm" | "mkv";
   codec: "h264" | "hevc" | "av1" | "vp9" | "prores422" | "prores4444";
@@ -87,6 +98,12 @@ export interface TelemetryVideoProfile {
   colorSpace: "rec709" | "rec2020" | "srgb" | "p3";
   hdrFormat: "none" | "hdr10" | "hlg" | "dolby_vision";
   bitrateKbps: number;
+  deviceOrigin?: TelemetryDeviceOrigin;
+  deviceModel?: string;
+  isVfr?: boolean;
+  isHighRiskProfile?: boolean;
+  bottleneckRiskFactors?: string[];
+  diagnosedBottlenecks?: string[];
 }
 
 export interface TelemetryStageTimings {
@@ -588,7 +605,12 @@ export interface TelemetryEvent {
     playbackSpeed?: number;
     /** Source frames intentionally advanced between CPU-readback presentations. */
     readbackSourceFrameStride?: number;
+    deviceOrigin?: TelemetryDeviceOrigin;
+    isHighRiskProfile?: boolean;
+    bottleneckRiskFactors?: string[];
+    diagnosedBottlenecks?: string[];
   };
+  diagnosedBottlenecks?: string[];
   exportMetrics?: {
     exportDurationMs: number;
     mediaDurationMs: number;
@@ -930,6 +952,17 @@ class SessionRollupAccumulator {
 
   public getThrottledAnomaliesCount(): number {
     return this.throttledAnomaliesCount;
+  }
+
+  public updateVideoProfile(
+    videoProfile: Partial<TelemetryVideoProfile>,
+  ): void {
+    if (videoProfile && Object.keys(videoProfile).length > 0) {
+      this.lastKnownVideoProfile = {
+        ...this.lastKnownVideoProfile,
+        ...videoProfile,
+      };
+    }
   }
 
   public recordFrame(
@@ -1669,6 +1702,33 @@ class TelemetryCollector {
     this.reportedTextMeasurementIds.clear();
     this.textAccumulators.clear();
     this.resetAnomalyRateLimiter();
+    this.currentVideoProfile = {};
+  }
+
+  private currentVideoProfile: Partial<TelemetryVideoProfile> = {};
+
+  /**
+   * Sets the active video profile across playback, scrubbing, and seeks.
+   */
+  public setLastKnownVideoProfile(
+    profile: Partial<TelemetryVideoProfile> | null,
+  ): void {
+    if (!profile || Object.keys(profile).length === 0) {
+      this.currentVideoProfile = {};
+      return;
+    }
+    this.currentVideoProfile = {
+      ...this.currentVideoProfile,
+      ...profile,
+    };
+    this.getRollupAccumulator().updateVideoProfile(profile);
+  }
+
+  /**
+   * Returns the current active video profile sanitized.
+   */
+  public getLastKnownVideoProfile(): TelemetryVideoProfile {
+    return this.sanitizeVideoProfile(this.currentVideoProfile);
   }
 
   /**
@@ -1689,18 +1749,100 @@ class TelemetryCollector {
     else if (maxDim >= 1200) resolutionBucket = "720p";
     else resolutionBucket = "custom";
 
+    // Detect device origin & sanitize model
+    let deviceOrigin: TelemetryDeviceOrigin = profile.deviceOrigin || "unknown";
+    let deviceModel: string | undefined = profile.deviceModel;
+
+    const rawModel = (profile.deviceModel || "").toLowerCase();
+    const rawOrigin = (profile.deviceOrigin || "").toLowerCase();
+
+    if (
+      rawOrigin === "google-pixel" ||
+      rawOrigin.includes("pixel") ||
+      rawModel.includes("pixel") ||
+      rawOrigin.includes("google")
+    ) {
+      deviceOrigin = "google-pixel";
+      const match = (profile.deviceModel || "").match(/Pixel\s*([0-9a-zA-Z\s]+)/i);
+      deviceModel = match ? `Pixel ${match[1].trim()}` : "Google Pixel";
+    } else if (
+      rawOrigin === "apple-iphone" ||
+      rawOrigin.includes("iphone") ||
+      rawModel.includes("iphone")
+    ) {
+      deviceOrigin = "apple-iphone";
+      const match = (profile.deviceModel || "").match(/iPhone\s*([0-9a-zA-Z,\s]+)/i);
+      deviceModel = match ? `iPhone ${match[1].trim()}` : "Apple iPhone";
+    } else if (
+      rawOrigin === "samsung-galaxy" ||
+      rawOrigin.includes("galaxy") ||
+      rawModel.includes("galaxy")
+    ) {
+      deviceOrigin = "samsung-galaxy";
+      deviceModel = "Samsung Galaxy";
+    }
+
+    const pacingMode: TelemetryVideoProfile["pacingMode"] =
+      profile.pacingMode === "vfr" || profile.isVfr ? "vfr" : "cfr";
+    const isVfr = pacingMode === "vfr";
+    const codec = profile.codec || "hevc";
+    const bitDepth = profile.bitDepth || 10;
+    const hdrFormat = profile.hdrFormat || "none";
+
+    // Evaluate bottleneck risk factors
+    const bottleneckRiskFactors: string[] = [];
+    if (deviceOrigin === "google-pixel") {
+      bottleneckRiskFactors.push("google-pixel-camera-source");
+    }
+    if (isVfr) {
+      bottleneckRiskFactors.push("variable-frame-rate");
+      if (deviceOrigin === "google-pixel") {
+        bottleneckRiskFactors.push("google-pixel-vfr-timing-instability");
+      }
+    }
+    if (bitDepth >= 10) {
+      bottleneckRiskFactors.push("hevc-10bit-hardware-decode");
+      if (deviceOrigin === "google-pixel") {
+        bottleneckRiskFactors.push("google-pixel-10bit-hevc-seek-stall");
+      }
+    }
+    if (hdrFormat !== "none") {
+      bottleneckRiskFactors.push("hdr-color-transfer");
+    }
+    if (resolutionBucket === "4k" || resolutionBucket === "8k" || maxDim >= 3500) {
+      bottleneckRiskFactors.push("high-resolution-throughput");
+    }
+    if (profile.bottleneckRiskFactors) {
+      for (const factor of profile.bottleneckRiskFactors) {
+        if (!bottleneckRiskFactors.includes(factor)) {
+          bottleneckRiskFactors.push(factor);
+        }
+      }
+    }
+
+    const isHighRiskProfile =
+      profile.isHighRiskProfile ??
+      (deviceOrigin === "google-pixel" ||
+        (isVfr && (bitDepth >= 10 || resolutionBucket === "4k" || resolutionBucket === "8k")));
+
     return {
       container: profile.container || "mp4",
-      codec: profile.codec || "hevc",
+      codec,
       width,
       height,
       resolutionBucket: profile.resolutionBucket || resolutionBucket,
       nominalFps: profile.nominalFps || 60,
-      pacingMode: profile.pacingMode || "cfr",
-      bitDepth: profile.bitDepth || 10,
+      pacingMode,
+      bitDepth,
       colorSpace: profile.colorSpace || "rec709",
-      hdrFormat: profile.hdrFormat || "none",
+      hdrFormat,
       bitrateKbps: profile.bitrateKbps || 25000,
+      deviceOrigin,
+      ...(deviceModel ? { deviceModel } : {}),
+      isVfr,
+      isHighRiskProfile,
+      bottleneckRiskFactors,
+      ...(profile.diagnosedBottlenecks ? { diagnosedBottlenecks: profile.diagnosedBottlenecks } : {}),
     };
   }
 
@@ -1917,17 +2059,28 @@ class TelemetryCollector {
       normalizedCancelledFrames > 0 ||
       Boolean(options.dropReason);
 
+    const effectiveProfile = {
+      ...this.currentVideoProfile,
+      ...videoProfile,
+    };
+    const fullVideoProfile = this.sanitizeVideoProfile(effectiveProfile);
+    const isHighRisk = Boolean(
+      fullVideoProfile.isHighRiskProfile ||
+      fullVideoProfile.deviceOrigin === "google-pixel",
+    );
+
     // Adaptive sampling:
     // When forceSample is true (e.g. qualification runs or explicit overrides), bypass throttling.
-    // For nominal smooth frames (not an anomaly), sample at 1% NOMINAL_SAMPLE_RATE.
-    // For anomalies, apply local windowed rate limiting to prevent thousands of redundant frames
-    // from ballooning the session file while preserving percentiles in the rollup.
+    // For nominal smooth frames, sample at 1% NOMINAL_SAMPLE_RATE (or 10% for high-risk profiles).
+    // For anomalies on high-risk profiles (Google Pixel, 10-bit VFR), always sample to capture bottlenecks.
+    // For normal profiles, apply local windowed rate limiting to prevent thousands of redundant frames.
     if (!options.forceSample) {
       if (!isAnomaly) {
-        if (Math.random() > NOMINAL_SAMPLE_RATE) {
+        const nominalRate = isHighRisk ? 0.1 : NOMINAL_SAMPLE_RATE;
+        if (Math.random() > nominalRate) {
           return;
         }
-      } else {
+      } else if (!isHighRisk) {
         const now = Date.now();
         if (
           now - this.anomalyRateLimiter.windowStartMs >=
@@ -1985,8 +2138,31 @@ class TelemetryCollector {
       }
     }
 
+    const diagnosedBottlenecks: string[] = [];
+    const deadlineUs = options.deadlineUs ?? 16_667;
+    if (timings.decodeUs !== undefined && timings.decodeUs > deadlineUs) {
+      diagnosedBottlenecks.push("decode-duration-spike");
+    }
+    if (timings.actorWaitUs !== undefined && timings.actorWaitUs > 10_000) {
+      diagnosedBottlenecks.push("actor-thread-contention");
+    }
+    if (timings.ipcWaitUs !== undefined && timings.ipcWaitUs > 20_000) {
+      diagnosedBottlenecks.push("ipc-frame-transfer-stall");
+    }
+    if (avDriftMs !== undefined && Math.abs(avDriftMs) > 16) {
+      diagnosedBottlenecks.push("vfr-audio-drift");
+    }
+    if (
+      fullVideoProfile.deviceOrigin === "google-pixel" &&
+      (timings.totalTimeUs > deadlineUs || normalizedDroppedFrames > 0)
+    ) {
+      diagnosedBottlenecks.push("google-pixel-decode-strain");
+    }
+    if (fullVideoProfile.isVfr && timings.totalTimeUs > deadlineUs) {
+      diagnosedBottlenecks.push("vfr-presentation-jitter");
+    }
+
     const hardware = this.initHardwareContext();
-    const fullVideoProfile = this.sanitizeVideoProfile(videoProfile);
 
     const event: TelemetryEvent = {
       eventId: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -2006,6 +2182,7 @@ class TelemetryCollector {
       previewContext: options.previewContext,
       device: hardware,
       video: fullVideoProfile,
+      ...(diagnosedBottlenecks.length > 0 ? { diagnosedBottlenecks } : {}),
       workload: {
         mode: workloadMode,
         durationMs: Math.round(timings.totalTimeUs / 1000),
@@ -2030,15 +2207,15 @@ class TelemetryCollector {
         renderPath: options.renderPath,
         capabilityPolicy: options.capabilityPolicy,
         capabilityProbeUs: options.capabilityProbeUs,
-        // `targetFps` above describes the timeline/source rate. Keep the
-        // embedded CPU-readback limit separate so sampled anomalies can be
-        // interpreted against the cadence the presentation path actually
-        // requested.
         readbackMaxDimension: options.readbackMaxDimension,
         readbackTier: options.readbackTier,
         readbackCadenceFps: options.readbackCadenceFps,
         playbackSpeed: options.playbackSpeed,
         readbackSourceFrameStride: options.readbackSourceFrameStride,
+        deviceOrigin: fullVideoProfile.deviceOrigin,
+        isHighRiskProfile: fullVideoProfile.isHighRiskProfile,
+        bottleneckRiskFactors: fullVideoProfile.bottleneckRiskFactors,
+        ...(diagnosedBottlenecks.length > 0 ? { diagnosedBottlenecks } : {}),
       },
       timestampMs: Date.now(),
     };
@@ -2826,12 +3003,23 @@ class TelemetryCollector {
 
     this.getRollupAccumulator().recordSeek(seekLatencyMs);
 
+    const effectiveProfile = {
+      ...this.currentVideoProfile,
+      ...videoProfile,
+    };
+    const fullVideoProfile = this.sanitizeVideoProfile(effectiveProfile);
+    const isHighRisk = Boolean(
+      fullVideoProfile.isHighRiskProfile ||
+      fullVideoProfile.deviceOrigin === "google-pixel",
+    );
+
     const isAnomaly = seekLatencyMs > 100.0;
     if (!isAnomaly) {
-      if (Math.random() > NOMINAL_SAMPLE_RATE) {
+      const nominalRate = isHighRisk ? 0.1 : NOMINAL_SAMPLE_RATE;
+      if (Math.random() > nominalRate) {
         return;
       }
-    } else {
+    } else if (!isHighRisk) {
       const now = Date.now();
       if (
         now - this.anomalyRateLimiter.windowStartMs >=
@@ -2869,8 +3057,20 @@ class TelemetryCollector {
       }
     }
 
+    const diagnosedBottlenecks: string[] = [];
+    if (seekLatencyMs > 100.0) {
+      if (fullVideoProfile.deviceOrigin === "google-pixel") {
+        diagnosedBottlenecks.push("google-pixel-keyframe-scrub-stall");
+      }
+      if (fullVideoProfile.isVfr) {
+        diagnosedBottlenecks.push("vfr-keyframe-interval-hunting");
+      }
+      if (fullVideoProfile.bitDepth >= 10) {
+        diagnosedBottlenecks.push("hevc-10bit-seek-latency");
+      }
+    }
+
     const hardware = this.initHardwareContext();
-    const fullVideoProfile = this.sanitizeVideoProfile(videoProfile);
 
     const event: TelemetryEvent = {
       eventId: `evt_seek_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -2879,6 +3079,7 @@ class TelemetryCollector {
       appEnvironment: import.meta.env.DEV ? "beta" : "production",
       device: hardware,
       video: fullVideoProfile,
+      ...(diagnosedBottlenecks.length > 0 ? { diagnosedBottlenecks } : {}),
       workload: {
         mode: isColdSeek ? "seek-cold" : "seek-warm",
         durationMs: Math.round(seekLatencyMs),
@@ -2895,6 +3096,10 @@ class TelemetryCollector {
         // stage percentages: they would make backend bottleneck analysis lie.
         stageTimings: { totalTimeUs: Math.round(seekLatencyMs * 1000) },
         stageTimingsSource: "unattributed",
+        deviceOrigin: fullVideoProfile.deviceOrigin,
+        isHighRiskProfile: fullVideoProfile.isHighRiskProfile,
+        bottleneckRiskFactors: fullVideoProfile.bottleneckRiskFactors,
+        ...(diagnosedBottlenecks.length > 0 ? { diagnosedBottlenecks } : {}),
       },
       timestampMs: Date.now(),
     };

@@ -940,12 +940,50 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
         lastPersistedSnapshot = null;
         lastPersistedProjectId = project.id;
+        const normalizedAssets = (effectivePayload?.mediaAssets ?? []).map(
+          normalizeMediaAsset,
+        );
         set({
           project,
-          mediaAssets: (effectivePayload?.mediaAssets ?? []).map(
-            normalizeMediaAsset,
-          ),
+          mediaAssets: normalizedAssets,
         });
+
+        // Sync telemetry video profile from loaded video assets if available
+        try {
+          const videoAsset =
+            normalizedAssets.find(
+              (a) =>
+                a.type === "video" &&
+                a.streams?.some(
+                  (s) => s.isHighRisk || s.deviceOrigin === "google-pixel",
+                ),
+            ) ||
+            normalizedAssets.find(
+              (a) =>
+                a.type === "video" && a.streams?.some((s) => s.type === "video"),
+            );
+          const videoStream = videoAsset?.streams?.find(
+            (s) => s.type === "video",
+          );
+          if (videoStream) {
+            void import("@/services/telemetryCollector").then(
+              ({ telemetryCollector }) => {
+                telemetryCollector.setLastKnownVideoProfile({
+                  codec: (videoStream.codec?.toLowerCase() as any) || "hevc",
+                  width: videoStream.width || videoAsset?.width,
+                  height: videoStream.height || videoAsset?.height,
+                  pacingMode: videoStream.isVfr ? "vfr" : "cfr",
+                  isVfr: videoStream.isVfr,
+                  deviceOrigin: videoStream.deviceOrigin as any,
+                  deviceModel: videoStream.deviceModel,
+                  isHighRiskProfile: videoStream.isHighRisk,
+                  bottleneckRiskFactors: videoStream.riskFactors,
+                  bitDepth: videoStream.pixFmt?.includes("10") ? 10 : 8,
+                });
+              },
+            );
+          }
+        } catch {}
         markSubSpan("s2_hydrate_phase2_assets_opfs", tPhase2);
 
         const tFilters = performance.now();
@@ -1226,6 +1264,27 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         a.id === assetId ? { ...a, ...updates } : a,
       ),
     }));
+    if (updates.streams) {
+      const videoStream = updates.streams.find((s) => s.type === "video");
+      if (videoStream) {
+        void import("@/services/telemetryCollector").then(
+          ({ telemetryCollector }) => {
+            telemetryCollector.setLastKnownVideoProfile({
+              codec: (videoStream.codec?.toLowerCase() as any) || "hevc",
+              width: videoStream.width,
+              height: videoStream.height,
+              pacingMode: videoStream.isVfr ? "vfr" : "cfr",
+              isVfr: videoStream.isVfr,
+              deviceOrigin: videoStream.deviceOrigin as any,
+              deviceModel: videoStream.deviceModel,
+              isHighRiskProfile: videoStream.isHighRisk,
+              bottleneckRiskFactors: videoStream.riskFactors,
+              bitDepth: videoStream.pixFmt?.includes("10") ? 10 : 8,
+            });
+          },
+        );
+      }
+    }
     get().scheduleAutoSave();
   },
 

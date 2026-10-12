@@ -219,5 +219,7 @@
   "properties.collapse": "속성 패널 접기",
   "properties.tabs.textStyle": "텍스트 스타일",
   "properties.tabs.animation": "애니메이션",
-  "properties.tabs.transform": "변형"
+  "properties.tabs.transform": "변형",
+  "audio.clip_exceeds_memory_limit": "오디오 클립이 너무 길어 재생할 수 없습니다. 재생하려면 타임라인에서 클립을 더 짧은 구간으로 분할하세요.",
+  "audio.clip_decode_failed": "오디오 클립 디코딩 실패: {{error}}"
 }

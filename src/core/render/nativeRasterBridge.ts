@@ -543,6 +543,24 @@ export class NativeRasterBridge {
     return this.textSnapshotsByLayerId.get(layerId);
   }
 
+  /**
+   * Retrieves the latest raster snapshot for an animated sticker layer.
+   */
+  public getStickerSnapshot(
+    layerId: string,
+  ): NativeRasterLayerSnapshot | undefined {
+    return this.stickerSnapshotsByLayerId.get(layerId);
+  }
+
+  /**
+   * Retrieves a registered native raster asset by its asset ID.
+   */
+  public getRegisteredAsset(
+    assetId: string,
+  ): UploadableNativeRaster | undefined {
+    return this.assetsById.get(assetId) ?? this.textAssetsById.get(assetId);
+  }
+
   private async rasterizeText(
     scene: EvaluatedScene,
     phase: TextRenderTracePhase,

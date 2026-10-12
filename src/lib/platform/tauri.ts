@@ -47,6 +47,19 @@ export interface NativeMediaStream {
   bitrate?: number;
   language?: string;
   label?: string;
+  width?: number;
+  height?: number;
+  rFrameRate?: string;
+  avgFrameRate?: string;
+  pixFmt?: string;
+  colorSpace?: string;
+  colorTransfer?: string;
+  colorPrimaries?: string;
+  deviceOrigin?: string;
+  deviceModel?: string;
+  isVfr?: boolean;
+  isHighRisk?: boolean;
+  riskFactors?: string[];
 }
 
 export interface AudioExtractionRequest {

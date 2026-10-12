@@ -40,6 +40,7 @@ export class InsertGapCommand implements Command {
 
   private insertedGap: Gap | null = null;
   private shiftedClips: Array<{ id: string; originalStartTime: number }> = [];
+  private shiftedGaps: Array<{ id: string; originalStartTime: number }> = [];
 
   constructor(
     private readonly trackId: string,
@@ -78,10 +79,30 @@ export class InsertGapCommand implements Command {
       };
     });
 
+    // Also shift any existing gaps on this track starting at or after this.startTime
+    const existingGapsToShift = state.gaps.filter(
+      (g) => g.trackId === this.trackId && g.startTime >= this.startTime - 0.001,
+    );
+    this.shiftedGaps = existingGapsToShift.map((g) => ({
+      id: g.id,
+      originalStartTime: g.startTime,
+    }));
+
+    const updatedGaps = state.gaps.map((g) => {
+      if (g.trackId === this.trackId && g.startTime >= this.startTime - 0.001) {
+        return {
+          ...cloneGapSnapshot(g),
+          startTime: g.startTime + this.duration,
+        };
+      }
+      return cloneGapSnapshot(g);
+    });
+    updatedGaps.push(cloneGapSnapshot(result.gap));
+
     // Apply the gap insertion and shift affected clips only
     return {
       ...state,
-      gaps: [...state.gaps.map(cloneGapSnapshot), cloneGapSnapshot(result.gap)],
+      gaps: updatedGaps,
       clips: state.clips.map((c) => {
         if (result.affectedClipIds!.includes(c.id)) {
           return {
@@ -97,7 +118,14 @@ export class InsertGapCommand implements Command {
 
   invert(): Command {
     if (!this.insertedGap) {
-      throw new Error("Cannot invert InsertGapCommand: no gap stored");
+      return {
+        id: generateCommandId(),
+        label: "No-Op",
+        timestamp: Date.now(),
+        undoable: false,
+        apply: (state: any) => state,
+        invert: () => this,
+      };
     }
     return new RemoveGapCommand(this.insertedGap.id);
   }
@@ -110,6 +138,7 @@ export class InsertGapCommand implements Command {
       duration: this.duration,
       insertedGap: this.insertedGap,
       shiftedClips: this.shiftedClips,
+      shiftedGaps: this.shiftedGaps,
     };
   }
 
@@ -117,6 +146,7 @@ export class InsertGapCommand implements Command {
     const cmd = new InsertGapCommand(data.trackId, data.startTime, data.duration);
     cmd.insertedGap = data.insertedGap;
     cmd.shiftedClips = data.shiftedClips || [];
+    cmd.shiftedGaps = data.shiftedGaps || [];
     return cmd;
   }
 }
@@ -134,6 +164,7 @@ export class RemoveGapCommand implements Command {
 
   private removedGap: Gap | null = null;
   private shiftedClips: Array<{ id: string; originalStartTime: number }> = [];
+  private shiftedGaps: Array<{ id: string; originalStartTime: number }> = [];
 
   constructor(private readonly gapId: string) {
     this.id = generateCommandId();
@@ -165,10 +196,32 @@ export class RemoveGapCommand implements Command {
       };
     });
 
+    // Find gaps on the same track starting after the removed gap and shift left by gap.duration
+    const gapEnd = gap.startTime + gap.duration;
+    const existingGapsToShift = state.gaps.filter(
+      (g) => g.trackId === gap.trackId && g.id !== this.gapId && g.startTime >= gapEnd,
+    );
+    this.shiftedGaps = existingGapsToShift.map((g) => ({
+      id: g.id,
+      originalStartTime: g.startTime,
+    }));
+
+    const updatedGaps = state.gaps
+      .filter((g) => g.id !== this.gapId)
+      .map((g) => {
+        if (g.trackId === gap.trackId && g.startTime >= gapEnd) {
+          return {
+            ...cloneGapSnapshot(g),
+            startTime: Math.max(0, g.startTime - gap.duration),
+          };
+        }
+        return cloneGapSnapshot(g);
+      });
+
     // Remove gap and shift affected clips only
     return {
       ...state,
-      gaps: state.gaps.filter((g) => g.id !== this.gapId).map(cloneGapSnapshot),
+      gaps: updatedGaps,
       clips: state.clips.map((c) => {
         if (result.affectedClipIds!.includes(c.id)) {
           return {
@@ -186,7 +239,7 @@ export class RemoveGapCommand implements Command {
     if (!this.removedGap) {
       throw new Error("Cannot invert RemoveGapCommand: no gap stored");
     }
-    return new RestoreGapCommand(this.removedGap, this.shiftedClips);
+    return new RestoreGapCommand(this.removedGap, this.shiftedClips, this.shiftedGaps);
   }
 
   toJSON(): Record<string, any> {
@@ -195,6 +248,7 @@ export class RemoveGapCommand implements Command {
       gapId: this.gapId,
       removedGap: this.removedGap,
       shiftedClips: this.shiftedClips,
+      shiftedGaps: this.shiftedGaps,
     };
   }
 
@@ -202,6 +256,7 @@ export class RemoveGapCommand implements Command {
     const cmd = new RemoveGapCommand(data.gapId);
     cmd.removedGap = data.removedGap;
     cmd.shiftedClips = data.shiftedClips || [];
+    cmd.shiftedGaps = data.shiftedGaps || [];
     return cmd;
   }
 }
@@ -218,16 +273,19 @@ class RestoreGapCommand implements Command {
   constructor(
     gap: Gap,
     originalPositions: Array<{ id: string; originalStartTime: number }>,
+    originalGapPositions: Array<{ id: string; originalStartTime: number }> = [],
   ) {
     this.id = generateCommandId();
     this.label = "Restore Gap";
     this.timestamp = Date.now();
     this.gap = cloneGapSnapshot(gap);
     this.originalPositions = originalPositions.map((position) => ({ ...position }));
+    this.originalGapPositions = originalGapPositions.map((position) => ({ ...position }));
   }
 
   private readonly gap: Gap;
   private readonly originalPositions: Array<{ id: string; originalStartTime: number }>;
+  private readonly originalGapPositions: Array<{ id: string; originalStartTime: number }>;
 
   apply(state: TimelineState): TimelineState {
     // Restore gap
@@ -245,9 +303,18 @@ class RestoreGapCommand implements Command {
       return cloneClipSnapshot(c);
     });
 
+    const updatedGaps = state.gaps.map((g) => {
+      const orig = this.originalGapPositions?.find((p) => p.id === g.id);
+      if (orig) {
+        return { ...cloneGapSnapshot(g), startTime: orig.originalStartTime };
+      }
+      return cloneGapSnapshot(g);
+    });
+    updatedGaps.push(restoredGap);
+
     return {
       ...state,
-      gaps: [...state.gaps.map(cloneGapSnapshot), restoredGap],
+      gaps: updatedGaps,
       clips: clipsWithRestoredPositions,
       epoch: state.epoch + 1,
     };
@@ -262,11 +329,12 @@ class RestoreGapCommand implements Command {
       type: "RestoreGap",
       gap: this.gap,
       originalPositions: this.originalPositions,
+      originalGapPositions: this.originalGapPositions,
     };
   }
 
   static fromJSON(data: Record<string, any>): RestoreGapCommand {
-    return new RestoreGapCommand(data.gap, data.originalPositions);
+    return new RestoreGapCommand(data.gap, data.originalPositions, data.originalGapPositions || []);
   }
 }
 
@@ -374,6 +442,7 @@ export class PackTrackCommand implements Command {
 
   private removedGaps: Gap[] = [];
   private clipPositions: Array<{ id: string; originalStartTime: number; newStartTime: number }> = [];
+  private gapPositions: Array<{ id: string; originalStartTime: number; newStartTime: number }> = [];
 
   constructor(private readonly trackId: string) {
     this.id = generateCommandId();
@@ -382,25 +451,44 @@ export class PackTrackCommand implements Command {
   }
 
   apply(state: TimelineState): TimelineState {
-    const trackClips = state.clips.filter((c) => c.trackId === this.trackId).sort((a, b) => a.startTime - b.startTime);
-
+    const trackClips = state.clips.filter((c) => c.trackId === this.trackId);
     const trackGaps = state.gaps.filter((g) => g.trackId === this.trackId);
 
-    // Store removed gaps for undo
+    // Store removed unprotected gaps for undo
     this.removedGaps = trackGaps.filter((g) => !g.protected).map(cloneGapSnapshot);
-    const remainingGaps = trackGaps.filter((g) => g.protected);
+    const protectedGaps = trackGaps.filter((g) => g.protected);
 
-    // Calculate new clip positions by packing them tightly
+    // Order clips and protected gaps chronologically so they pack sequentially without collision
+    const items = [
+      ...trackClips.map((c) => ({ type: "clip" as const, item: c, startTime: c.startTime, duration: c.duration })),
+      ...protectedGaps.map((g) => ({ type: "gap" as const, item: g, startTime: g.startTime, duration: g.duration })),
+    ].sort((a, b) => a.startTime - b.startTime);
+
     let currentTime = 0;
     this.clipPositions = [];
+    this.gapPositions = [];
+    const updatedGapsOnTrack: Gap[] = [];
 
-    for (const clip of trackClips) {
-      this.clipPositions.push({
-        id: clip.id,
-        originalStartTime: clip.startTime,
-        newStartTime: currentTime,
-      });
-      currentTime += clip.duration;
+    for (const item of items) {
+      if (item.type === "clip") {
+        this.clipPositions.push({
+          id: item.item.id,
+          originalStartTime: item.item.startTime,
+          newStartTime: currentTime,
+        });
+        currentTime += item.duration;
+      } else {
+        this.gapPositions.push({
+          id: item.item.id,
+          originalStartTime: item.item.startTime,
+          newStartTime: currentTime,
+        });
+        updatedGapsOnTrack.push({
+          ...cloneGapSnapshot(item.item),
+          startTime: currentTime,
+        });
+        currentTime += item.duration;
+      }
     }
 
     // Apply new positions
@@ -412,8 +500,9 @@ export class PackTrackCommand implements Command {
       return cloneClipSnapshot(c);
     });
 
-    // Keep only protected gaps, remove unprotected ones
-    const updatedGaps = state.gaps.filter((g) => g.trackId !== this.trackId || g.protected).map(cloneGapSnapshot);
+    // Replace gaps on this track with repositioned protected gaps
+    const otherTrackGaps = state.gaps.filter((g) => g.trackId !== this.trackId).map(cloneGapSnapshot);
+    const updatedGaps = [...otherTrackGaps, ...updatedGapsOnTrack];
 
     return {
       ...state,
@@ -424,7 +513,7 @@ export class PackTrackCommand implements Command {
   }
 
   invert(): Command {
-    return new UnpackTrackCommand(this.trackId, this.removedGaps, this.clipPositions);
+    return new UnpackTrackCommand(this.trackId, this.removedGaps, this.clipPositions, this.gapPositions);
   }
 
   toJSON(): Record<string, any> {
@@ -433,6 +522,7 @@ export class PackTrackCommand implements Command {
       trackId: this.trackId,
       removedGaps: this.removedGaps,
       clipPositions: this.clipPositions,
+      gapPositions: this.gapPositions,
     };
   }
 
@@ -440,6 +530,7 @@ export class PackTrackCommand implements Command {
     const cmd = new PackTrackCommand(data.trackId);
     cmd.removedGaps = data.removedGaps || [];
     cmd.clipPositions = data.clipPositions || [];
+    cmd.gapPositions = data.gapPositions || [];
     return cmd;
   }
 }
@@ -459,20 +550,34 @@ class UnpackTrackCommand implements Command {
     private readonly trackId: string,
     gapsToRestore: Gap[],
     originalPositions: Array<{ id: string; originalStartTime: number; newStartTime: number }>,
+    originalGapPositions: Array<{ id: string; originalStartTime: number; newStartTime: number }> = [],
   ) {
     this.id = generateCommandId();
     this.label = "Unpack Track";
     this.timestamp = Date.now();
     this.gapsToRestore = gapsToRestore.map(cloneGapSnapshot);
     this.originalPositions = originalPositions.map((position) => ({ ...position }));
+    this.originalGapPositions = originalGapPositions.map((position) => ({ ...position }));
   }
 
   private readonly gapsToRestore: Gap[];
   private readonly originalPositions: Array<{ id: string; originalStartTime: number; newStartTime: number }>;
+  private readonly originalGapPositions: Array<{ id: string; originalStartTime: number; newStartTime: number }>;
 
   apply(state: TimelineState): TimelineState {
-    // Restore gaps
-    const restoredGaps = [...state.gaps.map(cloneGapSnapshot), ...this.gapsToRestore.map(cloneGapSnapshot)];
+    // Restore protected gap positions and add back removed unprotected gaps
+    const otherTrackGaps = state.gaps.filter((g) => g.trackId !== this.trackId).map(cloneGapSnapshot);
+    const restoredTrackGaps = state.gaps
+      .filter((g) => g.trackId === this.trackId)
+      .map((g) => {
+        const origGap = this.originalGapPositions.find((p) => p.id === g.id);
+        if (origGap) {
+          return { ...cloneGapSnapshot(g), startTime: origGap.originalStartTime };
+        }
+        return cloneGapSnapshot(g);
+      });
+
+    const restoredGaps = [...otherTrackGaps, ...restoredTrackGaps, ...this.gapsToRestore.map(cloneGapSnapshot)];
 
     // Restore original clip positions
     const restoredClips = state.clips.map((c) => {
@@ -501,11 +606,12 @@ class UnpackTrackCommand implements Command {
       trackId: this.trackId,
       gapsToRestore: this.gapsToRestore,
       originalPositions: this.originalPositions,
+      originalGapPositions: this.originalGapPositions,
     };
   }
 
   static fromJSON(data: Record<string, any>): UnpackTrackCommand {
-    return new UnpackTrackCommand(data.trackId, data.gapsToRestore, data.originalPositions);
+    return new UnpackTrackCommand(data.trackId, data.gapsToRestore, data.originalPositions, data.originalGapPositions || []);
   }
 }
 

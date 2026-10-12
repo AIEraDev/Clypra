@@ -295,7 +295,8 @@ export class StickerRasterizerWorkerClient {
       if (
         !sourcePath.startsWith("/") &&
         !sourcePath.startsWith("file:") &&
-        !sourcePath.startsWith("asset://")
+        !sourcePath.startsWith("asset://") &&
+        !sourcePath.startsWith("bundled://")
       ) {
         sourcePath = await join(await appCacheDir(), sourcePath);
       }

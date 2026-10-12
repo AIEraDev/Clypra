@@ -3,12 +3,21 @@ use crate::native_audio::{
     NativeAudioKeyframe, NativeAudioStatus, NativePcmClip,
 };
 use crate::sync_metrics::SYNC_METRICS;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeAudioClipFailure {
+    pub clip_id: String,
+    pub path: String,
+    pub error: String,
+    pub is_cap_exceeded: bool,
+}
 
 fn audio_clock(app: &AppHandle) -> Result<Arc<Mutex<NativeAudioClock>>, String> {
     app.try_state::<Arc<Mutex<NativeAudioClock>>>()
@@ -343,6 +352,16 @@ pub async fn replace_native_audio_clips(
                     request.clip_id,
                     error,
                     request.path
+                );
+                let is_cap_exceeded = error.contains("exceeds maximum") || error.contains("MiB limit");
+                let _ = app.emit(
+                    "clypra://native-audio-clip-failed",
+                    NativeAudioClipFailure {
+                        clip_id: request.clip_id.clone(),
+                        path: request.path.clone(),
+                        error: error.clone(),
+                        is_cap_exceeded,
+                    },
                 );
             }
         }

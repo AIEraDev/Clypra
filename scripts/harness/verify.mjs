@@ -102,6 +102,16 @@ async function main() {
 
   // ── 4. Subsystem Integration Suite ─────────────────────────────────────────
   if (doIntegration) {
+    if (process.platform === "darwin" && process.arch === "arm64") {
+      const audioOracleOk = await executeCommand(
+        "AUD-01: M1 Cold-Start Playback Audible RMS Oracle",
+        "Integration",
+        "node",
+        ["scripts/verify-cold-start-audio-playback.mjs"],
+      );
+      if (!audioOracleOk) overallSuccess = false;
+    }
+
     const integrationOk = await executeCommand(
       "Subsystem & Audio Integration Suite",
       "Integration",
@@ -118,6 +128,22 @@ async function main() {
 
   // ── 5. Media & NLE Domain Suite ───────────────────────────────────────────
   if (doMedia) {
+    const vfrOracleOk = await executeCommand(
+      "VFR Jitter External Oracle (ffprobe)",
+      "Media Engine",
+      "node",
+      ["scripts/verify-vfr-fixture.mjs"],
+    );
+    if (!vfrOracleOk) overallSuccess = false;
+
+    const vfrExportTimingOk = await executeCommand(
+      "Long VFR Export Timing & A/V Sync Oracle (ffprobe)",
+      "Media Engine",
+      "node",
+      ["scripts/verify-vfr-export-timing.mjs"],
+    );
+    if (!vfrExportTimingOk) overallSuccess = false;
+
     const mediaOk = await executeCommand(
       "Media Timeline & Evaluation Regressions",
       "Media Engine",
@@ -127,6 +153,9 @@ async function main() {
         "run",
         "src/core/timeline/__tests__/audioClipsExportRangeFades.test.ts",
         "src/core/evaluation/__tests__/mediaTimelineRegression.test.ts",
+        "src/core/media/__tests__/vfrFixtureTimelineRegression.test.ts",
+        "src/core/evaluation/__tests__/tenMinuteAvDrift.test.ts",
+        "src/core/render/__tests__/textPreviewExportParity.test.ts",
       ],
     );
     if (!mediaOk) overallSuccess = false;

@@ -67,6 +67,9 @@ To avoid reliance on self-reporting, the repository separates advisory guidance 
 | **Rust Engine & Compositor Tests** | Enforced | `cargo test --manifest-path src-tauri/Cargo.toml` | CI `test-rust` job |
 | **Cross-Platform Compilation** | Enforced | `cargo check` on Windows runner | CI `check-windows` job |
 | **Production Frontend Build** | Enforced | `npm run build` | CI `build-check` job |
+| **Unified Engineering Quality Gate** | Enforced | `npm run verify:gate` | Quality Gate Orchestrator & CI pipeline |
+| **Playback & Concurrency Benchmark** | Enforced | `npm run benchmark:playback` | Real-media test harness & baseline gate |
+| **Baseline Regression Gate** | Enforced | `npm run benchmark:compare` | Hardware baseline comparator & CI |
 | **Sidecar Integrity** | Audit Gate | `node scripts/verify-sidecars.mjs` | Release validation workflow |
 
 ---
@@ -78,3 +81,46 @@ When expanding Clypra or introducing new subsystems:
 2. **One Bug = One Regression Test**: When a bug is discovered, write an automated test in the corresponding suite before marking the issue resolved.
 3. **Keep Commands Synchronized**: Ensure commands documented in `AGENTS.md`, used in skills, and executed in `.github/workflows/ci.yml` remain identical.
 4. **No Blanket Suppressions**: Do not silence linter rules, disable compiler checks, or ignore failing tests. Fix the underlying invariant or update the outdated assertion with proper rationale.
+
+---
+
+## 5. Unified Engineering Quality Gate Orchestrator
+
+The **Unified Quality Orchestrator** (`scripts/harness/quality-gate.mjs`) binds all verification layers into an enforceable, evidence-driven pipeline connecting every feature implementation, bug fix, and dependency upgrade:
+
+```
+                  ┌──────────────────────────────────────────────┐
+                  │              Feature or Upgrade              │
+                  │   New features, bug fixes, engine changes    │
+                  └──────────────────────┬───────────────────────┘
+                                         │
+                  ┌──────────────────────▼───────────────────────┐
+                  │  Unified Quality Orchestrator (verify:gate)  │
+                  │ Detect affected subsystems, risks & workloads│
+                  └──────────────────────┬───────────────────────┘
+                                         │
+        ┌───────────────────┬────────────┴───────┬───────────────────┐
+        ▼                   ▼                    ▼                   ▼
+┌───────────────┐   ┌───────────────┐    ┌───────────────┐   ┌───────────────┐
+│  Behavioral   │   │  Performance  │    │  Concurrency  │   │  Reliability  │
+│  Validation   │   │  Validation   │    │  Validation   │   │  Validation   │
+│ Invariants,   │   │ TTFF, seeks,  │    │ Mixed media,  │   │ Soak tests,   │
+│ tsc, i18n,    │   │ scrub pacing, │    │ bg tasks,     │   │ cancel, zero  │
+│ render loop   │   │ dropped frames│    │ contention    │   │ memory leaks  │
+└───────┬───────┘   └───────┬───────┘    └───────┬───────┘   └───────┬───────┘
+        │                   │                    │                   │
+        └───────────────────┴────────────┬───────┴───────────────────┘
+                                         │
+                  ┌──────────────────────▼───────────────────────┐
+                  │    Evidence-Based Quality Decision Engine    │
+                  │ Compare with baseline; retain reports; trends│
+                  │  [ PASS ]   [ FAIL ]   [ BLOCKED ] [ SKIPPED ]│
+                  └──────────────────────────────────────────────┘
+```
+
+### The 4 Mandatory Pillars:
+1. **Behavioral Validation**: Architecture invariants (`check-architecture.mjs`), TypeScript compiler (`tsc --noEmit`), 9-locale parity (`check-i18n.mjs`), and the append-only preview render loop suite (`ProgramPreview.renderLoop.test.ts`).
+2. **Performance Validation**: Real-media playback metrics using the Golden Project (`goldenProjectManifest.ts`): Time to first frame (TTFF), cold/warm seeks, continuous scrubbing pacing ($< 16.67\text{ms}$ budget), and dropped-frame ratio.
+3. **Concurrency Validation**: Foreground playback responsiveness under competing background tasks (waveform extraction, thumbnail extraction, project serialization, export contention).
+4. **Reliability Validation**: Sustained soak testing (1,000 frames), zero heap memory leaks ($< 25\text{MB}$ delta), zero orphaned FFmpeg/worker processes, rapid seek stress, and task cancellation resilience.
+5. **Baseline Regression Gate**: Automated comparison against a hardware-specific versioned baseline (`scripts/benchmarks/compare-baseline.mjs`), catching latency, pacing, or memory deterioration before merging.

@@ -1812,6 +1812,7 @@ fn build_audio_stream<T>(
 where
     T: SizedSample + FromSample<f32>,
 {
+    let mut tick_remainder: i64 = 0;
     device.build_output_stream(
         config,
         move |data: &mut [T], info: &cpal::OutputCallbackInfo| {
@@ -1948,12 +1949,15 @@ where
 
             played_frames.fetch_add(frames as u64, Ordering::Relaxed);
 
-            // Hardware master clock tick update
-            let elapsed_ticks = (frames as i64)
+            // Hardware master clock tick update with drift-free sub-tick remainder carry
+            let speed = i64::from(speed_milli.load(Ordering::Acquire));
+            let total_numerator = (frames as i64)
                 .saturating_mul(TICKS_PER_SECOND)
-                .saturating_mul(i64::from(speed_milli.load(Ordering::Acquire)))
-                / i64::from(sample_rate.max(1))
-                / 1_000;
+                .saturating_mul(speed)
+                + tick_remainder;
+            let denominator = i64::from(sample_rate.max(1)).saturating_mul(1_000);
+            let elapsed_ticks = total_numerator / denominator;
+            tick_remainder = total_numerator % denominator;
             position_ticks.fetch_add(elapsed_ticks, Ordering::Release);
         },
         move |error| {

@@ -1,5 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useTimelineStore } from "@/store/timelineStore";
+import { useHistoryStore } from "@/store/historyStore";
+import { AddClipCommand } from "@/core/history/commands";
 import { useProjectStore } from "@/store/projectStore";
 import type { Clip, MediaAsset } from "@/types";
 import { createClipFromAsset } from "@/lib/timeline/timelineClip";
@@ -16,10 +18,6 @@ export const useTimeline = () => {
     zoomLevel,
     scrollLeft,
     pixelsPerSecond,
-    addClip,
-    removeClip,
-    updateClip,
-    moveClip,
     setZoom,
     setScrollLeft,
   } = useTimelineStore();
@@ -45,9 +43,9 @@ export const useTimeline = () => {
         height: nextProject?.canvasHeight || project?.canvasHeight || 1080,
         fitMode: resolveDefaultFitModeForAsset(asset),
       });
-      addClip(clip);
+      useHistoryStore.getState().execute(new AddClipCommand(clip));
     },
-    [project, clips, updateProject, addClip],
+    [project, clips, updateProject],
   );
 
   const getClipsForTrack = useCallback(
@@ -73,10 +71,6 @@ export const useTimeline = () => {
       zoomLevel,
       scrollLeft,
       pixelsPerSecond,
-      addClip,
-      removeClip,
-      updateClip,
-      moveClip,
       setZoom,
       setScrollLeft,
       addClipFromAsset,
@@ -89,10 +83,6 @@ export const useTimeline = () => {
       zoomLevel,
       scrollLeft,
       pixelsPerSecond,
-      addClip,
-      removeClip,
-      updateClip,
-      moveClip,
       setZoom,
       setScrollLeft,
       addClipFromAsset,

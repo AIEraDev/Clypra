@@ -14,6 +14,7 @@ import { generateId } from "@/lib/utils/id";
 import { toast } from "@/lib/toast";
 import type { Clip } from "@/types";
 import { DuplicateClipsCommand } from "@/core/history/commands/DuplicateClipCommand";
+import { AddClipCommand } from "@/core/history/commands";
 
 /**
  * A clipboard item preserves the complete clip model by default. Only the
@@ -111,8 +112,14 @@ export const clipboardService = {
     const availableTrackIds = new Set(store.tracks.map((t) => t.id));
     const fallbackTrackId = targetTrackId ?? store.tracks[0]?.id;
     const pastedClipIds: string[] = [];
+    const historyStore = useHistoryStore.getState();
+    const hasMultiple = clipboard.length > 1;
 
-    store.withBatch(() => {
+    if (hasMultiple) {
+      historyStore.beginTransaction("Paste Clips");
+    }
+
+    try {
       clipboard.forEach((item) => {
         const destinationTrackId =
           targetTrackId || (availableTrackIds.has(item.trackId) ? item.trackId : fallbackTrackId);
@@ -126,10 +133,19 @@ export const clipboardService = {
           destinationTrackId,
         );
 
-        store.addClip(newClip);
+        historyStore.execute(new AddClipCommand(newClip));
         pastedClipIds.push(newId);
       });
-    });
+
+      if (hasMultiple) {
+        historyStore.commitTransaction();
+      }
+    } catch (err) {
+      if (hasMultiple) {
+        historyStore.rollbackTransaction();
+      }
+      throw err;
+    }
 
     if (pastedClipIds.length > 0) {
       uiStore.clearSelection();

@@ -15,6 +15,7 @@ import { InlineKeyframeLane } from "./InlineKeyframeLane";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useHistoryStore } from "@/store/historyStore";
 import { TimelineTrimCommand } from "@/core/history/commands/TimelineTrimCommand";
+import { MoveClipCommand } from "@/core/history/commands/MoveClipCommand";
 import { EditingActions } from "@/core/interactions/EditingActions";
 import {
   getPreviewInteractionCoordinator,
@@ -279,7 +280,17 @@ const ClipInner: React.FC<ClipProps> = ({
       const step = e.shiftKey ? 1.0 : 1 / 30; // 1 sec with Shift, 1 frame (1/30s) without
       const delta = e.key === "ArrowRight" ? step : -step;
       const newStartTime = Math.max(0, clip.startTime + delta);
-      updateClip(clip.id, { startTime: newStartTime });
+      useHistoryStore
+        .getState()
+        .execute(
+          new MoveClipCommand(
+            clip.id,
+            clip.trackId,
+            clip.trackId,
+            clip.startTime,
+            newStartTime,
+          ),
+        );
       return;
     }
   };
@@ -1185,7 +1196,7 @@ const ClipInner: React.FC<ClipProps> = ({
                 fadeOut={clip.fadeOut}
                 fadeInCurve={clip.fadeInCurve}
                 fadeOutCurve={clip.fadeOutCurve}
-                heightPx={40}
+                heightPx={Math.max(16, trackHeightPx - 16)}
                 className="rounded-xs"
               />
               <AudioEnvelopeEditor

@@ -20,6 +20,9 @@ Performance and reliability engineering must be **measurement-driven and evidenc
 
 Activate this skill when:
 - Investigating playback stutter, jank events, or dropped frames during preview.
+- Benchmarking scalability, latency, and concurrency (1, 10, 50, 100+ instances) for new features or subsystem upgrades.
+- Analyzing cross-subsystem interference (e.g. layer load starving CPAL audio callbacks or dropping preview frame pacing).
+- Evaluating multi-property mixed workloads combining Video + Audio/Music + Text + Stickers + Overlays.
 - Optimizing memory footprint or addressing leaks across long editing sessions.
 - Addressing IPC throughput limits between the React frontend and Rust backend.
 - Tuning Web Worker latency (Scopes, Waveform generation, Text rasterization).
@@ -28,8 +31,8 @@ Activate this skill when:
 - Investigating resource exhaustion or bottlenecks across CPU, memory, disk, or GPU.
 
 ## When NOT to Activate This Skill
-- Initial feature design before a functional baseline exists (get it working and correct first).
-- Pure styling, typography, or UI copy changes.
+- Initial functional prototyping before a basic logic path exists (get it correct before optimizing).
+- Pure styling, typography, or UI copy changes with zero performance impact.
 - Writing static unit tests for domain logic.
 
 ---
@@ -73,6 +76,39 @@ Distinguish between two fundamentally different performance profiles in an NLE:
 | **Frame Dropping** | Permitted (dropping intermediate scrub frames keeps UI responsive) | Strictly forbidden (every frame must be rendered) |
 | **Pipeline Strategy** | Latest-only queues, debouncing, minimal buffering | Deep batching (4–8 frames), pipeline saturation, multi-threaded encode |
 | **Memory Policy** | Bounded ring buffers to avoid stale frame backlog | Memory buffers sized for continuous pipeline feeding |
+
+---
+
+## Mandatory Multi-Property Mixed-Stack & High-Concurrency Benchmarking Standard
+
+Performance evaluations must reflect real-world editor projects containing concurrent layers of diverse types. Single-feature micro-benchmarks miss compound bottlenecks.
+
+### 1. Mixed-Stack Composition Test Bed
+- **Realistic Production Mix**: Always benchmark capabilities against a multi-track stack containing:
+  - Primary Video: 4K HEVC or 1080p H.264
+  - Multi-track Audio: Stereo music + voiceover tracks with active volume rubber bands
+  - Dynamic Text: Formatted text overlays and titles
+  - Stickers / Motion: Vector Lottie or raster graphics with keyframed transforms
+  *(See `src/benchmarks/goldenProjectManifest.ts` for the canonical test project)*.
+
+### 2. Multi-Tier Concurrency Scaling ($1 \to 10 \to 50 \to 100+$ Instances)
+- Evaluate how the system scales under heavy layer load:
+  - **1 instance**: Base isolation latency.
+  - **10 instances**: Typical production density.
+  - **50 instances**: Complex composite timeline.
+  - **100+ instances**: Extreme stress saturation.
+- Record:
+  - Latency distribution: p50, p95, max frame presentation duration ($\text{ms}$).
+  - Frame pacing jitter: Frame variance against $16.6\text{ms}$ (60fps).
+  - Sustained memory stability: Heap and GPU VRAM delta over 5-minute / 9,000-frame loops.
+
+### 3. Cross-Subsystem Interference & Root-Cause Diagnosis
+When running high concurrency (e.g. 50–100 instances), explicitly test and diagnose impact on neighboring subsystems:
+- **Audio Thread Starvation**: Ensure audio callback (< 5.3ms budget at 48kHz) is never starved by UI or render threads.
+- **Clock Authority Drift**: Verify `PlaybackClock.ts` maintains smooth time progression without seek jitter.
+- **Compositor Degradation**: Verify native GPU surface remains active and does not drop to DOM/canvas fallback.
+- **V8 GC Pauses**: Ensure per-frame allocations don't trigger major GC sweeps (> 16ms).
+- **Physical Root Cause**: State clearly *why* performance scales or stalls (e.g., IPC serialization overhead, GPU fill rate, main thread lock contention) and implement architectural remedies.
 
 ---
 
