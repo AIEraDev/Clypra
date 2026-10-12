@@ -385,6 +385,7 @@ export const useTimelineStore = create<TimelineStore>(
         fn();
         completedSuccessfully = true;
       } finally {
+        let shouldSyncGaps = false;
         set((state) => {
           const newDepth = Math.max(0, state._batchDepth - 1);
           if (
@@ -392,6 +393,7 @@ export const useTimelineStore = create<TimelineStore>(
             state._pendingEpochIncrement &&
             completedSuccessfully
           ) {
+            shouldSyncGaps = true;
             return {
               _batchDepth: 0,
               _pendingEpochIncrement: false,
@@ -402,8 +404,14 @@ export const useTimelineStore = create<TimelineStore>(
           if (newDepth === 0 && !completedSuccessfully) {
             return { _batchDepth: 0, _pendingEpochIncrement: false };
           }
+          if (newDepth === 0 && completedSuccessfully) {
+            shouldSyncGaps = true;
+          }
           return { _batchDepth: newDepth };
         });
+        if (shouldSyncGaps) {
+          get().detectAndSyncGaps();
+        }
       }
     },
 
@@ -905,11 +913,14 @@ export const useTimelineStore = create<TimelineStore>(
           .catch(() => {});
       }
 
-      // Detect and sync gaps on the affected track after clip addition
-      // Use requestAnimationFrame to ensure state update is complete
-      requestAnimationFrame(() => {
+      // Detect and sync gaps on the affected track after clip addition.
+      // Called synchronously (not via rAF) so there is no window where the store
+      // has stale gap entities overlapping newly added clips.
+      // Guarded by _batchDepth so multi-clip operations (e.g. 50-clip paste)
+      // do not perform O(N^2) synchronous gap recalculations.
+      if (get()._batchDepth === 0) {
         get().detectAndSyncGaps(clip.trackId);
-      });
+      }
     },
 
     removeClip: (clipId) => {
@@ -1000,7 +1011,7 @@ export const useTimelineStore = create<TimelineStore>(
       // Detect and sync gaps on the affected track after clip removal.
       // Called synchronously (not via rAF) so there is no single-frame window
       // where the store has stale gap entities after a clip is removed.
-      if (removedTrackId) {
+      if (removedTrackId && get()._batchDepth === 0) {
         get().detectAndSyncGaps(removedTrackId);
       }
     },
@@ -1907,28 +1918,38 @@ export const useTimelineStore = create<TimelineStore>(
 
       if (!track || track.locked) return;
 
-      const result = packTrack(trackId, state.clips, state.gaps);
+      const trackClips = state.clips.filter((c) => c.trackId === trackId);
+      const trackGaps = state.gaps.filter((g) => g.trackId === trackId);
+      const protectedGaps = trackGaps.filter((g) => g.protected);
 
-      // Reposition all clips tightly
-      const trackClips = state.clips
-        .filter((c) => c.trackId === trackId)
-        .sort((a, b) => a.startTime - b.startTime);
+      // Order clips and protected gaps chronologically so they pack sequentially without collision
+      const items = [
+        ...trackClips.map((c) => ({ type: "clip" as const, item: c, startTime: c.startTime, duration: c.duration })),
+        ...protectedGaps.map((g) => ({ type: "gap" as const, item: g, startTime: g.startTime, duration: g.duration })),
+      ].sort((a, b) => a.startTime - b.startTime);
 
       let currentTime = 0;
       const repositionedClips = new Map<string, number>();
+      const repositionedGaps = new Map<string, number>();
 
-      for (const clip of trackClips) {
-        repositionedClips.set(clip.id, currentTime);
-        currentTime += clip.duration;
+      for (const item of items) {
+        if (item.type === "clip") {
+          repositionedClips.set(item.item.id, currentTime);
+          currentTime += item.duration;
+        } else {
+          repositionedGaps.set(item.item.id, currentTime);
+          currentTime += item.duration;
+        }
       }
 
       set((state) => {
-        // Merge remaining gaps from this track with gaps from other tracks
         const otherTrackGaps = state.gaps.filter((g) => g.trackId !== trackId);
-        const allRemainingGaps = [...otherTrackGaps, ...result.remainingGaps];
+        const thisTrackProtectedGaps = state.gaps
+          .filter((g) => g.trackId === trackId && g.protected)
+          .map((g) => (repositionedGaps.has(g.id) ? { ...g, startTime: repositionedGaps.get(g.id)! } : g));
 
         const next: Partial<TimelineStore> = {
-          gaps: allRemainingGaps,
+          gaps: [...otherTrackGaps, ...thisTrackProtectedGaps],
           clips: state.clips.map((c) =>
             repositionedClips.has(c.id)
               ? { ...c, startTime: repositionedClips.get(c.id)! }
