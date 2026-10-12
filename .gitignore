@@ -40,7 +40,8 @@ fixtures/
 /nul
 
 # Benchmark results
-scripts/benchmarks/results/
+scripts/benchmarks/results/*
+!scripts/benchmarks/results/baselines/
 
 # Verification and test results
 test-results/
