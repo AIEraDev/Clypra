@@ -39,7 +39,6 @@ export const CurveEditorModal: React.FC = () => {
   const activeCurveEditor = useUIStore((s) => s.activeCurveEditor);
   const closeCurveEditor = useUIStore((s) => s.closeCurveEditor);
   const clips = useTimelineStore((s) => s.clips);
-  const updateClip = useTimelineStore((s) => s.updateClip);
   const { time: currentTime } = usePlaybackClock();
   const { execute } = useHistoryStore();
 
@@ -372,7 +371,6 @@ export const CurveEditorModal: React.FC = () => {
         { before: oldClip, after: updatedClip },
       ),
     );
-    updateClip(clip.id, updatedClip);
 
     closeCurveEditor();
   };

@@ -53,6 +53,7 @@ import {
   BatchUpdateCaptionCuesCommand,
   UpdateCaptionTrackCommand,
 } from "@/core/history/commands/CaptionCommands";
+import { AddClipCommand, UpdateClipCommand } from "@/core/history/commands";
 import { ApplyCaptionTrackStyleCommand } from "@/core/history/commands/CaptionTrackStyleCommand";
 import { TextEffectsApi } from "@/features/text-effects/api/textEffectsApi";
 import { useTemplateStore } from "@/features/text-templates/templateStore";
@@ -491,12 +492,18 @@ export const CaptionsTab: React.FC<TabProps> = () => {
         }),
       );
 
-      execute(new BatchUpdateCaptionCuesCommand(captionTrack, newCues, "Import Subtitles"));
-
-      // Add to timeline clips
-      useTimelineStore.getState().withBatch(() => {
-        newClips.forEach((clip) => useTimelineStore.getState().addClip(clip));
-      });
+      const history = useHistoryStore.getState();
+      history.beginTransaction("Import Subtitles");
+      try {
+        history.execute(new BatchUpdateCaptionCuesCommand(captionTrack, newCues, "Import Subtitles"));
+        newClips.forEach((clip) => {
+          history.execute(new AddClipCommand(clip));
+        });
+        history.commitTransaction();
+      } catch (importErr) {
+        history.rollbackTransaction();
+        throw importErr;
+      }
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to parse subtitle file.");
     } finally {
@@ -581,8 +588,16 @@ export const CaptionsTab: React.FC<TabProps> = () => {
         : undefined,
     });
 
-    execute(new AddCaptionCueCommand(track, newCue));
-    useTimelineStore.getState().addClip(textClip);
+    const history = useHistoryStore.getState();
+    history.beginTransaction("Add Caption");
+    try {
+      history.execute(new AddCaptionCueCommand(track, newCue));
+      history.execute(new AddClipCommand(textClip));
+      history.commitTransaction();
+    } catch (cueErr) {
+      history.rollbackTransaction();
+      throw cueErr;
+    }
   };
 
   // Auto-generate captions using local Whisper model + Smart NLE Segmentation
@@ -744,14 +759,18 @@ export const CaptionsTab: React.FC<TabProps> = () => {
       }
 
       if (generatedCues.length > 0) {
-        execute(new BatchUpdateCaptionCuesCommand(captionTrack, generatedCues, "Auto-Generate Captions"));
-
-        // Insert native clips onto timeline in a single batch
-        useTimelineStore.getState().withBatch(() => {
+        const history = useHistoryStore.getState();
+        history.beginTransaction("Auto-Generate Captions");
+        try {
+          history.execute(new BatchUpdateCaptionCuesCommand(captionTrack, generatedCues, "Auto-Generate Captions"));
           generatedTimelineClips.forEach((clip) => {
-            useTimelineStore.getState().addClip(clip);
+            history.execute(new AddClipCommand(clip));
           });
-        });
+          history.commitTransaction();
+        } catch (genErr) {
+          history.rollbackTransaction();
+          throw genErr;
+        }
 
         setErrorMsg(null);
       } else {
@@ -768,14 +787,27 @@ export const CaptionsTab: React.FC<TabProps> = () => {
   // Direct cue mutations
   const handleCueTextChange = (cue: CaptionCue, text: string) => {
     if (!activeTrack) return;
-    execute(new UpdateCaptionCueCommand(activeTrack, { ...cue, text }));
 
     // Also sync matching timeline clip if found
     const matchingClip = timelineCaptionClips.find(
       (c) => Math.abs(c.startTime - ticksToSeconds(cue.startTicks)) < 0.1,
     );
+
     if (matchingClip) {
-      useTimelineStore.getState().updateClip(matchingClip.id, { text } as any);
+      const history = useHistoryStore.getState();
+      history.beginTransaction("Update Caption Cue");
+      try {
+        history.execute(new UpdateCaptionCueCommand(activeTrack, { ...cue, text }));
+        history.execute(
+          new UpdateClipCommand(matchingClip.id, matchingClip, { text } as any),
+        );
+        history.commitTransaction();
+      } catch (err) {
+        history.rollbackTransaction();
+        throw err;
+      }
+    } else {
+      execute(new UpdateCaptionCueCommand(activeTrack, { ...cue, text }));
     }
   };
 

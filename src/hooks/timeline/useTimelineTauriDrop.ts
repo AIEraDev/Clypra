@@ -3,6 +3,8 @@ import { useDragLayer } from "react-dnd";
 import { listen } from "@tauri-apps/api/event";
 import { platform } from "@/core/platform";
 import { useTimelineStore } from "@/store/timelineStore";
+import { useHistoryStore } from "@/store/historyStore";
+import { AddClipCommand } from "@/core/history/commands";
 import { useProjectStore } from "@/store/projectStore";
 import { generateId } from "@/lib/utils/id";
 import { createClipFromAsset } from "@/lib/timeline/timelineClip";
@@ -22,7 +24,7 @@ export function useTimelineTauriDrop(containerRef: RefObject<HTMLDivElement | nu
   const isProcessingDropRef = useRef(false);
 
   const { mediaAssets, addMediaAsset, project, updateProject } = useProjectStore();
-  const { clips, addClip, addTrack } = useTimelineStore();
+  const { clips, addTrack } = useTimelineStore();
 
   // Monitor drag state from MediaTab
   const { isDragging: isMediaDragging } = useDragLayer((monitor) => ({
@@ -133,7 +135,7 @@ export function useTimelineTauriDrop(containerRef: RefObject<HTMLDivElement | nu
               height: nextProject?.canvasHeight || project?.canvasHeight || 1080,
             });
 
-            addClip(newClip);
+            useHistoryStore.getState().execute(new AddClipCommand(newClip));
           }
         } catch (error) {
           // Platform-aware filename extraction in error message
@@ -144,7 +146,7 @@ export function useTimelineTauriDrop(containerRef: RefObject<HTMLDivElement | nu
         }
       }
     },
-    [addMediaAsset, addClip, addTrack, project, updateProject],
+    [addMediaAsset, addTrack, project, updateProject],
   );
 
   // Listen for drag events and handle file drops

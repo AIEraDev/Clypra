@@ -1,6 +1,8 @@
 import { useRef, useCallback } from "react";
 import { useRecordingStore } from "@/store/recordingStore";
 import { useTimelineStore, getInsertIndexForNewTrack } from "@/store/timelineStore";
+import { useHistoryStore } from "@/store/historyStore";
+import { AddClipCommand } from "@/core/history/commands";
 import { usePlaybackClock } from "@/hooks/usePlaybackClock";
 import { createAudioClip } from "@/lib/timeline/timelineClip";
 
@@ -62,7 +64,7 @@ export function useVoiceoverRecorder() {
           origin: "recorded",
         });
 
-        timeline.addClip(newClip);
+        useHistoryStore.getState().execute(new AddClipCommand(newClip));
 
         // Clean up stream tracks
         if (streamRef.current) {

@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Sparkles, Plus, Wand2, Sliders, TrendingUp, Quote, Columns, Code, List, Clock, Share2, User, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useTimelineStore } from "@/store/timelineStore";
+import { useHistoryStore } from "@/store/historyStore";
+import { AddClipCommand, UpdateClipCommand } from "@/core/history/commands";
 import { SMART_OVERLAY_PRESETS, getSmartOverlayPreset, type SmartOverlayType, type SmartOverlayClip, type ComparisonOverlayContent } from "@/types/smartOverlay";
 import { smartOverlayCacheManager, type CachedSmartOverlay } from "@/features/smart-overlays/cache/smartOverlayCache";
 import { getPreviewInteractionCoordinator } from "@/core/interactions";
@@ -10,11 +12,15 @@ import { extractSmartOverlaysFromTranscript } from "@/features/smart-overlays/se
 import type { TabProps } from "../types";
 
 export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
-  const { clips, addClip, updateClip } = useTimelineStore();
+  const { clips } = useTimelineStore();
   const previewInteractionCoordinator = getPreviewInteractionCoordinator();
-  const updatePreviewClip = (id: string, updates: unknown) => {
+  const updatePreviewClip = (id: string, updates: Record<string, unknown>) => {
+    const targetClip = clips.find((c) => c.id === id);
+    if (!targetClip) return;
     const token = previewInteractionCoordinator.begin("property-edit");
-    updateClip(id, updates as Parameters<typeof updateClip>[1]);
+    useHistoryStore.getState().execute(
+      new UpdateClipCommand(id, targetClip, updates as any),
+    );
     previewInteractionCoordinator.commit(token);
   };
   const [isGenerating, setIsGenerating] = useState(false);
@@ -96,7 +102,7 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       style: { ...preset.style },
     };
 
-    addClip(newClip);
+    useHistoryStore.getState().execute(new AddClipCommand(newClip));
     setSelectedClipId(newClip.id);
     if (onAddToTimeline) {
       onAddToTimeline(newClip, "smart-overlays");
@@ -122,9 +128,24 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       useTimelineStore.getState().ensureTrackForType("animated-overlay");
 
       // Add all AI-extracted clips
-      plan.clips.forEach((clip) => {
-        addClip(clip);
-      });
+      const history = useHistoryStore.getState();
+      const hasMultiple = plan.clips.length > 1;
+      if (hasMultiple) {
+        history.beginTransaction("Add Smart Overlays");
+      }
+      try {
+        plan.clips.forEach((clip) => {
+          history.execute(new AddClipCommand(clip));
+        });
+        if (hasMultiple) {
+          history.commitTransaction();
+        }
+      } catch (err) {
+        if (hasMultiple) {
+          history.rollbackTransaction();
+        }
+        throw err;
+      }
 
       if (plan.clips.length > 0) {
         setSelectedClipId(plan.clips[0].id);
@@ -373,7 +394,7 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                   type="text"
                   value={selectedClip.content.data.title}
                   onChange={(e) =>
-                    updateClip(selectedClip.id, {
+                    updatePreviewClip(selectedClip.id, {
                       content: {
                         ...selectedClip.content,
                         data: { ...selectedClip.content.data, title: e.target.value },
