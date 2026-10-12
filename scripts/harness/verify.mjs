@@ -118,6 +118,14 @@ async function main() {
 
   // ── 5. Media & NLE Domain Suite ───────────────────────────────────────────
   if (doMedia) {
+    const vfrOracleOk = await executeCommand(
+      "VFR Jitter External Oracle (ffprobe)",
+      "Media Engine",
+      "node",
+      ["scripts/verify-vfr-fixture.mjs"],
+    );
+    if (!vfrOracleOk) overallSuccess = false;
+
     const mediaOk = await executeCommand(
       "Media Timeline & Evaluation Regressions",
       "Media Engine",
@@ -127,6 +135,7 @@ async function main() {
         "run",
         "src/core/timeline/__tests__/audioClipsExportRangeFades.test.ts",
         "src/core/evaluation/__tests__/mediaTimelineRegression.test.ts",
+        "src/core/media/__tests__/vfrFixtureTimelineRegression.test.ts",
       ],
     );
     if (!mediaOk) overallSuccess = false;
