@@ -70,7 +70,6 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({
   const {
     tracks,
     clips,
-    addClip,
     addTrack,
     insertTrackAt,
     getTimelineEndTime,

@@ -48,6 +48,8 @@ import type {
   TransformState,
 } from "@/types";
 import { ContextMenu } from "@/components/ui/ContextMenu";
+import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
+import { forceRepaintNativeProgramPreview } from "@/components/editor/preview/NativeProgramPreview";
 import { useProjectStore } from "@/store/projectStore";
 import { Maximize2, Minimize2, RotateCcw } from "lucide-react";
 import { resolveConform, resolveTextTemplateArtifact } from "@clypra-studio/engine";
@@ -600,6 +602,14 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
     x: number;
     y: number;
   } | null>(null);
+
+  useEffect(() => {
+    if (contextMenu) {
+      void hideNativeSurfaceWhenIdle().catch(() => undefined);
+    } else {
+      forceRepaintNativeProgramPreview();
+    }
+  }, [contextMenu]);
 
   const snappedXRef = useRef<boolean>(false);
   const snappedYRef = useRef<boolean>(false);
