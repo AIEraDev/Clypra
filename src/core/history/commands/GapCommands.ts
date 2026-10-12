@@ -81,7 +81,7 @@ export class InsertGapCommand implements Command {
 
     // Also shift any existing gaps on this track starting at or after this.startTime
     const existingGapsToShift = state.gaps.filter(
-      (g) => g.trackId === this.trackId && g.startTime >= this.startTime,
+      (g) => g.trackId === this.trackId && g.startTime >= this.startTime - 0.001,
     );
     this.shiftedGaps = existingGapsToShift.map((g) => ({
       id: g.id,
@@ -89,7 +89,7 @@ export class InsertGapCommand implements Command {
     }));
 
     const updatedGaps = state.gaps.map((g) => {
-      if (g.trackId === this.trackId && g.startTime >= this.startTime) {
+      if (g.trackId === this.trackId && g.startTime >= this.startTime - 0.001) {
         return {
           ...cloneGapSnapshot(g),
           startTime: g.startTime + this.duration,

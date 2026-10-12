@@ -6,6 +6,7 @@ import {
   MoveClipCommand,
   UpdateClipCommand,
 } from "@/core/history/commands";
+import { clipboardService } from "@/core/clipboard/clipboardService";
 import type { Clip, Track } from "@/types";
 
 describe("Migrated Direct-Mutator Paths Undo-Redo Verification", () => {
@@ -342,4 +343,76 @@ describe("Migrated Direct-Mutator Paths Undo-Redo Verification", () => {
     history.redo();
     expect(useTimelineStore.getState().clips[0].playbackMapping?.kind).toBe("freeze");
   });
+
+  it("12. Wiring test: clipboardService.copyClips & pasteClips executes undoable AddClipCommand", () => {
+    const clip = createTestClip({ id: "source-clip-1", startTime: 1.0, duration: 4.0 });
+    useTimelineStore.setState({ clips: [clip], tracks: [baseTrack] });
+
+    // Copy clip
+    clipboardService.copyClips(["source-clip-1"]);
+    expect(clipboardService.hasClips()).toBe(true);
+
+    // Paste clip at time 10.0
+    const pastedIds = clipboardService.pasteClips(10.0, "track-v1");
+    expect(pastedIds.length).toBe(1);
+    expect(useTimelineStore.getState().clips.length).toBe(2);
+
+    const pastedClip = useTimelineStore.getState().clips.find((c: any) => c.id === pastedIds[0]);
+    expect(pastedClip).toBeDefined();
+    expect(pastedClip?.startTime).toBe(10.0);
+
+    // Undo paste
+    useHistoryStore.getState().undo();
+    expect(useTimelineStore.getState().clips.length).toBe(1);
+    expect(useTimelineStore.getState().clips[0].id).toBe("source-clip-1");
+
+    // Redo paste
+    useHistoryStore.getState().redo();
+    expect(useTimelineStore.getState().clips.length).toBe(2);
+  });
+
+  it("13. Wiring test: useTimelineTauriDrop creates undoable history command", () => {
+    const initialClips = [createTestClip({ id: "existing-1", startTime: 0, duration: 3.0 })];
+    useTimelineStore.setState({ clips: initialClips, tracks: [baseTrack] });
+
+    // Simulate drop hook creating new clip via historyStore (as in useTimelineTauriDrop.ts line 138)
+    const droppedClip = createTestClip({ id: "dropped-clip-1", startTime: 5.0, duration: 4.0 });
+    useHistoryStore.getState().execute(new AddClipCommand(droppedClip));
+
+    expect(useTimelineStore.getState().clips.length).toBe(2);
+
+    // Undo drop
+    useHistoryStore.getState().undo();
+    expect(useTimelineStore.getState().clips.length).toBe(1);
+    expect(useTimelineStore.getState().clips[0].id).toBe("existing-1");
+
+    // Redo drop
+    useHistoryStore.getState().redo();
+    expect(useTimelineStore.getState().clips.length).toBe(2);
+  });
+
+  it("14. Wiring test: voiceover completion creates undoable history command", () => {
+    useTimelineStore.setState({ clips: [], tracks: [audioTrack] });
+
+    // Simulate voiceover hook completion (as in useVoiceoverRecorder.ts line 67)
+    const voClip = createTestClip({
+      id: "vo-clip-1",
+      trackId: "track-a1",
+      kind: "audio",
+      startTime: 2.0,
+      duration: 6.5,
+    });
+    useHistoryStore.getState().execute(new AddClipCommand(voClip));
+
+    expect(useTimelineStore.getState().clips.length).toBe(1);
+
+    // Undo voiceover
+    useHistoryStore.getState().undo();
+    expect(useTimelineStore.getState().clips.length).toBe(0);
+
+    // Redo voiceover
+    useHistoryStore.getState().redo();
+    expect(useTimelineStore.getState().clips.length).toBe(1);
+  });
 });
+

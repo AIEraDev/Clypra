@@ -6,6 +6,8 @@ import { SplitClipCommand } from "@/core/history/commands/SplitClipCommand";
 import { DeleteClipCommand, AddClipCommand } from "@/core/history/commands/DeleteClipCommand";
 import { RippleDeleteCommand } from "@/core/history/commands/RippleDeleteCommand";
 import { PackTrackCommand, InsertGapCommand } from "@/core/history/commands/GapCommands";
+import { MoveClipCommand } from "@/core/history/commands/MoveClipCommand";
+import { UpdateClipCommand } from "@/core/history/commands/UpdateClipCommand";
 import { detectGaps } from "@/lib/timeline/gapEngine";
 import { evaluateTimelineSceneCached } from "@/core/evaluation/evaluator";
 import type { Clip, Track, VideoClip, Project, MediaAsset } from "@/types";
@@ -251,7 +253,7 @@ describe("Timeline Invariant Randomized Op Fuzzer (Hardened)", () => {
       assertTimelineInvariants(`Seed ${seed} Initial State`);
 
       for (let step = 1; step <= 250; step++) {
-        const opType = prng.nextInt(1, 6);
+        const opType = prng.nextInt(1, 8);
         const store = useTimelineStore.getState();
         const currentClips = store.clips;
         let opName = "unknown";
@@ -327,6 +329,55 @@ describe("Timeline Invariant Randomized Op Fuzzer (Hardened)", () => {
                   const cmd = new InsertGapCommand("v1", gapStart, gapDuration);
                   useHistoryStore.getState().execute(cmd);
                 }
+              }
+              break;
+            }
+
+            case 7: {
+              opName = "UpdateClip";
+              if (currentClips.length > 0) {
+                const targetClip = currentClips[prng.nextInt(0, currentClips.length - 1)];
+                const oldProps = { opacity: targetClip.opacity ?? 1 };
+                const newProps = { opacity: prng.nextFloat(0.1, 0.9) };
+                const cmd = new UpdateClipCommand(targetClip.id, oldProps, newProps, {
+                  before: targetClip,
+                  after: { ...targetClip, ...newProps },
+                });
+                useHistoryStore.getState().execute(cmd);
+              }
+              break;
+            }
+
+            case 8: {
+              opName = "MoveClip";
+              if (currentClips.length > 0) {
+                const targetClip = currentClips[prng.nextInt(0, currentClips.length - 1)];
+                const targetTrack = initialTracks[prng.nextInt(0, initialTracks.length - 1)];
+                const trackClips = currentClips.filter(
+                  (c) => c.trackId === targetTrack.id && c.id !== targetClip.id,
+                );
+                const trackProtectedGaps = store.gaps.filter(
+                  (g) => g.trackId === targetTrack.id && g.protected,
+                );
+                const lastClipEnd = trackClips.reduce(
+                  (max, c) => Math.max(max, c.startTime + c.duration),
+                  0,
+                );
+                const lastGapEnd = trackProtectedGaps.reduce(
+                  (max, g) => Math.max(max, g.startTime + g.duration),
+                  0,
+                );
+                const lastEnd = Math.max(lastClipEnd, lastGapEnd);
+                const gap = prng.nextFloat(0.2, 1.5);
+                const newTime = lastEnd + gap;
+                const cmd = new MoveClipCommand(
+                  targetClip.id,
+                  targetClip.trackId,
+                  targetTrack.id,
+                  targetClip.startTime,
+                  newTime,
+                );
+                useHistoryStore.getState().execute(cmd);
               }
               break;
             }

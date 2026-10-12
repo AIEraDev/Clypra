@@ -148,8 +148,8 @@ export function insertGapWithRipple(trackId: string, startTime: number, duration
     },
   });
 
-  // Find protected gaps on this track after the insertion point
-  const protectedGapsAfter = existingGaps.filter((g) => g.trackId === trackId && g.protected && g.startTime >= startTime).sort((a, b) => a.startTime - b.startTime);
+  // Find protected gaps on this track after the insertion point (with 1ms epsilon)
+  const protectedGapsAfter = existingGaps.filter((g) => g.trackId === trackId && g.protected && g.startTime >= startTime - 0.001).sort((a, b) => a.startTime - b.startTime);
 
   // If there's a protected gap, only clamp shifting if the inserted gap and shifted clips fit before it without colliding
   let shiftBoundary = Infinity;
@@ -157,7 +157,7 @@ export function insertGapWithRipple(trackId: string, startTime: number, duration
     const firstProtectedGap = protectedGapsAfter[0];
     const newGapCollides = startTime + duration > firstProtectedGap.startTime + 0.001;
     const clipCollides = clips.some((c) => {
-      if (c.trackId !== trackId || c.startTime < startTime || c.startTime >= firstProtectedGap.startTime) return false;
+      if (c.trackId !== trackId || c.startTime < startTime - 0.001 || c.startTime >= firstProtectedGap.startTime - 0.001) return false;
       return c.startTime + c.duration + duration > firstProtectedGap.startTime + 0.001;
     });
 
@@ -166,8 +166,8 @@ export function insertGapWithRipple(trackId: string, startTime: number, duration
     }
   }
 
-  // Find clips that need to shift (only those before the protected gap boundary)
-  const affectedClipIds = clips.filter((c) => c.trackId === trackId && c.startTime >= startTime && c.startTime < shiftBoundary).map((c) => c.id);
+  // Find clips that need to shift (only those at or after the insertion point, before shiftBoundary)
+  const affectedClipIds = clips.filter((c) => c.trackId === trackId && c.startTime >= startTime - 0.001 && c.startTime < shiftBoundary).map((c) => c.id);
 
   return {
     success: true,
