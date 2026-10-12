@@ -19,6 +19,7 @@ import { useUIStore } from "@/store/uiStore";
 import { useHistoryStore } from "@/store/historyStore";
 import { useAudioLibraryStore } from "@/features/audio-library/store/audioLibraryStore";
 import { useStickersStore } from "@/features/stickers/store/stickersStore";
+import { STARTER_STICKERS } from "@/features/stickers/starterStickers";
 import { filterCacheManager } from "@/features/filters/cache/filterCache";
 import { generateId } from "@/lib/utils/id";
 import { createClipFromAsset } from "@/lib/timeline/timelineClip";
@@ -56,6 +57,48 @@ export interface TimelinePlacementResult {
   clipId?: string;
   trackId?: string;
   error?: string;
+}
+
+function isExternalOrDirectPath(path: string): boolean {
+  return (
+    path.startsWith("data:") ||
+    path.startsWith("http://") ||
+    path.startsWith("https://") ||
+    path.startsWith("blob:") ||
+    path.startsWith("bundled://") ||
+    path.startsWith("/") ||
+    path.startsWith("file:") ||
+    path.startsWith("asset://")
+  );
+}
+
+async function resolveCachedSticker(stickerId: string) {
+  let cached = useStickersStore.getState().getCachedSticker(stickerId);
+  if (!cached) {
+    try {
+      await useStickersStore.getState().initializeCache();
+      cached = useStickersStore.getState().getCachedSticker(stickerId);
+    } catch {
+      // Best-effort
+    }
+  }
+  if (!cached) {
+    const starter = STARTER_STICKERS.find((s) => s.id === stickerId);
+    if (starter) {
+      cached = {
+        id: starter.id,
+        sha256: `starter-${starter.id}`,
+        localImagePath: starter.svgThumbnail,
+        localAnimationPath: `bundled://${starter.id}.json`,
+        lottieData: starter.lottieData,
+        downloadedAt: Date.now(),
+        lastAccessedAt: Date.now(),
+        sizeBytes: 2048,
+        isStarter: true,
+      };
+    }
+  }
+  return cached;
 }
 
 function findAdjacentClipsAtPlayhead(playheadTime: number): [string, string] | null {
@@ -133,13 +176,20 @@ export class TimelinePlacementEngine {
 
         if (mediaAsset.id.startsWith("sticker-")) {
           const stickerId = mediaAsset.id.replace("sticker-", "");
-          const cachedSticker = useStickersStore.getState().getCachedSticker(stickerId);
+          const cachedSticker = await resolveCachedSticker(stickerId);
           if (cachedSticker && cachedSticker.localImagePath) {
-            const appCache = await platform.appCacheDir();
-            const absoluteImagePath = await platform.joinPaths(
-              appCache,
-              cachedSticker.localImagePath,
-            );
+            let appCache = "";
+            try {
+              appCache = await platform.appCacheDir();
+            } catch {
+              appCache = "";
+            }
+            const relativePath = cachedSticker.localImagePath;
+            const absoluteImagePath = isExternalOrDirectPath(relativePath)
+              ? relativePath
+              : appCache
+                ? await platform.joinPaths(appCache, relativePath)
+                : relativePath;
             mediaAsset = {
               ...mediaAsset,
               path: absoluteImagePath,
@@ -369,17 +419,28 @@ export class TimelinePlacementEngine {
       // ─── 3. Audio Library & Sounds ──────────────────────────────────────────
       if (type === "audio") {
         const cachedFile = useAudioLibraryStore.getState().getCachedFile(item.id);
-        if (!cachedFile) return { success: false, error: "Audio not cached" };
+        const relativeOrDirectPath = cachedFile?.localPath || item.path || item.localPath || "";
+        if (!relativeOrDirectPath) return { success: false, error: "Audio file path missing" };
 
-        const appCache = await platform.appCacheDir();
-        const absolutePath = await platform.joinPaths(appCache, cachedFile.localPath);
+        let appCache = "";
+        try {
+          appCache = await platform.appCacheDir();
+        } catch {
+          appCache = "";
+        }
+        const absolutePath = isExternalOrDirectPath(relativeOrDirectPath)
+          ? relativeOrDirectPath
+          : appCache
+            ? await platform.joinPaths(appCache, relativeOrDirectPath)
+            : relativeOrDirectPath;
+
         const mediaAsset: MediaAsset = {
           id: `audio-library-${item.id}`,
           name: item.name || "Library Audio",
           path: absolutePath,
           type: "audio",
-          duration: cachedFile.metadata.duration || Number(item.duration) || 5,
-          size: cachedFile.size,
+          duration: cachedFile?.metadata?.duration || Number(item.duration) || 5,
+          size: cachedFile?.size || Number(item.size) || 0,
         };
 
         const latestTracks = useTimelineStore.getState().tracks;
@@ -418,21 +479,36 @@ export class TimelinePlacementEngine {
 
       // ─── 4. Stickers ────────────────────────────────────────────────────────
       if (type === "stickers") {
-        const cachedSticker = useStickersStore.getState().getCachedSticker(item.id);
+        const cachedSticker = await resolveCachedSticker(item.id);
         if (!cachedSticker) return { success: false, error: "Sticker not cached" };
 
-        const appCache = await platform.appCacheDir();
+        let appCache = "";
+        try {
+          appCache = await platform.appCacheDir();
+        } catch {
+          appCache = "";
+        }
         const relativePath = cachedSticker.localImagePath || "";
         if (!relativePath) return { success: false, error: "Sticker image path missing" };
 
-        const absolutePath = await platform.joinPaths(appCache, relativePath);
+        const absolutePath = isExternalOrDirectPath(relativePath)
+          ? relativePath
+          : appCache
+            ? await platform.joinPaths(appCache, relativePath)
+            : relativePath;
         const isLottie = Boolean(
           cachedSticker.localAnimationPath &&
-            (cachedSticker.localAnimationPath.endsWith(".json") || item.lottieUrl),
+            (cachedSticker.localAnimationPath.endsWith(".json") ||
+             cachedSticker.localAnimationPath.startsWith("bundled://") ||
+             item.lottieUrl),
         );
         const absoluteAnimationPath =
           isLottie && cachedSticker.localAnimationPath
-            ? await platform.joinPaths(appCache, cachedSticker.localAnimationPath)
+            ? isExternalOrDirectPath(cachedSticker.localAnimationPath)
+              ? cachedSticker.localAnimationPath
+              : appCache
+                ? await platform.joinPaths(appCache, cachedSticker.localAnimationPath)
+                : cachedSticker.localAnimationPath
             : undefined;
 
         const mediaAsset: MediaAsset = {
@@ -441,7 +517,7 @@ export class TimelinePlacementEngine {
           path: absolutePath,
           type: "image",
           duration: 3.0,
-          size: 0,
+          size: cachedSticker.sizeBytes || 0,
           stickerFormat: isLottie ? "lottie" : "static",
           stickerAnimationPath: absoluteAnimationPath,
           stickerSourceId: item.id,

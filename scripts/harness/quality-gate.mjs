@@ -230,6 +230,9 @@ async function main() {
   const baselineExec = await executeStep("Baseline Regression Comparison", "node", ["scripts/benchmarks/compare-baseline.mjs"]);
   const regressionPassed = baselineExec.pass;
   console.log(`   ${regressionPassed ? "✅" : "❌"} Regression Baseline Gate    : ${regressionPassed ? "NO REGRESSION (PASS)" : "REGRESSION DETECTED (BLOCK)"}\n`);
+  if (!regressionPassed && baselineExec.stdout) {
+    console.log(baselineExec.stdout);
+  }
 
   // ── Final Decision Logic ──────────────────────────────────────────────────
   const allPillarsPassed = (

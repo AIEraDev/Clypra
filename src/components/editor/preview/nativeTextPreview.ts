@@ -1,6 +1,7 @@
 import type {
   EvaluatedScene,
   EvaluatedTextLayer,
+  EvaluatedMediaLayer,
 } from "@/core/evaluation/types";
 import { resolveTextTemplateArtifact } from "@clypra-studio/engine";
 import { effectBleed, resolveTextEffectDefinition } from "@/lib/text/textClip";
@@ -124,6 +125,13 @@ export interface NativeTextRasterAsset {
  * It intentionally reuses rasterizeTextLayerForNative, so template/effect
  * semantics remain package-owned and only final bitmap placement lives here.
  */
+const browserImageCache = new Map<string, HTMLImageElement>();
+
+/** Exported for testing only. */
+export function _clearBrowserImageCache(): void {
+  browserImageCache.clear();
+}
+
 export async function paintTextLayersToCanvas(
   canvas: HTMLCanvasElement,
   scene: EvaluatedScene,
@@ -134,13 +142,23 @@ export async function paintTextLayersToCanvas(
   if (!ctx) return;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const layers = scene.visualLayers
-    .filter(
-      (layer): layer is EvaluatedTextLayer =>
-        layer.layerType === "text" && layer.opacity > 0,
-    )
-    .sort((a, b) => a.zIndex - b.zIndex);
-  const activeLayerIds = new Set(layers.map((layer) => layer.layerId));
+
+  const bg = scene.metadata.canvasBackground;
+  if (bg && bg.type === "solid" && bg.color && !bg.isTransparent) {
+    ctx.fillStyle = bg.color;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  const textLayers = scene.visualLayers.filter(
+    (layer): layer is EvaluatedTextLayer =>
+      layer.layerType === "text" && layer.opacity > 0,
+  );
+  const mediaLayers = scene.visualLayers.filter(
+    (layer): layer is EvaluatedMediaLayer =>
+      layer.layerType === "media" && layer.opacity > 0,
+  );
+
+  const activeLayerIds = new Set(textLayers.map((layer) => layer.layerId));
   for (const layerId of browserTextAssetByLayerId.keys()) {
     if (!activeLayerIds.has(layerId)) {
       browserTextAssetByLayerId.delete(layerId);
@@ -149,8 +167,10 @@ export async function paintTextLayersToCanvas(
     }
   }
 
+  const textResultsByLayerId = new Map<string, NativeTextRasterAsset>();
+
   const rasterResults = await Promise.allSettled(
-    layers.map(async (layer) => {
+    textLayers.map(async (layer) => {
       const rasterKey = buildNativeTextRasterKey(layer);
       const layoutKey = buildNativeTextLayoutKey(layer);
       const previous = browserTextAssetByLayerId.get(layer.layerId);
@@ -226,64 +246,114 @@ export async function paintTextLayersToCanvas(
   );
 
   for (const result of rasterResults) {
-    if (result.status === "rejected") {
+    if (result.status === "fulfilled") {
+      textResultsByLayerId.set(result.value.layer.layerId, result.value.asset);
+    } else {
       console.error(
         "[browser-preview] text-layer-raster-failed",
         result.reason,
       );
-      continue;
     }
+  }
+
+  if (options.shouldPaint && !options.shouldPaint()) return;
+
+  const allVisibleLayers = [...textLayers, ...mediaLayers].sort(
+    (a, b) => a.zIndex - b.zIndex,
+  );
+
+  for (const layer of allVisibleLayers) {
     if (options.shouldPaint && !options.shouldPaint()) return;
-    const { layer, asset } = result.value;
-    const bitmap = getBrowserTextBitmap(asset);
-    if (!bitmap) continue;
-    const transferMs = bitmap.transferMs;
-    const paintStartedAt = performance.now();
-    ctx.save();
-    ctx.globalAlpha = layer.opacity;
-    if (layer.blendMode && layer.blendMode !== "normal") {
-      ctx.globalCompositeOperation =
-        layer.blendMode === "add"
-          ? "lighter"
-          : layer.blendMode === "subtract"
-            ? "difference"
-            : (layer.blendMode as GlobalCompositeOperation);
-    }
-    const isAbsolute = asset.positionMode === "absolute";
-    const isTemplateOrEffect =
-      layer.clipKind === "text-template" ||
-      Boolean(layer.templateId) ||
-      Boolean(layer.styleId);
-    const posX =
-      isAbsolute
-        ? isTemplateOrEffect && typeof layer.x === "number"
-          ? layer.x + (asset.bleedX ?? 0)
-          : asset.x
-        : layer.x;
-    const posY =
-      isAbsolute
-        ? isTemplateOrEffect && typeof layer.y === "number"
-          ? layer.y + (asset.bleedY ?? 0)
-          : asset.y
-        : layer.y;
-    const centerX = isAbsolute
-      ? posX + asset.width / 2
-      : layer.x + layer.width / 2;
-    const centerY = isAbsolute
-      ? posY + asset.height / 2
-      : layer.y + layer.height / 2;
-    ctx.translate(centerX, centerY);
-    ctx.rotate((layer.rotation * Math.PI) / 180);
-    ctx.drawImage(bitmap.source, -asset.width / 2, -asset.height / 2);
-    ctx.restore();
-    const paintMs = performance.now() - paintStartedAt;
-    if (asset.timing) {
-      traceTextRenderTiming({
-        ...asset.timing,
-        transferMs,
-        paintMs,
-        totalMs: asset.timing.totalMs + transferMs + paintMs,
-      });
+
+    if (layer.layerType === "text") {
+      const asset = textResultsByLayerId.get(layer.layerId);
+      if (!asset) continue;
+      const bitmap = getBrowserTextBitmap(asset);
+      if (!bitmap) continue;
+      const transferMs = bitmap.transferMs;
+      const paintStartedAt = performance.now();
+      ctx.save();
+      ctx.globalAlpha = layer.opacity;
+      if (layer.blendMode && layer.blendMode !== "normal") {
+        ctx.globalCompositeOperation =
+          layer.blendMode === "add"
+            ? "lighter"
+            : layer.blendMode === "subtract"
+              ? "difference"
+              : (layer.blendMode as GlobalCompositeOperation);
+      }
+      const isAbsolute = asset.positionMode === "absolute";
+      const isTemplateOrEffect =
+        layer.clipKind === "text-template" ||
+        Boolean(layer.templateId) ||
+        Boolean(layer.styleId);
+      const posX =
+        isAbsolute
+          ? isTemplateOrEffect && typeof layer.x === "number"
+            ? layer.x + (asset.bleedX ?? 0)
+            : asset.x
+          : layer.x;
+      const posY =
+        isAbsolute
+          ? isTemplateOrEffect && typeof layer.y === "number"
+            ? layer.y + (asset.bleedY ?? 0)
+            : asset.y
+          : layer.y;
+      const centerX = isAbsolute
+        ? posX + asset.width / 2
+        : layer.x + layer.width / 2;
+      const centerY = isAbsolute
+        ? posY + asset.height / 2
+        : layer.y + layer.height / 2;
+      ctx.translate(centerX, centerY);
+      ctx.rotate((layer.rotation * Math.PI) / 180);
+      ctx.drawImage(bitmap.source, -asset.width / 2, -asset.height / 2);
+      ctx.restore();
+      const paintMs = performance.now() - paintStartedAt;
+      if (asset.timing) {
+        traceTextRenderTiming({
+          ...asset.timing,
+          transferMs,
+          paintMs,
+          totalMs: asset.timing.totalMs + transferMs + paintMs,
+        });
+      }
+    } else if (layer.layerType === "media") {
+      const mediaLayer = layer as EvaluatedMediaLayer;
+      const src =
+        mediaLayer.sourcePath || (mediaLayer as any).stickerImagePath;
+      if (src && typeof Image !== "undefined") {
+        let img = browserImageCache.get(src);
+        if (!img) {
+          img = new Image();
+          img.src = src;
+          browserImageCache.set(src, img);
+        }
+        if (img.complete && img.naturalWidth > 0) {
+          ctx.save();
+          ctx.globalAlpha = mediaLayer.opacity;
+          if (mediaLayer.blendMode && mediaLayer.blendMode !== "normal") {
+            ctx.globalCompositeOperation =
+              mediaLayer.blendMode === "add"
+                ? "lighter"
+                : mediaLayer.blendMode === "subtract"
+                  ? "difference"
+                  : (mediaLayer.blendMode as GlobalCompositeOperation);
+          }
+          const centerX = mediaLayer.x + mediaLayer.width / 2;
+          const centerY = mediaLayer.y + mediaLayer.height / 2;
+          ctx.translate(centerX, centerY);
+          ctx.rotate((mediaLayer.rotation * Math.PI) / 180);
+          ctx.drawImage(
+            img,
+            -mediaLayer.width / 2,
+            -mediaLayer.height / 2,
+            mediaLayer.width,
+            mediaLayer.height,
+          );
+          ctx.restore();
+        }
+      }
     }
   }
 }

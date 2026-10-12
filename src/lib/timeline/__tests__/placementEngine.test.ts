@@ -163,4 +163,94 @@ describe("TimelinePlacementEngine", () => {
     // Must be quantized exactly to frame 180 start (6.000000s), NOT 6.002847s
     expect(textClip!.startTime).toBe(6.0);
   });
+
+  it("adds starter sticker to empty timeline with no video tracks and preserves valid data/bundled paths", async () => {
+    // Clear all tracks - completely empty timeline
+    useTimelineStore.setState({
+      tracks: [],
+      clips: [],
+      transitions: [],
+      gaps: [],
+    });
+
+    const res = await TimelinePlacementEngine.addToTimeline({
+      item: { id: "starter-golden-star", name: "Golden Star" },
+      type: "stickers",
+      playheadTime: 0,
+    });
+
+    expect(res.success).toBe(true);
+    expect(res.clipId).toBeDefined();
+
+    const tracks = useTimelineStore.getState().tracks;
+    const stickerTrack = tracks.find((t) => t.type === "sticker");
+    expect(stickerTrack).toBeDefined();
+
+    const clips = useTimelineStore.getState().clips;
+    const stickerClip = clips.find((c) => c.kind === "sticker");
+    expect(stickerClip).toBeDefined();
+    expect(stickerClip!.duration).toBe(5.0);
+    expect(stickerClip!.trackId).toBe(stickerTrack!.id);
+
+    // Verify paths are uncorrupted
+    const mediaAsset = useProjectStore.getState().mediaAssets.find((a) => a.id === stickerClip!.mediaId);
+    expect(mediaAsset).toBeDefined();
+    expect(mediaAsset!.path.startsWith("data:image/svg+xml")).toBe(true);
+    expect(mediaAsset!.path.includes("/Caches/data:")).toBe(false);
+    expect(mediaAsset!.stickerAnimationPath).toBe("bundled://starter-golden-star.json");
+    expect(mediaAsset!.stickerFormat).toBe("lottie");
+  });
+
+  it("adds text clip to empty timeline with no tracks", async () => {
+    useTimelineStore.setState({
+      tracks: [],
+      clips: [],
+      transitions: [],
+      gaps: [],
+    });
+
+    const res = await TimelinePlacementEngine.addToTimeline({
+      item: { text: "Title on Blank Canvas" },
+      type: "text",
+      playheadTime: 0,
+    });
+
+    expect(res.success).toBe(true);
+    const tracks = useTimelineStore.getState().tracks;
+    expect(tracks.some((t) => t.type === "text")).toBe(true);
+
+    const clips = useTimelineStore.getState().clips;
+    const textClip = clips.find((c) => c.kind === "text");
+    expect(textClip).toBeDefined();
+    expect((textClip as any).text).toBe("Title on Blank Canvas");
+  });
+
+  it("adds audio clip to empty timeline with no tracks", async () => {
+    useTimelineStore.setState({
+      tracks: [],
+      clips: [],
+      transitions: [],
+      gaps: [],
+    });
+
+    const res = await TimelinePlacementEngine.addToTimeline({
+      item: {
+        id: "audio-standalone-1",
+        name: "Background Music",
+        path: "/music/track.mp3",
+        duration: 15.0,
+      },
+      type: "audio",
+      playheadTime: 0,
+    });
+
+    expect(res.success).toBe(true);
+    const tracks = useTimelineStore.getState().tracks;
+    expect(tracks.some((t) => t.type === "audio")).toBe(true);
+
+    const clips = useTimelineStore.getState().clips;
+    const audioClip = clips.find((c) => c.kind === "audio");
+    expect(audioClip).toBeDefined();
+    expect(audioClip!.duration).toBe(15.0);
+  });
 });

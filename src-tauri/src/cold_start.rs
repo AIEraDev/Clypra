@@ -1096,6 +1096,7 @@ fn get_process_creation_epoch_ms() -> Option<u64> {
     type HANDLE = *mut std::ffi::c_void;
     type BOOL = i32;
     #[repr(C)]
+    #[allow(non_snake_case)]
     struct FILETIME {
         dwLowDateTime: u32,
         dwHighDateTime: u32,

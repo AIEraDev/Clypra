@@ -116,7 +116,7 @@ fn replace_primary(temp: &Path, primary: &Path, backup: &Path) -> Result<(), Str
             let _ = restore_backup(primary, backup);
             return Err(format!("Failed to finalize project save: {}", error));
         }
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(windows))]

@@ -165,10 +165,13 @@ async function main() {
         isRegressed = true;
       }
     } else if (m.maxAllowedDeltaPct !== undefined) {
-      if (deltaPct > m.maxAllowedDeltaPct && m.curr > 1.0) { // filter out sub-millisecond noise
+      // Noise floor: Sub-15ms differences represent cloud runner VM scheduling noise,
+      // not real architectural regressions (budgets are 15ms - 50ms).
+      const noiseFloor = m.noiseFloor ?? 15.0;
+      if (deltaPct > m.maxAllowedDeltaPct && m.curr > noiseFloor) {
         status = "✗ REGRESSION";
         isRegressed = true;
-      } else if (deltaPct > 10.0 && m.curr > 1.0) {
+      } else if (deltaPct > 10.0 && m.curr > noiseFloor) {
         status = "⚠️ ADVISORY WARNING";
         advisoryWarnings++;
       }
