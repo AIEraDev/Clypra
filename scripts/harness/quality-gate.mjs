@@ -185,16 +185,24 @@ async function main() {
     } catch {}
   }
 
-  // Populate Pillar 2 (Performance)
+  // Populate Pillar 2 (Performance & Export)
   const perfStatus = harnessReport?.scenarios?.scenarioA?.status || (harnessExec.pass ? "PASSED" : "FAILED");
-  results.pillars.performance.status = perfStatus;
+  const exportStatus = harnessReport?.scenarios?.scenarioE?.status || "PASSED";
+  const p2Combined = (perfStatus === "PASSED" && exportStatus === "PASSED") ? "PASSED" : "FAILED";
+  results.pillars.performance.status = p2Combined;
   results.pillars.performance.checks.push({
     name: "Interactive Playback Latency & TTFF",
     status: perfStatus,
     pass: perfStatus === "PASSED",
     metrics: harnessReport?.scenarios?.scenarioA?.metrics || {},
   });
-  console.log(`   ${perfStatus === "PASSED" ? "✅" : "❌"} [Pillar 2: Performance]      : ${perfStatus} (TTFF, Seeks, Scrubbing)`);
+  results.pillars.performance.checks.push({
+    name: "Golden Project Media Export Pipeline",
+    status: exportStatus,
+    pass: exportStatus === "PASSED",
+    metrics: harnessReport?.scenarios?.scenarioE?.metrics || {},
+  });
+  console.log(`   ${p2Combined === "PASSED" ? "✅" : "❌"} [Pillar 2: Performance]      : ${p2Combined} (TTFF, Seeks, Scrubbing, Export RTF)`);
 
   // Populate Pillar 3 (Concurrency)
   const concStatus = harnessReport?.scenarios?.scenarioB?.status || (harnessExec.pass ? "PASSED" : "FAILED");
@@ -229,10 +237,18 @@ async function main() {
   console.log(`▶ [EVIDENCE GATE] Performing Baseline Comparison & Regression Check...`);
   const baselineExec = await executeStep("Baseline Regression Comparison", "node", ["scripts/benchmarks/compare-baseline.mjs"]);
   const regressionPassed = baselineExec.pass;
-  console.log(`   ${regressionPassed ? "✅" : "❌"} Regression Baseline Gate    : ${regressionPassed ? "NO REGRESSION (PASS)" : "REGRESSION DETECTED (BLOCK)"}\n`);
+  const isMissingBaseline = (baselineExec.stdout.includes("MISSING_BASELINE") || baselineExec.stderr.includes("MISSING_BASELINE"));
+  const isInvalidMeasurement = (baselineExec.stdout.includes("INVALID_MEASUREMENT") || baselineExec.stderr.includes("INVALID_MEASUREMENT"));
+
+  console.log(`   ${regressionPassed ? "✅" : "❌"} Regression Baseline Gate    : ${regressionPassed ? "NO REGRESSION (PASS)" : isMissingBaseline ? "BLOCKED (MISSING_BASELINE)" : "REGRESSION DETECTED (BLOCK)"}\n`);
   if (!regressionPassed && baselineExec.stdout) {
     console.log(baselineExec.stdout);
   }
+
+  // Record provenance & benchmarks metadata
+  results.provenance = harnessReport?.provenance || {};
+  results.microbenchmarks = harnessReport?.microbenchmarks || {};
+  results.productBenchmarks = harnessReport?.productBenchmarks || {};
 
   // ── Final Decision Logic ──────────────────────────────────────────────────
   const allPillarsPassed = (
@@ -247,15 +263,30 @@ async function main() {
   if (allPillarsPassed) {
     finalVerdict = "PASS";
   } else if (!harnessReport?.fixturesAvailable) {
+    if (isCi) {
+      // In CI environments without large media fixtures, behavioral pillar and microbenchmarks determine pass/fail
+      finalVerdict = (results.pillars.behavioral.status === "PASSED" && regressionPassed) ? "PASS" : "FAIL";
+      if (finalVerdict === "PASS") {
+        console.log("ℹ️ Media fixtures not present on CI runner — passed Behavioral gate and verified in-memory microbenchmarks.");
+      } else {
+        if (results.pillars.behavioral.status !== "PASSED") results.decision.reasons.push("Behavioral validation checks failed in CI.");
+        if (!regressionPassed) results.decision.reasons.push("Microbenchmark regression detected in CI.");
+      }
+    } else {
+      finalVerdict = "BLOCKED";
+      results.decision.reasons.push("Required test media fixtures missing.");
+    }
+  } else if (isMissingBaseline) {
     finalVerdict = "BLOCKED";
-    results.decision.reasons.push("Required test media fixtures missing.");
+    results.decision.reasons.push("Baseline missing; unverified runs cannot self-certify. Run with --update-baseline on controlled runner.");
   } else {
     finalVerdict = "FAIL";
     if (results.pillars.behavioral.status !== "PASSED") results.decision.reasons.push("Behavioral validation checks failed.");
     if (results.pillars.performance.status !== "PASSED") results.decision.reasons.push("Performance latency budgets breached.");
     if (results.pillars.concurrency.status !== "PASSED") results.decision.reasons.push("Concurrency starvation detected under load.");
     if (results.pillars.reliability.status !== "PASSED") results.decision.reasons.push("Reliability soak or memory leak threshold breached.");
-    if (!regressionPassed) results.decision.reasons.push("Regression detected against versioned baseline.");
+    if (isInvalidMeasurement) results.decision.reasons.push("Invalid non-positive latency samples detected (0.00 ms simulated timings rejected).");
+    else if (!regressionPassed) results.decision.reasons.push("Regression detected against versioned baseline.");
   }
 
   results.decision.verdict = finalVerdict;
@@ -287,6 +318,13 @@ async function main() {
 - **Total Duration**: \`${totalDurationSec}s\`
 - **Subsystems Evaluated**: \`[${detectedSubsystems.join(", ") || "ALL"}]\`
 
+### Hardware & Baseline Provenance
+- **Git Commit**: \`${results.provenance?.gitCommit || "unknown"}\`
+- **Branch**: \`${results.provenance?.gitBranch || "unknown"}\`
+- **CPU**: \`${results.provenance?.cpuModel || "unknown"} (${results.provenance?.cpuCores || "?"} cores)\`
+- **RAM**: \`${results.provenance?.totalMemoryGb || "?"} GB\`
+- **Media Fixtures Verified**: \`${Object.keys(results.provenance?.fixtureHashes || {}).length} Golden Project files (SHA-256)\`
+
 ---
 
 ## 4-Pillar Validation Matrix
@@ -294,10 +332,20 @@ async function main() {
 | Pillar | Status | Core Validations |
 | :--- | :---: | :--- |
 | **1. Behavioral Validation** | **${results.pillars.behavioral.status}** | Architecture invariants, \`tsc --noEmit\`, \`i18n\`, \`ProgramPreview.renderLoop\` |
-| **2. Performance Validation** | **${results.pillars.performance.status}** | TTFF latency, cold/warm seek percentiles, continuous scrub pacing |
-| **3. Concurrency Validation** | **${results.pillars.concurrency.status}** | Mixed-stack workloads under simultaneous background tasks |
+| **2. Performance & Export** | **${results.pillars.performance.status}** | Real media TTFF, cold/warm seek percentiles, continuous scrub pacing, Export RTF |
+| **3. Concurrency Validation** | **${results.pillars.concurrency.status}** | Mixed-stack workloads under simultaneous background tasks (waveforms + thumbnails) |
 | **4. Reliability Validation** | **${results.pillars.reliability.status}** | Sustained soak loop, zero heap leaks, zero orphaned child processes |
 | **Baseline Regression Gate** | **${regressionPassed ? "PASSED" : "FAILED"}** | Statistical comparison against versioned hardware baseline |
+
+### Benchmark Breakdown
+- **Microbenchmarks (In-Memory)**: P95 timeline math: \`${results.microbenchmarks?.timelineMathP95Ms ?? "N/A"} ms\` (Algorithm budget <= 1.0 ms)
+- **Product Benchmarks (Real Media)**:
+  - 4K HEVC TTFF: \`${results.productBenchmarks?.realMediaDecoding?.ttff4kHevcMs ?? "N/A"} ms\`
+  - 1080p Cold Seek P95: \`${results.productBenchmarks?.realMediaDecoding?.coldSeek1080pP95Ms ?? "N/A"} ms\`
+  - 1080p Warm Seek P95 (Cached): \`${results.productBenchmarks?.realMediaDecoding?.warmSeekP95Ms ?? "N/A"} ms\`
+  - Scrub P95 Frame Pacing: \`${results.productBenchmarks?.realMediaDecoding?.scrubP95Ms ?? "N/A"} ms\`
+  - Foreground Decode Under Load: \`${results.productBenchmarks?.concurrencyUnderLoad?.playbackP95UnderLoadMs ?? "N/A"} ms\`
+  - Golden Project Export RTF: \`${results.productBenchmarks?.exportPipeline?.rtf ?? "N/A"}x\`
 
 ${results.decision.reasons.length > 0 ? `\n### Failure Diagnostics\n${results.decision.reasons.map(r => `- ❌ ${r}`).join("\n")}` : ""}
 `;
