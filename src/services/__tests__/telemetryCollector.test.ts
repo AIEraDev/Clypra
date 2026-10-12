@@ -648,4 +648,146 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
     // All 20 are enqueued without throttling
     expect(telemetryCollector.getQueueLength()).toBe(20);
   });
+
+  describe("Google Pixel & High-Risk Video Profile Telemetry", () => {
+    it("sanitizes video profile and detects Google Pixel high-risk profile with risk factors", () => {
+      const sanitized = telemetryCollector.sanitizeVideoProfile({
+        width: 3840,
+        height: 2160,
+        codec: "hevc",
+        deviceOrigin: "google-pixel",
+        deviceModel: "Pixel 7 Pro",
+        isVfr: true,
+        bitDepth: 10,
+      });
+
+      expect(sanitized.deviceOrigin).toBe("google-pixel");
+      expect(sanitized.deviceModel).toBe("Pixel 7 Pro");
+      expect(sanitized.isVfr).toBe(true);
+      expect(sanitized.bitDepth).toBe(10);
+      expect(sanitized.isHighRiskProfile).toBe(true);
+      expect(sanitized.bottleneckRiskFactors).toContain(
+        "google-pixel-camera-source",
+      );
+      expect(sanitized.bottleneckRiskFactors).toContain("variable-frame-rate");
+      expect(sanitized.bottleneckRiskFactors).toContain(
+        "hevc-10bit-hardware-decode",
+      );
+      expect(sanitized.bottleneckRiskFactors).toContain(
+        "google-pixel-vfr-timing-instability",
+      );
+      expect(sanitized.bottleneckRiskFactors).toContain(
+        "google-pixel-10bit-hevc-seek-stall",
+      );
+      expect(sanitized.bottleneckRiskFactors).toContain(
+        "high-resolution-throughput",
+      );
+      // Zero PII guarantees: no file paths
+      expect((sanitized as any).path).toBeUndefined();
+      expect((sanitized as any).filePath).toBeUndefined();
+    });
+
+    it("propagates setLastKnownVideoProfile across render and seek spans", () => {
+      telemetryCollector.setLastKnownVideoProfile({
+        deviceOrigin: "google-pixel",
+        deviceModel: "Pixel 8",
+        codec: "hevc",
+        width: 1920,
+        height: 1080,
+        bitDepth: 10,
+        isVfr: true,
+      });
+
+      const profile = telemetryCollector.getLastKnownVideoProfile();
+      expect(profile?.deviceOrigin).toBe("google-pixel");
+      expect(profile?.isHighRiskProfile).toBe(true);
+
+      try {
+        // Record cold seek with seek latency > 100ms
+        telemetryCollector.recordSeekSpan(250, true);
+
+        expect(telemetryCollector.getQueueLength()).toBe(1);
+        const seekEvent = (telemetryCollector as any).queue[0];
+        expect(seekEvent.video.deviceOrigin).toBe("google-pixel");
+        expect(seekEvent.workload.deviceOrigin).toBe("google-pixel");
+        expect(seekEvent.diagnosedBottlenecks).toContain(
+          "google-pixel-keyframe-scrub-stall",
+        );
+        expect(seekEvent.diagnosedBottlenecks).toContain(
+          "vfr-keyframe-interval-hunting",
+        );
+        expect(seekEvent.diagnosedBottlenecks).toContain(
+          "hevc-10bit-seek-latency",
+        );
+      } finally {
+        telemetryCollector.setLastKnownVideoProfile(null);
+      }
+    });
+
+    it("diagnoses google-pixel-decode-strain and decode-duration-spike on render frames exceeding budget", () => {
+      telemetryCollector.setLastKnownVideoProfile({
+        deviceOrigin: "google-pixel",
+        codec: "hevc",
+        bitDepth: 10,
+        isVfr: true,
+      });
+
+      try {
+        // Total frame time 28,000 us (> 16,667 us budget) with decode 22,000 us
+        telemetryCollector.recordRenderSpan(
+          { decodeUs: 22000, composeUs: 5000, totalTimeUs: 28000 },
+          1,
+          60,
+          {},
+          "playback",
+          18, // 18ms AV drift
+        );
+
+        expect(telemetryCollector.getQueueLength()).toBe(1);
+        const renderEvent = (telemetryCollector as any).queue[0];
+        expect(renderEvent.diagnosedBottlenecks).toContain(
+          "decode-duration-spike",
+        );
+        expect(renderEvent.diagnosedBottlenecks).toContain(
+          "google-pixel-decode-strain",
+        );
+        expect(renderEvent.diagnosedBottlenecks).toContain(
+          "vfr-presentation-jitter",
+        );
+        expect(renderEvent.diagnosedBottlenecks).toContain(
+          "vfr-audio-drift",
+        );
+      } finally {
+        telemetryCollector.setLastKnownVideoProfile(null);
+      }
+    });
+
+    it("prioritizes anomaly sampling for high-risk profiles even when normal anomalies would be rate-limited", () => {
+      telemetryCollector.setLastKnownVideoProfile({
+        deviceOrigin: "google-pixel",
+        codec: "hevc",
+        bitDepth: 10,
+        isVfr: true,
+      });
+
+      try {
+        // Emit 15 high-risk anomalies (normally capped at 10 for normal profiles)
+        for (let i = 0; i < 15; i++) {
+          telemetryCollector.recordRenderSpan(
+            { decodeUs: 20000, composeUs: 5000, totalTimeUs: 26000 },
+            0,
+            1,
+            {},
+            "playback",
+          );
+        }
+
+        // All 15 high-risk anomalies are enqueued without being suppressed by the standard quota
+        expect(telemetryCollector.getQueueLength()).toBe(15);
+      } finally {
+        telemetryCollector.setLastKnownVideoProfile(null);
+      }
+    });
+  });
 });
+

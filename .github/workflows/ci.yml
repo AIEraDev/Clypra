@@ -181,6 +181,8 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -190,6 +192,10 @@ jobs:
       - name: Run Cargo Check on Windows
         shell: cmd
         run: cd src-tauri && cargo check
+
+      - name: Run Cargo Clippy on Windows
+        shell: cmd
+        run: cd src-tauri && cargo clippy -- -D clippy::disallowed-methods -D warnings
 
   build-check:
     name: Build & Packaging Check
