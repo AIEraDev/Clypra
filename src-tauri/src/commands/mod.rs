@@ -4,6 +4,7 @@ pub mod auto_reframe;
 pub mod binary_resolver;
 pub mod captions;
 pub mod creator_thumbnail;
+pub mod debug;
 pub mod export;
 #[cfg(test)]
 pub mod ipc_security_tests;
@@ -33,6 +34,7 @@ pub use auto_reframe::*;
 pub use binary_resolver::{create_async_command, create_std_command, resolve_binary_path};
 pub use captions::*;
 pub use creator_thumbnail::*;
+pub use debug::*;
 pub use export::*;
 pub use lut::*;
 pub use media::*;

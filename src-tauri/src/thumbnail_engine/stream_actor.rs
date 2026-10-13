@@ -752,6 +752,8 @@ impl StreamDecoderActor {
                                     hw_device_type: frame.hw_device_type.clone(),
                                     cache_lock_wait_us: None,
                                     cache_insert_us: None,
+                        dxgi_latched_off: None,
+                        dxgi_latch_reason: None,
                                 });
                             }
                         }
@@ -842,7 +844,9 @@ impl StreamDecoderActor {
                     }
                     Ok(None) => {
                         // Software or non-D3D11 frame or unsupported zero-copy; disable runtime DXGI probing
-                        crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled();
+                        crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled_with_reason(
+                            crate::wgpu_compositor::adapter_selector::DxgiLatchReasonCode::NonD3d11Surface,
+                        );
                     }
                     Err(err) => {
                         if err.contains("cancelled") {
@@ -853,7 +857,9 @@ impl StreamDecoderActor {
                             target_time,
                             err
                         );
-                        crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled();
+                        crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled_with_reason(
+                            crate::wgpu_compositor::adapter_selector::DxgiLatchReasonCode::DxgiDecodeFailed,
+                        );
                         // Non-fatal: proceed to CPU NV12 fallback below
                     }
                 }

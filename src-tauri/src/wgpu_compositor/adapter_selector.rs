@@ -36,13 +36,149 @@ pub fn get_selected_dxgi_adapter_index() -> Option<u32> {
     }
 }
 
-#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DxgiLatchReasonCode {
+    EnvVarDisabled,
+    CapabilityUnavailable,
+    UnsupportedFeature,
+    ImportFailed,
+    InvalidTexture,
+    FormatUnsupportedP010,
+    WrongArraySlice,
+    DeviceLost,
+    SurfaceCreationFailed,
+    DimensionMismatch,
+    NonD3d11Surface,
+    DxgiDecodeFailed,
+    NoCpuPlanes,
+    AdminPolicy,
+}
+
+impl std::fmt::Display for DxgiLatchReasonCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EnvVarDisabled => write!(f, "env-var-disabled"),
+            Self::CapabilityUnavailable => write!(f, "capability-unavailable"),
+            Self::UnsupportedFeature => write!(f, "unsupported-feature"),
+            Self::ImportFailed => write!(f, "import-failed"),
+            Self::InvalidTexture => write!(f, "invalid-texture"),
+            Self::FormatUnsupportedP010 => write!(f, "format-unsupported-p010"),
+            Self::WrongArraySlice => write!(f, "wrong-array-slice"),
+            Self::DeviceLost => write!(f, "device-lost"),
+            Self::SurfaceCreationFailed => write!(f, "surface-creation-failed"),
+            Self::DimensionMismatch => write!(f, "dimension-mismatch"),
+            Self::NonD3d11Surface => write!(f, "non-d3d11-surface"),
+            Self::DxgiDecodeFailed => write!(f, "dxgi-decode-failed"),
+            Self::NoCpuPlanes => write!(f, "no-cpu-planes"),
+            Self::AdminPolicy => write!(f, "admin-policy"),
+        }
+    }
+}
+
+fn reason_to_u8(reason: DxgiLatchReasonCode) -> u8 {
+    match reason {
+        DxgiLatchReasonCode::EnvVarDisabled => 1,
+        DxgiLatchReasonCode::CapabilityUnavailable => 2,
+        DxgiLatchReasonCode::UnsupportedFeature => 3,
+        DxgiLatchReasonCode::ImportFailed => 4,
+        DxgiLatchReasonCode::InvalidTexture => 5,
+        DxgiLatchReasonCode::FormatUnsupportedP010 => 6,
+        DxgiLatchReasonCode::WrongArraySlice => 7,
+        DxgiLatchReasonCode::DeviceLost => 8,
+        DxgiLatchReasonCode::SurfaceCreationFailed => 9,
+        DxgiLatchReasonCode::DimensionMismatch => 10,
+        DxgiLatchReasonCode::NonD3d11Surface => 11,
+        DxgiLatchReasonCode::DxgiDecodeFailed => 12,
+        DxgiLatchReasonCode::NoCpuPlanes => 13,
+        DxgiLatchReasonCode::AdminPolicy => 14,
+    }
+}
+
+fn u8_to_reason(val: u8) -> Option<DxgiLatchReasonCode> {
+    match val {
+        1 => Some(DxgiLatchReasonCode::EnvVarDisabled),
+        2 => Some(DxgiLatchReasonCode::CapabilityUnavailable),
+        3 => Some(DxgiLatchReasonCode::UnsupportedFeature),
+        4 => Some(DxgiLatchReasonCode::ImportFailed),
+        5 => Some(DxgiLatchReasonCode::InvalidTexture),
+        6 => Some(DxgiLatchReasonCode::FormatUnsupportedP010),
+        7 => Some(DxgiLatchReasonCode::WrongArraySlice),
+        8 => Some(DxgiLatchReasonCode::DeviceLost),
+        9 => Some(DxgiLatchReasonCode::SurfaceCreationFailed),
+        10 => Some(DxgiLatchReasonCode::DimensionMismatch),
+        11 => Some(DxgiLatchReasonCode::NonD3d11Surface),
+        12 => Some(DxgiLatchReasonCode::DxgiDecodeFailed),
+        13 => Some(DxgiLatchReasonCode::NoCpuPlanes),
+        14 => Some(DxgiLatchReasonCode::AdminPolicy),
+        _ => None,
+    }
+}
+
 static DXGI_RUNTIME_DISABLED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
-pub fn mark_dxgi_runtime_disabled() {
-    #[cfg(target_os = "windows")]
+static DXGI_LATCH_REASON: std::sync::atomic::AtomicU8 =
+    std::sync::atomic::AtomicU8::new(0);
+
+pub fn mark_dxgi_runtime_disabled_with_reason(reason: DxgiLatchReasonCode) {
     DXGI_RUNTIME_DISABLED.store(true, std::sync::atomic::Ordering::Relaxed);
+    DXGI_LATCH_REASON.store(reason_to_u8(reason), std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn mark_dxgi_runtime_disabled() {
+    mark_dxgi_runtime_disabled_with_reason(DxgiLatchReasonCode::UnsupportedFeature);
+}
+
+pub fn get_dxgi_latch_state() -> (Option<bool>, Option<DxgiLatchReasonCode>) {
+    #[cfg(target_os = "windows")]
+    {
+        if std::env::var("CLYPRA_DISABLE_DXGI").as_deref() == Ok("1")
+            || std::env::var("CLYPRA_DISABLE_DXGI_ZERO_COPY").as_deref() == Ok("1")
+        {
+            return (Some(true), Some(DxgiLatchReasonCode::EnvVarDisabled));
+        }
+        if DXGI_RUNTIME_DISABLED.load(std::sync::atomic::Ordering::Relaxed) {
+            let code = DXGI_LATCH_REASON.load(std::sync::atomic::Ordering::Relaxed);
+            return (
+                Some(true),
+                u8_to_reason(code).or(Some(DxgiLatchReasonCode::UnsupportedFeature)),
+            );
+        }
+        (Some(false), None)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        (None, None)
+    }
+}
+
+pub fn reset_dxgi_latch_state_for_tests() {
+    DXGI_RUNTIME_DISABLED.store(false, std::sync::atomic::Ordering::Relaxed);
+    DXGI_LATCH_REASON.store(0, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Parse a kebab-case reason string back into the enum.
+/// Returns `None` for any unrecognised string.
+/// Used by the debug `force_dxgi_latch` command and round-trip tests.
+pub fn parse_dxgi_latch_reason(s: &str) -> Option<DxgiLatchReasonCode> {
+    match s {
+        "env-var-disabled"       => Some(DxgiLatchReasonCode::EnvVarDisabled),
+        "capability-unavailable" => Some(DxgiLatchReasonCode::CapabilityUnavailable),
+        "unsupported-feature"    => Some(DxgiLatchReasonCode::UnsupportedFeature),
+        "import-failed"          => Some(DxgiLatchReasonCode::ImportFailed),
+        "invalid-texture"        => Some(DxgiLatchReasonCode::InvalidTexture),
+        "format-unsupported-p010"=> Some(DxgiLatchReasonCode::FormatUnsupportedP010),
+        "wrong-array-slice"      => Some(DxgiLatchReasonCode::WrongArraySlice),
+        "device-lost"            => Some(DxgiLatchReasonCode::DeviceLost),
+        "surface-creation-failed"=> Some(DxgiLatchReasonCode::SurfaceCreationFailed),
+        "dimension-mismatch"     => Some(DxgiLatchReasonCode::DimensionMismatch),
+        "non-d3d11-surface"      => Some(DxgiLatchReasonCode::NonD3d11Surface),
+        "dxgi-decode-failed"     => Some(DxgiLatchReasonCode::DxgiDecodeFailed),
+        "no-cpu-planes"          => Some(DxgiLatchReasonCode::NoCpuPlanes),
+        "admin-policy"           => Some(DxgiLatchReasonCode::AdminPolicy),
+        _                        => None,
+    }
 }
 
 pub fn is_dxgi_runtime_enabled() -> bool {
@@ -272,6 +408,34 @@ impl GpuContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_dxgi_latch_reason_round_trips_all_14_codes() {
+        let variants = [
+            DxgiLatchReasonCode::EnvVarDisabled,
+            DxgiLatchReasonCode::CapabilityUnavailable,
+            DxgiLatchReasonCode::UnsupportedFeature,
+            DxgiLatchReasonCode::ImportFailed,
+            DxgiLatchReasonCode::InvalidTexture,
+            DxgiLatchReasonCode::FormatUnsupportedP010,
+            DxgiLatchReasonCode::WrongArraySlice,
+            DxgiLatchReasonCode::DeviceLost,
+            DxgiLatchReasonCode::SurfaceCreationFailed,
+            DxgiLatchReasonCode::DimensionMismatch,
+            DxgiLatchReasonCode::NonD3d11Surface,
+            DxgiLatchReasonCode::DxgiDecodeFailed,
+            DxgiLatchReasonCode::NoCpuPlanes,
+            DxgiLatchReasonCode::AdminPolicy,
+        ];
+        for variant in &variants {
+            let s = variant.to_string();
+            let parsed = parse_dxgi_latch_reason(&s)
+                .unwrap_or_else(|| panic!("parse_dxgi_latch_reason failed for '{s}'"));
+            assert_eq!(parsed, *variant, "round-trip failed for {s}");
+        }
+        // Unknown string should return None, not panic.
+        assert!(parse_dxgi_latch_reason("unknown-future-code").is_none());
+    }
 
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]

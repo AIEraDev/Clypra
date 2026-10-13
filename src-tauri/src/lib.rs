@@ -817,6 +817,10 @@ pub fn run() {
             get_bench_run_config,
             write_bench_report,
             exit_app,
+            // ── Debug / chain-test commands ──────────────────────────────────
+            // Registered in all builds; only modify in-process state (atomics).
+            force_dxgi_latch,
+            reset_dxgi_latch,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
