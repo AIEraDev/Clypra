@@ -16,6 +16,13 @@
  * - Only counts, durations, dimensions, and categorical enums
  */
 
+export interface TextUploadPeakSample {
+  durationMs: number;
+  timestampMs: number;
+  outputPixels: number;
+  phase?: "prewarm" | "render" | "dynamic";
+}
+
 export interface TextMetricsSnapshot {
   /** Count of render passes by clip kind and renderer */
   rendererByKind: Record<string, Record<string, number>>;
@@ -30,6 +37,10 @@ export interface TextMetricsSnapshot {
     outputPixelsP95: number;
     durationMsAvg: number;
     durationMsMax: number;
+    durationMsP50: number;
+    durationMsP95: number;
+    durationMsP99: number;
+    peakUpload?: TextUploadPeakSample;
   };
   /** Frontend browser raster cache metrics */
   cache: {
@@ -63,6 +74,8 @@ class TextMetricsCollector {
   private uploadDurationCount = 0;
   private readonly MAX_UPLOAD_SAMPLES = 100;
   private uploadOutputPixelsList: number[] = [];
+  private uploadDurationMsList: number[] = [];
+  private peakUpload: TextUploadPeakSample | undefined = undefined;
   private uploadWindowStartMs: number = Date.now();
 
   // Cache metrics
@@ -111,6 +124,7 @@ class TextMetricsCollector {
     outputPixels: number,
     bytes: number,
     durationMs: number,
+    context?: { phase?: "prewarm" | "render" | "dynamic" },
   ): void {
     if (!Number.isFinite(outputPixels) || outputPixels <= 0) return;
     this.totalRegistrations += 1;
@@ -119,13 +133,26 @@ class TextMetricsCollector {
 
     const validDuration = Math.max(0, durationMs);
     this.uploadDurationMsSum += validDuration;
-    this.uploadDurationMsMax = Math.max(this.uploadDurationMsMax, validDuration);
+    if (validDuration >= this.uploadDurationMsMax) {
+      this.uploadDurationMsMax = validDuration;
+      this.peakUpload = {
+        durationMs: validDuration,
+        timestampMs: Date.now(),
+        outputPixels,
+        phase: context?.phase ?? "render",
+      };
+    }
     this.uploadDurationCount += 1;
 
     // Bounded reservoir for P95 calculation
     this.uploadOutputPixelsList.push(outputPixels);
     if (this.uploadOutputPixelsList.length > this.MAX_UPLOAD_SAMPLES) {
       this.uploadOutputPixelsList.shift();
+    }
+
+    this.uploadDurationMsList.push(validDuration);
+    if (this.uploadDurationMsList.length > this.MAX_UPLOAD_SAMPLES) {
+      this.uploadDurationMsList.shift();
     }
   }
 
@@ -233,6 +260,14 @@ class TextMetricsCollector {
     const p95Idx = Math.floor(sortedPixels.length * 0.95);
     const outputPixelsP95 = sortedPixels[p95Idx] ?? 0;
 
+    const sortedDurations = [...this.uploadDurationMsList].sort((a, b) => a - b);
+    const p50DurIdx = Math.floor(sortedDurations.length * 0.5);
+    const p95DurIdx = Math.floor(sortedDurations.length * 0.95);
+    const p99DurIdx = Math.floor(sortedDurations.length * 0.99);
+    const durationMsP50 = sortedDurations[p50DurIdx] ?? 0;
+    const durationMsP95 = sortedDurations[p95DurIdx] ?? 0;
+    const durationMsP99 = sortedDurations[p99DurIdx] ?? 0;
+
     const durationMsAvg =
       this.uploadDurationCount > 0
         ? Number(
@@ -281,6 +316,10 @@ class TextMetricsCollector {
         outputPixelsP95,
         durationMsAvg,
         durationMsMax,
+        durationMsP50,
+        durationMsP95,
+        durationMsP99,
+        peakUpload: this.peakUpload,
       },
       cache: {
         hits: this.cacheHits,
@@ -315,6 +354,8 @@ class TextMetricsCollector {
     this.uploadDurationMsMax = 0;
     this.uploadDurationCount = 0;
     this.uploadOutputPixelsList = [];
+    this.uploadDurationMsList = [];
+    this.peakUpload = undefined;
     this.uploadWindowStartMs = Date.now();
     this.cacheHits = 0;
     this.cacheMisses = 0;
@@ -342,8 +383,9 @@ export function recordRasterUpload(
   outputPixels: number,
   bytes: number,
   durationMs: number,
+  context?: { phase?: "prewarm" | "render" | "dynamic" },
 ): void {
-  textMetrics.recordRasterUpload(outputPixels, bytes, durationMs);
+  textMetrics.recordRasterUpload(outputPixels, bytes, durationMs, context);
 }
 
 export function recordBrowserTextRasterCacheHit(): void {

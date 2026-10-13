@@ -48,6 +48,8 @@ describe("TextMetrics (v3 Telemetry)", () => {
     );
     expect(snapshot.uploads.durationMsMax).toBe(15.5);
     expect(snapshot.uploads.durationMsAvg).toBe(9.85);
+    expect(snapshot.uploads.durationMsP50).toBe(15.5);
+    expect(snapshot.uploads.peakUpload?.durationMs).toBe(15.5);
   });
 
   it("computes frontend raster cache hit rate accurately", () => {
@@ -130,6 +132,10 @@ describe("TextMetrics (v3 Telemetry)", () => {
       "outputPixelsP95",
       "durationMsAvg",
       "durationMsMax",
+      "durationMsP50",
+      "durationMsP95",
+      "durationMsP99",
+      "peakUpload",
     ]);
     expect(Object.keys(snapshot.uploads).every((k) => allowedUploadKeys.has(k))).toBe(true);
 

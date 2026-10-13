@@ -812,7 +812,9 @@ export async function registerNativeRasterAsset(
       startTime;
     const outputPixels = asset.width * asset.height;
     const bytes = outputPixels * 4;
-    recordRasterUpload(outputPixels, bytes, elapsedMs);
+    recordRasterUpload(outputPixels, bytes, elapsedMs, {
+      phase: "render",
+    });
   }
 }
 
