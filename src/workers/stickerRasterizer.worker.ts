@@ -120,6 +120,7 @@ interface CachedStickerAnimation {
   frameRate: number;
 }
 
+const MAX_CACHED_STICKER_ANIMATIONS = 16;
 const stickerCache = new Map<string, CachedStickerAnimation>();
 
 async function getOrCreateStickerAnimation(
@@ -128,13 +129,17 @@ async function getOrCreateStickerAnimation(
   width: number,
   height: number,
 ): Promise<CachedStickerAnimation> {
-  const existing = stickerCache.get(stickerSourceId);
+  const cacheKey = `${stickerSourceId}:${width}x${height}`;
+  const existing = stickerCache.get(cacheKey);
   if (
     existing &&
     existing.width === width &&
     existing.height === height &&
     existing.animationData === animationData
   ) {
+    // Refresh LRU order
+    stickerCache.delete(cacheKey);
+    stickerCache.set(cacheKey, existing);
     return existing;
   }
 
@@ -144,7 +149,22 @@ async function getOrCreateStickerAnimation(
     } catch {
       // Best-effort cleanup
     }
-    stickerCache.delete(stickerSourceId);
+    stickerCache.delete(cacheKey);
+  }
+
+  // Bound cache size to prevent memory leaks while supporting multi-instance/resized stickers
+  while (stickerCache.size >= MAX_CACHED_STICKER_ANIMATIONS) {
+    const oldestKey = stickerCache.keys().next().value;
+    if (!oldestKey) break;
+    const oldest = stickerCache.get(oldestKey);
+    if (oldest) {
+      try {
+        oldest.animation.destroy();
+      } catch {
+        // Best-effort cleanup
+      }
+    }
+    stickerCache.delete(oldestKey);
   }
 
   const canvas = new OffscreenCanvas(width, height);
@@ -186,7 +206,7 @@ async function getOrCreateStickerAnimation(
     frameRate,
   };
 
-  stickerCache.set(stickerSourceId, entry);
+  stickerCache.set(cacheKey, entry);
   return entry;
 }
 
@@ -260,14 +280,15 @@ self.onmessage = async (event: MessageEvent<WorkerStickerInboundMessage>): Promi
   }
 
   if (msg.type === "DISPOSE_STICKER") {
-    const entry = stickerCache.get(msg.stickerSourceId);
-    if (entry) {
-      try {
-        entry.animation.destroy();
-      } catch {
-        // Ignore
+    for (const [key, entry] of stickerCache.entries()) {
+      if (entry.stickerSourceId === msg.stickerSourceId) {
+        try {
+          entry.animation.destroy();
+        } catch {
+          // Ignore
+        }
+        stickerCache.delete(key);
       }
-      stickerCache.delete(msg.stickerSourceId);
     }
     return;
   }

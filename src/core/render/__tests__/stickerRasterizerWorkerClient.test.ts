@@ -388,4 +388,52 @@ describe("StickerRasterizerWorkerClient — Worker Offscreen Protocol", () => {
     expect(result?.rgba.length).toBe(200 * 200 * 4);
     client.dispose();
   });
+
+  it("CLY-BUG-004: supports multi-instance stickers with different sizes without thrashing worker", async () => {
+    const client = new StickerRasterizerWorkerClient();
+    const layerSmall = makeStickerLayer({ width: 100, height: 100 });
+    const layerLarge = makeStickerLayer({ width: 300, height: 300 });
+
+    const promiseSmall = client.render(layerSmall);
+    const sentMsg1 = mockWorkerInstance.postMessage.mock.calls[0][0];
+    mockWorkerInstance.onmessage!({
+      data: {
+        type: "STICKER_FRAME_READY",
+        id: sentMsg1.id,
+        stickerSourceId: sentMsg1.stickerSourceId,
+        frame: 0,
+        width: 100,
+        height: 100,
+        totalFrames: 60,
+        frameRate: 30,
+        buffer: new Uint8ClampedArray(100 * 100 * 4).buffer,
+        workerRasterMs: 2,
+      },
+    } as any);
+    const resultSmall = await promiseSmall;
+
+    const promiseLarge = client.render(layerLarge);
+    const sentMsg2 = mockWorkerInstance.postMessage.mock.calls[1][0];
+    mockWorkerInstance.onmessage!({
+      data: {
+        type: "STICKER_FRAME_READY",
+        id: sentMsg2.id,
+        stickerSourceId: sentMsg2.stickerSourceId,
+        frame: 0,
+        width: 300,
+        height: 300,
+        totalFrames: 60,
+        frameRate: 30,
+        buffer: new Uint8ClampedArray(300 * 300 * 4).buffer,
+        workerRasterMs: 3,
+      },
+    } as any);
+    const resultLarge = await promiseLarge;
+
+    expect(resultSmall?.width).toBe(100);
+    expect(resultLarge?.width).toBe(300);
+    expect(sentMsg1.width).toBe(100);
+    expect(sentMsg2.width).toBe(300);
+    client.dispose();
+  });
 });
