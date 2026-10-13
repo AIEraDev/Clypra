@@ -91,8 +91,10 @@ function traceEvent(
 }
 
 export const uiPlayheadDrift = new RollingDriftStats();
-/** Inter-paint intervals in milliseconds; maxAbs is the largest interval. */
-export const playheadPaintJitter = new RollingDriftStats();
+/** Inter-paint intervals in milliseconds; avg is average interval (e.g. 16.7ms for 60Hz, 33.3ms for 30Hz). */
+export const playheadPaintInterval = new RollingDriftStats();
+/** Inter-paint intervals in milliseconds; maxAbs is the largest interval (historically named playheadPaintJitter). */
+export const playheadPaintJitter = playheadPaintInterval;
 export const seekUserLatency = new RollingDriftStats();
 export const audioPollRtt = new RollingDriftStats();
 export const audioExtrapolationError = new RollingDriftStats();
@@ -211,7 +213,10 @@ export function recordSeekResolved(
 
 export interface FrontendSyncMetricsSnapshot {
   ui_playhead_drift: RollingDriftSnapshot;
+  /** Intra-playback paint intervals in milliseconds (historically labeled playhead_paint_jitter). */
   playhead_paint_jitter: RollingDriftSnapshot;
+  /** Explicit alias for inter-paint interval to prevent confusing intervals with cadence jitter. */
+  playhead_paint_interval?: RollingDriftSnapshot;
   seek_user_latency: RollingDriftSnapshot;
   audio_poll_rtt?: RollingDriftSnapshot;
   audio_extrapolation_error?: RollingDriftSnapshot;
@@ -222,6 +227,7 @@ export function getSyncMetricsSnapshot(): FrontendSyncMetricsSnapshot {
   const snapshot: FrontendSyncMetricsSnapshot = {
     ui_playhead_drift: uiPlayheadDrift.snapshot(),
     playhead_paint_jitter: playheadPaintJitter.snapshot(),
+    playhead_paint_interval: playheadPaintInterval.snapshot(),
     seek_user_latency: seekUserLatency.snapshot(),
   };
   const rtt = audioPollRtt.snapshot();

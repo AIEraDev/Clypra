@@ -2629,7 +2629,13 @@ class TelemetryCollector {
           durationMs: Math.round(summary.windowDurationMs),
           targetFps: 60,
           renderedFps:
-            totalTimeUs > 0 ? Math.min(60, 1_000_000 / totalTimeUs) : 60,
+            phase === "interactive-preview"
+              ? summary.windowDurationMs > 0
+                ? Math.min(60, Number(((summary.renderCount / (summary.windowDurationMs / 1000))).toFixed(1)))
+                : 0
+              : totalTimeUs > 0
+                ? Math.min(60, 1_000_000 / totalTimeUs)
+                : 60,
           totalFrames: summary.renderCount,
           droppedFrames: 0,
           droppedFramesRatio: 0,
@@ -2841,7 +2847,13 @@ class TelemetryCollector {
           durationMs: Math.round(summary.windowDurationMs),
           targetFps: 60,
           renderedFps:
-            totalTimeUs > 0 ? Math.min(60, 1_000_000 / totalTimeUs) : 60,
+            phase === "interactive-preview"
+              ? summary.windowDurationMs > 0
+                ? Math.min(60, Number(((summary.renderCount / (summary.windowDurationMs / 1000))).toFixed(1)))
+                : 0
+              : totalTimeUs > 0
+                ? Math.min(60, 1_000_000 / totalTimeUs)
+                : 60,
           totalFrames: summary.renderCount,
           droppedFrames: 0,
           droppedFramesRatio: 0,
