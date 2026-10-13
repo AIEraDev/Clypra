@@ -41,6 +41,7 @@ import {
 } from "@/lib/playback/syncMetrics";
 import { workerPerfCollector } from "@/core/monitoring/WorkerPerfCollector";
 import { getTextMetricsSnapshot } from "@/lib/playback/textMetrics";
+import { getOrCreateHashedInstallId } from "./telemetryCollector";
 
 // ── Tauri runtime guard ───────────────────────────────────────────────────────
 // Evaluated lazily at call time, not at module-load time. The module-level
@@ -424,6 +425,7 @@ export class PerfLogService {
             appBuildNumber: "1",
             appEnvironment: import.meta.env.DEV ? "beta" : "production",
             device: {
+              hashedInstallId: getOrCreateHashedInstallId(),
               osFamily:
                 typeof navigator !== "undefined" &&
                 navigator.userAgent.includes("Mac")
