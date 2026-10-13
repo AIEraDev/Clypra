@@ -29,7 +29,6 @@ import { recordRasterUpload } from "@/lib/playback/textMetrics";
 
 export type { NativeFramesBySource, NativeSessionSnapshot };
 
-
 export const isTauriRuntime = () =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -266,7 +265,9 @@ export async function registerNativeImageAsset(options: {
 /**
  * Evict and purge a raster/image asset from the native GPU texture cache.
  */
-export async function unregisterNativeRasterAsset(assetId: string): Promise<void> {
+export async function unregisterNativeRasterAsset(
+  assetId: string,
+): Promise<void> {
   if (!isTauriRuntime()) return;
   await invoke("unregister_native_raster_asset", {
     assetId,
@@ -387,7 +388,9 @@ export async function renderNativePreviewTransportProbe(
   byteLength = 518 * 1024,
 ): Promise<ArrayBuffer> {
   if (!isTauriRuntime()) {
-    throw new Error("renderNativePreviewTransportProbe requires the Tauri runtime");
+    throw new Error(
+      "renderNativePreviewTransportProbe requires the Tauri runtime",
+    );
   }
   return invoke<ArrayBuffer>("render_native_preview_transport_probe", {
     byteLength: Math.max(1, Math.min(4 * 1024 * 1024, Math.floor(byteLength))),
@@ -419,8 +422,17 @@ export async function streamNativePlaybackFrames(
     // 2a diagnostic generation is deliberately tiny; production code will
     // keep its own checked u64-to-wire conversion with the stream state.
     generation: Number(generation),
-    frameCount: Math.max(1, Math.min(120, Math.floor(options.frameCount ?? 20))),
-    payloadBytes: Math.max(1024, Math.min(4 * 1024 * 1024, Math.floor(options.payloadBytes ?? 480 * 270 * 4))),
+    frameCount: Math.max(
+      1,
+      Math.min(120, Math.floor(options.frameCount ?? 20)),
+    ),
+    payloadBytes: Math.max(
+      1024,
+      Math.min(
+        4 * 1024 * 1024,
+        Math.floor(options.payloadBytes ?? 480 * 270 * 4),
+      ),
+    ),
     paceMs: Math.max(0, Math.min(1000, Math.floor(options.paceMs ?? 0))),
     onFrame: channel,
   });
@@ -434,19 +446,28 @@ export async function openNativePlaybackPushStream(
   generation: bigint,
   onFrame: (packet: ArrayBuffer) => void,
 ): Promise<void> {
-  if (!isTauriRuntime()) throw new Error("openNativePlaybackPushStream requires the Tauri runtime");
+  if (!isTauriRuntime())
+    throw new Error("openNativePlaybackPushStream requires the Tauri runtime");
   const channel = new Channel<ArrayBuffer>();
   channel.onmessage = onFrame;
-  await invoke("open_native_playback_push_stream", { generation: Number(generation), onFrame: channel });
+  await invoke("open_native_playback_push_stream", {
+    generation: Number(generation),
+    onFrame: channel,
+  });
 }
 
-export async function submitNativePlaybackPushFrame(request: NativeFrameRequest): Promise<void> {
+export async function submitNativePlaybackPushFrame(
+  request: NativeFrameRequest,
+): Promise<void> {
   if (!isTauriRuntime()) return;
   const nativeRequest: NativeFrameRequest = {
     ...request,
     project: {
       ...request.project,
-      videoLayers: request.project.videoLayers.map((layer) => ({ ...layer, videoPath: toNativePath(layer.videoPath) })),
+      videoLayers: request.project.videoLayers.map((layer) => ({
+        ...layer,
+        videoPath: toNativePath(layer.videoPath),
+      })),
     },
   };
   await invoke("submit_native_playback_push_frame", { request: nativeRequest });
@@ -478,9 +499,15 @@ export interface NativePushTransportCapabilities {
 /** Candidate discovery for the measured Phase 2 transport selector. */
 export async function getNativePushTransportCapabilities(): Promise<NativePushTransportCapabilities> {
   if (!isTauriRuntime()) {
-    return { channel: false, customProtocolLongPoll: false, webview2SharedBuffer: false };
+    return {
+      channel: false,
+      customProtocolLongPoll: false,
+      webview2SharedBuffer: false,
+    };
   }
-  return invoke<NativePushTransportCapabilities>("get_native_push_transport_capabilities");
+  return invoke<NativePushTransportCapabilities>(
+    "get_native_push_transport_capabilities",
+  );
 }
 
 /** Register a bundled/editor font in the strict native font registry. */
@@ -635,18 +662,24 @@ export interface NativePlaybackStatsPayload {
 export function listenForNativePlaybackStats(
   onStats: (stats: NativePlaybackStatsPayload) => void,
 ): Promise<UnlistenFn> {
-  return listen<NativePlaybackStatsPayload>("native-playback-stats", (event) => {
-    onStats(event.payload);
-  });
+  return listen<NativePlaybackStatsPayload>(
+    "native-playback-stats",
+    (event) => {
+      onStats(event.payload);
+    },
+  );
 }
 
 /** Listen for native playback startup milestones emitted by Rust. */
 export function listenForNativePlaybackStartup(
   onMilestone: (payload: { stage?: string }) => void,
 ): Promise<UnlistenFn> {
-  return listen<{ stage?: string }>("clypra://native-playback-startup", (event) => {
-    onMilestone(event.payload);
-  });
+  return listen<{ stage?: string }>(
+    "clypra://native-playback-startup",
+    (event) => {
+      onMilestone(event.payload);
+    },
+  );
 }
 
 /** Listen for real-time QoS decisions emitted by the native media engine. */
@@ -682,9 +715,7 @@ export function listenForNativeRasterEviction(
  * more reliably than polling get_native_gpu_status because it is emitted
  * immediately after app.manage(gpu_ctx) rather than on a timer.
  */
-export function listenForGpuReady(
-  onReady: () => void,
-): Promise<UnlistenFn> {
+export function listenForGpuReady(onReady: () => void): Promise<UnlistenFn> {
   return listen<void>("clypra://gpu-ready", () => {
     onReady();
   });
@@ -765,7 +796,10 @@ export async function registerNativeRasterAsset(
   try {
     // Zero-copy binary IPC transfer: send raw buffer directly to avoid
     // base64 inflation (+37% heap) and JSON array stringification.
-    if (asset.rgba instanceof Uint8ClampedArray || asset.rgba instanceof Uint8Array) {
+    if (
+      asset.rgba instanceof Uint8ClampedArray ||
+      asset.rgba instanceof Uint8Array
+    ) {
       const typed = asset.rgba as Uint8ClampedArray | Uint8Array;
       const rawBuffer =
         typed.buffer.byteLength === typed.byteLength
@@ -825,6 +859,31 @@ export async function getNativeFrameServiceStats(): Promise<NativeFrameServiceSt
   return invoke<NativeFrameServiceStats>("get_native_frame_service_stats");
 }
 
+/**
+ * Debug/test utility — forces the DXGI runtime latch to the given reason code.
+ * Returns the canonical kebab-case string that was stored.
+ * Useful for verifying the full Rust→IPC→TypeScript→Worker→Neon chain.
+ * This command is registered in all builds but should only be called in
+ * development sessions.
+ */
+export async function forceDxgiLatch(reason?: string): Promise<string> {
+  if (!isTauriRuntime()) {
+    throw new Error("forceDxgiLatch requires the Tauri runtime");
+  }
+  return invoke<string>("force_dxgi_latch", { reason });
+}
+
+/**
+ * Debug/test utility — clears the DXGI latch state atomics so subsequent
+ * stats() calls return the unlatched state.
+ */
+export async function resetDxgiLatch(): Promise<void> {
+  if (!isTauriRuntime()) {
+    throw new Error("resetDxgiLatch requires the Tauri runtime");
+  }
+  return invoke<void>("reset_dxgi_latch");
+}
+
 export async function getNativeFrameServiceSamples(
   afterSequence: number,
   limit = 256,
@@ -847,9 +906,13 @@ export async function getNativeFrameServiceSamples(
  */
 export async function getNativePreviewPerformanceReport(): Promise<NativePreviewPerformanceReport> {
   if (!isTauriRuntime()) {
-    throw new Error("getNativePreviewPerformanceReport requires the Tauri runtime");
+    throw new Error(
+      "getNativePreviewPerformanceReport requires the Tauri runtime",
+    );
   }
-  return invoke<NativePreviewPerformanceReport>("get_native_preview_performance_report");
+  return invoke<NativePreviewPerformanceReport>(
+    "get_native_preview_performance_report",
+  );
 }
 
 export async function getNativeSyncMetricsSnapshot(): Promise<NativeSyncMetricsSnapshot> {
@@ -872,7 +935,6 @@ export async function resetNativeSessionTelemetry(): Promise<void> {
   }
   return invoke<void>("reset_session_telemetry");
 }
-
 
 export async function getNativeGpuStatus(): Promise<NativeGpuRuntimeStatus> {
   if (!isTauriRuntime()) {
@@ -1390,12 +1452,15 @@ export async function decodeFrame(
     return "data:image/png;base64,mockedDataURL";
   }
   // Binary IPC — Rust returns raw RGBA bytes or data URL string
-  const buf = await invoke<ArrayBuffer | Uint8Array | number[] | string>("decode_frame", {
-    videoPath: toNativePath(videoPath),
-    timeSecs,
-    width,
-    height,
-  });
+  const buf = await invoke<ArrayBuffer | Uint8Array | number[] | string>(
+    "decode_frame",
+    {
+      videoPath: toNativePath(videoPath),
+      timeSecs,
+      width,
+      height,
+    },
+  );
   if (typeof buf === "string") {
     return buf;
   }
@@ -1412,7 +1477,6 @@ export async function decodeFrame(
   }
   return `data:image/rgba;base64,${btoa(binary)}`;
 }
-
 
 /**
  * Extract multiple frames using the native decoder with streaming, instead of sidecar FFmpeg. Much faster for batch extractions.
