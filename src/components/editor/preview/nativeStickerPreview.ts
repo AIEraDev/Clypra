@@ -2,9 +2,23 @@ import lottie from "lottie-web";
 import { appCacheDir, join } from "@tauri-apps/api/path";
 import { useStickersStore } from "@/features/stickers/store/stickersStore";
 import { stickerCacheManager } from "@/features/stickers/cache/stickerCache";
+import { STARTER_STICKERS } from "@/features/stickers/starterStickers";
 import type { EvaluatedMediaLayer } from "@/core/evaluation/types";
 import type { NativeRasterLayerSnapshot } from "@/lib/platform/nativeCore";
 import type { TelemetryStickerPhase } from "@/services/telemetryCollector";
+
+function resolveLottie(mod: any): any {
+  if (mod?.default) {
+    if (typeof mod.default.loadAnimation === "function") return mod.default;
+    if (typeof mod.default.default?.loadAnimation === "function") return mod.default.default;
+  }
+  try {
+    if (typeof mod?.loadAnimation === "function") return mod;
+  } catch {
+    // Vitest strict mock guard
+  }
+  return mod?.default || mod;
+}
 
 export type NativeAnimatedStickerRaster = NativeRasterLayerSnapshot & {
   rgba: Uint8ClampedArray | number[];
@@ -30,6 +44,10 @@ export class NativeAnimatedStickerRenderer {
   private readonly entries = new Map<string, StickerRendererEntry>();
   private readonly registeredFrames = new Set<string>();
 
+  getCanvas(layerId: string): HTMLCanvasElement | null {
+    return this.entries.get(layerId)?.canvas ?? null;
+  }
+
   async render(
     layer: EvaluatedMediaLayer,
     _phase: TelemetryStickerPhase = "visible-playback",
@@ -38,14 +56,35 @@ export class NativeAnimatedStickerRenderer {
     if (typeof document === "undefined") return null;
 
     const stickerId = layer.stickerSourceId || layer.mediaId.replace("sticker-", "");
-    let cachedSticker = useStickersStore.getState().getCachedSticker(stickerId);
-    if (!cachedSticker) {
-      await useStickersStore.getState().initializeCache();
-      cachedSticker = useStickersStore.getState().getCachedSticker(stickerId);
+    let animationData = (layer as any).lottieData;
+    let sourcePath = layer.stickerAnimationPath ?? "";
+
+    if (!animationData) {
+      const starter = STARTER_STICKERS.find((s) => s.id === stickerId);
+      if (starter) {
+        animationData = starter.lottieData;
+        if (!sourcePath) sourcePath = `bundled://${starter.id}.json`;
+      }
     }
 
-    let animationData = cachedSticker?.lottieData;
-    let sourcePath = cachedSticker?.localAnimationPath ?? layer.stickerAnimationPath ?? "";
+    if (!animationData) {
+      let cachedSticker: any = null;
+      try {
+        cachedSticker = useStickersStore.getState().getCachedSticker(stickerId);
+        if (!cachedSticker) {
+          await useStickersStore.getState().initializeCache();
+          cachedSticker = useStickersStore.getState().getCachedSticker(stickerId);
+        }
+      } catch {
+        // Best-effort in headless/test environments
+      }
+      if (cachedSticker?.lottieData) {
+        animationData = cachedSticker.lottieData;
+      }
+      if (!sourcePath && cachedSticker?.localAnimationPath) {
+        sourcePath = cachedSticker.localAnimationPath;
+      }
+    }
 
     if (!animationData) {
       if (!sourcePath) return null;
@@ -55,9 +94,17 @@ export class NativeAnimatedStickerRenderer {
         !sourcePath.startsWith("asset://") &&
         !sourcePath.startsWith("bundled://")
       ) {
-        sourcePath = await join(await appCacheDir(), sourcePath);
+        try {
+          sourcePath = await join(await appCacheDir(), sourcePath);
+        } catch {
+          // ignore
+        }
       }
-      animationData = await stickerCacheManager.readLottieJson(sourcePath);
+      try {
+        animationData = await stickerCacheManager.readLottieJson(sourcePath);
+      } catch {
+        animationData = null;
+      }
     }
     if (!animationData) return null;
 
@@ -86,24 +133,25 @@ export class NativeAnimatedStickerRenderer {
           ? JSON.parse(animationData)
           : JSON.parse(JSON.stringify(animationData));
 
-      const animation = (lottie as any).loadAnimation({
+      const lottieInstance = resolveLottie(lottie);
+      const animation = lottieInstance.loadAnimation({
         container,
         renderer: "canvas",
         autoplay: false,
         loop: false,
         animationData: parsedData,
+        rendererSettings: {
+          clearCanvas: true,
+        },
       });
       animation.goToAndStop(0, true);
       await Promise.resolve();
-      const canvas = container.querySelector("canvas") as HTMLCanvasElement | null;
+      let canvas = container.querySelector("canvas") as HTMLCanvasElement | null;
       if (!canvas) {
-        try {
-          animation.destroy();
-        } catch {
-          // ignore
-        }
-        container.remove();
-        return null;
+        canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        container.appendChild(canvas);
       }
       entry = { sourcePath, width, height, container, animation, canvas };
       this.entries.set(layer.layerId, entry);
@@ -184,3 +232,12 @@ export class NativeAnimatedStickerRenderer {
     entry.container.remove();
   }
 }
+
+let _sharedStickerRenderer: NativeAnimatedStickerRenderer | null = null;
+export function getNativeAnimatedStickerRenderer(): NativeAnimatedStickerRenderer {
+  if (!_sharedStickerRenderer) {
+    _sharedStickerRenderer = new NativeAnimatedStickerRenderer();
+  }
+  return _sharedStickerRenderer;
+}
+

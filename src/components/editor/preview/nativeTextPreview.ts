@@ -26,6 +26,7 @@ import {
   recordBrowserTextRasterCacheMiss,
   recordDynamicImport,
 } from "@/lib/playback/textMetrics";
+import { getNativeAnimatedStickerRenderer } from "./nativeStickerPreview";
 
 // ─── Module-level worker client singleton ────────────────────────────────────
 //
@@ -320,16 +321,91 @@ export async function paintTextLayersToCanvas(
       }
     } else if (layer.layerType === "media") {
       const mediaLayer = layer as EvaluatedMediaLayer;
+      const isSticker =
+        mediaLayer.clipKind === "sticker" ||
+        mediaLayer.stickerFormat === "lottie" ||
+        Boolean(mediaLayer.stickerSourceId);
+
+      if (isSticker) {
+        try {
+          const renderer = getNativeAnimatedStickerRenderer();
+          await renderer.render(
+            mediaLayer,
+            phase === "visible-playback"
+              ? "visible-playback"
+              : "interactive-preview",
+          );
+          const stickerCanvas = renderer.getCanvas(mediaLayer.layerId);
+          if (
+            stickerCanvas &&
+            stickerCanvas.width > 0 &&
+            stickerCanvas.height > 0
+          ) {
+            ctx.save();
+            ctx.globalAlpha = mediaLayer.opacity;
+            if (mediaLayer.blendMode && mediaLayer.blendMode !== "normal") {
+              ctx.globalCompositeOperation =
+                mediaLayer.blendMode === "add"
+                  ? "lighter"
+                  : mediaLayer.blendMode === "subtract"
+                    ? "difference"
+                    : (mediaLayer.blendMode as GlobalCompositeOperation);
+            }
+            const centerX = mediaLayer.x + mediaLayer.width / 2;
+            const centerY = mediaLayer.y + mediaLayer.height / 2;
+            ctx.translate(centerX, centerY);
+            ctx.rotate((mediaLayer.rotation * Math.PI) / 180);
+            ctx.drawImage(
+              stickerCanvas,
+              -mediaLayer.width / 2,
+              -mediaLayer.height / 2,
+              mediaLayer.width,
+              mediaLayer.height,
+            );
+            ctx.restore();
+            continue;
+          }
+        } catch (err) {
+          console.warn("[browser-preview] sticker-render-failed", err);
+        }
+      }
+
       const src =
         mediaLayer.sourcePath || (mediaLayer as any).stickerImagePath;
       if (src && typeof Image !== "undefined") {
         let img = browserImageCache.get(src);
         if (!img) {
           img = new Image();
+          img.onload = () => {
+            void import("./NativeProgramPreview")
+              .then((mod) => mod.forceRepaintNativeProgramPreview())
+              .catch(() => {});
+          };
           img.src = src;
           browserImageCache.set(src, img);
         }
-        if (img.complete && img.naturalWidth > 0) {
+        if (!img.complete) {
+          await new Promise<void>((resolve) => {
+            if (img!.complete) {
+              resolve();
+              return;
+            }
+            const onLoad = () => {
+              img!.removeEventListener("load", onLoad);
+              img!.removeEventListener("error", onError);
+              resolve();
+            };
+            const onError = () => {
+              img!.removeEventListener("load", onLoad);
+              img!.removeEventListener("error", onError);
+              resolve();
+            };
+            img!.addEventListener("load", onLoad);
+            img!.addEventListener("error", onError);
+            setTimeout(resolve, 50);
+          });
+        }
+        if (img.complete && (img.naturalWidth > 0 || img.width > 0)) {
           ctx.save();
           ctx.globalAlpha = mediaLayer.opacity;
           if (mediaLayer.blendMode && mediaLayer.blendMode !== "normal") {
