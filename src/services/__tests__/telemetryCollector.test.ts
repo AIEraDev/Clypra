@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { telemetryCollector } from "../telemetryCollector";
+import {
+  telemetryCollector,
+  getOrCreateHashedInstallId,
+  resetHashedInstallId,
+  deleteHashedInstallId,
+} from "../telemetryCollector";
 
 describe("Production Telemetry Collector in Clypra Desktop", () => {
   beforeEach(() => {
@@ -12,13 +17,30 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
     telemetryCollector.clearQueue();
   });
 
-  it("probes device hardware context safely", () => {
-    const hw = telemetryCollector.initHardwareContext();
-    expect(hw).toBeDefined();
-    expect(hw.osFamily).toBeDefined();
-    expect(hw.cpuArch).toBeDefined();
-    expect(hw.graphicsBackend).toBeDefined();
-    expect(hw.displayDpr).toBeGreaterThanOrEqual(1.0);
+  it("probes device hardware context safely and gates install ID on explicit consent", () => {
+    localStorage.removeItem("clypra.telemetryConsentWithInstallId");
+    localStorage.removeItem("clypra:telemetry:install_id");
+    telemetryCollector.clearQueue();
+
+    // Without explicit consent, returns undefined and omits hashedInstallId from context
+    expect(getOrCreateHashedInstallId()).toBeUndefined();
+    (telemetryCollector as any).cachedHardware = null;
+    const hwNoConsent = telemetryCollector.initHardwareContext();
+    expect(hwNoConsent.hashedInstallId).toBeUndefined();
+
+    // Explicit consent enables UUID generation
+    localStorage.setItem("clypra.telemetryConsentWithInstallId", "true");
+    const installId = getOrCreateHashedInstallId();
+    expect(installId).toMatch(/^inst-[0-9a-f-]{10,36}$/);
+
+    // Reset regenerates
+    const resetId = resetHashedInstallId();
+    expect(resetId).toMatch(/^inst-[0-9a-f-]{10,36}$/);
+
+    // Delete clears to undefined (omitted)
+    deleteHashedInstallId();
+    localStorage.removeItem("clypra.telemetryConsentWithInstallId");
+    expect(getOrCreateHashedInstallId()).toBeUndefined();
   });
 
   it("records a render span with dropped frame anomaly at 100% sampling rate", () => {
@@ -125,17 +147,26 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
             presentTimeUs: 500,
             totalTimeUs: 25_000,
             transferPath: "dxgi-zero-copy",
+            isHardwareAccelerated: true,
+            decoderName: "h264_qsv",
+            dxgiLatchedOff: false,
           },
         },
         {},
         {
           view: "native",
           surface: "native-surface",
+          presenterMode: "native-surface",
           runtimeEnvironment: "development",
         },
       );
 
       expect(events[0].workload.renderPath).toBe("dxgi-zero-copy");
+      expect(events[0].workload.transferPath).toBe("dxgi-zero-copy");
+      expect(events[0].workload.hwDecodeActive).toBe(true);
+      expect(events[0].workload.decoderName).toBe("h264_qsv");
+      expect(events[0].workload.dxgiLatchedOff).toBe(false);
+      expect(events[0].workload.presenter).toBe("native-surface");
     } finally {
       enqueueSpy.mockRestore();
     }

@@ -483,6 +483,10 @@ impl NativeFrameService {
             cache_budget_bytes: self.cache.max_bytes(),
             cache_eviction_count: self.cache.eviction_count(),
             cache_rejected_entry_count: self.cache.rejected_entry_count(),
+            // The latch state is injected into last_sample by the Tauri
+            // command layer (get_native_frame_service_stats) which has access
+            // to wgpu_compositor. service.rs lives in clypra-native-core which
+            // intentionally does not depend on wgpu_compositor.
             last_sample: self.last_sample.clone(),
             last_sample_sequence: self.last_sample_sequence,
             window_started_at_ms: self
@@ -641,6 +645,8 @@ mod tests {
             cache_lock_wait_us: None,
             cache_insert_us: None,
             hw_device_type: None,
+            dxgi_latched_off: None,
+            dxgi_latch_reason: None,
         }
     }
 
@@ -915,6 +921,20 @@ mod tests {
 
         // Crucial: UnchangedSkipped must not pollute decode timing percentiles
         assert_eq!(playback.decode.sample_count, 2);
+    }
+
+    /// stats() returns last_sample without latch state injection; that happens
+    /// in the Tauri command layer (get_native_frame_service_stats) which has
+    /// access to wgpu_compositor.  This test just confirms the raw fields are
+    /// None until set explicitly (they aren't touched inside the service).
+    #[test]
+    fn stats_last_sample_dxgi_fields_are_none_by_default() {
+        let mut service = NativeFrameService::new(1024).unwrap();
+        service.record_sample(sample(1));
+        let stats = service.stats();
+        let s = stats.last_sample.as_ref().expect("sample present");
+        assert_eq!(s.dxgi_latched_off, None, "raw sample should have None until injected by Tauri command");
+        assert_eq!(s.dxgi_latch_reason, None, "raw sample should have None until injected by Tauri command");
     }
 
     #[test]

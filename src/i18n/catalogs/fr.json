@@ -221,5 +221,14 @@
   "properties.tabs.animation": "Animation",
   "properties.tabs.transform": "Transformation",
   "audio.clip_exceeds_memory_limit": "Le clip audio est trop long pour la lecture. Scindez le clip sur la timeline en sections plus courtes pour activer la lecture.",
-  "audio.clip_decode_failed": "Échec du décodage du clip audio : {{error}}"
+  "audio.clip_decode_failed": "Échec du décodage du clip audio : {{error}}",
+  "settings.diagnostics.telemetryDescription": "Clypra collecte des données de télémétrie de performances anonymes (durée des images, classe de GPU, latence de décodage) pour améliorer la stabilité multiplateforme. Aucune donnée personnelle, nom de fichier ou contenu multimédia n'est transmis.",
+  "settings.diagnostics.shareAnonymousDiagnostics": "Partager les diagnostics de performance anonymes",
+  "settings.diagnostics.consentWithInstallIdNotice": "Lorsqu'il est activé, un identifiant d'installation anonyme aléatoire est stocké localement pour dédupliquer les données sans suivre votre identité.",
+  "settings.diagnostics.sessionIdLabel": "ID de session",
+  "settings.diagnostics.installIdLabel": "ID d'installation",
+  "settings.diagnostics.installIdReset": "Réinitialiser l'ID",
+  "settings.diagnostics.installIdDelete": "Supprimer l'ID",
+  "settings.diagnostics.desktopOnlyNotice": "Les contrôles de diagnostic et de télémétrie ne sont actifs que sur l'application de bureau.",
+  "settings.diagnostics.ephemeralNotice": "Éphémère (non consenti)"
 }

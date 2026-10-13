@@ -2,6 +2,8 @@ import type { ColdStartReport } from "@/services/telemetryCollector";
 
 export const NATIVE_CORE_CONTRACT_VERSION = 2;
 export const NATIVE_CORE_TIME_SCALE = 1_000_000;
+
+import type { DxgiLatchReasonCode } from "./dxgiLatchCodes";
 /**
  * Controls whether the wgpu child-surface presenter is allowed to engage.
  *
@@ -290,6 +292,18 @@ export interface NativePerformanceSample {
     | "late-for-audio"
     | "present-failed"
     | string;
+  /**
+   * Windows only: whether DXGI zero-copy was latched off when this sample
+   * was collected.  `null` = non-Windows or state unknown.
+   * Never coerce `null` to `false` — they have different meanings.
+   */
+  dxgiLatchedOff?: boolean | null;
+  /** Kebab-case reason code for the latch; null unless dxgiLatchedOff is true. */
+  dxgiLatchReason?: DxgiLatchReasonCode | null;
+  /** Normalised codec / decoder name (e.g. "h264", "hevc", "av1"). */
+  decoderName?: string;
+  /** Presenter path active at frame time ("native-surface" or "bridge"). */
+  presenter?: "native-surface" | "bridge" | string;
 }
 
 export interface NativePerformanceSampleBatch {
@@ -978,4 +992,7 @@ export {
   writeBenchReport,
 } from "./tauri";
 export type { BenchRunConfig } from "./tauri";
-export type { ColdStartReport, ColdSpan } from "../../services/telemetryCollector";
+export type {
+  ColdStartReport,
+  ColdSpan,
+} from "../../services/telemetryCollector";

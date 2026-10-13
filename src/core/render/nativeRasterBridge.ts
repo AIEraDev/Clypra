@@ -1383,15 +1383,17 @@ export class NativeRasterBridge {
         this.registeredAssetIds.delete(oldestId);
       }
     } else {
-      this.assetsById.delete(asset.assetId);
-      this.assetsById.set(asset.assetId, asset);
-      while (this.assetsById.size > MAX_REGISTERED_ASSETS) {
-        const oldestId = this.assetsById.keys().next().value as
-          | string
-          | undefined;
-        if (!oldestId) break;
-        this.assetsById.delete(oldestId);
-        this.registeredAssetIds.delete(oldestId);
+      if (asset.rgba && asset.rgba.length > 0) {
+        this.assetsById.delete(asset.assetId);
+        this.assetsById.set(asset.assetId, asset);
+        while (this.assetsById.size > MAX_REGISTERED_ASSETS) {
+          const oldestId = this.assetsById.keys().next().value as
+            | string
+            | undefined;
+          if (!oldestId) break;
+          this.assetsById.delete(oldestId);
+          this.registeredAssetIds.delete(oldestId);
+        }
       }
     }
 

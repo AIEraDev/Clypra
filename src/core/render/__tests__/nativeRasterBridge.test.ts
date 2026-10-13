@@ -466,7 +466,56 @@ describe("NativeRasterBridge", () => {
     // Call reregister
     const success = await bridge.reregister(rasters);
     expect(success).toBe(true);
+    bridge.dispose();
+  });
+
+  it("CLY-BUG-005: reregister() re-registers sticker assets even after fast-path empty-rgba register", async () => {
+    const bridge = new NativeRasterBridge();
+
+    // 1. Initial register with full pixels
+    const initialStickerAsset = {
+      assetId: "sticker:star:frame0",
+      rgba: [255, 200, 0, 255],
+      width: 100,
+      height: 100,
+      x: 10,
+      y: 20,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 1,
+      blendMode: "normal",
+      isText: false,
+    };
+    await (bridge as any).register(initialStickerAsset);
+    expect(mocks.register).toHaveBeenCalledTimes(1);
+
+    // 2. Next frame hits cache fast-path with empty rgba
+    const fastPathAsset = {
+      ...initialStickerAsset,
+      rgba: [],
+    };
+    await (bridge as any).register(fastPathAsset);
+
+    // 3. GPU device recovery calls reregister
+    const references = [
+      {
+        assetId: "sticker:star:frame0",
+        width: 100,
+        height: 100,
+        x: 10,
+        y: 20,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 1,
+        blendMode: "normal",
+      },
+    ];
+
+    const success = await bridge.reregister(references as any);
+    expect(success).toBe(true);
+    // mocks.register must be called again with the preserved non-empty RGBA buffer
     expect(mocks.register).toHaveBeenCalledTimes(2);
+    expect(mocks.register.mock.calls[1][0].rgba).toEqual([255, 200, 0, 255]);
 
     bridge.dispose();
   });

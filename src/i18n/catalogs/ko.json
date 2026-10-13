@@ -221,5 +221,14 @@
   "properties.tabs.animation": "애니메이션",
   "properties.tabs.transform": "변형",
   "audio.clip_exceeds_memory_limit": "오디오 클립이 너무 길어 재생할 수 없습니다. 재생하려면 타임라인에서 클립을 더 짧은 구간으로 분할하세요.",
-  "audio.clip_decode_failed": "오디오 클립 디코딩 실패: {{error}}"
+  "audio.clip_decode_failed": "오디오 클립 디코딩 실패: {{error}}",
+  "settings.diagnostics.telemetryDescription": "Clypra는 플랫폼 전반의 안정성을 개선하기 위해 익명의 성능 원격 측정 데이터(프레임 타이밍, GPU 하드웨어 클래스, 디코딩 지연 시간)를 수집합니다. 개인 데이터, 파일 이름 또는 미디어 콘텐츠는 전송되지 않습니다.",
+  "settings.diagnostics.shareAnonymousDiagnostics": "익명 성능 진단 공유",
+  "settings.diagnostics.consentWithInstallIdNotice": "활성화되면 신원을 추적하지 않고 원격 측정 중복을 제거하기 위해 무작위 익명 설치 ID가 로컬에 저장됩니다.",
+  "settings.diagnostics.sessionIdLabel": "세션 ID",
+  "settings.diagnostics.installIdLabel": "설치 ID",
+  "settings.diagnostics.installIdReset": "ID 재설정",
+  "settings.diagnostics.installIdDelete": "ID 삭제",
+  "settings.diagnostics.desktopOnlyNotice": "진단 및 원격 측정 제어는 데스크톱 환경에서만 활성화됩니다.",
+  "settings.diagnostics.ephemeralNotice": "임시 (동의하지 않음)"
 }

@@ -35,6 +35,13 @@ import {
 import { nativePerfCollector } from "@/core/playback/nativePerfTelemetry";
 import { EditorFeatureTelemetry } from "@/services/editorFeatureTelemetry";
 import { perfLogService, PerfLogService } from "@/services/perfLogService";
+import { useTranslation } from "@/i18n";
+import {
+  getOrCreateAnonymousInstallId,
+  resetAnonymousInstallId,
+  deleteAnonymousInstallId,
+  setAnonymousInstallConsent,
+} from "@/services/telemetryCollector";
 
 export interface TransportProbeResult {
   runs: number;
@@ -130,9 +137,12 @@ export const PreviewDiagnosticsTab: React.FC = () => {
   const [suiteStep, setSuiteStep] = useState<string | null>(null);
   const [suiteCompletedAt, setSuiteCompletedAt] = useState<number | null>(null);
 
+  const { t } = useTranslation();
+
   const [telemetryOptIn, setTelemetryOptIn] = useState(() =>
     PerfLogService.isTelemetryUploadEnabledStatic(),
   );
+  const [installId, setInstallId] = useState(() => getOrCreateAnonymousInstallId());
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -1029,10 +1039,7 @@ export const PreviewDiagnosticsTab: React.FC = () => {
       {/* ── Telemetry Stream Persistence Footer ─────────────────────────── */}
       <div className="pt-3 border-t border-white/8 space-y-3">
         <p className="text-xs text-text-muted leading-relaxed">
-          Diagnostic benchmark metrics are compiled directly into the active
-          session&apos;s NDJSON telemetry log on disk. When this session closes,
-          all compiled benchmarks and cold-start traces are archived and uploaded
-          to Clypra servers (if telemetry sharing is enabled).
+          {t("settings.diagnostics.telemetryDescription")}
         </p>
 
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-1">
@@ -1044,24 +1051,65 @@ export const PreviewDiagnosticsTab: React.FC = () => {
                 const enabled = e.target.checked;
                 setTelemetryOptIn(enabled);
                 PerfLogService.setTelemetryUploadEnabled(enabled);
+                setAnonymousInstallConsent(enabled);
+                setInstallId(getOrCreateAnonymousInstallId());
               }}
               className="rounded border-border bg-surface text-primary focus:ring-1 focus:ring-primary"
             />
-            <span>Share anonymous performance diagnostics with Clypra</span>
+            <span>{t("settings.diagnostics.shareAnonymousDiagnostics")}</span>
           </label>
-          {perfLogService.getSessionId() && (
+          <div className="flex flex-wrap items-center gap-2">
+            {perfLogService.getSessionId() && (
+              <div className="flex items-center gap-1.5 text-[11px] text-text-muted font-mono bg-white/4 px-2 py-1 rounded border border-white/6">
+                <span className="text-text-secondary">{t("settings.diagnostics.sessionIdLabel")}:</span>
+                <span>{perfLogService.getSessionId()}</span>
+              </div>
+            )}
             <div className="flex items-center gap-1.5 text-[11px] text-text-muted font-mono bg-white/4 px-2 py-1 rounded border border-white/6">
-              <span className="text-text-secondary">Session:</span>
-              <span>{perfLogService.getSessionId()}</span>
+              <span className="text-text-secondary">{t("settings.diagnostics.installIdLabel")}:</span>
+              <span title={installId ?? ""}>
+                {!installId
+                  ? t("settings.diagnostics.ephemeralNotice")
+                  : installId.length > 18
+                    ? `${installId.slice(0, 13)}…`
+                    : installId}
+              </span>
+              {installId && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newId = resetAnonymousInstallId();
+                      setInstallId(newId);
+                      toast.success("Pseudonymous installation identifier regenerated");
+                    }}
+                    className="ml-1 text-[10px] text-primary hover:underline font-sans cursor-pointer"
+                    title="Regenerate pseudonymous installation identifier"
+                  >
+                    {t("settings.diagnostics.installIdReset")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      deleteAnonymousInstallId();
+                      setInstallId(getOrCreateAnonymousInstallId());
+                      toast.success("Pseudonymous installation identifier deleted");
+                    }}
+                    className="ml-1 text-[10px] text-rose-400 hover:underline font-sans cursor-pointer"
+                    title="Delete pseudonymous installation identifier"
+                  >
+                    {t("settings.diagnostics.installIdDelete")}
+                  </button>
+                </>
+              )}
             </div>
-          )}
+          </div>
         </div>
       </div>
 
       {!isTauriRuntime() && (
         <div className="rounded-md bg-amber-500/10 border border-amber-500/20 p-3 text-xs text-amber-400">
-          Preview diagnostics and transport benchmarks are available in the Clypra
-          desktop application only.
+          {t("settings.diagnostics.desktopOnlyNotice")}
         </div>
       )}
     </section>

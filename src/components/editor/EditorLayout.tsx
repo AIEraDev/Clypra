@@ -13,25 +13,33 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { CurveEditorModal } from "./curves/CurveEditorModal";
 
-const SafeMediaPanel: React.FC<React.ComponentProps<typeof EnhancedMediaPanel>> = (props) => (
+const SafeMediaPanel: React.FC<
+  React.ComponentProps<typeof EnhancedMediaPanel>
+> = (props) => (
   <ErrorBoundary name="Media Library">
     <EnhancedMediaPanel {...props} />
   </ErrorBoundary>
 );
 
-const SafePropertiesPanel: React.FC<React.ComponentProps<typeof PropertiesPanel>> = (props) => (
+const SafePropertiesPanel: React.FC<
+  React.ComponentProps<typeof PropertiesPanel>
+> = (props) => (
   <ErrorBoundary name="Properties Inspector">
     <PropertiesPanel {...props} />
   </ErrorBoundary>
 );
 
-const SafePreviewPanel: React.FC<React.ComponentProps<typeof PreviewPanel>> = (props) => (
+const SafePreviewPanel: React.FC<React.ComponentProps<typeof PreviewPanel>> = (
+  props,
+) => (
   <ErrorBoundary name="Program Preview">
     <PreviewPanel {...props} />
   </ErrorBoundary>
 );
 
-const SafeSourcePreview: React.FC<React.ComponentProps<typeof SourcePreview>> = (props) => (
+const SafeSourcePreview: React.FC<
+  React.ComponentProps<typeof SourcePreview>
+> = (props) => (
   <ErrorBoundary name="Source Preview">
     <SourcePreview {...props} />
   </ErrorBoundary>
@@ -87,9 +95,11 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
   // Default timeline height: 30% vh, clamped [160, 400]
   const defaultTimelineH = isTimelineFocus
     ? Math.round(vh * 0.58)
-    : Math.round(Math.min(Math.max(vh * 0.30, 160), 400));
+    : Math.round(Math.min(Math.max(vh * 0.3, 160), 400));
   // Default tall player width: 32% vw, clamped [320, 600]
-  const defaultTallPlayerW = Math.round(Math.min(Math.max(vw * 0.32, 320), 600));
+  const defaultTallPlayerW = Math.round(
+    Math.min(Math.max(vw * 0.32, 320), 600),
+  );
 
   // Per-preset initial panel widths
   const initialSidebarWidth =
@@ -106,8 +116,11 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
       : isCinemaPreview
         ? Math.round(Math.min(Math.max(vw * 0.15, 180), 260))
         : isInspectorFocus
-          // Inspector focus: wide properties panel — 35% vw, floor at 380px
-          ? Math.max(propertiesPanelWidth, Math.round(Math.min(Math.max(vw * 0.35, 380), 560)))
+          ? // Inspector focus: wide properties panel — 35% vw, floor at 380px
+            Math.max(
+              propertiesPanelWidth,
+              Math.round(Math.min(Math.max(vw * 0.35, 380), 560)),
+            )
           : propertiesPanelWidth;
 
   // Panel resize constraints — all viewport-relative so they scale with screen size
@@ -174,7 +187,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
     initial: tallPlayerWidth,
     defaultSize: defaultTallPlayerW,
     snapPoints: [defaultTallPlayerW],
-    min: Math.round(Math.max(vw * 0.20, 280)),
+    min: Math.round(Math.max(vw * 0.2, 280)),
     max: () => window.innerWidth * 0.65,
     direction:
       layoutPreset === "tall-player-right"
@@ -252,7 +265,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
             {/* Timeline */}
             <div
-              className="panel-shell overflow-hidden flex-shrink-0"
+              className="panel-shell overflow-hidden shrink-0"
               style={{ height: `${timelineH}px` }}
             >
               <SafeTimeline />
@@ -400,7 +413,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
             {/* Timeline */}
             <div
-              className="panel-shell overflow-hidden flex-shrink-0"
+              className="panel-shell overflow-hidden shrink-0"
               style={{ height: `${timelineH}px` }}
             >
               <SafeTimeline />
@@ -528,7 +541,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
           {/* Timeline */}
           <div
-            className="panel-shell overflow-hidden flex-shrink-0"
+            className="panel-shell overflow-hidden shrink-0"
             style={{ height: `${timelineH}px` }}
           >
             <SafeTimeline />
@@ -541,7 +554,10 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
   // 4. CINEMA PREVIEW Layout (Color Grading & Screening)
   if (layoutPreset === "cinema-preview") {
     // Cinema timeline: compact, capped at 25% of viewport height (max 240px)
-    const cinemaTimelineH = Math.min(timelineH, Math.round(Math.min(vh * 0.25, 240)));
+    const cinemaTimelineH = Math.min(
+      timelineH,
+      Math.round(Math.min(vh * 0.25, 240)),
+    );
     return (
       <div className="w-full h-full flex flex-col app-shell overflow-hidden p-1 pt-0 select-none relative">
         <TopBar onRequestClose={onRequestClose} />
@@ -614,7 +630,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
           {/* Compact Timeline */}
           <div
-            className="panel-shell overflow-hidden flex-shrink-0"
+            className="panel-shell overflow-hidden shrink-0"
             style={{ height: `${cinemaTimelineH}px` }}
           >
             <SafeTimeline />
@@ -656,7 +672,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
             {/* Centered 9:16 Portrait Preview Monitor */}
             <div className="flex-1 min-w-0 flex items-center justify-center overflow-hidden panel-shell bg-surface/30">
-              <div className="w-full h-full max-w-[28.75rem] flex flex-col overflow-hidden">
+              <div className="w-full h-full max-w-115 flex flex-col overflow-hidden">
                 <SafePreviewPanel />
               </div>
             </div>
@@ -700,7 +716,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
           {/* Timeline */}
           <div
-            className="panel-shell overflow-hidden flex-shrink-0"
+            className="panel-shell overflow-hidden shrink-0"
             style={{ height: `${timelineH}px` }}
           >
             <SafeTimeline />
@@ -713,7 +729,10 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
   // 6. INSPECTOR FOCUS Layout (Color, Animation, Effects & Curves)
   if (layoutPreset === "inspector-focus") {
     // Wide inspector: matches the viewport-relative floor set in initialPropertiesPanelWidth
-    const wideInspectorW = Math.max(propertiesW, Math.round(Math.min(Math.max(vw * 0.35, 380), 560)));
+    const wideInspectorW = Math.max(
+      propertiesW,
+      Math.round(Math.min(Math.max(vw * 0.35, 380), 560)),
+    );
     return (
       <div className="w-full h-full flex flex-col app-shell overflow-hidden p-1 pt-0 select-none relative">
         <TopBar onRequestClose={onRequestClose} />
@@ -786,7 +805,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
           {/* Timeline */}
           <div
-            className="panel-shell overflow-hidden flex-shrink-0"
+            className="panel-shell overflow-hidden shrink-0"
             style={{ height: `${timelineH}px` }}
           >
             <SafeTimeline />
@@ -928,7 +947,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
         {/* Timeline Panel */}
         <div
-          className="panel-shell overflow-hidden flex-shrink-0"
+          className="panel-shell overflow-hidden shrink-0"
           style={{ height: `${timelineH}px` }}
         >
           <SafeTimeline />

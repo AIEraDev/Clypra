@@ -87,6 +87,14 @@ async function main() {
       ["vitest", "run", "src/components/editor/preview/__tests__/ProgramPreview.renderLoop.test.ts"],
     );
     if (!previewOk) overallSuccess = false;
+
+    const auditOk = await executeCommand(
+      "Fleet Telemetry Audit Test Suite",
+      "Unit Tests",
+      "node",
+      ["--test", "scripts/__tests__/daily-fleet-telemetry-audit.test.mjs"],
+    );
+    if (!auditOk) overallSuccess = false;
   }
 
   // ── 3. Changed Files Targeted Testing ──────────────────────────────────────

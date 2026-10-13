@@ -49,7 +49,105 @@ export interface TelemetryHardwareContext {
   thermalThrottlingState?: "nominal" | "fair" | "serious" | "critical";
   isBatteryPowered?: boolean;
   isHybridGpu?: boolean;
+  hashedInstallId?: string;
 }
+
+const INSTALL_ID_STORAGE_KEY = "clypra:telemetry:install_id";
+const TELEMETRY_CONSENT_KEY = "clypra.telemetryConsentWithInstallId";
+let cachedHashedInstallId: string | null = null;
+
+/**
+ * Returns a stable, pseudonymous installation identifier for install-level deduplication.
+ * Guarantees zero PII or machine hardware identifiers are transmitted.
+ * Only attaches persistent identifier if the user has explicitly consented to
+ * diagnostics with installation-level deduplication; otherwise returns undefined (omits field).
+ */
+export function getOrCreateAnonymousInstallId(): string | undefined {
+  if (cachedHashedInstallId) return cachedHashedInstallId;
+
+  if (typeof localStorage === "undefined") {
+    return undefined;
+  }
+
+  try {
+    const hasConsented = localStorage.getItem(TELEMETRY_CONSENT_KEY) === "true";
+    if (!hasConsented) {
+      return undefined;
+    }
+
+    let rawId = localStorage.getItem(INSTALL_ID_STORAGE_KEY);
+    if (!rawId) {
+      const uuid =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      rawId = `inst-${uuid}`;
+      localStorage.setItem(INSTALL_ID_STORAGE_KEY, rawId);
+    }
+    cachedHashedInstallId = rawId;
+    return cachedHashedInstallId;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Backward compatibility alias for getOrCreateAnonymousInstallId */
+export const getOrCreateHashedInstallId = getOrCreateAnonymousInstallId;
+
+/**
+ * Marks explicit consent to anonymous installation-level deduplication.
+ */
+export function setAnonymousInstallConsent(consented: boolean): void {
+  if (typeof localStorage !== "undefined") {
+    try {
+      localStorage.setItem(TELEMETRY_CONSENT_KEY, String(consented));
+      if (!consented) {
+        deleteAnonymousInstallId();
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }
+}
+
+/** Backward compatibility alias */
+export const setHashedInstallConsent = setAnonymousInstallConsent;
+
+/**
+ * Resets the pseudonymous installation identifier (generates a new one).
+ * Complies with privacy/GDPR requirements allowing users to unlink their install history.
+ */
+export function resetAnonymousInstallId(): string | undefined {
+  if (typeof localStorage !== "undefined") {
+    try {
+      localStorage.removeItem(INSTALL_ID_STORAGE_KEY);
+    } catch {
+      // Ignore storage errors
+    }
+  }
+  cachedHashedInstallId = null;
+  return getOrCreateAnonymousInstallId();
+}
+
+/** Backward compatibility alias */
+export const resetHashedInstallId = resetAnonymousInstallId;
+
+/**
+ * Deletes the installation identifier entirely (omits field in future telemetry).
+ */
+export function deleteAnonymousInstallId(): void {
+  if (typeof localStorage !== "undefined") {
+    try {
+      localStorage.removeItem(INSTALL_ID_STORAGE_KEY);
+    } catch {
+      // Ignore storage errors
+    }
+  }
+  cachedHashedInstallId = null;
+}
+
+/** Backward compatibility alias */
+export const deleteHashedInstallId = deleteAnonymousInstallId;
 
 /**
  * Software adapters must never be counted as Intel/AMD/NVIDIA hardware.
@@ -554,6 +652,7 @@ export interface TelemetryEvent {
   measurementId?: string;
   measurementSource?: "frontend-span" | "native-sample" | "session-rollup";
   sessionId?: string;
+  hashedInstallId?: string;
   qualificationRunId?: string;
   scenario?: TelemetryPreviewScenario;
   sampleKind?: TelemetrySampleKind;
@@ -587,6 +686,12 @@ export interface TelemetryEvent {
     /** Unattributed totals must not be used to name a decode/upload/compose bottleneck. */
     stageTimingsSource?: TelemetryStageTimingsSource;
     renderPath?: string;
+    transferPath?: string;
+    hwDecodeActive?: boolean;
+    decoderName?: string;
+    dxgiLatchedOff?: boolean | null;
+    dxgiLatchReason?: string;
+    presenter?: "native-surface" | "bridge" | string;
     capabilityPolicy?: "full" | "reduced" | "proxy" | string;
     capabilityProbeUs?: number;
     renderPercentiles?: TelemetryMetricPercentiles;
@@ -689,6 +794,7 @@ export type TelemetrySampleKind =
   | "frame-anomaly"
   | "window-rollup"
   | "qualification-summary"
+  | "latch-event"
   | "interaction";
 
 export type TelemetryInteractionName =
@@ -734,9 +840,9 @@ export interface TelemetryPreviewContext {
     | "occlusion"
     | "device-lost"
     | "embedded-only-flag" // EMBEDDED_PREVIEW_ONLY=true (bridge-only build)
-    | "qualification"      // qualification harness forced WebView path
-    | "surface-not-ready"  // wgpu surface probe/configure not yet complete
-    | "policy-override"    // kept for backwards-compat with older perf logs
+    | "qualification" // qualification harness forced WebView path
+    | "surface-not-ready" // wgpu surface probe/configure not yet complete
+    | "policy-override" // kept for backwards-compat with older perf logs
     | "paused-exact-frame"
     | "unknown";
   sessionId?: string;
@@ -759,6 +865,12 @@ export interface TelemetryRenderOptions {
   interaction?: TelemetryInteraction;
   stageTimingsSource?: TelemetryStageTimingsSource;
   renderPath?: string;
+  transferPath?: string;
+  hwDecodeActive?: boolean;
+  decoderName?: string;
+  dxgiLatchedOff?: boolean | null;
+  dxgiLatchReason?: string;
+  presenter?: "native-surface" | "bridge" | string;
   /** Native samples are stage evidence for a frontend frame, not a second frame. */
   includeInRollup?: boolean;
   readbackMaxDimension?: number;
@@ -945,6 +1057,12 @@ class SessionRollupAccumulator {
   private readbackCadenceFps?: number;
   private playbackSpeed?: number;
   private readbackSourceFrameStride?: number;
+  private transferPath?: string;
+  private hwDecodeActive?: boolean;
+  private decoderName?: string;
+  private dxgiLatchedOff?: boolean | null;
+  private dxgiLatchReason?: string;
+  private presenter?: "native-surface" | "bridge" | string;
 
   public recordThrottledAnomaly(): void {
     this.throttledAnomaliesCount++;
@@ -982,6 +1100,12 @@ class SessionRollupAccumulator {
     playbackSpeed?: number,
     readbackSourceFrameStride?: number,
     deadlineUs: number = 16_667,
+    transferPath?: string,
+    hwDecodeActive?: boolean,
+    decoderName?: string,
+    dxgiLatchedOff?: boolean | null,
+    dxgiLatchReason?: string,
+    presenter?: "native-surface" | "bridge" | string,
   ): void {
     const now = Date.now();
 
@@ -1084,6 +1208,12 @@ class SessionRollupAccumulator {
     if (playbackSpeed !== undefined) this.playbackSpeed = playbackSpeed;
     if (readbackSourceFrameStride !== undefined)
       this.readbackSourceFrameStride = readbackSourceFrameStride;
+    if (transferPath !== undefined) this.transferPath = transferPath;
+    if (hwDecodeActive !== undefined) this.hwDecodeActive = hwDecodeActive;
+    if (decoderName !== undefined) this.decoderName = decoderName;
+    if (dxgiLatchedOff !== undefined) this.dxgiLatchedOff = dxgiLatchedOff;
+    if (dxgiLatchReason !== undefined) this.dxgiLatchReason = dxgiLatchReason;
+    if (presenter !== undefined) this.presenter = presenter;
   }
 
   public recordSeek(seekLatencyMs: number): void {
@@ -1121,6 +1251,12 @@ class SessionRollupAccumulator {
     readbackCadenceFps?: number;
     playbackSpeed?: number;
     readbackSourceFrameStride?: number;
+    transferPath?: string;
+    hwDecodeActive?: boolean;
+    decoderName?: string;
+    dxgiLatchedOff?: boolean | null;
+    dxgiLatchReason?: string;
+    presenter?: "native-surface" | "bridge" | string;
   } | null {
     if (this.totalFrames === 0) {
       this.windowStartMs = Date.now();
@@ -1230,6 +1366,12 @@ class SessionRollupAccumulator {
       readbackCadenceFps: this.readbackCadenceFps,
       playbackSpeed: this.playbackSpeed,
       readbackSourceFrameStride: this.readbackSourceFrameStride,
+      transferPath: this.transferPath,
+      hwDecodeActive: this.hwDecodeActive,
+      decoderName: this.decoderName,
+      dxgiLatchedOff: this.dxgiLatchedOff,
+      dxgiLatchReason: this.dxgiLatchReason,
+      presenter: this.presenter,
     };
 
     this.windowStartMs = Date.now();
@@ -1270,6 +1412,12 @@ class SessionRollupAccumulator {
     this.readbackCadenceFps = undefined;
     this.playbackSpeed = undefined;
     this.readbackSourceFrameStride = undefined;
+    this.transferPath = undefined;
+    this.hwDecodeActive = undefined;
+    this.decoderName = undefined;
+    this.dxgiLatchedOff = undefined;
+    this.dxgiLatchReason = undefined;
+    this.presenter = undefined;
 
     return result;
   }
@@ -1309,6 +1457,12 @@ class SessionRollupAccumulator {
     this.firstFrameVisibleMs = undefined;
     this.capabilityPolicy = undefined;
     this.capabilityProbeUs = undefined;
+    this.transferPath = undefined;
+    this.hwDecodeActive = undefined;
+    this.decoderName = undefined;
+    this.dxgiLatchedOff = undefined;
+    this.dxgiLatchReason = undefined;
+    this.presenter = undefined;
   }
 }
 
@@ -1580,6 +1734,8 @@ class TelemetryCollector {
   }
   private rollupAccumulators = new Map<string, SessionRollupAccumulator>();
   private reportedNativeMeasurementIds = new Set<string>();
+  /** Fires at most once per session to record when the DXGI latch first triggers. */
+  private dxgiLatchEventFired = false;
   private reportedAudioMeasurementIds = new Set<string>();
   private reportedTextMeasurementIds = new Set<string>();
   private reportedStickerMeasurementIds = new Set<string>();
@@ -1763,7 +1919,9 @@ class TelemetryCollector {
       rawOrigin.includes("google")
     ) {
       deviceOrigin = "google-pixel";
-      const match = (profile.deviceModel || "").match(/Pixel\s*([0-9a-zA-Z\s]+)/i);
+      const match = (profile.deviceModel || "").match(
+        /Pixel\s*([0-9a-zA-Z\s]+)/i,
+      );
       deviceModel = match ? `Pixel ${match[1].trim()}` : "Google Pixel";
     } else if (
       rawOrigin === "apple-iphone" ||
@@ -1771,7 +1929,9 @@ class TelemetryCollector {
       rawModel.includes("iphone")
     ) {
       deviceOrigin = "apple-iphone";
-      const match = (profile.deviceModel || "").match(/iPhone\s*([0-9a-zA-Z,\s]+)/i);
+      const match = (profile.deviceModel || "").match(
+        /iPhone\s*([0-9a-zA-Z,\s]+)/i,
+      );
       deviceModel = match ? `iPhone ${match[1].trim()}` : "Apple iPhone";
     } else if (
       rawOrigin === "samsung-galaxy" ||
@@ -1809,7 +1969,11 @@ class TelemetryCollector {
     if (hdrFormat !== "none") {
       bottleneckRiskFactors.push("hdr-color-transfer");
     }
-    if (resolutionBucket === "4k" || resolutionBucket === "8k" || maxDim >= 3500) {
+    if (
+      resolutionBucket === "4k" ||
+      resolutionBucket === "8k" ||
+      maxDim >= 3500
+    ) {
       bottleneckRiskFactors.push("high-resolution-throughput");
     }
     if (profile.bottleneckRiskFactors) {
@@ -1823,7 +1987,10 @@ class TelemetryCollector {
     const isHighRiskProfile =
       profile.isHighRiskProfile ??
       (deviceOrigin === "google-pixel" ||
-        (isVfr && (bitDepth >= 10 || resolutionBucket === "4k" || resolutionBucket === "8k")));
+        (isVfr &&
+          (bitDepth >= 10 ||
+            resolutionBucket === "4k" ||
+            resolutionBucket === "8k")));
 
     return {
       container: profile.container || "mp4",
@@ -1842,7 +2009,9 @@ class TelemetryCollector {
       isVfr,
       isHighRiskProfile,
       bottleneckRiskFactors,
-      ...(profile.diagnosedBottlenecks ? { diagnosedBottlenecks: profile.diagnosedBottlenecks } : {}),
+      ...(profile.diagnosedBottlenecks
+        ? { diagnosedBottlenecks: profile.diagnosedBottlenecks }
+        : {}),
     };
   }
 
@@ -1973,6 +2142,8 @@ class TelemetryCollector {
       (/Laptop|Mobile/i.test(gpuModel) ||
         (/NVIDIA/i.test(gpuModel) && /Intel|Radeon/i.test(userAgent)));
 
+    const installId = getOrCreateHashedInstallId();
+
     this.cachedHardware = {
       osFamily,
       osVersion: "production",
@@ -1984,6 +2155,7 @@ class TelemetryCollector {
       graphicsBackend,
       displayDpr,
       isHybridGpu,
+      ...(installId ? { hashedInstallId: installId } : {}),
     };
 
     return this.cachedHardware;
@@ -2042,6 +2214,12 @@ class TelemetryCollector {
         options.playbackSpeed,
         options.readbackSourceFrameStride,
         options.deadlineUs ?? 16_667,
+        options.transferPath ?? options.renderPath,
+        options.hwDecodeActive,
+        options.decoderName,
+        options.dxgiLatchedOff,
+        options.dxgiLatchReason,
+        options.presenter ?? options.previewContext?.presenterMode,
       );
 
       if (accumulator.shouldEmitRollup()) {
@@ -2051,7 +2229,8 @@ class TelemetryCollector {
 
     const droppedRatio = normalizedDroppedFrames / normalizedTotalFrames;
     const isAnomaly =
-      droppedRatio > 0.05 || timings.totalTimeUs > (options.deadlineUs ?? 16_667);
+      droppedRatio > 0.05 ||
+      timings.totalTimeUs > (options.deadlineUs ?? 16_667);
 
     const hasDroppedFrame =
       normalizedDroppedFrames > 0 ||
@@ -2205,6 +2384,12 @@ class TelemetryCollector {
         stageTimings: timings,
         stageTimingsSource: options.stageTimingsSource ?? "measured",
         renderPath: options.renderPath,
+        transferPath: options.transferPath ?? options.renderPath,
+        hwDecodeActive: options.hwDecodeActive,
+        decoderName: options.decoderName,
+        dxgiLatchedOff: options.dxgiLatchedOff,
+        dxgiLatchReason: options.dxgiLatchReason,
+        presenter: options.presenter ?? options.previewContext?.presenterMode,
         capabilityPolicy: options.capabilityPolicy,
         capabilityProbeUs: options.capabilityProbeUs,
         readbackMaxDimension: options.readbackMaxDimension,
@@ -2631,7 +2816,15 @@ class TelemetryCollector {
           renderedFps:
             phase === "interactive-preview"
               ? summary.windowDurationMs > 0
-                ? Math.min(60, Number(((summary.renderCount / (summary.windowDurationMs / 1000))).toFixed(1)))
+                ? Math.min(
+                    60,
+                    Number(
+                      (
+                        summary.renderCount /
+                        (summary.windowDurationMs / 1000)
+                      ).toFixed(1),
+                    ),
+                  )
                 : 0
               : totalTimeUs > 0
                 ? Math.min(60, 1_000_000 / totalTimeUs)
@@ -2849,7 +3042,15 @@ class TelemetryCollector {
           renderedFps:
             phase === "interactive-preview"
               ? summary.windowDurationMs > 0
-                ? Math.min(60, Number(((summary.renderCount / (summary.windowDurationMs / 1000))).toFixed(1)))
+                ? Math.min(
+                    60,
+                    Number(
+                      (
+                        summary.renderCount /
+                        (summary.windowDurationMs / 1000)
+                      ).toFixed(1),
+                    ),
+                  )
                 : 0
               : totalTimeUs > 0
                 ? Math.min(60, 1_000_000 / totalTimeUs)
@@ -3392,6 +3593,14 @@ class TelemetryCollector {
         containerFormat?: string;
         isHardwareAccelerated?: boolean;
         transferPath?: string;
+        decoderName?: string;
+        codecName?: string;
+        sourceBitsPerRawSample?: number;
+        sourceWidth?: number;
+        sourceHeight?: number;
+        dxgiLatchedOff?: boolean | null;
+        dxgiLatchReason?: string | null;
+        presenter?: "native-surface" | "bridge" | string;
       } | null;
       windowDroppedFrames?: number;
       windowStaleFrames?: number;
@@ -3417,6 +3626,58 @@ class TelemetryCollector {
 
     const last = nativeRender?.lastSample;
     if (!last) return;
+
+    // ── One-time DXGI latch event ────────────────────────────────────────────
+    // Fire exactly once per session when the latch first becomes true.
+    // null means non-Windows / unknown — never treat it as false.
+    if (last.dxgiLatchedOff === true && !this.dxgiLatchEventFired) {
+      this.dxgiLatchEventFired = true;
+      const hardware = this.initHardwareContext();
+      this.enqueueEvent({
+        eventId: `evt_dxgi_latch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        measurementId: `latch-event:${Date.now()}`,
+        measurementSource: "native-sample",
+        sampleKind: "latch-event",
+        appVersion: this.appVersion,
+        appBuildNumber: import.meta.env.MODE || "prod",
+        appEnvironment: import.meta.env.DEV ? "beta" : "production",
+        previewContext,
+        device: hardware,
+        video: this.sanitizeVideoProfile({
+          // codec and bitDepth from native sample may be wider types than the
+          // strict VideoMediaProfile literals; sanitizeVideoProfile normalises them.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          codec: (last.codecName ?? videoProfile?.codec) as any,
+          resolutionBucket: videoProfile?.resolutionBucket,
+          nominalFps: videoProfile?.nominalFps ?? 0,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          bitDepth: (last.sourceBitsPerRawSample ??
+            videoProfile?.bitDepth) as any,
+          hdrFormat: videoProfile?.hdrFormat,
+        }),
+        workload: {
+          mode: "playback",
+          durationMs: 0,
+          targetFps: 0,
+          renderedFps: 0,
+          totalFrames: 0,
+          droppedFrames: 0,
+          droppedFramesRatio: 0,
+          staleFrames: 0,
+          cancelledFrames: 0,
+          peakRamMb: 0,
+          cacheHitRatio: 0,
+          stageTimings: { totalTimeUs: 0 },
+          dxgiLatchedOff: true,
+          dxgiLatchReason: last.dxgiLatchReason ?? undefined,
+          decoderName: last.decoderName ?? last.codecName,
+          transferPath: last.transferPath,
+          hwDecodeActive: last.isHardwareAccelerated,
+          presenter: last.presenter ?? previewContext?.presenterMode,
+        },
+        timestampMs: Date.now(),
+      });
+    }
 
     const timings: TelemetryStageTimings = {
       decodeUs: last.decodeTimeUs,
@@ -3476,6 +3737,12 @@ class TelemetryCollector {
         capabilityPolicy: capabilityPolicyOverride ?? last.capabilityPolicy,
         capabilityProbeUs: last.capabilityProbeUs,
         renderPath: last.transferPath,
+        transferPath: last.transferPath,
+        hwDecodeActive: last.isHardwareAccelerated,
+        decoderName: last.decoderName,
+        dxgiLatchedOff: last.dxgiLatchedOff,
+        dxgiLatchReason: last.dxgiLatchReason ?? undefined,
+        presenter: last.presenter ?? previewContext?.presenterMode,
         // The native session is the authoritative frame stream for the Native
         // path. Frontend spans are used for WebView and compatibility fallback
         // only, so Native samples can feed the session rollup without being
@@ -3546,6 +3813,13 @@ class TelemetryCollector {
           readbackCadenceFps: rollup.readbackCadenceFps,
           playbackSpeed: rollup.playbackSpeed,
           readbackSourceFrameStride: rollup.readbackSourceFrameStride,
+          renderPath: rollup.transferPath,
+          transferPath: rollup.transferPath,
+          hwDecodeActive: rollup.hwDecodeActive,
+          decoderName: rollup.decoderName,
+          dxgiLatchedOff: rollup.dxgiLatchedOff,
+          dxgiLatchReason: rollup.dxgiLatchReason,
+          presenter: rollup.presenter ?? previewContext?.presenterMode,
         },
         timestampMs: Date.now(),
       });

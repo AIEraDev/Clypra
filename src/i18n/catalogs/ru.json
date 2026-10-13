@@ -225,5 +225,14 @@
   "properties.tabs.animation": "Анимация",
   "properties.tabs.transform": "Трансформация",
   "audio.clip_exceeds_memory_limit": "Аудиоклип слишком длинный для воспроизведения. Разделите клип на таймлайне на более короткие части, чтобы включить воспроизведение.",
-  "audio.clip_decode_failed": "Не удалось декодировать аудиоклип: {{error}}"
+  "audio.clip_decode_failed": "Не удалось декодировать аудиоклип: {{error}}",
+  "settings.diagnostics.telemetryDescription": "Clypra собирает анонимную телеметрию производительности (время кадров, класс видеокарты, задержка декодирования) для повышения стабильности на разных платформах. Личные данные, имена файлов и медиафайлы никогда не передаются.",
+  "settings.diagnostics.shareAnonymousDiagnostics": "Передавать анонимную диагностику производительности",
+  "settings.diagnostics.consentWithInstallIdNotice": "При включении локально сохраняется случайный анонимный идентификатор установки для дедупликации телеметрии без идентификации пользователя.",
+  "settings.diagnostics.sessionIdLabel": "ID сессии",
+  "settings.diagnostics.installIdLabel": "ID установки",
+  "settings.diagnostics.installIdReset": "Сбросить ID",
+  "settings.diagnostics.installIdDelete": "Удалить ID",
+  "settings.diagnostics.desktopOnlyNotice": "Управление диагностикой и телеметрией активно только в десктопной версии.",
+  "settings.diagnostics.ephemeralNotice": "Временный (согласие не предоставлено)"
 }
