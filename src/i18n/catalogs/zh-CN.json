@@ -221,5 +221,14 @@
   "properties.tabs.animation": "动画",
   "properties.tabs.transform": "变换",
   "audio.clip_exceeds_memory_limit": "音频片段过长无法播放。请在时间轴上将其分割为较短的片段以启用播放。",
-  "audio.clip_decode_failed": "音频片段解码失败：{{error}}"
+  "audio.clip_decode_failed": "音频片段解码失败：{{error}}",
+  "settings.diagnostics.telemetryDescription": "Clypra 收集匿名性能遥测数据（帧时间、GPU 硬件级别、解码延迟）以提高跨平台稳定性。绝不会传输任何个人数据、文件名或媒体内容。",
+  "settings.diagnostics.shareAnonymousDiagnostics": "共享匿名性能诊断数据",
+  "settings.diagnostics.consentWithInstallIdNotice": "启用后，将在本地存储一个随机的匿名安装 ID，以便在不跟踪您身份的情况下对遥测数据去重。",
+  "settings.diagnostics.sessionIdLabel": "会话 ID",
+  "settings.diagnostics.installIdLabel": "安装 ID",
+  "settings.diagnostics.installIdReset": "重置 ID",
+  "settings.diagnostics.installIdDelete": "删除 ID",
+  "settings.diagnostics.desktopOnlyNotice": "诊断和遥测控制仅在桌面环境中处于活动状态。",
+  "settings.diagnostics.ephemeralNotice": "临时（未同意）"
 }
