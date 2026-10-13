@@ -9,6 +9,7 @@ import {
   resolveNativeTextEffectDefinition,
   _clearBrowserTextRasterCache,
   _getBrowserTextRasterPromise,
+  _seedBrowserTextRasterCache,
 } from "../nativeTextPreview";
 
 function makeTextLayer(
@@ -42,6 +43,14 @@ function makeTextLayer(
     letterSpacing: 0,
     ...overrides,
   };
+}
+
+function scene_for_layer(layer: ReturnType<typeof makeTextLayer>) {
+  return {
+    visualLayers: [layer],
+    audioLayers: [],
+    metadata: { time: 0, duration: 5, fps: 60 },
+  } as any;
 }
 
 describe("native text raster compatibility", () => {
@@ -384,7 +393,209 @@ describe("browser preview blend mode painting", () => {
       globalThis.Image = originalImage;
     }
   });
+
+  it("CLY-BUG-001: does not treat video layers as images or stall canvas painting", async () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 800;
+    canvas.height = 600;
+    const ctx = canvas.getContext("2d")!;
+    vi.spyOn(canvas, "getContext").mockReturnValue(ctx as any);
+
+    const imageConstructorSpy = vi.fn();
+    const originalImage = globalThis.Image;
+    class MockVideoImage {
+      src = "";
+      complete = false;
+      constructor() {
+        imageConstructorSpy();
+      }
+      addEventListener() {}
+      removeEventListener() {}
+    }
+    (globalThis as any).Image = MockVideoImage;
+
+    try {
+      const videoLayer = {
+        layerId: "video-layer-1",
+        clipId: "video-clip-1",
+        role: "clip",
+        clipKind: "video",
+        mediaType: "video",
+        mediaId: "media-video-1",
+        sourcePath: "/path/to/interview.mp4",
+        x: 0,
+        y: 0,
+        width: 800,
+        height: 600,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 0,
+        blendMode: "normal",
+        inTransition: false,
+        layerType: "media",
+      } as any;
+
+      const scene = {
+        visualLayers: [videoLayer],
+        audioLayers: [],
+        metadata: { time: 0, duration: 5, fps: 60 },
+      } as any;
+
+      const start = performance.now();
+      await paintTextLayersToCanvas(canvas, scene, "interactive-preview");
+      const duration = performance.now() - start;
+
+      // Video layer must not be instantiated as an Image
+      expect(imageConstructorSpy).not.toHaveBeenCalled();
+      // Paint must complete immediately without waiting for image timeout
+      expect(duration).toBeLessThan(30);
+    } finally {
+      globalThis.Image = originalImage;
+    }
+  });
+
+  it("CLY-BUG-006: preserves cropped template offset and negative bleed in absolute positioning", async () => {
+    // Scenario: a text template with a tight crop was rasterized, producing an
+    // asset where rasterizeTextLayerForNative has already computed the correct
+    // canvas position:
+    //   layer.x = 100, bleedX = 20, croppedTemplate.offsetX = 15
+    //   => resolvedX = 100 - 20 + 15 = 95  (asset.x)
+    //   => resolvedBleedX = resolvedX - layer.x = -5  (asset.bleedX)
+    //
+    // The bug: paintTextLayersToCanvas used `layer.x + asset.bleedX` = 100 + (-5) = 95
+    //          which APPEARED correct but only worked because bleedX was negative.
+    //          When bleedX was POSITIVE (no crop, or large padding) it overcorrected.
+    //
+    // The fix: always use asset.x directly when positionMode === "absolute".
+    //   centerX = asset.x + asset.width / 2 = 95 + 100 = 195
+
+    _clearBrowserTextRasterCache();
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 800;
+    canvas.height = 600;
+    const ctx = canvas.getContext("2d")!;
+
+    let translatedX = 0;
+    let translatedY = 0;
+    ctx.translate = vi.fn().mockImplementation((x: number, y: number) => {
+      translatedX = x;
+      translatedY = y;
+    });
+    ctx.rotate = vi.fn();
+    ctx.save = vi.fn();
+    ctx.restore = vi.fn();
+    ctx.drawImage = vi.fn();
+    vi.spyOn(canvas, "getContext").mockReturnValue(ctx as any);
+
+    // Build the layer and its raster key so we can seed the cache
+    const layer = makeTextLayer({
+      layerId: "template-crop-cly006",
+      templateId: "lower-third",
+      clipKind: "text-template",
+      x: 100,
+      y: 200,
+      width: 400,
+      height: 100,
+    });
+
+    const assetWidth = 200; // tight-cropped width
+    const assetHeight = 50; // tight-cropped height
+    const assetX = 95; // 100 - 20 + 15 (bleed subtracted, cropOffset added)
+    const assetY = 190; // 200 - 20 + 10
+
+    // Pre-built asset as rasterizeTextLayerForNative would produce it
+    const prebuiltAsset = {
+      layerId: layer.layerId,
+      assetId: `native-text:${layer.layerId}:seeded`,
+      rgba: new Uint8ClampedArray(assetWidth * assetHeight * 4).fill(128),
+      width: assetWidth,
+      height: assetHeight,
+      x: assetX,
+      y: assetY,
+      rotation: 0,
+      opacity: 1,
+      zIndex: layer.zIndex,
+      blendMode: layer.blendMode,
+      isText: true,
+      positionMode: "absolute" as const,
+      bleedX: assetX - layer.x, // = -5
+      bleedY: assetY - layer.y, // = -10
+    } as any;
+
+    const rasterKey = buildNativeTextRasterKey(layer);
+    _seedBrowserTextRasterCache(rasterKey, prebuiltAsset);
+
+    // Also make createImageData / putImageData available (jsdom provides these)
+    await paintTextLayersToCanvas(
+      canvas,
+      scene_for_layer(layer),
+      "interactive-preview",
+    );
+
+    // posX = asset.x = 95, centerX = 95 + 200/2 = 195
+    // posY = asset.y = 190, centerY = 190 + 50/2 = 215
+    expect(ctx.translate).toHaveBeenCalled();
+    expect(translatedX).toBe(195);
+    expect(translatedY).toBe(215);
+  });
+
+  it("CLY-BUG-006 (regression): non-absolute layers still use layer.x/y for center calculation", async () => {
+    // Non-template text (no positionMode:"absolute") must keep using layer.x/y
+    _clearBrowserTextRasterCache();
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 800;
+    canvas.height = 600;
+    const ctx = canvas.getContext("2d")!;
+    let translatedX = 0;
+    let translatedY = 0;
+    ctx.translate = vi.fn().mockImplementation((x: number, y: number) => {
+      translatedX = x;
+      translatedY = y;
+    });
+    ctx.rotate = vi.fn();
+    ctx.save = vi.fn();
+    ctx.restore = vi.fn();
+    ctx.drawImage = vi.fn();
+    vi.spyOn(canvas, "getContext").mockReturnValue(ctx as any);
+
+    const layer = makeTextLayer({
+      layerId: "plain-text-cly006",
+      x: 50,
+      y: 80,
+      width: 300,
+      height: 60,
+    });
+
+    const prebuiltAsset = {
+      layerId: layer.layerId,
+      assetId: `native-text:${layer.layerId}:seeded`,
+      rgba: new Uint8ClampedArray(300 * 60 * 4).fill(200),
+      width: 300,
+      height: 60,
+      x: 50,
+      y: 80,
+      rotation: 0,
+      opacity: 1,
+      zIndex: layer.zIndex,
+      blendMode: layer.blendMode,
+      isText: true,
+      // positionMode NOT set — defaults to relative
+    } as any;
+
+    const rasterKey = buildNativeTextRasterKey(layer);
+    _seedBrowserTextRasterCache(rasterKey, prebuiltAsset);
+
+    await paintTextLayersToCanvas(
+      canvas,
+      scene_for_layer(layer),
+      "interactive-preview",
+    );
+
+    // Non-absolute: centerX = layer.x + layer.width/2 = 50 + 150 = 200
+    //               centerY = layer.y + layer.height/2 = 80 + 30 = 110
+    expect(translatedX).toBe(200);
+    expect(translatedY).toBe(110);
+  });
 });
-
-
-
