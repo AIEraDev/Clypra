@@ -259,6 +259,15 @@ pub struct PerformanceSample {
     /// Hardware acceleration device backend type (e.g. "d3d11va", "videotoolbox", "vaapi", "software").
     #[serde(default)]
     pub hw_device_type: Option<String>,
+    /// Whether DXGI zero-copy was latched off for this session.
+    /// `Some(true)` = latched (disabled), `Some(false)` = active (not latched).
+    /// `None` = non-Windows or state not yet known — never coerce to false.
+    #[serde(default)]
+    pub dxgi_latched_off: Option<bool>,
+    /// Kebab-case reason code for the latch (e.g. "dxgi-decode-failed").
+    /// `None` when `dxgi_latched_off` is not `Some(true)`.
+    #[serde(default)]
+    pub dxgi_latch_reason: Option<String>,
 }
 
 impl PerformanceSample {
