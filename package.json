@@ -37,6 +37,7 @@
     "skills:check": "node scripts/sync-kiro-skills.mjs --check",
     "audit:windows": "node scripts/daily-windows-audit.mjs",
     "audit:telemetry": "node scripts/daily-fleet-telemetry-audit.mjs",
+    "audit:test": "node --test scripts/__tests__/daily-fleet-telemetry-audit.test.mjs",
     "verify:architecture": "node scripts/harness/check-architecture.mjs",
     "verify:engine": "cargo test --manifest-path src-tauri/Cargo.toml engine::types::tests && vitest run src/core/evaluation/__tests__/mediaTimelineRegression.test.ts src/core/timeline/__tests__/audioClipsExportRangeFades.test.ts",
     "verify:engine:acceptance": "node scripts/harness/verify-engine-acceptance.mjs",
