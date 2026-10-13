@@ -143,9 +143,25 @@ pub(crate) fn decode_image_rgba_bytes(
     width: u32,
     height: u32,
 ) -> Result<Vec<u8>, String> {
-    let image = image::open(path)
-        .map_err(|error| format!("Failed to decode still image {}: {}", path, error))?
-        .to_rgba8();
+    let image = if path.starts_with("data:image/") || path.starts_with("data:") {
+        let b64_str = if let Some(idx) = path.find(";base64,") {
+            &path[idx + 8..]
+        } else if let Some(idx) = path.find(',') {
+            &path[idx + 1..]
+        } else {
+            path
+        };
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(b64_str.trim())
+            .map_err(|e| format!("Failed to decode base64 data URL: {}", e))?;
+        image::load_from_memory(&bytes)
+            .map_err(|error| format!("Failed to decode image from memory: {}", error))?
+            .to_rgba8()
+    } else {
+        image::open(path)
+            .map_err(|error| format!("Failed to decode still image {}: {}", path, error))?
+            .to_rgba8()
+    };
     let resized = if image.width() == width && image.height() == height {
         image
     } else {

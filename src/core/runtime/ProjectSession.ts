@@ -331,8 +331,14 @@ export class ProjectSession {
           layer.stickerFormat !== "lottie" &&
           (layer.clipId === clip.id || layer.layerId.startsWith(clip.id)),
       );
+      const stickerLayers = scene.visualLayers.filter(
+        (layer): layer is import("@/core/evaluation/types").EvaluatedMediaLayer =>
+          layer.layerType === "media" &&
+          layer.clipKind === "sticker" &&
+          (layer.clipId === clip.id || layer.layerId.startsWith(clip.id)),
+      );
 
-      if (textLayers.length === 0 && imageLayers.length === 0) return;
+      if (textLayers.length === 0 && imageLayers.length === 0 && stickerLayers.length === 0) return;
 
       await Promise.all([
         textLayers.length > 0
@@ -345,6 +351,13 @@ export class ProjectSession {
           : Promise.resolve(),
         imageLayers.length > 0
           ? bridge.prewarmImageAssets(scene)
+          : Promise.resolve(),
+        stickerLayers.length > 0
+          ? bridge.rasterize(scene, {
+              frameKey: 0,
+              stickerPhase: "sticker-prefetch",
+              nonBlockingStickers: false,
+            })
           : Promise.resolve(),
       ]);
     } catch (error) {

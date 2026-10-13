@@ -4451,8 +4451,12 @@ export const NativeProgramPreview: React.FC = () => {
             // Browser/local development has no retained native surface. Paint
             // evaluated text layers through the same package-backed raster
             // bridge so Program Preview is functional before Tauri starts.
+            // When nativeFrame is null and native child surface is not shown in Tauri,
+            // also fall back to canvas drawing so stickers and text are never left unpainted.
+            const needsCanvasFallback =
+              !isTauriRuntime() || (!nativeFrame && !nativeSurfaceShown);
             if (
-              !isTauriRuntime() &&
+              needsCanvasFallback &&
               canvasEl &&
               scene.visualLayers.some(
                 (layer) => layer.layerType === "text" || layer.layerType === "media",

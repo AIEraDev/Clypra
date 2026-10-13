@@ -70,6 +70,7 @@ import { evaluateEffectiveAudioState } from "@/core/audio/effectiveAudioState";
 import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import { expandCompoundClips } from "@/core/timeline/compoundClips";
 import { compareCompositorClips } from "@/core/compositor/ordering";
+import { STARTER_STICKERS } from "@/features/stickers/starterStickers";
 
 /**
  * Evaluate the NLE timeline at a specific time.
@@ -498,16 +499,43 @@ export function evaluateTimelineScene(
       !asset &&
       (clip.kind === "sticker" || clip.mediaId.startsWith("sticker-"))
     ) {
+      const starter = clip.stickerSourceId
+        ? STARTER_STICKERS.find((s) => s.id === clip.stickerSourceId)
+        : null;
+      const fallbackPath =
+        (clip as any).stickerImagePath ||
+        clip.stickerAnimationPath ||
+        starter?.svgThumbnail ||
+        starter?.lottieUrl ||
+        "";
       asset = {
         id: clip.mediaId,
-        name: clip.name || "Sticker",
-        path: (clip as any).stickerImagePath || clip.stickerAnimationPath || "",
+        name: clip.name || starter?.name || "Sticker",
+        path: fallbackPath,
         type: "image",
         duration: clip.duration,
         size: 0,
         stickerFormat: clip.stickerFormat,
         stickerAnimationPath: clip.stickerAnimationPath,
         stickerSourceId: clip.stickerSourceId,
+      };
+    }
+    if (
+      asset &&
+      !asset.path &&
+      (clip.kind === "sticker" || clip.mediaId.startsWith("sticker-"))
+    ) {
+      const starter = clip.stickerSourceId
+        ? STARTER_STICKERS.find((s) => s.id === clip.stickerSourceId)
+        : null;
+      asset = {
+        ...asset,
+        path:
+          (clip as any).stickerImagePath ||
+          clip.stickerAnimationPath ||
+          starter?.svgThumbnail ||
+          starter?.lottieUrl ||
+          "",
       };
     }
     if (!asset && clip.kind === "image" && clip.mediaUrl) {

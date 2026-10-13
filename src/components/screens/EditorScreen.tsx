@@ -8,20 +8,30 @@ import { usePlaybackControls } from "@/hooks/usePlaybackClock";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useGlobalSelectionDeselect } from "@/hooks/useGlobalSelectionDeselect";
 import { useProjectStore } from "@/store/projectStore";
+import { useTimelineStore } from "@/store/timelineStore";
 
 interface EditorScreenProps {
   onRequestClose?: () => void;
 }
 
-export const EditorScreen: React.FC<EditorScreenProps> = ({ onRequestClose }) => {
+export const EditorScreen: React.FC<EditorScreenProps> = ({
+  onRequestClose,
+}) => {
   useKeyboardShortcuts();
   useGlobalSelectionDeselect();
   const { setDuration } = usePlaybackControls();
   const projectDuration = useProjectStore((s) => s.project?.duration ?? 0);
+  const timelineDuration = useTimelineStore((s) => s.getTimelineEndTime());
 
   useEffect(() => {
-    setDuration(projectDuration);
-  }, [projectDuration, setDuration]);
+    const effectiveDuration =
+      timelineDuration > 0
+        ? timelineDuration
+        : projectDuration > 0
+          ? projectDuration
+          : 10;
+    setDuration(effectiveDuration);
+  }, [projectDuration, timelineDuration, setDuration]);
 
   // Force page/preview rendering when the editor screen mounts
   useEffect(() => {
