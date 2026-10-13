@@ -249,4 +249,4 @@ jobs:
           fi
 
       - name: Packaged Application & Distribution Smoke Test
-        run: node scripts/smoke-test-packaged-app.mjs
+        run: node scripts/smoke-test-packaged-app.mjs --skip-cargo

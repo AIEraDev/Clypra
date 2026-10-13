@@ -202,7 +202,11 @@ if (detectedBin) {
 
 // ── 5. In-App Sidecar Resolution & Clean-PATH Export Engine ───────────────
 console.log("\n5. Validating in-app sidecar resolution & clean-PATH export engine...");
-if (existsSync(join(srcTauriDir, "Cargo.toml"))) {
+const skipCargo = process.argv.includes("--skip-cargo") || Boolean(process.env.SKIP_CARGO_TEST);
+const hasCargo = !skipCargo && spawnSync("cargo", ["--version"], { stdio: "ignore" }).status === 0;
+const hasLinuxGlib = process.platform !== "linux" || spawnSync("pkg-config", ["--exists", "glib-2.0"], { stdio: "ignore" }).status === 0;
+
+if (existsSync(join(srcTauriDir, "Cargo.toml")) && hasCargo && hasLinuxGlib) {
   const cleanExportTest = spawnSync(
     "cargo",
     ["test", "--manifest-path", join(srcTauriDir, "Cargo.toml"), "--test", "clean_path_packaged_export_tests", "--", "--nocapture"],
@@ -216,6 +220,8 @@ if (existsSync(join(srcTauriDir, "Cargo.toml"))) {
   if (cleanExportTest.status !== 0) {
     console.error(cleanExportTest.stderr || cleanExportTest.stdout);
   }
+} else {
+  console.log("  ℹ️  Skipping cargo clean-PATH export test in environment lacking Rust/system desktop toolchain (verified in test-rust job).");
 }
 
 console.log("\n============================================================");
