@@ -767,6 +767,8 @@ fn record_native_surface_sample(
         hw_device_type: decode_timings.hw_device_type.clone(),
         cache_lock_wait_us: None,
         cache_insert_us: None,
+        dxgi_latched_off: None,
+        dxgi_latch_reason: None,
     });
 }
 
@@ -1266,12 +1268,11 @@ fn parse_blend_mode(value: &str) -> Result<BlendMode, String> {
 fn validate_transition(
     transition: &TransitionSnapshot,
     layer_ids: &[String],
-    raster_count: usize,
+    _raster_count: usize,
 ) -> Result<(), String> {
-    if layer_ids.len() != 2 || raster_count != 0 {
+    if layer_ids.len() < 2 {
         return Err(
-            "Native transitions currently require exactly two video layers and no raster layers"
-                .to_string(),
+            "Native transitions currently require at least two video layers".to_string(),
         );
     }
     if transition.outgoing_layer.trim().is_empty()
@@ -3427,6 +3428,8 @@ pub async fn queue_native_frame(
                             hw_device_type: decode_timings.hw_device_type.clone(),
                             cache_lock_wait_us: None,
                             cache_insert_us: None,
+                            dxgi_latched_off: None,
+                            dxgi_latch_reason: None,
                         });
                     }
                 }
@@ -4663,6 +4666,16 @@ pub(crate) async fn present_native_frame_internal(
             &transition_uniforms(transition),
             Some(clear_color),
         )?;
+        let overlays = if layers.len() > 2 { &layers[2..] } else { &[] };
+        if !overlays.is_empty() {
+            compositor.composite_layers(
+                &gpu.device,
+                &gpu.queue,
+                &target_view,
+                overlays,
+                None,
+            )?;
+        }
     } else {
         compositor.composite_layers(
             &gpu.device,
@@ -4955,6 +4968,8 @@ pub async fn render_native_frame(
                         hw_device_type: None,
                         cache_lock_wait_us: None,
                         cache_insert_us: None,
+                        dxgi_latched_off: None,
+                        dxgi_latch_reason: None,
                     });
                     log::debug!(
                         "[preview-diag][rust] render_native_frame UNCH: frame={} gen={:?}",
@@ -5031,6 +5046,8 @@ pub async fn render_native_frame(
                 hw_device_type: None,
                 cache_lock_wait_us: None,
                 cache_insert_us: None,
+                        dxgi_latched_off: None,
+                        dxgi_latch_reason: None,
             });
             record_successful_readback_metrics(&app, &request);
             return Ok(tauri::ipc::Response::new(packet.data));
@@ -5191,6 +5208,8 @@ pub async fn render_native_frame(
             hw_device_type: stage_timings.decode_telemetry.hw_device_type.clone(),
             cache_lock_wait_us: Some(cache_lock_wait_us),
             cache_insert_us,
+            dxgi_latched_off: None,
+            dxgi_latch_reason: None,
         });
 
         // Commit D: record this delivery so that the next identical playback
@@ -5218,7 +5237,16 @@ pub async fn get_native_frame_service_stats(
     let Some(service) = app.try_state::<tokio::sync::Mutex<NativeFrameService>>() else {
         return Err("Native frame service is not initialized".to_string());
     };
-    let stats = service.lock().await.stats();
+    let mut stats = service.lock().await.stats();
+    // Inject current DXGI latch state into last_sample at read time.
+    // This is done here (main crate) rather than in clypra-native-core because
+    // native_core is an isolated crate with no dependency on wgpu_compositor.
+    if let Some(ref mut s) = stats.last_sample {
+        let (latched, reason) =
+            crate::wgpu_compositor::adapter_selector::get_dxgi_latch_state();
+        s.dxgi_latched_off = latched;
+        s.dxgi_latch_reason = reason.map(|r| r.to_string());
+    }
     Ok(stats)
 }
 
@@ -5861,6 +5889,31 @@ mod tests {
         assert_eq!(raster.y, 80.0);
         assert_eq!(raster.display_width(), 80.0);
         assert_eq!(raster.display_height(), 20.0);
+    }
+
+    #[test]
+    fn test_cly_bug_002_transition_with_raster_and_extra_video_layers() {
+        let transition = super::TransitionSnapshot {
+            transition_type: "cross-dissolve".to_string(),
+            outgoing_layer: "video-1".to_string(),
+            incoming_layer: "video-2".to_string(),
+            progress: 0.5,
+            feather: 0.0,
+            intensity: 1.0,
+            fade_color: None,
+        };
+        // 3 video layers (outgoing, incoming, and an overlay video) + 1 raster overlay
+        let layer_ids = vec![
+            "video-1".to_string(),
+            "video-2".to_string(),
+            "video-3".to_string(),
+        ];
+        let result = super::validate_transition(&transition, &layer_ids, 1);
+        assert!(
+            result.is_ok(),
+            "Transitions must allow extra video layers and raster overlay layers: {:?}",
+            result
+        );
     }
 }
 
