@@ -1,0 +1,21 @@
+{
+  "rustVariants": [
+    "env-var-disabled",
+    "capability-unavailable",
+    "unsupported-feature",
+    "import-failed",
+    "invalid-texture",
+    "format-unsupported-p010",
+    "wrong-array-slice",
+    "device-lost",
+    "surface-creation-failed",
+    "dimension-mismatch",
+    "non-d3d11-surface",
+    "dxgi-decode-failed",
+    "no-cpu-planes",
+    "admin-policy"
+  ],
+  "workerSentinels": [
+    "other"
+  ]
+}

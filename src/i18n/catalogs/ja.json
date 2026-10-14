@@ -227,8 +227,9 @@
   "settings.diagnostics.consentWithInstallIdNotice": "有効にすると、ユーザーを特定せずに重複を排除するため、ランダムな匿名インストールIDがローカルに保存されます。",
   "settings.diagnostics.sessionIdLabel": "セッションID",
   "settings.diagnostics.installIdLabel": "インストールID",
-  "settings.diagnostics.installIdReset": "IDをリセット",
-  "settings.diagnostics.installIdDelete": "IDを削除",
+  "settings.diagnostics.installIdReset": "新しいIDを生成（今後のセッションのリンクを停止）",
+  "settings.diagnostics.installIdDelete": "IDを削除（今後のセッションのリンクを停止）",
+  "settings.diagnostics.installIdActionScope": "今後のセッションにのみ影響します。既に送信済みのセッションはサーバーから削除できません。",
   "settings.diagnostics.desktopOnlyNotice": "診断とテレメトリの制御はデスクトップ環境でのみ有効です。",
   "settings.diagnostics.ephemeralNotice": "エフェメラル（未同意）"
 }

@@ -227,8 +227,9 @@
   "settings.diagnostics.consentWithInstallIdNotice": "启用后，将在本地存储一个随机的匿名安装 ID，以便在不跟踪您身份的情况下对遥测数据去重。",
   "settings.diagnostics.sessionIdLabel": "会话 ID",
   "settings.diagnostics.installIdLabel": "安装 ID",
-  "settings.diagnostics.installIdReset": "重置 ID",
-  "settings.diagnostics.installIdDelete": "删除 ID",
+  "settings.diagnostics.installIdReset": "生成新 ID（停止关联未来会话）",
+  "settings.diagnostics.installIdDelete": "删除 ID（停止关联未来会话）",
+  "settings.diagnostics.installIdActionScope": "仅影响未来的会话。已提交的会话无法从服务器中删除。",
   "settings.diagnostics.desktopOnlyNotice": "诊断和遥测控制仅在桌面环境中处于活动状态。",
   "settings.diagnostics.ephemeralNotice": "临时（未同意）"
 }

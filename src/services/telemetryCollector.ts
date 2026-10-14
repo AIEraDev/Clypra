@@ -115,6 +115,12 @@ export const setHashedInstallConsent = setAnonymousInstallConsent;
 
 /**
  * Resets the pseudonymous installation identifier (generates a new one).
+ *
+ * IMPORTANT — UI copy must say: "stops linking future sessions to past ones".
+ * Deleting the local ID does NOT delete server-side rows already stored.
+ * Those rows contain a server-side HMAC of the old ID, not the raw value,
+ * so they cannot be correlated with new sessions even by a server operator.
+ *
  * Complies with privacy/GDPR requirements allowing users to unlink their install history.
  */
 export function resetAnonymousInstallId(): string | undefined {
@@ -1013,6 +1019,20 @@ export interface TelemetryTransportStatus {
 }
 
 /**
+/** Returns the key with the highest count, or undefined if the map is empty. */
+function dominantKey(counts: Map<string, number>): string | undefined {
+  let best: string | undefined;
+  let bestCount = 0;
+  for (const [key, count] of counts) {
+    if (count > bestCount) {
+      bestCount = count;
+      best = key;
+    }
+  }
+  return best;
+}
+
+/**
  * Continuous Session Rollup Accumulator.
  * Accumulates fine-grained frame metrics without spamming the network.
  */
@@ -1057,12 +1077,17 @@ class SessionRollupAccumulator {
   private readbackCadenceFps?: number;
   private playbackSpeed?: number;
   private readbackSourceFrameStride?: number;
-  private transferPath?: string;
+  // Last-seen sticky values (single-value tracking — replaced by per-window
+  // counts below for presenter and transferPath).
   private hwDecodeActive?: boolean;
   private decoderName?: string;
   private dxgiLatchedOff?: boolean | null;
   private dxgiLatchReason?: string;
-  private presenter?: "native-surface" | "bridge" | string;
+  // Per-window frame counts for presenter and transferPath.
+  // A window often contains a mix (e.g. native + bridge after pause handover),
+  // so we track counts and report the dominant value + a breakdown.
+  private presenterCounts: Map<string, number> = new Map();
+  private transferPathCounts: Map<string, number> = new Map();
 
   public recordThrottledAnomaly(): void {
     this.throttledAnomaliesCount++;
@@ -1208,12 +1233,23 @@ class SessionRollupAccumulator {
     if (playbackSpeed !== undefined) this.playbackSpeed = playbackSpeed;
     if (readbackSourceFrameStride !== undefined)
       this.readbackSourceFrameStride = readbackSourceFrameStride;
-    if (transferPath !== undefined) this.transferPath = transferPath;
+    // Accumulate per-frame counts for presenter and transferPath.
+    // These are per-window distributions, not single "last seen" values.
+    if (transferPath !== undefined && transferPath !== null) {
+      const key = transferPath;
+      this.transferPathCounts.set(
+        key,
+        (this.transferPathCounts.get(key) ?? 0) + 1,
+      );
+    }
     if (hwDecodeActive !== undefined) this.hwDecodeActive = hwDecodeActive;
     if (decoderName !== undefined) this.decoderName = decoderName;
     if (dxgiLatchedOff !== undefined) this.dxgiLatchedOff = dxgiLatchedOff;
     if (dxgiLatchReason !== undefined) this.dxgiLatchReason = dxgiLatchReason;
-    if (presenter !== undefined) this.presenter = presenter;
+    if (presenter !== undefined && presenter !== null) {
+      const key = presenter;
+      this.presenterCounts.set(key, (this.presenterCounts.get(key) ?? 0) + 1);
+    }
   }
 
   public recordSeek(seekLatencyMs: number): void {
@@ -1257,6 +1293,10 @@ class SessionRollupAccumulator {
     dxgiLatchedOff?: boolean | null;
     dxgiLatchReason?: string;
     presenter?: "native-surface" | "bridge" | string;
+    /** Per-window frame counts by presenter path. */
+    presenterCounts?: Record<string, number>;
+    /** Per-window frame counts by transfer path. */
+    transferPathCounts?: Record<string, number>;
   } | null {
     if (this.totalFrames === 0) {
       this.windowStartMs = Date.now();
@@ -1366,12 +1406,16 @@ class SessionRollupAccumulator {
       readbackCadenceFps: this.readbackCadenceFps,
       playbackSpeed: this.playbackSpeed,
       readbackSourceFrameStride: this.readbackSourceFrameStride,
-      transferPath: this.transferPath,
+      // Report the dominant transfer path and presenter (highest frame count),
+      // plus the full per-window counts so the analysis layer can see the split.
+      transferPath: dominantKey(this.transferPathCounts),
       hwDecodeActive: this.hwDecodeActive,
       decoderName: this.decoderName,
       dxgiLatchedOff: this.dxgiLatchedOff,
       dxgiLatchReason: this.dxgiLatchReason,
-      presenter: this.presenter,
+      presenter: dominantKey(this.presenterCounts),
+      presenterCounts: Object.fromEntries(this.presenterCounts),
+      transferPathCounts: Object.fromEntries(this.transferPathCounts),
     };
 
     this.windowStartMs = Date.now();
@@ -1412,12 +1456,12 @@ class SessionRollupAccumulator {
     this.readbackCadenceFps = undefined;
     this.playbackSpeed = undefined;
     this.readbackSourceFrameStride = undefined;
-    this.transferPath = undefined;
     this.hwDecodeActive = undefined;
     this.decoderName = undefined;
     this.dxgiLatchedOff = undefined;
     this.dxgiLatchReason = undefined;
-    this.presenter = undefined;
+    this.presenterCounts = new Map();
+    this.transferPathCounts = new Map();
 
     return result;
   }
@@ -1457,12 +1501,12 @@ class SessionRollupAccumulator {
     this.firstFrameVisibleMs = undefined;
     this.capabilityPolicy = undefined;
     this.capabilityProbeUs = undefined;
-    this.transferPath = undefined;
     this.hwDecodeActive = undefined;
     this.decoderName = undefined;
     this.dxgiLatchedOff = undefined;
     this.dxgiLatchReason = undefined;
-    this.presenter = undefined;
+    this.presenterCounts = new Map();
+    this.transferPathCounts = new Map();
   }
 }
 

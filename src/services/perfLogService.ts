@@ -126,7 +126,8 @@ interface MediaRuntimeStatus {
  * same counters every interval.
  */
 function nativeSyncFingerprint(snapshot: unknown): string {
-  if (!snapshot || typeof snapshot !== "object") return JSON.stringify(snapshot);
+  if (!snapshot || typeof snapshot !== "object")
+    return JSON.stringify(snapshot);
   const stable = { ...(snapshot as Record<string, unknown>) };
   delete stable.timestamp_epoch_ms;
   delete stable.timestampEpochMs;
@@ -301,20 +302,29 @@ export class PerfLogService {
         );
       }
     } catch (err) {
-      console.warn("[PerfLogService] Failed to upload pending perf logs via Rust:", err);
+      console.warn(
+        "[PerfLogService] Failed to upload pending perf logs via Rust:",
+        err,
+      );
     }
 
     // If any pending files remain on disk, attempt upload via uploadSessionFile (with browser fallback)
     try {
-      const files = await tauriInvoke<Array<{ filePath: string; fileName: string }>>("list_perf_log_files");
+      const files = await tauriInvoke<
+        Array<{ filePath: string; fileName: string }>
+      >("list_perf_log_files");
       const pendingFiles = files.filter(
-        (f) => f.filePath !== this.filePath && !f.fileName.endsWith(".uploaded"),
+        (f) =>
+          f.filePath !== this.filePath && !f.fileName.endsWith(".uploaded"),
       );
       for (const file of pendingFiles) {
         await this.uploadSessionFile(file.filePath);
       }
     } catch (err) {
-      console.warn("[PerfLogService] Failed to process remaining pending perf logs:", err);
+      console.warn(
+        "[PerfLogService] Failed to process remaining pending perf logs:",
+        err,
+      );
     }
   }
 
@@ -501,9 +511,8 @@ export class PerfLogService {
         if (nativeReport) {
           let frontendStats: unknown = null;
           try {
-            const { nativePerfCollector } = await import(
-              "@/core/playback/nativePerfTelemetry"
-            );
+            const { nativePerfCollector } =
+              await import("@/core/playback/nativePerfTelemetry");
             frontendStats = {
               units: "milliseconds",
               modeStats: nativePerfCollector.allStats(),
@@ -1069,45 +1078,60 @@ export class PerfLogService {
           payload,
         });
       });
-      const u2 = await tauriListen("clypra://engine-frame-anomaly", (payload) => {
-        if (!this.sessionId) return;
-        this.enqueue({
-          kind: "engine-frame-telemetry",
-          sessionId: this.sessionId,
-          timestampEpochMs: Date.now(),
-          payload,
-        });
-      });
-      const u3 = await tauriListen("clypra://engine-qos-decision", (payload) => {
-        if (!this.sessionId) return;
-        this.enqueue({
-          kind: "engine-qos-decision",
-          sessionId: this.sessionId,
-          timestampEpochMs: Date.now(),
-          payload,
-        });
-      });
-      const u4 = await tauriListen("clypra://engine-seek-telemetry", (payload) => {
-        if (!this.sessionId) return;
-        this.enqueue({
-          kind: "engine-seek-telemetry",
-          sessionId: this.sessionId,
-          timestampEpochMs: Date.now(),
-          payload,
-        });
-      });
-      const u5 = await tauriListen("clypra://zero-copy-violation", (payload) => {
-        if (!this.sessionId) return;
-        this.enqueue({
-          kind: "zero-copy-violation",
-          sessionId: this.sessionId,
-          timestampEpochMs: Date.now(),
-          payload,
-        });
-      });
+      const u2 = await tauriListen(
+        "clypra://engine-frame-anomaly",
+        (payload) => {
+          if (!this.sessionId) return;
+          this.enqueue({
+            kind: "engine-frame-telemetry",
+            sessionId: this.sessionId,
+            timestampEpochMs: Date.now(),
+            payload,
+          });
+        },
+      );
+      const u3 = await tauriListen(
+        "clypra://engine-qos-decision",
+        (payload) => {
+          if (!this.sessionId) return;
+          this.enqueue({
+            kind: "engine-qos-decision",
+            sessionId: this.sessionId,
+            timestampEpochMs: Date.now(),
+            payload,
+          });
+        },
+      );
+      const u4 = await tauriListen(
+        "clypra://engine-seek-telemetry",
+        (payload) => {
+          if (!this.sessionId) return;
+          this.enqueue({
+            kind: "engine-seek-telemetry",
+            sessionId: this.sessionId,
+            timestampEpochMs: Date.now(),
+            payload,
+          });
+        },
+      );
+      const u5 = await tauriListen(
+        "clypra://zero-copy-violation",
+        (payload) => {
+          if (!this.sessionId) return;
+          this.enqueue({
+            kind: "zero-copy-violation",
+            sessionId: this.sessionId,
+            timestampEpochMs: Date.now(),
+            payload,
+          });
+        },
+      );
       this.engineUnlistens = [u1, u2, u3, u4, u5];
     } catch (err) {
-      console.warn("[PerfLogService] Failed to subscribe to engine events:", err);
+      console.warn(
+        "[PerfLogService] Failed to subscribe to engine events:",
+        err,
+      );
     }
   }
 
@@ -1139,13 +1163,26 @@ export class PerfLogService {
    * Default is off for all installs including upgrades.
    */
   private isTelemetryUploadEnabled(): boolean {
+    // Never upload from a dev build — debug sessions report synthetic latch
+    // state (Some(false) on all OS) that would pollute the production fleet data.
+    if (import.meta.env.DEV) {
+      return false;
+    }
     // Env var takes precedence (contributors, CI)
-    const g = typeof globalThis !== "undefined" ? (globalThis as Record<string, unknown>) : {};
-    const proc = g.process as { env?: Record<string, string | undefined> } | undefined;
+    const g =
+      typeof globalThis !== "undefined"
+        ? (globalThis as Record<string, unknown>)
+        : {};
+    const proc = g.process as
+      | { env?: Record<string, string | undefined> }
+      | undefined;
     if (proc?.env?.CLYPRA_DISABLE_TELEMETRY_UPLOAD) {
       return false;
     }
-    if (typeof import.meta !== "undefined" && import.meta.env?.VITE_CLYPRA_DISABLE_TELEMETRY_UPLOAD === "1") {
+    if (
+      typeof import.meta !== "undefined" &&
+      import.meta.env?.VITE_CLYPRA_DISABLE_TELEMETRY_UPLOAD === "1"
+    ) {
       return false;
     }
     // User opt-in — default false so consent is never inferred

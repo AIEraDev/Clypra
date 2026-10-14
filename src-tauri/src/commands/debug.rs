@@ -12,25 +12,52 @@
 /// Rust→IPC→TypeScript→Worker→Neon chain can be verified without a real
 /// D3D11 failure.  Returns the canonical kebab-case string that was stored.
 ///
+/// Available only in debug builds (`debug_assertions`). Returns an error in
+/// release so the command is safe to register in the shared handler list.
+///
 /// `reason` — optional kebab-case code (e.g. "dxgi-decode-failed").
 /// Unrecognised or absent values default to "unsupported-feature".
 #[tauri::command]
 pub fn force_dxgi_latch(reason: Option<String>) -> Result<String, String> {
-    use crate::wgpu_compositor::adapter_selector::{
-        mark_dxgi_runtime_disabled_with_reason, parse_dxgi_latch_reason, DxgiLatchReasonCode,
-    };
-    let code = reason
-        .as_deref()
-        .and_then(parse_dxgi_latch_reason)
-        .unwrap_or(DxgiLatchReasonCode::UnsupportedFeature);
-    mark_dxgi_runtime_disabled_with_reason(code);
-    Ok(code.to_string())
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = reason;
+        return Err("force_dxgi_latch is only available in debug builds".to_string());
+    }
+    #[cfg(debug_assertions)]
+    {
+        use crate::wgpu_compositor::adapter_selector::{
+            latch_kind_for, mark_dxgi_runtime_disabled_with_context, parse_dxgi_latch_reason,
+            DxgiLatchContext, DxgiLatchReasonCode,
+        };
+        let code = reason
+            .as_deref()
+            .and_then(parse_dxgi_latch_reason)
+            .unwrap_or(DxgiLatchReasonCode::UnsupportedFeature);
+        mark_dxgi_runtime_disabled_with_context(
+            code,
+            DxgiLatchContext {
+                codec: None,
+                bit_depth: None,
+                source_width: None,
+                source_height: None,
+                hw_device_type: None,
+                latched_at_ms: crate::native_core::performance::now_ms(),
+                latch_kind: latch_kind_for(code),
+            },
+        );
+        Ok(code.to_string())
+    }
 }
 
-/// Clears the DXGI latch state atomics so subsequent stats() calls return the
-/// unlatched state.  Useful for resetting between chain-test assertions.
+/// Clears the DXGI latch state atomics.  Available only in debug builds.
 #[tauri::command]
 pub fn reset_dxgi_latch() -> Result<(), String> {
-    crate::wgpu_compositor::adapter_selector::reset_dxgi_latch_state_for_tests();
-    Ok(())
+    #[cfg(not(debug_assertions))]
+    return Err("reset_dxgi_latch is only available in debug builds".to_string());
+    #[cfg(debug_assertions)]
+    {
+        crate::wgpu_compositor::adapter_selector::reset_dxgi_latch_state_for_tests();
+        Ok(())
+    }
 }

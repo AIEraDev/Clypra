@@ -121,41 +121,131 @@ static DXGI_RUNTIME_DISABLED: std::sync::atomic::AtomicBool =
 static DXGI_LATCH_REASON: std::sync::atomic::AtomicU8 =
     std::sync::atomic::AtomicU8::new(0);
 
+/// Context captured at the moment the latch fires.
+/// Stored in a Mutex so it can hold variable-length strings.
+/// Populated once; only the first latch context is retained.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DxgiLatchContext {
+    /// Codec name at latch time (e.g. "h264", "hevc", "av1").
+    pub codec: Option<String>,
+    /// Source bit depth at latch time (8, 10, 12).
+    pub bit_depth: Option<u8>,
+    /// Source width at latch time in pixels.
+    pub source_width: Option<u32>,
+    /// Source height at latch time in pixels.
+    pub source_height: Option<u32>,
+    /// HW device type (e.g. "d3d11va", "software").
+    pub hw_device_type: Option<String>,
+    /// Wall-clock ms when the latch fired.
+    pub latched_at_ms: u64,
+    /// "policy" = intentional (env-var, admin); "failure" = unexpected decode error.
+    pub latch_kind: String,
+}
+
+static DXGI_LATCH_CONTEXT: std::sync::OnceLock<std::sync::Mutex<Option<DxgiLatchContext>>> =
+    std::sync::OnceLock::new();
+
+fn latch_context_lock() -> &'static std::sync::Mutex<Option<DxgiLatchContext>> {
+    DXGI_LATCH_CONTEXT.get_or_init(|| std::sync::Mutex::new(None))
+}
+
 pub fn mark_dxgi_runtime_disabled_with_reason(reason: DxgiLatchReasonCode) {
     DXGI_RUNTIME_DISABLED.store(true, std::sync::atomic::Ordering::Relaxed);
     DXGI_LATCH_REASON.store(reason_to_u8(reason), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// "policy" for intentional disables; "failure" for unexpected decode errors.
+pub fn latch_kind_for(reason: DxgiLatchReasonCode) -> String {
+    match reason {
+        DxgiLatchReasonCode::EnvVarDisabled | DxgiLatchReasonCode::AdminPolicy => {
+            "policy".to_string()
+        }
+        _ => "failure".to_string(),
+    }
+}
+
+/// Extended variant: also stores per-frame context at the latch site.
+/// Call this from decode paths that have codec/format/resolution available.
+pub fn mark_dxgi_runtime_disabled_with_context(
+    reason: DxgiLatchReasonCode,
+    context: DxgiLatchContext,
+) {
+    DXGI_RUNTIME_DISABLED.store(true, std::sync::atomic::Ordering::Relaxed);
+    DXGI_LATCH_REASON.store(reason_to_u8(reason), std::sync::atomic::Ordering::Relaxed);
+    if let Ok(mut guard) = latch_context_lock().lock() {
+        // First-write-wins: preserve the context from the triggering failure.
+        if guard.is_none() {
+            *guard = Some(context);
+        }
+    }
 }
 
 pub fn mark_dxgi_runtime_disabled() {
     mark_dxgi_runtime_disabled_with_reason(DxgiLatchReasonCode::UnsupportedFeature);
 }
 
-pub fn get_dxgi_latch_state() -> (Option<bool>, Option<DxgiLatchReasonCode>) {
-    #[cfg(target_os = "windows")]
+/// Returns `(latched: Option<bool>, reason: Option<DxgiLatchReasonCode>, context: Option<DxgiLatchContext>)`.
+/// `latched` is `None` on non-Windows (unknown state), `Some(false)` = active,
+/// `Some(true)` = disabled.
+///
+/// In debug builds on any OS: if the global latch atomics have been set via
+/// `force_dxgi_latch` or `mark_dxgi_runtime_disabled_with_*`, they are
+/// returned even on macOS/Linux.  This enables end-to-end chain verification
+/// (Rust → IPC → TypeScript → Worker → Neon) on a Mac without a Windows CI
+/// job, and is the only supported path for pre-release 1.6.1 verification.
+/// In release builds the non-Windows path always returns `(None, None, None)`.
+pub fn get_dxgi_latch_state() -> (Option<bool>, Option<DxgiLatchReasonCode>, Option<DxgiLatchContext>) {
+    // ── Debug builds: expose the latch state on all platforms ─────────────
+    // This block runs first on every OS when debug_assertions is on, so a
+    // developer on macOS can call force_dxgi_latch via the Tauri DevTools and
+    // prove the full chain end-to-end without a Windows machine.
+    #[cfg(debug_assertions)]
+    {
+        if DXGI_RUNTIME_DISABLED.load(std::sync::atomic::Ordering::Relaxed) {
+            let code = DXGI_LATCH_REASON.load(std::sync::atomic::Ordering::Relaxed);
+            let ctx = latch_context_lock().lock().ok().and_then(|g| g.clone());
+            return (
+                Some(true),
+                u8_to_reason(code).or(Some(DxgiLatchReasonCode::UnsupportedFeature)),
+                ctx,
+            );
+        }
+        // Return Some(false) in debug on all platforms when not latched,
+        // so callers can distinguish "not latched" from "not Windows".
+        return (Some(false), None, None);
+    }
+    // ── Production: Windows only ───────────────────────────────────────────
+    #[cfg(all(not(debug_assertions), target_os = "windows"))]
     {
         if std::env::var("CLYPRA_DISABLE_DXGI").as_deref() == Ok("1")
             || std::env::var("CLYPRA_DISABLE_DXGI_ZERO_COPY").as_deref() == Ok("1")
         {
-            return (Some(true), Some(DxgiLatchReasonCode::EnvVarDisabled));
+            return (Some(true), Some(DxgiLatchReasonCode::EnvVarDisabled), None);
         }
         if DXGI_RUNTIME_DISABLED.load(std::sync::atomic::Ordering::Relaxed) {
             let code = DXGI_LATCH_REASON.load(std::sync::atomic::Ordering::Relaxed);
+            let ctx = latch_context_lock().lock().ok().and_then(|g| g.clone());
             return (
                 Some(true),
                 u8_to_reason(code).or(Some(DxgiLatchReasonCode::UnsupportedFeature)),
+                ctx,
             );
         }
-        (Some(false), None)
+        return (Some(false), None, None);
     }
-    #[cfg(not(target_os = "windows"))]
+    // ── Production non-Windows: state is unknown ──────────────────────────
+    #[cfg(all(not(debug_assertions), not(target_os = "windows")))]
     {
-        (None, None)
+        (None, None, None)
     }
 }
 
 pub fn reset_dxgi_latch_state_for_tests() {
     DXGI_RUNTIME_DISABLED.store(false, std::sync::atomic::Ordering::Relaxed);
     DXGI_LATCH_REASON.store(0, std::sync::atomic::Ordering::Relaxed);
+    if let Ok(mut guard) = latch_context_lock().lock() {
+        *guard = None;
+    }
 }
 
 /// Parse a kebab-case reason string back into the enum.
@@ -409,8 +499,20 @@ impl GpuContext {
 mod tests {
     use super::*;
 
+    /// Guard that serializes all tests that read/write the global DXGI latch atomics.
+    /// Without this, parallel `cargo test` runs can see stale state from other tests.
+    static LATCH_MUTEX: std::sync::OnceLock<std::sync::Mutex<()>> =
+        std::sync::OnceLock::new();
+    fn latch_lock<'a>() -> std::sync::MutexGuard<'a, ()> {
+        LATCH_MUTEX
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn parse_dxgi_latch_reason_round_trips_all_14_codes() {
+        let _guard = latch_lock();
         let variants = [
             DxgiLatchReasonCode::EnvVarDisabled,
             DxgiLatchReasonCode::CapabilityUnavailable,
@@ -435,6 +537,128 @@ mod tests {
         }
         // Unknown string should return None, not panic.
         assert!(parse_dxgi_latch_reason("unknown-future-code").is_none());
+    }
+
+    /// Sync-check: the Display strings of all 14 variants must exactly match
+    /// the `rustVariants` array in `src/lib/platform/dxgi-latch-codes.json`.
+    ///
+    /// If this test fails, either the Rust enum's Display impl or the JSON
+    /// file was updated without updating the other.  Fix both, then re-run.
+    #[test]
+    fn display_strings_match_json_source_of_truth() {
+        let _guard = latch_lock();
+        // The JSON lives at src/lib/platform/dxgi-latch-codes.json relative
+        // to the workspace root.  include_str! resolves relative to this
+        // source file, so we go up to the workspace root.
+        const JSON_SRC: &str = include_str!(
+            "../../../src/lib/platform/dxgi-latch-codes.json"
+        );
+
+        // Minimal JSON parsing — extract the rustVariants array.
+        // We avoid pulling in a full JSON crate just for this test.
+        // The format is known and stable (generated by us), so simple extraction
+        // is safe here.
+        let variants_section = JSON_SRC
+            .split("\"rustVariants\"")
+            .nth(1)
+            .expect("rustVariants key not found in JSON");
+        let array_content = variants_section
+            .trim_start_matches(':')
+            .trim()
+            .trim_start_matches('[')
+            .split(']')
+            .next()
+            .expect("rustVariants array not terminated");
+
+        let json_codes: Vec<&str> = array_content
+            .split(',')
+            .map(|s| s.trim().trim_matches('"').trim())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        let rust_codes = [
+            DxgiLatchReasonCode::EnvVarDisabled,
+            DxgiLatchReasonCode::CapabilityUnavailable,
+            DxgiLatchReasonCode::UnsupportedFeature,
+            DxgiLatchReasonCode::ImportFailed,
+            DxgiLatchReasonCode::InvalidTexture,
+            DxgiLatchReasonCode::FormatUnsupportedP010,
+            DxgiLatchReasonCode::WrongArraySlice,
+            DxgiLatchReasonCode::DeviceLost,
+            DxgiLatchReasonCode::SurfaceCreationFailed,
+            DxgiLatchReasonCode::DimensionMismatch,
+            DxgiLatchReasonCode::NonD3d11Surface,
+            DxgiLatchReasonCode::DxgiDecodeFailed,
+            DxgiLatchReasonCode::NoCpuPlanes,
+            DxgiLatchReasonCode::AdminPolicy,
+        ];
+
+        assert_eq!(
+            rust_codes.len(),
+            json_codes.len(),
+            "Rust has {} variants but JSON has {} — update the JSON or the enum",
+            rust_codes.len(),
+            json_codes.len()
+        );
+
+        for (i, (variant, &json_code)) in rust_codes.iter().zip(json_codes.iter()).enumerate() {
+            let display = variant.to_string();
+            assert_eq!(
+                display, json_code,
+                "Variant #{i}: Rust Display '{display}' != JSON '{json_code}'"
+            );
+        }
+    }
+
+    /// In debug builds the latch state is visible on all platforms so the
+    /// end-to-end chain can be verified on macOS.
+    #[test]
+    fn debug_latch_state_visible_on_all_platforms() {
+        let _guard = latch_lock();
+        reset_dxgi_latch_state_for_tests();
+
+        // Before any latch: debug builds always return Some(false).
+        let (latched, reason, ctx) = get_dxgi_latch_state();
+        #[cfg(debug_assertions)]
+        {
+            assert_eq!(latched, Some(false), "debug: pre-latch should be Some(false) on all OS");
+            assert!(reason.is_none(), "debug: no reason before latch");
+            assert!(ctx.is_none());
+        }
+
+        // Force a latch.
+        mark_dxgi_runtime_disabled_with_context(
+            DxgiLatchReasonCode::DxgiDecodeFailed,
+            DxgiLatchContext {
+                codec: Some("h264".to_string()),
+                bit_depth: Some(8),
+                source_width: Some(1920),
+                source_height: Some(1080),
+                hw_device_type: Some("d3d11va".to_string()),
+                latched_at_ms: 0,
+                latch_kind: "failure".to_string(),
+            },
+        );
+
+        let (latched2, reason2, ctx2) = get_dxgi_latch_state();
+        #[cfg(debug_assertions)]
+        {
+            assert_eq!(latched2, Some(true), "debug: post-latch should be Some(true)");
+            assert_eq!(
+                reason2.map(|r| r.to_string()).as_deref(),
+                Some("dxgi-decode-failed"),
+            );
+            let c = ctx2.expect("debug: context should be populated");
+            assert_eq!(c.codec.as_deref(), Some("h264"));
+            assert_eq!(c.latch_kind, "failure");
+        }
+        // In release builds on non-Windows the state remains None.
+        #[cfg(all(not(debug_assertions), not(target_os = "windows")))]
+        {
+            assert_eq!(latched2, None);
+        }
+
+        reset_dxgi_latch_state_for_tests();
     }
 
     #[cfg(not(target_arch = "wasm32"))]

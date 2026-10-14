@@ -754,6 +754,7 @@ impl StreamDecoderActor {
                                     cache_insert_us: None,
                         dxgi_latched_off: None,
                         dxgi_latch_reason: None,
+                dxgi_latch_context: None,
                                 });
                             }
                         }
@@ -844,8 +845,19 @@ impl StreamDecoderActor {
                     }
                     Ok(None) => {
                         // Software or non-D3D11 frame or unsupported zero-copy; disable runtime DXGI probing
-                        crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled_with_reason(
+                        crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled_with_context(
                             crate::wgpu_compositor::adapter_selector::DxgiLatchReasonCode::NonD3d11Surface,
+                            crate::wgpu_compositor::adapter_selector::DxgiLatchContext {
+                                codec: Some(source_metadata.codec_name.clone()),
+                                bit_depth: Some(source_metadata.bits_per_raw_sample),
+                                source_width: Some(source_metadata.width),
+                                source_height: Some(source_metadata.height),
+                                hw_device_type: guard.hw_device_type().map(|s| s.to_string()),
+                                latched_at_ms: crate::native_core::performance::now_ms(),
+                                latch_kind: crate::wgpu_compositor::adapter_selector::latch_kind_for(
+                                    crate::wgpu_compositor::adapter_selector::DxgiLatchReasonCode::NonD3d11Surface,
+                                ),
+                            },
                         );
                     }
                     Err(err) => {
@@ -857,8 +869,19 @@ impl StreamDecoderActor {
                             target_time,
                             err
                         );
-                        crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled_with_reason(
+                        crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled_with_context(
                             crate::wgpu_compositor::adapter_selector::DxgiLatchReasonCode::DxgiDecodeFailed,
+                            crate::wgpu_compositor::adapter_selector::DxgiLatchContext {
+                                codec: Some(source_metadata.codec_name.clone()),
+                                bit_depth: Some(source_metadata.bits_per_raw_sample),
+                                source_width: Some(source_metadata.width),
+                                source_height: Some(source_metadata.height),
+                                hw_device_type: guard.hw_device_type().map(|s| s.to_string()),
+                                latched_at_ms: crate::native_core::performance::now_ms(),
+                                latch_kind: crate::wgpu_compositor::adapter_selector::latch_kind_for(
+                                    crate::wgpu_compositor::adapter_selector::DxgiLatchReasonCode::DxgiDecodeFailed,
+                                ),
+                            },
                         );
                         // Non-fatal: proceed to CPU NV12 fallback below
                     }

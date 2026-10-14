@@ -1,40 +1,37 @@
 /**
- * Single source of truth for DXGI latch reason codes.
+ * SINGLE SOURCE OF TRUTH: dxgi-latch-codes.json
  *
- * These strings are the canonical serialised form of the Rust
- * `DxgiLatchReasonCode` enum (Display impl, kebab-case).  The TypeScript
- * literal union, the Worker Zod schema, and the sync-check test all derive
- * from this one constant — never duplicate the list.
+ * This file derives its constants from the adjacent JSON file, which is the
+ * authoritative list.  The same JSON is copied to clypra-api/src/ for Worker
+ * validation.  A Rust test (adapter_selector.rs) also asserts that
+ * DxgiLatchReasonCode::Display strings exactly match the JSON's rustVariants.
  *
- * "other" is a Worker-side sentinel only: it is written to the DB when an
- * inbound code is unrecognised (newer client → older Worker).  The Rust side
- * never emits "other".
+ * Drift between Rust, TypeScript, and Worker is caught by the sync-check
+ * tests, which fail if any of the three disagrees with the JSON.
+ */
+import CODES_JSON from "./dxgi-latch-codes.json";
+
+/**
+ * All codes including the Worker-side "other" sentinel.
+ * rustVariants + workerSentinels, in declaration order.
  */
 export const DXGI_LATCH_REASON_CODES = [
-  "env-var-disabled",
-  "capability-unavailable",
-  "unsupported-feature",
-  "import-failed",
-  "invalid-texture",
-  "format-unsupported-p010",
-  "wrong-array-slice",
-  "device-lost",
-  "surface-creation-failed",
-  "dimension-mismatch",
-  "non-d3d11-surface",
-  "dxgi-decode-failed",
-  "no-cpu-planes",
-  "admin-policy",
-  // Worker-side only — never emitted by the Rust backend.
-  "other",
+  ...CODES_JSON.rustVariants,
+  ...CODES_JSON.workerSentinels,
 ] as const;
 
 export type DxgiLatchReasonCode = (typeof DXGI_LATCH_REASON_CODES)[number];
 
 /**
- * The 14 codes produced by the Rust backend.  "other" is excluded because it
- * is only ever generated at Worker ingest time.
+ * The 14 codes produced by the Rust backend.
+ * "other" is excluded — it is only ever generated at Worker ingest time.
  */
-export const RUST_DXGI_LATCH_REASON_CODES = DXGI_LATCH_REASON_CODES.filter(
-  (c): c is Exclude<DxgiLatchReasonCode, "other"> => c !== "other",
-);
+export const RUST_DXGI_LATCH_REASON_CODES: readonly string[] =
+  CODES_JSON.rustVariants;
+
+/**
+ * Latch reasons that indicate a deliberate policy decision (not a failure).
+ * Used by the digest to distinguish "intentionally disabled" from "broke".
+ */
+export const DXGI_LATCH_POLICY_REASONS: ReadonlySet<DxgiLatchReasonCode> =
+  new Set<DxgiLatchReasonCode>(["env-var-disabled", "admin-policy"]);
