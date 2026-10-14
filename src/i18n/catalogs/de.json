@@ -227,8 +227,9 @@
   "settings.diagnostics.consentWithInstallIdNotice": "Wenn aktiviert, wird lokal eine zufällige anonyme Installations-ID gespeichert, um Telemetriedaten ohne Identitätsverfolgung zu deduplizieren.",
   "settings.diagnostics.sessionIdLabel": "Sitzungs-ID",
   "settings.diagnostics.installIdLabel": "Installations-ID",
-  "settings.diagnostics.installIdReset": "ID zurücksetzen",
-  "settings.diagnostics.installIdDelete": "ID löschen",
+  "settings.diagnostics.installIdReset": "Neue ID generieren (verknüpft zukünftige Sitzungen nicht mehr)",
+  "settings.diagnostics.installIdDelete": "ID entfernen (verknüpft zukünftige Sitzungen nicht mehr)",
+  "settings.diagnostics.installIdActionScope": "Betrifft nur zukünftige Sitzungen. Bereits übermittelte Sitzungen können nicht vom Server entfernt werden.",
   "settings.diagnostics.desktopOnlyNotice": "Diagnose- und Telemetriesteuerungen sind nur in der Desktop-Umgebung aktiv.",
   "settings.diagnostics.ephemeralNotice": "Flüchtig (nicht zugestimmt)"
 }

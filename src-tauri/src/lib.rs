@@ -818,11 +818,17 @@ pub fn run() {
             write_bench_report,
             exit_app,
             // ── Debug / chain-test commands ──────────────────────────────────
-            // Registered in all builds; only modify in-process state (atomics).
-            force_dxgi_latch,
-            reset_dxgi_latch,
-        ])
-        .on_window_event(|window, event| {
+            // Registered in all builds; the command bodies return an error in
+            // release builds (#[cfg(not(debug_assertions))]) so a webview
+            // script can't actually use them in production.  Single handler
+            // list is required — a second invoke_handler() call replaces the
+            // first (see tauri::Builder::invoke_handler: self.invoke_handler =
+            // Box::new(invoke_handler)).
+            crate::commands::debug::force_dxgi_latch,
+            crate::commands::debug::reset_dxgi_latch,
+        ]);
+
+        let builder = builder.on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
                     // Prevent immediate OS destruction so the webview can perform

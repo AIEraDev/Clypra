@@ -268,6 +268,13 @@ pub struct PerformanceSample {
     /// `None` when `dxgi_latched_off` is not `Some(true)`.
     #[serde(default)]
     pub dxgi_latch_reason: Option<String>,
+    /// Context captured at the moment the latch fired — codec, bit depth,
+    /// resolution, and hw device type from the triggering decode call.
+    /// Only present on the sample where the latch first occurred.
+    /// Uses a raw JSON value so the native-core crate stays independent
+    /// of wgpu_compositor; the command layer overwrites this field.
+    #[serde(default)]
+    pub dxgi_latch_context: Option<serde_json::Value>,
 }
 
 impl PerformanceSample {

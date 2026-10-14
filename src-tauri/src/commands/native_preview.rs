@@ -769,6 +769,7 @@ fn record_native_surface_sample(
         cache_insert_us: None,
         dxgi_latched_off: None,
         dxgi_latch_reason: None,
+                dxgi_latch_context: None,
     });
 }
 
@@ -3430,6 +3431,7 @@ pub async fn queue_native_frame(
                             cache_insert_us: None,
                             dxgi_latched_off: None,
                             dxgi_latch_reason: None,
+                dxgi_latch_context: None,
                         });
                     }
                 }
@@ -4970,6 +4972,7 @@ pub async fn render_native_frame(
                         cache_insert_us: None,
                         dxgi_latched_off: None,
                         dxgi_latch_reason: None,
+                dxgi_latch_context: None,
                     });
                     log::debug!(
                         "[preview-diag][rust] render_native_frame UNCH: frame={} gen={:?}",
@@ -5048,6 +5051,7 @@ pub async fn render_native_frame(
                 cache_insert_us: None,
                         dxgi_latched_off: None,
                         dxgi_latch_reason: None,
+                dxgi_latch_context: None,
             });
             record_successful_readback_metrics(&app, &request);
             return Ok(tauri::ipc::Response::new(packet.data));
@@ -5210,6 +5214,7 @@ pub async fn render_native_frame(
             cache_insert_us,
             dxgi_latched_off: None,
             dxgi_latch_reason: None,
+                dxgi_latch_context: None,
         });
 
         // Commit D: record this delivery so that the next identical playback
@@ -5242,10 +5247,11 @@ pub async fn get_native_frame_service_stats(
     // This is done here (main crate) rather than in clypra-native-core because
     // native_core is an isolated crate with no dependency on wgpu_compositor.
     if let Some(ref mut s) = stats.last_sample {
-        let (latched, reason) =
+        let (latched, reason, ctx) =
             crate::wgpu_compositor::adapter_selector::get_dxgi_latch_state();
         s.dxgi_latched_off = latched;
         s.dxgi_latch_reason = reason.map(|r| r.to_string());
+        s.dxgi_latch_context = ctx.and_then(|c| serde_json::to_value(c).ok());
     }
     Ok(stats)
 }

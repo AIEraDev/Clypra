@@ -227,8 +227,9 @@
   "settings.diagnostics.consentWithInstallIdNotice": "When enabled, a randomized anonymous install ID is stored locally to deduplicate telemetry without tracking your identity.",
   "settings.diagnostics.sessionIdLabel": "Session ID",
   "settings.diagnostics.installIdLabel": "Install ID",
-  "settings.diagnostics.installIdReset": "Reset ID",
-  "settings.diagnostics.installIdDelete": "Delete ID",
+  "settings.diagnostics.installIdReset": "Generate new ID (stops linking future sessions)",
+  "settings.diagnostics.installIdDelete": "Remove ID (stops linking future sessions)",
+  "settings.diagnostics.installIdActionScope": "Affects future sessions only. Previously submitted sessions cannot be removed from the server.",
   "settings.diagnostics.desktopOnlyNotice": "Diagnostics and telemetry controls are only active in desktop environment.",
   "settings.diagnostics.ephemeralNotice": "Ephemeral (not consented)"
 }

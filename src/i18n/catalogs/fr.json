@@ -227,8 +227,9 @@
   "settings.diagnostics.consentWithInstallIdNotice": "Lorsqu'il est activé, un identifiant d'installation anonyme aléatoire est stocké localement pour dédupliquer les données sans suivre votre identité.",
   "settings.diagnostics.sessionIdLabel": "ID de session",
   "settings.diagnostics.installIdLabel": "ID d'installation",
-  "settings.diagnostics.installIdReset": "Réinitialiser l'ID",
-  "settings.diagnostics.installIdDelete": "Supprimer l'ID",
+  "settings.diagnostics.installIdReset": "Générer un nouvel ID (cesse de lier les sessions futures)",
+  "settings.diagnostics.installIdDelete": "Supprimer l'ID (cesse de lier les sessions futures)",
+  "settings.diagnostics.installIdActionScope": "Affecte uniquement les sessions futures. Les sessions déjà soumises ne peuvent pas être supprimées du serveur.",
   "settings.diagnostics.desktopOnlyNotice": "Les contrôles de diagnostic et de télémétrie ne sont actifs que sur l'application de bureau.",
   "settings.diagnostics.ephemeralNotice": "Éphémère (non consenti)"
 }

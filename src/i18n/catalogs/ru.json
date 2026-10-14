@@ -231,8 +231,9 @@
   "settings.diagnostics.consentWithInstallIdNotice": "При включении локально сохраняется случайный анонимный идентификатор установки для дедупликации телеметрии без идентификации пользователя.",
   "settings.diagnostics.sessionIdLabel": "ID сессии",
   "settings.diagnostics.installIdLabel": "ID установки",
-  "settings.diagnostics.installIdReset": "Сбросить ID",
-  "settings.diagnostics.installIdDelete": "Удалить ID",
+  "settings.diagnostics.installIdReset": "Создать новый ID (прекратить связывание будущих сессий)",
+  "settings.diagnostics.installIdDelete": "Удалить ID (прекратить связывание будущих сессий)",
+  "settings.diagnostics.installIdActionScope": "Влияет только на будущие сессии. Ранее отправленные сессии не могут быть удалены с сервера.",
   "settings.diagnostics.desktopOnlyNotice": "Управление диагностикой и телеметрией активно только в десктопной версии.",
   "settings.diagnostics.ephemeralNotice": "Временный (согласие не предоставлено)"
 }

@@ -300,6 +300,20 @@ export interface NativePerformanceSample {
   dxgiLatchedOff?: boolean | null;
   /** Kebab-case reason code for the latch; null unless dxgiLatchedOff is true. */
   dxgiLatchReason?: DxgiLatchReasonCode | null;
+  /**
+   * Context captured at the moment the latch fired.
+   * Contains codec, bitDepth, sourceWidth, sourceHeight, hwDeviceType, latchedAtMs.
+   * Null on non-Windows or for samples recorded after the latch (context is
+   * only populated on the triggering sample).
+   */
+  dxgiLatchContext?: {
+    codec?: string | null;
+    bitDepth?: number | null;
+    sourceWidth?: number | null;
+    sourceHeight?: number | null;
+    hwDeviceType?: string | null;
+    latchedAtMs?: number;
+  } | null;
   /** Normalised codec / decoder name (e.g. "h264", "hevc", "av1"). */
   decoderName?: string;
   /** Presenter path active at frame time ("native-surface" or "bridge"). */

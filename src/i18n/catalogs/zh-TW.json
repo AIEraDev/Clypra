@@ -227,8 +227,9 @@
   "settings.diagnostics.consentWithInstallIdNotice": "啟用後，將在本地儲存一個隨機的匿名安裝 ID，以便在不追蹤您身分的情況下對遙測資料去重。",
   "settings.diagnostics.sessionIdLabel": "工作階段 ID",
   "settings.diagnostics.installIdLabel": "安裝 ID",
-  "settings.diagnostics.installIdReset": "重設 ID",
-  "settings.diagnostics.installIdDelete": "刪除 ID",
+  "settings.diagnostics.installIdReset": "產生新 ID（停止連結未來工作階段）",
+  "settings.diagnostics.installIdDelete": "刪除 ID（停止連結未來工作階段）",
+  "settings.diagnostics.installIdActionScope": "僅影響未來的工作階段。已提交的工作階段無法從伺服器中刪除。",
   "settings.diagnostics.desktopOnlyNotice": "診斷和遙測控制僅在桌面環境中處於活動狀態。",
   "settings.diagnostics.ephemeralNotice": "臨時（未同意）"
 }
