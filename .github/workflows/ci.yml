@@ -126,18 +126,20 @@ jobs:
             --disable-indevs \
             --disable-outdevs \
             --enable-zlib
-          make -j$(nproc) install
+          make -j"$(nproc)" install
           rm -rf /tmp/ffmpeg-src
 
       - name: Configure FFmpeg Environment (Linux)
         run: |
-          echo "FFMPEG_DIR=${{ runner.temp }}/ffmpeg-static" >> $GITHUB_ENV
-          echo "PKG_CONFIG_PATH=${{ runner.temp }}/ffmpeg-static/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig" >> $GITHUB_ENV
-          echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> $GITHUB_ENV
-          echo "VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> $GITHUB_ENV
-          echo "LIBGL_ALWAYS_SOFTWARE=1" >> $GITHUB_ENV
-          echo "CLYPRA_ALLOW_FALLBACK_GPU=1" >> $GITHUB_ENV
-          echo "WGPU_ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER=1" >> $GITHUB_ENV
+          {
+            echo "FFMPEG_DIR=${{ runner.temp }}/ffmpeg-static"
+            echo "PKG_CONFIG_PATH=${{ runner.temp }}/ffmpeg-static/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig"
+            echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
+            echo "VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
+            echo "LIBGL_ALWAYS_SOFTWARE=1"
+            echo "CLYPRA_ALLOW_FALLBACK_GPU=1"
+            echo "WGPU_ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER=1"
+          } >> "$GITHUB_ENV"
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
