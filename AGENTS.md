@@ -137,6 +137,16 @@ Before reporting any task complete, every agent must verify:
    - `npm run docs:check` passed if documentation links changed.
 6. **Clean Working Tree**: No untracked scratch files left in source directories.
 7. **Explicit Reporting**: Document what was verified, commands executed, and any environment-dependent checks that could not run.
+8. **Subsystem Contract Suites**: When changing files in `src/core/playback/`, `src/core/audio/`, `src/components/editor/preview/`, or `src/features/text-effects/`, ALL four behavioral contract suites must pass:
+   ```bash
+   npx vitest run src/core/playback/__tests__/replayBehavioralContract.test.ts
+   npx vitest run src/core/audio/__tests__/audioPreviewSyncContract.test.ts
+   npx vitest run src/components/editor/preview/__tests__/previewStateResetContract.test.ts
+   npx vitest run src/features/text-effects/__tests__/textEditPreviewCycle.test.ts
+   ```
+9. **Negative Control (Bug Fixes)**: Every bug fix must demonstrate that the new regression test FAILS on the base commit. Apply only the test file to the pre-fix codebase and confirm failure.
+10. **Evidence Bundle**: Changes to preview, playback, audio, text, or sticker code must include raw command output in the PR description. Use the PR template at `.github/pull_request_template.md`.
+11. **Mutation Canary**: Run `npm run verify:canary-mutations` to confirm known-bad patches turn contract tests red.
 
 ---
 

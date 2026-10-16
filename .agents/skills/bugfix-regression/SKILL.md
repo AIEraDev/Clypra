@@ -58,6 +58,11 @@ Every bug fix must be evidence-driven. Never guess at a fix or apply superficial
 - **Rust Backend Bugs**:
   - Add regression tests in `src-tauri/tests/audit_regressions.rs` or the relevant module test.
 
+### 4b. Verify Negative Control (Mandatory)
+- Confirm the new regression test fails WITHOUT the fix applied.
+- See **AGENTS.md Section 6, Item 9** for the canonical negative-control requirement.
+- The CI `bugfix-verification` job enforces this mechanically for PRs labelled `bugfix`.
+
 ### 5. Correct the Root Cause
 - Implement the minimal, robust fix targeting the verified root cause.
 - Maintain existing invariants:
@@ -72,6 +77,13 @@ Every bug fix must be evidence-driven. Never guess at a fix or apply superficial
 ```bash
 # Preview render loop suite
 npx vitest run src/components/editor/preview/__tests__/ProgramPreview.renderLoop.test.ts
+
+# Subsystem contract suites (mandatory when changing preview/playback/audio/text)
+# See AGENTS.md Section 6, Item 8
+npx vitest run src/core/playback/__tests__/replayBehavioralContract.test.ts
+npx vitest run src/core/audio/__tests__/audioPreviewSyncContract.test.ts
+npx vitest run src/components/editor/preview/__tests__/previewStateResetContract.test.ts
+npx vitest run src/features/text-effects/__tests__/textEditPreviewCycle.test.ts
 
 # Subsystem tests
 npx vitest run <path/to/affected/__tests__/>
