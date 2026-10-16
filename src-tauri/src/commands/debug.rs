@@ -61,3 +61,58 @@ pub fn reset_dxgi_latch() -> Result<(), String> {
         Ok(())
     }
 }
+
+/// Debug-only preview frame capture for Layer C end-to-end verification.
+///
+/// Returns raw RGBA8 pixels rendered by the native wgpu compositor.
+/// Available ONLY in debug builds (`debug_assertions`).
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub async fn capture_preview_frame(
+    app: tauri::AppHandle,
+    time: Option<f64>,
+    request: Option<crate::native_core::FrameRequest>,
+) -> Result<tauri::ipc::Response, String> {
+    if let Some(req) = request {
+        crate::commands::native_preview::render_native_frame(app, req).await
+    } else {
+        use crate::native_core::{
+            ColorPolicy, FrameRequest, FrameTime, ProjectSnapshot, QualityTier, DEFAULT_TIME_SCALE,
+            NATIVE_CORE_CONTRACT_VERSION,
+        };
+        let t = time.unwrap_or(0.0);
+        let frame_index = (t * 30.0).round() as u64;
+        let ticks = (t * DEFAULT_TIME_SCALE as f64).round() as i64;
+        let req = FrameRequest {
+            contract_version: NATIVE_CORE_CONTRACT_VERSION,
+            request_id: format!("debug-capture-{}", frame_index),
+            frame_time: FrameTime::new(frame_index, ticks, DEFAULT_TIME_SCALE)
+                .map_err(|e| e.to_string())?,
+            project: ProjectSnapshot {
+                schema_version: 1,
+                project_revision: "debug-capture".to_string(),
+                frame_rate: 30,
+                canvas_width: 1920,
+                canvas_height: 1080,
+                clear_color: [0.0, 0.0, 0.0, 1.0],
+                video_layers: vec![],
+                raster_layers: vec![],
+                text_layers: vec![],
+                transition: None,
+            },
+            output_width: 1920,
+            output_height: 1080,
+            quality: QualityTier::Full,
+            color_policy: ColorPolicy::default(),
+            render_graph_version: 1,
+            mode: Some("frameStep".to_string()),
+            generation: None,
+            scrub_velocity_px_per_second: None,
+            requested_at_ms: None,
+            is_scrubbing: None,
+            allow_keyframe_approx: None,
+        };
+        crate::commands::native_preview::render_native_frame(app, req).await
+    }
+}
+

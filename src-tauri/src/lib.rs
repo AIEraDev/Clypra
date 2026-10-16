@@ -826,6 +826,8 @@ pub fn run() {
             // Box::new(invoke_handler)).
             crate::commands::debug::force_dxgi_latch,
             crate::commands::debug::reset_dxgi_latch,
+            #[cfg(debug_assertions)]
+            crate::commands::debug::capture_preview_frame,
         ]);
 
         let builder = builder.on_window_event(|window, event| {
