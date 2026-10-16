@@ -1,0 +1,7 @@
+--- a/src/components/editor/preview/nativeTextPreview.ts
++++ b/src/components/editor/preview/nativeTextPreview.ts
+@@ -306,3 +306,3 @@
+       ctx.rotate((layer.rotation * Math.PI) / 180);
+-      ctx.drawImage(bitmap.source, -asset.width / 2, -asset.height / 2);
++      // MUTATION: drop drawImage for text layers
+       ctx.restore();

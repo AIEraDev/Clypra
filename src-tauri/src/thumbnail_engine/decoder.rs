@@ -598,6 +598,33 @@ impl VideoDecoder {
         self.stream_metadata.is_hardware_accelerated
     }
 
+    pub fn hw_device_type(&self) -> Option<&'static str> {
+        self.last_decode_activity.hw_device_type.or_else(|| {
+            self.stream_metadata.is_hardware_accelerated.then_some({
+                #[cfg(target_os = "windows")]
+                {
+                    "d3d11va"
+                }
+                #[cfg(target_os = "macos")]
+                {
+                    "videotoolbox"
+                }
+                #[cfg(target_os = "linux")]
+                {
+                    "vaapi"
+                }
+                #[cfg(not(any(
+                    target_os = "windows",
+                    target_os = "macos",
+                    target_os = "linux"
+                )))]
+                {
+                    "unknown"
+                }
+            })
+        })
+    }
+
     pub fn last_demux_us(&self) -> u32 {
         self.last_demux_us
     }

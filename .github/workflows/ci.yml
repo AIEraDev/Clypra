@@ -150,8 +150,7 @@ jobs:
         run: cd src-tauri && cargo test
 
       - name: Run Headless GPU tests (Mesa Lavapipe)
-        continue-on-error: true
-        run: cd src-tauri && cargo test --test multi_track_compositor_tests -- --ignored
+        run: cd src-tauri && cargo test --test multi_track_compositor_tests --test compositor_raster_transform_tests --test compositor_roundtrip_fixture_tests -- --ignored
 
       - name: Run Clippy
         run: cd src-tauri && cargo clippy -- -D warnings
