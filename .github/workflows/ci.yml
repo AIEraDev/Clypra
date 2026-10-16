@@ -63,20 +63,23 @@ jobs:
 
       - name: Subsystem Behavioral Contracts (Preview, Playback, Audio, Text, RoundTrip)
         run: |
-          npx vitest run src/core/playback/__tests__/replayBehavioralContract.test.ts
-          npx vitest run src/core/audio/__tests__/audioPreviewSyncContract.test.ts
-          npx vitest run src/components/editor/preview/__tests__/previewStateResetContract.test.ts
-          npx vitest run src/features/text-effects/__tests__/textEditPreviewCycle.test.ts
-          npx vitest run src/core/evaluation/__tests__/requestRoundTripFixture.test.ts
+          mkdir -p test-results
+          npx vitest run \
+            src/core/playback/__tests__/replayBehavioralContract.test.ts \
+            src/core/audio/__tests__/audioPreviewSyncContract.test.ts \
+            src/components/editor/preview/__tests__/previewStateResetContract.test.ts \
+            src/features/text-effects/__tests__/textEditPreviewCycle.test.ts \
+            src/core/evaluation/__tests__/requestRoundTripFixture.test.ts \
+            | tee test-results/subsystem-contracts.log
 
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium
 
       - name: Layer A Playwright Pixel Validation
-        run: npx playwright test tests/e2e/preview-canvas-pixel-validation.spec.ts
+        run: npx playwright test tests/e2e/preview-canvas-pixel-validation.spec.ts | tee test-results/layer-a-playwright.log
 
-      - name: Verify Mutation Canary Invariants
-        run: npm run verify:canary-mutations
+      - name: Verify Mutation Canary Invariants (Frontend & Layer A)
+        run: npm run verify:canary-mutations -- --frontend | tee test-results/frontend-canary-mutations.log
 
       - name: Verify Mechanical Evidence Gate
         run: npm run verify:evidence -- --ci
@@ -84,15 +87,12 @@ jobs:
       - name: Execute Unified Engineering Quality Gate
         run: npm run verify:gate:ci
 
-      - name: Upload Quality Gate Reports
+      - name: Upload Quality Gate & Test Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: quality-gate-reports
-          path: |
-            test-results/quality-gate-report.json
-            test-results/quality-gate-summary.md
-            test-results/playback-concurrency-benchmark.json
+          name: frontend-and-quality-gate-reports
+          path: test-results/
 
   test-rust:
     name: Test Rust Backend (Linux)
@@ -171,6 +171,27 @@ jobs:
 
       - name: Run Headless GPU tests (Mesa Lavapipe)
         run: cd src-tauri && cargo test --test multi_track_compositor_tests --test compositor_raster_transform_tests --test compositor_roundtrip_fixture_tests -- --ignored
+
+      - name: Setup Node.js (for canary harness)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify Mutation Canary Invariants (Rust Compositor & Audio)
+        run: |
+          mkdir -p test-results
+          node scripts/harness/run-canary-mutations.mjs --rust | tee test-results/rust-canary-mutations.log
+
+      - name: Upload Rust Canary Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-canary-reports
+          path: test-results/rust-canary-mutations.log
 
       - name: Run Clippy
         run: cd src-tauri && cargo clippy -- -D warnings
