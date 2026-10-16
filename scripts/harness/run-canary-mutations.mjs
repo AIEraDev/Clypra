@@ -105,68 +105,77 @@ function runPlaywrightTest(testFilter) {
 }
 
 function main() {
+  const args = process.argv.slice(2);
+  const frontendOnly = args.includes("--frontend");
+  const rustOnly = args.includes("--rust");
+
   console.log("\n┌──────────────────────────────────────────────┐");
   console.log("│  Canary Mutation Verification                │");
+  if (frontendOnly) console.log("│  Scope: Frontend & Playwright Mutations      │");
+  if (rustOnly) console.log("│  Scope: Rust Compositor & Audio Mutations    │");
   console.log("└──────────────────────────────────────────────┘\n");
 
   // Phase 1: Verify clean tree passes all contracts
   console.log("Phase 1: Verifying clean tree passes all contract suites...");
   const cleanFailures = [];
 
-  for (const suite of CONTRACT_SUITES) {
-    if (!existsSync(resolve(process.cwd(), suite))) {
-      console.log(`  ⚠ Skipping ${basename(suite)} (file not found)`);
-      continue;
+  if (!rustOnly) {
+    for (const suite of CONTRACT_SUITES) {
+      if (!existsSync(resolve(process.cwd(), suite))) {
+        console.log(`  ⚠ Skipping ${basename(suite)} (file not found)`);
+        continue;
+      }
+      const result = runVitest(suite);
+      if (result.exitCode !== 0) {
+        cleanFailures.push(suite);
+        console.log(
+          `  ✗ ${basename(suite)} FAILED on clean tree (unexpected)`,
+        );
+      } else {
+        console.log(`  ✓ ${basename(suite)} passed`);
+      }
     }
-    const result = runVitest(suite);
-    if (result.exitCode !== 0) {
-      cleanFailures.push(suite);
-      console.log(
-        `  ✗ ${basename(suite)} FAILED on clean tree (unexpected)`,
-      );
+
+    // Check clean tree for Layer A Playwright tests
+    const pxlResult = runPlaywrightTest("PXL-TEXT-01");
+    if (pxlResult.exitCode !== 0) {
+      cleanFailures.push("tests/e2e/preview-canvas-pixel-validation.spec.ts");
+      console.log("  ✗ Layer A Playwright PXL-TEXT-01 FAILED on clean tree (unexpected)");
     } else {
-      console.log(`  ✓ ${basename(suite)} passed`);
+      console.log("  ✓ Layer A Playwright PXL-TEXT-01 passed");
     }
   }
 
-  // Check clean tree for Rust Layer B suites
-  for (const rustTest of RUST_CONTRACT_TESTS) {
-    const testPath = resolve(process.cwd(), `src-tauri/tests/${rustTest}.rs`);
-    if (!existsSync(testPath)) continue;
-    const result = runCargoTest(rustTest);
-    if (result.exitCode !== 0) {
-      // If GPU is unavailable, tests log skip, but shouldn't fail with panic
-      if (result.stderr.includes("panicked") || result.stdout.includes("FAILED")) {
-        cleanFailures.push(`src-tauri/tests/${rustTest}.rs`);
-        console.log(`  ✗ ${rustTest} FAILED on clean tree (unexpected)`);
+  if (!frontendOnly) {
+    // Check clean tree for Rust Layer B suites
+    for (const rustTest of RUST_CONTRACT_TESTS) {
+      const testPath = resolve(process.cwd(), `src-tauri/tests/${rustTest}.rs`);
+      if (!existsSync(testPath)) continue;
+      const result = runCargoTest(rustTest);
+      if (result.exitCode !== 0) {
+        if (result.stderr.includes("panicked") || result.stdout.includes("FAILED")) {
+          cleanFailures.push(`src-tauri/tests/${rustTest}.rs`);
+          console.log(`  ✗ ${rustTest} FAILED on clean tree (unexpected)`);
+        } else {
+          console.log(`  ⚠ ${rustTest} exited non-zero (may need GPU environment)`);
+        }
       } else {
-        console.log(`  ⚠ ${rustTest} exited non-zero (may need GPU environment)`);
+        console.log(`  ✓ ${rustTest} passed`);
+      }
+    }
+
+    // Check clean tree for Rust audio mixer suite
+    const audioResult = runCargoLibTest("audio::mixer");
+    if (audioResult.exitCode !== 0) {
+      if (audioResult.stderr.includes("panicked") || audioResult.stdout.includes("FAILED")) {
+        cleanFailures.push("src-tauri/src/audio/mixer.rs");
+        console.log("  ✗ audio::mixer FAILED on clean tree (unexpected)");
+      } else {
+        console.log("  ⚠ audio::mixer exited non-zero (may need native audio dependencies)");
       }
     } else {
-      console.log(`  ✓ ${rustTest} passed`);
+      console.log("  ✓ audio::mixer passed");
     }
-  }
-
-  // Check clean tree for Rust audio mixer suite
-  const audioResult = runCargoLibTest("audio::mixer");
-  if (audioResult.exitCode !== 0) {
-    if (audioResult.stderr.includes("panicked") || audioResult.stdout.includes("FAILED")) {
-      cleanFailures.push("src-tauri/src/audio/mixer.rs");
-      console.log("  ✗ audio::mixer FAILED on clean tree (unexpected)");
-    } else {
-      console.log("  ⚠ audio::mixer exited non-zero (may need native audio dependencies)");
-    }
-  } else {
-    console.log("  ✓ audio::mixer passed");
-  }
-
-  // Check clean tree for Layer A Playwright tests
-  const pxlResult = runPlaywrightTest("PXL-TEXT-01");
-  if (pxlResult.exitCode !== 0) {
-    cleanFailures.push("tests/e2e/preview-canvas-pixel-validation.spec.ts");
-    console.log("  ✗ Layer A Playwright PXL-TEXT-01 FAILED on clean tree (unexpected)");
-  } else {
-    console.log("  ✓ Layer A Playwright PXL-TEXT-01 passed");
   }
 
   if (cleanFailures.length > 0) {
@@ -208,6 +217,18 @@ function main() {
     if (patch.startsWith("audio-mixer-")) mutationType = "Rust Audio Mixer";
     else if (patch.startsWith("layer-a-")) mutationType = "Playwright Layer A";
     else if (isRustMutation) mutationType = "Rust Layer B Compositor";
+
+    if (frontendOnly && isRustMutation) {
+      console.log(`\n  Mutation: ${patch} (${mutationType})`);
+      console.log(`    ℹ Skipped in --frontend mode (runs in Rust CI job)`);
+      continue;
+    }
+    if (rustOnly && !isRustMutation) {
+      console.log(`\n  Mutation: ${patch} (${mutationType})`);
+      console.log(`    ℹ Skipped in --rust mode (runs in Frontend CI job)`);
+      continue;
+    }
+
     console.log(`\n  Mutation: ${patch} (${mutationType})`);
 
     // Check if patch can be applied
@@ -218,12 +239,12 @@ function main() {
 
     if (applyCheck.status !== 0) {
       console.log(
-        `    ⚠ Patch cannot be applied (may be outdated): ${applyCheck.stderr.trim()}`,
+        `    ✗ Patch cannot be applied (broken/outdated): ${applyCheck.stderr.trim()}`,
       );
       mutationResults.push({
         patch,
-        status: "skipped",
-        reason: "patch-conflict",
+        status: "uncaught",
+        reason: `patch-conflict: ${applyCheck.stderr.trim()}`,
       });
       continue;
     }
@@ -237,38 +258,28 @@ function main() {
 
     if (patch.startsWith("audio-mixer-")) {
       const result = runCargoLibTest("audio::mixer");
+      // Require genuine test assertion failure
       if (result.stdout.includes("FAILED") || result.stderr.includes("panicked")) {
         anyFailed = true;
-        console.log(`    ✓ audio::mixer correctly FAILED under mutation`);
-      } else if (result.exitCode !== 0 && !result.stdout.includes("running")) {
-        console.log(
-          `    ⚠ audio::mixer cannot compile in this environment (missing native dependencies), skipping`,
-        );
-        mutationResults.push({
-          patch,
-          status: "skipped",
-          reason: "no-native-audio-env",
-        });
-        spawnSync("git", ["apply", "--reverse", patchPath], {
-          cwd: process.cwd(),
-        });
-        continue;
-      } else if (result.exitCode !== 0) {
-        anyFailed = true;
-        console.log(`    ✓ audio::mixer correctly FAILED under mutation`);
+        console.log(`    ✓ audio::mixer correctly caught mutation via assertion failure`);
+      } else {
+        console.log(`    ✗ audio::mixer did not fail with assertion failure (exit: ${result.exitCode})`);
       }
     } else if (patch.startsWith("layer-a-")) {
       const result = runPlaywrightTest("PXL-TEXT-01");
-      if (result.exitCode !== 0 || result.stdout.includes("failed") || result.stdout.includes("Error")) {
+      // Require genuine pixel assertion failure
+      if (result.stdout.includes("failed") || result.stdout.includes("Error: expect") || result.stdout.includes("Received:")) {
         anyFailed = true;
-        console.log(`    ✓ Layer A Playwright correctly FAILED under mutation`);
+        console.log(`    ✓ Layer A Playwright correctly caught mutation via pixel assertion failure`);
+      } else {
+        console.log(`    ✗ Layer A Playwright did not fail with pixel assertion failure`);
       }
     } else if (isRustMutation) {
       for (const rustTest of RUST_CONTRACT_TESTS) {
         const result = runCargoTest(rustTest);
-        if (result.exitCode !== 0 || result.stdout.includes("FAILED")) {
+        if (result.stdout.includes("FAILED") || result.stderr.includes("panicked")) {
           anyFailed = true;
-          console.log(`    ✓ ${rustTest} correctly FAILED under mutation`);
+          console.log(`    ✓ ${rustTest} correctly caught mutation via assertion failure`);
           break;
         }
       }
@@ -276,9 +287,13 @@ function main() {
       for (const suite of CONTRACT_SUITES) {
         if (!existsSync(resolve(process.cwd(), suite))) continue;
         const result = runVitest(suite);
-        if (result.exitCode !== 0) {
+        if (
+          result.stdout.includes("FAIL") ||
+          result.stdout.includes("AssertionError") ||
+          result.stderr.includes("AssertionError")
+        ) {
           anyFailed = true;
-          console.log(`    ✓ ${basename(suite)} correctly FAILED under mutation`);
+          console.log(`    ✓ ${basename(suite)} correctly caught mutation via assertion failure`);
           break;
         }
       }

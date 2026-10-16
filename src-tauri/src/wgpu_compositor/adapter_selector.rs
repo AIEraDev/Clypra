@@ -335,16 +335,6 @@ impl GpuContext {
                             // Boost DX12 backend on Windows so D3D11VA DXGI shared texture import succeeds
                             score += 500;
                         }
-                        #[cfg(target_os = "linux")]
-                        if info.backend == wgpu::Backend::Vulkan {
-                            // Prioritize Vulkan backend on Linux (hardware or Mesa Lavapipe software rasterizer)
-                            score += 500;
-                        }
-                        #[cfg(target_os = "macos")]
-                        if info.backend == wgpu::Backend::Metal {
-                            // Prioritize Metal backend on macOS
-                            score += 500;
-                        }
                         (score, adapter)
                     })
                     .collect();
@@ -381,38 +371,14 @@ impl GpuContext {
                 {
                     adapter
                 } else {
-                    let mut fallback_adapters = instance.enumerate_adapters(wgpu::Backends::all());
-                    if !fallback_adapters.is_empty() {
-                        fallback_adapters.sort_by_key(|a| {
-                            let info = a.get_info();
-                            let mut score = match info.device_type {
-                                DeviceType::DiscreteGpu => 1000,
-                                DeviceType::IntegratedGpu => 200,
-                                DeviceType::VirtualGpu => 50,
-                                DeviceType::Cpu => 10,
-                                DeviceType::Other => 0,
-                            };
-                            #[cfg(target_os = "linux")]
-                            if info.backend == wgpu::Backend::Vulkan {
-                                score += 500;
-                            }
-                            #[cfg(target_os = "windows")]
-                            if info.backend == wgpu::Backend::Dx12 {
-                                score += 500;
-                            }
-                            #[cfg(target_os = "macos")]
-                            if info.backend == wgpu::Backend::Metal {
-                                score += 500;
-                            }
-                            std::cmp::Reverse(score)
-                        });
-                        fallback_adapters.remove(0)
-                    } else {
-                        return Err(
+                    instance
+                        .enumerate_adapters(wgpu::Backends::all())
+                        .into_iter()
+                        .next()
+                        .ok_or_else(|| {
                             "No compatible graphics adapters or software rasterizers found."
-                                .to_string(),
-                        );
-                    }
+                                .to_string()
+                        })?
                 }
             }
         };
