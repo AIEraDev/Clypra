@@ -1,0 +1,36 @@
+# Clypra CODEOWNERS — Require review for test infrastructure and baselines
+#
+# Tests, mutations, and baselines are evidence infrastructure.
+# Changes to these files must be reviewed to prevent weakening.
+# Note: For solo-developer or automated pipelines, use ruleset bypass
+# or assign explicit reviewers to prevent self-approval lockouts.
+
+# Contract test suites
+src/core/playback/__tests__/replayBehavioralContract.test.ts  @clypra/core-team
+src/core/audio/__tests__/audioPreviewSyncContract.test.ts      @clypra/core-team
+src/components/editor/preview/__tests__/previewStateResetContract.test.ts @clypra/core-team
+src/features/text-effects/__tests__/textEditPreviewCycle.test.ts @clypra/core-team
+
+# Append-only preview regression suite
+src/components/editor/preview/__tests__/ProgramPreview.renderLoop.test.ts @clypra/core-team
+
+# Pixel validation tests
+tests/e2e/preview-canvas-pixel-validation.spec.ts @clypra/core-team
+
+# Mutation patches (negative controls)
+tests/mutations/ @clypra/core-team
+
+# Quality baselines and harness scripts
+scripts/harness/ @clypra/core-team
+
+# Evidence format and standards
+docs/engineering/ @clypra/core-team
+
+# Agent rules and skills (standards enforcement)
+.agents/rules/ @clypra/core-team
+.agents/skills/bugfix-regression/ @clypra/core-team
+.agents/skills/feature-implementation/ @clypra/core-team
+.agents/skills/behavior-coverage/ @clypra/core-team
+
+# CI workflows
+.github/workflows/ @clypra/core-team

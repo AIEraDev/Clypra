@@ -1,0 +1,13 @@
+diff --git a/src-tauri/src/wgpu_compositor/multi_track_composer.rs b/src-tauri/src/wgpu_compositor/multi_track_composer.rs
+index eb023853..a1bc983e 100644
+--- a/src-tauri/src/wgpu_compositor/multi_track_composer.rs
++++ b/src-tauri/src/wgpu_compositor/multi_track_composer.rs
+@@ -1143,7 +1143,7 @@ impl MultiTrackCompositor {
+     ) -> Result<(), String> {
+         // Sort layer references ascending by z_index (back to front)
+         let mut sorted_layers: Vec<&CompositeLayer> = layers.iter().collect();
+-        sorted_layers.sort_by_key(|l| l.z_index);
++        sorted_layers.sort_by_key(|l| std::cmp::Reverse(l.z_index));
+ 
+         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+             label: Some("MultiTrack Composite Encoder"),

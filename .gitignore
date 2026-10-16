@@ -33,8 +33,9 @@ Thumbs.db
 .env.local
 *.env.*
 
-/clypra_next_releases.md
-fixtures/
+/fixtures/
+!tests/fixtures/roundtrip/
+tests/fixtures/*.mp4
 
 # Windows reserved device name (cannot be deleted)
 /nul

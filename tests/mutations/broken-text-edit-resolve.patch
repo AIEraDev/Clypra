@@ -1,0 +1,13 @@
+diff --git a/src/components/editor/preview/TextSourcePreview.tsx b/src/components/editor/preview/TextSourcePreview.tsx
+index 2a09c775..7093fde1 100644
+--- a/src/components/editor/preview/TextSourcePreview.tsx
++++ b/src/components/editor/preview/TextSourcePreview.tsx
+@@ -51,7 +51,7 @@ export const resolveTextSourcePreviewConfig = (preset: any): TextEffectConfig =>
+ 
+   return {
+     ...config,
+-    text: config.text || "CLYPRA",
++    text: "CLYPRA", // mutated
+     effectName: config.effectName || config.name || preset?.name || "Effect",
+     fontFamily: config.fontFamily || sceneText?.fontFamily || preset?.font?.family || preset?.fontFamily || "Inter Variable",
+     fontSize: config.fontSize ?? sceneText?.fontSize ?? preset?.fontSize ?? 100,

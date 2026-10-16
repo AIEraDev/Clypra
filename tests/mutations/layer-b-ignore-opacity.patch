@@ -1,0 +1,13 @@
+diff --git a/src-tauri/src/wgpu_compositor/multi_track_composer.rs b/src-tauri/src/wgpu_compositor/multi_track_composer.rs
+index eb023853..c6750586 100644
+--- a/src-tauri/src/wgpu_compositor/multi_track_composer.rs
++++ b/src-tauri/src/wgpu_compositor/multi_track_composer.rs
+@@ -1171,7 +1171,7 @@ impl MultiTrackCompositor {
+             let uniforms = LayerUniforms {
+                 transform_matrix: layer.transform.to_matrix(),
+                 crop_margins: layer.crop.to_vec4(),
+-                opacity: layer.opacity.clamp(0.0, 1.0),
++                opacity: 1.0,
+                 blend_mode: layer.blend_mode as u32,
+                 is_premultiplied: 0,
+                 grain_seed: layer.chroma_key._pad0,

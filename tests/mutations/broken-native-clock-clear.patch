@@ -1,0 +1,67 @@
+diff --git a/src/core/playback/PlaybackClock.ts b/src/core/playback/PlaybackClock.ts
+index 3f7f92f9..fae071af 100644
+--- a/src/core/playback/PlaybackClock.ts
++++ b/src/core/playback/PlaybackClock.ts
+@@ -529,7 +529,7 @@ export class PlaybackClock {
+ 
+   /** Stop consuming native samples and return to the local audio clock. */
+   clearNativeClockPosition(): void {
+-    this._nativeClockPosition = null;
++    // this._nativeClockPosition = null; // MUTATION: stale native clock persists after stop
+     this._hasRealNativeClockSample = false;
+   }
+ 
+@@ -690,7 +690,7 @@ export class PlaybackClock {
+     this._isSeeking = false;
+     this._consecutiveBackwardPollCount = 0;
+     resetPlayheadPaintTracking();
+-    this._nativeClockPosition = null; // Clear native clock sample so no stale pre-pause timestamps survive
++    // this._nativeClockPosition = null; // MUTATION: stale native clock persists after stop // Clear native clock sample so no stale pre-pause timestamps survive
+     this._hasRealNativeClockSample = false;
+     this._playStartMs = 0; // Clear wall-clock anchor — new play() will set a fresh one
+     this._notifyListeners();
+@@ -726,7 +726,7 @@ export class PlaybackClock {
+     resetPlayheadPaintTracking();
+     this._time = this._duration;
+     this._state = "paused";
+-    this._nativeClockPosition = null;
++    // this._nativeClockPosition = null; // MUTATION: stale native clock persists after stop
+     this._hasRealNativeClockSample = false;
+     this._notifyListeners();
+   }
+@@ -749,7 +749,7 @@ export class PlaybackClock {
+     this._isSeeking = false;
+     this._consecutiveBackwardPollCount = 0;
+     resetPlayheadPaintTracking();
+-    this._nativeClockPosition = null;
++    // this._nativeClockPosition = null; // MUTATION: stale native clock persists after stop
+     this._hasRealNativeClockSample = false;
+     // Per-clip freezes are session-scoped — clear them when the project stops.
+     this._clipFreezeMap.clear();
+@@ -788,7 +788,7 @@ export class PlaybackClock {
+     if (!shouldKeepPlaying) {
+       this._isSeeking = true;
+       this._seekStartedAtMs = performance.now();
+-      this._nativeClockPosition = null;
++      // this._nativeClockPosition = null; // MUTATION: stale native clock persists after stop
+       this._hasRealNativeClockSample = false;
+       this._notifyListeners();
+       return;
+@@ -1007,7 +1007,7 @@ export class PlaybackClock {
+     this._state = "stopped";
+     this._time = 0;
+     this._listeners.clear();
+-    this._nativeClockPosition = null;
++    // this._nativeClockPosition = null; // MUTATION: stale native clock persists after stop
+     this._hasRealNativeClockSample = false;
+     this._nativeClockAuthority = false;
+ 
+@@ -1037,7 +1037,7 @@ export class PlaybackClock {
+     this._speed = 1;
+     this._isSeeking = false;
+     this._seekStartedAtMs = 0;
+-    this._nativeClockPosition = null;
++    // this._nativeClockPosition = null; // MUTATION: stale native clock persists after stop
+     this._hasRealNativeClockSample = false;
+     this._nativeClockAuthority = false;
+     this._clipFreezeMap.clear();

@@ -52,6 +52,8 @@
     "verify:gate": "node scripts/harness/quality-gate.mjs",
     "verify:gate:full": "node scripts/harness/quality-gate.mjs --full",
     "verify:gate:ci": "node scripts/harness/quality-gate.mjs --ci",
+    "verify:canary-mutations": "node scripts/harness/run-canary-mutations.mjs",
+    "verify:evidence": "node scripts/harness/verify-evidence.mjs",
     "benchmark:playback": "node scripts/benchmarks/run-playback-concurrency-harness.mjs",
     "benchmark:compare": "node scripts/benchmarks/compare-baseline.mjs",
     "version:sync": "node scripts/bump-version.mjs",
