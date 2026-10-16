@@ -1,6 +1,7 @@
 name: "Native Golden — Shader Logic, Cross-Platform & WASM Parity"
 
-# Runs on every PR and push that touches the compositor, shaders, contracts,
+# Runs on every PR targeting main/develop/master (to fulfill required status checks
+# for branch protection) and on pushes that touch the compositor, shaders, contracts,
 # CLI, or the WASM crate.
 #
 # What this job proves:
@@ -31,14 +32,7 @@ on:
       - "crates/clypra-render-wasm/**"
       - ".github/workflows/native-golden.yml"
   pull_request:
-    paths:
-      - "src-tauri/src/wgpu_compositor/**"
-      - "src-tauri/src/shaders/**"
-      - "src-tauri/src/native_core/**"
-      - "crates/clypra-native-cli/**"
-      - "crates/clypra-native-core/**"
-      - "crates/clypra-render-wasm/**"
-      - ".github/workflows/native-golden.yml"
+    branches: [main, develop, master]
 
 permissions:
   contents: read
