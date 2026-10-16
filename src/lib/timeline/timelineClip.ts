@@ -288,3 +288,36 @@ export function createAudioClip(params: {
     opacity: 1,
   };
 }
+
+/**
+ * Capability predicate: determines if a clip supports 2D spatial visual animations,
+ * keyframes (position, size, rotation, opacity), and motion behavior presets.
+ *
+ * Encompasses Video, Image, Text, TextTemplate, Sticker, Compound, and AnimatedOverlay.
+ * Explicitly excludes audio clips and full-frame adjustment filters.
+ */
+export function supportsVisualAnimation(
+  clip: Clip | null | undefined,
+  asset?: MediaAsset | null,
+): boolean {
+  if (!clip) return false;
+  if (clip.kind === "audio" || (asset && asset.type === "audio") || Boolean((clip as any).audioPath)) {
+    return false;
+  }
+  if (clip.kind === "filter" || clip.kind === "video-effect" || clip.kind === "body-effect") {
+    return false;
+  }
+  return (
+    clip.kind === "video" ||
+    clip.kind === "image" ||
+    clip.kind === "text" ||
+    clip.kind === "text-template" ||
+    clip.kind === "sticker" ||
+    clip.kind === "compound" ||
+    clip.kind === "animated-overlay" ||
+    "text" in clip ||
+    asset?.type === "video" ||
+    asset?.type === "image"
+  );
+}
+

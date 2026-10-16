@@ -20,6 +20,7 @@ import { type ClipFitModeExtended } from "@/lib/timeline/timelineClip";
 import { PropertySlider } from "./primitives/PropertySlider";
 import { PropertySelect } from "./primitives/PropertySelect";
 import { PropertySection } from "./primitives/PropertySection";
+import { KeyframeNavControls } from "./primitives/KeyframeNavControls";
 
 interface TransformSectionProps {
   selectedClip: Clip;
@@ -64,10 +65,48 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
   const isFlippedV = selectedClip.height < 0;
   const opacityPercent = getOpacityPercent(selectedClip.opacity);
 
-  const isRotationKeyframed =
-    (selectedClip.visualKeyframes?.rotation?.length || 0) > 0;
-  const isOpacityKeyframed =
-    (selectedClip.visualKeyframes?.opacity?.length || 0) > 0;
+  const currentTime = getPlaybackClock().time;
+  const localTime = Math.max(
+    0,
+    Math.min(selectedClip.duration, currentTime - selectedClip.startTime),
+  );
+
+  const getKeyframeState = useCallback(
+    (props: ("x" | "y" | "width" | "height" | "rotation" | "opacity")[]) => {
+      const allTimes: number[] = [];
+      let isAt = false;
+
+      for (const p of props) {
+        const kfs = selectedClip.visualKeyframes?.[p] || [];
+        for (const k of kfs) {
+          allTimes.push(k.time);
+          if (Math.abs(k.time - localTime) < 0.08) {
+            isAt = true;
+          }
+        }
+      }
+
+      const uniqueSorted = Array.from(new Set(allTimes)).sort((a, b) => a - b);
+      const hasPrev = uniqueSorted.some((t) => t < localTime - 0.05);
+      const hasNext = uniqueSorted.some((t) => t > localTime + 0.05);
+
+      return {
+        hasKeyframes: uniqueSorted.length > 0,
+        isAtKeyframe: isAt,
+        hasPrev,
+        hasNext,
+      };
+    },
+    [selectedClip.visualKeyframes, localTime],
+  );
+
+  const posKfState = getKeyframeState(["x", "y"]);
+  const sizeKfState = getKeyframeState(["width", "height"]);
+  const rotKfState = getKeyframeState(["rotation"]);
+  const opKfState = getKeyframeState(["opacity"]);
+
+  const isRotationKeyframed = rotKfState.hasKeyframes;
+  const isOpacityKeyframed = opKfState.hasKeyframes;
   const hasPositionKeyframes =
     (selectedClip.visualKeyframes?.x?.length || 0) >= 2 ||
     (selectedClip.visualKeyframes?.y?.length || 0) >= 2;
@@ -78,17 +117,48 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
   const toggleKeyframeLane = useUIStore((s) => s.toggleKeyframeLane);
   const openCurveEditor = useUIStore((s) => s.openCurveEditor);
 
+  const handleJumpToKeyframe = useCallback(
+    (
+      props: ("x" | "y" | "width" | "height" | "rotation" | "opacity")[],
+      direction: "prev" | "next",
+    ) => {
+      const allTimes: number[] = [];
+      for (const p of props) {
+        const kfs = selectedClip.visualKeyframes?.[p] || [];
+        for (const k of kfs) allTimes.push(k.time);
+      }
+      const sorted = Array.from(new Set(allTimes)).sort((a, b) => a - b);
+      let targetTime: number | null = null;
+
+      if (direction === "prev") {
+        for (let i = sorted.length - 1; i >= 0; i--) {
+          if (sorted[i] < localTime - 0.05) {
+            targetTime = sorted[i];
+            break;
+          }
+        }
+      } else {
+        for (let i = 0; i < sorted.length; i++) {
+          if (sorted[i] > localTime + 0.05) {
+            targetTime = sorted[i];
+            break;
+          }
+        }
+      }
+
+      if (targetTime !== null) {
+        getPlaybackClock().seek(selectedClip.startTime + targetTime);
+      }
+    },
+    [selectedClip.visualKeyframes, selectedClip.startTime, localTime],
+  );
+
   const handleToggleVisualKeyframe = useCallback(
     (
       prop: "x" | "y" | "width" | "height" | "rotation" | "opacity",
       value: number,
     ) => {
       const currentKfs = selectedClip.visualKeyframes?.[prop] || [];
-      const currentTime = getPlaybackClock().time;
-      const localTime = Math.max(
-        0,
-        Math.min(selectedClip.duration, currentTime - selectedClip.startTime),
-      );
       const existingIdx = currentKfs.findIndex(
         (kf) => Math.abs(kf.time - localTime) < 0.08,
       );
@@ -100,10 +170,10 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
         nextKfs = [
           ...currentKfs,
           {
-            id: `kf-${Date.now()}`,
+            id: `kf-${prop}-${Date.now()}`,
             time: Math.round(localTime * 100) / 100,
             value,
-            easing: "easeInOut",
+            easing: "easeInOut" as const,
           },
         ].sort((a, b) => a.time - b.time);
       }
@@ -115,9 +185,77 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
     },
     [
       selectedClip.visualKeyframes,
-      selectedClip.duration,
-      selectedClip.startTime,
+      localTime,
       handleUpdate,
+    ],
+  );
+
+  const handleToggleMultiKeyframe = useCallback(
+    (pairs: { prop: "x" | "y" | "width" | "height"; value: number }[]) => {
+      const roundedTime = Math.round(localTime * 100) / 100;
+      const hasAnyAtTime = pairs.some(({ prop }) => {
+        const kfs = selectedClip.visualKeyframes?.[prop] || [];
+        return kfs.some((kf) => Math.abs(kf.time - localTime) < 0.08);
+      });
+
+      const nextVisual = { ...(selectedClip.visualKeyframes || {}) };
+
+      for (const { prop, value } of pairs) {
+        const currentKfs = nextVisual[prop] || [];
+        if (hasAnyAtTime) {
+          nextVisual[prop] = currentKfs.filter(
+            (kf) => Math.abs(kf.time - localTime) >= 0.08,
+          );
+        } else {
+          nextVisual[prop] = [
+            ...currentKfs,
+            {
+              id: `kf-${prop}-${Date.now()}`,
+              time: roundedTime,
+              value,
+              easing: "easeInOut" as const,
+            },
+          ].sort((a, b) => a.time - b.time);
+        }
+      }
+
+      handleUpdate("visualKeyframes", nextVisual);
+    },
+    [selectedClip.visualKeyframes, localTime, handleUpdate],
+  );
+
+  const handleUpdatePropertyWithKeyframe = useCallback(
+    (
+      prop: "x" | "y" | "width" | "height" | "rotation" | "opacity",
+      value: number,
+    ) => {
+      const currentKfs = selectedClip.visualKeyframes?.[prop] || [];
+      const existingIdx = currentKfs.findIndex(
+        (kf) => Math.abs(kf.time - localTime) < 0.08,
+      );
+
+      if (existingIdx >= 0) {
+        const nextKfs = [...currentKfs];
+        nextKfs[existingIdx] = {
+          ...nextKfs[existingIdx],
+          value,
+        };
+        handleUpdateMultiple({
+          [prop]: value,
+          visualKeyframes: {
+            ...(selectedClip.visualKeyframes || {}),
+            [prop]: nextKfs,
+          },
+        });
+      } else {
+        handleUpdate(prop, value);
+      }
+    },
+    [
+      selectedClip.visualKeyframes,
+      localTime,
+      handleUpdate,
+      handleUpdateMultiple,
     ],
   );
 
@@ -373,14 +511,32 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                     </button>
                   </div>
                 )}
-                <button
-                  onClick={handleCenterOnCanvas}
-                  className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] text-text-muted hover:text-accent hover:bg-accent/10 rounded transition-all cursor-pointer"
-                  title="Center on canvas"
-                >
-                  <Crosshair className="w-3 h-3" />
-                  Center
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <KeyframeNavControls
+                    hasKeyframes={posKfState.hasKeyframes}
+                    isAtKeyframe={posKfState.isAtKeyframe}
+                    onToggleKeyframe={() =>
+                      handleToggleMultiKeyframe([
+                        { prop: "x", value: Math.round(selectedClip.x) },
+                        { prop: "y", value: Math.round(selectedClip.y) },
+                      ])
+                    }
+                    onPrevKeyframe={() => handleJumpToKeyframe(["x", "y"], "prev")}
+                    onNextKeyframe={() => handleJumpToKeyframe(["x", "y"], "next")}
+                    hasPrev={posKfState.hasPrev}
+                    hasNext={posKfState.hasNext}
+                    onOpenCurveEditor={() => openCurveEditor(selectedClip.id, "x")}
+                    label="Position"
+                  />
+                  <button
+                    onClick={handleCenterOnCanvas}
+                    className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] text-text-muted hover:text-accent hover:bg-accent/10 rounded transition-all cursor-pointer"
+                    title="Center on canvas"
+                  >
+                    <Crosshair className="w-3 h-3" />
+                    Center
+                  </button>
+                </div>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -391,7 +547,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                 <input
                   type="number"
                   value={Math.round(selectedClip.x)}
-                  onChange={(e) => handleUpdate("x", Number(e.target.value))}
+                  onChange={(e) => handleUpdatePropertyWithKeyframe("x", Number(e.target.value))}
                   className="w-full bg-surface-raised border border-border/60 rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
                 />
               </div>
@@ -402,7 +558,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                 <input
                   type="number"
                   value={Math.round(selectedClip.y)}
-                  onChange={(e) => handleUpdate("y", Number(e.target.value))}
+                  onChange={(e) => handleUpdatePropertyWithKeyframe("y", Number(e.target.value))}
                   className="w-full bg-surface-raised border border-border/60 rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
                 />
               </div>
@@ -415,22 +571,40 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
               <span className="text-[10px] font-medium text-text-muted select-none">
                 Size
               </span>
-              <button
-                onClick={() =>
-                  handleUpdate("aspectRatioLocked", !isAspectLocked)
-                }
-                className={`flex items-center gap-1 px-1.5 py-0.5 text-[9px] rounded transition-all cursor-pointer ${isAspectLocked ? "text-accent bg-accent/10" : "text-text-muted hover:text-text-primary hover:bg-surface-raised"}`}
-                title={
-                  isAspectLocked ? "Unlock aspect ratio" : "Lock aspect ratio"
-                }
-              >
-                {isAspectLocked ? (
-                  <Lock className="w-3 h-3" />
-                ) : (
-                  <Unlock className="w-3 h-3" />
-                )}
-                {isAspectLocked ? "Locked" : "Free"}
-              </button>
+              <div className="flex items-center gap-1.5">
+                <KeyframeNavControls
+                  hasKeyframes={sizeKfState.hasKeyframes}
+                  isAtKeyframe={sizeKfState.isAtKeyframe}
+                  onToggleKeyframe={() =>
+                    handleToggleMultiKeyframe([
+                      { prop: "width", value: Math.round(Math.abs(selectedClip.width)) },
+                      { prop: "height", value: Math.round(Math.abs(selectedClip.height)) },
+                    ])
+                  }
+                  onPrevKeyframe={() => handleJumpToKeyframe(["width", "height"], "prev")}
+                  onNextKeyframe={() => handleJumpToKeyframe(["width", "height"], "next")}
+                  hasPrev={sizeKfState.hasPrev}
+                  hasNext={sizeKfState.hasNext}
+                  onOpenCurveEditor={() => openCurveEditor(selectedClip.id, "width")}
+                  label="Size"
+                />
+                <button
+                  onClick={() =>
+                    handleUpdate("aspectRatioLocked", !isAspectLocked)
+                  }
+                  className={`flex items-center gap-1 px-1.5 py-0.5 text-[9px] rounded transition-all cursor-pointer ${isAspectLocked ? "text-accent bg-accent/10" : "text-text-muted hover:text-text-primary hover:bg-surface-raised"}`}
+                  title={
+                    isAspectLocked ? "Unlock aspect ratio" : "Lock aspect ratio"
+                  }
+                >
+                  {isAspectLocked ? (
+                    <Lock className="w-3 h-3" />
+                  ) : (
+                    <Unlock className="w-3 h-3" />
+                  )}
+                  {isAspectLocked ? "Locked" : "Free"}
+                </button>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
@@ -468,25 +642,22 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                 max={180}
                 step={1}
                 suffix="°"
-                onChange={(v) => handleUpdate("rotation", v)}
-                keyframeActive={isRotationKeyframed}
+                onChange={(v) => handleUpdatePropertyWithKeyframe("rotation", v)}
+                hasKeyframes={rotKfState.hasKeyframes}
+                keyframeActive={rotKfState.isAtKeyframe}
                 onToggleKeyframe={() =>
                   handleToggleVisualKeyframe("rotation", selectedClip.rotation)
                 }
+                onPrevKeyframe={() => handleJumpToKeyframe(["rotation"], "prev")}
+                onNextKeyframe={() => handleJumpToKeyframe(["rotation"], "next")}
+                hasPrevKeyframe={rotKfState.hasPrev}
+                hasNextKeyframe={rotKfState.hasNext}
+                onOpenCurveEditor={() => openCurveEditor(selectedClip.id, "rotation")}
               />
             </div>
-            {isRotationKeyframed && (
-              <button
-                type="button"
-                onClick={() => openCurveEditor(selectedClip.id, "rotation")}
-                className="p-1 text-accent hover:text-accent/80 hover:bg-accent/10 rounded transition-all cursor-pointer mb-0.5"
-                title="Open Speed & Curve Editor for Rotation"
-              >
-                <TrendingUp className="w-3.5 h-3.5" />
-              </button>
-            )}
             {selectedClip.rotation !== 0 && (
               <button
+                type="button"
                 onClick={() => handleUpdate("rotation", 0)}
                 className="p-1 text-text-muted hover:text-accent hover:bg-accent/10 rounded transition-all cursor-pointer mb-0.5"
                 title="Reset rotation"
@@ -506,23 +677,19 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                 max={100}
                 step={1}
                 suffix="%"
-                onChange={(v) => handleUpdate("opacity", v / 100)}
-                keyframeActive={isOpacityKeyframed}
+                onChange={(v) => handleUpdatePropertyWithKeyframe("opacity", v / 100)}
+                hasKeyframes={opKfState.hasKeyframes}
+                keyframeActive={opKfState.isAtKeyframe}
                 onToggleKeyframe={() =>
                   handleToggleVisualKeyframe("opacity", opacityPercent / 100)
                 }
+                onPrevKeyframe={() => handleJumpToKeyframe(["opacity"], "prev")}
+                onNextKeyframe={() => handleJumpToKeyframe(["opacity"], "next")}
+                hasPrevKeyframe={opKfState.hasPrev}
+                hasNextKeyframe={opKfState.hasNext}
+                onOpenCurveEditor={() => openCurveEditor(selectedClip.id, "opacity")}
               />
             </div>
-            {isOpacityKeyframed && (
-              <button
-                type="button"
-                onClick={() => openCurveEditor(selectedClip.id, "opacity")}
-                className="p-1 text-accent hover:text-accent/80 hover:bg-accent/10 rounded transition-all cursor-pointer mb-0.5"
-                title="Open Speed & Curve Editor for Opacity"
-              >
-                <TrendingUp className="w-3.5 h-3.5" />
-              </button>
-            )}
           </div>
 
           {/* Blend Mode */}

@@ -29,6 +29,7 @@ import {
 } from "@/core/history/commands/UnlinkAudioCommand";
 import {
   calculateClipDimensions,
+  supportsVisualAnimation,
   type ClipFitModeExtended,
 } from "@/lib/timeline/timelineClip";
 import type { ClipConform } from "@clypra-studio/engine";
@@ -41,7 +42,6 @@ import { TextStyleSection } from "./properties/TextStyleSection";
 import { TransformSection } from "./properties/TransformSection";
 import { MotionPresetSection } from "./properties/MotionPresetSection";
 import { AudioSection } from "./properties/AudioSection";
-import { TextAnimationControls } from "./properties/TextAnimationControls";
 import { EffectsFiltersSection } from "./properties/EffectsFiltersSection";
 import { TransitionSection } from "./properties/TransitionSection";
 import { StickerSettingsSection } from "./properties/StickerSettingsSection";
@@ -621,6 +621,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     Boolean(selectedClip?.mediaId?.startsWith("sticker-"));
   const isVisualClip =
     selectedAsset?.type === "video" || selectedAsset?.type === "image";
+  const supportsAnimation = supportsVisualAnimation(selectedClip, selectedAsset);
   // Audio library clips have kind="audio" and audioPath on the clip but no matching mediaAsset entry
   const isAudioClip =
     selectedAsset?.type === "audio" ||
@@ -967,7 +968,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             </div>
           ) : (
             <div className="flex flex-col items-center gap-1 my-1">
-              {isVisualClip && (
+              {supportsAnimation && (
                 <button
                   onClick={onToggleCollapse}
                   title="Transform & Fit"
@@ -976,7 +977,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   <Layout className="w-3.5 h-3.5" />
                 </button>
               )}
-              {isVisualClip && (
+              {supportsAnimation && (
                 <button
                   onClick={onToggleCollapse}
                   title="Motion & Animation"
@@ -1082,16 +1083,17 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
           {/* Text Animations (text clip + animation tab) */}
           {isTextClip && activePropertyTab === "animation" && (
-            <TextAnimationControls
-              clip={textClip}
-              handleUpdate={handleUpdate}
+            <MotionPresetSection
+              selectedClip={selectedClip}
               handleUpdateMultiple={handleUpdateMultiple}
+              canvasWidth={canvasWidth}
+              canvasHeight={canvasHeight}
             />
           )}
 
           {/* Transform (visual clips, or text clips on transform tab) */}
-          {(isVisualClip ||
-            (isTextClip && activePropertyTab === "transform")) && (
+          {(supportsAnimation &&
+            (!isTextClip || activePropertyTab === "transform")) && (
             <TransformSection
               selectedClip={selectedClip}
               isVisualClip={isVisualClip}
@@ -1103,8 +1105,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             />
           )}
 
-          {/* Motion & Animation Presets (Build-In, Build-Out, Loop) */}
-          {isVisualClip && (
+          {/* Motion & Animation Presets (Build-In, Build-Out, Loop) for visual non-text clips */}
+          {supportsAnimation && !isTextClip && (
             <MotionPresetSection
               selectedClip={selectedClip}
               handleUpdateMultiple={handleUpdateMultiple}
