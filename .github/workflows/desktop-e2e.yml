@@ -1,8 +1,12 @@
-name: "Native Desktop E2E & Staging Validation"
+name: "Packaged Staging & Sidecar Validation"
 
-# Automated Native Desktop E2E Workflow & Quality Gate
-# Validates packaged desktop bundle integrity, Tauri native runtime contracts,
-# OS menu integration, and native process startup across target operating systems.
+# Automated Desktop Staging & Distribution Smoke Test
+# Validates frontend production bundle chunks, Tauri manifests, MSIX staging,
+# and clean-PATH sidecar export resolution across macOS and Windows.
+#
+# Note: This workflow runs `cargo check` and packaging smoke checks without
+# launching the GUI application. Hardware/software GPU shader rendering is
+# verified separately in `native-golden.yml`.
 
 on:
   schedule:
@@ -20,7 +24,7 @@ permissions:
 
 jobs:
   desktop-e2e:
-    name: Desktop E2E (${{ matrix.platform.name }})
+    name: Desktop Staging (${{ matrix.platform.name }})
     runs-on: ${{ matrix.platform.os }}
     timeout-minutes: 45
 
@@ -28,11 +32,11 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          - name: "macOS Metal"
+          - name: "macOS Staging & Sidecar"
             os: macos-latest
             target: "aarch64-apple-darwin"
 
-          - name: "Windows DX12"
+          - name: "Windows Staging & Sidecar"
             os: windows-latest
             target: "x86_64-pc-windows-msvc"
 
