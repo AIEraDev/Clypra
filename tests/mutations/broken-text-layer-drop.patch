@@ -1,0 +1,13 @@
+diff --git a/src/core/evaluation/evaluator.ts b/src/core/evaluation/evaluator.ts
+index 105b5edb..9c8a3e43 100644
+--- a/src/core/evaluation/evaluator.ts
++++ b/src/core/evaluation/evaluator.ts
+@@ -488,7 +488,7 @@ export function evaluateTimelineScene(
+             : undefined,
+       };
+ 
+-      visualLayers.push(textLayer);
++      // visualLayers.push(textLayer);
+ 
+       continue;
+     }

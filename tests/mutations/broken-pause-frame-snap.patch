@@ -1,0 +1,11 @@
+--- a/src/core/playback/PlaybackClock.ts
++++ b/src/core/playback/PlaybackClock.ts
+@@ -684,7 +684,7 @@
+ 
+     // Snap playhead to nearest frame boundary of the project's frame rate
+     const frameRate = this._frameRate;
+-    this._time = Math.round(this._time * frameRate) / frameRate;
++    // this._time = Math.round(this._time * frameRate) / frameRate;  // MUTATION: skip frame snap on pause
+ 
+     this._state = "paused";
+     this._isSeeking = false;

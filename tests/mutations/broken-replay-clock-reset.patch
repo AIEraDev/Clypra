@@ -1,0 +1,11 @@
+--- a/src/core/playback/PlaybackClock.ts
++++ b/src/core/playback/PlaybackClock.ts
+@@ -745,7 +745,7 @@
+ 
+     // Batch all state changes atomically
+     this._state = "stopped";
+-    this._time = 0;
++    // this._time = 0;  // MUTATION: removed time reset — replay starts from stale position
+     this._isSeeking = false;
+     this._consecutiveBackwardPollCount = 0;
+     resetPlayheadPaintTracking();
