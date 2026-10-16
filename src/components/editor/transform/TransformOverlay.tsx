@@ -734,7 +734,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       // Don't handle if clicking on a handle or during drag
       if (
         isDragging ||
-        (e.target as HTMLElement).closest("[data-transform-handle]")
+        (e.target as HTMLElement).closest(
+          "[data-transform-handle], [data-spatial-motion-path], [data-motion-path-handle]",
+        )
       ) {
         return;
       }
