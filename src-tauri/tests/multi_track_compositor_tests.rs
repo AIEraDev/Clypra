@@ -40,8 +40,31 @@ impl HeadlessGpuContext {
         {
             a
         } else {
-            instance
-                .enumerate_adapters(wgpu::Backends::all())
+            let mut adapters = instance.enumerate_adapters(wgpu::Backends::all());
+            adapters.sort_by_key(|a| {
+                let info = a.get_info();
+                let mut score = match info.device_type {
+                    wgpu::DeviceType::DiscreteGpu => 1000,
+                    wgpu::DeviceType::IntegratedGpu => 200,
+                    wgpu::DeviceType::VirtualGpu => 50,
+                    wgpu::DeviceType::Cpu => 10,
+                    wgpu::DeviceType::Other => 0,
+                };
+                #[cfg(target_os = "linux")]
+                if info.backend == wgpu::Backend::Vulkan {
+                    score += 500;
+                }
+                #[cfg(target_os = "windows")]
+                if info.backend == wgpu::Backend::Dx12 {
+                    score += 500;
+                }
+                #[cfg(target_os = "macos")]
+                if info.backend == wgpu::Backend::Metal {
+                    score += 500;
+                }
+                std::cmp::Reverse(score)
+            });
+            adapters
                 .into_iter()
                 .next()
                 .expect("Failed to find suitable GPU adapter")

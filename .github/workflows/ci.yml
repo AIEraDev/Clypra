@@ -61,6 +61,26 @@ jobs:
       - name: Core Domain & Timeline Tests
         run: npx vitest run src/core/evaluation/ src/lib/timecode/
 
+      - name: Subsystem Behavioral Contracts (Preview, Playback, Audio, Text, RoundTrip)
+        run: |
+          npx vitest run src/core/playback/__tests__/replayBehavioralContract.test.ts
+          npx vitest run src/core/audio/__tests__/audioPreviewSyncContract.test.ts
+          npx vitest run src/components/editor/preview/__tests__/previewStateResetContract.test.ts
+          npx vitest run src/features/text-effects/__tests__/textEditPreviewCycle.test.ts
+          npx vitest run src/core/evaluation/__tests__/requestRoundTripFixture.test.ts
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Layer A Playwright Pixel Validation
+        run: npx playwright test tests/e2e/preview-canvas-pixel-validation.spec.ts
+
+      - name: Verify Mutation Canary Invariants
+        run: npm run verify:canary-mutations
+
+      - name: Verify Mechanical Evidence Gate
+        run: npm run verify:evidence -- --ci
+
       - name: Execute Unified Engineering Quality Gate
         run: npm run verify:gate:ci
 
