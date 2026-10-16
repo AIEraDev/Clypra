@@ -70,7 +70,7 @@ pub async fn capture_preview_frame_bytes(
     fixture_scene: Option<bool>,
 ) -> Result<Vec<u8>, String> {
     if fixture_scene == Some(true) {
-        let sticker_rgba = vec![255, 0, 255, 255].repeat(64 * 64);
+        let sticker_rgba = [255, 0, 255, 255].repeat(64 * 64);
         let raster = crate::commands::native_preview::NativeProjectRasterLayer {
             asset_id: "native-sticker:fixture-sticker-magenta:30:64x64".to_string(),
             rgba: Some(sticker_rgba),
