@@ -28,19 +28,37 @@ struct HeadlessGpu {
 }
 
 impl HeadlessGpu {
-    async fn new(width: u32, height: u32) -> Option<Self> {
+    async fn new(width: u32, height: u32) -> Self {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
+            backends: wgpu::Backends::all(),
             ..Default::default()
         });
 
-        let adapter = instance
+        let adapter = if let Some(a) = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: None,
                 force_fallback_adapter: false,
             })
-            .await?;
+            .await
+        {
+            a
+        } else if let Some(a) = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::None,
+                compatible_surface: None,
+                force_fallback_adapter: true,
+            })
+            .await
+        {
+            a
+        } else {
+            instance
+                .enumerate_adapters(wgpu::Backends::all())
+                .into_iter()
+                .next()
+                .expect("Failed to find suitable GPU adapter for Layer B compositor tests")
+        };
 
         let (device, queue) = adapter
             .request_device(
@@ -53,19 +71,19 @@ impl HeadlessGpu {
                 None,
             )
             .await
-            .ok()?;
+            .expect("Failed to create wgpu device for Layer B compositor tests");
 
         let device = Arc::new(device);
         let queue = Arc::new(queue);
         let compositor = MultiTrackCompositor::new(&device, &queue, width, height);
 
-        Some(Self {
+        Self {
             device,
             queue,
             compositor,
             canvas_w: width,
             canvas_h: height,
-        })
+        }
     }
 
     /// Create a solid-colour RGBA texture (known-colour fixture).
@@ -152,13 +170,7 @@ impl HeadlessGpu {
 #[tokio::test]
 #[ignore = "requires physical or headless GPU hardware"]
 async fn layer_b_raster_centered_magenta_on_black() {
-    let gpu = match HeadlessGpu::new(128, 128).await {
-        Some(g) => g,
-        None => {
-            eprintln!("Skipping: GPU unavailable");
-            return;
-        }
-    };
+    let gpu = HeadlessGpu::new(128, 128).await;
 
     // Background: black
     let (_bg_tex, bg_view) = gpu.solid_texture(128, 128, [0, 0, 0, 255]);
@@ -214,10 +226,7 @@ async fn layer_b_raster_centered_magenta_on_black() {
 #[tokio::test]
 #[ignore = "requires physical or headless GPU hardware"]
 async fn layer_b_raster_translated_position() {
-    let gpu = match HeadlessGpu::new(256, 256).await {
-        Some(g) => g,
-        None => return,
-    };
+    let gpu = HeadlessGpu::new(256, 256).await;
 
     // Background: dark grey
     let (_bg_tex, bg_view) = gpu.solid_texture(256, 256, [30, 30, 30, 255]);
@@ -255,10 +264,7 @@ async fn layer_b_raster_translated_position() {
 #[tokio::test]
 #[ignore = "requires physical or headless GPU hardware"]
 async fn layer_b_z_order_stacking() {
-    let gpu = match HeadlessGpu::new(64, 64).await {
-        Some(g) => g,
-        None => return,
-    };
+    let gpu = HeadlessGpu::new(64, 64).await;
 
     // Layer 0: full-canvas cyan
     let (_cyan_tex, cyan_view) = gpu.solid_texture(64, 64, [0, 255, 255, 255]);
@@ -293,10 +299,7 @@ async fn layer_b_z_order_stacking() {
 #[tokio::test]
 #[ignore = "requires physical or headless GPU hardware"]
 async fn layer_b_opacity_blending() {
-    let gpu = match HeadlessGpu::new(64, 64).await {
-        Some(g) => g,
-        None => return,
-    };
+    let gpu = HeadlessGpu::new(64, 64).await;
 
     // Background: pure blue [0, 0, 255]
     let (_bg_tex, bg_view) = gpu.solid_texture(64, 64, [0, 0, 255, 255]);
@@ -348,10 +351,7 @@ async fn layer_b_opacity_blending() {
 #[tokio::test]
 #[ignore = "requires physical or headless GPU hardware"]
 async fn layer_b_replay_determinism() {
-    let gpu = match HeadlessGpu::new(128, 128).await {
-        Some(g) => g,
-        None => return,
-    };
+    let gpu = HeadlessGpu::new(128, 128).await;
 
     let (_bg_tex, bg_view) = gpu.solid_texture(128, 128, [50, 100, 150, 255]);
     let (_fg_tex, fg_view) = gpu.solid_texture(128, 128, [200, 50, 100, 255]);
@@ -399,10 +399,7 @@ async fn layer_b_replay_determinism() {
 #[tokio::test]
 #[ignore = "requires physical or headless GPU hardware"]
 async fn layer_b_scale_changes_coverage() {
-    let gpu = match HeadlessGpu::new(128, 128).await {
-        Some(g) => g,
-        None => return,
-    };
+    let gpu = HeadlessGpu::new(128, 128).await;
 
     // Background: black
     let (_bg_tex, bg_view) = gpu.solid_texture(128, 128, [0, 0, 0, 255]);

@@ -67,6 +67,43 @@ function runCargoTest(testName, filter) {
   };
 }
 
+function runCargoLibTest(moduleFilter) {
+  const result = spawnSync("cargo", ["test", "--lib", moduleFilter], {
+    cwd: resolve(process.cwd(), "src-tauri"),
+    encoding: "utf-8",
+    timeout: 180_000,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  return {
+    exitCode: result.status,
+    stdout: result.stdout,
+    stderr: result.stderr,
+  };
+}
+
+function runPlaywrightTest(testFilter) {
+  const args = [
+    "playwright",
+    "test",
+    "tests/e2e/preview-canvas-pixel-validation.spec.ts",
+    "--reporter=list",
+  ];
+  if (testFilter) {
+    args.push("-g", testFilter);
+  }
+  const result = spawnSync("npx", args, {
+    cwd: process.cwd(),
+    encoding: "utf-8",
+    timeout: 180_000,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  return {
+    exitCode: result.status,
+    stdout: result.stdout,
+    stderr: result.stderr,
+  };
+}
+
 function main() {
   console.log("\n┌──────────────────────────────────────────────┐");
   console.log("│  Canary Mutation Verification                │");
@@ -110,6 +147,24 @@ function main() {
     }
   }
 
+  // Check clean tree for Rust audio mixer suite
+  const audioResult = runCargoLibTest("audio::mixer");
+  if (audioResult.exitCode !== 0) {
+    cleanFailures.push("src-tauri/src/audio/mixer.rs");
+    console.log("  ✗ audio::mixer FAILED on clean tree (unexpected)");
+  } else {
+    console.log("  ✓ audio::mixer passed");
+  }
+
+  // Check clean tree for Layer A Playwright tests
+  const pxlResult = runPlaywrightTest("PXL-TEXT-01");
+  if (pxlResult.exitCode !== 0) {
+    cleanFailures.push("tests/e2e/preview-canvas-pixel-validation.spec.ts");
+    console.log("  ✗ Layer A Playwright PXL-TEXT-01 FAILED on clean tree (unexpected)");
+  } else {
+    console.log("  ✓ Layer A Playwright PXL-TEXT-01 passed");
+  }
+
   if (cleanFailures.length > 0) {
     console.error(
       "\nFAIL: Contract suites fail on the clean tree. Fix them first.",
@@ -144,8 +199,12 @@ function main() {
   for (const patch of patches) {
     const patchPath = resolve(MUTATIONS_DIR, patch);
     const patchContent = readFileSync(patchPath, "utf-8");
-    const isRustMutation = patch.startsWith("layer-b-") || patchContent.includes("src-tauri/");
-    console.log(`\n  Mutation: ${patch} (${isRustMutation ? "Rust / Layer B" : "TypeScript"})`);
+    const isRustMutation = patch.startsWith("layer-b-") || patch.startsWith("audio-mixer-") || patchContent.includes("src-tauri/");
+    let mutationType = "TypeScript Contract";
+    if (patch.startsWith("audio-mixer-")) mutationType = "Rust Audio Mixer";
+    else if (patch.startsWith("layer-a-")) mutationType = "Playwright Layer A";
+    else if (isRustMutation) mutationType = "Rust Layer B Compositor";
+    console.log(`\n  Mutation: ${patch} (${mutationType})`);
 
     // Check if patch can be applied
     const applyCheck = spawnSync("git", ["apply", "--check", patchPath], {
@@ -172,7 +231,19 @@ function main() {
 
     let anyFailed = false;
 
-    if (isRustMutation) {
+    if (patch.startsWith("audio-mixer-")) {
+      const result = runCargoLibTest("audio::mixer");
+      if (result.exitCode !== 0 || result.stdout.includes("FAILED") || result.stderr.includes("panicked")) {
+        anyFailed = true;
+        console.log(`    ✓ audio::mixer correctly FAILED under mutation`);
+      }
+    } else if (patch.startsWith("layer-a-")) {
+      const result = runPlaywrightTest("PXL-TEXT-01");
+      if (result.exitCode !== 0 || result.stdout.includes("failed") || result.stdout.includes("Error")) {
+        anyFailed = true;
+        console.log(`    ✓ Layer A Playwright correctly FAILED under mutation`);
+      }
+    } else if (isRustMutation) {
       for (const rustTest of RUST_CONTRACT_TESTS) {
         const result = runCargoTest(rustTest);
         if (result.exitCode !== 0 || result.stdout.includes("FAILED")) {

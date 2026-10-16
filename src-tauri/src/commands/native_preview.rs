@@ -2517,7 +2517,7 @@ fn resolve_mask_view<'a>(
     None
 }
 
-async fn render_native_video_project_frame_bytes(
+pub(crate) async fn render_native_video_project_frame_bytes(
     app: tauri::AppHandle,
     request: NativeVideoProjectFrameRequest,
 ) -> Result<Vec<u8>, String> {

@@ -80,19 +80,37 @@ struct HeadlessGpu {
 }
 
 impl HeadlessGpu {
-    async fn new(width: u32, height: u32) -> Option<Self> {
+    async fn new(width: u32, height: u32) -> Self {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
+            backends: wgpu::Backends::all(),
             ..Default::default()
         });
 
-        let adapter = instance
+        let adapter = if let Some(a) = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: None,
                 force_fallback_adapter: false,
             })
-            .await?;
+            .await
+        {
+            a
+        } else if let Some(a) = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::None,
+                compatible_surface: None,
+                force_fallback_adapter: true,
+            })
+            .await
+        {
+            a
+        } else {
+            instance
+                .enumerate_adapters(wgpu::Backends::all())
+                .into_iter()
+                .next()
+                .expect("Failed to find suitable GPU adapter for round-trip fixture tests")
+        };
 
         let (device, queue) = adapter
             .request_device(
@@ -105,19 +123,19 @@ impl HeadlessGpu {
                 None,
             )
             .await
-            .ok()?;
+            .expect("Failed to create wgpu device for round-trip fixture tests");
 
         let device = Arc::new(device);
         let queue = Arc::new(queue);
         let compositor = MultiTrackCompositor::new(&device, &queue, width, height);
 
-        Some(Self {
+        Self {
             device,
             queue,
             compositor,
             canvas_w: width,
             canvas_h: height,
-        })
+        }
     }
 
     /// Create a solid-colour RGBA texture representing a rasterized asset.
@@ -237,9 +255,7 @@ async fn test_roundtrip_mixed_scene_renders_magenta_sticker_at_expected_coords()
     assert_eq!(sticker_layer.x, 928.0);
     assert_eq!(sticker_layer.y, 508.0);
 
-    let gpu = HeadlessGpu::new(fixture.canvas_width, fixture.canvas_height)
-        .await
-        .expect("Headless GPU initialization required");
+    let gpu = HeadlessGpu::new(fixture.canvas_width, fixture.canvas_height).await;
 
     // Pure magenta texture matching the fixture specification [255, 0, 255, 255]
     let (_sticker_tex, sticker_view) = gpu.solid_texture(64, 64, [255, 0, 255, 255]);
@@ -309,9 +325,7 @@ async fn test_roundtrip_empty_scene_renders_black_canvas() {
     assert_eq!(fixture.canvas_height, 1080);
     assert_eq!(fixture.raster_layers.len(), 0);
 
-    let gpu = HeadlessGpu::new(fixture.canvas_width, fixture.canvas_height)
-        .await
-        .expect("Headless GPU initialization required");
+    let gpu = HeadlessGpu::new(fixture.canvas_width, fixture.canvas_height).await;
 
     let clear = Some(wgpu::Color {
         r: fixture.clear_color[0] as f64,
@@ -335,9 +349,7 @@ async fn test_roundtrip_negative_control_wrong_placement_fails() {
     let content = std::fs::read_to_string(&fixture_path).unwrap();
     let fixture: FixtureProjectRequest = serde_json::from_str(&content).unwrap();
 
-    let gpu = HeadlessGpu::new(fixture.canvas_width, fixture.canvas_height)
-        .await
-        .expect("Headless GPU initialization required");
+    let gpu = HeadlessGpu::new(fixture.canvas_width, fixture.canvas_height).await;
 
     let (_sticker_tex, sticker_view) = gpu.solid_texture(64, 64, [255, 0, 255, 255]);
 

@@ -95,6 +95,7 @@ fn reason_to_u8(reason: DxgiLatchReasonCode) -> u8 {
     }
 }
 
+#[allow(dead_code)]
 fn u8_to_reason(val: u8) -> Option<DxgiLatchReasonCode> {
     match val {
         1 => Some(DxgiLatchReasonCode::EnvVarDisabled),
@@ -212,7 +213,7 @@ pub fn get_dxgi_latch_state() -> (Option<bool>, Option<DxgiLatchReasonCode>, Opt
         }
         // Return Some(false) in debug on all platforms when not latched,
         // so callers can distinguish "not latched" from "not Windows".
-        return (Some(false), None, None);
+        (Some(false), None, None)
     }
     // ── Production: Windows only ───────────────────────────────────────────
     #[cfg(all(not(debug_assertions), target_os = "windows"))]
