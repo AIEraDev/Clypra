@@ -56,10 +56,12 @@ jobs:
         run: npx vitest run src/i18n/__tests__/
 
       - name: Preview Render Loop Regression Suite
-        run: npx vitest run src/components/editor/preview/__tests__/ProgramPreview.renderLoop.test.ts
+        run: |
+          mkdir -p test-results
+          npx vitest run src/components/editor/preview/__tests__/ProgramPreview.renderLoop.test.ts | tee test-results/preview-render-loop.log
 
       - name: Core Domain & Timeline Tests
-        run: npx vitest run src/core/evaluation/ src/lib/timecode/
+        run: npx vitest run src/core/evaluation/ src/lib/timecode/ | tee test-results/core-domain-timeline.log
 
       - name: Subsystem Behavioral Contracts (Preview, Playback, Audio, Text, RoundTrip)
         run: |
