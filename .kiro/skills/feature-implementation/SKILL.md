@@ -149,6 +149,16 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 # Run internationalization catalog parity
 npm run i18n:check
+
+# Subsystem contract suites (mandatory for preview/playback/audio/text changes)
+# See AGENTS.md Section 6, Item 8
+npx vitest run src/core/playback/__tests__/replayBehavioralContract.test.ts
+npx vitest run src/core/audio/__tests__/audioPreviewSyncContract.test.ts
+npx vitest run src/components/editor/preview/__tests__/previewStateResetContract.test.ts
+npx vitest run src/features/text-effects/__tests__/textEditPreviewCycle.test.ts
+
+# Canvas pixel validation (Layer A — browser rasterization)
+npx playwright test tests/e2e/preview-canvas-pixel-validation.spec.ts
 ```
 
 ### 8. Inspect Diff & Report Completion
