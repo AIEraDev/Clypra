@@ -602,37 +602,7 @@ export const useTimelineStore = create<TimelineStore>(
     },
 
     addTrack: (type) => {
-      const newTrack: Track = {
-        id: generateId("track"),
-        type,
-        name: `${type.charAt(0).toUpperCase() + type.slice(1)} ${getCounter() % 100}`,
-        muted: false,
-        locked: false,
-        visible: true,
-        height: trackHeights[type],
-      };
-      set((state) => {
-        const insertIndex = getSafeTrackInsertionIndex(
-          state.tracks,
-          type,
-          state.tracks.length,
-          state.mainVideoTrackId,
-        );
-        const nextTracks = [...state.tracks];
-        nextTracks.splice(insertIndex, 0, newTrack);
-        const next: Partial<TimelineStore> = {
-          tracks: nextTracks,
-          mainVideoTrackId:
-            resolvePrimaryVideoTrackId(state.tracks, state.mainVideoTrackId) ??
-            (type === "video" ? newTrack.id : null),
-        };
-        if (state._batchDepth > 0) {
-          next._pendingEpochIncrement = true;
-        } else {
-          next.epoch = state.epoch + 1;
-        }
-        return next;
-      });
+      get().insertTrackAt(type, get().tracks.length);
     },
 
     insertTrackAt: (type, index) => {
@@ -647,19 +617,48 @@ export const useTimelineStore = create<TimelineStore>(
       };
       const id = newTrack.id;
       set((state) => {
-        const clamped = getSafeTrackInsertionIndex(
+        const existingPrimaryId = resolvePrimaryVideoTrackId(
           state.tracks,
-          type,
-          index,
           state.mainVideoTrackId,
         );
-        const nextTracks = [...state.tracks];
-        nextTracks.splice(clamped, 0, newTrack);
+        let nextTracks = [...state.tracks];
+        let newMainVideoTrackId = existingPrimaryId;
+
+        if (!existingPrimaryId && type !== "video") {
+          // When Clypra doesn't have an A-roll yet and non-video content is added,
+          // preserve/create the primary A-Roll track (CapCut parity).
+          const aRollTrack: Track = {
+            id: generateId("track"),
+            type: "video",
+            name: "Video 1",
+            muted: false,
+            locked: false,
+            visible: true,
+            height:
+              TRACK_TYPE_CONFIG.video.primaryHeight ??
+              TRACK_TYPE_CONFIG.video.height,
+          };
+          newMainVideoTrackId = aRollTrack.id;
+          nextTracks = normalizeTrackOrderForMainVideo(
+            [...state.tracks, newTrack, aRollTrack],
+            aRollTrack.id,
+          );
+        } else {
+          const clamped = getSafeTrackInsertionIndex(
+            state.tracks,
+            type,
+            index,
+            state.mainVideoTrackId,
+          );
+          nextTracks.splice(clamped, 0, newTrack);
+          if (type === "video" && !newMainVideoTrackId) {
+            newMainVideoTrackId = newTrack.id;
+          }
+        }
+
         const next: Partial<TimelineStore> = {
           tracks: nextTracks,
-          mainVideoTrackId:
-            resolvePrimaryVideoTrackId(state.tracks, state.mainVideoTrackId) ??
-            (type === "video" ? newTrack.id : null),
+          mainVideoTrackId: newMainVideoTrackId,
         };
         if (state._batchDepth > 0) {
           next._pendingEpochIncrement = true;
@@ -768,13 +767,9 @@ export const useTimelineStore = create<TimelineStore>(
 
       switch (config.reuseStrategy) {
         case "primary": {
-          // The primary video track must already exist; never create one here.
-          const primary = state.tracks.find((t) => t.type === "video") ?? null;
-          if (!primary)
-            throw new Error(
-              "[ensureTrackForType] primary: no video track found",
-            );
-          return primary.id;
+          const primaryId = resolvePrimaryVideoTrackId(state.tracks, state.mainVideoTrackId);
+          if (primaryId) return primaryId;
+          return get().insertTrackAt("video", 0);
         }
 
         case "shared": {

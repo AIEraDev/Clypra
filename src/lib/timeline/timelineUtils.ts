@@ -16,7 +16,7 @@ import { DEFAULT_PLACEMENT_POLICY, resolveClipStartTime } from "./placementPolic
 import { generateId } from "@/lib/utils/id";
 import { resolveInsertEdit } from "./insertEdit";
 import { getTimelineLaneContentX, pixelToTime } from "./timelineViewport";
-import { TRACK_TYPE_CONFIG, getSafeTrackInsertionIndex, isTrackBelowMainVideo } from "./trackTypeConfig";
+import { TRACK_TYPE_CONFIG, getSafeTrackInsertionIndex, isTrackBelowMainVideo, resolvePrimaryVideoTrackId } from "./trackTypeConfig";
 
 // Density configurations mapping zoom levels to extraction densities. Each configuration defines the time interval between thumbnails and the zoom range.
 export const DENSITY_CONFIGS: DensityConfig[] = [
@@ -121,10 +121,27 @@ export function handleCreateTrackAndDrop(item: DragItem, monitor: any, insertInd
     height: TRACK_TYPE_CONFIG[trackType].height,
   };
 
+  // If dropping a non-video asset onto an empty timeline with no A-roll, preserve the primary A-roll track
+  const currentMainVideoId = useTimelineStore.getState().mainVideoTrackId;
+  const hasARoll = Boolean(resolvePrimaryVideoTrackId(tracks, currentMainVideoId));
+  if (trackType !== "video" && !hasARoll) {
+    const aRollTrack: Track = {
+      id: generateId("track"),
+      type: "video",
+      name: "Video 1",
+      muted: false,
+      locked: false,
+      visible: true,
+      height: TRACK_TYPE_CONFIG.video.primaryHeight ?? TRACK_TYPE_CONFIG.video.height,
+    };
+    execute(new AddTrackCommand(aRollTrack, 0));
+  }
+
   // Keep all non-audio rows above the main video row, even when a drop zone
   // supplied a position below it. AddTrackCommand repeats this guard for
   // history replay and undo/redo.
-  const safeInsertIndex = getSafeTrackInsertionIndex(tracks, trackType, insertIndex, useTimelineStore.getState().mainVideoTrackId);
+  const latestTracks = useTimelineStore.getState().tracks;
+  const safeInsertIndex = getSafeTrackInsertionIndex(latestTracks, trackType, insertIndex, useTimelineStore.getState().mainVideoTrackId);
   execute(new AddTrackCommand(newTrack, safeInsertIndex));
 
   if (item.type === "MEDIA_ASSET") {
