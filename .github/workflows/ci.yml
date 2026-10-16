@@ -69,14 +69,14 @@ jobs:
           npx vitest run src/features/text-effects/__tests__/textEditPreviewCycle.test.ts
           npx vitest run src/core/evaluation/__tests__/requestRoundTripFixture.test.ts
 
-      - name: Verify Mutation Canary Invariants
-        run: npm run verify:canary-mutations
-
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium
 
       - name: Layer A Playwright Pixel Validation
         run: npx playwright test tests/e2e/preview-canvas-pixel-validation.spec.ts
+
+      - name: Verify Mutation Canary Invariants
+        run: npm run verify:canary-mutations
 
       - name: Verify Mechanical Evidence Gate
         run: npm run verify:evidence -- --ci
