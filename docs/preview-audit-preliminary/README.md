@@ -1,5 +1,8 @@
 # Clypra Program Preview Subsystem: As-Is Technical Audit
 
+> [!WARNING]
+> Preliminary agent notes. Not verified. Superseded by `docs/preview-audit/`.
+
 ## 1. System Scope & Boundaries
 
 This audit documents the runtime architecture, state machines, IPC boundaries, and execution flows of Clypra's Program Preview subsystem (`v1.6.1`).
@@ -48,4 +51,3 @@ The audit is organized into the following documents:
    - [`05-unch-sentinel.md`](./03-flows/05-unch-sentinel.md): The `UNCH` unchanged frame short-circuit protocol.
 4. [`04-coverage-ledger.md`](./04-coverage-ledger.md): Mapping of architectural invariants and failure modes to automated tests.
 5. [`05-verification.md`](./05-verification.md): Systematic evaluation of 25 core subsystem claims against evidence tags.
-6. [`tools/verify-audit-completeness.mjs`](./tools/verify-audit-completeness.mjs): Mechanical validation script verifying document completeness and absence of subjective prose.
