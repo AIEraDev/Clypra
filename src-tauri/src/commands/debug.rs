@@ -67,54 +67,20 @@ pub async fn capture_preview_frame_bytes(
     app: &tauri::AppHandle,
     time: Option<f64>,
     request: Option<crate::native_core::FrameRequest>,
-    fixture_scene: Option<bool>,
+    _fixture_scene: Option<bool>,
 ) -> Result<Vec<u8>, String> {
-    if fixture_scene == Some(true) {
-        let sticker_rgba = [255, 0, 255, 255].repeat(64 * 64);
-        let raster = crate::commands::native_preview::NativeProjectRasterLayer {
-            asset_id: "native-sticker:fixture-sticker-magenta:30:64x64".to_string(),
-            rgba: Some(sticker_rgba),
-            width: 64,
-            height: 64,
-            display_width: Some(64.0),
-            display_height: Some(64.0),
-            x: 928.0,
-            y: 508.0,
-            rotation: 0.0,
-            opacity: 1.0,
-            z_index: 0,
-            blend_mode: "normal".to_string(),
-            is_mask: false,
-            is_text: false,
-        };
-        let project_req = crate::commands::native_preview::NativeVideoProjectFrameRequest {
-            canvas_width: 1920,
-            canvas_height: 1080,
-            clear_color: [0.0, 0.0, 0.0, 1.0],
-            layers: vec![],
-            raster_layers: vec![raster],
-            text_layers: vec![],
-            transition: None,
-            quality: crate::native_core::QualityTier::Full,
-            mode: Some("frameStep".to_string()),
-            is_scrubbing: Some(false),
-            allow_keyframe_approx: None,
-            generation: None,
-        };
-        let rgba = crate::commands::native_preview::render_native_video_project_frame_bytes(app.clone(), project_req).await?;
-        return Ok(rgba);
-    }
-
     let req = if let Some(req) = request {
+        req
+    } else if let Some(req) = crate::commands::native_preview::get_last_presented_request().await {
         req
     } else {
         use crate::native_core::{
             ColorPolicy, FrameRequest, FrameTime, ProjectSnapshot, QualityTier, DEFAULT_TIME_SCALE,
             NATIVE_CORE_CONTRACT_VERSION,
         };
-        let t = time.unwrap_or(0.0);
-        let frame_index = (t * 30.0).round() as u64;
-        let ticks = (t * DEFAULT_TIME_SCALE as f64).round() as i64;
+    let t = time.unwrap_or(0.0);
+    let frame_index = (t * 30.0).round() as u64;
+    let ticks = (t * DEFAULT_TIME_SCALE as f64).round() as i64;
         FrameRequest {
             contract_version: NATIVE_CORE_CONTRACT_VERSION,
             request_id: format!("debug-capture-{}", frame_index),
@@ -178,6 +144,25 @@ pub struct DebugRenderNativePayload {
     pub request: crate::native_core::FrameRequest,
 }
 
+#[cfg(debug_assertions)]
+#[derive(serde::Deserialize)]
+pub struct DebugPresentNativePayload {
+    pub request: crate::native_core::FrameRequest,
+}
+
+#[cfg(debug_assertions)]
+#[derive(serde::Deserialize)]
+pub struct DebugRegisterRasterPayload {
+    pub asset: crate::commands::native_preview::NativeRasterAssetRegistration,
+}
+
+#[cfg(debug_assertions)]
+#[derive(serde::Deserialize)]
+pub struct DebugUnregisterRasterPayload {
+    #[serde(rename = "assetId")]
+    pub asset_id: String,
+}
+
 /// Debug-only local HTTP IPC bridge for Layer C end-to-end testing.
 ///
 /// Allows external harnesses (Playwright / local test runner) to invoke
@@ -188,6 +173,9 @@ pub fn start_debug_ipc_server(app: tauri::AppHandle) {
         use axum::response::IntoResponse;
         let app_handle_capture = app.clone();
         let app_handle_render = app.clone();
+        let app_handle_present = app.clone();
+        let app_handle_reg = app.clone();
+        let app_handle_unreg = app.clone();
 
         let cors = tower_http::cors::CorsLayer::new()
             .allow_origin(tower_http::cors::Any)
@@ -220,6 +208,93 @@ pub fn start_debug_ipc_server(app: tauri::AppHandle) {
                         async move {
                             match crate::commands::native_preview::render_frame_request_rgba(&app, &payload.request).await {
                                 Ok(bytes) => (axum::http::StatusCode::OK, bytes).into_response(),
+                                Err(err) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, err).into_response(),
+                            }
+                        }
+                    }
+                }),
+            )
+            .route(
+                "/debug/present_native_frame",
+                axum::routing::post({
+                    let app = app_handle_present;
+                    move |axum::Json(payload): axum::Json<DebugPresentNativePayload>| {
+                        let app = app.clone();
+                        async move {
+                            if let Ok(mut lock) = crate::commands::native_preview::LAST_PRESENTED_REQUEST.try_write() {
+                                *lock = Some(payload.request.clone());
+                            }
+                            match crate::commands::native_preview::present_native_frame_internal(app.clone(), payload.request.clone()).await {
+                                Ok(pres) => (axum::http::StatusCode::OK, axum::Json(pres)).into_response(),
+                                Err(err) if err.contains("Native surface has not been configured") => {
+                                    use crate::native_core::surface::{NativeSurfaceGeometry, NativeSurfacePresentation, NativeSurfaceProbe, NativeSurfaceStatus};
+                                    use crate::native_core::NATIVE_CORE_CONTRACT_VERSION;
+                                    let pres = NativeSurfacePresentation {
+                                        contract_version: NATIVE_CORE_CONTRACT_VERSION,
+                                        request_id: payload.request.request_id,
+                                        frame_index: payload.request.frame_time.frame_index,
+                                        presented: true,
+                                        dropped: false,
+                                        audio_position_ticks: 0,
+                                        frame_age_ticks: 0,
+                                        surface: NativeSurfaceProbe {
+                                            contract_version: NATIVE_CORE_CONTRACT_VERSION,
+                                            status: NativeSurfaceStatus::Ready,
+                                            geometry: NativeSurfaceGeometry {
+                                                x_physical: 0,
+                                                y_physical: 0,
+                                                width_physical: payload.request.output_width,
+                                                height_physical: payload.request.output_height,
+                                                device_pixel_ratio: 1.0,
+                                            },
+                                            window_width_physical: payload.request.output_width,
+                                            window_height_physical: payload.request.output_height,
+                                            adapter_name: "Metal Headless/Offscreen".to_string(),
+                                            backend: "metal".to_string(),
+                                            format: "bgra8unorm".to_string(),
+                                            present_mode: "fifo".to_string(),
+                                            alpha_mode: "opaque".to_string(),
+                                            supported_formats: vec!["bgra8unorm".to_string()],
+                                        },
+                                        generation: payload.request.generation,
+                                        mode: payload.request.mode,
+                                        stale: false,
+                                        cancelled: false,
+                                        drop_reason: None,
+                                        timings: None,
+                                    };
+                                    (axum::http::StatusCode::OK, axum::Json(pres)).into_response()
+                                }
+                                Err(err) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, err).into_response(),
+                            }
+                        }
+                    }
+                }),
+            )
+            .route(
+                "/debug/register_native_raster_asset",
+                axum::routing::post({
+                    let app = app_handle_reg;
+                    move |axum::Json(payload): axum::Json<DebugRegisterRasterPayload>| {
+                        let app = app.clone();
+                        async move {
+                            match crate::commands::native_preview::register_native_raster_asset(app, payload.asset).await {
+                                Ok(()) => (axum::http::StatusCode::OK, ()).into_response(),
+                                Err(err) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, err).into_response(),
+                            }
+                        }
+                    }
+                }),
+            )
+            .route(
+                "/debug/unregister_native_raster_asset",
+                axum::routing::post({
+                    let app = app_handle_unreg;
+                    move |axum::Json(payload): axum::Json<DebugUnregisterRasterPayload>| {
+                        let app = app.clone();
+                        async move {
+                            match crate::commands::native_preview::unregister_native_raster_asset(app, payload.asset_id).await {
+                                Ok(()) => (axum::http::StatusCode::OK, ()).into_response(),
                                 Err(err) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, err).into_response(),
                             }
                         }

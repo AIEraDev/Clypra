@@ -3915,6 +3915,15 @@ pub async fn unregister_native_raster_asset(
 /// transforms, blend modes, and clear color are identical. The only changed
 /// target is the final wgpu texture view, which removes the CPU RGBA bridge
 /// when an embedded native surface is available.
+#[cfg(debug_assertions)]
+pub(crate) static LAST_PRESENTED_REQUEST: tokio::sync::RwLock<Option<FrameRequest>> =
+    tokio::sync::RwLock::const_new(None);
+
+#[cfg(debug_assertions)]
+pub async fn get_last_presented_request() -> Option<FrameRequest> {
+    LAST_PRESENTED_REQUEST.read().await.clone()
+}
+
 pub(crate) async fn present_native_frame_internal(
     app: tauri::AppHandle,
     request: FrameRequest,
@@ -4707,6 +4716,12 @@ pub(crate) async fn present_native_frame_internal(
     );
     drop(surface);
     drop(session);
+    #[cfg(debug_assertions)]
+    {
+        if let Ok(mut lock) = LAST_PRESENTED_REQUEST.try_write() {
+            *lock = Some(request.clone());
+        }
+    }
     record_native_surface_sample(
         &app,
         &request,
