@@ -434,22 +434,9 @@ export const useTimelineStore = create<TimelineStore>(
         const finalGaps = (payload as any)?.gaps ?? []; // Load gaps from project
         const finalMarkers: TimelineMarker[] = (payload as any)?.markers ?? [];
 
-        // Clean up empty tracks (tracks with no clips) when cleanEmptyTracks is enabled
-        let finalTracks = finalTracksRaw;
-        if (payload?.cleanEmptyTracks) {
-          const clipTrackIds = new Set(
-            finalClipsRaw.map((c: any) => c.trackId),
-          );
-          const hasClips = finalClipsRaw.length > 0;
-          finalTracks = finalTracksRaw.filter((track: any) => {
-            if (!hasClips) return true;
-            return clipTrackIds.has(track.id);
-          });
-        }
-
         // Adopt the larger video row for projects created with the previous
         // compact 68px default. Explicitly taller user rows are preserved.
-        finalTracks = finalTracks.map((track: any) =>
+        const upgradedTracksRaw = finalTracksRaw.map((track: any) =>
           track.type === "video" && track.height === 68
             ? { ...track, height: trackHeights.video }
             : track,
@@ -463,16 +450,21 @@ export const useTimelineStore = create<TimelineStore>(
           return normalizeClipTiming(clip, asset);
         });
 
+        // Identify the candidate primary A-Roll video track from the pre-pruned tracks.
         // The main row is explicit when present. For older projects, infer it
         // from the clip/media contract and canonical bottommost video track position
         // so an overlay track or secondary video row cannot steal the main A-roll role.
-        const explicitMainTrack = finalTracks.find(
+        const videoTracksWithClips = upgradedTracksRaw.filter(
+          (track) =>
+            track.type === "video" &&
+            finalClipsRaw.some((clip: any) => clip.trackId === track.id),
+        );
+        const candidateExplicitMain = upgradedTracksRaw.find(
           (track) =>
             track.id === payload?.mainVideoTrackId && track.type === "video",
         );
-        const inferredMainTrack = [...finalTracks].reverse().find(
+        const candidateInferredMain = [...videoTracksWithClips].reverse().find(
           (track) =>
-            track.type === "video" &&
             finalClipsRaw.some((clip: any) => {
               if (clip.trackId !== track.id) return false;
               if (clip.kind === "video") return true;
@@ -482,10 +474,51 @@ export const useTimelineStore = create<TimelineStore>(
               return asset?.type === "video";
             }),
         );
-        const newMainVideoTrackId =
-          explicitMainTrack?.id ??
-          inferredMainTrack?.id ??
-          resolvePrimaryVideoTrackId(finalTracks, payload?.mainVideoTrackId);
+        const candidatePrimaryId =
+          candidateExplicitMain?.id ??
+          candidateInferredMain?.id ??
+          (videoTracksWithClips.length > 0
+            ? resolvePrimaryVideoTrackId(videoTracksWithClips)
+            : resolvePrimaryVideoTrackId(upgradedTracksRaw, payload?.mainVideoTrackId));
+
+        // Clean up empty tracks (tracks with no clips) when cleanEmptyTracks is enabled,
+        // but ALWAYS protect the primary A-Roll video track (even if currently empty).
+        let finalTracks = upgradedTracksRaw;
+        if (payload?.cleanEmptyTracks) {
+          const clipTrackIds = new Set(
+            finalClipsRaw.map((c: any) => c.trackId),
+          );
+          const hasClips = finalClipsRaw.length > 0;
+          finalTracks = upgradedTracksRaw.filter((track: any) => {
+            if (!hasClips) return true;
+            if (candidatePrimaryId && track.id === candidatePrimaryId) return true;
+            return clipTrackIds.has(track.id);
+          });
+        }
+
+        // Reconstruct A-Roll video track on reload if clips exist but no video track is present
+        // (e.g. legacy projects or projects created before A-Roll preservation).
+        let resolvedPrimaryId = resolvePrimaryVideoTrackId(
+          finalTracks,
+          candidatePrimaryId ?? payload?.mainVideoTrackId,
+        );
+        if (!resolvedPrimaryId && finalClipsRaw.length > 0) {
+          const aRollTrack: Track = {
+            id: generateId("track"),
+            type: "video",
+            name: "Video 1",
+            muted: false,
+            locked: false,
+            visible: true,
+            height:
+              TRACK_TYPE_CONFIG.video.primaryHeight ??
+              TRACK_TYPE_CONFIG.video.height,
+          };
+          resolvedPrimaryId = aRollTrack.id;
+          finalTracks = [...finalTracks, aRollTrack];
+        }
+
+        const newMainVideoTrackId = resolvedPrimaryId;
         finalTracks = normalizeTrackOrderForMainVideo(
           finalTracks,
           newMainVideoTrackId,

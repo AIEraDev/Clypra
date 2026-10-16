@@ -4,6 +4,7 @@ import { useProjectStore } from "@/store/projectStore";
 import { TimelinePlacementEngine } from "../placementEngine";
 import { getTrackVisualSpec, shouldAutoPruneTrack } from "../trackTypeConfig";
 import { handleCreateTrackAndDrop } from "../timelineUtils";
+import { toRustProject, validateAndMigrateProjectPayload } from "@/types/serialization";
 
 describe("Preserve A-Roll track when adding non-video content to an empty timeline", () => {
   beforeEach(() => {
@@ -262,5 +263,218 @@ describe("Preserve A-Roll track when adding non-video content to an empty timeli
     expect(state.tracks[1].type).toBe("audio");
     expect(state.clips.length).toBe(1);
     expect(state.clips[0].trackId).toBe(state.tracks[1].id);
+  });
+
+  it("preserves empty A-Roll track and prunes secondary empty tracks when reopening project with cleanEmptyTracks", () => {
+    const textTrack = {
+      id: "track-text-1",
+      type: "text" as const,
+      name: "Text 1",
+      muted: false,
+      locked: false,
+      visible: true,
+      height: 30,
+    };
+    const aRollTrack = {
+      id: "track-aroll-1",
+      type: "video" as const,
+      name: "Video 1",
+      muted: false,
+      locked: false,
+      visible: true,
+      height: 80,
+    };
+    const secondaryBrollTrack = {
+      id: "track-broll-unused",
+      type: "video" as const,
+      name: "Video 2",
+      muted: false,
+      locked: false,
+      visible: true,
+      height: 60,
+    };
+    const secondaryAudioTrack = {
+      id: "track-audio-unused",
+      type: "audio" as const,
+      name: "Audio 1",
+      muted: false,
+      locked: false,
+      visible: true,
+      height: 52,
+    };
+    const textClip = {
+      id: "clip-text-1",
+      trackId: textTrack.id,
+      kind: "text" as const,
+      startTime: 0,
+      duration: 5,
+      trimIn: 0,
+      trimOut: 5,
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+      opacity: 1,
+      rotation: 0,
+      text: "Title Overlay",
+    };
+
+    useTimelineStore.getState().hydrateFromProject({
+      tracks: [textTrack, secondaryBrollTrack, aRollTrack, secondaryAudioTrack],
+      clips: [textClip as any],
+      mainVideoTrackId: aRollTrack.id,
+      cleanEmptyTracks: true,
+    });
+
+    const state = useTimelineStore.getState();
+    // Secondary empty B-roll and audio tracks are pruned, but text track and empty A-Roll track are kept!
+    expect(state.tracks.length).toBe(2);
+    expect(state.tracks.map((t) => t.id)).toEqual([textTrack.id, aRollTrack.id]);
+    expect(state.mainVideoTrackId).toBe(aRollTrack.id);
+
+    const visualSpec = getTrackVisualSpec(state.tracks[1], state.tracks, state.mainVideoTrackId);
+    expect(visualSpec.role).toBe("a-roll");
+    expect(visualSpec.tone).toBe("primary");
+    expect(visualSpec.height).toBe(80);
+  });
+
+  it("re-establishes preserved A-Roll track below text clips when reloading legacy project without video tracks", () => {
+    const textTrack = {
+      id: "track-legacy-text-1",
+      type: "text" as const,
+      name: "Text 1",
+      muted: false,
+      locked: false,
+      visible: true,
+      height: 30,
+    };
+    const textClip = {
+      id: "clip-legacy-text-1",
+      trackId: textTrack.id,
+      kind: "text" as const,
+      startTime: 0,
+      duration: 4,
+      trimIn: 0,
+      trimOut: 4,
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+      opacity: 1,
+      rotation: 0,
+      text: "Legacy text",
+    };
+
+    useTimelineStore.getState().hydrateFromProject({
+      tracks: [textTrack],
+      clips: [textClip as any],
+      cleanEmptyTracks: true,
+    });
+
+    const state = useTimelineStore.getState();
+    // Text track + newly re-established A-Roll track = 2 tracks
+    expect(state.tracks.length).toBe(2);
+    expect(state.tracks[0].id).toBe(textTrack.id);
+    expect(state.tracks[1].type).toBe("video");
+    expect(state.tracks[1].name).toBe("Video 1");
+    expect(state.tracks[1].height).toBe(80);
+    expect(state.mainVideoTrackId).toBe(state.tracks[1].id);
+
+    const visualSpec = getTrackVisualSpec(state.tracks[1], state.tracks, state.mainVideoTrackId);
+    expect(visualSpec.role).toBe("a-roll");
+    expect(visualSpec.tone).toBe("primary");
+  });
+
+  it("leaves intentionally empty projects cleanly empty without creating tracks", () => {
+    useTimelineStore.getState().hydrateFromProject({
+      tracks: [],
+      clips: [],
+      cleanEmptyTracks: true,
+    });
+
+    const state = useTimelineStore.getState();
+    expect(state.tracks).toEqual([]);
+    expect(state.clips).toEqual([]);
+    expect(state.mainVideoTrackId).toBeNull();
+  });
+
+  it("preserves empty A-Roll track and mainVideoTrackId across full serialization and rehydration round-trip", () => {
+    const textTrack = {
+      id: "track-text-save",
+      type: "text" as const,
+      name: "Text 1",
+      muted: false,
+      locked: false,
+      visible: true,
+      height: 30,
+    };
+    const aRollTrack = {
+      id: "track-aroll-save",
+      type: "video" as const,
+      name: "Video 1",
+      muted: false,
+      locked: false,
+      visible: true,
+      height: 80,
+    };
+    const textClip = {
+      id: "clip-text-save",
+      trackId: textTrack.id,
+      kind: "text" as const,
+      startTime: 0,
+      duration: 5,
+      trimIn: 0,
+      trimOut: 5,
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+      opacity: 1,
+      rotation: 0,
+      text: "Saved Title",
+    };
+
+    const project = {
+      id: "project-save-test",
+      name: "Save Test",
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+      frameRate: 30,
+      timelineSchemaVersion: 1,
+    } as any;
+
+    // Serialize to RustProject representation as done during save
+    const rustProject = toRustProject(project, {
+      tracks: [textTrack, aRollTrack],
+      clips: [textClip as any],
+      transitions: [],
+      gaps: [],
+      markers: [],
+      mediaAssets: [],
+      mainVideoTrackId: aRollTrack.id,
+    });
+
+    expect(rustProject.main_video_track_id).toBe(aRollTrack.id);
+
+    // Validate and migrate as done during load in App.tsx / projectStore
+    const snapshot = validateAndMigrateProjectPayload(JSON.stringify(rustProject));
+    expect(snapshot.mainVideoTrackId).toBe(aRollTrack.id);
+
+    // Hydrate as done in loadProject with cleanEmptyTracks: true
+    useTimelineStore.getState().hydrateFromProject({
+      tracks: snapshot.tracks,
+      clips: snapshot.clips,
+      transitions: snapshot.transitions,
+      gaps: snapshot.gaps,
+      markers: snapshot.markers,
+      mainVideoTrackId: snapshot.mainVideoTrackId,
+      cleanEmptyTracks: true,
+    });
+
+    const state = useTimelineStore.getState();
+    expect(state.tracks.length).toBe(2);
+    expect(state.tracks[0].id).toBe(textTrack.id);
+    expect(state.tracks[1].id).toBe(aRollTrack.id);
+    expect(state.mainVideoTrackId).toBe(aRollTrack.id);
   });
 });
