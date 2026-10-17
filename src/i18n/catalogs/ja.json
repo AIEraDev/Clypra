@@ -255,5 +255,19 @@
   "properties.animation.favorites": "お気に入り",
   "properties.text.presetStyle": "プリセットスタイル",
   "properties.text.expandPresets": "プリセットスタイルを展開",
-  "properties.text.collapsePresets": "プリセットスタイルを折りたたむ"
+  "properties.text.collapsePresets": "プリセットスタイルを折りたたむ",
+  "properties.transform.title": "変形",
+  "properties.transform.scale": "拡大縮小",
+  "properties.transform.uniformScale": "縦横比を固定",
+  "properties.transform.position": "位置",
+  "properties.transform.planeRotation": "平面回転",
+  "properties.transform.reset": "変形をリセット",
+  "properties.transform.alignLeft": "左揃え",
+  "properties.transform.alignCenterX": "左右中央揃え",
+  "properties.transform.alignRight": "右揃え",
+  "properties.transform.alignTop": "上揃え",
+  "properties.transform.alignCenterY": "上下中央揃え",
+  "properties.transform.alignBottom": "下揃え",
+  "properties.transform.distributeX": "水平に等間隔に配置",
+  "properties.transform.distributeY": "垂直に等間隔に配置"
 }

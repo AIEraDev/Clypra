@@ -40,6 +40,7 @@ import {
   resolveFontPickerValue,
 } from "./data/fontData";
 import { PresetStyleGrid } from "./PresetStyleGrid";
+import { TextTransformSection } from "./TextTransformSection";
 import type { TextStylePreset } from "./data/textStylePresets";
 
 interface TextBasicTabProps {
@@ -592,6 +593,16 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
       <PresetStyleGrid
         textClip={textClip}
         onApplyPreset={handleApplyPresetStyle}
+      />
+
+      <div className="border-t border-white/10 my-2" />
+
+      {/* CapCut-parity TRANSFORM Section under preset */}
+      <TextTransformSection
+        textClip={textClip}
+        handleUpdate={handleUpdate}
+        handleCustomStyleUpdate={handleCustomStyleUpdate}
+        handleUpdateMultiple={handleUpdateMultiple}
       />
 
       <div className="border-t border-white/10 my-2" />

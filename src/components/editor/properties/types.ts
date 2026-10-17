@@ -3,8 +3,7 @@ export type TextPropertyTab =
   | "animation"
   | "tracking"
   | "tts"
-  | "ai_avatars"
-  | "transform";
+  | "ai_avatars";
 
 export type VideoPropertyTab = "video" | "audio" | "speed" | "animation";
 

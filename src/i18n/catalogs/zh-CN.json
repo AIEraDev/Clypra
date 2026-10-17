@@ -255,5 +255,19 @@
   "properties.animation.favorites": "收藏",
   "properties.text.presetStyle": "预设样式",
   "properties.text.expandPresets": "展开预设样式",
-  "properties.text.collapsePresets": "折叠预设样式"
+  "properties.text.collapsePresets": "折叠预设样式",
+  "properties.transform.title": "变换",
+  "properties.transform.scale": "缩放",
+  "properties.transform.uniformScale": "等比缩放",
+  "properties.transform.position": "位置",
+  "properties.transform.planeRotation": "平面旋转",
+  "properties.transform.reset": "重置变换",
+  "properties.transform.alignLeft": "左对齐",
+  "properties.transform.alignCenterX": "水平居中",
+  "properties.transform.alignRight": "右对齐",
+  "properties.transform.alignTop": "顶对齐",
+  "properties.transform.alignCenterY": "垂直居中",
+  "properties.transform.alignBottom": "底对齐",
+  "properties.transform.distributeX": "水平等距分布",
+  "properties.transform.distributeY": "垂直等距分布"
 }

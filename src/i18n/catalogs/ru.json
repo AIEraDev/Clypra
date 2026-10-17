@@ -259,5 +259,19 @@
   "properties.animation.favorites": "Избранное",
   "properties.text.presetStyle": "ПРЕДУСТАНОВЛЕННЫЙ СТИЛЬ",
   "properties.text.expandPresets": "Развернуть стили",
-  "properties.text.collapsePresets": "Свернуть стили"
+  "properties.text.collapsePresets": "Свернуть стили",
+  "properties.transform.title": "Трансформация",
+  "properties.transform.scale": "Масштаб",
+  "properties.transform.uniformScale": "Равномерный масштаб",
+  "properties.transform.position": "Позиция",
+  "properties.transform.planeRotation": "Вращение плоскости",
+  "properties.transform.reset": "Сбросить трансформацию",
+  "properties.transform.alignLeft": "Выровнять влево",
+  "properties.transform.alignCenterX": "По центру горизонтально",
+  "properties.transform.alignRight": "Выровнять вправо",
+  "properties.transform.alignTop": "Выровнять вверх",
+  "properties.transform.alignCenterY": "По центру вертикально",
+  "properties.transform.alignBottom": "Выровнять вниз",
+  "properties.transform.distributeX": "Распределить горизонтально",
+  "properties.transform.distributeY": "Распределить вертикально"
 }

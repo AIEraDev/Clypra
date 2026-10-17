@@ -169,19 +169,18 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
         <TextAiAvatarsSection textClip={textClip} />
       )}
 
-      {/* Transform (visual clips, or text clips on transform tab) */}
-      {supportsAnimation &&
-        (!isTextClip || activePropertyTab === "transform") && (
-          <TransformSection
-            selectedClip={selectedClip}
-            isVisualClip={isVisualClip}
-            handleUpdate={handleUpdate}
-            handleUpdateMultiple={handleUpdateMultiple}
-            handleApplyFit={handleApplyFit}
-            canvasWidth={canvasWidth}
-            canvasHeight={canvasHeight}
-          />
-        )}
+      {/* Transform (visual non-text clips) */}
+      {supportsAnimation && !isTextClip && (
+        <TransformSection
+          selectedClip={selectedClip}
+          isVisualClip={isVisualClip}
+          handleUpdate={handleUpdate}
+          handleUpdateMultiple={handleUpdateMultiple}
+          handleApplyFit={handleApplyFit}
+          canvasWidth={canvasWidth}
+          canvasHeight={canvasHeight}
+        />
+      )}
 
       {/* Motion & Animation Presets (Build-In, Build-Out, Loop) for visual non-text clips */}
       {supportsAnimation && !isTextClip && (

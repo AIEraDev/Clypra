@@ -255,5 +255,19 @@
   "properties.animation.favorites": "Favoritos",
   "properties.text.presetStyle": "ESTILO PREDETERMINADO",
   "properties.text.expandPresets": "Expandir estilos predeterminados",
-  "properties.text.collapsePresets": "Contraer estilos predeterminados"
+  "properties.text.collapsePresets": "Contraer estilos predeterminados",
+  "properties.transform.title": "Transformar",
+  "properties.transform.scale": "Escala",
+  "properties.transform.uniformScale": "Escala uniforme",
+  "properties.transform.position": "Posición",
+  "properties.transform.planeRotation": "Rotación de plano",
+  "properties.transform.reset": "Restablecer transformación",
+  "properties.transform.alignLeft": "Alinear a la izquierda",
+  "properties.transform.alignCenterX": "Centrar horizontalmente",
+  "properties.transform.alignRight": "Alinear a la derecha",
+  "properties.transform.alignTop": "Alinear arriba",
+  "properties.transform.alignCenterY": "Centrar verticalmente",
+  "properties.transform.alignBottom": "Alinear abajo",
+  "properties.transform.distributeX": "Distribuir horizontalmente",
+  "properties.transform.distributeY": "Distribuir verticalmente"
 }

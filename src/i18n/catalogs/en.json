@@ -255,5 +255,19 @@
   "properties.animation.favorites": "Favorites",
   "properties.text.presetStyle": "PRESET STYLE",
   "properties.text.expandPresets": "Expand preset styles",
-  "properties.text.collapsePresets": "Collapse preset styles"
+  "properties.text.collapsePresets": "Collapse preset styles",
+  "properties.transform.title": "Transform",
+  "properties.transform.scale": "Scale",
+  "properties.transform.uniformScale": "Uniform scale",
+  "properties.transform.position": "Position",
+  "properties.transform.planeRotation": "Plane rotation",
+  "properties.transform.reset": "Reset transform",
+  "properties.transform.alignLeft": "Align left",
+  "properties.transform.alignCenterX": "Align center horizontally",
+  "properties.transform.alignRight": "Align right",
+  "properties.transform.alignTop": "Align top",
+  "properties.transform.alignCenterY": "Align center vertically",
+  "properties.transform.alignBottom": "Align bottom",
+  "properties.transform.distributeX": "Distribute horizontally",
+  "properties.transform.distributeY": "Distribute vertically"
 }

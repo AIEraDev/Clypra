@@ -255,5 +255,19 @@
   "properties.animation.favorites": "즐겨찾기",
   "properties.text.presetStyle": "프리셋 스타일",
   "properties.text.expandPresets": "프리셋 스타일 펼치기",
-  "properties.text.collapsePresets": "프리셋 스타일 접기"
+  "properties.text.collapsePresets": "프리셋 스타일 접기",
+  "properties.transform.title": "변형",
+  "properties.transform.scale": "비율",
+  "properties.transform.uniformScale": "균등 비율",
+  "properties.transform.position": "위치",
+  "properties.transform.planeRotation": "평면 회전",
+  "properties.transform.reset": "변형 초기화",
+  "properties.transform.alignLeft": "왼쪽 정렬",
+  "properties.transform.alignCenterX": "가로 가운데 정렬",
+  "properties.transform.alignRight": "오른쪽 정렬",
+  "properties.transform.alignTop": "위쪽 정렬",
+  "properties.transform.alignCenterY": "세로 가운데 정렬",
+  "properties.transform.alignBottom": "아래쪽 정렬",
+  "properties.transform.distributeX": "가로로 균등하게 배치",
+  "properties.transform.distributeY": "세로로 균등하게 배치"
 }

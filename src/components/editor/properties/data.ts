@@ -34,10 +34,4 @@ export const TEXT_TABS: PropertyTabsType[] = [
     label: "AI avatars",
     icon: UserCheck,
   },
-  {
-    id: "transform",
-    labelKey: "properties.tabs.transform",
-    label: "Transform",
-    icon: Layout,
-  },
 ];

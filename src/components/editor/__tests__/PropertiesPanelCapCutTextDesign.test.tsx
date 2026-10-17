@@ -75,7 +75,7 @@ describe("CapCut Parity Text Property Panel", () => {
     });
   });
 
-  it("renders CapCut primary top navigation tabs: Text, Animation, Tracking, Text to speech, AI avatars", () => {
+  it("renders CapCut primary top navigation tabs: Text, Animation, Tracking, Text to speech, AI avatars (and excludes top Transform tab)", () => {
     render(<PropertiesPanel />);
 
     // Text tab
@@ -92,6 +92,9 @@ describe("CapCut Parity Text Property Panel", () => {
 
     // AI avatars tab
     expect(screen.getByRole("button", { name: /AI avatars/i })).toBeDefined();
+
+    // Top Transform tab is excluded for text clips
+    expect(screen.queryByRole("button", { name: /^Transform$/i })).toBeNull();
   });
 
   it("switches to Animation, Tracking, Text to Speech, and AI Avatars tabs properly", () => {
@@ -225,7 +228,7 @@ describe("CapCut Parity Text Property Panel", () => {
     expect(textLayer.textDecoration).toBe("underline");
   });
 
-  it("renders PRESET STYLE section with visual preset cards and expandable drawer", () => {
+  it("renders PRESET STYLE section with visual preset cards grid", () => {
     render(<PropertiesPanel />);
 
     // Section title
@@ -234,25 +237,15 @@ describe("CapCut Parity Text Property Panel", () => {
     // Reset button (None)
     expect(screen.getByTitle("None")).toBeDefined();
 
-    // Specific CapCut-parity presets
+    // Specific CapCut-parity presets rendered directly in responsive grid
     expect(screen.getByTitle("White with Black Outline")).toBeDefined();
     expect(screen.getByTitle("Yellow with Black Outline")).toBeDefined();
     expect(screen.getByTitle("Yellow Badge")).toBeDefined();
     expect(screen.getByTitle("Neon Pink Glow")).toBeDefined();
-
-    // Toggle expand
-    const expandBtn = screen.getByTitle("Expand preset styles");
-    fireEvent.click(expandBtn);
-
-    // After expanding, full 3-row grid is rendered
     expect(screen.getByTitle("Black with White Outline")).toBeDefined();
     expect(screen.getByTitle("White Badge with Purple Text")).toBeDefined();
     expect(screen.getByTitle("Black with Green 3D Extrusion")).toBeDefined();
     expect(screen.getByTitle("Neon Green Glow")).toBeDefined();
-
-    // Collapse again
-    const collapseBtn = screen.getByTitle("Collapse preset styles");
-    fireEvent.click(collapseBtn);
   });
 
   it("applies a preset style instantly updating color, stroke, shadow, and background", async () => {
@@ -289,5 +282,86 @@ describe("CapCut Parity Text Property Panel", () => {
     expect(clipAfterReset.stroke).toBeUndefined();
     expect(clipAfterReset.shadow).toBeUndefined();
     expect(clipAfterReset.background).toBeUndefined();
+  });
+
+  it("renders CapCut Transform section under preset in Basic tab with full controls and alignment toolbar", () => {
+    render(<PropertiesPanel />);
+
+    // Transform accordion header & reset
+    expect(screen.getByText("Transform")).toBeDefined();
+    expect(screen.getByTitle("Reset transform")).toBeDefined();
+
+    // Scale controls
+    expect(screen.getByText("Scale")).toBeDefined();
+    expect(screen.getByText("Uniform scale")).toBeDefined();
+
+    // Position controls
+    expect(screen.getByText("Position")).toBeDefined();
+    expect(screen.getByText("X")).toBeDefined();
+    expect(screen.getByText("Y")).toBeDefined();
+
+    // Plane rotation controls
+    expect(screen.getByText("Plane rotation")).toBeDefined();
+    expect(screen.getByTitle("Drag to rotate")).toBeDefined();
+
+    // Docked canvas alignment toolbar buttons
+    expect(screen.getByTitle("Align left")).toBeDefined();
+    expect(screen.getByTitle("Align center horizontally")).toBeDefined();
+    expect(screen.getByTitle("Align right")).toBeDefined();
+    expect(screen.getByTitle("Align top")).toBeDefined();
+    expect(screen.getByTitle("Align center vertically")).toBeDefined();
+    expect(screen.getByTitle("Align bottom")).toBeDefined();
+    expect(screen.getByTitle("Distribute horizontally")).toBeDefined();
+    expect(screen.getByTitle("Distribute vertically")).toBeDefined();
+  });
+
+  it("handles canvas alignment clicks and updates clip coordinates in store", async () => {
+    render(<PropertiesPanel />);
+
+    // Click "Align left" (|←)
+    const alignLeftBtn = screen.getByTitle("Align left");
+    fireEvent.click(alignLeftBtn);
+
+    await new Promise((r) => setTimeout(r, 100));
+    let clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    expect(clip.x).toBe(0);
+
+    // Click "Align center horizontally" (┼) -> (1920 - 400) / 2 = 760
+    const alignCenterXBtn = screen.getByTitle("Align center horizontally");
+    fireEvent.click(alignCenterXBtn);
+
+    await new Promise((r) => setTimeout(r, 100));
+    clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    expect(clip.x).toBe(760);
+
+    // Click "Align top" (╤)
+    const alignTopBtn = screen.getByTitle("Align top");
+    fireEvent.click(alignTopBtn);
+
+    await new Promise((r) => setTimeout(r, 100));
+    clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    expect(clip.y).toBe(0);
+
+    // Click "Align center vertically" (+) -> (1080 - 120) / 2 = 480
+    const alignCenterYBtn = screen.getByTitle("Align center vertically");
+    fireEvent.click(alignCenterYBtn);
+
+    await new Promise((r) => setTimeout(r, 100));
+    clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    expect(clip.y).toBe(480);
+  });
+
+  it("resets transform properties when clicking reset button", async () => {
+    render(<PropertiesPanel />);
+
+    // Click Reset Transform button
+    const resetBtn = screen.getByTitle("Reset transform");
+    fireEvent.click(resetBtn);
+
+    await new Promise((r) => setTimeout(r, 100));
+    const clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    expect(clip.rotation).toBe(0);
+    expect((clip as any).scale).toBe(1);
+    expect(clip.width).toBe(400);
   });
 });
