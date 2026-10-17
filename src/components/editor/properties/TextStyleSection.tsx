@@ -4,14 +4,14 @@
  * Root section for text-clip property editing.
  *
  * Responsibilities kept here:
- * - Sub-tab switcher (Basic / Bubble / Effects)
+ * - Sub-tab switcher (Basic / Bubble)
  * - Sticky textarea via `TextContentEditor`
  * - Caption "apply to all" transaction logic
- * - Effect-detach / template-detach actions
+ * - Template-detach actions
  * - `handleCustomStyleUpdate` — clears styleId when overriding effect fields
  * - Resolving effective font/weight/spacing values from clip + active effect
- * - Composing the four sub-components: TextBasicTab, TextBubbleTab,
- *   TextEffectsTab, TextTemplateOverlay
+ * - Composing the sub-components: TextBasicTab, TextBubbleTab,
+ *   TextTemplateOverlay
  */
 
 import React, {
@@ -23,7 +23,6 @@ import React, {
 } from "react";
 import { AlertTriangle } from "lucide-react";
 import { normalizeFontFamily } from "@/core/evaluation/evaluator";
-import type { TextEffectDefinition } from "@/features/text-effects/types/types";
 import type { TextClip } from "@/types";
 import { useTemplateStore } from "@/features/text-templates/templateStore";
 import { useTimelineStore } from "@/store/timelineStore";
@@ -38,7 +37,6 @@ import { getBundledNativeFontIds } from "@/core/fonts/nativeFontRegistry";
 import { CAPTION_STYLE_KEYS } from "./data/textStyleData";
 import { TextBasicTab } from "./TextBasicTab";
 import { TextBubbleTab } from "./TextBubbleTab";
-import { TextEffectsTab } from "./TextEffectsTab";
 import { TextTemplateOverlay } from "./TextTemplateOverlay";
 
 // Re-export shared font utilities so existing imports from this path keep
@@ -140,9 +138,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
   savePreset,
   deletePreset,
 }) => {
-  const [textSubTab, setTextSubTab] = useState<"basic" | "bubble" | "effects">(
-    textClip.styleId ? "effects" : "basic",
-  );
+  const [textSubTab, setTextSubTab] = useState<"basic" | "bubble">("basic");
   const [applyToAll, setApplyToAll] = useState(false);
 
   // Collapsible section state for the basic tab
@@ -178,9 +174,6 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
   const effectFont = textClip.styleId
     ? definitions[textClip.styleId]?.font
     : undefined;
-  const activeEffectDefinition = textClip.styleId
-    ? definitions[textClip.styleId]
-    : textClip.styleDefinition;
 
   const mode = textClip.templateId
     ? "template"
@@ -227,12 +220,6 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
     const estimatedMaxLinePx = maxLineChars * (fontSize * 0.7 + letterSpacing);
     return estimatedMaxLinePx > 8192;
   }, [textClip.text, textClip.fontSize, textClip.letterSpacing]);
-
-  // ── All cached effects ────────────────────────────────────────────────────
-  const allCachedEffects = useMemo(
-    () => Object.values(definitions),
-    [definitions],
-  );
 
   // ── Caption apply-to-all transaction helpers ─────────────────────────────
   function executeCaptionStyleUpdate(
@@ -328,41 +315,6 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
     });
   };
 
-  const handleDetachEffect = () => {
-    handleUpdateMultiple({ styleId: undefined, styleDefinition: undefined });
-  };
-
-  // ── Effect application ────────────────────────────────────────────────────
-  const applyEffectPreset = (effect: TextEffectDefinition) => {
-    handleUpdateMultiple({
-      styleId: effect.id,
-      fontFamily: effect.font.family,
-      color: effect.fills?.[0]?.color,
-      fontWeight: effect.font.weight,
-      fontStyle: effect.font.style,
-      stroke: effect.strokes?.[0]
-        ? { color: effect.strokes[0].color, width: effect.strokes[0].width }
-        : undefined,
-      shadow: effect.shadows?.[0]
-        ? {
-            color: effect.shadows[0].color,
-            blur: effect.shadows[0].blur,
-            offsetX: effect.shadows[0].offsetX ?? 0,
-            offsetY: effect.shadows[0].offsetY ?? 0,
-          }
-        : undefined,
-      background: effect.panel
-        ? {
-            color: effect.panel.color || "rgba(0,0,0,0.6)",
-            padding:
-              effect.panel.paddingX !== undefined ? effect.panel.paddingX : 12,
-            borderRadius:
-              effect.panel.radius !== undefined ? effect.panel.radius : 6,
-          }
-        : undefined,
-    });
-  };
-
   // ── handleCustomStyleUpdate — detaches effect when overriding visual fields ─
   const EFFECT_DETACH_KEYS = new Set(["stroke", "shadow", "background"]);
   const handleCustomStyleUpdate = (key: string, value: any) => {
@@ -380,7 +332,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
       {/* Sticky header: sub-tab switcher + textarea */}
       <div className="bg-(--color-gray-900) pt-2 sticky top-0 z-10 space-y-1.5">
         <div className="bg-panel p-0.5 rounded-sm flex gap-1 border border-white/5">
-          {(["basic", "bubble", "effects"] as const).map((tab) => (
+          {(["basic", "bubble"] as const).map((tab) => (
             <button
               key={tab}
               type="button"
@@ -443,17 +395,6 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
           textClip={textClip}
           handleCustomStyleUpdate={handleCustomStyleUpdate}
           handleUpdateMultiple={handleUpdateMultiple}
-        />
-      )}
-
-      {/* Effects tab */}
-      {textSubTab === "effects" && (
-        <TextEffectsTab
-          textClip={textClip}
-          activeEffectDefinition={activeEffectDefinition}
-          filteredEffects={allCachedEffects}
-          onApplyEffect={applyEffectPreset}
-          onDetachEffect={handleDetachEffect}
         />
       )}
 

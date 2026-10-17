@@ -132,10 +132,10 @@ test.describe("Full Automation: CapCut Text Properties & Live Behavior", () => {
     // Top Transform tab must NOT exist for text clips
     await expect(panel.getByRole("button", { name: /^Transform$/i })).not.toBeVisible();
 
-    // Text sub-tabs must be available
+    // Text sub-tabs must be available (Basic, Bubble)
     await expect(panel.getByRole("button", { name: /^Basic$/i })).toBeVisible();
     await expect(panel.getByRole("button", { name: /^Bubble$/i })).toBeVisible();
-    await expect(panel.getByRole("button", { name: /^Effects$/i })).toBeVisible();
+    await expect(panel.getByRole("button", { name: /^Effects$/i })).not.toBeVisible();
 
     // Switching to Bubble sub-tab
     await panel.getByRole("button", { name: /^Bubble$/i }).click();
@@ -178,12 +178,8 @@ test.describe("Full Automation: CapCut Text Properties & Live Behavior", () => {
     clip = await getLiveTextClip(page);
     expect(clip.background).toBeUndefined();
 
-    // Switching to Effects sub-tab
-    await panel.getByRole("button", { name: /^Effects$/i }).click();
-
-    // Sticky header: sub-tab switcher + textarea is preserved across switching to Effects!
-    await expect(panel.getByRole("textbox", { name: /Plain text content/i })).toBeVisible();
-    await expect(panel.getByPlaceholder(/Search text effects/i)).toBeVisible();
+    // Effects sub-tab must NOT be present
+    await expect(panel.getByRole("button", { name: /^Effects$/i })).not.toBeVisible();
 
     // Switching back to Basic
     await panel.getByRole("button", { name: /^Basic$/i }).click();

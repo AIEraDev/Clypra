@@ -126,10 +126,10 @@ describe("CapCut Parity Text Property Panel", () => {
     render(<PropertiesPanel />);
 
     // Text tab should be active by default
-    // Check sub-tabs: Basic, Bubble, Effects
+    // Check sub-tabs: Basic, Bubble (Effects removed)
     expect(screen.getByRole("button", { name: /^Basic$/i })).toBeDefined();
     expect(screen.getByRole("button", { name: /^Bubble$/i })).toBeDefined();
-    expect(screen.getByRole("button", { name: /^Effects$/i })).toBeDefined();
+    expect(screen.queryByRole("button", { name: /^Effects$/i })).toBeNull();
 
     // Textarea displays clip content
     const textarea = screen.getByRole("textbox", { name: /Plain text content/i });
@@ -166,7 +166,7 @@ describe("CapCut Parity Text Property Panel", () => {
     expect(screen.getByRole("button", { name: /Save as preset/i })).toBeDefined();
   });
 
-  it("switches between Basic, Bubble, and Effects sub-tabs while preserving sticky header textarea", async () => {
+  it("switches between Basic and Bubble sub-tabs while preserving sticky header textarea", async () => {
     render(<PropertiesPanel />);
 
     // Initially in Basic: textarea is present in sticky header
@@ -209,12 +209,8 @@ describe("CapCut Parity Text Property Panel", () => {
     clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect(clip.background).toBeUndefined();
 
-    // Click Effects sub-tab
-    fireEvent.click(screen.getByRole("button", { name: /^Effects$/i }));
-
-    // Sticky header textarea remains preserved!
-    expect(screen.getByLabelText("Plain text content")).toBeDefined();
-    expect(screen.getByPlaceholderText("Search text effects...")).toBeDefined();
+    // Effects sub-tab must NOT exist
+    expect(screen.queryByRole("button", { name: /^Effects$/i })).toBeNull();
 
     // Switch back to Basic sub-tab
     fireEvent.click(screen.getByRole("button", { name: /^Basic$/i }));
