@@ -80,7 +80,10 @@ const getStoredFavorites = (): Set<string> => {
 
 const saveStoredFavorites = (favs: Set<string>) => {
   try {
-    localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(Array.from(favs)));
+    localStorage.setItem(
+      FAVORITES_STORAGE_KEY,
+      JSON.stringify(Array.from(favs)),
+    );
   } catch {
     // Ignore storage errors in sandbox/incognito
   }
@@ -122,7 +125,9 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
   const [activeTab, setActiveTab] = useState<MotionBehaviorCategory>("in");
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<CategoryFilter>("all");
-  const [favorites, setFavorites] = useState<Set<string>>(() => getStoredFavorites());
+  const [favorites, setFavorites] = useState<Set<string>>(() =>
+    getStoredFavorites(),
+  );
 
   const toggleFavorite = useCallback((id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -154,7 +159,7 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
         selectedClip,
         nextMotion,
         canvasWidth,
-        canvasHeight
+        canvasHeight,
       );
 
       handleUpdateMultiple({
@@ -162,7 +167,7 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
         visualKeyframes: compiledKeyframes,
       });
     },
-    [motion, selectedClip, canvasWidth, canvasHeight, handleUpdateMultiple]
+    [motion, selectedClip, canvasWidth, canvasHeight, handleUpdateMultiple],
   );
 
   // Active catalog according to active tab
@@ -197,7 +202,9 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
       if (q) {
         const matchesName = preset.name.toLowerCase().includes(q);
         const matchesDesc = preset.description.toLowerCase().includes(q);
-        const matchesTags = preset.tags?.some((tag) => tag.toLowerCase().includes(q));
+        const matchesTags = preset.tags?.some((tag) =>
+          tag.toLowerCase().includes(q),
+        );
         if (!matchesName && !matchesDesc && !matchesTags) {
           return false;
         }
@@ -211,23 +218,26 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
     activeTab === "in"
       ? motion.inPreset
       : activeTab === "out"
-      ? motion.outPreset
-      : motion.loopPreset;
+        ? motion.outPreset
+        : motion.loopPreset;
 
   const currentDuration =
     activeTab === "in"
-      ? motion.inDuration ?? 0.5
+      ? (motion.inDuration ?? 0.5)
       : activeTab === "out"
-      ? motion.outDuration ?? 0.5
-      : 0.5;
+        ? (motion.outDuration ?? 0.5)
+        : 0.5;
 
-  const maxAllowedDuration = Math.max(0.5, Math.min(5.0, selectedClip.duration));
+  const maxAllowedDuration = Math.max(
+    0.5,
+    Math.min(5.0, selectedClip.duration),
+  );
 
   const handleDurationStep = useCallback(
     (delta: number) => {
       const next = Math.max(
         0.1,
-        Math.min(maxAllowedDuration, +(currentDuration + delta).toFixed(2))
+        Math.min(maxAllowedDuration, +(currentDuration + delta).toFixed(2)),
       );
       if (activeTab === "in") {
         updateMotion({ inDuration: next });
@@ -235,7 +245,7 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
         updateMotion({ outDuration: next });
       }
     },
-    [currentDuration, maxAllowedDuration, activeTab, updateMotion]
+    [currentDuration, maxAllowedDuration, activeTab, updateMotion],
   );
 
   const handleSelectPreset = useCallback(
@@ -248,7 +258,7 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
         updateMotion({ loopPreset: id });
       }
     },
-    [activeTab, updateMotion]
+    [activeTab, updateMotion],
   );
 
   return (
@@ -280,7 +290,9 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
                 : "text-text-muted hover:text-text-primary"
             }`}
           >
-            {hasIn && <span className="w-1.5 h-1.5 rounded-full bg-[#00E5FF]" />}
+            {hasIn && (
+              <span className="w-1.5 h-1.5 rounded-full bg-[#00E5FF]" />
+            )}
             <span>{t("properties.animation.inDetailed")}</span>
           </button>
 
@@ -296,7 +308,9 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
                 : "text-text-muted hover:text-text-primary"
             }`}
           >
-            {hasOut && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
+            {hasOut && (
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+            )}
             <span>{t("properties.animation.outDetailed")}</span>
           </button>
 
@@ -312,7 +326,9 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
                 : "text-text-muted hover:text-text-primary"
             }`}
           >
-            {hasLoop && <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />}
+            {hasLoop && (
+              <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+            )}
             <span>{t("properties.animation.loop")}</span>
           </button>
         </div>
@@ -344,7 +360,9 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
           <button
             type="button"
             onClick={() =>
-              setActiveCategory(activeCategory === "favorites" ? "all" : "favorites")
+              setActiveCategory(
+                activeCategory === "favorites" ? "all" : "favorites",
+              )
             }
             title={t("properties.animation.favorites")}
             className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
@@ -355,7 +373,9 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
           >
             <Star
               className={`w-3 h-3 ${
-                activeCategory === "favorites" ? "fill-amber-400 text-amber-400" : ""
+                activeCategory === "favorites"
+                  ? "fill-amber-400 text-amber-400"
+                  : ""
               }`}
             />
           </button>
@@ -480,7 +500,9 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
                   <span
                     onClick={(e) => toggleFavorite(preset.id, e)}
                     className={`absolute top-1 right-1 z-10 p-0.5 rounded hover:bg-black/40 transition-opacity ${
-                      isFavorite ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                      isFavorite
+                        ? "opacity-100"
+                        : "opacity-0 group-hover:opacity-100"
                     }`}
                   >
                     <Star
@@ -499,7 +521,9 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
                     </span>
                     <IconComp
                       className={`w-3 h-3 mt-0.5 transition-colors ${
-                        isSelected ? "text-[#00E5FF]" : "text-text-muted group-hover:text-white"
+                        isSelected
+                          ? "text-[#00E5FF]"
+                          : "text-text-muted group-hover:text-white"
                       }`}
                     />
                   </div>
@@ -513,7 +537,9 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
                 {/* Preset Label Underneath */}
                 <span
                   className={`text-[10px] font-medium mt-1 truncate max-w-full text-center transition-colors ${
-                    isSelected ? "text-[#00E5FF] font-semibold" : "text-text-muted group-hover:text-text-primary"
+                    isSelected
+                      ? "text-[#00E5FF] font-semibold"
+                      : "text-text-muted group-hover:text-text-primary"
                   }`}
                 >
                   {preset.name}
@@ -524,7 +550,11 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
         </div>
 
         {/* ── 5. CapCut Pinned Bottom Duration Bar (when In or Out preset is active) ── */}
-        {(activeTab === "in" ? hasIn : activeTab === "out" ? hasOut : false) && (
+        {(activeTab === "in"
+          ? hasIn
+          : activeTab === "out"
+            ? hasOut
+            : false) && (
           <div className="pt-2 border-t border-border/30 flex items-center gap-2.5 bg-surface-base/90">
             <span className="text-[11px] font-medium text-text-muted shrink-0 flex items-center gap-1">
               <Clock className="w-3 h-3" />

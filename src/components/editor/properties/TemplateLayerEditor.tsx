@@ -3,7 +3,7 @@ import { Type, Square, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ClypraColorPicker } from "@clypra/ui-color-picker";
 import { resolveTextTemplateArtifact } from "@clypra-studio/engine";
-import { FONT_PICKER_OPTIONS, resolveFontPickerValue } from "./TextStyleSection";
+import { FONT_PICKER_OPTIONS, resolveFontPickerValue } from "./data/fontData";
 
 interface TemplateLayerEditorProps {
   template: any;
@@ -40,9 +40,7 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
           id: n.id,
           kind: "text" as const,
           role: n.role,
-          name:
-            n.name ||
-            n.id.replace(/-layer|-node/g, " ").replace(/-/g, " "),
+          name: n.name || n.id.replace(/-layer|-node/g, " ").replace(/-/g, " "),
           defaultText: n.text || "",
           defaultColor: n.style?.textColor || "#ffffff",
           defaultFontFamily: n.style?.fontFamily || "Inter Variable",
@@ -59,9 +57,7 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
           | "text"
           | "shape",
         role: l.role,
-        name:
-          l.name ||
-          l.id.replace(/-layer|-fill/g, " ").replace(/-/g, " "),
+        name: l.name || l.id.replace(/-layer|-fill/g, " ").replace(/-/g, " "),
         defaultText: l.content || "",
         defaultColor: l.color || l.fill || "#ffffff",
         defaultFontFamily: l.fontFamily || "Inter Variable",
@@ -169,31 +165,31 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
         const currentText =
           customization.layerTexts?.[layer.id] !== undefined
             ? customization.layerTexts[layer.id]
-            : (layer.role === "primary" || layer.id === layers[0]?.id
+            : ((layer.role === "primary" || layer.id === layers[0]?.id
                 ? customization.primaryText
                 : layer.role === "secondary"
                   ? customization.secondaryText
                   : layer.role === "accent"
                     ? customization.accentText
-                    : null) ?? layer.defaultText;
+                    : null) ?? layer.defaultText);
 
         const currentFontFamily =
           customization.layerFontFamilies?.[layer.id] !== undefined
             ? customization.layerFontFamilies[layer.id]
-            : (layer.role === "primary" || layer.id === layers[0]?.id
+            : ((layer.role === "primary" || layer.id === layers[0]?.id
                 ? customization.primaryFontFamily
                 : layer.role === "secondary"
                   ? customization.secondaryFontFamily
-                  : null) ?? layer.defaultFontFamily;
+                  : null) ?? layer.defaultFontFamily);
 
         const currentColor =
           customization.layerColors?.[layer.id] !== undefined
             ? customization.layerColors[layer.id]
-            : (layer.role === "primary" || layer.id === layers[0]?.id
+            : ((layer.role === "primary" || layer.id === layers[0]?.id
                 ? customization.primaryColor
                 : layer.role === "secondary"
                   ? customization.secondaryColor
-                  : null) ?? layer.defaultColor;
+                  : null) ?? layer.defaultColor);
 
         return (
           <div
