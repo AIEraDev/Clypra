@@ -43,6 +43,7 @@ import {
   resolveTextTemplateArtifact,
 } from "@clypra-studio/engine";
 import { resolveCanonicalFamily } from "@/core/fonts/fontRegistry";
+import { applyTextTransform } from "@/lib/text/textClip";
 import { traceCutoutEvent } from "@/core/playback/cutoutPipelineTrace";
 
 const isExternalOrDataUrl = (value: string) =>
@@ -437,7 +438,11 @@ export function evaluateTimelineScene(
         // An explicitly empty clip is intentionally invisible. "Text" is
         // only the creation-time default; it must not reappear during
         // evaluation after the user clears the editor field.
-        text: templateTextNode?.text ?? textClip.text ?? "",
+        text:
+          templateTextNode?.text ??
+          (textClip.textTransform && textClip.text
+            ? applyTextTransform(textClip.text, textClip.textTransform)
+            : textClip.text ?? ""),
         fontFamily: normalizeFontFamily(
           textClip.fontFamily ||
             templateStyle.fontFamily ||
@@ -458,6 +463,8 @@ export function evaluateTimelineScene(
           templateStyle.fontStyle ||
           styleTypography.fontStyle ||
           "normal",
+        textDecoration: textClip.textDecoration || "none",
+        textTransform: textClip.textTransform || "none",
         textAlign: textClip.align || templateStyle.textAlign || "center",
         verticalAlign:
           templateStyle.verticalAlign || textClip.valign || "middle",

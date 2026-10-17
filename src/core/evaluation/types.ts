@@ -222,6 +222,12 @@ export interface EvaluatedTextLayer extends BaseVisualLayer {
   /** Font style */
   readonly fontStyle: "normal" | "italic";
 
+  /** Text decoration */
+  readonly textDecoration?: "underline" | "none";
+
+  /** Text transform */
+  readonly textTransform?: "uppercase" | "lowercase" | "capitalize" | "none";
+
   /** Text alignment */
   readonly textAlign: "left" | "center" | "right";
 

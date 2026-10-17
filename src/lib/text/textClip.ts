@@ -82,6 +82,7 @@ export interface CreateTextClipOptions {
   customization?: any;
   fontWeight?: string | number;
   fontStyle?: "normal" | "italic";
+  textDecoration?: "underline" | "none";
   textTransform?: "uppercase" | "lowercase" | "capitalize" | "none";
   stroke?: { color: string; width: number };
   shadow?: { color: string; blur: number; offsetX: number; offsetY: number };
@@ -170,7 +171,7 @@ export function resolveTextEffectTypography(
   };
 }
 
-function applyTextTransform(text: string, transform?: string): string {
+export function applyTextTransform(text: string, transform?: string): string {
   if (transform === "uppercase") return text.toUpperCase();
   if (transform === "lowercase") return text.toLowerCase();
   // capitalize: first char of each word
@@ -1103,6 +1104,7 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
     color,
     fontWeight: fontWeight || (bold ? "bold" : "normal"),
     fontStyle: fontStyle || (italic ? "italic" : "normal"),
+    textDecoration: options.textDecoration ?? "none",
     textTransform: options.textTransform,
     align: "center",
     valign: "middle",

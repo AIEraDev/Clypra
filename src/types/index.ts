@@ -750,6 +750,7 @@ export interface TextClip extends Clip {
   fontSize: number;
   fontWeight?: string | number;
   fontStyle?: "normal" | "italic";
+  textDecoration?: "underline" | "none";
   textTransform?: "uppercase" | "lowercase" | "capitalize" | "none";
   color: string;
   backgroundColor?: string;

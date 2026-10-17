@@ -15,6 +15,9 @@ import {
   Sliders,
   Zap,
   VolumeX,
+  Crosshair,
+  Volume2,
+  UserCheck,
 } from "lucide-react";
 import { clipHasAudio } from "@/core/media/mediaAudioDetection";
 import { useUIStore } from "@/store/uiStore";
@@ -41,6 +44,9 @@ import { EmptyPropertiesState } from "./properties/EmptyPropertiesState";
 import { TextStyleSection } from "./properties/TextStyleSection";
 import { TransformSection } from "./properties/TransformSection";
 import { MotionPresetSection } from "./properties/MotionPresetSection";
+import { TextTrackingSection } from "./properties/TextTrackingSection";
+import { TextToSpeechSection } from "./properties/TextToSpeechSection";
+import { TextAiAvatarsSection } from "./properties/TextAiAvatarsSection";
 import { AudioSection } from "./properties/AudioSection";
 import { EffectsFiltersSection } from "./properties/EffectsFiltersSection";
 import { TransitionSection } from "./properties/TransitionSection";
@@ -180,16 +186,26 @@ function getClipTypeInfo(
   }
 }
 
-type TextPropertyTab = "text" | "animation" | "transform";
+type TextPropertyTab =
+  | "text"
+  | "animation"
+  | "tracking"
+  | "tts"
+  | "ai_avatars"
+  | "transform";
 
 const TEXT_TABS: {
   id: TextPropertyTab;
   labelKey: string;
   label: string;
   icon: React.FC<{ className?: string }>;
+  hasDiamond?: boolean;
 }[] = [
-  { id: "text", labelKey: "properties.tabs.textStyle", label: "Text Style", icon: Type },
+  { id: "text", labelKey: "properties.tabs.text", label: "Text", icon: Type },
   { id: "animation", labelKey: "properties.tabs.animation", label: "Animation", icon: Sparkles },
+  { id: "tracking", labelKey: "properties.tabs.tracking", label: "Tracking", icon: Crosshair },
+  { id: "tts", labelKey: "properties.tabs.tts", label: "Text to speech", icon: Volume2 },
+  { id: "ai_avatars", labelKey: "properties.tabs.aiAvatars", label: "AI avatars", icon: UserCheck, hasDiamond: true },
   { id: "transform", labelKey: "properties.tabs.transform", label: "Transform", icon: Layout },
 ];
 
@@ -901,24 +917,25 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
             {/* Tabs for text clips */}
             {isTextClip && (
-              <div className="flex border-t border-border/40">
+              <div className="flex border-t border-border/40 bg-[#161618]/60 overflow-x-auto scrollbar-none px-2 py-1 gap-1">
                 {TEXT_TABS.map((tab, idx) => {
-                  const TabIcon = tab.icon;
                   const isActive = activePropertyTab === tab.id;
                   return (
                     <button
                       key={tab.id}
                       onClick={() => setActivePropertyTab(tab.id)}
                       onKeyDown={(e) => handleTabKeyDown(e, idx)}
-                      className={`flex-1 py-2 text-[10px] font-semibold tracking-wide text-center transition-all cursor-pointer border-b-2 ${
+                      className={`px-2.5 py-1.5 text-xs font-medium tracking-wide whitespace-nowrap transition-colors cursor-pointer rounded ${
                         isActive
-                          ? "text-accent border-accent bg-accent/[0.04]"
-                          : "text-text-muted border-transparent hover:text-text-primary hover:bg-white/2"
+                          ? "text-cyan-400 font-semibold"
+                          : "text-text-muted hover:text-white"
                       }`}
                     >
-                      <span className="flex items-center justify-center gap-1.5">
-                        <TabIcon className="w-3 h-3" />
+                      <span className="flex items-center gap-1">
                         {t(tab.labelKey)}
+                        {tab.hasDiamond && (
+                          <span className="text-purple-400 text-xs font-bold">◆</span>
+                        )}
                       </span>
                     </button>
                   );
@@ -1089,6 +1106,21 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               canvasWidth={canvasWidth}
               canvasHeight={canvasHeight}
             />
+          )}
+
+          {/* Text Tracking */}
+          {isTextClip && activePropertyTab === "tracking" && (
+            <TextTrackingSection textClip={textClip} />
+          )}
+
+          {/* Text To Speech */}
+          {isTextClip && activePropertyTab === "tts" && (
+            <TextToSpeechSection textClip={textClip} />
+          )}
+
+          {/* AI Avatars */}
+          {isTextClip && activePropertyTab === "ai_avatars" && (
+            <TextAiAvatarsSection textClip={textClip} />
           )}
 
           {/* Transform (visual clips, or text clips on transform tab) */}
