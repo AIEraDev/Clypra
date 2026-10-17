@@ -11,8 +11,8 @@
  * - Seamless integration with live timeline & evaluator
  */
 
-import React, { useState, useRef, useEffect } from "react";
-import { Ban, ArrowDown, ChevronDown, Check, SlidersHorizontal } from "lucide-react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import { Ban, ArrowDown, Check, SlidersHorizontal, Search, X } from "lucide-react";
 import { useTranslation } from "@/i18n";
 import type { TextClip } from "@/types";
 import {
@@ -36,6 +36,7 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
 }) => {
   const { t } = useTranslation();
   const [selectedCategory, setSelectedCategory] = useState<BubbleCategory>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const filterRef = useRef<HTMLDivElement>(null);
 
@@ -54,12 +55,35 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
     };
   }, [isFilterOpen]);
 
-  const filteredPresets =
-    selectedCategory === "all"
-      ? BUBBLE_PRESETS
-      : BUBBLE_PRESETS.filter(
-          (p) => p.isReset || p.category === selectedCategory,
-        );
+  // Filter presets by category and search query
+  const filteredPresets = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+
+    return BUBBLE_PRESETS.filter((preset) => {
+      if (preset.isReset) return true; // Always show Reset card
+
+      // Category filter
+      if (selectedCategory !== "all") {
+        const matchesCategory =
+          preset.category === selectedCategory ||
+          (selectedCategory === "paper" && (preset.category === "notes" || preset.tags?.includes("paper"))) ||
+          (selectedCategory === "labels" && (preset.category === "banner" || preset.tags?.includes("label"))) ||
+          (selectedCategory === "decorative" && (preset.category === "floral" || preset.tags?.includes("decorative")));
+
+        if (!matchesCategory) return false;
+      }
+
+      // Search query filter
+      if (query) {
+        const matchName = preset.name.toLowerCase().includes(query);
+        const matchSample = preset.sampleText?.toLowerCase().includes(query);
+        const matchTags = preset.tags?.some((t) => t.toLowerCase().includes(query));
+        if (!matchName && !matchSample && !matchTags) return false;
+      }
+
+      return true;
+    });
+  }, [selectedCategory, searchQuery]);
 
   const handleApplyBubble = (preset: BubblePreset) => {
     if (preset.isReset) {
@@ -79,14 +103,19 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
     if (preset.textColor) {
       updates.color = preset.textColor;
     }
+    if (preset.defaultTextStyle) {
+      if (preset.defaultTextStyle.color) updates.color = preset.defaultTextStyle.color;
+      if (preset.defaultTextStyle.fontStyle) updates.fontStyle = preset.defaultTextStyle.fontStyle;
+      if (preset.defaultTextStyle.textDecoration) updates.textDecoration = preset.defaultTextStyle.textDecoration;
+    }
 
     if (handleUpdateMultiple) {
       handleUpdateMultiple(updates);
     } else {
       handleCustomStyleUpdate("background", preset.background);
-      if (preset.textColor) {
-        handleCustomStyleUpdate("color", preset.textColor);
-      }
+      if (updates.color) handleCustomStyleUpdate("color", updates.color);
+      if (updates.fontStyle) handleCustomStyleUpdate("fontStyle", updates.fontStyle);
+      if (updates.textDecoration) handleCustomStyleUpdate("textDecoration", updates.textDecoration);
     }
   };
 
@@ -95,8 +124,50 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
 
   return (
     <div className="space-y-2.5 pb-6">
-      {/* ── Filter & Header Bar ── */}
-      <div className="flex items-center justify-between pt-1 relative">
+      {/* ── Search Input ── */}
+      <div className="relative">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#8e8e93]" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search text bubbles..."
+          className="w-full bg-[#18181b] border border-white/10 rounded-md pl-8 pr-8 py-1.5 text-xs text-white placeholder-[#8e8e93]/50 outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/20 transition-colors"
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => setSearchQuery("")}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-[#8e8e93] hover:text-white"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+
+      {/* ── Horizontal Category Filter Pills ── */}
+      <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5 select-none">
+        {BUBBLE_CATEGORIES.map((cat) => {
+          const isSelected = selectedCategory === cat.id;
+          return (
+            <button
+              key={cat.id}
+              type="button"
+              onClick={() => setSelectedCategory(cat.id)}
+              className={`px-3 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-colors cursor-pointer shrink-0 ${
+                isSelected
+                  ? "bg-white/20 text-white border border-white/30 shadow-xs"
+                  : "bg-[#242426] text-[#8e8e93] hover:text-white hover:bg-[#2c2c30] border border-white/5"
+              }`}
+            >
+              {cat.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Header Title & Category Dropdown ── */}
+      <div className="flex items-center justify-between pt-0.5 relative">
         <span className="text-[10px] text-[#8e8e93] uppercase font-semibold tracking-wider select-none">
           {t("properties.text.speechBubbles") || "Speech Bubbles"}
         </span>
@@ -106,7 +177,7 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
           <button
             type="button"
             onClick={() => setIsFilterOpen(!isFilterOpen)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#242426] hover:bg-[#2c2c30] border border-white/10 text-xs text-white font-medium transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#242426] hover:bg-[#2c2c30] border border-white/10 text-[11px] text-white font-medium transition-colors cursor-pointer"
             title={t("properties.bubble.filterTooltip") || "Filter by category"}
           >
             <span>{activeCategoryLabel}</span>

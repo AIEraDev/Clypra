@@ -12,9 +12,12 @@ import type { TextClip } from "@/types";
 export type BubbleCategory =
   | "all"
   | "speech"
+  | "paper"
+  | "notes"
+  | "labels"
+  | "decorative"
   | "comic"
   | "cute"
-  | "notes"
   | "banner"
   | "neon"
   | "floral";
@@ -23,8 +26,14 @@ export interface BubblePreset {
   id: string;
   name: string;
   category: BubbleCategory;
+  tags?: string[];
   isReset?: boolean;
   textColor?: string;
+  defaultTextStyle?: {
+    color?: string;
+    fontStyle?: "normal" | "italic";
+    textDecoration?: "none" | "underline" | "line-through";
+  };
   background?: {
     color: string;
     padding: number;
@@ -43,12 +52,13 @@ export interface BubblePreset {
 export const BUBBLE_CATEGORIES: Array<{ id: BubbleCategory; label: string }> = [
   { id: "all", label: "All" },
   { id: "speech", label: "Speech" },
+  { id: "paper", label: "Paper" },
+  { id: "labels", label: "Labels" },
+  { id: "decorative", label: "Decorative" },
   { id: "comic", label: "Comic" },
   { id: "cute", label: "Cute" },
-  { id: "notes", label: "Notes & Paper" },
   { id: "banner", label: "Ribbon & Banner" },
   { id: "neon", label: "Neon & Glow" },
-  { id: "floral", label: "Floral & Brush" },
 ];
 
 export const BUBBLE_PRESETS: BubblePreset[] = [
@@ -60,6 +70,34 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
     isReset: true,
     sampleText: "",
     renderPreview: () => null,
+  },
+
+  // ── ROW 1: Torn Paper & Signature Presets (Matches CapCut Reference) ───────
+  {
+    id: "bubble-paper-torn",
+    name: "Torn Paper",
+    category: "paper",
+    tags: ["paper", "torn", "grunge", "white", "strip", "caption"],
+    sampleText: "Hey Man, I don't care abiut the fuck you doing",
+    textColor: "#ef4444",
+    defaultTextStyle: {
+      color: "#ef4444",
+      fontStyle: "italic",
+      textDecoration: "underline",
+    },
+    background: {
+      color: "#faf9f6",
+      padding: 16,
+      borderRadius: 4,
+      bubblePresetId: "bubble-paper-torn",
+    },
+    renderPreview: () => (
+      <div className="w-11 h-7 bg-[#faf9f6] text-[#ef4444] border-t border-b border-dashed border-gray-300 flex items-center justify-center px-1 shadow-sm rounded-xs [clip-path:polygon(0%_15%,5%_5%,15%_12%,25%_4%,35%_10%,45%_5%,55%_12%,65%_4%,75%_10%,85%_5%,95%_12%,100%_0%,100%_85%,95%_95%,85%_88%,75%_96%,65%_90%,55%_95%,45%_88%,35%_96%,25%_90%,15%_95%,5%_88%,0%_100%)]">
+        <span className="text-[6.5px] font-sans font-bold italic underline text-center leading-tight">
+          Hey Man
+        </span>
+      </div>
+    ),
   },
 
   // ── ROW 1: Speech & Paper ──────────────────────────────────────────────────

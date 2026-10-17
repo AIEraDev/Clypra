@@ -268,6 +268,12 @@ export interface EvaluatedTextLayer extends BaseVisualLayer {
     color: string;
     padding: number;
     borderRadius: number;
+    opacity?: number;
+    height?: number;
+    width?: number;
+    yOffset?: number;
+    style?: "rectangle" | "split" | string;
+    bubblePresetId?: string;
   };
 
   /** Style preset ID for text effects */

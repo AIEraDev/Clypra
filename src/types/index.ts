@@ -972,3 +972,4 @@ export * from "./serialization";
 export * from "./compositor";
 export * from "./captions";
 export * from "./keyframes";
+export * from "./textBubbles";
