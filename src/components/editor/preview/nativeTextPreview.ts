@@ -1301,5 +1301,7 @@ export async function rasterizeTextLayerForNative(
 function getTextRenderKind(layer: EvaluatedTextLayer): TextRenderKind {
   if (layer.templateId || layer.clipKind === "text-template") return "template";
   if (layer.styleId) return "effect";
+  if (layer.background?.bubblePresetId || (layer as any).bubblePresetId)
+    return "bubble";
   return "plain";
 }

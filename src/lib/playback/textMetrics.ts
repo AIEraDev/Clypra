@@ -99,10 +99,10 @@ class TextMetricsCollector {
 
   /**
    * Record a text render invocation by clip kind and renderer.
-   * Only broad categoricals ("plain" | "effect" | "template" and renderer ID) are stored.
+   * Only broad categoricals ("plain" | "bubble" | "effect" | "template" and renderer ID) are stored.
    */
   recordRendererByClipKind(
-    kind: "plain" | "effect" | "template" | string,
+    kind: "plain" | "bubble" | "effect" | "template" | string,
     renderer: string,
   ): void {
     let rendererMap = this.rendererByKindMap.get(kind);
@@ -373,7 +373,7 @@ class TextMetricsCollector {
 export const textMetrics = new TextMetricsCollector();
 
 export function recordRendererByClipKind(
-  kind: "plain" | "effect" | "template" | string,
+  kind: "plain" | "bubble" | "effect" | "template" | string,
   renderer: string,
 ): void {
   textMetrics.recordRendererByClipKind(kind, renderer);

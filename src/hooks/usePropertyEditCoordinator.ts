@@ -114,7 +114,10 @@ export function usePropertyEditCoordinator(
                 ? "template"
                 : (current as any)?.styleId
                   ? "effect"
-                  : "plain",
+                  : (current as any)?.background?.bubblePresetId ||
+                      (latest as any)?.background?.bubblePresetId
+                    ? "bubble"
+                    : "plain",
             rendererPath: "studio-preview",
             operation: meta.operation,
             property: meta.property as any,
@@ -305,7 +308,17 @@ export function usePropertyEditCoordinator(
                                     key === "styleSnapshot",
                                 )
                               ? "effect"
-                              : undefined;
+                              : fieldNames.some(
+                                    (key) =>
+                                      key === "bubblePresetId" ||
+                                      (key === "background" &&
+                                        ((fields.background as any)
+                                          ?.bubblePresetId !== undefined ||
+                                          (current as any)?.background
+                                            ?.bubblePresetId !== undefined)),
+                                  )
+                                ? "bubble"
+                                : undefined;
         const previewToken =
           propertyEditTokenRef.current ??
           previewInteractionCoordinator.begin("property-edit");

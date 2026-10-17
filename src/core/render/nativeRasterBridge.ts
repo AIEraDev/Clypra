@@ -132,12 +132,14 @@ type StickerPreparationInput = {
   phase: TelemetryStickerPhase;
 };
 
-function textKind(layer: NativeTextLayer): "plain" | "effect" | "template" {
-  return layer.templateId || layer.clipKind === "text-template"
-    ? "template"
-    : layer.styleId
-      ? "effect"
-      : "plain";
+function textKind(
+  layer: NativeTextLayer,
+): "plain" | "bubble" | "effect" | "template" {
+  if (layer.templateId || layer.clipKind === "text-template") return "template";
+  if (layer.styleId) return "effect";
+  if (layer.background?.bubblePresetId || (layer as any).bubblePresetId)
+    return "bubble";
+  return "plain";
 }
 
 /**
