@@ -22,6 +22,7 @@ import {
   type BubbleCategory,
   type BubblePreset,
 } from "./data/bubblePresets";
+import { BubblePresetCanvas } from "./BubblePresetCanvas";
 
 interface TextBubbleTabProps {
   textClip: TextClip;
@@ -234,8 +235,8 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
                 <Ban className="w-5 h-5 text-[#8e8e93]" />
               ) : (
                 <>
-                  {/* Miniature SVG / CSS preview */}
-                  {preset.renderPreview(active)}
+                  {/* Canvas preset preview (uses HTML5 canvas, not HTML document elements) */}
+                  <BubblePresetCanvas preset={preset} size={56} />
 
                   {/* Corner download icon badge */}
                   <div className="absolute bottom-1 right-1 w-3.5 h-3.5 rounded-full bg-black/70 backdrop-blur-xs flex items-center justify-center pointer-events-none">

@@ -181,20 +181,26 @@ describe("CapCut Parity Text Property Panel", () => {
     // Verify Bubble section header and category filter
     expect(screen.getByText("Speech Bubbles")).toBeDefined();
     expect(screen.getByTitle("Filter by category")).toBeDefined();
+    expect(screen.getByPlaceholderText("Search text bubbles...")).toBeDefined();
 
     // Verify authentic CapCut bubble preset cards
     expect(screen.getByTitle("None")).toBeDefined();
+    expect(screen.getByTitle("Torn Paper")).toBeDefined();
     expect(screen.getByTitle("Lined Notebook")).toBeDefined();
     expect(screen.getByTitle("Comic BAM Burst")).toBeDefined();
 
-    // Apply a bubble preset
-    fireEvent.click(screen.getByTitle("Lined Notebook"));
+    // Verify preset cards render on HTML5 Canvas rather than HTML document elements
+    const presetCanvases = document.querySelectorAll('canvas[data-bubble-preset-canvas="true"]');
+    expect(presetCanvases.length).toBeGreaterThan(5);
+
+    // Apply Torn Paper preset
+    fireEvent.click(screen.getByTitle("Torn Paper"));
     await new Promise((r) => setTimeout(r, 100));
 
     let clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect(clip.background).toBeDefined();
-    expect(clip.background?.color).toBe("#ffffff");
-    expect(clip.background?.bubblePresetId).toBe("bubble-paper-notebook");
+    expect(clip.background?.bubblePresetId).toBe("bubble-paper-torn");
+    expect(clip.color).toBe("#ef4444");
 
     // Click None preset to reset
     fireEvent.click(screen.getByTitle("None"));

@@ -144,22 +144,46 @@ test.describe("Full Automation: CapCut Text Properties & Live Behavior", () => {
     await expect(panel.getByRole("textbox", { name: /Plain text content/i })).toBeVisible();
     await expect(panel.getByText("Speech Bubbles")).toBeVisible();
     await expect(panel.getByTitle(/Filter by category/i)).toBeVisible();
-    await expect(panel.getByTitle("Lined Notebook")).toBeVisible();
-    await expect(panel.getByTitle("None")).toBeVisible();
 
-    // Apply a bubble preset
-    await panel.getByTitle("Lined Notebook").click();
+    // Search bar automation validation
+    const searchInput = panel.getByPlaceholder("Search text bubbles...");
+    await expect(searchInput).toBeVisible();
+
+    // Automation validation: Editor bubble presets render on HTML5 Canvas, NOT HTML document elements
+    const presetCanvases = panel.locator('[data-bubble-preset-canvas="true"]');
+    await expect(presetCanvases.first()).toBeVisible();
+    expect(await presetCanvases.count()).toBeGreaterThan(5);
+
+    // Filter by search for "Torn Paper"
+    await searchInput.fill("Torn");
+    await page.waitForTimeout(100);
+    const tornPaperBtn = panel.getByTitle("Torn Paper", { exact: true });
+    await expect(tornPaperBtn).toBeVisible();
+
+    // Apply Torn Paper preset (reproducing CapCut reference)
+    await tornPaperBtn.click();
     await page.waitForTimeout(200);
     let clip = await getLiveTextClip(page);
     expect(clip.background).toBeDefined();
-    expect(clip.background.bubblePresetId).toBe("bubble-paper-notebook");
+    expect(clip.background.bubblePresetId).toBe("bubble-paper-torn");
+
+    // Main program preview canvas is verified
+    await expect(page.locator('[data-testid="program-preview-canvas"]')).toBeVisible();
+
+    // Clear search and reset via None card
+    await searchInput.fill("");
+    await page.waitForTimeout(100);
+    await panel.getByTitle("None").click();
+    await page.waitForTimeout(200);
+    clip = await getLiveTextClip(page);
+    expect(clip.background).toBeUndefined();
 
     // Switching to Effects sub-tab
     await panel.getByRole("button", { name: /^Effects$/i }).click();
 
     // Sticky header: sub-tab switcher + textarea is preserved across switching to Effects!
     await expect(panel.getByRole("textbox", { name: /Plain text content/i })).toBeVisible();
-    await expect(panel.getByPlaceholderText(/Search text effects/i)).toBeVisible();
+    await expect(panel.getByPlaceholder(/Search text effects/i)).toBeVisible();
 
     // Switching back to Basic
     await panel.getByRole("button", { name: /^Basic$/i }).click();
