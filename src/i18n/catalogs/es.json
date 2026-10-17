@@ -269,5 +269,21 @@
   "properties.transform.alignCenterY": "Centrar verticalmente",
   "properties.transform.alignBottom": "Alinear abajo",
   "properties.transform.distributeX": "Distribuir horizontalmente",
-  "properties.transform.distributeY": "Distribuir verticalmente"
+  "properties.transform.distributeY": "Distribuir verticalmente",
+  "properties.stroke.title": "Trazo",
+  "properties.stroke.color": "Color",
+  "properties.stroke.thickness": "Grosor",
+  "properties.stroke.reset": "Restablecer trazo",
+  "properties.stroke.enable": "Activar trazo",
+  "properties.background.title": "Fondo",
+  "properties.background.color": "Color",
+  "properties.background.opacity": "Opacidad",
+  "properties.background.roundedRectangle": "Rectángulo redondeado",
+  "properties.background.height": "Altura",
+  "properties.background.width": "Anchura",
+  "properties.background.yOffset": "Desplazamiento Y",
+  "properties.background.reset": "Restablecer fondo",
+  "properties.background.enable": "Activar fondo",
+  "properties.background.styleRectangle": "Rectángulo",
+  "properties.background.styleSplit": "Líneas divididas"
 }

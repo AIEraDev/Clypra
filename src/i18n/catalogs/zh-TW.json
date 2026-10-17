@@ -269,5 +269,21 @@
   "properties.transform.alignCenterY": "垂直置中",
   "properties.transform.alignBottom": "靠下對齊",
   "properties.transform.distributeX": "水平等距分佈",
-  "properties.transform.distributeY": "垂直等距分佈"
+  "properties.transform.distributeY": "垂直等距分佈",
+  "properties.stroke.title": "描邊",
+  "properties.stroke.color": "顏色",
+  "properties.stroke.thickness": "粗細",
+  "properties.stroke.reset": "重置描邊",
+  "properties.stroke.enable": "啟用描邊",
+  "properties.background.title": "背景",
+  "properties.background.color": "顏色",
+  "properties.background.opacity": "不透明度",
+  "properties.background.roundedRectangle": "圓角矩形",
+  "properties.background.height": "高度",
+  "properties.background.width": "寬度",
+  "properties.background.yOffset": "Y軸偏移",
+  "properties.background.reset": "重置背景",
+  "properties.background.enable": "啟用背景",
+  "properties.background.styleRectangle": "矩形",
+  "properties.background.styleSplit": "分行氣泡"
 }

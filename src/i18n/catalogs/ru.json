@@ -273,5 +273,21 @@
   "properties.transform.alignCenterY": "По центру вертикально",
   "properties.transform.alignBottom": "Выровнять вниз",
   "properties.transform.distributeX": "Распределить горизонтально",
-  "properties.transform.distributeY": "Распределить вертикально"
+  "properties.transform.distributeY": "Распределить вертикально",
+  "properties.stroke.title": "Обводка",
+  "properties.stroke.color": "Цвет",
+  "properties.stroke.thickness": "Толщина",
+  "properties.stroke.reset": "Сбросить обводку",
+  "properties.stroke.enable": "Включить обводку",
+  "properties.background.title": "Фон",
+  "properties.background.color": "Цвет",
+  "properties.background.opacity": "Непрозрачность",
+  "properties.background.roundedRectangle": "Скругленный прямоугольник",
+  "properties.background.height": "Высота",
+  "properties.background.width": "Ширина",
+  "properties.background.yOffset": "Смещение Y",
+  "properties.background.reset": "Сбросить фон",
+  "properties.background.enable": "Включить фон",
+  "properties.background.styleRectangle": "Прямоугольник",
+  "properties.background.styleSplit": "Раздельные строки"
 }

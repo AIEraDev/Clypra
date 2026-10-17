@@ -269,5 +269,21 @@
   "properties.transform.alignCenterY": "Centrer verticalement",
   "properties.transform.alignBottom": "Aligner en bas",
   "properties.transform.distributeX": "Distribuer horizontalement",
-  "properties.transform.distributeY": "Distribuer verticalement"
+  "properties.transform.distributeY": "Distribuer verticalement",
+  "properties.stroke.title": "Contour",
+  "properties.stroke.color": "Couleur",
+  "properties.stroke.thickness": "Épaisseur",
+  "properties.stroke.reset": "Réinitialiser le contour",
+  "properties.stroke.enable": "Activer le contour",
+  "properties.background.title": "Arrière-plan",
+  "properties.background.color": "Couleur",
+  "properties.background.opacity": "Opacité",
+  "properties.background.roundedRectangle": "Rectangle arrondi",
+  "properties.background.height": "Hauteur",
+  "properties.background.width": "Largeur",
+  "properties.background.yOffset": "Décalage Y",
+  "properties.background.reset": "Réinitialiser l'arrière-plan",
+  "properties.background.enable": "Activer l'arrière-plan",
+  "properties.background.styleRectangle": "Rectangle",
+  "properties.background.styleSplit": "Lignes scindées"
 }

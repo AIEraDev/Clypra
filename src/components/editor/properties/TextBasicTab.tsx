@@ -41,6 +41,8 @@ import {
 } from "./data/fontData";
 import { PresetStyleGrid } from "./PresetStyleGrid";
 import { TextTransformSection } from "./TextTransformSection";
+import { TextStrokeSection } from "./TextStrokeSection";
+import { TextBackgroundSection } from "./TextBackgroundSection";
 import type { TextStylePreset } from "./data/textStylePresets";
 
 interface TextBasicTabProps {
@@ -607,290 +609,24 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
 
       <div className="border-t border-white/10 my-2" />
 
-      {/* Stroke accordion */}
-      <div className="border border-white/5 rounded-lg bg-[#202024] overflow-hidden">
-        <div className="px-3 py-2 flex items-center justify-between text-xs">
-          <button
-            type="button"
-            onClick={() => setStrokeExpanded(!strokeExpanded)}
-            className="flex items-center gap-2 text-left font-medium text-[#a1a1aa] hover:text-white transition-colors cursor-pointer flex-1"
-          >
-            {strokeExpanded ? (
-              <ChevronUp className="w-3.5 h-3.5" />
-            ) : (
-              <ChevronDown className="w-3.5 h-3.5" />
-            )}
-            <span>Stroke</span>
-          </button>
-          <div className="flex items-center gap-2">
-            {textClip.stroke && (
-              <ClypraColorPicker
-                value={textClip.stroke.color || "#000000"}
-                onChange={(c: string) =>
-                  handleCustomStyleUpdate("stroke", {
-                    color: c,
-                    width: textClip.stroke?.width ?? 2,
-                  })
-                }
-                format="hex"
-                availableModes={["solid", "wheel"]}
-                presetColors={SOLID_COLOR_SWATCHES}
-                showAlpha={true}
-                size="sm"
-                triggerClassName="w-16 h-6 bg-surface-raised border-border/60 hover:border-border shrink-0"
-                popoverClassName="z-[100]"
-              />
-            )}
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={Boolean(
-                  textClip.stroke && (textClip.stroke.width ?? 0) > 0,
-                )}
-                onChange={(e) =>
-                  handleCustomStyleUpdate(
-                    "stroke",
-                    e.target.checked
-                      ? { color: "#000000", width: 2 }
-                      : undefined,
-                  )
-                }
-                className="sr-only peer"
-              />
-              <div className="w-7 h-3.5 bg-surface-raised border border-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-3.5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-cyan-400" />
-            </label>
-          </div>
-        </div>
-        {strokeExpanded && textClip.stroke && (
-          <div className="p-3 pt-0 border-t border-white/5">
-            <PropertySlider
-              label="Width"
-              value={textClip.stroke.width ?? 2}
-              min={1}
-              max={30}
-              step={1}
-              suffix="px"
-              onChange={(v) =>
-                handleCustomStyleUpdate("stroke", {
-                  color: textClip.stroke?.color ?? "#000000",
-                  width: v,
-                })
-              }
-            />
-          </div>
-        )}
-      </div>
+      {/* CapCut-parity STROKE Section */}
+      <TextStrokeSection
+        textClip={textClip}
+        handleCustomStyleUpdate={handleCustomStyleUpdate}
+        handleUpdate={handleUpdate}
+      />
 
-      {/* Shadow accordion */}
-      <div className="border border-white/5 rounded-lg bg-[#202024] overflow-hidden">
-        <div className="px-3 py-2 flex items-center justify-between text-xs">
-          <button
-            type="button"
-            onClick={() => setShadowExpanded(!shadowExpanded)}
-            className="flex items-center gap-2 text-left font-medium text-[#a1a1aa] hover:text-white transition-colors cursor-pointer flex-1"
-          >
-            {shadowExpanded ? (
-              <ChevronUp className="w-3.5 h-3.5" />
-            ) : (
-              <ChevronDown className="w-3.5 h-3.5" />
-            )}
-            <span>Shadow</span>
-          </button>
-          <div className="flex items-center gap-2">
-            {textClip.shadow && (
-              <ClypraColorPicker
-                value={textClip.shadow.color || "rgba(0,0,0,0.75)"}
-                onChange={(c: string) =>
-                  handleCustomStyleUpdate("shadow", {
-                    color: c,
-                    blur: textClip.shadow?.blur ?? 4,
-                    offsetX: textClip.shadow?.offsetX ?? 2,
-                    offsetY: textClip.shadow?.offsetY ?? 2,
-                  })
-                }
-                format="hex"
-                availableModes={["solid", "wheel"]}
-                presetColors={SOLID_COLOR_SWATCHES}
-                showAlpha={true}
-                size="sm"
-                triggerClassName="w-16 h-6 bg-surface-raised border-border/60 hover:border-border shrink-0"
-                popoverClassName="z-[100]"
-              />
-            )}
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={Boolean(textClip.shadow)}
-                onChange={(e) =>
-                  handleCustomStyleUpdate(
-                    "shadow",
-                    e.target.checked
-                      ? {
-                          color: "rgba(0, 0, 0, 0.75)",
-                          blur: 4,
-                          offsetX: 2,
-                          offsetY: 2,
-                        }
-                      : undefined,
-                  )
-                }
-                className="sr-only peer"
-              />
-              <div className="w-7 h-3.5 bg-surface-raised border border-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-3.5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-cyan-400" />
-            </label>
-          </div>
-        </div>
-        {shadowExpanded && textClip.shadow && (
-          <div className="p-3 pt-0 border-t border-white/5 space-y-2">
-            <PropertySlider
-              label="Blur"
-              value={textClip.shadow.blur ?? 4}
-              min={0}
-              max={60}
-              step={1}
-              suffix="px"
-              onChange={(v) =>
-                handleCustomStyleUpdate("shadow", {
-                  color: textClip.shadow?.color ?? "rgba(0, 0, 0, 0.75)",
-                  blur: v,
-                  offsetX: textClip.shadow?.offsetX ?? 2,
-                  offsetY: textClip.shadow?.offsetY ?? 2,
-                })
-              }
-            />
-            <div className="grid grid-cols-2 gap-2">
-              <PropertySlider
-                label="Offset X"
-                value={textClip.shadow.offsetX ?? 2}
-                min={-50}
-                max={50}
-                step={1}
-                suffix="px"
-                onChange={(v) =>
-                  handleCustomStyleUpdate("shadow", {
-                    color: textClip.shadow?.color ?? "rgba(0, 0, 0, 0.75)",
-                    blur: textClip.shadow?.blur ?? 4,
-                    offsetX: v,
-                    offsetY: textClip.shadow?.offsetY ?? 2,
-                  })
-                }
-              />
-              <PropertySlider
-                label="Offset Y"
-                value={textClip.shadow.offsetY ?? 2}
-                min={-50}
-                max={50}
-                step={1}
-                suffix="px"
-                onChange={(v) =>
-                  handleCustomStyleUpdate("shadow", {
-                    color: textClip.shadow?.color ?? "rgba(0, 0, 0, 0.75)",
-                    blur: textClip.shadow?.blur ?? 4,
-                    offsetX: textClip.shadow?.offsetX ?? 2,
-                    offsetY: v,
-                  })
-                }
-              />
-            </div>
-          </div>
-        )}
-      </div>
+      <div className="border-t border-white/10 my-2" />
 
-      {/* Background box accordion */}
-      <div className="border border-white/5 rounded-lg bg-[#202024] overflow-hidden">
-        <div className="px-3 py-2 flex items-center justify-between text-xs">
-          <button
-            type="button"
-            onClick={() => setBackgroundExpanded(!backgroundExpanded)}
-            className="flex items-center gap-2 text-left font-medium text-[#a1a1aa] hover:text-white transition-colors cursor-pointer flex-1"
-          >
-            {backgroundExpanded ? (
-              <ChevronUp className="w-3.5 h-3.5" />
-            ) : (
-              <ChevronDown className="w-3.5 h-3.5" />
-            )}
-            <span>Background Box</span>
-          </button>
-          <div className="flex items-center gap-2">
-            {textClip.background && (
-              <ClypraColorPicker
-                value={textClip.background.color || "rgba(0,0,0,0.6)"}
-                onChange={(c: string) =>
-                  handleCustomStyleUpdate("background", {
-                    color: c,
-                    padding: textClip.background?.padding ?? 8,
-                    borderRadius: textClip.background?.borderRadius ?? 4,
-                  })
-                }
-                format="hex"
-                availableModes={["solid", "wheel"]}
-                presetColors={SOLID_COLOR_SWATCHES}
-                showAlpha={true}
-                size="sm"
-                triggerClassName="w-16 h-6 bg-surface-raised border-border/60 hover:border-border shrink-0"
-                popoverClassName="z-[100]"
-              />
-            )}
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={Boolean(textClip.background)}
-                onChange={(e) =>
-                  handleCustomStyleUpdate(
-                    "background",
-                    e.target.checked
-                      ? {
-                          color: "rgba(0, 0, 0, 0.6)",
-                          padding: 8,
-                          borderRadius: 4,
-                        }
-                      : undefined,
-                  )
-                }
-                className="sr-only peer"
-              />
-              <div className="w-7 h-3.5 bg-surface-raised border border-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-3.5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-cyan-400" />
-            </label>
-          </div>
-        </div>
-        {backgroundExpanded && textClip.background && (
-          <div className="p-3 pt-0 border-t border-white/5 space-y-2">
-            <PropertySlider
-              label="Padding"
-              value={textClip.background.padding ?? 8}
-              min={0}
-              max={60}
-              step={1}
-              suffix="px"
-              onChange={(v) =>
-                handleCustomStyleUpdate("background", {
-                  color: textClip.background?.color ?? "rgba(0, 0, 0, 0.6)",
-                  padding: v,
-                  borderRadius: textClip.background?.borderRadius ?? 4,
-                })
-              }
-            />
-            <PropertySlider
-              label="Border Radius"
-              value={textClip.background.borderRadius ?? 4}
-              min={0}
-              max={40}
-              step={1}
-              suffix="px"
-              onChange={(v) =>
-                handleCustomStyleUpdate("background", {
-                  color: textClip.background?.color ?? "rgba(0, 0, 0, 0.6)",
-                  padding: textClip.background?.padding ?? 8,
-                  borderRadius: v,
-                })
-              }
-            />
-          </div>
-        )}
-      </div>
+      {/* CapCut-parity BACKGROUND Section */}
+      <TextBackgroundSection
+        textClip={textClip}
+        handleCustomStyleUpdate={handleCustomStyleUpdate}
+        handleUpdate={handleUpdate}
+      />
 
       {/* Behind Subject (AI Cutout) */}
-      <div className="p-3 bg-[#202024] border border-white/5 rounded-lg space-y-2">
+      {/* <div className="p-3 bg-[#202024] border border-white/5 rounded-lg space-y-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div
@@ -934,10 +670,10 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
             />
           </div>
         )}
-      </div>
+      </div> */}
 
       {/* Caption batch styling */}
-      {textClip.textRole === "caption" && (
+      {/* {textClip.textRole === "caption" && (
         <div className="flex items-center justify-between p-2.5 bg-[#202024] border border-white/5 rounded-lg">
           <div className="flex flex-col">
             <span className="text-xs font-semibold text-white">
@@ -959,7 +695,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
             {applyToAll ? "Active" : "Inactive"}
           </button>
         </div>
-      )}
+      )} */}
     </div>
   );
 };

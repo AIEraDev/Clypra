@@ -269,5 +269,21 @@
   "properties.transform.alignCenterY": "Align center vertically",
   "properties.transform.alignBottom": "Align bottom",
   "properties.transform.distributeX": "Distribute horizontally",
-  "properties.transform.distributeY": "Distribute vertically"
+  "properties.transform.distributeY": "Distribute vertically",
+  "properties.stroke.title": "Stroke",
+  "properties.stroke.color": "Color",
+  "properties.stroke.thickness": "Thickness",
+  "properties.stroke.reset": "Reset stroke",
+  "properties.stroke.enable": "Enable stroke",
+  "properties.background.title": "Background",
+  "properties.background.color": "Color",
+  "properties.background.opacity": "Opacity",
+  "properties.background.roundedRectangle": "Rounded rectangle",
+  "properties.background.height": "Height",
+  "properties.background.width": "Width",
+  "properties.background.yOffset": "Y-offset",
+  "properties.background.reset": "Reset background",
+  "properties.background.enable": "Enable background",
+  "properties.background.styleRectangle": "Rectangle",
+  "properties.background.styleSplit": "Split lines"
 }

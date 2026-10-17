@@ -269,5 +269,21 @@
   "properties.transform.alignCenterY": "세로 가운데 정렬",
   "properties.transform.alignBottom": "아래쪽 정렬",
   "properties.transform.distributeX": "가로로 균등하게 배치",
-  "properties.transform.distributeY": "세로로 균등하게 배치"
+  "properties.transform.distributeY": "세로로 균등하게 배치",
+  "properties.stroke.title": "획",
+  "properties.stroke.color": "색상",
+  "properties.stroke.thickness": "두께",
+  "properties.stroke.reset": "획 초기화",
+  "properties.stroke.enable": "획 활성화",
+  "properties.background.title": "배경",
+  "properties.background.color": "색상",
+  "properties.background.opacity": "불투명도",
+  "properties.background.roundedRectangle": "둥근 사각형",
+  "properties.background.height": "높이",
+  "properties.background.width": "너비",
+  "properties.background.yOffset": "Y 오프셋",
+  "properties.background.reset": "배경 초기화",
+  "properties.background.enable": "배경 활성화",
+  "properties.background.styleRectangle": "직사각형",
+  "properties.background.styleSplit": "줄 나눔"
 }

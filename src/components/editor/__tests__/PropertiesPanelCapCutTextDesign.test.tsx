@@ -155,7 +155,7 @@ describe("CapCut Parity Text Property Panel", () => {
     expect(screen.getByTitle("Title Case (Capitalize Words)")).toBeDefined();
 
     // Color label and Keyframe diamond toggle
-    expect(screen.getByText("Color")).toBeDefined();
+    expect(screen.getAllByText("Color").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByTitle(/Add keyframe for Text Color|Remove keyframe for Text Color/i)).toBeDefined();
 
     // Character and Line spacing
@@ -363,5 +363,84 @@ describe("CapCut Parity Text Property Panel", () => {
     expect(clip.rotation).toBe(0);
     expect((clip as any).scale).toBe(1);
     expect(clip.width).toBe(400);
+  });
+
+  it("renders CapCut Stroke section with enable checkbox, color, thickness slider & stepper, and keyframe navigation", () => {
+    render(<PropertiesPanel />);
+
+    // Stroke accordion header & controls
+    expect(screen.getByText("Stroke")).toBeDefined();
+    expect(screen.getByTitle("Enable stroke")).toBeDefined();
+    expect(screen.getByTitle("Reset stroke")).toBeDefined();
+    expect(screen.getByText("Thickness")).toBeDefined();
+  });
+
+  it("toggles and updates Stroke properties in store", async () => {
+    render(<PropertiesPanel />);
+
+    // Toggle Stroke enable checkbox
+    const enableStrokeBtn = screen.getByTitle("Enable stroke");
+    fireEvent.click(enableStrokeBtn);
+
+    await new Promise((r) => setTimeout(r, 100));
+    let clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    expect(clip.stroke).toBeDefined();
+    expect(clip.stroke?.width).toBe(40);
+
+    // Reset stroke
+    const resetStrokeBtn = screen.getByTitle("Reset stroke");
+    fireEvent.click(resetStrokeBtn);
+
+    await new Promise((r) => setTimeout(r, 100));
+    clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    expect(clip.stroke).toEqual({ color: "#000000", width: 40 });
+  });
+
+  it("renders CapCut Background section with style cards, color, opacity, rounded rectangle, height, width, and y-offset", () => {
+    render(<PropertiesPanel />);
+
+    // Background accordion header & controls
+    expect(screen.getByText("Background")).toBeDefined();
+    expect(screen.getByTitle("Enable background")).toBeDefined();
+    expect(screen.getByTitle("Reset background")).toBeDefined();
+
+    // Style selector cards
+    expect(screen.getByTitle("Rectangle")).toBeDefined();
+    expect(screen.getByTitle("Split lines")).toBeDefined();
+
+    // Sliders & inputs
+    expect(screen.getByText("Opacity")).toBeDefined();
+    expect(screen.getByText("Rounded rectangle")).toBeDefined();
+    expect(screen.getByText("Height")).toBeDefined();
+    expect(screen.getByText("Width")).toBeDefined();
+    expect(screen.getByText("Y-offset")).toBeDefined();
+  });
+
+  it("toggles and updates Background properties in store", async () => {
+    render(<PropertiesPanel />);
+
+    // Toggle Background enable checkbox
+    const enableBgBtn = screen.getByTitle("Enable background");
+    fireEvent.click(enableBgBtn);
+
+    await new Promise((r) => setTimeout(r, 100));
+    let clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    expect(clip.background).toBeDefined();
+
+    // Click "Split lines" card
+    const splitLinesBtn = screen.getByTitle("Split lines");
+    fireEvent.click(splitLinesBtn);
+
+    await new Promise((r) => setTimeout(r, 100));
+    clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    expect((clip.background as any)?.style).toBe("split");
+
+    // Click "Rectangle" card
+    const rectBtn = screen.getByTitle("Rectangle");
+    fireEvent.click(rectBtn);
+
+    await new Promise((r) => setTimeout(r, 100));
+    clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    expect((clip.background as any)?.style).toBe("rectangle");
   });
 });

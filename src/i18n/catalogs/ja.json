@@ -269,5 +269,21 @@
   "properties.transform.alignCenterY": "上下中央揃え",
   "properties.transform.alignBottom": "下揃え",
   "properties.transform.distributeX": "水平に等間隔に配置",
-  "properties.transform.distributeY": "垂直に等間隔に配置"
+  "properties.transform.distributeY": "垂直に等間隔に配置",
+  "properties.stroke.title": "線",
+  "properties.stroke.color": "カラー",
+  "properties.stroke.thickness": "太さ",
+  "properties.stroke.reset": "線をリセット",
+  "properties.stroke.enable": "線を有効化",
+  "properties.background.title": "背景",
+  "properties.background.color": "カラー",
+  "properties.background.opacity": "不透明度",
+  "properties.background.roundedRectangle": "角丸長方形",
+  "properties.background.height": "高さ",
+  "properties.background.width": "幅",
+  "properties.background.yOffset": "Yオフセット",
+  "properties.background.reset": "背景をリセット",
+  "properties.background.enable": "背景を有効化",
+  "properties.background.styleRectangle": "長方形",
+  "properties.background.styleSplit": "分割行"
 }

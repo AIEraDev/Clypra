@@ -269,5 +269,21 @@
   "properties.transform.alignCenterY": "Vertikal zentrieren",
   "properties.transform.alignBottom": "Unten ausrichten",
   "properties.transform.distributeX": "Horizontal verteilen",
-  "properties.transform.distributeY": "Vertikal verteilen"
+  "properties.transform.distributeY": "Vertikal verteilen",
+  "properties.stroke.title": "Kontur",
+  "properties.stroke.color": "Farbe",
+  "properties.stroke.thickness": "Stärke",
+  "properties.stroke.reset": "Kontur zurücksetzen",
+  "properties.stroke.enable": "Kontur aktivieren",
+  "properties.background.title": "Hintergrund",
+  "properties.background.color": "Farbe",
+  "properties.background.opacity": "Deckkraft",
+  "properties.background.roundedRectangle": "Abgerundetes Rechteck",
+  "properties.background.height": "Höhe",
+  "properties.background.width": "Breite",
+  "properties.background.yOffset": "Y-Versatz",
+  "properties.background.reset": "Hintergrund zurücksetzen",
+  "properties.background.enable": "Hintergrund aktivieren",
+  "properties.background.styleRectangle": "Rechteck",
+  "properties.background.styleSplit": "Geteilte Zeilen"
 }
