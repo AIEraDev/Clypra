@@ -231,5 +231,22 @@
   "settings.diagnostics.installIdDelete": "Remove ID (stops linking future sessions)",
   "settings.diagnostics.installIdActionScope": "Affects future sessions only. Previously submitted sessions cannot be removed from the server.",
   "settings.diagnostics.desktopOnlyNotice": "Diagnostics and telemetry controls are only active in desktop environment.",
-  "settings.diagnostics.ephemeralNotice": "Ephemeral (not consented)"
+  "settings.diagnostics.ephemeralNotice": "Ephemeral (not consented)",
+  "properties.animation.title": "Motion & Animation",
+  "properties.animation.in": "In",
+  "properties.animation.inDetailed": "In (Build-In)",
+  "properties.animation.out": "Out",
+  "properties.animation.outDetailed": "Out (Build-Out)",
+  "properties.animation.loop": "Loop",
+  "properties.animation.searchPlaceholder": "People are searching Typewriter",
+  "properties.animation.none": "None",
+  "properties.animation.duration": "Duration",
+  "properties.animation.speed": "Speed",
+  "properties.animation.intensity": "Intensity",
+  "properties.animation.categories.all": "All",
+  "properties.animation.categories.basic": "Basic",
+  "properties.animation.categories.motion": "Motion",
+  "properties.animation.categories.3d": "3D",
+  "properties.animation.categories.glitch": "Glitch",
+  "properties.animation.favorites": "Favorites"
 }

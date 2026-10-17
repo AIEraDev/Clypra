@@ -231,5 +231,22 @@
   "settings.diagnostics.installIdDelete": "删除 ID（停止关联未来会话）",
   "settings.diagnostics.installIdActionScope": "仅影响未来的会话。已提交的会话无法从服务器中删除。",
   "settings.diagnostics.desktopOnlyNotice": "诊断和遥测控制仅在桌面环境中处于活动状态。",
-  "settings.diagnostics.ephemeralNotice": "临时（未同意）"
+  "settings.diagnostics.ephemeralNotice": "临时（未同意）",
+  "properties.animation.title": "运动与动画",
+  "properties.animation.in": "入场",
+  "properties.animation.inDetailed": "入场 (In)",
+  "properties.animation.out": "出场",
+  "properties.animation.outDetailed": "出场 (Out)",
+  "properties.animation.loop": "循环",
+  "properties.animation.searchPlaceholder": "大家都在搜 打字机",
+  "properties.animation.none": "无",
+  "properties.animation.duration": "时长",
+  "properties.animation.speed": "速度",
+  "properties.animation.intensity": "强度",
+  "properties.animation.categories.all": "全部",
+  "properties.animation.categories.basic": "基础",
+  "properties.animation.categories.motion": "动感",
+  "properties.animation.categories.3d": "3D",
+  "properties.animation.categories.glitch": "故障",
+  "properties.animation.favorites": "收藏"
 }

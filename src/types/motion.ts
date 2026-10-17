@@ -8,6 +8,7 @@
 import type { KeyframeEasing, KeyframeSpringConfig } from "./keyframes";
 
 export type MotionBehaviorCategory = "in" | "out" | "loop";
+export type MotionSubCategory = "Basic" | "Motion" | "3D" | "Glitch";
 
 export interface ClipMotionConfig {
   inPreset?: string;
@@ -31,6 +32,9 @@ export interface MotionPresetMeta {
   id: string;
   name: string;
   category: MotionBehaviorCategory;
+  subCategory?: MotionSubCategory;
+  tags?: string[];
+  isPro?: boolean;
   description: string;
   defaultDuration?: number;
   defaultEasing?: KeyframeEasing;

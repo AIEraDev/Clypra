@@ -231,5 +231,22 @@
   "settings.diagnostics.installIdDelete": "Eliminar ID (deja de vincular sesiones futuras)",
   "settings.diagnostics.installIdActionScope": "Solo afecta a sesiones futuras. Las sesiones ya enviadas no se pueden eliminar del servidor.",
   "settings.diagnostics.desktopOnlyNotice": "Los controles de diagnóstico y telemetría solo están activos en el entorno de escritorio.",
-  "settings.diagnostics.ephemeralNotice": "Efímero (sin consentimiento)"
+  "settings.diagnostics.ephemeralNotice": "Efímero (sin consentimiento)",
+  "properties.animation.title": "Movimiento y animación",
+  "properties.animation.in": "Entrada",
+  "properties.animation.inDetailed": "Entrada (Aparición)",
+  "properties.animation.out": "Salida",
+  "properties.animation.outDetailed": "Salida (Desaparición)",
+  "properties.animation.loop": "Bucle",
+  "properties.animation.searchPlaceholder": "La gente busca Máquina de escribir",
+  "properties.animation.none": "Ninguno",
+  "properties.animation.duration": "Duración",
+  "properties.animation.speed": "Velocidad",
+  "properties.animation.intensity": "Intensidad",
+  "properties.animation.categories.all": "Todo",
+  "properties.animation.categories.basic": "Básico",
+  "properties.animation.categories.motion": "Movimiento",
+  "properties.animation.categories.3d": "3D",
+  "properties.animation.categories.glitch": "Glitch",
+  "properties.animation.favorites": "Favoritos"
 }

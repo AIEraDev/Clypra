@@ -235,5 +235,22 @@
   "settings.diagnostics.installIdDelete": "Удалить ID (прекратить связывание будущих сессий)",
   "settings.diagnostics.installIdActionScope": "Влияет только на будущие сессии. Ранее отправленные сессии не могут быть удалены с сервера.",
   "settings.diagnostics.desktopOnlyNotice": "Управление диагностикой и телеметрией активно только в десктопной версии.",
-  "settings.diagnostics.ephemeralNotice": "Временный (согласие не предоставлено)"
+  "settings.diagnostics.ephemeralNotice": "Временный (согласие не предоставлено)",
+  "properties.animation.title": "Движение и анимация",
+  "properties.animation.in": "Вход",
+  "properties.animation.inDetailed": "Вход (Появление)",
+  "properties.animation.out": "Выход",
+  "properties.animation.outDetailed": "Выход (Исчезновение)",
+  "properties.animation.loop": "Зацикливание",
+  "properties.animation.searchPlaceholder": "Ищут: Печатная машинка",
+  "properties.animation.none": "Нет",
+  "properties.animation.duration": "Длительность",
+  "properties.animation.speed": "Скорость",
+  "properties.animation.intensity": "Интенсивность",
+  "properties.animation.categories.all": "Все",
+  "properties.animation.categories.basic": "Базовые",
+  "properties.animation.categories.motion": "Движение",
+  "properties.animation.categories.3d": "3D",
+  "properties.animation.categories.glitch": "Глитч",
+  "properties.animation.favorites": "Избранное"
 }

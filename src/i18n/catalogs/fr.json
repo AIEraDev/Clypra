@@ -231,5 +231,22 @@
   "settings.diagnostics.installIdDelete": "Supprimer l'ID (cesse de lier les sessions futures)",
   "settings.diagnostics.installIdActionScope": "Affecte uniquement les sessions futures. Les sessions déjà soumises ne peuvent pas être supprimées du serveur.",
   "settings.diagnostics.desktopOnlyNotice": "Les contrôles de diagnostic et de télémétrie ne sont actifs que sur l'application de bureau.",
-  "settings.diagnostics.ephemeralNotice": "Éphémère (non consenti)"
+  "settings.diagnostics.ephemeralNotice": "Éphémère (non consenti)",
+  "properties.animation.title": "Mouvement et animation",
+  "properties.animation.in": "Entrée",
+  "properties.animation.inDetailed": "Entrée (In)",
+  "properties.animation.out": "Sortie",
+  "properties.animation.outDetailed": "Sortie (Out)",
+  "properties.animation.loop": "Boucle",
+  "properties.animation.searchPlaceholder": "Recherches fréquentes: Machine à écrire",
+  "properties.animation.none": "Aucun",
+  "properties.animation.duration": "Durée",
+  "properties.animation.speed": "Vitesse",
+  "properties.animation.intensity": "Intensité",
+  "properties.animation.categories.all": "Tout",
+  "properties.animation.categories.basic": "Basique",
+  "properties.animation.categories.motion": "Mouvement",
+  "properties.animation.categories.3d": "3D",
+  "properties.animation.categories.glitch": "Glitch",
+  "properties.animation.favorites": "Favoris"
 }

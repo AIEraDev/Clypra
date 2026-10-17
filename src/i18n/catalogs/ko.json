@@ -231,5 +231,22 @@
   "settings.diagnostics.installIdDelete": "ID 삭제 (향후 세션 연결 중지)",
   "settings.diagnostics.installIdActionScope": "향후 세션에만 영향을 미칩니다. 이미 제출된 세션은 서버에서 제거할 수 없습니다.",
   "settings.diagnostics.desktopOnlyNotice": "진단 및 원격 측정 제어는 데스크톱 환경에서만 활성화됩니다.",
-  "settings.diagnostics.ephemeralNotice": "임시 (동의하지 않음)"
+  "settings.diagnostics.ephemeralNotice": "임시 (동의하지 않음)",
+  "properties.animation.title": "모션 및 애니메이션",
+  "properties.animation.in": "인",
+  "properties.animation.inDetailed": "인 (시작)",
+  "properties.animation.out": "아웃",
+  "properties.animation.outDetailed": "아웃 (종료)",
+  "properties.animation.loop": "반복",
+  "properties.animation.searchPlaceholder": "타자기 검색 중",
+  "properties.animation.none": "없음",
+  "properties.animation.duration": "길이",
+  "properties.animation.speed": "속도",
+  "properties.animation.intensity": "강도",
+  "properties.animation.categories.all": "전체",
+  "properties.animation.categories.basic": "기본",
+  "properties.animation.categories.motion": "모션",
+  "properties.animation.categories.3d": "3D",
+  "properties.animation.categories.glitch": "글리치",
+  "properties.animation.favorites": "즐겨찾기"
 }

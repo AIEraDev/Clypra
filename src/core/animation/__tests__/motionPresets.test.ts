@@ -206,5 +206,78 @@ describe("Motion Presets & Kinetic Behavior Engine", () => {
       const high = applyLoopMotion("wiggle", 0.25, base, 1.0, 2.0);
       expect(Math.abs(high.rotation)).toBeGreaterThan(Math.abs(low.rotation));
     });
+
+    it("modulates wave with coupled Y and rotation offsets", () => {
+      const t = applyLoopMotion("wave", 0.5, base);
+      expect(t.y).not.toBe(base.y);
+      expect(t.rotation).not.toBe(base.rotation);
+    });
+
+    it("modulates neon-blink with opacity strobing", () => {
+      const tFlicker = applyLoopMotion("neon-blink", 0.02, base);
+      expect(tFlicker.opacity).toBeLessThan(base.opacity);
+    });
+
+    it("modulates shiver with high-frequency micro-jitter", () => {
+      const t = applyLoopMotion("shiver", 0.1, base);
+      expect(t.x).not.toBe(base.x);
+      expect(t.y).not.toBe(base.y);
+    });
+  });
+
+  describe("CapCut Starter Presets Compilation", () => {
+    const baseClip = {
+      x: 100,
+      y: 200,
+      width: 400,
+      height: 120,
+      rotation: 0,
+      opacity: 1,
+    };
+
+    it("compiles typewriter entrance with linear opacity and subtle scale pop", () => {
+      const kf = compileClipMotionKeyframes(baseClip, {
+        inPreset: "typewriter",
+        inDuration: 0.6,
+      });
+      expect(kf.opacity).toHaveLength(2);
+      expect(kf.opacity![0].value).toBe(0);
+      expect(kf.opacity![1].value).toBe(1);
+      expect(kf.width![0].value).toBe(380);
+      expect(kf.width![1].value).toBe(400);
+    });
+
+    it("compiles flip-in with 3D rotation and vertical overshoot", () => {
+      const kf = compileClipMotionKeyframes(baseClip, {
+        inPreset: "flip-in",
+        inDuration: 0.6,
+      });
+      expect(kf.rotation).toHaveLength(2);
+      expect(kf.rotation![0].value).toBe(-90);
+      expect(kf.rotation![1].value).toBe(0);
+      expect(kf.y![0].value).toBe(170);
+      expect(kf.y![1].value).toBe(200);
+    });
+
+    it("compiles flip-out with 3D departure rotation", () => {
+      const kf = compileClipMotionKeyframes(baseClip, {
+        outPreset: "flip-out",
+        outDuration: 0.5,
+      });
+      expect(kf.rotation).toHaveLength(2);
+      expect(kf.rotation![0].anchor).toBe("end");
+      expect(kf.rotation![0].value).toBe(0);
+      expect(kf.rotation![1].value).toBe(90);
+    });
+
+    it("compiles 8bit-melt with pixelated downward stretch", () => {
+      const kf = compileClipMotionKeyframes(baseClip, {
+        outPreset: "8bit-melt",
+        outDuration: 0.5,
+      });
+      expect(kf.width).toHaveLength(2);
+      expect(kf.width![1].value).toBe(520);
+      expect(kf.opacity![1].value).toBe(0);
+    });
   });
 });

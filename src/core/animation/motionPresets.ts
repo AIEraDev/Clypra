@@ -11,9 +11,100 @@ import type { ClipMotionConfig, MotionPresetMeta } from "@/types/motion";
 
 export const MOTION_IN_PRESETS: MotionPresetMeta[] = [
   {
+    id: "typewriter",
+    name: "Typewriter",
+    category: "in",
+    subCategory: "Basic",
+    tags: ["typewriter", "terminal", "typing", "text"],
+    description: "Snappy character typing entrance",
+    defaultDuration: 0.6,
+    defaultEasing: "easeOut",
+    icon: "Type",
+  },
+  {
+    id: "slide-up",
+    name: "Slide Up",
+    category: "in",
+    subCategory: "Motion",
+    tags: ["slide", "up", "motion", "smooth"],
+    description: "Smooth upward entrance from below",
+    defaultDuration: 0.5,
+    defaultEasing: "easeOutCubic",
+    icon: "ArrowUp",
+  },
+  {
+    id: "zoom-in",
+    name: "Zoom In",
+    category: "in",
+    subCategory: "Motion",
+    tags: ["zoom", "pop", "bounce", "scale"],
+    description: "Punchy dynamic zoom impact with hero velocity",
+    defaultDuration: 0.4,
+    defaultEasing: "speedHero",
+    icon: "ZoomIn",
+  },
+  {
+    id: "flip-in",
+    name: "Flip In",
+    category: "in",
+    subCategory: "3D",
+    tags: ["flip", "3d", "rotate", "perspective"],
+    description: "3D rotational flip entrance",
+    defaultDuration: 0.6,
+    defaultEasing: "easeOutQuad",
+    icon: "RotateCw",
+  },
+  {
+    id: "wave-in",
+    name: "Wave In",
+    category: "in",
+    subCategory: "Motion",
+    tags: ["wave", "bounce", "stagger"],
+    description: "Rhythmic vertical wave bounce entrance",
+    defaultDuration: 0.7,
+    defaultEasing: "springBouncy",
+    icon: "Waves",
+  },
+  {
+    id: "glitch-in",
+    name: "Glitch In",
+    category: "in",
+    subCategory: "Glitch",
+    tags: ["glitch", "cyber", "jitter", "vfx"],
+    isPro: true,
+    description: "Cyberpunk high-frequency glitch jitter",
+    defaultDuration: 0.5,
+    defaultEasing: "easeOut",
+    icon: "Zap",
+  },
+  {
+    id: "arc-fade",
+    name: "Arc Fade",
+    category: "in",
+    subCategory: "Basic",
+    tags: ["arc", "fade", "cinematic"],
+    description: "Cinematic scale dissipation into focus",
+    defaultDuration: 0.6,
+    defaultEasing: "easeOutCubic",
+    icon: "Sun",
+  },
+  {
+    id: "fade-in",
+    name: "Fade In",
+    category: "in",
+    subCategory: "Basic",
+    tags: ["fade", "simple", "clean"],
+    description: "Clean organic opacity emergence",
+    defaultDuration: 0.5,
+    defaultEasing: "easeOut",
+    icon: "Sun",
+  },
+  {
     id: "pop-in",
     name: "Pop In",
     category: "in",
+    subCategory: "Motion",
+    tags: ["pop", "spring", "snappy"],
     description: "Snappy spring pop with subtle overshoot",
     defaultDuration: 0.5,
     defaultEasing: "springSnappy",
@@ -23,24 +114,19 @@ export const MOTION_IN_PRESETS: MotionPresetMeta[] = [
     id: "bounce-in",
     name: "Bounce In",
     category: "in",
+    subCategory: "Motion",
+    tags: ["bounce", "physics", "drop"],
     description: "Energetic physics-modeled drop and bounce",
     defaultDuration: 0.65,
     defaultEasing: "springBouncy",
     icon: "Activity",
   },
   {
-    id: "slide-up",
-    name: "Slide Up",
-    category: "in",
-    description: "Smooth upward entrance from below",
-    defaultDuration: 0.5,
-    defaultEasing: "easeOutCubic",
-    icon: "ArrowUp",
-  },
-  {
     id: "slide-down",
     name: "Slide Down",
     category: "in",
+    subCategory: "Motion",
+    tags: ["slide", "down", "smooth"],
     description: "Smooth downward entrance from above",
     defaultDuration: 0.5,
     defaultEasing: "easeOutCubic",
@@ -50,6 +136,8 @@ export const MOTION_IN_PRESETS: MotionPresetMeta[] = [
     id: "slide-left",
     name: "Slide Left",
     category: "in",
+    subCategory: "Motion",
+    tags: ["slide", "left", "glide"],
     description: "Smooth horizontal glide from the right",
     defaultDuration: 0.5,
     defaultEasing: "easeOutCubic",
@@ -59,33 +147,19 @@ export const MOTION_IN_PRESETS: MotionPresetMeta[] = [
     id: "slide-right",
     name: "Slide Right",
     category: "in",
+    subCategory: "Motion",
+    tags: ["slide", "right", "glide"],
     description: "Smooth horizontal glide from the left",
     defaultDuration: 0.5,
     defaultEasing: "easeOutCubic",
     icon: "ArrowRight",
   },
   {
-    id: "zoom-in",
-    name: "Zoom In",
-    category: "in",
-    description: "Punchy dynamic zoom impact with hero velocity",
-    defaultDuration: 0.4,
-    defaultEasing: "speedHero",
-    icon: "ZoomIn",
-  },
-  {
-    id: "fade-in",
-    name: "Fade In",
-    category: "in",
-    description: "Clean organic opacity emergence",
-    defaultDuration: 0.5,
-    defaultEasing: "easeOut",
-    icon: "Sun",
-  },
-  {
     id: "whip-pan",
     name: "Whip Pan",
     category: "in",
+    subCategory: "Motion",
+    tags: ["whip", "fast", "speed"],
     description: "High-speed kinetic horizontal transit",
     defaultDuration: 0.35,
     defaultEasing: "easeOutExpo",
@@ -98,24 +172,19 @@ export const MOTION_OUT_PRESETS: MotionPresetMeta[] = [
     id: "fade-out",
     name: "Fade Out",
     category: "out",
+    subCategory: "Basic",
+    tags: ["fade", "out", "simple"],
     description: "Gentle opacity fade to transparent",
     defaultDuration: 0.5,
     defaultEasing: "easeIn",
     icon: "Moon",
   },
   {
-    id: "pop-out",
-    name: "Pop Out",
-    category: "out",
-    description: "Anticipation wind-up into fast shrink",
-    defaultDuration: 0.4,
-    defaultEasing: "easeInBack",
-    icon: "Minimize2",
-  },
-  {
     id: "slide-down",
     name: "Slide Down",
     category: "out",
+    subCategory: "Motion",
+    tags: ["slide", "down", "exit"],
     description: "Glides downward off-canvas",
     defaultDuration: 0.45,
     defaultEasing: "easeInCubic",
@@ -125,6 +194,8 @@ export const MOTION_OUT_PRESETS: MotionPresetMeta[] = [
     id: "slide-up",
     name: "Slide Up",
     category: "out",
+    subCategory: "Motion",
+    tags: ["slide", "up", "exit"],
     description: "Glides upward off-canvas",
     defaultDuration: 0.45,
     defaultEasing: "easeInCubic",
@@ -134,6 +205,8 @@ export const MOTION_OUT_PRESETS: MotionPresetMeta[] = [
     id: "slide-left",
     name: "Slide Left",
     category: "out",
+    subCategory: "Motion",
+    tags: ["slide", "left", "exit"],
     description: "Glides off to the left edge",
     defaultDuration: 0.45,
     defaultEasing: "easeInCubic",
@@ -143,15 +216,30 @@ export const MOTION_OUT_PRESETS: MotionPresetMeta[] = [
     id: "slide-right",
     name: "Slide Right",
     category: "out",
+    subCategory: "Motion",
+    tags: ["slide", "right", "exit"],
     description: "Glides off to the right edge",
     defaultDuration: 0.45,
     defaultEasing: "easeInCubic",
     icon: "ArrowRight",
   },
   {
+    id: "pop-out",
+    name: "Pop Out",
+    category: "out",
+    subCategory: "Motion",
+    tags: ["pop", "shrink", "exit"],
+    description: "Anticipation wind-up into fast shrink",
+    defaultDuration: 0.4,
+    defaultEasing: "easeInBack",
+    icon: "Minimize2",
+  },
+  {
     id: "drop-down",
     name: "Gravity Drop",
     category: "out",
+    subCategory: "Motion",
+    tags: ["gravity", "drop", "physics"],
     description: "Accelerating drop with slight rotational tilt",
     defaultDuration: 0.5,
     defaultEasing: "easeInQuad",
@@ -161,10 +249,46 @@ export const MOTION_OUT_PRESETS: MotionPresetMeta[] = [
     id: "zoom-out",
     name: "Zoom Out",
     category: "out",
+    subCategory: "Motion",
+    tags: ["zoom", "distance", "shrink"],
     description: "Dissolves rapidly into distance",
     defaultDuration: 0.4,
     defaultEasing: "easeOutExpo",
     icon: "ZoomOut",
+  },
+  {
+    id: "flip-out",
+    name: "Flip Out",
+    category: "out",
+    subCategory: "3D",
+    tags: ["flip", "3d", "rotate", "exit"],
+    description: "3D rotational flip departure",
+    defaultDuration: 0.5,
+    defaultEasing: "easeInQuad",
+    icon: "RotateCcw",
+  },
+  {
+    id: "8bit-melt",
+    name: "8bit Melt",
+    category: "out",
+    subCategory: "Glitch",
+    tags: ["melt", "glitch", "pixel", "retro"],
+    isPro: true,
+    description: "Retro pixelated dissolve exit",
+    defaultDuration: 0.5,
+    defaultEasing: "easeIn",
+    icon: "Zap",
+  },
+  {
+    id: "whirl-out",
+    name: "Whirl Out",
+    category: "out",
+    subCategory: "3D",
+    tags: ["whirl", "spin", "rotate", "tornado"],
+    description: "High-speed rotational vortex departure",
+    defaultDuration: 0.45,
+    defaultEasing: "easeInBack",
+    icon: "Shuffle",
   },
 ];
 
@@ -173,6 +297,8 @@ export const MOTION_LOOP_PRESETS: MotionPresetMeta[] = [
     id: "float",
     name: "Float",
     category: "loop",
+    subCategory: "Motion",
+    tags: ["float", "drift", "levitate"],
     description: "Weightless organic vertical and horizontal drift",
     icon: "Waves",
   },
@@ -180,6 +306,8 @@ export const MOTION_LOOP_PRESETS: MotionPresetMeta[] = [
     id: "pulse",
     name: "Pulse",
     category: "loop",
+    subCategory: "Basic",
+    tags: ["pulse", "breathe", "scale"],
     description: "Rhythmic gentle scale expansion and contraction",
     icon: "Heart",
   },
@@ -187,6 +315,8 @@ export const MOTION_LOOP_PRESETS: MotionPresetMeta[] = [
     id: "wiggle",
     name: "Wiggle",
     category: "loop",
+    subCategory: "Motion",
+    tags: ["wiggle", "shake", "rotate"],
     description: "Continuous subtle rotational oscillation",
     icon: "Shuffle",
   },
@@ -194,6 +324,8 @@ export const MOTION_LOOP_PRESETS: MotionPresetMeta[] = [
     id: "heartbeat",
     name: "Heartbeat",
     category: "loop",
+    subCategory: "Basic",
+    tags: ["heartbeat", "pulse", "thump"],
     description: "Double-thump dynamic pulse",
     icon: "Activity",
   },
@@ -201,8 +333,38 @@ export const MOTION_LOOP_PRESETS: MotionPresetMeta[] = [
     id: "pendulum",
     name: "Pendulum",
     category: "loop",
+    subCategory: "Motion",
+    tags: ["pendulum", "swing", "clock"],
     description: "Harmonic pendulum swing around center",
     icon: "Compass",
+  },
+  {
+    id: "wave",
+    name: "Wave",
+    category: "loop",
+    subCategory: "Motion",
+    tags: ["wave", "ocean", "sway"],
+    description: "Continuous undulating wave flow",
+    icon: "Waves",
+  },
+  {
+    id: "neon-blink",
+    name: "Neon Blink",
+    category: "loop",
+    subCategory: "Glitch",
+    tags: ["neon", "blink", "strobe", "flash"],
+    isPro: true,
+    description: "Atmospheric flickering neon sign pulse",
+    icon: "Zap",
+  },
+  {
+    id: "shiver",
+    name: "Shiver",
+    category: "loop",
+    subCategory: "Glitch",
+    tags: ["shiver", "jitter", "tremble"],
+    description: "High-frequency subtle tension vibration",
+    icon: "Activity",
   },
 ];
 
@@ -579,6 +741,242 @@ export function compileClipMotionKeyframes(
         });
         break;
       }
+
+      case "typewriter": {
+        const easing = motion.inEasing ?? "easeOut";
+        pushKf("opacity", {
+          id: "m-in-o0",
+          time: 0,
+          anchor: "start",
+          value: 0,
+          easing: "linear",
+        });
+        pushKf("opacity", {
+          id: "m-in-o1",
+          time: inDuration * 0.1,
+          anchor: "start",
+          value: baseOp,
+          easing: "linear",
+        });
+        pushKf("width", {
+          id: "m-in-w0",
+          time: 0,
+          anchor: "start",
+          value: baseW * 0.95,
+          easing,
+        });
+        pushKf("width", {
+          id: "m-in-w1",
+          time: inDuration,
+          anchor: "start",
+          value: baseW,
+          easing,
+        });
+        pushKf("height", {
+          id: "m-in-h0",
+          time: 0,
+          anchor: "start",
+          value: baseH * 0.95,
+          easing,
+        });
+        pushKf("height", {
+          id: "m-in-h1",
+          time: inDuration,
+          anchor: "start",
+          value: baseH,
+          easing,
+        });
+        break;
+      }
+
+      case "flip-in": {
+        const easing = motion.inEasing ?? "easeOutQuad";
+        pushKf("rotation", {
+          id: "m-in-r0",
+          time: 0,
+          anchor: "start",
+          value: baseRot - 90,
+          easing,
+        });
+        pushKf("rotation", {
+          id: "m-in-r1",
+          time: inDuration,
+          anchor: "start",
+          value: baseRot,
+          easing,
+        });
+        pushKf("y", {
+          id: "m-in-y0",
+          time: 0,
+          anchor: "start",
+          value: baseY - 30,
+          easing: "easeOutBack",
+        });
+        pushKf("y", {
+          id: "m-in-y1",
+          time: inDuration,
+          anchor: "start",
+          value: baseY,
+          easing: "easeOutBack",
+        });
+        pushKf("opacity", {
+          id: "m-in-o0",
+          time: 0,
+          anchor: "start",
+          value: 0,
+          easing: "easeOut",
+        });
+        pushKf("opacity", {
+          id: "m-in-o1",
+          time: inDuration * 0.6,
+          anchor: "start",
+          value: baseOp,
+          easing: "easeOut",
+        });
+        break;
+      }
+
+      case "wave-in": {
+        const easing = motion.inEasing ?? "springBouncy";
+        pushKf("y", {
+          id: "m-in-y0",
+          time: 0,
+          anchor: "start",
+          value: baseY + 50,
+          easing,
+          spring: motion.inSpring,
+        });
+        pushKf("y", {
+          id: "m-in-y1",
+          time: inDuration,
+          anchor: "start",
+          value: baseY,
+          easing,
+          spring: motion.inSpring,
+        });
+        pushKf("opacity", {
+          id: "m-in-o0",
+          time: 0,
+          anchor: "start",
+          value: 0,
+          easing: "easeOut",
+        });
+        pushKf("opacity", {
+          id: "m-in-o1",
+          time: inDuration * 0.5,
+          anchor: "start",
+          value: baseOp,
+          easing: "easeOut",
+        });
+        break;
+      }
+
+      case "glitch-in": {
+        pushKf("opacity", {
+          id: "m-in-o0",
+          time: 0,
+          anchor: "start",
+          value: 0,
+          easing: "linear",
+        });
+        pushKf("opacity", {
+          id: "m-in-o1",
+          time: inDuration * 0.2,
+          anchor: "start",
+          value: baseOp * 0.7,
+          easing: "linear",
+        });
+        pushKf("opacity", {
+          id: "m-in-o2",
+          time: inDuration * 0.4,
+          anchor: "start",
+          value: baseOp * 0.2,
+          easing: "linear",
+        });
+        pushKf("opacity", {
+          id: "m-in-o3",
+          time: inDuration * 0.6,
+          anchor: "start",
+          value: baseOp,
+          easing: "linear",
+        });
+        pushKf("x", {
+          id: "m-in-x0",
+          time: 0,
+          anchor: "start",
+          value: baseX - 25,
+          easing: "linear",
+        });
+        pushKf("x", {
+          id: "m-in-x1",
+          time: inDuration * 0.3,
+          anchor: "start",
+          value: baseX + 18,
+          easing: "linear",
+        });
+        pushKf("x", {
+          id: "m-in-x2",
+          time: inDuration * 0.6,
+          anchor: "start",
+          value: baseX - 6,
+          easing: "linear",
+        });
+        pushKf("x", {
+          id: "m-in-x3",
+          time: inDuration,
+          anchor: "start",
+          value: baseX,
+          easing: "linear",
+        });
+        break;
+      }
+
+      case "arc-fade": {
+        const easing = motion.inEasing ?? "easeOutCubic";
+        pushKf("width", {
+          id: "m-in-w0",
+          time: 0,
+          anchor: "start",
+          value: baseW * 1.35,
+          easing,
+        });
+        pushKf("width", {
+          id: "m-in-w1",
+          time: inDuration,
+          anchor: "start",
+          value: baseW,
+          easing,
+        });
+        pushKf("height", {
+          id: "m-in-h0",
+          time: 0,
+          anchor: "start",
+          value: baseH * 1.35,
+          easing,
+        });
+        pushKf("height", {
+          id: "m-in-h1",
+          time: inDuration,
+          anchor: "start",
+          value: baseH,
+          easing,
+        });
+        pushKf("opacity", {
+          id: "m-in-o0",
+          time: 0,
+          anchor: "start",
+          value: 0,
+          easing: "easeOutQuad",
+        });
+        pushKf("opacity", {
+          id: "m-in-o1",
+          time: inDuration,
+          anchor: "start",
+          value: baseOp,
+          easing: "easeOutQuad",
+        });
+        break;
+      }
     }
   }
 
@@ -879,6 +1277,161 @@ export function compileClipMotionKeyframes(
         });
         break;
       }
+
+      case "flip-out": {
+        const easing = motion.outEasing ?? "easeInQuad";
+        pushKf("rotation", {
+          id: "m-out-r0",
+          time: outDuration,
+          anchor: "end",
+          value: baseRot,
+          easing,
+        });
+        pushKf("rotation", {
+          id: "m-out-r1",
+          time: 0,
+          anchor: "end",
+          value: baseRot + 90,
+          easing,
+        });
+        pushKf("y", {
+          id: "m-out-y0",
+          time: outDuration,
+          anchor: "end",
+          value: baseY,
+          easing,
+        });
+        pushKf("y", {
+          id: "m-out-y1",
+          time: 0,
+          anchor: "end",
+          value: baseY - 30,
+          easing,
+        });
+        pushKf("opacity", {
+          id: "m-out-o0",
+          time: outDuration,
+          anchor: "end",
+          value: baseOp,
+          easing: "easeIn",
+        });
+        pushKf("opacity", {
+          id: "m-out-o1",
+          time: 0,
+          anchor: "end",
+          value: 0,
+          easing: "easeIn",
+        });
+        break;
+      }
+
+      case "8bit-melt": {
+        const easing = motion.outEasing ?? "easeIn";
+        pushKf("y", {
+          id: "m-out-y0",
+          time: outDuration,
+          anchor: "end",
+          value: baseY,
+          easing,
+        });
+        pushKf("y", {
+          id: "m-out-y1",
+          time: 0,
+          anchor: "end",
+          value: baseY + outDist * 0.8,
+          easing,
+        });
+        pushKf("width", {
+          id: "m-out-w0",
+          time: outDuration,
+          anchor: "end",
+          value: baseW,
+          easing,
+        });
+        pushKf("width", {
+          id: "m-out-w1",
+          time: 0,
+          anchor: "end",
+          value: baseW * 1.3,
+          easing,
+        });
+        pushKf("opacity", {
+          id: "m-out-o0",
+          time: outDuration * 0.5,
+          anchor: "end",
+          value: baseOp,
+          easing,
+        });
+        pushKf("opacity", {
+          id: "m-out-o1",
+          time: 0,
+          anchor: "end",
+          value: 0,
+          easing,
+        });
+        break;
+      }
+
+      case "whirl-out": {
+        const easing = motion.outEasing ?? "easeInBack";
+        pushKf("rotation", {
+          id: "m-out-r0",
+          time: outDuration,
+          anchor: "end",
+          value: baseRot,
+          easing,
+        });
+        pushKf("rotation", {
+          id: "m-out-r1",
+          time: 0,
+          anchor: "end",
+          value: baseRot + 360,
+          easing,
+        });
+        pushKf("width", {
+          id: "m-out-w0",
+          time: outDuration,
+          anchor: "end",
+          value: baseW,
+          easing,
+        });
+        pushKf("width", {
+          id: "m-out-w1",
+          time: 0,
+          anchor: "end",
+          value: 0,
+          easing,
+        });
+        pushKf("height", {
+          id: "m-out-h0",
+          time: outDuration,
+          anchor: "end",
+          value: baseH,
+          easing,
+        });
+        pushKf("height", {
+          id: "m-out-h1",
+          time: 0,
+          anchor: "end",
+          value: 0,
+          easing,
+        });
+        pushKf("opacity", {
+          id: "m-out-o0",
+          time: outDuration,
+          anchor: "end",
+          value: baseOp,
+          easing: "easeIn",
+        });
+        pushKf("opacity", {
+          id: "m-out-o1",
+          time: 0,
+          anchor: "end",
+          value: 0,
+          easing: "easeIn",
+        });
+        break;
+      }
     }
   }
 
@@ -973,6 +1526,38 @@ export function applyLoopMotion(
       return {
         ...base,
         rotation: base.rotation + rotOffset,
+      };
+    }
+
+    case "wave": {
+      // Sinusoidal undulating wave flow
+      const yOffset = Math.sin(time * omega * 1.5) * 14 * inten;
+      const rotOffset = Math.sin(time * omega * 0.8) * 4 * inten;
+      return {
+        ...base,
+        y: base.y + yOffset,
+        rotation: base.rotation + rotOffset,
+      };
+    }
+
+    case "neon-blink": {
+      // Atmospheric flickering neon pulse
+      const cycle = (time * s * 2.5) % 1;
+      const blink = cycle < 0.1 || (cycle > 0.25 && cycle < 0.32) ? 0.2 : 1.0;
+      return {
+        ...base,
+        opacity: base.opacity * (1.0 - (1.0 - blink) * inten),
+      };
+    }
+
+    case "shiver": {
+      // High-frequency subtle jitter
+      const jX = Math.sin(time * 35 * s) * 3 * inten;
+      const jY = Math.cos(time * 42 * s) * 2 * inten;
+      return {
+        ...base,
+        x: base.x + jX,
+        y: base.y + jY,
       };
     }
 

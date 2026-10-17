@@ -231,5 +231,22 @@
   "settings.diagnostics.installIdDelete": "IDを削除（今後のセッションのリンクを停止）",
   "settings.diagnostics.installIdActionScope": "今後のセッションにのみ影響します。既に送信済みのセッションはサーバーから削除できません。",
   "settings.diagnostics.desktopOnlyNotice": "診断とテレメトリの制御はデスクトップ環境でのみ有効です。",
-  "settings.diagnostics.ephemeralNotice": "エフェメラル（未同意）"
+  "settings.diagnostics.ephemeralNotice": "エフェメラル（未同意）",
+  "properties.animation.title": "モーションとアニメーション",
+  "properties.animation.in": "イン",
+  "properties.animation.inDetailed": "イン (開始)",
+  "properties.animation.out": "アウト",
+  "properties.animation.outDetailed": "アウト (終了)",
+  "properties.animation.loop": "ループ",
+  "properties.animation.searchPlaceholder": "タイプライターを検索中",
+  "properties.animation.none": "なし",
+  "properties.animation.duration": "時間",
+  "properties.animation.speed": "速度",
+  "properties.animation.intensity": "強度",
+  "properties.animation.categories.all": "すべて",
+  "properties.animation.categories.basic": "基本",
+  "properties.animation.categories.motion": "モーション",
+  "properties.animation.categories.3d": "3D",
+  "properties.animation.categories.glitch": "グリッチ",
+  "properties.animation.favorites": "お気に入り"
 }
