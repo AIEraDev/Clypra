@@ -252,5 +252,8 @@
   "properties.animation.categories.motion": "動感",
   "properties.animation.categories.3d": "3D",
   "properties.animation.categories.glitch": "故障",
-  "properties.animation.favorites": "收藏"
+  "properties.animation.favorites": "收藏",
+  "properties.text.presetStyle": "預設樣式",
+  "properties.text.expandPresets": "展開預設樣式",
+  "properties.text.collapsePresets": "摺疊預設樣式"
 }

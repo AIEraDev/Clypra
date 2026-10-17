@@ -252,5 +252,8 @@
   "properties.animation.categories.motion": "Motion",
   "properties.animation.categories.3d": "3D",
   "properties.animation.categories.glitch": "Glitch",
-  "properties.animation.favorites": "Favorites"
+  "properties.animation.favorites": "Favorites",
+  "properties.text.presetStyle": "PRESET STYLE",
+  "properties.text.expandPresets": "Expand preset styles",
+  "properties.text.collapsePresets": "Collapse preset styles"
 }

@@ -252,5 +252,8 @@
   "properties.animation.categories.motion": "モーション",
   "properties.animation.categories.3d": "3D",
   "properties.animation.categories.glitch": "グリッチ",
-  "properties.animation.favorites": "お気に入り"
+  "properties.animation.favorites": "お気に入り",
+  "properties.text.presetStyle": "プリセットスタイル",
+  "properties.text.expandPresets": "プリセットスタイルを展開",
+  "properties.text.collapsePresets": "プリセットスタイルを折りたたむ"
 }

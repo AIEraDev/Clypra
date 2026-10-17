@@ -224,4 +224,70 @@ describe("CapCut Parity Text Property Panel", () => {
     expect(textLayer.textTransform).toBe("uppercase");
     expect(textLayer.textDecoration).toBe("underline");
   });
+
+  it("renders PRESET STYLE section with visual preset cards and expandable drawer", () => {
+    render(<PropertiesPanel />);
+
+    // Section title
+    expect(screen.getByText("PRESET STYLE")).toBeDefined();
+
+    // Reset button (None)
+    expect(screen.getByTitle("None")).toBeDefined();
+
+    // Specific CapCut-parity presets
+    expect(screen.getByTitle("White with Black Outline")).toBeDefined();
+    expect(screen.getByTitle("Yellow with Black Outline")).toBeDefined();
+    expect(screen.getByTitle("Yellow Badge")).toBeDefined();
+    expect(screen.getByTitle("Neon Pink Glow")).toBeDefined();
+
+    // Toggle expand
+    const expandBtn = screen.getByTitle("Expand preset styles");
+    fireEvent.click(expandBtn);
+
+    // After expanding, full 3-row grid is rendered
+    expect(screen.getByTitle("Black with White Outline")).toBeDefined();
+    expect(screen.getByTitle("White Badge with Purple Text")).toBeDefined();
+    expect(screen.getByTitle("Black with Green 3D Extrusion")).toBeDefined();
+    expect(screen.getByTitle("Neon Green Glow")).toBeDefined();
+
+    // Collapse again
+    const collapseBtn = screen.getByTitle("Collapse preset styles");
+    fireEvent.click(collapseBtn);
+  });
+
+  it("applies a preset style instantly updating color, stroke, shadow, and background", async () => {
+    render(<PropertiesPanel />);
+
+    // Click "Yellow with Black Outline"
+    const yellowOutlineBtn = screen.getByTitle("Yellow with Black Outline");
+    fireEvent.click(yellowOutlineBtn);
+
+    await new Promise((r) => setTimeout(r, 200));
+
+    const clipAfterStroke = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    expect(clipAfterStroke.color).toBe("#ffe600");
+    expect(clipAfterStroke.stroke).toEqual({ color: "#000000", width: 3 });
+
+    // Click "Yellow Badge"
+    const yellowBadgeBtn = screen.getByTitle("Yellow Badge");
+    fireEvent.click(yellowBadgeBtn);
+
+    await new Promise((r) => setTimeout(r, 200));
+
+    const clipAfterBadge = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    expect(clipAfterBadge.color).toBe("#000000");
+    expect(clipAfterBadge.background).toEqual({ color: "#ffd000", padding: 8, borderRadius: 6 });
+
+    // Click "None" (Reset)
+    const resetBtn = screen.getByTitle("None");
+    fireEvent.click(resetBtn);
+
+    await new Promise((r) => setTimeout(r, 200));
+
+    const clipAfterReset = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    expect(clipAfterReset.color).toBe("#ffffff");
+    expect(clipAfterReset.stroke).toBeUndefined();
+    expect(clipAfterReset.shadow).toBeUndefined();
+    expect(clipAfterReset.background).toBeUndefined();
+  });
 });

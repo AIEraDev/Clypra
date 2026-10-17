@@ -252,5 +252,8 @@
   "properties.animation.categories.motion": "모션",
   "properties.animation.categories.3d": "3D",
   "properties.animation.categories.glitch": "글리치",
-  "properties.animation.favorites": "즐겨찾기"
+  "properties.animation.favorites": "즐겨찾기",
+  "properties.text.presetStyle": "프리셋 스타일",
+  "properties.text.expandPresets": "프리셋 스타일 펼치기",
+  "properties.text.collapsePresets": "프리셋 스타일 접기"
 }
