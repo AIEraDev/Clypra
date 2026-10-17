@@ -285,5 +285,8 @@
   "properties.background.reset": "背景をリセット",
   "properties.background.enable": "背景を有効化",
   "properties.background.styleRectangle": "長方形",
-  "properties.background.styleSplit": "分割行"
+  "properties.background.styleSplit": "分割行",
+  "properties.text.speechBubbles": "吹き出し",
+  "properties.text.saveAsPreset": "プリセットとして保存",
+  "properties.bubble.filterTooltip": "カテゴリでフィルタ"
 }

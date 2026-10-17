@@ -793,6 +793,12 @@ export interface TextClip extends Clip {
     color: string;
     padding: number;
     borderRadius: number;
+    opacity?: number;
+    height?: number;
+    width?: number;
+    yOffset?: number;
+    style?: "rectangle" | "split" | string;
+    bubblePresetId?: string;
   };
   styleDefinition?: import("@clypra-studio/engine").TextEffectDefinition;
   /** Entrance animation */

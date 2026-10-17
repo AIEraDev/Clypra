@@ -285,5 +285,8 @@
   "properties.background.reset": "重置背景",
   "properties.background.enable": "启用背景",
   "properties.background.styleRectangle": "矩形",
-  "properties.background.styleSplit": "分行气泡"
+  "properties.background.styleSplit": "分行气泡",
+  "properties.text.speechBubbles": "气泡",
+  "properties.text.saveAsPreset": "另存为预设",
+  "properties.bubble.filterTooltip": "按分类筛选"
 }

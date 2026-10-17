@@ -289,5 +289,8 @@
   "properties.background.reset": "Сбросить фон",
   "properties.background.enable": "Включить фон",
   "properties.background.styleRectangle": "Прямоугольник",
-  "properties.background.styleSplit": "Раздельные строки"
+  "properties.background.styleSplit": "Раздельные строки",
+  "properties.text.speechBubbles": "Текстовые пузыри",
+  "properties.text.saveAsPreset": "Сохранить как пресет",
+  "properties.bubble.filterTooltip": "Фильтр по категориям"
 }

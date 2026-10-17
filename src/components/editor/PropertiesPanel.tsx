@@ -255,14 +255,27 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
         />
       )}
 
-      {/* Save as preset */}
-      <div className="sticky bottom-0 left-0 right-0 bg-panel flex justify-end p-1.5">
+      {/* Save as preset & Reset */}
+      <div className="sticky bottom-0 left-0 right-0 bg-panel flex justify-end items-center gap-2 p-1.5 border-t border-white/5">
+        <button
+          type="button"
+          onClick={() => {
+            if (isTextClip) {
+              handlers.handleUpdateMultiple({
+                background: undefined,
+              });
+            }
+          }}
+          className="bg-[#38383e] hover:bg-[#4a4a52] text-white font-medium text-xs px-3.5 py-1.5 rounded-md transition-colors cursor-pointer shadow-sm"
+        >
+          {t("common.actions.reset")}
+        </button>
         <button
           type="button"
           onClick={() => {}}
           className="bg-cyan-400 hover:bg-cyan-300 text-black font-semibold text-xs px-4 py-1.5 rounded-md transition-colors cursor-pointer shadow-sm"
         >
-          Save as preset
+          {t("properties.text.saveAsPreset")}
         </button>
       </div>
     </div>

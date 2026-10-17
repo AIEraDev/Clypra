@@ -285,5 +285,8 @@
   "properties.background.reset": "Restablecer fondo",
   "properties.background.enable": "Activar fondo",
   "properties.background.styleRectangle": "Rectángulo",
-  "properties.background.styleSplit": "Líneas divididas"
+  "properties.background.styleSplit": "Líneas divididas",
+  "properties.text.speechBubbles": "Burbujas de diálogo",
+  "properties.text.saveAsPreset": "Guardar como preajuste",
+  "properties.bubble.filterTooltip": "Filtrar por categoría"
 }

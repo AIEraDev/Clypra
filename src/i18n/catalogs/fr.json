@@ -285,5 +285,8 @@
   "properties.background.reset": "Réinitialiser l'arrière-plan",
   "properties.background.enable": "Activer l'arrière-plan",
   "properties.background.styleRectangle": "Rectangle",
-  "properties.background.styleSplit": "Lignes scindées"
+  "properties.background.styleSplit": "Lignes scindées",
+  "properties.text.speechBubbles": "Bulles de dialogue",
+  "properties.text.saveAsPreset": "Enregistrer comme préréglage",
+  "properties.bubble.filterTooltip": "Filtrer par catégorie"
 }

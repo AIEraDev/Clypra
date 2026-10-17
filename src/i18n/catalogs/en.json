@@ -285,5 +285,8 @@
   "properties.background.reset": "Reset background",
   "properties.background.enable": "Enable background",
   "properties.background.styleRectangle": "Rectangle",
-  "properties.background.styleSplit": "Split lines"
+  "properties.background.styleSplit": "Split lines",
+  "properties.text.speechBubbles": "Speech Bubbles",
+  "properties.text.saveAsPreset": "Save as preset",
+  "properties.bubble.filterTooltip": "Filter by category"
 }

@@ -139,7 +139,27 @@ test.describe("Full Automation: CapCut Text Properties & Live Behavior", () => {
 
     // Switching to Bubble sub-tab
     await panel.getByRole("button", { name: /^Bubble$/i }).click();
-    await expect(panel.getByText("Speech Bubbles & Backgrounds")).toBeVisible();
+
+    // Sticky header: sub-tab switcher + textarea is preserved across switching to Bubble!
+    await expect(panel.getByRole("textbox", { name: /Plain text content/i })).toBeVisible();
+    await expect(panel.getByText("Speech Bubbles")).toBeVisible();
+    await expect(panel.getByTitle(/Filter by category/i)).toBeVisible();
+    await expect(panel.getByTitle("Lined Notebook")).toBeVisible();
+    await expect(panel.getByTitle("None")).toBeVisible();
+
+    // Apply a bubble preset
+    await panel.getByTitle("Lined Notebook").click();
+    await page.waitForTimeout(200);
+    let clip = await getLiveTextClip(page);
+    expect(clip.background).toBeDefined();
+    expect(clip.background.bubblePresetId).toBe("bubble-paper-notebook");
+
+    // Switching to Effects sub-tab
+    await panel.getByRole("button", { name: /^Effects$/i }).click();
+
+    // Sticky header: sub-tab switcher + textarea is preserved across switching to Effects!
+    await expect(panel.getByRole("textbox", { name: /Plain text content/i })).toBeVisible();
+    await expect(panel.getByPlaceholderText(/Search text effects/i)).toBeVisible();
 
     // Switching back to Basic
     await panel.getByRole("button", { name: /^Basic$/i }).click();

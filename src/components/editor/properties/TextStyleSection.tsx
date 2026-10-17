@@ -442,6 +442,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
         <TextBubbleTab
           textClip={textClip}
           handleCustomStyleUpdate={handleCustomStyleUpdate}
+          handleUpdateMultiple={handleUpdateMultiple}
         />
       )}
 

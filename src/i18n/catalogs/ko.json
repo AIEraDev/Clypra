@@ -285,5 +285,8 @@
   "properties.background.reset": "배경 초기화",
   "properties.background.enable": "배경 활성화",
   "properties.background.styleRectangle": "직사각형",
-  "properties.background.styleSplit": "줄 나눔"
+  "properties.background.styleSplit": "줄 나눔",
+  "properties.text.speechBubbles": "말풍선",
+  "properties.text.saveAsPreset": "사전 설정으로 저장",
+  "properties.bubble.filterTooltip": "카테고리별 필터"
 }

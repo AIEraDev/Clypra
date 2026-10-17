@@ -285,5 +285,8 @@
   "properties.background.reset": "Hintergrund zurücksetzen",
   "properties.background.enable": "Hintergrund aktivieren",
   "properties.background.styleRectangle": "Rechteck",
-  "properties.background.styleSplit": "Geteilte Zeilen"
+  "properties.background.styleSplit": "Geteilte Zeilen",
+  "properties.text.speechBubbles": "Sprechblasen",
+  "properties.text.saveAsPreset": "Als Voreinstellung speichern",
+  "properties.bubble.filterTooltip": "Nach Kategorie filtern"
 }

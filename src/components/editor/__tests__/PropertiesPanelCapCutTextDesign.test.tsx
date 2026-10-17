@@ -166,18 +166,53 @@ describe("CapCut Parity Text Property Panel", () => {
     expect(screen.getByRole("button", { name: /Save as preset/i })).toBeDefined();
   });
 
-  it("switches to Bubble and Effects sub-tabs", () => {
+  it("switches between Basic, Bubble, and Effects sub-tabs while preserving sticky header textarea", async () => {
     render(<PropertiesPanel />);
+
+    // Initially in Basic: textarea is present in sticky header
+    expect(screen.getByLabelText("Plain text content")).toBeDefined();
 
     // Click Bubble sub-tab
     fireEvent.click(screen.getByRole("button", { name: /^Bubble$/i }));
-    expect(screen.getByText("Speech Bubbles & Backgrounds")).toBeDefined();
-    expect(screen.getByText("Speech Bubble")).toBeDefined();
-    expect(screen.getByText("Dark Box")).toBeDefined();
+
+    // Verify Sticky Header with textarea is preserved across tab switch!
+    expect(screen.getByLabelText("Plain text content")).toBeDefined();
+
+    // Verify Bubble section header and category filter
+    expect(screen.getByText("Speech Bubbles")).toBeDefined();
+    expect(screen.getByTitle("Filter by category")).toBeDefined();
+
+    // Verify authentic CapCut bubble preset cards
+    expect(screen.getByTitle("None")).toBeDefined();
+    expect(screen.getByTitle("Lined Notebook")).toBeDefined();
+    expect(screen.getByTitle("Comic BAM Burst")).toBeDefined();
+
+    // Apply a bubble preset
+    fireEvent.click(screen.getByTitle("Lined Notebook"));
+    await new Promise((r) => setTimeout(r, 100));
+
+    let clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    expect(clip.background).toBeDefined();
+    expect(clip.background?.color).toBe("#ffffff");
+    expect(clip.background?.bubblePresetId).toBe("bubble-paper-notebook");
+
+    // Click None preset to reset
+    fireEvent.click(screen.getByTitle("None"));
+    await new Promise((r) => setTimeout(r, 100));
+
+    clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    expect(clip.background).toBeUndefined();
 
     // Click Effects sub-tab
     fireEvent.click(screen.getByRole("button", { name: /^Effects$/i }));
+
+    // Sticky header textarea remains preserved!
+    expect(screen.getByLabelText("Plain text content")).toBeDefined();
     expect(screen.getByPlaceholderText("Search text effects...")).toBeDefined();
+
+    // Switch back to Basic sub-tab
+    fireEvent.click(screen.getByRole("button", { name: /^Basic$/i }));
+    expect(screen.getByLabelText("Plain text content")).toBeDefined();
   });
 
   it("toggles Pattern buttons (Bold, Underline, Italic) and dispatches updates", async () => {
