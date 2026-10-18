@@ -142,7 +142,7 @@ interface TimelineStore {
   updateCaptionTrack: (trackId: string, updates: Partial<CaptionTrack>) => void;
   addCaptionTrack: (track?: Partial<CaptionTrack>) => CaptionTrack;
   removeCaptionTrack: (trackId: string) => void;
-  addTrack: (type: TrackType) => void;
+  addTrack: (type: TrackType) => string;
   /** Inserts a track at index (clamped); returns the new track id. */
   insertTrackAt: (type: TrackType, index: number) => string;
   removeTrack: (trackId: string) => void;
@@ -635,7 +635,7 @@ export const useTimelineStore = create<TimelineStore>(
     },
 
     addTrack: (type) => {
-      get().insertTrackAt(type, get().tracks.length);
+      return get().insertTrackAt(type, get().tracks.length);
     },
 
     insertTrackAt: (type, index) => {
@@ -706,8 +706,15 @@ export const useTimelineStore = create<TimelineStore>(
     removeTrack: (trackId) => {
       // TL- fix: Also cascade-remove gaps for the deleted track
       set((state) => {
+        const nextTracks = state.tracks.filter((t) => t.id !== trackId);
+        const nextMainVideoTrackId =
+          state.mainVideoTrackId === trackId
+            ? resolvePrimaryVideoTrackId(nextTracks)
+            : state.mainVideoTrackId;
+
         const next: Partial<TimelineStore> = {
-          tracks: state.tracks.filter((t) => t.id !== trackId),
+          tracks: nextTracks,
+          mainVideoTrackId: nextMainVideoTrackId,
           clips: state.clips.filter((c) => c.trackId !== trackId),
           transitions: state.transitions.filter(
             (transition) => transition.placement.trackId !== trackId,

@@ -1132,6 +1132,11 @@ function resolveActiveTransitionWindows(
       const toClip = clips.find((clip) => clip.id === transition.toItemId);
       if (!fromClip || !toClip) return null;
 
+      // Invariant: Transitions are valid only between adjacent clips on the same track
+      if (fromClip.trackId !== toClip.trackId) return null;
+      const cutPoint = fromClip.startTime + fromClip.duration;
+      if (Math.abs(cutPoint - toClip.startTime) > 0.05) return null;
+
       const rawProgress = Math.max(0, Math.min(1, (time - start) / duration));
       // Map legacy "easeInOut" to "ease-in-out" for compatibility
       const easing =
