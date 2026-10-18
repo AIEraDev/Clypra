@@ -331,6 +331,21 @@ export async function paintTextLayersToCanvas(
         : layer.y + layer.height / 2;
       ctx.translate(centerX, centerY);
       ctx.rotate((layer.rotation * Math.PI) / 180);
+      const isTemplate =
+        layer.clipKind === "text-template" || Boolean((layer as any).templateId);
+      const isContentBoundedTemplate =
+        isTemplate && !asset.bleedX && !asset.bleedY;
+      const baseW = isContentBoundedTemplate
+        ? (layer as { baseWidth?: number }).baseWidth || asset.width
+        : (layer as { baseWidth?: number }).baseWidth ?? layer.width;
+      const baseH = isContentBoundedTemplate
+        ? (layer as { baseHeight?: number }).baseHeight || asset.height
+        : (layer as { baseHeight?: number }).baseHeight ?? layer.height;
+      const scaleX = baseW > 0 ? layer.width / baseW : 1;
+      const scaleY = baseH > 0 ? layer.height / baseH : 1;
+      if (scaleX !== 1 || scaleY !== 1) {
+        ctx.scale(scaleX, scaleY);
+      }
       ctx.drawImage(bitmap.source, -asset.width / 2, -asset.height / 2);
       ctx.restore();
       const paintMs = performance.now() - paintStartedAt;

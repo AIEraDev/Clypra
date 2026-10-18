@@ -100,6 +100,8 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
 
     const updates: Record<string, any> = {
       background: preset.background,
+      styleId: undefined,
+      styleDefinition: undefined,
     };
     if (preset.textColor) {
       updates.color = preset.textColor;
@@ -114,6 +116,8 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
       handleUpdateMultiple(updates);
     } else {
       handleCustomStyleUpdate("background", preset.background);
+      handleCustomStyleUpdate("styleId", undefined);
+      handleCustomStyleUpdate("styleDefinition", undefined);
       if (updates.color) handleCustomStyleUpdate("color", updates.color);
       if (updates.fontStyle) handleCustomStyleUpdate("fontStyle", updates.fontStyle);
       if (updates.textDecoration) handleCustomStyleUpdate("textDecoration", updates.textDecoration);

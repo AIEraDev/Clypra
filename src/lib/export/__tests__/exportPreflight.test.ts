@@ -256,4 +256,37 @@ describe("Export Preflight Dependency Verification (§1.2 Architecture Contract)
     expect(result.ready).toBe(true);
     expect(result.missingAudioAssets).toHaveLength(0);
   });
+
+  it("CLY-BUG-006: detects missing unknown fonts in text-template clips and template snapshots", async () => {
+    const templateClip: Clip = {
+      id: "text-template-missing-font",
+      name: "Lower Third Headline",
+      kind: "text-template",
+      startTime: 0,
+      duration: 3,
+      fontFamily: "ExoticMysteryFont",
+      templateSnapshot: {
+        document: {
+          nodes: [
+            {
+              id: "node-1",
+              type: "text",
+              style: {
+                fontFamily: "AncientScriptFont",
+              },
+            },
+          ],
+        },
+      },
+    } as any;
+
+    const result = await verifyExportDependencies([templateClip], {
+      isOnline: false,
+    });
+
+    expect(result.ready).toBe(false);
+    expect(result.missingFonts).toContain("ExoticMysteryFont");
+    expect(result.missingFonts).toContain("AncientScriptFont");
+  });
 });
+

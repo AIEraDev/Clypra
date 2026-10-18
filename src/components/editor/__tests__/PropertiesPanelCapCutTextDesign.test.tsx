@@ -480,4 +480,26 @@ describe("CapCut Parity Text Property Panel", () => {
     clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect((clip.background as any)?.style).toBe("rectangle");
   });
+
+  it("CLY-BUG-003: applying a bubble preset clears styleId and styleDefinition so bubble renders", async () => {
+    useTimelineStore.setState({
+      clips: [{ ...mockTextClip, styleId: "neon-glow", styleDefinition: { id: "neon-glow" } as any } as TextClip],
+      tracks: [mockTrack],
+      transitions: [],
+    });
+
+    render(<PropertiesPanel />);
+
+    const bubbleTab = screen.getByRole("button", { name: /bubble/i });
+    fireEvent.click(bubbleTab);
+
+    const tornPaperBtn = screen.getByTitle("Torn Paper");
+    fireEvent.click(tornPaperBtn);
+
+    await new Promise((r) => setTimeout(r, 50));
+    const clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    expect(clip.background?.bubblePresetId).toBe("bubble-paper-torn");
+    expect(clip.styleId).toBeUndefined();
+    expect((clip as any).styleDefinition).toBeUndefined();
+  });
 });
