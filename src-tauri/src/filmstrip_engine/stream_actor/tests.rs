@@ -4,14 +4,14 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 
-use crate::thumbnail_engine::decoder::{
+use crate::filmstrip_engine::decoder::{
     DecodeFrameOptions, VideoColorMetadata, VideoStreamMetadata,
 };
-use crate::thumbnail_engine::stream_actor::handle::{
+use crate::filmstrip_engine::stream_actor::handle::{
     get_preview_decoder_actor_for_stream, release_preview_decoder_actor_for_stream,
     StreamDecoderActorHandle,
 };
-use crate::thumbnail_engine::stream_actor::types::{
+use crate::filmstrip_engine::stream_actor::types::{
     calculate_download_stride, producer_downloads_wasted, producer_lookahead_downloads_skipped,
     reset_producer_downloads_wasted, reset_producer_lookahead_downloads_skipped, DecodedActorFrame,
     DecodedVideoPlanes, PRODUCER_LOOKAHEAD_DOWNLOADS_SKIPPED,

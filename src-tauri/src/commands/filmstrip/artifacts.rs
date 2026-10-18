@@ -1,13 +1,13 @@
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use crate::commands::thumbnail::cache_commands::{
+use crate::commands::filmstrip::cache_commands::{
     GLOBAL_ATLAS_HITS, GLOBAL_DECODES, GLOBAL_TIER_CACHE_HITS,
 };
-use crate::commands::thumbnail::in_flight::{ACTIVE_THUMBNAIL_BATCHES, BATCH_DECODE_GATES};
-use crate::thumbnail_engine::decoder::get_decoder;
-use crate::thumbnail_engine::pyramid::RawRgbaFrame;
-use crate::thumbnail_engine::{
+use crate::commands::filmstrip::in_flight::{ACTIVE_THUMBNAIL_BATCHES, BATCH_DECODE_GATES};
+use crate::filmstrip_engine::decoder::get_decoder;
+use crate::filmstrip_engine::pyramid::RawRgbaFrame;
+use crate::filmstrip_engine::{
     downsample_pyramid, tier_inflight_key, ArtifactSource, DensityLevel, FrameContentHash,
     RenderArtifact, ResolutionTier, SpatialTier, TierCacheKey, FRAME_CACHE, GLOBAL_CACHE,
     IN_FLIGHT_TIER, TIER_CACHE,
@@ -15,11 +15,11 @@ use crate::thumbnail_engine::{
 
 /// Load RGBA data from atlas file at specified location.
 pub async fn load_from_atlas(
-    location: &crate::thumbnail_engine::atlas::AtlasLocation,
+    location: &crate::filmstrip_engine::atlas::AtlasLocation,
     thumb_width: u32,
     thumb_height: u32,
 ) -> Result<Vec<u8>, String> {
-    crate::thumbnail_engine::atlas::load_from_atlas_resilient(location, thumb_width, thumb_height)
+    crate::filmstrip_engine::atlas::load_from_atlas_resilient(location, thumb_width, thumb_height)
         .await
 }
 
@@ -176,7 +176,7 @@ pub async fn get_render_artifacts_batch(
     request_id: Option<String>,
     on_artifact: tauri::ipc::Channel<RenderArtifact>,
 ) -> Result<(), String> {
-    use crate::thumbnail_engine::atlas::get_atlas_manager;
+    use crate::filmstrip_engine::atlas::get_atlas_manager;
 
     let req_id = request_id.as_deref().unwrap_or("unknown");
     let video_id = format!("{:x}", md5::compute(&video_path));
@@ -274,7 +274,7 @@ pub async fn get_render_artifacts_batch(
             };
             if let Some(frame) = TIER_CACHE.get(&key) {
                 tier_cache_hits += 1;
-                crate::thumbnail_engine::metrics::METRICS
+                crate::filmstrip_engine::metrics::METRICS
                     .for_tier(*tier)
                     .tier_cache_hits
                     .fetch_add(1, Ordering::Relaxed);
@@ -338,7 +338,7 @@ pub async fn get_render_artifacts_batch(
             };
             if let Some(frame) = TIER_CACHE.get(&key) {
                 tier_cache_hits += 1;
-                crate::thumbnail_engine::metrics::METRICS
+                crate::filmstrip_engine::metrics::METRICS
                     .for_tier(*tier)
                     .tier_cache_hits
                     .fetch_add(1, Ordering::Relaxed);
@@ -385,7 +385,7 @@ pub async fn get_render_artifacts_batch(
         };
         if !decoded_batch.frames.is_empty() {
             let per_frame_decode = decoded_batch.decode_elapsed / decoded_batch.frames.len() as u32;
-            let source_metrics = &crate::thumbnail_engine::metrics::METRICS.source;
+            let source_metrics = &crate::filmstrip_engine::metrics::METRICS.source;
             source_metrics.decode.record(per_frame_decode);
             if decoded_batch.seek_elapsed > std::time::Duration::ZERO {
                 source_metrics.seek.record(decoded_batch.seek_elapsed);
@@ -408,7 +408,7 @@ pub async fn get_render_artifacts_batch(
                 false,
             );
             let frame_id = format!("{}-{}", content_hash.0, timestamp_ms);
-            let source_metrics = &crate::thumbnail_engine::metrics::METRICS.source;
+            let source_metrics = &crate::filmstrip_engine::metrics::METRICS.source;
             source_metrics.convert.record(decoded_frame.convert_elapsed);
             if decoded_frame.conversion_fast_path {
                 source_metrics
@@ -452,15 +452,15 @@ pub async fn get_render_artifacts_batch(
                             source: ArtifactSource::FreshDecode,
                         };
                         TIER_CACHE.insert(key, tier_frame);
-                        let serialize_timer = crate::thumbnail_engine::metrics::Timer::start();
+                        let serialize_timer = crate::filmstrip_engine::metrics::Timer::start();
                         let send_res = on_artifact.send(artifact);
                         if let Some(elapsed) = serialize_timer.elapsed() {
-                            crate::thumbnail_engine::metrics::METRICS
+                            crate::filmstrip_engine::metrics::METRICS
                                 .for_tier(tier)
                                 .serialize
                                 .record(elapsed);
                         }
-                        crate::thumbnail_engine::metrics::METRICS
+                        crate::filmstrip_engine::metrics::METRICS
                             .for_tier(tier)
                             .decodes
                             .fetch_add(1, Ordering::Relaxed);
@@ -487,6 +487,6 @@ pub async fn get_render_artifacts_batch(
 /// Retrieve a snapshot of the current cumulative decode/convert/downsample metrics.
 #[tauri::command]
 pub fn get_decode_metrics_snapshot(
-) -> Result<crate::thumbnail_engine::metrics::FullDecodeMetricsSnapshot, String> {
-    Ok(crate::thumbnail_engine::metrics::get_metrics_snapshot())
+) -> Result<crate::filmstrip_engine::metrics::FullDecodeMetricsSnapshot, String> {
+    Ok(crate::filmstrip_engine::metrics::get_metrics_snapshot())
 }

@@ -237,7 +237,7 @@ pub fn release_decoder(path: &str) {
     for key in keys_to_remove {
         PREVIEW_DECODER_POOL.remove(&key);
     }
-    crate::thumbnail_engine::stream_actor::release_all_preview_decoder_actors_for_path(path);
+    crate::filmstrip_engine::stream_actor::release_all_preview_decoder_actors_for_path(path);
 }
 
 /// Release a specific stream-isolated decoder
@@ -250,7 +250,7 @@ pub fn release_decoder_stream(path: &str, stream_id: &str) {
     {
         PREVIEW_DECODER_POOL.remove(&key);
     }
-    crate::thumbnail_engine::stream_actor::release_preview_decoder_actor_for_stream(
+    crate::filmstrip_engine::stream_actor::release_preview_decoder_actor_for_stream(
         path, stream_id,
     );
 }

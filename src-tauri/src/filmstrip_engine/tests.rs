@@ -1,4 +1,4 @@
-//! Unit tests for thumbnail_engine module
+//! Unit tests for filmstrip_engine module
 //!
 //! Tests are organized in a separate file for better code organization.
 

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use super::frame::{RawRgbaFrame, TierRgbaFrame};
 use super::tiers::SpatialTier;
-use crate::thumbnail_engine::geometry::fit_preserving_aspect_aligned;
+use crate::filmstrip_engine::geometry::fit_preserving_aspect_aligned;
 
 /// Decode-once parallel pyramid (R2).
 /// Given raw full-resolution RGBA, produce all requested tiers in parallel
@@ -17,12 +17,12 @@ pub fn downsample_pyramid(
     tiers
         .par_iter()
         .map(|&tier| {
-            let timer = crate::thumbnail_engine::metrics::Timer::start();
+            let timer = crate::filmstrip_engine::metrics::Timer::start();
             let (out_w, out_h) = aspect_preserving_tier_dims(raw.width, raw.height, tier);
             let result = scale_rgba_lanczos(&raw.data, raw.width, raw.height, out_w, out_h)
                 .map(|data| Arc::new(TierRgbaFrame::new(data, out_w, out_h, tier)));
             if let Some(elapsed) = timer.elapsed() {
-                crate::thumbnail_engine::metrics::METRICS
+                crate::filmstrip_engine::metrics::METRICS
                     .for_tier(tier)
                     .downsample
                     .record(elapsed);

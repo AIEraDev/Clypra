@@ -1,4 +1,18 @@
-//! Thumbnail engine with multi-resolution cache and atlas-based storage.
+//! Filmstrip engine — multi-resolution timeline tile streaming, atlas-backed spatial pyramid,
+//! and seek-optimised frame decoding for the Clypra NLE timeline.
+//!
+//! # Subsystem Architecture
+//! - `decoder/`      — FFmpeg-based video decoding with VideoToolbox HW acceleration
+//! - `pyramid/`      — Multi-tier spatial downsampling (L0 → L3) driven by timeline zoom
+//! - `atlas/`        — 2D texture atlas packer for timeline tile sheets
+//! - `stream_actor/` — Async actor streaming frames during scrub \& playback
+//! - `mmap_cache/`   — Memory-mapped on-disk tile cache for zero-latency reuse
+//!
+//! # Naming Note
+//! This subsystem was previously named `thumbnail_engine`. A *thumbnail* is a single
+//! poster frame for a media asset (see `commands::filmstrip::poster`). The timeline
+//! tile stream is architecturally distinct: it is a continuous, zoom-driven, spatially
+//! pyramidal renderer — a *filmstrip engine*.
 
 pub mod atlas;
 pub mod decoder;
@@ -48,7 +62,7 @@ pub use queue::{
 
 pub use retry::{extract_frame, extract_with_retry};
 
-/// Initialize the thumbnail system
-pub async fn init_thumbnail_engine(app_cache_dir: std::path::PathBuf) -> Result<(), String> {
+/// Initialize the filmstrip tile engine (atlas, disk cache, global queue).
+pub async fn init_filmstrip_engine(app_cache_dir: std::path::PathBuf) -> Result<(), String> {
     GLOBAL_CACHE.init_cache_dir(app_cache_dir).await
 }

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// Any change here must be reflected on the frontend to prevent thumbnail blur/stretching.
 ///
 /// ResolutionTier (Tier1x/Tier2x) is kept as a deprecated alias in
-/// thumbnail_engine.rs during the transition period.
+/// filmstrip_engine.rs during the transition period.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(rename_all = "lowercase")]
 pub enum SpatialTier {

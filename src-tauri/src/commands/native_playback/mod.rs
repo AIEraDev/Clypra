@@ -3,7 +3,7 @@ use crate::native_core::{
     DecodeCapabilityPolicy, FrameRequest, FrameTime, NativePlaybackFrameDemand, PlaybackPlan,
     PlaybackState, QualityTier, DEFAULT_TIME_SCALE,
 };
-use crate::thumbnail_engine::decoder::get_preview_decoder_for_stream;
+use crate::filmstrip_engine::decoder::get_preview_decoder_for_stream;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -53,7 +53,7 @@ async fn probe_decode_capability(snapshot: &FrameRequest) -> (DecodeCapabilityPo
         Err(_) => return (DecodeCapabilityPolicy::Full, None),
     };
 
-    let probe_options = crate::thumbnail_engine::decoder::DecodeFrameOptions {
+    let probe_options = crate::filmstrip_engine::decoder::DecodeFrameOptions {
         allow_keyframe_approx: true,
         quality: QualityTier::Full,
         is_playback: false,

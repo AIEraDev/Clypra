@@ -7,14 +7,14 @@ use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use tokio::sync::{mpsc, oneshot, Mutex};
 
-use crate::thumbnail_engine::decoder::{
+use crate::filmstrip_engine::decoder::{
     get_preview_decoder_for_stream, preview_pool_key, DecodeFrameOptions,
 };
-use crate::thumbnail_engine::stream_actor::types::{
+use crate::filmstrip_engine::stream_actor::types::{
     ActorDecodeRequest, DecodedActorFrame, StreamDecodeJob, DEFAULT_FRAME_DURATION_SECS,
     MAX_PREVIEW_ACTOR_POOL_SIZE, PRODUCER_DOWNLOADS_WASTED,
 };
-use crate::thumbnail_engine::stream_actor::worker::StreamDecoderActor;
+use crate::filmstrip_engine::stream_actor::worker::StreamDecoderActor;
 
 /// Global registry of active stream decoder actors.
 pub(crate) static PREVIEW_ACTOR_POOL: Lazy<DashMap<String, Arc<StreamDecoderActorHandle>>> =
@@ -43,7 +43,7 @@ impl StreamDecoderActorHandle {
 
     pub fn touch(&self) {
         self.last_accessed_ms
-            .store(crate::thumbnail_engine::decoder::current_timestamp_ms(), Ordering::Relaxed);
+            .store(crate::filmstrip_engine::decoder::current_timestamp_ms(), Ordering::Relaxed);
     }
 
     /// Decode a frame with priority awareness and prime-cache acceleration.

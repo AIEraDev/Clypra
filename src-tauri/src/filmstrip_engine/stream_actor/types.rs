@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 
-use crate::thumbnail_engine::decoder::{
+use crate::filmstrip_engine::decoder::{
     DecodeFrameOptions, VideoColorMetadata, VideoStreamMetadata,
 };
 use clypra_native_core::QualityTier;

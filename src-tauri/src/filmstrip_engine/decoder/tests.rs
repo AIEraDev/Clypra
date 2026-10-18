@@ -529,7 +529,7 @@ mod still_image_tests {
 
         println!("=== TEST: extract_poster_frame_command with CLI fallback ===");
         let poster_res =
-            crate::commands::thumbnail::extract_poster_frame_command(path.to_string(), 17.8, 2.0)
+            crate::commands::filmstrip::extract_poster_frame_command(path.to_string(), 17.8, 2.0)
                 .await;
         println!(
             "extract_poster_frame_command result: is_ok={}, len={}",

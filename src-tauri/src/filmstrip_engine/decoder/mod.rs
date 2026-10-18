@@ -21,11 +21,11 @@ pub mod seek_planner;
 #[cfg(test)]
 mod tests;
 
-pub use crate::thumbnail_engine::decoder::geometry::*;
-pub use crate::thumbnail_engine::decoder::metadata::*;
-pub use crate::thumbnail_engine::decoder::pixel_ops::*;
-pub use crate::thumbnail_engine::decoder::pool::*;
-pub use crate::thumbnail_engine::decoder::seek_planner::*;
+pub use crate::filmstrip_engine::decoder::geometry::*;
+pub use crate::filmstrip_engine::decoder::metadata::*;
+pub use crate::filmstrip_engine::decoder::pixel_ops::*;
+pub use crate::filmstrip_engine::decoder::pool::*;
+pub use crate::filmstrip_engine::decoder::seek_planner::*;
 
 
 /// Port of FFmpeg's av_display_rotation_get from libavutil/display.h.
@@ -402,7 +402,7 @@ impl VideoDecoder {
         // Discard all non-video streams at the demuxer layer so libavformat skips
         // audio, subtitle, and data packets at the lowest C demuxing layer.
         let mut input_ctx = input_ctx;
-        crate::thumbnail_engine::demuxer::configure_stream_discard(&mut input_ctx, stream_index);
+        crate::filmstrip_engine::demuxer::configure_stream_discard(&mut input_ctx, stream_index);
 
         let container_format = input_ctx.format().name().to_string();
 

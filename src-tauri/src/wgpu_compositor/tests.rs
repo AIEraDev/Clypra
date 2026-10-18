@@ -193,12 +193,12 @@ mod tests {
             return;
         }
 
-        let mut decoder = crate::thumbnail_engine::decoder::VideoDecoder::open_hardware(video_path)
+        let mut decoder = crate::filmstrip_engine::decoder::VideoDecoder::open_hardware(video_path)
             .expect("open decoder");
         let (y_plane, uv_plane, width, height, color) = decoder
             .decode_frame_raw_nv12_with_options(
                 0.0,
-                crate::thumbnail_engine::decoder::DecodeFrameOptions::default(),
+                crate::filmstrip_engine::decoder::DecodeFrameOptions::default(),
                 || false,
             )
             .expect("decode frame");

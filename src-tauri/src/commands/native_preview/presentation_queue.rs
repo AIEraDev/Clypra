@@ -11,8 +11,8 @@ use crate::native_core::{
     FrameRequest, FrameTime, NativeFrameService, PerformanceSample, PreviewMode,
 };
 use crate::sync_metrics::SYNC_METRICS;
-use crate::thumbnail_engine::decoder::VideoColorMetadata;
-use crate::thumbnail_engine::stream_actor::DecodedVideoPlanes;
+use crate::filmstrip_engine::decoder::VideoColorMetadata;
+use crate::filmstrip_engine::stream_actor::DecodedVideoPlanes;
 
 pub(crate) type DecodedNativeVideoFrame = (DecodedVideoPlanes, u32, u32, VideoColorMetadata, u32);
 

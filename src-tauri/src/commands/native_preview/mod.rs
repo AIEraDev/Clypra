@@ -10,8 +10,8 @@ use crate::native_core::{
 };
 use crate::sync_metrics::SYNC_METRICS;
 #[cfg(target_os = "windows")]
-use crate::thumbnail_engine::decoder::get_preview_decoder_for_stream;
-use crate::thumbnail_engine::decoder::{
+use crate::filmstrip_engine::decoder::get_preview_decoder_for_stream;
+use crate::filmstrip_engine::decoder::{
     get_preview_decoder, DecodeFrameOptions, VideoColorMetadata,
 };
 use crate::wgpu_compositor::multi_track_composer::TransitionUniforms;
@@ -29,7 +29,7 @@ use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager};
 
-use crate::thumbnail_engine::stream_actor::DecodedVideoPlanes;
+use crate::filmstrip_engine::stream_actor::DecodedVideoPlanes;
 
 type DecodedNativeVideoFrame = (DecodedVideoPlanes, u32, u32, VideoColorMetadata, u32);
 static NATIVE_SURFACE_PRESENTATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -1109,7 +1109,7 @@ async fn render_native_video_project_frame_bytes_timed(
 
     #[cfg(target_os = "windows")]
     let dxgi_frames_result = if can_attempt_dxgi && !dxgi_env_disabled {
-        use crate::thumbnail_engine::decoder::DecodeFrameOptions;
+        use crate::filmstrip_engine::decoder::DecodeFrameOptions;
         let decode_options = DecodeFrameOptions {
             allow_keyframe_approx: request.allow_keyframe_approx.unwrap_or(false)
                 || request.is_scrubbing.unwrap_or(false)
@@ -1333,7 +1333,7 @@ async fn render_native_video_project_frame_bytes_timed(
                     // user/author rotation via the transform matrix.
                     let (tex_w, tex_h);
                     if *source_rotation != 0 {
-                        let (ry, ruv, rw, rh) = crate::thumbnail_engine::decoder::rotate_nv12(
+                        let (ry, ruv, rw, rh) = crate::filmstrip_engine::decoder::rotate_nv12(
                             y_plane,
                             uv_plane,
                             *width,
@@ -1615,7 +1615,7 @@ async fn decode_native_video_layers(
         } else {
             ""
         };
-        let actor = crate::thumbnail_engine::stream_actor::get_preview_decoder_actor_for_stream(
+        let actor = crate::filmstrip_engine::stream_actor::get_preview_decoder_actor_for_stream(
             &layer.video_path,
             stream_id,
         )
@@ -1704,7 +1704,7 @@ async fn decode_native_video_layers(
                     ""
                 };
                 let actor =
-                    crate::thumbnail_engine::stream_actor::get_preview_decoder_actor_for_stream(
+                    crate::filmstrip_engine::stream_actor::get_preview_decoder_actor_for_stream(
                         &video_path,
                         stream_id,
                     )
@@ -2025,7 +2025,7 @@ pub(crate) fn schedule_lookahead_predecode(
     }
 
     // PR4: count every trigger attempt
-    crate::thumbnail_engine::stream_actor::record_lookahead_trigger();
+    crate::filmstrip_engine::stream_actor::record_lookahead_trigger();
 
     let generation = base_request.generation.unwrap_or(0);
     let frame_rate = base_request.project.frame_rate.max(1);
@@ -2065,17 +2065,17 @@ pub(crate) fn schedule_lookahead_predecode(
 
         if is_active && is_same_gen && is_in_range {
             // PR4: count dropped trigger and record ahead-of-clock
-            crate::thumbnail_engine::stream_actor::record_lookahead_trigger_dropped();
+            crate::filmstrip_engine::stream_actor::record_lookahead_trigger_dropped();
             let end_time_secs = end_f as f64 / fps;
             let ahead_ms = (end_time_secs - current_audio_secs) * 1_000.0;
-            crate::thumbnail_engine::stream_actor::record_producer_ahead_of_clock_ms(ahead_ms);
+            crate::filmstrip_engine::stream_actor::record_producer_ahead_of_clock_ms(ahead_ms);
             return;
         }
     }
 
     // PR4: record ahead-of-clock when accepted (worker ends at lookahead_count frames ahead)
     let ahead_ms = (lookahead_count as f64 / fps) * 1_000.0;
-    crate::thumbnail_engine::stream_actor::record_producer_ahead_of_clock_ms(ahead_ms);
+    crate::filmstrip_engine::stream_actor::record_producer_ahead_of_clock_ms(ahead_ms);
 
     // If generation changed or audio jumped out of range, abort previous worker to free decoders immediately.
     if let Some(prev) = worker_guard.take() {
@@ -2793,7 +2793,7 @@ pub(crate) async fn present_native_frame_internal(
                         used_cpu_nv12 = true;
                         let (tex_w, tex_h);
                         if *source_rotation != 0 {
-                            let (ry, ruv, rw, rh) = crate::thumbnail_engine::decoder::rotate_nv12(
+                            let (ry, ruv, rw, rh) = crate::filmstrip_engine::decoder::rotate_nv12(
                                 y_plane,
                                 uv_plane,
                                 *width,
@@ -3718,8 +3718,8 @@ pub async fn reset_native_preview_runtime(app: tauri::AppHandle) -> Result<(), S
     }
 
     // 8. Reset producer download counters.
-    crate::thumbnail_engine::stream_actor::reset_producer_downloads_wasted();
-    crate::thumbnail_engine::stream_actor::reset_producer_lookahead_downloads_skipped();
+    crate::filmstrip_engine::stream_actor::reset_producer_downloads_wasted();
+    crate::filmstrip_engine::stream_actor::reset_producer_lookahead_downloads_skipped();
 
     Ok(())
 }

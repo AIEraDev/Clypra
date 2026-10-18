@@ -8,7 +8,7 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use crate::thumbnail_engine::pyramid::SpatialTier;
+use crate::filmstrip_engine::pyramid::SpatialTier;
 
 /// Atomic microsecond accumulator for a single pipeline stage.
 #[derive(Default, Debug)]

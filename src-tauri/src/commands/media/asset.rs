@@ -222,7 +222,7 @@ pub fn is_browser_playable_video(codec: Option<&str>, ext: &str) -> bool {
         "av1" | "av01" => {
             #[cfg(target_os = "macos")]
             {
-                crate::thumbnail_engine::decoder::VideoDecoder::macos_supports_hw_av1()
+                crate::filmstrip_engine::decoder::VideoDecoder::macos_supports_hw_av1()
                     && matches!(ext, "mp4" | "mov" | "webm")
             }
             #[cfg(not(target_os = "macos"))]
@@ -253,7 +253,7 @@ pub fn can_stream_copy_video(codec: Option<&str>) -> bool {
         "av1" | "av01" => {
             #[cfg(target_os = "macos")]
             {
-                crate::thumbnail_engine::decoder::VideoDecoder::macos_supports_hw_av1()
+                crate::filmstrip_engine::decoder::VideoDecoder::macos_supports_hw_av1()
             }
             #[cfg(not(target_os = "macos"))]
             {

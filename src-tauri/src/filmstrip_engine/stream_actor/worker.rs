@@ -6,9 +6,9 @@ use std::time::Instant;
 use tauri::Manager;
 use tokio::sync::{mpsc, Mutex};
 
-use crate::thumbnail_engine::decoder::{DecodeFrameOptions, VideoDecoder};
-use crate::thumbnail_engine::stream_actor::handle::StreamDecoderActorHandle;
-use crate::thumbnail_engine::stream_actor::types::{
+use crate::filmstrip_engine::decoder::{DecodeFrameOptions, VideoDecoder};
+use crate::filmstrip_engine::stream_actor::handle::StreamDecoderActorHandle;
+use crate::filmstrip_engine::stream_actor::types::{
     calculate_download_stride, record_producer_idle_us, DecodedActorFrame, DecodedVideoPlanes,
     StreamDecodeJob, MAX_PRIME_CACHE_ENTRIES, PRODUCER_DOWNLOADS_WASTED,
     PRODUCER_LOOKAHEAD_DOWNLOADS_SKIPPED,
@@ -37,7 +37,7 @@ impl StreamDecoderActor {
         let cancel_in_flight = Arc::new(AtomicBool::new(false));
         let prime_cache = Arc::new(Mutex::new(VecDeque::with_capacity(MAX_PRIME_CACHE_ENTRIES)));
         let last_accessed_ms = Arc::new(AtomicU64::new(
-            crate::thumbnail_engine::decoder::current_timestamp_ms(),
+            crate::filmstrip_engine::decoder::current_timestamp_ms(),
         ));
 
         let handle = Arc::new(StreamDecoderActorHandle {

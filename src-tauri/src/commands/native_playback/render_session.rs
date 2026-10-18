@@ -4,7 +4,7 @@ use crate::native_core::{
     DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION,
 };
 use super::runtime::audio_clock_time;
-use crate::thumbnail_engine::decoder::{
+use crate::filmstrip_engine::decoder::{
     acquire_preview_decoder_lease_for_stream, PreviewDecoderLease,
 };
 use parking_lot::RwLock;
@@ -20,7 +20,7 @@ pub(crate) struct NativeRenderSession {
     pub(crate) last_materialized: RwLock<Option<FrameRequest>>,
     pub(crate) active_streams: Mutex<HashSet<(String, String)>>,
     pub(crate) leases: Mutex<HashMap<(String, String), PreviewDecoderLease>>,
-    pub(crate) actors: Mutex<HashMap<(String, String), Arc<crate::thumbnail_engine::stream_actor::StreamDecoderActorHandle>>>,
+    pub(crate) actors: Mutex<HashMap<(String, String), Arc<crate::filmstrip_engine::stream_actor::StreamDecoderActorHandle>>>,
     pub(crate) pending: Mutex<LatestPlaybackDemand>,
     pub(crate) notify: tokio::sync::Notify,
     pub(crate) running: AtomicBool,
@@ -77,7 +77,7 @@ impl NativeRenderSession {
                 );
                 actors.insert(
                     key,
-                    crate::thumbnail_engine::stream_actor::get_preview_decoder_actor_for_stream(
+                    crate::filmstrip_engine::stream_actor::get_preview_decoder_actor_for_stream(
                         &layer.video_path,
                         &layer.layer_id,
                     )
@@ -156,7 +156,7 @@ impl NativeRenderSession {
         for (video_path, layer_id) in streams_to_acquire {
             let lease = acquire_preview_decoder_lease_for_stream(&video_path, &layer_id).await?;
             let actor =
-                crate::thumbnail_engine::stream_actor::get_preview_decoder_actor_for_stream(
+                crate::filmstrip_engine::stream_actor::get_preview_decoder_actor_for_stream(
                     &video_path,
                     &layer_id,
                 )

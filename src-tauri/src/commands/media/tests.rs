@@ -53,7 +53,7 @@ fn test_browser_video_playability_rules() {
 
     #[cfg(target_os = "macos")]
     {
-        if !crate::thumbnail_engine::decoder::VideoDecoder::macos_supports_hw_av1() {
+        if !crate::filmstrip_engine::decoder::VideoDecoder::macos_supports_hw_av1() {
             assert!(!is_browser_playable_video(Some("av1"), "mp4"));
             assert!(!can_stream_copy_video(Some("av1")));
         }
@@ -69,7 +69,7 @@ async fn test_probe_video_codec_on_av1_asset() {
         let codec = probe_video_codec(path).await;
         assert_eq!(codec.as_deref(), Some("av1"));
         #[cfg(target_os = "macos")]
-        if !crate::thumbnail_engine::decoder::VideoDecoder::macos_supports_hw_av1() {
+        if !crate::filmstrip_engine::decoder::VideoDecoder::macos_supports_hw_av1() {
             assert!(!is_browser_playable_video(codec.as_deref(), "mp4"));
             assert!(!can_stream_copy_video(codec.as_deref()));
         }

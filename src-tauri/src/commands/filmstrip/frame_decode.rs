@@ -1,7 +1,7 @@
-use crate::commands::thumbnail::in_flight::IN_FLIGHT_EXTRACTIONS;
-use crate::commands::thumbnail::poster::encode_rgba_to_webp_data_url;
-use crate::thumbnail_engine::decoder::{get_decoder, release_decoder};
-use crate::thumbnail_engine::{DensityLevel, ResolutionTier, ThumbnailTile, GLOBAL_CACHE};
+use crate::commands::filmstrip::in_flight::IN_FLIGHT_EXTRACTIONS;
+use crate::commands::filmstrip::poster::encode_rgba_to_webp_data_url;
+use crate::filmstrip_engine::decoder::{get_decoder, release_decoder};
+use crate::filmstrip_engine::{DensityLevel, ResolutionTier, ThumbnailTile, GLOBAL_CACHE};
 
 /// Extract single frame with deduplication (reduces workload by 70%+ during scrubbing).
 /// Returns raw RGBA bytes as a binary IPC response — zero base64 overhead, ~3× less memory.
@@ -140,7 +140,7 @@ pub async fn decode_frames_streaming(
     _duration: f64,
     on_tile: tauri::ipc::Channel<ThumbnailTile>,
 ) -> Result<(), String> {
-    use crate::thumbnail_engine::atlas::{get_atlas_manager, AtlasBuilder, THUMBNAILS_PER_ATLAS};
+    use crate::filmstrip_engine::atlas::{get_atlas_manager, AtlasBuilder, THUMBNAILS_PER_ATLAS};
 
     let video_id = format!("{:x}", md5::compute(&video_path));
     let resolution_tier = if width >= 160 {

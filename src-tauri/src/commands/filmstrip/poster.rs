@@ -1,8 +1,8 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use image::codecs::webp::WebPEncoder;
 
-use crate::thumbnail_engine::decoder::get_decoder;
-use crate::thumbnail_engine::geometry::fit_preserving_aspect;
+use crate::filmstrip_engine::decoder::get_decoder;
+use crate::filmstrip_engine::geometry::fit_preserving_aspect;
 
 /// Extract a representative poster frame for clip representation in the media pool.
 /// Uses a professional NLE heuristic: 15% into the video, floor at 1.0s (skips black frames),

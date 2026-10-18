@@ -2,12 +2,12 @@ use once_cell::sync::Lazy;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::Manager;
 
-use crate::commands::thumbnail::artifacts::load_from_atlas;
-use crate::thumbnail_engine::decoder::{
+use crate::commands::filmstrip::artifacts::load_from_atlas;
+use crate::filmstrip_engine::decoder::{
     get_decoder, get_preview_decoder, get_preview_decoder_for_stream,
 };
-use crate::thumbnail_engine::{
-    clear_video_thumbnail_cache, get_cache_stats, init_thumbnail_engine, ArtifactSource,
+use crate::filmstrip_engine::{
+    clear_video_thumbnail_cache, get_cache_stats, init_filmstrip_engine, ArtifactSource,
     DensityLevel, FrameContentHash, RenderArtifact, ResolutionTier, SpatialTier, TierCacheKey,
     FRAME_CACHE, GLOBAL_CACHE, TIER_CACHE,
 };
@@ -24,7 +24,7 @@ pub async fn init_thumbnail_cache(app_handle: tauri::AppHandle) -> Result<(), St
         .path()
         .app_cache_dir()
         .map_err(|e| format!("Failed to get cache dir: {}", e))?;
-    init_thumbnail_engine(cache_dir).await
+    init_filmstrip_engine(cache_dir).await
 }
 
 #[tauri::command]
@@ -50,7 +50,7 @@ pub async fn clear_thumbnail_cache(video_path: String) {
 /// Retrieve comprehensive statistics on the filmstrip & thumbnail disk cache.
 #[tauri::command]
 pub async fn get_disk_cache_stats() -> Result<serde_json::Value, String> {
-    let limit_bytes = crate::thumbnail_engine::atlas::get_disk_cache_limit();
+    let limit_bytes = crate::filmstrip_engine::atlas::get_disk_cache_limit();
     let atlas_hits = GLOBAL_ATLAS_HITS.load(Ordering::Relaxed);
     let tier_cache_hits = GLOBAL_TIER_CACHE_HITS.load(Ordering::Relaxed);
     let decodes = GLOBAL_DECODES.load(Ordering::Relaxed);
@@ -78,7 +78,7 @@ pub async fn get_disk_cache_stats() -> Result<serde_json::Value, String> {
     };
 
     let (total_bytes, atlas_count) =
-        crate::thumbnail_engine::atlas::get_disk_cache_stats_from_dir(&cache_dir).await;
+        crate::filmstrip_engine::atlas::get_disk_cache_stats_from_dir(&cache_dir).await;
 
     Ok(serde_json::json!({
         "total_bytes": total_bytes,
@@ -101,7 +101,7 @@ pub async fn clear_disk_cache() -> Result<usize, String> {
     };
 
     // Purge disk atlases
-    let count = crate::thumbnail_engine::atlas::purge_all_disk_cache(&cache_dir).await?;
+    let count = crate::filmstrip_engine::atlas::purge_all_disk_cache(&cache_dir).await?;
 
     // Clear in-memory caches
     (*FRAME_CACHE).clear();
@@ -118,9 +118,9 @@ pub async fn clear_disk_cache() -> Result<usize, String> {
 /// Configure the maximum disk cache budget in bytes (0 = unlimited).
 #[tauri::command]
 pub async fn set_cache_size_limit(limit_bytes: u64) -> Result<(), String> {
-    crate::thumbnail_engine::atlas::set_disk_cache_limit(limit_bytes);
+    crate::filmstrip_engine::atlas::set_disk_cache_limit(limit_bytes);
     if let Some(cache_dir) = GLOBAL_CACHE.cache_dir().await {
-        crate::thumbnail_engine::atlas::prune_disk_cache_if_needed(&cache_dir).await;
+        crate::filmstrip_engine::atlas::prune_disk_cache_if_needed(&cache_dir).await;
     }
     Ok(())
 }
@@ -128,7 +128,7 @@ pub async fn set_cache_size_limit(limit_bytes: u64) -> Result<(), String> {
 /// Get the current disk cache budget in bytes.
 #[tauri::command]
 pub fn get_cache_size_limit() -> u64 {
-    crate::thumbnail_engine::atlas::get_disk_cache_limit()
+    crate::filmstrip_engine::atlas::get_disk_cache_limit()
 }
 
 /// Prewarm video decoders for improved first-frame latency.
@@ -213,7 +213,7 @@ pub async fn check_coarse_baseline_cache(
     effect_graph_version: u32,
     on_artifact: tauri::ipc::Channel<RenderArtifact>,
 ) -> Result<(), String> {
-    use crate::thumbnail_engine::atlas::get_atlas_manager;
+    use crate::filmstrip_engine::atlas::get_atlas_manager;
 
     let tier = SpatialTier::from_label(&spatial_tier)
         .map_err(|e| format!("Invalid spatial tier: {}", e))?;

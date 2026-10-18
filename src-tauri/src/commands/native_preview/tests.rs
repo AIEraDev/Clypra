@@ -1,7 +1,7 @@
 use super::*;
 use std::time::Instant;
 use crate::native_core::TextLayerSnapshot;
-use crate::thumbnail_engine::decoder::VideoColorMetadata;
+use crate::filmstrip_engine::decoder::VideoColorMetadata;
 
     #[test]
     fn unspecified_sdr_metadata_uses_limited_rec709_defaults() {

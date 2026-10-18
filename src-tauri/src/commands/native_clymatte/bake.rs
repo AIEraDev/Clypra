@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use crate::clymatte::{ClymatteReader, ClymatteWriter, MattePrefetcher, CODEC_LZ4};
-use crate::thumbnail_engine::decoder::get_preview_decoder_for_stream;
+use crate::filmstrip_engine::decoder::get_preview_decoder_for_stream;
 use crate::wgpu_compositor::NativePreviewSession;
 
 use super::paths::{parse_hash_32, resolve_matte_path};

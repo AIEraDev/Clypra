@@ -203,7 +203,7 @@ impl BackendTierCache {
         if let Some((_, frame)) = self.entries.remove(key) {
             self.total_bytes
                 .fetch_sub(frame.byte_size, Ordering::Relaxed);
-            crate::thumbnail_engine::metrics::METRICS
+            crate::filmstrip_engine::metrics::METRICS
                 .for_tier(key.tier)
                 .evictions
                 .fetch_add(1, Ordering::Relaxed);

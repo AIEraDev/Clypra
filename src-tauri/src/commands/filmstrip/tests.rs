@@ -1,4 +1,4 @@
-use crate::commands::thumbnail::cache_commands::prewarm_decoders;
+use crate::commands::filmstrip::cache_commands::prewarm_decoders;
 
 #[tokio::test]
 async fn prewarm_decoders_empty_returns_zero() {

@@ -2,7 +2,7 @@ use std::fs;
 
 use base64::Engine;
 use crate::models::{MediaMetadata, VideoMetadata};
-use crate::thumbnail_engine::decoder::{get_decoder, VideoStreamMetadata};
+use crate::filmstrip_engine::decoder::{get_decoder, VideoStreamMetadata};
 
 use super::path::normalize_file_path;
 
