@@ -70,6 +70,20 @@ describe("Text Clip Utilities", () => {
       expect(bleed.x).toBe(35);
       expect(bleed.y).toBe(25);
     });
+
+    it("CLY-BUG-002: should calculate bleed for background padding and bubble presets", () => {
+      const bleedCustomBg = effectBleed({
+        background: { padding: 30 },
+      });
+      expect(bleedCustomBg.x).toBeGreaterThanOrEqual(30);
+      expect(bleedCustomBg.y).toBeGreaterThanOrEqual(30);
+
+      const bleedBubble = effectBleed({
+        background: { padding: 16, bubblePresetId: "bubble-speech" },
+      });
+      expect(bleedBubble.x).toBeGreaterThanOrEqual(32);
+      expect(bleedBubble.y).toBeGreaterThanOrEqual(36);
+    });
   });
 
   describe("measureTextEffectContentBounds & calculateTextClipSize", () => {

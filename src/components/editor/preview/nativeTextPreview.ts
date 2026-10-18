@@ -96,6 +96,8 @@ export interface NativeTextRasterAsset {
   zIndex: number;
   blendMode: string;
   isText: true;
+  /** Whether rasterization timed out waiting for the font and used system fallback. */
+  isFallbackFont?: boolean;
   /** Cropped template textures use absolute project-space placement. */
   positionMode?: "centered" | "absolute";
   /** Internal geometry metadata; not part of the native wire snapshot. */
@@ -217,6 +219,31 @@ export async function paintTextLayersToCanvas(
         void rasterPromise.catch(() => {
           if (browserTextRasterCache.get(rasterKey) === rasterPromise)
             browserTextRasterCache.delete(rasterKey);
+        });
+        void rasterPromise.then((asset) => {
+          if (asset.isFallbackFont) {
+            if (layer.fontFamily) {
+              const fontDesc = {
+                family: layer.fontFamily,
+                weight: layer.fontWeight,
+                style: layer.fontStyle,
+              };
+              void getFontLoader()
+                .ensureFont(fontDesc)
+                .finally(() => {
+                  if (browserTextRasterCache.get(rasterKey) === rasterPromise) {
+                    browserTextRasterCache.delete(rasterKey);
+                  }
+                  browserTextAssetByLayerId.delete(layer.layerId);
+                  browserTextAssetKeyByLayerId.delete(layer.layerId);
+                  browserTextLayoutKeyByLayerId.delete(layer.layerId);
+                });
+            } else {
+              if (browserTextRasterCache.get(rasterKey) === rasterPromise) {
+                browserTextRasterCache.delete(rasterKey);
+              }
+            }
+          }
         });
       } else {
         recordBrowserTextRasterCacheHit();
@@ -1037,6 +1064,7 @@ export async function rasterizeTextLayerForNative(
 ): Promise<NativeTextRasterAsset> {
   const totalStartedAt = performance.now();
   let fontWaitMs = 0;
+  let isFallbackFont = false;
   // The raster must use the same font variant as Studio/source preview before
   // any glyph metrics or effect bounds are computed.
   if (layer.fontFamily) {
@@ -1056,7 +1084,7 @@ export async function rasterizeTextLayerForNative(
       const fontsReadyBudgetMs =
         options.phase === "visible-playback" ? 15 : 250;
       try {
-        await boundedPreviewWait(
+        const loadResult = await boundedPreviewWait(
           getFontLoader().ensureFont(fontDescriptor),
           fontWaitBudgetMs,
           `font "${layer.fontFamily}"`,
@@ -1068,7 +1096,11 @@ export async function rasterizeTextLayerForNative(
             "document.fonts.ready",
           );
         }
+        if (!loadResult?.loaded && !getFontLoader().isLoaded(fontDescriptor)) {
+          isFallbackFont = true;
+        }
       } catch {
+        isFallbackFont = true;
         // The rasterizer continues with the browser fallback font. The failure
         // is intentionally represented by telemetry rather than console noise.
       }
@@ -1291,6 +1323,7 @@ export async function rasterizeTextLayerForNative(
     zIndex: layer.zIndex,
     blendMode: layer.blendMode,
     isText: true,
+    ...(isFallbackFont ? { isFallbackFont: true } : {}),
     ...(croppedTemplate ? { positionMode: "absolute" as const } : {}),
     bleedX: resolvedBleedX,
     bleedY: resolvedBleedY,

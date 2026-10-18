@@ -43,6 +43,7 @@ import {
   recordAnimationAchievedFrame,
 } from "@/lib/playback/textMetrics";
 import { TemplateRasterizerWorkerClient } from "@/core/render/templateRasterizerWorkerClient";
+import { getFontLoader } from "@/core/fonts/FontLoader";
 
 type UploadableNativeRaster = NativeRasterLayerSnapshot & {
   /**
@@ -815,6 +816,28 @@ export class NativeRasterBridge {
       evictOldest(this.textCache, MAX_TEXT_CACHE_ENTRIES);
       void raster.catch(() => {
         if (this.textCache.get(key) === raster) this.textCache.delete(key);
+      });
+      void raster.then((asset) => {
+        if (asset.isFallbackFont) {
+          if (layer.fontFamily) {
+            const fontDesc = {
+              family: layer.fontFamily,
+              weight: layer.fontWeight,
+              style: layer.fontStyle,
+            };
+            void getFontLoader()
+              .ensureFont(fontDesc)
+              .finally(() => {
+                if (this.textCache.get(key) === raster) {
+                  this.textCache.delete(key);
+                }
+              });
+          } else {
+            if (this.textCache.get(key) === raster) {
+              this.textCache.delete(key);
+            }
+          }
+        }
       });
     }
     return raster;
