@@ -226,6 +226,88 @@ mod tests {
         assert_eq!(plan.layers[0].source_time, MediaTime::from_secs_f64(4.0));
     }
 
+    /// CLY-BUG-009: Test multi-track stacking order in Rust engine
+    /// In Clypra, tracks[0] is the top row in the timeline editor (B-Roll / overlay),
+    /// while tracks[1] is the main track below it.
+    /// Track 0 must render on top of Track 1 (higher z_index / rendered last in plan.layers).
+    #[test]
+    fn test_cly_bug_009_multi_track_stacking_order_parity() {
+        let json_project = serde_json::json!({
+            "canvasWidth": 1920,
+            "canvasHeight": 1080,
+            "frameRate": 30.0,
+            "tracks": [
+                { "id": "t-overlay", "name": "V2 (Overlay)", "type": "video", "visible": true, "muted": false, "volume": 1.0 },
+                { "id": "t-main", "name": "V1 (Main)", "type": "video", "visible": true, "muted": false, "volume": 1.0 }
+            ],
+            "clips": [
+                {
+                    "id": "c-main",
+                    "trackId": "t-main",
+                    "mediaId": "m-main",
+                    "startTime": 0.0,
+                    "duration": 5.0,
+                    "trimIn": 0.0,
+                    "trimOut": 5.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "opacity": 1.0,
+                    "blendMode": "normal"
+                },
+                {
+                    "id": "c-overlay",
+                    "trackId": "t-overlay",
+                    "mediaId": "m-overlay",
+                    "startTime": 0.0,
+                    "duration": 5.0,
+                    "trimIn": 0.0,
+                    "trimOut": 5.0,
+                    "x": 100.0,
+                    "y": 100.0,
+                    "opacity": 1.0,
+                    "blendMode": "normal"
+                }
+            ],
+            "mediaAssets": [
+                {
+                    "id": "m-main",
+                    "path": "/videos/main.mp4",
+                    "duration": 10.0,
+                    "width": 1920,
+                    "height": 1080,
+                    "isMissing": false
+                },
+                {
+                    "id": "m-overlay",
+                    "path": "/videos/overlay.mp4",
+                    "duration": 10.0,
+                    "width": 1920,
+                    "height": 1080,
+                    "isMissing": false
+                }
+            ]
+        });
+
+        let state = ProjectModelAdapter::from_json_value(&json_project).expect("Parse JSON project");
+        assert_eq!(state.sequence.tracks.len(), 2);
+
+        let evaluator = PureTimelineEvaluator::new();
+        let plan = evaluator.evaluate(&state, MediaTime::from_secs_f64(2.0), 1);
+        assert_eq!(plan.layers.len(), 2);
+
+        let track_overlay = state.sequence.tracks.iter().find(|t| t.id == "t-overlay").unwrap();
+        let track_main = state.sequence.tracks.iter().find(|t| t.id == "t-main").unwrap();
+        assert!(
+            track_overlay.z_index > track_main.z_index,
+            "Track 0 (top editor row) must have higher z_index than Track 1, got overlay z_index={} vs main z_index={}",
+            track_overlay.z_index,
+            track_main.z_index
+        );
+
+        assert_eq!(plan.layers[0].clip_id, "c-main");
+        assert_eq!(plan.layers[1].clip_id, "c-overlay");
+    }
+
     /// Phase B-E: Golden evaluation test (determinism)
     #[test]
     fn test_phase_b_e_golden_evaluation_determinism() {
@@ -295,4 +377,39 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_cly_bug_013_blend_mode_difference_mapping() {
+        let json_project = serde_json::json!({
+            "canvasWidth": 1920,
+            "canvasHeight": 1080,
+            "tracks": [
+                { "id": "t1", "name": "V1", "type": "video", "visible": true }
+            ],
+            "clips": [
+                {
+                    "id": "c_diff",
+                    "trackId": "t1",
+                    "mediaId": "m1",
+                    "startTime": 0.0,
+                    "duration": 5.0,
+                    "blendMode": "difference"
+                }
+            ],
+            "mediaAssets": [
+                {
+                    "id": "m1",
+                    "path": "/videos/test.mp4",
+                    "duration": 10.0,
+                    "width": 1920,
+                    "height": 1080
+                }
+            ]
+        });
+
+        let state = ProjectModelAdapter::from_json_value(&json_project).expect("Parse JSON project");
+        assert_eq!(state.sequence.clips[0].blend_mode, BlendMode::Difference);
+    }
 }
+
+

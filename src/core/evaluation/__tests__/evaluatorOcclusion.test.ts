@@ -344,4 +344,158 @@ describe("Top-Down Occlusion Culling in NLE Multi-Track Architecture", () => {
     expect(culled).toHaveLength(1);
     expect(culled[0].clipId).toBe("clip-top");
   });
+
+  it("[CLY-BUG-008] retains underlying video when top clip is a static sticker covering full canvas", () => {
+    const clips: Clip[] = [
+      {
+        id: "clip-v1",
+        trackId: "v1",
+        mediaId: "asset-1",
+        startTime: 0,
+        duration: 5,
+        trimIn: 0,
+        trimOut: 5,
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+        rotation: 0,
+        opacity: 1,
+        blendMode: "normal",
+        kind: "video",
+      } as any,
+      {
+        id: "clip-sticker",
+        trackId: "v2",
+        mediaId: "sticker-frame",
+        startTime: 0,
+        duration: 5,
+        trimIn: 0,
+        trimOut: 5,
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+        rotation: 0,
+        opacity: 1,
+        blendMode: "normal",
+        kind: "sticker",
+        stickerFormat: "static",
+        stickerSourceId: "starter-frame-1",
+        stickerImagePath: "/path/to/sticker.png",
+      } as any,
+    ];
+
+    const scene = evaluateTimelineScene(2.0, clips, tracks, assets, defaultProject);
+    const culled = cullOccludedVisualLayers(scene.visualLayers, 1920, 1080);
+    // MUST retain both the underlying video and the sticker
+    expect(culled).toHaveLength(2);
+    expect(culled[0].clipId).toBe("clip-v1");
+    expect(culled[1].clipId).toBe("clip-sticker");
+  });
+
+  it("[CLY-BUG-008] retains underlying video when top clip is a transparent image overlay", () => {
+    const imageAsset: MediaAsset = {
+      id: "asset-overlay-png",
+      name: "overlay.png",
+      path: "/path/to/overlay.png",
+      type: "image",
+      duration: 10,
+      width: 1920,
+      height: 1080,
+      size: 1024,
+    };
+
+    const clips: Clip[] = [
+      {
+        id: "clip-v1",
+        trackId: "v1",
+        mediaId: "asset-1",
+        startTime: 0,
+        duration: 5,
+        trimIn: 0,
+        trimOut: 5,
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+        rotation: 0,
+        opacity: 1,
+        blendMode: "normal",
+        kind: "video",
+      } as any,
+      {
+        id: "clip-overlay-png",
+        trackId: "v2",
+        mediaId: "asset-overlay-png",
+        startTime: 0,
+        duration: 5,
+        trimIn: 0,
+        trimOut: 5,
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+        rotation: 0,
+        opacity: 1,
+        blendMode: "normal",
+        kind: "image",
+      } as any,
+    ];
+
+    const scene = evaluateTimelineScene(2.0, clips, tracks, [...assets, imageAsset], defaultProject);
+    const culled = cullOccludedVisualLayers(scene.visualLayers, 1920, 1080);
+    expect(culled).toHaveLength(2);
+    expect(culled[0].clipId).toBe("clip-v1");
+    expect(culled[1].clipId).toBe("clip-overlay-png");
+  });
+
+  it("[CLY-BUG-008] retains underlying video when top clip is a static sticker enclosing a smaller clip", () => {
+    const clips: Clip[] = [
+      {
+        id: "clip-bottom-video",
+        trackId: "v1",
+        mediaId: "asset-1",
+        startTime: 0,
+        duration: 5,
+        trimIn: 0,
+        trimOut: 5,
+        x: 200,
+        y: 200,
+        width: 400,
+        height: 300,
+        rotation: 0,
+        opacity: 1,
+        blendMode: "normal",
+        kind: "video",
+      } as any,
+      {
+        id: "clip-top-sticker",
+        trackId: "v2",
+        mediaId: "sticker-badge",
+        startTime: 0,
+        duration: 5,
+        trimIn: 0,
+        trimOut: 5,
+        x: 100,
+        y: 100,
+        width: 600,
+        height: 500,
+        rotation: 0,
+        opacity: 1,
+        blendMode: "normal",
+        kind: "sticker",
+        stickerFormat: "static",
+        stickerImagePath: "/path/to/badge.png",
+      } as any,
+    ];
+
+    const scene = evaluateTimelineScene(2.0, clips, tracks, assets, defaultProject);
+    const culled = cullOccludedVisualLayers(scene.visualLayers, 1920, 1080);
+    expect(culled).toHaveLength(2);
+    expect(culled[0].clipId).toBe("clip-bottom-video");
+    expect(culled[1].clipId).toBe("clip-top-sticker");
+  });
 });
+
+

@@ -82,6 +82,7 @@ export interface CreateTextClipOptions {
   customization?: any;
   fontWeight?: string | number;
   fontStyle?: "normal" | "italic";
+  textDecoration?: "underline" | "none";
   textTransform?: "uppercase" | "lowercase" | "capitalize" | "none";
   stroke?: { color: string; width: number };
   shadow?: { color: string; blur: number; offsetX: number; offsetY: number };
@@ -170,7 +171,7 @@ export function resolveTextEffectTypography(
   };
 }
 
-function applyTextTransform(text: string, transform?: string): string {
+export function applyTextTransform(text: string, transform?: string): string {
   if (transform === "uppercase") return text.toUpperCase();
   if (transform === "lowercase") return text.toLowerCase();
   // capitalize: first char of each word
@@ -289,7 +290,12 @@ export function effectBleed(options: {
   effectDefinition?: TextEffectDefinition;
   stroke?: { width: number };
   shadow?: { blur: number; offsetX: number; offsetY: number };
-  background?: { padding: number; color?: string; borderRadius?: number };
+  background?: {
+    padding?: number;
+    color?: string;
+    borderRadius?: number;
+    bubblePresetId?: string;
+  };
 }): { x: number; y: number } {
   let x = 0;
   let y = 0;
@@ -359,6 +365,20 @@ export function effectBleed(options: {
     y = Math.max(y, Math.abs(offsetY * stackCount));
   }
 
+  if (options.background) {
+    const bgPadding = Number(options.background.padding ?? 0);
+    if (bgPadding > 0) {
+      x = Math.max(x, bgPadding);
+      y = Math.max(y, bgPadding);
+    }
+    const bubbleId = options.background.bubblePresetId;
+    if (bubbleId && bubbleId !== "none") {
+      // Speech bubble pointers, comic bursts, and ribbons protrude outside standard padding
+      x = Math.max(x, bgPadding + 16);
+      y = Math.max(y, bgPadding + 20);
+    }
+  }
+
   const mode = options.effectDefinition?.boundingBox?.mode;
   if (options.effectDefinition?.boundingBox && mode !== "panel") {
     const bbox = options.effectDefinition.boundingBox;
@@ -384,14 +404,19 @@ export function effectBleed(options: {
 
 function getPanelContentPadding(
   effectDefinition?: TextEffectDefinition,
-  background?: { padding: number; color?: string; borderRadius?: number },
+  background?: {
+    padding?: number;
+    color?: string;
+    borderRadius?: number;
+    bubblePresetId?: string;
+  },
   fontSize = 100,
 ): { x: number; y: number } {
   const panel = effectDefinition?.panel as
     | { paddingX?: number; paddingY?: number; stroke?: { width?: number } }
     | undefined;
   const ratio = fontSize / 100;
-  const backgroundPadding = background ? Math.max(0, background.padding) : 0;
+  const backgroundPadding = background ? Math.max(0, background.padding ?? 0) : 0;
   if (panel) {
     const strokeWidth = (panel.stroke?.width ?? 0) * ratio;
     return {
@@ -409,7 +434,12 @@ function getPanelContentPadding(
 
 function getPanelTrace(
   effectDefinition?: TextEffectDefinition,
-  background?: { padding: number; color?: string; borderRadius?: number },
+  background?: {
+    padding?: number;
+    color?: string;
+    borderRadius?: number;
+    bubblePresetId?: string;
+  },
   fontSize = 100,
 ): Record<string, unknown> {
   const panel = effectDefinition?.panel as
@@ -447,7 +477,12 @@ export function measureTextEffectContentBounds(options: {
   effectDefinition?: TextEffectDefinition;
   stroke?: { width: number };
   shadow?: { blur: number; offsetX: number; offsetY: number };
-  background?: { padding: number; color?: string; borderRadius?: number };
+  background?: {
+    padding?: number;
+    color?: string;
+    borderRadius?: number;
+    bubblePresetId?: string;
+  };
   canvasWidth: number;
   textRole?: "caption" | "title";
   maxWidth?: number;
@@ -579,7 +614,12 @@ export function calculateTextClipSize(options: {
   effectDefinition?: TextEffectDefinition;
   stroke?: { width: number };
   shadow?: { blur: number; offsetX: number; offsetY: number };
-  background?: { padding: number; color?: string; borderRadius?: number };
+  background?: {
+    padding?: number;
+    color?: string;
+    borderRadius?: number;
+    bubblePresetId?: string;
+  };
   canvasWidth: number;
   textRole?: "caption" | "title";
   maxWidth?: number;
@@ -1103,6 +1143,7 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
     color,
     fontWeight: fontWeight || (bold ? "bold" : "normal"),
     fontStyle: fontStyle || (italic ? "italic" : "normal"),
+    textDecoration: options.textDecoration ?? "none",
     textTransform: options.textTransform,
     align: "center",
     valign: "middle",

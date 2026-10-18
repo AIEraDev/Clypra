@@ -164,22 +164,8 @@ Discover the formats and schemas actually present.
 Handle relevant formats such as:
 
 * Structured JSON logs.
-* JSON Lines or NDJSON (such as Clypra's session NDJSON logs under `perf_logs/`).
+* JSON Lines or NDJSON (such as Clypra's session NDJSON logs).
 * Plain-text application logs.
-
-### Clypra Local Performance Log Locations
-
-Clypra persists rolling NDJSON session logs and crash reports locally in the platform-specific application data directory under `perf_logs/` (configured via `PERF_LOG_DIR` in `src-tauri/src/diagnostics/perf_log.rs` with application identifier `com.deenminder.clypra` from `src-tauri/tauri.conf.json`):
-
-* **macOS**: `~/Library/Application Support/com.deenminder.clypra/perf_logs/`
-* **Windows**: `%APPDATA%\com.deenminder.clypra\perf_logs\` (typically `C:\Users\<user>\AppData\Roaming\com.deenminder.clypra\perf_logs\`)
-* **Linux**: `~/.local/share/com.deenminder.clypra/perf_logs/` (or `$XDG_DATA_HOME/com.deenminder.clypra/perf_logs/`)
-
-**File naming conventions**:
-* **Active / local session logs**: `session-<epoch_ms>-<uuid>.ndjson`
-* **Uploaded session logs**: `session-<epoch_ms>-<uuid>.ndjson.uploaded`
-* **Crash reports**: `crash-<epoch_ms>-<uuid>.json` (stored in the parent application data directory `~/Library/Application Support/com.deenminder.clypra/` or `%APPDATA%\com.deenminder.clypra\`)
-
 * Rust tracing output.
 * Frontend console logs.
 * Tauri command and event diagnostics.
@@ -191,6 +177,33 @@ Clypra persists rolling NDJSON session logs and crash reports locally in the pla
 * Operating-system event records.
 * Platform-specific graphics diagnostics.
 * CI and benchmark result artifacts.
+
+### Mandatory Rule: Locate Performance Logs in OS Root, NEVER Inside Project
+
+> [!CRITICAL]
+> **DO NOT SEARCH FOR PERFORMANCE LOGS INSIDE THIS PROJECT REPOSITORY.**
+> Performance logs and crash reports are stored **EXCLUSIVELY IN THE HOST OPERATING SYSTEM'S ROOT APPLICATION DATA DIRECTORY**, NEVER inside this repository or project workspace.
+>
+> - **Prohibited**: Searching inside the repository (e.g. `find . -name "perf_logs"`, `grep -rn ... perf_logs/`, or `ls perf_logs/` in the repo workspace) will return nothing and is prohibited.
+> - **Mandatory**: Always locate and inspect logs directly at the exact platform OS system root paths below.
+>
+> **Platform OS Root Log Locations (`perf_logs/`)**:
+> * **macOS**: `~/Library/Application Support/com.deenminder.clypra/perf_logs/`
+>   - Absolute system route: `/Users/<username>/Library/Application Support/com.deenminder.clypra/perf_logs/`
+> * **Windows**: `%APPDATA%\com.deenminder.clypra\perf_logs\`
+>   - Absolute system route: `C:\Users\<username>\AppData\Roaming\com.deenminder.clypra\perf_logs\`
+> * **Linux**: `~/.local/share/com.deenminder.clypra/perf_logs/`
+>   - Absolute system route: `$XDG_DATA_HOME/com.deenminder.clypra/perf_logs/` (or `/home/<username>/.local/share/com.deenminder.clypra/perf_logs/`)
+>
+> **Platform OS Root Crash Reports (`crash_reports/`)**:
+> * **macOS**: `~/Library/Application Support/com.deenminder.clypra/crash_reports/`
+> * **Windows**: `%APPDATA%\com.deenminder.clypra\crash_reports\`
+> * **Linux**: `~/.local/share/com.deenminder.clypra/crash_reports/`
+>
+> **File naming conventions in OS root**:
+> * **Active / local session logs**: `session-<epoch_ms>-<uuid>.ndjson`
+> * **Uploaded session logs**: `session-<epoch_ms>-<uuid>.ndjson.uploaded`
+> * **Crash reports**: `crash-<epoch_ms>-<uuid>.json`
 
 Do not assume every source uses UTC, shares a clock, or represents durations consistently.
 

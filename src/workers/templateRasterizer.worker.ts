@@ -446,6 +446,22 @@ async function handleRenderTemplate(
   );
 }
 
+export function computeStaticEffectKey(
+  sceneDocument: any,
+  width: number,
+  height: number,
+): string | null {
+  const isEffectAnimated = Boolean(
+    sceneDocument?.animation &&
+    sceneDocument?.animation?.type &&
+    sceneDocument?.animation?.type !== "none",
+  );
+  if (isEffectAnimated) return null;
+  const sceneText = sceneDocument?.text;
+  const effectId = sceneDocument?.id || "effect";
+  return `${effectId}:${sceneText?.fontFamily || ""}:${sceneText?.fontSize || ""}:${width}x${height}:${sceneText?.content || ""}`;
+}
+
 async function handleRenderEffect(
   msg: WorkerRenderEffectMessage,
 ): Promise<void> {
@@ -476,14 +492,7 @@ async function handleRenderEffect(
     },
   });
 
-  const isEffectAnimated = Boolean(
-    (sceneDocument as any)?.animation &&
-    (sceneDocument as any)?.animation?.type &&
-    (sceneDocument as any)?.animation?.type !== "none",
-  );
-  const staticEffectKey = !isEffectAnimated
-    ? `${id}:${width}x${height}:${sceneText?.content}:${sceneText?.fontSize}`
-    : null;
+  const staticEffectKey = computeStaticEffectKey(sceneDocument, width, height);
 
   let bounds: VisibleBounds | null = null;
   if (staticEffectKey && staticBoundsCache.has(staticEffectKey)) {

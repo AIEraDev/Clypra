@@ -1160,10 +1160,13 @@ pub struct NativeProjectVideoLayer {
     #[serde(default = "default_blend_mode")]
     pub blend_mode: String,
     #[serde(default)]
+    pub crop: Option<crate::native_core::contracts::CropMarginsSnapshot>,
+    #[serde(default)]
     pub color_grade: Option<ColorGradeSnapshot>,
     #[serde(default)]
     pub body_effect: Option<BodyEffectSnapshot>,
 }
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1530,6 +1533,7 @@ fn to_video_project_request(
                 opacity: layer.opacity,
                 z_index: layer.z_index,
                 blend_mode: layer.blend_mode.clone(),
+                crop: layer.crop,
                 color_grade: layer.color_grade.clone(),
                 body_effect: layer.body_effect.clone(),
             })
@@ -1706,6 +1710,7 @@ struct NativeLayerSpec<'a> {
     opacity: f32,
     z_index: i32,
     blend_mode: &'a str,
+    crop: CropMargins,
     color_grade: ColorGradeUniforms,
     mask_view: Option<&'a wgpu::TextureView>,
     body_effect: BodyEffectUniforms,
@@ -1728,6 +1733,17 @@ fn body_effect_from_snapshot(snapshot: Option<&BodyEffectSnapshot>) -> BodyEffec
         color: [effect.color_r, effect.color_g, effect.color_b, 0.0],
         params: [renderer_type, effect.strength, effect.radius, effect.time],
     }
+}
+
+fn crop_margins_from_snapshot(
+    snapshot: Option<&crate::native_core::contracts::CropMarginsSnapshot>,
+) -> CropMargins {
+    snapshot.map_or_else(CropMargins::default, |c| CropMargins {
+        left: c.left,
+        top: c.top,
+        right: c.right,
+        bottom: c.bottom,
+    })
 }
 
 fn color_grade_from_snapshot(snapshot: Option<&ColorGradeSnapshot>) -> ColorGradeUniforms {
@@ -1890,7 +1906,7 @@ fn build_native_composite_layers<'a>(
                     canvas_width,
                     canvas_height,
                 ),
-                crop: CropMargins::default(),
+                crop: layer.crop,
                 color_grade: layer.color_grade,
                 mask_view: layer.mask_view,
                 body_effect: layer.body_effect,
@@ -2915,6 +2931,7 @@ async fn render_native_video_project_frame_bytes_timed(
             opacity: layer.opacity,
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
+            crop: crop_margins_from_snapshot(layer.crop.as_ref()),
             color_grade: color_grade_from_snapshot(layer.color_grade.as_ref()),
             mask_view: layer
                 .body_effect
@@ -2942,6 +2959,7 @@ async fn render_native_video_project_frame_bytes_timed(
             opacity: layer.opacity,
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
+            crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
@@ -2969,6 +2987,7 @@ async fn render_native_video_project_frame_bytes_timed(
             opacity: text_layer.opacity,
             z_index: text_layer.z_index,
             blend_mode: &text_layer.blend_mode,
+            crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
@@ -3172,6 +3191,7 @@ async fn decode_native_video_layers(
             let layer_id = layer.layer_id.clone();
             let time_secs = layer.time_secs;
 
+            let is_playback = request.mode.as_deref() == Some("playback");
             unique_tasks.push(tauri::async_runtime::spawn(async move {
                 let stream_id = if !layer_id.is_empty() {
                     layer_id.as_str()
@@ -3184,9 +3204,15 @@ async fn decode_native_video_layers(
                         stream_id,
                     )
                     .await?;
-                let actor_frame = actor
-                    .decode_frame(time_secs, decode_options, is_prefetch, generation)
-                    .await?;
+                let actor_frame = if is_playback {
+                    actor
+                        .decode_playback_frame(time_secs, decode_options, generation)
+                        .await?
+                } else {
+                    actor
+                        .decode_frame(time_secs, decode_options, is_prefetch, generation)
+                        .await?
+                };
                 let decode_us = actor_frame.decode_us;
                 let mutex_wait_us = actor_frame.decoder_mutex_wait_us;
                 let actor_wait_us = actor_frame.actor_wait_us;
@@ -4568,6 +4594,7 @@ pub(crate) async fn present_native_frame_internal(
             opacity: layer.opacity,
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
+            crop: crop_margins_from_snapshot(layer.crop.as_ref()),
             color_grade: color_grade_from_snapshot(layer.color_grade.as_ref()),
             mask_view: layer
                 .body_effect
@@ -4595,6 +4622,7 @@ pub(crate) async fn present_native_frame_internal(
             opacity: layer.opacity,
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
+            crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
@@ -4622,6 +4650,7 @@ pub(crate) async fn present_native_frame_internal(
             opacity: text_layer.opacity,
             z_index: text_layer.z_index,
             blend_mode: &text_layer.blend_mode,
+            crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
@@ -5936,7 +5965,78 @@ mod tests {
             result
         );
     }
+
+    #[test]
+    fn test_cly_bug_010_video_crop_margins_preserved_in_request_conversion() {
+        use crate::native_core::contracts::{
+            ColorPolicy, CropMarginsSnapshot, FrameRequest, FrameTime, ProjectSnapshot, QualityTier,
+            VideoLayerSnapshot, DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION,
+        };
+
+        let request = FrameRequest {
+            contract_version: NATIVE_CORE_CONTRACT_VERSION,
+            request_id: "test-crop-margins".to_string(),
+            frame_time: FrameTime::new(0, 0, DEFAULT_TIME_SCALE).unwrap(),
+            project: ProjectSnapshot {
+                schema_version: 1,
+                project_revision: "rev-crop".to_string(),
+                frame_rate: 30,
+                canvas_width: 1920,
+                canvas_height: 1080,
+                clear_color: [0.0, 0.0, 0.0, 1.0],
+                video_layers: vec![VideoLayerSnapshot {
+                    layer_id: "layer-1".to_string(),
+                    asset_id: "asset-1".to_string(),
+                    video_path: "/test/video.mp4".to_string(),
+                    source_time: FrameTime::new(1, 0, DEFAULT_TIME_SCALE).unwrap(),
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1920.0,
+                    height: 1080.0,
+                    rotation: 0.0,
+                    opacity: 1.0,
+                    z_index: 0,
+                    blend_mode: "normal".to_string(),
+                    crop: Some(CropMarginsSnapshot {
+                        left: 0.1,
+                        top: 0.2,
+                        right: 0.15,
+                        bottom: 0.25,
+                    }),
+                    color_grade: None,
+                    body_effect: None,
+                }],
+                raster_layers: vec![],
+                text_layers: vec![],
+                transition: None,
+            },
+            output_width: 1920,
+            output_height: 1080,
+            quality: QualityTier::Full,
+            color_policy: ColorPolicy::default(),
+            render_graph_version: 1,
+            generation: None,
+            mode: None,
+            scrub_velocity_px_per_second: None,
+            requested_at_ms: None,
+            is_scrubbing: None,
+            allow_keyframe_approx: None,
+        };
+
+        let legacy = super::to_video_project_request(&request).expect("request should convert");
+        assert_eq!(legacy.layers.len(), 1);
+        assert_eq!(
+            legacy.layers[0].crop,
+            Some(CropMarginsSnapshot {
+                left: 0.1,
+                top: 0.2,
+                right: 0.15,
+                bottom: 0.25,
+            })
+        );
+    }
 }
+
 
 // ── Phase 5: Session performance telemetry ───────────────────────────────────
 

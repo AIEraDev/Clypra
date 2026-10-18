@@ -240,6 +240,8 @@ export const SpatialMotionPath: React.FC<SpatialMotionPathProps> = ({
   return (
     <svg
       ref={svgRef}
+      data-spatial-motion-path="true"
+      data-interactive="true"
       style={{
         position: "absolute",
         inset: 0,
@@ -247,7 +249,7 @@ export const SpatialMotionPath: React.FC<SpatialMotionPathProps> = ({
         height: displayHeight,
         pointerEvents: dragState ? "all" : "none",
         overflow: "visible",
-        zIndex: 8,
+        zIndex: 55,
       }}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -364,6 +366,7 @@ export const SpatialMotionPath: React.FC<SpatialMotionPathProps> = ({
               />
               {/* Handle circle */}
               <circle
+                data-motion-path-handle="true"
                 cx={tx}
                 cy={ty}
                 r={5}
@@ -371,6 +374,7 @@ export const SpatialMotionPath: React.FC<SpatialMotionPathProps> = ({
                 stroke="white"
                 strokeWidth={1.2}
                 style={{ pointerEvents: "all", cursor: "crosshair" }}
+                onMouseDown={(e) => e.stopPropagation()}
                 onPointerDown={(e) =>
                   handlePointerDown(
                     e,
@@ -393,8 +397,10 @@ export const SpatialMotionPath: React.FC<SpatialMotionPathProps> = ({
 
             {/* Anchor diamond */}
             <g
+              data-motion-path-handle="true"
               transform={`translate(${sx}, ${sy}) rotate(45)`}
               style={{ cursor: "move", pointerEvents: "all" }}
+              onMouseDown={(e) => e.stopPropagation()}
               onPointerDown={(e) =>
                 handlePointerDown(e, "anchor", node.id, node.point.x, node.point.y)
               }

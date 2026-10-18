@@ -77,12 +77,23 @@ export class SwapClipsCommand implements Command {
 
     if (clipA.trackId === clipB.trackId) {
       const [left, right] = clipA.startTime < clipB.startTime ? [clipA, clipB] : [clipB, clipA];
-      const otherClips = state.clips.filter((clip) => clip.trackId === left.trackId && clip.id !== left.id && clip.id !== right.id);
-      const collision = otherClips.some((clip) => {
-        const end = clip.startTime + clip.duration;
-        return (right.startTime < end && right.startTime + left.duration > clip.startTime) || (left.startTime < end && left.startTime + right.duration > clip.startTime);
-      });
-      if (collision) return "Not enough space to swap — clips would overlap";
+      const isAdjacent = Math.abs((left.startTime + left.duration) - right.startTime) < 0.001;
+
+      if (!isAdjacent) {
+        // Non-adjacent swap: check collision between the two swapped clips
+        if (left.startTime + right.duration > right.startTime) {
+          return "Not enough space to swap — clips would overlap";
+        }
+        const otherClips = state.clips.filter((clip) => clip.trackId === left.trackId && clip.id !== left.id && clip.id !== right.id);
+        const collision = otherClips.some((clip) => {
+          const end = clip.startTime + clip.duration;
+          return (
+            (right.startTime < end && right.startTime + left.duration > clip.startTime) ||
+            (left.startTime < end && left.startTime + right.duration > clip.startTime)
+          );
+        });
+        if (collision) return "Not enough space to swap — clips would overlap";
+      }
     } else {
       const collision = state.clips.some((clip) => {
         if (clip.id === clipA.id || clip.id === clipB.id) return false;
@@ -120,12 +131,34 @@ export class SwapClipsCommand implements Command {
     this.beforeTransitions = state.transitions.map(cloneTransitionSnapshot);
     this.error = null;
 
+    let newStartA: number;
+    let newStartB: number;
+
+    if (clipA.trackId === clipB.trackId) {
+      const [left, right] = clipA.startTime < clipB.startTime ? [clipA, clipB] : [clipB, clipA];
+      const isAdjacent = Math.abs((left.startTime + left.duration) - right.startTime) < 0.001;
+      let newLeftStart: number;
+      let newRightStart: number;
+      if (isAdjacent) {
+        newRightStart = left.startTime;
+        newLeftStart = left.startTime + right.duration;
+      } else {
+        newRightStart = left.startTime;
+        newLeftStart = right.startTime;
+      }
+      newStartA = clipA.id === left.id ? newLeftStart : newRightStart;
+      newStartB = clipB.id === left.id ? newLeftStart : newRightStart;
+    } else {
+      newStartA = clipB.startTime;
+      newStartB = clipA.startTime;
+    }
+
     const transitions = clipA.trackId === clipB.trackId
       ? state.transitions
       : state.transitions.filter((transition) => ![clipA.id, clipB.id].includes(transition.fromItemId) && ![clipA.id, clipB.id].includes(transition.toItemId));
     const clips = state.clips.map((clip) => {
-      if (clip.id === clipA.id) return { ...cloneClipSnapshot(clip), startTime: clipB.startTime, trackId: clipB.trackId };
-      if (clip.id === clipB.id) return { ...cloneClipSnapshot(clip), startTime: clipA.startTime, trackId: clipA.trackId };
+      if (clip.id === clipA.id) return { ...cloneClipSnapshot(clip), startTime: newStartA, trackId: clipB.trackId };
+      if (clip.id === clipB.id) return { ...cloneClipSnapshot(clip), startTime: newStartB, trackId: clipA.trackId };
       return clip;
     });
     return { ...state, clips, transitions, epoch: state.epoch + 1 };

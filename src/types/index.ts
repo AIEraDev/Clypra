@@ -750,6 +750,7 @@ export interface TextClip extends Clip {
   fontSize: number;
   fontWeight?: string | number;
   fontStyle?: "normal" | "italic";
+  textDecoration?: "underline" | "none";
   textTransform?: "uppercase" | "lowercase" | "capitalize" | "none";
   color: string;
   backgroundColor?: string;
@@ -792,6 +793,12 @@ export interface TextClip extends Clip {
     color: string;
     padding: number;
     borderRadius: number;
+    opacity?: number;
+    height?: number;
+    width?: number;
+    yOffset?: number;
+    style?: "rectangle" | "split" | string;
+    bubblePresetId?: string;
   };
   styleDefinition?: import("@clypra-studio/engine").TextEffectDefinition;
   /** Entrance animation */
@@ -965,3 +972,4 @@ export * from "./serialization";
 export * from "./compositor";
 export * from "./captions";
 export * from "./keyframes";
+export * from "./textBubbles";

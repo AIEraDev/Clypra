@@ -14,6 +14,7 @@ import { expandCompoundClips } from "./compoundClips";
 import { buildAudioAutomationSlice, evaluateEffectiveAudioState, isTrackAudible } from "@/core/audio/effectiveAudioState";
 import { getClipAudioProperties } from "@/types/audio";
 import { clipHasAudio } from "@/core/media/mediaAudioDetection";
+import { resolveClipSourceTime } from "./sourceTime";
 
 export interface ExportAudioClipConfig {
   /** Stable timeline clip identity used by native mixer replacement. */
@@ -30,6 +31,9 @@ export interface ExportAudioClipConfig {
 
   /** Trim in offset in seconds inside the source media file */
   trimIn: number;
+
+  /** Speed multiplier (e.g. 1.0, 2.0, 0.5) */
+  speed?: number;
 
   /** Volume multiplier (0.0 to 1.0) */
   volume: number;
@@ -107,8 +111,8 @@ export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: Medi
       const relativeStartTime = overlapStart - startTime;
       const relativeDuration = overlapEnd - overlapStart;
 
-      // Calculate trim offset accounting for clip overlap
-      const relativeTrimIn = (clip.trimIn || 0) + (overlapStart - clipStart);
+      // Calculate trim offset accounting for clip overlap and speed remapping
+      const relativeTrimIn = resolveClipSourceTime(clip, overlapStart).sourceTime;
 
       // Calculate effective slice fade-in and fade-out relative to export overlap range
       const rawFadeIn = audio.fadeIn.duration;
@@ -138,6 +142,10 @@ export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: Medi
         : Math.max(0, Math.min(3.0, staticState.staticGain));
       const volumeKeyframes = buildAudioAutomationSlice(audio.volumeKeyframes, overlapStart - clipStart, relativeDuration);
 
+      const effectiveClipSpeed = clip.playbackMapping?.kind === "normal"
+        ? clip.playbackMapping.speed
+        : (typeof clip.speed === "number" && clip.speed > 0 ? clip.speed : 1.0);
+
       return {
         clipId: clip.id,
         // Normalize to native FS path — asset.path or directAudioPath may be an asset:// or file:// URL
@@ -145,6 +153,7 @@ export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: Medi
         startTime: relativeStartTime,
         duration: relativeDuration,
         trimIn: relativeTrimIn,
+        speed: effectiveClipSpeed,
         volume,
         fadeIn,
         fadeOut,

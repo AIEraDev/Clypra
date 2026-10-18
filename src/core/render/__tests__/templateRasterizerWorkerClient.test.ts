@@ -437,4 +437,21 @@ describe("Routing — getTextRaster dispatch predicates", () => {
     const layer = makeLayer({ styleId: "missing-def" });
     expect(!!(layer.styleDefinition as any)?.scene?.effectLayers).toBe(false);
   });
+
+  it("CLY-BUG-004: computeStaticEffectKey generates stable content key across frames without RPC message id", async () => {
+    const { computeStaticEffectKey } = await import("@/workers/templateRasterizer.worker");
+    const doc = {
+      id: "neon-glow",
+      text: { content: "Hello", fontFamily: "Inter", fontSize: 64 },
+    };
+
+    const key1 = computeStaticEffectKey(doc, 800, 200);
+    const key2 = computeStaticEffectKey(doc, 800, 200);
+
+    expect(key1).toBe("neon-glow:Inter:64:800x200:Hello");
+    expect(key1).toBe(key2);
+
+    const animatedDoc = { ...doc, animation: { type: "zoom-in" } };
+    expect(computeStaticEffectKey(animatedDoc, 800, 200)).toBeNull();
+  });
 });

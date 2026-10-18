@@ -43,6 +43,7 @@ import {
   resolveTextTemplateArtifact,
 } from "@clypra-studio/engine";
 import { resolveCanonicalFamily } from "@/core/fonts/fontRegistry";
+import { applyTextTransform } from "@/lib/text/textClip";
 import { traceCutoutEvent } from "@/core/playback/cutoutPipelineTrace";
 
 const isExternalOrDataUrl = (value: string) =>
@@ -437,7 +438,11 @@ export function evaluateTimelineScene(
         // An explicitly empty clip is intentionally invisible. "Text" is
         // only the creation-time default; it must not reappear during
         // evaluation after the user clears the editor field.
-        text: templateTextNode?.text ?? textClip.text ?? "",
+        text:
+          templateTextNode?.text ??
+          (textClip.textTransform && textClip.text
+            ? applyTextTransform(textClip.text, textClip.textTransform)
+            : textClip.text ?? ""),
         fontFamily: normalizeFontFamily(
           textClip.fontFamily ||
             templateStyle.fontFamily ||
@@ -458,6 +463,8 @@ export function evaluateTimelineScene(
           templateStyle.fontStyle ||
           styleTypography.fontStyle ||
           "normal",
+        textDecoration: textClip.textDecoration || "none",
+        textTransform: textClip.textTransform || "none",
         textAlign: textClip.align || templateStyle.textAlign || "center",
         verticalAlign:
           templateStyle.verticalAlign || textClip.valign || "middle",
@@ -591,6 +598,8 @@ export function evaluateTimelineScene(
       conform: (clip as any).conform,
       adjustments: clip.adjustments,
       colorGrade: clip.colorGrade,
+      layout: (clip as any).layout,
+      crop: (clip as any).layout?.crop ?? (clip as any).crop,
       x: evalX,
       y: evalY,
       width: evalW,
@@ -889,18 +898,25 @@ export function isOpaqueFullFrameOccluder(
   canvasHeight: number,
   transitionWindows: ActiveTransitionWindow[] = [],
 ): boolean {
-  // Only media layers (video or opaque still images) can act as solid full-frame occluders
-  if (layer.layerType !== "media") return false;
+  // Only video media layers can act as solid full-frame occluders. Still images (PNG, WebP, SVG)
+  // and stickers frequently contain alpha channels and must never falsely cull underlying video tracks.
+  if (layer.layerType !== "media" || (layer as EvaluatedMediaLayer).mediaType !== "video") return false;
+
+  // Stickers can never act as occluders
+  if (
+    (layer as EvaluatedMediaLayer).clipKind === "sticker" ||
+    Boolean((layer as EvaluatedMediaLayer).stickerSourceId) ||
+    Boolean(layer.stickerFormat) ||
+    Boolean((layer as any).stickerAnimationPath)
+  ) {
+    return false;
+  }
 
   // Must be fully opaque
   if (layer.opacity < 0.999) return false;
 
   // Must use standard 'normal' blend mode (other blend modes blend with background)
   if (layer.blendMode && layer.blendMode !== "normal") return false;
-
-  // Animated stickers (GIF/Lottie) and transparent PNG overlays have alpha
-  if (layer.stickerFormat === "gif" || layer.stickerFormat === "lottie")
-    return false;
 
   // Cannot have body segmentation effects, chroma key, or custom alpha shaders
   if (
@@ -966,11 +982,18 @@ export function doesLayerOccludeLayer(
   bottom: EvaluatedVisualLayer,
   transitionWindows: ActiveTransitionWindow[] = [],
 ): boolean {
-  if (top.layerType !== "media") return false;
+  if (top.layerType !== "media" || (top as EvaluatedMediaLayer).mediaType !== "video") return false;
+  if (
+    (top as EvaluatedMediaLayer).clipKind === "sticker" ||
+    Boolean((top as EvaluatedMediaLayer).stickerSourceId) ||
+    Boolean(top.stickerFormat) ||
+    Boolean((top as any).stickerAnimationPath)
+  ) {
+    return false;
+  }
   if (top.opacity < 0.999) return false;
   if (top.blendMode && top.blendMode !== "normal") return false;
-  if (top.stickerFormat === "gif" || top.stickerFormat === "lottie")
-    return false;
+
 
   if (
     top.effects &&
@@ -1108,6 +1131,11 @@ function resolveActiveTransitionWindows(
       const fromClip = clips.find((clip) => clip.id === transition.fromItemId);
       const toClip = clips.find((clip) => clip.id === transition.toItemId);
       if (!fromClip || !toClip) return null;
+
+      // Invariant: Transitions are valid only between adjacent clips on the same track
+      if (fromClip.trackId !== toClip.trackId) return null;
+      const cutPoint = fromClip.startTime + fromClip.duration;
+      if (Math.abs(cutPoint - toClip.startTime) > 0.05) return null;
 
       const rawProgress = Math.max(0, Math.min(1, (time - start) / duration));
       // Map legacy "easeInOut" to "ease-in-out" for compatibility

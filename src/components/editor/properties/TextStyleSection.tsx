@@ -1,164 +1,110 @@
-import React from "react";
-import {
-  Type,
-  AlignLeft,
-  AlignCenter,
-  AlignRight,
-  AlignStartVertical,
-  AlignCenterVertical,
-  AlignEndVertical,
-  Save,
-  Trash2,
-  PaintBucket,
-  Layers,
-  Layout,
-  AlertTriangle,
-  User,
-} from "lucide-react";
-import { Button } from "@/components/ui/Button";
+/**
+ * TextStyleSection.tsx
+ *
+ * Root section for text-clip property editing.
+ *
+ * Responsibilities kept here:
+ * - Sub-tab switcher (Basic / Bubble)
+ * - Sticky textarea via `TextContentEditor`
+ * - Caption "apply to all" transaction logic
+ * - Template-detach actions
+ * - `handleCustomStyleUpdate` — clears styleId when overriding effect fields
+ * - Resolving effective font/weight/spacing values from clip + active effect
+ * - Composing the sub-components: TextBasicTab, TextBubbleTab,
+ *   TextTemplateOverlay
+ */
+
+import React, {
+  useState,
+  useMemo,
+  useCallback,
+  useRef,
+  useEffect,
+} from "react";
+import { AlertTriangle } from "lucide-react";
 import { normalizeFontFamily } from "@/core/evaluation/evaluator";
-import type { TextEffectDefinition } from "@/features/text-effects/types/types";
 import type { TextClip } from "@/types";
-import { PropertySlider } from "./primitives/PropertySlider";
-import { PropertySection } from "./primitives/PropertySection";
 import { useTemplateStore } from "@/features/text-templates/templateStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { useHistoryStore } from "@/store/historyStore";
 import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
-import { EffectStylePanel } from "./EffectStylePanel";
-import { TemplateLayerEditor } from "./TemplateLayerEditor";
-import { ClypraColorPicker } from "@clypra/ui-color-picker";
-import { resolveTextTemplateArtifact } from "@clypra-studio/engine";
-import { isTauriRuntime } from "@/lib/platform/tauri";
-import {
-  getBundledNativeFontIds,
-  prewarmNativeFontsOnIdle,
-} from "@/core/fonts/nativeFontRegistry";
-import { getFontLoader } from "@/core/fonts/FontLoader";
 import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
 import { resolveTextClipStyleUpdate } from "@/lib/text/textClip";
+import { isTauriRuntime } from "@/lib/platform/tauri";
+import { getBundledNativeFontIds } from "@/core/fonts/nativeFontRegistry";
 
-// Extracted font list for maintainability
-const SYSTEM_FONTS = [
-  { value: "Arial", label: "Arial" },
-  { value: "Arial Black", label: "Arial Black" },
-  { value: "Arial Rounded MT Bold", label: "Arial Rounded MT Bold" },
-  { value: "Georgia", label: "Georgia" },
-  { value: "Times New Roman", label: "Times New Roman" },
-  { value: "Courier New", label: "Courier New" },
-  { value: "Impact", label: "Impact" },
-  { value: "Verdana", label: "Verdana" },
-  { value: "Trebuchet MS", label: "Trebuchet MS" },
-  { value: "Palatino", label: "Palatino" },
-];
+import { CAPTION_STYLE_KEYS } from "./data/textStyleData";
+import { TextBasicTab } from "./TextBasicTab";
+import { TextBubbleTab } from "./TextBubbleTab";
+import { TextTemplateOverlay } from "./TextTemplateOverlay";
 
-const GOOGLE_FONTS = [
-  { value: "Inter Variable", label: "Inter" },
-  { value: "Geist Variable", label: "Geist" },
-  { value: "Outfit Variable", label: "Outfit" },
-  { value: "Space Grotesk Variable", label: "Space Grotesk" },
-  { value: "Roboto Variable", label: "Roboto" },
-  { value: "Roboto Condensed", label: "Roboto Condensed" },
-  { value: "Open Sans", label: "Open Sans" },
-  { value: "Lato", label: "Lato" },
-  { value: "Montserrat Variable", label: "Montserrat" },
-  { value: "Raleway", label: "Raleway" },
-  { value: "Oswald", label: "Oswald" },
-  { value: "Playfair Display", label: "Playfair Display" },
-  { value: "Anton", label: "Anton" },
-  { value: "Bebas Neue", label: "Bebas Neue" },
-  { value: "Nunito", label: "Nunito" },
-  { value: "Poppins", label: "Poppins" },
-  { value: "Permanent Marker", label: "Permanent Marker" },
-  { value: "Bangers", label: "Bangers" },
-  { value: "Press Start 2P", label: "Press Start 2P" },
-  { value: "Dancing Script", label: "Dancing Script" },
-  { value: "Pacifico", label: "Pacifico" },
-];
+// Re-export shared font utilities so existing imports from this path keep
+// working (TemplateLayerEditor, any external consumers).
+export {
+  FONT_PICKER_OPTIONS,
+  resolveFontPickerValue,
+  SYSTEM_FONTS,
+  GOOGLE_FONTS,
+  COLOR_PALETTE,
+  SOLID_COLOR_SWATCHES,
+  FONT_WEIGHTS,
+} from "./data/fontData";
 
-export const FONT_PICKER_OPTIONS = [...SYSTEM_FONTS, ...GOOGLE_FONTS];
+// ---------------------------------------------------------------------------
+// TextContentEditor
+// ---------------------------------------------------------------------------
 
-/**
- * Keep the native select controlled even when older clips store a family
- * alias (for example "Dancing Script") while evaluation resolves it to the
- * Fontsource family ("Dancing Script Variable").
- */
-export function resolveFontPickerValue(family: string): string {
-  const rawFamily = family.trim();
-  const primaryFamily = rawFamily.split(",")[0].trim().replace(/^["']|["']$/g, "");
-  const normalizedFamily = normalizeFontFamily(rawFamily);
-  const normalizedPrimary = normalizeFontFamily(primaryFamily);
-  const normalizedBase = normalizedPrimary.replace(/\s+variable$/i, "");
-
-  return (
-    FONT_PICKER_OPTIONS.find(
-      (font) => font.value.toLowerCase() === rawFamily.toLowerCase(),
-    )?.value ??
-    FONT_PICKER_OPTIONS.find(
-      (font) => font.value.toLowerCase() === normalizedFamily.toLowerCase(),
-    )?.value ??
-    FONT_PICKER_OPTIONS.find(
-      (font) => font.label.toLowerCase() === normalizedFamily.toLowerCase(),
-    )?.value ??
-    FONT_PICKER_OPTIONS.find(
-      (font) => font.value.toLowerCase() === primaryFamily.toLowerCase(),
-    )?.value ??
-    FONT_PICKER_OPTIONS.find(
-      (font) => font.label.toLowerCase() === primaryFamily.toLowerCase(),
-    )?.value ??
-    FONT_PICKER_OPTIONS.find(
-      (font) => font.value.toLowerCase() === normalizedPrimary.toLowerCase(),
-    )?.value ??
-    FONT_PICKER_OPTIONS.find(
-      (font) => font.label.toLowerCase() === normalizedPrimary.toLowerCase(),
-    )?.value ??
-    FONT_PICKER_OPTIONS.find(
-      (font) => font.value.toLowerCase() === normalizedBase.toLowerCase(),
-    )?.value ??
-    FONT_PICKER_OPTIONS.find(
-      (font) => font.label.toLowerCase() === normalizedBase.toLowerCase(),
-    )?.value ??
-    normalizedFamily
-  );
+interface TextContentEditorProps {
+  value: string;
+  onChange: (value: string) => void;
+  mode: "plain" | "effect";
 }
 
-const COLOR_PALETTE = [
-  { label: "White", value: "#ffffff" },
-  { label: "Black", value: "#1a1a1a" },
-  { label: "Yellow", value: "#ffcc00" },
-  { label: "Red", value: "#ff3b30" },
-  { label: "Pink", value: "#ff2d55" },
-  { label: "Purple", value: "#af52de" },
-  { label: "Blue", value: "#007aff" },
-  { label: "Teal", value: "#00f0ff" },
-  { label: "Green", value: "#34c759" },
-  { label: "Gold", value: "#ffe066, #b38600" },
-  { label: "Sunset", value: "#ff3e00, #ff0077, #aa00ff" },
-  { label: "Ocean", value: "#00c8ff, #00ff66" },
-  { label: "Rainbow", value: "#ff007f, #aa00ff, #00c8ff, #00ff66" },
-];
+/**
+ * Keep text entry responsive while the timeline and preview catch up at RAF
+ * cadence. The timeline remains authoritative outside the focused editor,
+ * but React store renders must not replace a newer DOM input value while the
+ * user is typing.
+ */
+const TextContentEditor = React.memo<TextContentEditorProps>(
+  ({ value, onChange, mode }) => {
+    const [draft, setDraft] = useState(value);
+    const focusedRef = useRef(false);
 
-const FONT_WEIGHTS = [
-  { value: 100, label: "Thin" },
-  { value: 200, label: "Extra Light" },
-  { value: 300, label: "Light" },
-  { value: 400, label: "Regular" },
-  { value: 500, label: "Medium" },
-  { value: 600, label: "Semi Bold" },
-  { value: 700, label: "Bold" },
-  { value: 800, label: "Extra Bold" },
-  { value: 900, label: "Black" },
-];
+    useEffect(() => {
+      if (!focusedRef.current || value === draft) {
+        setDraft(value);
+      }
+    }, [value, draft]);
 
-const TEMPLATE_CATEGORIES = [
-  "lower-third",
-  "title-card",
-  "caption",
-  "callout",
-  "social",
-  "countdown",
-] as const;
+    return (
+      <textarea
+        value={draft}
+        onFocus={() => {
+          focusedRef.current = true;
+        }}
+        onBlur={() => {
+          focusedRef.current = false;
+          if (draft !== value) onChange(draft);
+        }}
+        onChange={(e) => {
+          const nextValue = e.target.value;
+          setDraft(nextValue);
+          onChange(nextValue);
+        }}
+        rows={3}
+        placeholder="Enter text..."
+        aria-label={`${mode === "effect" ? "Effect" : "Plain"} text content`}
+        className="w-full bg-[#161618] border border-[#2a2a2e] rounded-lg p-3 text-xs text-white placeholder-text-muted/40 outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/20 resize-none font-sans min-h-[84px] transition-colors"
+      />
+    );
+  },
+);
+
+// ---------------------------------------------------------------------------
+// TextStyleSectionProps
+// ---------------------------------------------------------------------------
 
 interface TextStyleSectionProps {
   textClip: TextClip;
@@ -175,55 +121,9 @@ interface TextStyleSectionProps {
   deletePreset: (id: string) => void;
 }
 
-interface TextContentEditorProps {
-  value: string;
-  onChange: (value: string) => void;
-  mode: "plain" | "effect";
-}
-
-/**
- * Keep text entry responsive while the timeline and preview catch up at RAF
- * cadence. The timeline remains authoritative outside the focused editor,
- * but React store renders must not replace a newer DOM input value while the
- * user is typing.
- */
-const TextContentEditor = React.memo<TextContentEditorProps>(
-  ({ value, onChange, mode }) => {
-    const [draft, setDraft] = React.useState(value);
-    const focusedRef = React.useRef(false);
-
-    React.useEffect(() => {
-      if (!focusedRef.current || value === draft) {
-        setDraft(value);
-      }
-    }, [value, draft]);
-
-    return (
-      <textarea
-        value={draft}
-        onFocus={() => {
-          focusedRef.current = true;
-        }}
-        onBlur={() => {
-          focusedRef.current = false;
-          // The parent normally commits through its debounce timer. This
-          // final notification also covers a blur that happens before the
-          // timer fires, without creating a second editor-side state.
-          if (draft !== value) onChange(draft);
-        }}
-        onChange={(event) => {
-          const nextValue = event.target.value;
-          setDraft(nextValue);
-          onChange(nextValue);
-        }}
-        rows={3}
-        placeholder="CLYPRA"
-        aria-label={`${mode === "effect" ? "Effect" : "Plain"} text content`}
-        className="w-full bg-surface-raised border border-border/60 rounded-lg p-2.5 text-xs text-text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 resize-none selectable transition-colors"
-      />
-    );
-  },
-);
+// ---------------------------------------------------------------------------
+// TextStyleSection
+// ---------------------------------------------------------------------------
 
 export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
   textClip,
@@ -238,23 +138,29 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
   savePreset,
   deletePreset,
 }) => {
-  const [applyToAll, setApplyToAll] = React.useState(false);
-  const [effectSearchQuery, setEffectSearchQuery] = React.useState("");
-  const [templateSearchQuery, setTemplateSearchQuery] = React.useState("");
-  const [templateCategory, setTemplateCategory] =
-    React.useState<string>("lower-third");
+  const [textSubTab, setTextSubTab] = useState<"basic" | "bubble">("basic");
+  const [applyToAll, setApplyToAll] = useState(false);
+
+  // Collapsible section state for the basic tab
+  const [alignExpanded, setAlignExpanded] = useState(false);
+  const [strokeExpanded, setStrokeExpanded] = useState(false);
+  const [shadowExpanded, setShadowExpanded] = useState(false);
+  const [backgroundExpanded, setBackgroundExpanded] = useState(false);
 
   const { templates } = useTemplateStore();
   const { definitions } = useEffectsStore();
+
   const templateDef =
     templates.find((t) => t.id === textClip.templateId) ??
     (textClip.templateDefinition as any) ??
     (textClip.templateSnapshot as any);
   const innerTemplate = templateDef
     ? templateDef.templateData || templateDef.lottieData || templateDef
-    : (textClip.templateSnapshot as any) ?? (textClip.templateDefinition as any) ?? null;
+    : ((textClip.templateSnapshot as any) ??
+      (textClip.templateDefinition as any) ??
+      null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (
       textClip.templateId &&
       templateDef &&
@@ -268,132 +174,54 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
   const effectFont = textClip.styleId
     ? definitions[textClip.styleId]?.font
     : undefined;
-  const activeEffectDefinition = textClip.styleId
-    ? definitions[textClip.styleId]
-    : textClip.styleDefinition;
 
-  // Determine current mode
   const mode = textClip.templateId
     ? "template"
     : textClip.styleId
       ? "effect"
       : "plain";
+
+  // ── Native font availability ─────────────────────────────────────────────
   const nativeDesktop = isTauriRuntime();
-  const nativeFontIds = React.useMemo(
-    () =>
-      new Set(getBundledNativeFontIds().map((fontId) => fontId.toLowerCase())),
+  const nativeFontIds = useMemo(
+    () => new Set(getBundledNativeFontIds().map((id) => id.toLowerCase())),
     [],
   );
   const requestedFont =
     textClip.fontFamily || effectFont?.family || "Inter Variable";
   const resolvedFont = normalizeFontFamily(requestedFont);
-  const selectedFont = resolveFontPickerValue(requestedFont);
-  const selectedFontIsUnavailableNatively =
-    nativeDesktop && !nativeFontIds.has(resolvedFont.toLowerCase());
 
-  // Missing-font badge: shown when the font is not in the bundled registry at all.
-  const isMissingFont = selectedFontIsUnavailableNatively;
+  // ── Effective style values (clip overrides effect font defaults) ──────────
+  const effectiveFontWeight = textClip.fontWeight ?? effectFont?.weight;
+  const parsedWeight =
+    typeof effectiveFontWeight === "number"
+      ? effectiveFontWeight
+      : Number(effectiveFontWeight);
+  const currentWeight = Number.isFinite(parsedWeight)
+    ? Math.min(900, Math.max(100, parsedWeight))
+    : effectiveFontWeight === "bold"
+      ? 700
+      : 400;
+  const effectiveFontStyle =
+    textClip.fontStyle || effectFont?.style || "normal";
+  const effectiveLetterSpacing =
+    textClip.letterSpacing ?? effectFont?.letterSpacing ?? 0;
+  const effectiveLineHeight =
+    textClip.lineHeight ?? effectFont?.lineHeight ?? 1.2;
 
-  // RTL/BiDi detection: warn when clip text contains right-to-left characters.
-  // Covers Hebrew, Arabic, Thaana, Syriac, extended Arabic, Arabic Presentation Forms.
-  const hasBidiText = React.useMemo(() => {
-    const text = textClip.text ?? "";
-    return /[\u0590-\u083F]|[\u08A0-\u08FF]|[\uFB1D-\uFDFF]|[\uFE70-\uFEFC]/.test(text);
-  }, [textClip.text]);
+  // ── Text canvas budget check ──────────────────────────────────────────────
+  const isTextExceedingMaxDimension = useMemo(() => {
+    const text = textClip.text || "";
+    if (!text) return false;
+    const fontSize = textClip.fontSize || 32;
+    const letterSpacing = textClip.letterSpacing || 0;
+    const lines = text.split("\n");
+    const maxLineChars = Math.max(...lines.map((l) => l.length), 0);
+    const estimatedMaxLinePx = maxLineChars * (fontSize * 0.7 + letterSpacing);
+    return estimatedMaxLinePx > 8192;
+  }, [textClip.text, textClip.fontSize, textClip.letterSpacing]);
 
-  // Styling properties to batch-update across all caption clips on the same track
-  const CAPTION_STYLE_KEYS = [
-    "fontFamily",
-    "fontSize",
-    "color",
-    "fontWeight",
-    "fontStyle",
-    "textTransform",
-    "stroke",
-    "shadow",
-    "background",
-    "lineHeight",
-    "letterSpacing",
-    "align",
-    "valign",
-    "styleId",
-    "styleVersion",
-    "styleRevisionId",
-    "styleContentHash",
-    "styleSnapshot",
-    "styleDefinition",
-    "templateId",
-    "templateSnapshot",
-  ];
-
-  const handleUpdate = (key: string, value: any) => {
-    if (
-      applyToAll &&
-      textClip.textRole === "caption" &&
-      CAPTION_STYLE_KEYS.includes(key)
-    ) {
-      const { clips } = useTimelineStore.getState();
-      const trackCaptions = clips.filter(
-        (c) =>
-          c.trackId === textClip.trackId && (c as any).textRole === "caption",
-      );
-
-      const history = useHistoryStore.getState();
-      history.beginTransaction("Apply Caption Style to All");
-      try {
-        (handleUpdateImmediate ?? originalHandleUpdate)(key, value);
-        trackCaptions.forEach((c) => {
-          if (c.id !== textClip.id) {
-            executeCaptionStyleUpdate(c as TextClip, { [key]: value });
-          }
-        });
-        history.commitTransaction();
-      } catch (error) {
-        history.rollbackTransaction();
-        throw error;
-      }
-    } else {
-      originalHandleUpdate(key, value);
-    }
-  };
-
-  const handleUpdateMultiple = (fields: Record<string, any>) => {
-    const hasStyleField = Object.keys(fields).some((k) =>
-      CAPTION_STYLE_KEYS.includes(k),
-    );
-    if (applyToAll && textClip.textRole === "caption" && hasStyleField) {
-      const { clips } = useTimelineStore.getState();
-      const trackCaptions = clips.filter(
-        (c) =>
-          c.trackId === textClip.trackId && (c as any).textRole === "caption",
-      );
-
-      const styleFields: Record<string, any> = {};
-      Object.entries(fields).forEach(([k, v]) => {
-        if (CAPTION_STYLE_KEYS.includes(k)) {
-          styleFields[k] = v;
-        }
-      });
-
-      const history = useHistoryStore.getState();
-      history.beginTransaction("Apply Caption Style to All");
-      try {
-        (handleUpdateMultipleImmediate ?? originalHandleUpdateMultiple)(fields);
-        trackCaptions.forEach((c) => {
-          if (c.id !== textClip.id) {
-            executeCaptionStyleUpdate(c as TextClip, styleFields);
-          }
-        });
-        history.commitTransaction();
-      } catch (error) {
-        history.rollbackTransaction();
-        throw error;
-      }
-    } else {
-      originalHandleUpdateMultiple(fields);
-    }
-  };
-
+  // ── Caption apply-to-all transaction helpers ─────────────────────────────
   function executeCaptionStyleUpdate(
     clip: TextClip,
     updates: Record<string, any>,
@@ -415,194 +243,82 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
       );
   }
 
-  const customization = textClip.customization || {
-    primaryText: textClip.text || "",
-    secondaryText: "",
-    accentText: "",
-    primaryColor: "#ffffff",
-    secondaryColor: "#ffffff",
-    layerColors: {},
-    layerTexts: {},
-    layerFontSizes: {},
-    layerFontWeights: {},
-  };
-
-  const handleSwitchMode = (newMode: "plain" | "effect" | "template") => {
-    const currentMode = mode;
-    if (currentMode === newMode) return;
-
-    if (currentMode === "template") {
-      const confirmText =
-        "Switching to another mode will discard your template layout customizations. Do you want to proceed?";
-      if (!window.confirm(confirmText)) return;
-    } else if (currentMode === "effect" && newMode === "template") {
-      const confirmText =
-        "Switching to template mode will discard your text style settings. Do you want to proceed?";
-      if (!window.confirm(confirmText)) return;
-    }
-
-    if (newMode === "plain") {
-      const textContent = textClip.templateId
-        ? (customization.layerTexts?.[
-            innerTemplate?.layers?.find((l: any) => l.kind === "text")?.id || ""
-          ] ??
-          customization.primaryText ??
-          textClip.text ??
-          "")
-        : textClip.text;
-
-      handleUpdateMultiple({
-        templateId: undefined,
-        styleId: undefined,
-        styleDefinition: undefined,
-        customization: undefined,
-        text: textContent,
-      });
-    } else if (newMode === "effect") {
-      const textContent = textClip.templateId
-        ? (customization.layerTexts?.[
-            innerTemplate?.layers?.find((l: any) => l.kind === "text")?.id || ""
-          ] ??
-          customization.primaryText ??
-          textClip.text ??
-          "")
-        : textClip.text;
-
-      handleUpdateMultiple({
-        templateId: undefined,
-        customization: undefined,
-        text: textContent,
-      });
-    } else if (newMode === "template") {
-      handleUpdateMultiple({
-        styleId: undefined,
-        styleDefinition: undefined,
-      });
+  const handleUpdate = (key: string, value: any) => {
+    if (
+      applyToAll &&
+      textClip.textRole === "caption" &&
+      CAPTION_STYLE_KEYS.includes(key)
+    ) {
+      const { clips } = useTimelineStore.getState();
+      const trackCaptions = clips.filter(
+        (c) =>
+          c.trackId === textClip.trackId && (c as any).textRole === "caption",
+      );
+      const history = useHistoryStore.getState();
+      history.beginTransaction("Apply Caption Style to All");
+      try {
+        (handleUpdateImmediate ?? originalHandleUpdate)(key, value);
+        trackCaptions.forEach((c) => {
+          if (c.id !== textClip.id)
+            executeCaptionStyleUpdate(c as TextClip, { [key]: value });
+        });
+        history.commitTransaction();
+      } catch (error) {
+        history.rollbackTransaction();
+        throw error;
+      }
+    } else {
+      originalHandleUpdate(key, value);
     }
   };
 
+  const handleUpdateMultiple = (fields: Record<string, any>) => {
+    const hasStyleField = Object.keys(fields).some((k) =>
+      CAPTION_STYLE_KEYS.includes(k),
+    );
+    if (applyToAll && textClip.textRole === "caption" && hasStyleField) {
+      const { clips } = useTimelineStore.getState();
+      const trackCaptions = clips.filter(
+        (c) =>
+          c.trackId === textClip.trackId && (c as any).textRole === "caption",
+      );
+      const styleFields: Record<string, any> = {};
+      Object.entries(fields).forEach(([k, v]) => {
+        if (CAPTION_STYLE_KEYS.includes(k)) styleFields[k] = v;
+      });
+      const history = useHistoryStore.getState();
+      history.beginTransaction("Apply Caption Style to All");
+      try {
+        (handleUpdateMultipleImmediate ?? originalHandleUpdateMultiple)(fields);
+        trackCaptions.forEach((c) => {
+          if (c.id !== textClip.id)
+            executeCaptionStyleUpdate(c as TextClip, styleFields);
+        });
+        history.commitTransaction();
+      } catch (error) {
+        history.rollbackTransaction();
+        throw error;
+      }
+    } else {
+      originalHandleUpdateMultiple(fields);
+    }
+  };
+
+  // ── Effect / template detach ──────────────────────────────────────────────
   const handleDetachTemplate = () => {
-    handleSwitchMode("plain");
-  };
-
-  const handleDetachEffect = () => {
     handleUpdateMultiple({
+      templateId: undefined,
       styleId: undefined,
       styleDefinition: undefined,
+      customization: undefined,
+      text: textClip.text || "",
     });
   };
 
-  const handleApplyTemplate = (templateItem: any) => {
-    handleUpdateMultiple({
-      templateId: templateItem.id,
-      // An empty text value is an intentional user value. Do not replace it
-      // with a template placeholder while switching modes.
-      text: textClip.text ?? "",
-      customization: {
-        primaryText: textClip.text ?? "",
-        secondaryText: "Subtitle",
-        accentText: "Accent",
-        primaryColor: "#ffffff",
-        secondaryColor: "#ffffff",
-        layerColors: {},
-        layerTexts: {},
-        layerFontSizes: {},
-        layerFontWeights: {},
-      },
-    });
-  };
-
-  // Quick switch text effects
-  const applyEffectPreset = (effect: TextEffectDefinition) => {
-    handleUpdateMultiple({
-      styleId: effect.id,
-      fontFamily: effect.font.family,
-      color: effect.fills?.[0]?.color,
-      fontWeight: effect.font.weight,
-      fontStyle: effect.font.style,
-      stroke: effect.strokes?.[0]
-        ? { color: effect.strokes[0].color, width: effect.strokes[0].width }
-        : undefined,
-      shadow: effect.shadows?.[0]
-        ? {
-            color: effect.shadows[0].color,
-            blur: effect.shadows[0].blur,
-            offsetX: effect.shadows[0].offsetX ?? 0,
-            offsetY: effect.shadows[0].offsetY ?? 0,
-          }
-        : undefined,
-      background: effect.panel
-        ? {
-            color: effect.panel.color || "rgba(0,0,0,0.6)",
-            padding:
-              effect.panel.paddingX !== undefined ? effect.panel.paddingX : 12,
-            borderRadius:
-              effect.panel.radius !== undefined ? effect.panel.radius : 6,
-          }
-        : undefined,
-    });
-  };
-
-  // Resolve current font weight to a numeric value for the slider
-  const effectiveFontWeight = textClip.fontWeight ?? effectFont?.weight;
-  const parsedWeight =
-    typeof effectiveFontWeight === "number"
-      ? effectiveFontWeight
-      : Number(effectiveFontWeight);
-  const currentWeight = Number.isFinite(parsedWeight)
-    ? Math.min(900, Math.max(100, parsedWeight))
-    : effectiveFontWeight === "bold"
-      ? 700
-      : 400;
-  const weightLabel =
-    FONT_WEIGHTS.find((w) => w.value === currentWeight)?.label || "Regular";
-  const effectiveFontStyle =
-    textClip.fontStyle || effectFont?.style || "normal";
-  const effectiveLetterSpacing =
-    textClip.letterSpacing ?? effectFont?.letterSpacing ?? 0;
-  const effectiveLineHeight =
-    textClip.lineHeight ?? effectFont?.lineHeight ?? 1.2;
-
-  /**
-   * Stroke/shadow/background are not exposed in the effect-mode UI — those
-   * controls are hidden so users cannot accidentally create a conflicting state.
-   * The EffectStylePanel isModified badge is kept for future use but is always
-   * false now that no geometry-override controls are shown in effect mode.
-   */
-  const isEffectGeometryModified = false;
-
-  /**
-   * Triggered on font-picker focus / pointer-enter.
-   * Prewarms all remaining bundled fonts in the background so the user sees
-   * instant preview switching when browsing the list. The idle scheduler
-   * ensures this never competes with active playback or timeline operations.
-   */
-  const handleFontPickerPrewarm = React.useCallback(() => {
-    getFontLoader().prewarmRemainingFontsOnIdle();
-    prewarmNativeFontsOnIdle();
-  }, []);
-
-  /**
-   * Typography controls in effect mode.
-   *
-   * Font family, size, weight, style, color, letter-spacing, and line-height
-   * are per-clip overrides that the effect renderer applies ON TOP of the
-   * effect scene — changing them keeps the visual effect intact.
-   *
-   * Only stroke, shadow, and background genuinely conflict with effect
-   * ownership (the effect defines its own geometry for those). Touching any
-   * of those three detaches the clip from the effect preset so the user's
-   * values take full control.
-   *
-   * Templates are self-contained; this path is never reached in template mode
-   * (the typography section is hidden for templates).
-   */
+  // ── handleCustomStyleUpdate — detaches effect when overriding visual fields ─
   const EFFECT_DETACH_KEYS = new Set(["stroke", "shadow", "background"]);
-
   const handleCustomStyleUpdate = (key: string, value: any) => {
     const updates: Record<string, any> = { [key]: value };
-    // Only clear the effect link for properties that genuinely conflict with
-    // the effect's own geometry. Font, size, color, spacing are safe overrides.
     if (textClip.styleId && key !== "styleId" && EFFECT_DETACH_KEYS.has(key)) {
       updates.styleId = undefined;
       updates.styleDefinition = undefined;
@@ -610,810 +326,87 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
     handleUpdateMultiple(updates);
   };
 
-  // Gradient helper states & functions
-  const isGradient = (textClip.color || "").includes(",");
-  const gradientPresets = [
-    "#ffe066, #b38600",
-    "#ff3e00, #ff0077, #aa00ff",
-    "#ff007f, #aa00ff, #00c8ff, #00ff66",
-  ];
-  const isPresetGradient = gradientPresets.includes(textClip.color);
-
-  const getStops = () => {
-    if (!isGradient) return ["#ffffff", "#000000"];
-    return textClip.color.split(",").map((s) => s.trim());
-  };
-
-  const handleStopChange = (index: number, newColor: string) => {
-    const stops = getStops();
-    stops[index] = newColor;
-    handleCustomStyleUpdate("color", stops.join(", "));
-  };
-
-  const handleAddStop = () => {
-    const stops = getStops();
-    if (stops.length >= 4) return;
-    stops.push("#ffffff");
-    handleCustomStyleUpdate("color", stops.join(", "));
-  };
-
-  const handleRemoveStop = (index: number) => {
-    const stops = getStops();
-    if (stops.length <= 2) return;
-    stops.splice(index, 1);
-    handleCustomStyleUpdate("color", stops.join(", "));
-  };
-
-  // Filtered lists for the preset grids
-  const allCachedEffects = Object.values(definitions);
-  const filteredEffects = allCachedEffects.filter((effect) =>
-    effect.name.toLowerCase().includes(effectSearchQuery.toLowerCase()),
-  );
-
-  const filteredTemplates = templates.filter((t) => {
-    const matchesCat = t.category === templateCategory;
-    const matchesSearch = (t.name || t.label || "")
-      .toLowerCase()
-      .includes(templateSearchQuery.toLowerCase());
-    return matchesCat && matchesSearch;
-  });
-
-  const isTextExceedingMaxDimension = React.useMemo(() => {
-    const text = textClip.text || "";
-    if (!text) return false;
-    const fontSize = textClip.fontSize || 32;
-    const letterSpacing = textClip.letterSpacing || 0;
-    const lines = text.split("\n");
-    const maxLineChars = Math.max(...lines.map((l) => l.length), 0);
-    const estimatedMaxLinePx = maxLineChars * (fontSize * 0.7 + letterSpacing);
-    return estimatedMaxLinePx > 8192;
-  }, [textClip.text, textClip.fontSize, textClip.letterSpacing]);
-
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-3">
-      {/* Section A: Content Section */}
-      {mode === "template" && (
-        <div className="space-y-3 p-3 bg-surface-raised/20 border border-border/40 rounded-xl">
-          {templateDef ? (
-            <>
-              <div className="flex items-center justify-between mb-1 select-none">
-                <span className="text-[10px] font-bold text-amber-500 uppercase tracking-wider block">
-                  Active Template: {templateDef.label || templateDef.name}
-                </span>
-                <button
-                  onClick={handleDetachTemplate}
-                  className="text-[9px] font-semibold text-red-400 hover:text-red-300 transition-colors"
-                >
-                  Detach Template
-                </button>
-              </div>
-              <TemplateLayerEditor
-                template={innerTemplate!}
-                customization={customization}
-                onChange={(nextCust) => {
-                  const resolvedArtifact = resolveTextTemplateArtifact(innerTemplate);
-                  const firstNodeId =
-                    resolvedArtifact?.document?.nodes?.find(
-                      (n: any) => n.type === "text",
-                    )?.id ||
-                    innerTemplate?.layers?.find(
-                      (l: any) => l.kind === "text",
-                    )?.id ||
-                    "";
-                  const primaryTextVal =
-                    nextCust.layerTexts?.[firstNodeId] ??
-                    nextCust.primaryText ??
-                    textClip.text;
-                  const primaryFontVal =
-                    nextCust.layerFontFamilies?.[firstNodeId] ??
-                    nextCust.primaryFontFamily ??
-                    textClip.fontFamily;
-                  const primaryColorVal =
-                    nextCust.layerColors?.[firstNodeId] ??
-                    nextCust.primaryColor ??
-                    textClip.color;
-
-                  // Build templateControlValues to ensure engine compiler and worker receive all overrides
-                  const existingControlValues = textClip.templateControlValues || {};
-                  const nextControlValues: Record<string, unknown> = { ...existingControlValues };
-
-                  if (nextCust.layerTexts) {
-                    for (const [nodeId, txt] of Object.entries(nextCust.layerTexts)) {
-                      nextControlValues[`text-${nodeId}`] = txt;
-                    }
-                  }
-                  if (nextCust.layerFontFamilies) {
-                    for (const [nodeId, font] of Object.entries(nextCust.layerFontFamilies)) {
-                      nextControlValues[`font-${nodeId}`] = font;
-                    }
-                  }
-                  if (nextCust.layerColors) {
-                    for (const [nodeId, col] of Object.entries(nextCust.layerColors)) {
-                      nextControlValues[`color-${nodeId}`] = col;
-                    }
-                  }
-
-                  handleUpdateMultiple({
-                    customization: nextCust,
-                    templateControlValues: nextControlValues,
-                    text: primaryTextVal,
-                    fontFamily: primaryFontVal,
-                    color: primaryColorVal,
-                  });
-                }}
-              />
-            </>
-          ) : (
-            <div className="text-center py-4 select-none">
-              <p className="text-xs text-text-muted mb-2">
-                No template active.
-              </p>
-              <p className="text-[10px] text-zinc-500">
-                Select a template from the gallery below to apply it.
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {mode === "effect" && activeEffectDefinition && (
-        <div className="space-y-3">
-          <EffectStylePanel
-            effectId={textClip.styleId || "custom"}
-            effectDefinition={activeEffectDefinition}
-            onDetach={handleDetachEffect}
-            onChangeEffect={() => {
-              const el = document.getElementById("quick-presets-section");
-              el?.scrollIntoView({ behavior: "smooth" });
-            }}
-            isModified={isEffectGeometryModified}
-          />
-          <div>
-            <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider block mb-1.5 select-none">
-              Text Content
-            </label>
-            <TextContentEditor
-              key={`${textClip.id}-effect-content`}
-              value={textClip.text || ""}
-              onChange={(value) => handleUpdate("text", value)}
-              mode="effect"
-            />
-            {isTextExceedingMaxDimension && (
-              <div className="mt-1.5 flex items-start gap-1.5 p-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] leading-tight">
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                <span>Text exceeds 8192px canvas budget and was clamped.</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {mode === "plain" && (
-        <div>
-          <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider block mb-1.5 select-none">
-            Text Content
-          </label>
-          <TextContentEditor
-            key={`${textClip.id}-plain-content`}
-            value={textClip.text || ""}
-            onChange={(value) => handleUpdate("text", value)}
-            mode="plain"
-          />
-          {isTextExceedingMaxDimension && (
-            <div className="mt-1.5 flex items-start gap-1.5 p-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] leading-tight">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-              <span>Text exceeds 8192px canvas budget and was clamped.</span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Section C: Typography (Plain & Effect mode only) */}
-      {mode !== "template" && (
-        <div className="space-y-3">
-          {/* Font Family */}
-          <div>
-            <label className="text-[10px] font-medium text-text-muted block mb-1 select-none">
-              Font Family
-            </label>
-            <select
-              value={selectedFont}
-              onChange={(e) =>
-                handleCustomStyleUpdate("fontFamily", e.target.value)
-              }
-              onFocus={handleFontPickerPrewarm}
-              onPointerEnter={handleFontPickerPrewarm}
-              className="w-full bg-surface-raised border border-border/60 rounded-md px-2.5 py-1.5 text-xs text-text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23888%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-no-repeat bg-[right_8px_center] pr-7"
+    <div className="space-y-1.5 select-none text-white relative p-2 pt-0">
+      {/* Sticky header: sub-tab switcher + textarea */}
+      <div className="bg-(--color-gray-900) pt-2 sticky top-0 z-10 space-y-1.5">
+        <div className="bg-panel p-0.5 rounded-sm flex gap-1 border border-white/5">
+          {(["basic", "bubble"] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setTextSubTab(tab)}
+              className={`flex-1 py-0.5 text-xs rounded-sm transition-all cursor-pointer text-center capitalize ${
+                textSubTab === tab
+                  ? "bg-[#38383e] text-white shadow-sm font-semibold"
+                  : "text-[#8e8e93] hover:text-white"
+              }`}
             >
-              {!nativeDesktop && (
-                <optgroup label="System Fonts">
-                  {SYSTEM_FONTS.map((f) => (
-                    <option key={f.value} value={f.value}>
-                      {f.label}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              <optgroup
-                label={nativeDesktop ? "Native Fonts" : "Google Web Fonts"}
-              >
-                {selectedFontIsUnavailableNatively && (
-                  <option value={selectedFont} disabled>
-                    {selectedFont} (not supported by native preview)
-                  </option>
-                )}
-                {GOOGLE_FONTS.filter(
-                  (font) =>
-                    !nativeDesktop ||
-                    nativeFontIds.has(font.value.toLowerCase()),
-                ).map((f) => (
-                  <option key={f.value} value={f.value}>
-                    {f.label}
-                  </option>
-                ))}
-              </optgroup>
-            </select>
-            {nativeDesktop && (
-              <p className="mt-1 text-[10px] text-text-muted">
-                Desktop preview supports the bundled native fonts shown here.
-              </p>
-            )}
-            {isMissingFont && (
-              <div className="mt-1.5 flex items-start gap-1.5 p-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] leading-tight">
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                <span>
-                  <strong>&quot;{requestedFont}&quot;</strong> is not available
-                  in the native renderer. A context-aware fallback will be used.
-                </span>
-              </div>
-            )}
-            {hasBidiText && (
-              <div className="mt-1.5 flex items-start gap-1.5 p-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] leading-tight">
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                <span>
-                  This clip contains right-to-left text. Ensure the selected font supports the script.
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Font Size */}
-          <PropertySlider
-            label="Font Size"
-            value={textClip.fontSize || 48}
-            min={10}
-            max={1000}
-            step={1}
-            suffix="px"
-            onChange={(v) => handleCustomStyleUpdate("fontSize", v)}
-          />
-
-          {/* Font Weight — hidden for effects (effect design defines its own weight) */}
-          {mode !== "effect" && (
-            <div>
-              <div className="flex justify-between items-center text-[10px] text-text-muted mb-1 select-none">
-                <span>Font Weight</span>
-                <span className="text-text-primary font-medium">
-                  {weightLabel} ({currentWeight})
-                </span>
-              </div>
-              <input
-                type="range"
-                min={100}
-                max={900}
-                step={100}
-                value={currentWeight}
-                onChange={(e) =>
-                  handleCustomStyleUpdate("fontWeight", Number(e.target.value))
-                }
-                className="w-full h-1.5 rounded-full appearance-none outline-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(var(--color-accent-raw),0.35)] [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
-                style={{
-                  background: `linear-gradient(to right, var(--color-accent) 0%, var(--color-accent) ${((currentWeight - 100) / 800) * 100}%, var(--color-border) ${((currentWeight - 100) / 800) * 100}%, var(--color-border) 100%)`,
-                }}
-              />
-            </div>
-          )}
-
-          {/* Font Style + Alignment */}
-          <div className="grid grid-cols-2 gap-3">
-            {/* Italic toggle — hidden for effects (effect design defines its own style) */}
-            {mode !== "effect" ? (
-              <div className="space-y-1">
-                <label className="text-[9px] text-text-muted block select-none">
-                  Style
-                </label>
-                <button
-                  onClick={() =>
-                    handleCustomStyleUpdate(
-                      "fontStyle",
-                      effectiveFontStyle === "italic" ? "normal" : "italic",
-                    )
-                  }
-                  className={`w-full py-1.5 rounded-md text-xs italic font-medium transition-all cursor-pointer border ${effectiveFontStyle === "italic" ? "bg-accent/15 text-accent border-accent/30" : "bg-surface-raised text-text-muted border-border/60 hover:text-text-primary hover:bg-white/[0.06]"}`}
-                >
-                  Italic
-                </button>
-              </div>
-            ) : (
-              <div /> /* empty cell to keep alignment in the same column */
-            )}
-
-            <div className="space-y-1">
-              <label className="text-[9px] text-text-muted block select-none">
-                Horizontal Align
-              </label>
-              <div className="flex gap-0.5 bg-surface-raised border border-border/60 p-0.5 rounded-md">
-                {(
-                  [
-                    ["left", AlignLeft],
-                    ["center", AlignCenter],
-                    ["right", AlignRight],
-                  ] as const
-                ).map(([align, Icon]) => (
-                  <button
-                    key={align}
-                    onClick={() => handleUpdate("align", align)}
-                    className={`flex-1 py-1.5 rounded flex items-center justify-center transition-all cursor-pointer ${(textClip.align || "center") === align ? "bg-accent text-white" : "text-text-muted hover:text-text-primary"}`}
-                  >
-                    <Icon className="w-3.5 h-3.5" />
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Vertical align + letter spacing */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="text-[9px] text-text-muted block select-none">
-                Vertical Align
-              </label>
-              <div className="flex gap-0.5 bg-surface-raised border border-border/60 p-0.5 rounded-md">
-                {(
-                  [
-                    ["top", AlignStartVertical],
-                    ["middle", AlignCenterVertical],
-                    ["bottom", AlignEndVertical],
-                  ] as const
-                ).map(([valign, Icon]) => (
-                  <button
-                    key={valign}
-                    onClick={() => handleUpdate("valign", valign)}
-                    className={`flex-1 py-1.5 rounded flex items-center justify-center transition-all cursor-pointer ${(textClip.valign || "middle") === valign ? "bg-accent text-white" : "text-text-muted hover:text-text-primary"}`}
-                  >
-                    <Icon className="w-3.5 h-3.5" />
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[9px] text-text-muted block select-none">
-                Letter Spacing
-              </label>
-              <input
-                type="number"
-                value={effectiveLetterSpacing}
-                onChange={(e) =>
-                  handleCustomStyleUpdate(
-                    "letterSpacing",
-                    Number(e.target.value),
-                  )
-                }
-                className="w-full bg-surface-raised border border-border/60 rounded-md py-1.5 px-2 text-center text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
-              />
-            </div>
-          </div>
-
-          {/* Line Height */}
-          <PropertySlider
-            label="Line Height"
-            value={effectiveLineHeight}
-            min={0.5}
-            max={3.0}
-            step={0.1}
-            onChange={(v) => handleCustomStyleUpdate("lineHeight", v)}
-          />
-
-          {/* Text Color, Stroke, Shadow, Background — hidden for effects and templates */}
-          {mode === "plain" && (
-            <>
-              <div className="space-y-2 pt-3 border-t border-border/30">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-medium text-text-primary select-none">
-                  Text Color
-                </span>
-                <div className="flex items-center gap-2">
-                  <ClypraColorPicker
-                    value={isGradient ? "#ffffff" : textClip.color || "#ffffff"}
-                    onChange={(c: string) =>
-                      handleCustomStyleUpdate("color", c)
-                    }
-                    format="hex"
-                    availableModes={["solid", "wheel"]}
-                    presetColors={COLOR_PALETTE.filter(
-                      (p) => !p.value.includes(","),
-                    ).map((p) => p.value)}
-                    showAlpha={true}
-                    size="sm"
-                    triggerClassName="w-28 h-8 min-w-0 overflow-hidden bg-surface-raised border-border/60 hover:border-border shrink-0 [&>div]:min-w-0 [&>div]:max-w-full [&>div]:overflow-hidden [&>div>span]:min-w-0 [&>div>span]:truncate [&>div>span]:whitespace-nowrap"
-                    popoverClassName="z-[100]"
-                  />
-                </div>
-              </div>
-              {isGradient && !isPresetGradient && (
-                <div className="space-y-2 p-2.5 bg-zinc-950/40 border border-zinc-800 rounded-lg select-none">
-                  <div className="flex justify-between items-center text-[10px] text-zinc-400 mb-1">
-                    <span>Gradient Stops</span>
-                    {getStops().length < 4 && (
-                      <button
-                        onClick={handleAddStop}
-                        className="text-[10px] text-accent hover:underline cursor-pointer"
-                      >
-                        + Add Stop
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-2.5">
-                    {getStops().map((stopColor, idx) => (
-                      <div key={idx} className="flex items-center gap-1">
-                        <ClypraColorPicker
-                          value={stopColor}
-                          onChange={(c: string) => handleStopChange(idx, c)}
-                          format="hex"
-                          availableModes={["solid", "wheel"]}
-                          showAlpha={true}
-                          size="sm"
-                          triggerClassName="w-20 h-7 bg-surface-raised border-border/60 hover:border-border shrink-0"
-                          popoverClassName="z-[100]"
-                        />
-                        {getStops().length > 2 && (
-                          <button
-                            onClick={() => handleRemoveStop(idx)}
-                            className="text-[10px] text-destructive hover:underline cursor-pointer font-bold px-1"
-                          >
-                            &times;
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Text Stroke */}
-            <div className="space-y-2 pt-3 border-t border-border/30">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-medium text-text-primary select-none">
-                  Stroke
-                </span>
-                <div className="flex items-center gap-2">
-                  {textClip.stroke && (
-                    <ClypraColorPicker
-                      value={textClip.stroke.color || "#000000"}
-                      onChange={(c: string) =>
-                        handleCustomStyleUpdate("stroke", {
-                          color: c,
-                          width: textClip.stroke?.width ?? 2,
-                        })
-                      }
-                      format="hex"
-                      availableModes={["solid", "wheel"]}
-                      presetColors={COLOR_PALETTE.filter(
-                        (p) => !p.value.includes(","),
-                      ).map((p) => p.value)}
-                      showAlpha={true}
-                      size="sm"
-                      triggerClassName="w-20 h-7 min-w-0 overflow-hidden bg-surface-raised border-border/60 hover:border-border shrink-0"
-                      popoverClassName="z-[100]"
-                    />
-                  )}
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(
-                        textClip.stroke && (textClip.stroke.width ?? 0) > 0,
-                      )}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          handleCustomStyleUpdate("stroke", {
-                            color: "#000000",
-                            width: 2,
-                          });
-                        } else {
-                          handleCustomStyleUpdate("stroke", undefined);
-                        }
-                      }}
-                      className="sr-only peer"
-                    />
-                    <div className="w-7 h-3.5 bg-surface-raised border border-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-3.5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-accent" />
-                  </label>
-                </div>
-              </div>
-              {textClip.stroke && (
-                <div className="pt-1">
-                  <PropertySlider
-                    label="Stroke Width"
-                    value={textClip.stroke.width ?? 2}
-                    min={1}
-                    max={30}
-                    step={1}
-                    suffix="px"
-                    onChange={(v) =>
-                      handleCustomStyleUpdate("stroke", {
-                        color: textClip.stroke?.color ?? "#000000",
-                        width: v,
-                      })
-                    }
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Drop Shadow */}
-            <div className="space-y-2 pt-3 border-t border-border/30">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-medium text-text-primary select-none">
-                  Shadow
-                </span>
-                <div className="flex items-center gap-2">
-                  {textClip.shadow && (
-                    <ClypraColorPicker
-                      value={textClip.shadow.color || "rgba(0,0,0,0.75)"}
-                      onChange={(c: string) =>
-                        handleCustomStyleUpdate("shadow", {
-                          color: c,
-                          blur: textClip.shadow?.blur ?? 4,
-                          offsetX: textClip.shadow?.offsetX ?? 2,
-                          offsetY: textClip.shadow?.offsetY ?? 2,
-                        })
-                      }
-                      format="hex"
-                      availableModes={["solid", "wheel"]}
-                      presetColors={COLOR_PALETTE.filter(
-                        (p) => !p.value.includes(","),
-                      ).map((p) => p.value)}
-                      showAlpha={true}
-                      size="sm"
-                      triggerClassName="w-20 h-7 min-w-0 overflow-hidden bg-surface-raised border-border/60 hover:border-border shrink-0"
-                      popoverClassName="z-[100]"
-                    />
-                  )}
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(textClip.shadow)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          handleCustomStyleUpdate("shadow", {
-                            color: "rgba(0, 0, 0, 0.75)",
-                            blur: 4,
-                            offsetX: 2,
-                            offsetY: 2,
-                          });
-                        } else {
-                          handleCustomStyleUpdate("shadow", undefined);
-                        }
-                      }}
-                      className="sr-only peer"
-                    />
-                    <div className="w-7 h-3.5 bg-surface-raised border border-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-3.5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-accent" />
-                  </label>
-                </div>
-              </div>
-              {textClip.shadow && (
-                <div className="space-y-2 pt-1">
-                  <PropertySlider
-                    label="Blur"
-                    value={textClip.shadow.blur ?? 4}
-                    min={0}
-                    max={60}
-                    step={1}
-                    suffix="px"
-                    onChange={(v) =>
-                      handleCustomStyleUpdate("shadow", {
-                        color: textClip.shadow?.color ?? "rgba(0, 0, 0, 0.75)",
-                        blur: v,
-                        offsetX: textClip.shadow?.offsetX ?? 2,
-                        offsetY: textClip.shadow?.offsetY ?? 2,
-                      })
-                    }
-                  />
-                  <div className="grid grid-cols-2 gap-2">
-                    <PropertySlider
-                      label="Offset X"
-                      value={textClip.shadow.offsetX ?? 2}
-                      min={-50}
-                      max={50}
-                      step={1}
-                      suffix="px"
-                      onChange={(v) =>
-                        handleCustomStyleUpdate("shadow", {
-                          color:
-                            textClip.shadow?.color ?? "rgba(0, 0, 0, 0.75)",
-                          blur: textClip.shadow?.blur ?? 4,
-                          offsetX: v,
-                          offsetY: textClip.shadow?.offsetY ?? 2,
-                        })
-                      }
-                    />
-                    <PropertySlider
-                      label="Offset Y"
-                      value={textClip.shadow.offsetY ?? 2}
-                      min={-50}
-                      max={50}
-                      step={1}
-                      suffix="px"
-                      onChange={(v) =>
-                        handleCustomStyleUpdate("shadow", {
-                          color:
-                            textClip.shadow?.color ?? "rgba(0, 0, 0, 0.75)",
-                          blur: textClip.shadow?.blur ?? 4,
-                          offsetX: textClip.shadow?.offsetX ?? 2,
-                          offsetY: v,
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Background Box */}
-            <div className="space-y-2 pt-3 border-t border-border/30">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-medium text-text-primary select-none">
-                  Background Box
-                </span>
-                <div className="flex items-center gap-2">
-                  {textClip.background && (
-                    <ClypraColorPicker
-                      value={textClip.background.color || "rgba(0,0,0,0.6)"}
-                      onChange={(c: string) =>
-                        handleCustomStyleUpdate("background", {
-                          color: c,
-                          padding: textClip.background?.padding ?? 8,
-                          borderRadius: textClip.background?.borderRadius ?? 4,
-                        })
-                      }
-                      format="hex"
-                      availableModes={["solid", "wheel"]}
-                      presetColors={COLOR_PALETTE.filter(
-                        (p) => !p.value.includes(","),
-                      ).map((p) => p.value)}
-                      showAlpha={true}
-                      size="sm"
-                      triggerClassName="w-20 h-7 min-w-0 overflow-hidden bg-surface-raised border-border/60 hover:border-border shrink-0"
-                      popoverClassName="z-[100]"
-                    />
-                  )}
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(textClip.background)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          handleCustomStyleUpdate("background", {
-                            color: "rgba(0, 0, 0, 0.6)",
-                            padding: 8,
-                            borderRadius: 4,
-                          });
-                        } else {
-                          handleCustomStyleUpdate("background", undefined);
-                        }
-                      }}
-                      className="sr-only peer"
-                    />
-                    <div className="w-7 h-3.5 bg-surface-raised border border-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-3.5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-accent" />
-                  </label>
-                </div>
-              </div>
-              {textClip.background && (
-                <div className="space-y-2 pt-1">
-                  <PropertySlider
-                    label="Padding"
-                    value={textClip.background.padding ?? 8}
-                    min={0}
-                    max={60}
-                    step={1}
-                    suffix="px"
-                    onChange={(v) =>
-                      handleCustomStyleUpdate("background", {
-                        color:
-                          textClip.background?.color ?? "rgba(0, 0, 0, 0.6)",
-                        padding: v,
-                        borderRadius: textClip.background?.borderRadius ?? 4,
-                      })
-                    }
-                  />
-                  <PropertySlider
-                    label="Border Radius"
-                    value={textClip.background.borderRadius ?? 4}
-                    min={0}
-                    max={40}
-                    step={1}
-                    suffix="px"
-                    onChange={(v) =>
-                      handleCustomStyleUpdate("background", {
-                        color:
-                          textClip.background?.color ?? "rgba(0, 0, 0, 0.6)",
-                        padding: textClip.background?.padding ?? 8,
-                        borderRadius: v,
-                      })
-                    }
-                  />
-              </div>
-            )}
-          </div>
-        </>
-      )}
-        </div>
-      )}
-
-      {/* Behind Subject (AI Cutout) Section */}
-      <div className="p-3 bg-surface-raised/40 border border-border/50 rounded-xl space-y-2.5 select-none">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className={`p-1.5 rounded-md transition-colors ${(textClip as any).behindSubject ? "bg-purple-500/20 text-purple-400" : "bg-surface-raised text-text-muted"}`}>
-              <User className="w-4 h-4" />
-            </div>
-            <div>
-              <span className="text-xs font-semibold text-text-primary block">
-                Behind Subject
-              </span>
-              <span className="text-[10px] text-text-muted block">
-                Place text behind the person using AI cutout
-              </span>
-            </div>
-          </div>
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              checked={(textClip as any).behindSubject ?? false}
-              onChange={(e) => handleUpdate("behindSubject", e.target.checked)}
-              className="sr-only peer"
-            />
-            <div className="w-8 h-4 bg-surface-raised border border-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-purple-500" />
-          </label>
+              {tab}
+            </button>
+          ))}
         </div>
 
-        {(textClip as any).behindSubject && (
-          <div className="pt-2 border-t border-border/30 space-y-2">
-            <PropertySlider
-              label="Edge Softness"
-              value={(textClip as any).subjectFeather ?? 4}
-              min={0}
-              max={20}
-              step={1}
-              suffix="px"
-              onChange={(v) => handleUpdate("subjectFeather", v)}
-            />
-            <p className="text-[9px] text-text-muted">
-              Feathers the edge between the foreground person and behind-subject text.
-            </p>
+        <TextContentEditor
+          key={`${textClip.id}-content`}
+          value={textClip.text || ""}
+          onChange={(value) => handleUpdate("text", value)}
+          mode={mode === "effect" ? "effect" : "plain"}
+        />
+
+        {isTextExceedingMaxDimension && (
+          <div className="mt-1 flex items-start gap-1.5 p-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] leading-tight">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>Text exceeds 8192px canvas budget and was clamped.</span>
           </div>
         )}
       </div>
 
-      {/* Section F: Batch Styling (for captions) */}
-      {textClip.textRole === "caption" && (
-        <div className="flex items-center justify-between p-2.5 bg-surface-raised/35 border border-border/30 rounded-lg select-none">
-          <div className="flex flex-col">
-            <span className="text-xs font-semibold text-text-primary">
-              Apply to all captions
-            </span>
-            <span className="text-[9px] text-text-muted">
-              Broadcast styles to all clips on this track
-            </span>
-          </div>
-          <button
-            onClick={() => setApplyToAll(!applyToAll)}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${applyToAll ? "bg-accent/15 text-accent border border-accent/30 hover:bg-accent/25" : "bg-surface-raised border border-border/60 text-text-muted hover:text-text-primary hover:bg-white/[0.04]"}`}
-          >
-            {applyToAll ? "Active" : "Inactive"}
-          </button>
-        </div>
+      {/* Basic tab */}
+      {textSubTab === "basic" && mode !== "template" && (
+        <TextBasicTab
+          textClip={textClip}
+          newPresetName={newPresetName}
+          currentWeight={currentWeight}
+          effectiveFontStyle={effectiveFontStyle}
+          effectiveLetterSpacing={effectiveLetterSpacing}
+          effectiveLineHeight={effectiveLineHeight}
+          applyToAll={applyToAll}
+          setApplyToAll={setApplyToAll}
+          alignExpanded={alignExpanded}
+          setAlignExpanded={setAlignExpanded}
+          strokeExpanded={strokeExpanded}
+          setStrokeExpanded={setStrokeExpanded}
+          shadowExpanded={shadowExpanded}
+          setShadowExpanded={setShadowExpanded}
+          backgroundExpanded={backgroundExpanded}
+          setBackgroundExpanded={setBackgroundExpanded}
+          handleUpdate={handleUpdate}
+          handleCustomStyleUpdate={handleCustomStyleUpdate}
+          handleUpdateMultiple={handleUpdateMultiple}
+          savePreset={savePreset}
+        />
+      )}
+
+      {/* Bubble tab */}
+      {textSubTab === "bubble" && (
+        <TextBubbleTab
+          textClip={textClip}
+          handleCustomStyleUpdate={handleCustomStyleUpdate}
+          handleUpdateMultiple={handleUpdateMultiple}
+        />
+      )}
+
+      {/* Template overlay (supersedes basic tab when a template is active) */}
+      {mode === "template" && (
+        <TextTemplateOverlay
+          textClip={textClip}
+          templateDef={templateDef}
+          innerTemplate={innerTemplate}
+          onDetach={handleDetachTemplate}
+          handleUpdateMultiple={handleUpdateMultiple}
+        />
       )}
     </div>
   );

@@ -9,6 +9,7 @@ import { generateCommandId } from "../Command";
 import type { Clip, TransitionTimelineItem } from "@/types";
 import { generateId } from "@/lib/utils/id";
 import { snapToFrameBoundary } from "@/lib/utils/frameTime";
+import { resolveClipSourceTime } from "@/core/timeline/sourceTime";
 
 interface TimelineState {
   clips: Clip[];
@@ -65,19 +66,35 @@ export class SplitClipCommand implements Command {
     }
 
     const timeSinceStart = snappedSplitTime - clip.startTime;
+    const leftDuration = timeSinceStart;
+    const rightDuration = (clip.startTime + clip.duration) - snappedSplitTime;
 
-    // Calculate new trim points and durations
-    const leftTrimOut = clip.trimIn + timeSinceStart;
-    const leftDuration = leftTrimOut - clip.trimIn;
+    const isReversed = clip.playbackMapping?.kind === "reverse";
+    const isFreeze = clip.playbackMapping?.kind === "freeze";
 
-    const rightTrimIn = leftTrimOut;
-    const rightDuration = clip.trimOut - rightTrimIn;
+    let leftTrimIn = clip.trimIn;
+    let leftTrimOut = clip.trimOut;
+    let rightTrimIn = clip.trimIn;
+    let rightTrimOut = clip.trimOut;
 
-    // ✅ ASSERT: verify coherence (can remove in production)
-    console.assert(
-      Math.abs(rightTrimIn - leftTrimOut) < 0.001,
-      `Split coherence violated: leftTrimOut=${leftTrimOut} rightTrimIn=${rightTrimIn}`,
-    );
+    if (isFreeze) {
+      leftTrimIn = clip.trimIn;
+      leftTrimOut = clip.trimOut;
+      rightTrimIn = clip.trimIn;
+      rightTrimOut = clip.trimOut;
+    } else if (isReversed) {
+      const splitSourceTime = resolveClipSourceTime(clip, snappedSplitTime).sourceTime;
+      leftTrimIn = splitSourceTime;
+      leftTrimOut = clip.trimOut;
+      rightTrimIn = clip.trimIn;
+      rightTrimOut = splitSourceTime;
+    } else {
+      const splitSourceTime = resolveClipSourceTime(clip, snappedSplitTime).sourceTime;
+      leftTrimIn = clip.trimIn;
+      leftTrimOut = splitSourceTime;
+      rightTrimIn = splitSourceTime;
+      rightTrimOut = clip.trimOut;
+    }
 
     // Generate new IDs for BOTH splits
     // This prevents property confusion where effects/volume applied to wrong clip
@@ -93,6 +110,7 @@ export class SplitClipCommand implements Command {
       ...cloneClipSnapshot(clip),
       id: this.leftClipId,
       duration: leftDuration,
+      trimIn: leftTrimIn,
       trimOut: leftTrimOut,
     };
 
@@ -103,7 +121,7 @@ export class SplitClipCommand implements Command {
       startTime: snappedSplitTime, // ✅ Use snapped time
       duration: rightDuration,
       trimIn: rightTrimIn,
-      trimOut: clip.trimOut,
+      trimOut: rightTrimOut,
     };
 
     const updatedTransitions = state.transitions?.map((t) => {

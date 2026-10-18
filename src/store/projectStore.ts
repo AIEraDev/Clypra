@@ -323,6 +323,7 @@ async function captureCurrentProjectSnapshot(): Promise<ProjectPersistenceSnapsh
     epoch,
     timelineSchemaVersion: project.timelineSchemaVersion ?? 1,
     migrated: false,
+    mainVideoTrackId,
     rustProject: toRustProject(project, {
       tracks,
       clips,

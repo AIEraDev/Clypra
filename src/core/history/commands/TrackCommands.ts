@@ -50,7 +50,7 @@ export class AddTrackCommand implements Command {
     return {
       ...state,
       tracks,
-      mainVideoTrackId: resolvePrimaryVideoTrackId(state.tracks, state.mainVideoTrackId) ?? (this.track.type === "video" ? this.track.id : null),
+      mainVideoTrackId: resolvePrimaryVideoTrackId(tracks, state.mainVideoTrackId) ?? (this.track.type === "video" ? this.track.id : null),
       epoch: state.epoch + 1, // ✅ Epoch increment inside command
     };
   }

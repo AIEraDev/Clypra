@@ -5,7 +5,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Lock } from "lucide-react";
+import { Film, Lock } from "lucide-react";
 import { useDrop } from "react-dnd";
 import { useUIStore } from "@/store/uiStore";
 import { useTimelineStore } from "@/store/timelineStore";
@@ -415,6 +415,17 @@ const TrackInner: React.FC<TrackProps> = ({
       className={`relative transition-colors mb-0 bg-surface-raised/40 outline-none ${selectedTrackId === track.id ? "bg-timeline-track-active" : ""} ${isOver && canDrop ? "bg-editor-drop/10" : ""} ${track.locked ? "bg-surface-app/45" : ""}`}
       style={{ height: `${visualSpec.height}px` }}
     >
+      {/* Empty A-Roll placeholder (Film icon matching CapCut reference) */}
+      {track.visible && visualSpec.role === "a-roll" && trackClips.length === 0 && (
+        <div
+          data-testid="a-roll-empty-placeholder"
+          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 flex items-center select-none text-text-muted/30"
+          aria-hidden="true"
+        >
+          <Film className="h-5 w-5" strokeWidth={1.5} />
+        </div>
+      )}
+
       {/* Clips layer */}
       {track.visible &&
         trackClips.map((clip) => {

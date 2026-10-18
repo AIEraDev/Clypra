@@ -1014,6 +1014,25 @@ const ClipInner: React.FC<ClipProps> = ({
                 <span>Behind</span>
               </span>
             )}
+            {hasKeyframes && (
+              <button
+                type="button"
+                data-testid={`clip-${clip.id}-keyframe-toggle`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleKeyframeLane(clip.id);
+                }}
+                className={`ml-auto pointer-events-auto flex items-center gap-0.5 px-1 py-px rounded text-[8px] font-semibold transition-colors cursor-pointer shrink-0 ${
+                  isKeyframeExpanded
+                    ? "bg-accent text-white shadow-xs"
+                    : "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
+                }`}
+                title={isKeyframeExpanded ? "Collapse Keyframe Lanes" : "Expand Keyframe Lanes"}
+              >
+                <span>◆</span>
+                <span>Anim</span>
+              </button>
+            )}
           </div>
           {hasKeyframes && (
             <div className="absolute inset-x-0 bottom-0 z-20 pointer-events-auto">

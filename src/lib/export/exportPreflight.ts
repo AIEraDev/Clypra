@@ -13,6 +13,7 @@ import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import { getTextEffectCache } from "@/features/text-effects/cache/persistentCache";
 import { isKnownFont } from "@/core/fonts/fontRegistry";
 import { clipHasAudio } from "@/core/media/mediaAudioDetection";
+import { resolveTextTemplateArtifact } from "@clypra-studio/engine";
 
 export interface MissingTextEffect {
   clipId: string;
@@ -142,8 +143,8 @@ export async function verifyExportDependencies(
     }
   }
   const textClips = flattenedClips.filter(
-    (clip): clip is Clip & { styleId?: string; text?: string; fontFamily?: string } =>
-      clip.kind === "text" || (clip as any).layerType === "text"
+    (clip): clip is Clip & { styleId?: string; text?: string; fontFamily?: string; templateSnapshot?: any } =>
+      clip.kind === "text" || (clip as any).layerType === "text" || clip.kind === "text-template"
   );
 
   const missingEffects: MissingTextEffect[] = [];
@@ -188,11 +189,56 @@ export async function verifyExportDependencies(
   // Scan all text clips for fontFamily values that are not in the registry.
   // Unknown families will be substituted at render time; we surface them so
   // the export dialog can warn the user before committing.
+  function extractAllTemplateTextNodes(nodes: any[]): any[] {
+    const result: any[] = [];
+    for (const node of nodes) {
+      if (node?.type === "text") {
+        result.push(node);
+      }
+      if (Array.isArray(node?.children)) {
+        result.push(...extractAllTemplateTextNodes(node.children));
+      }
+    }
+    return result;
+  }
+
   for (const clip of textClips) {
-    const fontFamily = (clip as any).fontFamily as string | undefined;
-    if (fontFamily && !isKnownFont(fontFamily)) {
-      if (!missingFonts.includes(fontFamily)) {
-        missingFonts.push(fontFamily);
+    const candidateFamilies = new Set<string>();
+
+    const directFamily = (clip as any).fontFamily as string | undefined;
+    if (directFamily && typeof directFamily === "string") {
+      candidateFamilies.add(directFamily.trim());
+    }
+
+    const templateSnapshot = (clip as any).templateSnapshot;
+    if (templateSnapshot) {
+      const artifact = resolveTextTemplateArtifact(templateSnapshot);
+      const nodes = artifact?.document?.nodes ?? templateSnapshot.document?.nodes;
+      if (Array.isArray(nodes)) {
+        const textNodes = extractAllTemplateTextNodes(nodes);
+        for (const node of textNodes) {
+          const family = node.style?.fontFamily || node.fontFamily || node.textProperties?.fontFamily;
+          if (family && typeof family === "string") {
+            candidateFamilies.add(family.trim());
+          }
+        }
+      }
+      const layers = templateSnapshot.layers || templateSnapshot.elements;
+      if (Array.isArray(layers)) {
+        for (const layer of layers) {
+          const family = layer.fontFamily || layer.textProperties?.fontFamily;
+          if (family && typeof family === "string") {
+            candidateFamilies.add(family.trim());
+          }
+        }
+      }
+    }
+
+    for (const fontFamily of candidateFamilies) {
+      if (fontFamily && !isKnownFont(fontFamily)) {
+        if (!missingFonts.includes(fontFamily)) {
+          missingFonts.push(fontFamily);
+        }
       }
     }
   }
