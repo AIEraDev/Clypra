@@ -148,6 +148,8 @@ export class WebGLRasterSurface {
 
   /** True while the WebGL context is in the lost state (between contextlost and contextrestored). */
   private _isContextLost = false;
+  private _currentAtlasW = 0;
+  private _currentAtlasH = 0;
 
   // Attribute locations
   private _aPos: number;
@@ -233,6 +235,8 @@ export class WebGLRasterSurface {
     }
 
     // Clear the flag only after all GPU resources are successfully rebuilt.
+    this._currentAtlasW = 0;
+    this._currentAtlasH = 0;
     this._isContextLost = false;
   }
 
@@ -396,7 +400,11 @@ export class WebGLRasterSurface {
     const { atlasW, atlasH, cellW, cellH, cells } = packAtlas(uniqueItems, cols);
 
     gl.bindTexture(gl.TEXTURE_2D, this._atlasTexture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, atlasW, atlasH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    if (this._currentAtlasW !== atlasW || this._currentAtlasH !== atlasH) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, atlasW, atlasH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      this._currentAtlasW = atlasW;
+      this._currentAtlasH = atlasH;
+    }
 
     // Upload each unique bitmap/shimmer into its atlas cell
     for (let i = 0; i < uniqueItems.length; i++) {
@@ -604,6 +612,8 @@ export class WebGLRasterSurface {
       gl.deleteVertexArray(this._vao);
       gl.deleteProgram(this._program);
     }
+    this._currentAtlasW = 0;
+    this._currentAtlasH = 0;
   }
 
   get isDisposed(): boolean {

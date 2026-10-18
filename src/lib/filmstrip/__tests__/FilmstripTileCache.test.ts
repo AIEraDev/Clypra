@@ -174,4 +174,35 @@ describe("FilmstripTileCache", () => {
     expect(cache.getStats().tileCount).toBe(0);
     expect(art.bitmap.close).toHaveBeenCalled();
   });
+
+  it("findBestFallback returns nearest tile at target tier first (same-tier zoom tolerance)", () => {
+    const art = makeArtifact(240, 135);
+    cache.setTile(makeAddress("clip-1", SpatialTier.L1, 0, 1.0), art);
+
+    // Timestamp 1.02s shifts slightly during a wheel zoom spring animation
+    const fallback = cache.findBestFallback("clip-1", SpatialTier.L1, 1.02, "video.mp4", 0.5);
+    expect(fallback).not.toBeNull();
+    expect(fallback!.artifact).toBe(art);
+    expect(fallback!.address.timestamp).toBe(1.0);
+  });
+
+  it("isArtifactCached tracks cached artifacts correctly with O(1) set", () => {
+    const art1 = makeArtifact(240, 135);
+    const art2 = makeArtifact(240, 135);
+    const addr1 = makeAddress("clip-1", SpatialTier.L1, 0, 1.0);
+
+    expect(cache.isArtifactCached(art1 as any)).toBe(false);
+
+    cache.setTile(addr1, art1 as any);
+    expect(cache.isArtifactCached(art1 as any)).toBe(true);
+    expect(cache.isArtifactCached(art2 as any)).toBe(false);
+
+    // Overwriting addr1 with art2 closes art1 and removes it from cache
+    cache.setTile(addr1, art2 as any);
+    expect(cache.isArtifactCached(art1 as any)).toBe(false);
+    expect(cache.isArtifactCached(art2 as any)).toBe(true);
+
+    cache.clear();
+    expect(cache.isArtifactCached(art2 as any)).toBe(false);
+  });
 });

@@ -14,6 +14,7 @@ pub mod cold_start;
 pub mod commands;
 pub mod diagnostics;
 pub mod engine;
+pub mod filmstrip_engine;
 pub mod golden_harness;
 pub mod media_runtime;
 pub mod models;
@@ -22,9 +23,13 @@ pub mod native_core;
 pub mod preview_golden;
 pub mod process_util;
 pub mod sync_metrics;
-pub mod thumbnail_engine;
 pub mod transfer;
 pub mod wgpu_compositor;
+
+// Backward-compat alias so any crate-internal code still using the old path
+// continues to compile while the rename propagates. This will be removed once
+// all call sites have been migrated to `crate::filmstrip_engine`.
+pub use filmstrip_engine as thumbnail_engine;
 
 
 use commands::*;
@@ -36,7 +41,7 @@ use diagnostics::{
     open_perf_log_session, purge_perf_logs, read_perf_log_file, upload_pending_perf_logs,
     upload_perf_log_session,
 };
-use thumbnail_engine::init_thumbnail_engine;
+use filmstrip_engine::init_filmstrip_engine;
 
 /// Returns the current process resident set size (RSS) in megabytes.
 ///
@@ -389,11 +394,11 @@ pub fn run() {
                 });
             }
 
-            // Initialize thumbnail engine
+            // Initialize filmstrip tile engine (atlas, disk cache, decode queue)
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Ok(dir) = handle.path().app_cache_dir() {
-                    let _ = init_thumbnail_engine(dir).await;
+                    let _ = init_filmstrip_engine(dir).await;
                 }
             });
             // Initialize Whisper download state
@@ -696,6 +701,7 @@ pub fn run() {
             load_native_audio_clip,
             replace_native_audio_clips,
             update_native_audio_clip_parameters,
+            update_native_audio_clip_parameters_batch,
             clear_native_audio_clip,
             get_native_audio_clip,
             get_native_audio_clips,

@@ -143,6 +143,73 @@ describe("FilmstripCache RAF Batching", () => {
     request(50.01); // a spring animation frame; still covers the whole clip
 
     expect(mockRequestNativeFilmstripArtifacts).toHaveBeenCalledTimes(1);
+    filmstripTelemetry.endZoomGesture();
+  });
+
+  it("retains nearby artifacts and avoids blanking during active zoom gesture", () => {
+    let capturedOnArtifact: ((artifact: any) => void) | null = null;
+    const onUpdate = vi.fn();
+
+    mockRequestNativeFilmstripArtifacts.mockImplementation((opts: any) => {
+      capturedOnArtifact = opts.onArtifact;
+      return vi.fn();
+    });
+
+    cache.setNativePreviewReady(true);
+
+    // Initial request at 30 pps (epoch-1)
+    cache.requestFilmstrip({
+      clipId: "clip-zoom-retain",
+      videoPath: "/test.mp4",
+      trimIn: 0,
+      trimOut: 10,
+      duration: 10,
+      clipStartTime: 0,
+      clipWidthPx: 300,
+      spatialTier: SpatialTier.L1,
+      epochId: eid("epoch-1"),
+      viewportScrollLeft: 0,
+      viewportWidth: 1920,
+      pixelsPerSecond: 30,
+      onUpdate,
+    });
+
+    // Deliver artifact at 1667ms (which matches tile address at 1.667s)
+    const artifact1 = makeArtifact(1667, SpatialTier.L1);
+    capturedOnArtifact!(artifact1);
+    flushRaf();
+
+    expect(onUpdate).toHaveBeenLastCalledWith(expect.arrayContaining([artifact1]));
+
+    // Start zoom gesture (wheel/pinch spring)
+    filmstripTelemetry.beginZoomGesture();
+
+    // Zoom into epoch-2 where tile address shifts slightly
+    mockRequestNativeFilmstripArtifacts.mockClear();
+    cache.requestFilmstrip({
+      clipId: "clip-zoom-retain",
+      videoPath: "/test.mp4",
+      trimIn: 0,
+      trimOut: 10,
+      duration: 10,
+      clipStartTime: 0,
+      clipWidthPx: 450,
+      spatialTier: SpatialTier.L1,
+      epochId: eid("epoch-2"),
+      viewportScrollLeft: 0,
+      viewportWidth: 1920,
+      pixelsPerSecond: 45,
+      requestCause: "zoom",
+      onUpdate,
+    });
+
+    // Artifact from epoch-1 within 2500ms tolerance must be retained in keptArtifacts
+    // so the filmstrip does not blank out while zooming
+    const lastCalls = onUpdate.mock.calls;
+    const lastUpdateArgs = lastCalls[lastCalls.length - 1]?.[0];
+    expect(lastUpdateArgs).toContain(artifact1);
+
+    filmstripTelemetry.endZoomGesture();
   });
 
   it("holds cold tile decoding until Program Preview has presented its first frame", async () => {

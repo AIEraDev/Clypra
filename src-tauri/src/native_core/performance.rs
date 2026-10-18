@@ -634,6 +634,9 @@ mod tests {
             cache_lock_wait_us: None,
             cache_insert_us: None,
             hw_device_type: None,
+            dxgi_latched_off: None,
+            dxgi_latch_reason: None,
+            dxgi_latch_context: None,
         };
         assert!(sample.exceeds_render_budget(&budget));
     }

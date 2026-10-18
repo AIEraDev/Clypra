@@ -1,3 +1,4 @@
+import { filmstripTelemetry } from "@/lib/filmstrip/filmstripTelemetry";
 import { getAnchoredZoomScrollLeft } from "@/lib/timeline/timelineViewport";
 import { clampTimelinePixelsPerSecond } from "@/lib/timeline/timelineZoom";
 import { useTimelineStore } from "@/store/timelineStore";
@@ -65,11 +66,17 @@ export class TimelineZoomSpring {
         if (this.mode !== "idle") {
           this.cancelScheduledFrame();
           this.mode = "idle";
+          filmstripTelemetry.endZoomGesture();
         }
         this.currentPps = state.pixelsPerSecond;
         this.targetPps = state.pixelsPerSecond;
       }
     });
+  }
+
+  /** Whether the spring animation has completely settled. */
+  isIdle(): boolean {
+    return this.mode === "idle";
   }
 
   /** Current animated PPS (use this as the base when computing the next target). */
@@ -85,6 +92,7 @@ export class TimelineZoomSpring {
    * Safe to call on every wheel event — will smoothly redirect in-flight animations.
    */
   setTarget(targetPps: number, anchor: ZoomAnchor): void {
+    filmstripTelemetry.beginZoomGesture();
     // Sync from store when starting from rest so we animate from the actual current position.
     if (this.mode === "idle") {
       this.currentPps = useTimelineStore.getState().pixelsPerSecond;
@@ -102,6 +110,7 @@ export class TimelineZoomSpring {
    */
   startInertia(velocity: number, anchor: ZoomAnchor): void {
     if (Math.abs(velocity) < INERTIA_MIN_VELOCITY) return;
+    filmstripTelemetry.beginZoomGesture();
     // Sync to current store value so inertia starts from where the pinch left off.
     this.currentPps = useTimelineStore.getState().pixelsPerSecond;
     this.targetPps = this.currentPps;
@@ -113,6 +122,9 @@ export class TimelineZoomSpring {
 
   dispose(): void {
     this.cancelScheduledFrame();
+    if (this.mode !== "idle") {
+      filmstripTelemetry.endZoomGesture();
+    }
     this.mode = "idle";
     this.unsubscribeStore();
   }
@@ -147,6 +159,7 @@ export class TimelineZoomSpring {
         this.currentPps = this.targetPps;
         this.applyFrame();
         this.mode = "idle";
+        filmstripTelemetry.endZoomGesture();
         return;
       }
       this.currentPps += diff * SPRING_K;
@@ -157,12 +170,14 @@ export class TimelineZoomSpring {
       this.inertiaVelocity *= INERTIA_FRICTION;
       if (Math.abs(this.inertiaVelocity) < INERTIA_MIN_VELOCITY) {
         this.mode = "idle";
+        filmstripTelemetry.endZoomGesture();
         return;
       }
       const nextPps = clampTimelinePixelsPerSecond(this.currentPps * (1 + this.inertiaVelocity));
       if (nextPps === this.currentPps) {
         // Hit PPS boundary — stop inertia.
         this.mode = "idle";
+        filmstripTelemetry.endZoomGesture();
         return;
       }
       this.currentPps = nextPps;

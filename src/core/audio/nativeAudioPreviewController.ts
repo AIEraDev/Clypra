@@ -17,6 +17,7 @@ import {
   setNativeAudioSpeed,
   stopNativeAudio,
   updateNativeAudioClipParameters,
+  updateNativeAudioClipParametersBatch,
 } from "@/lib/platform/tauri";
 import { isTauriRuntime } from "@/lib/platform/tauri";
 import { NATIVE_CORE_CONTRACT_VERSION } from "@/lib/platform/nativeCore";
@@ -323,19 +324,19 @@ export class NativeAudioPreviewController {
           } else if (
             !hasSameClipParameters(this.installedSnapshot, nextSnapshot)
           ) {
-            await Promise.all(
-              nextSnapshot.clips.map((clip) =>
-                updateNativeAudioClipParameters({
-                  clipId: clip.clipId,
-                  gain: clip.gain,
-                  pan: clip.pan,
-                  fadeInTicks: clip.fadeInTicks,
-                  fadeOutTicks: clip.fadeOutTicks,
-                  fadeInCurve: clip.fadeInCurve,
-                  fadeOutCurve: clip.fadeOutCurve,
-                  volumeKeyframes: clip.volumeKeyframes,
-                }),
-              ),
+            // Single batched IPC invocation — one Tauri call + one mixer lock
+            // for all clips, instead of N parallel calls (CLY-BUG-023).
+            await updateNativeAudioClipParametersBatch(
+              nextSnapshot.clips.map((clip) => ({
+                clipId: clip.clipId,
+                gain: clip.gain,
+                pan: clip.pan,
+                fadeInTicks: clip.fadeInTicks,
+                fadeOutTicks: clip.fadeOutTicks,
+                fadeInCurve: clip.fadeInCurve,
+                fadeOutCurve: clip.fadeOutCurve,
+                volumeKeyframes: clip.volumeKeyframes,
+              })),
             );
             this.installedSnapshot = nextSnapshot;
           }

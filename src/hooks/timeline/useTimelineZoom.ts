@@ -54,7 +54,9 @@ export function useTimelineZoom(
       // final frames while grouping a continuous wheel/trackpad gesture once.
       zoomSettleTimer = setTimeout(() => {
         zoomSettleTimer = null;
-        filmstripTelemetry.endZoomGesture();
+        if (spring.isIdle()) {
+          filmstripTelemetry.endZoomGesture();
+        }
       }, 300);
     };
 
@@ -134,6 +136,7 @@ export function useTimelineZoom(
 
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2) {
+        filmstripTelemetry.beginZoomGesture();
         isPinching = true;
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;

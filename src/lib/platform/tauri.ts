@@ -1414,6 +1414,38 @@ export async function updateNativeAudioClipParameters(options: {
   );
 }
 
+/**
+ * Applies parameter-only updates for multiple clips in a single Tauri IPC invocation
+ * and a single mixer lock acquisition, fixing the N-way parallel IPC anti-pattern
+ * (CLY-BUG-023, Architecture Invariant 5).
+ */
+export async function updateNativeAudioClipParametersBatch(
+  updates: Array<{
+    clipId: string;
+    gain: number;
+    pan: number;
+    fadeInTicks: number;
+    fadeOutTicks: number;
+    fadeInCurve: AudioFadeCurve;
+    fadeOutCurve: AudioFadeCurve;
+    volumeKeyframes: Array<{
+      id: string;
+      time: number;
+      gain: number;
+      easing?: "linear" | "exponential" | "bezier";
+    }>;
+  }>,
+): Promise<NativeAudioClipStatus[]> {
+  if (!isTauriRuntime())
+    throw new Error(
+      "updateNativeAudioClipParametersBatch requires the Tauri runtime",
+    );
+  return invoke<NativeAudioClipStatus[]>(
+    "update_native_audio_clip_parameters_batch",
+    { updates },
+  );
+}
+
 export async function clearNativeAudioClip(): Promise<void> {
   if (!isTauriRuntime())
     throw new Error("clearNativeAudioClip requires the Tauri runtime");

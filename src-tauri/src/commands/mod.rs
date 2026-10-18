@@ -8,6 +8,14 @@ pub mod debug;
 pub mod export;
 #[cfg(test)]
 pub mod ipc_security_tests;
+/// `filmstrip` — timeline tile streaming, atlas cache, frame decode pipeline, and poster frames.
+/// This module was previously named `thumbnail` (an MVP simplification). The `thumbnail` alias
+/// is preserved as a transparent re-export for IPC backwards compatibility during the transition.
+pub mod filmstrip;
+/// Backward-compat alias — all Tauri IPC command names are unchanged.
+pub mod thumbnail {
+    pub use super::filmstrip::*;
+}
 pub mod lut;
 pub mod media;
 pub mod native_audio;
@@ -24,7 +32,6 @@ pub mod render_target_manager;
 pub mod security;
 pub mod silence_detector;
 pub mod sync_metrics;
-pub mod thumbnail;
 pub mod transfer;
 pub mod whisper;
 
@@ -36,6 +43,7 @@ pub use captions::*;
 pub use creator_thumbnail::*;
 pub use debug::*;
 pub use export::*;
+pub use filmstrip::*;
 pub use lut::*;
 pub use media::*;
 pub use native_audio::*;
@@ -51,6 +59,5 @@ pub use render_target_manager::*;
 pub use security::*;
 pub use silence_detector::*;
 pub use sync_metrics::*;
-pub use thumbnail::*;
 pub use transfer::*;
 pub use whisper::*;

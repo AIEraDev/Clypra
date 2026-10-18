@@ -685,8 +685,10 @@ export class FilmstripCache {
         // Epoch changed: cancel the old request, clean up clip-level entry, but keep matching artifacts and do NOT invalidate global tile cache!
         existing.cancelFn?.();
         const disposedArtifacts: TransportArtifact[] = [];
+        const isZooming = requestReason === "zoom" || filmstripTelemetry.isZoomGestureActive();
+        const matchToleranceMs = isZooming ? 2500 : 50;
         for (const art of existing.artifacts) {
-          const isMatched = tileAddresses.some((addr) => Math.abs(addr.timestamp * 1000 - art.timestampMs) < 1);
+          const isMatched = tileAddresses.some((addr) => Math.abs(addr.timestamp * 1000 - art.timestampMs) < matchToleranceMs);
           if (isMatched) {
             keptArtifacts.push(art);
           } else {
@@ -733,8 +735,10 @@ export class FilmstripCache {
 
         // Separate artifacts to prevent memory leak and reuse valid ones
         const disposedArtifacts: TransportArtifact[] = [];
+        const isZooming = requestReason === "zoom" || filmstripTelemetry.isZoomGestureActive();
+        const matchToleranceMs = isZooming ? 2500 : 50;
         for (const art of existing.artifacts) {
-          const isMatched = tileAddresses.some((addr) => Math.abs(addr.timestamp * 1000 - art.timestampMs) < 1);
+          const isMatched = tileAddresses.some((addr) => Math.abs(addr.timestamp * 1000 - art.timestampMs) < matchToleranceMs);
           if (isMatched) {
             keptArtifacts.push(art);
           } else {
@@ -829,7 +833,18 @@ export class FilmstripCache {
       return distA - distB;
     });
 
+    const isZoomingGesture = filmstripTelemetry.isZoomGestureActive() || requestReason === "zoom";
     const missingTileAddresses = sortedTileAddresses.filter((addr) => {
+      // During active zoom gestures, if an existing artifact or fallback tile is already covering this address,
+      // do not dispatch new native decode requests on every spring frame!
+      if (isZoomingGesture) {
+        const hasCoveringArtifact = keptArtifacts.some(
+          (art) => Math.abs(addr.timestamp * 1000 - art.timestampMs) < 2500,
+        );
+        if (hasCoveringArtifact) {
+          return false;
+        }
+      }
       const cached = this.tileCache.getTile(addr);
       return !(
         cached &&
@@ -973,7 +988,8 @@ export class FilmstripCache {
     }
 
     // 2. Dispatch overscan tiles with low priority (priority 1 - background prefetch)
-    if (overscanMissingAddresses.length > 0) {
+    // Deferred until native preview is ready to avoid startup GPU contention
+    if (overscanMissingAddresses.length > 0 && this.nativePreviewReady) {
       cancelOverscan = requestFilmstripArtifacts({
         videoPath,
         timestampsMs: overscanMissingAddresses.map((addr) => Math.round(addr.timestamp * 1000)),
