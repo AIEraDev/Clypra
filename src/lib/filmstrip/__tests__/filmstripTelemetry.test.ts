@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { FilmstripTelemetryRecorder, filmstripTelemetry } from "../filmstripTelemetry";
+import {
+  FilmstripTelemetryRecorder,
+  filmstripTelemetry,
+} from "../filmstripTelemetry";
 
 describe("FilmstripTelemetryRecorder", () => {
   let recorder: FilmstripTelemetryRecorder;
@@ -77,6 +80,39 @@ describe("FilmstripTelemetryRecorder", () => {
     expect(summary.zoomTiles).toBe(1);
     expect(summary.avgPaintMs).toBe(12);
     expect(summary.dominantBottleneck).toBe("paint");
+  });
+
+  it("rolls up queueing, cancellation, stalls, tiers, and zoom latency without identifiers", () => {
+    recorder.recordBatchDispatched(3);
+    recorder.recordBatchDispatched(7);
+    recorder.recordCancellation(2);
+    recorder.recordStall();
+    recorder.record({
+      tileKey: "l2:1000",
+      source: "fresh_decode",
+      spatialTier: "l2",
+      cacheLookupMs: 0,
+      ipcTransferMs: 5,
+      decodeMs: 0,
+      bitmapCreationMs: 1,
+      rasterPaintMs: 0,
+      queueWaitMs: 7,
+      totalTimeToVisibleMs: 13,
+      requestReason: "zoom",
+    });
+
+    const summary = recorder.getSummary();
+    expect(summary.tierDistribution).toEqual({ l0: 0, l1: 0, l2: 1, l3: 0 });
+    expect(summary.coalescedBatchesDispatched).toBe(2);
+    expect(summary.avgQueueWaitMs).toBe(5);
+    expect(summary.cancelledRequests).toBe(2);
+    expect(summary.stallCount).toBe(1);
+    expect(summary.avgZoomTimeToVisibleMs).toBe(13);
+    expect(summary.p95ZoomTimeToVisibleMs).toBe(13);
+    expect(recorder.hasRecordedData()).toBe(true);
+
+    recorder.clear();
+    expect(recorder.hasRecordedData()).toBe(false);
   });
 
   it("evicts oldest records when capacity is exceeded", () => {

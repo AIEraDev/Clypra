@@ -2,24 +2,25 @@
  * Filmstrip Performance & Latency Telemetry
  *
  * Instruments and dissects the end-to-end filmstrip pipeline latency:
- *   cacheLookupMs -> ipcTransferMs -> decodeMs -> bitmapCreationMs -> rasterPaintMs -> totalTimeToVisibleMs
+ *   queueWaitMs -> cacheLookupMs -> ipcTransferMs -> decodeMs -> bitmapCreationMs -> rasterPaintMs -> totalTimeToVisibleMs
  */
 
 export type FilmstripSourceType =
-  | "memory_tier"
-  | "disk_atlas"
-  | "fresh_decode"
-  | "pyramid_fallback";
+  "memory_tier" | "disk_atlas" | "fresh_decode" | "pyramid_fallback";
+
+export type FilmstripTierLabel = "l0" | "l1" | "l2" | "l3";
 
 export interface FilmstripTileTelemetry {
   tileKey: string;
   source: FilmstripSourceType;
+  spatialTier?: FilmstripTierLabel;
   cacheLookupMs: number;
   ipcTransferMs: number;
   decodeMs: number;
   bitmapCreationMs: number;
   rasterPaintMs: number;
   totalTimeToVisibleMs: number;
+  queueWaitMs?: number;
   /** Whether this tile was requested after a spatial-tier change. */
   requestReason?: "viewport" | "zoom";
   recordedAt: number;
@@ -38,12 +39,20 @@ export interface FilmstripSessionSummary {
   avgPaintMs: number;
   avgTimeToVisibleMs: number;
   p95TimeToVisibleMs: number;
+  tierDistribution: Record<FilmstripTierLabel, number>;
+  cancelledRequests: number;
+  stallCount: number;
+  coalescedBatchesDispatched: number;
+  avgQueueWaitMs: number;
   zoomTiles: number;
   zoomGestures: number;
   zoomInputEvents: number;
   zoomDurationMs: number;
   zoomTierTransitions: number;
-  dominantBottleneck: "native-request" | "bitmap" | "paint" | "cache-lookup" | "none";
+  avgZoomTimeToVisibleMs: number;
+  p95ZoomTimeToVisibleMs: number;
+  dominantBottleneck:
+    "native-request" | "bitmap" | "paint" | "cache-lookup" | "none";
 }
 
 import { workerPerfCollector } from "@/core/monitoring/WorkerPerfCollector";
@@ -55,8 +64,13 @@ export class FilmstripTelemetryRecorder {
     durationMs: number;
     inputEvents: number;
   }> = [];
-  private activeZoomGesture: { startedAt: number; inputEvents: number } | null = null;
+  private activeZoomGesture: { startedAt: number; inputEvents: number } | null =
+    null;
   private zoomTierTransitions = 0;
+  private cancelledRequests = 0;
+  private stallCount = 0;
+  private coalescedBatchesDispatched = 0;
+  private queueWaitTimesMs: number[] = [];
   private readonly maxRecords: number;
 
   constructor(maxRecords = 1000) {
@@ -82,11 +96,34 @@ export class FilmstripTelemetryRecorder {
       overBudget: telemetry.totalTimeToVisibleMs > 16.67,
       metadata: {
         source: telemetry.source,
+        spatialTier: telemetry.spatialTier,
         cacheLookupMs: telemetry.cacheLookupMs,
         ipcTransferMs: telemetry.ipcTransferMs,
         rasterPaintMs: telemetry.rasterPaintMs,
+        queueWaitMs: telemetry.queueWaitMs,
       },
     });
+  }
+
+  /** Record cancelled or superseded in-flight requests. */
+  recordCancellation(count = 1): void {
+    if (count > 0) this.cancelledRequests += count;
+  }
+
+  /** Record visual timeline stalls / placeholder occurrences. */
+  recordStall(): void {
+    this.stallCount++;
+  }
+
+  /** Record dispatch of a coalesced tile batch and its queue wait duration. */
+  recordBatchDispatched(queueWaitMs = 0): void {
+    this.coalescedBatchesDispatched++;
+    if (Number.isFinite(queueWaitMs) && queueWaitMs >= 0) {
+      if (this.queueWaitTimesMs.length >= this.maxRecords) {
+        this.queueWaitTimesMs.shift();
+      }
+      this.queueWaitTimesMs.push(queueWaitMs);
+    }
   }
 
   /**
@@ -94,6 +131,21 @@ export class FilmstripTelemetryRecorder {
    */
   getRecordCount(): number {
     return this.records.length;
+  }
+
+  /** True when this interval contains a tile or lifecycle observation. */
+  hasRecordedData(): boolean {
+    return (
+      this.records.length > 0 ||
+      this.paintTimesMs.length > 0 ||
+      this.completedZoomGestures.length > 0 ||
+      this.activeZoomGesture !== null ||
+      this.zoomTierTransitions > 0 ||
+      this.cancelledRequests > 0 ||
+      this.stallCount > 0 ||
+      this.coalescedBatchesDispatched > 0 ||
+      this.queueWaitTimesMs.length > 0
+    );
   }
 
   /** Records a batched canvas/WebGL filmstrip presentation commit. */
@@ -143,6 +195,10 @@ export class FilmstripTelemetryRecorder {
     this.completedZoomGestures = [];
     this.activeZoomGesture = null;
     this.zoomTierTransitions = 0;
+    this.cancelledRequests = 0;
+    this.stallCount = 0;
+    this.coalescedBatchesDispatched = 0;
+    this.queueWaitTimesMs = [];
   }
 
   /**
@@ -150,6 +206,13 @@ export class FilmstripTelemetryRecorder {
    */
   getSummary(): FilmstripSessionSummary {
     const total = this.records.length;
+    const tierDistribution: Record<FilmstripTierLabel, number> = {
+      l0: 0,
+      l1: 0,
+      l2: 0,
+      l3: 0,
+    };
+
     if (total === 0) {
       return {
         totalTilesRequested: 0,
@@ -164,11 +227,18 @@ export class FilmstripTelemetryRecorder {
         avgPaintMs: 0,
         avgTimeToVisibleMs: 0,
         p95TimeToVisibleMs: 0,
+        tierDistribution,
+        cancelledRequests: this.cancelledRequests,
+        stallCount: this.stallCount,
+        coalescedBatchesDispatched: this.coalescedBatchesDispatched,
+        avgQueueWaitMs: 0,
         zoomTiles: 0,
         zoomGestures: 0,
         zoomInputEvents: 0,
         zoomDurationMs: 0,
         zoomTierTransitions: 0,
+        avgZoomTimeToVisibleMs: 0,
+        p95ZoomTimeToVisibleMs: 0,
         dominantBottleneck: "none",
       };
     }
@@ -185,6 +255,7 @@ export class FilmstripTelemetryRecorder {
     let sumTotal = 0;
     let zoomTiles = 0;
     const totals: number[] = [];
+    const zoomTotals: number[] = [];
     const stages = { nativeRequest: 0, bitmap: 0, paint: 0, cacheLookup: 0 };
 
     for (const r of this.records) {
@@ -202,31 +273,59 @@ export class FilmstripTelemetryRecorder {
           pyramidFallbacks++;
           break;
       }
+      if (r.spatialTier && r.spatialTier in tierDistribution) {
+        tierDistribution[r.spatialTier]++;
+      }
       sumLookup += r.cacheLookupMs;
       sumIpc += r.ipcTransferMs;
       sumBitmap += r.bitmapCreationMs;
       sumPaint += r.rasterPaintMs;
       sumTotal += r.totalTimeToVisibleMs;
       totals.push(r.totalTimeToVisibleMs);
-      if (r.requestReason === "zoom") zoomTiles++;
+      if (r.requestReason === "zoom") {
+        zoomTiles++;
+        zoomTotals.push(r.totalTimeToVisibleMs);
+      }
       stages.nativeRequest += r.ipcTransferMs + r.decodeMs;
       stages.bitmap += r.bitmapCreationMs;
       stages.paint += r.rasterPaintMs;
       stages.cacheLookup += r.cacheLookupMs;
     }
 
-    const paintTotal = this.paintTimesMs.reduce((total, value) => total + value, 0);
+    const paintTotal = this.paintTimesMs.reduce((sum, value) => sum + value, 0);
     const zoomGestures = this.completedZoomGestures.length;
     const zoomInputEvents = this.completedZoomGestures.reduce(
-      (total, gesture) => total + gesture.inputEvents,
+      (sum, gesture) => sum + gesture.inputEvents,
       0,
     );
     const zoomDurationMs = this.completedZoomGestures.reduce(
-      (total, gesture) => total + gesture.durationMs,
+      (sum, gesture) => sum + gesture.durationMs,
       0,
     );
     const cacheHits = memoryHits + diskAtlasHits;
     const hitRatePercentage = total > 0 ? (cacheHits / total) * 100 : 0;
+
+    const avgQueueWaitMs =
+      this.queueWaitTimesMs.length > 0
+        ? Math.round(
+            (this.queueWaitTimesMs.reduce((sum, v) => sum + v, 0) /
+              this.queueWaitTimesMs.length) *
+              100,
+          ) / 100
+        : 0;
+
+    const avgZoomTimeToVisibleMs =
+      zoomTotals.length > 0
+        ? Math.round(
+            (zoomTotals.reduce((sum, v) => sum + v, 0) / zoomTotals.length) *
+              100,
+          ) / 100
+        : 0;
+
+    const p95ZoomTimeToVisibleMs =
+      zoomTotals.length > 0
+        ? Math.round(percentile(zoomTotals, 0.95) * 100) / 100
+        : 0;
 
     return {
       totalTilesRequested: total,
@@ -238,28 +337,53 @@ export class FilmstripTelemetryRecorder {
       avgLookupMs: Math.round((sumLookup / total) * 100) / 100,
       avgIpcMs: Math.round((sumIpc / total) * 100) / 100,
       avgBitmapMs: Math.round((sumBitmap / total) * 100) / 100,
-      avgPaintMs: Math.round(((paintTotal / Math.max(1, this.paintTimesMs.length)) || (sumPaint / total)) * 100) / 100,
+      avgPaintMs:
+        Math.round(
+          (paintTotal / Math.max(1, this.paintTimesMs.length) ||
+            sumPaint / total) * 100,
+        ) / 100,
       avgTimeToVisibleMs: Math.round((sumTotal / total) * 100) / 100,
       p95TimeToVisibleMs: Math.round(percentile(totals, 0.95) * 100) / 100,
+      tierDistribution,
+      cancelledRequests: this.cancelledRequests,
+      stallCount: this.stallCount,
+      coalescedBatchesDispatched: this.coalescedBatchesDispatched,
+      avgQueueWaitMs,
       zoomTiles,
       zoomGestures,
       zoomInputEvents,
       zoomDurationMs: Math.round(zoomDurationMs),
       zoomTierTransitions: this.zoomTierTransitions,
-      dominantBottleneck: dominantStage({ ...stages, paint: stages.paint + paintTotal }),
+      avgZoomTimeToVisibleMs,
+      p95ZoomTimeToVisibleMs,
+      dominantBottleneck: dominantStage({
+        ...stages,
+        paint: stages.paint + paintTotal,
+      }),
     };
   }
 }
 
 function percentile(values: readonly number[], fraction: number): number {
   const ordered = [...values].sort((a, b) => a - b);
-  return ordered.length === 0 ? 0 : ordered[Math.min(ordered.length - 1, Math.ceil(ordered.length * fraction) - 1)];
+  return ordered.length === 0
+    ? 0
+    : ordered[
+        Math.min(ordered.length - 1, Math.ceil(ordered.length * fraction) - 1)
+      ];
 }
 
-function dominantStage(stages: Record<"nativeRequest" | "bitmap" | "paint" | "cacheLookup", number>): FilmstripSessionSummary["dominantBottleneck"] {
-  const winner = (Object.entries(stages) as Array<[keyof typeof stages, number]>).sort(([, a], [, b]) => b - a)[0];
+function dominantStage(
+  stages: Record<"nativeRequest" | "bitmap" | "paint" | "cacheLookup", number>,
+): FilmstripSessionSummary["dominantBottleneck"] {
+  const winner = (
+    Object.entries(stages) as Array<[keyof typeof stages, number]>
+  ).sort(([, a], [, b]) => b - a)[0];
   if (!winner || winner[1] <= 0) return "none";
-  const labels: Record<keyof typeof stages, FilmstripSessionSummary["dominantBottleneck"]> = {
+  const labels: Record<
+    keyof typeof stages,
+    FilmstripSessionSummary["dominantBottleneck"]
+  > = {
     nativeRequest: "native-request",
     bitmap: "bitmap",
     paint: "paint",

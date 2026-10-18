@@ -11,7 +11,20 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { registerActiveEpoch, unregisterActiveEpoch, isEpochStillValid, requestRenderArtifacts, requestBatchArtifacts, requestProgressiveTiers, requestFilmstripArtifacts, resetFilmstripBatchSchedulerForTests, SAB_SUPPORTED, type BackendRenderArtifact, type TransportArtifact } from "../transport";
+import {
+  registerActiveEpoch,
+  unregisterActiveEpoch,
+  isEpochStillValid,
+  requestRenderArtifacts,
+  requestBatchArtifacts,
+  requestProgressiveTiers,
+  requestFilmstripArtifacts,
+  resetFilmstripBatchSchedulerForTests,
+  SAB_SUPPORTED,
+  type BackendRenderArtifact,
+  type TransportArtifact,
+} from "../transport";
+import { filmstripTelemetry } from "../../filmstrip/filmstripTelemetry";
 import { SpatialTier } from "../types";
 import type { RenderEpochId } from "../types";
 
@@ -84,7 +97,9 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function makeRawArtifact(overrides: Partial<BackendRenderArtifact> = {}): BackendRenderArtifact {
+function makeRawArtifact(
+  overrides: Partial<BackendRenderArtifact> = {},
+): BackendRenderArtifact {
   return {
     frame_id: "f1",
     content_hash: "h1",
@@ -322,11 +337,19 @@ describe("requestProgressiveTiers", () => {
 
     // L0 batch: one Channel created, trigger its message
     await new Promise((r) => setTimeout(r, 0));
-    channelInstances[0]?.triggerMessage(makeRawArtifact({ spatial_tier: SpatialTier.L0 }));
+    channelInstances[0]?.triggerMessage(
+      makeRawArtifact({ spatial_tier: SpatialTier.L0 }),
+    );
     // Allow L0 ImageBitmap + invoke resolve → L1 batch starts
     await new Promise((r) => setTimeout(r, 30));
     // L1 batch: second Channel
-    channelInstances[1]?.triggerMessage(makeRawArtifact({ spatial_tier: SpatialTier.L1, width: 240, height: 135 }));
+    channelInstances[1]?.triggerMessage(
+      makeRawArtifact({
+        spatial_tier: SpatialTier.L1,
+        width: 240,
+        height: 135,
+      }),
+    );
     await new Promise((r) => setTimeout(r, 20));
 
     expect(tiersSeen).toContain(SpatialTier.L0);
@@ -348,7 +371,9 @@ describe("requestProgressiveTiers", () => {
     });
 
     await new Promise((r) => setTimeout(r, 0));
-    channelInstances[0]?.triggerMessage(makeRawArtifact({ spatial_tier: SpatialTier.L0 }));
+    channelInstances[0]?.triggerMessage(
+      makeRawArtifact({ spatial_tier: SpatialTier.L0 }),
+    );
     await new Promise((r) => setTimeout(r, 10));
     cancel(); // cancel before L1 batch begins
     await new Promise((r) => setTimeout(r, 30));
@@ -382,13 +407,18 @@ describe("requestFilmstripArtifacts coalescing", () => {
   beforeEach(() => {
     resetTransportMocks();
     resetFilmstripBatchSchedulerForTests();
-    Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true });
+    filmstripTelemetry.clear();
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      value: {},
+      configurable: true,
+    });
   });
 
   afterEach(() => {
     unregisterActiveEpoch("clip-coal");
     resetFilmstripBatchSchedulerForTests();
-    delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+    delete (window as Window & { __TAURI_INTERNALS__?: unknown })
+      .__TAURI_INTERNALS__;
   });
 
   it("merges overlapping in-flight timestamps into a single native batch", async () => {
@@ -421,6 +451,7 @@ describe("requestFilmstripArtifacts coalescing", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(mockInvoke).toHaveBeenCalledTimes(1);
     expect(mockInvoke.mock.calls[0][0]).toBe("get_render_artifacts_batch");
+    expect(filmstripTelemetry.getSummary().coalescedBatchesDispatched).toBe(1);
 
     resolveFirst?.();
     await new Promise((r) => setTimeout(r, 20));
@@ -496,7 +527,9 @@ describe("requestFilmstripArtifacts coalescing", () => {
     // Preemption triggers cancel_render_artifacts_batch and immediately starts the priority 10 batch
     const invokeCalls = mockInvoke.mock.calls.map((c) => c[0]);
     expect(invokeCalls).toContain("cancel_render_artifacts_batch");
-    expect(invokeCalls.filter((c) => c === "get_render_artifacts_batch")).toHaveLength(2);
+    expect(
+      invokeCalls.filter((c) => c === "get_render_artifacts_batch"),
+    ).toHaveLength(2);
   });
 
   it("cancels in-flight native batch via cancel_render_artifacts_batch when subscriber cancels", async () => {
@@ -525,5 +558,6 @@ describe("requestFilmstripArtifacts coalescing", () => {
       "cancel_render_artifacts_batch",
       expect.any(Object),
     );
+    expect(filmstripTelemetry.getSummary().cancelledRequests).toBe(1);
   });
 });

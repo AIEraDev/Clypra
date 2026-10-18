@@ -551,8 +551,7 @@ export class PerfLogService {
     });
 
     // Flush the final filmstrip window so the partial interval at session end is not lost.
-    const filmstripCount = filmstripTelemetry.getRecordCount();
-    if (filmstripCount > 0) {
+    if (filmstripTelemetry.hasRecordedData()) {
       const filmstripSummary = filmstripTelemetry.getSummary();
       filmstripTelemetry.clear();
       this.queue.push({
@@ -811,7 +810,7 @@ export class PerfLogService {
       void this.pollNativeSessionTelemetry();
       void this.pollProcessMemory();
       void this.pollEngineTelemetry();
-      this.flushFilmstripSummary();
+      void this.flushFilmstripSummary();
       this.flushFrontendSyncMetrics();
       this.flushWorkerSummary();
       this.flushTextMetricsSummary();
@@ -920,19 +919,37 @@ export class PerfLogService {
    *
    * Called every flush interval. Skips when no tiles have been recorded since
    * the last flush. The recorder is cleared after snapshot so the next window
-   * starts fresh — summary counts are per-interval, not cumulative.
+   * starts fresh — frontend summary counts are per-interval. The optional
+   * nativeDecodeMetricsCumulative payload is intentionally cumulative because
+   * it is a snapshot of Rust's lock-free decoder registry.
    */
-  private flushFilmstripSummary(): void {
-    if (!this.sessionId) return;
-    const count = filmstripTelemetry.getRecordCount();
-    if (count === 0) return;
+  private async flushFilmstripSummary(): Promise<void> {
+    const sessionId = this.sessionId;
+    if (!sessionId) return;
+    if (!filmstripTelemetry.hasRecordedData()) return;
     const summary = filmstripTelemetry.getSummary();
     filmstripTelemetry.clear();
+    let nativeDecodeMetricsCumulative: unknown;
+    if (isTauriRuntime()) {
+      try {
+        // Native metrics contain only aggregate timings and counters. They
+        // intentionally carry no media path, clip ID, or project metadata.
+        nativeDecodeMetricsCumulative = await tauriInvoke(
+          "get_decode_metrics_snapshot",
+        );
+      } catch {
+        // The command is unavailable in older binaries; keep the frontend
+        // rollup rather than dropping the interval.
+      }
+    }
     this.enqueue({
       kind: "filmstrip-rollup",
-      sessionId: this.sessionId,
+      sessionId,
       timestampEpochMs: Date.now(),
-      payload: summary,
+      payload:
+        nativeDecodeMetricsCumulative === undefined
+          ? summary
+          : { ...summary, nativeDecodeMetricsCumulative },
     });
   }
 

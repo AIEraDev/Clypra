@@ -27,13 +27,24 @@
  */
 
 import { SpatialTier, VelocityState, type RenderEpochId } from "./types";
-import { requestFilmstripArtifacts, checkCoarseBaselineCache, type TransportArtifact } from "./transport";
+import {
+  requestFilmstripArtifacts,
+  checkCoarseBaselineCache,
+  type TransportArtifact,
+} from "./transport";
 import { FilmstripTileCache } from "../filmstrip/FilmstripTileCache";
-import { generateViewportTileAddresses, FILMSTRIP_DENSITY_TIERS, type FilmstripTileAddress } from "../filmstrip/filmstripTiers";
+import {
+  generateViewportTileAddresses,
+  FILMSTRIP_DENSITY_TIERS,
+  type FilmstripTileAddress,
+} from "../filmstrip/filmstripTiers";
 import { timeToPixel, pixelToTime } from "../timeline/timelineViewport";
 import { recordCacheApply } from "./filmstripMetrics";
-import { filmstripTelemetry, type FilmstripSourceType } from "../filmstrip/filmstripTelemetry";
-
+import {
+  filmstripTelemetry,
+  type FilmstripSourceType,
+  type FilmstripTierLabel,
+} from "../filmstrip/filmstripTelemetry";
 
 interface FilmstripCacheEntry {
   clipId: string;
@@ -79,7 +90,9 @@ interface PendingArtifact {
 }
 
 function isValidArtifact(artifact: TransportArtifact): boolean {
-  return !!artifact.bitmap && artifact.bitmap.width > 0 && artifact.bitmap.height > 0;
+  return (
+    !!artifact.bitmap && artifact.bitmap.width > 0 && artifact.bitmap.height > 0
+  );
 }
 
 function sourceToTelemetrySource(source?: string): FilmstripSourceType {
@@ -87,6 +100,10 @@ function sourceToTelemetrySource(source?: string): FilmstripSourceType {
   if (/memory|cache/i.test(source ?? "")) return "memory_tier";
   if (/fallback|pyramid/i.test(source ?? "")) return "pyramid_fallback";
   return "fresh_decode";
+}
+
+function spatialTierToTelemetryTier(tier: SpatialTier): FilmstripTierLabel {
+  return `l${tier}` as FilmstripTierLabel;
 }
 
 interface ViewportFilmstripOptions {
@@ -107,8 +124,21 @@ interface ViewportFilmstripOptions {
  *
  * Professional NLE behavior: Only decode what's visible + overscan.
  */
-function generateViewportFilmstripTimestamps(options: ViewportFilmstripOptions): number[] {
-  const { trimIn, trimOut, duration, clipStartTime, clipWidthPx, tileWidthPx, viewportScrollLeft, viewportWidth, pixelsPerSecond, overscanFactor } = options;
+function generateViewportFilmstripTimestamps(
+  options: ViewportFilmstripOptions,
+): number[] {
+  const {
+    trimIn,
+    trimOut,
+    duration,
+    clipStartTime,
+    clipWidthPx,
+    tileWidthPx,
+    viewportScrollLeft,
+    viewportWidth,
+    pixelsPerSecond,
+    overscanFactor,
+  } = options;
 
   // Calculate visible time range
   const viewportStartPx = viewportScrollLeft;
@@ -133,9 +163,10 @@ function generateViewportFilmstripTimestamps(options: ViewportFilmstripOptions):
   const visibleClipEndPx = Math.min(clipEndPx, expandedEndPx);
 
   // Convert to clip-local time — use pixelToTime for canonical inverse.
-  const visibleStartTime = pixelToTime(visibleClipStartPx - clipStartPx, pixelsPerSecond) + trimIn;
-  const visibleEndTime = pixelToTime(visibleClipEndPx - clipStartPx, pixelsPerSecond) + trimIn;
-
+  const visibleStartTime =
+    pixelToTime(visibleClipStartPx - clipStartPx, pixelsPerSecond) + trimIn;
+  const visibleEndTime =
+    pixelToTime(visibleClipEndPx - clipStartPx, pixelsPerSecond) + trimIn;
 
   // Clamp to trim range
   const start = Math.max(trimIn, Math.min(visibleStartTime, trimOut));
@@ -219,11 +250,16 @@ export class FilmstripCache {
    */
   private nativePreviewReady = true;
   private startupDeferredRequests = new Map<string, FilmstripRequestOptions>();
-  private startupDeferredPreloads = new Map<string, { videoPath: string; duration: number }>();
+  private startupDeferredPreloads = new Map<
+    string,
+    { videoPath: string; duration: number }
+  >();
 
   constructor(memoryBudgetMB: number = 100) {
     this.memoryBudgetBytes = memoryBudgetMB * 1024 * 1024;
-    this.tileCache = new FilmstripTileCache(memoryBudgetMB, (art) => this.isArtifactActive(art));
+    this.tileCache = new FilmstripTileCache(memoryBudgetMB, (art) =>
+      this.isArtifactActive(art),
+    );
   }
 
   /** Expose the underlying FilmstripTileCache for fast zero-decode presentation fallbacks */
@@ -273,7 +309,8 @@ export class FilmstripCache {
     setTimeout(() => {
       if (!this.nativePreviewReady) return;
       for (const options of deferredRequests) this.requestFilmstrip(options);
-      for (const options of deferredPreloads) this.preloadAssetCoarseBaseline(options);
+      for (const options of deferredPreloads)
+        this.preloadAssetCoarseBaseline(options);
     }, 0);
   }
 
@@ -306,9 +343,14 @@ export class FilmstripCache {
     if (!this.nativePreviewReady) return;
     this._cancelPrefetch(options.clipId);
 
-    const tiers = [options.spatialTier - 1, options.spatialTier + 1]
-      .filter((tier): tier is SpatialTier => tier >= SpatialTier.L0 && tier <= SpatialTier.L3);
-    const requests: Array<{ tier: SpatialTier; addresses: FilmstripTileAddress[] }> = [];
+    const tiers = [options.spatialTier - 1, options.spatialTier + 1].filter(
+      (tier): tier is SpatialTier =>
+        tier >= SpatialTier.L0 && tier <= SpatialTier.L3,
+    );
+    const requests: Array<{
+      tier: SpatialTier;
+      addresses: FilmstripTileAddress[];
+    }> = [];
     const regionOffsets = [-1, 0, 1];
 
     for (const tier of tiers) {
@@ -321,7 +363,10 @@ export class FilmstripCache {
           trimOut: options.trimOut,
           clipStartTime: options.clipStartTime,
           clipWidthPx: options.clipWidthPx,
-          viewportScrollLeft: Math.max(0, options.viewportScrollLeft + regionOffset * options.viewportWidth),
+          viewportScrollLeft: Math.max(
+            0,
+            options.viewportScrollLeft + regionOffset * options.viewportWidth,
+          ),
           viewportWidth: options.viewportWidth,
           pixelsPerSecond: options.pixelsPerSecond,
           overscanFactor: regionOffset === 0 ? 1.0 : 0.75,
@@ -339,20 +384,34 @@ export class FilmstripCache {
     for (const { tier, addresses } of requests) {
       const cancel = requestFilmstripArtifacts({
         videoPath: options.videoPath,
-        timestampsMs: addresses.map((address) => Math.round(address.timestamp * 1000)),
+        timestampsMs: addresses.map((address) =>
+          Math.round(address.timestamp * 1000),
+        ),
         spatialTier: tier,
         epochId: options.epochId,
         clipId: options.clipId,
         concurrency: 1,
         priority: 3,
         onArtifact: (artifact) => {
-          if (!isValidArtifact(artifact) || artifact.epochId !== options.epochId || artifact.spatialTier !== tier) {
-            try { artifact.bitmap.close(); } catch {}
+          if (
+            !isValidArtifact(artifact) ||
+            artifact.epochId !== options.epochId ||
+            artifact.spatialTier !== tier
+          ) {
+            try {
+              artifact.bitmap.close();
+            } catch {}
             return;
           }
-          const address = addresses.find((candidate) => Math.round(candidate.timestamp * 1000) === Math.round(artifact.timestampMs));
+          const address = addresses.find(
+            (candidate) =>
+              Math.round(candidate.timestamp * 1000) ===
+              Math.round(artifact.timestampMs),
+          );
           if (!address) {
-            try { artifact.bitmap.close(); } catch {}
+            try {
+              artifact.bitmap.close();
+            } catch {}
             return;
           }
           this.tileCache.setTile(address, artifact);
@@ -369,7 +428,11 @@ export class FilmstripCache {
    * On project reopen or clip re-mount, this populates the FilmstripTileCache in <10ms
    * without triggering any FFmpeg decoding.
    */
-  restoreCoarseBaselineFromDisk(options: { videoPath: string; duration: number; onComplete?: (restoredCount: number) => void }): () => void {
+  restoreCoarseBaselineFromDisk(options: {
+    videoPath: string;
+    duration: number;
+    onComplete?: (restoredCount: number) => void;
+  }): () => void {
     const { videoPath, duration, onComplete } = options;
     if (!videoPath || !duration || duration <= 0) {
       onComplete?.(0);
@@ -379,13 +442,16 @@ export class FilmstripCache {
     const tier = SpatialTier.L0;
     const baseInterval = FILMSTRIP_DENSITY_TIERS[tier].thumbnailIntervalSeconds; // 5.0s
     const MAX_COARSE_TILES = 300;
-    const multiplier = Math.max(1, Math.ceil(duration / (MAX_COARSE_TILES * baseInterval)));
+    const multiplier = Math.max(
+      1,
+      Math.ceil(duration / (MAX_COARSE_TILES * baseInterval)),
+    );
     const interval = baseInterval * multiplier;
     const tileCount = Math.ceil(duration / interval);
 
     const addresses: FilmstripTileAddress[] = [];
     for (let i = 0; i <= tileCount; i++) {
-      const timestamp = Math.round((i * interval) * 10000) / 10000;
+      const timestamp = Math.round(i * interval * 10000) / 10000;
       if (timestamp > duration) break;
       const address: FilmstripTileAddress = {
         clipId: videoPath,
@@ -411,10 +477,14 @@ export class FilmstripCache {
       spatialTier: tier,
       onArtifact: (artifact) => {
         if (!isValidArtifact(artifact)) {
-          try { artifact.bitmap.close(); } catch {}
+          try {
+            artifact.bitmap.close();
+          } catch {}
           return;
         }
-        const matchingAddr = addresses.find((a) => Math.abs(a.timestamp * 1000 - artifact.timestampMs) < 1);
+        const matchingAddr = addresses.find(
+          (a) => Math.abs(a.timestamp * 1000 - artifact.timestampMs) < 1,
+        );
         if (matchingAddr) {
           this.tileCache.setTile(matchingAddr, artifact);
           restoredCount++;
@@ -425,7 +495,9 @@ export class FilmstripCache {
             }
           }
         } else {
-          try { artifact.bitmap.close(); } catch {}
+          try {
+            artifact.bitmap.close();
+          } catch {}
         }
       },
       onComplete: () => {
@@ -442,7 +514,10 @@ export class FilmstripCache {
    * Runs in the background on timeline drop so horizontal scrolling hits cache 100% of the time.
    * First checks Rust/disk cache for instant zero-decode restore, then decodes any remaining missing tiles.
    */
-  preloadAssetCoarseBaseline(options: { videoPath: string; duration: number }): void {
+  preloadAssetCoarseBaseline(options: {
+    videoPath: string;
+    duration: number;
+  }): void {
     const { videoPath, duration } = options;
     if (!videoPath || !duration || duration <= 0) return;
     if (!this.nativePreviewReady) {
@@ -457,15 +532,19 @@ export class FilmstripCache {
       onComplete: () => {
         // Phase 2: Compute remaining missing addresses and dispatch background decode
         const tier = SpatialTier.L0;
-        const baseInterval = FILMSTRIP_DENSITY_TIERS[tier].thumbnailIntervalSeconds;
+        const baseInterval =
+          FILMSTRIP_DENSITY_TIERS[tier].thumbnailIntervalSeconds;
         const MAX_COARSE_TILES = 300;
-        const multiplier = Math.max(1, Math.ceil(duration / (MAX_COARSE_TILES * baseInterval)));
+        const multiplier = Math.max(
+          1,
+          Math.ceil(duration / (MAX_COARSE_TILES * baseInterval)),
+        );
         const interval = baseInterval * multiplier;
         const tileCount = Math.ceil(duration / interval);
 
         const missingAddresses: FilmstripTileAddress[] = [];
         for (let i = 0; i <= tileCount; i++) {
-          const timestamp = Math.round((i * interval) * 10000) / 10000;
+          const timestamp = Math.round(i * interval * 10000) / 10000;
           if (timestamp > duration) break;
           const address: FilmstripTileAddress = {
             clipId: videoPath,
@@ -484,7 +563,9 @@ export class FilmstripCache {
         // Low-priority background decode request (concurrency 2 to avoid competing with playback/export)
         requestFilmstripArtifacts({
           videoPath,
-          timestampsMs: missingAddresses.map((a) => Math.round(a.timestamp * 1000)),
+          timestampsMs: missingAddresses.map((a) =>
+            Math.round(a.timestamp * 1000),
+          ),
           spatialTier: tier,
           epochId: "epoch-preload" as RenderEpochId,
           clipId: videoPath,
@@ -492,10 +573,14 @@ export class FilmstripCache {
           priority: 0,
           onArtifact: (artifact) => {
             if (!isValidArtifact(artifact)) {
-              try { artifact.bitmap.close(); } catch {}
+              try {
+                artifact.bitmap.close();
+              } catch {}
               return;
             }
-            const matchingAddr = missingAddresses.find((a) => Math.abs(a.timestamp * 1000 - artifact.timestampMs) < 1);
+            const matchingAddr = missingAddresses.find(
+              (a) => Math.abs(a.timestamp * 1000 - artifact.timestampMs) < 1,
+            );
             if (matchingAddr) {
               this.tileCache.setTile(matchingAddr, artifact);
               // Re-use existing notification pipeline: notify any mounted clip referencing this videoPath
@@ -505,7 +590,9 @@ export class FilmstripCache {
                 }
               }
             } else {
-              try { artifact.bitmap.close(); } catch {}
+              try {
+                artifact.bitmap.close();
+              } catch {}
             }
           },
           onError: () => {},
@@ -518,7 +605,10 @@ export class FilmstripCache {
    * Schedule artifact for batched update (RAF-gated)
    * Prevents React rerender storms during progressive decode
    */
-  private scheduleArtifactUpdate(clipId: string, artifact: TransportArtifact): void {
+  private scheduleArtifactUpdate(
+    clipId: string,
+    artifact: TransportArtifact,
+  ): void {
     this.pendingArtifacts.push({ clipId, artifact });
 
     if (this.rafId === null) {
@@ -559,15 +649,24 @@ export class FilmstripCache {
       // Merge artifacts (dedupe by timestamp, keep highest tier)
       for (const artifact of artifacts) {
         // DEFENSIVE: Skip if already closed/invalid
-        if (!artifact.bitmap || artifact.bitmap.width === 0 || artifact.bitmap.height === 0) {
+        if (
+          !artifact.bitmap ||
+          artifact.bitmap.width === 0 ||
+          artifact.bitmap.height === 0
+        ) {
           continue;
         }
 
-        const existingIdx = entry.artifacts.findIndex((a) => a.timestampMs === artifact.timestampMs);
+        const existingIdx = entry.artifacts.findIndex(
+          (a) => a.timestampMs === artifact.timestampMs,
+        );
 
         if (existingIdx >= 0) {
           const existing = entry.artifacts[existingIdx];
-          if (artifact.epochId !== existing.epochId || artifact.spatialTier > existing.spatialTier) {
+          if (
+            artifact.epochId !== existing.epochId ||
+            artifact.spatialTier > existing.spatialTier
+          ) {
             // A new epoch must replace the old bitmap even at the same tier.
             // Otherwise the exact readiness gate would remain stuck on stale
             // epoch artifacts after a zoom/viewport transition.
@@ -612,7 +711,11 @@ export class FilmstripCache {
   }
 
   /** Build artifact array from tile cache for exact current-epoch addresses only. */
-  private _buildArtifactsFromTiles(addresses: FilmstripTileAddress[], epochId: RenderEpochId, spatialTier: SpatialTier): TransportArtifact[] {
+  private _buildArtifactsFromTiles(
+    addresses: FilmstripTileAddress[],
+    epochId: RenderEpochId,
+    spatialTier: SpatialTier,
+  ): TransportArtifact[] {
     const artifacts: TransportArtifact[] = [];
 
     for (const addr of addresses) {
@@ -633,7 +736,8 @@ export class FilmstripCache {
   }
 
   requestFilmstrip(options: FilmstripRequestOptions): void {
-    const { clipId, epochId, onUpdate, videoPath, spatialTier, duration } = options;
+    const { clipId, epochId, onUpdate, videoPath, spatialTier, duration } =
+      options;
     const requestedAt = performance.now();
     this._cancelPrefetch(clipId);
 
@@ -685,10 +789,15 @@ export class FilmstripCache {
         // Epoch changed: cancel the old request, clean up clip-level entry, but keep matching artifacts and do NOT invalidate global tile cache!
         existing.cancelFn?.();
         const disposedArtifacts: TransportArtifact[] = [];
-        const isZooming = requestReason === "zoom" || filmstripTelemetry.isZoomGestureActive();
+        const isZooming =
+          requestReason === "zoom" || filmstripTelemetry.isZoomGestureActive();
         const matchToleranceMs = isZooming ? 2500 : 50;
         for (const art of existing.artifacts) {
-          const isMatched = tileAddresses.some((addr) => Math.abs(addr.timestamp * 1000 - art.timestampMs) < matchToleranceMs);
+          const isMatched = tileAddresses.some(
+            (addr) =>
+              Math.abs(addr.timestamp * 1000 - art.timestampMs) <
+              matchToleranceMs,
+          );
           if (isMatched) {
             keptArtifacts.push(art);
           } else {
@@ -697,7 +806,10 @@ export class FilmstripCache {
         }
 
         this._disposeArtifacts(disposedArtifacts);
-        const disposedMemory = disposedArtifacts.reduce((acc, art) => acc + art.width * art.height * 4, 0);
+        const disposedMemory = disposedArtifacts.reduce(
+          (acc, art) => acc + art.width * art.height * 4,
+          0,
+        );
         this.currentMemoryBytes -= disposedMemory;
         this.entries.delete(clipId);
       } else {
@@ -725,7 +837,11 @@ export class FilmstripCache {
           !existing.startupDeferred
         ) {
           // Debounce: return cached artifacts from tiles
-          const cachedArtifacts = this._buildArtifactsFromTiles(tileAddresses, epochId, spatialTier);
+          const cachedArtifacts = this._buildArtifactsFromTiles(
+            tileAddresses,
+            epochId,
+            spatialTier,
+          );
           onUpdate(cachedArtifacts);
           return;
         }
@@ -735,10 +851,15 @@ export class FilmstripCache {
 
         // Separate artifacts to prevent memory leak and reuse valid ones
         const disposedArtifacts: TransportArtifact[] = [];
-        const isZooming = requestReason === "zoom" || filmstripTelemetry.isZoomGestureActive();
+        const isZooming =
+          requestReason === "zoom" || filmstripTelemetry.isZoomGestureActive();
         const matchToleranceMs = isZooming ? 2500 : 50;
         for (const art of existing.artifacts) {
-          const isMatched = tileAddresses.some((addr) => Math.abs(addr.timestamp * 1000 - art.timestampMs) < matchToleranceMs);
+          const isMatched = tileAddresses.some(
+            (addr) =>
+              Math.abs(addr.timestamp * 1000 - art.timestampMs) <
+              matchToleranceMs,
+          );
           if (isMatched) {
             keptArtifacts.push(art);
           } else {
@@ -748,7 +869,10 @@ export class FilmstripCache {
 
         // Dispose non-matching artifacts
         this._disposeArtifacts(disposedArtifacts);
-        const disposedMemory = disposedArtifacts.reduce((acc, art) => acc + art.width * art.height * 4, 0);
+        const disposedMemory = disposedArtifacts.reduce(
+          (acc, art) => acc + art.width * art.height * 4,
+          0,
+        );
         this.currentMemoryBytes -= disposedMemory;
       }
     }
@@ -768,12 +892,19 @@ export class FilmstripCache {
 
     // Try to fill in any missing tiles from the global tileCache (exact matches or cross-tier fallbacks)
     for (const addr of tileAddresses) {
-      const alreadyKept = keptArtifacts.some((art) => Math.abs(addr.timestamp * 1000 - art.timestampMs) < 1);
+      const alreadyKept = keptArtifacts.some(
+        (art) => Math.abs(addr.timestamp * 1000 - art.timestampMs) < 1,
+      );
       if (!alreadyKept) {
         const cached = this.tileCache.getTile(addr);
         if (cached && isValidArtifact(cached.artifact)) {
           keptArtifacts.push(cached.artifact);
-          this._recordTileTelemetry(cached.artifact, "memory_tier", requestedAt, requestReason);
+          this._recordTileTelemetry(
+            cached.artifact,
+            "memory_tier",
+            requestedAt,
+            requestReason,
+          );
         } else {
           const fallback = this.tileCache.findBestFallback(
             clipId,
@@ -781,11 +912,16 @@ export class FilmstripCache {
             addr.timestamp,
             videoPath,
             6.0,
-            addr.effectGraphVersion ?? 1
+            addr.effectGraphVersion ?? 1,
           );
           if (fallback && isValidArtifact(fallback.artifact)) {
             keptArtifacts.push(fallback.artifact);
-            this._recordTileTelemetry(fallback.artifact, "pyramid_fallback", requestedAt, requestReason);
+            this._recordTileTelemetry(
+              fallback.artifact,
+              "pyramid_fallback",
+              requestedAt,
+              requestReason,
+            );
           }
         }
       }
@@ -796,14 +932,23 @@ export class FilmstripCache {
       if (keptArtifacts.length > 0) {
         onUpdate([...keptArtifacts]);
       } else {
-        const cachedArtifacts = this._buildArtifactsFromTiles(tileAddresses, epochId, spatialTier);
+        const cachedArtifacts = this._buildArtifactsFromTiles(
+          tileAddresses,
+          epochId,
+          spatialTier,
+        );
         onUpdate(cachedArtifacts);
       }
 
       // If we have ALL tiles cached, skip the request entirely
       const allCached = tileAddresses.every((addr) => {
         const cached = this.tileCache.getTile(addr);
-        return !!cached && isValidArtifact(cached.artifact) && cached.artifact.epochId === epochId && cached.artifact.spatialTier === spatialTier;
+        return (
+          !!cached &&
+          isValidArtifact(cached.artifact) &&
+          cached.artifact.epochId === epochId &&
+          cached.artifact.spatialTier === spatialTier
+        );
       });
       if (allCached) {
         return;
@@ -816,14 +961,29 @@ export class FilmstripCache {
     // Extract timestamps from tile addresses for transport layer, sorted playhead-first
     // Prioritize playhead if provided and within visible window; otherwise prioritize visible start
     // (natural left-to-right reading order) so the beginning of the video fills in immediately.
-    const clipStartPx = timeToPixel(options.clipStartTime, options.pixelsPerSecond);
-    const visibleClipStartPx = Math.max(clipStartPx, options.viewportScrollLeft);
-    const visibleClipEndPx = Math.min(clipStartPx + options.clipWidthPx, options.viewportScrollLeft + options.viewportWidth);
-    const visibleStartTime = pixelToTime(visibleClipStartPx - clipStartPx, options.pixelsPerSecond) + options.trimIn;
-    const visibleEndTime = pixelToTime(visibleClipEndPx - clipStartPx, options.pixelsPerSecond) + options.trimIn;
+    const clipStartPx = timeToPixel(
+      options.clipStartTime,
+      options.pixelsPerSecond,
+    );
+    const visibleClipStartPx = Math.max(
+      clipStartPx,
+      options.viewportScrollLeft,
+    );
+    const visibleClipEndPx = Math.min(
+      clipStartPx + options.clipWidthPx,
+      options.viewportScrollLeft + options.viewportWidth,
+    );
+    const visibleStartTime =
+      pixelToTime(visibleClipStartPx - clipStartPx, options.pixelsPerSecond) +
+      options.trimIn;
+    const visibleEndTime =
+      pixelToTime(visibleClipEndPx - clipStartPx, options.pixelsPerSecond) +
+      options.trimIn;
 
     const targetTime =
-      options.playheadTime !== undefined && options.playheadTime >= visibleStartTime && options.playheadTime <= visibleEndTime
+      options.playheadTime !== undefined &&
+      options.playheadTime >= visibleStartTime &&
+      options.playheadTime <= visibleEndTime
         ? options.playheadTime
         : visibleStartTime;
 
@@ -833,7 +993,8 @@ export class FilmstripCache {
       return distA - distB;
     });
 
-    const isZoomingGesture = filmstripTelemetry.isZoomGestureActive() || requestReason === "zoom";
+    const isZoomingGesture =
+      filmstripTelemetry.isZoomGestureActive() || requestReason === "zoom";
     const missingTileAddresses = sortedTileAddresses.filter((addr) => {
       // During active zoom gestures, if an existing artifact or fallback tile is already covering this address,
       // do not dispatch new native decode requests on every spring frame!
@@ -861,7 +1022,10 @@ export class FilmstripCache {
       artifacts: keptArtifacts,
       cancelFn: null,
       lastViewportUpdate: Date.now(),
-      memoryBytes: keptArtifacts.reduce((acc, art) => acc + art.width * art.height * 4, 0),
+      memoryBytes: keptArtifacts.reduce(
+        (acc, art) => acc + art.width * art.height * 4,
+        0,
+      ),
       onUpdate,
       tileAddresses,
       spatialTier,
@@ -897,7 +1061,10 @@ export class FilmstripCache {
     const overscanMissingAddresses: FilmstripTileAddress[] = [];
 
     for (const addr of missingTileAddresses) {
-      if (addr.timestamp >= visibleStartTime - timeEps && addr.timestamp <= visibleEndTime + timeEps) {
+      if (
+        addr.timestamp >= visibleStartTime - timeEps &&
+        addr.timestamp <= visibleEndTime + timeEps
+      ) {
         visibleMissingAddresses.push(addr);
       } else {
         overscanMissingAddresses.push(addr);
@@ -947,7 +1114,10 @@ export class FilmstripCache {
 
       // Enforce memory budget BEFORE scheduling
       const sizeBytes = artifact.width * artifact.height * 4;
-      while (this.currentMemoryBytes + sizeBytes > this.memoryBudgetBytes && this.entries.size > 1) {
+      while (
+        this.currentMemoryBytes + sizeBytes > this.memoryBudgetBytes &&
+        this.entries.size > 1
+      ) {
         this._evictLRU(clipId); // Don't evict current clip
       }
 
@@ -971,7 +1141,9 @@ export class FilmstripCache {
     if (visibleMissingAddresses.length > 0) {
       cancelVisible = requestFilmstripArtifacts({
         videoPath,
-        timestampsMs: visibleMissingAddresses.map((addr) => Math.round(addr.timestamp * 1000)),
+        timestampsMs: visibleMissingAddresses.map((addr) =>
+          Math.round(addr.timestamp * 1000),
+        ),
         spatialTier,
         epochId,
         clipId,
@@ -982,7 +1154,10 @@ export class FilmstripCache {
           checkAllComplete();
         },
         onError: (err) => {
-          console.warn(`[Filmstrip ⚠️] Error decoding visible tiles for clip="${clipId}":`, err);
+          console.warn(
+            `[Filmstrip ⚠️] Error decoding visible tiles for clip="${clipId}":`,
+            err,
+          );
         },
       });
     }
@@ -992,7 +1167,9 @@ export class FilmstripCache {
     if (overscanMissingAddresses.length > 0 && this.nativePreviewReady) {
       cancelOverscan = requestFilmstripArtifacts({
         videoPath,
-        timestampsMs: overscanMissingAddresses.map((addr) => Math.round(addr.timestamp * 1000)),
+        timestampsMs: overscanMissingAddresses.map((addr) =>
+          Math.round(addr.timestamp * 1000),
+        ),
         spatialTier,
         epochId,
         clipId,
@@ -1003,7 +1180,10 @@ export class FilmstripCache {
           checkAllComplete();
         },
         onError: (err) => {
-          console.warn(`[Filmstrip ⚠️] Error decoding overscan tiles for clip="${clipId}":`, err);
+          console.warn(
+            `[Filmstrip ⚠️] Error decoding overscan tiles for clip="${clipId}":`,
+            err,
+          );
         },
       });
     }
@@ -1028,7 +1208,10 @@ export class FilmstripCache {
     const isPyramidFallback = source === "pyramid_fallback";
     const nativeRequestMs = isPyramidFallback
       ? 0
-      : Math.max(0, artifact.nativeRequestMs ?? performance.now() - requestedAt);
+      : Math.max(
+          0,
+          artifact.nativeRequestMs ?? performance.now() - requestedAt,
+        );
     const bitmapCreationMs = Math.max(0, artifact.bitmapCreationMs ?? 0);
     filmstripTelemetry.record({
       // No project ID or path: rendering coordinates only.
@@ -1042,7 +1225,10 @@ export class FilmstripCache {
       decodeMs: 0,
       bitmapCreationMs,
       rasterPaintMs: 0,
-      totalTimeToVisibleMs: nativeRequestMs + bitmapCreationMs,
+      totalTimeToVisibleMs:
+        nativeRequestMs + bitmapCreationMs + (artifact.queueWaitMs ?? 0),
+      queueWaitMs: artifact.queueWaitMs,
+      spatialTier: spatialTierToTelemetryTier(artifact.spatialTier),
       requestReason,
     });
   }
@@ -1083,7 +1269,8 @@ export class FilmstripCache {
    * Dispose all resources
    */
   dispose(): void {
-    for (const clipId of this.prefetchCancels.keys()) this._cancelPrefetch(clipId);
+    for (const clipId of this.prefetchCancels.keys())
+      this._cancelPrefetch(clipId);
     for (const clipId of this.deferredZoomRequests.keys()) {
       this._cancelDeferredZoomRequest(clipId);
     }
@@ -1182,7 +1369,10 @@ export class FilmstripCache {
       clipCount: this.entries.size,
       memoryMB: (this.currentMemoryBytes / (1024 * 1024)).toFixed(2),
       budgetMB: this.memoryBudgetBytes / (1024 * 1024),
-      utilizationPercent: ((this.currentMemoryBytes / this.memoryBudgetBytes) * 100).toFixed(1),
+      utilizationPercent: (
+        (this.currentMemoryBytes / this.memoryBudgetBytes) *
+        100
+      ).toFixed(1),
       tileCount: tileStats.tileCount,
       tileMemoryMB: (tileStats.memoryBytes / (1024 * 1024)).toFixed(2),
       tileUtilizationPercent: tileStats.utilizationPercent.toFixed(1),

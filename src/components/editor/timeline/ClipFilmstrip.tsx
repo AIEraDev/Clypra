@@ -122,6 +122,7 @@ export function ClipFilmstripInner({
     signature: string;
     renderWindow: ReturnType<typeof getFilmstripRenderWindow>;
   } | null>(null);
+  const reportedPlaceholderRef = useRef<string | null>(null);
 
   // PERF-5: Debounce image redraws during active resize to avoid canvas reallocation overhead
   const [debouncedClipWidthPx, setDebouncedClipWidthPx] = useState(clipWidthPx);
@@ -250,6 +251,7 @@ export function ClipFilmstripInner({
   // A reused Clip component must not briefly display the previous clip's committed pixels.
   useEffect(() => {
     committedFilmstripRef.current = null;
+    reportedPlaceholderRef.current = null;
   }, [clip.id, videoPath]);
 
   // ── RasterSurface lifecycle ───────────────────────────────────────────────
@@ -318,6 +320,11 @@ export function ClipFilmstripInner({
       if (hasAnyCacheOrArtifacts) {
         surfaceRef.current?.drawFilmstrip(currentEpochArtifacts, layout);
       } else {
+        const placeholderKey = `${epochId}:${spatialTier}:${tileSignature}`;
+        if (reportedPlaceholderRef.current !== placeholderKey) {
+          reportedPlaceholderRef.current = placeholderKey;
+          filmstripTelemetry.recordStall();
+        }
         surfaceRef.current?.drawPlaceholder({
           clipWidthPx: renderWindow.widthPx,
           stripHeightPx,
@@ -439,6 +446,11 @@ export function ClipFilmstripInner({
       }
     } else if (!committedFilmstripRef.current) {
       // Cold start: neutral placeholder
+      const placeholderKey = `${epochId}:${spatialTier}:${tileSignature}`;
+      if (reportedPlaceholderRef.current !== placeholderKey) {
+        reportedPlaceholderRef.current = placeholderKey;
+        filmstripTelemetry.recordStall();
+      }
       surface.drawPlaceholder(layout);
     }
   }, [
