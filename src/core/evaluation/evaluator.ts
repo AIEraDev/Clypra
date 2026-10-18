@@ -896,18 +896,25 @@ export function isOpaqueFullFrameOccluder(
   canvasHeight: number,
   transitionWindows: ActiveTransitionWindow[] = [],
 ): boolean {
-  // Only media layers (video or opaque still images) can act as solid full-frame occluders
-  if (layer.layerType !== "media") return false;
+  // Only video media layers can act as solid full-frame occluders. Still images (PNG, WebP, SVG)
+  // and stickers frequently contain alpha channels and must never falsely cull underlying video tracks.
+  if (layer.layerType !== "media" || (layer as EvaluatedMediaLayer).mediaType !== "video") return false;
+
+  // Stickers can never act as occluders
+  if (
+    (layer as EvaluatedMediaLayer).clipKind === "sticker" ||
+    Boolean((layer as EvaluatedMediaLayer).stickerSourceId) ||
+    Boolean(layer.stickerFormat) ||
+    Boolean((layer as any).stickerAnimationPath)
+  ) {
+    return false;
+  }
 
   // Must be fully opaque
   if (layer.opacity < 0.999) return false;
 
   // Must use standard 'normal' blend mode (other blend modes blend with background)
   if (layer.blendMode && layer.blendMode !== "normal") return false;
-
-  // Animated stickers (GIF/Lottie) and transparent PNG overlays have alpha
-  if (layer.stickerFormat === "gif" || layer.stickerFormat === "lottie")
-    return false;
 
   // Cannot have body segmentation effects, chroma key, or custom alpha shaders
   if (
@@ -973,11 +980,18 @@ export function doesLayerOccludeLayer(
   bottom: EvaluatedVisualLayer,
   transitionWindows: ActiveTransitionWindow[] = [],
 ): boolean {
-  if (top.layerType !== "media") return false;
+  if (top.layerType !== "media" || (top as EvaluatedMediaLayer).mediaType !== "video") return false;
+  if (
+    (top as EvaluatedMediaLayer).clipKind === "sticker" ||
+    Boolean((top as EvaluatedMediaLayer).stickerSourceId) ||
+    Boolean(top.stickerFormat) ||
+    Boolean((top as any).stickerAnimationPath)
+  ) {
+    return false;
+  }
   if (top.opacity < 0.999) return false;
   if (top.blendMode && top.blendMode !== "normal") return false;
-  if (top.stickerFormat === "gif" || top.stickerFormat === "lottie")
-    return false;
+
 
   if (
     top.effects &&
