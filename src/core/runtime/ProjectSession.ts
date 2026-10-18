@@ -867,7 +867,7 @@ export class ProjectSession {
       this._nativePreviewStartupTimeout = setTimeout(() => {
         runtime.setNativePreviewReady(true);
         this._releaseNativePreviewStartupGate();
-      }, 60_000);
+      }, 500);
     } catch {
       // Older/native-disabled runtimes have no startup event; preserve the
       // ordinary filmstrip behavior rather than withholding imagery.

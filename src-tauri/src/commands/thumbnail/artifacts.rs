@@ -44,6 +44,11 @@ pub async fn get_render_artifact(
         return Err("No valid spatial tiers requested".to_string());
     }
 
+    let (max_w, max_h) = tiers
+        .iter()
+        .map(|t| t.dims())
+        .fold((0u32, 0u32), |(mw, mh), (w, h)| (mw.max(w), mh.max(h)));
+
     let content_hash = FrameContentHash::compute(
         &video_id,
         timestamp_ms,
@@ -91,7 +96,7 @@ pub async fn get_render_artifact(
             let decoder_arc = get_decoder(&video_path).await?;
             let (rgba, w, h) = {
                 let mut dec = decoder_arc.lock().await;
-                dec.decode_frame_full_res(timestamp_secs)?
+                dec.decode_frame_scaled(timestamp_secs, max_w, max_h)?
             };
             let frame = Arc::new(RawRgbaFrame::new(rgba, w, h));
             FRAME_CACHE.insert(content_hash.clone(), frame.clone());
@@ -198,6 +203,11 @@ pub async fn get_render_artifacts_batch(
     if tiers.is_empty() {
         return Err("No valid spatial tiers requested".to_string());
     }
+
+    let (max_w, max_h) = tiers
+        .iter()
+        .map(|t| t.dims())
+        .fold((0u32, 0u32), |(mw, mh), (w, h)| (mw.max(w), mh.max(h)));
 
     let cache_dir = match GLOBAL_CACHE.cache_dir().await {
         Some(dir) => dir,
@@ -371,7 +381,7 @@ pub async fn get_render_artifacts_batch(
         let chunk_secs: Vec<f64> = chunk.iter().map(|&ms| ms as f64 / 1000.0).collect();
         let decoded_batch = {
             let mut dec = decoder_arc.lock().await;
-            dec.decode_frames_batch_full_res(&chunk_secs)?
+            dec.decode_frames_batch_scaled(&chunk_secs, max_w, max_h)?
         };
         if !decoded_batch.frames.is_empty() {
             let per_frame_decode = decoded_batch.decode_elapsed / decoded_batch.frames.len() as u32;

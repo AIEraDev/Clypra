@@ -947,11 +947,13 @@ impl VideoDecoder {
     /// Used by the pyramid pipeline: decode once at full res → pass to
     /// `downsample_pyramid()` which produces L0–L3 in parallel via LANCZOS.
     ///
-    /// Returns raw RGBA bytes at `(display_w, display_h)` after SAR correction
-    /// and rotation. No downsampling is applied here.
-    pub fn decode_frame_full_res(
+    /// Returns raw RGBA bytes scaled to fit within `(max_w, max_h)` while preserving
+    /// aspect ratio (or full display resolution if `max_w == 0 || max_h == 0`).
+    pub fn decode_frame_scaled(
         &mut self,
         timestamp_secs: f64,
+        max_w: u32,
+        max_h: u32,
     ) -> Result<(Vec<u8>, u32, u32), String> {
         let ts = self.clamp_timestamp(timestamp_secs);
         let target_pts = (ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
@@ -1011,14 +1013,25 @@ impl VideoDecoder {
         let cpu_frame = self.to_cpu_frame(best_frame)?;
         let (display_w, display_h) = self.display_dimensions();
 
+        let (target_w, target_h) =
+            if max_w > 0 && max_h > 0 && (display_w > max_w || display_h > max_h) {
+                let scale =
+                    (max_w as f64 / display_w as f64).min(max_h as f64 / display_h as f64);
+                let w = (((display_w as f64 * scale).round() as u32).max(1) + 1) & !1;
+                let h = (((display_h as f64 * scale).round() as u32).max(1) + 1) & !1;
+                (w, h)
+            } else {
+                (display_w, display_h)
+            };
+
         // Account for rotation when choosing scale target
         let (scale_w, scale_h) = if self.rotation == 90 || self.rotation == 270 {
-            (display_h, display_w)
+            (target_h, target_w)
         } else {
-            (display_w, display_h)
+            (target_w, target_h)
         };
 
-        // Scale YUV → RGBA at display resolution (LANCZOS, no additional thumbnail scaling)
+        // Scale YUV → RGBA
         let scaled = self.scale_to_rgba_explicit(&cpu_frame, scale_w, scale_h)?;
 
         let rgba = if self.rotation != 0 {
@@ -1027,19 +1040,26 @@ impl VideoDecoder {
             scaled
         };
 
-        Ok((rgba, display_w, display_h))
+        Ok((rgba, target_w, target_h))
     }
 
-    /// Decode multiple frames in a single forward pass under one lock hold.
-    ///
-    /// The input `target_timestamps_secs` should be sorted ascending.
-    /// Performs a single seek before the first timestamp, then streams packets
-    /// forward continuously through the GOP without repeated seeking or decoder resets.
-    ///
-    /// Returns `(target_ts, rgba, display_w, display_h)` for each satisfied target.
-    pub fn decode_frames_batch_full_res(
+    /// Returns raw RGBA bytes at `(display_w, display_h)` after SAR correction
+    /// and rotation. No downsampling is applied here.
+    pub fn decode_frame_full_res(
+        &mut self,
+        timestamp_secs: f64,
+    ) -> Result<(Vec<u8>, u32, u32), String> {
+        self.decode_frame_scaled(timestamp_secs, 0, 0)
+    }
+
+    /// Decode multiple frames in a single forward pass, scaled to fit within
+    /// `(max_w, max_h)` to prevent allocating multi-gigabyte uncompressed RGBA buffers
+    /// for 4K/8K timeline filmstrip generation.
+    pub fn decode_frames_batch_scaled(
         &mut self,
         target_timestamps_secs: &[f64],
+        max_w: u32,
+        max_h: u32,
     ) -> Result<BatchDecodeResult, String> {
         if target_timestamps_secs.is_empty() {
             return Ok(BatchDecodeResult {
@@ -1083,10 +1103,21 @@ impl VideoDecoder {
         };
 
         let (display_w, display_h) = self.display_dimensions();
+        let (target_w, target_h) =
+            if max_w > 0 && max_h > 0 && (display_w > max_w || display_h > max_h) {
+                let scale =
+                    (max_w as f64 / display_w as f64).min(max_h as f64 / display_h as f64);
+                let w = (((display_w as f64 * scale).round() as u32).max(1) + 1) & !1;
+                let h = (((display_h as f64 * scale).round() as u32).max(1) + 1) & !1;
+                (w, h)
+            } else {
+                (display_w, display_h)
+            };
+
         let (scale_w, scale_h) = if self.rotation == 90 || self.rotation == 270 {
-            (display_h, display_w)
+            (target_h, target_w)
         } else {
-            (display_w, display_h)
+            (target_w, target_h)
         };
 
         let mut cpu_frames = Vec::with_capacity(target_timestamps_secs.len());
@@ -1148,8 +1179,8 @@ impl VideoDecoder {
             results.push(BatchDecodedFrame {
                 target_ts_secs: target_ts,
                 rgba,
-                width: display_w,
-                height: display_h,
+                width: target_w,
+                height: target_h,
                 convert_elapsed,
                 conversion_fast_path,
             });
@@ -1160,6 +1191,20 @@ impl VideoDecoder {
             seek_elapsed,
             decode_elapsed,
         })
+    }
+
+    /// Decode multiple frames in a single forward pass under one lock hold.
+    ///
+    /// The input `target_timestamps_secs` should be sorted ascending.
+    /// Performs a single seek before the first timestamp, then streams packets
+    /// forward continuously through the GOP without repeated seeking or decoder resets.
+    ///
+    /// Returns `(target_ts, rgba, display_w, display_h)` for each satisfied target.
+    pub fn decode_frames_batch_full_res(
+        &mut self,
+        target_timestamps_secs: &[f64],
+    ) -> Result<BatchDecodeResult, String> {
+        self.decode_frames_batch_scaled(target_timestamps_secs, 0, 0)
     }
 
     /// Fast keyframe decode for poster frames / library thumbnails.
