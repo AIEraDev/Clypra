@@ -61,6 +61,7 @@ When an agent receives any new request, it must automatically evaluate the task 
 | **Timeline math, SMPTE, timecode, framerate, fps, split, ripple, gap engine, AV sync** | `nle-domain-engineering` | `clypra-media-regression-testing`, `behavior-coverage` |
 | **Native preview, canvas/bridge, wgpu, Metal, DirectX, frame pacing, dropped frames, preview benchmark, readback cost** | `clypra-preview-performance-engineering` | `performance-reliability-engineering`, `nle-domain-engineering`, `tauri-cross-platform-engineering` |
 | **Perf logs, session logs, ndjson, telemetry analysis, remote session, frame timing trace, performance incident, latency spike** | `clypra-performance-log-analysis` | `clypra-preview-performance-engineering`, `clypra-bug-hunter`, `performance-reliability-engineering` |
+| **Specific file/function/subsystem review, improve logic, optimize a code path, compare approaches, validate current engineering patterns or research before implementation** | `clypra-codebase-optimization-research` | `architecture-design-review`, `performance-reliability-engineering`, `senior-engineer-decision-making` |
 | **Lag, stutter, frame drop, high memory usage, IPC bottleneck, cache exhaustion, leaks** | `performance-reliability-engineering` | `clypra-dev` |
 | **Windows paths, macOS menus, Linux WebKitGTK, Tauri commands, IPC invoke, OS dialogs** | `tauri-cross-platform-engineering` | `architecture-design-review` |
 | **Tauri native API, OS window, HWND, NSWindow, GTK, GtkWindow, SetWindowPos, addChildWindow, run_on_main_thread, native UI thread safety, thread affinity, platform event loop, SIGTRAP, EXC_BREAKPOINT** | `tauri-native-thread-safety` | `tauri-cross-platform-engineering`, `bugfix-regression` |
@@ -126,7 +127,19 @@ When an agent receives any new request, it must automatically evaluate the task 
 | Related skills | `tauri-cross-platform-engineering`, `bugfix-regression`, `performance-reliability-engineering` |
 | Required evidence | Thread-affinity audit, dispatch boundary verification, atomic lifecycle state transitions, unit tests, and platform checks |
 
-### 3.7 Mandatory Mixed-Stack Benchmark & Deep Automation Contract
+### 3.7 Dedicated Scoped Codebase Optimization & Research Skill
+
+| Field | Value |
+| :--- | :--- |
+| Skill | clypra-codebase-optimization-research |
+| Path | .agents/skills/clypra-codebase-optimization-research/SKILL.md |
+| Activates for | Targeted file/function/subsystem investigations, improvement recommendations, architecture and logic optimization, technical-debt assessments, and current-approach validation before implementation |
+| Related skills | architecture-design-review, performance-reliability-engineering, senior-engineer-decision-making; add domain-specific skills when relevant |
+| Required output | Evidence-linked findings, explicit fact/inference/hypothesis labels, impact and confidence, trade-off-aware recommendations, current sources when research is warranted, and a targeted verification plan |
+
+This skill is investigation-first and read-only by default. Do not implement changes unless the developer explicitly asks for implementation. Current research must be checked against Clypra's actual versions and architecture; performance claims require relevant measurements.
+
+### 3.8 Mandatory Mixed-Stack Benchmark & Deep Automation Contract
 
 For every new feature, layer type, or subsystem upgrade, the agent must automatically execute the Deep Automation Contract:
 1. **Multi-Property Mixed-Stack Testing**: Evaluate against realistic composite timelines combining Video + Audio/Music + Text + Stickers + Transforms (`goldenProjectManifest.ts`). Never benchmark features in isolation.
