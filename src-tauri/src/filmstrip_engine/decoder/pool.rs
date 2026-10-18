@@ -66,6 +66,9 @@ pub(crate) static PREVIEW_DECODER_POOL: Lazy<DashMap<String, Arc<DecoderEntry>>>
 // Symmetric pool size limits with lock-free atomic LRU eviction
 const MAX_THUMBNAIL_DECODER_POOL_SIZE: usize = 10;
 const MAX_PREVIEW_DECODER_POOL_SIZE: usize = 8;
+/// Keep one additional bounded decoder available for a large settled viewport.
+/// Preview owns an entirely separate pool and is never counted here.
+pub const MAX_FILMSTRIP_DECODER_SHARDS: usize = 2;
 
 #[inline]
 pub fn preview_pool_key(path: &str, stream_id: &str) -> String {
@@ -158,9 +161,21 @@ async fn get_or_create_decoder_in_pool(
 
 /// Thumbnail/Filmstrip background decoder pool (used for timeline thumbnail caching)
 pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String> {
+    get_filmstrip_decoder_shard(path, 0).await
+}
+
+/// A filmstrip shard gets an isolated decode cursor for the same source. This
+/// is used only by a bounded P2 viewport batch; independent cursors prevent
+/// distant timestamps from serially seeking one shared decoder.
+pub async fn get_filmstrip_decoder_shard(
+    path: &str,
+    shard: usize,
+) -> Result<Arc<Mutex<VideoDecoder>>, String> {
+    let shard = shard.min(MAX_FILMSTRIP_DECODER_SHARDS.saturating_sub(1));
+    let key = format!("{path}::filmstrip-shard:{shard}");
     get_or_create_decoder_in_pool(
         &THUMBNAIL_DECODER_POOL,
-        path,
+        &key,
         path,
         MAX_THUMBNAIL_DECODER_POOL_SIZE,
         false,

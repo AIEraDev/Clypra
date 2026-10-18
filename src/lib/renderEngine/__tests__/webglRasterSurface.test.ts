@@ -241,6 +241,49 @@ describe("WebGLRasterSurface", () => {
     surface.dispose();
   });
 
+  it("fills every L0 slot from a retained parent during deep zoom", () => {
+    const canvas = { width: 0, height: 0 } as HTMLCanvasElement;
+    const gl = makeGl();
+    const surface = new WebGLRasterSurface(canvas, gl);
+    const tileCache = new FilmstripTileCache(10);
+    const parent = makeArtifact(0);
+    const addresses: FilmstripTileAddress[] = [0, 20, 40].map(
+      (timestamp, tileIndex) => ({
+        clipId: "clip-1",
+        zoomTier: SpatialTier.L0,
+        tileIndex,
+        timestamp,
+      }),
+    );
+    tileCache.setTile(addresses[0], parent);
+
+    surface.drawFilmstrip([], {
+      clipWidthPx: 180,
+      stripHeightPx: 40,
+      dpr: 1,
+      tileWidthPx: 60,
+      trimIn: 0,
+      trimOut: 40,
+      tileAddresses: addresses,
+      tileCache,
+      clipId: "clip-1",
+    });
+
+    expect(gl.texSubImage2D).toHaveBeenCalledWith(
+      gl.TEXTURE_2D,
+      0,
+      0,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      parent.bitmap,
+    );
+    const vertices = vi.mocked(gl.bufferData).mock.calls[0][1] as Float32Array;
+    expect(vertices).toHaveLength(3 * 6 * 4);
+    tileCache.dispose();
+    surface.dispose();
+  });
+
   it("State 3: All tiers missing (cold import) -> uploads and renders stylized shimmer quads with slot boundaries", () => {
     const canvas = { width: 0, height: 0 } as HTMLCanvasElement;
     const gl = makeGl();

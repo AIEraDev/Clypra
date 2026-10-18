@@ -177,15 +177,17 @@ export class RasterSurface {
               slotW,
               slotH,
             );
-          } else if (slot.address.zoomTier !== SpatialTier.L0) {
-            // Multi-tier pyramid fallback: look up best available lower-tier tile (L2 -> L1 -> L0)
-            // and stretch it — blurry-but-instant is better than shimmer during zoom transitions.
+          } else {
+            // Every zoom tier, including L0, gets a visual parent while its
+            // exact address decodes. An unbounded lookup is presentation-only:
+            // it repeats the nearest retained frame in each empty cell but
+            // never turns it into a cache hit for extraction.
             const fallbackEntry = layout.tileCache.findBestFallback(
               layout.clipId ?? "",
               slot.address.zoomTier,
               slot.address.timestamp,
               layout.videoPath,
-              /* tolerance: */ 6.0,
+              Number.POSITIVE_INFINITY,
               slot.address.effectGraphVersion,
             );
             if (fallbackEntry && fallbackEntry.artifact.bitmap && fallbackEntry.artifact.bitmap.width > 0) {
@@ -207,9 +209,6 @@ export class RasterSurface {
               pendingCount++;
               this._drawPendingSlotPlaceholder(ctx, slotX, 0, slotW, slotH);
             }
-          } else {
-            pendingCount++;
-            this._drawPendingSlotPlaceholder(ctx, slotX, 0, slotW, slotH);
           }
         } else {
           pendingCount++;

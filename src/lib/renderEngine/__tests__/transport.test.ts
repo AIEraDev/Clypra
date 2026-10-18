@@ -451,11 +451,41 @@ describe("requestFilmstripArtifacts coalescing", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(mockInvoke).toHaveBeenCalledTimes(1);
     expect(mockInvoke.mock.calls[0][0]).toBe("get_render_artifacts_batch");
+    expect(mockInvoke.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ priority: 10 }),
+    );
     expect(filmstripTelemetry.getSummary().coalescedBatchesDispatched).toBe(1);
 
     resolveFirst?.();
     await new Promise((r) => setTimeout(r, 20));
     expect(mockInvoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports lane residence rather than native execution as queue wait", async () => {
+    vi.useFakeTimers();
+    registerActiveEpoch("clip-queue-span", eid("epoch-queue-span"));
+    const received: TransportArtifact[] = [];
+
+    requestFilmstripArtifacts({
+      videoPath: "/queue-span.mp4",
+      timestampsMs: [1000],
+      spatialTier: SpatialTier.L0,
+      epochId: eid("epoch-queue-span"),
+      clipId: "clip-queue-span",
+      onArtifact: (artifact) => received.push(artifact),
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    // Native work may take a long time after dispatch. That is request time,
+    // not time spent waiting in the JS filmstrip lane.
+    await vi.advanceTimersByTimeAsync(500);
+    channelInstances[0]?.triggerMessage(makeRawArtifact());
+    await vi.runAllTimersAsync();
+
+    expect(received).toHaveLength(1);
+    expect(received[0].queueWaitMs).toBeLessThanOrEqual(1);
+    unregisterActiveEpoch("clip-queue-span");
+    vi.useRealTimers();
   });
 
   it("queues a follow-up batch for timestamps not covered by the in-flight invoke", async () => {

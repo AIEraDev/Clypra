@@ -306,19 +306,24 @@ export function ClipFilmstripInner({
         clipTrimIn: clip.trimIn,
       };
 
-      const currentEpochArtifacts = artifacts.filter(
+      // A lower-tier bitmap is an intentional presentation fallback during a
+      // zoom transition. Do not discard it here simply because the newly
+      // selected tier differs: doing so turns a retained usable projection
+      // into a second tile-cache lookup (and can leave every slot shimmering
+      // when that lookup races an epoch change).
+      const presentationArtifacts = artifacts.filter(
         (artifact) =>
           (artifact.epochId === epochId ||
-            artifact.epochId === ("epoch-preload" as RenderEpochId)) &&
-          artifact.spatialTier === spatialTier,
+            artifact.epochId === ("epoch-preload" as RenderEpochId)) ||
+          artifact.spatialTier < spatialTier,
       );
 
       const hasAnyCacheOrArtifacts =
-        currentEpochArtifacts.length > 0 ||
+        presentationArtifacts.length > 0 ||
         (runtime?.tileCache && runtime.tileCache.getStats().tileCount > 0);
 
       if (hasAnyCacheOrArtifacts) {
-        surfaceRef.current?.drawFilmstrip(currentEpochArtifacts, layout);
+        surfaceRef.current?.drawFilmstrip(presentationArtifacts, layout);
       } else {
         const placeholderKey = `${epochId}:${spatialTier}:${tileSignature}`;
         if (reportedPlaceholderRef.current !== placeholderKey) {
@@ -393,18 +398,24 @@ export function ClipFilmstripInner({
       clipTrimIn: clip.trimIn,
     };
 
-    const currentEpochArtifacts = artifacts.filter(
+    // Keep a retained different-tier artifact drawable while current-tier
+    // extraction converges. The raster surface maps by timestamp, so it can
+    // safely replace it with the exact artifact as soon as that arrives.
+    const presentationArtifacts = artifacts.filter(
       (artifact) =>
         (artifact.epochId === epochId ||
-          artifact.epochId === ("epoch-preload" as RenderEpochId)) &&
-        artifact.spatialTier === spatialTier,
+          artifact.epochId === ("epoch-preload" as RenderEpochId)) ||
+        artifact.spatialTier < spatialTier,
     );
 
     const hasAllTiles =
       tileAddresses.length > 0 &&
       tileAddresses.every((addr) =>
-        currentEpochArtifacts.some(
-          (art) => Math.abs(art.timestampMs - addr.timestamp * 1000) < 1,
+        presentationArtifacts.some(
+          (art) =>
+            art.epochId === epochId &&
+            art.spatialTier === spatialTier &&
+            Math.abs(art.timestampMs - addr.timestamp * 1000) < 1,
         ),
       );
 
@@ -412,15 +423,18 @@ export function ClipFilmstripInner({
       hasAllTiles ||
       epochDebounceExpired ||
       (tileAddresses.length > 0 &&
-        currentEpochArtifacts.length >= tileAddresses.length);
+        presentationArtifacts.filter(
+          (art) =>
+            art.epochId === epochId && art.spatialTier === spatialTier,
+        ).length >= tileAddresses.length);
 
     const hasAnyCacheOrArtifacts =
-      currentEpochArtifacts.length > 0 ||
+      presentationArtifacts.length > 0 ||
       (runtime?.tileCache && runtime.tileCache.getStats().tileCount > 0);
 
     if (hasAnyCacheOrArtifacts) {
       const t0 = typeof performance !== "undefined" ? performance.now() : 0;
-      surface.drawFilmstrip(currentEpochArtifacts, layout);
+      surface.drawFilmstrip(presentationArtifacts, layout);
       if (t0 > 0) {
         const paintMs = performance.now() - t0;
         recordPaintCommit(spatialTier, paintMs);

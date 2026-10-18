@@ -1,9 +1,9 @@
+use crate::filmstrip_engine::decoder::get_preview_decoder_for_stream;
 use crate::native_audio::NativeAudioClock;
 use crate::native_core::{
     DecodeCapabilityPolicy, FrameRequest, FrameTime, NativePlaybackFrameDemand, PlaybackPlan,
     PlaybackState, QualityTier, DEFAULT_TIME_SCALE,
 };
-use crate::filmstrip_engine::decoder::get_preview_decoder_for_stream;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -277,7 +277,9 @@ pub async fn configure_native_playback_render(
         crate::commands::native_preview::schedule_lookahead_predecode(
             app.clone(),
             snapshot_clone.clone(),
-            crate::commands::native_preview::lookahead_frames_for_rate(snapshot_clone.project.frame_rate),
+            crate::commands::native_preview::lookahead_frames_for_rate(
+                snapshot_clone.project.frame_rate,
+            ),
             Some(lookahead_quality),
         );
     }
@@ -373,7 +375,9 @@ pub async fn update_native_playback_render(
     crate::commands::native_preview::schedule_lookahead_predecode(
         app.clone(),
         snapshot_clone.clone(),
-        crate::commands::native_preview::lookahead_frames_for_rate(snapshot_clone.project.frame_rate),
+        crate::commands::native_preview::lookahead_frames_for_rate(
+            snapshot_clone.project.frame_rate,
+        ),
         Some(lookahead_quality),
     );
 
@@ -432,7 +436,7 @@ pub fn native_pause(app: AppHandle, clock: FrameTime) -> Result<PlaybackState, S
             .clone()
             .lock()
             .map_err(|_| "Native playback runtime lock is poisoned".to_string())?
-            .stop_render(app.clone());
+            .pause_render(app.clone());
     }
     Ok(state)
 }
@@ -494,9 +498,9 @@ pub fn native_tick(app: AppHandle, clock: FrameTime) -> Result<PlaybackState, St
 pub fn native_play_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
     // INVESTIGATION ONLY — remove before Phase 6
     log::debug!("[TR1] native_play_from_audio handler entry");
-    
+
     crate::engine::ENGINE_TELEMETRY.begin_playback_run();
-    
+
     // Architectural invariant: Audio readiness must never block video playback!
     // When audio is unavailable (silent project or clips still resolving/hydrating),
     // fall back to a zeroed FrameTime so video playback starts immediately.
@@ -507,7 +511,7 @@ pub fn native_play_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
         Err(e) => log::debug!("[TR1] audio_clock_time() → Err({})", e),
     }
     let clock = clock_result.unwrap_or_else(|_| FrameTime::new(0, 0, DEFAULT_TIME_SCALE).unwrap());
-    
+
     let audio_available = audio_clock_time(&app, true, true).is_ok();
     let state = if audio_available {
         let state = with_runtime(&app, |runtime| runtime.play_from_audio(clock))?;
@@ -518,7 +522,7 @@ pub fn native_play_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
         let _ = set_audio_playing(&app, false);
         state
     };
-    
+
     if let Some(runtime) = app.try_state::<Arc<Mutex<NativePlaybackRuntime>>>() {
         runtime
             .inner()
@@ -538,16 +542,14 @@ pub fn native_pause_from_audio(app: AppHandle) -> Result<PlaybackState, String> 
     let _ = set_audio_playing(&app, false);
     if let Some(runtime) = app.try_state::<Arc<Mutex<NativePlaybackRuntime>>>() {
         if let Ok(runtime) = runtime.inner().clone().lock() {
-            runtime.stop_render(app.clone());
+            runtime.pause_render(app.clone());
         }
     }
-    if let Some(surface) =
-        app.try_state::<Arc<Mutex<crate::commands::native_surface::NativeSurfaceRuntime>>>()
-    {
-        if let Ok(surface) = surface.inner().clone().lock() {
-            let _ = surface.hide_surface();
-        }
-    }
+    // The WebView owns visibility during a pause transition. It retains the
+    // last native frame until a paused canvas readback has painted, then hides
+    // the child surface in its serialized lifecycle lane. Hiding here exposes
+    // an unpainted canvas and causes a black flash whenever an editor overlay
+    // (for example a selected clip's transform controls) requires DOM layers.
     state
 }
 
@@ -601,4 +603,3 @@ pub fn native_tick_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
     }
     Ok(state)
 }
-

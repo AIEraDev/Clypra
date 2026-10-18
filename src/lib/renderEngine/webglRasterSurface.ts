@@ -330,13 +330,13 @@ export class WebGLRasterSurface {
             const exactTile = layout.tileCache.getTile(slot.address);
             if (exactTile && isValidArtifact(exactTile.artifact)) {
               art = exactTile.artifact;
-            } else if ((layout.clipId || layout.videoPath) && slot.address.zoomTier !== SpatialTier.L0) {
+            } else if (layout.clipId || layout.videoPath) {
               const fallbackEntry = layout.tileCache.findBestFallback(
                 layout.clipId ?? "",
                 slot.address.zoomTier,
                 slot.address.timestamp,
                 layout.videoPath,
-                6.0,
+                Number.POSITIVE_INFINITY,
                 slot.address.effectGraphVersion,
               );
               if (fallbackEntry && isValidArtifact(fallbackEntry.artifact)) {

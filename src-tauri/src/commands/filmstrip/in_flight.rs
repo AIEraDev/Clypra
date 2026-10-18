@@ -42,15 +42,110 @@ pub static IN_FLIGHT_EXTRACTIONS: Lazy<InFlightMap> = Lazy::new(InFlightMap::new
 pub static BATCH_DECODE_GATES: Lazy<DashMap<String, Arc<tokio::sync::Mutex<()>>>> =
     Lazy::new(DashMap::new);
 
-/// Registry of active thumbnail batch cancellation flags.
-/// Allows frontend to preempt abandoned batches on zoom/scroll immediately.
-pub static ACTIVE_THUMBNAIL_BATCHES: Lazy<DashMap<String, Arc<AtomicBool>>> =
+/// Native control record for one filmstrip batch. Priority is native-owned:
+/// JavaScript expresses demand, while Rust arbitrates decoder access.
+pub struct ThumbnailBatchControl {
+    pub cancelled: Arc<AtomicBool>,
+    pub video_path: String,
+    pub priority: u8,
+}
+
+/// Registry of active batch cancellation flags and priorities. A visible
+/// viewport request can preempt same-source background work across JS lanes.
+pub static ACTIVE_THUMBNAIL_BATCHES: Lazy<DashMap<String, Arc<ThumbnailBatchControl>>> =
     Lazy::new(DashMap::new);
+
+pub fn register_thumbnail_batch(
+    request_id: String,
+    video_path: String,
+    priority: u8,
+    cancelled: Arc<AtomicBool>,
+) {
+    ACTIVE_THUMBNAIL_BATCHES.insert(
+        request_id,
+        Arc::new(ThumbnailBatchControl {
+            cancelled,
+            video_path,
+            priority,
+        }),
+    );
+}
+
+/// Cancel active same-source batches below `priority`, returning the number
+/// that transitioned from active to cancelled.
+pub fn preempt_lower_priority_batches(video_path: &str, priority: u8) -> u64 {
+    let mut preempted = 0;
+    for entry in ACTIVE_THUMBNAIL_BATCHES.iter() {
+        let batch = entry.value();
+        if batch.video_path == video_path && batch.priority < priority {
+            if !batch.cancelled.swap(true, Ordering::Relaxed) {
+                preempted += 1;
+            }
+        }
+    }
+    preempted
+}
+
+/// P0 preview/scrub work wins over all preemptible filmstrip extraction for a
+/// source. Preview owns a separate decoder pool, but this still releases
+/// thumbnail CPU/IPC work that otherwise delays its response path.
+pub fn preempt_filmstrip_for_preview(video_path: &str) -> u64 {
+    preempt_lower_priority_batches(video_path, u8::MAX)
+}
 
 /// Cancel an in-flight thumbnail batch request by requestId.
 #[tauri::command]
 pub fn cancel_render_artifacts_batch(request_id: String) {
     if let Some(flag) = ACTIVE_THUMBNAIL_BATCHES.get(&request_id) {
-        flag.store(true, Ordering::Relaxed);
+        flag.cancelled.store(true, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn visible_work_preempts_lower_priority_same_source_work() {
+        let low_id = "filmstrip-governor-low".to_string();
+        let other_id = "filmstrip-governor-other".to_string();
+        let low_cancelled = Arc::new(AtomicBool::new(false));
+        let other_cancelled = Arc::new(AtomicBool::new(false));
+
+        register_thumbnail_batch(
+            low_id.clone(),
+            "source-a".to_string(),
+            1,
+            low_cancelled.clone(),
+        );
+        register_thumbnail_batch(
+            other_id.clone(),
+            "source-b".to_string(),
+            1,
+            other_cancelled.clone(),
+        );
+
+        preempt_lower_priority_batches("source-a", 10);
+
+        assert!(low_cancelled.load(Ordering::Relaxed));
+        assert!(!other_cancelled.load(Ordering::Relaxed));
+        ACTIVE_THUMBNAIL_BATCHES.remove(&low_id);
+        ACTIVE_THUMBNAIL_BATCHES.remove(&other_id);
+    }
+
+    #[test]
+    fn preview_preempts_visible_filmstrip_work_for_the_same_source() {
+        let id = "filmstrip-governor-preview".to_string();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        register_thumbnail_batch(
+            id.clone(),
+            "preview-source".to_string(),
+            10,
+            cancelled.clone(),
+        );
+
+        assert_eq!(preempt_filmstrip_for_preview("preview-source"), 1);
+        assert!(cancelled.load(Ordering::Relaxed));
+        ACTIVE_THUMBNAIL_BATCHES.remove(&id);
     }
 }

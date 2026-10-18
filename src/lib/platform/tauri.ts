@@ -648,6 +648,20 @@ export async function submitNativePlaybackDemand(
   await invoke("submit_native_playback_demand", { demand });
 }
 
+/**
+ * Fired by the Rust-owned latest-only render session after an explicit demand
+ * has actually reached the retained surface. Unlike the demand command's
+ * acknowledgement, this event is emitted after decode and presentation.
+ */
+export function listenForNativePlaybackDemandPresented(
+  onPresented: (presentation: NativeSurfacePresentation) => void,
+): Promise<UnlistenFn> {
+  return listen<NativeSurfacePresentation>(
+    "clypra://native-playback-demand-presented",
+    (event) => onPresented(event.payload),
+  );
+}
+
 export interface NativePlaybackStatsPayload {
   framesRendered: number;
   fps: number;

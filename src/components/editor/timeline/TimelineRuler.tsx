@@ -13,6 +13,10 @@ import {
   getTimelineCanvasDuration,
 } from "@/lib/timeline/timelineViewport";
 import { formatTimelineTimecode } from "@/lib/utils/timeFormatting";
+import {
+  formatTimelineRulerLabel,
+  getTimelineRulerScale,
+} from "@/lib/timeline/rulerScale";
 
 import type { TimelineMarker } from "@/types";
 
@@ -32,24 +36,6 @@ interface TimelineRulerProps {
  *   - Drag marker pin horizontally to reposition
  *   - Click pin to open popover (rename, recolor, delete)
  */
-
-// ── Interval table ──────────────────────────────────────────────────────
-const INTERVAL_TABLE: [number, number][] = [
-  [60, 6],
-  [30, 6],
-  [15, 5],
-  [10, 5],
-  [5, 5],
-  [3, 3],
-  [2, 4],
-  [1, 5],
-  [0.5, 5],
-  [0.2, 4],
-  [0.1, 5],
-  [0.05, 5],
-];
-
-const MIN_LABEL_GAP_PX = 80;
 
 const MARKER_COLORS: { label: string; value: string; css: string }[] = [
   { label: "Purple", value: "purple", css: "#a855f7" },
@@ -374,14 +360,20 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
     return () => ro.disconnect();
   }, []);
 
-  // ── Format label with an explicit hours field ─────────────────────────────
-  // Ruler labels stop at seconds; frame/millisecond precision belongs to
-  // playback/detail displays, not the timeline scale.
+  const rulerScale = useMemo(
+    () => getTimelineRulerScale(pixelsPerSecond, frameRate),
+    [pixelsPerSecond, frameRate],
+  );
+
   const formatLabel = useCallback(
-    (seconds: number): string => {
-      return formatTimelineTimecode(seconds, frameRate || 30);
-    },
-    [frameRate],
+    (seconds: number): string =>
+      formatTimelineRulerLabel(
+        seconds,
+        frameRate,
+        rulerScale.labelMode,
+        formatTimelineTimecode,
+      ),
+    [frameRate, rulerScale.labelMode],
   );
 
   // ── Memoized tick generation ─────────────────────────────────────────────
@@ -404,19 +396,8 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
         ? viewportWidth
         : 1200;
 
-    let majorInterval = INTERVAL_TABLE[INTERVAL_TABLE.length - 1][0];
-    let minorDivisions = INTERVAL_TABLE[INTERVAL_TABLE.length - 1][1];
-
-    for (let i = INTERVAL_TABLE.length - 1; i >= 0; i--) {
-      const [interval, divisions] = INTERVAL_TABLE[i];
-      if (interval * validPPS >= MIN_LABEL_GAP_PX) {
-        majorInterval = interval;
-        minorDivisions = divisions;
-        break;
-      }
-    }
-
-    const minorInterval = majorInterval / minorDivisions;
+    const { majorIntervalSeconds: majorInterval, minorIntervalSeconds: minorInterval } =
+      getTimelineRulerScale(validPPS, frameRate);
     const padPx = 60;
     const canvasDuration = getTimelineCanvasDuration(sequenceDuration ?? 0);
     const startTime = Math.max(0, (contentScrollLeft - padPx) / validPPS);
@@ -457,6 +438,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
     viewportWidth,
     sequenceDuration,
     startOffset,
+    frameRate,
   ]);
 
   // ── Double-click ruler to add marker ────────────────────────────────────

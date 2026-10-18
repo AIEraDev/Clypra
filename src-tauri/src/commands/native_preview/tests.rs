@@ -4,6 +4,15 @@ use crate::native_core::TextLayerSnapshot;
 use crate::filmstrip_engine::decoder::VideoColorMetadata;
 
     #[test]
+    fn visible_seek_and_scrub_requests_preempt_filmstrip_work() {
+        assert!(is_preview_preemptive_request(Some(true), Some("scrub")));
+        assert!(is_preview_preemptive_request(Some(false), Some("seek")));
+        assert!(is_preview_preemptive_request(None, Some("seek")));
+        assert!(!is_preview_preemptive_request(Some(false), Some("playback")));
+        assert!(!is_preview_preemptive_request(None, Some("prefetch")));
+    }
+
+    #[test]
     fn unspecified_sdr_metadata_uses_limited_rec709_defaults() {
         let params =
             color_params(&VideoColorMetadata::default()).expect("default should be supported");

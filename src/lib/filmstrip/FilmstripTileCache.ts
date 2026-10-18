@@ -217,33 +217,79 @@ export class FilmstripTileCache {
         return a - b; // on tie, prefer lower (coarser) tier
       });
 
-    for (const tier of candidates) {
-      let nearest: TileCacheEntry | null = null;
-      let nearestDelta = Infinity;
+    if (Number.isFinite(toleranceSeconds)) {
+      for (const tier of candidates) {
+        let nearest: TileCacheEntry | null = null;
+        let nearestDelta = Infinity;
 
-      for (const entry of this.tiles.values()) {
-        const matchesClip = entry.address.clipId === clipId;
-        const matchesVideo = Boolean(videoPath && entry.address.videoPath && entry.address.videoPath === videoPath);
-        if (!matchesClip && !matchesVideo) continue;
-        if (entry.address.zoomTier !== tier) continue;
-        const entryVersion = entry.address.effectGraphVersion ?? 1;
-        if (
-          effectGraphVersion !== undefined &&
-          entryVersion !== effectGraphVersion
-        ) {
-          continue;
+        for (const entry of this.tiles.values()) {
+          const matchesClip = entry.address.clipId === clipId;
+          const matchesVideo = Boolean(videoPath && entry.address.videoPath && entry.address.videoPath === videoPath);
+          if (!matchesClip && !matchesVideo) continue;
+          if (entry.address.zoomTier !== tier) continue;
+          const entryVersion = entry.address.effectGraphVersion ?? 1;
+          if (
+            effectGraphVersion !== undefined &&
+            entryVersion !== effectGraphVersion
+          ) {
+            continue;
+          }
+
+          const delta = Math.abs(entry.address.timestamp - targetTimestamp);
+          if (delta <= toleranceSeconds && delta < nearestDelta) {
+            nearest = entry;
+            nearestDelta = delta;
+          }
         }
 
-        const delta = Math.abs(entry.address.timestamp - targetTimestamp);
-        if (delta <= toleranceSeconds && delta < nearestDelta) {
-          nearest = entry;
-          nearestDelta = delta;
+        if (nearest && nearest.artifact.bitmap && nearest.artifact.bitmap.width > 0) {
+          nearest.lastUsed = Date.now();
+          return nearest;
         }
       }
+    }
 
-      if (nearest && nearest.artifact.bitmap && nearest.artifact.bitmap.width > 0) {
-        nearest.lastUsed = Date.now();
-        return nearest;
+    // Presentation continuity has a different contract from decode reuse. A
+    // settled or active zoom may introduce a grid whose timestamps are much
+    // farther apart than the previous grid. When the caller explicitly opts
+    // into an unbounded tolerance, retain the nearest frame from the same
+    // tier as a visual parent rather than leaving the slot blank. The exact
+    // address still misses in getTile(), so this can never suppress the
+    // replacement decode for that cell.
+    if (!Number.isFinite(toleranceSeconds)) {
+      const presentationTiers = [targetTier, ...candidates];
+      for (const tier of presentationTiers) {
+        let nearest: TileCacheEntry | null = null;
+        let nearestDelta = Infinity;
+
+        for (const entry of this.tiles.values()) {
+          const matchesClip = entry.address.clipId === clipId;
+          const matchesVideo = Boolean(
+            videoPath &&
+              entry.address.videoPath &&
+              entry.address.videoPath === videoPath,
+          );
+          if (!matchesClip && !matchesVideo) continue;
+          if (entry.address.zoomTier !== tier) continue;
+          const entryVersion = entry.address.effectGraphVersion ?? 1;
+          if (
+            effectGraphVersion !== undefined &&
+            entryVersion !== effectGraphVersion
+          ) {
+            continue;
+          }
+
+          const delta = Math.abs(entry.address.timestamp - targetTimestamp);
+          if (delta < nearestDelta) {
+            nearest = entry;
+            nearestDelta = delta;
+          }
+        }
+
+        if (nearest && nearest.artifact.bitmap && nearest.artifact.bitmap.width > 0) {
+          nearest.lastUsed = Date.now();
+          return nearest;
+        }
       }
     }
 

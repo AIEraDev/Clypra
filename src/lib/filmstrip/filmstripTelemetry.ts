@@ -43,6 +43,12 @@ export interface FilmstripSessionSummary {
   cancelledRequests: number;
   stallCount: number;
   coalescedBatchesDispatched: number;
+  /** Viewport demands painted from retained tiles while interaction was active. */
+  retainedDemands: number;
+  /** Settled demands which resulted in native/cache work. */
+  dispatchedDemands: number;
+  /** Settled demands skipped because their geometry was already dispatched. */
+  duplicateDemandsSuppressed: number;
   avgQueueWaitMs: number;
   zoomTiles: number;
   zoomGestures: number;
@@ -70,6 +76,9 @@ export class FilmstripTelemetryRecorder {
   private cancelledRequests = 0;
   private stallCount = 0;
   private coalescedBatchesDispatched = 0;
+  private retainedDemands = 0;
+  private dispatchedDemands = 0;
+  private duplicateDemandsSuppressed = 0;
   private queueWaitTimesMs: number[] = [];
   private readonly maxRecords: number;
 
@@ -127,6 +136,19 @@ export class FilmstripTelemetryRecorder {
   }
 
   /**
+   * Records only demand outcomes, never clip IDs, source paths, or signatures.
+   * This distinguishes a legitimately changed viewport from redundant demand
+   * when investigating a fallback-only zoom session.
+   */
+  recordDemandOutcome(
+    outcome: "retained" | "dispatched" | "duplicate-suppressed",
+  ): void {
+    if (outcome === "retained") this.retainedDemands++;
+    else if (outcome === "dispatched") this.dispatchedDemands++;
+    else this.duplicateDemandsSuppressed++;
+  }
+
+  /**
    * Get total count of recorded tile events.
    */
   getRecordCount(): number {
@@ -144,6 +166,9 @@ export class FilmstripTelemetryRecorder {
       this.cancelledRequests > 0 ||
       this.stallCount > 0 ||
       this.coalescedBatchesDispatched > 0 ||
+      this.retainedDemands > 0 ||
+      this.dispatchedDemands > 0 ||
+      this.duplicateDemandsSuppressed > 0 ||
       this.queueWaitTimesMs.length > 0
     );
   }
@@ -198,6 +223,9 @@ export class FilmstripTelemetryRecorder {
     this.cancelledRequests = 0;
     this.stallCount = 0;
     this.coalescedBatchesDispatched = 0;
+    this.retainedDemands = 0;
+    this.dispatchedDemands = 0;
+    this.duplicateDemandsSuppressed = 0;
     this.queueWaitTimesMs = [];
   }
 
@@ -231,6 +259,9 @@ export class FilmstripTelemetryRecorder {
         cancelledRequests: this.cancelledRequests,
         stallCount: this.stallCount,
         coalescedBatchesDispatched: this.coalescedBatchesDispatched,
+        retainedDemands: this.retainedDemands,
+        dispatchedDemands: this.dispatchedDemands,
+        duplicateDemandsSuppressed: this.duplicateDemandsSuppressed,
         avgQueueWaitMs: 0,
         zoomTiles: 0,
         zoomGestures: 0,
@@ -348,6 +379,9 @@ export class FilmstripTelemetryRecorder {
       cancelledRequests: this.cancelledRequests,
       stallCount: this.stallCount,
       coalescedBatchesDispatched: this.coalescedBatchesDispatched,
+      retainedDemands: this.retainedDemands,
+      dispatchedDemands: this.dispatchedDemands,
+      duplicateDemandsSuppressed: this.duplicateDemandsSuppressed,
       avgQueueWaitMs,
       zoomTiles,
       zoomGestures,

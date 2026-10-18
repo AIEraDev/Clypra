@@ -212,6 +212,8 @@ export interface RequestNativeFilmstripArtifactsOptions {
   clipId: string;
   onArtifact: (artifact: TransportArtifact) => void;
   onComplete?: () => void;
+  /** Native P0 work cooperatively stopped this batch before all tiles arrived. */
+  onInterrupted?: () => void;
   onError?: (err: unknown) => void;
   concurrency?: number;
   /** Higher numbers run before background preload/prefetch. Default 10. */
@@ -370,6 +372,7 @@ interface FilmstripBatchSubscriber {
   cancelled: boolean;
   onArtifact: (artifact: TransportArtifact) => void;
   onComplete?: () => void;
+  onInterrupted?: () => void;
   onError?: (err: unknown) => void;
 }
 
@@ -407,6 +410,7 @@ function timestampWanted(timestamps: Set<number>, ts: number): boolean {
 async function fanOutFilmstripArtifact(
   subscribers: FilmstripBatchSubscriber[],
   artifact: TransportArtifact,
+  dispatchedAt: number,
 ): Promise<void> {
   const artifactTier = normalizeSpatialTier(artifact.spatialTier);
   const targets = subscribers.filter(
@@ -422,7 +426,10 @@ async function fanOutFilmstripArtifact(
       ...(i === targets.length - 1
         ? artifact
         : { ...artifact, bitmap: await createImageBitmap(artifact.bitmap) }),
-      queueWaitMs: Math.max(0, performance.now() - targets[i].queuedAt),
+      // Queue residence ends when this native batch is dispatched. Measuring
+      // until the artifact arrives duplicates nativeRequestMs and makes the
+      // total-to-visible span report roughly twice the actual elapsed time.
+      queueWaitMs: Math.max(0, dispatchedAt - targets[i].queuedAt),
     };
     targets[i].onArtifact(payload);
   }
@@ -528,8 +535,9 @@ function pumpFilmstripLane(videoPath: string): void {
 
   const batchToken = Symbol("batch");
   const batchQueuedAt = Math.min(...runNow.map((sub) => sub.queuedAt));
+  const dispatchedAt = performance.now();
   filmstripTelemetry.recordBatchDispatched(
-    Math.max(0, performance.now() - batchQueuedAt),
+    Math.max(0, dispatchedAt - batchQueuedAt),
   );
   const cancelBatch = requestBatchRenderArtifacts({
     videoPath,
@@ -537,12 +545,23 @@ function pumpFilmstripLane(videoPath: string): void {
     spatialTiers: [preferredTier],
     epochId: runNow[0].epochId,
     clipId: runNow[0].clipId,
+    priority: preferredPriority,
     onArtifact: (artifact) => {
-      void fanOutFilmstripArtifact(runNow, artifact);
+      void fanOutFilmstripArtifact(runNow, artifact, dispatchedAt);
     },
     onComplete: () => {
       for (const sub of runNow) {
         if (!sub.cancelled) sub.onComplete?.();
+      }
+      const current = getFilmstripLane(videoPath);
+      if (current.inFlight?.token === batchToken) {
+        current.inFlight = null;
+        pumpFilmstripLane(videoPath);
+      }
+    },
+    onInterrupted: () => {
+      for (const sub of runNow) {
+        if (!sub.cancelled) sub.onInterrupted?.();
       }
       const current = getFilmstripLane(videoPath);
       if (current.inFlight?.token === batchToken) {
@@ -586,6 +605,7 @@ function enqueueFilmstripBatch(
     cancelled: false,
     onArtifact: opts.onArtifact,
     onComplete: opts.onComplete,
+    onInterrupted: opts.onInterrupted,
     onError: opts.onError,
   };
 
@@ -916,8 +936,11 @@ export interface RequestBatchRenderArtifactsOptions {
   clipId: string;
   onArtifact: (artifact: TransportArtifact) => void;
   onComplete?: () => void;
+  onInterrupted?: () => void;
   onError?: (err: unknown) => void;
   requestId?: string; // For tracing
+  /** Native work priority: 10 visible viewport, 1 overscan/prefetch. */
+  priority?: number;
 }
 
 /**
@@ -936,8 +959,10 @@ export function requestBatchRenderArtifacts(
     clipId,
     onArtifact,
     onComplete,
+    onInterrupted,
     onError,
     requestId,
+    priority,
   } = opts;
 
   const reqId = requestId || generateId("req");
@@ -1014,11 +1039,21 @@ export function requestBatchRenderArtifacts(
     spatialTiers: spatialTiers.map(spatialTierToLabel),
     effectGraphVersion: 0,
     requestId: reqId,
+    priority,
     onArtifact: channel,
   })
-    .then(() => {
+    .then((outcome) => {
       if (!cancelled) {
-        onComplete?.();
+        const wasInterrupted =
+          typeof outcome === "object" &&
+          outcome !== null &&
+          "cancelled" in outcome &&
+          outcome.cancelled === true;
+        if (wasInterrupted) {
+          onInterrupted?.();
+        } else {
+          onComplete?.();
+        }
       }
     })
     .catch((err) => {

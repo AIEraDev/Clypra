@@ -50,6 +50,7 @@ import {
   type BenchRunConfig,
 } from "@/lib/platform/tauri";
 import { invoke } from "@tauri-apps/api/core";
+import { useI18n } from "@/i18n";
 
 // const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
 
@@ -70,8 +71,9 @@ const App = () => {
   const [isClosingProject, setIsClosingProject] = useState(false);
   const [pendingBenchConfig, setPendingBenchConfig] =
     useState<BenchRunConfig | null>(null);
-  const runAutomatedBenchRef =
-    useRef<((config: BenchRunConfig) => Promise<void>) | null>(null);
+  const runAutomatedBenchRef = useRef<
+    ((config: BenchRunConfig) => Promise<void>) | null
+  >(null);
 
   useEffect(() => {
     if (!platform.isTauri()) return;
@@ -96,6 +98,8 @@ const App = () => {
   const [isSavingBeforeClose, setIsSavingBeforeClose] = useState(false);
   const closingWindowRef = useRef(false);
   const closingProjectRef = useRef(false);
+
+  const { t } = useI18n();
 
   // Initialize GPU telemetry with hardware diagnostics
   useGpuTelemetryInit();
@@ -163,9 +167,13 @@ const App = () => {
             | PerformanceNavigationTiming
             | undefined;
           const domContentLoadedMs = navEntry
-            ? Math.round(performance.timeOrigin + navEntry.domContentLoadedEventEnd)
+            ? Math.round(
+                performance.timeOrigin + navEntry.domContentLoadedEventEnd,
+              )
             : undefined;
-          const appMountedMs = Math.round(performance.timeOrigin + performance.now());
+          const appMountedMs = Math.round(
+            performance.timeOrigin + performance.now(),
+          );
           const navigationStartMs = Math.round(performance.timeOrigin);
 
           // Robust shell-painted milestone with fallback for background/headless invocations
@@ -187,12 +195,17 @@ const App = () => {
           };
 
           scheduleShellPainted(() => {
-            const shellPaintedMs = Math.round(performance.timeOrigin + performance.now());
+            const shellPaintedMs = Math.round(
+              performance.timeOrigin + performance.now(),
+            );
 
             // Disentangle interactive from shellPainted via real main-thread event-loop pings:
             // Require 3 consecutive low-latency MessageChannel round-trips (< 5ms dispatch latency)
             const measureResponsiveness = (
-              onResponsive: (interactiveMs: number, responsivenessWaitMs: number) => void,
+              onResponsive: (
+                interactiveMs: number,
+                responsivenessWaitMs: number,
+              ) => void,
             ) => {
               const start = performance.now();
               const maxWaitMs = 1500;
@@ -301,7 +314,10 @@ const App = () => {
                   }
                 }
               } catch (benchErr) {
-                console.warn("[BenchRunner] Error reading benchmark config:", benchErr);
+                console.warn(
+                  "[BenchRunner] Error reading benchmark config:",
+                  benchErr,
+                );
               }
             });
           });
@@ -580,7 +596,9 @@ const App = () => {
                 aspectRatioLocked: true,
                 kind: "video" as const,
               };
-              useHistoryStore.getState().execute(new AddClipCommand(screenClip));
+              useHistoryStore
+                .getState()
+                .execute(new AddClipCommand(screenClip));
 
               // 2. Add Camera Overlay Clip on Top Track (Track 0 / PiP Placement) if dual recording
               if (cameraAsset) {
@@ -617,7 +635,9 @@ const App = () => {
                   aspectRatioLocked: true,
                   kind: "video" as const,
                 };
-                useHistoryStore.getState().execute(new AddClipCommand(cameraClip));
+                useHistoryStore
+                  .getState()
+                  .execute(new AddClipCommand(cameraClip));
               }
             });
           }
@@ -836,15 +856,18 @@ const App = () => {
           await new Promise((r) => setTimeout(r, 50));
         }
         if (!framePainted) {
-          throw new Error("Benchmark timeout: first frame was not painted within 15s");
+          throw new Error(
+            "Benchmark timeout: first frame was not painted within 15s",
+          );
         }
 
         // Optional seek / play actions
         if (benchConfig.seekTargetSecs != null) {
-          console.info(`[BenchRunner] Seeking to ${benchConfig.seekTargetSecs}s`);
-          const { getActiveSessionOrNull } = await import(
-            "@/core/runtime/ProjectSession"
+          console.info(
+            `[BenchRunner] Seeking to ${benchConfig.seekTargetSecs}s`,
           );
+          const { getActiveSessionOrNull } =
+            await import("@/core/runtime/ProjectSession");
           getActiveSessionOrNull()?.transportAuthority?.seek(
             benchConfig.seekTargetSecs,
           );
@@ -857,9 +880,8 @@ const App = () => {
           console.info(
             `[BenchRunner] Playing for ${benchConfig.playDurationSecs}s`,
           );
-          const { getActiveSessionOrNull } = await import(
-            "@/core/runtime/ProjectSession"
-          );
+          const { getActiveSessionOrNull } =
+            await import("@/core/runtime/ProjectSession");
           getActiveSessionOrNull()?.transportAuthority?.play();
           await new Promise((r) =>
             setTimeout(r, benchConfig.playDurationSecs! * 1000),
@@ -878,7 +900,9 @@ const App = () => {
       };
 
       if (benchConfig.reportOutputPath) {
-        console.info(`[BenchRunner] Writing report to ${benchConfig.reportOutputPath}`);
+        console.info(
+          `[BenchRunner] Writing report to ${benchConfig.reportOutputPath}`,
+        );
         await writeBenchReport(
           benchConfig.reportOutputPath,
           JSON.stringify(sessionReport, null, 2),
@@ -1186,7 +1210,7 @@ const App = () => {
       <div className="w-full h-full flex items-center justify-center bg-bg">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-accent mx-auto mb-4" />
-          <p className="text-text-primary">Loading...</p>
+          <p className="text-text-primary">{t("common.status.loading")}</p>
         </div>
       </div>
     );

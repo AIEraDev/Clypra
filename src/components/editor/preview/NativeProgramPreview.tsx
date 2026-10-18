@@ -95,6 +95,7 @@ import {
   queueNativeFrame,
   listenForNativePlaybackStats,
   listenForNativePlaybackStartup,
+  listenForNativePlaybackDemandPresented,
   listenForEngineQoSDecision,
   listenForNativeMaskEviction,
   listenForNativeRasterEviction,
@@ -116,6 +117,18 @@ import { makeBodyMaskCacheKey, segmentBodyMask } from "@/features/body-effects";
 import { traceCutoutEvent } from "@/core/playback/cutoutPipelineTrace";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
+import {
+  canPresentPausedFrameOnNativeSurface,
+  shouldRenderPausedCanvasDuringNativeHandover,
+  shouldRetainNativeSurfaceForPausedCanvasHandover,
+} from "./pausedNativeSurfaceEligibility";
+import {
+  matchesPausedNativeDemand,
+  PAUSED_NATIVE_DEMAND_ACK_TIMEOUT_MS,
+  shouldFallbackForPausedNativeDemand,
+  createNativeDemandOperationId,
+  telemetryRequestToken,
+} from "./pausedNativeDemandLifecycle";
 
 import {
   evaluateTimelineSceneCached,
@@ -157,6 +170,7 @@ import {
   createNativePlaybackFrameDemand,
   type NativeFrameRequest,
   type NativeRasterLayerSnapshot,
+  type NativeSurfacePresentation,
 } from "@/lib/platform/nativeCore";
 import {
   hideNativeSurfaceWhenIdle,
@@ -574,6 +588,9 @@ export const NativeProgramPreview: React.FC = () => {
   const transitions = useTimelineStore((s) => s.transitions);
   const epoch = useTimelineStore((s) => s.epoch);
   const clearSelection = useUIStore((s) => s.clearSelection);
+  const selectedClipIds = useUIStore((s) => s.selectedClipIds);
+  const selectedTransitionId = useUIStore((s) => s.selectedTransitionId);
+  const selectedGapId = useUIStore((s) => s.selectedGapId);
 
   const viewport = useViewportState();
 
@@ -630,6 +647,23 @@ export const NativeProgramPreview: React.FC = () => {
   const anyPreviewMenuOpen =
     aspectMenuOpen || speedMenuOpen || qualityMenuOpen || scopesOpen;
 
+  const pausedOverlayStateRef = useRef({
+    hasSelectedClip: false,
+    hasSelectedTransition: false,
+    hasSelectedGap: false,
+    safeOverlayVisible: false,
+    karaokeOverlayVisible: false,
+    previewMenuOpen: false,
+  });
+  pausedOverlayStateRef.current = {
+    hasSelectedClip: selectedClipIds.length > 0,
+    hasSelectedTransition: selectedTransitionId !== null,
+    hasSelectedGap: selectedGapId !== null,
+    safeOverlayVisible: showSafeOverlay,
+    karaokeOverlayVisible: karaokeOverlayEnabled,
+    previewMenuOpen: anyPreviewMenuOpen,
+  };
+
   useEffect(() => {
     if (anyPreviewMenuOpen) {
       void hideNativeSurfaceWhenIdle().catch(() => undefined);
@@ -637,6 +671,19 @@ export const NativeProgramPreview: React.FC = () => {
       forceRepaintNativeProgramPreview();
     }
   }, [anyPreviewMenuOpen]);
+
+  // A native child surface is above the WebView. Wake the paused renderer when
+  // an overlay begins or stops needing DOM layering so it can immediately
+  // choose the correct presenter instead of retaining a stale native frame.
+  useEffect(() => {
+    forceRepaintNativeProgramPreview();
+  }, [
+    selectedClipIds,
+    selectedTransitionId,
+    selectedGapId,
+    showSafeOverlay,
+    karaokeOverlayEnabled,
+  ]);
 
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
@@ -1406,6 +1453,8 @@ export const NativeProgramPreview: React.FC = () => {
     let handoverSafetyTimer: number | null = null;
     let unlistenStartupMilestone: (() => void) | null = null;
     let unlistenPlaybackStats: (() => void) | null = null;
+    let unlistenDemandPresentation: (() => void) | null = null;
+    let lastNativePlaybackRequestKey = "";
     if (isTauriRuntime()) {
       void listenForNativePlaybackStartup(({ stage }) => {
         if (stage === "first-native-frame-presented") {
@@ -1425,7 +1474,6 @@ export const NativeProgramPreview: React.FC = () => {
         else unlistenPlaybackStats = fn;
       });
     }
-    let lastNativePlaybackRequestKey = "";
     let visibleRequestKey = "";
     const seekController =
       capturedSession.transportAuthority?.getSeekController();
@@ -1457,6 +1505,140 @@ export const NativeProgramPreview: React.FC = () => {
       NativeRasterLayerSnapshot
     >();
     const nativeFrontendPerfSpans = new Map<string, NativePerfSpan>();
+    let nativeDemandSequence = 0;
+    const createDemandOperationRequest = (
+      request: NativeFrameRequest,
+      generation: number,
+    ): NativeFrameRequest => ({
+      ...request,
+      generation,
+      requestId: createNativeDemandOperationId(
+        request.requestId,
+        generation,
+        ++nativeDemandSequence,
+      ),
+    });
+    let pendingPausedNativeDemand: {
+      requestKey: string;
+      requestId: string;
+      generation: number;
+      frameIndex: number;
+      dispatchedAtMs: number;
+      commandAcknowledged: boolean;
+      presentation?: NativeSurfacePresentation;
+      acknowledgementTimeoutId: number;
+    } | null = null;
+
+    const abandonPausedNativeDemand = (
+      reason: "superseded" | "ack-timeout" | "submit-failed",
+      useDirectFallback: boolean,
+    ) => {
+      const pending = pendingPausedNativeDemand;
+      if (!pending) return;
+
+      window.clearTimeout(pending.acknowledgementTimeoutId);
+      pendingPausedNativeDemand = null;
+      nativeFrontendPerfSpans.get(pending.requestKey)?.finish({
+        dropped: true,
+        cancelled: true,
+        dropReason: "cancelled",
+      });
+      nativeFrontendPerfSpans.delete(pending.requestKey);
+      lastNativePlaybackRequestKey = "";
+      tracePlayback("native-demand-abandoned", {
+        operationId: pending.requestId,
+        requestKey: telemetryRequestToken(pending.requestKey),
+        generation: pending.generation,
+        frameIndex: pending.frameIndex,
+        dispatchMode: "persistent-demand",
+        reason,
+        useDirectFallback,
+      });
+      if (useDirectFallback) {
+        // The next RAF takes the proven direct invoke path. This is a recovery
+        // path only; normal paused seeks remain latest-only persistent demands.
+        nativePlaybackRenderFailed = true;
+        nativePlaybackRenderRetryAt = performance.now() + 1_000;
+      }
+      forceRenderNeeded = true;
+      wakeNativeRenderLoopRef.current?.();
+    };
+
+    const settlePausedNativeDemand = () => {
+      const pending = pendingPausedNativeDemand;
+      const presentation = pending?.presentation;
+      if (!pending || !presentation || !pending.commandAcknowledged) return;
+
+      window.clearTimeout(pending.acknowledgementTimeoutId);
+      pendingPausedNativeDemand = null;
+      const frontendSpan = nativeFrontendPerfSpans.get(pending.requestKey);
+      tracePlayback("native-demand-presented", {
+        operationId: pending.requestId,
+        requestKey: telemetryRequestToken(pending.requestKey),
+        generation: pending.generation,
+        frameIndex: pending.frameIndex,
+        dispatchMode: "persistent-demand",
+        presented: presentation.presented,
+        dropped: presentation.dropped,
+        dropReason: presentation.dropReason,
+      });
+      if (presentation.presented) {
+        nativeSurfaceShown = true;
+        onFramePresentedOrPainted(
+          false,
+          project.frameRate ?? 30,
+          pending.frameIndex,
+        );
+        frontendSpan?.finish({
+          stageTimings: presentation.timings
+            ? {
+                decodeUs: presentation.timings.decodeUs,
+                decoderMutexWaitUs: presentation.timings.decoderMutexWaitUs,
+                actorWaitUs: presentation.timings.actorWaitUs,
+                conversionUploadUs: presentation.timings.conversionUploadUs,
+                composeUs: presentation.timings.composeUs,
+                surfaceAcquireUs: presentation.timings.surfaceAcquireUs,
+                gpuQueueWaitUs: presentation.timings.gpuQueueWaitUs,
+                submitPresentUs: presentation.timings.submitPresentUs,
+                queueResidencyUs: presentation.timings.queueResidencyUs,
+              }
+            : undefined,
+        });
+        if (clock.isSeeking) {
+          const seekLatencyMs = clock.completeSeek();
+          if (seekLatencyMs !== null) {
+            telemetryCollector.recordSeekSpan(seekLatencyMs, false);
+          }
+        }
+      } else {
+        lastNativePlaybackRequestKey = "";
+        frontendSpan?.finish({
+          dropped: presentation.dropped,
+          stale: presentation.stale === true,
+          dropReason:
+            presentation.dropReason ??
+            (presentation.dropped ? "present-failed" : undefined),
+        });
+      }
+      nativeFrontendPerfSpans.delete(pending.requestKey);
+      forceRenderNeeded = true;
+      wakeNativeRenderLoopRef.current?.();
+    };
+
+    if (isTauriRuntime()) {
+      void listenForNativePlaybackDemandPresented((presentation) => {
+        const pending = pendingPausedNativeDemand;
+        if (!pending || !matchesPausedNativeDemand(pending, presentation)) {
+          return;
+        }
+
+        pending.presentation = presentation;
+        settlePausedNativeDemand();
+      }).then((fn) => {
+        if (!isActive) fn();
+        else unlistenDemandPresentation = fn;
+      });
+    }
     const pushRequestKeysByFrameId = new Map<number, string>();
     const pushTimingsByRequestKey = new Map<
       string,
@@ -2245,7 +2427,10 @@ export const NativeProgramPreview: React.FC = () => {
       wakeNativeRenderLoopRef.current?.();
     });
 
-    const presentNativePlaybackFrame = async (request: NativeFrameRequest) => {
+    const presentNativeSurfaceFrame = async (
+      request: NativeFrameRequest,
+      isPlaying: boolean,
+    ) => {
       const startedAt = performance.now();
       const present = () => presentNativeFrame(request);
       try {
@@ -2256,7 +2441,7 @@ export const NativeProgramPreview: React.FC = () => {
         // surface immediately after this frame is submitted.
         const result = await presentOnNativeSurface(project.id, present);
         onFramePresentedOrPainted(
-          true,
+          isPlaying,
           project.frameRate ?? 30,
           request.frameTime.frameIndex,
         );
@@ -2265,7 +2450,7 @@ export const NativeProgramPreview: React.FC = () => {
         if (!(await reRegisterTextAssetsForRequest(request))) throw error;
         const result = await presentOnNativeSurface(project.id, present);
         onFramePresentedOrPainted(
-          true,
+          isPlaying,
           project.frameRate ?? 30,
           request.frameTime.frameIndex,
         );
@@ -3317,19 +3502,22 @@ export const NativeProgramPreview: React.FC = () => {
           nativeUnsupportedBlockers.length === 0;
         const nativeSurfaceOwnsCurrentFrame =
           nativeSurfaceShown &&
-          isPlaying &&
           lastNativePlaybackRequestKey === nativePlaybackRequestKey &&
           nativeSurfaceUsable;
-        // The native GPU child-surface (Metal/D3D12 NSView) sits above all WebView
-        // DOM content at the OS level. It must only be active during active playback
-        // so that editor overlays (TransformOverlay, SafeOverlay, KaraokeCaptions)
-        // are visible on top of the paused frame. Paused frames are committed to the
-        // DOM canvas via the WebView readback path instead.
-        // See also: the comment below at "The child surface is playback-only on desktop."
+        // The native GPU child-surface (Metal/D3D12 NSView) sits above WebView
+        // DOM. Playback can always use it; a paused frame can use it only when
+        // no editor overlay needs DOM layering above the image.
+        const pausedNativeSurfaceEligible =
+          nativePausedPath &&
+          canPresentPausedFrameOnNativeSurface({
+            surfaceUsable: nativeSurfaceUsable,
+            qualificationForcesWebView,
+            ...pausedOverlayStateRef.current,
+          });
         const nativeDirectSurfacePath =
           nativeSurfaceUsable &&
           Boolean(nativeRequest) &&
-          nativePlaybackPath &&
+          (nativePlaybackPath || pausedNativeSurfaceEligible) &&
           !qualificationForcesWebView;
         if (nativeDirectSurfacePath && pendingHandoverSurfaceHide) {
           pendingHandoverSurfaceHide = false;
@@ -3434,10 +3622,9 @@ export const NativeProgramPreview: React.FC = () => {
           ).length,
           activeAudioClipCount,
         });
-        // The child surface is playback-only on desktop. Paused and seeking
-        // frames must be committed to the DOM canvas so they share the exact
-        // same placement and layering as the editor overlays (TransformOverlay,
-        // SafeOverlay, captions).
+        // A paused frame may stay on the child surface only for the clean
+        // program monitor. Any DOM overlay takes the canvas bridge so it
+        // remains visible above the native child surface.
         if (!isPlaying) {
           nativePlaybackRenderFailed = false;
         }
@@ -3447,6 +3634,14 @@ export const NativeProgramPreview: React.FC = () => {
             !nativeSurfaceUsable ||
             (!nativeRequest && !nativeSurfaceOwnsCurrentFrame));
         if (nativeSurfaceNeedsHide) {
+          const retainForPausedCanvasHandover =
+            shouldRetainNativeSurfaceForPausedCanvasHandover({
+              isPaused: !isPlaying,
+              surfaceShown: nativeSurfaceShown,
+              surfaceUsable: nativeSurfaceUsable,
+              hasNativeRequest: nativeRequest !== null,
+              nativeDirectSurfacePath,
+            });
           if (!nativeSurfaceUsable || !nativeRequest) {
             // Unrecoverable surface error or empty scene: hide immediately
             if (handoverSafetyTimer !== null) {
@@ -3457,20 +3652,26 @@ export const NativeProgramPreview: React.FC = () => {
             nativeSurfaceShown = false;
             lastNativePlaybackRequestKey = "";
             void hideNativeSurfaceWhenIdle().catch(() => undefined);
-          } else if (!pendingHandoverSurfaceHide) {
+          } else if (retainForPausedCanvasHandover && !pendingHandoverSurfaceHide) {
             // Handover from native playback to paused canvas readback:
             // Retain the native surface until the first paused readback frame
             // is painted onto canvasEl to eliminate stale-frame flash.
             pendingHandoverSurfaceHide = true;
+            tracePlayback("native-pause-handover-retained", {
+              frameIndex,
+              hasSelectedClip: pausedOverlayStateRef.current.hasSelectedClip,
+            });
             if (handoverSafetyTimer !== null) {
               window.clearTimeout(handoverSafetyTimer);
             }
             handoverSafetyTimer = window.setTimeout(() => {
               if (pendingHandoverSurfaceHide) {
-                pendingHandoverSurfaceHide = false;
-                nativeSurfaceShown = false;
-                lastNativePlaybackRequestKey = "";
-                void hideNativeSurfaceWhenIdle().catch(() => undefined);
+                // Never trade an unusually slow paused readback for a black
+                // program monitor. The existing native pixels are truthful
+                // visual continuity until canvas paint completes; the trace
+                // makes the delayed handover observable without changing its
+                // ownership state.
+                tracePlayback("native-pause-handover-slow", { frameIndex });
               }
             }, 1000);
           }
@@ -3564,6 +3765,15 @@ export const NativeProgramPreview: React.FC = () => {
                 nativeSurfaceUsable &&
                 !qualificationForcesWebView &&
                 !nativePlaybackRenderFailed;
+              const pausedSnapshotKey = nativePlaybackSnapshotKeyFor(
+                requestToPresent,
+              );
+              const persistentNativePausedEligible =
+                !isPlaying &&
+                pausedNativeSurfaceEligible &&
+                !nativePlaybackRenderFailed &&
+                nativePlaybackRenderSnapshotKey === pausedSnapshotKey &&
+                nativePlaybackRenderSnapshotInFlight === null;
               if (persistentNativePlaybackEligible) {
                 ensureNativePlaybackRenderSnapshot(requestToPresent);
                 const snapshotKey =
@@ -3653,6 +3863,129 @@ export const NativeProgramPreview: React.FC = () => {
                   scheduleNextFrame();
                   return;
                 }
+              } else if (persistentNativePausedEligible) {
+                // Paused P0 seeks use the same bounded Rust-owned latest-only
+                // worker as playback. The invoke below only replaces a demand;
+                // presentation acknowledgement arrives asynchronously after the
+                // exact frame reaches the native surface.
+                const pausedDemandRequest = createDemandOperationRequest(
+                  requestToPresent,
+                  targetGeneration,
+                );
+                const frontendSpan = nativePerfCollector.isEnabled()
+                  ? nativePerfCollector.begin(pausedDemandRequest, {
+                      view: "native",
+                      surface: "native-surface",
+                      presenterMode: "native-surface",
+                      runtimeEnvironment: import.meta.env.DEV
+                        ? "development"
+                        : "production",
+                      sessionId: capturedSession.sessionId,
+                      qualificationRunId:
+                        previewQualificationController.getState().runId ??
+                        undefined,
+                      scenario: clock.isSeeking ? "seek" : "paused-interaction",
+                    })
+                  : null;
+                frontendSpan?.markDispatchStarted();
+                frontendSpan?.markIpcStarted();
+                if (frontendSpan) {
+                  nativeFrontendPerfSpans.set(requestKey, frontendSpan);
+                }
+                abandonPausedNativeDemand("superseded", false);
+                pendingPausedNativeDemand = {
+                  requestKey,
+                  requestId: pausedDemandRequest.requestId,
+                  generation: targetGeneration,
+                  frameIndex: requestToPresent.frameTime.frameIndex,
+                  dispatchedAtMs: performance.now(),
+                  commandAcknowledged: false,
+                  acknowledgementTimeoutId: window.setTimeout(() => {
+                    if (
+                      pendingPausedNativeDemand?.requestKey === requestKey &&
+                      shouldFallbackForPausedNativeDemand(
+                        pendingPausedNativeDemand.dispatchedAtMs,
+                        performance.now(),
+                      )
+                    ) {
+                      abandonPausedNativeDemand("ack-timeout", true);
+                    }
+                  }, PAUSED_NATIVE_DEMAND_ACK_TIMEOUT_MS),
+                };
+                tracePlayback("native-demand-dispatched", {
+                  // requestId is the end-to-end operation identifier: the
+                  // same value reaches Rust, the presentation event, and the
+                  // frontend seek span.
+                  operationId: pausedDemandRequest.requestId,
+                  requestKey: telemetryRequestToken(requestKey),
+                  generation: targetGeneration,
+                  frameIndex: requestToPresent.frameTime.frameIndex,
+                  dispatchMode: "persistent-demand",
+                });
+                nativePlaybackInFlight = submitNativePlaybackDemand(
+                  createNativePlaybackFrameDemand(pausedDemandRequest),
+                )
+                  .then(() => {
+                    nativeFrontendPerfSpans
+                      .get(requestKey)
+                      ?.markIpcFinished();
+                    if (
+                      pendingPausedNativeDemand?.requestKey === requestKey
+                    ) {
+                      pendingPausedNativeDemand.commandAcknowledged = true;
+                      tracePlayback("native-demand-acknowledged", {
+                        operationId: pausedDemandRequest.requestId,
+                        requestKey: telemetryRequestToken(requestKey),
+                        generation: targetGeneration,
+                        frameIndex: requestToPresent.frameTime.frameIndex,
+                        dispatchMode: "persistent-demand",
+                      });
+                      settlePausedNativeDemand();
+                    }
+                  })
+                  .catch((error) => {
+                    if (pendingPausedNativeDemand?.requestKey === requestKey) {
+                      abandonPausedNativeDemand("submit-failed", true);
+                    }
+                    forceRenderNeeded = true;
+                    console.warn("[native-preview] paused-demand-submit-failed", {
+                      frameIndex: requestToPresent.frameTime.frameIndex,
+                      error: error instanceof Error ? error.message : String(error),
+                    });
+                  })
+                  .finally(() => {
+                    nativePlaybackInFlight = null;
+                  });
+                // The request key suppresses duplicate RAF submissions, but
+                // `nativeSurfaceShown` remains false until Rust emits the
+                // matching presentation event above.
+                lastNativePlaybackRequestKey = requestKey;
+                lastRenderedClips = state.clips;
+                lastRenderedTracks = state.tracks;
+                lastRenderedTransitions = state.transitions;
+                lastRenderedProject = state.project;
+                lastRenderedFrameIndex = frameIndex;
+                lastRenderedEpoch = state.epoch;
+                lastRenderedTransportRevision = transportRevision;
+                lastRenderedMediaReadyRevision = mediaReadyRevision;
+                lastRenderedPlaybackState = playbackState;
+                forceRenderNeeded = false;
+                renderInFlight = false;
+                scheduleNextFrame();
+                return;
+              } else if (
+                !isPlaying &&
+                pausedNativeSurfaceEligible &&
+                !nativePlaybackRenderFailed &&
+                nativePlaybackRenderSnapshotInFlight !== null
+              ) {
+                // Snapshot configuration is the only normal prerequisite for
+                // a paused P0 demand. Keep the existing pixels visible and
+                // wait one RAF rather than paying a synchronous direct invoke.
+                forceRenderNeeded = true;
+                renderInFlight = false;
+                scheduleNextFrame();
+                return;
               } else if (nativeSurfaceUsable && !qualificationForcesWebView) {
                 const tracePresentation = isFirstFrame || !isPlaying;
                 if (tracePresentation) {
@@ -3668,8 +4001,12 @@ export const NativeProgramPreview: React.FC = () => {
                   //     nativeSurfaceGeometrySettledRef.current,
                   // });
                 }
+                const directOperationRequest = createDemandOperationRequest(
+                  requestToPresent,
+                  targetGeneration,
+                );
                 const frontendSpan = nativePerfCollector.isEnabled()
-                  ? nativePerfCollector.begin(requestToPresent, {
+                  ? nativePerfCollector.begin(directOperationRequest, {
                       view: "native",
                       surface: "native-surface",
                       presenterMode: "native-surface",
@@ -3691,6 +4028,13 @@ export const NativeProgramPreview: React.FC = () => {
                   : null;
                 frontendSpan?.markDispatchStarted();
                 frontendSpan?.markIpcStarted();
+                tracePlayback("native-demand-dispatched", {
+                  operationId: directOperationRequest.requestId,
+                  requestKey: telemetryRequestToken(requestKey),
+                  generation: targetGeneration,
+                  frameIndex: requestToPresent.frameTime.frameIndex,
+                  dispatchMode: "direct-invoke",
+                });
                 if (latestSeekIntent?.scrubSpanId) {
                   const demandDelayUs = Math.max(
                     0,
@@ -3703,11 +4047,23 @@ export const NativeProgramPreview: React.FC = () => {
                     demandDelayUs,
                   );
                 }
-                nativePlaybackInFlight = presentNativePlaybackFrame(
-                  requestToPresent,
+                nativePlaybackInFlight = presentNativeSurfaceFrame(
+                  directOperationRequest,
+                  isPlaying,
                 )
                   .then((presentation) => {
                     frontendSpan?.markIpcFinished();
+                    tracePlayback("native-demand-presented", {
+                      operationId: directOperationRequest.requestId,
+                      requestKey: telemetryRequestToken(requestKey),
+                      generation: targetGeneration,
+                      frameIndex: requestToPresent.frameTime.frameIndex,
+                      dispatchMode: "direct-invoke",
+                      presented: presentation.presented,
+                      dropped: presentation.dropped,
+                      stale: presentation.stale,
+                      dropReason: presentation.dropReason,
+                    });
                     const timings = presentation.timings;
                     if (timings && timings.totalUs >= 16_667) {
                       // tracePlayback("native-present-stages", {
@@ -3910,12 +4266,23 @@ export const NativeProgramPreview: React.FC = () => {
                       // accepted there as the initial still, and it should
                       // remain visible while a play/pause/seek transition is
                       // waiting for its replacement.
+                      const canRetainPausedSurface =
+                        !isPlaying &&
+                        canPresentPausedFrameOnNativeSurface({
+                          surfaceUsable: nativeSurfaceUsable,
+                          qualificationForcesWebView:
+                            previewQualificationController.getState()
+                              .status === "running" &&
+                            previewQualificationController.getState().path ===
+                              "webview",
+                          ...pausedOverlayStateRef.current,
+                        });
                       const canRetainPresentedSurface =
                         isActive &&
                         nativeSurfaceGeometrySettledRef.current &&
                         current.project?.id === state.project?.id &&
                         current.epoch === state.epoch &&
-                        isPlaying;
+                        (isPlaying || canRetainPausedSurface);
                       if (
                         canRetainPresentedSurface &&
                         currentRequestIsStillAuthoritative
@@ -4186,12 +4553,15 @@ export const NativeProgramPreview: React.FC = () => {
           }
         }
 
-        // Native Tauri preview normally uses the retained surface during
-        // playback. Readback is used automatically for paused/seeking editor
-        // interaction and whenever the native surface is unavailable.
+        // Native Tauri preview uses the retained surface for playback and a
+        // clean paused program monitor. Readback remains mandatory whenever
+        // an editor overlay needs DOM layering or the surface is unavailable.
         if (
           needsRender &&
-          !nativeSurfaceShown &&
+          (!nativeSurfaceShown ||
+            shouldRenderPausedCanvasDuringNativeHandover(
+              pendingHandoverSurfaceHide,
+            )) &&
           !nativeOnlySceneBlocked &&
           !nativeDirectSurfacePath &&
           !deferWebViewFallbackForNativeStartup
@@ -4427,6 +4797,9 @@ export const NativeProgramPreview: React.FC = () => {
                   pendingHandoverSurfaceHide = false;
                   nativeSurfaceShown = false;
                   lastNativePlaybackRequestKey = "";
+                  tracePlayback("native-pause-handover-canvas-painted", {
+                    frameIndex,
+                  });
                   void hideNativeSurfaceWhenIdle().catch(() => undefined);
                 }
               } else {
@@ -4825,8 +5198,10 @@ export const NativeProgramPreview: React.FC = () => {
       });
       standaloneVideoCache.clear();
       standaloneImageCache.clear();
+      abandonPausedNativeDemand("superseded", false);
       unlistenStartupMilestone?.();
       unlistenPlaybackStats?.();
+      unlistenDemandPresentation?.();
     };
     // Viewport values (scale, offsetX, offsetY, canvasWidth, canvasHeight) are
     // now read from renderStateRef inside the loop, so they are NOT listed as deps here.

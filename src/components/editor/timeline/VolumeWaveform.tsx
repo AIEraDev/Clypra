@@ -25,6 +25,32 @@ interface VolumeWaveformProps {
 const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
 
+/**
+ * Produces a centered waveform pipe. A timeline waveform represents source
+ * energy, not a level meter: symmetric peaks make quiet and loud regions
+ * readable at a glance and remain balanced when the lane grows taller.
+ */
+export function getWaveformPipeGeometry(
+  peak: number,
+  rms: number,
+  maxPeak: number,
+  envelopeVolume: number,
+  height: number,
+): { top: number; height: number } | null {
+  if (envelopeVolume <= 0.001 || height <= 0) return null;
+  const normalizedPeak = maxPeak > 0 ? clamp(peak, 0, 1) / maxPeak : 0;
+  // RMS gives quiet passages a stable visual body while peak retains transients.
+  const sourceAmplitude = Math.max(
+    Math.pow(normalizedPeak, 0.58),
+    Math.pow(clamp(rms, 0, 1), 0.7) * 0.38,
+  );
+  const pipeHeight = Math.min(
+    height,
+    Math.max(envelopeVolume > 0.01 ? 1.25 : 0, sourceAmplitude * envelopeVolume * height * 0.9),
+  );
+  return { top: (height - pipeHeight) / 2, height: pipeHeight };
+}
+
 function getVisibleWaveColor(): string {
   if (typeof document !== "undefined") {
     const waveColor = getComputedStyle(document.documentElement)
@@ -60,9 +86,9 @@ export function getEnvelopeVolume(
 }
 
 /**
- * Compact clip wave whose height is the current volume envelope multiplied by
- * the source audio shape. Unlike TimelineWaveform, lowering volume visibly
- * pulls every bar down toward the lane baseline.
+ * Compact, centered clip waveform whose height follows the current volume
+ * envelope and source energy. Unlike a bottom-anchored level meter, it stays
+ * visually balanced in both the small video-audio lane and full audio clips.
  */
 export const VolumeWaveform: React.FC<VolumeWaveformProps> = ({
   audioPath,
@@ -145,19 +171,19 @@ export const VolumeWaveform: React.FC<VolumeWaveformProps> = ({
         : getKeyframedVolume(sortedKeyframes, time, volume);
       if (envelopeVolume <= 0.001) return;
 
-      // Lift quieter source peaks into a readable visual range while the
-      // envelopeVolume multiplier still makes the wave respond to volume.
-      const normalizedPeak = maxPeak > 0 ? clamp(bucket.peak, 0, 1) / maxPeak : 0;
-      const sourceAmplitude = Math.pow(normalizedPeak, 0.58);
-      const barHeight = Math.max(
-        envelopeVolume > 0.01 ? 1.25 : 0,
-        sourceAmplitude * envelopeVolume * height * 0.96,
+      const geometry = getWaveformPipeGeometry(
+        bucket.peak,
+        bucket.rms,
+        maxPeak,
+        envelopeVolume,
+        height,
       );
+      if (!geometry) return;
       const center = index * bucketWidth + bucketWidth / 2;
       // Snap the pipe to the device-pixel grid so it stays sharp at 1x and
       // high-DPI displays alike.
       const x = Math.round((center - pipeWidth / 2) * dpr) / dpr;
-      ctx.fillRect(x, height - barHeight, pipeWidth, barHeight);
+      ctx.fillRect(x, geometry.top, pipeWidth, geometry.height);
     });
   }, [
     waveformData,

@@ -1,16 +1,16 @@
+use super::runtime::audio_clock_time;
+use crate::filmstrip_engine::decoder::{
+    acquire_preview_decoder_lease_for_stream, PreviewDecoderLease,
+};
 use crate::native_core::playback::frame_for_audio_position;
 use crate::native_core::{
     FrameRequest, FrameTime, NativePlaybackFrameDemand, PlaybackPlan, QualityTier,
     DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION,
 };
-use super::runtime::audio_clock_time;
-use crate::filmstrip_engine::decoder::{
-    acquire_preview_decoder_lease_for_stream, PreviewDecoderLease,
-};
 use parking_lot::RwLock;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager};
@@ -20,7 +20,12 @@ pub(crate) struct NativeRenderSession {
     pub(crate) last_materialized: RwLock<Option<FrameRequest>>,
     pub(crate) active_streams: Mutex<HashSet<(String, String)>>,
     pub(crate) leases: Mutex<HashMap<(String, String), PreviewDecoderLease>>,
-    pub(crate) actors: Mutex<HashMap<(String, String), Arc<crate::filmstrip_engine::stream_actor::StreamDecoderActorHandle>>>,
+    pub(crate) actors: Mutex<
+        HashMap<
+            (String, String),
+            Arc<crate::filmstrip_engine::stream_actor::StreamDecoderActorHandle>,
+        >,
+    >,
     pub(crate) pending: Mutex<LatestPlaybackDemand>,
     pub(crate) notify: tokio::sync::Notify,
     pub(crate) running: AtomicBool,
@@ -29,6 +34,55 @@ pub(crate) struct NativeRenderSession {
     pub(crate) configured_at: Instant,
     pub(crate) ready_after_us: AtomicU64,
     pub(crate) first_presented: AtomicBool,
+    /// Playback lookahead may need a more conservative scale than the
+    /// startup keyframe probe selected. This is deliberately separate from
+    /// `snapshot.quality`: exact paused/scrub requests must keep their
+    /// requested quality even when continuous playback misses deadlines.
+    pub(crate) playback_quality: AtomicU8,
+    pub(crate) playback_lookahead_miss_streak: AtomicU8,
+    /// Misses before the first successful queued playback frame are startup
+    /// or pause/resume transition noise, not evidence that the active GOP is
+    /// too expensive. Arm adaptive lookahead only after the queue proves it
+    /// can feed presentation.
+    pub(crate) playback_lookahead_feedback_armed: AtomicBool,
+}
+
+const LOOKAHEAD_QUALITY_DOWNGRADE_MISS_STREAK: u8 = 2;
+
+pub(crate) fn quality_to_code(quality: QualityTier) -> u8 {
+    match quality {
+        QualityTier::Full => 0,
+        QualityTier::Half => 1,
+        QualityTier::Quarter => 2,
+        QualityTier::Proxy => 3,
+    }
+}
+
+fn quality_from_code(code: u8) -> QualityTier {
+    match code {
+        1 => QualityTier::Half,
+        2 => QualityTier::Quarter,
+        3 => QualityTier::Proxy,
+        _ => QualityTier::Full,
+    }
+}
+
+/// One keyframe can underestimate the cost of later GOPs. After two
+/// consecutive missed presentation deadlines, reduce only the background
+/// playback lookahead scale by one useful tier. `Quarter` and `Proxy` have
+/// the same decoder scale, so neither is reduced further.
+pub(crate) fn playback_quality_after_lookahead_misses(
+    quality: QualityTier,
+    consecutive_misses: u8,
+) -> QualityTier {
+    if consecutive_misses < LOOKAHEAD_QUALITY_DOWNGRADE_MISS_STREAK {
+        return quality;
+    }
+    match quality {
+        QualityTier::Full => QualityTier::Half,
+        QualityTier::Half => QualityTier::Quarter,
+        QualityTier::Quarter | QualityTier::Proxy => quality,
+    }
 }
 
 /// One-shot, non-content startup milestones persisted by the frontend in the
@@ -48,6 +102,13 @@ pub(crate) struct LatestPlaybackDemand {
     pub(crate) value: Option<NativePlaybackFrameDemand>,
 }
 
+/// Exact paused/scrub demands are distinct from continuous playback. They
+/// must not be coalesced by the audio-clock frame-address fast path because
+/// the WebView awaits their matching completion event.
+pub(crate) fn should_follow_audio_clock(has_explicit_demand: bool) -> bool {
+    !has_explicit_demand
+}
+
 impl LatestPlaybackDemand {
     pub(crate) fn replace(&mut self, demand: NativePlaybackFrameDemand) {
         self.value = Some(demand);
@@ -59,8 +120,12 @@ impl LatestPlaybackDemand {
 }
 
 impl NativeRenderSession {
-    pub(crate) async fn new(snapshot: FrameRequest, configured_at: Instant) -> Result<Arc<Self>, String> {
+    pub(crate) async fn new(
+        snapshot: FrameRequest,
+        configured_at: Instant,
+    ) -> Result<Arc<Self>, String> {
         snapshot.validate().map_err(|error| error.to_string())?;
+        let initial_playback_quality = snapshot.quality;
         let mut streams = HashSet::new();
         let mut leases = HashMap::new();
         let mut actors = HashMap::new();
@@ -99,6 +164,9 @@ impl NativeRenderSession {
             configured_at,
             ready_after_us: AtomicU64::new(0),
             first_presented: AtomicBool::new(false),
+            playback_quality: AtomicU8::new(quality_to_code(initial_playback_quality)),
+            playback_lookahead_miss_streak: AtomicU8::new(0),
+            playback_lookahead_feedback_armed: AtomicBool::new(false),
         }))
     }
 
@@ -110,6 +178,66 @@ impl NativeRenderSession {
         let mut snapshot = (**self.snapshot.read()).clone();
         snapshot.quality = quality;
         *self.snapshot.write() = Arc::new(snapshot);
+        self.playback_quality
+            .store(quality_to_code(quality), Ordering::Release);
+        self.reset_playback_lookahead_feedback();
+    }
+
+    pub(crate) fn playback_quality(&self) -> QualityTier {
+        quality_from_code(self.playback_quality.load(Ordering::Acquire))
+    }
+
+    /// Record a visible playback deadline that could not consume a queued
+    /// frame. This only changes the quality used by future lookahead work;
+    /// the immutable snapshot remains the authority for paused P0 renders.
+    pub(crate) fn record_playback_lookahead_miss(&self) -> QualityTier {
+        if !self
+            .playback_lookahead_feedback_armed
+            .load(Ordering::Acquire)
+        {
+            return self.playback_quality();
+        }
+        let consecutive_misses = self
+            .playback_lookahead_miss_streak
+            .fetch_add(1, Ordering::AcqRel)
+            .saturating_add(1);
+        let current = self.playback_quality();
+        let next = playback_quality_after_lookahead_misses(current, consecutive_misses);
+        if next != current {
+            self.playback_quality
+                .store(quality_to_code(next), Ordering::Release);
+            // A further downgrade requires another consecutive miss pair at
+            // the new scale, avoiding a Full -> Quarter jump from one stall.
+            self.playback_lookahead_miss_streak
+                .store(0, Ordering::Release);
+        }
+        next
+    }
+
+    pub(crate) fn record_playback_lookahead_hit(&self) {
+        self.playback_lookahead_feedback_armed
+            .store(true, Ordering::Release);
+        self.playback_lookahead_miss_streak
+            .store(0, Ordering::Release);
+    }
+
+    /// Start a fresh measurement epoch for continuous playback. A pause is
+    /// intentionally *not* a render-session teardown: the latest-only worker
+    /// must remain alive to present the explicit paused-frame demand submitted
+    /// by the WebView after audio stops.
+    pub(crate) fn pause_continuous_playback(&self) {
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.value = None;
+        }
+        self.reset_playback_lookahead_feedback();
+        self.notify.notify_one();
+    }
+
+    pub(crate) fn reset_playback_lookahead_feedback(&self) {
+        self.playback_lookahead_feedback_armed
+            .store(false, Ordering::Release);
+        self.playback_lookahead_miss_streak
+            .store(0, Ordering::Release);
     }
 
     /// Reconcile active streams with the current snapshot, dropping leases and actors
@@ -188,6 +316,8 @@ impl NativeRenderSession {
             }
         }
 
+        // The snapshot remains the requested-quality source for explicit
+        // paused demands. Adaptive quality is playback-lookahead-only.
         let quality = self.snapshot.read().quality;
         let mut snapshot_to_store = new_snapshot;
         snapshot_to_store.quality = quality;
@@ -212,9 +342,12 @@ impl NativeRenderSession {
     }
 
     pub(crate) fn start(self: &Arc<Self>, app: AppHandle) {
+        // Do not carry missed-deadline history from a stopped/paused audio
+        // clock into a new playback epoch.
+        self.reset_playback_lookahead_feedback();
         let was_running = self.running.swap(true, Ordering::AcqRel);
         let generation = self.generation.load(Ordering::Acquire);
-        let quality = self.snapshot.read().quality;
+        let quality = self.playback_quality();
         let mut base_request = (**self.snapshot.read()).clone();
         base_request.generation = Some(generation);
 
@@ -223,7 +356,9 @@ impl NativeRenderSession {
             crate::commands::native_preview::schedule_lookahead_predecode(
                 app.clone(),
                 base_request.clone(),
-                crate::commands::native_preview::lookahead_frames_for_rate(base_request.project.frame_rate),
+                crate::commands::native_preview::lookahead_frames_for_rate(
+                    base_request.project.frame_rate,
+                ),
                 Some(quality),
             );
             self.notify.notify_one();
@@ -233,7 +368,9 @@ impl NativeRenderSession {
         crate::commands::native_preview::schedule_lookahead_predecode(
             app.clone(),
             base_request,
-            crate::commands::native_preview::lookahead_frames_for_rate(self.snapshot.read().project.frame_rate),
+            crate::commands::native_preview::lookahead_frames_for_rate(
+                self.snapshot.read().project.frame_rate,
+            ),
             Some(quality),
         );
         let session = Arc::clone(self);
@@ -676,11 +813,18 @@ impl NativeRenderSession {
             let _active_decoder_lease_count =
                 self.leases.lock().map(|leases| leases.len()).unwrap_or(0);
 
-            // The JS demand carries the evaluated layer state, but the
-            // authoritative frame address is always taken from Rust's native
-            // audio clock. This prevents a delayed WebView RAF from selecting
-            // a frame independently of audio.
-            if let Ok(audio_time) = audio_clock_time(&app, true, false) {
+            // Continuous playback follows Rust's native audio clock. An
+            // explicit paused/scrub demand deliberately bypasses this branch:
+            // it is an exact P0 request and must render (and acknowledge) even
+            // when it targets the same frame the audio clock last produced.
+            // Otherwise the `last_rendered_frame_index` fast path swallows the
+            // demand and leaves the WebView waiting forever for its event.
+            let audio_time = if should_follow_audio_clock(dynamic_demand.is_some()) {
+                audio_clock_time(&app, true, false).ok()
+            } else {
+                None
+            };
+            if let Some(audio_time) = audio_time {
                 if let Ok(frame_index) = frame_for_audio_position(
                     audio_time,
                     &PlaybackPlan {
@@ -829,6 +973,7 @@ impl NativeRenderSession {
             .await
         {
             Ok(presentation) => {
+                let is_explicit_paused_demand = presentation.mode.as_deref() != Some("playback");
                 if presentation.presented {
                     if !self.first_presented.swap(true, Ordering::AcqRel) {
                         crate::cold_start::record_first_frame();
@@ -867,10 +1012,19 @@ impl NativeRenderSession {
                         }
                     }
                 }
+                if is_explicit_paused_demand {
+                    // Paused/scrub demands use the session's latest-only
+                    // worker. Notify the WebView only after the worker has
+                    // completed the request. A dropped result matters too:
+                    // it releases the latest key so the current seek can run.
+                    let _ = app.emit(
+                        "clypra://native-playback-demand-presented",
+                        presentation.clone(),
+                    );
+                }
                 Some(presentation)
             }
             Err(_) => None,
         }
     }
 }
-

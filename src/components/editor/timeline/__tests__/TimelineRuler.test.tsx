@@ -59,4 +59,19 @@ describe("TimelineRuler coordinate mapping", () => {
 
     expect(useTimelineStore.getState().markers[0]?.time).toBe(5.5);
   });
+
+  it("switches from frame labels to timecode labels across zoom levels", () => {
+    const { rerender } = render(
+      <TimelineRuler pixelsPerSecond={500} scrollLeft={0} sequenceDuration={20} />,
+    );
+
+    expect(screen.getByText("5f")).toBeInTheDocument();
+
+    rerender(
+      <TimelineRuler pixelsPerSecond={100} scrollLeft={0} sequenceDuration={20} />,
+    );
+
+    expect(screen.getByText("00:01")).toBeInTheDocument();
+    expect(screen.queryByText("5f")).not.toBeInTheDocument();
+  });
 });
