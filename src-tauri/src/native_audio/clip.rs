@@ -155,7 +155,7 @@ pub async fn decode_native_audio_clip(
                 error,
                 path
             );
-            format!("{error}")
+            error.to_string()
         })?;
     let mut native: NativePcmClip = decoded.into();
     native.pan = pan.clamp(-1.0, 1.0);

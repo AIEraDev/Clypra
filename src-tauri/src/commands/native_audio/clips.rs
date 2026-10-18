@@ -380,7 +380,7 @@ pub fn update_native_audio_clip_parameters_batch(
         .map_err(|_| "Native audio clock lock is poisoned".to_string())?;
     let mut statuses = Vec::with_capacity(updates.len());
     for update in updates {
-        match (&mut *clock_guard).update_clip_parameters(
+        match clock_guard.update_clip_parameters(
             &update.clip_id,
             update.gain,
             update.pan,

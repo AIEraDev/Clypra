@@ -126,8 +126,6 @@ impl DecoderState {
     }
 }
 
-/// Pure decision for stream decoder positioning on incoming frame requests.
-
 /// One decoder per video file — stays alive between frame requests
 pub struct VideoDecoder {
     input_ctx: ffmpeg::format::context::Input,

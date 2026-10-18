@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 // Global job registry shared across executor and job_commands.
-pub(self) static MEDIA_JOBS: Lazy<Arc<Mutex<HashMap<String, JobRecord>>>> =
+static MEDIA_JOBS: Lazy<Arc<Mutex<HashMap<String, JobRecord>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 pub use job_commands::{cancel_media_job, get_media_job_result, start_audio_extraction};

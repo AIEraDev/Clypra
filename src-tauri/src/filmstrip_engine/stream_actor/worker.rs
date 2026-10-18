@@ -400,7 +400,8 @@ impl StreamDecoderActor {
 
             #[cfg(target_os = "windows")]
             if crate::wgpu_compositor::adapter_selector::is_dxgi_runtime_enabled() {
-                let mut frame_color = VideoColorMetadata::default();
+                let mut frame_color =
+                    crate::filmstrip_engine::decoder::VideoColorMetadata::default();
                 let mut width = 0u32;
                 let mut height = 0u32;
                 match guard.decode_frame_dxgi_windows(

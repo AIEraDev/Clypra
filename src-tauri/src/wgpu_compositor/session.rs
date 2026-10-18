@@ -378,14 +378,14 @@ impl NativePreviewSession {
         source_height: u32,
         imported: &crate::wgpu_compositor::dxgi_import::ImportedNv12Texture,
         params: &ColorTransformUniforms,
-    ) -> Result<Arc<wgpu::Texture>, PreviewRenderError> {
+    ) -> Result<Arc<wgpu::Texture>, super::render_path::PreviewRenderError> {
         if !self.gpu.capabilities.wgpu_nv12 {
-            return Err(PreviewRenderError::UnsupportedFeature(
+            return Err(super::render_path::PreviewRenderError::UnsupportedFeature(
                 "TEXTURE_FORMAT_NV12 is not supported on this adapter".to_string(),
             ));
         }
         if source_width == 0 || source_height == 0 {
-            return Err(PreviewRenderError::DimensionMismatch {
+            return Err(super::render_path::PreviewRenderError::DimensionMismatch {
                 expected: (1, 1),
                 got: (source_width, source_height),
             });
