@@ -46,15 +46,12 @@ import type { Clip } from "@/types";
 import type {
   ClipMotionConfig,
   MotionBehaviorCategory,
-  MotionPresetMeta,
   MotionSubCategory,
 } from "@/types/motion";
 import {
-  MOTION_IN_PRESETS,
-  MOTION_OUT_PRESETS,
-  MOTION_LOOP_PRESETS,
   compileClipMotionKeyframes,
 } from "@/core/animation/motionPresets";
+import { useTextAnimationCatalog } from "@/features/text-animations/animationCatalog";
 import { useI18n } from "@/i18n";
 import { PropertySection } from "./primitives/PropertySection";
 import { PropertySlider } from "./primitives/PropertySlider";
@@ -126,6 +123,7 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
   const [favorites, setFavorites] = useState<Set<string>>(() =>
     getStoredFavorites(),
   );
+  const animationCatalog = useTextAnimationCatalog();
 
   const toggleFavorite = useCallback((id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -158,6 +156,7 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
         nextMotion,
         canvasWidth,
         canvasHeight,
+        animationCatalog.presets,
       );
 
       handleUpdateMultiple({
@@ -165,20 +164,13 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
         visualKeyframes: compiledKeyframes,
       });
     },
-    [motion, selectedClip, canvasWidth, canvasHeight, handleUpdateMultiple],
+    [motion, selectedClip, canvasWidth, canvasHeight, handleUpdateMultiple, animationCatalog.presets],
   );
 
   // Active catalog according to active tab
   const currentCatalog = useMemo(() => {
-    switch (activeTab) {
-      case "in":
-        return MOTION_IN_PRESETS;
-      case "out":
-        return MOTION_OUT_PRESETS;
-      case "loop":
-        return MOTION_LOOP_PRESETS;
-    }
-  }, [activeTab]);
+    return animationCatalog.presets.filter((preset) => preset.phase === activeTab);
+  }, [activeTab, animationCatalog.presets]);
 
   // Filter presets based on category and search query
   const filteredPresets = useMemo(() => {
@@ -445,6 +437,14 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
         </div>
 
         {/* ── 4. CapCut 5-Column Preset Card Grid ──────────────────────────────── */}
+        {animationCatalog.status === "loading" && currentCatalog.length === 0 && (
+          <div className="py-4 text-center text-[11px] text-text-muted">Loading animation catalog…</div>
+        )}
+        {animationCatalog.status === "error" && currentCatalog.length === 0 && (
+          <div className="rounded-md border border-amber-400/20 bg-amber-400/5 p-2 text-[10px] text-amber-200">
+            Animation catalog is unavailable. Reconnect to load published presets.
+          </div>
+        )}
         <div className="grid grid-cols-5 gap-2 max-h-[320px] overflow-y-auto pr-0.5 scrollbar-thin">
           {/* Card 0: None */}
           <button

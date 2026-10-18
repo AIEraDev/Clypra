@@ -12,6 +12,21 @@ import { compileClipMotionKeyframes } from "@/core/animation/motionPresets";
 import { toRustClip, fromRustClip } from "@/types/serialization";
 import type { TextClip, Track, Project, VisualPropertyKeyframe } from "@/types";
 import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
+import type { RemoteTextAnimationPreset } from "@/features/text-animations/animationCatalog";
+
+const animationCatalog: RemoteTextAnimationPreset[] = [
+  {
+    id: "slide-up", name: "Slide Up", phase: "in", category: "in", subCategory: "Motion", tags: ["slide"], description: "API fixture", defaultDuration: 0.5, icon: "ArrowUp", minDuration: 0.1, maxDuration: 3, previewLoopDuration: 1.2,
+    tracks: [
+      { property: "translateY", keyframes: [{ progress: 0, value: 150 }, { progress: 1, value: 0, easing: "easeOutCubic" }] },
+      { property: "opacity", keyframes: [{ progress: 0, value: 0 }, { progress: 1, value: 1, easing: "easeOut" }] },
+    ],
+  },
+  {
+    id: "fade-out", name: "Fade Out", phase: "out", category: "out", subCategory: "Basic", tags: ["fade"], description: "API fixture", defaultDuration: 0.5, icon: "Sun", minDuration: 0.1, maxDuration: 3, previewLoopDuration: 1.2,
+    tracks: [{ property: "opacity", keyframes: [{ progress: 0, value: 1 }, { progress: 1, value: 0, easing: "easeIn" }] }],
+  },
+];
 
 // Mock Tauri API
 vi.mock("@tauri-apps/api/core", () => ({
@@ -201,6 +216,7 @@ describe("Text Animation & Visual Keyframe Parity", () => {
         },
         1920,
         1080,
+        animationCatalog,
       );
 
       // Verify compiler generates editable keyframes
@@ -280,6 +296,7 @@ describe("Text Animation & Visual Keyframe Parity", () => {
         },
         1920,
         1080,
+        animationCatalog,
       );
 
       // Test with Duration = 4.0s (starts at 1.0s, ends at 5.0s)
