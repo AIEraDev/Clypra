@@ -24,6 +24,7 @@ import {
 } from "@/lib/platform/nativeCore";
 import { recordFirstArtifactLatency } from "./filmstripMetrics";
 import { getPlaybackClock } from "@/core/playback/PlaybackClock";
+import { filmstripTelemetry } from "@/lib/filmstrip/filmstripTelemetry";
 
 // ─── SAB Detection ────────────────────────────────────────────────────────────
 
@@ -33,7 +34,11 @@ import { getPlaybackClock } from "@/core/playback/PlaybackClock";
  */
 export const SAB_SUPPORTED: boolean = (() => {
   try {
-    return typeof crossOriginIsolated !== "undefined" && crossOriginIsolated === true && typeof SharedArrayBuffer !== "undefined";
+    return (
+      typeof crossOriginIsolated !== "undefined" &&
+      crossOriginIsolated === true &&
+      typeof SharedArrayBuffer !== "undefined"
+    );
   } catch {
     return false;
   }
@@ -97,13 +102,21 @@ export interface TransportArtifact {
   nativeRequestMs?: number;
   /** Browser-side RGBA → ImageBitmap conversion latency. */
   bitmapCreationMs?: number;
+  /** Time spent waiting in the per-video coalescing scheduler. */
+  queueWaitMs?: number;
 }
 
 /** Check if a TransportArtifact has a valid non-empty bitmap. */
-export function isValidArtifact(artifact: TransportArtifact | null | undefined): boolean {
+export function isValidArtifact(
+  artifact: TransportArtifact | null | undefined,
+): boolean {
   if (!artifact) return false;
   if (!artifact.bitmap) return false;
-  if (typeof artifact.bitmap.width !== "number" || typeof artifact.bitmap.height !== "number") return false;
+  if (
+    typeof artifact.bitmap.width !== "number" ||
+    typeof artifact.bitmap.height !== "number"
+  )
+    return false;
   return artifact.bitmap.width > 0 && artifact.bitmap.height > 0;
 }
 
@@ -119,7 +132,10 @@ export function isValidArtifact(artifact: TransportArtifact | null | undefined):
 const _activeEpochs = new Map<string, RenderEpochId>();
 
 /** Register (or replace) the active epoch for a clip. */
-export function registerActiveEpoch(clipId: string, epochId: RenderEpochId): void {
+export function registerActiveEpoch(
+  clipId: string,
+  epochId: RenderEpochId,
+): void {
   const prev = _activeEpochs.get(clipId);
   _activeEpochs.set(clipId, epochId);
 }
@@ -134,7 +150,10 @@ export function unregisterActiveEpoch(clipId: string): void {
  * When clipId is provided, validates strictly for that clip (prevents cross-clip stale artifacts).
  * Without clipId, checks if ANY clip holds this epoch (backward compat).
  */
-export function isEpochStillValid(epochId: RenderEpochId, clipId?: string): boolean {
+export function isEpochStillValid(
+  epochId: RenderEpochId,
+  clipId?: string,
+): boolean {
   if (epochId === ("epoch-preload" as RenderEpochId)) {
     return true;
   }
@@ -162,7 +181,10 @@ async function rgbaToImageBitmap(
   height: number,
   _tileKey?: string,
 ): Promise<ImageBitmap> {
-  const clamped = rgba instanceof ArrayBuffer ? new Uint8ClampedArray(rgba) : new Uint8ClampedArray(rgba.length);
+  const clamped =
+    rgba instanceof ArrayBuffer
+      ? new Uint8ClampedArray(rgba)
+      : new Uint8ClampedArray(rgba.length);
   if (!(rgba instanceof ArrayBuffer)) clamped.set(rgba);
 
   const imageData = new ImageData(clamped, width, height);
@@ -202,8 +224,20 @@ export interface RequestNativeFilmstripArtifactsOptions {
  * existing epoch/cache ownership remains in FilmstripCache; this function is
  * only an IPC adapter and never owns a bitmap after delivery.
  */
-export function requestNativeFilmstripArtifacts(opts: RequestNativeFilmstripArtifactsOptions): () => void {
-  const { videoPath, timestampsMs, spatialTier, epochId, clipId, onArtifact, onComplete, onError, concurrency = 3 } = opts;
+export function requestNativeFilmstripArtifacts(
+  opts: RequestNativeFilmstripArtifactsOptions,
+): () => void {
+  const {
+    videoPath,
+    timestampsMs,
+    spatialTier,
+    epochId,
+    clipId,
+    onArtifact,
+    onComplete,
+    onError,
+    concurrency = 3,
+  } = opts;
   const [width, height] = SPATIAL_TIER_DIMS[spatialTier];
   let cancelled = false;
   let nextIndex = 0;
@@ -228,7 +262,11 @@ export function requestNativeFilmstripArtifacts(opts: RequestNativeFilmstripArti
       if (!cancelled) window.setTimeout(dispatch, 100);
       return;
     }
-    while (!cancelled && active < Math.max(1, concurrency) && nextIndex < total) {
+    while (
+      !cancelled &&
+      active < Math.max(1, concurrency) &&
+      nextIndex < total
+    ) {
       const timestampMs = Math.max(0, Math.round(timestampsMs[nextIndex++]));
       active++;
       const seconds = timestampMs / 1000;
@@ -244,19 +282,21 @@ export function requestNativeFilmstripArtifacts(opts: RequestNativeFilmstripArti
           canvasWidth: width,
           canvasHeight: height,
           clearColor: [0, 0, 0, 1] as [number, number, number, number],
-          videoLayers: [{
-            assetId: clipId,
-            videoPath,
-            sourceTime: secondsToNativeTime(seconds, frameIndex),
-            x: 0,
-            y: 0,
-            width,
-            height,
-            rotation: 0,
-            opacity: 1,
-            zIndex: 0,
-            blendMode: "normal",
-          }],
+          videoLayers: [
+            {
+              assetId: clipId,
+              videoPath,
+              sourceTime: secondsToNativeTime(seconds, frameIndex),
+              x: 0,
+              y: 0,
+              width,
+              height,
+              rotation: 0,
+              opacity: 1,
+              zIndex: 0,
+              blendMode: "normal",
+            },
+          ],
         },
         outputWidth: width,
         outputHeight: height,
@@ -271,7 +311,12 @@ export function requestNativeFilmstripArtifacts(opts: RequestNativeFilmstripArti
           const decodeMs = performance.now() - tileStart;
           if (cancelled || !isEpochStillValid(epochId, clipId)) return;
           const bitmapStartedAt = performance.now();
-          const bitmap = await rgbaToImageBitmap(rgba, width, height, `${clipId}:${timestampMs}`);
+          const bitmap = await rgbaToImageBitmap(
+            rgba,
+            width,
+            height,
+            `${clipId}:${timestampMs}`,
+          );
           if (cancelled || !isEpochStillValid(epochId, clipId)) {
             bitmap.close();
             return;
@@ -291,7 +336,10 @@ export function requestNativeFilmstripArtifacts(opts: RequestNativeFilmstripArti
           });
         })
         .catch((error) => {
-          console.error(`[Transport ❌] Failed to decode tile at ${(timestampMs / 1000).toFixed(2)}s for clip "${clipId}":`, error);
+          console.error(
+            `[Transport ❌] Failed to decode tile at ${(timestampMs / 1000).toFixed(2)}s for clip "${clipId}":`,
+            error,
+          );
           if (!cancelled) onError?.(error);
         })
         .finally(() => {
@@ -318,6 +366,7 @@ interface FilmstripBatchSubscriber {
   spatialTier: SpatialTier;
   timestamps: Set<number>;
   priority: number;
+  queuedAt: number;
   cancelled: boolean;
   onArtifact: (artifact: TransportArtifact) => void;
   onComplete?: () => void;
@@ -369,10 +418,12 @@ async function fanOutFilmstripArtifact(
   );
 
   for (let i = 0; i < targets.length; i++) {
-    const payload =
-      i === targets.length - 1
+    const payload = {
+      ...(i === targets.length - 1
         ? artifact
-        : { ...artifact, bitmap: await createImageBitmap(artifact.bitmap) };
+        : { ...artifact, bitmap: await createImageBitmap(artifact.bitmap) }),
+      queueWaitMs: Math.max(0, performance.now() - targets[i].queuedAt),
+    };
     targets[i].onArtifact(payload);
   }
   if (targets.length === 0) {
@@ -406,7 +457,9 @@ function pumpFilmstripLane(videoPath: string): void {
   if (lane.inFlight) {
     // If all subscribers in the current in-flight batch have cancelled (e.g. user scrolled/zoomed away),
     // preempt it immediately so queued requests for the new viewport start without waiting.
-    const allCancelled = lane.inFlight.subscribers.every((sub) => sub.cancelled);
+    const allCancelled = lane.inFlight.subscribers.every(
+      (sub) => sub.cancelled,
+    );
     const inFlightPriority = Math.max(
       ...lane.inFlight.subscribers.map((sub) => sub.priority),
       0,
@@ -451,7 +504,10 @@ function pumpFilmstripLane(videoPath: string): void {
   const runNow: FilmstripBatchSubscriber[] = [];
   const defer: FilmstripBatchSubscriber[] = [];
   for (const sub of lane.queued) {
-    if (sub.spatialTier === preferredTier && sub.priority === preferredPriority) {
+    if (
+      sub.spatialTier === preferredTier &&
+      sub.priority === preferredPriority
+    ) {
       runNow.push(sub);
     } else {
       defer.push(sub);
@@ -459,9 +515,9 @@ function pumpFilmstripLane(videoPath: string): void {
   }
   lane.queued = defer;
 
-  const timestamps = Array.from(new Set(runNow.flatMap((sub) => Array.from(sub.timestamps)))).sort(
-    (a, b) => a - b,
-  );
+  const timestamps = Array.from(
+    new Set(runNow.flatMap((sub) => Array.from(sub.timestamps))),
+  ).sort((a, b) => a - b);
   if (timestamps.length === 0) {
     for (const sub of runNow) {
       if (!sub.cancelled) sub.onComplete?.();
@@ -471,6 +527,10 @@ function pumpFilmstripLane(videoPath: string): void {
   }
 
   const batchToken = Symbol("batch");
+  const batchQueuedAt = Math.min(...runNow.map((sub) => sub.queuedAt));
+  filmstripTelemetry.recordBatchDispatched(
+    Math.max(0, performance.now() - batchQueuedAt),
+  );
   const cancelBatch = requestBatchRenderArtifacts({
     videoPath,
     timestampsMs: timestamps,
@@ -512,7 +572,9 @@ function pumpFilmstripLane(videoPath: string): void {
   };
 }
 
-function enqueueFilmstripBatch(opts: RequestNativeFilmstripArtifactsOptions): () => void {
+function enqueueFilmstripBatch(
+  opts: RequestNativeFilmstripArtifactsOptions,
+): () => void {
   const timestamps = opts.timestampsMs.map((t) => Math.round(t));
   const sub: FilmstripBatchSubscriber = {
     clipId: opts.clipId,
@@ -520,6 +582,7 @@ function enqueueFilmstripBatch(opts: RequestNativeFilmstripArtifactsOptions): ()
     spatialTier: opts.spatialTier,
     timestamps: new Set(timestamps),
     priority: opts.priority ?? DEFAULT_FILMSTRIP_BATCH_PRIORITY,
+    queuedAt: performance.now(),
     cancelled: false,
     onArtifact: opts.onArtifact,
     onComplete: opts.onComplete,
@@ -535,8 +598,13 @@ function enqueueFilmstripBatch(opts: RequestNativeFilmstripArtifactsOptions): ()
   ) {
     lane.inFlight.subscribers.push(sub);
     return () => {
+      if (sub.cancelled) return;
       sub.cancelled = true;
-      if (lane.inFlight && lane.inFlight.subscribers.every((s) => s.cancelled)) {
+      filmstripTelemetry.recordCancellation();
+      if (
+        lane.inFlight &&
+        lane.inFlight.subscribers.every((s) => s.cancelled)
+      ) {
         lane.inFlight.cancelFn?.();
         lane.inFlight = null;
         pumpFilmstripLane(opts.videoPath);
@@ -547,7 +615,9 @@ function enqueueFilmstripBatch(opts: RequestNativeFilmstripArtifactsOptions): ()
   lane.queued.push(sub);
   pumpFilmstripLane(opts.videoPath);
   return () => {
+    if (sub.cancelled) return;
     sub.cancelled = true;
+    filmstripTelemetry.recordCancellation();
     lane.queued = lane.queued.filter((s) => !s.cancelled);
     if (lane.inFlight && lane.inFlight.subscribers.every((s) => s.cancelled)) {
       lane.inFlight.cancelFn?.();
@@ -567,7 +637,9 @@ export function resetFilmstripBatchSchedulerForTests(): void {
  * authoritative; frozen web/mobile adapters retain their existing transport
  * until those runtimes are intentionally revisited.
  */
-export function requestFilmstripArtifacts(opts: RequestNativeFilmstripArtifactsOptions): () => void {
+export function requestFilmstripArtifacts(
+  opts: RequestNativeFilmstripArtifactsOptions,
+): () => void {
   if (isTauriRuntime()) {
     return enqueueFilmstripBatch(opts);
   }
@@ -590,8 +662,19 @@ export function requestFilmstripArtifacts(opts: RequestNativeFilmstripArtifactsO
  * Returns a cancel() function — calling it prevents any further delivery
  * from this request even if artifacts are already in-flight.
  */
-export function requestRenderArtifacts(opts: RequestRenderArtifactsOptions): () => void {
-  const { videoPath, timestampMs, spatialTiers, epochId, clipId, onArtifact, onComplete, onError } = opts;
+export function requestRenderArtifacts(
+  opts: RequestRenderArtifactsOptions,
+): () => void {
+  const {
+    videoPath,
+    timestampMs,
+    spatialTiers,
+    epochId,
+    clipId,
+    onArtifact,
+    onComplete,
+    onError,
+  } = opts;
 
   let cancelled = false;
   const cancel = () => {
@@ -606,7 +689,12 @@ export function requestRenderArtifacts(opts: RequestRenderArtifactsOptions): () 
     try {
       // Generate tile key for worker identification
       const tileKey = `${clipId}:${raw.spatial_tier}:${timestampMs}`;
-      const bitmap = await rgbaToImageBitmap(raw.rgba_data, raw.width, raw.height, tileKey);
+      const bitmap = await rgbaToImageBitmap(
+        raw.rgba_data,
+        raw.width,
+        raw.height,
+        tileKey,
+      );
       if (cancelled || !isEpochStillValid(epochId, clipId)) {
         bitmap.close();
         return;
@@ -658,8 +746,17 @@ export interface CheckCoarseBaselineCacheOptions {
  * Check which coarse baseline timestamps are already cached in Rust (TIER_CACHE or on-disk atlases).
  * Delivers warm artifacts instantly over the channel without triggering any FFmpeg decoding.
  */
-export function checkCoarseBaselineCache(opts: CheckCoarseBaselineCacheOptions): () => void {
-  const { videoPath, timestampsMs, spatialTier, onArtifact, onComplete, onError } = opts;
+export function checkCoarseBaselineCache(
+  opts: CheckCoarseBaselineCacheOptions,
+): () => void {
+  const {
+    videoPath,
+    timestampsMs,
+    spatialTier,
+    onArtifact,
+    onComplete,
+    onError,
+  } = opts;
   let cancelled = false;
   const cancel = () => {
     cancelled = true;
@@ -675,7 +772,12 @@ export function checkCoarseBaselineCache(opts: CheckCoarseBaselineCacheOptions):
     if (cancelled) return;
     try {
       const tileKey = `${videoPath}:${raw.spatial_tier}:${raw.timestamp_ms}`;
-      const bitmap = await rgbaToImageBitmap(raw.rgba_data, raw.width, raw.height, tileKey);
+      const bitmap = await rgbaToImageBitmap(
+        raw.rgba_data,
+        raw.width,
+        raw.height,
+        tileKey,
+      );
       if (cancelled) {
         bitmap.close();
         return;
@@ -732,8 +834,20 @@ export interface RequestBatchArtifactsOptions {
  * Request artifacts for multiple timestamps concurrently, with a concurrency cap.
  * Returns a cancel() that stops all in-flight requests.
  */
-export function requestBatchArtifacts(opts: RequestBatchArtifactsOptions): () => void {
-  const { videoPath, timestampsMs, spatialTiers, epochId, clipId, onArtifact, onComplete, onError, concurrency = 4 } = opts;
+export function requestBatchArtifacts(
+  opts: RequestBatchArtifactsOptions,
+): () => void {
+  const {
+    videoPath,
+    timestampsMs,
+    spatialTiers,
+    epochId,
+    clipId,
+    onArtifact,
+    onComplete,
+    onError,
+    concurrency = 4,
+  } = opts;
 
   if (timestampsMs.length === 0) {
     onComplete?.();
@@ -811,8 +925,20 @@ export interface RequestBatchRenderArtifactsOptions {
  * Streams artifacts as they become available (cached first, then decoded).
  * Returns a cancel() that stops the entire batch request.
  */
-export function requestBatchRenderArtifacts(opts: RequestBatchRenderArtifactsOptions): () => void {
-  const { videoPath, timestampsMs, spatialTiers, epochId, clipId, onArtifact, onComplete, onError, requestId } = opts;
+export function requestBatchRenderArtifacts(
+  opts: RequestBatchRenderArtifactsOptions,
+): () => void {
+  const {
+    videoPath,
+    timestampsMs,
+    spatialTiers,
+    epochId,
+    clipId,
+    onArtifact,
+    onComplete,
+    onError,
+    requestId,
+  } = opts;
 
   const reqId = requestId || generateId("req");
 
@@ -825,11 +951,14 @@ export function requestBatchRenderArtifacts(opts: RequestBatchRenderArtifactsOpt
   const cancel = () => {
     cancelled = true;
     if (isTauriRuntime()) {
-      invoke("cancel_render_artifacts_batch", { requestId: reqId }).catch(() => {});
+      invoke("cancel_render_artifacts_batch", { requestId: reqId }).catch(
+        () => {},
+      );
     }
   };
 
-  const dispatchStartTime = typeof performance !== "undefined" ? performance.now() : 0;
+  const dispatchStartTime =
+    typeof performance !== "undefined" ? performance.now() : 0;
   let firstArtifactRecorded = false;
 
   let artifactCount = 0;
@@ -842,14 +971,21 @@ export function requestBatchRenderArtifacts(opts: RequestBatchRenderArtifactsOpt
 
     if (!firstArtifactRecorded && dispatchStartTime > 0) {
       firstArtifactRecorded = true;
-      recordFirstArtifactLatency(raw.spatial_tier, performance.now() - dispatchStartTime);
+      recordFirstArtifactLatency(
+        raw.spatial_tier,
+        performance.now() - dispatchStartTime,
+      );
     }
 
     artifactCount++;
 
     try {
       const bitmapStartedAt = performance.now();
-      const bitmap = await rgbaToImageBitmap(raw.rgba_data, raw.width, raw.height);
+      const bitmap = await rgbaToImageBitmap(
+        raw.rgba_data,
+        raw.width,
+        raw.height,
+      );
       if (cancelled || !isEpochStillValid(epochId, clipId)) {
         bitmap.close();
         return;
@@ -923,8 +1059,22 @@ export type ProgressiveTierRequest = RequestProgressiveTiersOptions;
  * Epoch is re-validated before each tier batch begins.
  * Returns a cancel() that stops the entire sequence.
  */
-export function requestProgressiveTiers(opts: RequestProgressiveTiersOptions): () => void {
-  const { videoPath, timestampsMs, startTier, targetTier, epochId, clipId, onArtifact, onComplete, onError, concurrency, requestId } = opts;
+export function requestProgressiveTiers(
+  opts: RequestProgressiveTiersOptions,
+): () => void {
+  const {
+    videoPath,
+    timestampsMs,
+    startTier,
+    targetTier,
+    epochId,
+    clipId,
+    onArtifact,
+    onComplete,
+    onError,
+    concurrency,
+    requestId,
+  } = opts;
 
   let cancelled = false;
   let currentCancel: (() => void) | null = null;
@@ -1002,8 +1152,26 @@ const COALESCE_WINDOW_MS = 50; // Debounce window for coalescing
  * Schedule a batch request with coalescing.
  * Multiple requests for the same clip within the coalesce window are merged.
  */
-export function scheduleCoalescedBatch(opts: { clipId: string; videoPath: string; timestampsMs: number[]; epochId: RenderEpochId; spatialTiers: SpatialTier[]; onArtifact: (artifact: TransportArtifact) => void; onComplete?: () => void; onError?: (err: unknown) => void }): () => void {
-  const { clipId, videoPath, timestampsMs, epochId, spatialTiers, onArtifact, onComplete, onError } = opts;
+export function scheduleCoalescedBatch(opts: {
+  clipId: string;
+  videoPath: string;
+  timestampsMs: number[];
+  epochId: RenderEpochId;
+  spatialTiers: SpatialTier[];
+  onArtifact: (artifact: TransportArtifact) => void;
+  onComplete?: () => void;
+  onError?: (err: unknown) => void;
+}): () => void {
+  const {
+    clipId,
+    videoPath,
+    timestampsMs,
+    epochId,
+    spatialTiers,
+    onArtifact,
+    onComplete,
+    onError,
+  } = opts;
 
   // Get or create pending request for this clip
   let pending = pendingRequests.get(clipId);
