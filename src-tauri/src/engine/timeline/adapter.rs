@@ -77,6 +77,7 @@ impl ProjectModelAdapter {
 
         // 2. Parse Tracks
         if let Some(tracks) = value.get("tracks").and_then(|v| v.as_array()) {
+            let total_tracks = tracks.len();
             for (idx, t) in tracks.iter().enumerate() {
                 if let Some(id) = t.get("id").and_then(|v| v.as_str()) {
                     let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("Track");
@@ -91,11 +92,16 @@ impl ProjectModelAdapter {
                     let muted = t.get("muted").and_then(|v| v.as_bool()).unwrap_or(false);
                     let volume = t.get("volume").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
 
+                    // In Clypra NLE model, track 0 is the topmost row in the timeline editor,
+                    // which must render on top of Track 1 (foreground). Assign descending z_index
+                    // so PureTimelineEvaluator's ascending z_index sort places Track 0 in front.
+                    let z_index = (total_tracks.saturating_sub(1 + idx) as i32) * 10;
+
                     state.sequence.tracks.push(Track {
                         id: id.to_string(),
                         name: name.to_string(),
                         kind,
-                        z_index: idx as i32 * 10,
+                        z_index,
                         visible,
                         muted,
                         volume,
@@ -156,6 +162,14 @@ impl ProjectModelAdapter {
                         Some("multiply") => BlendMode::Multiply,
                         Some("screen") => BlendMode::Screen,
                         Some("overlay") => BlendMode::Overlay,
+                        Some("darken") => BlendMode::Darken,
+                        Some("lighten") => BlendMode::Lighten,
+                        Some("color-dodge") | Some("colorDodge") => BlendMode::ColorDodge,
+                        Some("color-burn") | Some("colorBurn") => BlendMode::ColorBurn,
+                        Some("hard-light") | Some("hardLight") => BlendMode::HardLight,
+                        Some("soft-light") | Some("softLight") => BlendMode::SoftLight,
+                        Some("difference") => BlendMode::Difference,
+                        Some("exclusion") => BlendMode::Exclusion,
                         _ => BlendMode::Normal,
                     };
 

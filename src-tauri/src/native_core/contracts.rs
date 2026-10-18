@@ -173,6 +173,20 @@ impl Default for ColorPolicy {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CropMarginsSnapshot {
+    #[serde(default)]
+    pub left: f32,
+    #[serde(default)]
+    pub top: f32,
+    #[serde(default)]
+    pub right: f32,
+    #[serde(default)]
+    pub bottom: f32,
+}
+
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoLayerSnapshot {
@@ -190,10 +204,13 @@ pub struct VideoLayerSnapshot {
     pub z_index: i32,
     pub blend_mode: String,
     #[serde(default)]
+    pub crop: Option<CropMarginsSnapshot>,
+    #[serde(default)]
     pub color_grade: Option<ColorGradeSnapshot>,
     #[serde(default)]
     pub body_effect: Option<BodyEffectSnapshot>,
 }
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

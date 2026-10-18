@@ -599,6 +599,7 @@ export interface NativeVideoLayerSnapshot {
   opacity: number;
   zIndex: number;
   blendMode: string;
+  crop?: import("@/core/media/cropMath").NormalizedCrop;
   colorGrade?: NativeColorGradeSnapshot;
   bodyEffect?: NativeBodyEffectSnapshot;
 }

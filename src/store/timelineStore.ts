@@ -142,7 +142,7 @@ interface TimelineStore {
   updateCaptionTrack: (trackId: string, updates: Partial<CaptionTrack>) => void;
   addCaptionTrack: (track?: Partial<CaptionTrack>) => CaptionTrack;
   removeCaptionTrack: (trackId: string) => void;
-  addTrack: (type: TrackType) => void;
+  addTrack: (type: TrackType) => string;
   /** Inserts a track at index (clamped); returns the new track id. */
   insertTrackAt: (type: TrackType, index: number) => string;
   removeTrack: (trackId: string) => void;
@@ -434,22 +434,9 @@ export const useTimelineStore = create<TimelineStore>(
         const finalGaps = (payload as any)?.gaps ?? []; // Load gaps from project
         const finalMarkers: TimelineMarker[] = (payload as any)?.markers ?? [];
 
-        // Clean up empty tracks (tracks with no clips) when cleanEmptyTracks is enabled
-        let finalTracks = finalTracksRaw;
-        if (payload?.cleanEmptyTracks) {
-          const clipTrackIds = new Set(
-            finalClipsRaw.map((c: any) => c.trackId),
-          );
-          const hasClips = finalClipsRaw.length > 0;
-          finalTracks = finalTracksRaw.filter((track: any) => {
-            if (!hasClips) return true;
-            return clipTrackIds.has(track.id);
-          });
-        }
-
         // Adopt the larger video row for projects created with the previous
         // compact 68px default. Explicitly taller user rows are preserved.
-        finalTracks = finalTracks.map((track: any) =>
+        const upgradedTracksRaw = finalTracksRaw.map((track: any) =>
           track.type === "video" && track.height === 68
             ? { ...track, height: trackHeights.video }
             : track,
@@ -463,16 +450,21 @@ export const useTimelineStore = create<TimelineStore>(
           return normalizeClipTiming(clip, asset);
         });
 
+        // Identify the candidate primary A-Roll video track from the pre-pruned tracks.
         // The main row is explicit when present. For older projects, infer it
         // from the clip/media contract and canonical bottommost video track position
         // so an overlay track or secondary video row cannot steal the main A-roll role.
-        const explicitMainTrack = finalTracks.find(
+        const videoTracksWithClips = upgradedTracksRaw.filter(
+          (track) =>
+            track.type === "video" &&
+            finalClipsRaw.some((clip: any) => clip.trackId === track.id),
+        );
+        const candidateExplicitMain = upgradedTracksRaw.find(
           (track) =>
             track.id === payload?.mainVideoTrackId && track.type === "video",
         );
-        const inferredMainTrack = [...finalTracks].reverse().find(
+        const candidateInferredMain = [...videoTracksWithClips].reverse().find(
           (track) =>
-            track.type === "video" &&
             finalClipsRaw.some((clip: any) => {
               if (clip.trackId !== track.id) return false;
               if (clip.kind === "video") return true;
@@ -482,10 +474,51 @@ export const useTimelineStore = create<TimelineStore>(
               return asset?.type === "video";
             }),
         );
-        const newMainVideoTrackId =
-          explicitMainTrack?.id ??
-          inferredMainTrack?.id ??
-          resolvePrimaryVideoTrackId(finalTracks, payload?.mainVideoTrackId);
+        const candidatePrimaryId =
+          candidateExplicitMain?.id ??
+          candidateInferredMain?.id ??
+          (videoTracksWithClips.length > 0
+            ? resolvePrimaryVideoTrackId(videoTracksWithClips)
+            : resolvePrimaryVideoTrackId(upgradedTracksRaw, payload?.mainVideoTrackId));
+
+        // Clean up empty tracks (tracks with no clips) when cleanEmptyTracks is enabled,
+        // but ALWAYS protect the primary A-Roll video track (even if currently empty).
+        let finalTracks = upgradedTracksRaw;
+        if (payload?.cleanEmptyTracks) {
+          const clipTrackIds = new Set(
+            finalClipsRaw.map((c: any) => c.trackId),
+          );
+          const hasClips = finalClipsRaw.length > 0;
+          finalTracks = upgradedTracksRaw.filter((track: any) => {
+            if (!hasClips) return true;
+            if (candidatePrimaryId && track.id === candidatePrimaryId) return true;
+            return clipTrackIds.has(track.id);
+          });
+        }
+
+        // Reconstruct A-Roll video track on reload if clips exist but no video track is present
+        // (e.g. legacy projects or projects created before A-Roll preservation).
+        let resolvedPrimaryId = resolvePrimaryVideoTrackId(
+          finalTracks,
+          candidatePrimaryId ?? payload?.mainVideoTrackId,
+        );
+        if (!resolvedPrimaryId && finalClipsRaw.length > 0) {
+          const aRollTrack: Track = {
+            id: generateId("track"),
+            type: "video",
+            name: "Video 1",
+            muted: false,
+            locked: false,
+            visible: true,
+            height:
+              TRACK_TYPE_CONFIG.video.primaryHeight ??
+              TRACK_TYPE_CONFIG.video.height,
+          };
+          resolvedPrimaryId = aRollTrack.id;
+          finalTracks = [...finalTracks, aRollTrack];
+        }
+
+        const newMainVideoTrackId = resolvedPrimaryId;
         finalTracks = normalizeTrackOrderForMainVideo(
           finalTracks,
           newMainVideoTrackId,
@@ -602,37 +635,7 @@ export const useTimelineStore = create<TimelineStore>(
     },
 
     addTrack: (type) => {
-      const newTrack: Track = {
-        id: generateId("track"),
-        type,
-        name: `${type.charAt(0).toUpperCase() + type.slice(1)} ${getCounter() % 100}`,
-        muted: false,
-        locked: false,
-        visible: true,
-        height: trackHeights[type],
-      };
-      set((state) => {
-        const insertIndex = getSafeTrackInsertionIndex(
-          state.tracks,
-          type,
-          state.tracks.length,
-          state.mainVideoTrackId,
-        );
-        const nextTracks = [...state.tracks];
-        nextTracks.splice(insertIndex, 0, newTrack);
-        const next: Partial<TimelineStore> = {
-          tracks: nextTracks,
-          mainVideoTrackId:
-            resolvePrimaryVideoTrackId(state.tracks, state.mainVideoTrackId) ??
-            (type === "video" ? newTrack.id : null),
-        };
-        if (state._batchDepth > 0) {
-          next._pendingEpochIncrement = true;
-        } else {
-          next.epoch = state.epoch + 1;
-        }
-        return next;
-      });
+      return get().insertTrackAt(type, get().tracks.length);
     },
 
     insertTrackAt: (type, index) => {
@@ -647,19 +650,48 @@ export const useTimelineStore = create<TimelineStore>(
       };
       const id = newTrack.id;
       set((state) => {
-        const clamped = getSafeTrackInsertionIndex(
+        const existingPrimaryId = resolvePrimaryVideoTrackId(
           state.tracks,
-          type,
-          index,
           state.mainVideoTrackId,
         );
-        const nextTracks = [...state.tracks];
-        nextTracks.splice(clamped, 0, newTrack);
+        let nextTracks = [...state.tracks];
+        let newMainVideoTrackId = existingPrimaryId;
+
+        if (!existingPrimaryId && type !== "video") {
+          // When Clypra doesn't have an A-roll yet and non-video content is added,
+          // preserve/create the primary A-Roll track (CapCut parity).
+          const aRollTrack: Track = {
+            id: generateId("track"),
+            type: "video",
+            name: "Video 1",
+            muted: false,
+            locked: false,
+            visible: true,
+            height:
+              TRACK_TYPE_CONFIG.video.primaryHeight ??
+              TRACK_TYPE_CONFIG.video.height,
+          };
+          newMainVideoTrackId = aRollTrack.id;
+          nextTracks = normalizeTrackOrderForMainVideo(
+            [...state.tracks, newTrack, aRollTrack],
+            aRollTrack.id,
+          );
+        } else {
+          const clamped = getSafeTrackInsertionIndex(
+            state.tracks,
+            type,
+            index,
+            state.mainVideoTrackId,
+          );
+          nextTracks.splice(clamped, 0, newTrack);
+          if (type === "video" && !newMainVideoTrackId) {
+            newMainVideoTrackId = newTrack.id;
+          }
+        }
+
         const next: Partial<TimelineStore> = {
           tracks: nextTracks,
-          mainVideoTrackId:
-            resolvePrimaryVideoTrackId(state.tracks, state.mainVideoTrackId) ??
-            (type === "video" ? newTrack.id : null),
+          mainVideoTrackId: newMainVideoTrackId,
         };
         if (state._batchDepth > 0) {
           next._pendingEpochIncrement = true;
@@ -674,8 +706,15 @@ export const useTimelineStore = create<TimelineStore>(
     removeTrack: (trackId) => {
       // TL- fix: Also cascade-remove gaps for the deleted track
       set((state) => {
+        const nextTracks = state.tracks.filter((t) => t.id !== trackId);
+        const nextMainVideoTrackId =
+          state.mainVideoTrackId === trackId
+            ? resolvePrimaryVideoTrackId(nextTracks)
+            : state.mainVideoTrackId;
+
         const next: Partial<TimelineStore> = {
-          tracks: state.tracks.filter((t) => t.id !== trackId),
+          tracks: nextTracks,
+          mainVideoTrackId: nextMainVideoTrackId,
           clips: state.clips.filter((c) => c.trackId !== trackId),
           transitions: state.transitions.filter(
             (transition) => transition.placement.trackId !== trackId,
@@ -768,13 +807,9 @@ export const useTimelineStore = create<TimelineStore>(
 
       switch (config.reuseStrategy) {
         case "primary": {
-          // The primary video track must already exist; never create one here.
-          const primary = state.tracks.find((t) => t.type === "video") ?? null;
-          if (!primary)
-            throw new Error(
-              "[ensureTrackForType] primary: no video track found",
-            );
-          return primary.id;
+          const primaryId = resolvePrimaryVideoTrackId(state.tracks, state.mainVideoTrackId);
+          if (primaryId) return primaryId;
+          return get().insertTrackAt("video", 0);
         }
 
         case "shared": {

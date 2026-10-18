@@ -1,5 +1,5 @@
 import React, { useCallback } from "react";
-import { KeyframeToggleButton } from "./KeyframeToggleButton";
+import { KeyframeNavControls } from "./KeyframeNavControls";
 
 interface PropertySliderProps {
   label: string;
@@ -21,6 +21,12 @@ interface PropertySliderProps {
   /** Keyframe state & toggle callback */
   keyframeActive?: boolean;
   onToggleKeyframe?: () => void;
+  hasKeyframes?: boolean;
+  onPrevKeyframe?: () => void;
+  onNextKeyframe?: () => void;
+  hasPrevKeyframe?: boolean;
+  hasNextKeyframe?: boolean;
+  onOpenCurveEditor?: () => void;
 }
 
 export const PropertySlider: React.FC<PropertySliderProps> = ({
@@ -38,6 +44,12 @@ export const PropertySlider: React.FC<PropertySliderProps> = ({
   disabled = false,
   keyframeActive = false,
   onToggleKeyframe,
+  hasKeyframes,
+  onPrevKeyframe,
+  onNextKeyframe,
+  hasPrevKeyframe = false,
+  hasNextKeyframe = false,
+  onOpenCurveEditor,
 }) => {
   const resolvedDecimals = decimals ?? (step < 1 ? Math.max(1, -Math.floor(Math.log10(step))) : 0);
   const displayValue = resolvedDecimals > 0 ? value.toFixed(resolvedDecimals) : Math.round(value);
@@ -110,7 +122,17 @@ export const PropertySlider: React.FC<PropertySliderProps> = ({
           {icon && <span className="text-text-muted">{icon}</span>}
           <span className="text-[10px] font-medium text-text-muted select-none">{label}</span>
           {onToggleKeyframe && (
-            <KeyframeToggleButton active={keyframeActive} onToggle={onToggleKeyframe} title={`Toggle keyframe for ${label}`} />
+            <KeyframeNavControls
+              hasKeyframes={hasKeyframes ?? keyframeActive}
+              isAtKeyframe={keyframeActive}
+              onToggleKeyframe={onToggleKeyframe}
+              onPrevKeyframe={onPrevKeyframe}
+              onNextKeyframe={onNextKeyframe}
+              hasPrev={hasPrevKeyframe}
+              hasNext={hasNextKeyframe}
+              onOpenCurveEditor={onOpenCurveEditor}
+              label={label}
+            />
           )}
         </div>
         <span className="text-[10px] text-text-primary tabular-nums select-none">

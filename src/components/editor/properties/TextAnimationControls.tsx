@@ -1,9 +1,9 @@
 /**
  * Text Animation Controls Component
  *
- * UI controls for applying entrance and exit animations to text clips.
- * Uses handleUpdate/handleUpdateMultiple props to integrate with the
- * undo/redo history system (TransformClipCommand).
+ * @deprecated Retired in favor of unified `MotionPresetSection` and raw `visualKeyframes`.
+ * Text clips now use the professional keyframe animation engine, motion presets compiler,
+ * and inline keyframe lanes, eliminating isolated preset dropdowns.
  */
 
 import React, { useCallback } from "react";

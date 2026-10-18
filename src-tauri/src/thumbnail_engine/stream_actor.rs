@@ -1319,6 +1319,71 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_cly_bug_011_playback_mode_uses_latest_frame_wins_policy() {
+        let (urgent_tx, urgent_rx) = tokio::sync::mpsc::channel(1);
+        drop(urgent_rx); // Dropped so channel send fails immediately if cache is missed
+        let (prefetch_tx, _prefetch_rx) = tokio::sync::mpsc::channel(1);
+        let prime_cache = Arc::new(Mutex::new(VecDeque::new()));
+        prime_cache.lock().await.push_back(DecodedActorFrame {
+            time_secs: 2.0,
+            planes: DecodedVideoPlanes::Cpu {
+                y: Arc::from(vec![0u8; 16]),
+                uv: Arc::from(vec![0u8; 8]),
+            },
+            width: 4,
+            height: 4,
+            source_rotation: 0,
+            color: VideoColorMetadata::default(),
+            decode_us: 99,
+            decoder_mutex_wait_us: 0,
+            actor_wait_us: 0,
+            from_prime_cache: false,
+            quality: QualityTier::Full,
+            is_approximate: false,
+            demux_us: 0,
+            container_format: "mp4".to_string(),
+            is_hardware_accelerated: false,
+            decoder_seek_time_us: 0,
+            decoder_seek_count: 1,
+            decoder_frames_decoded: 99,
+            hardware_frame_download_us: None,
+            scale_colorspace_us: 0,
+            hardware_frames_downloaded: 0,
+            source_metadata: VideoStreamMetadata::default(),
+            served_from: crate::native_core::performance::ServedFrom::DecodedInRequest,
+            hw_device_type: None,
+            served_count: 0,
+        });
+        let handle = StreamDecoderActorHandle {
+            key: "playback-policy-test".to_string(),
+            urgent_tx,
+            prefetch_tx,
+            current_generation: Arc::new(AtomicU64::new(0)),
+            cancel_in_flight: Arc::new(AtomicBool::new(false)),
+            prime_cache,
+            frame_duration_secs: 1.0 / 30.0,
+            last_accessed_ms: Arc::new(AtomicU64::new(0)),
+        };
+
+        let opts = DecodeFrameOptions {
+            allow_keyframe_approx: false,
+            quality: QualityTier::Full,
+            is_playback: false,
+            skip_hw_download: false,
+            target_dimensions: None,
+        };
+
+        // Standard decode_frame omits latest-frame-wins, attempts seeking on channel and fails
+        let scrub_res = handle.decode_frame(1.8, opts, false, 0).await;
+        assert!(scrub_res.is_err(), "Non-playback scrub requires exact seek");
+
+        // decode_playback_frame activates latest_frame_wins and succeeds from cache
+        let playback_res = handle.decode_playback_frame(1.8, opts, 0).await;
+        assert!(playback_res.is_ok(), "Playback mode must serve latest cached frame");
+        assert_eq!(playback_res.unwrap().time_secs, 2.0);
+    }
+
+    #[tokio::test]
     async fn test_actor_with_real_video_asset_if_available() {
         let test_asset = "/Users/AIEraDev/Documents/clypra-testing-assets/Antler.mp4";
         if !Path::new(test_asset).exists() {

@@ -96,6 +96,8 @@ export interface NativeTextRasterAsset {
   zIndex: number;
   blendMode: string;
   isText: true;
+  /** Whether rasterization timed out waiting for the font and used system fallback. */
+  isFallbackFont?: boolean;
   /** Cropped template textures use absolute project-space placement. */
   positionMode?: "centered" | "absolute";
   /** Internal geometry metadata; not part of the native wire snapshot. */
@@ -218,6 +220,31 @@ export async function paintTextLayersToCanvas(
           if (browserTextRasterCache.get(rasterKey) === rasterPromise)
             browserTextRasterCache.delete(rasterKey);
         });
+        void rasterPromise.then((asset) => {
+          if (asset.isFallbackFont) {
+            if (layer.fontFamily) {
+              const fontDesc = {
+                family: layer.fontFamily,
+                weight: layer.fontWeight,
+                style: layer.fontStyle,
+              };
+              void getFontLoader()
+                .ensureFont(fontDesc)
+                .finally(() => {
+                  if (browserTextRasterCache.get(rasterKey) === rasterPromise) {
+                    browserTextRasterCache.delete(rasterKey);
+                  }
+                  browserTextAssetByLayerId.delete(layer.layerId);
+                  browserTextAssetKeyByLayerId.delete(layer.layerId);
+                  browserTextLayoutKeyByLayerId.delete(layer.layerId);
+                });
+            } else {
+              if (browserTextRasterCache.get(rasterKey) === rasterPromise) {
+                browserTextRasterCache.delete(rasterKey);
+              }
+            }
+          }
+        });
       } else {
         recordBrowserTextRasterCacheHit();
         traceTextRenderCacheHit({
@@ -304,6 +331,21 @@ export async function paintTextLayersToCanvas(
         : layer.y + layer.height / 2;
       ctx.translate(centerX, centerY);
       ctx.rotate((layer.rotation * Math.PI) / 180);
+      const isTemplate =
+        layer.clipKind === "text-template" || Boolean((layer as any).templateId);
+      const isContentBoundedTemplate =
+        isTemplate && !asset.bleedX && !asset.bleedY;
+      const baseW = isContentBoundedTemplate
+        ? (layer as { baseWidth?: number }).baseWidth || asset.width
+        : (layer as { baseWidth?: number }).baseWidth ?? layer.width;
+      const baseH = isContentBoundedTemplate
+        ? (layer as { baseHeight?: number }).baseHeight || asset.height
+        : (layer as { baseHeight?: number }).baseHeight ?? layer.height;
+      const scaleX = baseW > 0 ? layer.width / baseW : 1;
+      const scaleY = baseH > 0 ? layer.height / baseH : 1;
+      if (scaleX !== 1 || scaleY !== 1) {
+        ctx.scale(scaleX, scaleY);
+      }
       ctx.drawImage(bitmap.source, -asset.width / 2, -asset.height / 2);
       ctx.restore();
       const paintMs = performance.now() - paintStartedAt;
@@ -1037,6 +1079,7 @@ export async function rasterizeTextLayerForNative(
 ): Promise<NativeTextRasterAsset> {
   const totalStartedAt = performance.now();
   let fontWaitMs = 0;
+  let isFallbackFont = false;
   // The raster must use the same font variant as Studio/source preview before
   // any glyph metrics or effect bounds are computed.
   if (layer.fontFamily) {
@@ -1056,7 +1099,7 @@ export async function rasterizeTextLayerForNative(
       const fontsReadyBudgetMs =
         options.phase === "visible-playback" ? 15 : 250;
       try {
-        await boundedPreviewWait(
+        const loadResult = await boundedPreviewWait(
           getFontLoader().ensureFont(fontDescriptor),
           fontWaitBudgetMs,
           `font "${layer.fontFamily}"`,
@@ -1068,7 +1111,11 @@ export async function rasterizeTextLayerForNative(
             "document.fonts.ready",
           );
         }
+        if (!loadResult?.loaded && !getFontLoader().isLoaded(fontDescriptor)) {
+          isFallbackFont = true;
+        }
       } catch {
+        isFallbackFont = true;
         // The rasterizer continues with the browser fallback font. The failure
         // is intentionally represented by telemetry rather than console noise.
       }
@@ -1291,6 +1338,7 @@ export async function rasterizeTextLayerForNative(
     zIndex: layer.zIndex,
     blendMode: layer.blendMode,
     isText: true,
+    ...(isFallbackFont ? { isFallbackFont: true } : {}),
     ...(croppedTemplate ? { positionMode: "absolute" as const } : {}),
     bleedX: resolvedBleedX,
     bleedY: resolvedBleedY,
@@ -1301,5 +1349,7 @@ export async function rasterizeTextLayerForNative(
 function getTextRenderKind(layer: EvaluatedTextLayer): TextRenderKind {
   if (layer.templateId || layer.clipKind === "text-template") return "template";
   if (layer.styleId) return "effect";
+  if (layer.background?.bubblePresetId || (layer as any).bubblePresetId)
+    return "bubble";
   return "plain";
 }

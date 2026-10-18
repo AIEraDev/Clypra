@@ -161,4 +161,53 @@ describe("Track timeline behavior", () => {
 
     expect(document.querySelector('[data-track-id="track-b"]')).toHaveStyle({ height: "80px" });
   });
+
+  it("renders a subtle filmstrip placeholder when the A-Roll track is empty", () => {
+    const visualSpec: TrackVisualSpec = {
+      role: "a-roll",
+      label: "A-Roll (Main)",
+      height: 80,
+      opacity: 1,
+      tone: "primary",
+    };
+    const track = {
+      id: "track-main",
+      type: "video",
+      name: "Video 1",
+      muted: false,
+      locked: false,
+      visible: true,
+      height: 80,
+    } as any;
+
+    const { rerender } = render(
+      <Track track={track} visualSpec={visualSpec} pixelsPerSecond={100} clips={[]} />,
+    );
+
+    expect(screen.getByTestId("a-roll-empty-placeholder")).toBeInTheDocument();
+
+    // When a clip is placed on the A-Roll track, placeholder is no longer rendered
+    const clip = {
+      id: "clip-1",
+      trackId: "track-main",
+      mediaId: "asset-1",
+      name: "Clip A",
+      startTime: 0,
+      duration: 5,
+      trimIn: 0,
+      trimOut: 5,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      opacity: 1,
+      rotation: 0,
+    };
+
+    rerender(
+      <Track track={track} visualSpec={visualSpec} pixelsPerSecond={100} clips={[clip] as any} />,
+    );
+
+    expect(screen.queryByTestId("a-roll-empty-placeholder")).not.toBeInTheDocument();
+  });
 });

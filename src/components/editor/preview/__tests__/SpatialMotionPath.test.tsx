@@ -128,4 +128,15 @@ describe("SpatialMotionPath", () => {
     // We validate by checking the base clip logic—returns null if showMotionPath===false
     expect(true).toBe(true); // This path tested in spatialMotionPath unit tests
   });
+
+  it("marks SVG and handle nodes with protected interactive attributes", () => {
+    render(<SpatialMotionPath {...DEFAULT_PROPS} />);
+    const svg = document.querySelector("svg");
+    expect(svg).toHaveAttribute("data-spatial-motion-path", "true");
+    expect(svg).toHaveAttribute("data-interactive", "true");
+    expect(svg?.style.zIndex).toBe("55");
+
+    const handles = document.querySelectorAll("[data-motion-path-handle='true']");
+    expect(handles.length).toBeGreaterThanOrEqual(2);
+  });
 });

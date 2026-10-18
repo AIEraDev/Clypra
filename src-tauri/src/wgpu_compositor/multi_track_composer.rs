@@ -380,6 +380,7 @@ pub struct MultiTrackCompositor {
     pipeline_additive: OnceLock<wgpu::RenderPipeline>,
     pipeline_multiply: OnceLock<wgpu::RenderPipeline>,
     pipeline_screen: OnceLock<wgpu::RenderPipeline>,
+    pipeline_difference: OnceLock<wgpu::RenderPipeline>,
     pipeline_transition: OnceLock<wgpu::RenderPipeline>,
     layer_shader: wgpu::ShaderModule,
     transition_shader: wgpu::ShaderModule,
@@ -504,6 +505,27 @@ impl MultiTrackCompositor {
                         },
                     },
                     "Compositor Screen Render Pipeline",
+                )
+            }),
+            BlendMode::Difference => self.pipeline_difference.get_or_init(|| {
+                Self::create_layer_pipeline(
+                    device,
+                    &self.layer_shader,
+                    &self.pipeline_layout,
+                    self.target_format,
+                    wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::ReverseSubtract,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    },
+                    "Compositor Difference Render Pipeline",
                 )
             }),
             _ => &self.pipeline_normal,
@@ -1070,6 +1092,7 @@ impl MultiTrackCompositor {
             pipeline_additive: OnceLock::new(),
             pipeline_multiply: OnceLock::new(),
             pipeline_screen: OnceLock::new(),
+            pipeline_difference: OnceLock::new(),
             pipeline_transition: OnceLock::new(),
             layer_shader: shader,
             transition_shader,

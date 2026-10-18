@@ -932,6 +932,11 @@ impl NativePreviewSession {
             .map(|e| e.effect_id.as_str())
             .unwrap_or("raw_text");
         let effect_version = layer.effect.as_ref().map(|e| e.effect_version).unwrap_or(1);
+        let bg_repr = layer
+            .background
+            .as_ref()
+            .map(|b| format!("{:?}:{}:{}", b.color, b.padding, b.border_radius))
+            .unwrap_or_default();
         let key = text_layer_cache_key(
             &layer.text,
             &layer.font_id,
@@ -939,11 +944,10 @@ impl NativePreviewSession {
             effect_id,
             effect_version,
             &format!(
-                "{params_json}:{color_hash}:{}:{}:{}:{}:{:?}",
+                "{params_json}:{color_hash}:{}:{}:{}:{bg_repr}:{:?}",
                 layer.font_weight,
                 layer.font_style,
                 layer.vertical_align,
-                layer.background.is_some(),
                 layer.runs,
             ),
         );

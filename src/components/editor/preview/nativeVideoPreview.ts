@@ -1144,6 +1144,7 @@ export function buildNativeVideoProjectRequest(
     const bodyEffect = getNativeBodyEffect(layer, rasterLayers);
     const isCutout = layer.layerId.endsWith(":subject-cutout");
     const isMaskReady = !isCutout || bodyEffect !== null;
+    const crop = layer.crop ?? layer.layout?.crop;
     return {
       layerId: layer.layerId,
       videoPath: layer.sourcePath,
@@ -1156,6 +1157,7 @@ export function buildNativeVideoProjectRequest(
       opacity: isMaskReady ? layer.opacity : 0,
       zIndex: Math.round(layer.zIndex),
       blendMode: layer.blendMode,
+      ...(crop ? { crop } : {}),
       ...(colorGrade ? { colorGrade } : {}),
       ...(bodyEffect ? { bodyEffect } : {}),
     };
@@ -1420,6 +1422,7 @@ export function buildNativeFrameRequest(
       const bodyEffect = getNativeBodyEffect(layer, rasterLayers);
       const isCutout = layer.layerId.endsWith(":subject-cutout");
       const isMaskReady = !isCutout || bodyEffect !== null;
+      const crop = layer.crop ?? layer.layout?.crop;
       return {
         assetId: layer.mediaId,
         layerId: layer.layerId,
@@ -1433,6 +1436,7 @@ export function buildNativeFrameRequest(
         opacity: isMaskReady ? layer.opacity : 0,
         zIndex: Math.round(layer.zIndex),
         blendMode: layer.blendMode,
+        ...(crop ? { crop } : {}),
         ...(colorGrade ? { colorGrade } : {}),
         ...(bodyEffect ? { bodyEffect } : {}),
       };

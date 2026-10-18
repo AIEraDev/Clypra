@@ -598,4 +598,61 @@ describe("browser preview blend mode painting", () => {
     expect(translatedX).toBe(200);
     expect(translatedY).toBe(110);
   });
+
+  it("CLY-BUG-005: applies text scale animation transforms in canvas preview", async () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1920;
+    canvas.height = 1080;
+    const ctx = canvas.getContext("2d")!;
+    let scaledX = 1;
+    let scaledY = 1;
+    ctx.scale = vi.fn().mockImplementation((sx: number, sy: number) => {
+      scaledX = sx;
+      scaledY = sy;
+    });
+    ctx.translate = vi.fn();
+    ctx.rotate = vi.fn();
+    ctx.save = vi.fn();
+    ctx.restore = vi.fn();
+    ctx.drawImage = vi.fn();
+    vi.spyOn(canvas, "getContext").mockReturnValue(ctx as any);
+
+    const layer = makeTextLayer({
+      layerId: "scale-animated-text",
+      x: 100,
+      y: 100,
+      baseWidth: 200,
+      baseHeight: 50,
+      width: 400,
+      height: 100,
+    });
+
+    const prebuiltAsset = {
+      layerId: layer.layerId,
+      assetId: `native-text:${layer.layerId}:seeded`,
+      rgba: new Uint8ClampedArray(200 * 50 * 4).fill(255),
+      width: 200,
+      height: 50,
+      x: 100,
+      y: 100,
+      rotation: 0,
+      opacity: 1,
+      zIndex: layer.zIndex,
+      blendMode: layer.blendMode,
+      isText: true,
+    } as any;
+
+    const rasterKey = buildNativeTextRasterKey(layer);
+    _seedBrowserTextRasterCache(rasterKey, prebuiltAsset);
+
+    await paintTextLayersToCanvas(
+      canvas,
+      scene_for_layer(layer),
+      "interactive-preview",
+    );
+
+    expect(ctx.scale).toHaveBeenCalledWith(2, 2);
+    expect(scaledX).toBe(2);
+    expect(scaledY).toBe(2);
+  });
 });

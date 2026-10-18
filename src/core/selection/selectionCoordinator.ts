@@ -24,7 +24,9 @@ export function isProtectedInteractiveElement(target: EventTarget | null): boole
   // 1. Transform overlay handles and move surfaces
   if (
     target.closest("[data-transform-handle]") ||
-    target.closest("[data-transform-overlay]")
+    target.closest("[data-transform-overlay]") ||
+    target.closest("[data-spatial-motion-path]") ||
+    target.closest("[data-motion-path-handle]")
   ) {
     return true;
   }

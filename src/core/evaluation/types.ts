@@ -137,6 +137,9 @@ export interface EvaluatedMediaLayer extends BaseVisualLayer {
   /** Layout parameters for the clip fitting/cropping/transforming */
   readonly layout?: any;
 
+  /** Normalized crop margins [left, top, right, bottom] in range [0..1] */
+  readonly crop?: import("../media/cropMath").NormalizedCrop;
+
   /** Professional conform settings */
   readonly conform?: import("@clypra-studio/engine").ClipConform;
   readonly adjustments?: import("@clypra-studio/engine").ColorAdjustments;
@@ -222,6 +225,12 @@ export interface EvaluatedTextLayer extends BaseVisualLayer {
   /** Font style */
   readonly fontStyle: "normal" | "italic";
 
+  /** Text decoration */
+  readonly textDecoration?: "underline" | "none";
+
+  /** Text transform */
+  readonly textTransform?: "uppercase" | "lowercase" | "capitalize" | "none";
+
   /** Text alignment */
   readonly textAlign: "left" | "center" | "right";
 
@@ -262,6 +271,12 @@ export interface EvaluatedTextLayer extends BaseVisualLayer {
     color: string;
     padding: number;
     borderRadius: number;
+    opacity?: number;
+    height?: number;
+    width?: number;
+    yOffset?: number;
+    style?: "rectangle" | "split" | string;
+    bubblePresetId?: string;
   };
 
   /** Style preset ID for text effects */

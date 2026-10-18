@@ -11,6 +11,7 @@ import {
   calculateOptimalTemplateLayout,
   measureTemplateContentBounds,
 } from "./templateScale";
+import { renderBubbleBackground } from "./bubbleRenderer";
 
 
 
@@ -457,6 +458,23 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
     // Force synchronous canvas clear before drawing
     offCtx.clearRect(0, 0, unscaledOffW, unscaledOffH);
 
+    // Render bubble decoration behind the text if a bubble preset is selected
+    if (layer.background?.bubblePresetId) {
+      renderBubbleBackground(
+        offCtx,
+        layer.background.bubblePresetId,
+        unscaledPaddingX,
+        unscaledPaddingY,
+        safeWidth,
+        safeHeight,
+        {
+          color: layer.background.color,
+          opacity: layer.background.opacity,
+          borderRadius: layer.background.borderRadius,
+        },
+      );
+    }
+
     renderTextEffectToCanvas(offCtx, {
       source: sceneDoc,
       context: { environment: "editor", time: layer.time ?? 0, width: unscaledOffW, height: unscaledOffH },
@@ -472,6 +490,21 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
       const fallbackConfig = buildPlainTextEffectConfig(layer, unscaledOffW, unscaledOffH, unscaledFontSize, 1.0, 1.0);
       const fallbackSceneDoc = textEffectConfigToScene(fallbackConfig);
       offCtx.clearRect(0, 0, unscaledOffW, unscaledOffH);
+      if (layer.background?.bubblePresetId) {
+        renderBubbleBackground(
+          offCtx,
+          layer.background.bubblePresetId,
+          unscaledPaddingX,
+          unscaledPaddingY,
+          safeWidth,
+          safeHeight,
+          {
+            color: layer.background.color,
+            opacity: layer.background.opacity,
+            borderRadius: layer.background.borderRadius,
+          },
+        );
+      }
       renderTextEffectToCanvas(offCtx, {
         source: fallbackSceneDoc,
         context: { environment: "editor", time: layer.time ?? 0, width: unscaledOffW, height: unscaledOffH },

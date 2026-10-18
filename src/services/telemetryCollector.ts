@@ -491,7 +491,7 @@ export interface TelemetryStickerRenderInput {
   outputPixels?: number;
 }
 
-export type TelemetryTextKind = "plain" | "effect" | "template";
+export type TelemetryTextKind = "plain" | "bubble" | "effect" | "template";
 export type TelemetryTextRendererPath =
   | "native-raster"
   | "webview-canvas"
@@ -524,6 +524,7 @@ export type TelemetryTextProperty =
   | "lineHeight"
   | "letterSpacing"
   | "alignment"
+  | "bubble"
   | "effect"
   | "template"
   | "transform"
