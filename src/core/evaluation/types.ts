@@ -137,6 +137,9 @@ export interface EvaluatedMediaLayer extends BaseVisualLayer {
   /** Layout parameters for the clip fitting/cropping/transforming */
   readonly layout?: any;
 
+  /** Normalized crop margins [left, top, right, bottom] in range [0..1] */
+  readonly crop?: import("../media/cropMath").NormalizedCrop;
+
   /** Professional conform settings */
   readonly conform?: import("@clypra-studio/engine").ClipConform;
   readonly adjustments?: import("@clypra-studio/engine").ColorAdjustments;

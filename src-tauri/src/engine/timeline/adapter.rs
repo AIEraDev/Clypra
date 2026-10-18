@@ -162,6 +162,14 @@ impl ProjectModelAdapter {
                         Some("multiply") => BlendMode::Multiply,
                         Some("screen") => BlendMode::Screen,
                         Some("overlay") => BlendMode::Overlay,
+                        Some("darken") => BlendMode::Darken,
+                        Some("lighten") => BlendMode::Lighten,
+                        Some("color-dodge") | Some("colorDodge") => BlendMode::ColorDodge,
+                        Some("color-burn") | Some("colorBurn") => BlendMode::ColorBurn,
+                        Some("hard-light") | Some("hardLight") => BlendMode::HardLight,
+                        Some("soft-light") | Some("softLight") => BlendMode::SoftLight,
+                        Some("difference") => BlendMode::Difference,
+                        Some("exclusion") => BlendMode::Exclusion,
                         _ => BlendMode::Normal,
                     };
 

@@ -34,7 +34,6 @@ export interface MotionPresetMeta {
   category: MotionBehaviorCategory;
   subCategory?: MotionSubCategory;
   tags?: string[];
-  isPro?: boolean;
   description: string;
   defaultDuration?: number;
   defaultEasing?: KeyframeEasing;

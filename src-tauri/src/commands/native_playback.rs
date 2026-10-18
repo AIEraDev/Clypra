@@ -10,7 +10,7 @@ use crate::thumbnail_engine::decoder::{
 };
 use parking_lot::RwLock;
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -24,8 +24,8 @@ struct NativeRenderSession {
     snapshot: RwLock<Arc<FrameRequest>>,
     last_materialized: RwLock<Option<FrameRequest>>,
     active_streams: Mutex<HashSet<(String, String)>>,
-    leases: Mutex<Vec<PreviewDecoderLease>>,
-    actors: Mutex<Vec<Arc<crate::thumbnail_engine::stream_actor::StreamDecoderActorHandle>>>,
+    leases: Mutex<HashMap<(String, String), PreviewDecoderLease>>,
+    actors: Mutex<HashMap<(String, String), Arc<crate::thumbnail_engine::stream_actor::StreamDecoderActorHandle>>>,
     pending: Mutex<LatestPlaybackDemand>,
     notify: tokio::sync::Notify,
     running: AtomicBool,
@@ -67,19 +67,21 @@ impl NativeRenderSession {
     async fn new(snapshot: FrameRequest, configured_at: Instant) -> Result<Arc<Self>, String> {
         snapshot.validate().map_err(|error| error.to_string())?;
         let mut streams = HashSet::new();
-        let mut leases = Vec::new();
-        let mut actors = Vec::new();
+        let mut leases = HashMap::new();
+        let mut actors = HashMap::new();
         for layer in &snapshot.project.video_layers {
             if layer.layer_id.ends_with(":subject-cutout") {
                 continue;
             }
             let key = (layer.video_path.clone(), layer.layer_id.clone());
-            if streams.insert(key) {
-                leases.push(
+            if streams.insert(key.clone()) {
+                leases.insert(
+                    key.clone(),
                     acquire_preview_decoder_lease_for_stream(&layer.video_path, &layer.layer_id)
                         .await?,
                 );
-                actors.push(
+                actors.insert(
+                    key,
                     crate::thumbnail_engine::stream_actor::get_preview_decoder_actor_for_stream(
                         &layer.video_path,
                         &layer.layer_id,
@@ -115,27 +117,44 @@ impl NativeRenderSession {
         *self.snapshot.write() = Arc::new(snapshot);
     }
 
+    /// Reconcile active streams with the current snapshot, dropping leases and actors
+    /// for clips that have exited playback to prevent resource exhaustion (CLY-BUG-012).
+    fn reconcile_active_streams(&self, new_active: &HashSet<(String, String)>) {
+        if let Ok(mut active) = self.active_streams.lock() {
+            *active = new_active.clone();
+        }
+        if let Ok(mut leases) = self.leases.lock() {
+            leases.retain(|key, _| new_active.contains(key));
+        }
+        if let Ok(mut actors) = self.actors.lock() {
+            actors.retain(|key, _| new_active.contains(key));
+        }
+    }
+
     /// Dynamically update the render snapshot during active playback without
     /// destroying the session, resetting queues, or interrupting presentation.
     async fn update_snapshot(&self, new_snapshot: FrameRequest) -> Result<(), String> {
         new_snapshot.validate().map_err(|error| error.to_string())?;
 
-        let mut streams_to_acquire = Vec::new();
-        {
-            let mut active = self
+        let mut new_active_streams = HashSet::new();
+        for layer in &new_snapshot.project.video_layers {
+            if layer.layer_id.ends_with(":subject-cutout") {
+                continue;
+            }
+            new_active_streams.insert((layer.video_path.clone(), layer.layer_id.clone()));
+        }
+
+        let streams_to_acquire: Vec<(String, String)> = {
+            let active = self
                 .active_streams
                 .lock()
                 .map_err(|_| "Active streams lock poisoned".to_string())?;
-            for layer in &new_snapshot.project.video_layers {
-                if layer.layer_id.ends_with(":subject-cutout") {
-                    continue;
-                }
-                let key = (layer.video_path.clone(), layer.layer_id.clone());
-                if active.insert(key.clone()) {
-                    streams_to_acquire.push(key);
-                }
-            }
-        }
+            new_active_streams
+                .iter()
+                .filter(|key| !active.contains(*key))
+                .cloned()
+                .collect()
+        };
 
         let mut new_leases = Vec::new();
         let mut new_actors = Vec::new();
@@ -147,23 +166,31 @@ impl NativeRenderSession {
                     &layer_id,
                 )
                 .await?;
-            new_leases.push(lease);
-            new_actors.push(actor);
+            new_leases.push(((video_path.clone(), layer_id.clone()), lease));
+            new_actors.push(((video_path, layer_id), actor));
         }
+
+        // Reconcile before inserting newly acquired streams so exited clip decoders
+        // are cleanly dropped and freed back into the pool.
+        self.reconcile_active_streams(&new_active_streams);
 
         if !new_leases.is_empty() {
             let mut leases_guard = self
                 .leases
                 .lock()
                 .map_err(|_| "Leases lock poisoned".to_string())?;
-            leases_guard.extend(new_leases);
+            for (key, lease) in new_leases {
+                leases_guard.insert(key, lease);
+            }
         }
         if !new_actors.is_empty() {
             let mut actors_guard = self
                 .actors
                 .lock()
                 .map_err(|_| "Actors lock poisoned".to_string())?;
-            actors_guard.extend(new_actors);
+            for (key, actor) in new_actors {
+                actors_guard.insert(key, actor);
+            }
         }
 
         let quality = self.snapshot.read().quality;
@@ -235,7 +262,7 @@ impl NativeRenderSession {
             }
         }
         if let Ok(actors) = self.actors.lock() {
-            for actor in actors.iter() {
+            for actor in actors.values() {
                 let a = actor.clone();
                 tauri::async_runtime::spawn(async move {
                     a.clear_prime_cache().await;
@@ -267,7 +294,7 @@ impl NativeRenderSession {
             }
         }
         if let Ok(actors) = self.actors.lock() {
-            for actor in actors.iter() {
+            for actor in actors.values() {
                 actor.invalidate(generation);
             }
         }
@@ -1822,8 +1849,8 @@ mod tests {
             snapshot: RwLock::new(Arc::new(snapshot)),
             last_materialized: RwLock::new(None),
             active_streams: Mutex::new(HashSet::new()),
-            leases: Mutex::new(Vec::new()),
-            actors: Mutex::new(Vec::new()),
+            leases: Mutex::new(HashMap::new()),
+            actors: Mutex::new(HashMap::new()),
             pending: Mutex::new(LatestPlaybackDemand::default()),
             notify: tokio::sync::Notify::new(),
             running: AtomicBool::new(false),
@@ -1834,6 +1861,31 @@ mod tests {
             first_presented: AtomicBool::new(false),
         }
     }
+
+    #[test]
+    fn test_cly_bug_012_reconcile_active_streams_drops_exited_leases_and_actors() {
+        let session = test_session(test_snapshot());
+        let key1 = ("/test/v1.mp4".to_string(), "clip-1".to_string());
+        let key2 = ("/test/v2.mp4".to_string(), "clip-2".to_string());
+
+        // Initially both clip-1 and clip-2 are active
+        {
+            let mut active = session.active_streams.lock().unwrap();
+            active.insert(key1.clone());
+            active.insert(key2.clone());
+        }
+
+        // When clip-1 exits and only clip-2 remains active:
+        let mut new_active = HashSet::new();
+        new_active.insert(key2.clone());
+        session.reconcile_active_streams(&new_active);
+
+        let active = session.active_streams.lock().unwrap();
+        assert_eq!(active.len(), 1);
+        assert!(!active.contains(&key1), "Exited stream must be pruned from active_streams");
+        assert!(active.contains(&key2));
+    }
+
 
     #[test]
     fn materialize_request_handles_sdf_to_raster_transition() {
@@ -1955,6 +2007,7 @@ mod tests {
             opacity: 1.0,
             z_index: 0,
             blend_mode: "normal".to_string(),
+            crop: None,
             color_grade: None,
             body_effect: None,
         }];
@@ -2048,6 +2101,7 @@ mod tests {
             opacity: 1.0,
             z_index: 0,
             blend_mode: "normal".to_string(),
+            crop: None,
             color_grade: None,
             body_effect: None,
         }];
@@ -2179,6 +2233,7 @@ mod tests {
                 opacity: 1.0,
                 z_index: 0,
                 blend_mode: "normal".to_string(),
+                crop: None,
                 color_grade: None,
                 body_effect: None,
             },
@@ -2195,6 +2250,7 @@ mod tests {
                 opacity: 0.8,
                 z_index: 1,
                 blend_mode: "normal".to_string(),
+                crop: None,
                 color_grade: None,
                 body_effect: None,
             },

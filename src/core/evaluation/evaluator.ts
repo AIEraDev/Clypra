@@ -598,6 +598,8 @@ export function evaluateTimelineScene(
       conform: (clip as any).conform,
       adjustments: clip.adjustments,
       colorGrade: clip.colorGrade,
+      layout: (clip as any).layout,
+      crop: (clip as any).layout?.crop ?? (clip as any).crop,
       x: evalX,
       y: evalY,
       width: evalW,

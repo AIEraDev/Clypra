@@ -39,7 +39,6 @@ import {
   RotateCw,
   RotateCcw,
   Type,
-  Gem,
   ChevronUp,
   ChevronDown,
 } from "lucide-react";
@@ -110,7 +109,6 @@ const ICON_MAP: Record<string, React.FC<{ className?: string }>> = {
   RotateCw,
   RotateCcw,
   Type,
-  Gem,
 };
 
 type CategoryFilter = "all" | "favorites" | MotionSubCategory;
@@ -489,13 +487,6 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
                       : "bg-[#202024] border border-border/30 hover:border-border/80 hover:bg-[#28282E]"
                   }`}
                 >
-                  {/* Pro Badge (Top-Left) */}
-                  {preset.isPro && (
-                    <span className="absolute top-1 left-1 z-10">
-                      <Gem className="w-2.5 h-2.5 text-purple-400 fill-purple-400/30" />
-                    </span>
-                  )}
-
                   {/* Favorite Toggle (Top-Right on hover/active) */}
                   <span
                     onClick={(e) => toggleFavorite(preset.id, e)}

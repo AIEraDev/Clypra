@@ -319,6 +319,7 @@ export interface NativeProjectVideoLayer {
   opacity?: number;
   zIndex?: number;
   blendMode?: string;
+  crop?: import("@/core/media/cropMath").NormalizedCrop;
   colorGrade?: import("./nativeCore").NativeColorGradeSnapshot;
   bodyEffect?: import("./nativeCore").NativeBodyEffectSnapshot;
 }

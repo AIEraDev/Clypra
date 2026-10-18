@@ -377,4 +377,39 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_cly_bug_013_blend_mode_difference_mapping() {
+        let json_project = serde_json::json!({
+            "canvasWidth": 1920,
+            "canvasHeight": 1080,
+            "tracks": [
+                { "id": "t1", "name": "V1", "type": "video", "visible": true }
+            ],
+            "clips": [
+                {
+                    "id": "c_diff",
+                    "trackId": "t1",
+                    "mediaId": "m1",
+                    "startTime": 0.0,
+                    "duration": 5.0,
+                    "blendMode": "difference"
+                }
+            ],
+            "mediaAssets": [
+                {
+                    "id": "m1",
+                    "path": "/videos/test.mp4",
+                    "duration": 10.0,
+                    "width": 1920,
+                    "height": 1080
+                }
+            ]
+        });
+
+        let state = ProjectModelAdapter::from_json_value(&json_project).expect("Parse JSON project");
+        assert_eq!(state.sequence.clips[0].blend_mode, BlendMode::Difference);
+    }
 }
+
+
