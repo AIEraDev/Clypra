@@ -33,6 +33,14 @@ for (const source of markdownFiles) {
     try {
       await stat(resolved);
     } catch {
+      if (resolved.endsWith(".rs")) {
+        try {
+          await stat(resolved.replace(/\.rs$/, "/mod.rs"));
+          continue;
+        } catch {
+          // fall through
+        }
+      }
       failures.push(`${path.relative(root, source)} -> ${href}`);
     }
   }

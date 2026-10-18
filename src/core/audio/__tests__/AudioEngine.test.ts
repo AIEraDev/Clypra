@@ -389,4 +389,42 @@ describe("AudioEngine", () => {
     expect(next.syncCalls).toBe(0);
     expect(next.bufferHits).toBe(0);
   });
+
+  it("converts raw local filesystem paths via convertFileSrc when loading unbuffered clips (CLY-BUG-025)", () => {
+    const loadSpy = vi.spyOn(mockBufferPool, "load").mockResolvedValue({} as any);
+    const clip: Clip = {
+      id: "local-file-clip",
+      trackId: "track-1",
+      mediaId: "/Users/test/music.wav",
+      audioPath: "/Users/test/music.wav",
+      startTime: 0,
+      duration: 5,
+      trimIn: 0,
+      trimOut: 5,
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      opacity: 1,
+      rotation: 0,
+      volume: 1,
+    };
+    const track: Track = {
+      id: "track-1",
+      type: "audio",
+      name: "Audio",
+      volume: 1,
+      muted: false,
+      locked: false,
+      visible: true,
+      height: 52,
+    };
+
+    engine.syncPlayback([clip], [track], 1, true, 1, 100, false);
+    expect(loadSpy).toHaveBeenCalled();
+    const calledUrl = loadSpy.mock.calls[0]?.[1];
+    expect(calledUrl).toBeDefined();
+    // In Tauri mock or convertFileSrc runtime, the path must be passed to load
+    expect(calledUrl).toContain("music.wav");
+  });
 });

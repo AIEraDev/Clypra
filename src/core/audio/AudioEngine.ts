@@ -16,6 +16,9 @@ import type { Clip, Track } from "@/types";
 import { AudioBufferPool } from "./AudioBufferPool";
 import { AudioFXNodeChain } from "./AudioFXNodeChain";
 import { evaluateEffectiveAudioState } from "./effectiveAudioState";
+import { isWebviewOrExternalUrl } from "@/lib/platform/pathConversion";
+import { isTauriRuntime } from "@/lib/platform/tauri";
+import { convertFileSrc } from "@tauri-apps/api/core";
 
 const BROWSER_PREVIEW_AUDIO_OPTIONS = { preserveTransportPitch: true } as const;
 
@@ -182,12 +185,18 @@ export class AudioEngine {
 
     if (!buffer) {
       // Buffer not pre-decoded yet in memory.
-      // If source path exists, load asynchronously so subsequent ticks pick it up
+      // If source path exists, load asynchronously so subsequent ticks pick it up.
+      // On Tauri, raw filesystem paths must be converted to asset:// URLs so the
+      // webview security policy allows fetch() to load them (CLY-BUG-025).
       const sourceUrl = clip.audioPath || clip.mediaId;
-      if (sourceUrl && (sourceUrl.startsWith("http") || sourceUrl.startsWith("blob:") || sourceUrl.startsWith("asset:"))) {
+      if (sourceUrl) {
         this.telemetryBufferMisses++;
-        this.bufferPool.load(audioKey, sourceUrl).catch(() => {
-          // Log or handle load error gracefully
+        const resolvedUrl =
+          isWebviewOrExternalUrl(sourceUrl) || !isTauriRuntime()
+            ? sourceUrl
+            : convertFileSrc(sourceUrl);
+        this.bufferPool.load(audioKey, resolvedUrl).catch(() => {
+          // Error is non-fatal; native audio path is the primary preview path.
         });
       }
       return;

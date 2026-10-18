@@ -696,6 +696,7 @@ pub fn run() {
             load_native_audio_clip,
             replace_native_audio_clips,
             update_native_audio_clip_parameters,
+            update_native_audio_clip_parameters_batch,
             clear_native_audio_clip,
             get_native_audio_clip,
             get_native_audio_clips,

@@ -1,4 +1,4 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
@@ -113,10 +113,18 @@ try {
 // aborts on Linux. show_surface(), hide_surface(), and reset() must all dispatch
 // via run_on_main_thread.
 try {
-  const nativeSurfacePath = path.join(
+  let nativeSurfacePath = path.join(
     root,
     "src-tauri/src/commands/native_surface.rs",
   );
+  try {
+    await stat(nativeSurfacePath);
+  } catch {
+    nativeSurfacePath = path.join(
+      root,
+      "src-tauri/src/commands/native_surface/runtime.rs",
+    );
+  }
   const nsContent = await readFile(nativeSurfacePath, "utf8");
 
   // Extract all text that is NOT inside a run_on_main_thread closure.

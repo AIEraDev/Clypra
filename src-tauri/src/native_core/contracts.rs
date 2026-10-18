@@ -1784,6 +1784,7 @@ mod tests {
                     blend_mode: "normal".to_string(),
                     color_grade: None,
                     body_effect: None,
+                    crop: None,
                 }],
                 raster_layers: vec![],
                 text_layers: vec![],

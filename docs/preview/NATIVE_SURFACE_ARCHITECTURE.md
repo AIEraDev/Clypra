@@ -472,9 +472,9 @@ av_drift.avg_micros within ±2000          ← AV sync healthy
 | [`src/components/editor/preview/nativeVideoPreview.ts`](../../src/components/editor/preview/nativeVideoPreview.ts) | `buildNativeFrameRequest()`, `getNativeFrameRequestKey()` |
 | [`src/components/editor/preview/useNativeSurfaceController.ts`](../../src/components/editor/preview/useNativeSurfaceController.ts) | Surface lifecycle (create / resize / release) |
 | [`src/core/runtime/nativeSurfaceLifecycle.ts`](../../src/core/runtime/nativeSurfaceLifecycle.ts) | Process-global surface operation queue |
-| [`src-tauri/src/commands/native_preview.rs`](../../src-tauri/src/commands/native_preview.rs) | Rust frame rendering + `record_frame_presented_with_options()` |
-| [`src-tauri/src/commands/native_playback.rs`](../../src-tauri/src/commands/native_playback.rs) | Rust playback runtime, `NativeRenderSession.render_loop()` |
-| [`src-tauri/src/sync_metrics.rs`](../../src-tauri/src/sync_metrics.rs) | `FramePacingAccumulator`, AV drift metrics |
+| [`src-tauri/src/commands/native_preview/`](../../src-tauri/src/commands/native_preview/) | Rust frame rendering + `record_frame_presented_with_options()` |
+| [`src-tauri/src/commands/native_playback/`](../../src-tauri/src/commands/native_playback/) | Rust playback runtime, `NativeRenderSession.render_loop()` |
+| [`src-tauri/src/sync_metrics/`](../../src-tauri/src/sync_metrics/) | `FramePacingAccumulator`, AV drift metrics |
 | [`src/services/telemetryCollector.ts`](../../src/services/telemetryCollector.ts) | JS-side telemetry aggregation. `presenterFallbackReason` type union. |
 | [`src/components/editor/preview/__tests__/ProgramPreview.renderLoop.test.ts`](../../src/components/editor/preview/__tests__/ProgramPreview.renderLoop.test.ts) | **106 tests** — full render loop regression suite |
 
