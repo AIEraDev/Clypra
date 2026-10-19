@@ -331,6 +331,82 @@ describe("NativeRasterBridge — Fix 2 transform field audit", () => {
     bridge.dispose();
   });
 
+  it("expanded point text: strict interactive renders move a cached raster with the authored layer", async () => {
+    mocks.rasterizeText.mockResolvedValue({
+      ...BASE_ASSET,
+      // The texture is wider than the authored point-text box, so its origin
+      // is offset from that box. The cached asset coordinates intentionally
+      // describe only its first placement, not subsequent drags.
+      width: 980,
+      height: 90,
+      x: 185,
+      y: 192,
+      bleedX: -15,
+      bleedY: -8,
+      positionMode: "absolute" as const,
+      expandedPointText: true,
+    });
+
+    const bridge = new NativeRasterBridge();
+
+    const [initial] = await bridge.rasterize(
+      makeScene({ x: 200, y: 200, width: 754, height: 65 }),
+      { frameKey: 0, nonBlockingText: false, phase: "interactive-preview" },
+    );
+    expect(initial.x).toBe(185);
+    expect(initial.y).toBe(192);
+
+    // This is the strict path used by interactive preview. The raster cache
+    // remains valid because the content did not change, but the placement
+    // must use the current transform rather than the first cached x/y.
+    const [moved] = await bridge.rasterize(
+      makeScene({ x: 420, y: 315, width: 754, height: 65 }),
+      { frameKey: 0, nonBlockingText: false, phase: "interactive-preview" },
+    );
+    expect(moved.x).toBe(405);
+    expect(moved.y).toBe(307);
+    expect(mocks.rasterizeText).toHaveBeenCalledTimes(1);
+    expect(bridge.getTextSnapshot("audit-layer")).toMatchObject({ x: 405, y: 307 });
+
+    bridge.dispose();
+  });
+
+  it("publishes tight visual geometry when a cached text texture contains transparent safety padding", async () => {
+    mocks.rasterizeText.mockResolvedValue({
+      ...BASE_ASSET,
+      width: 800,
+      height: 120,
+      x: 120,
+      y: 180,
+      visualBounds: { x: 48, y: 32, width: 704, height: 58 },
+    });
+    const bridge = new NativeRasterBridge();
+    const changes = vi.fn();
+    const unsubscribe = bridge.subscribeToTextVisualSnapshot("audit-layer", changes);
+
+    await bridge.rasterize(
+      makeScene({
+        x: 120,
+        y: 180,
+        width: 800,
+        height: 120,
+        baseWidth: 800,
+        baseHeight: 120,
+      }),
+      { frameKey: 0, nonBlockingText: false, phase: "interactive-preview" },
+    );
+
+    expect(bridge.getTextVisualSnapshot("audit-layer")).toEqual({
+      x: 168,
+      y: 212,
+      displayWidth: 704,
+      displayHeight: 58,
+    });
+    expect(changes).toHaveBeenCalledTimes(1);
+    unsubscribe();
+    bridge.dispose();
+  });
+
   it("content-bounded text-template: displayWidth and displayHeight scale immediately to match layer.width and layer.height during resize", async () => {
     mocks.rasterizeText.mockResolvedValue({
       ...BASE_ASSET,

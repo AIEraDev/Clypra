@@ -19,6 +19,18 @@ vi.mock("@/core/render/textRasterizer", () => ({
 
 vi.mock("@/lib/text/textClip", () => ({
   effectBleed: vi.fn().mockReturnValue({ x: 0, y: 0 }),
+  measureTextEffectContentBounds: vi.fn().mockReturnValue({
+    contentWidth: 640,
+    contentHeight: 120,
+    bleedLeft: 0,
+    bleedRight: 0,
+    bleedTop: 0,
+    bleedBottom: 0,
+    measuredTextWidth: 640,
+    measuredTextHeight: 120,
+    source: "plain",
+    selectionInset: 0,
+  }),
   resolveTextEffectDefinition: vi.fn().mockReturnValue(undefined),
 }));
 

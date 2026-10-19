@@ -232,8 +232,15 @@ function measureTextInk(
     const lineWidths: number[] = [];
     for (const line of lines) {
       const metrics = ctx.measureText(line);
+      // `width` is the advance width, not necessarily the physical ink
+      // extent. Italic faces commonly overhang both side bearings. The
+      // raster canvas clips to its physical extent, so auto-bounds must use
+      // the ink width when the browser exposes it.
+      const inkWidth =
+        Number(metrics.actualBoundingBoxLeft ?? 0) +
+        Number(metrics.actualBoundingBoxRight ?? 0);
       const lineWidth =
-        Number(metrics.width ?? 0) +
+        Math.max(Number(metrics.width ?? 0), inkWidth) +
         Math.max(0, line.length - 1) * letterSpacing;
       lineWidths.push(lineWidth);
       width = Math.max(width, lineWidth);
@@ -525,10 +532,10 @@ export function measureTextEffectContentBounds(options: {
   let source: TextEffectBounds["source"] = options.background
     ? "panel"
     : "plain";
-  let contentPaddingX = options.fontSize * 0.4;
-  // Native text textures already include a small SDF safety inset. Keep the
-  // editable plain-text box close to the actual glyph bounds instead of
-  // reserving a quarter of the font size above and below every line.
+  // Content padding belongs to the authored editable box. The native raster
+  // owns any additional safety inset as transient visual bleed; persisting
+  // that raster padding here makes point text boxes jump and grow on edits.
+  let contentPaddingX = Math.max(options.fontSize * 0.4, 48);
   let contentPaddingY = Math.max(4, options.fontSize * 0.08);
 
   if (isPanelEffect) {
@@ -555,7 +562,7 @@ export function measureTextEffectContentBounds(options: {
   }
 
   const selectionInset =
-    source === "panel" ? Math.max(4, Math.min(12, options.fontSize * 0.04)) : 0;
+    source === "panel" ? Math.max(6, Math.min(12, options.fontSize * 0.04)) : 0;
   const singleLineWidth =
     measured.width + contentPaddingX * 2 + selectionInset * 2;
   const width = Math.min(maxWidth, Math.max(48, singleLineWidth));

@@ -106,6 +106,13 @@ export function traceTextRenderTiming(input: {
   lineCount?: number;
   layoutWidth?: number;
   layoutHeight?: number;
+  authoredLayoutWidth?: number;
+  authoredLayoutHeight?: number;
+  rasterWidth?: number;
+  rasterHeight?: number;
+  overflowX?: number;
+  overflowY?: number;
+  textDecoration?: "underline" | "none";
 }): void {
   const activeSession = (globalThis as { __activeProjectSession?: { sessionId?: string } }).__activeProjectSession;
   telemetryCollector.recordTextRender({
@@ -127,6 +134,13 @@ export function traceTextRenderTiming(input: {
     lineCount: input.lineCount,
     layoutWidth: input.layoutWidth,
     layoutHeight: input.layoutHeight,
+    authoredLayoutWidth: input.authoredLayoutWidth,
+    authoredLayoutHeight: input.authoredLayoutHeight,
+    rasterWidth: input.rasterWidth,
+    rasterHeight: input.rasterHeight,
+    overflowX: input.overflowX,
+    overflowY: input.overflowY,
+    textDecoration: input.textDecoration,
   });
   if (input.phase === "interactive-preview") {
     observeInteractiveTextRender({

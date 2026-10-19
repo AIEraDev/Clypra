@@ -1,18 +1,120 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as ProjectSession from "@/core/runtime/ProjectSession";
+import * as NativeTextPreview from "@/components/editor/preview/nativeTextPreview";
 import {
   buildTransformStartClip,
   calculateScaledTextTransform,
   calculateTextResizeFontSize,
+  getCompactCornerOutset,
+  getVisibleTransformHandles,
   getHitTestCandidates,
   isClipActiveAtTime,
   shouldScaleTextFontForHandle,
   getUpdatedConformForClipBounds,
+  resolveOverlayBaseVisualBounds,
   resolveClipVisualBounds,
+  resolveVisualDragGeometry,
 } from "../TransformOverlay";
 import { getCursorForHandle } from "../calculator";
 import type { TextClip, TransformHandle, TransformState } from "@/types";
 
 describe("TransformOverlay resize policy", () => {
+  it("keeps expanded point-text raster bounds visual while dragging authored geometry", () => {
+    const authoredStart = {
+      x: 400,
+      y: 300,
+      width: 160,
+      height: 80,
+      rotation: 0,
+    };
+    const visualStart = { x: 120, y: 260, width: 840, height: 180 };
+
+    // CLY-TEXT-018: Raleway-like italic point text can expand substantially
+    // outside its authored box. A pointer-down must not publish that expanded
+    // box back to the native preview or history command.
+    expect(
+      resolveVisualDragGeometry(
+        {
+          ...authoredStart,
+          visualX: visualStart.x,
+          visualY: visualStart.y,
+        },
+        authoredStart,
+        visualStart,
+      ),
+    ).toEqual(visualStart);
+
+    const movedAuthored = {
+      x: 640,
+      y: 390,
+      width: 160,
+      height: 80,
+      rotation: 0,
+      visualX: 360,
+      visualY: 350,
+    };
+    expect(
+      resolveVisualDragGeometry(movedAuthored, authoredStart, visualStart),
+    ).toEqual({ x: 360, y: 350, width: 840, height: 180 });
+    expect(movedAuthored).toMatchObject({
+      x: 640,
+      y: 390,
+      width: 160,
+      height: 80,
+    });
+  });
+
+  it("CLY-BUG-021: freezes the selection box base while a native text snapshot moves", () => {
+    const clip = {
+      id: "expanded-title",
+      kind: "text",
+      x: 400,
+      y: 300,
+      width: 754,
+      height: 65,
+    } as TextClip;
+    const pointerDownVisualBounds = {
+      x: 200,
+      y: 292,
+      width: 983,
+      height: 96,
+    };
+
+    // A moved native snapshot is the correct source after a completed edit,
+    // but must not replace the selection box's base while its CSS drag delta
+    // is still active.
+    const getActiveSession = vi
+      .spyOn(ProjectSession, "getActiveSessionOrNull")
+      .mockReturnValue({
+        nativeRasterBridge: {
+          getTextSnapshot: () => ({
+            x: 420,
+            y: 382,
+            displayWidth: 983,
+            displayHeight: 96,
+          }),
+        },
+      } as any);
+
+    expect(
+      resolveOverlayBaseVisualBounds(
+        clip,
+        1920,
+        1080,
+        pointerDownVisualBounds,
+      ),
+    ).toEqual(pointerDownVisualBounds);
+
+    expect(resolveOverlayBaseVisualBounds(clip, 1920, 1080)).toEqual({
+      x: 420,
+      y: 382,
+      width: 983,
+      height: 96,
+    });
+
+    getActiveSession.mockRestore();
+  });
+
   it("scales text font size for every resize handle", () => {
     const resizeHandles: TransformHandle[] = ["n", "s", "e", "w", "nw", "ne", "sw", "se"];
 
@@ -39,6 +141,15 @@ describe("TransformOverlay resize policy", () => {
     expect(calculateTextResizeFontSize(40, "e", start, { width: 300, height: 100 })).toBe(60);
     expect(calculateTextResizeFontSize(40, "s", start, { width: 200, height: 150 })).toBe(60);
     expect(calculateTextResizeFontSize(40, "se", start, { width: 300, height: 130 })).toBe(60);
+  });
+
+  it("CLY-BUG-027: keeps corner-only handles for compact text without midpoint targets", () => {
+    expect(getVisibleTransformHandles(240, 100)).toEqual(["nw", "ne", "sw", "se"]);
+    expect(getVisibleTransformHandles(240, 35)).toEqual(["nw", "ne", "sw", "se"]);
+    expect(getVisibleTransformHandles(35, 240)).toEqual(["nw", "ne", "sw", "se"]);
+    expect(getVisibleTransformHandles(24, 24)).toEqual(["nw", "ne", "sw", "se"]);
+    expect(getCompactCornerOutset(240, 35)).toEqual({ x: 0, y: 0 });
+    expect(getCompactCornerOutset(16, 10)).toEqual({ x: 6, y: 9 });
   });
 
   it("scales the perpendicular text box dimension for side resize handles", () => {
@@ -291,6 +402,126 @@ describe("resolveClipVisualBounds", () => {
 
     const bounds = resolveClipVisualBounds(clip, 1920, 1080);
     expect(bounds).toEqual({ x: 50, y: 100, width: 400, height: 300 });
+  });
+
+  it("CLY-TEXT-017: follows the active expanded text snapshot instead of the stale authored box", () => {
+    const getActiveSession = vi.spyOn(ProjectSession, "getActiveSessionOrNull").mockReturnValue({
+      nativeRasterBridge: {
+        getTextSnapshot: vi.fn(() => ({
+          x: 120,
+          y: 84,
+          displayWidth: 840,
+          displayHeight: 180,
+        })),
+      },
+    } as never);
+
+    const bounds = resolveClipVisualBounds({
+      id: "expanded-title",
+      kind: "text",
+      x: 400,
+      y: 300,
+      width: 160,
+      height: 80,
+    } as any, 1920, 1080);
+
+    expect(bounds).toEqual({ x: 120, y: 84, width: 840, height: 180 });
+    getActiveSession.mockRestore();
+  });
+
+  it("CLY-BUG-023: prefers tight native visual bounds over transparent texture bounds", () => {
+    const getActiveSession = vi.spyOn(ProjectSession, "getActiveSessionOrNull").mockReturnValue({
+      nativeRasterBridge: {
+        getTextVisualSnapshot: vi.fn(() => ({
+          x: 168,
+          y: 212,
+          displayWidth: 704,
+          displayHeight: 58,
+        })),
+        getTextSnapshot: vi.fn(() => ({
+          x: 120,
+          y: 180,
+          displayWidth: 800,
+          displayHeight: 120,
+        })),
+      },
+    } as never);
+
+    const bounds = resolveClipVisualBounds({
+      id: "tight-title",
+      kind: "text",
+      x: 200,
+      y: 200,
+      width: 704,
+      height: 58,
+    } as any, 1920, 1080);
+
+    expect(bounds).toEqual({ x: 168, y: 212, width: 704, height: 58 });
+    getActiveSession.mockRestore();
+  });
+
+  it("CLY-TEXT-019: uses the DOM canvas painted quad when no native surface owns text", () => {
+    const getActiveSession = vi
+      .spyOn(ProjectSession, "getActiveSessionOrNull")
+      .mockReturnValue(null);
+    const getBrowserSnapshot = vi
+      .spyOn(NativeTextPreview, "getBrowserTextVisualSnapshot")
+      .mockReturnValue({
+        x: 120,
+        y: 84,
+        displayWidth: 840,
+        displayHeight: 180,
+      });
+
+    const bounds = resolveClipVisualBounds({
+      id: "expanded-title",
+      kind: "text",
+      x: 400,
+      y: 300,
+      width: 160,
+      height: 80,
+    } as any, 1920, 1080);
+
+    expect(bounds).toEqual({ x: 120, y: 84, width: 840, height: 180 });
+    getBrowserSnapshot.mockRestore();
+    getActiveSession.mockRestore();
+  });
+
+  it("CLY-TEXT-020: prefers the current DOM paint over a retained native handoff snapshot", () => {
+    const getActiveSession = vi
+      .spyOn(ProjectSession, "getActiveSessionOrNull")
+      .mockReturnValue({
+        nativeRasterBridge: {
+          getTextSnapshot: vi.fn(() => ({
+            x: 100,
+            y: 100,
+            displayWidth: 100,
+            displayHeight: 50,
+          })),
+        },
+      } as never);
+    const getBrowserSnapshot = vi
+      .spyOn(NativeTextPreview, "getBrowserTextVisualSnapshot")
+      .mockReturnValue({
+        x: 120,
+        y: 84,
+        displayWidth: 840,
+        displayHeight: 180,
+      });
+
+    expect(
+      resolveClipVisualBounds({
+        id: "presenter-handoff-title",
+        kind: "text",
+        x: 400,
+        y: 300,
+        width: 160,
+        height: 80,
+      } as any, 1920, 1080),
+    ).toEqual({ x: 120, y: 84, width: 840, height: 180 });
+
+    getBrowserSnapshot.mockRestore();
+    getActiveSession.mockRestore();
   });
 
   it("resolves adaptive prominent visual badge bounds for a text-template clip under content-aware scaling", () => {
