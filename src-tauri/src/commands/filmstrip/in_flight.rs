@@ -77,10 +77,11 @@ pub fn preempt_lower_priority_batches(video_path: &str, priority: u8) -> u64 {
     let mut preempted = 0;
     for entry in ACTIVE_THUMBNAIL_BATCHES.iter() {
         let batch = entry.value();
-        if batch.video_path == video_path && batch.priority < priority {
-            if !batch.cancelled.swap(true, Ordering::Relaxed) {
-                preempted += 1;
-            }
+        if batch.video_path == video_path
+            && batch.priority < priority
+            && !batch.cancelled.swap(true, Ordering::Relaxed)
+        {
+            preempted += 1;
         }
     }
     preempted
