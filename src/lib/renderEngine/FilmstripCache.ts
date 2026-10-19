@@ -65,6 +65,9 @@ interface FilmstripCacheEntry {
    * requiring new thumbnails when the requested tile addresses are unchanged.
    */
   layoutKey: string;
+  /** A P0 preview interrupted extraction; a later external viewport demand
+   * may resume only the missing tiles. */
+  requiresViewportRefresh: boolean;
   /** Missing tiles are deliberately held until the first Program Preview frame. */
   startupDeferred: boolean;
 }
@@ -219,6 +222,8 @@ interface FilmstripRequestOptions {
   onUpdate: (artifacts: readonly TransportArtifact[]) => void;
   /** Internal attribution retained when a wheel gesture is coalesced. */
   requestCause?: "viewport" | "zoom";
+  /** Informs the demand coordinator that P0 preview work interrupted this batch. */
+  onInterrupted?: () => void;
 }
 
 export class FilmstripCache {
@@ -238,11 +243,6 @@ export class FilmstripCache {
 
   /** Low-priority requests that populate only the shared tile cache. */
   private prefetchCancels = new Map<string, Set<() => void>>();
-  /** Latest visible request held while the zoom spring is still moving. */
-  private deferredZoomRequests = new Map<
-    string,
-    { options: FilmstripRequestOptions; timer: ReturnType<typeof setTimeout> }
-  >();
   /**
    * On a cold desktop project open, native thumbnail decode competes with the
    * first Program Preview frame for GPU/decoder initialization. Keep only the
@@ -312,6 +312,20 @@ export class FilmstripCache {
       for (const options of deferredPreloads)
         this.preloadAssetCoarseBaseline(options);
     }, 0);
+  }
+
+  /**
+   * Present the last owned projection without creating decoder demand.
+   * FilmstripDemandController uses this while an interaction is active.
+   */
+  publishRetained(
+    clipId: string,
+    onUpdate: (artifacts: readonly TransportArtifact[]) => void,
+  ): void {
+    const entry = this.entries.get(clipId);
+    if (!entry) return;
+    entry.lastViewportUpdate = Date.now();
+    onUpdate([...entry.artifacts]);
   }
 
   private _cancelPrefetch(clipId: string): void {
@@ -813,19 +827,13 @@ export class FilmstripCache {
         this.currentMemoryBytes -= disposedMemory;
         this.entries.delete(clipId);
       } else {
-        if (existing.layoutKey === layoutKey && !existing.startupDeferred) {
+        if (
+          existing.layoutKey === layoutKey &&
+          !existing.startupDeferred &&
+          !existing.requiresViewportRefresh
+        ) {
           existing.lastViewportUpdate = Date.now();
           onUpdate([...existing.artifacts]);
-          return;
-        }
-
-        // Keep the last valid projection visible while wheel zoom is animating.
-        // Decoding every spring frame merely creates cancelled native requests;
-        // the final coalesced request below carries the latest tile coverage.
-        if (filmstripTelemetry.isZoomGestureActive()) {
-          existing.lastViewportUpdate = Date.now();
-          onUpdate([...existing.artifacts]);
-          this._deferZoomRequest(options);
           return;
         }
 
@@ -834,7 +842,8 @@ export class FilmstripCache {
         if (
           timeSinceUpdate < 100 &&
           existing.layoutKey === layoutKey &&
-          !existing.startupDeferred
+          !existing.startupDeferred &&
+          !existing.requiresViewportRefresh
         ) {
           // Debounce: return cached artifacts from tiles
           const cachedArtifacts = this._buildArtifactsFromTiles(
@@ -993,8 +1002,11 @@ export class FilmstripCache {
       return distA - distB;
     });
 
-    const isZoomingGesture =
-      filmstripTelemetry.isZoomGestureActive() || requestReason === "zoom";
+    // `requestReason` remains "zoom" after a coalesced demand settles so
+    // telemetry can attribute its latency to the gesture. It is not a control
+    // signal: only an actively moving gesture may suppress replacement work
+    // for a fallback tile.
+    const isZoomingGesture = filmstripTelemetry.isZoomGestureActive();
     const missingTileAddresses = sortedTileAddresses.filter((addr) => {
       // During active zoom gestures, if an existing artifact or fallback tile is already covering this address,
       // do not dispatch new native decode requests on every spring frame!
@@ -1030,6 +1042,7 @@ export class FilmstripCache {
       tileAddresses,
       spatialTier,
       layoutKey,
+      requiresViewportRefresh: false,
       startupDeferred: false,
     };
 
@@ -1153,6 +1166,13 @@ export class FilmstripCache {
           cancelVisible = null;
           checkAllComplete();
         },
+        onInterrupted: () => {
+          cancelVisible = null;
+          filmstripTelemetry.recordCancellation();
+          checkAllComplete();
+          this._markViewportDemandInterrupted(clipId, epochId, layoutKey);
+          options.onInterrupted?.();
+        },
         onError: (err) => {
           console.warn(
             `[Filmstrip ⚠️] Error decoding visible tiles for clip="${clipId}":`,
@@ -1179,6 +1199,13 @@ export class FilmstripCache {
           cancelOverscan = null;
           checkAllComplete();
         },
+        onInterrupted: () => {
+          cancelOverscan = null;
+          filmstripTelemetry.recordCancellation();
+          checkAllComplete();
+          this._markViewportDemandInterrupted(clipId, epochId, layoutKey);
+          options.onInterrupted?.();
+        },
         onError: (err) => {
           console.warn(
             `[Filmstrip ⚠️] Error decoding overscan tiles for clip="${clipId}":`,
@@ -1194,40 +1221,64 @@ export class FilmstripCache {
     };
   }
 
+  /**
+   * Native P0 preview work can stop a batch after it has streamed only part of
+   * the viewport. Keep cached pixels, but never autonomously restart native
+   * extraction: that bypasses FilmstripDemandController and creates a
+   * retry/preempt loop while the user continues scrubbing. The next external,
+   * settled viewport demand resumes only the missing addresses.
+   */
+  private _markViewportDemandInterrupted(
+    clipId: string,
+    epochId: RenderEpochId,
+    layoutKey: string,
+  ): void {
+    const entry = this.entries.get(clipId);
+    if (!entry || entry.epochId !== epochId || entry.layoutKey !== layoutKey) {
+      return;
+    }
+    entry.requiresViewportRefresh = true;
+  }
+
   private _recordTileTelemetry(
     artifact: TransportArtifact,
     source: FilmstripSourceType,
     requestedAt: number,
     requestReason: "viewport" | "zoom",
   ): void {
-    // For pyramid_fallback the tile is served from an in-memory cache —
-    // artifact.nativeRequestMs reflects a *prior* IPC decode's round-trip
-    // time, not this retrieval. Using it would inflate totalTimeToVisibleMs
-    // to the age of that historical decode (tens of seconds). Zero it out
-    // and measure only the actual bitmap-creation cost instead.
-    const isPyramidFallback = source === "pyramid_fallback";
-    const nativeRequestMs = isPyramidFallback
+    // JS tile-cache hits reuse an existing ImageBitmap. Their timing fields
+    // describe the request that originally populated the cache, not this
+    // presentation. Treat them as new local lookup spans so one slow cold
+    // decode cannot be reported again on every zoom fallback.
+    const isLocalCacheReuse =
+      source === "memory_tier" || source === "pyramid_fallback";
+    const nativeRequestMs = isLocalCacheReuse
       ? 0
       : Math.max(
           0,
           artifact.nativeRequestMs ?? performance.now() - requestedAt,
         );
-    const bitmapCreationMs = Math.max(0, artifact.bitmapCreationMs ?? 0);
+    const bitmapCreationMs = isLocalCacheReuse
+      ? 0
+      : Math.max(0, artifact.bitmapCreationMs ?? 0);
+    const queueWaitMs = isLocalCacheReuse
+      ? 0
+      : Math.max(0, artifact.queueWaitMs ?? 0);
+    const cacheLookupMs = isLocalCacheReuse
+      ? Math.max(0, performance.now() - requestedAt)
+      : 0;
     filmstripTelemetry.record({
       // No project ID or path: rendering coordinates only.
       tileKey: `${artifact.spatialTier}:${Math.round(artifact.timestampMs)}`,
       source,
-      cacheLookupMs:
-        source === "memory_tier" || isPyramidFallback
-          ? Math.max(0, performance.now() - requestedAt)
-          : 0,
+      cacheLookupMs,
       ipcTransferMs: source === "fresh_decode" ? nativeRequestMs : 0,
       decodeMs: 0,
       bitmapCreationMs,
       rasterPaintMs: 0,
       totalTimeToVisibleMs:
-        nativeRequestMs + bitmapCreationMs + (artifact.queueWaitMs ?? 0),
-      queueWaitMs: artifact.queueWaitMs,
+        cacheLookupMs + nativeRequestMs + bitmapCreationMs + queueWaitMs,
+      queueWaitMs,
       spatialTier: spatialTierToTelemetryTier(artifact.spatialTier),
       requestReason,
     });
@@ -1245,7 +1296,6 @@ export class FilmstripCache {
    */
   invalidateClip(clipId: string): void {
     this._cancelPrefetch(clipId);
-    this._cancelDeferredZoomRequest(clipId);
     const entry = this.entries.get(clipId);
     if (!entry) return;
 
@@ -1271,9 +1321,6 @@ export class FilmstripCache {
   dispose(): void {
     for (const clipId of this.prefetchCancels.keys())
       this._cancelPrefetch(clipId);
-    for (const clipId of this.deferredZoomRequests.keys()) {
-      this._cancelDeferredZoomRequest(clipId);
-    }
 
     // Cancel pending RAF
     if (this.rafId !== null) {
@@ -1317,33 +1364,6 @@ export class FilmstripCache {
         // Bitmap already closed or invalid
       }
     }
-  }
-
-  /**
-   * Coalesce visible media work until wheel input and its spring have settled.
-   * The timer retries while the gesture remains active, then dispatches exactly
-   * the last request with its zoom attribution intact.
-   */
-  private _deferZoomRequest(options: FilmstripRequestOptions): void {
-    this._cancelDeferredZoomRequest(options.clipId);
-    const timer = setTimeout(() => {
-      const pending = this.deferredZoomRequests.get(options.clipId);
-      if (!pending) return;
-      this.deferredZoomRequests.delete(options.clipId);
-      if (filmstripTelemetry.isZoomGestureActive()) {
-        this._deferZoomRequest(pending.options);
-        return;
-      }
-      this.requestFilmstrip({ ...pending.options, requestCause: "zoom" });
-    }, 80);
-    this.deferredZoomRequests.set(options.clipId, { options, timer });
-  }
-
-  private _cancelDeferredZoomRequest(clipId: string): void {
-    const pending = this.deferredZoomRequests.get(clipId);
-    if (!pending) return;
-    clearTimeout(pending.timer);
-    this.deferredZoomRequests.delete(clipId);
   }
 
   private _evictLRU(excludeClipId?: string): void {

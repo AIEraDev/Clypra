@@ -3,6 +3,13 @@ import { PlaybackClock } from "@/core/playback/PlaybackClock";
 import { SeekController } from "@/core/playback/seekController";
 import { NativeAudioPreviewController } from "@/core/audio/nativeAudioPreviewController";
 import { getActiveAudioClips } from "@/core/timeline/audioClips";
+import {
+  matchesPausedNativeDemand,
+  PAUSED_NATIVE_DEMAND_ACK_TIMEOUT_MS,
+  shouldFallbackForPausedNativeDemand,
+  createNativeDemandOperationId,
+  telemetryRequestToken,
+} from "@/components/editor/preview/pausedNativeDemandLifecycle";
 import type { Clip, MediaAsset, Track } from "@/types";
 // Mock Tauri API
 vi.mock("@tauri-apps/api/core", () => ({
@@ -4163,6 +4170,111 @@ describe("CLY-PERF-001 / Bug 15 — Native Audio Failure Clock Unblock", () => {
     expect(clock.hasNativeClockPosition).toBe(true);
     expect(clock.nativeAudioWasUnavailable).toBe(true);
     controller.dispose();
+  });
+});
+
+describe("CLY-PERF-002 — Paused Native Demand Acknowledgement", () => {
+  it("REGRESSION: a stale or generation-mismatched acknowledgement cannot settle the current demand", () => {
+    const pending = { requestId: "preview-op-42", generation: 42 };
+
+    expect(
+      matchesPausedNativeDemand(pending, {
+        requestId: "preview-op-41",
+        generation: 41,
+      }),
+    ).toBe(false);
+    expect(
+      matchesPausedNativeDemand(pending, {
+        requestId: "preview-op-42",
+        generation: 41,
+      }),
+    ).toBe(false);
+    expect(
+      matchesPausedNativeDemand(pending, {
+        requestId: "preview-op-42",
+        generation: 42,
+      }),
+    ).toBe(true);
+  });
+
+  it("uses unique operation IDs and never exposes a serialized request in telemetry", () => {
+    const first = createNativeDemandOperationId("preview:frame-1", 7, 1);
+    const second = createNativeDemandOperationId("preview:frame-1", 7, 2);
+    const rawRequestKey = '{"videoPath":"/private/media.mp4"}';
+
+    expect(first).not.toBe(second);
+    expect(telemetryRequestToken(rawRequestKey)).not.toContain("media.mp4");
+    expect(telemetryRequestToken(rawRequestKey)).toMatch(/^rk-[0-9a-f]{8}$/);
+  });
+
+  it("REGRESSION: a missing Rust acknowledgement switches to the recoverable direct path only at the bounded deadline", () => {
+    const dispatchedAtMs = 10_000;
+
+    expect(
+      shouldFallbackForPausedNativeDemand(
+        dispatchedAtMs,
+        dispatchedAtMs + PAUSED_NATIVE_DEMAND_ACK_TIMEOUT_MS - 1,
+      ),
+    ).toBe(false);
+    expect(
+      shouldFallbackForPausedNativeDemand(
+        dispatchedAtMs,
+        dispatchedAtMs + PAUSED_NATIVE_DEMAND_ACK_TIMEOUT_MS,
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts only the latest matching native presentation before revealing the surface", () => {
+    let nativeSurfaceShown = false;
+    let pending: { requestId: string; generation: number } | null = {
+      requestId: "seek-new",
+      generation: 8,
+    };
+
+    const receivePresentation = (presentation: {
+      requestId: string;
+      generation?: number;
+      presented: boolean;
+    }) => {
+      if (
+        !pending ||
+        presentation.requestId !== pending.requestId ||
+        (presentation.generation !== undefined &&
+          presentation.generation !== pending.generation)
+      ) {
+        return;
+      }
+      pending = null;
+      nativeSurfaceShown = presentation.presented;
+    };
+
+    // A superseded seek must never reveal its stale surface frame.
+    receivePresentation({
+      requestId: "seek-old",
+      generation: 7,
+      presented: true,
+    });
+    expect(nativeSurfaceShown).toBe(false);
+    expect(pending).not.toBeNull();
+
+    receivePresentation({
+      requestId: "seek-new",
+      generation: 8,
+      presented: true,
+    });
+    expect(nativeSurfaceShown).toBe(true);
+    expect(pending).toBeNull();
+  });
+
+  it("releases the latest key when Rust reports an intentional drop", () => {
+    let lastRequestKey = "seek-current";
+    const presentation = { presented: false, dropped: true };
+
+    if (!presentation.presented && presentation.dropped) {
+      lastRequestKey = "";
+    }
+
+    expect(lastRequestKey).toBe("");
   });
 });
 

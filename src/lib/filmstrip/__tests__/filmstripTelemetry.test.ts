@@ -87,6 +87,9 @@ describe("FilmstripTelemetryRecorder", () => {
     recorder.recordBatchDispatched(7);
     recorder.recordCancellation(2);
     recorder.recordStall();
+    recorder.recordDemandOutcome("retained");
+    recorder.recordDemandOutcome("dispatched");
+    recorder.recordDemandOutcome("duplicate-suppressed");
     recorder.record({
       tileKey: "l2:1000",
       source: "fresh_decode",
@@ -107,6 +110,9 @@ describe("FilmstripTelemetryRecorder", () => {
     expect(summary.avgQueueWaitMs).toBe(5);
     expect(summary.cancelledRequests).toBe(2);
     expect(summary.stallCount).toBe(1);
+    expect(summary.retainedDemands).toBe(1);
+    expect(summary.dispatchedDemands).toBe(1);
+    expect(summary.duplicateDemandsSuppressed).toBe(1);
     expect(summary.avgZoomTimeToVisibleMs).toBe(13);
     expect(summary.p95ZoomTimeToVisibleMs).toBe(13);
     expect(recorder.hasRecordedData()).toBe(true);

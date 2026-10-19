@@ -20,6 +20,10 @@ import { InteractionStateMachine } from "./ism";
 import { RenderScheduler } from "./renderScheduler";
 import { registerActiveEpoch, unregisterActiveEpoch } from "./transport";
 import { FilmstripCache } from "./FilmstripCache";
+import {
+  FilmstripDemandController,
+  type FilmstripDemand,
+} from "./FilmstripDemandController";
 import type { FilmstripTileCache } from "../filmstrip/FilmstripTileCache";
 
 // ─── Clip State ───────────────────────────────────────────────────────────────
@@ -41,6 +45,7 @@ export class RenderEngine {
   private _hysteresis: HysteresisController;
   private _scheduler: RenderScheduler;
   private _filmstripCache: FilmstripCache;
+  private _filmstripDemandController: FilmstripDemandController;
   private _clipStates = new Map<string, ClipRenderState>();
   private _ismUnsubscribe: (() => void) | null = null;
 
@@ -74,6 +79,18 @@ export class RenderEngine {
     this._hysteresis = new HysteresisController(initialTier, options.srpConfig ?? DEFAULT_SRP_CONFIG);
     this._scheduler = new RenderScheduler();
     this._filmstripCache = new FilmstripCache(options.filmstripMemoryMB ?? 100);
+    this._filmstripDemandController = new FilmstripDemandController({
+      isInteractionActive: () =>
+        this._currentInteractionState === InteractionState.Zooming ||
+        this._currentInteractionState === InteractionState.Scrolling ||
+        this._currentInteractionState === InteractionState.Converging,
+      publishRetained: (demand) => {
+        this._filmstripCache.publishRetained(demand.clipId, (artifacts) => {
+          this._publishFilmstripArtifacts(demand.clipId, artifacts);
+        });
+      },
+      dispatch: (demand) => this._dispatchFilmstripDemand(demand),
+    });
 
     // Subscribe to ISM updates
     this._ismUnsubscribe = this._ism.subscribe((update) => this._onIsmUpdate(update));
@@ -116,9 +133,11 @@ export class RenderEngine {
 
   private _recomputeAllClipStates(epochTrigger: boolean): void {
     for (const [clipId, state] of this._clipStates) {
+      // RenderState and its epoch must describe the same dimensions. Updating
+      // dimensions first prevents the active epoch from lagging one zoom pass.
+      state.epochDimensions = this._buildEpochDimensions(clipId, state);
       const newState = this._buildRenderState(clipId, state);
       state.renderState = newState;
-      state.epochDimensions = this._buildEpochDimensions(clipId, state);
       this._notifyListeners(clipId, newState);
     }
   }
@@ -153,6 +172,7 @@ export class RenderEngine {
 
   unregisterClip(clipId: string): void {
     this._scheduler.cancelClip(clipId);
+    this._filmstripDemandController.cancel(clipId);
     this._filmstripCache.invalidateClip(clipId);
     unregisterActiveEpoch(clipId);
     this._clipStates.delete(clipId);
@@ -248,25 +268,38 @@ export class RenderEngine {
       this.registerClip(options.clipId);
       return this.requestFilmstrip(options);
     }
+    this._filmstripDemandController.submit(options);
+  }
 
+  /** Resolve presentation demand to the epoch that is current at dispatch. */
+  private _dispatchFilmstripDemand(demand: FilmstripDemand): void {
+    const state = this._clipStates.get(demand.clipId);
+    if (!state) return;
     this._filmstripCache.requestFilmstrip({
-      ...options,
+      ...demand,
       spatialTier: state.renderState.currentTier.spatialTier,
       epochId: state.renderState.epochId,
-      onUpdate: (artifacts) => {
-        // Update RenderState.visibleArtifacts
-        state.renderState = {
-          ...state.renderState,
-          visibleArtifacts: artifacts,
-          // Once a valid projection has existed, an empty/partial transition
-          // is convergence, not a return to the poster fallback state.
-          isFallback: artifacts.length > 0 ? false : state.renderState.isFallback,
-        };
-
-        // Notify subscribers
-        this._notifyListeners(options.clipId, state.renderState);
-      },
+      onInterrupted: () =>
+        this._filmstripDemandController.forgetDispatchedDemand(demand.clipId),
+      onUpdate: (artifacts) =>
+        this._publishFilmstripArtifacts(demand.clipId, artifacts),
     });
+  }
+
+  private _publishFilmstripArtifacts(
+    clipId: string,
+    artifacts: readonly import("./transport").TransportArtifact[],
+  ): void {
+    const state = this._clipStates.get(clipId);
+    if (!state) return;
+    state.renderState = {
+      ...state.renderState,
+      visibleArtifacts: artifacts,
+      // Once a valid projection has existed, an empty/partial transition
+      // is convergence, not a return to the poster fallback state.
+      isFallback: artifacts.length > 0 ? false : state.renderState.isFallback,
+    };
+    this._notifyListeners(clipId, state.renderState);
   }
 
   /** Populate adjacent filmstrip tiers/viewport regions after interaction settles. */
@@ -451,6 +484,7 @@ export class RenderEngine {
       unregisterActiveEpoch(clipId);
     }
     this._scheduler.dispose();
+    this._filmstripDemandController.dispose();
     this._filmstripCache.dispose();
     this._clipStates.clear();
   }

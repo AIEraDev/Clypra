@@ -16,6 +16,7 @@ import type { TransportArtifact } from "../transport";
 import type { FilmstripTileAddress } from "@/lib/filmstrip/filmstripTiers";
 import type { RenderEpochId } from "../types";
 import { SpatialTier } from "../types";
+import { FilmstripTileCache } from "@/lib/filmstrip/FilmstripTileCache";
 
 /** Cast a plain string to the branded RenderEpochId type (test helper only). */
 const eid = (s: string) => s as RenderEpochId;
@@ -233,6 +234,42 @@ describe("RasterSurface", () => {
       expect(drawImage.mock.calls[1][0]).toBe(art15.bitmap);
       expect(drawImage.mock.calls[2][0]).toBe(art20.bitmap);
       surface.dispose();
+    });
+
+    it("fills every L0 zoom slot from a retained parent while exact tiles decode", () => {
+      const { canvas, drawImage } = makeCanvas();
+      const surface = new RasterSurface(canvas);
+      const tileCache = new FilmstripTileCache(10);
+      const parent = makeArtifact(0);
+      const addresses: FilmstripTileAddress[] = [0, 20, 40].map(
+        (timestamp, tileIndex) => ({
+          clipId: "clip-1",
+          zoomTier: SpatialTier.L0,
+          tileIndex,
+          timestamp,
+        }),
+      );
+      tileCache.setTile(addresses[0], parent);
+
+      surface.drawFilmstrip(
+        [],
+        layout({
+          clipWidthPx: 180,
+          tileWidthPx: 60,
+          trimIn: 0,
+          trimOut: 40,
+          tileAddresses: addresses,
+          tileCache,
+          clipId: "clip-1",
+        }),
+      );
+
+      expect(drawImage).toHaveBeenCalledTimes(3);
+      expect(drawImage.mock.calls[0][0]).toBe(parent.bitmap);
+      expect(drawImage.mock.calls[1][0]).toBe(parent.bitmap);
+      expect(drawImage.mock.calls[2][0]).toBe(parent.bitmap);
+      surface.dispose();
+      tileCache.dispose();
     });
   });
 });

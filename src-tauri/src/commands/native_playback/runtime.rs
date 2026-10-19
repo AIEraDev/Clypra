@@ -1,3 +1,4 @@
+use super::render_session::NativeRenderSession;
 use crate::native_audio::NativeAudioClock;
 use crate::native_core::{
     FrameTime, NativeCoreError, NativePlaybackFrameDemand, PlaybackPlan, PlaybackSession,
@@ -5,7 +6,6 @@ use crate::native_core::{
 };
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager};
-use super::render_session::NativeRenderSession;
 
 /// Native playback coordination remains separate from the render session.
 /// `PlaybackSession` is the platform-neutral state machine; this runtime adds
@@ -43,9 +43,19 @@ impl NativePlaybackRuntime {
     /// (e.g. the lookahead predecode worker in native_preview.rs).  Returns
     /// `None` when no render session is active.
     pub fn render_session_quality(&self) -> Option<crate::native_core::QualityTier> {
+        self.render_session.as_ref().map(|s| s.playback_quality())
+    }
+
+    pub(crate) fn record_playback_lookahead_miss(&self) -> Option<crate::native_core::QualityTier> {
         self.render_session
             .as_ref()
-            .map(|s| s.snapshot.read().quality)
+            .map(|session| session.record_playback_lookahead_miss())
+    }
+
+    pub(crate) fn record_playback_lookahead_hit(&self) {
+        if let Some(session) = &self.render_session {
+            session.record_playback_lookahead_hit();
+        }
     }
 
     pub fn submit_render_demand(&self, demand: NativePlaybackFrameDemand) -> Result<(), String> {
@@ -64,6 +74,18 @@ impl NativePlaybackRuntime {
     pub fn stop_render(&self, app: AppHandle) {
         if let Some(session) = &self.render_session {
             session.stop(Some(app));
+        }
+    }
+
+    /// Pause background playback work without terminating the render worker.
+    /// Explicit P0 paused/scrub demands continue through that worker after the
+    /// audio clock has stopped.
+    pub fn pause_render(&self, app: AppHandle) {
+        if let Some(session) = &self.render_session {
+            session.pause_continuous_playback();
+            tauri::async_runtime::spawn(async move {
+                crate::commands::native_preview::reset_native_preview_queue(&app).await;
+            });
         }
     }
 
@@ -234,4 +256,3 @@ pub(crate) fn set_audio_playing(app: &AppHandle, playing: bool) -> Result<(), St
     }
     Ok(())
 }
-

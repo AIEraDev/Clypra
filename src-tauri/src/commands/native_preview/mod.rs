@@ -1601,6 +1601,26 @@ async fn decode_native_video_layers(
         target_dimensions: None,
     };
 
+    // P0 visible seek/scrub work must preempt any same-source P2/P3 filmstrip
+    // extraction before it acquires its own preview decoder. The decoder pools
+    // are isolated, but releasing thumbnail serialization/IPC work keeps the
+    // WebView response path responsive under rapid scrubbing.
+    if is_preview_preemptive_request(request.is_scrubbing, request.mode.as_deref()) {
+        let preempted = request
+            .layers
+            .iter()
+            .map(|layer| {
+                crate::commands::filmstrip::in_flight::preempt_filmstrip_for_preview(
+                    &layer.video_path,
+                )
+            })
+            .sum::<u64>();
+        crate::filmstrip_engine::metrics::METRICS
+            .source
+            .preemptions
+            .fetch_add(preempted, std::sync::atomic::Ordering::Relaxed);
+    }
+
     let is_prefetch = request.mode.as_deref() == Some("prefetch");
     let generation = cancellation
         .as_ref()
@@ -1785,6 +1805,14 @@ async fn decode_native_video_layers(
             ..NativeDecodeTimings::default()
         },
     ))
+}
+
+/// Both a continuous scrub and a paused exact seek are user-visible P0 work.
+/// A `seek` request may originate from the timeline click/keyboard path, where
+/// there is no `is_scrubbing` flag even though it must not wait behind a
+/// visible filmstrip batch for the same source.
+fn is_preview_preemptive_request(is_scrubbing: Option<bool>, mode: Option<&str>) -> bool {
+    is_scrubbing.unwrap_or(false) || matches!(mode, Some("scrub" | "seek"))
 }
 
 /// Decode a frame into the bounded native playback queue without presenting
@@ -1983,6 +2011,7 @@ pub async fn queue_native_frame(
 struct LookaheadWorkerState {
     handle: tauri::async_runtime::JoinHandle<()>,
     generation: u64,
+    quality: Option<crate::native_core::QualityTier>,
     start_frame: Arc<std::sync::atomic::AtomicU64>,
     end_frame: Arc<std::sync::atomic::AtomicU64>,
     finished: Arc<std::sync::atomic::AtomicBool>,
@@ -2008,6 +2037,44 @@ fn current_lookahead_quality(app: &tauri::AppHandle) -> Option<crate::native_cor
     let runtime_arc = playback.inner().clone();
     let runtime = runtime_arc.lock().ok()?;
     runtime.render_session_quality()
+}
+
+/// Feed visible playback queue outcomes back to the render session. The
+/// session may lower *future lookahead* scale after repeated deadline misses;
+/// it never mutates the frame-request snapshot used for paused exact renders.
+fn record_playback_lookahead_outcome(app: &tauri::AppHandle, queue_hit: bool) {
+    let Some(playback) = app.try_state::<Arc<std::sync::Mutex<
+        crate::commands::native_playback::NativePlaybackRuntime,
+    >>>() else {
+        return;
+    };
+    let runtime_arc = playback.inner().clone();
+    let Ok(runtime) = runtime_arc.lock() else {
+        return;
+    };
+    if queue_hit {
+        runtime.record_playback_lookahead_hit();
+    } else {
+        let previous_quality = runtime.render_session_quality();
+        let next_quality = runtime.record_playback_lookahead_miss();
+        if let (Some(previous_quality), Some(next_quality)) = (previous_quality, next_quality) {
+            if previous_quality != next_quality {
+                // Persist the adaptive decision as a rare diagnostic event so
+                // a future trace distinguishes an inadequate startup probe
+                // from normal queue jitter. Per-frame sample quality records
+                // then show the scale used by the refilled queue.
+                let _ = app.emit(
+                    "clypra://native-diagnostic",
+                    serde_json::json!({
+                        "marker": "native-playback-lookahead-quality-adapted",
+                        "fromQuality": format!("{:?}", previous_quality),
+                        "toQuality": format!("{:?}", next_quality),
+                        "reason": "consecutive-lookahead-misses",
+                    }),
+                );
+            }
+        }
+    }
 }
 
 /// Non-blocking lookahead pre-decode worker.
@@ -2054,6 +2121,7 @@ pub(crate) fn schedule_lookahead_predecode(
     if let Some(active) = worker_guard.as_ref() {
         let is_active = !active.finished.load(std::sync::atomic::Ordering::Acquire);
         let is_same_gen = active.generation == generation;
+        let is_same_quality = active.quality == quality_override;
         let start_f = active
             .start_frame
             .load(std::sync::atomic::Ordering::Acquire);
@@ -2063,7 +2131,7 @@ pub(crate) fn schedule_lookahead_predecode(
         let is_in_range =
             current_audio_frame >= start_f.saturating_sub(2) && has_sufficient_lookahead;
 
-        if is_active && is_same_gen && is_in_range {
+        if is_active && is_same_gen && is_same_quality && is_in_range {
             // PR4: count dropped trigger and record ahead-of-clock
             crate::filmstrip_engine::stream_actor::record_lookahead_trigger_dropped();
             let end_time_secs = end_f as f64 / fps;
@@ -2215,6 +2283,7 @@ pub(crate) fn schedule_lookahead_predecode(
     *worker_guard = Some(LookaheadWorkerState {
         handle,
         generation,
+        quality: quality_override,
         start_frame: worker_start,
         end_frame: worker_end,
         finished,
@@ -2356,6 +2425,9 @@ pub(crate) async fn present_native_frame_internal(
         } else {
             None
         };
+    if is_playback_mode {
+        record_playback_lookahead_outcome(&app, queued_frame.is_some());
+    }
     if playback_lookahead_miss {
         // A miss is intentionally non-blocking, but it must never become a
         // terminal queue state. The normal refill call lives after a

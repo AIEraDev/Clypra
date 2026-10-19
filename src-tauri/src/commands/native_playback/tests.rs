@@ -2,11 +2,16 @@ use super::*;
 
 #[cfg(test)]
 mod tests {
+    use super::render_session::{
+        playback_quality_after_lookahead_misses, should_follow_audio_clock,
+    };
     use super::*;
-    use crate::native_core::{PlaybackClockStatus, DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION};
+    use crate::native_core::{
+        PlaybackClockStatus, DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION,
+    };
     use parking_lot::RwLock;
     use std::collections::{HashMap, HashSet};
-    use std::sync::atomic::{AtomicBool, AtomicU64};
+    use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8};
     use std::sync::{Arc, Mutex};
     use std::time::Instant;
 
@@ -90,6 +95,55 @@ mod tests {
         assert!(slot.take().is_none());
     }
 
+    #[test]
+    fn explicit_paused_demand_bypasses_audio_clock_coalescing() {
+        // A paused seek can legitimately request the frame currently reported
+        // by the audio clock. It still needs a completion event, so it must
+        // not enter the continuous-playback same-frame fast path.
+        assert!(!should_follow_audio_clock(true));
+        assert!(should_follow_audio_clock(false));
+    }
+
+    #[test]
+    fn repeated_playback_deadline_misses_downgrade_only_lookahead_scale() {
+        use crate::native_core::QualityTier;
+
+        // A single miss can be ordinary scheduling jitter; two consecutive
+        // misses mean the startup keyframe probe no longer represents this GOP.
+        assert_eq!(
+            playback_quality_after_lookahead_misses(QualityTier::Full, 1),
+            QualityTier::Full
+        );
+        assert_eq!(
+            playback_quality_after_lookahead_misses(QualityTier::Full, 2),
+            QualityTier::Half
+        );
+        assert_eq!(
+            playback_quality_after_lookahead_misses(QualityTier::Half, 2),
+            QualityTier::Quarter
+        );
+        // Quarter and Proxy both decode at quarter scale, so repeated misses
+        // must not report a meaningless further downgrade.
+        assert_eq!(
+            playback_quality_after_lookahead_misses(QualityTier::Quarter, 8),
+            QualityTier::Quarter
+        );
+    }
+
+    #[test]
+    fn lookahead_adaptation_never_changes_paused_snapshot_quality() {
+        use crate::native_core::QualityTier;
+
+        let session = test_session(test_snapshot());
+        assert_eq!(session.snapshot.read().quality, QualityTier::Full);
+        session.record_playback_lookahead_hit();
+        session.record_playback_lookahead_miss();
+        session.record_playback_lookahead_miss();
+
+        assert_eq!(session.playback_quality(), QualityTier::Half);
+        assert_eq!(session.snapshot.read().quality, QualityTier::Full);
+    }
+
     fn test_snapshot_with_text() -> FrameRequest {
         FrameRequest {
             contract_version: NATIVE_CORE_CONTRACT_VERSION,
@@ -158,6 +212,7 @@ mod tests {
     }
 
     fn test_session(snapshot: FrameRequest) -> NativeRenderSession {
+        let playback_quality = snapshot.quality;
         NativeRenderSession {
             snapshot: RwLock::new(Arc::new(snapshot)),
             last_materialized: RwLock::new(None),
@@ -172,7 +227,50 @@ mod tests {
             configured_at: Instant::now(),
             ready_after_us: AtomicU64::new(0),
             first_presented: AtomicBool::new(false),
+            playback_quality: AtomicU8::new(super::render_session::quality_to_code(
+                playback_quality,
+            )),
+            playback_lookahead_miss_streak: AtomicU8::new(0),
+            playback_lookahead_feedback_armed: AtomicBool::new(false),
         }
+    }
+
+    #[test]
+    fn pause_keeps_render_worker_available_for_explicit_frame_demand() {
+        let session = test_session(test_snapshot());
+        session
+            .running
+            .store(true, std::sync::atomic::Ordering::Release);
+        session
+            .pending
+            .lock()
+            .unwrap()
+            .replace(demand("obsolete-playback", 10));
+
+        session.pause_continuous_playback();
+
+        assert!(session.running.load(std::sync::atomic::Ordering::Acquire));
+        assert!(session.pending.lock().unwrap().take().is_none());
+    }
+
+    #[test]
+    fn lookahead_adaptation_ignores_pause_and_startup_transition_misses() {
+        use crate::native_core::QualityTier;
+
+        let session = test_session(test_snapshot());
+        session.record_playback_lookahead_miss();
+        session.record_playback_lookahead_miss();
+        assert_eq!(session.playback_quality(), QualityTier::Full);
+
+        session.record_playback_lookahead_hit();
+        session.record_playback_lookahead_miss();
+        session.record_playback_lookahead_miss();
+        assert_eq!(session.playback_quality(), QualityTier::Half);
+
+        session.pause_continuous_playback();
+        session.record_playback_lookahead_miss();
+        session.record_playback_lookahead_miss();
+        assert_eq!(session.playback_quality(), QualityTier::Half);
     }
 
     #[test]
@@ -195,10 +293,12 @@ mod tests {
 
         let active = session.active_streams.lock().unwrap();
         assert_eq!(active.len(), 1);
-        assert!(!active.contains(&key1), "Exited stream must be pruned from active_streams");
+        assert!(
+            !active.contains(&key1),
+            "Exited stream must be pruned from active_streams"
+        );
         assert!(active.contains(&key2));
     }
-
 
     #[test]
     fn materialize_request_handles_sdf_to_raster_transition() {

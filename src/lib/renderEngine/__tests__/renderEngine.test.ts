@@ -62,4 +62,17 @@ describe("RenderRuntime clip registration", () => {
     expect(runtime.getRenderState("clip-1").currentTier.spatialTier).toBe(SpatialTier.L3);
     runtime.teardown();
   });
+
+  it("publishes an epoch from the same zoom recompute that changed the tier", () => {
+    const runtime = new RenderEngine("project-1");
+    runtime.registerClip("clip-1");
+    const epochAtNormalZoom = runtime.getRenderState("clip-1").epochId;
+
+    runtime.notifyZoom(1.5);
+
+    expect(runtime.getRenderState("clip-1").epochId).not.toBe(
+      epochAtNormalZoom,
+    );
+    runtime.teardown();
+  });
 });

@@ -53,6 +53,10 @@ impl StageAccumulator {
 /// Aggregated metrics for a single spatial tier (L0/L1/L2/L3).
 #[derive(Default, Debug)]
 pub struct TierMetrics {
+    /// Time an operation waited to enter the per-source filmstrip decoder.
+    /// This is distinct from decode and IPC time, so queue contention cannot
+    /// be misdiagnosed as slow media decoding.
+    pub queue_wait: StageAccumulator,
     pub seek: StageAccumulator,
     pub decode: StageAccumulator,
     pub convert: StageAccumulator,
@@ -63,10 +67,21 @@ pub struct TierMetrics {
     pub tier_cache_hits: AtomicU64,
     pub decodes: AtomicU64,
     pub evictions: AtomicU64,
+    /// Number of lower-priority filmstrip operations preempted by newer work.
+    pub preemptions: AtomicU64,
+    /// Decoder turns voluntarily yielded between filmstrip timestamps.
+    pub cooperative_yields: AtomicU64,
+    /// Visible viewport batches that activated more than one filmstrip cursor.
+    pub parallel_decode_batches: AtomicU64,
+    /// Total decoder cursors started by parallel filmstrip batches.
+    pub parallel_decoder_shards: AtomicU64,
+    /// Timestamp work abandoned when a newer viewport or P0 request supersedes it.
+    pub latest_only_dropped_timestamps: AtomicU64,
 }
 
 impl TierMetrics {
     pub fn take_and_reset(&self) -> TierMetricsSummary {
+        let (_queue_n, queue_wait_avg) = self.queue_wait.take_and_reset();
         let (_seek_n, seek_avg) = self.seek.take_and_reset();
         let (decode_n, decode_avg) = self.decode.take_and_reset();
         let (_convert_n, convert_avg) = self.convert.take_and_reset();
@@ -77,6 +92,13 @@ impl TierMetrics {
         let hits = self.tier_cache_hits.swap(0, Ordering::Relaxed);
         let decodes = self.decodes.swap(0, Ordering::Relaxed);
         let evictions = self.evictions.swap(0, Ordering::Relaxed);
+        let preemptions = self.preemptions.swap(0, Ordering::Relaxed);
+        let cooperative_yields = self.cooperative_yields.swap(0, Ordering::Relaxed);
+        let parallel_decode_batches = self.parallel_decode_batches.swap(0, Ordering::Relaxed);
+        let parallel_decoder_shards = self.parallel_decoder_shards.swap(0, Ordering::Relaxed);
+        let latest_only_dropped_timestamps = self
+            .latest_only_dropped_timestamps
+            .swap(0, Ordering::Relaxed);
 
         let total_ops = hits + decodes;
         let hit_rate = if total_ops == 0 {
@@ -87,6 +109,7 @@ impl TierMetrics {
 
         TierMetricsSummary {
             operations: decodes.max(decode_n),
+            queue_wait_avg_ms: queue_wait_avg / 1000.0,
             seek_avg_ms: seek_avg / 1000.0,
             decode_avg_ms: decode_avg / 1000.0,
             convert_avg_ms: convert_avg / 1000.0,
@@ -97,11 +120,17 @@ impl TierMetrics {
             tier_cache_hits: hits,
             decodes,
             evictions,
+            preemptions,
+            cooperative_yields,
+            parallel_decode_batches,
+            parallel_decoder_shards,
+            latest_only_dropped_timestamps,
             hit_rate_pct: hit_rate,
         }
     }
 
     pub fn snapshot(&self) -> TierMetricsSummary {
+        let (_queue_n, queue_wait_avg) = self.queue_wait.snapshot();
         let (seek_n, seek_avg) = self.seek.snapshot();
         let (_decode_n, decode_avg) = self.decode.snapshot();
         let (_convert_n, convert_avg) = self.convert.snapshot();
@@ -112,6 +141,13 @@ impl TierMetrics {
         let hits = self.tier_cache_hits.load(Ordering::Relaxed);
         let decodes = self.decodes.load(Ordering::Relaxed);
         let evictions = self.evictions.load(Ordering::Relaxed);
+        let preemptions = self.preemptions.load(Ordering::Relaxed);
+        let cooperative_yields = self.cooperative_yields.load(Ordering::Relaxed);
+        let parallel_decode_batches = self.parallel_decode_batches.load(Ordering::Relaxed);
+        let parallel_decoder_shards = self.parallel_decoder_shards.load(Ordering::Relaxed);
+        let latest_only_dropped_timestamps = self
+            .latest_only_dropped_timestamps
+            .load(Ordering::Relaxed);
 
         let total_ops = hits + decodes;
         let hit_rate = if total_ops == 0 {
@@ -122,6 +158,7 @@ impl TierMetrics {
 
         TierMetricsSummary {
             operations: decodes.max(seek_n),
+            queue_wait_avg_ms: queue_wait_avg / 1000.0,
             seek_avg_ms: seek_avg / 1000.0,
             decode_avg_ms: decode_avg / 1000.0,
             convert_avg_ms: convert_avg / 1000.0,
@@ -132,6 +169,11 @@ impl TierMetrics {
             tier_cache_hits: hits,
             decodes,
             evictions,
+            preemptions,
+            cooperative_yields,
+            parallel_decode_batches,
+            parallel_decoder_shards,
+            latest_only_dropped_timestamps,
             hit_rate_pct: hit_rate,
         }
     }
@@ -141,6 +183,7 @@ impl TierMetrics {
 #[derive(Debug, Clone, Serialize)]
 pub struct TierMetricsSummary {
     pub operations: u64,
+    pub queue_wait_avg_ms: f64,
     pub seek_avg_ms: f64,
     pub decode_avg_ms: f64,
     pub convert_avg_ms: f64,
@@ -151,6 +194,11 @@ pub struct TierMetricsSummary {
     pub tier_cache_hits: u64,
     pub decodes: u64,
     pub evictions: u64,
+    pub preemptions: u64,
+    pub cooperative_yields: u64,
+    pub parallel_decode_batches: u64,
+    pub parallel_decoder_shards: u64,
+    pub latest_only_dropped_timestamps: u64,
     pub hit_rate_pct: f64,
 }
 
