@@ -575,6 +575,18 @@ export interface TelemetryTextMetrics {
   lineCount?: number;
   layoutWidth?: number;
   layoutHeight?: number;
+  authoredLayoutWidth?: number;
+  authoredLayoutHeight?: number;
+  rasterWidth?: number;
+  rasterHeight?: number;
+  overflowRenderCount?: number;
+  maxOverflowX?: number;
+  maxOverflowY?: number;
+  maxAuthoredLayoutWidth?: number;
+  maxAuthoredLayoutHeight?: number;
+  maxRasterWidth?: number;
+  maxRasterHeight?: number;
+  underlineRenderCount?: number;
 }
 
 export type TelemetryAudioBackend = "native-cpal" | "web-audio";
@@ -915,6 +927,16 @@ export interface TelemetryTextRenderInput {
   lineCount?: number;
   layoutWidth?: number;
   layoutHeight?: number;
+  /** Authored box before any compatibility expansion for glyph ink. */
+  authoredLayoutWidth?: number;
+  authoredLayoutHeight?: number;
+  /** Actual bitmap allocation, including effect bleed. */
+  rasterWidth?: number;
+  rasterHeight?: number;
+  /** Positive values mean a legacy/stale point-text box was expanded. */
+  overflowX?: number;
+  overflowY?: number;
+  textDecoration?: "underline" | "none";
 }
 
 export interface TelemetryTextInteractionInput {
@@ -1520,6 +1542,14 @@ class TextWindowAccumulator {
   private cacheMisses = 0;
   private layerCount = 0;
   private outputPixels = 0;
+  private overflowRenderCount = 0;
+  private maxOverflowX = 0;
+  private maxOverflowY = 0;
+  private maxAuthoredLayoutWidth = 0;
+  private maxAuthoredLayoutHeight = 0;
+  private maxRasterWidth = 0;
+  private maxRasterHeight = 0;
+  private underlineRenderCount = 0;
 
   record(input: TelemetryTextRenderInput): void {
     this.renderCount += 1;
@@ -1527,6 +1557,28 @@ class TextWindowAccumulator {
     else this.cacheMisses += 1;
     this.layerCount += Math.max(0, input.layerCount ?? 1);
     this.outputPixels += Math.max(0, input.outputPixels ?? 0);
+    const overflowX = Math.max(0, input.overflowX ?? 0);
+    const overflowY = Math.max(0, input.overflowY ?? 0);
+    if (overflowX > 0 || overflowY > 0) this.overflowRenderCount += 1;
+    this.maxOverflowX = Math.max(this.maxOverflowX, overflowX);
+    this.maxOverflowY = Math.max(this.maxOverflowY, overflowY);
+    this.maxAuthoredLayoutWidth = Math.max(
+      this.maxAuthoredLayoutWidth,
+      Math.max(0, input.authoredLayoutWidth ?? 0),
+    );
+    this.maxAuthoredLayoutHeight = Math.max(
+      this.maxAuthoredLayoutHeight,
+      Math.max(0, input.authoredLayoutHeight ?? 0),
+    );
+    this.maxRasterWidth = Math.max(
+      this.maxRasterWidth,
+      Math.max(0, input.rasterWidth ?? 0),
+    );
+    this.maxRasterHeight = Math.max(
+      this.maxRasterHeight,
+      Math.max(0, input.rasterHeight ?? 0),
+    );
+    if (input.textDecoration === "underline") this.underlineRenderCount += 1;
     this.totalTimeUs.push(Math.max(0, input.totalTimeUs));
     for (const [key, value] of Object.entries({
       fontWaitUs: input.fontWaitUs,
@@ -1598,6 +1650,14 @@ class TextWindowAccumulator {
       ),
       layerCount: this.layerCount,
       outputPixels: this.outputPixels,
+      overflowRenderCount: this.overflowRenderCount,
+      maxOverflowX: this.maxOverflowX,
+      maxOverflowY: this.maxOverflowY,
+      maxAuthoredLayoutWidth: this.maxAuthoredLayoutWidth,
+      maxAuthoredLayoutHeight: this.maxAuthoredLayoutHeight,
+      maxRasterWidth: this.maxRasterWidth,
+      maxRasterHeight: this.maxRasterHeight,
+      underlineRenderCount: this.underlineRenderCount,
       renderPercentiles: percentile(this.totalTimeUs),
       stagePercentiles,
     };
@@ -1609,6 +1669,14 @@ class TextWindowAccumulator {
     this.cacheMisses = 0;
     this.layerCount = 0;
     this.outputPixels = 0;
+    this.overflowRenderCount = 0;
+    this.maxOverflowX = 0;
+    this.maxOverflowY = 0;
+    this.maxAuthoredLayoutWidth = 0;
+    this.maxAuthoredLayoutHeight = 0;
+    this.maxRasterWidth = 0;
+    this.maxRasterHeight = 0;
+    this.underlineRenderCount = 0;
     return result;
   }
 }
@@ -2901,6 +2969,14 @@ class TelemetryCollector {
           outputPixels: summary.outputPixels,
           renderPercentiles: summary.renderPercentiles,
           stagePercentiles: summary.stagePercentiles,
+          overflowRenderCount: summary.overflowRenderCount,
+          maxOverflowX: summary.maxOverflowX,
+          maxOverflowY: summary.maxOverflowY,
+          maxAuthoredLayoutWidth: summary.maxAuthoredLayoutWidth,
+          maxAuthoredLayoutHeight: summary.maxAuthoredLayoutHeight,
+          maxRasterWidth: summary.maxRasterWidth,
+          maxRasterHeight: summary.maxRasterHeight,
+          underlineRenderCount: summary.underlineRenderCount,
         },
         timestampMs: Date.now(),
       });

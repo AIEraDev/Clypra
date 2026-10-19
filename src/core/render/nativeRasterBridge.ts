@@ -55,8 +55,17 @@ type UploadableNativeRaster = NativeRasterLayerSnapshot & {
   bleedX?: number;
   bleedY?: number;
   positionMode?: "centered" | "absolute";
+  expandedPointText?: boolean;
+  visualBounds?: NonNullable<NativeTextRasterAsset["visualBounds"]>;
   timing?: NativeTextRasterAsset["timing"];
 };
+
+export interface NativeTextVisualSnapshot {
+  x: number;
+  y: number;
+  displayWidth: number;
+  displayHeight: number;
+}
 
 export interface NativeRasterBridgeOptions {
   frameKey: number;
@@ -113,6 +122,8 @@ function snapshot(asset: UploadableNativeRaster): NativeRasterLayerSnapshot {
     bleedX: _bleedX,
     bleedY: _bleedY,
     positionMode: _positionMode,
+    expandedPointText: _expandedPointText,
+    visualBounds: _visualBounds,
     timing: _timing,
     ...reference
   } = asset;
@@ -158,6 +169,19 @@ export class NativeRasterBridge {
     string,
     NativeRasterLayerSnapshot
   >();
+  /** Tight non-transparent bounds for the corresponding native text texture. */
+  private readonly textVisualSnapshotsByLayerId = new Map<
+    string,
+    NativeTextVisualSnapshot
+  >();
+  private readonly textVisualBoundsByLayerId = new Map<
+    string,
+    NonNullable<NativeTextRasterAsset["visualBounds"]>
+  >();
+  private readonly textSnapshotListenersByLayerId = new Map<
+    string,
+    Set<() => void>
+  >();
   private readonly textSnapshotKeysByLayerId = new Map<string, string>();
   private readonly lastTextPlaybackObservationAtByLayerId = new Map<
     string,
@@ -173,6 +197,7 @@ export class NativeRasterBridge {
       bleedX: number;
       bleedY: number;
       positionMode: "centered" | "absolute";
+      expandedPointText?: boolean;
       baseWidth?: number;
       baseHeight?: number;
     }
@@ -478,6 +503,9 @@ export class NativeRasterBridge {
       for (const [layerId, snap] of this.textSnapshotsByLayerId.entries()) {
         if (snap.assetId === assetId) {
           this.textSnapshotsByLayerId.delete(layerId);
+          this.textVisualSnapshotsByLayerId.delete(layerId);
+          this.textVisualBoundsByLayerId.delete(layerId);
+          this.textSnapshotListenersByLayerId.get(layerId)?.forEach((listener) => listener());
           this.textSnapshotKeysByLayerId.delete(layerId);
           this.textSnapshotBleedByLayerId.delete(layerId);
           this.lastTextPlaybackObservationAtByLayerId.delete(layerId);
@@ -531,6 +559,9 @@ export class NativeRasterBridge {
     this.templateRasterizerWorkerClient.dispose();
     this.textCache.clear();
     this.textSnapshotsByLayerId.clear();
+    this.textVisualSnapshotsByLayerId.clear();
+    this.textVisualBoundsByLayerId.clear();
+    this.textSnapshotListenersByLayerId.clear();
     this.textSnapshotKeysByLayerId.clear();
     this.textSnapshotBleedByLayerId.clear();
     this.lastTextPlaybackObservationAtByLayerId.clear();
@@ -553,6 +584,66 @@ export class NativeRasterBridge {
     layerId: string,
   ): NativeRasterLayerSnapshot | undefined {
     return this.textSnapshotsByLayerId.get(layerId);
+  }
+
+  /**
+   * Gets the selection/hit-test bounds for a text layer. These deliberately
+   * exclude transparent texture safety pixels while retaining visible effects.
+   */
+  public getTextVisualSnapshot(
+    layerId: string,
+  ): NativeTextVisualSnapshot | undefined {
+    return this.textVisualSnapshotsByLayerId.get(layerId);
+  }
+
+  /** Subscribe to geometry changes for one text layer, not every preview frame. */
+  public subscribeToTextVisualSnapshot(
+    layerId: string,
+    listener: () => void,
+  ): () => void {
+    let listeners = this.textSnapshotListenersByLayerId.get(layerId);
+    if (!listeners) {
+      listeners = new Set();
+      this.textSnapshotListenersByLayerId.set(layerId, listeners);
+    }
+    listeners.add(listener);
+    return () => {
+      listeners?.delete(listener);
+      if (listeners?.size === 0) {
+        this.textSnapshotListenersByLayerId.delete(layerId);
+      }
+    };
+  }
+
+  private setTextSnapshot(
+    layerId: string,
+    value: NativeRasterLayerSnapshot,
+    visualBounds?: NonNullable<NativeTextRasterAsset["visualBounds"]>,
+  ): void {
+    this.textSnapshotsByLayerId.set(layerId, value);
+    if (visualBounds) this.textVisualBoundsByLayerId.set(layerId, visualBounds);
+
+    const localBounds = this.textVisualBoundsByLayerId.get(layerId);
+    if (!localBounds) return;
+    const displayWidth = value.displayWidth ?? value.width;
+    const displayHeight = value.displayHeight ?? value.height;
+    const visualSnapshot: NativeTextVisualSnapshot = {
+      x: value.x + localBounds.x * (displayWidth / Math.max(1, value.width)),
+      y: value.y + localBounds.y * (displayHeight / Math.max(1, value.height)),
+      displayWidth: localBounds.width * (displayWidth / Math.max(1, value.width)),
+      displayHeight: localBounds.height * (displayHeight / Math.max(1, value.height)),
+    };
+    const previous = this.textVisualSnapshotsByLayerId.get(layerId);
+    this.textVisualSnapshotsByLayerId.set(layerId, visualSnapshot);
+    if (
+      previous?.x === visualSnapshot.x &&
+      previous.y === visualSnapshot.y &&
+      previous.displayWidth === visualSnapshot.displayWidth &&
+      previous.displayHeight === visualSnapshot.displayHeight
+    ) {
+      return;
+    }
+    this.textSnapshotListenersByLayerId.get(layerId)?.forEach((listener) => listener());
   }
 
   /**
@@ -641,6 +732,8 @@ export class NativeRasterBridge {
             layer.clipKind === "text-template" || Boolean(layer.templateId);
           const isEffect = Boolean(layer.styleId);
           const isTemplateOrEffect = isTemplate || isEffect;
+          const isExpandedPlainText =
+            Boolean(bleed?.expandedPointText) && !isTemplateOrEffect;
           const isContentBoundedTemplate =
             isTemplate && !bleed?.bleedX && !bleed?.bleedY;
           const baseW = isContentBoundedTemplate
@@ -649,8 +742,16 @@ export class NativeRasterBridge {
           const baseH = isContentBoundedTemplate
             ? (layer as { baseHeight?: number }).baseHeight || texH
             : bleed?.baseHeight ?? (layer as { baseHeight?: number }).baseHeight ?? layer.height;
-          const scaleX = baseW > 0 ? layer.width / baseW : 1;
-          const scaleY = baseH > 0 ? layer.height / baseH : 1;
+          const scaleX = isExpandedPlainText
+            ? 1
+            : baseW > 0
+              ? layer.width / baseW
+              : 1;
+          const scaleY = isExpandedPlainText
+            ? 1
+            : baseH > 0
+              ? layer.height / baseH
+              : 1;
           const displayWidth = isContentBoundedTemplate
             ? layer.width
             : texW * scaleX;
@@ -663,16 +764,28 @@ export class NativeRasterBridge {
             displayHeight,
             x:
               bleed?.positionMode === "absolute"
-                ? isTemplateOrEffect && typeof layer.x === "number"
-                  ? layer.x + (bleed.bleedX ?? 0) * scaleX
+                ? typeof layer.x === "number"
+                  ? isExpandedPlainText
+                    // A recovered point-text raster is larger than the stale
+                    // authored box, but its cached offset remains relative to
+                    // that box. Reapply it every frame so transforms never
+                    // leave the visible text behind its selection overlay.
+                    ? layer.x + (bleed.bleedX ?? 0)
+                    : isTemplateOrEffect
+                      ? layer.x + (bleed.bleedX ?? 0) * scaleX
+                      : previous.x
                   : previous.x
                 : typeof layer.x === "number"
                   ? layer.x + (layer.width - displayWidth) / 2
                   : previous.x,
             y:
               bleed?.positionMode === "absolute"
-                ? isTemplateOrEffect && typeof layer.y === "number"
-                  ? layer.y + (bleed.bleedY ?? 0) * scaleY
+                ? typeof layer.y === "number"
+                  ? isExpandedPlainText
+                    ? layer.y + (bleed.bleedY ?? 0)
+                    : isTemplateOrEffect
+                      ? layer.y + (bleed.bleedY ?? 0) * scaleY
+                      : previous.y
                   : previous.y
                 : typeof layer.y === "number"
                   ? layer.y + (layer.height - displayHeight) / 2
@@ -692,7 +805,7 @@ export class NativeRasterBridge {
                 ? layer.blendMode
                 : previous.blendMode,
           };
-          this.textSnapshotsByLayerId.set(layer.layerId, updatedSnapshot);
+          this.setTextSnapshot(layer.layerId, updatedSnapshot);
           results.push(updatedSnapshot);
         }
       }
@@ -713,6 +826,8 @@ export class NativeRasterBridge {
         layer.clipKind === "text-template" || Boolean(layer.templateId);
       const isEffect = Boolean(layer.styleId);
       const isTemplateOrEffect = isTemplate || isEffect;
+      const isExpandedPlainText =
+        Boolean(asset.expandedPointText) && !isTemplateOrEffect;
       const isContentBoundedTemplate =
         isTemplate && !asset.bleedX && !asset.bleedY;
       const baseW = isContentBoundedTemplate
@@ -721,8 +836,16 @@ export class NativeRasterBridge {
       const baseH = isContentBoundedTemplate
         ? (layer as { baseHeight?: number }).baseHeight || texH
         : (layer as { baseHeight?: number }).baseHeight ?? layer.height;
-      const scaleX = baseW > 0 ? layer.width / baseW : 1;
-      const scaleY = baseH > 0 ? layer.height / baseH : 1;
+      const scaleX = isExpandedPlainText
+        ? 1
+        : baseW > 0
+          ? layer.width / baseW
+          : 1;
+      const scaleY = isExpandedPlainText
+        ? 1
+        : baseH > 0
+          ? layer.height / baseH
+          : 1;
       const displayWidth = isContentBoundedTemplate
         ? layer.width
         : texW * scaleX;
@@ -735,16 +858,28 @@ export class NativeRasterBridge {
         displayHeight,
         x:
           asset.positionMode === "absolute"
-            ? isTemplateOrEffect && typeof layer.x === "number"
-              ? layer.x + (asset.bleedX ?? 0) * scaleX
+            ? typeof layer.x === "number"
+              ? isExpandedPlainText
+                // Point text expands its texture beyond the authored box.
+                // Its cached bleed is an unscaled placement offset, so a
+                // strict interactive raster must follow the current layer
+                // coordinates just like the non-blocking snapshot path.
+                ? layer.x + (asset.bleedX ?? 0)
+                : isTemplateOrEffect
+                  ? layer.x + (asset.bleedX ?? 0) * scaleX
+                  : asset.x
               : asset.x
             : typeof layer.x === "number"
               ? layer.x + (layer.width - displayWidth) / 2
               : asset.x,
         y:
           asset.positionMode === "absolute"
-            ? isTemplateOrEffect && typeof layer.y === "number"
-              ? layer.y + (asset.bleedY ?? 0) * scaleY
+            ? typeof layer.y === "number"
+              ? isExpandedPlainText
+                ? layer.y + (asset.bleedY ?? 0)
+                : isTemplateOrEffect
+                  ? layer.y + (asset.bleedY ?? 0) * scaleY
+                  : asset.y
               : asset.y
             : typeof layer.y === "number"
               ? layer.y + (layer.height - displayHeight) / 2
@@ -761,7 +896,7 @@ export class NativeRasterBridge {
       };
       await this.register(positioned);
       const result = snapshot(positioned);
-      this.textSnapshotsByLayerId.set(layer.layerId, result);
+      this.setTextSnapshot(layer.layerId, result, asset.visualBounds);
       // if (layer.clipKind === "text-template" || Boolean(layer.templateId)) {
       //   console.log("[NativeRasterBridge:TemplateSnapshotRegistered]", {
       //     layerId: layer.layerId,
@@ -779,6 +914,7 @@ export class NativeRasterBridge {
         bleedX: asset.bleedX ?? 0,
         bleedY: asset.bleedY ?? 0,
         positionMode: asset.positionMode ?? "centered",
+        expandedPointText: asset.expandedPointText,
         baseWidth: (layer as { baseWidth?: number }).baseWidth ?? layer.width,
         baseHeight: (layer as { baseHeight?: number }).baseHeight ?? layer.height,
       });
@@ -968,6 +1104,8 @@ export class NativeRasterBridge {
       Boolean(input.layer.templateId);
     const isEffect = Boolean(input.layer.styleId);
     const isTemplateOrEffect = isTemplate || isEffect;
+    const isExpandedPlainText =
+      Boolean(asset.expandedPointText) && !isTemplateOrEffect;
     const isContentBoundedTemplate =
       isTemplate && !asset.bleedX && !asset.bleedY;
     const baseW = isContentBoundedTemplate
@@ -978,8 +1116,16 @@ export class NativeRasterBridge {
       ? (input.layer as { baseHeight?: number }).baseHeight || asset.height
       : (input.layer as { baseHeight?: number }).baseHeight ??
         input.layer.height;
-    const scaleX = baseW > 0 ? input.layer.width / baseW : 1;
-    const scaleY = baseH > 0 ? input.layer.height / baseH : 1;
+    const scaleX = isExpandedPlainText
+      ? 1
+      : baseW > 0
+        ? input.layer.width / baseW
+        : 1;
+    const scaleY = isExpandedPlainText
+      ? 1
+      : baseH > 0
+        ? input.layer.height / baseH
+        : 1;
     const displayWidth = isContentBoundedTemplate
       ? input.layer.width
       : asset.width * scaleX;
@@ -993,7 +1139,11 @@ export class NativeRasterBridge {
       displayHeight,
       x: (() => {
         if (asset.positionMode === "absolute") {
-          return isTemplateOrEffect && typeof input.layer.x === "number"
+          if (typeof input.layer.x !== "number") return asset.x;
+          if (isExpandedPlainText) {
+            return input.layer.x + (asset.bleedX ?? 0);
+          }
+          return isTemplateOrEffect
             ? input.layer.x + (asset.bleedX ?? 0) * scaleX
             : asset.x;
         }
@@ -1002,7 +1152,11 @@ export class NativeRasterBridge {
       })(),
       y: (() => {
         if (asset.positionMode === "absolute") {
-          return isTemplateOrEffect && typeof input.layer.y === "number"
+          if (typeof input.layer.y !== "number") return asset.y;
+          if (isExpandedPlainText) {
+            return input.layer.y + (asset.bleedY ?? 0);
+          }
+          return isTemplateOrEffect
             ? input.layer.y + (asset.bleedY ?? 0) * scaleY
             : asset.y;
         }
@@ -1026,12 +1180,17 @@ export class NativeRasterBridge {
           ? input.layer.blendMode
           : asset.blendMode,
     };
-    this.textSnapshotsByLayerId.set(input.layer.layerId, snapshot(positioned));
+    this.setTextSnapshot(
+      input.layer.layerId,
+      snapshot(positioned),
+      asset.visualBounds,
+    );
     this.textSnapshotKeysByLayerId.set(input.layer.layerId, input.key);
     this.textSnapshotBleedByLayerId.set(input.layer.layerId, {
       bleedX: asset.bleedX ?? 0,
       bleedY: asset.bleedY ?? 0,
       positionMode: asset.positionMode ?? "centered",
+      expandedPointText: asset.expandedPointText,
       baseWidth: (input.layer as { baseWidth?: number }).baseWidth ?? input.layer.width,
       baseHeight: (input.layer as { baseHeight?: number }).baseHeight ?? input.layer.height,
     });

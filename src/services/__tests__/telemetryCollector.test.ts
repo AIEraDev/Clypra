@@ -462,6 +462,49 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
     );
   });
 
+  it("rolls up text raster overflow and underline use without recording text content", () => {
+    const sessionId = "text-geometry-test";
+    telemetryCollector.recordTextRender({
+      kind: "plain",
+      rendererPath: "native-raster",
+      phase: "interactive-preview",
+      sessionId,
+      totalTimeUs: 2_000,
+      outputPixels: 120_000,
+      overflowX: 84,
+      overflowY: 6,
+      authoredLayoutWidth: 160,
+      authoredLayoutHeight: 80,
+      rasterWidth: 420,
+      rasterHeight: 180,
+      textDecoration: "underline",
+    });
+
+    const accumulators = (telemetryCollector as unknown as {
+      textAccumulators: Map<string, { windowStartMs: number }>;
+    }).textAccumulators;
+    const accumulator = Array.from(accumulators.entries()).find(([key]) =>
+      key.includes(sessionId),
+    )?.[1];
+    expect(accumulator).toBeDefined();
+    if (!accumulator) throw new Error("text telemetry accumulator missing");
+    accumulator.windowStartMs -= 6_000;
+    telemetryCollector.flushTextWindowsIfPending();
+
+    const event = (telemetryCollector as any).queue[0];
+    expect(event.textMetrics).toMatchObject({
+      overflowRenderCount: 1,
+      maxOverflowX: 84,
+      maxOverflowY: 6,
+      maxAuthoredLayoutWidth: 160,
+      maxAuthoredLayoutHeight: 80,
+      maxRasterWidth: 420,
+      maxRasterHeight: 180,
+      underlineRenderCount: 1,
+    });
+    expect(event.textMetrics).not.toHaveProperty("text");
+  });
+
   it("records canvas drag text interaction with unattributed stage coverage", () => {
     telemetryCollector.recordTextInteraction({
       kind: "plain",

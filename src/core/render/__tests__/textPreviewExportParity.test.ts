@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  defaultConfig as engineDefaultConfig,
+  type TextEffectConfig,
+} from "@clypra-studio/engine";
 import type { EvaluatedScene, EvaluatedTextLayer } from "@/core/evaluation/types";
 
 const { mockRegisterRaster } = vi.hoisted(() => ({
@@ -24,12 +28,20 @@ vi.mock("@/features/stickers/cache/stickerCache", () => ({
   }),
 }));
 
-import { rasterizeTextLayerForNative, paintTextLayersToCanvas } from "@/components/editor/preview/nativeTextPreview";
+import {
+  _clearTextLayoutMetricsCache,
+  buildNativeTextLayoutKey,
+  getCachedLayoutMetrics,
+  paintTextLayersToCanvas,
+  rasterizeTextLayerForNative,
+} from "@/components/editor/preview/nativeTextPreview";
 import { NativeRasterBridge } from "@/core/render/nativeRasterBridge";
+import { renderTextUnderline } from "@/core/render/textRasterizer";
 
 describe("PRV-02: Text Preview / Export Parity", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    _clearTextLayoutMetricsCache();
   });
 
   const sampleTextLayer: EvaluatedTextLayer = {
@@ -124,5 +136,108 @@ describe("PRV-02: Text Preview / Export Parity", () => {
     canvas.height = 1080;
 
     await expect(paintTextLayersToCanvas(canvas, sampleScene)).resolves.not.toThrow();
+  });
+
+  it("CLY-TEXT-014: expands a stale centered point-text box without moving its visual center", () => {
+    const staleLayer: EvaluatedTextLayer = {
+      ...sampleTextLayer,
+      text: "THE BEGINNING OF SNOW",
+      fontFamily: "Raleway",
+      fontStyle: "italic",
+      fontSize: 96,
+      width: 160,
+      height: 80,
+      baseWidth: 160,
+      baseHeight: 80,
+      textAlign: "center",
+      verticalAlign: "middle",
+    };
+
+    const layout = getCachedLayoutMetrics(
+      staleLayer,
+      buildNativeTextLayoutKey(staleLayer),
+    );
+
+    expect(layout.baseWidth).toBeGreaterThan(staleLayer.width);
+    expect(layout.rasterWidth).toBeGreaterThan(staleLayer.width);
+    // Extra allocation grows equally around a centered anchor, preventing
+    // either side of an italic title from being silently cropped.
+    expect(layout.originOffsetX).toBeCloseTo(
+      -(layout.baseWidth - staleLayer.width) / 2,
+    );
+  });
+
+  it("CLY-TEXT-016: native upload preserves an expanded point-text raster at authored size", async () => {
+    const staleLayer: EvaluatedTextLayer = {
+      ...sampleTextLayer,
+      text: "THE BEGINNING OF SNOW",
+      fontFamily: "Raleway",
+      fontStyle: "italic",
+      fontSize: 96,
+      width: 160,
+      height: 80,
+      baseWidth: 160,
+      baseHeight: 80,
+      textAlign: "center",
+      verticalAlign: "middle",
+    };
+    const direct = await rasterizeTextLayerForNative(staleLayer);
+    const bridge = new NativeRasterBridge();
+    const rasters = await bridge.rasterize(
+      { ...sampleScene, visualLayers: [staleLayer] },
+      { frameKey: 0 },
+    );
+
+    expect(rasters).toHaveLength(1);
+    expect(rasters[0]!.displayWidth ?? rasters[0]!.width).toBe(direct.width);
+    expect(rasters[0]!.displayHeight ?? rasters[0]!.height).toBe(direct.height);
+    expect(rasters[0]!.x).toBeCloseTo(direct.x, 2);
+    expect(rasters[0]!.y).toBeCloseTo(direct.y, 2);
+
+    // Playback must reuse immutable pixels while applying the newest transform
+    // to the visual quad. Before CLY-TEXT-017, the absolute expanded-raster
+    // branch retained the stale x/y from the first upload.
+    const movedLayer = { ...staleLayer, x: staleLayer.x + 240, y: staleLayer.y + 90 };
+    const moved = await bridge.rasterize(
+      { ...sampleScene, visualLayers: [movedLayer] },
+      { frameKey: 1, phase: "visible-playback", nonBlockingText: true },
+    );
+    expect(moved).toHaveLength(1);
+    expect(moved[0]!.x).toBeCloseTo(rasters[0]!.x + 240, 2);
+    expect(moved[0]!.y).toBeCloseTo(rasters[0]!.y + 90, 2);
+    bridge.dispose();
+  });
+
+  it("CLY-TEXT-015: issues underline strokes for every explicit line only when enabled", () => {
+    const stroke = vi.fn();
+    const context = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      stroke,
+      measureText: vi.fn(() => ({ width: 100 })),
+    } as unknown as CanvasRenderingContext2D;
+    const config: TextEffectConfig = {
+      ...engineDefaultConfig,
+      canvasWidth: 600,
+      canvasHeight: 120,
+      fontSize: 48,
+      fontFamily: "Inter",
+      fontWeight: 700,
+      fontStyle: "normal",
+      lineHeight: 1.2,
+      letterSpacing: 0,
+      textPosX: "center",
+      textPosY: "middle",
+    };
+
+    renderTextUnderline(context, { ...sampleTextLayer, text: "One\nTwo", textDecoration: "underline" }, config);
+    expect(stroke).toHaveBeenCalledTimes(2);
+
+    stroke.mockClear();
+    renderTextUnderline(context, { ...sampleTextLayer, textDecoration: "none" }, config);
+    expect(stroke).not.toHaveBeenCalled();
   });
 });

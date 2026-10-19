@@ -94,6 +94,75 @@ function buildPlainTextEffectConfig(layer: EvaluatedTextLayer, offW: number, off
   } as TextEffectConfig;
 }
 
+/**
+ * The Studio engine owns glyph drawing but does not currently model text
+ * decoration. Keep decoration in this shared raster path so native preview,
+ * browser preview, and export receive identical pixels.
+ */
+export function renderTextUnderline(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  layer: EvaluatedTextLayer,
+  config: TextEffectConfig,
+): void {
+  if (layer.textDecoration !== "underline") return;
+
+  const canvasWidth = Math.max(1, Number(config.canvasWidth) || 1);
+  const canvasHeight = Math.max(1, Number(config.canvasHeight) || 1);
+  const panelEnabled = Boolean(config.panelEnabled);
+  const safeX = panelEnabled
+    ? (Number(config.panelPaddingX) || 40) + 16
+    : Math.min(48, canvasWidth * 0.06);
+  const safeY = panelEnabled
+    ? (Number(config.panelPaddingY) || 20) + 16
+    : Math.min(40, canvasHeight * 0.1);
+  const safeWidth = Math.max(40, canvasWidth - safeX * 2);
+  const safeHeight = Math.max(24, canvasHeight - safeY * 2);
+  const fontSize = Math.max(1, Number(config.fontSize) || layer.fontSize);
+  const lineHeight = Number(config.lineHeight) || 1.2;
+  const letterSpacing = Number(config.letterSpacing) || 0;
+  const lines = layer.text.split("\n");
+  const textBlockHeight =
+    lines.length === 1
+      ? fontSize
+      : (lines.length - 1) * fontSize * lineHeight + fontSize;
+  const vertical = config.textPosY === "top"
+    ? safeY + fontSize * 0.85
+    : config.textPosY === "bottom"
+      ? safeY + safeHeight - textBlockHeight + fontSize * 0.85
+      : safeY + (safeHeight - textBlockHeight) / 2 + fontSize * 0.85;
+  const align = config.textPosX === "left"
+    ? "left"
+    : config.textPosX === "right"
+      ? "right"
+      : "center";
+  const anchorX = align === "left"
+    ? safeX
+    : align === "right"
+      ? safeX + safeWidth
+      : safeX + safeWidth / 2;
+
+  ctx.save();
+  ctx.font = `${config.fontStyle ?? "normal"} ${config.fontWeight ?? "400"} ${fontSize}px "${config.fontFamily ?? layer.fontFamily}"`;
+  ctx.strokeStyle = layer.color;
+  ctx.lineWidth = Math.max(1, fontSize * 0.055);
+  ctx.lineCap = "butt";
+  for (const [index, line] of lines.entries()) {
+    const lineWidth =
+      ctx.measureText(line).width + Math.max(0, line.length - 1) * letterSpacing;
+    const startX = align === "left"
+      ? anchorX
+      : align === "right"
+        ? anchorX - lineWidth
+        : anchorX - lineWidth / 2;
+    const y = vertical + index * fontSize * lineHeight + Math.max(1, fontSize * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(startX, y);
+    ctx.lineTo(startX + lineWidth, y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function templateControlValues(layer: EvaluatedTextLayer, artifact: ReturnType<typeof resolveTextTemplateArtifact>): Record<string, unknown> {
   return resolveTemplateControlValues(artifact, {
     customization: layer.customization,
@@ -479,6 +548,7 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
       source: sceneDoc,
       context: { environment: "editor", time: layer.time ?? 0, width: unscaledOffW, height: unscaledOffH },
     });
+    renderTextUnderline(offCtx, layer, engineConfig);
 
     // Build a compact key from the inputs that determine rendered pixels.
     // Avoids importing buildNativeTextRasterKey (cycle risk) while still
@@ -509,6 +579,7 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
         source: fallbackSceneDoc,
         context: { environment: "editor", time: layer.time ?? 0, width: unscaledOffW, height: unscaledOffH },
       });
+      renderTextUnderline(offCtx, layer, fallbackConfig);
     }
     // Draw the unscaled offscreen canvas scaled down to the preview resolution.
     // Source rect: full unscaled canvas

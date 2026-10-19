@@ -9,7 +9,10 @@ import {
   resolveNativeTextEffectDefinition,
   _clearBrowserTextRasterCache,
   _getBrowserTextRasterPromise,
+  getBrowserTextVisualSnapshot,
+  measureVisibleAlphaBounds,
   _seedBrowserTextRasterCache,
+  subscribeToBrowserTextVisualSnapshot,
 } from "../nativeTextPreview";
 
 function makeTextLayer(
@@ -56,6 +59,23 @@ function scene_for_layer(layer: ReturnType<typeof makeTextLayer>) {
 describe("native text raster compatibility", () => {
   beforeEach(() => {
     useEffectsStore.setState({ definitions: {} });
+  });
+
+  it("CLY-BUG-022: excludes transparent raster safety padding from selection geometry", () => {
+    // A 7×5 texture with a 3×2 visible glyph area starting at (2, 1).
+    const rgba = new Uint8ClampedArray(7 * 5 * 4);
+    for (let y = 1; y <= 2; y += 1) {
+      for (let x = 2; x <= 4; x += 1) {
+        rgba[(y * 7 + x) * 4 + 3] = 255;
+      }
+    }
+
+    expect(measureVisibleAlphaBounds(rgba, 7, 5)).toEqual({
+      x: 2,
+      y: 1,
+      width: 3,
+      height: 2,
+    });
   });
 
   it("keeps identical Clypra Studio inputs cache-stable", () => {
@@ -521,10 +541,19 @@ describe("browser preview blend mode painting", () => {
       positionMode: "absolute" as const,
       bleedX: assetX - layer.x, // = -5
       bleedY: assetY - layer.y, // = -10
+      // The selection snapshot must exclude this transparent safety margin.
+      visualBounds: { x: 15, y: 10, width: 170, height: 30 },
     } as any;
 
     const rasterKey = buildNativeTextRasterKey(layer);
     _seedBrowserTextRasterCache(rasterKey, prebuiltAsset);
+    let visualSnapshotChanges = 0;
+    const unsubscribeVisualSnapshot = subscribeToBrowserTextVisualSnapshot(
+      layer.layerId,
+      () => {
+        visualSnapshotChanges += 1;
+      },
+    );
 
     // Also make createImageData / putImageData available (jsdom provides these)
     await paintTextLayersToCanvas(
@@ -538,6 +567,14 @@ describe("browser preview blend mode painting", () => {
     expect(ctx.translate).toHaveBeenCalled();
     expect(translatedX).toBe(195);
     expect(translatedY).toBe(215);
+    expect(getBrowserTextVisualSnapshot(layer.layerId)).toEqual({
+      x: assetX + 15,
+      y: assetY + 10,
+      displayWidth: 170,
+      displayHeight: 30,
+    });
+    expect(visualSnapshotChanges).toBe(1);
+    unsubscribeVisualSnapshot();
   });
 
   it("CLY-BUG-006 (regression): non-absolute layers still use layer.x/y for center calculation", async () => {
