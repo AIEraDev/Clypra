@@ -252,6 +252,7 @@ fn pixel_to_ndc_transform(
         scale_x: w / canvas_w,
         scale_y: h / canvas_h,
         rotation_rad: 0.0,
+        canvas_aspect_ratio: canvas_w / canvas_h,
     }
 }
 

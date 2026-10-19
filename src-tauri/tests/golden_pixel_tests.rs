@@ -124,6 +124,7 @@ async fn test_golden_multi_track_alpha_stacking() {
         scale_x: 0.8,
         scale_y: 0.8,
         rotation_rad: 0.0,
+        canvas_aspect_ratio: 1.0,
     };
 
     let layers = vec![bg_layer, fg_layer];

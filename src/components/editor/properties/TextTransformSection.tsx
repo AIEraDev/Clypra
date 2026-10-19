@@ -100,7 +100,13 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
     [textClip.visualKeyframes, localTime],
   );
 
-  const allKfState = getKeyframeState(["x", "y", "width", "height", "rotation"]);
+  const allKfState = getKeyframeState([
+    "x",
+    "y",
+    "width",
+    "height",
+    "rotation",
+  ]);
   const scaleKfState = getKeyframeState(["width", "height"]);
   const posKfState = getKeyframeState(["x", "y"]);
   const rotKfState = getKeyframeState(["rotation"]);
@@ -142,7 +148,12 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
   );
 
   const handleToggleMultiKeyframe = useCallback(
-    (pairs: { prop: "x" | "y" | "width" | "height" | "rotation"; value: number }[]) => {
+    (
+      pairs: {
+        prop: "x" | "y" | "width" | "height" | "rotation";
+        value: number;
+      }[],
+    ) => {
       const roundedTime = Math.round(localTime * 100) / 100;
       const hasAnyAtTime = pairs.some(({ prop }) => {
         const kfs = textClip.visualKeyframes?.[prop] || [];
@@ -237,7 +248,16 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
         Object.entries(updates).forEach(([k, v]) => handleUpdate(k, v));
       }
     },
-    [baseWidth, baseHeight, uniformScale, currentHeight, centerX, centerY, handleUpdateMultiple, handleUpdate],
+    [
+      baseWidth,
+      baseHeight,
+      uniformScale,
+      currentHeight,
+      centerX,
+      centerY,
+      handleUpdateMultiple,
+      handleUpdate,
+    ],
   );
 
   // ── Position Handlers (X / Y relative to center) ─────────────────────────
@@ -363,7 +383,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
           </button>
 
           {/* Group Keyframe Controls < ◇ > */}
-          <InlineKeyframeNav
+          {/* <InlineKeyframeNav
             state={allKfState}
             onToggle={() =>
               handleToggleMultiKeyframe([
@@ -387,7 +407,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
               )
             }
             label="Transform"
-          />
+          /> */}
         </div>
       </div>
 
@@ -442,7 +462,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
               </div>
 
               {/* Scale Keyframe < ◇ > */}
-              <InlineKeyframeNav
+              {/* <InlineKeyframeNav
                 state={scaleKfState}
                 onToggle={() =>
                   handleToggleMultiKeyframe([
@@ -453,7 +473,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
                 onPrev={() => handleJumpToKeyframe(["width", "height"], "prev")}
                 onNext={() => handleJumpToKeyframe(["width", "height"], "next")}
                 label="Scale"
-              />
+              /> */}
             </div>
           </div>
 
@@ -497,7 +517,9 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
                   <input
                     type="number"
                     value={displayX}
-                    onChange={(e) => handleDisplayXChange(Number(e.target.value))}
+                    onChange={(e) =>
+                      handleDisplayXChange(Number(e.target.value))
+                    }
                     className="w-full bg-transparent text-center text-white outline-none"
                   />
                   <div className="flex flex-col text-[8px] text-[#8e8e93] leading-[6px]">
@@ -526,7 +548,9 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
                   <input
                     type="number"
                     value={displayY}
-                    onChange={(e) => handleDisplayYChange(Number(e.target.value))}
+                    onChange={(e) =>
+                      handleDisplayYChange(Number(e.target.value))
+                    }
                     className="w-full bg-transparent text-center text-white outline-none"
                   />
                   <div className="flex flex-col text-[8px] text-[#8e8e93] leading-[6px]">
@@ -549,7 +573,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
               </div>
 
               {/* Position Keyframe < ◇ > */}
-              <InlineKeyframeNav
+              {/* <InlineKeyframeNav
                 state={posKfState}
                 onToggle={() =>
                   handleToggleMultiKeyframe([
@@ -560,7 +584,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
                 onPrev={() => handleJumpToKeyframe(["x", "y"], "prev")}
                 onNext={() => handleJumpToKeyframe(["x", "y"], "next")}
                 label="Position"
-              />
+              /> */}
             </div>
           </div>
 
@@ -632,7 +656,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
               </div>
 
               {/* Rotation Keyframe < ◇ > */}
-              <InlineKeyframeNav
+              {/* <InlineKeyframeNav
                 state={rotKfState}
                 onToggle={() =>
                   handleUpdatePropertyWithKeyframe(
@@ -643,7 +667,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
                 onPrev={() => handleJumpToKeyframe(["rotation"], "prev")}
                 onNext={() => handleJumpToKeyframe(["rotation"], "next")}
                 label="Plane rotation"
-              />
+              /> */}
             </div>
           </div>
 
@@ -656,7 +680,11 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
               className="p-1 rounded hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
               title={t("properties.transform.alignLeft") || "Align left"}
             >
-              <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="1.5">
+              <svg
+                viewBox="0 0 16 16"
+                className="w-3.5 h-3.5 fill-none stroke-current"
+                strokeWidth="1.5"
+              >
                 <path d="M2 2v12M14 8H6M9 5l-3 3 3 3" />
               </svg>
             </button>
@@ -666,9 +694,16 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
               type="button"
               onClick={alignCenterX}
               className="p-1 rounded hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
-              title={t("properties.transform.alignCenterX") || "Align center horizontally"}
+              title={
+                t("properties.transform.alignCenterX") ||
+                "Align center horizontally"
+              }
             >
-              <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="1.5">
+              <svg
+                viewBox="0 0 16 16"
+                className="w-3.5 h-3.5 fill-none stroke-current"
+                strokeWidth="1.5"
+              >
                 <path d="M8 2v12M3 8h10M5 6l-2 2 2 2M11 6l2 2-2 2" />
               </svg>
             </button>
@@ -680,7 +715,11 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
               className="p-1 rounded hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
               title={t("properties.transform.alignRight") || "Align right"}
             >
-              <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="1.5">
+              <svg
+                viewBox="0 0 16 16"
+                className="w-3.5 h-3.5 fill-none stroke-current"
+                strokeWidth="1.5"
+              >
                 <path d="M14 2v12M2 8h8M7 5l3 3-3 3" />
               </svg>
             </button>
@@ -692,7 +731,11 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
               className="p-1 rounded hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
               title={t("properties.transform.alignTop") || "Align top"}
             >
-              <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="1.5">
+              <svg
+                viewBox="0 0 16 16"
+                className="w-3.5 h-3.5 fill-none stroke-current"
+                strokeWidth="1.5"
+              >
                 <path d="M2 2h12M8 14V6M5 9l3-3 3 3" />
               </svg>
             </button>
@@ -702,9 +745,16 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
               type="button"
               onClick={alignCenterY}
               className="p-1 rounded hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
-              title={t("properties.transform.alignCenterY") || "Align center vertically"}
+              title={
+                t("properties.transform.alignCenterY") ||
+                "Align center vertically"
+              }
             >
-              <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="1.5">
+              <svg
+                viewBox="0 0 16 16"
+                className="w-3.5 h-3.5 fill-none stroke-current"
+                strokeWidth="1.5"
+              >
                 <path d="M2 8h12M8 3v10M6 5l2-2 2 2M6 11l2 2 2-2" />
               </svg>
             </button>
@@ -716,7 +766,11 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
               className="p-1 rounded hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
               title={t("properties.transform.alignBottom") || "Align bottom"}
             >
-              <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="1.5">
+              <svg
+                viewBox="0 0 16 16"
+                className="w-3.5 h-3.5 fill-none stroke-current"
+                strokeWidth="1.5"
+              >
                 <path d="M2 14h12M8 2v8M5 7l3 3 3-3" />
               </svg>
             </button>
@@ -729,9 +783,16 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
               type="button"
               disabled
               className="p-1 rounded opacity-25 cursor-not-allowed"
-              title={t("properties.transform.distributeX") || "Distribute horizontally"}
+              title={
+                t("properties.transform.distributeX") ||
+                "Distribute horizontally"
+              }
             >
-              <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="1.5">
+              <svg
+                viewBox="0 0 16 16"
+                className="w-3.5 h-3.5 fill-none stroke-current"
+                strokeWidth="1.5"
+              >
                 <path d="M3 2v12M13 2v12M8 5v6" />
               </svg>
             </button>
@@ -741,9 +802,15 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
               type="button"
               disabled
               className="p-1 rounded opacity-25 cursor-not-allowed"
-              title={t("properties.transform.distributeY") || "Distribute vertically"}
+              title={
+                t("properties.transform.distributeY") || "Distribute vertically"
+              }
             >
-              <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 fill-none stroke-current" strokeWidth="1.5">
+              <svg
+                viewBox="0 0 16 16"
+                className="w-3.5 h-3.5 fill-none stroke-current"
+                strokeWidth="1.5"
+              >
                 <path d="M2 3h12M2 13h12M5 8h6" />
               </svg>
             </button>
@@ -753,4 +820,3 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
     </div>
   );
 };
-

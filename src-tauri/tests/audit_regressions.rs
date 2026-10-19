@@ -374,6 +374,7 @@ async fn test_regression_multi_track_layer_pooling() {
                     scale_x: 0.5,
                     scale_y: 0.5,
                     rotation_rad: 0.1,
+                    canvas_aspect_ratio: 1.0,
                 },
                 crop: CropMargins {
                     left: 0.1,

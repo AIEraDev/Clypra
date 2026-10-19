@@ -34,6 +34,7 @@ import { useViewportState } from "@/hooks/useViewportController";
 import { PreviewTransport } from "./PreviewTransport";
 import { useNativeSurfaceController } from "./useNativeSurfaceController";
 import { TransformOverlayMemoized as TransformOverlay } from "../transform/TransformOverlay";
+import { setActiveProgramPreviewPresenter } from "./programPreviewPresenterState";
 import { ConnectedSpatialMotionPath } from "./SpatialMotionPath";
 import { SafeOverlay } from "../viewport/SafeOverlay";
 import {
@@ -3519,6 +3520,9 @@ export const NativeProgramPreview: React.FC = () => {
           Boolean(nativeRequest) &&
           (nativePlaybackPath || pausedNativeSurfaceEligible) &&
           !qualificationForcesWebView;
+        setActiveProgramPreviewPresenter(
+          nativeDirectSurfacePath ? "native-surface" : "dom-canvas",
+        );
         if (nativeDirectSurfacePath && pendingHandoverSurfaceHide) {
           pendingHandoverSurfaceHide = false;
           if (handoverSafetyTimer !== null) {
@@ -5182,6 +5186,7 @@ export const NativeProgramPreview: React.FC = () => {
         handoverSafetyTimer = null;
       }
       pendingHandoverSurfaceHide = false;
+      setActiveProgramPreviewPresenter(null);
       if (nativeSurfaceShown) {
         nativeSurfaceShown = false;
         void hideNativeSurfaceWhenIdle().catch(() => undefined);
