@@ -284,6 +284,7 @@ mod tests {
                 scale_x: 1.0,
                 scale_y: 1.0,
                 rotation_rad: 0.0,
+                canvas_aspect_ratio: 1.0,
             },
             crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),

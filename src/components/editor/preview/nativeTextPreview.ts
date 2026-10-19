@@ -31,6 +31,7 @@ import {
   recordDynamicImport,
 } from "@/lib/playback/textMetrics";
 import { getNativeAnimatedStickerRenderer } from "./nativeStickerPreview";
+import { resolveTextPresentationGeometry } from "@/core/render/textPresentationGeometry";
 
 // ─── Module-level worker client singleton ────────────────────────────────────
 //
@@ -117,6 +118,12 @@ export interface NativeTextRasterAsset {
    * safety padding remains part of the texture, but is not selectable.
    */
   visualBounds?: { x: number; y: number; width: number; height: number };
+  /**
+   * True when the raster itself has been cropped to its selectable content.
+   * A full-texture alpha rectangle is not a trustworthy selection box for a
+   * plain title because it may still include layout slack from point text.
+   */
+  selectionBoundsTight?: boolean;
   /** Internal timing carried to the WebView painter; never sent to Native. */
   timing?: {
     phase: TextRenderTracePhase;
@@ -177,6 +184,11 @@ export interface TextVisualSnapshot {
   y: number;
   displayWidth: number;
   displayHeight: number;
+  /** Canvas-space pivot used by the canvas renderer for this texture. */
+  pivotX: number;
+  pivotY: number;
+  /** Whether this geometry is known to exclude point-text layout slack. */
+  selectionBoundsTight: boolean;
 }
 
 /**
@@ -205,7 +217,10 @@ function setBrowserTextVisualSnapshot(
     previous?.x === snapshot.x &&
     previous.y === snapshot.y &&
     previous.displayWidth === snapshot.displayWidth &&
-    previous.displayHeight === snapshot.displayHeight
+    previous.displayHeight === snapshot.displayHeight &&
+    previous.pivotX === snapshot.pivotX &&
+    previous.pivotY === snapshot.pivotY &&
+    previous.selectionBoundsTight === snapshot.selectionBoundsTight
   ) {
     return;
   }
@@ -448,8 +463,6 @@ export async function paintTextLayersToCanvas(
       const centerY = isAbsolute
         ? posY + asset.height / 2
         : layer.y + layer.height / 2;
-      ctx.translate(centerX, centerY);
-      ctx.rotate((layer.rotation * Math.PI) / 180);
       const isTemplate =
         layer.clipKind === "text-template" || Boolean((layer as any).templateId);
       const isContentBoundedTemplate =
@@ -462,29 +475,41 @@ export async function paintTextLayersToCanvas(
         : (layer as { baseHeight?: number }).baseHeight ?? layer.height;
       const scaleX = baseW > 0 ? layer.width / baseW : 1;
       const scaleY = baseH > 0 ? layer.height / baseH : 1;
-      // Publish the visual (non-transparent) rectangle rather than the full
-      // raster texture. Text rasterization includes safety padding to prevent
-      // glyph clipping; that padding must never become an invisible selection
-      // margin in the DOM/canvas fallback. The transform overlay applies
-      // rotation separately, exactly as the canvas context does below.
-      const visualBounds = asset.visualBounds ?? {
-        x: 0,
-        y: 0,
-        width: asset.width,
-        height: asset.height,
-      };
       const assetX = centerX - (asset.width * scaleX) / 2;
       const assetY = centerY - (asset.height * scaleY) / 2;
+      const presentation = resolveTextPresentationGeometry(
+        {
+          x: layer.x,
+          y: layer.y,
+          width: layer.width,
+          height: layer.height,
+          rotation: layer.rotation,
+        },
+        {
+          x: assetX,
+          y: assetY,
+          width: asset.width * scaleX,
+          height: asset.height * scaleY,
+        },
+      );
+      ctx.translate(presentation.pivotX, presentation.pivotY);
+      ctx.rotate((layer.rotation * Math.PI) / 180);
       setBrowserTextVisualSnapshot(layer.layerId, {
-        x: assetX + visualBounds.x * scaleX,
-        y: assetY + visualBounds.y * scaleY,
-        displayWidth: visualBounds.width * scaleX,
-        displayHeight: visualBounds.height * scaleY,
+        x: presentation.layout.x,
+        y: presentation.layout.y,
+        displayWidth: presentation.layout.width,
+        displayHeight: presentation.layout.height,
+        pivotX: presentation.pivotX,
+        pivotY: presentation.pivotY,
+        selectionBoundsTight: false,
       });
-      if (scaleX !== 1 || scaleY !== 1) {
-        ctx.scale(scaleX, scaleY);
-      }
-      ctx.drawImage(bitmap.source, -asset.width / 2, -asset.height / 2);
+      ctx.drawImage(
+        bitmap.source,
+        presentation.drawX - presentation.pivotX,
+        presentation.drawY - presentation.pivotY,
+        presentation.drawWidth,
+        presentation.drawHeight,
+      );
       ctx.restore();
       const paintMs = performance.now() - paintStartedAt;
       if (asset.timing) {
@@ -1104,13 +1129,16 @@ export function cropTemplateAsset(
   };
 }
 
-// Legacy function kept for non-template callers (currently unused — templates
-// now use cropTemplateAsset). Retained so any future call sites compile.
-function cropTransparentBounds(
+// Crop a plain-text raster after it has been measured. Point text routinely
+// carries invisible layout slack (especially after font fallback/overflow
+// expansion); keeping that slack in the texture makes a selection box much
+// larger than the glyphs. The crop is deliberately padding-free so the
+// transform target represents the rendered content, not safety pixels.
+export function cropTransparentBounds(
   rgba: Uint8ClampedArray,
   width: number,
   height: number,
-  padding = 8,
+  padding = 0,
 ): {
   rgba: Uint8ClampedArray;
   width: number;
@@ -1484,6 +1512,14 @@ export async function rasterizeTextLayerForNative(
   const croppedTemplate = effectiveCropKey
     ? cropTemplateAsset(rgba, width, height, effectiveCropKey)
     : null;
+  const croppedPlainText =
+    !croppedTemplate &&
+    getTextRenderKind(layer) === "plain" &&
+    !layer.background &&
+    !(layer as { backgroundColor?: string }).backgroundColor
+      ? cropTransparentBounds(rgba, width, height)
+      : null;
+  const croppedAsset = croppedTemplate ?? croppedPlainText;
   const cacheKey = buildNativeTextRasterKey(layer);
   const timing = {
     phase: options.phase ?? "visible-playback",
@@ -1519,20 +1555,20 @@ export async function rasterizeTextLayerForNative(
   };
   if (!options.deferTelemetry) traceTextRenderTiming(timing);
 
-  const resolvedX = croppedTemplate
-    ? layer.x + originOffsetX - bleedX + croppedTemplate.offsetX
+  const resolvedX = croppedAsset
+    ? layer.x + originOffsetX - bleedX + croppedAsset.offsetX
     : layer.x + originOffsetX - bleedX;
-  const resolvedY = croppedTemplate
-    ? layer.y + originOffsetY - bleedY + croppedTemplate.offsetY
+  const resolvedY = croppedAsset
+    ? layer.y + originOffsetY - bleedY + croppedAsset.offsetY
     : layer.y + originOffsetY - bleedY;
   const resolvedBleedX = resolvedX - layer.x;
   const resolvedBleedY = resolvedY - layer.y;
   const expandedLayout =
     baseWidth > (layer.baseWidth ?? layer.width) ||
     baseHeight > (layer.baseHeight ?? layer.height);
-  const outputRgba = croppedTemplate?.rgba ?? rgba;
-  const outputWidth = croppedTemplate?.width ?? width;
-  const outputHeight = croppedTemplate?.height ?? height;
+  const outputRgba = croppedAsset?.rgba ?? rgba;
+  const outputWidth = croppedAsset?.width ?? width;
+  const outputHeight = croppedAsset?.height ?? height;
 
   return {
     layerId: layer.layerId,
@@ -1548,15 +1584,16 @@ export async function rasterizeTextLayerForNative(
     blendMode: layer.blendMode,
     isText: true,
     ...(isFallbackFont ? { isFallbackFont: true } : {}),
-    ...(croppedTemplate || expandedLayout
+    ...(croppedAsset || expandedLayout
       ? { positionMode: "absolute" as const }
       : {}),
-    ...(expandedLayout && !croppedTemplate
+    ...(expandedLayout
       ? { expandedPointText: true }
       : {}),
     bleedX: resolvedBleedX,
     bleedY: resolvedBleedY,
     visualBounds: measureVisibleAlphaBounds(outputRgba, outputWidth, outputHeight),
+    selectionBoundsTight: Boolean(croppedAsset),
     timing,
   };
 }

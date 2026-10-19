@@ -211,6 +211,7 @@ async fn layer_b_raster_centered_magenta_on_black() {
         scale_x: 0.5,
         scale_y: 0.5,
         rotation_rad: 0.0,
+        canvas_aspect_ratio: 1.0,
     };
 
     let result = gpu.render(&[bg, fg]).await;
@@ -235,6 +236,7 @@ async fn layer_b_raster_centered_magenta_on_black() {
         scale_x: 0.5,
         scale_y: 0.5,
         rotation_rad: 0.0,
+        canvas_aspect_ratio: 1.0,
     };
 
     let hidden_result = gpu.render(&[CompositeLayer::new(&bg_view), fg_hidden]).await;
@@ -268,6 +270,7 @@ async fn layer_b_raster_translated_position() {
         scale_x: 0.25,
         scale_y: 0.25,
         rotation_rad: 0.0,
+        canvas_aspect_ratio: 1.0,
     };
 
     let result = gpu.render(&[bg, fg]).await;
@@ -392,6 +395,7 @@ async fn layer_b_replay_determinism() {
             scale_x: 0.6,
             scale_y: 0.6,
             rotation_rad: 0.3,
+        canvas_aspect_ratio: 1.0,
         };
 
         vec![bg, fg]

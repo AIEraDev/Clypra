@@ -82,6 +82,7 @@ export function calculateTransform(
   currentMousePos: { x: number; y: number },
   constraints: TransformConstraints,
   startAngle?: number,
+  rotationPivot?: { x: number; y: number },
 ): Partial<Clip> {
   const rawDelta = {
     x: currentMousePos.x - startMousePos.x,
@@ -115,7 +116,13 @@ export function calculateTransform(
       return handleEdgeDrag(clip, handle, localDelta, constraints, cosTheta, sinTheta);
 
     case "rotate":
-      return handleRotation(clip, currentMousePos, constraints, startAngle);
+      return handleRotation(
+        clip,
+        currentMousePos,
+        constraints,
+        startAngle,
+        rotationPivot,
+      );
 
     default:
       return {};
@@ -343,10 +350,17 @@ function snapToSourceAspectIfNear(clip: Clip, width: number, height: number, con
  * @param constraints - Transform constraints
  * @param startAngle - Angle (radians) from clip center to mouse at drag start
  */
-function handleRotation(clip: Clip, mousePos: { x: number; y: number }, constraints: TransformConstraints, startAngle?: number): Partial<Clip> {
-  // Calculate clip center
-  const centerX = clip.x + clip.width / 2;
-  const centerY = clip.y + clip.height / 2;
+function handleRotation(
+  clip: Clip,
+  mousePos: { x: number; y: number },
+  constraints: TransformConstraints,
+  startAngle?: number,
+  rotationPivot?: { x: number; y: number },
+): Partial<Clip> {
+  // Raster-backed text may have a pivot outside its tight alpha rectangle.
+  // Use the presenter-supplied pivot when one was captured at pointer-down.
+  const centerX = rotationPivot?.x ?? clip.x + clip.width / 2;
+  const centerY = rotationPivot?.y ?? clip.y + clip.height / 2;
 
   // Calculate current angle from center to mouse
   const currentAngle = Math.atan2(mousePos.y - centerY, mousePos.x - centerX);

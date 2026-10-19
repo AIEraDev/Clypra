@@ -215,13 +215,13 @@ export const TextStrokeSection: React.FC<TextStrokeSectionProps> = ({
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
 
-          <InlineKeyframeNav
+          {/* <InlineKeyframeNav
             state={strokeKfState}
             onToggle={() => handleToggleKeyframe("strokeWidth", strokeWidth)}
             onPrev={() => handleJumpToKeyframe("strokeWidth", "prev")}
             onNext={() => handleJumpToKeyframe("strokeWidth", "next")}
             label="Stroke"
-          />
+          /> */}
         </div>
       </div>
 
@@ -302,7 +302,7 @@ export const TextStrokeSection: React.FC<TextStrokeSectionProps> = ({
               </div>
 
               {/* Thickness Keyframe < ◇ > */}
-              <InlineKeyframeNav
+              {/* <InlineKeyframeNav
                 state={strokeKfState}
                 onToggle={() =>
                   handleToggleKeyframe("strokeWidth", strokeWidth)
@@ -310,7 +310,7 @@ export const TextStrokeSection: React.FC<TextStrokeSectionProps> = ({
                 onPrev={() => handleJumpToKeyframe("strokeWidth", "prev")}
                 onNext={() => handleJumpToKeyframe("strokeWidth", "next")}
                 label="Thickness"
-              />
+              /> */}
             </div>
           </div>
         </div>

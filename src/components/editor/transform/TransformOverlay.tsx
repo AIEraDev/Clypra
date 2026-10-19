@@ -51,6 +51,11 @@ import { ContextMenu } from "@/components/ui/ContextMenu";
 import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
 import { forceRepaintNativeProgramPreview } from "@/components/editor/preview/NativeProgramPreview";
 import {
+  getActiveProgramPreviewPresenter,
+  subscribeToActiveProgramPreviewPresenter,
+  type ProgramPreviewPresenter,
+} from "@/components/editor/preview/programPreviewPresenterState";
+import {
   getBrowserTextVisualSnapshot,
   subscribeToBrowserTextVisualSnapshot,
 } from "@/components/editor/preview/nativeTextPreview";
@@ -296,6 +301,15 @@ export interface CanvasVisualBounds {
   y: number;
   width: number;
   height: number;
+  /**
+   * Optional canvas-space pivot supplied by a raster presenter. A tight text
+   * box can be offset within its texture, so rotating around its own centre
+   * would visibly diverge from the compositor.
+   */
+  pivotX?: number;
+  pivotY?: number;
+  /** Diagnostic-only origin; emitted once when a text transform begins. */
+  source?: "browser-tight" | "native-tight" | "authored-fallback" | "layout-box";
 }
 
 /**
@@ -363,7 +377,8 @@ export function resolveClipVisualBounds(
   clip: Clip,
   canvasWidth?: number,
   canvasHeight?: number,
-): { x: number; y: number; width: number; height: number } {
+  presenter: ProgramPreviewPresenter | null = null,
+): CanvasVisualBounds {
   let x = clip.x;
   let y = clip.y;
   let width = clip.width;
@@ -482,64 +497,19 @@ export function resolveClipVisualBounds(
     }
   }
 
-  // A point-text layer may need a larger transient raster than its persisted
-  // authored box (for example, an italic title loaded from an older project).
-  // The native compositor owns that expanded quad, so selection and hit
-  // testing must consume the same visual bounds while the raster is active.
-  // Falling back to the clip bounds before a snapshot exists keeps project
-  // persistence and browser preview semantics unchanged.
+  // Text selection is the editor layout object, never a cropped raster's ink
+  // bounds. Underline, italic overhang, and presenter switches may change the
+  // uploaded pixels, but must not change resize handles or the rotation pivot.
   if (clip.kind === "text") {
-    // The selection overlay itself requires DOM layering. When that causes the
-    // browser presenter to paint the current frame, prefer its exact painted
-    // quad over a retained native snapshot from an earlier presenter handoff.
-    const browserSnapshot = getBrowserTextVisualSnapshot(clip.id);
-    if (
-      browserSnapshot &&
-      browserSnapshot.displayWidth > 0 &&
-      browserSnapshot.displayHeight > 0
-    ) {
-      return {
-        x: browserSnapshot.x,
-        y: browserSnapshot.y,
-        width: browserSnapshot.displayWidth,
-        height: browserSnapshot.displayHeight,
-      };
-    }
-
-    const bridge = getActiveSessionOrNull()?.nativeRasterBridge;
-    const visualSnapshot = bridge?.getTextVisualSnapshot?.(clip.id);
-    if (
-      visualSnapshot &&
-      visualSnapshot.displayWidth > 0 &&
-      visualSnapshot.displayHeight > 0
-    ) {
-      return {
-        x: visualSnapshot.x,
-        y: visualSnapshot.y,
-        width: visualSnapshot.displayWidth,
-        height: visualSnapshot.displayHeight,
-      };
-    }
-
-    // Compatibility fallback for sessions created before visual snapshot
-    // metadata was available.
-    const snapshot = bridge?.getTextSnapshot(clip.id);
-    if (
-      snapshot &&
-      typeof snapshot.x === "number" &&
-      typeof snapshot.y === "number" &&
-      typeof snapshot.displayWidth === "number" &&
-      snapshot.displayWidth > 0 &&
-      typeof snapshot.displayHeight === "number" &&
-      snapshot.displayHeight > 0
-    ) {
-      return {
-        x: snapshot.x,
-        y: snapshot.y,
-        width: snapshot.displayWidth,
-        height: snapshot.displayHeight,
-      };
-    }
+    return {
+      x,
+      y,
+      width,
+      height,
+      pivotX: x + width / 2,
+      pivotY: y + height / 2,
+      source: "layout-box",
+    };
   }
 
   return { x, y, width, height };
@@ -557,10 +527,11 @@ export function resolveOverlayBaseVisualBounds(
   canvasWidth: number,
   canvasHeight: number,
   activeDragVisualBounds?: CanvasVisualBounds | null,
+  presenter: ProgramPreviewPresenter | null = null,
 ): CanvasVisualBounds {
   return (
     activeDragVisualBounds ??
-    resolveClipVisualBounds(clip, canvasWidth, canvasHeight)
+    resolveClipVisualBounds(clip, canvasWidth, canvasHeight, presenter)
   );
 }
 
@@ -799,6 +770,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
   // Keep that visual start box local to the overlay; the controller and native
   // preview must receive authored geometry only.
   const dragVisualBoundsRef = useRef<CanvasVisualBounds | null>(null);
+  /** Frozen compositor pivot for the active rotation gesture. */
+  const rotationPivotRef = useRef<{ x: number; y: number } | null>(null);
   /** Start angle (radians) for rotation drag — prevents initial snap */
   const startAngleRef = useRef<number | undefined>(undefined);
   /** Start font size for text clips — supports proportional dynamic scaling */
@@ -849,6 +822,17 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
     };
   }, [selectedClip?.id, selectedClip?.kind]);
 
+  // Presenter handoffs do not change timeline state. Subscribe to the
+  // monitor's explicit decision so a paused canvas handoff cannot retain
+  // native selection geometry until some unrelated React update happens.
+  useEffect(
+    () =>
+      subscribeToActiveProgramPreviewPresenter(() => {
+        setTextVisualSnapshotRevision((revision) => revision + 1);
+      }),
+    [],
+  );
+
   // The selection box is a signal-plane consumer. Its position and scale are
   // updated directly by the controller so pointer feedback does not require a
   // React render. React only owns the committed/base geometry.
@@ -882,6 +866,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
     );
     const unsubscribeEnd = transformController.onDragEnd(() => {
       dragVisualBoundsRef.current = null;
+      rotationPivotRef.current = null;
       setDragRotation(null);
       clearPreviewTransform();
     });
@@ -1107,6 +1092,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         selectedClip,
         canvasWidth,
         canvasHeight,
+        getActiveProgramPreviewPresenter(),
       );
       const actualWidth = visualBounds.width;
       const actualHeight = visualBounds.height;
@@ -1119,19 +1105,38 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         height: actualHeight,
       };
 
+      if (selectedClip.kind === "text") {
+        tracePlayback("text-selection-geometry", {
+          source: visualBounds.source ?? "authored",
+          width: Number(actualWidth.toFixed(2)),
+          height: Number(actualHeight.toFixed(2)),
+          pivotOffsetX: Number(
+            ((visualBounds.pivotX ?? actualX + actualWidth / 2) - actualX).toFixed(2),
+          ),
+          pivotOffsetY: Number(
+            ((visualBounds.pivotY ?? actualY + actualHeight / 2) - actualY).toFixed(2),
+          ),
+          handle,
+        });
+      }
+
       // Capture start angle for rotation handle
       if (handle === "rotate") {
-        // Rotation math is evaluated from authored clip coordinates. The
-        // selection rectangle may include native raster bleed, so using its
-        // center here would produce a non-zero angle delta on mouse-down.
-        const centerX = selectedClip.x + selectedClip.width / 2;
-        const centerY = selectedClip.y + selectedClip.height / 2;
+        // The compositor rotates the full raster texture. Preserve that pivot
+        // for the whole gesture so the tight overlay and rendered text cannot
+        // diverge when alpha bounds are offset by italic overhang or bleed.
+        const centerX = actualX + actualWidth / 2;
+        const centerY = actualY + actualHeight / 2;
+        const pivotX = visualBounds.pivotX ?? centerX;
+        const pivotY = visualBounds.pivotY ?? centerY;
+        rotationPivotRef.current = { x: pivotX, y: pivotY };
         startAngleRef.current = Math.atan2(
-          canvasCoords.y - centerY,
-          canvasCoords.x - centerX,
+          canvasCoords.y - pivotY,
+          canvasCoords.x - pivotX,
         );
       } else {
         startAngleRef.current = undefined;
+        rotationPivotRef.current = null;
       }
 
       // Capture starting font size for text clips so we can scale text dynamically
@@ -1305,6 +1310,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         canvasCoords,
         constraints,
         startAngleRef.current,
+        rotationPivotRef.current ?? undefined,
       );
 
       // Resize handles scale text size with the edited axis so the rendered text
@@ -2282,6 +2288,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
     canvasWidth,
     canvasHeight,
     isDragging ? dragVisualBoundsRef.current : null,
+    getActiveProgramPreviewPresenter(),
   );
   const actualWidth = visualBounds.width;
   const actualHeight = visualBounds.height;
@@ -2303,6 +2310,15 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
   // Calculate screen-space dimensions (accounting for scale and zoom)
   const handleDisplayWidth = actualWidth * scale * viewport.zoom;
   const handleDisplayHeight = actualHeight * scale * viewport.zoom;
+
+  const overlayPivotX =
+    ((visualBounds.pivotX ?? actualX + actualWidth / 2) - actualX) *
+    scale *
+    viewport.zoom;
+  const overlayPivotY =
+    ((visualBounds.pivotY ?? actualY + actualHeight / 2) - actualY) *
+    scale *
+    viewport.zoom;
 
   // Position transform box centered at the clip center, rotation applied via CSS transform
   const handleDisplayX = clipCenterScreen.x - handleDisplayWidth / 2;
@@ -2395,7 +2411,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
           width: handleDisplayWidth,
           height: handleDisplayHeight,
           transform: `var(--transform-overlay-drag-transform, rotate(${rotation}deg))`,
-          transformOrigin: "center",
+          // May intentionally sit outside the tight alpha rectangle. This is
+          // the same full-texture centre used by native and canvas painters.
+          transformOrigin: `${overlayPivotX}px ${overlayPivotY}px`,
           zIndex: 10,
           // While playing, only the full-overlay capture plane is active.
           // Handles and the move surface cannot begin an edit until the

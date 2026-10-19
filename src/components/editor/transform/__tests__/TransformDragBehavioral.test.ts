@@ -141,6 +141,36 @@ describe("Live move & resize transform calculations", () => {
   });
 });
 
+describe("raster-backed text rotation", () => {
+  it("CLY-TEXT-021: measures rotation from the frozen raster pivot rather than the authored box", () => {
+    const clip = {
+      ...baseVideoClip,
+      x: 400,
+      y: 300,
+      width: 160,
+      height: 80,
+      rotation: 10,
+    };
+    const constraints = getDefaultConstraints(1920, 1080, false);
+    // The visible text is offset within an expanded 840×180 raster whose
+    // compositor pivot is (540, 350), not the authored box centre (480, 340).
+    const pivot = { x: 540, y: 350 };
+    const startAngle = Math.atan2(0, 100);
+
+    const result = calculateTransform(
+      clip,
+      "rotate",
+      { x: 640, y: 350 },
+      { x: 540, y: 450 },
+      constraints,
+      startAngle,
+      pivot,
+    );
+
+    expect(result.rotation).toBe(100);
+  });
+});
+
 // ─── Text Resize Math ────────────────────────────────────────────────────────
 
 describe("Live text resizing calculations", () => {

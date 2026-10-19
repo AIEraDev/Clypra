@@ -680,6 +680,7 @@ async fn test_affine_transform_pip_placement() {
                 scale_x: 0.5,
                 scale_y: 0.5,
                 rotation_rad: 0.0,
+                canvas_aspect_ratio: 1.0,
             },
             crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
@@ -1276,6 +1277,7 @@ async fn test_burned_in_caption_preview_vs_export_pixel_parity() {
         scale_x: 0.5,
         scale_y: 0.2,
         rotation_rad: 0.0,
+        canvas_aspect_ratio: 1.0,
     };
 
     let layers = vec![

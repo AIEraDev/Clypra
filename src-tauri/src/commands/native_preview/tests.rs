@@ -152,6 +152,42 @@ use crate::filmstrip_engine::decoder::VideoColorMetadata;
         assert!((transform.scale_x - 0.5).abs() < f32::EPSILON);
         assert!((transform.scale_y - 0.5).abs() < f32::EPSILON);
         assert!((transform.rotation_rad + std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+        assert!((transform.canvas_aspect_ratio - (320.0 / 180.0)).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn raster_rotation_preserves_the_authored_screen_angle_on_a_widescreen_canvas() {
+        // Regression: rotating in NDC made -45° appear as roughly -29° on a
+        // 16:9 preview because the NDC X and Y axes have unequal pixel scales.
+        // The compositor matrix must rotate a text baseline by its authored
+        // angle in canvas pixels, matching the transform overlay.
+        let layer = super::NativeProjectSolidLayer {
+            color: [1.0, 1.0, 1.0, 1.0],
+            x: 460.0,
+            y: 300.0,
+            width: 420.0,
+            height: 80.0,
+            rotation: -45.0,
+            opacity: 1.0,
+            z_index: 0,
+            blend_mode: "normal".to_string(),
+        };
+        let canvas_width = 1920.0;
+        let canvas_height = 1080.0;
+        let matrix = project_layer_transform(&layer, canvas_width, canvas_height).to_matrix();
+
+        // The transformed local X axis is the text baseline. Convert its NDC
+        // direction to canvas pixels (NDC Y points upward) before measuring it.
+        let dx = matrix[0][0] * canvas_width;
+        let dy = -matrix[0][1] * canvas_height;
+        let visible_angle = dy.atan2(dx).to_degrees();
+
+        assert!(
+            (visible_angle - layer.rotation).abs() < 0.001,
+            "expected {}°, got {}°",
+            layer.rotation,
+            visible_angle,
+        );
     }
 
     fn text_layer_with_box(box_width: Option<f32>, box_height: Option<f32>) -> TextLayerSnapshot {

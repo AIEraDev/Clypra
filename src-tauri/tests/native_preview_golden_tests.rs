@@ -137,6 +137,7 @@ fn project_transform(x: f32, y: f32, width: f32, height: f32) -> LayerTransform 
         scale_x: width / 64.0,
         scale_y: height / 36.0,
         rotation_rad: 0.0,
+        canvas_aspect_ratio: 64.0 / 36.0,
     }
 }
 

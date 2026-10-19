@@ -240,13 +240,15 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
 
-          <InlineKeyframeNav
+          {/* <InlineKeyframeNav
             state={bgKfState}
-            onToggle={() => handleToggleKeyframe("backgroundOpacity", bgOpacity)}
+            onToggle={() =>
+              handleToggleKeyframe("backgroundOpacity", bgOpacity)
+            }
             onPrev={() => handleJumpToKeyframe("backgroundOpacity", "prev")}
             onNext={() => handleJumpToKeyframe("backgroundOpacity", "next")}
             label="Background"
-          />
+          /> */}
         </div>
       </div>
 
@@ -268,9 +270,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                   ? "border-2 border-cyan-400 shadow-sm"
                   : "border border-white/5 hover:border-white/20"
               }`}
-              title={
-                t("properties.background.styleRectangle") || "Rectangle"
-              }
+              title={t("properties.background.styleRectangle") || "Rectangle"}
             >
               <div className="w-12 h-10 rounded bg-[#38383e] flex flex-col items-center justify-center text-[8px] font-bold text-[#8e8e93] leading-3">
                 <span>ABC</span>
@@ -287,9 +287,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                   ? "border-2 border-cyan-400 shadow-sm"
                   : "border border-white/5 hover:border-white/20"
               }`}
-              title={
-                t("properties.background.styleSplit") || "Split lines"
-              }
+              title={t("properties.background.styleSplit") || "Split lines"}
             >
               <div className="flex flex-col items-center justify-center gap-0.5 text-[8px] font-bold text-[#8e8e93] leading-3">
                 <span className="bg-[#38383e] px-1.5 py-0.5 rounded-[3px]">
@@ -385,19 +383,15 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                 </div>
               </div>
 
-              <InlineKeyframeNav
+              {/* <InlineKeyframeNav
                 state={bgKfState}
                 onToggle={() =>
                   handleToggleKeyframe("backgroundOpacity", bgOpacity)
                 }
-                onPrev={() =>
-                  handleJumpToKeyframe("backgroundOpacity", "prev")
-                }
-                onNext={() =>
-                  handleJumpToKeyframe("backgroundOpacity", "next")
-                }
+                onPrev={() => handleJumpToKeyframe("backgroundOpacity", "prev")}
+                onNext={() => handleJumpToKeyframe("backgroundOpacity", "next")}
                 label="Opacity"
-              />
+              /> */}
             </div>
           </div>
 
@@ -464,19 +458,15 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                 </div>
               </div>
 
-              <InlineKeyframeNav
+              {/* <InlineKeyframeNav
                 state={getKeyframeState("backgroundRadius")}
                 onToggle={() =>
                   handleToggleKeyframe("backgroundRadius", bgRadius)
                 }
-                onPrev={() =>
-                  handleJumpToKeyframe("backgroundRadius", "prev")
-                }
-                onNext={() =>
-                  handleJumpToKeyframe("backgroundRadius", "next")
-                }
+                onPrev={() => handleJumpToKeyframe("backgroundRadius", "prev")}
+                onNext={() => handleJumpToKeyframe("backgroundRadius", "next")}
                 label="Rounded rectangle"
-              />
+              /> */}
             </div>
           </div>
 
@@ -542,7 +532,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                 </div>
               </div>
 
-              <InlineKeyframeNav
+              {/* <InlineKeyframeNav
                 state={getKeyframeState("backgroundHeight")}
                 onToggle={() =>
                   handleToggleKeyframe("backgroundHeight", bgHeight)
@@ -554,7 +544,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                   handleJumpToKeyframe("backgroundHeight", "next")
                 }
                 label="Height"
-              />
+              /> */}
             </div>
           </div>
 
@@ -620,7 +610,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                 </div>
               </div>
 
-              <InlineKeyframeNav
+              {/* <InlineKeyframeNav
                 state={getKeyframeState("backgroundWidth")}
                 onToggle={() =>
                   handleToggleKeyframe("backgroundWidth", bgWidth)
@@ -632,7 +622,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                   handleJumpToKeyframe("backgroundWidth", "next")
                 }
                 label="Width"
-              />
+              /> */}
             </div>
           </div>
 
@@ -698,7 +688,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                 </div>
               </div>
 
-              <InlineKeyframeNav
+              {/* <InlineKeyframeNav
                 state={getKeyframeState("backgroundYOffset")}
                 onToggle={() =>
                   handleToggleKeyframe("backgroundYOffset", bgYOffset)
@@ -710,7 +700,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                   handleJumpToKeyframe("backgroundYOffset", "next")
                 }
                 label="Y-offset"
-              />
+              /> */}
             </div>
           </div>
         </div>

@@ -87,6 +87,7 @@ fn layer_transform(
         scale_x: width / canvas_width,
         scale_y: height / canvas_height,
         rotation_rad: rotation.to_radians(),
+        canvas_aspect_ratio: canvas_width / canvas_height,
     }
 }
 

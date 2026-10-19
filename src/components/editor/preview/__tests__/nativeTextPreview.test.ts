@@ -12,6 +12,7 @@ import {
   getBrowserTextVisualSnapshot,
   measureVisibleAlphaBounds,
   _seedBrowserTextRasterCache,
+  cropTransparentBounds,
   subscribeToBrowserTextVisualSnapshot,
 } from "../nativeTextPreview";
 
@@ -75,6 +76,15 @@ describe("native text raster compatibility", () => {
       y: 1,
       width: 3,
       height: 2,
+    });
+
+    // CLY-TEXT-022: plain text is now physically cropped before it reaches
+    // either presenter, so a stale texture cannot recreate invisible handles.
+    expect(cropTransparentBounds(rgba, 7, 5)).toMatchObject({
+      width: 3,
+      height: 2,
+      offsetX: 2,
+      offsetY: 1,
     });
   });
 
@@ -562,16 +572,19 @@ describe("browser preview blend mode painting", () => {
       "interactive-preview",
     );
 
-    // posX = asset.x = 95, centerX = 95 + 200/2 = 195
-    // posY = asset.y = 190, centerY = 190 + 50/2 = 215
+    // The draw texture is offset, but the text object itself rotates around
+    // the evaluated layout-box center.
     expect(ctx.translate).toHaveBeenCalled();
-    expect(translatedX).toBe(195);
-    expect(translatedY).toBe(215);
+    expect(translatedX).toBe(300);
+    expect(translatedY).toBe(250);
     expect(getBrowserTextVisualSnapshot(layer.layerId)).toEqual({
-      x: assetX + 15,
-      y: assetY + 10,
-      displayWidth: 170,
-      displayHeight: 30,
+      x: layer.x,
+      y: layer.y,
+      displayWidth: layer.width,
+      displayHeight: layer.height,
+      pivotX: layer.x + layer.width / 2,
+      pivotY: layer.y + layer.height / 2,
+      selectionBoundsTight: false,
     });
     expect(visualSnapshotChanges).toBe(1);
     unsubscribeVisualSnapshot();
@@ -688,8 +701,15 @@ describe("browser preview blend mode painting", () => {
       "interactive-preview",
     );
 
-    expect(ctx.scale).toHaveBeenCalledWith(2, 2);
-    expect(scaledX).toBe(2);
-    expect(scaledY).toBe(2);
+    expect(ctx.scale).not.toHaveBeenCalled();
+    expect(scaledX).toBe(1);
+    expect(scaledY).toBe(1);
+    expect(ctx.drawImage).toHaveBeenCalledWith(
+      expect.anything(),
+      -200,
+      -50,
+      400,
+      100,
+    );
   });
 });

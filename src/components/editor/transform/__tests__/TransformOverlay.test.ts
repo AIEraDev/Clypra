@@ -80,13 +80,21 @@ describe("TransformOverlay resize policy", () => {
       height: 96,
     };
 
-    // A moved native snapshot is the correct source after a completed edit,
-    // but must not replace the selection box's base while its CSS drag delta
-    // is still active.
+    // A cropped native snapshot must never replace the editor text layout box
+    // after a completed edit; it is a draw optimisation, not transform state.
     const getActiveSession = vi
       .spyOn(ProjectSession, "getActiveSessionOrNull")
       .mockReturnValue({
         nativeRasterBridge: {
+          getTextVisualSnapshot: () => ({
+            x: 420,
+            y: 382,
+            displayWidth: 983,
+            displayHeight: 96,
+            pivotX: 911.5,
+            pivotY: 430,
+            selectionBoundsTight: true,
+          }),
           getTextSnapshot: () => ({
             x: 420,
             y: 382,
@@ -106,10 +114,13 @@ describe("TransformOverlay resize policy", () => {
     ).toEqual(pointerDownVisualBounds);
 
     expect(resolveOverlayBaseVisualBounds(clip, 1920, 1080)).toEqual({
-      x: 420,
-      y: 382,
-      width: 983,
-      height: 96,
+      x: 400,
+      y: 300,
+      width: 754,
+      height: 65,
+      pivotX: 777,
+      pivotY: 332.5,
+      source: "layout-box",
     });
 
     getActiveSession.mockRestore();
@@ -404,7 +415,7 @@ describe("resolveClipVisualBounds", () => {
     expect(bounds).toEqual({ x: 50, y: 100, width: 400, height: 300 });
   });
 
-  it("CLY-TEXT-017: follows the active expanded text snapshot instead of the stale authored box", () => {
+  it("CLY-TEXT-017: never uses an unbounded legacy texture as a plain-text selection", () => {
     const getActiveSession = vi.spyOn(ProjectSession, "getActiveSessionOrNull").mockReturnValue({
       nativeRasterBridge: {
         getTextSnapshot: vi.fn(() => ({
@@ -425,11 +436,19 @@ describe("resolveClipVisualBounds", () => {
       height: 80,
     } as any, 1920, 1080);
 
-    expect(bounds).toEqual({ x: 120, y: 84, width: 840, height: 180 });
+    expect(bounds).toEqual({
+      x: 400,
+      y: 300,
+      width: 160,
+      height: 80,
+      pivotX: 480,
+      pivotY: 340,
+      source: "layout-box",
+    });
     getActiveSession.mockRestore();
   });
 
-  it("CLY-BUG-023: prefers tight native visual bounds over transparent texture bounds", () => {
+  it("CLY-TEXT-024: keeps selection geometry on the layout box when the native texture is cropped", () => {
     const getActiveSession = vi.spyOn(ProjectSession, "getActiveSessionOrNull").mockReturnValue({
       nativeRasterBridge: {
         getTextVisualSnapshot: vi.fn(() => ({
@@ -437,6 +456,9 @@ describe("resolveClipVisualBounds", () => {
           y: 212,
           displayWidth: 704,
           displayHeight: 58,
+          pivotX: 520,
+          pivotY: 240,
+          selectionBoundsTight: true,
         })),
         getTextSnapshot: vi.fn(() => ({
           x: 120,
@@ -456,11 +478,57 @@ describe("resolveClipVisualBounds", () => {
       height: 58,
     } as any, 1920, 1080);
 
-    expect(bounds).toEqual({ x: 168, y: 212, width: 704, height: 58 });
+    expect(bounds).toEqual({
+      x: 200,
+      y: 200,
+      width: 704,
+      height: 58,
+      pivotX: 552,
+      pivotY: 229,
+      source: "layout-box",
+    });
     getActiveSession.mockRestore();
   });
 
-  it("CLY-TEXT-019: uses the DOM canvas painted quad when no native surface owns text", () => {
+  it("CLY-TEXT-023: rejects retained native text geometry after canvas handoff", () => {
+    const getActiveSession = vi.spyOn(ProjectSession, "getActiveSessionOrNull").mockReturnValue({
+      nativeRasterBridge: {
+        getTextVisualSnapshot: vi.fn(() => ({
+          x: 120,
+          y: 84,
+          displayWidth: 840,
+          displayHeight: 180,
+          pivotX: 540,
+          pivotY: 174,
+          selectionBoundsTight: true,
+        })),
+      },
+    } as never);
+
+    // The native child surface can remain visible briefly while a paused
+    // canvas handoff is pending. Its snapshot must not rotate the DOM overlay.
+    expect(
+      resolveClipVisualBounds({
+        id: "handoff-title",
+        kind: "text",
+        x: 400,
+        y: 300,
+        width: 160,
+        height: 80,
+      } as any, 1920, 1080, "dom-canvas"),
+    ).toEqual({
+      x: 400,
+      y: 300,
+      width: 160,
+      height: 80,
+      pivotX: 480,
+      pivotY: 340,
+      source: "layout-box",
+    });
+    getActiveSession.mockRestore();
+  });
+
+  it("CLY-TEXT-019: uses the same layout box when browser canvas paints text", () => {
     const getActiveSession = vi
       .spyOn(ProjectSession, "getActiveSessionOrNull")
       .mockReturnValue(null);
@@ -471,6 +539,9 @@ describe("resolveClipVisualBounds", () => {
         y: 84,
         displayWidth: 840,
         displayHeight: 180,
+        pivotX: 540,
+        pivotY: 174,
+        selectionBoundsTight: true,
       });
 
     const bounds = resolveClipVisualBounds({
@@ -482,12 +553,20 @@ describe("resolveClipVisualBounds", () => {
       height: 80,
     } as any, 1920, 1080);
 
-    expect(bounds).toEqual({ x: 120, y: 84, width: 840, height: 180 });
+    expect(bounds).toEqual({
+      x: 400,
+      y: 300,
+      width: 160,
+      height: 80,
+      pivotX: 480,
+      pivotY: 340,
+      source: "layout-box",
+    });
     getBrowserSnapshot.mockRestore();
     getActiveSession.mockRestore();
   });
 
-  it("CLY-TEXT-020: prefers the current DOM paint over a retained native handoff snapshot", () => {
+  it("CLY-TEXT-020: presenter handoff cannot change the text layout box", () => {
     const getActiveSession = vi
       .spyOn(ProjectSession, "getActiveSessionOrNull")
       .mockReturnValue({
@@ -507,6 +586,9 @@ describe("resolveClipVisualBounds", () => {
         y: 84,
         displayWidth: 840,
         displayHeight: 180,
+        pivotX: 540,
+        pivotY: 174,
+        selectionBoundsTight: true,
       });
 
     expect(
@@ -518,7 +600,15 @@ describe("resolveClipVisualBounds", () => {
         width: 160,
         height: 80,
       } as any, 1920, 1080),
-    ).toEqual({ x: 120, y: 84, width: 840, height: 180 });
+    ).toEqual({
+      x: 400,
+      y: 300,
+      width: 160,
+      height: 80,
+      pivotX: 480,
+      pivotY: 340,
+      source: "layout-box",
+    });
 
     getBrowserSnapshot.mockRestore();
     getActiveSession.mockRestore();

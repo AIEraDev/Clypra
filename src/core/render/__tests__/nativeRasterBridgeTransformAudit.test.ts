@@ -161,6 +161,40 @@ describe("NativeRasterBridge — Fix 2 transform field audit", () => {
     bridge.dispose();
   });
 
+  it("CLY-TEXT-024: rotates a cropped text texture around the evaluated layout box", async () => {
+    mocks.rasterizeText.mockResolvedValue({
+      ...BASE_ASSET,
+      width: 340,
+      height: 70,
+      x: 120,
+      y: 215,
+      positionMode: "absolute",
+      bleedX: 20,
+      bleedY: 15,
+      selectionBoundsTight: true,
+    });
+    const bridge = new NativeRasterBridge();
+
+    const [result] = await bridge.rasterize(
+      makeScene({
+        rotation: 90,
+        width: 400,
+        height: 100,
+        baseWidth: 400,
+        baseHeight: 100,
+      }),
+      { frameKey: 0, nonBlockingText: false },
+    );
+
+    // The texture's unrotated centre is (290, 250); a texture-centred native
+    // transform would leave it there. The shared presentation contract orbits
+    // that offset around the text layout centre (300, 250) instead.
+    expect(result.x).toBe(130);
+    expect(result.y).toBe(205);
+    expect(result.rotation).toBe(90);
+    bridge.dispose();
+  });
+
   // ── Path 2: Non-blocking fast path (cache hit) ──────────────────────────────
 
   it("non-blocking path (scale=1): propagates all live transform fields from the current frame", async () => {
@@ -401,6 +435,12 @@ describe("NativeRasterBridge — Fix 2 transform field audit", () => {
       y: 212,
       displayWidth: 704,
       displayHeight: 58,
+      // The tight selectable box must retain the full raster's pivot. Without
+      // it, a rotated overlay spins around the glyph bounds while the native
+      // compositor spins around the 800×120 texture.
+      pivotX: 520,
+      pivotY: 240,
+      selectionBoundsTight: true,
     });
     expect(changes).toHaveBeenCalledTimes(1);
     unsubscribe();

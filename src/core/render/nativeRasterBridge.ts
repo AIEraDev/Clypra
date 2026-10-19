@@ -44,6 +44,7 @@ import {
 } from "@/lib/playback/textMetrics";
 import { TemplateRasterizerWorkerClient } from "@/core/render/templateRasterizerWorkerClient";
 import { getFontLoader } from "@/core/fonts/FontLoader";
+import { resolveTextPresentationGeometry } from "@/core/render/textPresentationGeometry";
 
 type UploadableNativeRaster = NativeRasterLayerSnapshot & {
   /**
@@ -57,6 +58,7 @@ type UploadableNativeRaster = NativeRasterLayerSnapshot & {
   positionMode?: "centered" | "absolute";
   expandedPointText?: boolean;
   visualBounds?: NonNullable<NativeTextRasterAsset["visualBounds"]>;
+  selectionBoundsTight?: boolean;
   timing?: NativeTextRasterAsset["timing"];
 };
 
@@ -65,6 +67,14 @@ export interface NativeTextVisualSnapshot {
   y: number;
   displayWidth: number;
   displayHeight: number;
+  /**
+   * Canvas-space center of the complete raster texture. The compositor rotates
+   * around this point; a tight alpha selection must use the identical pivot.
+   */
+  pivotX: number;
+  pivotY: number;
+  /** Whether the visual rectangle is backed by a content-cropped texture. */
+  selectionBoundsTight: boolean;
 }
 
 export interface NativeRasterBridgeOptions {
@@ -152,6 +162,40 @@ function textKind(
   if (layer.background?.bubblePresetId || (layer as any).bubblePresetId)
     return "bubble";
   return "plain";
+}
+
+/**
+ * Keep a cropped texture's placement in the text object's transform space.
+ * Native raster layers rotate around their own center, so offset the draw quad
+ * around the stable evaluated layout pivot before passing it to the compositor.
+ */
+function positionTextRasterForLayout(
+  layer: NativeTextLayer,
+  raster: NativeRasterLayerSnapshot,
+): NativeRasterLayerSnapshot {
+  const displayWidth = raster.displayWidth ?? raster.width;
+  const displayHeight = raster.displayHeight ?? raster.height;
+  const geometry = resolveTextPresentationGeometry(
+    {
+      x: layer.x,
+      y: layer.y,
+      width: layer.width,
+      height: layer.height,
+      rotation: layer.rotation ?? raster.rotation,
+    },
+    {
+      x: raster.x,
+      y: raster.y,
+      width: displayWidth,
+      height: displayHeight,
+    },
+  );
+  return {
+    ...raster,
+    x: geometry.drawX,
+    y: geometry.drawY,
+    rotation: geometry.layout.rotation,
+  };
 }
 
 /**
@@ -619,6 +663,7 @@ export class NativeRasterBridge {
     layerId: string,
     value: NativeRasterLayerSnapshot,
     visualBounds?: NonNullable<NativeTextRasterAsset["visualBounds"]>,
+    selectionBoundsTight?: boolean,
   ): void {
     this.textSnapshotsByLayerId.set(layerId, value);
     if (visualBounds) this.textVisualBoundsByLayerId.set(layerId, visualBounds);
@@ -627,11 +672,22 @@ export class NativeRasterBridge {
     if (!localBounds) return;
     const displayWidth = value.displayWidth ?? value.width;
     const displayHeight = value.displayHeight ?? value.height;
+    const derivedSelectionBoundsTight =
+      localBounds.x > 0 ||
+      localBounds.y > 0 ||
+      localBounds.width < value.width ||
+      localBounds.height < value.height;
     const visualSnapshot: NativeTextVisualSnapshot = {
       x: value.x + localBounds.x * (displayWidth / Math.max(1, value.width)),
       y: value.y + localBounds.y * (displayHeight / Math.max(1, value.height)),
       displayWidth: localBounds.width * (displayWidth / Math.max(1, value.width)),
       displayHeight: localBounds.height * (displayHeight / Math.max(1, value.height)),
+      pivotX: value.x + displayWidth / 2,
+      pivotY: value.y + displayHeight / 2,
+      selectionBoundsTight:
+        selectionBoundsTight ??
+        this.textVisualSnapshotsByLayerId.get(layerId)?.selectionBoundsTight ??
+        derivedSelectionBoundsTight,
     };
     const previous = this.textVisualSnapshotsByLayerId.get(layerId);
     this.textVisualSnapshotsByLayerId.set(layerId, visualSnapshot);
@@ -639,7 +695,10 @@ export class NativeRasterBridge {
       previous?.x === visualSnapshot.x &&
       previous.y === visualSnapshot.y &&
       previous.displayWidth === visualSnapshot.displayWidth &&
-      previous.displayHeight === visualSnapshot.displayHeight
+      previous.displayHeight === visualSnapshot.displayHeight &&
+      previous.pivotX === visualSnapshot.pivotX &&
+      previous.pivotY === visualSnapshot.pivotY &&
+      previous.selectionBoundsTight === visualSnapshot.selectionBoundsTight
     ) {
       return;
     }
@@ -758,7 +817,7 @@ export class NativeRasterBridge {
           const displayHeight = isContentBoundedTemplate
             ? layer.height
             : texH * scaleY;
-          const updatedSnapshot: NativeRasterLayerSnapshot = {
+          const unrotatedSnapshot: NativeRasterLayerSnapshot = {
             ...previous,
             displayWidth,
             displayHeight,
@@ -805,6 +864,10 @@ export class NativeRasterBridge {
                 ? layer.blendMode
                 : previous.blendMode,
           };
+          const updatedSnapshot = positionTextRasterForLayout(
+            layer,
+            unrotatedSnapshot,
+          );
           this.setTextSnapshot(layer.layerId, updatedSnapshot);
           results.push(updatedSnapshot);
         }
@@ -852,7 +915,7 @@ export class NativeRasterBridge {
       const displayHeight = isContentBoundedTemplate
         ? layer.height
         : texH * scaleY;
-      const positioned = {
+      const unrotatedPositioned = {
         ...asset,
         displayWidth,
         displayHeight,
@@ -894,9 +957,15 @@ export class NativeRasterBridge {
             ? layer.blendMode
             : asset.blendMode,
       };
+      const positioned = positionTextRasterForLayout(layer, unrotatedPositioned);
       await this.register(positioned);
       const result = snapshot(positioned);
-      this.setTextSnapshot(layer.layerId, result, asset.visualBounds);
+      this.setTextSnapshot(
+        layer.layerId,
+        result,
+        asset.visualBounds,
+        asset.selectionBoundsTight,
+      );
       // if (layer.clipKind === "text-template" || Boolean(layer.templateId)) {
       //   console.log("[NativeRasterBridge:TemplateSnapshotRegistered]", {
       //     layerId: layer.layerId,
@@ -1133,7 +1202,7 @@ export class NativeRasterBridge {
       ? input.layer.height
       : asset.height * scaleY;
 
-    const positioned = {
+    const unrotatedPositioned = {
       ...asset,
       displayWidth,
       displayHeight,
@@ -1180,10 +1249,15 @@ export class NativeRasterBridge {
           ? input.layer.blendMode
           : asset.blendMode,
     };
+    const positioned = positionTextRasterForLayout(
+      input.layer,
+      unrotatedPositioned,
+    );
     this.setTextSnapshot(
       input.layer.layerId,
       snapshot(positioned),
       asset.visualBounds,
+      asset.selectionBoundsTight,
     );
     this.textSnapshotKeysByLayerId.set(input.layer.layerId, input.key);
     this.textSnapshotBleedByLayerId.set(input.layer.layerId, {
