@@ -288,5 +288,10 @@
   "properties.background.styleSplit": "Líneas divididas",
   "properties.text.speechBubbles": "Burbujas de diálogo",
   "properties.text.saveAsPreset": "Guardar como preajuste",
-  "properties.bubble.filterTooltip": "Filtrar por categoría"
+  "properties.bubble.filterTooltip": "Filtrar por categoría",
+  "preview.zoom.control": "Zoom de vista previa",
+  "preview.zoom.in": "Acercar vista previa",
+  "preview.zoom.out": "Alejar vista previa",
+  "preview.zoom.fit": "Ajustar vista previa",
+  "preview.zoom.level": "Nivel de zoom de vista previa"
 }

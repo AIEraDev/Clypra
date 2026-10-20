@@ -95,6 +95,51 @@ describe("Text Bounds Recalculation & Font Stack Resolution", () => {
       expect(updated.width!).toBeGreaterThan(shortClip.width * 3);
     });
 
+    it("CLY-TEXT-034: refreshes transformed base bounds when a multiline background changes", () => {
+      const clip = {
+        ...createTextClip({
+          trackId: "track-1",
+          startTime: 0,
+          text: "HEY GUYS,\nABDULKABIR",
+          fontSize: 96,
+          canvasWidth: 1920,
+          canvasHeight: 1080,
+        }),
+        // These are persisted after a transform drag and are used by the
+        // native preview as the unscaled geometry contract.
+        baseWidth: 320,
+        baseHeight: 120,
+      } as TextClip;
+      const transformedClip: TextClip = {
+        ...clip,
+        width: clip.baseWidth! * 3.88,
+        height: clip.baseHeight! * 3.88,
+      };
+
+      const updated = resolveTextClipStyleUpdate(
+        transformedClip,
+        {
+          background: {
+            color: "#007aff",
+            padding: 8,
+            borderRadius: 0,
+            width: 18,
+            height: 12,
+            style: "split",
+          },
+        },
+        1920,
+        1080,
+      ) as Partial<TextClip>;
+
+      expect(updated.baseWidth).toBeDefined();
+      expect(updated.baseHeight).toBeDefined();
+      expect(updated.width! / updated.baseWidth!).toBeCloseTo(3.88, 5);
+      expect(updated.height! / updated.baseHeight!).toBeCloseTo(3.88, 5);
+      expect(updated.width).toBeGreaterThan(updated.baseWidth!);
+      expect(updated.height).toBeGreaterThan(updated.baseHeight!);
+    });
+
     it("skips bounds recalculation when _skipTextBoundsRecalculation is set during live preview drag", () => {
       const clip = createTextClip({
         trackId: "track-1",

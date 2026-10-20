@@ -288,5 +288,10 @@
   "properties.background.styleSplit": "分割行",
   "properties.text.speechBubbles": "吹き出し",
   "properties.text.saveAsPreset": "プリセットとして保存",
-  "properties.bubble.filterTooltip": "カテゴリでフィルタ"
+  "properties.bubble.filterTooltip": "カテゴリでフィルタ",
+  "preview.zoom.control": "プレビューのズーム",
+  "preview.zoom.in": "プレビューを拡大",
+  "preview.zoom.out": "プレビューを縮小",
+  "preview.zoom.fit": "プレビューに合わせる",
+  "preview.zoom.level": "プレビューのズーム倍率"
 }

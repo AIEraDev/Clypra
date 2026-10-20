@@ -58,6 +58,32 @@ function scheduleProjectSaveAfterTimelineMutation(): void {
   }
 }
 
+/**
+ * Keep a valid selection through history navigation. Property undo/redo is
+ * expected to leave the same clip selected so its inspector stays available;
+ * only IDs removed by the historical snapshot are discarded.
+ */
+function reconcileSelectionAfterHistoryMutation(
+  timelineState: ReturnType<typeof useTimelineStore.getState>,
+): void {
+  try {
+    const uiState = useUIStore.getState();
+    const survivingClipIds = uiState.selectedClipIds.filter((id) =>
+      timelineState.clips.some((clip) => clip.id === id),
+    );
+    if (survivingClipIds.length === uiState.selectedClipIds.length) return;
+
+    useUIStore.setState({
+      selectedClipIds: survivingClipIds,
+      selectedGapId: survivingClipIds.length > 0 ? null : uiState.selectedGapId,
+      selectedTransitionId:
+        survivingClipIds.length > 0 ? null : uiState.selectedTransitionId,
+    });
+  } catch {
+    // History is also exercised in isolated startup tests before UI state.
+  }
+}
+
 interface HistoryStore {
   // Command journal instance
   journal: CommandJournal;
@@ -136,13 +162,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => {
       useTimelineStore.setState({ ...newState, epoch: timelineStore.epoch + 1 });
       scheduleProjectSaveAfterTimelineMutation();
 
-      // TL-BUG-001 fix: Clear stale selection after undo.
-      // Timeline state may no longer contain the previously selected clips/gaps/transitions.
-      try {
-        useUIStore.getState().clearSelection();
-      } catch {
-        // Defensive — UIStore may not be initialized during tests
-      }
+      reconcileSelectionAfterHistoryMutation(newState);
     },
 
     redo: () => {
@@ -161,12 +181,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => {
       useTimelineStore.setState({ ...newState, epoch: timelineStore.epoch + 1 });
       scheduleProjectSaveAfterTimelineMutation();
 
-      // TL-BUG-001 fix: Clear stale selection after redo.
-      try {
-        useUIStore.getState().clearSelection();
-      } catch {
-        // Defensive — UIStore may not be initialized during tests
-      }
+      reconcileSelectionAfterHistoryMutation(newState);
     },
 
     beginTransaction: (label) => {

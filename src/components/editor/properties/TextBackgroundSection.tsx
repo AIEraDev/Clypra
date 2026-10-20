@@ -22,6 +22,7 @@ import { getPlaybackClock } from "@/core/playback/PlaybackClock";
 import type { TextClip } from "@/types";
 import { InlineKeyframeNav } from "./primitives/InlineKeyframeNav";
 import { SOLID_COLOR_SWATCHES } from "./data/fontData";
+import { resolveTextBackgroundGeometry } from "@/lib/text/backgroundGeometry";
 
 interface TextBackgroundSectionProps {
   textClip: TextClip;
@@ -41,12 +42,13 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
   const bg = textClip.background as any;
 
   const bgColor = bg?.color || "#000000";
-  const bgOpacity = typeof bg?.opacity === "number" ? bg.opacity : 100;
+  const geometry = resolveTextBackgroundGeometry(bg);
+  const bgOpacity = geometry?.opacity ?? 100;
   const bgRadius = typeof bg?.borderRadius === "number" ? bg.borderRadius : 0;
-  const bgHeight = typeof bg?.height === "number" ? bg.height : 14;
-  const bgWidth = typeof bg?.width === "number" ? bg.width : 14;
-  const bgYOffset = typeof bg?.yOffset === "number" ? bg.yOffset : 50;
-  const bgStyle = bg?.style || "rectangle";
+  const bgHeight = geometry?.paddingY ?? 14;
+  const bgWidth = geometry?.paddingX ?? 14;
+  const bgYOffset = geometry?.yOffset ?? 50;
+  const bgStyle = geometry?.style ?? "rectangle";
 
   // ── Keyframe Navigation & State ──────────────────────────────────────────
   const currentTime = getPlaybackClock().time;
@@ -159,7 +161,9 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
     const next = {
       ...current,
       ...patch,
-      padding: patch.width ?? (current as any).width ?? current.padding ?? 8,
+      // Keep `padding` for project compatibility only. New controls are
+      // independent and are resolved by the shared background geometry.
+      padding: (current as any).padding ?? 8,
     };
     handleCustomStyleUpdate("background", next);
   };

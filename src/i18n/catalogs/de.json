@@ -288,5 +288,10 @@
   "properties.background.styleSplit": "Geteilte Zeilen",
   "properties.text.speechBubbles": "Sprechblasen",
   "properties.text.saveAsPreset": "Als Voreinstellung speichern",
-  "properties.bubble.filterTooltip": "Nach Kategorie filtern"
+  "properties.bubble.filterTooltip": "Nach Kategorie filtern",
+  "preview.zoom.control": "Vorschau-Zoom",
+  "preview.zoom.in": "Vorschau vergrößern",
+  "preview.zoom.out": "Vorschau verkleinern",
+  "preview.zoom.fit": "Vorschau anpassen",
+  "preview.zoom.level": "Vorschau-Zoomstufe"
 }

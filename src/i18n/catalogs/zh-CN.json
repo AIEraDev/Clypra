@@ -288,5 +288,10 @@
   "properties.background.styleSplit": "分行气泡",
   "properties.text.speechBubbles": "气泡",
   "properties.text.saveAsPreset": "另存为预设",
-  "properties.bubble.filterTooltip": "按分类筛选"
+  "properties.bubble.filterTooltip": "按分类筛选",
+  "preview.zoom.control": "预览缩放",
+  "preview.zoom.in": "放大预览",
+  "preview.zoom.out": "缩小预览",
+  "preview.zoom.fit": "适合预览",
+  "preview.zoom.level": "预览缩放级别"
 }

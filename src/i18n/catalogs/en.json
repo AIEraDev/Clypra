@@ -288,5 +288,10 @@
   "properties.background.styleSplit": "Split lines",
   "properties.text.speechBubbles": "Speech Bubbles",
   "properties.text.saveAsPreset": "Save as preset",
-  "properties.bubble.filterTooltip": "Filter by category"
+  "properties.bubble.filterTooltip": "Filter by category",
+  "preview.zoom.control": "Preview zoom",
+  "preview.zoom.in": "Zoom in preview",
+  "preview.zoom.out": "Zoom out preview",
+  "preview.zoom.fit": "Fit preview",
+  "preview.zoom.level": "Preview zoom level"
 }

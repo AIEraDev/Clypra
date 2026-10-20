@@ -292,5 +292,10 @@
   "properties.background.styleSplit": "Раздельные строки",
   "properties.text.speechBubbles": "Текстовые пузыри",
   "properties.text.saveAsPreset": "Сохранить как пресет",
-  "properties.bubble.filterTooltip": "Фильтр по категориям"
+  "properties.bubble.filterTooltip": "Фильтр по категориям",
+  "preview.zoom.control": "Масштаб предпросмотра",
+  "preview.zoom.in": "Увеличить предпросмотр",
+  "preview.zoom.out": "Уменьшить предпросмотр",
+  "preview.zoom.fit": "Вписать предпросмотр",
+  "preview.zoom.level": "Уровень масштаба предпросмотра"
 }

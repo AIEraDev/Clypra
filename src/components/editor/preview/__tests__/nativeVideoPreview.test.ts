@@ -1130,6 +1130,24 @@ describe("buildNativeFrameRequest", () => {
     expect(text?.runs?.find((run) => run.highlighted)?.text).toBe("world");
   });
 
+  it("keeps a text background on the compatible raster path until its pixels are ready", () => {
+    const textLayer = {
+      ...makeVideoLayer(),
+      layerId: "background-title",
+      clipId: "background-title",
+      layerType: "text",
+      text: "Panel title",
+      fontFamily: "Inter",
+      fontSize: 48,
+      color: "#ffffff",
+      background: { color: "#007aff", padding: 8, width: 24, height: 12 },
+    } as never;
+
+    expect(getNativePreviewBlockers(makeScene([textLayer]))).toContain(
+      "Text background on layer background-title is waiting for its native raster frame.",
+    );
+  });
+
   it("keeps synthesized subject-cutout layer in videoLayers with opacity 0 when its segmentation mask is in-flight", () => {
     const baseVideo = makeVideoLayer({ layerId: "video-1", zIndex: 0 });
     const textLayer = {

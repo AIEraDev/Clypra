@@ -28,7 +28,7 @@
  * - Tauri IPC saturation (no updateClip mid-drag)
  */
 
-import type { TransformState, TransformHandle } from "@/types";
+import type { Clip, TransformState, TransformHandle } from "@/types";
 
 export type TransformListener = (state: TransformState | null) => void;
 
@@ -44,8 +44,15 @@ export interface DragGeometry {
   rotation: number;
   /** Text clips only. Undefined for non-text clips. */
   fontSize?: number;
+  /**
+   * Text clips only. The transient layout dimensions used to rasterize a
+   * resize preview. These must travel with fontSize: width/height alone are
+   * compositor presentation dimensions when a clip has persisted base bounds.
+   */
+  baseWidth?: number;
+  baseHeight?: number;
   /** Conform state for clips with aspect-ratio conformation. */
-  conform?: Record<string, unknown>;
+  conform?: Clip["conform"];
   /** Visual canvas position for display overlays when clip coordinates differ from visual bounds (e.g. templates) */
   visualX?: number;
   visualY?: number;

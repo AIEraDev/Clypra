@@ -32,8 +32,10 @@ import {
 } from "@/core/interactions";
 import { useViewportState } from "@/hooks/useViewportController";
 import { PreviewTransport } from "./PreviewTransport";
+import { PreviewZoomControl } from "./PreviewZoomControl";
 import { useNativeSurfaceController } from "./useNativeSurfaceController";
 import { TransformOverlayMemoized as TransformOverlay } from "../transform/TransformOverlay";
+import { applyDragPreviewGeometry } from "./dragPreviewGeometry";
 import { setActiveProgramPreviewPresenter } from "./programPreviewPresenterState";
 import { ConnectedSpatialMotionPath } from "./SpatialMotionPath";
 import { SafeOverlay } from "../viewport/SafeOverlay";
@@ -512,6 +514,8 @@ const ConnectedProgramTransport: React.FC<ConnectedProgramTransportProps> =
         }
         rightActions={
           <>
+            <PreviewZoomControl />
+
             <button
               type="button"
               onClick={() => props.setScopesOpen((prev) => !prev)}
@@ -2878,20 +2882,7 @@ export const NativeProgramPreview: React.FC = () => {
       const previewRevision = dragPreviewRevision;
       const previewClips = baseClips.map((clip) =>
         clip.id === previewClipId
-          ? ({
-              ...clip,
-              x: previewGeometry.x,
-              y: previewGeometry.y,
-              width: previewGeometry.width,
-              height: previewGeometry.height,
-              rotation: previewGeometry.rotation,
-              ...(previewGeometry.fontSize !== undefined
-                ? { fontSize: previewGeometry.fontSize }
-                : {}),
-              ...(previewGeometry.conform
-                ? { conform: previewGeometry.conform }
-                : {}),
-            } as Clip)
+          ? applyDragPreviewGeometry(clip, previewGeometry)
           : clip,
       );
 

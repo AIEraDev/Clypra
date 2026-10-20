@@ -1233,6 +1233,12 @@ export function getCachedLayoutMetrics(
         textRole: layer.textRole,
       })
     : undefined;
+  // Never allow a stale persisted panel to crop the raster. Text bounds and
+  // Studio's renderer now measure through the same canvas implementation, so
+  // this expansion is the exact content-layout contract rather than a
+  // selection-only safety margin. The transform reconciler persists the same
+  // geometry for a selected clip; this rendering guard keeps unselected and
+  // legacy clips visible until that reconciliation completes.
   const baseWidth = Math.max(authoredWidth, contentBounds?.contentWidth ?? 0);
   const baseHeight = Math.max(authoredHeight, contentBounds?.contentHeight ?? 0);
   const widthDelta = baseWidth - authoredWidth;

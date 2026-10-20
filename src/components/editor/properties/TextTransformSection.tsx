@@ -11,7 +11,7 @@
  * - Docked canvas alignment toolbar: |←  ┼  →|  ╤  +  ┴  |  ╪  ≡
  */
 
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
 import { RotateCcw } from "lucide-react";
 import { useTranslation } from "@/i18n";
 import { useProjectStore } from "@/store/projectStore";
@@ -38,6 +38,13 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
     textClip.aspectRatioLocked ?? true,
   );
 
+  // Undo/redo and canvas transforms replace the clip snapshot. Keep this
+  // ephemeral control in sync with the persisted transform rather than
+  // displaying the value from the previously selected snapshot.
+  useEffect(() => {
+    setUniformScale(textClip.aspectRatioLocked ?? true);
+  }, [textClip.id, textClip.aspectRatioLocked]);
+
   const project = useProjectStore((s) => s.project);
   const canvasWidth = project?.canvasWidth ?? 1920;
   const canvasHeight = project?.canvasHeight ?? 1080;
@@ -49,14 +56,11 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
   const currentHeight = textClip.height ?? baseHeight;
 
   const scalePercent = useMemo(() => {
-    if (typeof (textClip as any).scale === "number") {
-      return Math.round((textClip as any).scale * 100);
-    }
     if (baseWidth > 0 && currentWidth > 0) {
       return Math.round((currentWidth / baseWidth) * 100);
     }
     return 100;
-  }, [(textClip as any).scale, baseWidth, currentWidth]);
+  }, [baseWidth, currentWidth]);
 
   // ── Coordinates (CapCut displays relative to canvas center: 0, 0) ─────────
   const centerX = (textClip.x ?? 0) + currentWidth / 2;

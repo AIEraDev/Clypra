@@ -13,9 +13,15 @@ import {
 } from "@clypra-studio/engine";
 import { generateId } from "../utils/id";
 import { useEffectsStore } from "../../features/text-effects/store/effectsStore";
+import { resolveTextBackgroundGeometry } from "./backgroundGeometry";
 import { useTemplateStore } from "../../features/text-templates/templateStore";
 import { deriveFontId } from "../../core/fonts/fontRegistry";
 import { resolveTemplateControlValues } from "./templateControls";
+
+// The Studio panel primitive reserves this fixed inset around the glyph run.
+// Keep it in the authored layout contract rather than allowing the raster to
+// clip a final glyph (most visibly a trailing R) at the panel edge.
+const STUDIO_PANEL_TEXT_INSET_X = 16;
 
 export interface CreateTextClipOptions {
   /** Track ID to place the clip on */
@@ -86,7 +92,16 @@ export interface CreateTextClipOptions {
   textTransform?: "uppercase" | "lowercase" | "capitalize" | "none";
   stroke?: { color: string; width: number };
   shadow?: { color: string; blur: number; offsetX: number; offsetY: number };
-  background?: { color: string; padding: number; borderRadius: number };
+  background?: {
+    color: string;
+    padding: number;
+    borderRadius: number;
+    opacity?: number;
+    height?: number;
+    width?: number;
+    yOffset?: number;
+    style?: "rectangle" | "split" | string;
+  };
 
   /** Effect definition for accurate bounding box calculation */
   effectDefinition?: TextEffectDefinition;
@@ -201,10 +216,18 @@ function measureTextInk(
   const fallbackLineHeight = Math.max(1, fontSize * 0.82);
 
   try {
+    // Studio's raster path allocates an OffscreenCanvas whenever the WebView
+    // supports one. Bounds must use that same canvas implementation: a DOM
+    // canvas and an OffscreenCanvas can resolve a bundled font to different
+    // glyph advances, leaving a persisted panel too narrow for its raster.
+    // Fall back to a DOM canvas only on platforms without OffscreenCanvas.
     const canvas =
       typeof OffscreenCanvas !== "undefined"
         ? new OffscreenCanvas(1, 1)
-        : document.createElement("canvas");
+        : typeof document !== "undefined"
+          ? document.createElement("canvas")
+          : null;
+    if (!canvas) throw new Error("No canvas available for text measurement");
     const ctx = canvas.getContext("2d") as any;
     if (!ctx) {
       const longestLine = lines.reduce(
@@ -226,7 +249,18 @@ function measureTextInk(
         lineWidths,
       };
     }
-    ctx.font = `${fontStyle} ${resolvedWeight} ${fontSize}px ${fontFamily}`;
+    // Match Studio's renderer font declaration exactly. In particular,
+    // quoting a family with spaces keeps measurement and paint resolution
+    // aligned for bundled families such as "Inter Variable".
+    ctx.font = `${fontStyle} ${resolvedWeight} ${fontSize}px "${fontFamily}"`;
+    // Mirror Studio's line measurement. The Studio engine only applies
+    // letter spacing when the current canvas exposes that property; it does
+    // not synthesize advances in unsupported canvas implementations.
+    const supportsCanvasLetterSpacing = "letterSpacing" in ctx;
+    const previousLetterSpacing = ctx.letterSpacing;
+    if (supportsCanvasLetterSpacing && letterSpacing !== 0) {
+      ctx.letterSpacing = `${letterSpacing}px`;
+    }
     let width = 0;
     let lineInkHeight = 0;
     const lineWidths: number[] = [];
@@ -241,7 +275,7 @@ function measureTextInk(
         Number(metrics.actualBoundingBoxRight ?? 0);
       const lineWidth =
         Math.max(Number(metrics.width ?? 0), inkWidth) +
-        Math.max(0, line.length - 1) * letterSpacing;
+        0;
       lineWidths.push(lineWidth);
       width = Math.max(width, lineWidth);
       lineInkHeight = Math.max(
@@ -249,6 +283,9 @@ function measureTextInk(
         Number(metrics.actualBoundingBoxAscent ?? 0) +
           Number(metrics.actualBoundingBoxDescent ?? 0),
       );
+    }
+    if (supportsCanvasLetterSpacing) {
+      ctx.letterSpacing = previousLetterSpacing ?? "0px";
     }
     lineInkHeight = Math.max(lineInkHeight, fallbackLineHeight);
     return {
@@ -299,6 +336,8 @@ export function effectBleed(options: {
   shadow?: { blur: number; offsetX: number; offsetY: number };
   background?: {
     padding?: number;
+    width?: number;
+    height?: number;
     color?: string;
     borderRadius?: number;
     bubblePresetId?: string;
@@ -373,16 +412,16 @@ export function effectBleed(options: {
   }
 
   if (options.background) {
-    const bgPadding = Number(options.background.padding ?? 0);
-    if (bgPadding > 0) {
-      x = Math.max(x, bgPadding);
-      y = Math.max(y, bgPadding);
+    const background = resolveTextBackgroundGeometry(options.background);
+    if (background) {
+      x = Math.max(x, background.paddingX);
+      y = Math.max(y, background.paddingY);
     }
     const bubbleId = options.background.bubblePresetId;
     if (bubbleId && bubbleId !== "none") {
       // Speech bubble pointers, comic bursts, and ribbons protrude outside standard padding
-      x = Math.max(x, bgPadding + 16);
-      y = Math.max(y, bgPadding + 20);
+      x = Math.max(x, (background?.paddingX ?? 0) + 16);
+      y = Math.max(y, (background?.paddingY ?? 0) + 20);
     }
   }
 
@@ -413,6 +452,8 @@ function getPanelContentPadding(
   effectDefinition?: TextEffectDefinition,
   background?: {
     padding?: number;
+    width?: number;
+    height?: number;
     color?: string;
     borderRadius?: number;
     bubblePresetId?: string;
@@ -423,19 +464,21 @@ function getPanelContentPadding(
     | { paddingX?: number; paddingY?: number; stroke?: { width?: number } }
     | undefined;
   const ratio = fontSize / 100;
-  const backgroundPadding = background ? Math.max(0, background.padding ?? 0) : 0;
+  const backgroundGeometry = resolveTextBackgroundGeometry(background);
+  const backgroundPaddingX = backgroundGeometry?.paddingX ?? 0;
+  const backgroundPaddingY = backgroundGeometry?.paddingY ?? 0;
   if (panel) {
     const strokeWidth = (panel.stroke?.width ?? 0) * ratio;
     return {
       x:
-        Math.max(Math.max(0, panel.paddingX ?? 0) * ratio, backgroundPadding) +
+        Math.max(Math.max(0, panel.paddingX ?? 0) * ratio, backgroundPaddingX) +
         strokeWidth,
       y:
-        Math.max(Math.max(0, panel.paddingY ?? 0) * ratio, backgroundPadding) +
+        Math.max(Math.max(0, panel.paddingY ?? 0) * ratio, backgroundPaddingY) +
         strokeWidth,
     };
   }
-  if (background) return { x: backgroundPadding, y: backgroundPadding };
+  if (background) return { x: backgroundPaddingX, y: backgroundPaddingY };
   return { x: 0, y: 0 };
 }
 
@@ -443,6 +486,8 @@ function getPanelTrace(
   effectDefinition?: TextEffectDefinition,
   background?: {
     padding?: number;
+    width?: number;
+    height?: number;
     color?: string;
     borderRadius?: number;
     bubblePresetId?: string;
@@ -486,6 +531,8 @@ export function measureTextEffectContentBounds(options: {
   shadow?: { blur: number; offsetX: number; offsetY: number };
   background?: {
     padding?: number;
+    width?: number;
+    height?: number;
     color?: string;
     borderRadius?: number;
     bubblePresetId?: string;
@@ -555,14 +602,35 @@ export function measureTextEffectContentBounds(options: {
     );
     contentPaddingX = backgroundPadding.x;
     contentPaddingY = backgroundPadding.y;
+    // Studio constrains panel text to a safe rectangle with a fixed 16px
+    // horizontal inset. Persist that exact renderer contract so the panel
+    // cannot clip a trailing glyph, but do not add Clypra-specific raster
+    // bleed: it would make left/right selection space asymmetric.
+    contentPaddingX += STUDIO_PANEL_TEXT_INSET_X;
   } else if (hasDeclaredBounds || isStyled) {
     source = hasDeclaredBounds ? "ink" : "fallback";
     contentPaddingX = Math.max(8, options.fontSize * 0.12);
     contentPaddingY = Math.max(6, options.fontSize * 0.08);
   }
 
+  // A normal text stroke is painted before the user-authored background is
+  // composited. It is therefore part of the panel's visible footprint, not
+  // just transient raster bleed. Include it in authored bounds so a stroked
+  // multiline panel and its selection transform remain coincident.
+  if (options.background && options.stroke?.width) {
+    const strokeInset = Math.max(0, options.stroke.width);
+    contentPaddingX += strokeInset;
+    contentPaddingY += strokeInset;
+  }
+
+  // A user-authored text background is part of the visible panel itself, so
+  // adding a selection-only inset here makes the editable box visibly wider
+  // and taller than its background. Effect-owned panels retain their small
+  // safety inset because their renderer may add its own decoration bleed.
   const selectionInset =
-    source === "panel" ? Math.max(6, Math.min(12, options.fontSize * 0.04)) : 0;
+    source === "panel" && !options.background
+      ? Math.max(6, Math.min(12, options.fontSize * 0.04))
+      : 0;
   const singleLineWidth =
     measured.width + contentPaddingX * 2 + selectionInset * 2;
   const width = Math.min(maxWidth, Math.max(48, singleLineWidth));
@@ -623,6 +691,8 @@ export function calculateTextClipSize(options: {
   shadow?: { blur: number; offsetX: number; offsetY: number };
   background?: {
     padding?: number;
+    width?: number;
+    height?: number;
     color?: string;
     borderRadius?: number;
     bubblePresetId?: string;
@@ -630,6 +700,8 @@ export function calculateTextClipSize(options: {
   canvasWidth: number;
   textRole?: "caption" | "title";
   maxWidth?: number;
+  /** Must match the evaluated renderer text before measuring its layout. */
+  textTransform?: string;
 }): {
   width: number;
   height: number;
@@ -649,6 +721,45 @@ export function calculateTextClipSize(options: {
     measuredWidth: bounds.measuredTextWidth,
     bounds,
   };
+}
+
+/**
+ * Returns the unscaled authored layout bounds for a text clip after applying
+ * a property patch. Display width and height are intentionally not involved:
+ * they express a compositor transform and may differ from the fit-content
+ * text panel's natural bounds.
+ */
+export function calculateTextClipAuthoredSize(
+  clip: TextClip,
+  canvasWidth: number,
+  updates: Partial<TextClip> = {},
+): ReturnType<typeof calculateTextClipSize> {
+  const merged = { ...clip, ...updates };
+  const effectDefinition = resolveTextEffectDefinition(
+    merged.styleId,
+    merged.styleDefinition,
+    merged.styleRevisionId,
+    merged.styleContentHash,
+  );
+
+  return calculateTextClipSize({
+    text: merged.text ?? "Text",
+    fontFamily: merged.fontFamily ?? effectDefinition?.font?.family ?? "Inter Variable",
+    fontSize: merged.fontSize ?? 48,
+    fontWeight: merged.fontWeight ?? effectDefinition?.font?.weight,
+    fontStyle: merged.fontStyle ?? effectDefinition?.font?.style,
+    letterSpacing: merged.letterSpacing,
+    lineHeight: merged.lineHeight,
+    styleId: merged.styleId,
+    effectDefinition,
+    stroke: merged.stroke,
+    shadow: merged.shadow,
+    background: merged.background,
+    maxWidth: merged.maxWidth,
+    canvasWidth,
+    textRole: merged.textRole,
+    textTransform: merged.textTransform,
+  });
 }
 
 /**
@@ -1067,6 +1178,7 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
       background,
       canvasWidth,
       textRole,
+      textTransform: options.textTransform,
     });
 
     if (textRole === "caption") {
@@ -1309,7 +1421,13 @@ function calculateTextClipContentTransform(
   sizing: any;
   transform: Pick<
     TextClip,
-    "x" | "y" | "width" | "height" | "sourceAspectRatio"
+    | "x"
+    | "y"
+    | "width"
+    | "height"
+    | "baseWidth"
+    | "baseHeight"
+    | "sourceAspectRatio"
   >;
 } {
   const merged = { ...clip, ...updates };
@@ -1320,9 +1438,18 @@ function calculateTextClipContentTransform(
     stroke,
     shadow,
     background,
+    textTransform,
   } = merged;
   const oldCenterX = clip.x + clip.width / 2;
   const oldCenterY = clip.y + clip.height / 2;
+  // `baseWidth`/`baseHeight` describe the unscaled authored layout. The
+  // rendered dimensions may be larger or non-uniform after a transform. A
+  // content/style edit must replace the authored layout while preserving that
+  // transform, otherwise changing a background or font silently resets scale.
+  const priorBaseWidth = Math.max(1, clip.baseWidth ?? clip.width);
+  const priorBaseHeight = Math.max(1, clip.baseHeight ?? clip.height);
+  const scaleX = clip.width / priorBaseWidth;
+  const scaleY = clip.height / priorBaseHeight;
 
   // Templates maintain their current dimensions - don't recalculate automatically
   // However, allow manual transforms (drag/resize) to update position/size
@@ -1347,44 +1474,26 @@ function calculateTextClipContentTransform(
         y: hasManualTransform ? merged.y : clip.y,
         width: hasManualTransform ? merged.width : clip.width,
         height: hasManualTransform ? merged.height : clip.height,
+        baseWidth: clip.baseWidth,
+        baseHeight: clip.baseHeight,
         sourceAspectRatio:
           clip.sourceAspectRatio ?? clip.width / Math.max(1, clip.height),
       },
     };
   }
 
-  const effectDefinition = resolveTextEffectDefinition(styleId);
-  const fontFamily =
-    merged.fontFamily ?? effectDefinition?.font?.family ?? "Inter Variable";
-  const fontWeight = merged.fontWeight ?? effectDefinition?.font?.weight;
-  const fontStyle = merged.fontStyle ?? effectDefinition?.font?.style;
-
-  const sizing = calculateTextClipSize({
-    text,
-    fontFamily,
-    fontSize,
-    fontWeight,
-    fontStyle,
-    letterSpacing: merged.letterSpacing,
-    lineHeight: merged.lineHeight,
-    styleId,
-    effectDefinition,
-    stroke,
-    shadow,
-    background,
-    maxWidth: merged.maxWidth,
-    canvasWidth,
-    textRole: merged.textRole,
-  });
+  const sizing = calculateTextClipAuthoredSize(merged, canvasWidth);
 
   return {
     merged,
     sizing,
     transform: {
-      x: oldCenterX - sizing.width / 2,
-      y: oldCenterY - sizing.height / 2,
-      width: sizing.width,
-      height: sizing.height,
+      x: oldCenterX - (sizing.width * scaleX) / 2,
+      y: oldCenterY - (sizing.height * scaleY) / 2,
+      width: sizing.width * scaleX,
+      height: sizing.height * scaleY,
+      baseWidth: sizing.width,
+      baseHeight: sizing.height,
       sourceAspectRatio: sizing.width / Math.max(1, sizing.height),
     },
   };
@@ -1474,6 +1583,8 @@ export function resolveTextClipStyleUpdate(
     y: recalculated.y,
     width: recalculated.width,
     height: recalculated.height,
+    baseWidth: recalculated.baseWidth,
+    baseHeight: recalculated.baseHeight,
     sourceAspectRatio: recalculated.sourceAspectRatio,
   };
 }
@@ -1483,7 +1594,10 @@ export function resolveTextClipContentTransform(
   canvasWidth: number,
   canvasHeight: number,
   reason = "content-transform",
-): Pick<TextClip, "x" | "y" | "width" | "height" | "sourceAspectRatio"> {
+): Pick<
+  TextClip,
+  "x" | "y" | "width" | "height" | "baseWidth" | "baseHeight" | "sourceAspectRatio"
+> {
   const recalculated = recalculateTextClipBounds(
     clip,
     { _boundsReason: reason } as Partial<TextClip>,
@@ -1495,6 +1609,8 @@ export function resolveTextClipContentTransform(
     y: recalculated.y,
     width: recalculated.width,
     height: recalculated.height,
+    baseWidth: recalculated.baseWidth,
+    baseHeight: recalculated.baseHeight,
     sourceAspectRatio: recalculated.sourceAspectRatio,
   };
 }
