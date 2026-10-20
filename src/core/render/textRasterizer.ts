@@ -12,6 +12,7 @@ import {
   measureTemplateContentBounds,
 } from "./templateScale";
 import { renderBubbleBackground } from "./bubbleRenderer";
+import { resolveTextBackgroundGeometry } from "../../lib/text/backgroundGeometry";
 
 
 
@@ -68,8 +69,143 @@ function hasVisibleAlphaCached(
   return result;
 }
 
-function buildPlainTextEffectConfig(layer: EvaluatedTextLayer, offW: number, offH: number, fontSize: number, scaleX: number, scaleY: number): TextEffectConfig {
+interface PixelBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+function alphaBounds(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  width: number,
+  height: number,
+): PixelBounds | null {
+  try {
+    const pixels = ctx.getImageData(0, 0, width, height).data;
+    let minX = width;
+    let minY = height;
+    let maxX = -1;
+    let maxY = -1;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        if (pixels[(y * width + x) * 4 + 3] <= 8) continue;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+    return maxX < 0
+      ? null
+      : { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+  } catch {
+    return null;
+  }
+}
+
+function alphaLineBounds(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  width: number,
+  height: number,
+): PixelBounds[] {
+  try {
+    const pixels = ctx.getImageData(0, 0, width, height).data;
+    const rows: number[] = [];
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        if (pixels[(y * width + x) * 4 + 3] > 8) {
+          rows.push(y);
+          break;
+        }
+      }
+    }
+    const groups: Array<{ start: number; end: number }> = [];
+    for (const row of rows) {
+      const last = groups[groups.length - 1];
+      if (!last || row > last.end + 1) groups.push({ start: row, end: row });
+      else last.end = row;
+    }
+    return groups.map(({ start, end }) => {
+      let minX = width;
+      let maxX = -1;
+      for (let y = start; y <= end; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+          if (pixels[(y * width + x) * 4 + 3] <= 8) continue;
+          minX = Math.min(minX, x);
+          maxX = Math.max(maxX, x);
+        }
+      }
+      return { x: minX, y: start, width: maxX - minX + 1, height: end - start + 1 };
+    }).filter((bounds) => bounds.width > 0);
+  } catch {
+    return [];
+  }
+}
+
+function roundedRect(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+): void {
+  const r = Math.min(Math.max(0, radius), width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + width, y, x + width, y + height, r);
+  ctx.arcTo(x + width, y + height, x, y + height, r);
+  ctx.arcTo(x, y + height, x, y, r);
+  ctx.arcTo(x, y, x + width, y, r);
+  ctx.closePath();
+}
+
+/**
+ * The Studio engine has a single panel primitive. Split-line panels and the
+ * inspector's Y offset are Clypra presentation details, so render them from
+ * the exact text alpha bounds before compositing the text pixels above them.
+ */
+function drawCustomBackgroundPanel(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  textCanvas: OffscreenCanvas | HTMLCanvasElement,
+  width: number,
+  height: number,
+  geometry: NonNullable<ReturnType<typeof resolveTextBackgroundGeometry>>,
+  color: string,
+  borderRadius: number,
+): void {
+  const textCtx = textCanvas.getContext("2d", { alpha: true }) as OffscreenCanvasRenderingContext2D | null;
+  if (!textCtx) return;
+  const bounds = alphaBounds(textCtx, width, height);
+  if (!bounds) return;
+
+  // 50% means the panel is centred on the text. Keep the full adjustment
+  // within its own vertical padding so it remains inside the authored layout.
+  const offsetY = ((geometry.yOffset - 50) / 50) * geometry.paddingY;
+  const panels = geometry.style === "split"
+    ? alphaLineBounds(textCtx, width, height)
+    : [bounds];
+  ctx.save();
+  ctx.globalAlpha = geometry.opacity / 100;
+  ctx.fillStyle = color;
+  for (const panelBounds of panels) {
+    const panel = {
+      x: panelBounds.x - geometry.paddingX,
+      y: panelBounds.y - geometry.paddingY + offsetY,
+      width: panelBounds.width + geometry.paddingX * 2,
+      height: panelBounds.height + geometry.paddingY * 2,
+    };
+    roundedRect(ctx, panel.x, panel.y, panel.width, panel.height, borderRadius);
+    ctx.fill();
+  }
+  ctx.restore();
+  ctx.drawImage(textCanvas, 0, 0);
+}
+
+export function buildPlainTextEffectConfig(layer: EvaluatedTextLayer, offW: number, offH: number, fontSize: number, scaleX: number, scaleY: number): TextEffectConfig {
   const plainConfig = layerToTextEffectConfig(layer);
+  const background = resolveTextBackgroundGeometry(layer.background);
   const hasExplicitWidthConstraint =
     typeof layer.maxWidth === "number" &&
     Number.isFinite(layer.maxWidth) &&
@@ -85,9 +221,12 @@ function buildPlainTextEffectConfig(layer: EvaluatedTextLayer, offW: number, off
     shadowBlur: layer.shadow ? layer.shadow.blur * scaleY : plainConfig.shadowBlur * scaleY,
     shadowOffsetX: layer.shadow ? layer.shadow.offsetX * scaleX : plainConfig.shadowOffsetX * scaleX,
     shadowOffsetY: layer.shadow ? layer.shadow.offsetY * scaleY : plainConfig.shadowOffsetY * scaleY,
+    panelEnabled: Boolean(background),
+    panelColor: layer.background?.color ?? plainConfig.panelColor,
+    panelOpacity: background?.opacity ?? plainConfig.panelOpacity,
     panelRadius: layer.background ? layer.background.borderRadius * scaleY : plainConfig.panelRadius * scaleY,
-    panelPaddingX: layer.background ? layer.background.padding * scaleX : plainConfig.panelPaddingX * scaleX,
-    panelPaddingY: layer.background ? layer.background.padding * scaleY : plainConfig.panelPaddingY * scaleY,
+    panelPaddingX: background ? background.paddingX * scaleX : plainConfig.panelPaddingX * scaleX,
+    panelPaddingY: background ? background.paddingY * scaleY : plainConfig.panelPaddingY * scaleY,
     // Normal title text is point text: only authored newlines create lines.
     // Captions and explicitly constrained text retain automatic wrapping.
     wrapText: layer.textRole === "caption" || hasExplicitWidthConstraint,
@@ -110,10 +249,10 @@ export function renderTextUnderline(
   const canvasHeight = Math.max(1, Number(config.canvasHeight) || 1);
   const panelEnabled = Boolean(config.panelEnabled);
   const safeX = panelEnabled
-    ? (Number(config.panelPaddingX) || 40) + 16
+    ? Math.max(0, Number(config.panelPaddingX) || 0) + 16
     : Math.min(48, canvasWidth * 0.06);
   const safeY = panelEnabled
-    ? (Number(config.panelPaddingY) || 20) + 16
+    ? Math.max(0, Number(config.panelPaddingY) || 0) + 16
     : Math.min(40, canvasHeight * 0.1);
   const safeWidth = Math.max(40, canvasWidth - safeX * 2);
   const safeHeight = Math.max(24, canvasHeight - safeY * 2);
@@ -372,7 +511,16 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
     shadow: layer.shadow,
     background: layer.background,
   });
-  const unscaledPaddingX = Math.max(textMetrics.paddingX, unscaledBleed.x);
+  // Background panels own the Studio renderer's horizontal gutter in their
+  // persisted layout bounds (see calculateTextClipSize). Do not add it again
+  // as raster-only bleed or the native texture becomes wider than the
+  // transform overlay and clips the last glyph against the authored edge.
+  const ownsHorizontalPanelGutter = Boolean(
+    layer.background && !layer.background.bubblePresetId,
+  );
+  const unscaledPaddingX = ownsHorizontalPanelGutter
+    ? 0
+    : Math.max(textMetrics.paddingX, unscaledBleed.x);
   const unscaledPaddingY = Math.max(textMetrics.paddingY, unscaledBleed.y);
 
   const effectPaddingX = unscaledPaddingX * scaleX;
@@ -544,11 +692,52 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
       );
     }
 
-    renderTextEffectToCanvas(offCtx, {
-      source: sceneDoc,
-      context: { environment: "editor", time: layer.time ?? 0, width: unscaledOffW, height: unscaledOffH },
-    });
-    renderTextUnderline(offCtx, layer, engineConfig);
+    const backgroundGeometry = resolveTextBackgroundGeometry(layer.background);
+    let decorationConfig = engineConfig;
+    const needsCustomBackground = Boolean(
+      backgroundGeometry &&
+        !layer.background?.bubblePresetId &&
+        (backgroundGeometry.style === "split" || backgroundGeometry.yOffset !== 50),
+    );
+    if (needsCustomBackground && backgroundGeometry && layer.background) {
+      const textOnlyCanvas = CanvasDevice.acquire(unscaledOffW, unscaledOffH);
+      const textOnlyCtx = textOnlyCanvas.getContext("2d", { alpha: true }) as OffscreenCanvasRenderingContext2D | null;
+      if (textOnlyCtx) {
+        textOnlyCtx.setTransform(1, 0, 0, 1, 0, 0);
+        textOnlyCtx.clearRect(0, 0, unscaledOffW, unscaledOffH);
+        const textOnlyConfig = { ...engineConfig, panelEnabled: false } as TextEffectConfig;
+        decorationConfig = textOnlyConfig;
+        const textOnlyScene = textEffectConfigToScene(textOnlyConfig);
+        renderTextEffectToCanvas(textOnlyCtx, {
+          source: textOnlyScene,
+          context: { environment: "editor", time: layer.time ?? 0, width: unscaledOffW, height: unscaledOffH },
+        });
+        drawCustomBackgroundPanel(
+          offCtx,
+          textOnlyCanvas,
+          unscaledOffW,
+          unscaledOffH,
+          backgroundGeometry,
+          layer.background.color,
+          engineConfig.panelRadius,
+        );
+      } else {
+        // CanvasDevice can fall back to a canvas implementation without a 2D
+        // context in constrained environments. Preserve the standard panel
+        // rather than producing an invisible title.
+        renderTextEffectToCanvas(offCtx, {
+          source: sceneDoc,
+          context: { environment: "editor", time: layer.time ?? 0, width: unscaledOffW, height: unscaledOffH },
+        });
+      }
+      Promise.resolve().then(() => CanvasDevice.release(textOnlyCanvas));
+    } else {
+      renderTextEffectToCanvas(offCtx, {
+        source: sceneDoc,
+        context: { environment: "editor", time: layer.time ?? 0, width: unscaledOffW, height: unscaledOffH },
+      });
+    }
+    renderTextUnderline(offCtx, layer, decorationConfig);
 
     // Build a compact key from the inputs that determine rendered pixels.
     // Avoids importing buildNativeTextRasterKey (cycle risk) while still
@@ -575,11 +764,43 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
           },
         );
       }
-      renderTextEffectToCanvas(offCtx, {
-        source: fallbackSceneDoc,
-        context: { environment: "editor", time: layer.time ?? 0, width: unscaledOffW, height: unscaledOffH },
-      });
-      renderTextUnderline(offCtx, layer, fallbackConfig);
+      if (needsCustomBackground && backgroundGeometry && layer.background) {
+        const textOnlyCanvas = CanvasDevice.acquire(unscaledOffW, unscaledOffH);
+        const textOnlyCtx = textOnlyCanvas.getContext("2d", { alpha: true }) as OffscreenCanvasRenderingContext2D | null;
+        if (textOnlyCtx) {
+          textOnlyCtx.setTransform(1, 0, 0, 1, 0, 0);
+          textOnlyCtx.clearRect(0, 0, unscaledOffW, unscaledOffH);
+          const textOnlyConfig = { ...fallbackConfig, panelEnabled: false } as TextEffectConfig;
+          const textOnlyScene = textEffectConfigToScene(textOnlyConfig);
+          renderTextEffectToCanvas(textOnlyCtx, {
+            source: textOnlyScene,
+            context: { environment: "editor", time: layer.time ?? 0, width: unscaledOffW, height: unscaledOffH },
+          });
+          drawCustomBackgroundPanel(
+            offCtx,
+            textOnlyCanvas,
+            unscaledOffW,
+            unscaledOffH,
+            backgroundGeometry,
+            layer.background.color,
+            fallbackConfig.panelRadius,
+          );
+          renderTextUnderline(offCtx, layer, textOnlyConfig);
+        } else {
+          renderTextEffectToCanvas(offCtx, {
+            source: fallbackSceneDoc,
+            context: { environment: "editor", time: layer.time ?? 0, width: unscaledOffW, height: unscaledOffH },
+          });
+          renderTextUnderline(offCtx, layer, fallbackConfig);
+        }
+        Promise.resolve().then(() => CanvasDevice.release(textOnlyCanvas));
+      } else {
+        renderTextEffectToCanvas(offCtx, {
+          source: fallbackSceneDoc,
+          context: { environment: "editor", time: layer.time ?? 0, width: unscaledOffW, height: unscaledOffH },
+        });
+        renderTextUnderline(offCtx, layer, fallbackConfig);
+      }
     }
     // Draw the unscaled offscreen canvas scaled down to the preview resolution.
     // Source rect: full unscaled canvas

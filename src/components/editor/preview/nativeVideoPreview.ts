@@ -1281,6 +1281,15 @@ export function getNativePreviewBlockers(
 
   const textLayers = scene.visualLayers.filter((layer) => layer.layerType === "text");
   for (const layer of textLayers) {
+    // Background panels are authored by the shared browser rasterizer. The
+    // native SDF fallback intentionally has no panel primitive, so submitting
+    // it would silently drop the user's background until the raster arrives.
+    if (
+      layer.background &&
+      !hasNativeTextRasterAsset(layer, rasterLayers)
+    ) {
+      add(`Text background on layer ${layer.layerId} is waiting for its native raster frame.`);
+    }
     if (layer.templateId) {
       add(`Text template ${layer.templateId} requires native template primitives.`);
     }

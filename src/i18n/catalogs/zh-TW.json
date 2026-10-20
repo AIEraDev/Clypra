@@ -288,5 +288,10 @@
   "properties.background.styleSplit": "分行氣泡",
   "properties.text.speechBubbles": "對話框",
   "properties.text.saveAsPreset": "另存為預設",
-  "properties.bubble.filterTooltip": "按分類篩選"
+  "properties.bubble.filterTooltip": "按分類篩選",
+  "preview.zoom.control": "預覽縮放",
+  "preview.zoom.in": "放大預覽",
+  "preview.zoom.out": "縮小預覽",
+  "preview.zoom.fit": "符合預覽",
+  "preview.zoom.level": "預覽縮放等級"
 }

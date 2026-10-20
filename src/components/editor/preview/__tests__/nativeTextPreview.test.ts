@@ -13,6 +13,7 @@ import {
   measureVisibleAlphaBounds,
   _seedBrowserTextRasterCache,
   cropTransparentBounds,
+  getCachedLayoutMetrics,
   subscribeToBrowserTextVisualSnapshot,
 } from "../nativeTextPreview";
 
@@ -217,6 +218,33 @@ describe("text layout metrics cache", () => {
     const a = makeTextLayer({ width: 640, height: 120 });
     const b = makeTextLayer({ width: 800, height: 200 });
     expect(buildNativeTextLayoutKey(a)).not.toBe(buildNativeTextLayoutKey(b));
+  });
+
+  it("CLY-TEXT-040: expands a stale multiline panel layout before the renderer can crop its trailing glyphs", () => {
+    const layer = makeTextLayer({
+      text: "HEY GUYS,\nABDULKABIR",
+      width: 320,
+      height: 240,
+      baseWidth: 320,
+      baseHeight: 240,
+      stroke: { color: "#000", width: 20 },
+      background: {
+        color: "#007aff",
+        padding: 8,
+        borderRadius: 0,
+        width: 18,
+        height: 12,
+        style: "split",
+      },
+    });
+    const metrics = getCachedLayoutMetrics(layer, buildNativeTextLayoutKey(layer));
+
+    expect(metrics.baseWidth).toBeGreaterThan(320);
+    expect(metrics.baseHeight).toBeGreaterThanOrEqual(240);
+    // Centered text preserves its visual center while the renderer widens a
+    // legacy/stale authored box to the content requirement.
+    expect(metrics.originOffsetX).toBeLessThan(0);
+    expect(metrics.originOffsetY).toBeCloseTo(0);
   });
 
   it("cache cleared between tests — _clearTextLayoutMetricsCache works", () => {

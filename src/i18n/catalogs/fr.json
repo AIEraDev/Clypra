@@ -288,5 +288,10 @@
   "properties.background.styleSplit": "Lignes scindées",
   "properties.text.speechBubbles": "Bulles de dialogue",
   "properties.text.saveAsPreset": "Enregistrer comme préréglage",
-  "properties.bubble.filterTooltip": "Filtrer par catégorie"
+  "properties.bubble.filterTooltip": "Filtrer par catégorie",
+  "preview.zoom.control": "Zoom de l’aperçu",
+  "preview.zoom.in": "Agrandir l’aperçu",
+  "preview.zoom.out": "Réduire l’aperçu",
+  "preview.zoom.fit": "Ajuster l’aperçu",
+  "preview.zoom.level": "Niveau de zoom de l’aperçu"
 }

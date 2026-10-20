@@ -1,5 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
-import { effectBleed, measureTextEffectContentBounds, calculateTextClipSize, createTextClip } from "../textClip";
+import {
+  effectBleed,
+  hasTextClipContentTransformDrift,
+  measureTextEffectContentBounds,
+  calculateTextClipAuthoredSize,
+  calculateTextClipSize,
+  createTextClip,
+} from "../textClip";
 import type { TextEffectDefinition } from "@clypra-studio/engine";
 
 // Mock @clypra-studio/engine
@@ -87,6 +94,89 @@ describe("Text Clip Utilities", () => {
   });
 
   describe("measureTextEffectContentBounds & calculateTextClipSize", () => {
+    it("CLY-TEXT-041: measures the evaluated text transform so uppercase panel glyphs cannot escape their layout", () => {
+      const offscreenFactory = vi.fn(function () {
+        return {
+          getContext: () => ({
+            font: "",
+            letterSpacing: "0px",
+            measureText: (value: string) => ({
+              width: value === value.toUpperCase() ? 640 : 420,
+              actualBoundingBoxAscent: 80,
+              actualBoundingBoxDescent: 20,
+            }),
+          }),
+        };
+      });
+      vi.stubGlobal("OffscreenCanvas", offscreenFactory);
+
+      try {
+        const lowercase = calculateTextClipSize({
+          text: "Hey guys,\nAbdulkabir",
+          fontFamily: "Inter Variable",
+          fontSize: 96,
+          background: { color: "#55565b", padding: 8, borderRadius: 0, width: 18, height: 12 },
+          canvasWidth: 1920,
+        });
+        const uppercase = calculateTextClipSize({
+          text: "Hey guys,\nAbdulkabir",
+          textTransform: "uppercase",
+          fontFamily: "Inter Variable",
+          fontSize: 96,
+          background: { color: "#55565b", padding: 8, borderRadius: 0, width: 18, height: 12 },
+          canvasWidth: 1920,
+        });
+
+        expect(uppercase.width).toBeGreaterThan(lowercase.width);
+        expect(offscreenFactory).toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("CLY-TEXT-042: derives a resized text base from content, never the dragged display rectangle", () => {
+      const clip = createTextClip({
+        trackId: "track-text-1",
+        startTime: 0,
+        text: "HEY GUYS,\nABDULKABIR",
+        canvasWidth: 1920,
+        canvasHeight: 1080,
+        fontSize: 96,
+        background: {
+          color: "#55565b",
+          padding: 8,
+          borderRadius: 0,
+        },
+      });
+      const displayWidth = 516;
+      const displayHeight = 192;
+      const resized = calculateTextClipAuthoredSize(
+        { ...clip, width: displayWidth, height: displayHeight },
+        1920,
+        { fontSize: 48 },
+      );
+
+      // A fit-content background's authored panel is determined by the new
+      // glyph layout. The display dimensions remain a compositor transform.
+      expect(resized.width).not.toBe(displayWidth);
+      expect(resized.height).not.toBe(displayHeight);
+      expect(resized.bounds.source).toBe("panel");
+      expect(
+        hasTextClipContentTransformDrift(
+          {
+            ...clip,
+            fontSize: 48,
+            width: displayWidth,
+            height: displayHeight,
+            baseWidth: resized.width,
+            baseHeight: resized.height,
+          },
+          1920,
+          1080,
+        ),
+      ).toBe(false);
+    });
+
     it("should compute sensible dimensions based on font size and letter spacing", () => {
       const options = {
         text: "Clypra Editor",

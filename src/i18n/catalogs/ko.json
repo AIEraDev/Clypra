@@ -288,5 +288,10 @@
   "properties.background.styleSplit": "줄 나눔",
   "properties.text.speechBubbles": "말풍선",
   "properties.text.saveAsPreset": "사전 설정으로 저장",
-  "properties.bubble.filterTooltip": "카테고리별 필터"
+  "properties.bubble.filterTooltip": "카테고리별 필터",
+  "preview.zoom.control": "미리 보기 확대/축소",
+  "preview.zoom.in": "미리 보기 확대",
+  "preview.zoom.out": "미리 보기 축소",
+  "preview.zoom.fit": "미리 보기에 맞추기",
+  "preview.zoom.level": "미리 보기 확대/축소 수준"
 }

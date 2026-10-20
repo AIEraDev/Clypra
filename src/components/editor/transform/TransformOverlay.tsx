@@ -36,6 +36,7 @@ import {
   type ViewportTransform,
 } from "@/lib/utils/coordinateSystem";
 import {
+  calculateTextClipAuthoredSize,
   hasTextClipContentTransformDrift,
   resolveTextClipContentTransform,
 } from "@/lib/text/textClip";
@@ -902,6 +903,76 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       "selection-normalize",
     );
     updateClip(textClip.id, nextTransform);
+  }, [
+    selectedClip,
+    isDragging,
+    currentTime,
+    canvasWidth,
+    canvasHeight,
+    updateClip,
+  ]);
+
+  // Bounds belong to the editing model, while font loading belongs to the
+  // browser. A project font can finish loading after a text clip was created
+  // or selected; in that interval a fallback face has different advances and
+  // can leave the renderer's final glyph outside the persisted selection.
+  // Reconcile once the document font set is ready. This stays in the editing
+  // owner (never the preview render loop), is cancelled on selection changes,
+  // and is a no-op when the stored transform already matches the loaded font.
+  useEffect(() => {
+    if (
+      !selectedClip ||
+      isDragging ||
+      !isClipActiveAtTime(selectedClip, currentTime) ||
+      !("text" in selectedClip) ||
+      typeof document === "undefined" ||
+      !document.fonts
+    ) {
+      return;
+    }
+
+    const textClip = selectedClip as TextClip;
+    if (textClip.templateId) {
+      return;
+    }
+
+    let disposed = false;
+    void document.fonts.ready.then(() => {
+      if (disposed || isDragging) return;
+
+      // Resolve the latest instance rather than using the captured clip so a
+      // property edit completed while the font was loading is never replaced
+      // by stale selection geometry.
+      const latestClip = useTimelineStore
+        .getState()
+        .clips.find((clip) => clip.id === textClip.id);
+      if (!latestClip || !("text" in latestClip)) return;
+      const latestTextClip = latestClip as TextClip;
+      if (
+        latestTextClip.templateId ||
+        !hasTextClipContentTransformDrift(
+          latestTextClip,
+          canvasWidth,
+          canvasHeight,
+        )
+      ) {
+        return;
+      }
+
+      updateClip(
+        latestTextClip.id,
+        resolveTextClipContentTransform(
+          latestTextClip,
+          canvasWidth,
+          canvasHeight,
+          "font-ready-selection-normalize",
+        ),
+      );
+    });
+
+    return () => {
+      disposed = true;
+    };
   }, [
     selectedClip,
     isDragging,
@@ -1781,16 +1852,21 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
             }
           : {}),
         ...((newTransform as Partial<TextClip>).fontSize !== undefined
-          ? { fontSize: (newTransform as Partial<TextClip>).fontSize }
+          ? {
+              fontSize: (newTransform as Partial<TextClip>).fontSize,
+              // These are the dimensions that will be committed at mouse-up.
+              // The preview signal deliberately retains the drag-start text
+              // raster/base while this gesture is active, so panel, glyphs,
+              // and selection geometry stay in the same coordinate space.
+              baseWidth: nextWidth,
+              baseHeight: nextHeight,
+            }
           : startFontSizeRef.current !== undefined
             ? { fontSize: startFontSizeRef.current }
             : {}),
         ...(newTransform.conform
           ? {
-              conform: newTransform.conform as unknown as Record<
-                string,
-                unknown
-              >,
+              conform: newTransform.conform,
             }
           : {}),
       });
@@ -1893,7 +1969,27 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         finalGeometry.fontSize ?? startFontSizeRef.current;
     }
 
+    const selectedTextClip =
+      selectedClip && "text" in selectedClip
+        ? (selectedClip as TextClip)
+        : null;
     if (
+      selectedTextClip &&
+      startFontSizeRef.current !== undefined &&
+      (oldTransform.width !== newTransform.width ||
+        oldTransform.height !== newTransform.height)
+    ) {
+      const authoredSize = calculateTextClipAuthoredSize(
+        selectedTextClip,
+        canvasWidth,
+        { fontSize: newTransform.fontSize },
+      );
+      oldTransform.baseWidth = selectedTextClip.baseWidth ?? oldTransform.width;
+      oldTransform.baseHeight = selectedTextClip.baseHeight ?? oldTransform.height;
+      newTransform.baseWidth = authoredSize.width;
+      newTransform.baseHeight = authoredSize.height;
+    } else if (
+      (selectedClip as any).kind === "text" ||
       (selectedClip as any).kind === "text-template" ||
       (selectedClip as any).templateId ||
       (selectedClip as any).styleId ||
