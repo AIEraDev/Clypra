@@ -1,11 +1,9 @@
 export type AudioLibraryCategory =
-  | "music" // catch-all browsable music library — the primary tab
-  | "cinematic" // YouTube creators, vlogs, montages — highest demand
-  | "upbeat" // social content, reels, highlights — second highest demand
-  | "lo-fi" // study/productivity content — massive creator niche
-  | "hip-hop" // most requested genre globally on CapCut
-  | "ambient" // background for talking-head/interview content
-  | "sfx"; // sound effects — non-negotiable, every editor needs this
+  | "music" // Background music and soundtracks
+  | "sound-effects" // General sound effects (impacts, whooshes, etc.)
+  | "transitions" // Transition sound effects (swooshes, risers, etc.)
+  | "ambient" // Atmospheric and background ambience
+  | "ui-interface"; // UI sounds (clicks, beeps, notifications)
 
 export interface AudioLibraryItem {
   id: string;
@@ -38,12 +36,10 @@ const BASE = getApiBaseUrl();
 
 export const AUDIO_LIBRARY_CATEGORIES: AudioLibraryCategory[] = [
   "music",
-  "cinematic",
-  "upbeat",
-  "lo-fi",
-  "hip-hop",
+  "sound-effects",
+  "transitions",
   "ambient",
-  "sfx",
+  "ui-interface",
 ];
 
 export const AudioLibraryApi = {

@@ -98,7 +98,11 @@ export const AudioTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
             onClick={() => setActiveCategory(category)}
             className={`shrink-0 cursor-pointer rounded px-2 py-1 text-[11px] font-semibold capitalize transition-colors ${activeCategory === category ? "bg-accent text-white" : "text-text-muted hover:bg-surface-raised hover:text-text-primary"}`}
           >
-            {category === "sfx" ? "SFX" : category}
+            {category === "sound-effects"
+              ? "Sound Effects"
+              : category === "ui-interface"
+                ? "UI & Interface"
+                : category}
           </button>
         ))}
       </div>
