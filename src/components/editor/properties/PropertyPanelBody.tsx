@@ -94,8 +94,83 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
         />
       )}
 
-      {/* Audio properties (audio clips or video clips) */}
-      {hasAudioTrack && (
+      {/* Video Tab: Transform, Motion, Adjustments, ChromaKey, Effects */}
+      {isVideoClip && activePropertyTab === "video" && (
+        <>
+          <TransformSection
+            selectedClip={selectedClip}
+            isVisualClip={isVisualClip}
+            handleUpdate={handleUpdate}
+            handleUpdateMultiple={handleUpdateMultiple}
+            handleApplyFit={handleApplyFit}
+            canvasWidth={canvasWidth}
+            canvasHeight={canvasHeight}
+          />
+          <AdjustmentsSection
+            selectedClip={selectedClip}
+            handleUpdate={handleUpdate}
+          />
+          <ChromaKeySection selectedClip={selectedClip} />
+          <EffectsFiltersSection
+            selectedClip={selectedClip}
+            handleUpdate={handleUpdate}
+          />
+        </>
+      )}
+
+      {/* Audio Tab: Audio properties */}
+      {isVideoClip && activePropertyTab === "audio" && (
+        <>
+          {hasAudioTrack ? (
+            <AudioSection
+              selectedClip={selectedClip}
+              handleUpdate={handleUpdate}
+              onUnlink={!linkedAudio ? handleUnlinkAudio : undefined}
+              onRelink={
+                sourceVideo
+                  ? handleRelinkAudio
+                  : linkedAudio
+                    ? () =>
+                        executePreviewCommand(
+                          new RelinkAudioCommand(selectedClip, linkedAudio),
+                        )
+                    : undefined
+              }
+            />
+          ) : (
+            <div className="rounded-lg border border-border/40 bg-surface-raised/40 p-3 text-xs text-text-muted flex items-start gap-2.5">
+              <VolumeX className="w-4 h-4 text-text-muted/70 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium text-text-secondary">
+                  No Audio Stream
+                </p>
+                <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">
+                  This video contains no embedded audio. You can add music or
+                  voiceover from the sidebar.
+                </p>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Speed Tab: Playback speed controls */}
+      {isVideoClip && activePropertyTab === "speed" && (
+        <PlaybackSection selectedClip={selectedClip} />
+      )}
+
+      {/* Animation Tab: Motion presets */}
+      {isVideoClip && activePropertyTab === "animation" && (
+        <MotionPresetSection
+          selectedClip={selectedClip}
+          handleUpdateMultiple={handleUpdateMultiple}
+          canvasWidth={canvasWidth}
+          canvasHeight={canvasHeight}
+        />
+      )}
+
+      {/* Legacy: Audio properties (audio clips or video clips without tabs) */}
+      {hasAudioTrack && !isVideoClip && (
         <AudioSection
           selectedClip={selectedClip}
           handleUpdate={handleUpdate}
@@ -111,20 +186,6 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
                 : undefined
           }
         />
-      )}
-
-      {/* No audio stream banner for silent video clips */}
-      {isVideoClip && !hasAudioTrack && (
-        <div className="rounded-lg border border-border/40 bg-surface-raised/40 p-3 text-xs text-text-muted flex items-start gap-2.5">
-          <VolumeX className="w-4 h-4 text-text-muted/70 shrink-0 mt-0.5" />
-          <div>
-            <p className="font-medium text-text-secondary">No Audio Stream</p>
-            <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">
-              This video contains no embedded audio. You can add music or
-              voiceover from the sidebar.
-            </p>
-          </div>
-        </div>
       )}
 
       {/* Text Styling (text clip + text tab) */}
@@ -155,22 +216,22 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
       )}
 
       {/* Text Tracking */}
-      {isTextClip && activePropertyTab === "tracking" && (
+      {/* {isTextClip && activePropertyTab === "tracking" && (
         <TextTrackingSection textClip={textClip} />
-      )}
+      )} */}
 
       {/* Text To Speech */}
-      {isTextClip && activePropertyTab === "tts" && (
+      {/* {isTextClip && activePropertyTab === "tts" && (
         <TextToSpeechSection textClip={textClip} />
-      )}
+      )} */}
 
       {/* AI Avatars */}
-      {isTextClip && activePropertyTab === "ai_avatars" && (
+      {/* {isTextClip && activePropertyTab === "ai_avatars" && (
         <TextAiAvatarsSection textClip={textClip} />
-      )}
+      )} */}
 
-      {/* Transform (visual non-text clips) */}
-      {supportsAnimation && !isTextClip && (
+      {/* Legacy: Transform (visual non-text clips without tabs) */}
+      {supportsAnimation && !isTextClip && !isVideoClip && (
         <TransformSection
           selectedClip={selectedClip}
           isVisualClip={isVisualClip}
@@ -182,8 +243,8 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
         />
       )}
 
-      {/* Motion & Animation Presets (Build-In, Build-Out, Loop) for visual non-text clips */}
-      {supportsAnimation && !isTextClip && (
+      {/* Legacy: Motion & Animation Presets (In, Out, Loop) for visual non-text clips without tabs */}
+      {supportsAnimation && !isTextClip && !isVideoClip && (
         <MotionPresetSection
           selectedClip={selectedClip}
           handleUpdateMultiple={handleUpdateMultiple}
@@ -192,24 +253,24 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
         />
       )}
 
-      {/* Playback speed, reverse, freeze frame */}
-      {(isVideoClip || isAudioClip) && (
-        <PlaybackSection selectedClip={selectedClip} />
-      )}
+      {/* Legacy: Playback speed, reverse, freeze frame (without tabs) */}
+      {isAudioClip && <PlaybackSection selectedClip={selectedClip} />}
 
-      {/* Color Adjustments */}
-      {isVisualClip && (
+      {/* Legacy: Color Adjustments (without tabs) */}
+      {isVisualClip && !isVideoClip && (
         <AdjustmentsSection
           selectedClip={selectedClip}
           handleUpdate={handleUpdate}
         />
       )}
 
-      {/* UltraKey (Chroma Key) */}
-      {isVisualClip && <ChromaKeySection selectedClip={selectedClip} />}
+      {/* Legacy: UltraKey (Chroma Key) (without tabs) */}
+      {isVisualClip && !isVideoClip && (
+        <ChromaKeySection selectedClip={selectedClip} />
+      )}
 
-      {/* Effects and Filters */}
-      {isVisualClip && (
+      {/* Legacy: Effects and Filters (without tabs) */}
+      {isVisualClip && !isVideoClip && (
         <EffectsFiltersSection
           selectedClip={selectedClip}
           handleUpdate={handleUpdate}

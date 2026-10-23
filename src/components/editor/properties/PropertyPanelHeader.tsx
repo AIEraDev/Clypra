@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useI18n } from "@/i18n";
 import { ClipKind } from "@/types";
 import { PropertyTabsType, TextPropertyTab, VideoPropertyTab } from "./types";
-import { TEXT_TABS } from "./data";
+import { TEXT_TABS, VIDEO_TABS } from "./data";
 
 interface PropertyPanelHeaderType {
   collapsed: boolean;
@@ -21,7 +21,12 @@ const PropertyPanelHeader: React.FC<PropertyPanelHeaderType> = ({
   onToggleCollapse,
   setActivePropertyTab,
 }) => {
-  const tabs: PropertyTabsType[] = clipKind === "text" ? TEXT_TABS : [];
+  const tabs: PropertyTabsType[] =
+    clipKind === "text"
+      ? TEXT_TABS
+      : clipKind === "video" || clipKind === "image"
+        ? VIDEO_TABS
+        : [];
 
   const { t } = useI18n();
 

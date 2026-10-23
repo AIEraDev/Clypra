@@ -18,8 +18,8 @@ importers:
         specifier: ^8.0.1
         version: 8.0.1(@capacitor/core@8.5.0)
       '@clypra-studio/engine':
-        specifier: ^1.10.1
-        version: 1.10.1
+        specifier: ^1.10.2
+        version: 1.10.2
       '@clypra-studio/types':
         specifier: ^0.6.2
         version: 0.6.2
@@ -423,8 +423,8 @@ packages:
   '@capacitor/synapse@1.0.4':
     resolution: {integrity: sha512-/C1FUo8/OkKuAT4nCIu/34ny9siNHr9qtFezu4kxm6GY1wNFxrCFWjfYx5C1tUhVGz3fxBABegupkpjXvjCHrw==}
 
-  '@clypra-studio/engine@1.10.1':
-    resolution: {integrity: sha512-hPEkf+PtYu/ltklKFGfleGic3ptrqjqmVUEcWyQ5QGhOK05MGFrixGYE9Kl8Qfjr8RR0Tp9aoCSut5t2bca8AA==}
+  '@clypra-studio/engine@1.10.2':
+    resolution: {integrity: sha512-sezVFOwprYLtdZyDLB7uMSoB1CqBGSh5Oud8LfffSoOasdQukvzPMfzin9nSnh1ADmTdoYwaKIF2zZcJDBFLbw==}
 
   '@clypra-studio/shaders@0.2.1':
     resolution: {integrity: sha512-MZ67HGdAnVhL2bvUh7AC6pbpkp1I3DxfHj2lT9XUeQG0/QcxGJieoDfLJdQX8UcBFwPsoqbClTKlty4vd61IZg==}
@@ -4270,7 +4270,7 @@ snapshots:
 
   '@capacitor/synapse@1.0.4': {}
 
-  '@clypra-studio/engine@1.10.1':
+  '@clypra-studio/engine@1.10.2':
     dependencies:
       '@clypra-studio/shaders': 0.2.1
       '@clypra-studio/types': 0.6.2

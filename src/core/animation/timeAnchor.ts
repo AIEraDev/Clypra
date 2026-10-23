@@ -1,9 +1,9 @@
 /**
- * Responsive Time Anchoring (Build-In / Build-Out Architecture).
+ * Responsive Time Anchoring (In / Out Architecture).
  *
  * Provides dynamic time-pinning for animation keyframes:
- * - Build-In ("start"): Keyframes remain anchored relative to clip start (t = 0).
- * - Build-Out ("end"): Keyframes dynamically project backwards from clip duration (t = clip.duration - offset).
+ * - In ("start"): Keyframes remain anchored relative to clip start (t = 0).
+ * - Out ("end"): Keyframes dynamically project backwards from clip duration (t = clip.duration - offset).
  * - Absolute ("absolute"): Keyframes maintain unscaled timeline timestamps.
  *
  * Includes an elastic compression guard:
@@ -29,7 +29,7 @@ export type ResolvedKeyframe<T extends ResponsiveKeyframePoint> = T & {
 export function resolveAnchorTime(
   time: number,
   anchor?: KeyframeTimeAnchor,
-  clipDuration?: number
+  clipDuration?: number,
 ): number {
   if (anchor === "end" && clipDuration != null && clipDuration > 0) {
     return Math.max(0, clipDuration - Math.abs(time));
@@ -47,7 +47,7 @@ export function resolveAnchorTime(
  */
 export function resolveResponsiveKeyframes<T extends ResponsiveKeyframePoint>(
   keyframes: readonly T[] | undefined,
-  clipDuration?: number
+  clipDuration?: number,
 ): ResolvedKeyframe<T>[] {
   if (!keyframes || keyframes.length === 0) {
     return [];

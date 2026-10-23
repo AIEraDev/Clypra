@@ -63,17 +63,21 @@ describe("PropertiesPanel text clip animation and transform keyframe integration
     render(<PropertiesPanel />);
 
     // Initially on "Text Style" tab
-    expect(screen.getAllByText("Hello Clypra Keyframes").length).toBeGreaterThanOrEqual(1);
+    expect(
+      screen.getAllByText("Hello Clypra Keyframes").length,
+    ).toBeGreaterThanOrEqual(1);
 
     // Click "Animation" tab
-    const animationTabButton = screen.getByRole("button", { name: /Animation/i });
+    const animationTabButton = screen.getByRole("button", {
+      name: /Animation/i,
+    });
     expect(animationTabButton).toBeDefined();
     fireEvent.click(animationTabButton);
 
     // Verify MotionPresetSection is rendered
     expect(screen.getByText("Motion & Animation")).toBeDefined();
-    expect(screen.getByText("In (Build-In)")).toBeDefined();
-    expect(screen.getByText("Out (Build-Out)")).toBeDefined();
+    expect(screen.getByText("In")).toBeDefined();
+    expect(screen.getByText("Out")).toBeDefined();
     expect(screen.getByText("Loop")).toBeDefined();
 
     // Verify legacy TextAnimationControls is NOT rendered
@@ -85,7 +89,9 @@ describe("PropertiesPanel text clip animation and transform keyframe integration
     render(<PropertiesPanel />);
 
     // Click "Transform" tab
-    const transformTabButton = screen.getByRole("button", { name: /Transform/i });
+    const transformTabButton = screen.getByRole("button", {
+      name: /Transform/i,
+    });
     expect(transformTabButton).toBeDefined();
     fireEvent.click(transformTabButton);
 

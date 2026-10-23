@@ -88,7 +88,9 @@ describe("CapCut Parity Text Property Panel", () => {
     expect(screen.getByRole("button", { name: /Tracking/i })).toBeDefined();
 
     // Text to speech tab
-    expect(screen.getByRole("button", { name: /Text to speech/i })).toBeDefined();
+    expect(
+      screen.getByRole("button", { name: /Text to speech/i }),
+    ).toBeDefined();
 
     // AI avatars tab
     expect(screen.getByRole("button", { name: /AI avatars/i })).toBeDefined();
@@ -103,7 +105,7 @@ describe("CapCut Parity Text Property Panel", () => {
     // Switch to Animation tab
     fireEvent.click(screen.getByRole("button", { name: /Animation/i }));
     expect(screen.getByText("Motion & Animation")).toBeDefined();
-    expect(screen.getByText("In (Build-In)")).toBeDefined();
+    expect(screen.getByText("In")).toBeDefined();
 
     // Switch to Tracking tab
     fireEvent.click(screen.getByRole("button", { name: /Tracking/i }));
@@ -132,7 +134,9 @@ describe("CapCut Parity Text Property Panel", () => {
     expect(screen.queryByRole("button", { name: /^Effects$/i })).toBeNull();
 
     // Textarea displays clip content
-    const textarea = screen.getByRole("textbox", { name: /Plain text content/i });
+    const textarea = screen.getByRole("textbox", {
+      name: /Plain text content/i,
+    });
     expect((textarea as HTMLTextAreaElement).value).toBe("Default Text\ndjdn");
 
     // Font label & selector
@@ -156,14 +160,20 @@ describe("CapCut Parity Text Property Panel", () => {
 
     // Color label and Keyframe diamond toggle
     expect(screen.getAllByText("Color").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByTitle(/Add keyframe for Text Color|Remove keyframe for Text Color/i)).toBeDefined();
+    expect(
+      screen.getByTitle(
+        /Add keyframe for Text Color|Remove keyframe for Text Color/i,
+      ),
+    ).toBeDefined();
 
     // Character and Line spacing
     expect(screen.getByText("Character")).toBeDefined();
     expect(screen.getByText("Line")).toBeDefined();
 
     // Save as preset button
-    expect(screen.getByRole("button", { name: /Save as preset/i })).toBeDefined();
+    expect(
+      screen.getByRole("button", { name: /Save as preset/i }),
+    ).toBeDefined();
   });
 
   it("switches between Basic and Bubble sub-tabs while preserving sticky header textarea", async () => {
@@ -190,14 +200,18 @@ describe("CapCut Parity Text Property Panel", () => {
     expect(screen.getByTitle("Comic BAM Burst")).toBeDefined();
 
     // Verify preset cards render on HTML5 Canvas rather than HTML document elements
-    const presetCanvases = document.querySelectorAll('canvas[data-bubble-preset-canvas="true"]');
+    const presetCanvases = document.querySelectorAll(
+      'canvas[data-bubble-preset-canvas="true"]',
+    );
     expect(presetCanvases.length).toBeGreaterThan(5);
 
     // Apply Torn Paper preset
     fireEvent.click(screen.getByTitle("Torn Paper"));
     await new Promise((r) => setTimeout(r, 100));
 
-    let clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    let clip = useTimelineStore
+      .getState()
+      .clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect(clip.background).toBeDefined();
     expect(clip.background?.bubblePresetId).toBe("bubble-paper-torn");
     expect(clip.color).toBe("#ef4444");
@@ -206,7 +220,9 @@ describe("CapCut Parity Text Property Panel", () => {
     fireEvent.click(screen.getByTitle("None"));
     await new Promise((r) => setTimeout(r, 100));
 
-    clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    clip = useTimelineStore
+      .getState()
+      .clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect(clip.background).toBeUndefined();
 
     // Effects sub-tab must NOT exist
@@ -228,7 +244,9 @@ describe("CapCut Parity Text Property Panel", () => {
     await new Promise((r) => setTimeout(r, 200));
 
     // Verify clip in store was updated with textDecoration: underline
-    const updatedClip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    const updatedClip = useTimelineStore
+      .getState()
+      .clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect(updatedClip.textDecoration).toBe("underline");
 
     // Click Case TT button
@@ -237,7 +255,9 @@ describe("CapCut Parity Text Property Panel", () => {
 
     await new Promise((r) => setTimeout(r, 200));
 
-    const updatedClip2 = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    const updatedClip2 = useTimelineStore
+      .getState()
+      .clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect(updatedClip2.textTransform).toBe("uppercase");
   });
 
@@ -258,7 +278,9 @@ describe("CapCut Parity Text Property Panel", () => {
       [],
     );
 
-    const textLayer = scene.visualLayers.find((l) => l.layerType === "text") as any;
+    const textLayer = scene.visualLayers.find(
+      (l) => l.layerType === "text",
+    ) as any;
     expect(textLayer).toBeDefined();
     expect(textLayer.text).toBe("HELLO WORLD");
     expect(textLayer.textTransform).toBe("uppercase");
@@ -294,7 +316,9 @@ describe("CapCut Parity Text Property Panel", () => {
 
     await new Promise((r) => setTimeout(r, 200));
 
-    const clipAfterStroke = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    const clipAfterStroke = useTimelineStore
+      .getState()
+      .clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect(clipAfterStroke.color).toBe("#ffe600");
     expect(clipAfterStroke.stroke).toEqual({ color: "#000000", width: 3 });
 
@@ -304,9 +328,15 @@ describe("CapCut Parity Text Property Panel", () => {
 
     await new Promise((r) => setTimeout(r, 200));
 
-    const clipAfterBadge = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    const clipAfterBadge = useTimelineStore
+      .getState()
+      .clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect(clipAfterBadge.color).toBe("#000000");
-    expect(clipAfterBadge.background).toEqual({ color: "#ffd000", padding: 8, borderRadius: 6 });
+    expect(clipAfterBadge.background).toEqual({
+      color: "#ffd000",
+      padding: 8,
+      borderRadius: 6,
+    });
 
     // Click "None" (Reset)
     const resetBtn = screen.getByTitle("None");
@@ -314,7 +344,9 @@ describe("CapCut Parity Text Property Panel", () => {
 
     await new Promise((r) => setTimeout(r, 200));
 
-    const clipAfterReset = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    const clipAfterReset = useTimelineStore
+      .getState()
+      .clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect(clipAfterReset.color).toBe("#ffffff");
     expect(clipAfterReset.stroke).toBeUndefined();
     expect(clipAfterReset.shadow).toBeUndefined();
@@ -360,7 +392,9 @@ describe("CapCut Parity Text Property Panel", () => {
     fireEvent.click(alignLeftBtn);
 
     await new Promise((r) => setTimeout(r, 100));
-    let clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    let clip = useTimelineStore
+      .getState()
+      .clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect(clip.x).toBe(0);
 
     // Click "Align center horizontally" (┼) -> (1920 - 400) / 2 = 760
@@ -368,7 +402,9 @@ describe("CapCut Parity Text Property Panel", () => {
     fireEvent.click(alignCenterXBtn);
 
     await new Promise((r) => setTimeout(r, 100));
-    clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    clip = useTimelineStore
+      .getState()
+      .clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect(clip.x).toBe(760);
 
     // Click "Align top" (╤)
@@ -376,7 +412,9 @@ describe("CapCut Parity Text Property Panel", () => {
     fireEvent.click(alignTopBtn);
 
     await new Promise((r) => setTimeout(r, 100));
-    clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    clip = useTimelineStore
+      .getState()
+      .clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect(clip.y).toBe(0);
 
     // Click "Align center vertically" (+) -> (1080 - 120) / 2 = 480
@@ -384,7 +422,9 @@ describe("CapCut Parity Text Property Panel", () => {
     fireEvent.click(alignCenterYBtn);
 
     await new Promise((r) => setTimeout(r, 100));
-    clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    clip = useTimelineStore
+      .getState()
+      .clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect(clip.y).toBe(480);
   });
 
@@ -396,7 +436,9 @@ describe("CapCut Parity Text Property Panel", () => {
     fireEvent.click(resetBtn);
 
     await new Promise((r) => setTimeout(r, 100));
-    const clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    const clip = useTimelineStore
+      .getState()
+      .clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect(clip.rotation).toBe(0);
     expect((clip as any).scale).toBe(1);
     expect(clip.width).toBe(400);
@@ -420,7 +462,9 @@ describe("CapCut Parity Text Property Panel", () => {
     fireEvent.click(enableStrokeBtn);
 
     await new Promise((r) => setTimeout(r, 100));
-    let clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    let clip = useTimelineStore
+      .getState()
+      .clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect(clip.stroke).toBeDefined();
     expect(clip.stroke?.width).toBe(40);
 
@@ -429,7 +473,9 @@ describe("CapCut Parity Text Property Panel", () => {
     fireEvent.click(resetStrokeBtn);
 
     await new Promise((r) => setTimeout(r, 100));
-    clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    clip = useTimelineStore
+      .getState()
+      .clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect(clip.stroke).toEqual({ color: "#000000", width: 40 });
   });
 
@@ -461,7 +507,9 @@ describe("CapCut Parity Text Property Panel", () => {
     fireEvent.click(enableBgBtn);
 
     await new Promise((r) => setTimeout(r, 100));
-    let clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    let clip = useTimelineStore
+      .getState()
+      .clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect(clip.background).toBeDefined();
 
     // Click "Split lines" card
@@ -469,7 +517,9 @@ describe("CapCut Parity Text Property Panel", () => {
     fireEvent.click(splitLinesBtn);
 
     await new Promise((r) => setTimeout(r, 100));
-    clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    clip = useTimelineStore
+      .getState()
+      .clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect((clip.background as any)?.style).toBe("split");
 
     // Click "Rectangle" card
@@ -477,13 +527,21 @@ describe("CapCut Parity Text Property Panel", () => {
     fireEvent.click(rectBtn);
 
     await new Promise((r) => setTimeout(r, 100));
-    clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    clip = useTimelineStore
+      .getState()
+      .clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect((clip.background as any)?.style).toBe("rectangle");
   });
 
   it("CLY-BUG-003: applying a bubble preset clears styleId and styleDefinition so bubble renders", async () => {
     useTimelineStore.setState({
-      clips: [{ ...mockTextClip, styleId: "neon-glow", styleDefinition: { id: "neon-glow" } as any } as TextClip],
+      clips: [
+        {
+          ...mockTextClip,
+          styleId: "neon-glow",
+          styleDefinition: { id: "neon-glow" } as any,
+        } as TextClip,
+      ],
       tracks: [mockTrack],
       transitions: [],
     });
@@ -497,7 +555,9 @@ describe("CapCut Parity Text Property Panel", () => {
     fireEvent.click(tornPaperBtn);
 
     await new Promise((r) => setTimeout(r, 50));
-    const clip = useTimelineStore.getState().clips.find((c) => c.id === "test-text-capcut") as TextClip;
+    const clip = useTimelineStore
+      .getState()
+      .clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect(clip.background?.bubblePresetId).toBe("bubble-paper-torn");
     expect(clip.styleId).toBeUndefined();
     expect((clip as any).styleDefinition).toBeUndefined();

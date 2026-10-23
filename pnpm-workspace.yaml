@@ -2,7 +2,7 @@ allowBuilds:
   canvas: false
   esbuild: false
 minimumReleaseAgeExclude:
-  - '@clypra-studio/engine@1.4.0 || 1.6.0 || 1.7.0 || 1.8.0 || 1.10.0 || 1.10.1'
+  - '@clypra-studio/engine@1.4.0 || 1.6.0 || 1.7.0 || 1.8.0 || 1.10.0 || 1.10.1 || 1.10.2'
   - '@clypra-studio/shaders@0.2.1'
   - '@clypra-studio/types@0.6.2'
   - '@clypra/ui-color-picker@0.2.2'

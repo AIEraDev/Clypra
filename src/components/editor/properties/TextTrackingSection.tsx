@@ -25,7 +25,7 @@ export const TextTrackingSection: React.FC<TextTrackingSectionProps> = ({
   };
 
   return (
-    <div className="space-y-4 p-1 select-none">
+    <div className="space-y-1.5 select-none text-white relative p-2 pt-0">
       {/* Header Info */}
       <div className="flex items-start gap-3 p-3 bg-[#242428] border border-white/5 rounded-xl">
         <div className="w-9 h-9 rounded-lg bg-cyan-400/10 border border-cyan-400/20 flex items-center justify-center text-cyan-400 shrink-0">
@@ -34,7 +34,8 @@ export const TextTrackingSection: React.FC<TextTrackingSectionProps> = ({
         <div>
           <h4 className="text-xs font-semibold text-white">Motion Tracking</h4>
           <p className="text-[11px] text-[#a1a1aa] mt-0.5 leading-relaxed">
-            Attach this text clip to a moving person or object in the video canvas.
+            Attach this text clip to a moving person or object in the video
+            canvas.
           </p>
         </div>
       </div>
@@ -47,9 +48,12 @@ export const TextTrackingSection: React.FC<TextTrackingSectionProps> = ({
             Target
           </span>
         </div>
-        <p className="text-xs text-white font-medium">Position tracking box on preview</p>
+        <p className="text-xs text-white font-medium">
+          Position tracking box on preview
+        </p>
         <p className="text-[11px] text-[#8e8e93] mt-0.5 max-w-[240px]">
-          Drag the target box in the preview window over the object you want &quot;{textClip.text || "Text"}&quot; to follow.
+          Drag the target box in the preview window over the object you want
+          &quot;{textClip.text || "Text"}&quot; to follow.
         </p>
       </div>
 

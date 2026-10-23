@@ -1,11 +1,4 @@
-import {
-  Type,
-  Layout,
-  Sparkles,
-  Crosshair,
-  Volume2,
-  UserCheck,
-} from "lucide-react";
+import { Type, Sparkles, Volume2, Video, Gauge } from "lucide-react";
 import { PropertyTabsType } from "./types";
 
 export const TEXT_TABS: PropertyTabsType[] = [
@@ -16,22 +9,31 @@ export const TEXT_TABS: PropertyTabsType[] = [
     label: "Animation",
     icon: Sparkles,
   },
+];
+
+export const VIDEO_TABS: PropertyTabsType[] = [
   {
-    id: "tracking",
-    labelKey: "properties.tabs.tracking",
-    label: "Tracking",
-    icon: Crosshair,
+    id: "video",
+    labelKey: "properties.tabs.video",
+    label: "Video",
+    icon: Video,
   },
   {
-    id: "tts",
-    labelKey: "properties.tabs.tts",
-    label: "Text to speech",
+    id: "audio",
+    labelKey: "properties.tabs.audio",
+    label: "Audio",
     icon: Volume2,
   },
   {
-    id: "ai_avatars",
-    labelKey: "properties.tabs.aiAvatars",
-    label: "AI avatars",
-    icon: UserCheck,
+    id: "speed",
+    labelKey: "properties.tabs.speed",
+    label: "Speed",
+    icon: Gauge,
+  },
+  {
+    id: "animation",
+    labelKey: "properties.tabs.animation",
+    label: "Animation",
+    icon: Sparkles,
   },
 ];

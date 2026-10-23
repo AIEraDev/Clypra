@@ -1,7 +1,7 @@
 /**
  * Motion Behavior & Kinetic Preset Contracts.
  *
- * Defines one-click animation presets across In (Build-In), Out (Build-Out),
+ * Defines one-click animation presets across In, Out,
  * and Loop (Continuous Emphasis) categories.
  */
 

@@ -50,8 +50,8 @@ export interface KeyframeSpringConfig {
 
 /**
  * Responsive time anchor modes:
- * - "start": Relative to clip in-point / start (Build-In)
- * - "end": Relative backwards from clip out-point / end (Build-Out)
+ * - "start": Relative to clip in-point / start (In)
+ * - "end": Relative backwards from clip out-point / end (Out)
  * - "absolute": Unscaled timeline timestamp
  */
 export type KeyframeTimeAnchor = "start" | "end" | "absolute";
