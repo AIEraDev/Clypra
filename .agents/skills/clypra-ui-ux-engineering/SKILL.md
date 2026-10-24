@@ -25,6 +25,7 @@ The objective is to create an application in which users can understand the curr
 ## 1. Activation conditions
 
 Activate this skill when a task involves:
+
 - Designing or redesigning an application screen.
 - Improving usability or visual hierarchy.
 - Adding or modifying components, dialogs, menus, panels, or inspectors.
@@ -47,6 +48,7 @@ Do not require the full workflow for trivial changes that have no meaningful des
 ## 2. Understand the existing product before designing
 
 Before making UI/UX changes, inspect:
+
 - The affected page, panel, modal, or editing workflow.
 - Existing component implementations and shared UI primitives (`src/components/ui/`, `src/components/editor/`).
 - Design tokens and theming conventions.
@@ -70,6 +72,7 @@ If the repository already contains a consistent design system, treat it as the d
 ## 3. Apply senior product-design judgment
 
 For every non-trivial UI/UX task, define:
+
 - The user and the problem being solved.
 - The expected user outcome.
 - The most common interaction path.
@@ -92,6 +95,7 @@ Use actual evidence when available and clearly label design hypotheses that have
 
 Clypra should feel like one application, not a collection of independently generated screens.
 Follow the existing design system for:
+
 - Color tokens.
 - Typography hierarchy.
 - Spacing and alignment.
@@ -111,7 +115,9 @@ If a shared primitive is defective, fix it centrally when safe and verify all af
 Keep design tokens semantically meaningful. A danger color should communicate a danger state, not simply be selected because it looks visually appealing.
 
 ### Visual hierarchy
+
 For each screen, clarify:
+
 - The primary task.
 - The most important information.
 - The primary action.
@@ -129,6 +135,7 @@ Professional editing workflows require precise, repeatable interaction.
 When relevant, evaluate:
 
 ### Timeline
+
 - Clear track hierarchy and selection state.
 - Reliable visual distinction between clips, gaps, overlaps, and transitions.
 - Legible time rulers and playhead position.
@@ -141,6 +148,7 @@ When relevant, evaluate:
 - Understandable behavior when the timeline contains many tracks.
 
 ### Preview
+
 - Clear distinction between playback, pause, buffering, loading, and failure.
 - Visible feedback when media is not ready.
 - Predictable seek and playback controls.
@@ -150,6 +158,7 @@ When relevant, evaluate:
 - Visual UI states must reflect actual application state. Do not simulate playback progress or export success merely to make the interface appear responsive.
 
 ### Inspector and editing controls
+
 - Clear labels and appropriate defaults.
 - Understandable numeric ranges and units.
 - Precision appropriate to the operation.
@@ -159,6 +168,7 @@ When relevant, evaluate:
 - Consistent treatment of invalid values and unavailable controls.
 
 ### Import and export
+
 - Clear operation progress.
 - Useful status and error messages.
 - Understandable cancellation behavior.
@@ -170,9 +180,94 @@ Do not apply every principle mechanically. Use the relevant behaviors and conven
 
 ---
 
+## 5a. Use and extend reusable UI primitives
+
+Clypra maintains a library of shared, tested UI primitives in `src/components/editor/properties/primitives/` to ensure consistency across property panels and editing controls.
+
+Before implementing a new control or pattern, check if a reusable primitive already exists or can be extended.
+
+### Available Reusable Primitives
+
+**NumericControl** (`NumericControl.tsx`)
+
+- Numeric input with optional prefix label (e.g., "X", "Y") and suffix/unit display
+- Integrated increase/decrease buttons via `IncreaseDecreaseHandler`
+- Inline editing with Enter/Escape and Arrow key support
+- Configurable step, min/max, decimal precision
+- Disabled state support
+- **Use for:** Position controls, rotation, opacity, scale values, any numeric property with increase/decrease buttons
+
+```tsx
+// Basic usage
+<NumericControl value={rotation} onChange={setRotation} step={1} />
+
+// With prefix label
+<NumericControl value={displayX} onChange={handleXChange} prefix="X" step={1} />
+
+// With suffix and decimals
+<NumericControl value={opacity} onChange={setOpacity} suffix="%" decimals={2} />
+```
+
+**SliderTrack** (`SliderTrack.tsx`)
+
+- Visual draggable slider with fill indicator
+- Click-and-drag or click-to-position interaction
+- Configurable range and step
+- Pure visual control (no labels or numeric input)
+- **Use for:** Visual value selection, scrubbing, quick adjustments
+
+```tsx
+<SliderTrack value={scale} min={0} max={200} step={1} onChange={setScale} />
+```
+
+**IncreaseDecreaseHandler** (`IncreaseDecreaseHandler.tsx`)
+
+- Compact vertical button pair for incrementing/decrementing values
+- Consistent styling and hover states
+- Accessibility labels
+- **Use for:** Numeric inputs that need precise step-based adjustments
+
+**KeyframeNavControls** (`KeyframeNavControls.tsx`)
+
+- Keyframe toggle, previous/next navigation, curve editor access
+- Consistent with animation system
+- **Use for:** Any property that supports keyframe animation
+
+**PropertySectionHeader** (`PropertySectionHeader.tsx`)
+
+- Consistent section titles in property panels
+- **Use for:** Grouping related controls
+
+### Primitive Usage Guidelines
+
+1. **Prefer composition over duplication**: Use existing primitives and compose them rather than copying their implementation
+2. **Match existing patterns**: When adding controls to property panels, inspect neighboring components for established layout and primitive usage
+3. **Extend, don't fork**: If a primitive needs new capabilities, extend it with optional props rather than creating a variant
+4. **Type safety**: All primitives use TypeScript interfaces; respect the contracts
+5. **Accessibility**: Primitives handle ARIA labels and keyboard interaction; preserve these when composing
+6. **Localization**: Pass localized strings for labels and aria-label props
+
+### When to Create a New Primitive
+
+Create a new primitive when:
+
+- The pattern appears 3+ times across different files
+- The control has non-trivial interaction logic (drag, editing states, validation)
+- The styling is specific to Clypra's design system and unlikely to change per-instance
+- The component should behave identically everywhere it's used
+
+Do not create a primitive for:
+
+- One-off specialized controls
+- Thin wrappers around native HTML elements without added behavior
+- Controls that vary significantly in each usage context
+
+---
+
 ## 6. Model the entire interaction lifecycle
 
 For every important interactive component, evaluate the appropriate states:
+
 - Default.
 - Hover.
 - Focus.
@@ -202,6 +297,7 @@ Prefer undo and clear recovery mechanisms over unnecessary confirmation prompts 
 
 Clypra is a desktop application, so evaluate real window behavior rather than assuming a fixed browser viewport.
 Where relevant, verify:
+
 - Minimum practical window dimensions.
 - Narrow and wide workspace layouts.
 - Panel resizing.
@@ -228,6 +324,7 @@ Use the cross-platform engineering skill whenever the design depends on WebView 
 
 Use WCAG 2.2 AA as a reference baseline for applicable web-rendered interface requirements, while recognizing that conformance must be assessed against the actual technologies and applicable criteria.
 Evaluate:
+
 - Semantic HTML and correct roles.
 - Accessible names and descriptions.
 - Keyboard-only operation.
@@ -259,6 +356,7 @@ Reference: [WCAG 2.2 Quick Reference](https://www.w3.org/WAI/WCAG22/quickref/)
 Work with the canonical `i18n-localization-engineering` skill.
 Do not introduce hard-coded English text into application-owned UI components.
 Account for:
+
 - Translation expansion and contraction.
 - Long tooltips and dialog text.
 - CJK glyphs and font fallback.
@@ -279,6 +377,7 @@ Do not translate machine-readable identifiers or change the underlying media sem
 An interface should remain responsive during normal editing operations.
 Before adding animation, expensive derived state, repeated layout measurements, large component trees, or complex transitions, evaluate their impact on actual usage.
 Where relevant, investigate:
+
 - Excessive re-renders.
 - Expensive DOM updates.
 - Layout thrashing.
@@ -301,6 +400,7 @@ If the UI needs to indicate native preview readiness, rendering progress, or asy
 ## 11. Design review and implementation workflow
 
 For a non-trivial UI/UX request:
+
 1. Inspect the existing implementation.
 2. Identify the affected screen and complete user workflow.
 3. Establish the intended behavior and visual hierarchy.
@@ -325,7 +425,9 @@ For an implementation task, provide a practical plan only as detailed as the cha
 Choose the appropriate level of verification.
 
 ### Component tests
+
 Use component tests for:
+
 - Control state.
 - Event handling.
 - Dialog behavior.
@@ -336,8 +438,10 @@ Use component tests for:
 - Relevant keyboard behavior.
 
 ### Playwright frontend tests
+
 Use Playwright for meaningful, observable UI workflows.
 Where applicable, verify:
+
 - Primary user journeys.
 - Menus, dialogs, forms, and controls.
 - Keyboard interactions and focus.
@@ -354,11 +458,14 @@ Avoid arbitrary waits and duplicate test cases.
 Use controlled adapters for native Tauri APIs that are unavailable during browser tests. Never present mocked native operations as proof of the real OS integration.
 
 ### Native desktop tests
+
 Use the repository's supported Tauri desktop-testing framework for workflows involving actual native menus, window behavior, native dialogs, packaged applications, or real platform integration.
 Verify only the platforms and environments actually tested.
 
 ### Visual verification
+
 When screenshots or comparable UI captures are available, inspect the changed interface for:
+
 - Misalignment.
 - Overflow.
 - Truncation.
@@ -376,6 +483,7 @@ Always pair visual inspection with functional checks. A screenshot that looks co
 ## 13. UI/UX defect classification
 
 For audits and reviews, categorize findings with one primary category:
+
 - `VISUAL_CONSISTENCY`
 - `INFORMATION_HIERARCHY`
 - `INTERACTION_BEHAVIOR`
@@ -391,6 +499,7 @@ For audits and reviews, categorize findings with one primary category:
 - `DESIGN_SYSTEM_DRIFT`
 
 Assign severity based on the actual user impact:
+
 - **P0 — Critical**: UI behavior causes severe data loss, security consequences, or makes an essential workflow unusable across its intended scope.
 - **P1 — High**: Core editing workflows are inaccessible, misleading, or seriously impaired.
 - **P2 — Medium**: A meaningful usability or accessibility problem affects a bounded workflow.
@@ -405,6 +514,7 @@ For each material finding, identify its location, affected workflow, observed be
 ## 14. Output format
 
 For a UI/UX review, produce:
+
 1. **Executive summary**: Describe the overall experience, highest-priority issues, and scope evaluated.
 2. **Findings by severity**: For each finding, include:
    - ID.
@@ -428,6 +538,7 @@ For implementation tasks, also summarize files changed, test results, and any re
 ## 15. Definition of done
 
 A UI/UX change is complete only when:
+
 1. The existing design system and interaction model were considered.
 2. The relevant user workflow has been examined.
 3. Important interaction states and edge cases are addressed.

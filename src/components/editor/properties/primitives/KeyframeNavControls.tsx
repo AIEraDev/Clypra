@@ -1,6 +1,4 @@
 import React from "react";
-import { ChevronLeft, ChevronRight, TrendingUp } from "lucide-react";
-import { KeyframeToggleButton } from "./KeyframeToggleButton";
 
 export interface KeyframeNavControlsProps {
   /** Whether the property has any keyframes at all */
@@ -35,59 +33,51 @@ export const KeyframeNavControls: React.FC<KeyframeNavControlsProps> = ({
   label = "Property",
 }) => {
   return (
-    <div className="flex items-center gap-0.5 select-none">
-      {/* Previous keyframe navigation */}
-      {hasKeyframes && onPrevKeyframe && (
-        <button
-          type="button"
-          onClick={onPrevKeyframe}
-          disabled={!hasPrev}
-          className={`p-0.5 rounded transition-all cursor-pointer ${
-            hasPrev
-              ? "text-text-muted hover:text-accent hover:bg-accent/10"
-              : "opacity-25 pointer-events-none text-text-muted"
-          }`}
-          title={`Previous keyframe for ${label}`}
-        >
-          <ChevronLeft className="w-3 h-3" />
-        </button>
-      )}
+    <div className="flex items-center gap-x-0">
+      <span
+        className="text-text-muted cursor-pointer"
+        onClick={onPrevKeyframe}
+        title={`Previous keyframe for ${label}`}
+      >
+        {/* prettier-ignore */}
+        <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><path d="M0 0h24v24H0z" fill="none" /><path fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="m14 6l-6 6l6 6" /></svg>
+      </span>
 
-      {/* Diamond keyframe toggle */}
-      <KeyframeToggleButton
-        active={isAtKeyframe}
-        onToggle={onToggleKeyframe}
-        title={isAtKeyframe ? `Remove keyframe for ${label}` : `Add keyframe for ${label}`}
-      />
+      <button
+        className={`w-2.5 h-2.5 border border-text-muted text-white inline-flex justify-center items-center transition-colors duration-300 cursor-pointer ${isAtKeyframe ? "" : "hover:bg-text-muted hover:border-none"}`}
+        style={{ transform: "rotate(45deg)", willChange: "transform" }}
+        onClick={onToggleKeyframe}
+        title={
+          isAtKeyframe
+            ? `Remove keyframe for ${label}`
+            : `Add keyframe for ${label}`
+        }
+      >
+        {!isAtKeyframe ? (
+          <span
+            style={{ display: "inline-block", transform: "rotate(-45deg)" }}
+          >
+            {/* prettier-ignore */}
+            <svg xmlns="http://www.w3.org/2000/svg" className="Plus-Icon" width="8px" height="8px" viewBox="0 0 24 24"><path d="M0 0h24v24H0z" fill="none" /><path fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" d="M12 20v-8m0 0V4m0 8h8m-8 0H4" /></svg>
+          </span>
+        ) : (
+          <span
+            style={{ display: "inline-block", transform: "rotate(-45deg)" }}
+          >
+            {/* prettier-ignore */}
+            <svg xmlns="http://www.w3.org/2000/svg" className="Minus-Icon" width="8px" height="8px" viewBox="0 0 24 24"><path d="M0 0h24v24H0z" fill="none" /><path fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" d="M20 12H4" /></svg>
+          </span>
+        )}
+      </button>
 
-      {/* Next keyframe navigation */}
-      {hasKeyframes && onNextKeyframe && (
-        <button
-          type="button"
-          onClick={onNextKeyframe}
-          disabled={!hasNext}
-          className={`p-0.5 rounded transition-all cursor-pointer ${
-            hasNext
-              ? "text-text-muted hover:text-accent hover:bg-accent/10"
-              : "opacity-25 pointer-events-none text-text-muted"
-          }`}
-          title={`Next keyframe for ${label}`}
-        >
-          <ChevronRight className="w-3 h-3" />
-        </button>
-      )}
-
-      {/* Curve editor shortcut */}
-      {hasKeyframes && onOpenCurveEditor && (
-        <button
-          type="button"
-          onClick={onOpenCurveEditor}
-          className="p-1 text-accent hover:text-accent/80 hover:bg-accent/10 rounded transition-all cursor-pointer ml-0.5"
-          title={`Open Speed & Curve Editor for ${label}`}
-        >
-          <TrendingUp className="w-3 h-3" />
-        </button>
-      )}
+      <span
+        className="text-text-muted cursor-pointer"
+        onClick={onNextKeyframe}
+        title={`Next keyframe for ${label}`}
+      >
+        {/* prettier-ignore */}
+        <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><path d="M0 0h24v24H0z" fill="none" /><path fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="m9 6l6 6l-6 6" /></svg>
+      </span>
     </div>
   );
 };
