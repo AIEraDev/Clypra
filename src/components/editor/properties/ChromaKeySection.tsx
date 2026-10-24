@@ -1,12 +1,13 @@
 // src/components/editor/properties/ChromaKeySection.tsx
-import React from 'react';
-import { Pipette, Sparkles } from 'lucide-react';
-import type { Clip } from '@/types';
-import { useTimelineStore } from '@/store/timelineStore';
-import { useEyedropper } from '@/core/hooks/useEyedropper';
-import { defaultChromaKeyConfig } from '@/types/compositor';
-import { PropertySection } from './primitives/PropertySection';
-import { PropertySlider } from './primitives/PropertySlider';
+import React from "react";
+import { Pipette, Sparkles } from "lucide-react";
+import type { Clip } from "@/types";
+import { useTimelineStore } from "@/store/timelineStore";
+import { useEyedropper } from "@/core/hooks/useEyedropper";
+import { defaultChromaKeyConfig } from "@/types/compositor";
+import { PropertySection } from "./primitives/PropertySection";
+import { SliderTrack } from "./primitives/SliderTrack";
+import { NumericControl } from "./primitives/NumericControl";
 
 interface ChromaKeySectionProps {
   selectedClip: Clip;
@@ -17,8 +18,12 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
   selectedClip,
   surfaceRef,
 }) => {
-  const updateClipChromaKey = useTimelineStore((state) => state.updateClipChromaKey);
-  const { pickColor, isPicking } = useEyedropper(surfaceRef ?? { current: null });
+  const updateClipChromaKey = useTimelineStore(
+    (state) => state.updateClipChromaKey,
+  );
+  const { pickColor, isPicking } = useEyedropper(
+    surfaceRef ?? { current: null },
+  );
 
   const chromaKey = selectedClip.chromaKey ?? defaultChromaKeyConfig;
 
@@ -74,68 +79,186 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
             disabled={!chromaKey.enabled}
             className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md border transition-all cursor-pointer ${
               !chromaKey.enabled
-                ? 'opacity-40 cursor-not-allowed bg-surface-raised border-white/5 text-text-muted'
+                ? "opacity-40 cursor-not-allowed bg-surface-raised border-white/5 text-text-muted"
                 : isPicking
-                ? 'bg-accent border-accent text-white animate-pulse shadow-xs shadow-accent/30'
-                : 'bg-surface-raised hover:bg-white/10 border-white/10 text-text-secondary hover:text-text-primary'
+                  ? "bg-accent border-accent text-white animate-pulse shadow-xs shadow-accent/30"
+                  : "bg-surface-raised hover:bg-white/10 border-white/10 text-text-secondary hover:text-text-primary"
             }`}
           >
             <Pipette className="w-3 h-3" />
-            <span>{isPicking ? 'Click Canvas...' : 'Eyedropper'}</span>
+            <span>{isPicking ? "Click Canvas..." : "Eyedropper"}</span>
           </button>
         </div>
 
         {/* Sliders */}
-        <div className={chromaKey.enabled ? 'space-y-2.5' : 'space-y-2.5 opacity-40 pointer-events-none'}>
-          <PropertySlider
-            label="Tolerance"
-            value={Math.round(chromaKey.tolerance * 100)}
-            min={0}
-            max={100}
-            step={1}
-            suffix="%"
-            onChange={(v) => updateClipChromaKey(selectedClip.id, { tolerance: v / 100 })}
-          />
+        <div
+          className={
+            chromaKey.enabled
+              ? "space-y-3"
+              : "space-y-3 opacity-40 pointer-events-none"
+          }
+        >
+          {/* Tolerance */}
+          <div className="space-y-1">
+            <span className="text-[11px] text-white select-none block">
+              Tolerance
+            </span>
+            <div className="flex items-center gap-2">
+              <SliderTrack
+                value={Math.round(chromaKey.tolerance * 100)}
+                min={0}
+                max={100}
+                step={1}
+                onChange={(v) =>
+                  updateClipChromaKey(selectedClip.id, { tolerance: v / 100 })
+                }
+              />
+              <NumericControl
+                value={Math.round(chromaKey.tolerance * 100)}
+                onChange={(v) =>
+                  updateClipChromaKey(selectedClip.id, { tolerance: v / 100 })
+                }
+                step={1}
+                suffix="%"
+                ariaLabel="Tolerance"
+                min={0}
+                max={100}
+                inputPosition="text-right"
+              />
+            </div>
+          </div>
 
-          <PropertySlider
-            label="Edge Softness"
-            value={Math.round(chromaKey.smoothness * 100)}
-            min={0}
-            max={100}
-            step={1}
-            suffix="%"
-            onChange={(v) => updateClipChromaKey(selectedClip.id, { smoothness: v / 100 })}
-          />
+          {/* Edge Softness */}
+          <div className="space-y-1">
+            <span className="text-[11px] text-white select-none block">
+              Edge Softness
+            </span>
+            <div className="flex items-center gap-2">
+              <SliderTrack
+                value={Math.round(chromaKey.smoothness * 100)}
+                min={0}
+                max={100}
+                step={1}
+                onChange={(v) =>
+                  updateClipChromaKey(selectedClip.id, { smoothness: v / 100 })
+                }
+              />
+              <NumericControl
+                value={Math.round(chromaKey.smoothness * 100)}
+                onChange={(v) =>
+                  updateClipChromaKey(selectedClip.id, { smoothness: v / 100 })
+                }
+                step={1}
+                suffix="%"
+                ariaLabel="Edge Softness"
+                min={0}
+                max={100}
+                inputPosition="text-right"
+              />
+            </div>
+          </div>
 
-          <PropertySlider
-            label="Despill Cleanup"
-            value={Math.round(chromaKey.despillAmount * 100)}
-            min={0}
-            max={100}
-            step={1}
-            suffix="%"
-            onChange={(v) => updateClipChromaKey(selectedClip.id, { despillAmount: v / 100 })}
-          />
+          {/* Despill Cleanup */}
+          <div className="space-y-1">
+            <span className="text-[11px] text-white select-none block">
+              Despill Cleanup
+            </span>
+            <div className="flex items-center gap-2">
+              <SliderTrack
+                value={Math.round(chromaKey.despillAmount * 100)}
+                min={0}
+                max={100}
+                step={1}
+                onChange={(v) =>
+                  updateClipChromaKey(selectedClip.id, {
+                    despillAmount: v / 100,
+                  })
+                }
+              />
+              <NumericControl
+                value={Math.round(chromaKey.despillAmount * 100)}
+                onChange={(v) =>
+                  updateClipChromaKey(selectedClip.id, {
+                    despillAmount: v / 100,
+                  })
+                }
+                step={1}
+                suffix="%"
+                ariaLabel="Despill Cleanup"
+                min={0}
+                max={100}
+                inputPosition="text-right"
+              />
+            </div>
+          </div>
 
-          <PropertySlider
-            label="Matte Pedestal"
-            value={Math.round(chromaKey.mattePedestal * 100)}
-            min={0}
-            max={50}
-            step={1}
-            suffix="%"
-            onChange={(v) => updateClipChromaKey(selectedClip.id, { mattePedestal: v / 100 })}
-          />
+          {/* Matte Pedestal */}
+          <div className="space-y-1">
+            <span className="text-[11px] text-white select-none block">
+              Matte Pedestal
+            </span>
+            <div className="flex items-center gap-2">
+              <SliderTrack
+                value={Math.round(chromaKey.mattePedestal * 100)}
+                min={0}
+                max={50}
+                step={1}
+                onChange={(v) =>
+                  updateClipChromaKey(selectedClip.id, {
+                    mattePedestal: v / 100,
+                  })
+                }
+              />
+              <NumericControl
+                value={Math.round(chromaKey.mattePedestal * 100)}
+                onChange={(v) =>
+                  updateClipChromaKey(selectedClip.id, {
+                    mattePedestal: v / 100,
+                  })
+                }
+                step={1}
+                suffix="%"
+                ariaLabel="Matte Pedestal"
+                min={0}
+                max={50}
+                inputPosition="text-right"
+              />
+            </div>
+          </div>
 
-          <PropertySlider
-            label="Matte Highlight"
-            value={Math.round(chromaKey.matteHighlight * 100)}
-            min={50}
-            max={100}
-            step={1}
-            suffix="%"
-            onChange={(v) => updateClipChromaKey(selectedClip.id, { matteHighlight: v / 100 })}
-          />
+          {/* Matte Highlight */}
+          <div className="space-y-1">
+            <span className="text-[11px] text-white select-none block">
+              Matte Highlight
+            </span>
+            <div className="flex items-center gap-2">
+              <SliderTrack
+                value={Math.round(chromaKey.matteHighlight * 100)}
+                min={50}
+                max={100}
+                step={1}
+                onChange={(v) =>
+                  updateClipChromaKey(selectedClip.id, {
+                    matteHighlight: v / 100,
+                  })
+                }
+              />
+              <NumericControl
+                value={Math.round(chromaKey.matteHighlight * 100)}
+                onChange={(v) =>
+                  updateClipChromaKey(selectedClip.id, {
+                    matteHighlight: v / 100,
+                  })
+                }
+                step={1}
+                suffix="%"
+                ariaLabel="Matte Highlight"
+                min={50}
+                max={100}
+                inputPosition="text-right"
+              />
+            </div>
+          </div>
         </div>
       </div>
     </PropertySection>
