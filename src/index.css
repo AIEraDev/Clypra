@@ -427,10 +427,10 @@ textarea,
 }
 
 /* Accessibility: Visible focus indicators */
-*:focus-visible {
+/* *:focus-visible {
   outline: 2px solid var(--clypra-interaction-focus);
   outline-offset: 2px;
-}
+} */
 
 /* Enhanced focus for interactive elements */
 button:focus-visible,

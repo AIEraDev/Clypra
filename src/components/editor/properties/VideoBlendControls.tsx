@@ -148,6 +148,7 @@ export const VideoBlendControls: React.FC<VideoBlendControlsProps> = ({
             value={blendMode}
             options={BLEND_MODE_OPTIONS}
             onChange={(val) => handleUpdate("blendMode", val)}
+            className="flex items-center gap-36"
           />
 
           {/* Opacity with Keyframe Support */}

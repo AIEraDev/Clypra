@@ -128,7 +128,7 @@ export const SliderTrack: React.FC<SliderTrackProps> = ({
       {/* Track background with fill gradient */}
       <div className="bg-[#81818157] w-full h-[3px] rounded-2xl relative overflow-hidden">
         <div
-          className="absolute left-0 top-0 h-full bg-accent transition-all"
+          className="absolute left-0 top-0 h-full bg-white transition-all"
           style={{ width: `${fillPercent}%` }}
         />
       </div>
@@ -137,7 +137,7 @@ export const SliderTrack: React.FC<SliderTrackProps> = ({
       <div
         role="button"
         aria-label="Slider Button Handler"
-        className="h-3 w-2 bg-white absolute top-1/2 -translate-y-1/2 rounded-t-lg rounded-b-3xl transition-all hover:bg-accent cursor-grab active:cursor-grabbing"
+        className="h-3 w-2 bg-white absolute top-1/2 -translate-y-1/2 rounded-t-lg rounded-b-3xl transition-all cursor-grab active:cursor-grabbing"
         style={{
           left: `${fillPercent}%`,
           transform: `translateX(-50%)`,

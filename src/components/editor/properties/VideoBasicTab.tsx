@@ -11,6 +11,7 @@ import { VideoTransformControls } from "./VideoTransformControls";
 import { VideoBlendControls } from "./VideoBlendControls";
 import { BackgroundInspectorPanel } from "./BackgroundInspectorPanel";
 import { EffectsFiltersSection } from "./EffectsFiltersSection";
+import { PropertySectionHeader } from "./primitives/PropertySectionHeader";
 
 interface VideoBasicTabProps {
   selectedClip: Clip;
@@ -32,14 +33,13 @@ export const VideoBasicTab: React.FC<VideoBasicTabProps> = ({
   handleApplyFit,
 }) => {
   return (
-    <div className="space-y-6">
+    <div className="">
       {/* Section 1: Transform Controls */}
-      <div>
-        <h3 className="text-xs font-semibold text-white/60 mb-3 uppercase tracking-wider">
-          Transform
-        </h3>
+      <div className="pt-1">
         <VideoTransformControls
           selectedClip={selectedClip}
+          canvasWidth={canvasWidth}
+          canvasHeight={canvasHeight}
           handleUpdate={handleUpdate}
           handleUpdateMultiple={handleUpdateMultiple}
           handleApplyFit={handleApplyFit}
@@ -47,13 +47,10 @@ export const VideoBasicTab: React.FC<VideoBasicTabProps> = ({
       </div>
 
       {/* Divider */}
-      <div className="h-px bg-white/5" />
+      <div className="h-px bg-white/5 my-4" />
 
       {/* Section 2: Blend Controls */}
       <div>
-        <h3 className="text-xs font-semibold text-white/60 mb-3 uppercase tracking-wider">
-          Blend
-        </h3>
         <VideoBlendControls
           selectedClip={selectedClip}
           handleUpdate={handleUpdate}
@@ -61,13 +58,10 @@ export const VideoBasicTab: React.FC<VideoBasicTabProps> = ({
       </div>
 
       {/* Divider */}
-      <div className="h-px bg-white/5" />
+      <div className="h-px bg-white/5 my-4" />
 
       {/* Section 3: Canvas Background (from EmptyPropertiesState) */}
       <div>
-        <h3 className="text-xs font-semibold text-white/60 mb-3 uppercase tracking-wider">
-          Canvas Background
-        </h3>
         <BackgroundInspectorPanel />
       </div>
 
