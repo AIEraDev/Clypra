@@ -60,7 +60,7 @@ export const VideoAdjustTab: React.FC<VideoAdjustTabProps> = ({
         <div className="bg-panel p-0.5 rounded-sm flex gap-1 border border-white/5">
           {(["basic", "hsl", "curves", "color-wheel", "mask"] as const).map(
             (tab) => {
-              const isLocked = tab !== "basic";
+              const isLocked = tab !== "basic" && tab !== "hsl";
               const labels = {
                 basic: "Basic",
                 hsl: "HSL",
@@ -272,10 +272,84 @@ export const VideoAdjustTab: React.FC<VideoAdjustTabProps> = ({
         </div>
       )}
 
-      {/* HSL Sub-tab (Locked) */}
+      {/* HSL Sub-tab */}
       {activeSubTab === "hsl" && (
-        <div className="p-4 text-center text-text-muted text-sm">
-          HSL feature coming soon
+        <div className="p-3 space-y-3">
+          {/* Basic Section */}
+          <div className="space-y-2">
+            <PropertySectionHeader
+              title="BASIC"
+              isCollapsed={false}
+              onToggleCollapse={() => {}}
+            />
+
+            <div className="pl-6 pt-2 space-y-4">
+              {/* Color Picker Row */}
+              <div className="flex items-center gap-2">
+                {/* Eyedropper Tool */}
+                <button
+                  className="w-8 h-8 flex items-center justify-center bg-[#2c2c2e] border border-white/10 rounded cursor-pointer hover:bg-[#3a3a3c] transition-colors"
+                  title="Pick color from video"
+                >
+                  {/* prettier-ignore */}
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l-3-3Z"/></svg>
+                </button>
+
+                {/* Color Circles */}
+                <div className="flex gap-2">
+                  {[
+                    { color: "#1a1a1a", label: "Black" },
+                    { color: "#ff4444", label: "Red" },
+                    { color: "#ff8800", label: "Orange" },
+                    { color: "#ffee00", label: "Yellow" },
+                    { color: "#44ff44", label: "Green" },
+                    { color: "#00ddff", label: "Cyan" },
+                    { color: "#4488ff", label: "Blue" },
+                    { color: "#aa44ff", label: "Purple" },
+                    { color: "#ff44dd", label: "Magenta" },
+                  ].map(({ color, label }) => (
+                    <button
+                      key={color}
+                      className="w-8 h-8 rounded-full border-2 border-white/20 hover:border-white/40 cursor-pointer transition-all hover:scale-110"
+                      style={{ backgroundColor: color }}
+                      title={label}
+                      onClick={() => {
+                        console.log(`Selected color: ${color}`);
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Hue Slider */}
+              <GradientSliderControl
+                label="Hue"
+                value={getVal("hue", 0)}
+                min={-180}
+                max={180}
+                onChange={(val) => updateField("hue", val)}
+              />
+
+              {/* Saturation Slider */}
+              <GradientSliderControl
+                label="Saturation"
+                value={getVal("saturation", 0)}
+                min={-100}
+                max={100}
+                gradient="saturation"
+                onChange={(val) => updateField("saturation", val)}
+              />
+
+              {/* Brightness Slider */}
+              <GradientSliderControl
+                label="Brightness"
+                value={getVal("brightness", 0)}
+                min={-100}
+                max={100}
+                onChange={(val) => updateField("brightness", val)}
+              />
+            </div>
+          </div>
         </div>
       )}
 
