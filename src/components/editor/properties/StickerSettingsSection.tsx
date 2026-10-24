@@ -1,7 +1,8 @@
 import React, { useCallback } from "react";
 import { Gauge, RefreshCw } from "lucide-react";
 import type { Clip } from "@/types";
-import { PropertySlider } from "./primitives/PropertySlider";
+import { SliderTrack } from "./primitives/SliderTrack";
+import { NumericControl } from "./primitives/NumericControl";
 import { PropertySection } from "./primitives/PropertySection";
 
 interface StickerSettingsSectionProps {
@@ -9,8 +10,14 @@ interface StickerSettingsSectionProps {
   handleUpdate: (key: string, value: any) => void;
 }
 
-export const StickerSettingsSection: React.FC<StickerSettingsSectionProps> = ({ selectedClip, handleUpdate }) => {
-  const stickerSettings = (selectedClip as any).stickerSettings || { speed: 1.0, loop: true };
+export const StickerSettingsSection: React.FC<StickerSettingsSectionProps> = ({
+  selectedClip,
+  handleUpdate,
+}) => {
+  const stickerSettings = (selectedClip as any).stickerSettings || {
+    speed: 1.0,
+    loop: true,
+  };
   const speed = stickerSettings.speed ?? 1.0;
   const loop = stickerSettings.loop ?? true;
 
@@ -33,18 +40,36 @@ export const StickerSettingsSection: React.FC<StickerSettingsSectionProps> = ({ 
 
   return (
     <div className="space-y-3">
-      <PropertySection title="Sticker Animation" icon={<Gauge className="w-3.5 h-3.5" />}>
+      <PropertySection
+        title="Sticker Animation"
+        icon={<Gauge className="w-3.5 h-3.5" />}
+      >
         <div className="space-y-3">
           {/* Speed slider */}
-          <PropertySlider
-            label="Speed"
-            value={speed}
-            min={0.1}
-            max={5.0}
-            step={0.1}
-            suffix="x"
-            onChange={handleSpeedChange}
-          />
+          <div className="space-y-1">
+            <span className="text-[11px] text-white select-none block">
+              Speed
+            </span>
+            <div className="flex items-center gap-2">
+              <SliderTrack
+                value={speed}
+                min={0.1}
+                max={5.0}
+                step={0.1}
+                onChange={handleSpeedChange}
+              />
+              <NumericControl
+                value={speed}
+                onChange={handleSpeedChange}
+                step={0.1}
+                suffix="x"
+                ariaLabel="Sticker Speed"
+                min={0.1}
+                max={5.0}
+                inputPosition="text-right"
+              />
+            </div>
+          </div>
 
           {/* Quick-set speed presets */}
           <div className="flex items-center gap-1">
@@ -73,7 +98,9 @@ export const StickerSettingsSection: React.FC<StickerSettingsSectionProps> = ({ 
           {/* Loop toggle */}
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-medium text-text-muted select-none flex items-center gap-1.5">
-              <RefreshCw className={`w-3.5 h-3.5 ${loop ? "animate-spin-slow text-accent" : ""}`} />
+              <RefreshCw
+                className={`w-3.5 h-3.5 ${loop ? "animate-spin-slow text-accent" : ""}`}
+              />
               Loop Animation
             </span>
             <button

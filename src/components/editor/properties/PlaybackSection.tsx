@@ -17,7 +17,8 @@ import { UpdateClipCommand } from "@/core/history/commands";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import type { Clip, PlaybackMapping } from "@/types";
 import { resolveClipSourceTime } from "@/core/timeline/sourceTime";
-import { PropertySlider } from "./primitives/PropertySlider";
+import { SliderTrack } from "./primitives/SliderTrack";
+import { NumericControl } from "./primitives/NumericControl";
 import { PropertySection } from "./primitives/PropertySection";
 
 interface PlaybackSectionProps {
@@ -33,7 +34,8 @@ function effectiveSpeed(clip: Clip): number {
   if (m.kind === "normal" || m.kind === "reverse") return m.speed;
   if (m.kind === "freeze") return 0; // visually "0×" during a freeze
   // speed_ramp — show the first keyframe speed as the representative value
-  if (m.kind === "speed_ramp" && m.keyframes.length > 0) return m.keyframes[0].speed;
+  if (m.kind === "speed_ramp" && m.keyframes.length > 0)
+    return m.keyframes[0].speed;
   return 1;
 }
 
@@ -58,20 +60,24 @@ const SPEED_PRESETS = [
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export const PlaybackSection: React.FC<PlaybackSectionProps> = ({ selectedClip }) => {
+export const PlaybackSection: React.FC<PlaybackSectionProps> = ({
+  selectedClip,
+}) => {
   const speed = effectiveSpeed(selectedClip);
   const reversed = isReversed(selectedClip);
   const frozen = isFrozen(selectedClip);
 
   const applyMapping = useCallback(
     (mapping: PlaybackMapping) => {
-      useHistoryStore.getState().execute(
-        new UpdateClipCommand(
-          selectedClip.id,
-          { playbackMapping: selectedClip.playbackMapping },
-          { playbackMapping: mapping },
-        ),
-      );
+      useHistoryStore
+        .getState()
+        .execute(
+          new UpdateClipCommand(
+            selectedClip.id,
+            { playbackMapping: selectedClip.playbackMapping },
+            { playbackMapping: mapping },
+          ),
+        );
     },
     [selectedClip.id, selectedClip.playbackMapping],
   );
@@ -117,7 +123,10 @@ export const PlaybackSection: React.FC<PlaybackSectionProps> = ({ selectedClip }
       clampToRange: true,
     });
 
-    const mapping: PlaybackMapping = { kind: "freeze", atSourceTime: sourceTime };
+    const mapping: PlaybackMapping = {
+      kind: "freeze",
+      atSourceTime: sourceTime,
+    };
     applyMapping(mapping);
   }, [selectedClip, frozen, applyMapping]);
 
@@ -130,8 +139,8 @@ export const PlaybackSection: React.FC<PlaybackSectionProps> = ({ selectedClip }
   const speedLabel = frozen
     ? "Frozen"
     : reversed
-    ? `-${speed.toFixed(2)}×`
-    : `${speed.toFixed(2)}×`;
+      ? `-${speed.toFixed(2)}×`
+      : `${speed.toFixed(2)}×`;
 
   const isSpeedRamp = selectedClip.playbackMapping?.kind === "speed_ramp";
 
@@ -145,18 +154,31 @@ export const PlaybackSection: React.FC<PlaybackSectionProps> = ({ selectedClip }
         {/* Speed slider — disabled while frozen or using a speed ramp */}
         {!frozen && !isSpeedRamp && (
           <div className="space-y-2">
-            <PropertySlider
-              label="Speed"
-              value={speed}
-              min={0.05}
-              max={8}
-              step={0.05}
-              suffix="×"
-              decimals={2}
-              compact
-              onChange={handleSpeedChange}
-              icon={<Gauge className="w-3 h-3" />}
-            />
+            {/* Compact inline speed control */}
+            <div className="flex items-center gap-2.5">
+              <Gauge className="w-3 h-3 text-text-muted shrink-0" />
+              <span className="text-[10px] text-text-muted select-none shrink-0 min-w-[52px]">
+                Speed
+              </span>
+              <SliderTrack
+                value={speed}
+                min={0.05}
+                max={8}
+                step={0.05}
+                onChange={handleSpeedChange}
+              />
+              <NumericControl
+                value={speed}
+                onChange={handleSpeedChange}
+                step={0.05}
+                suffix="×"
+                ariaLabel="Playback Speed"
+                min={0.05}
+                max={8}
+                inputPosition="text-right"
+                decimals={2}
+              />
+            </div>
 
             {/* Speed presets */}
             <div className="flex flex-wrap gap-1">
@@ -190,7 +212,8 @@ export const PlaybackSection: React.FC<PlaybackSectionProps> = ({ selectedClip }
           <div className="flex items-center gap-2 bg-accent/10 border border-accent/25 rounded-lg px-2.5 py-2">
             <Snowflake className="w-3 h-3 text-accent flex-shrink-0" />
             <span className="text-[10px] text-accent font-medium">
-              Frozen at {(selectedClip.playbackMapping as any)?.atSourceTime?.toFixed(3)}s
+              Frozen at{" "}
+              {(selectedClip.playbackMapping as any)?.atSourceTime?.toFixed(3)}s
             </span>
           </div>
         )}
@@ -200,7 +223,11 @@ export const PlaybackSection: React.FC<PlaybackSectionProps> = ({ selectedClip }
           <span>Effective speed</span>
           <span
             className={`font-mono font-semibold ${
-              frozen ? "text-accent" : reversed ? "text-orange-400" : "text-text-primary"
+              frozen
+                ? "text-accent"
+                : reversed
+                  ? "text-orange-400"
+                  : "text-text-primary"
             }`}
           >
             {speedLabel}
@@ -230,7 +257,9 @@ export const PlaybackSection: React.FC<PlaybackSectionProps> = ({ selectedClip }
             type="button"
             onClick={handleToggleFreeze}
             disabled={isSpeedRamp}
-            title={frozen ? "Unfreeze clip" : "Freeze clip at playhead position"}
+            title={
+              frozen ? "Unfreeze clip" : "Freeze clip at playhead position"
+            }
             className={`flex-1 flex items-center justify-center gap-1.5 text-[10px] font-medium px-2.5 py-1.5 rounded-lg border transition-colors ${
               frozen
                 ? "border-accent/50 bg-accent/15 text-accent"

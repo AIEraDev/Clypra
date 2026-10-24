@@ -1,13 +1,21 @@
 import React, { useCallback } from "react";
 import { Shuffle, Trash2, Sliders } from "lucide-react";
-import type { TransitionTimelineItem, TransitionType, TransitionEasing } from "@/types";
+import type {
+  TransitionTimelineItem,
+  TransitionType,
+  TransitionEasing,
+} from "@/types";
 import { PropertySection } from "./primitives/PropertySection";
-import { PropertySlider } from "./primitives/PropertySlider";
+import { SliderTrack } from "./primitives/SliderTrack";
+import { NumericControl } from "./primitives/NumericControl";
 import { PropertySelect } from "./primitives/PropertySelect";
 
 interface TransitionSectionProps {
   selectedTransition: TransitionTimelineItem;
-  updateTransition: (id: string, updates: Partial<TransitionTimelineItem>) => void;
+  updateTransition: (
+    id: string,
+    updates: Partial<TransitionTimelineItem>,
+  ) => void;
   removeTransition: (id: string) => void;
   clearSelection: () => void;
 }
@@ -32,14 +40,16 @@ export const TransitionSection: React.FC<TransitionSectionProps> = ({
     (val: string) => {
       updateTransition(selectedTransition.id, { type: val as TransitionType });
     },
-    [selectedTransition.id, updateTransition]
+    [selectedTransition.id, updateTransition],
   );
 
   const handleEasingChange = useCallback(
     (val: string) => {
-      updateTransition(selectedTransition.id, { easing: val as TransitionEasing });
+      updateTransition(selectedTransition.id, {
+        easing: val as TransitionEasing,
+      });
     },
-    [selectedTransition.id, updateTransition]
+    [selectedTransition.id, updateTransition],
   );
 
   const handleDurationChange = useCallback(
@@ -47,7 +57,7 @@ export const TransitionSection: React.FC<TransitionSectionProps> = ({
       const currentStart = selectedTransition.placement.startTime;
       const currentDuration = selectedTransition.placement.duration;
       const cutTime = currentStart + currentDuration / 2; // Midpoint
-      
+
       // Calculate new start time based on new duration centered on cut
       const nextStart = cutTime - val / 2;
 
@@ -59,7 +69,7 @@ export const TransitionSection: React.FC<TransitionSectionProps> = ({
         },
       });
     },
-    [selectedTransition, updateTransition]
+    [selectedTransition, updateTransition],
   );
 
   const handleDelete = useCallback(() => {
@@ -69,7 +79,10 @@ export const TransitionSection: React.FC<TransitionSectionProps> = ({
 
   return (
     <div className="space-y-3">
-      <PropertySection title="Transition Settings" icon={<Shuffle className="w-3.5 h-3.5" />}>
+      <PropertySection
+        title="Transition Settings"
+        icon={<Shuffle className="w-3.5 h-3.5" />}
+      >
         <div className="space-y-3">
           {/* Transition Type */}
           <PropertySelect
@@ -88,15 +101,30 @@ export const TransitionSection: React.FC<TransitionSectionProps> = ({
           />
 
           {/* Duration */}
-          <PropertySlider
-            label="Duration"
-            value={selectedTransition.placement.duration}
-            min={0.1}
-            max={2.0}
-            step={0.1}
-            suffix="s"
-            onChange={handleDurationChange}
-          />
+          <div className="space-y-1">
+            <span className="text-[11px] text-white select-none block">
+              Duration
+            </span>
+            <div className="flex items-center gap-2">
+              <SliderTrack
+                value={selectedTransition.placement.duration}
+                min={0.1}
+                max={2.0}
+                step={0.1}
+                onChange={handleDurationChange}
+              />
+              <NumericControl
+                value={selectedTransition.placement.duration}
+                onChange={handleDurationChange}
+                step={0.1}
+                suffix="s"
+                ariaLabel="Transition Duration"
+                min={0.1}
+                max={2.0}
+                inputPosition="text-right"
+              />
+            </div>
+          </div>
         </div>
       </PropertySection>
 
