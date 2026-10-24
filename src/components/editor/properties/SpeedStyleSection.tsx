@@ -2,7 +2,9 @@ import React, { useState, useCallback } from "react";
 import type { Clip, PlaybackMapping } from "@/types";
 import { useHistoryStore } from "@/store/historyStore";
 import { UpdateClipCommand } from "@/core/history/commands";
-import { GradientSliderControl } from "./primitives/GradientSliderControl";
+import { SpeedSliderTrack } from "./primitives/SpeedSliderTrack";
+import { NumericControl } from "./primitives/NumericControl";
+import { KeyframeNavControls } from "./primitives/KeyframeNavControls";
 
 type SpeedSubTab = "standard" | "curve" | "velocity";
 
@@ -27,6 +29,7 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
   handleUpdate,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<SpeedSubTab>("standard");
+  const [keyframe, setKeyframe] = useState(false);
   const speed = effectiveSpeed(selectedClip);
   const duration = selectedClip.duration / speed;
   const preservePitch = selectedClip.audio?.speed?.preservePitch ?? true;
@@ -126,16 +129,37 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
       {/* Standard tab content */}
       {activeSubTab === "standard" && (
         <div className="space-y-4 p-3">
-          {/* Speed - Using standard GradientSliderControl */}
-          <GradientSliderControl
-            label="Speed"
-            value={speed}
-            min={0.1}
-            max={10}
-            step={0.01}
-            gradient="none"
-            onChange={handleSpeedChange}
-          />
+          {/* Speed - Using SpeedSliderTrack with tick marks + NumericControl + KeyframeNavControls */}
+          <div className="flex items-center gap-3">
+            <label className="text-sm text-white/80 min-w-[80px]">Speed</label>
+            <div className="flex-1 flex items-center gap-2">
+              <SpeedSliderTrack
+                value={speed}
+                min={0.1}
+                max={10}
+                step={0.01}
+                onChange={handleSpeedChange}
+              />
+              <NumericControl
+                value={speed}
+                onChange={handleSpeedChange}
+                step={0.01}
+                min={0.1}
+                max={10}
+                suffix="x"
+                inputWidth="w-16"
+                decimals={2}
+              />
+              <KeyframeNavControls
+                hasKeyframes={keyframe}
+                isAtKeyframe={keyframe}
+                onToggleKeyframe={() => setKeyframe(!keyframe)}
+                onPrevKeyframe={() => {}}
+                onNextKeyframe={() => {}}
+                label="Speed"
+              />
+            </div>
+          </div>
 
           {/* Duration (read-only visual indicator) */}
           <div className="space-y-2">
