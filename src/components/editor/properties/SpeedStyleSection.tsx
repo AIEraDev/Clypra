@@ -2,6 +2,7 @@ import React, { useState, useCallback } from "react";
 import type { Clip, PlaybackMapping } from "@/types";
 import { useHistoryStore } from "@/store/historyStore";
 import { UpdateClipCommand } from "@/core/history/commands";
+import { GradientSliderControl } from "./primitives/GradientSliderControl";
 
 type SpeedSubTab = "standard" | "curve" | "velocity";
 
@@ -124,51 +125,22 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
 
       {/* Standard tab content */}
       {activeSubTab === "standard" && (
-        <div className="space-y-4 px-3 py-2">
-          {/* Speed */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-[11px] font-medium text-white/90">
-                Speed
-              </label>
-              <span className="text-[11px] text-white/60 font-mono">
-                {speed.toFixed(2)}x
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="range"
-                min={0.1}
-                max={10}
-                step={0.01}
-                value={speed}
-                onChange={(e) => handleSpeedChange(Number(e.target.value))}
-                className="flex-1 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-cyan-500
-                  [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 
-                  [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-cyan-500 [&::-webkit-slider-thumb]:cursor-pointer
-                  [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full 
-                  [&::-moz-range-thumb]:bg-cyan-500 [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
-              />
-              <input
-                type="number"
-                min={0.1}
-                max={10}
-                step={0.01}
-                value={speed.toFixed(2)}
-                onChange={(e) =>
-                  handleSpeedChange(parseFloat(e.target.value) || 1)
-                }
-                className="w-16 px-2 py-1 text-[11px] text-white bg-[#2a2a2e] border border-white/10 rounded focus:outline-none focus:border-cyan-500/50 text-right"
-              />
-            </div>
-          </div>
+        <div className="space-y-4 p-3">
+          {/* Speed - Using standard GradientSliderControl */}
+          <GradientSliderControl
+            label="Speed"
+            value={speed}
+            min={0.1}
+            max={10}
+            step={0.01}
+            gradient="none"
+            onChange={handleSpeedChange}
+          />
 
-          {/* Duration (read-only) */}
+          {/* Duration (read-only visual indicator) */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="text-[11px] font-medium text-white/90">
-                Duration
-              </label>
+              <label className="text-sm text-white/80">Duration</label>
               <span className="text-[11px] text-white/60 font-mono">
                 {duration.toFixed(1)}s
               </span>
@@ -190,9 +162,7 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
 
           {/* Change audio pitch toggle */}
           <div className="flex items-center justify-between py-2 border-t border-white/5">
-            <label className="text-[11px] font-medium text-white/90">
-              Change audio pitch
-            </label>
+            <label className="text-sm text-white/80">Change audio pitch</label>
             <button
               type="button"
               onClick={handlePreservePitchToggle}
