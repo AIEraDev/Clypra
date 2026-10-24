@@ -224,6 +224,8 @@
   "properties.tabs.speed": "Vitesse",
   "properties.tabs.adjust": "Ajuster",
   "properties.tabs.animation": "Animation",
+  "properties.tabs.basic": "Basique",
+  "properties.tabs.voiceChanger": "Changeur de voix",
   "properties.tabs.tracking": "Suivi",
   "properties.tabs.tts": "Synthèse vocale",
   "properties.tabs.aiAvatars": "Avatars IA",

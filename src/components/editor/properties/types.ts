@@ -12,8 +12,10 @@ export type VideoPropertyTab =
   | "animation"
   | "adjust";
 
+export type AudioPropertyTab = "basic" | "voice-changer" | "speed";
+
 export interface PropertyTabsType {
-  id: TextPropertyTab | VideoPropertyTab;
+  id: TextPropertyTab | VideoPropertyTab | AudioPropertyTab;
   labelKey: string;
   label: string;
   icon: React.FC<{ className?: string }>;

@@ -224,6 +224,8 @@
   "properties.tabs.speed": "速度",
   "properties.tabs.adjust": "调整",
   "properties.tabs.animation": "动画",
+  "properties.tabs.basic": "基本",
+  "properties.tabs.voiceChanger": "变声",
   "properties.tabs.tracking": "跟踪",
   "properties.tabs.tts": "文本朗读",
   "properties.tabs.aiAvatars": "AI数字人",

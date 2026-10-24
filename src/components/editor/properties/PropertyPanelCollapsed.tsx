@@ -1,6 +1,10 @@
 import { Layout, Sparkles, Music, Sliders, Zap } from "lucide-react";
 import { useI18n } from "@/i18n";
-import type { TextPropertyTab, VideoPropertyTab } from "./types";
+import type {
+  TextPropertyTab,
+  VideoPropertyTab,
+  AudioPropertyTab,
+} from "./types";
 import { TEXT_TABS } from "./data";
 
 interface PropertyPanelCollapsedProps {
@@ -12,8 +16,14 @@ interface PropertyPanelCollapsedProps {
   isVisualClip: boolean;
   hasAudioTrack: boolean;
   supportsAnimation: boolean;
-  activePropertyTab: TextPropertyTab | VideoPropertyTab | null;
-  setActivePropertyTab: (tab: TextPropertyTab | VideoPropertyTab) => void;
+  activePropertyTab:
+    | TextPropertyTab
+    | VideoPropertyTab
+    | AudioPropertyTab
+    | null;
+  setActivePropertyTab: (
+    tab: TextPropertyTab | VideoPropertyTab | AudioPropertyTab,
+  ) => void;
 }
 
 const PropertyPanelCollapsed: React.FC<PropertyPanelCollapsedProps> = ({

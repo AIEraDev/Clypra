@@ -1,4 +1,12 @@
-import { Type, Sparkles, Volume2, Video, Gauge, Sliders } from "lucide-react";
+import {
+  Type,
+  Sparkles,
+  Volume2,
+  Video,
+  Gauge,
+  Sliders,
+  Mic,
+} from "lucide-react";
 import { PropertyTabsType } from "./types";
 
 export const TEXT_TABS: PropertyTabsType[] = [
@@ -41,5 +49,26 @@ export const VIDEO_TABS: PropertyTabsType[] = [
     labelKey: "properties.tabs.adjust",
     label: "Adjust",
     icon: Sliders,
+  },
+];
+
+export const AUDIO_TABS: PropertyTabsType[] = [
+  {
+    id: "basic",
+    labelKey: "properties.tabs.basic",
+    label: "Basic",
+    icon: Sliders,
+  },
+  {
+    id: "voice-changer",
+    labelKey: "properties.tabs.voiceChanger",
+    label: "Voice changer",
+    icon: Mic,
+  },
+  {
+    id: "speed",
+    labelKey: "properties.tabs.speed",
+    label: "Speed",
+    icon: Gauge,
   },
 ];

@@ -15,7 +15,11 @@ import { useClipPropertyHandlers } from "@/hooks/useClipPropertyHandlers";
 
 import { EmptyPropertiesState } from "./properties/EmptyPropertiesState";
 import PropertyPanelHeader from "./properties/PropertyPanelHeader";
-import type { TextPropertyTab, VideoPropertyTab } from "./properties/types";
+import type {
+  TextPropertyTab,
+  VideoPropertyTab,
+  AudioPropertyTab,
+} from "./properties/types";
 import PropertyPanelBody from "./properties/PropertyPanelBody";
 import PropertyPanelCollapsed from "./properties/PropertyPanelCollapsed";
 
@@ -51,7 +55,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
   // ── Local UI state ───────────────────────────────────────────────────────
   const [activePropertyTab, setActivePropertyTab] = useState<
-    TextPropertyTab | VideoPropertyTab | null
+    TextPropertyTab | VideoPropertyTab | AudioPropertyTab | null
   >(null);
   const [newPresetName, setNewPresetName] = useState("");
 

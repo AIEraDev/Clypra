@@ -1,6 +1,10 @@
 import { VolumeX } from "lucide-react";
 import type { Clip, TextClip } from "@/types";
-import type { TextPropertyTab, VideoPropertyTab } from "./types";
+import type {
+  TextPropertyTab,
+  VideoPropertyTab,
+  AudioPropertyTab,
+} from "./types";
 import type { TextPreset } from "@/store/presetStore";
 import { TextStyleSection } from "./TextStyleSection";
 import { VideoStyleSection } from "./VideoStyleSection";
@@ -11,6 +15,8 @@ import { TextToSpeechSection } from "./TextToSpeechSection";
 import { TextAiAvatarsSection } from "./TextAiAvatarsSection";
 import { AudioSection } from "./AudioSection";
 import { AudioStyleSection } from "./AudioStyleSection";
+import { AudioBasicTab } from "./AudioBasicTab";
+import { AudioVoiceChangerTab } from "./AudioVoiceChangerTab";
 import { EffectsFiltersSection } from "./EffectsFiltersSection";
 import { StickerSettingsSection } from "./StickerSettingsSection";
 import { TimelineEffectSection } from "./TimelineEffectSection";
@@ -25,7 +31,11 @@ import { RelinkAudioCommand } from "@/core/history/commands/UnlinkAudioCommand";
 interface PropertyPanelBodyProps {
   selectedClip: Clip;
   textClip: TextClip;
-  activePropertyTab: TextPropertyTab | VideoPropertyTab | null;
+  activePropertyTab:
+    | TextPropertyTab
+    | VideoPropertyTab
+    | AudioPropertyTab
+    | null;
   isSticker: boolean;
   isTextClip: boolean;
   isVisualClip: boolean;
@@ -258,7 +268,26 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
       )}
 
       {/* Legacy: Playback speed, reverse, freeze frame (without tabs) */}
-      {isAudioClip && <PlaybackSection selectedClip={selectedClip} />}
+      {/* Removed - audio clips now use tabbed interface */}
+
+      {/* Audio Clip Tabs */}
+      {isAudioClip && activePropertyTab === "basic" && (
+        <AudioBasicTab
+          selectedClip={selectedClip}
+          handleUpdate={handleUpdate}
+        />
+      )}
+
+      {isAudioClip && activePropertyTab === "voice-changer" && (
+        <AudioVoiceChangerTab />
+      )}
+
+      {isAudioClip && activePropertyTab === "speed" && (
+        <SpeedStyleSection
+          selectedClip={selectedClip}
+          handleUpdate={handleUpdate}
+        />
+      )}
 
       {/* Legacy: Color Adjustments (without tabs) */}
       {isVisualClip && !isVideoClip && (

@@ -3,14 +3,25 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { useI18n } from "@/i18n";
 import { ClipKind } from "@/types";
-import { PropertyTabsType, TextPropertyTab, VideoPropertyTab } from "./types";
-import { TEXT_TABS, VIDEO_TABS } from "./data";
+import {
+  PropertyTabsType,
+  TextPropertyTab,
+  VideoPropertyTab,
+  AudioPropertyTab,
+} from "./types";
+import { TEXT_TABS, VIDEO_TABS, AUDIO_TABS } from "./data";
 
 interface PropertyPanelHeaderType {
   collapsed: boolean;
   clipKind: ClipKind | undefined;
-  activePropertyTab: TextPropertyTab | VideoPropertyTab | null;
-  setActivePropertyTab: (tab: TextPropertyTab | VideoPropertyTab) => void;
+  activePropertyTab:
+    | TextPropertyTab
+    | VideoPropertyTab
+    | AudioPropertyTab
+    | null;
+  setActivePropertyTab: (
+    tab: TextPropertyTab | VideoPropertyTab | AudioPropertyTab,
+  ) => void;
   onToggleCollapse?: () => void;
   hasAudioTrack?: boolean;
 }
@@ -28,7 +39,9 @@ const PropertyPanelHeader: React.FC<PropertyPanelHeaderType> = ({
       ? TEXT_TABS
       : clipKind === "video" || clipKind === "image"
         ? VIDEO_TABS
-        : [];
+        : clipKind === "audio"
+          ? AUDIO_TABS
+          : [];
 
   // Filter out audio tab if video has no audio track
   const tabs = allTabs.filter((tab) => tab.id !== "audio" || hasAudioTrack);
@@ -40,7 +53,9 @@ const PropertyPanelHeader: React.FC<PropertyPanelHeaderType> = ({
     setActivePropertyTab(tabs[0]?.id ?? null);
   }, [clipKind]);
 
-  function handleActiveTab(tabId: TextPropertyTab | VideoPropertyTab) {
+  function handleActiveTab(
+    tabId: TextPropertyTab | VideoPropertyTab | AudioPropertyTab,
+  ) {
     setActivePropertyTab(tabId);
   }
 
