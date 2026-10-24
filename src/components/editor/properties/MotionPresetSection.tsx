@@ -56,7 +56,8 @@ import {
 } from "@/features/text-animations/animationCatalog";
 import { useI18n } from "@/i18n";
 import { PropertySection } from "./primitives/PropertySection";
-import { PropertySlider } from "./primitives/PropertySlider";
+import { SliderTrack } from "./primitives/SliderTrack";
+import { NumericControl } from "./primitives/NumericControl";
 
 interface MotionPresetSectionProps {
   selectedClip: Clip;
@@ -623,29 +624,65 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
 
       {/* ── 6. Loop Speed & Intensity Controls (when Loop tab is active and has loop) ── */}
       {activeTab === "loop" && hasLoop && (
-        <div className="space-y-2 pt-2 border-t border-border/30">
-          <PropertySlider
-            label={t("properties.animation.speed")}
-            value={motion.loopSpeed ?? 1.0}
-            min={0.2}
-            max={3.0}
-            step={0.1}
-            suffix="x"
-            decimals={1}
-            icon={<Gauge className="w-3 h-3 text-text-muted" />}
-            onChange={(val) => updateMotion({ loopSpeed: val })}
-          />
+        <div className="space-y-3 pt-2 border-t border-border/30">
+          {/* Speed control */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5">
+              <Gauge className="w-3 h-3 text-text-muted" />
+              <span className="text-[11px] text-white select-none block">
+                {t("properties.animation.speed")}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <SliderTrack
+                value={motion.loopSpeed ?? 1.0}
+                min={0.2}
+                max={3.0}
+                step={0.1}
+                onChange={(val) => updateMotion({ loopSpeed: val })}
+              />
+              <NumericControl
+                value={motion.loopSpeed ?? 1.0}
+                onChange={(val) => updateMotion({ loopSpeed: val })}
+                step={0.1}
+                suffix="x"
+                ariaLabel={t("properties.animation.speed")}
+                min={0.2}
+                max={3.0}
+                inputPosition="text-right"
+                decimals={1}
+              />
+            </div>
+          </div>
 
-          <PropertySlider
-            label={t("properties.animation.intensity")}
-            value={motion.loopIntensity ?? 1.0}
-            min={0.2}
-            max={2.5}
-            step={0.1}
-            decimals={1}
-            icon={<Activity className="w-3 h-3 text-text-muted" />}
-            onChange={(val) => updateMotion({ loopIntensity: val })}
-          />
+          {/* Intensity control */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5">
+              <Activity className="w-3 h-3 text-text-muted" />
+              <span className="text-[11px] text-white select-none block">
+                {t("properties.animation.intensity")}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <SliderTrack
+                value={motion.loopIntensity ?? 1.0}
+                min={0.2}
+                max={2.5}
+                step={0.1}
+                onChange={(val) => updateMotion({ loopIntensity: val })}
+              />
+              <NumericControl
+                value={motion.loopIntensity ?? 1.0}
+                onChange={(val) => updateMotion({ loopIntensity: val })}
+                step={0.1}
+                ariaLabel={t("properties.animation.intensity")}
+                min={0.2}
+                max={2.5}
+                inputPosition="text-right"
+                decimals={1}
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>
