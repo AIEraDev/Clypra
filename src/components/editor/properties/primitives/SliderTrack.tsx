@@ -140,7 +140,7 @@ export const SliderTrack: React.FC<SliderTrackProps> = ({
         className="h-3 w-2 bg-white absolute top-1/2 -translate-y-1/2 rounded-t-lg rounded-b-3xl transition-all hover:bg-accent cursor-grab active:cursor-grabbing"
         style={{
           left: `${fillPercent}%`,
-          transform: `translate(-50%, -50%)`,
+          transform: `translateX(-50%)`,
         }}
         onMouseDown={handleMouseDown}
       />
