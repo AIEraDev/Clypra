@@ -1,7 +1,8 @@
 import React, { useCallback } from "react";
 import { Sparkles, SlidersHorizontal, Trash2, Filter } from "lucide-react";
 import type { Clip } from "@/types";
-import { PropertySlider } from "./primitives/PropertySlider";
+import { SliderTrack } from "./primitives/SliderTrack";
+import { NumericControl } from "./primitives/NumericControl";
 import { PropertySection } from "./primitives/PropertySection";
 
 interface EffectsFiltersSectionProps {
@@ -24,7 +25,7 @@ export const EffectsFiltersSection: React.FC<EffectsFiltersSectionProps> = ({
         intensity: value / 100,
       });
     },
-    [appliedFilter, handleUpdate]
+    [appliedFilter, handleUpdate],
   );
 
   const removeFilter = useCallback(() => {
@@ -34,11 +35,11 @@ export const EffectsFiltersSection: React.FC<EffectsFiltersSectionProps> = ({
   const handleEffectIntensityChange = useCallback(
     (effectId: string, value: number) => {
       const updated = appliedEffects.map((fx) =>
-        fx.id === effectId ? { ...fx, intensity: value / 100 } : fx
+        fx.id === effectId ? { ...fx, intensity: value / 100 } : fx,
       );
       handleUpdate("effects", updated);
     },
-    [appliedEffects, handleUpdate]
+    [appliedEffects, handleUpdate],
   );
 
   const removeEffect = useCallback(
@@ -46,7 +47,7 @@ export const EffectsFiltersSection: React.FC<EffectsFiltersSectionProps> = ({
       const updated = appliedEffects.filter((fx) => fx.id !== effectId);
       handleUpdate("effects", updated.length > 0 ? updated : undefined);
     },
-    [appliedEffects, handleUpdate]
+    [appliedEffects, handleUpdate],
   );
 
   const hasFilter = !!appliedFilter;
@@ -60,14 +61,19 @@ export const EffectsFiltersSection: React.FC<EffectsFiltersSectionProps> = ({
     <div className="space-y-3">
       {/* Filters Section */}
       {hasFilter && (
-        <PropertySection title="Applied Filter" icon={<Filter className="w-3.5 h-3.5 text-accent-soft" />}>
+        <PropertySection
+          title="Applied Filter"
+          icon={<Filter className="w-3.5 h-3.5 text-accent-soft" />}
+        >
           <div className="space-y-3">
             <div className="flex items-center justify-between bg-surface-raised/40 border border-border/30 rounded-lg p-2.5">
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-semibold text-text-primary truncate">
                   {appliedFilter.name}
                 </p>
-                <p className="text-[10px] text-text-muted mt-0.5">Color Filter</p>
+                <p className="text-[10px] text-text-muted mt-0.5">
+                  Color Filter
+                </p>
               </div>
               <button
                 onClick={removeFilter}
@@ -78,23 +84,39 @@ export const EffectsFiltersSection: React.FC<EffectsFiltersSectionProps> = ({
               </button>
             </div>
 
-            <PropertySlider
-              label="Intensity"
-              value={Math.round(appliedFilter.intensity * 100)}
-              min={0}
-              max={100}
-              step={1}
-              suffix="%"
-              onChange={handleFilterIntensityChange}
-              compact
-            />
+            {/* Compact inline intensity control */}
+            <div className="flex items-center gap-2.5">
+              <span className="text-[10px] text-text-muted select-none shrink-0 min-w-[52px]">
+                Intensity
+              </span>
+              <SliderTrack
+                value={Math.round(appliedFilter.intensity * 100)}
+                min={0}
+                max={100}
+                step={1}
+                onChange={handleFilterIntensityChange}
+              />
+              <NumericControl
+                value={Math.round(appliedFilter.intensity * 100)}
+                onChange={handleFilterIntensityChange}
+                step={1}
+                suffix="%"
+                ariaLabel="Filter Intensity"
+                min={0}
+                max={100}
+                inputPosition="text-right"
+              />
+            </div>
           </div>
         </PropertySection>
       )}
 
       {/* Effects Section */}
       {hasEffects && (
-        <PropertySection title="Video Effects" icon={<Sparkles className="w-3.5 h-3.5 text-accent-soft" />}>
+        <PropertySection
+          title="Video Effects"
+          icon={<Sparkles className="w-3.5 h-3.5 text-accent-soft" />}
+        >
           <div className="space-y-4">
             {appliedEffects.map((effect) => (
               <div
@@ -106,7 +128,9 @@ export const EffectsFiltersSection: React.FC<EffectsFiltersSectionProps> = ({
                     <p className="text-xs font-semibold text-text-primary truncate">
                       {effect.name}
                     </p>
-                    <p className="text-[10px] text-text-muted mt-0.5">Render Effect</p>
+                    <p className="text-[10px] text-text-muted mt-0.5">
+                      Render Effect
+                    </p>
                   </div>
                   <button
                     onClick={() => removeEffect(effect.id)}
@@ -117,16 +141,33 @@ export const EffectsFiltersSection: React.FC<EffectsFiltersSectionProps> = ({
                   </button>
                 </div>
 
-                <PropertySlider
-                  label="Intensity"
-                  value={Math.round(effect.intensity * 100)}
-                  min={0}
-                  max={100}
-                  step={1}
-                  suffix="%"
-                  onChange={(val) => handleEffectIntensityChange(effect.id, val)}
-                  compact
-                />
+                {/* Compact inline intensity control */}
+                <div className="flex items-center gap-2.5">
+                  <span className="text-[10px] text-text-muted select-none shrink-0 min-w-[52px]">
+                    Intensity
+                  </span>
+                  <SliderTrack
+                    value={Math.round(effect.intensity * 100)}
+                    min={0}
+                    max={100}
+                    step={1}
+                    onChange={(val) =>
+                      handleEffectIntensityChange(effect.id, val)
+                    }
+                  />
+                  <NumericControl
+                    value={Math.round(effect.intensity * 100)}
+                    onChange={(val) =>
+                      handleEffectIntensityChange(effect.id, val)
+                    }
+                    step={1}
+                    suffix="%"
+                    ariaLabel="Effect Intensity"
+                    min={0}
+                    max={100}
+                    inputPosition="text-right"
+                  />
+                </div>
               </div>
             ))}
           </div>

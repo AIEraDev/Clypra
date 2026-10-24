@@ -4,7 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Clip } from "@/types";
 import { useTimelineStore } from "@/store/timelineStore";
-import { PropertySlider } from "./primitives/PropertySlider";
+import { SliderTrack } from "./primitives/SliderTrack";
+import { NumericControl } from "./primitives/NumericControl";
 
 interface LUTSectionProps {
   selectedClip: Clip;
@@ -23,7 +24,9 @@ export const LUTSection: React.FC<LUTSectionProps> = ({
   handleUpdate,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const updateClipColorGrade = useTimelineStore((state) => state.updateClipColorGrade);
+  const updateClipColorGrade = useTimelineStore(
+    (state) => state.updateClipColorGrade,
+  );
   const adjustments = selectedClip.adjustments ?? {};
   const lut = (adjustments as any).lut ?? null;
   const colorGrade = selectedClip.colorGrade;
@@ -37,12 +40,20 @@ export const LUTSection: React.FC<LUTSectionProps> = ({
 
       if (typeof file === "string") {
         const lutId = `lut_${Date.now()}`;
-        const lutInfo = await invoke<{ id: string; title: string; size: number }>("load_lut_cube", {
+        const lutInfo = await invoke<{
+          id: string;
+          title: string;
+          size: number;
+        }>("load_lut_cube", {
           lutId,
           filePath: file,
         });
 
-        const lutName = file.split(/[/\\]/).pop()?.replace(/\.[^/.]+$/, "") || lutInfo.title;
+        const lutName =
+          file
+            .split(/[/\\]/)
+            .pop()
+            ?.replace(/\.[^/.]+$/, "") || lutInfo.title;
         const nextLut = {
           id: lutInfo.id,
           name: lutName,
@@ -118,7 +129,9 @@ export const LUTSection: React.FC<LUTSectionProps> = ({
   return (
     <div className="space-y-3 pt-2 border-t border-white/5">
       <div className="flex items-center justify-between px-0.5">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">3D LUT (.cube) Profile</span>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">
+          3D LUT (.cube) Profile
+        </span>
         {hasActiveLut && (
           <button
             onClick={removeLut}
@@ -167,15 +180,34 @@ export const LUTSection: React.FC<LUTSectionProps> = ({
 
       {/* LUT Intensity Slider */}
       {hasActiveLut && (
-        <PropertySlider
-          label="LUT Intensity"
-          value={Math.round(((colorGrade?.lutIntensity ?? lut?.intensity) ?? 1.0) * 100)}
-          min={0}
-          max={100}
-          step={5}
-          suffix="%"
-          onChange={(v) => updateIntensity(v / 100)}
-        />
+        <div className="space-y-1">
+          <span className="text-[11px] text-white select-none block">
+            LUT Intensity
+          </span>
+          <div className="flex items-center gap-2">
+            <SliderTrack
+              value={Math.round(
+                (colorGrade?.lutIntensity ?? lut?.intensity ?? 1.0) * 100,
+              )}
+              min={0}
+              max={100}
+              step={5}
+              onChange={(v) => updateIntensity(v / 100)}
+            />
+            <NumericControl
+              value={Math.round(
+                (colorGrade?.lutIntensity ?? lut?.intensity ?? 1.0) * 100,
+              )}
+              onChange={(v) => updateIntensity(v / 100)}
+              step={5}
+              suffix="%"
+              ariaLabel="LUT Intensity"
+              min={0}
+              max={100}
+              inputPosition="text-right"
+            />
+          </div>
+        </div>
       )}
     </div>
   );
