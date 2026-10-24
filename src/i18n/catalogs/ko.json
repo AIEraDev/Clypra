@@ -222,6 +222,7 @@
   "properties.tabs.video": "비디오",
   "properties.tabs.audio": "오디오",
   "properties.tabs.speed": "속도",
+  "properties.tabs.adjust": "조정",
   "properties.tabs.animation": "애니메이션",
   "properties.tabs.tracking": "트래킹",
   "properties.tabs.tts": "텍스트 음성 변환",

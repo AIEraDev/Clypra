@@ -206,6 +206,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
         onToggleCollapse={onToggleCollapse}
         activePropertyTab={activePropertyTab}
         setActivePropertyTab={setActivePropertyTab}
+        hasAudioTrack={hasAudioTrack}
       />
 
       {collapsed ? (

@@ -12,6 +12,7 @@ interface PropertyPanelHeaderType {
   activePropertyTab: TextPropertyTab | VideoPropertyTab | null;
   setActivePropertyTab: (tab: TextPropertyTab | VideoPropertyTab) => void;
   onToggleCollapse?: () => void;
+  hasAudioTrack?: boolean;
 }
 
 const PropertyPanelHeader: React.FC<PropertyPanelHeaderType> = ({
@@ -20,13 +21,17 @@ const PropertyPanelHeader: React.FC<PropertyPanelHeaderType> = ({
   activePropertyTab,
   onToggleCollapse,
   setActivePropertyTab,
+  hasAudioTrack = true,
 }) => {
-  const tabs: PropertyTabsType[] =
+  const allTabs: PropertyTabsType[] =
     clipKind === "text"
       ? TEXT_TABS
       : clipKind === "video" || clipKind === "image"
         ? VIDEO_TABS
         : [];
+
+  // Filter out audio tab if video has no audio track
+  const tabs = allTabs.filter((tab) => tab.id !== "audio" || hasAudioTrack);
 
   const { t } = useI18n();
 

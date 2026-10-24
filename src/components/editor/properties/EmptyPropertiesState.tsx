@@ -1,6 +1,6 @@
 import React from "react";
-import { Palette, ChevronRight, ChevronLeft } from "lucide-react";
-import { BackgroundInspectorPanel } from "./BackgroundInspectorPanel";
+import { Info, ChevronRight, ChevronLeft } from "lucide-react";
+import { ProjectDetailsPanel } from "./ProjectDetailsPanel";
 import { useI18n } from "@/i18n";
 
 export interface EmptyPropertiesStateProps {
@@ -46,10 +46,9 @@ export const EmptyPropertiesState: React.FC<EmptyPropertiesStateProps> = ({
         ) : (
           <>
             <div className="flex items-center gap-2 pl-1.5">
-              <div className="w-5 h-5 rounded bg-accent/10 flex items-center justify-center">
-                <Palette className="w-3 h-3 text-accent" />
-              </div>
-              <span className="text-xs font-semibold text-text-primary">{t("properties.canvasAndBackground")}</span>
+              <span className="text-xs font-semibold text-text-primary">
+                Details
+              </span>
             </div>
             {onToggleCollapse && (
               <button
@@ -64,15 +63,15 @@ export const EmptyPropertiesState: React.FC<EmptyPropertiesStateProps> = ({
         )}
       </div>
 
-      {/* Background Inspector Panel or Collapsed Rail */}
+      {/* Project Details Panel or Collapsed Rail */}
       {collapsed ? (
         <div className="flex flex-col items-center gap-2 py-3 flex-1 overflow-y-auto scrollbar-none">
           <button
             onClick={onToggleCollapse}
             className="w-8 h-8 rounded-lg flex items-center justify-center text-accent bg-accent/10 hover:bg-accent/20 border border-accent/20 transition-colors cursor-pointer"
-            title={t("Expand Canvas & Background Settings")}
+            title={t("Expand Project Details")}
           >
-            <Palette className="w-4 h-4" />
+            <Info className="w-4 h-4" />
           </button>
           <span className="text-[9px] font-semibold text-text-muted/60 uppercase tracking-widest [writing-mode:vertical-lr] select-none mt-2">
             {t("properties.title")}
@@ -80,7 +79,7 @@ export const EmptyPropertiesState: React.FC<EmptyPropertiesStateProps> = ({
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto scrollbar-thin">
-          <BackgroundInspectorPanel />
+          <ProjectDetailsPanel />
         </div>
       )}
     </div>

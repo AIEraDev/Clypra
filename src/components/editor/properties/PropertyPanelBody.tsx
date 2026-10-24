@@ -3,17 +3,21 @@ import type { Clip, TextClip } from "@/types";
 import type { TextPropertyTab, VideoPropertyTab } from "./types";
 import type { TextPreset } from "@/store/presetStore";
 import { TextStyleSection } from "./TextStyleSection";
+import { VideoStyleSection } from "./VideoStyleSection";
 import { TransformSection } from "./TransformSection";
 import { MotionPresetSection } from "./MotionPresetSection";
 import { TextTrackingSection } from "./TextTrackingSection";
 import { TextToSpeechSection } from "./TextToSpeechSection";
 import { TextAiAvatarsSection } from "./TextAiAvatarsSection";
 import { AudioSection } from "./AudioSection";
+import { AudioStyleSection } from "./AudioStyleSection";
 import { EffectsFiltersSection } from "./EffectsFiltersSection";
 import { StickerSettingsSection } from "./StickerSettingsSection";
 import { TimelineEffectSection } from "./TimelineEffectSection";
+import { VideoAdjustTab } from "./VideoAdjustTab";
 import { AdjustmentsSection } from "./AdjustmentsSection";
 import { PlaybackSection } from "./PlaybackSection";
+import { SpeedStyleSection } from "./SpeedStyleSection";
 import { ChromaKeySection } from "./ChromaKeySection";
 import type { Command } from "@/core/history/Command";
 import { RelinkAudioCommand } from "@/core/history/commands/UnlinkAudioCommand";
@@ -94,35 +98,24 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
         />
       )}
 
-      {/* Video Tab: Transform, Motion, Adjustments, ChromaKey, Effects */}
+      {/* Video Tab: Sub-tabs with Basic, Remove BG, Mask, Retouch */}
       {isVideoClip && activePropertyTab === "video" && (
-        <>
-          <TransformSection
-            selectedClip={selectedClip}
-            isVisualClip={isVisualClip}
-            handleUpdate={handleUpdate}
-            handleUpdateMultiple={handleUpdateMultiple}
-            handleApplyFit={handleApplyFit}
-            canvasWidth={canvasWidth}
-            canvasHeight={canvasHeight}
-          />
-          <AdjustmentsSection
-            selectedClip={selectedClip}
-            handleUpdate={handleUpdate}
-          />
-          <ChromaKeySection selectedClip={selectedClip} />
-          <EffectsFiltersSection
-            selectedClip={selectedClip}
-            handleUpdate={handleUpdate}
-          />
-        </>
+        <VideoStyleSection
+          selectedClip={selectedClip}
+          isVisualClip={isVisualClip}
+          canvasWidth={canvasWidth}
+          canvasHeight={canvasHeight}
+          handleUpdate={handleUpdate}
+          handleUpdateMultiple={handleUpdateMultiple}
+          handleApplyFit={handleApplyFit}
+        />
       )}
 
-      {/* Audio Tab: Audio properties */}
+      {/* Audio Tab: Audio properties with sub-tabs */}
       {isVideoClip && activePropertyTab === "audio" && (
         <>
           {hasAudioTrack ? (
-            <AudioSection
+            <AudioStyleSection
               selectedClip={selectedClip}
               handleUpdate={handleUpdate}
               onUnlink={!linkedAudio ? handleUnlinkAudio : undefined}
@@ -154,9 +147,12 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
         </>
       )}
 
-      {/* Speed Tab: Playback speed controls */}
+      {/* Speed Tab: Speed controls with sub-tabs */}
       {isVideoClip && activePropertyTab === "speed" && (
-        <PlaybackSection selectedClip={selectedClip} />
+        <SpeedStyleSection
+          selectedClip={selectedClip}
+          handleUpdate={handleUpdate}
+        />
       )}
 
       {/* Animation Tab: Motion presets */}
@@ -166,6 +162,14 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
           handleUpdateMultiple={handleUpdateMultiple}
           canvasWidth={canvasWidth}
           canvasHeight={canvasHeight}
+        />
+      )}
+
+      {/* Adjust Tab: Color Adjustments */}
+      {isVideoClip && activePropertyTab === "adjust" && (
+        <VideoAdjustTab
+          selectedClip={selectedClip}
+          handleUpdate={handleUpdate}
         />
       )}
 

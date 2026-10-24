@@ -222,6 +222,7 @@
   "properties.tabs.video": "Video",
   "properties.tabs.audio": "Audio",
   "properties.tabs.speed": "Geschwindigkeit",
+  "properties.tabs.adjust": "Anpassen",
   "properties.tabs.animation": "Animation",
   "properties.tabs.tracking": "Tracking",
   "properties.tabs.tts": "Text-to-Speech",

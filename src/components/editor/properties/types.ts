@@ -5,7 +5,12 @@ export type TextPropertyTab =
   | "tts"
   | "ai_avatars";
 
-export type VideoPropertyTab = "video" | "audio" | "speed" | "animation";
+export type VideoPropertyTab =
+  | "video"
+  | "audio"
+  | "speed"
+  | "animation"
+  | "adjust";
 
 export interface PropertyTabsType {
   id: TextPropertyTab | VideoPropertyTab;

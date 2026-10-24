@@ -226,6 +226,7 @@
   "properties.tabs.video": "Видео",
   "properties.tabs.audio": "Аудио",
   "properties.tabs.speed": "Скорость",
+  "properties.tabs.adjust": "Настройка",
   "properties.tabs.animation": "Анимация",
   "properties.tabs.tracking": "Трекинг",
   "properties.tabs.tts": "Текст в речь",

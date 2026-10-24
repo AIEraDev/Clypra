@@ -222,6 +222,7 @@
   "properties.tabs.video": "動画",
   "properties.tabs.audio": "音声",
   "properties.tabs.speed": "速度",
+  "properties.tabs.adjust": "調整",
   "properties.tabs.animation": "アニメーション",
   "properties.tabs.tracking": "トラッキング",
   "properties.tabs.tts": "テキスト読み上げ",

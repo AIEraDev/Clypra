@@ -1,4 +1,4 @@
-import { Type, Sparkles, Volume2, Video, Gauge } from "lucide-react";
+import { Type, Sparkles, Volume2, Video, Gauge, Sliders } from "lucide-react";
 import { PropertyTabsType } from "./types";
 
 export const TEXT_TABS: PropertyTabsType[] = [
@@ -35,5 +35,11 @@ export const VIDEO_TABS: PropertyTabsType[] = [
     labelKey: "properties.tabs.animation",
     label: "Animation",
     icon: Sparkles,
+  },
+  {
+    id: "adjust",
+    labelKey: "properties.tabs.adjust",
+    label: "Adjust",
+    icon: Sliders,
   },
 ];
