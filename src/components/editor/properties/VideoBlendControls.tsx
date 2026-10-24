@@ -1,12 +1,20 @@
 /**
  * VideoBlendControls.tsx
  *
- * Flat, inline blend mode and opacity controls for video clips.
- * Matches TextBasicTab's design pattern - no collapsible sections.
+ * Blend mode and opacity controls for video clips.
+ * Uses reusable primitives (PropertySectionHeader, PropertySelect, SliderTrack, NumericControl)
+ * with full keyframe support for opacity.
  */
 
-import React, { useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import type { Clip } from "@/types";
+import { PropertySectionHeader } from "./primitives/PropertySectionHeader";
+import { PropertySelect } from "./primitives/PropertySelect";
+import { SliderTrack } from "./primitives/SliderTrack";
+import { NumericControl } from "./primitives/NumericControl";
+import { KeyframeNavControls } from "./primitives/KeyframeNavControls";
+import { getPlaybackClock } from "@/hooks/usePlaybackClock";
+import { useUIStore } from "@/store/uiStore";
 
 interface VideoBlendControlsProps {
   selectedClip: Clip;
@@ -36,9 +44,30 @@ export const VideoBlendControls: React.FC<VideoBlendControlsProps> = ({
   selectedClip,
   handleUpdate,
 }) => {
+  const [isBlendCollapsed, setIsBlendCollapsed] = useState(false);
+
   const blendMode = (selectedClip as any).blendMode || "normal";
   const opacity = selectedClip.opacity ?? 1;
-  const opacityPercent = Math.round(opacity * 100);
+  const opacityPercent = opacity * 100;
+
+  // ── Keyframe state for opacity ────────────────────────────────────────────
+  const openCurveEditor = useUIStore((s) => s.openCurveEditor);
+
+  const currentTime = getPlaybackClock().time;
+  const localTime = Math.max(
+    0,
+    Math.min(selectedClip.duration, currentTime - selectedClip.startTime),
+  );
+
+  const opacityKeyframes = selectedClip.visualKeyframes?.opacity || [];
+  const opacityKfState = {
+    hasKeyframes: opacityKeyframes.length > 0,
+    isAtKeyframe: opacityKeyframes.some(
+      (k) => Math.abs(k.time - localTime) < 0.08,
+    ),
+    hasPrev: opacityKeyframes.some((k) => k.time < localTime - 0.05),
+    hasNext: opacityKeyframes.some((k) => k.time > localTime + 0.05),
+  };
 
   const handleOpacityChange = useCallback(
     (val: number) => {
@@ -47,49 +76,118 @@ export const VideoBlendControls: React.FC<VideoBlendControlsProps> = ({
     [handleUpdate],
   );
 
-  return (
-    <div className="space-y-3.5 relative">
-      {/* Blend Mode */}
-      <div className="flex items-center justify-between gap-3">
-        <label className="text-xs text-[#a1a1aa] shrink-0 w-20">Mode</label>
-        <select
-          value={blendMode}
-          onChange={(e) => handleUpdate("blendMode", e.target.value)}
-          className="flex-1 bg-[#27272a] hover:bg-[#323238] border border-white/5 rounded-md px-3 py-1.5 text-xs text-white outline-none focus:border-cyan-400/50 cursor-pointer appearance-none transition-colors"
-        >
-          {BLEND_MODE_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-      </div>
+  const handleToggleOpacityKeyframe = useCallback(() => {
+    const existing = opacityKeyframes.find(
+      (k) => Math.abs(k.time - localTime) < 0.08,
+    );
+    if (existing) {
+      // Remove keyframe
+      const updated = opacityKeyframes.filter((k) => k.id !== existing.id);
+      handleUpdate("visualKeyframes", {
+        ...selectedClip.visualKeyframes,
+        opacity: updated,
+      });
+    } else {
+      // Add keyframe
+      const newKf = {
+        id: `opacity-${Date.now()}`,
+        time: localTime,
+        value: opacity,
+      };
+      handleUpdate("visualKeyframes", {
+        ...selectedClip.visualKeyframes,
+        opacity: [...opacityKeyframes, newKf].sort((a, b) => a.time - b.time),
+      });
+    }
+  }, [
+    opacityKeyframes,
+    localTime,
+    opacity,
+    handleUpdate,
+    selectedClip.visualKeyframes,
+  ]);
 
-      {/* Opacity */}
-      <div className="flex items-center gap-3">
-        <label className="text-xs text-[#a1a1aa] shrink-0 w-20">Opacity</label>
-        <div className="flex-1 flex items-center">
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={opacityPercent}
-            onChange={(e) => handleOpacityChange(Number(e.target.value))}
-            className="w-full h-1 bg-[#3f3f46] rounded-full appearance-none outline-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
+  const handleJumpToOpacityKeyframe = useCallback(
+    (direction: "prev" | "next") => {
+      const sorted = [...opacityKeyframes].sort((a, b) => a.time - b.time);
+      let target: number | undefined;
+      if (direction === "prev") {
+        const candidates = sorted.filter((k) => k.time < localTime - 0.05);
+        target =
+          candidates.length > 0
+            ? candidates[candidates.length - 1].time
+            : undefined;
+      } else {
+        const candidates = sorted.filter((k) => k.time > localTime + 0.05);
+        target = candidates.length > 0 ? candidates[0].time : undefined;
+      }
+      if (target !== undefined) {
+        getPlaybackClock().seek(selectedClip.startTime + target);
+      }
+    },
+    [opacityKeyframes, localTime, selectedClip.startTime],
+  );
+
+  const handleOpenOpacityCurveEditor = useCallback(() => {
+    openCurveEditor(selectedClip.id, "opacity");
+  }, [openCurveEditor, selectedClip.id]);
+
+  return (
+    <div className="space-y-3">
+      <PropertySectionHeader
+        title="Blend"
+        isCollapsed={isBlendCollapsed}
+        onToggleCollapse={() => setIsBlendCollapsed(!isBlendCollapsed)}
+      />
+
+      {!isBlendCollapsed && (
+        <div className="space-y-4">
+          {/* Blend Mode */}
+          <PropertySelect
+            label="Mode"
+            value={blendMode}
+            options={BLEND_MODE_OPTIONS}
+            onChange={(val) => handleUpdate("blendMode", val)}
           />
+
+          {/* Opacity with Keyframe Support */}
+          <div className="space-y-1">
+            <span className="text-[11px] text-white select-none block">
+              Opacity
+            </span>
+            <div className="flex items-center gap-2">
+              <SliderTrack
+                value={opacityPercent}
+                min={0}
+                max={100}
+                step={1}
+                onChange={handleOpacityChange}
+              />
+              <NumericControl
+                value={opacityPercent}
+                onChange={handleOpacityChange}
+                step={1}
+                suffix="%"
+                ariaLabel="Opacity"
+                min={0}
+                max={100}
+                inputPosition="text-right"
+              />
+              <KeyframeNavControls
+                hasKeyframes={opacityKfState.hasKeyframes}
+                isAtKeyframe={opacityKfState.isAtKeyframe}
+                onToggleKeyframe={handleToggleOpacityKeyframe}
+                onPrevKeyframe={() => handleJumpToOpacityKeyframe("prev")}
+                onNextKeyframe={() => handleJumpToOpacityKeyframe("next")}
+                hasPrev={opacityKfState.hasPrev}
+                hasNext={opacityKfState.hasNext}
+                onOpenCurveEditor={handleOpenOpacityCurveEditor}
+                label="Opacity"
+              />
+            </div>
+          </div>
         </div>
-        <div className="w-20 shrink-0 bg-[#27272a] border border-white/5 rounded-md px-2 py-1 flex items-center">
-          <input
-            type="number"
-            min={0}
-            max={100}
-            value={opacityPercent}
-            onChange={(e) => handleOpacityChange(Number(e.target.value))}
-            className="w-full bg-transparent text-xs text-white text-center outline-none tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-          />
-          <span className="text-xs text-text-muted ml-0.5">%</span>
-        </div>
-      </div>
+      )}
     </div>
   );
 };
