@@ -33,7 +33,9 @@ function quantizeWaveformSampleCount(rawWidthPx: number): number {
   if (target <= 256) return 256;
   if (target <= 512) return 512;
   if (target <= 1024) return 1024;
-  return 2048;
+  if (target <= 2048) return 2048;
+  if (target <= 4096) return 4096;
+  return 8192;
 }
 
 export function useWaveformData({

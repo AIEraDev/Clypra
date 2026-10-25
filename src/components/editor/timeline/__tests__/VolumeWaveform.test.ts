@@ -51,4 +51,16 @@ describe("VolumeWaveform envelope", () => {
   it("does not draw audio pipes when the envelope is silent", () => {
     expect(getWaveformPipeGeometry(1, 1, 1, 0, 20)).toBeNull();
   });
+
+  it("retains minimum body height for quiet passages when volume is active", () => {
+    const geometry = getWaveformPipeGeometry(0.01, 0.005, 1, 1, 20, "bottom");
+    expect(geometry).not.toBeNull();
+    expect(geometry!.height).toBeGreaterThanOrEqual(1.25);
+  });
+
+  it("respects maxHeightFraction override when provided", () => {
+    const geometry = getWaveformPipeGeometry(1, 1, 1, 1, 100, "bottom", 0.85);
+    expect(geometry).not.toBeNull();
+    expect(geometry!.height).toBeCloseTo(85);
+  });
 });
