@@ -184,8 +184,11 @@ const ClipInner: React.FC<ClipProps> = ({
   const right = timeToPixel(clip.startTime + clip.duration, pixelsPerSecond);
   const width = right - left;
   const hasAudio = clipHasAudio(clip, mediaAsset);
+  const isVideo = clip.kind === "video" || mediaAsset?.type === "video";
   const clipMetaRowHeightPx = 20;
-  const clipAudioRowHeightPx = hasAudio ? 16 : 0;
+  // Video clips always reserve their 16px audio lane so layout remains stable
+  // and the space is shown even when audio is unprobed, silent, or detached.
+  const clipAudioRowHeightPx = isVideo ? 16 : hasAudio ? 16 : 0;
   const clipFilmstripHeightPx = Math.max(
     1,
     trackHeightPx - clipMetaRowHeightPx - clipAudioRowHeightPx,
@@ -1171,32 +1174,51 @@ const ClipInner: React.FC<ClipProps> = ({
                 isExpanded={isKeyframeExpanded}
                 onToggleExpand={() => toggleKeyframeLane(clip.id)}
               />
-              {mediaAsset.type === "video" && mediaAsset.path && hasAudio && (
+              {mediaAsset.type === "video" && (
                 <div
                   data-testid="clip-audio-waveform"
                   className="relative h-4 shrink-0 border-t border-clypra-clip-waveform-border bg-clypra-clip-waveform-bg px-0.5"
                 >
-                  <VolumeWaveform
-                    audioPath={(clip as any).audioPath || mediaAsset.path}
-                    clipWidthPx={width}
-                    duration={clip.duration}
-                    mediaDuration={mediaAsset.duration}
-                    trimIn={clip.trimIn}
-                    trimOut={clip.trimOut}
-                    volume={clip.volume}
-                    volumeKeyframes={clip.volumeKeyframes}
-                    fadeIn={clip.fadeIn}
-                    fadeOut={clip.fadeOut}
-                    fadeInCurve={clip.fadeInCurve}
-                    fadeOutCurve={clip.fadeOutCurve}
-                    heightPx={16}
-                    className="opacity-75"
-                  />
-                  <AudioEnvelopeEditor
-                    clip={clip}
-                    clipWidthPx={width}
-                    pixelsPerSecond={pixelsPerSecond}
-                  />
+                  {mediaAsset.path &&
+                  (hasAudio || mediaAsset.streams === undefined) &&
+                  !clip.detachedFromClipId &&
+                  clip.audio?.linkState !== "detached" ? (
+                    <>
+                      <VolumeWaveform
+                        audioPath={(clip as any).audioPath || mediaAsset.path}
+                        clipWidthPx={width}
+                        duration={clip.duration}
+                        mediaDuration={mediaAsset.duration}
+                        trimIn={clip.trimIn}
+                        trimOut={clip.trimOut}
+                        volume={clip.volume}
+                        volumeKeyframes={clip.volumeKeyframes}
+                        fadeIn={clip.fadeIn}
+                        fadeOut={clip.fadeOut}
+                        fadeInCurve={clip.fadeInCurve}
+                        fadeOutCurve={clip.fadeOutCurve}
+                        heightPx={16}
+                        className="opacity-75"
+                      />
+                      {hasAudio && (
+                        <AudioEnvelopeEditor
+                          clip={clip}
+                          clipWidthPx={width}
+                          pixelsPerSecond={pixelsPerSecond}
+                        />
+                      )}
+                    </>
+                  ) : (
+                    /* When a clip doesn't have audio, its space is still shown without wave */
+                    <div
+                      data-testid="clip-audio-empty"
+                      className="h-full w-full opacity-35 flex items-center justify-center select-none pointer-events-none"
+                      title="No audio"
+                      aria-label="No audio"
+                    >
+                      <div className="w-full h-px border-b border-dashed border-clypra-clip-fg/25" />
+                    </div>
+                  )}
                 </div>
               )}
             </div>

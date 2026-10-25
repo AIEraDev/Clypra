@@ -202,16 +202,25 @@ export const VolumeWaveform: React.FC<VolumeWaveformProps> = ({
   if (hasError) {
     return (
       <div
-        className={`h-full w-full bg-surface-raised/30 ${className}`}
-        title="Waveform unavailable"
-      />
+        data-testid="clip-audio-empty"
+        className={`h-full w-full opacity-35 flex items-center justify-center select-none pointer-events-none ${className}`}
+        title="No audio"
+        aria-label="No audio"
+      >
+        <div className="w-full h-px border-b border-dashed border-clypra-clip-fg/25" />
+      </div>
     );
   }
 
   return (
     <div className="relative flex h-full min-h-0 w-full items-center">
       {isLoading && (
-        <div className="absolute inset-0 animate-pulse bg-clypra-clip-waveform-bg/60" />
+        <div
+          data-testid="volume-waveform-loading"
+          className="absolute inset-0 animate-pulse bg-clypra-clip-waveform-bg/80 flex items-center justify-center pointer-events-none"
+        >
+          <div className="w-full h-px bg-clypra-clip-waveform-border/60 animate-pulse" />
+        </div>
       )}
       <canvas
         ref={canvasRef}

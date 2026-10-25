@@ -1257,6 +1257,21 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         );
       }
     }
+
+    // Eagerly probe streams in background if not already known
+    if (asset.type === "video" && asset.path && !asset.streams) {
+      void import("@/lib/platform/tauri").then(({ isTauriRuntime, probeMediaStreams }) => {
+        if (isTauriRuntime()) {
+          void probeMediaStreams(asset.path)
+            .then((streams) => {
+              get().updateMediaAsset(asset.id, { streams });
+            })
+            .catch((err) => {
+              console.warn("[projectStore] Background stream probe failed for:", asset.path, err);
+            });
+        }
+      });
+    }
   },
 
   updateMediaAsset: (assetId, updates) => {

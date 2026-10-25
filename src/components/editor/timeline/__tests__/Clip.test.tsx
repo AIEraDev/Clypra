@@ -71,6 +71,14 @@ vi.mock("@/store/timelineStore", () => {
   return { useTimelineStore: store };
 });
 
+const mockHistoryExecute = vi.fn();
+vi.mock("@/store/historyStore", () => ({
+  useHistoryStore: Object.assign(
+    () => ({ execute: mockHistoryExecute }),
+    { getState: () => ({ execute: mockHistoryExecute }) },
+  ),
+}));
+
 const createMockClip = (overrides?: Partial<ClipType>): ClipType => ({
   id: "clip-1",
   trackId: "track-1",
@@ -175,6 +183,41 @@ describe("Clip Component", () => {
       renderClip(createMockClip(), createMockMediaAsset());
 
       expect(screen.getByTestId("clip-audio-waveform")).toBeInTheDocument();
+      expect(screen.getByTestId("volume-waveform-canvas")).toBeInTheDocument();
+    });
+
+    it("renders audio lane for video clips even when clip has no audio, without wave", () => {
+      const silentAsset = createMockMediaAsset({
+        streams: [{ index: 0, type: "video", codec: "h264" }],
+      });
+      renderClip(createMockClip(), silentAsset);
+
+      // The space is STILL present
+      expect(screen.getByTestId("clip-audio-waveform")).toBeInTheDocument();
+      // But it renders the empty lane indicator without waveform canvas
+      expect(screen.getByTestId("clip-audio-empty")).toBeInTheDocument();
+      expect(screen.queryByTestId("volume-waveform-canvas")).not.toBeInTheDocument();
+    });
+
+    it("renders empty audio lane when video audio has been detached, without wave", () => {
+      const detachedClip = createMockClip({
+        detachedFromClipId: "audio-clip-1",
+      });
+      renderClip(detachedClip, createMockMediaAsset());
+
+      expect(screen.getByTestId("clip-audio-waveform")).toBeInTheDocument();
+      expect(screen.getByTestId("clip-audio-empty")).toBeInTheDocument();
+      expect(screen.queryByTestId("volume-waveform-canvas")).not.toBeInTheDocument();
+    });
+
+    it("renders audio lane with waveform loader when video streams are still unprobed", () => {
+      const unprobedAsset = createMockMediaAsset({
+        streams: undefined,
+      });
+      renderClip(createMockClip(), unprobedAsset);
+
+      expect(screen.getByTestId("clip-audio-waveform")).toBeInTheDocument();
+      expect(screen.getByTestId("volume-waveform-canvas")).toBeInTheDocument();
     });
 
     it("renders an audio-kind clip as waveform even when its asset is a video", () => {
@@ -698,21 +741,30 @@ describe("Clip Component", () => {
 
       // Nudge right 1 frame (1/30s ≈ 0.0333s)
       fireEvent.keyDown(element, { key: "ArrowRight", altKey: true });
-      expect(mockUpdateClip).toHaveBeenCalledWith("clip-nudge", {
-        startTime: 5.0 + 1 / 30,
-      });
+      expect(mockHistoryExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clipId: "clip-nudge",
+          toTime: 5.0 + 1 / 30,
+        }),
+      );
 
       // Nudge right with Shift (1.0s)
       fireEvent.keyDown(element, { key: "ArrowRight", altKey: true, shiftKey: true });
-      expect(mockUpdateClip).toHaveBeenCalledWith("clip-nudge", {
-        startTime: 6.0,
-      });
+      expect(mockHistoryExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clipId: "clip-nudge",
+          toTime: 6.0,
+        }),
+      );
 
       // Nudge left 1 frame
       fireEvent.keyDown(element, { key: "ArrowLeft", altKey: true });
-      expect(mockUpdateClip).toHaveBeenCalledWith("clip-nudge", {
-        startTime: 5.0 - 1 / 30,
-      });
+      expect(mockHistoryExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clipId: "clip-nudge",
+          toTime: 5.0 - 1 / 30,
+        }),
+      );
     });
 
     it("does not allow keyboard actions when clip is locked", () => {
