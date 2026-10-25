@@ -802,6 +802,7 @@ export const Timeline: React.FC = () => {
 
           {hasTimelineContent && (
             <div
+              data-timeline-ruler-header="true"
               className="bg-timeline-bg overflow-hidden"
               style={{
                 position: "sticky",

@@ -82,12 +82,20 @@ export class TimelineZoomSpring {
     return this.mode === "idle";
   }
 
-  /** Current animated PPS (use this as the base when computing the next target). */
+  /** Current animated PPS. */
   getCurrentPps(): number {
     if (this.mode === "idle") {
       return useTimelineStore.getState().pixelsPerSecond;
     }
     return this.currentPps;
+  }
+
+  /** Current target PPS that the spring is chasing (or current PPS if idle). */
+  getTargetPps(): number {
+    if (this.mode === "idle") {
+      return useTimelineStore.getState().pixelsPerSecond;
+    }
+    return this.targetPps;
   }
 
   /**

@@ -3,6 +3,7 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import {
   clampTimelinePixelsPerSecond,
+  getTimelineMaxPps,
   TIMELINE_MAX_PPS,
   TIMELINE_MIN_PPS,
 } from "@/lib/timeline/timelineZoom";
@@ -45,6 +46,7 @@ export function useTimelineZoom(
 
     // ── Wheel / trackpad zoom ───────────────────────────────────────────────
     let pendingDy = 0;
+    let pendingNotches = 0;
     let pendingClientX = 0;
     let wheelRafId = 0;
     let zoomSettleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -64,29 +66,42 @@ export function useTimelineZoom(
 
     const flushWheel = () => {
       wheelRafId = 0;
-      if (pendingDy === 0) return;
+      if (pendingNotches === 0 && pendingDy === 0) return;
 
-      const dy = pendingDy * WHEEL_ZOOM_SPEED_MULTIPLIER;
-      pendingDy = 0;
-
-      // Use the spring's current animated PPS as the base so rapid events
-      // stack from wherever the animation currently is, not the last committed store value.
-      // DAMPING: Clamp the per-frame exponential factor to [-0.22, 0.22] (max ~20% scale change per frame)
-      // to keep physical mouse wheel clicks buttery-smooth while preserving continuous trackpad precision.
-      const exponent = Math.max(
-        -0.22,
-        Math.min(0.22, -dy * WHEEL_ZOOM_SENSITIVITY),
-      );
-      const basePps = spring.getCurrentPps();
       const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
-      // Fit Sequence intentionally permits an overview density below the
-      // normal interaction floor. Wheel zoom must preserve that reachable
-      // state rather than making an outward gesture jump back to 10 px/s.
-      const targetPps = clampTimelinePixelsPerSecond(
-        basePps * Math.exp(exponent),
-        true,
-        frameRate,
-      );
+      const maxPps = getTimelineMaxPps(frameRate);
+      const nominalMin = TIMELINE_MIN_PPS; // 10 px/s
+      // Derived notch step: covers [nominalMin, maxPps] in 7 notches
+      const notchStep = Math.pow(maxPps / nominalMin, 1 / 7);
+
+      // Stack onto the spring's target PPS so rapid notches compound without loss
+      const basePps = spring.getTargetPps();
+      let targetPps: number;
+
+      if (pendingNotches !== 0) {
+        const notches = pendingNotches;
+        pendingNotches = 0;
+        pendingDy = 0;
+        const factor = Math.pow(notchStep, Math.abs(notches));
+        targetPps = clampTimelinePixelsPerSecond(
+          notches > 0 ? basePps * factor : basePps / factor,
+          true,
+          frameRate,
+        );
+      } else {
+        const dy = pendingDy * WHEEL_ZOOM_SPEED_MULTIPLIER;
+        pendingDy = 0;
+        const exponent = Math.max(
+          -0.22,
+          Math.min(0.22, -dy * WHEEL_ZOOM_SENSITIVITY),
+        );
+        targetPps = clampTimelinePixelsPerSecond(
+          basePps * Math.exp(exponent),
+          true,
+          frameRate,
+        );
+      }
+
       if (Math.abs(targetPps - basePps) < 0.05) return;
 
       const rect = container.getBoundingClientRect();
@@ -101,12 +116,13 @@ export function useTimelineZoom(
       const viewportEndSeconds = getTimelineViewportEndForDuration(
         state.getTimelineEndTime(),
       );
-      // Anchor: the time-point under the cursor stays visually fixed during animation.
+      // Anchor: the time-point currently under the cursor stays fixed
+      const currentAnimatedPps = spring.getCurrentPps();
       let anchorTime =
         (container.scrollLeft +
           localTimelineX -
           TIMELINE_CLIP_START_OFFSET_PX) /
-        basePps;
+        currentAnimatedPps;
       anchorTime = Math.max(0, Math.min(anchorTime, viewportEndSeconds));
 
       const anchor: ZoomAnchor = {
@@ -121,11 +137,27 @@ export function useTimelineZoom(
     };
 
     const onWheel = (e: WheelEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
+      const isModifierZoom = e.ctrlKey || e.metaKey;
+      const targetElement = e.target as HTMLElement | null;
+      const isOverRuler = Boolean(
+        targetElement?.closest(
+          "[data-timeline-ruler], [data-timeline-ruler-header]",
+        ),
+      );
+
+      // Plain wheel over tracks retains native scroll; zooms if modifier is held OR over ruler (D3)
+      if (!isModifierZoom && !isOverRuler) return;
       e.preventDefault();
       noteZoomInput();
 
-      pendingDy += normalizeWheelDeltaY(e, container.clientHeight);
+      const isDiscrete =
+        e.deltaMode !== WheelEvent.DOM_DELTA_PIXEL || Math.abs(e.deltaY) >= 4;
+
+      if (isDiscrete) {
+        pendingNotches += e.deltaY < 0 ? 1 : -1;
+      } else {
+        pendingDy += normalizeWheelDeltaY(e, container.clientHeight);
+      }
       pendingClientX = e.clientX;
       if (!wheelRafId) {
         wheelRafId = requestAnimationFrame(flushWheel);

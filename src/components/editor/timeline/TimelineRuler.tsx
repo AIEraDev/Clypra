@@ -456,6 +456,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
   return (
     <div
       ref={containerRef}
+      data-timeline-ruler="true"
       className="relative select-none overflow-visible"
       style={{
         height: 24,
