@@ -105,6 +105,60 @@ export class SplitClipCommand implements Command {
       this.rightClipId = generateId("clip");
     }
 
+    // Partition keyframes and reset inner cut audio fades so splits remain seamless
+    const leftVisualKeyframes = clip.visualKeyframes
+      ? Object.fromEntries(
+          Object.entries(clip.visualKeyframes).map(([prop, kfs]) => [
+            prop,
+            Array.isArray(kfs)
+              ? kfs.filter((kf) => kf.time <= leftDuration + 1e-6)
+              : kfs,
+          ]),
+        )
+      : undefined;
+
+    const rightVisualKeyframes = clip.visualKeyframes
+      ? Object.fromEntries(
+          Object.entries(clip.visualKeyframes).map(([prop, kfs]) => [
+            prop,
+            Array.isArray(kfs)
+              ? kfs
+                  .filter((kf) => kf.time >= leftDuration - 1e-6)
+                  .map((kf) => ({
+                    ...kf,
+                    time: Math.max(0, Math.min(rightDuration, kf.time - leftDuration)),
+                  }))
+              : kfs,
+          ]),
+        )
+      : undefined;
+
+    const leftVolumeKeyframes = clip.volumeKeyframes
+      ? clip.volumeKeyframes.filter((kf) => kf.time <= leftDuration + 1e-6)
+      : undefined;
+
+    const rightVolumeKeyframes = clip.volumeKeyframes
+      ? clip.volumeKeyframes
+          .filter((kf) => kf.time >= leftDuration - 1e-6)
+          .map((kf) => ({
+            ...kf,
+            time: Math.max(0, Math.min(rightDuration, kf.time - leftDuration)),
+          }))
+      : undefined;
+
+    const leftMarkers = clip.markers
+      ? clip.markers.filter((m) => m.localTime <= leftDuration + 1e-6)
+      : undefined;
+
+    const rightMarkers = clip.markers
+      ? clip.markers
+          .filter((m) => m.localTime >= leftDuration - 1e-6)
+          .map((m) => ({
+            ...m,
+            localTime: Math.max(0, Math.min(rightDuration, m.localTime - leftDuration)),
+          }))
+      : undefined;
+
     // Create LEFT split with new ID
     const leftClip: Clip = {
       ...cloneClipSnapshot(clip),
@@ -112,6 +166,18 @@ export class SplitClipCommand implements Command {
       duration: leftDuration,
       trimIn: leftTrimIn,
       trimOut: leftTrimOut,
+      fadeOut: 0,
+      ...(clip.audio
+        ? {
+            audio: {
+              ...clip.audio,
+              fadeOut: { duration: 0, curve: clip.audio.fadeOut?.curve ?? "linear" },
+            },
+          }
+        : {}),
+      ...(leftVisualKeyframes ? { visualKeyframes: leftVisualKeyframes } : {}),
+      ...(leftVolumeKeyframes ? { volumeKeyframes: leftVolumeKeyframes } : {}),
+      ...(leftMarkers ? { markers: leftMarkers } : {}),
     };
 
     // Create RIGHT split with new ID
@@ -122,6 +188,18 @@ export class SplitClipCommand implements Command {
       duration: rightDuration,
       trimIn: rightTrimIn,
       trimOut: rightTrimOut,
+      fadeIn: 0,
+      ...(clip.audio
+        ? {
+            audio: {
+              ...clip.audio,
+              fadeIn: { duration: 0, curve: clip.audio.fadeIn?.curve ?? "linear" },
+            },
+          }
+        : {}),
+      ...(rightVisualKeyframes ? { visualKeyframes: rightVisualKeyframes } : {}),
+      ...(rightVolumeKeyframes ? { volumeKeyframes: rightVolumeKeyframes } : {}),
+      ...(rightMarkers ? { markers: rightMarkers } : {}),
     };
 
     const updatedTransitions = state.transitions?.map((t) => {

@@ -96,16 +96,18 @@ const MarkerPin: React.FC<MarkerPinProps> = ({
         const dx = ev.clientX - dragStartX.current;
         const dt = pixelToTime(dx, pixelsPerSecond);
         const newTime = Math.max(0, dragStartTime.current + dt);
-        // Live visual update via a CSS custom property on the element
-        pin.current?.style.setProperty(
-          "--dx",
-          `${Math.round(newTime * pixelsPerSecond)}px`,
-        );
+        const newX = `${Math.round(newTime * pixelsPerSecond)}px`;
+        // Live visual update via CSS custom property and direct style assignment
+        pin.current?.style.setProperty("--dx", newX);
+        if (pin.current) {
+          pin.current.style.left = newX;
+        }
       };
 
       const onUp = (ev: MouseEvent) => {
         if (!dragging.current) return;
         dragging.current = false;
+        pin.current?.style.removeProperty("--dx");
         const dx = ev.clientX - dragStartX.current;
         const dt = pixelToTime(dx, pixelsPerSecond);
         const newTime = Math.max(0, dragStartTime.current + dt);
@@ -138,7 +140,7 @@ const MarkerPin: React.FC<MarkerPinProps> = ({
       title={marker.name}
       style={{
         position: "absolute",
-        left: x,
+        left: `var(--dx, ${x}px)`,
         top: 0,
         transform: "translateX(-50%)",
         cursor: "grab",

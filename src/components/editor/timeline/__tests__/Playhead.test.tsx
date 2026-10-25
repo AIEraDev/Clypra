@@ -350,5 +350,47 @@ describe("Playhead Component", () => {
       expect(cell).not.toBeNull();
       expect(cell.style.width).toBe(`${Math.round(2000 / 24)}px`); // 83px
     });
+
+    it("CLY-BUG-004 regression: auto-scroll left activates when cursor approaches clips lane boundary", () => {
+      const scrollContainer = document.createElement("div");
+      Object.defineProperty(scrollContainer, "clientWidth", { value: 1000, configurable: true });
+      Object.defineProperty(scrollContainer, "scrollWidth", { value: 3000, configurable: true });
+      scrollContainer.scrollLeft = 500;
+      scrollContainer.getBoundingClientRect = () => ({
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 400,
+        width: 1000,
+        height: 400,
+        x: 0,
+        y: 0,
+        toJSON: () => {},
+      });
+
+      // Timeline has clips, so track label column (160px) is active
+      useTimelineStore.setState({
+        clips: [{ id: "c1", trackId: "t1", mediaId: "m1", startTime: 0, duration: 10, trimIn: 0, trimOut: 10, x: 0, y: 0, width: 1920, height: 1080, opacity: 1, rotation: 0 }],
+      });
+
+      const containerRef = { current: scrollContainer };
+      const { container } = render(
+        <Playhead pixelsPerSecond={50} duration={30} containerRef={containerRef} />,
+      );
+
+      const handle = container.querySelector("[data-playhead-handle='true']") as HTMLElement;
+      expect(handle).not.toBeNull();
+
+      // Start drag at playhead
+      fireEvent.pointerDown(handle, { clientX: 200, clientY: 10, pointerId: 1 });
+
+      // Move cursor towards left edge of clips lane (e.g. at clientX = 180, which is within 80px of 160px lane edge)
+      fireEvent(window, new PointerEvent("pointermove", { clientX: 180, clientY: 10, pointerId: 1 }));
+
+      // Pointer at 180 is < leftThreshold (160 + 80 = 240px). Distance is 240 - 180 = 60px.
+      // Expected scroll velocity = -60 * 0.3 = -18 px/frame (scrolling left)
+      // Release pointer to clean up
+      fireEvent(window, new PointerEvent("pointerup", { pointerId: 1 }));
+    });
   });
 });

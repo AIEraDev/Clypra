@@ -21,6 +21,7 @@ import {
   timelineTimeToPixel,
   timelinePixelToTime,
   TIMELINE_CLIP_START_OFFSET_PX,
+  TIMELINE_TRACK_LABEL_WIDTH_PX,
 } from "@/lib/timeline/timelineViewport";
 import {
   recordPlayheadPaint,
@@ -386,6 +387,9 @@ export const Playhead: React.FC<PlayheadProps> = ({
 
       const EDGE_THRESHOLD = 80; // px from edge where auto-scroll starts
       const VELOCITY_MULTIPLIER = 0.3; // Acceleration factor
+      const hasClips = useTimelineStore.getState().clips.length > 0;
+      const leftBoundary = hasClips ? TIMELINE_TRACK_LABEL_WIDTH_PX : 0;
+      const leftThreshold = leftBoundary + EDGE_THRESHOLD;
 
       // Calculate velocity even when pointer is OUTSIDE viewport bounds
       if (
@@ -395,9 +399,9 @@ export const Playhead: React.FC<PlayheadProps> = ({
         // Near or beyond right edge → scroll right
         const distance = pointerXRef.current - (viewportWidth - EDGE_THRESHOLD);
         scrollVelocityRef.current = distance * VELOCITY_MULTIPLIER;
-      } else if (pointerXRef.current < EDGE_THRESHOLD && scrollLeft > 0) {
-        // Near or beyond left edge → scroll left
-        const distance = EDGE_THRESHOLD - pointerXRef.current;
+      } else if (pointerXRef.current < leftThreshold && scrollLeft > 0) {
+        // Near or beyond left edge of clips lane → scroll left
+        const distance = leftThreshold - pointerXRef.current;
         scrollVelocityRef.current = -distance * VELOCITY_MULTIPLIER;
       } else {
         // In safe zone → no scroll

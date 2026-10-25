@@ -86,4 +86,27 @@ describe("TimelineRuler coordinate mapping", () => {
     expect(leftPositions).toContain("220px");
     expect(leftPositions).toContain("420px");
   });
+
+  it("updates marker pin position visually during drag before mouseup [CLY-BUG-006]", () => {
+    useTimelineStore.setState({
+      markers: [
+        { id: "m1", time: 2.0, name: "Test Marker", color: "#3b82f6" },
+      ],
+      scrollLeft: 0,
+      pixelsPerSecond: 100,
+    });
+
+    render(<TimelineRuler pixelsPerSecond={100} scrollLeft={0} sequenceDuration={20} />);
+
+    const pin = screen.getByTitle("Test Marker");
+    expect(pin.style.left).toBe("var(--dx, 200px)");
+
+    fireEvent.mouseDown(pin, { clientX: 200 });
+    fireEvent.mouseMove(window, { clientX: 300 });
+
+    expect(pin.style.left).toBe("300px");
+
+    fireEvent.mouseUp(window, { clientX: 300 });
+    expect(useTimelineStore.getState().markers[0]?.time).toBe(3);
+  });
 });

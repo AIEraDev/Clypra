@@ -126,4 +126,45 @@ describe("timeline flow commands", () => {
     expect(command.apply(state)).toBe(state);
     expect(command.getResult()).toBeNull();
   });
+
+  it("CLY-BUG-002 regression: shifts target track gaps and restores them on undo", () => {
+    const track = { id: "v1", name: "V1", type: "video" as const, height: 80, locked: false, muted: false, solo: false, visible: true, opacity: 1 };
+    const c1 = clip("c1", 0, 4);
+    const c2 = clip("c2", 6, 4);
+    const existingGap = {
+      id: "gap-1",
+      trackId: "v1",
+      startTime: 4,
+      duration: 2,
+      type: "manual" as const,
+      source: "user-insert" as const,
+      protected: true,
+    };
+
+    const state = {
+      tracks: [track],
+      clips: [c1, c2],
+      gaps: [existingGap],
+      epoch: 0,
+    };
+
+    const inserted = clip("inserted", 2, 3);
+    const command = new InsertEditCommand(inserted, 2, "c1");
+    const afterInsert = command.apply(state);
+
+    // Gaps starting after insertionTime (t=2) must shift right by duration (3s)
+    expect(afterInsert.gaps).toBeDefined();
+    const shiftedGap = afterInsert.gaps?.find((g: any) => g.id === "gap-1");
+    expect(shiftedGap).toBeDefined();
+    expect(shiftedGap?.startTime).toBe(7); // 4 + 3 = 7
+
+    // On Undo, gaps must restore exactly to their pre-insert state
+    const restored = command.invert().apply(afterInsert);
+    const restoredGap = restored.gaps?.find((g: any) => g.id === "gap-1");
+    expect(restoredGap?.startTime).toBe(4);
+    expect(restored.clips.map((c: any) => ({ id: c.id, startTime: c.startTime }))).toEqual([
+      { id: "c1", startTime: 0 },
+      { id: "c2", startTime: 6 },
+    ]);
+  });
 });

@@ -205,7 +205,7 @@ const TimelineToolbarComponent: React.FC = () => {
           </Tool>
 
           {getClipCommand("clip.swap")?.isVisible && (
-            <Tool label="Swap selected clips (Ctrl+Shift+S)">
+            <Tool label={t("timeline.tools.swapClips")}>
               <Button variant="ghost" size="icon-sm" className={toolButton} onClick={() => executeClipCommand("clip.swap")} disabled={!getClipCommand("clip.swap")?.isEnabled}>
                 <ArrowLeftRight className="w-4 h-4" />
               </Button>
@@ -254,7 +254,7 @@ const TimelineToolbarComponent: React.FC = () => {
           {proxyEditingEnabled && (
             <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-status-warning/15 border border-status-warning/30 text-status-warning text-[10px] font-semibold shrink-0">
               <Zap className="w-3 h-3" />
-              Proxy Mode
+              {t("timeline.toolbar.proxyMode")}
             </span>
           )}
 
@@ -344,14 +344,14 @@ const TimelineToolbarComponent: React.FC = () => {
           <VoiceoverRecorderButton />
 
           <span className="inline-flex items-center gap-0.5">
-            <Button title="Fit sequence (Shift+Z)" variant="ghost" size="icon-xs" className={zoomButton} onClick={fitSequence} disabled={!hasTimelineContent} aria-label="Fit sequence">
+            <Button title={t("timeline.tools.fitSequence")} variant="ghost" size="icon-xs" className={zoomButton} onClick={fitSequence} disabled={!hasTimelineContent} aria-label={t("timeline.tools.fitSequence")}>
               <Maximize2 className="w-3 h-3" strokeWidth={2} />
             </Button>
-            <Button title="Zoom Out" variant="ghost" size="icon-xs" className={zoomButton} onClick={() => zoomByStep(-1)} disabled={!hasTimelineContent || zoomLevel <= TIMELINE_ZOOM_MIN} aria-label="Zoom out timeline">
+            <Button title={t("timeline.tools.zoomOut")} variant="ghost" size="icon-xs" className={zoomButton} onClick={() => zoomByStep(-1)} disabled={!hasTimelineContent || zoomLevel <= TIMELINE_ZOOM_MIN} aria-label={t("timeline.tools.zoomOut")}>
               <ZoomOut className="w-3 h-3" strokeWidth={2} />
             </Button>
 
-            <div ref={zoomRailRef} role="slider" tabIndex={hasTimelineContent ? 0 : -1} aria-disabled={!hasTimelineContent} aria-label="Timeline zoom" aria-valuemin={TIMELINE_ZOOM_MIN} aria-valuemax={maxZoom} aria-valuenow={zoomLevel} aria-valuetext={`${zoomLevel.toFixed(2)} times, ${currentTierLabel}, ${temporalDetail.label}, ${cadenceLabel} samples`} onPointerDown={handleZoomPointerDown} onPointerMove={handleZoomPointerMove} onPointerUp={handleZoomPointerUp} onPointerCancel={handleZoomPointerCancel} onLostPointerCapture={handleZoomPointerCancel} onKeyDown={handleZoomKeyDown} className={`group relative flex h-6 w-28 items-center rounded-full outline-none ${hasTimelineContent ? "cursor-pointer touch-none" : "cursor-not-allowed opacity-40"} focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-surface`}>
+            <div ref={zoomRailRef} role="slider" tabIndex={hasTimelineContent ? 0 : -1} aria-disabled={!hasTimelineContent} aria-label={t("timeline.tools.zoomTimeline")} aria-valuemin={TIMELINE_ZOOM_MIN} aria-valuemax={maxZoom} aria-valuenow={zoomLevel} aria-valuetext={`${zoomLevel.toFixed(2)} times, ${currentTierLabel}, ${temporalDetail.label}, ${cadenceLabel} samples`} onPointerDown={handleZoomPointerDown} onPointerMove={handleZoomPointerMove} onPointerUp={handleZoomPointerUp} onPointerCancel={handleZoomPointerCancel} onLostPointerCapture={handleZoomPointerCancel} onKeyDown={handleZoomKeyDown} className={`group relative flex h-6 w-28 items-center rounded-full outline-none ${hasTimelineContent ? "cursor-pointer touch-none" : "cursor-not-allowed opacity-40"} focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-surface`}>
               <div className="relative mx-[8px] h-[5px] w-full overflow-hidden rounded-full bg-surface-raised shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(255,255,255,0.04),0_3px_8px_rgba(0,0,0,0.28)]">
                 {tierSegments.map(({ tier, left, width }) => (
                   <div key={tier} aria-hidden className={`absolute top-0 h-full ${TIER_BAND_CLASS[tier]}`} style={{ left: `${left}%`, width: `${width}%` }} />
@@ -361,7 +361,7 @@ const TimelineToolbarComponent: React.FC = () => {
               <div data-testid="timeline-zoom-thumb" className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-accent bg-surface" style={{ left: `${zoomThumbLeftPx}px` }} />
             </div>
 
-            <Button title="Zoom In" variant="ghost" size="icon-xs" className={zoomButton} onClick={() => zoomByStep(1)} disabled={!hasTimelineContent || zoomLevel >= maxZoom} aria-label="Zoom in timeline">
+            <Button title={t("timeline.tools.zoomIn")} variant="ghost" size="icon-xs" className={zoomButton} onClick={() => zoomByStep(1)} disabled={!hasTimelineContent || zoomLevel >= maxZoom} aria-label={t("timeline.tools.zoomIn")}>
               <ZoomIn className="w-3.5 h-3.5" strokeWidth={2} />
             </Button>
           </span>
