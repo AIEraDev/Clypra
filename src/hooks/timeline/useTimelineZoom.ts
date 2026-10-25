@@ -1,6 +1,7 @@
 import { useEffect, RefObject } from "react";
 import { useTimelineStore } from "@/store/timelineStore";
 import {
+  clampTimelinePixelsPerSecond,
   TIMELINE_MAX_PPS,
   TIMELINE_MIN_PPS,
 } from "@/lib/timeline/timelineZoom";
@@ -76,9 +77,12 @@ export function useTimelineZoom(
         Math.min(0.22, -dy * WHEEL_ZOOM_SENSITIVITY),
       );
       const basePps = spring.getCurrentPps();
-      const targetPps = Math.max(
-        TIMELINE_MIN_PPS,
-        Math.min(TIMELINE_MAX_PPS, basePps * Math.exp(exponent)),
+      // Fit Sequence intentionally permits an overview density below the
+      // normal interaction floor. Wheel zoom must preserve that reachable
+      // state rather than making an outward gesture jump back to 10 px/s.
+      const targetPps = clampTimelinePixelsPerSecond(
+        basePps * Math.exp(exponent),
+        true,
       );
       if (Math.abs(targetPps - basePps) < 0.05) return;
 
@@ -110,7 +114,7 @@ export function useTimelineZoom(
         hasClips,
       };
 
-      spring.setTarget(targetPps, anchor);
+      spring.setTarget(targetPps, anchor, true);
     };
 
     const onWheel = (e: WheelEvent) => {

@@ -845,4 +845,132 @@ describe("Timeline wheel zoom", () => {
     });
     expect(useTimelineStore.getState().pixelsPerSecond).not.toBe(before);
   });
+
+  it("keeps Fit Sequence's overview density when Ctrl+wheel zooms out", async () => {
+    useTimelineStore.setState({
+      clips: [
+        {
+          id: "clip-1",
+          kind: "video",
+          trackId: "track-1",
+          mediaId: "asset-1",
+          startTime: 0,
+          duration: 300,
+          trimIn: 0,
+          trimOut: 300,
+          x: 0,
+          y: 0,
+          width: 1920,
+          height: 1080,
+          opacity: 1,
+          rotation: 0,
+        } as any,
+      ],
+      pixelsPerSecond: 4.2,
+      zoomLevel: 0.042,
+      scrollLeft: 0,
+    });
+
+    const firstRender = render(<Timeline />);
+    const { container } = firstRender;
+    const scroller = container.querySelector(
+      "#timeline-tracks-container",
+    ) as HTMLDivElement;
+    Object.defineProperty(scroller, "clientWidth", {
+      value: 800,
+      configurable: true,
+    });
+    Object.defineProperty(scroller, "scrollLeft", {
+      value: 0,
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(scroller, "scrollWidth", {
+      value: 5000,
+      configurable: true,
+    });
+    scroller.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 400,
+        width: 800,
+        height: 400,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    await act(async () => {});
+
+    await act(async () => {
+      scroller.dispatchEvent(
+        new WheelEvent("wheel", {
+          bubbles: true,
+          cancelable: true,
+          clientX: 400,
+          clientY: 50,
+          deltaY: 100,
+          deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+          ctrlKey: true,
+        }),
+      );
+    });
+
+    expect(useTimelineStore.getState().pixelsPerSecond).toBeLessThan(4.2);
+
+    await act(async () => {
+      firstRender.unmount();
+      useTimelineStore.getState().setPixelsPerSecond(4.2, true);
+    });
+
+    const { container: zoomInContainer } = render(<Timeline />);
+    const zoomInScroller = zoomInContainer.querySelector(
+      "#timeline-tracks-container",
+    ) as HTMLDivElement;
+    Object.defineProperty(zoomInScroller, "clientWidth", {
+      value: 800,
+      configurable: true,
+    });
+    Object.defineProperty(zoomInScroller, "scrollLeft", {
+      value: 0,
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(zoomInScroller, "scrollWidth", {
+      value: 5000,
+      configurable: true,
+    });
+    zoomInScroller.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 400,
+        width: 800,
+        height: 400,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    await act(async () => {});
+
+    await act(async () => {
+      zoomInScroller.dispatchEvent(
+        new WheelEvent("wheel", {
+          bubbles: true,
+          cancelable: true,
+          clientX: 400,
+          clientY: 50,
+          deltaY: -100,
+          deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+          ctrlKey: true,
+        }),
+      );
+    });
+
+    expect(useTimelineStore.getState().pixelsPerSecond).toBeGreaterThan(4.2);
+  });
 });

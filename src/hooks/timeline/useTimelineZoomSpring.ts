@@ -50,6 +50,7 @@ export class TimelineZoomSpring {
   private rafId: number | null = null;
   private mode: SpringMode = "idle";
   private inertiaVelocity = 0;
+  private allowOverviewFloor = false;
   private isApplyingFrame = false;
   private animationGeneration = 0;
   private unsubscribeStore: () => void;
@@ -70,6 +71,7 @@ export class TimelineZoomSpring {
         }
         this.currentPps = state.pixelsPerSecond;
         this.targetPps = state.pixelsPerSecond;
+        this.allowOverviewFloor = false;
       }
     });
   }
@@ -91,13 +93,21 @@ export class TimelineZoomSpring {
    * Set a new target PPS and (re)start the spring animation.
    * Safe to call on every wheel event — will smoothly redirect in-flight animations.
    */
-  setTarget(targetPps: number, anchor: ZoomAnchor): void {
+  setTarget(
+    targetPps: number,
+    anchor: ZoomAnchor,
+    allowOverviewFloor = false,
+  ): void {
     filmstripTelemetry.beginZoomGesture();
     // Sync from store when starting from rest so we animate from the actual current position.
     if (this.mode === "idle") {
       this.currentPps = useTimelineStore.getState().pixelsPerSecond;
     }
-    this.targetPps = clampTimelinePixelsPerSecond(targetPps);
+    this.targetPps = clampTimelinePixelsPerSecond(
+      targetPps,
+      allowOverviewFloor,
+    );
+    this.allowOverviewFloor = allowOverviewFloor;
     this.anchor = anchor;
     this.inertiaVelocity = 0;
     this.mode = "spring";
@@ -114,6 +124,7 @@ export class TimelineZoomSpring {
     // Sync to current store value so inertia starts from where the pinch left off.
     this.currentPps = useTimelineStore.getState().pixelsPerSecond;
     this.targetPps = this.currentPps;
+    this.allowOverviewFloor = false;
     this.inertiaVelocity = velocity;
     this.anchor = anchor;
     this.mode = "inertia";
@@ -195,7 +206,7 @@ export class TimelineZoomSpring {
     try {
       const state = useTimelineStore.getState();
       if (!Object.is(state.pixelsPerSecond, this.currentPps)) {
-        state.setPixelsPerSecond(this.currentPps);
+        state.setPixelsPerSecond(this.currentPps, this.allowOverviewFloor);
       }
 
       const nextScrollLeft = getAnchoredZoomScrollLeft({
