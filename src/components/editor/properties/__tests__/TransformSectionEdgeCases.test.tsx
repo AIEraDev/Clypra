@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { TransformSection } from "../TransformSection";
+import { TransformSection } from "../shared/TransformSection";
 import type { Clip } from "@/types";
 
 const baseClip: Clip = {
@@ -33,7 +33,7 @@ describe("TransformSection Edge Cases & Boundary Handling", () => {
         handleApplyFit={vi.fn()}
         canvasWidth={1920}
         canvasHeight={1080}
-      />
+      />,
     );
 
     // Expand accordion section
@@ -43,7 +43,10 @@ describe("TransformSection Edge Cases & Boundary Handling", () => {
     fireEvent.change(select, { target: { value: "fill" } });
 
     expect(handleUpdate).toHaveBeenCalledTimes(1);
-    expect(handleUpdate).toHaveBeenCalledWith("conform", expect.objectContaining({ mode: "fill" }));
+    expect(handleUpdate).toHaveBeenCalledWith(
+      "conform",
+      expect.objectContaining({ mode: "fill" }),
+    );
   });
 
   it("invokes handleUpdateMultiple when Center on Canvas button is clicked", () => {
@@ -57,7 +60,7 @@ describe("TransformSection Edge Cases & Boundary Handling", () => {
         handleApplyFit={vi.fn()}
         canvasWidth={1920}
         canvasHeight={1080}
-      />
+      />,
     );
 
     // Expand accordion section
@@ -78,7 +81,7 @@ describe("TransformSection Edge Cases & Boundary Handling", () => {
         handleUpdate={handleUpdate}
         handleUpdateMultiple={vi.fn()}
         handleApplyFit={vi.fn()}
-      />
+      />,
     );
 
     // Expand accordion section

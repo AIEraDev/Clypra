@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { MotionPresetSection } from "../MotionPresetSection";
+import { MotionPresetSection } from "../shared/MotionPresetSection";
 import type { TextClip } from "@/types";
 
 const mockClip: TextClip = {
@@ -37,7 +37,7 @@ describe("MotionPresetSection CapCut Parity & Kinematics", () => {
       <MotionPresetSection
         selectedClip={mockClip}
         handleUpdateMultiple={handleUpdateMultiple}
-      />
+      />,
     );
 
     expect(screen.getByRole("tab", { name: /In/i })).toBeDefined();
@@ -57,7 +57,7 @@ describe("MotionPresetSection CapCut Parity & Kinematics", () => {
       <MotionPresetSection
         selectedClip={mockClip}
         handleUpdateMultiple={handleUpdateMultiple}
-      />
+      />,
     );
 
     // Click "Typewriter" preset
@@ -77,10 +77,12 @@ describe("MotionPresetSection CapCut Parity & Kinematics", () => {
       <MotionPresetSection
         selectedClip={mockClip}
         handleUpdateMultiple={handleUpdateMultiple}
-      />
+      />,
     );
 
-    const searchInput = screen.getByPlaceholderText(/People are searching Typewriter/i);
+    const searchInput = screen.getByPlaceholderText(
+      /People are searching Typewriter/i,
+    );
     expect(searchInput).toBeDefined();
 
     // Filter to "Glitch"
@@ -97,7 +99,7 @@ describe("MotionPresetSection CapCut Parity & Kinematics", () => {
       <MotionPresetSection
         selectedClip={mockClip}
         handleUpdateMultiple={handleUpdateMultiple}
-      />
+      />,
     );
 
     // Click "3D" pill
@@ -122,7 +124,7 @@ describe("MotionPresetSection CapCut Parity & Kinematics", () => {
       <MotionPresetSection
         selectedClip={clipWithMotion}
         handleUpdateMultiple={handleUpdateMultiple}
-      />
+      />,
     );
 
     // Duration bar is visible
@@ -135,7 +137,10 @@ describe("MotionPresetSection CapCut Parity & Kinematics", () => {
     fireEvent.change(slider, { target: { value: "0.8" } });
 
     expect(handleUpdateMultiple).toHaveBeenCalled();
-    const lastCall = handleUpdateMultiple.mock.calls[handleUpdateMultiple.mock.calls.length - 1][0];
+    const lastCall =
+      handleUpdateMultiple.mock.calls[
+        handleUpdateMultiple.mock.calls.length - 1
+      ][0];
     expect(lastCall.motion.inDuration).toBe(0.8);
   });
 
@@ -154,7 +159,7 @@ describe("MotionPresetSection CapCut Parity & Kinematics", () => {
       <MotionPresetSection
         selectedClip={clipWithLoop}
         handleUpdateMultiple={handleUpdateMultiple}
-      />
+      />,
     );
 
     // Switch to Loop tab

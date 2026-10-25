@@ -55,9 +55,9 @@ import {
   downloadAnimationPreset,
 } from "@/features/text-animations/animationCatalog";
 import { useI18n } from "@/i18n";
-import { PropertySection } from "./primitives/PropertySection";
-import { SliderTrack } from "./primitives/SliderTrack";
-import { NumericControl } from "./primitives/NumericControl";
+import { PropertySection } from "../primitives/PropertySection";
+import { SliderTrack } from "../primitives/SliderTrack";
+import { NumericControl } from "../primitives/NumericControl";
 
 interface MotionPresetSectionProps {
   selectedClip: Clip;

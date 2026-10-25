@@ -2,9 +2,9 @@ import React, { useState, useCallback } from "react";
 import type { Clip, PlaybackMapping } from "@/types";
 import { useHistoryStore } from "@/store/historyStore";
 import { UpdateClipCommand } from "@/core/history/commands";
-import { SpeedSliderTrack } from "./primitives/SpeedSliderTrack";
-import { NumericControl } from "./primitives/NumericControl";
-import { KeyframeNavControls } from "./primitives/KeyframeNavControls";
+import { SpeedSliderTrack } from "../primitives/SpeedSliderTrack";
+import { NumericControl } from "../primitives/NumericControl";
+import { KeyframeNavControls } from "../primitives/KeyframeNavControls";
 
 type SpeedSubTab = "standard" | "curve" | "velocity";
 

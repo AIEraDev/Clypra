@@ -17,10 +17,10 @@ import { useUIStore } from "@/store/uiStore";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import type { Clip } from "@/types";
 import { type ClipFitModeExtended } from "@/lib/timeline/timelineClip";
-import { PropertySlider } from "./primitives/PropertySlider";
-import { PropertySelect } from "./primitives/PropertySelect";
-import { PropertySection } from "./primitives/PropertySection";
-import { KeyframeNavControls } from "./primitives/KeyframeNavControls";
+import { PropertySlider } from "../primitives/PropertySlider";
+import { PropertySelect } from "../primitives/PropertySelect";
+import { PropertySection } from "../primitives/PropertySection";
+import { KeyframeNavControls } from "../primitives/KeyframeNavControls";
 
 interface TransformSectionProps {
   selectedClip: Clip;
@@ -183,11 +183,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
         [prop]: nextKfs,
       });
     },
-    [
-      selectedClip.visualKeyframes,
-      localTime,
-      handleUpdate,
-    ],
+    [selectedClip.visualKeyframes, localTime, handleUpdate],
   );
 
   const handleToggleMultiKeyframe = useCallback(
@@ -469,7 +465,9 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                     onClick={() =>
                       handleUpdate(
                         "showMotionPath",
-                        selectedClip.showMotionPath === false ? undefined : false,
+                        selectedClip.showMotionPath === false
+                          ? undefined
+                          : false,
                       )
                     }
                     className={`flex items-center gap-1 px-1.5 py-0.5 text-[9px] rounded transition-all cursor-pointer ${
@@ -477,7 +475,11 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                         ? "text-text-muted hover:text-accent hover:bg-accent/10"
                         : "text-accent bg-accent/10"
                     }`}
-                    title={selectedClip.showMotionPath === false ? "Show motion path" : "Hide motion path"}
+                    title={
+                      selectedClip.showMotionPath === false
+                        ? "Show motion path"
+                        : "Hide motion path"
+                    }
                   >
                     <Route className="w-3 h-3" />
                     Path
@@ -489,7 +491,9 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                       type="button"
                       onClick={() => handleApplyFit("contain")}
                       className={`px-1.5 py-0.5 text-[9px] rounded transition-all cursor-pointer ${
-                        (selectedClip.conform?.mode === "fit" || (!selectedClip.conform && selectedClip.fitMode === "contain"))
+                        selectedClip.conform?.mode === "fit" ||
+                        (!selectedClip.conform &&
+                          selectedClip.fitMode === "contain")
                           ? "bg-accent/20 text-accent font-semibold"
                           : "text-text-muted hover:text-text-primary hover:bg-surface-raised"
                       }`}
@@ -501,7 +505,9 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                       type="button"
                       onClick={() => handleApplyFit("cover")}
                       className={`px-1.5 py-0.5 text-[9px] rounded transition-all cursor-pointer ${
-                        (selectedClip.conform?.mode === "fill" || (!selectedClip.conform && selectedClip.fitMode === "cover"))
+                        selectedClip.conform?.mode === "fill" ||
+                        (!selectedClip.conform &&
+                          selectedClip.fitMode === "cover")
                           ? "bg-accent/20 text-accent font-semibold"
                           : "text-text-muted hover:text-text-primary hover:bg-surface-raised"
                       }`}
@@ -521,11 +527,17 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                         { prop: "y", value: Math.round(selectedClip.y) },
                       ])
                     }
-                    onPrevKeyframe={() => handleJumpToKeyframe(["x", "y"], "prev")}
-                    onNextKeyframe={() => handleJumpToKeyframe(["x", "y"], "next")}
+                    onPrevKeyframe={() =>
+                      handleJumpToKeyframe(["x", "y"], "prev")
+                    }
+                    onNextKeyframe={() =>
+                      handleJumpToKeyframe(["x", "y"], "next")
+                    }
                     hasPrev={posKfState.hasPrev}
                     hasNext={posKfState.hasNext}
-                    onOpenCurveEditor={() => openCurveEditor(selectedClip.id, "x")}
+                    onOpenCurveEditor={() =>
+                      openCurveEditor(selectedClip.id, "x")
+                    }
                     label="Position"
                   />
                   <button
@@ -547,7 +559,12 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                 <input
                   type="number"
                   value={Math.round(selectedClip.x)}
-                  onChange={(e) => handleUpdatePropertyWithKeyframe("x", Number(e.target.value))}
+                  onChange={(e) =>
+                    handleUpdatePropertyWithKeyframe(
+                      "x",
+                      Number(e.target.value),
+                    )
+                  }
                   className="w-full bg-surface-raised border border-border/60 rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
                 />
               </div>
@@ -558,7 +575,12 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                 <input
                   type="number"
                   value={Math.round(selectedClip.y)}
-                  onChange={(e) => handleUpdatePropertyWithKeyframe("y", Number(e.target.value))}
+                  onChange={(e) =>
+                    handleUpdatePropertyWithKeyframe(
+                      "y",
+                      Number(e.target.value),
+                    )
+                  }
                   className="w-full bg-surface-raised border border-border/60 rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
                 />
               </div>
@@ -577,15 +599,27 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                   isAtKeyframe={sizeKfState.isAtKeyframe}
                   onToggleKeyframe={() =>
                     handleToggleMultiKeyframe([
-                      { prop: "width", value: Math.round(Math.abs(selectedClip.width)) },
-                      { prop: "height", value: Math.round(Math.abs(selectedClip.height)) },
+                      {
+                        prop: "width",
+                        value: Math.round(Math.abs(selectedClip.width)),
+                      },
+                      {
+                        prop: "height",
+                        value: Math.round(Math.abs(selectedClip.height)),
+                      },
                     ])
                   }
-                  onPrevKeyframe={() => handleJumpToKeyframe(["width", "height"], "prev")}
-                  onNextKeyframe={() => handleJumpToKeyframe(["width", "height"], "next")}
+                  onPrevKeyframe={() =>
+                    handleJumpToKeyframe(["width", "height"], "prev")
+                  }
+                  onNextKeyframe={() =>
+                    handleJumpToKeyframe(["width", "height"], "next")
+                  }
                   hasPrev={sizeKfState.hasPrev}
                   hasNext={sizeKfState.hasNext}
-                  onOpenCurveEditor={() => openCurveEditor(selectedClip.id, "width")}
+                  onOpenCurveEditor={() =>
+                    openCurveEditor(selectedClip.id, "width")
+                  }
                   label="Size"
                 />
                 <button
@@ -642,17 +676,25 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                 max={180}
                 step={1}
                 suffix="°"
-                onChange={(v) => handleUpdatePropertyWithKeyframe("rotation", v)}
+                onChange={(v) =>
+                  handleUpdatePropertyWithKeyframe("rotation", v)
+                }
                 hasKeyframes={rotKfState.hasKeyframes}
                 keyframeActive={rotKfState.isAtKeyframe}
                 onToggleKeyframe={() =>
                   handleToggleVisualKeyframe("rotation", selectedClip.rotation)
                 }
-                onPrevKeyframe={() => handleJumpToKeyframe(["rotation"], "prev")}
-                onNextKeyframe={() => handleJumpToKeyframe(["rotation"], "next")}
+                onPrevKeyframe={() =>
+                  handleJumpToKeyframe(["rotation"], "prev")
+                }
+                onNextKeyframe={() =>
+                  handleJumpToKeyframe(["rotation"], "next")
+                }
                 hasPrevKeyframe={rotKfState.hasPrev}
                 hasNextKeyframe={rotKfState.hasNext}
-                onOpenCurveEditor={() => openCurveEditor(selectedClip.id, "rotation")}
+                onOpenCurveEditor={() =>
+                  openCurveEditor(selectedClip.id, "rotation")
+                }
               />
             </div>
             {selectedClip.rotation !== 0 && (
@@ -677,7 +719,9 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                 max={100}
                 step={1}
                 suffix="%"
-                onChange={(v) => handleUpdatePropertyWithKeyframe("opacity", v / 100)}
+                onChange={(v) =>
+                  handleUpdatePropertyWithKeyframe("opacity", v / 100)
+                }
                 hasKeyframes={opKfState.hasKeyframes}
                 keyframeActive={opKfState.isAtKeyframe}
                 onToggleKeyframe={() =>
@@ -687,7 +731,9 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                 onNextKeyframe={() => handleJumpToKeyframe(["opacity"], "next")}
                 hasPrevKeyframe={opKfState.hasPrev}
                 hasNextKeyframe={opKfState.hasNext}
-                onOpenCurveEditor={() => openCurveEditor(selectedClip.id, "opacity")}
+                onOpenCurveEditor={() =>
+                  openCurveEditor(selectedClip.id, "opacity")
+                }
               />
             </div>
           </div>
@@ -756,7 +802,9 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
               >
                 <span
                   className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${
-                    selectedClip.motionBlur?.enabled ? "translate-x-4" : "translate-x-0.5"
+                    selectedClip.motionBlur?.enabled
+                      ? "translate-x-4"
+                      : "translate-x-0.5"
                   }`}
                 />
               </button>
@@ -779,7 +827,9 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                   }
                 />
                 <div>
-                  <span className="text-[9px] text-text-muted/60 block mb-1 select-none">Quality</span>
+                  <span className="text-[9px] text-text-muted/60 block mb-1 select-none">
+                    Quality
+                  </span>
                   <div className="flex gap-1.5">
                     {[8, 16, 32].map((q) => (
                       <button
