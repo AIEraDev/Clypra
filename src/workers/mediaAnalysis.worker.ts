@@ -152,19 +152,19 @@ function handleWaveformSlice(msg: WaveformSliceRequest): void {
   const outRms = new Float32Array(pixelWidth);
 
   for (let i = 0; i < pixelWidth; i++) {
-    const srcIndexStart = startBucket + Math.floor((i / pixelWidth) * sourceBucketCount);
-    const srcIndexEnd =
-      startBucket +
-      Math.max(
-        srcIndexStart + 1,
-        Math.floor(((i + 1) / pixelWidth) * sourceBucketCount),
-      );
+    const offsetStart = Math.floor((i / pixelWidth) * sourceBucketCount);
+    const offsetEnd = Math.max(
+      offsetStart + 1,
+      Math.floor(((i + 1) / pixelWidth) * sourceBucketCount),
+    );
+    const srcIndexStart = startBucket + offsetStart;
+    const srcIndexEnd = Math.min(peaks.length, startBucket + offsetEnd);
 
     let maxP = 0;
     let sumR = 0;
     let cnt = 0;
 
-    for (let s = srcIndexStart; s < Math.min(srcIndexEnd, peaks.length); s++) {
+    for (let s = srcIndexStart; s < srcIndexEnd; s++) {
       if (peaks[s] > maxP) maxP = peaks[s];
       sumR += rms[s];
       cnt++;

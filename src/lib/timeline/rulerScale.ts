@@ -20,7 +20,7 @@ type RulerScaleCandidate = {
 };
 
 /** CapCut-style visual spacing: dense enough to read, never crowded. */
-export const MIN_RULER_LABEL_GAP_PX = 72;
+export const MIN_RULER_LABEL_GAP_PX = 60;
 
 const SECOND_CANDIDATES: ReadonlyArray<
   Omit<RulerScaleCandidate, "labelMode">
@@ -54,12 +54,12 @@ export function getTimelineRulerScale(
   const safeFps =
     Number.isFinite(frameRate) && frameRate > 0 ? Math.round(frameRate) : 30;
 
-  const frameCandidates: RulerScaleCandidate[] = [1, 2, 3, 5, 10, 15]
+  const frameCandidates: RulerScaleCandidate[] = [1, 2, 5, 10, 15]
     .filter((frames) => frames < safeFps)
     .map((frames) => ({
       intervalSeconds: frames / safeFps,
       minorDivisions:
-        frames <= 5 ? frames : frames === 10 ? 5 : 5,
+        frames <= 2 ? frames : frames === 5 ? 5 : frames === 10 ? 5 : 3,
       labelMode: "frames" as const,
     }));
 
@@ -92,11 +92,22 @@ export function formatTimelineRulerLabel(
   labelMode: TimelineRulerScale["labelMode"],
   formatTimecode: (seconds: number, frameRate: number) => string,
 ): string {
-  if (labelMode === "timecode") {
-    return formatTimecode(seconds, frameRate);
-  }
-
   const safeFps =
     Number.isFinite(frameRate) && frameRate > 0 ? Math.round(frameRate) : 30;
-  return `${Math.max(0, Math.round(seconds * safeFps))}f`;
+
+  if (labelMode === "timecode") {
+    return formatTimecode(seconds, safeFps);
+  }
+
+  const totalFrames = Math.max(0, Math.round(seconds * safeFps));
+  const frameInSecond = totalFrames % safeFps;
+
+  // On whole-second boundaries at frame zoom, CapCut displays the sequence timecode
+  // (e.g. 00:28) rather than cumulative sequence frames.
+  if (frameInSecond === 0) {
+    return formatTimecode(totalFrames / safeFps, safeFps);
+  }
+
+  // Inside the second, display the frame index within that second (e.g. 2f, 4f, 6f).
+  return `${frameInSecond}f`;
 }

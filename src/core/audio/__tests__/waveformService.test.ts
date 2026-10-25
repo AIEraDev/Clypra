@@ -4,6 +4,7 @@ import {
   clearWaveformServiceCache,
   getBrowserWaveformData,
   getNativeWaveformData,
+  sampleWaveformRange,
 } from "../waveformService";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -86,5 +87,37 @@ describe("waveform service request coalescing", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(decodeAudioData).toHaveBeenCalledTimes(1);
     expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  describe("sampleWaveformRange upsampling and interpolation", () => {
+    it("smoothly interpolates between buckets when upsampling high zoom ranges", () => {
+      const source = [
+        { peak: 0.2, rms: 0.1 },
+        { peak: 0.8, rms: 0.5 },
+      ];
+      // Upsample 2 buckets to 5 buckets
+      const upsampled = sampleWaveformRange(source, 0, 1, 5);
+      expect(upsampled).toHaveLength(5);
+      expect(upsampled[0].peak).toBeCloseTo(0.2);
+      expect(upsampled[2].peak).toBeCloseTo(0.5); // Midpoint: (0.2 + 0.8) / 2
+      expect(upsampled[4].peak).toBeCloseTo(0.8);
+    });
+
+    it("aggregates via max peak and rms when downsampling overview ranges", () => {
+      const source = [
+        { peak: 0.2, rms: 0.1 },
+        { peak: 0.9, rms: 0.4 },
+        { peak: 0.3, rms: 0.2 },
+        { peak: 0.6, rms: 0.3 },
+      ];
+      const downsampled = sampleWaveformRange(source, 0, 1, 2);
+      expect(downsampled).toHaveLength(2);
+      expect(downsampled[0].peak).toBe(0.9);
+      expect(downsampled[1].peak).toBe(0.6);
+    });
+
+    it("returns empty array when source is empty", () => {
+      expect(sampleWaveformRange([], 0, 1, 10)).toEqual([]);
+    });
   });
 });

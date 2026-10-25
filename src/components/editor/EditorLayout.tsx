@@ -3,7 +3,7 @@ import { TopBar } from "./TopBar";
 import { Sidebar as EnhancedMediaPanel } from "./sidebar";
 import { PreviewPanel } from "./preview/PreviewPanel";
 import { SourcePreview } from "./preview/SourcePreview";
-import { PropertiesPanel } from "./PropertiesPanel";
+import { PropertiesPanel } from "./properties/core/PropertiesPanel";
 import { Timeline } from "./timeline/Timeline";
 import { useWindowSize } from "@/hooks/useWindowSize";
 import { MobileEditorLayout } from "./MobileEditorLayout";
@@ -124,8 +124,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
           : propertiesPanelWidth;
 
   // Panel resize constraints — all viewport-relative so they scale with screen size
-  const panelMin = Math.round(Math.max(vw * 0.14, 180)); // ~14% vw, min 180px
-  const panelMax = Math.round(Math.min(vw * 0.42, 640)); // ~42% vw, max 640px
+  const panelMin = Math.round(Math.max(vw * 0.16, 400)); // ~16% vw, min 280px
+  const panelMax = Math.round(Math.min(vw * 0.42, 500)); // ~42% vw, max 640px
   // Snap points relative to viewport: compact (~18% vw) and default (~22% vw)
   const panelSnapPoints = [compactPanelW, defaultPanelW];
 

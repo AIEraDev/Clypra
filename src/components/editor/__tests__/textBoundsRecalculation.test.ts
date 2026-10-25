@@ -6,29 +6,39 @@ import {
   resolveTextClipContentTransform,
 } from "@/lib/text/textClip";
 import { resolveCanonicalFamily } from "@/core/fonts/fontRegistry";
-import { buildClipPropertyTransform } from "../PropertiesPanel";
+import { buildClipPropertyTransform } from "../properties/core/PropertiesPanel";
 import type { TextClip } from "@/types";
 
 describe("Text Bounds Recalculation & Font Stack Resolution", () => {
   describe("resolveCanonicalFamily CSS Font Stacks", () => {
     it("resolves default fallback font stack 'Inter, system-ui, sans-serif' to 'Inter Variable'", () => {
-      expect(resolveCanonicalFamily("Inter, system-ui, sans-serif")).toBe("Inter Variable");
+      expect(resolveCanonicalFamily("Inter, system-ui, sans-serif")).toBe(
+        "Inter Variable",
+      );
     });
 
     it("resolves quoted variable font stack \"'Inter Variable', sans-serif\" to 'Inter Variable'", () => {
-      expect(resolveCanonicalFamily("'Inter Variable', sans-serif")).toBe("Inter Variable");
+      expect(resolveCanonicalFamily("'Inter Variable', sans-serif")).toBe(
+        "Inter Variable",
+      );
     });
 
     it("resolves Roboto fallback stack to 'Roboto Variable'", () => {
-      expect(resolveCanonicalFamily("Roboto, Arial, sans-serif")).toBe("Roboto Variable");
+      expect(resolveCanonicalFamily("Roboto, Arial, sans-serif")).toBe(
+        "Roboto Variable",
+      );
     });
 
     it("resolves Roboto Condensed stack to 'Roboto Condensed Variable'", () => {
-      expect(resolveCanonicalFamily("'Roboto Condensed', sans-serif")).toBe("Roboto Condensed Variable");
+      expect(resolveCanonicalFamily("'Roboto Condensed', sans-serif")).toBe(
+        "Roboto Condensed Variable",
+      );
     });
 
     it("preserves system fonts with generic fallbacks", () => {
-      expect(resolveCanonicalFamily("Times New Roman, serif")).toBe("Times New Roman");
+      expect(resolveCanonicalFamily("Times New Roman, serif")).toBe(
+        "Times New Roman",
+      );
       expect(resolveCanonicalFamily("Arial, sans-serif")).toBe("Arial");
     });
   });
@@ -218,7 +228,9 @@ describe("Text Bounds Recalculation & Font Stack Resolution", () => {
         fontSize: 400,
       };
 
-      expect(hasTextClipContentTransformDrift(staleClip, 1920, 1080)).toBe(true);
+      expect(hasTextClipContentTransformDrift(staleClip, 1920, 1080)).toBe(
+        true,
+      );
 
       const normalized = resolveTextClipContentTransform(
         staleClip,
@@ -235,7 +247,9 @@ describe("Text Bounds Recalculation & Font Stack Resolution", () => {
         ...normalized,
       };
 
-      expect(hasTextClipContentTransformDrift(reconciledClip, 1920, 1080)).toBe(false);
+      expect(hasTextClipContentTransformDrift(reconciledClip, 1920, 1080)).toBe(
+        false,
+      );
     });
   });
 });

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { TransformSection } from "../TransformSection";
+import { TransformSection } from "../shared/TransformSection";
 import type { Clip } from "@/types";
 
 const baseClip: Clip = {
@@ -64,7 +64,10 @@ describe("TransformSection", () => {
 
     expect(handleUpdate).not.toHaveBeenCalled();
     expect(handleUpdateMultiple).toHaveBeenCalledTimes(1);
-    expect(handleUpdateMultiple).toHaveBeenCalledWith({ width: 640, height: 360 });
+    expect(handleUpdateMultiple).toHaveBeenCalledWith({
+      width: 640,
+      height: 360,
+    });
   });
 
   it("displays legacy percent opacity as a normalized percent", () => {
@@ -78,7 +81,9 @@ describe("TransformSection", () => {
       />,
     );
 
-    const spinbuttonValues = screen.getAllByRole("spinbutton").map((input) => (input as HTMLInputElement).value);
+    const spinbuttonValues = screen
+      .getAllByRole("spinbutton")
+      .map((input) => (input as HTMLInputElement).value);
     expect(spinbuttonValues).toContain("100");
     expect(spinbuttonValues).not.toContain("10000");
   });

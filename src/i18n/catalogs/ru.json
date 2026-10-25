@@ -228,6 +228,8 @@
   "properties.tabs.speed": "Скорость",
   "properties.tabs.adjust": "Настройка",
   "properties.tabs.animation": "Анимация",
+  "properties.tabs.basic": "Основные",
+  "properties.tabs.voiceChanger": "Изменение голоса",
   "properties.tabs.tracking": "Трекинг",
   "properties.tabs.tts": "Текст в речь",
   "properties.tabs.aiAvatars": "AI-аватары",

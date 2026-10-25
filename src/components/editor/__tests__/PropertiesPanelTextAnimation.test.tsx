@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { PropertiesPanel } from "../PropertiesPanel";
+import { PropertiesPanel } from "../properties/core/PropertiesPanel";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import type { TextClip } from "@/types";

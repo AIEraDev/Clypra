@@ -224,6 +224,8 @@
   "properties.tabs.speed": "속도",
   "properties.tabs.adjust": "조정",
   "properties.tabs.animation": "애니메이션",
+  "properties.tabs.basic": "기본",
+  "properties.tabs.voiceChanger": "음성 변조",
   "properties.tabs.tracking": "트래킹",
   "properties.tabs.tts": "텍스트 음성 변환",
   "properties.tabs.aiAvatars": "AI 아바타",

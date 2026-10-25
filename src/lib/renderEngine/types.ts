@@ -320,7 +320,7 @@ export const DEFAULT_SRP_CONFIG: SrpConfig = {
   [SpatialTier.L0]: { min: 0.1, max: 0.5 },
   [SpatialTier.L1]: { min: 0.5, max: 1.25 }, // Standard 1.0x editing zoom maps to L1 (1.0s interval)
   [SpatialTier.L2]: { min: 1.25, max: 2.5 },  // Detailed trimming zoom maps to L2 (0.2s interval)
-  [SpatialTier.L3]: { min: 2.5, max: 5.0 },   // Frame-accurate zoom maps to L3 (0.1s interval)
+  [SpatialTier.L3]: { min: 2.5, max: 10.0 },  // Frame-accurate zoom maps to L3 (0.1s interval, extended to 10.0x for deep frame zoom)
 } as const;
 
 // ─── ISM Output ───────────────────────────────────────────────────────────────

@@ -1116,7 +1116,12 @@ export const NativeProgramPreview: React.FC = () => {
           canvasEl.width = state.canvasWidth;
         if (canvasEl.height !== state.canvasHeight)
           canvasEl.height = state.canvasHeight;
-        if (scene.visualLayers.some((layer) => layer.layerType === "text" || layer.layerType === "media")) {
+        if (
+          scene.visualLayers.some(
+            (layer) =>
+              layer.layerType === "text" || layer.layerType === "media",
+          )
+        ) {
           await paintTextLayersToCanvas(
             canvasEl,
             scene,
@@ -3647,7 +3652,10 @@ export const NativeProgramPreview: React.FC = () => {
             nativeSurfaceShown = false;
             lastNativePlaybackRequestKey = "";
             void hideNativeSurfaceWhenIdle().catch(() => undefined);
-          } else if (retainForPausedCanvasHandover && !pendingHandoverSurfaceHide) {
+          } else if (
+            retainForPausedCanvasHandover &&
+            !pendingHandoverSurfaceHide
+          ) {
             // Handover from native playback to paused canvas readback:
             // Retain the native surface until the first paused readback frame
             // is painted onto canvasEl to eliminate stale-frame flash.
@@ -3760,9 +3768,8 @@ export const NativeProgramPreview: React.FC = () => {
                 nativeSurfaceUsable &&
                 !qualificationForcesWebView &&
                 !nativePlaybackRenderFailed;
-              const pausedSnapshotKey = nativePlaybackSnapshotKeyFor(
-                requestToPresent,
-              );
+              const pausedSnapshotKey =
+                nativePlaybackSnapshotKeyFor(requestToPresent);
               const persistentNativePausedEligible =
                 !isPlaying &&
                 pausedNativeSurfaceEligible &&
@@ -3921,12 +3928,8 @@ export const NativeProgramPreview: React.FC = () => {
                   createNativePlaybackFrameDemand(pausedDemandRequest),
                 )
                   .then(() => {
-                    nativeFrontendPerfSpans
-                      .get(requestKey)
-                      ?.markIpcFinished();
-                    if (
-                      pendingPausedNativeDemand?.requestKey === requestKey
-                    ) {
+                    nativeFrontendPerfSpans.get(requestKey)?.markIpcFinished();
+                    if (pendingPausedNativeDemand?.requestKey === requestKey) {
                       pendingPausedNativeDemand.commandAcknowledged = true;
                       tracePlayback("native-demand-acknowledged", {
                         operationId: pausedDemandRequest.requestId,
@@ -3943,10 +3946,16 @@ export const NativeProgramPreview: React.FC = () => {
                       abandonPausedNativeDemand("submit-failed", true);
                     }
                     forceRenderNeeded = true;
-                    console.warn("[native-preview] paused-demand-submit-failed", {
-                      frameIndex: requestToPresent.frameTime.frameIndex,
-                      error: error instanceof Error ? error.message : String(error),
-                    });
+                    console.warn(
+                      "[native-preview] paused-demand-submit-failed",
+                      {
+                        frameIndex: requestToPresent.frameTime.frameIndex,
+                        error:
+                          error instanceof Error
+                            ? error.message
+                            : String(error),
+                      },
+                    );
                   })
                   .finally(() => {
                     nativePlaybackInFlight = null;
@@ -4266,8 +4275,8 @@ export const NativeProgramPreview: React.FC = () => {
                         canPresentPausedFrameOnNativeSurface({
                           surfaceUsable: nativeSurfaceUsable,
                           qualificationForcesWebView:
-                            previewQualificationController.getState()
-                              .status === "running" &&
+                            previewQualificationController.getState().status ===
+                              "running" &&
                             previewQualificationController.getState().path ===
                               "webview",
                           ...pausedOverlayStateRef.current,
@@ -4827,7 +4836,8 @@ export const NativeProgramPreview: React.FC = () => {
               needsCanvasFallback &&
               canvasEl &&
               scene.visualLayers.some(
-                (layer) => layer.layerType === "text" || layer.layerType === "media",
+                (layer) =>
+                  layer.layerType === "text" || layer.layerType === "media",
               )
             ) {
               const browserPaintStarted = performance.now();
@@ -5366,7 +5376,7 @@ export const NativeProgramPreview: React.FC = () => {
           )}
         </div>
 
-        {clips.length === 0 && (
+        {/* {clips.length === 0 && (
           <div
             className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none mx-auto"
             style={{ width: displayWidth, height: displayHeight }}
@@ -5383,7 +5393,7 @@ export const NativeProgramPreview: React.FC = () => {
               </div>
             </div>
           </div>
-        )}
+        )} */}
       </div>
 
       <ConnectedProgramTransport

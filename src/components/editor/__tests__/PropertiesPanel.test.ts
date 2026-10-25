@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildClipPropertyTransform } from "../PropertiesPanel";
+import { buildClipPropertyTransform } from "../properties/core/PropertiesPanel";
 import type { TextClip } from "@/types";
 
 const baseTextClip: TextClip = {
@@ -42,7 +42,13 @@ const styledTextClip: TextClip = {
     description: "",
     tags: [],
     boundingBox: { mode: "panel", paddingX: 50, paddingY: 25 },
-    font: { family: "Montserrat", weight: 900, style: "normal", letterSpacing: 8, lineHeight: 1.1 },
+    font: {
+      family: "Montserrat",
+      weight: 900,
+      style: "normal",
+      letterSpacing: 8,
+      lineHeight: 1.1,
+    },
     fills: [{ type: "solid", color: "#ffffff" }],
     strokes: [],
     shadows: [],
@@ -59,7 +65,12 @@ const styledTextClip: TextClip = {
 
 describe("buildClipPropertyTransform", () => {
   it("includes recalculated text bounds when font size changes through properties", () => {
-    const { oldTransform, newTransform } = buildClipPropertyTransform(baseTextClip, { fontSize: 520 }, 640, 960);
+    const { oldTransform, newTransform } = buildClipPropertyTransform(
+      baseTextClip,
+      { fontSize: 520 },
+      640,
+      960,
+    );
 
     expect(oldTransform.fontSize).toBe(72);
     expect(oldTransform.x).toBe(200);
@@ -81,7 +92,12 @@ describe("buildClipPropertyTransform", () => {
   });
 
   it("keeps duration synchronized when trim points change through properties", () => {
-    const { oldTransform, newTransform } = buildClipPropertyTransform(baseTextClip, { trimIn: 1.25 }, 640, 960);
+    const { oldTransform, newTransform } = buildClipPropertyTransform(
+      baseTextClip,
+      { trimIn: 1.25 },
+      640,
+      960,
+    );
 
     expect(oldTransform.trimIn).toBe(0);
     expect(oldTransform.duration).toBe(5);

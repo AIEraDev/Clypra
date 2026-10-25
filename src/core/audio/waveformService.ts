@@ -235,6 +235,25 @@ export function sampleWaveformRange(
   const start = Math.max(0, Math.min(source.length, Math.floor(startFraction * source.length)));
   const end = Math.max(start + 1, Math.min(source.length, Math.ceil(endFraction * source.length)));
   const range = source.slice(start, end);
+  if (range.length === 0) return [];
+
+  // When upsampling (bucketCount > range.length), smoothly interpolate between adjacent buckets
+  // to avoid blocky staircase steps while fine LOD data streams in.
+  if (bucketCount > range.length && range.length > 1) {
+    return Array.from({ length: bucketCount }, (_, index) => {
+      const pos = (index / (bucketCount - 1 || 1)) * (range.length - 1);
+      const i0 = Math.floor(pos);
+      const i1 = Math.min(range.length - 1, i0 + 1);
+      const t = pos - i0;
+      const b0 = range[i0];
+      const b1 = range[i1];
+      return {
+        peak: (1 - t) * b0.peak + t * b1.peak,
+        rms: (1 - t) * b0.rms + t * b1.rms,
+      };
+    });
+  }
+
   return Array.from({ length: bucketCount }, (_, index) => {
     const from = Math.floor((index * range.length) / bucketCount);
     const to = Math.max(from + 1, Math.floor(((index + 1) * range.length) / bucketCount));

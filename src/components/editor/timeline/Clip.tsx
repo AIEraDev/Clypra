@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Layers, Sparkles, User } from "lucide-react";
+import { Gauge, Layers, Sparkles, User } from "lucide-react";
 import { useUIStore } from "@/store/uiStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import {
@@ -184,8 +184,11 @@ const ClipInner: React.FC<ClipProps> = ({
   const right = timeToPixel(clip.startTime + clip.duration, pixelsPerSecond);
   const width = right - left;
   const hasAudio = clipHasAudio(clip, mediaAsset);
+  const isVideo = clip.kind === "video" || mediaAsset?.type === "video";
   const clipMetaRowHeightPx = 20;
-  const clipAudioRowHeightPx = hasAudio ? 16 : 0;
+  // Video clips always reserve their 16px audio lane so layout remains stable
+  // and the space is shown even when audio is unprobed, silent, or detached.
+  const clipAudioRowHeightPx = isVideo ? 16 : hasAudio ? 16 : 0;
   const clipFilmstripHeightPx = Math.max(
     1,
     trackHeightPx - clipMetaRowHeightPx - clipAudioRowHeightPx,
@@ -857,7 +860,11 @@ const ClipInner: React.FC<ClipProps> = ({
   // through to the media branch, which expects a filmstrip asset.
   const isClipText =
     inferredKind === "text" || inferredKind === "text-template";
-  const isClipAudio = inferredKind === "audio";
+  const isClipAudio =
+    inferredKind === "audio" ||
+    clip.kind === "audio" ||
+    mediaAsset?.type === "audio" ||
+    Boolean((clip as any).audioPath);
   const isClipVideo = inferredKind === "video";
   const isClipImage = inferredKind === "image";
   const isClipFilter = inferredKind === "filter";
@@ -865,6 +872,29 @@ const ClipInner: React.FC<ClipProps> = ({
   const isClipBodyEffect = inferredKind === "body-effect";
   const isClipAnimatedOverlay = inferredKind === "animated-overlay";
   const isCompound = inferredKind === "compound";
+
+  const clipSpeed =
+    clip.playbackMapping?.kind === "normal"
+      ? clip.playbackMapping.speed
+      : typeof clip.speed === "number"
+        ? clip.speed
+        : 1.0;
+  const hasCustomSpeed =
+    Number.isFinite(clipSpeed) && Math.abs(clipSpeed - 1.0) > 0.01;
+
+  const audioFilterLabel =
+    (clip as any).voiceFilter ||
+    (clip as any).audioEffect ||
+    (clip as any).audioFilter?.name ||
+    (clip.audioFX?.noiseSuppression !== undefined && clip.audioFX.noiseSuppression > 0
+      ? "Denoise"
+      : clip.audioFX?.eq
+        ? "EQ"
+        : clip.audioFX?.compressor
+          ? "Compressor"
+          : clip.audioFX?.ducking?.enabled
+            ? "Ducking"
+            : undefined);
 
   const hasKeyframes = Boolean(
     (clip.visualKeyframes &&
@@ -1111,6 +1141,106 @@ const ClipInner: React.FC<ClipProps> = ({
             </div>
           )}
         </div>
+      ) : isClipAudio ? (
+        <div className="relative flex h-full w-full flex-col overflow-hidden select-none bg-timeline-clip-audio">
+          {/* Top floating badges (CapCut / modern NLE style) */}
+          <div className="absolute top-1.5 left-2 z-30 flex items-center gap-1.5 max-w-[calc(100%-16px)] pointer-events-none select-none">
+            <span
+              data-testid="audio-clip-name-badge"
+              className="truncate rounded-[3px] bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-white/95 border border-white/10 shadow-xs backdrop-blur-xs"
+            >
+              {mediaAsset?.name || clip.name || "Audio"}
+            </span>
+            {hasCustomSpeed && (
+              <span
+                data-testid="audio-clip-speed-badge"
+                className="shrink-0 flex items-center gap-1 rounded-[3px] bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold text-white/90 border border-white/10 shadow-xs backdrop-blur-xs"
+              >
+                <Gauge className="w-2.5 h-2.5 text-accent-soft" />
+                <span>Speed {clipSpeed}X</span>
+              </span>
+            )}
+            {audioFilterLabel && (
+              <span
+                data-testid="audio-clip-filter-badge"
+                className="shrink-0 flex items-center gap-1 rounded-[3px] bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold text-white/90 border border-white/10 shadow-xs backdrop-blur-xs"
+              >
+                <span>Voice filters {audioFilterLabel}</span>
+              </span>
+            )}
+            {mediaAsset?.isMissing && (
+              <span
+                data-testid="clip-offline-badge"
+                className="shrink-0 rounded-[3px] bg-red-600/90 text-white px-1 py-0.5 text-[8px] font-bold uppercase tracking-wider"
+                title="Source media file is missing or offline"
+              >
+                Offline
+              </span>
+            )}
+            <span className="shrink-0 text-[8px] font-medium text-white/60 ml-0.5">
+              {formatDuration(clip.duration)}
+            </span>
+            {hasKeyframes && (
+              <button
+                type="button"
+                data-testid={`clip-${clip.id}-keyframe-toggle`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleKeyframeLane(clip.id);
+                }}
+                className={`ml-auto flex items-center gap-0.5 px-1 py-px rounded text-[8px] font-semibold transition-colors cursor-pointer pointer-events-auto ${
+                  isKeyframeExpanded
+                    ? "bg-accent text-white shadow-xs"
+                    : "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
+                }`}
+                title={isKeyframeExpanded ? "Collapse Keyframe Lanes" : "Expand Keyframe Lanes"}
+              >
+                <span>◆</span>
+                <span>Anim</span>
+              </button>
+            )}
+          </div>
+
+          {/* Full-clip bottom-anchored waveform */}
+          <div
+            data-testid="audio-clip-waveform"
+            className="relative flex min-h-0 w-full flex-1 items-end overflow-hidden px-0.5"
+          >
+            <VolumeWaveform
+              audioPath={(clip as any).audioPath || mediaAsset?.path || ""}
+              clipWidthPx={width}
+              duration={clip.duration}
+              mediaDuration={mediaAsset?.duration}
+              trimIn={clip.trimIn}
+              trimOut={clip.trimOut}
+              volume={clip.volume}
+              volumeKeyframes={clip.volumeKeyframes}
+              fadeIn={clip.fadeIn}
+              fadeOut={clip.fadeOut}
+              fadeInCurve={clip.fadeInCurve}
+              fadeOutCurve={clip.fadeOutCurve}
+              heightPx={trackHeightPx}
+              alignment="bottom"
+              className="rounded-xs"
+            />
+            <AudioEnvelopeEditor
+              clip={clip}
+              clipWidthPx={width}
+              pixelsPerSecond={pixelsPerSecond}
+            />
+            {hasKeyframes && (
+              <div className="absolute inset-x-0 bottom-0 z-20 pointer-events-auto">
+                <InlineKeyframeLane
+                  clip={clip}
+                  clipWidthPx={width}
+                  pixelsPerSecond={pixelsPerSecond}
+                  isExpanded={isKeyframeExpanded}
+                  onToggleExpand={() => toggleKeyframeLane(clip.id)}
+                />
+              </div>
+            )}
+          </div>
+        </div>
       ) : (
         <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
           {/* CapCut-style hierarchy: metadata, visual strip, then audio strip. */}
@@ -1171,32 +1301,53 @@ const ClipInner: React.FC<ClipProps> = ({
                 isExpanded={isKeyframeExpanded}
                 onToggleExpand={() => toggleKeyframeLane(clip.id)}
               />
-              {mediaAsset.type === "video" && mediaAsset.path && hasAudio && (
+              {mediaAsset.type === "video" && (
                 <div
                   data-testid="clip-audio-waveform"
                   className="relative h-4 shrink-0 border-t border-clypra-clip-waveform-border bg-clypra-clip-waveform-bg px-0.5"
                 >
-                  <VolumeWaveform
-                    audioPath={(clip as any).audioPath || mediaAsset.path}
-                    clipWidthPx={width}
-                    duration={clip.duration}
-                    mediaDuration={mediaAsset.duration}
-                    trimIn={clip.trimIn}
-                    trimOut={clip.trimOut}
-                    volume={clip.volume}
-                    volumeKeyframes={clip.volumeKeyframes}
-                    fadeIn={clip.fadeIn}
-                    fadeOut={clip.fadeOut}
-                    fadeInCurve={clip.fadeInCurve}
-                    fadeOutCurve={clip.fadeOutCurve}
-                    heightPx={16}
-                    className="opacity-75"
-                  />
-                  <AudioEnvelopeEditor
-                    clip={clip}
-                    clipWidthPx={width}
-                    pixelsPerSecond={pixelsPerSecond}
-                  />
+                  {mediaAsset.path &&
+                  (hasAudio || mediaAsset.streams === undefined) &&
+                  !clip.detachedFromClipId &&
+                  clip.audio?.linkState !== "detached" ? (
+                    <>
+                      <VolumeWaveform
+                        audioPath={(clip as any).audioPath || mediaAsset.path}
+                        clipWidthPx={width}
+                        duration={clip.duration}
+                        mediaDuration={mediaAsset.duration}
+                        trimIn={clip.trimIn}
+                        trimOut={clip.trimOut}
+                        volume={clip.volume}
+                        volumeKeyframes={clip.volumeKeyframes}
+                        fadeIn={clip.fadeIn}
+                        fadeOut={clip.fadeOut}
+                        fadeInCurve={clip.fadeInCurve}
+                        fadeOutCurve={clip.fadeOutCurve}
+                        heightPx={16}
+                        alignment="bottom"
+                        maxHeightFraction={0.85}
+                        className="rounded-xs"
+                      />
+                      {hasAudio && (
+                        <AudioEnvelopeEditor
+                          clip={clip}
+                          clipWidthPx={width}
+                          pixelsPerSecond={pixelsPerSecond}
+                        />
+                      )}
+                    </>
+                  ) : (
+                    /* When a clip doesn't have audio, its space is still shown without wave */
+                    <div
+                      data-testid="clip-audio-empty"
+                      className="h-full w-full opacity-35 flex items-center justify-center select-none pointer-events-none"
+                      title="No audio"
+                      aria-label="No audio"
+                    >
+                      <div className="w-full h-px border-b border-dashed border-clypra-clip-fg/25" />
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1216,6 +1367,7 @@ const ClipInner: React.FC<ClipProps> = ({
                 fadeInCurve={clip.fadeInCurve}
                 fadeOutCurve={clip.fadeOutCurve}
                 heightPx={Math.max(16, trackHeightPx - 16)}
+                alignment="bottom"
                 className="rounded-xs"
               />
               <AudioEnvelopeEditor

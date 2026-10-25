@@ -80,6 +80,14 @@ export function useTimelineTauriDrop(containerRef: RefObject<HTMLDivElement | nu
                     }
                   })
                   .catch(() => {});
+
+                void import("@/lib/platform/tauri").then(({ isTauriRuntime, probeMediaStreams }) => {
+                  if (isTauriRuntime()) {
+                    void probeMediaStreams(filePath).then((streams) => {
+                      useProjectStore.getState().updateMediaAsset(asset!.id, { streams });
+                    }).catch(() => {});
+                  }
+                });
               }
             } else {
               asset = {

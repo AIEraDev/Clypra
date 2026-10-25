@@ -115,6 +115,14 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
                       );
                     });
 
+                  void import("@/lib/platform/tauri").then(({ isTauriRuntime, probeMediaStreams }) => {
+                    if (isTauriRuntime()) {
+                      void probeMediaStreams(filePath).then((streams) => {
+                        useProjectStore.getState().updateMediaAsset(asset.id, { streams });
+                      }).catch(() => {});
+                    }
+                  });
+
                   const ext = filename.split(".").pop()?.toLowerCase() || "";
                   const needsRemux = [
                     "mkv",

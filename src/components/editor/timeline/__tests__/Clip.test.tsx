@@ -71,6 +71,14 @@ vi.mock("@/store/timelineStore", () => {
   return { useTimelineStore: store };
 });
 
+const mockHistoryExecute = vi.fn();
+vi.mock("@/store/historyStore", () => ({
+  useHistoryStore: Object.assign(
+    () => ({ execute: mockHistoryExecute }),
+    { getState: () => ({ execute: mockHistoryExecute }) },
+  ),
+}));
+
 const createMockClip = (overrides?: Partial<ClipType>): ClipType => ({
   id: "clip-1",
   trackId: "track-1",
@@ -175,6 +183,43 @@ describe("Clip Component", () => {
       renderClip(createMockClip(), createMockMediaAsset());
 
       expect(screen.getByTestId("clip-audio-waveform")).toBeInTheDocument();
+      const canvas = screen.getByTestId("volume-waveform-canvas");
+      expect(canvas).toBeInTheDocument();
+      expect(canvas.className).not.toContain("opacity-75");
+    });
+
+    it("renders audio lane for video clips even when clip has no audio, without wave", () => {
+      const silentAsset = createMockMediaAsset({
+        streams: [{ index: 0, type: "video", codec: "h264" }],
+      });
+      renderClip(createMockClip(), silentAsset);
+
+      // The space is STILL present
+      expect(screen.getByTestId("clip-audio-waveform")).toBeInTheDocument();
+      // But it renders the empty lane indicator without waveform canvas
+      expect(screen.getByTestId("clip-audio-empty")).toBeInTheDocument();
+      expect(screen.queryByTestId("volume-waveform-canvas")).not.toBeInTheDocument();
+    });
+
+    it("renders empty audio lane when video audio has been detached, without wave", () => {
+      const detachedClip = createMockClip({
+        detachedFromClipId: "audio-clip-1",
+      });
+      renderClip(detachedClip, createMockMediaAsset());
+
+      expect(screen.getByTestId("clip-audio-waveform")).toBeInTheDocument();
+      expect(screen.getByTestId("clip-audio-empty")).toBeInTheDocument();
+      expect(screen.queryByTestId("volume-waveform-canvas")).not.toBeInTheDocument();
+    });
+
+    it("renders audio lane with waveform loader when video streams are still unprobed", () => {
+      const unprobedAsset = createMockMediaAsset({
+        streams: undefined,
+      });
+      renderClip(createMockClip(), unprobedAsset);
+
+      expect(screen.getByTestId("clip-audio-waveform")).toBeInTheDocument();
+      expect(screen.getByTestId("volume-waveform-canvas")).toBeInTheDocument();
     });
 
     it("renders an audio-kind clip as waveform even when its asset is a video", () => {
@@ -217,6 +262,52 @@ describe("Clip Component", () => {
       const clipElement = screen.getByTestId("clip-clip-1");
       expect(clipElement).toBeInTheDocument();
       expect(clipElement.className).toContain("clip-kind-audio");
+    });
+
+    it("renders modern floating badges and full-height waveform for audio clips", () => {
+      const clip = createMockClip({ kind: "audio" });
+      const mediaAsset = createMockMediaAsset({
+        type: "audio",
+        name: "Voiceover_01.wav",
+        path: "/path/to/voice.wav",
+      });
+      renderClip(clip, mediaAsset);
+
+      expect(screen.getByTestId("audio-clip-name-badge")).toHaveTextContent("Voiceover_01.wav");
+      expect(screen.getByTestId("audio-clip-waveform")).toBeInTheDocument();
+      expect(screen.getByTestId("volume-waveform-canvas")).toBeInTheDocument();
+    });
+
+    it("renders speed badge when audio clip has custom speed", () => {
+      const clip = createMockClip({
+        kind: "audio",
+        speed: 0.6,
+      });
+      const mediaAsset = createMockMediaAsset({
+        type: "audio",
+        path: "/path/to/voice.wav",
+      });
+      renderClip(clip, mediaAsset);
+
+      const speedBadge = screen.getByTestId("audio-clip-speed-badge");
+      expect(speedBadge).toBeInTheDocument();
+      expect(speedBadge).toHaveTextContent("Speed 0.6X");
+    });
+
+    it("renders voice filter badge when audio clip has voiceFilter or audioFX", () => {
+      const clip = createMockClip({
+        kind: "audio",
+        audioFX: { noiseSuppression: 0.8 },
+      });
+      const mediaAsset = createMockMediaAsset({
+        type: "audio",
+        path: "/path/to/voice.wav",
+      });
+      renderClip(clip, mediaAsset);
+
+      const filterBadge = screen.getByTestId("audio-clip-filter-badge");
+      expect(filterBadge).toBeInTheDocument();
+      expect(filterBadge).toHaveTextContent("Voice filters Denoise");
     });
   });
 
@@ -698,21 +789,30 @@ describe("Clip Component", () => {
 
       // Nudge right 1 frame (1/30s ≈ 0.0333s)
       fireEvent.keyDown(element, { key: "ArrowRight", altKey: true });
-      expect(mockUpdateClip).toHaveBeenCalledWith("clip-nudge", {
-        startTime: 5.0 + 1 / 30,
-      });
+      expect(mockHistoryExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clipId: "clip-nudge",
+          toTime: 5.0 + 1 / 30,
+        }),
+      );
 
       // Nudge right with Shift (1.0s)
       fireEvent.keyDown(element, { key: "ArrowRight", altKey: true, shiftKey: true });
-      expect(mockUpdateClip).toHaveBeenCalledWith("clip-nudge", {
-        startTime: 6.0,
-      });
+      expect(mockHistoryExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clipId: "clip-nudge",
+          toTime: 6.0,
+        }),
+      );
 
       // Nudge left 1 frame
       fireEvent.keyDown(element, { key: "ArrowLeft", altKey: true });
-      expect(mockUpdateClip).toHaveBeenCalledWith("clip-nudge", {
-        startTime: 5.0 - 1 / 30,
-      });
+      expect(mockHistoryExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clipId: "clip-nudge",
+          toTime: 5.0 - 1 / 30,
+        }),
+      );
     });
 
     it("does not allow keyboard actions when clip is locked", () => {
