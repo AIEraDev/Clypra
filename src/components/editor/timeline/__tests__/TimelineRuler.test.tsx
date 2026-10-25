@@ -65,7 +65,8 @@ describe("TimelineRuler coordinate mapping", () => {
       <TimelineRuler pixelsPerSecond={500} scrollLeft={0} sequenceDuration={20} />,
     );
 
-    expect(screen.getByText("5f")).toBeInTheDocument();
+    expect(screen.getAllByText("5f").length).toBeGreaterThan(0);
+    expect(screen.getByText("00:00")).toBeInTheDocument();
 
     rerender(
       <TimelineRuler pixelsPerSecond={100} scrollLeft={0} sequenceDuration={20} />,

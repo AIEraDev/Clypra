@@ -20,15 +20,20 @@ interface VolumeWaveformProps {
   applyFadeToWaveform?: boolean;
   heightPx?: number;
   className?: string;
+  /** Alignment of waveform pipes: 'center' (symmetric) or 'bottom' (unidirectional from baseline). Defaults to 'bottom'. */
+  alignment?: "center" | "bottom";
+  /** Maximum fraction of height the tallest pipe can reach (e.g. 0.65 leaves 35% headroom). */
+  maxHeightFraction?: number;
+  /** Optional wave fill color override. Defaults to --clypra-clip-audio-wave. */
+  waveColor?: string;
 }
 
 const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
 
 /**
- * Produces a centered waveform pipe. A timeline waveform represents source
- * energy, not a level meter: symmetric peaks make quiet and loud regions
- * readable at a glance and remain balanced when the lane grows taller.
+ * Produces waveform pipe geometry.
+ * Supports symmetric centered pipes and bottom-anchored unidirectional bars.
  */
 export function getWaveformPipeGeometry(
   peak: number,
@@ -36,6 +41,8 @@ export function getWaveformPipeGeometry(
   maxPeak: number,
   envelopeVolume: number,
   height: number,
+  alignment: "center" | "bottom" = "bottom",
+  maxHeightFraction?: number,
 ): { top: number; height: number } | null {
   if (envelopeVolume <= 0.001 || height <= 0) return null;
   const normalizedPeak = maxPeak > 0 ? clamp(peak, 0, 1) / maxPeak : 0;
@@ -44,11 +51,21 @@ export function getWaveformPipeGeometry(
     Math.pow(normalizedPeak, 0.58),
     Math.pow(clamp(rms, 0, 1), 0.7) * 0.38,
   );
+  const fraction =
+    maxHeightFraction ?? (alignment === "bottom" ? (height <= 24 ? 0.85 : 0.65) : 0.9);
+  const maxAvailableHeight = height * fraction;
   const pipeHeight = Math.min(
-    height,
-    Math.max(envelopeVolume > 0.01 ? 1.25 : 0, sourceAmplitude * envelopeVolume * height * 0.9),
+    maxAvailableHeight,
+    Math.max(
+      envelopeVolume > 0.01 ? 1.25 : 0,
+      sourceAmplitude * envelopeVolume * maxAvailableHeight,
+    ),
   );
-  return { top: (height - pipeHeight) / 2, height: pipeHeight };
+  const top =
+    alignment === "bottom"
+      ? Math.max(0, height - pipeHeight - 1)
+      : (height - pipeHeight) / 2;
+  return { top, height: pipeHeight };
 }
 
 function getVisibleWaveColor(): string {
@@ -106,6 +123,9 @@ export const VolumeWaveform: React.FC<VolumeWaveformProps> = ({
   applyFadeToWaveform = false,
   heightPx = 16,
   className = "",
+  alignment = "bottom",
+  maxHeightFraction,
+  waveColor,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { waveformData, isLoading, hasError } = useWaveformData({
@@ -132,16 +152,19 @@ export const VolumeWaveform: React.FC<VolumeWaveformProps> = ({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
 
-    ctx.fillStyle = getVisibleWaveColor();
+    ctx.fillStyle = waveColor || getVisibleWaveColor();
 
     const sortedKeyframes = [...volumeKeyframes].sort(
       (a, b) => a.time - b.time,
     );
     const bucketWidth = width / waveformData.length;
-    // Keep each pipe below 1 CSS px where the device pixel ratio allows it.
-    // This creates the fine vertical strokes and gaps seen in professional NLEs
-    // instead of merging adjacent samples into a filled waveform block.
-    const requestedPipeWidth = Math.min(0.75, bucketWidth * 0.4);
+    // For bottom-anchored audio clips, slightly thicker 1–1.5px bars match
+    // modern NLE audio visualizers (CapCut, Premiere). For centered mini-lanes,
+    // maintain fine sub-pixel pipes.
+    const requestedPipeWidth =
+      alignment === "bottom"
+        ? Math.max(0.9, Math.min(1.5, bucketWidth * 0.45))
+        : Math.min(0.75, bucketWidth * 0.4);
     const pipeWidth =
       Math.max(1, Math.round(requestedPipeWidth * dpr)) / dpr;
     // Fit the source shape to the lane. Some native extractors return raw
@@ -177,6 +200,8 @@ export const VolumeWaveform: React.FC<VolumeWaveformProps> = ({
         maxPeak,
         envelopeVolume,
         height,
+        alignment,
+        maxHeightFraction,
       );
       if (!geometry) return;
       const center = index * bucketWidth + bucketWidth / 2;
@@ -197,6 +222,9 @@ export const VolumeWaveform: React.FC<VolumeWaveformProps> = ({
     fadeOutCurve,
     applyFadeToWaveform,
     duration,
+    alignment,
+    maxHeightFraction,
+    waveColor,
   ]);
 
   if (hasError) {

@@ -183,7 +183,9 @@ describe("Clip Component", () => {
       renderClip(createMockClip(), createMockMediaAsset());
 
       expect(screen.getByTestId("clip-audio-waveform")).toBeInTheDocument();
-      expect(screen.getByTestId("volume-waveform-canvas")).toBeInTheDocument();
+      const canvas = screen.getByTestId("volume-waveform-canvas");
+      expect(canvas).toBeInTheDocument();
+      expect(canvas.className).not.toContain("opacity-75");
     });
 
     it("renders audio lane for video clips even when clip has no audio, without wave", () => {
@@ -260,6 +262,52 @@ describe("Clip Component", () => {
       const clipElement = screen.getByTestId("clip-clip-1");
       expect(clipElement).toBeInTheDocument();
       expect(clipElement.className).toContain("clip-kind-audio");
+    });
+
+    it("renders modern floating badges and full-height waveform for audio clips", () => {
+      const clip = createMockClip({ kind: "audio" });
+      const mediaAsset = createMockMediaAsset({
+        type: "audio",
+        name: "Voiceover_01.wav",
+        path: "/path/to/voice.wav",
+      });
+      renderClip(clip, mediaAsset);
+
+      expect(screen.getByTestId("audio-clip-name-badge")).toHaveTextContent("Voiceover_01.wav");
+      expect(screen.getByTestId("audio-clip-waveform")).toBeInTheDocument();
+      expect(screen.getByTestId("volume-waveform-canvas")).toBeInTheDocument();
+    });
+
+    it("renders speed badge when audio clip has custom speed", () => {
+      const clip = createMockClip({
+        kind: "audio",
+        speed: 0.6,
+      });
+      const mediaAsset = createMockMediaAsset({
+        type: "audio",
+        path: "/path/to/voice.wav",
+      });
+      renderClip(clip, mediaAsset);
+
+      const speedBadge = screen.getByTestId("audio-clip-speed-badge");
+      expect(speedBadge).toBeInTheDocument();
+      expect(speedBadge).toHaveTextContent("Speed 0.6X");
+    });
+
+    it("renders voice filter badge when audio clip has voiceFilter or audioFX", () => {
+      const clip = createMockClip({
+        kind: "audio",
+        audioFX: { noiseSuppression: 0.8 },
+      });
+      const mediaAsset = createMockMediaAsset({
+        type: "audio",
+        path: "/path/to/voice.wav",
+      });
+      renderClip(clip, mediaAsset);
+
+      const filterBadge = screen.getByTestId("audio-clip-filter-badge");
+      expect(filterBadge).toBeInTheDocument();
+      expect(filterBadge).toHaveTextContent("Voice filters Denoise");
     });
   });
 

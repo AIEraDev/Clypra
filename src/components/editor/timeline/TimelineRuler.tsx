@@ -406,7 +406,9 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
     const endTime = Math.min(canvasDuration, rawEndTime);
 
     const result: { time: number; isMajor: boolean }[] = [];
-    const firstTick = Math.floor(startTime / minorInterval) * minorInterval;
+    const divisions = Math.max(1, Math.round(majorInterval / minorInterval));
+    const startStep = Math.max(0, Math.floor(startTime / minorInterval));
+    const endStep = Math.ceil(endTime / minorInterval);
 
     if (
       minorInterval > 0 &&
@@ -414,20 +416,11 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
       isFinite(startTime) &&
       isFinite(endTime)
     ) {
-      let count = 0;
-      for (
-        let t = firstTick;
-        t <= endTime && count < 2000;
-        t += minorInterval
-      ) {
-        const time = Math.round(t * 10000) / 10000;
-        if (time < 0) continue;
-        const isMajor =
-          Math.abs(time % majorInterval) < minorInterval * 0.01 ||
-          Math.abs((time % majorInterval) - majorInterval) <
-            minorInterval * 0.01;
+      const maxSteps = Math.min(endStep, startStep + 2500);
+      for (let step = startStep; step <= maxSteps; step++) {
+        const time = step * minorInterval;
+        const isMajor = step % divisions === 0;
         result.push({ time, isMajor });
-        count++;
       }
     }
 
