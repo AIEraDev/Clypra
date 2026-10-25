@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { buildClipPropertyTransform } from "../PropertiesPanel";
+import { buildClipPropertyTransform } from "../properties/core/PropertiesPanel";
 import type { Clip, TextClip } from "@/types";
 
 // ─── Helpers (mirrors the logic in PropertiesPanel verbatim) ─────────────────
@@ -24,9 +24,7 @@ import type { Clip, TextClip } from "@/types";
 function resolveIsTextClip(clip: Clip | null | undefined): boolean {
   if (!clip) return false;
   return (
-    clip.kind === "text" ||
-    clip.kind === "text-template" ||
-    "text" in clip
+    clip.kind === "text" || clip.kind === "text-template" || "text" in clip
   );
 }
 
@@ -197,7 +195,9 @@ describe("isTextClip predicate", () => {
 
 describe("clipName resolution", () => {
   it("uses the text content for a plain text clip, truncated to 24 chars", () => {
-    expect(resolveClipName(plainTextClip, true, false, undefined)).toBe("Hello Clypra");
+    expect(resolveClipName(plainTextClip, true, false, undefined)).toBe(
+      "Hello Clypra",
+    );
   });
 
   it("truncates long plain text to 24 characters", () => {
@@ -207,7 +207,9 @@ describe("clipName resolution", () => {
   });
 
   it("uses clip.name for a text-template clip when present", () => {
-    expect(resolveClipName(textTemplateClip, true, false, undefined)).toBe("Mango Pop");
+    expect(resolveClipName(textTemplateClip, true, false, undefined)).toBe(
+      "Mango Pop",
+    );
   });
 
   it("falls back to templateSnapshot.metadata.label when clip.name is absent", () => {
@@ -218,9 +220,9 @@ describe("clipName resolution", () => {
   });
 
   it("falls back to 'Text Template' when neither clip.name nor snapshot label exist", () => {
-    expect(resolveClipName(textTemplateClipNoName, true, false, undefined)).toBe(
-      "Text Template",
-    );
+    expect(
+      resolveClipName(textTemplateClipNoName, true, false, undefined),
+    ).toBe("Text Template");
   });
 
   it("NEVER resolves to 'Clip' for a text-template clip (regression guard)", () => {
@@ -318,9 +320,9 @@ describe("regression: existing clip kinds still work correctly", () => {
 
   it("video clip: isTextClip false, asset name used", () => {
     expect(resolveIsTextClip(videoClip)).toBe(false);
-    expect(
-      resolveClipName(videoClip, false, false, "my-video.mp4"),
-    ).toBe("my-video.mp4");
+    expect(resolveClipName(videoClip, false, false, "my-video.mp4")).toBe(
+      "my-video.mp4",
+    );
   });
 
   it("audio clip: isTextClip false", () => {
@@ -359,7 +361,9 @@ describe("hasAudioTrack predicate", () => {
       ...textTemplateClip,
       audio: { gainDb: 0, muted: false },
     };
-    expect(resolveHasAudioTrack(textTemplateWithAudio as any, undefined, true)).toBe(false);
+    expect(
+      resolveHasAudioTrack(textTemplateWithAudio as any, undefined, true),
+    ).toBe(false);
   });
 
   it("is NEVER true for plain text clips", () => {
@@ -367,20 +371,27 @@ describe("hasAudioTrack predicate", () => {
   });
 
   it("is NEVER true for stickers", () => {
-    expect(resolveHasAudioTrack(stickerClip, undefined, false, true)).toBe(false);
+    expect(resolveHasAudioTrack(stickerClip, undefined, false, true)).toBe(
+      false,
+    );
   });
 
   it("is true for video clips backed by video assets", () => {
-    expect(resolveHasAudioTrack(videoClip, { type: "video" }, false)).toBe(true);
+    expect(resolveHasAudioTrack(videoClip, { type: "video" }, false)).toBe(
+      true,
+    );
   });
 
   it("is true for audio clips", () => {
-    expect(resolveHasAudioTrack(audioClip, { type: "audio" }, false)).toBe(true);
+    expect(resolveHasAudioTrack(audioClip, { type: "audio" }, false)).toBe(
+      true,
+    );
   });
 
   it("is true for clips with standalone audioPath", () => {
     const standaloneAudioClip = { ...baseClip, audioPath: "audio.mp3" };
-    expect(resolveHasAudioTrack(standaloneAudioClip, undefined, false)).toBe(true);
+    expect(resolveHasAudioTrack(standaloneAudioClip, undefined, false)).toBe(
+      true,
+    );
   });
 });
-

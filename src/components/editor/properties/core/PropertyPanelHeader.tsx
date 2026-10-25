@@ -8,8 +8,8 @@ import {
   TextPropertyTab,
   VideoPropertyTab,
   AudioPropertyTab,
-} from "./types";
-import { TEXT_TABS, VIDEO_TABS, AUDIO_TABS } from "./data";
+} from "../types";
+import { TEXT_TABS, VIDEO_TABS, AUDIO_TABS } from "../data";
 
 interface PropertyPanelHeaderType {
   collapsed: boolean;

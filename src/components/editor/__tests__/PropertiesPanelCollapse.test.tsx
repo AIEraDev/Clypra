@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { PropertiesPanel } from "../PropertiesPanel";
-import { EmptyPropertiesState } from "../properties/EmptyPropertiesState";
+import { PropertiesPanel } from "../properties/core/PropertiesPanel";
+import { EmptyPropertiesState } from "../properties/core/EmptyPropertiesState";
 
 describe("PropertiesPanel collapse and expand behavior", () => {
   it("renders collapse button when expanded and triggers onToggleCollapse", () => {
@@ -36,7 +36,9 @@ describe("PropertiesPanel collapse and expand behavior", () => {
     fireEvent.click(expandButton);
     expect(onToggleCollapse).toHaveBeenCalledTimes(1);
 
-    const shortcutButton = screen.getByTitle("Expand Canvas & Background Settings");
+    const shortcutButton = screen.getByTitle(
+      "Expand Canvas & Background Settings",
+    );
     expect(shortcutButton).toBeDefined();
     fireEvent.click(shortcutButton);
     expect(onToggleCollapse).toHaveBeenCalledTimes(2);
@@ -45,10 +47,7 @@ describe("PropertiesPanel collapse and expand behavior", () => {
   it("renders PropertiesPanel collapsed state with expand button and triggers expand on click", () => {
     const onToggleCollapse = vi.fn();
     const { container } = render(
-      <PropertiesPanel
-        collapsed={true}
-        onToggleCollapse={onToggleCollapse}
-      />,
+      <PropertiesPanel collapsed={true} onToggleCollapse={onToggleCollapse} />,
     );
 
     const panelDiv = container.firstChild as HTMLElement;

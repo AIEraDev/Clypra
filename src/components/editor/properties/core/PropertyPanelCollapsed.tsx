@@ -4,8 +4,8 @@ import type {
   TextPropertyTab,
   VideoPropertyTab,
   AudioPropertyTab,
-} from "./types";
-import { TEXT_TABS } from "./data";
+} from "../types";
+import { TEXT_TABS } from "../data";
 
 interface PropertyPanelCollapsedProps {
   onToggleCollapse?: () => void;

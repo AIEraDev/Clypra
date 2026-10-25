@@ -1,6 +1,6 @@
 import React from "react";
 import { Info, ChevronRight, ChevronLeft } from "lucide-react";
-import { ProjectDetailsPanel } from "./ProjectDetailsPanel";
+import { ProjectDetailsPanel } from "../ProjectDetailsPanel";
 import { useI18n } from "@/i18n";
 
 export interface EmptyPropertiesStateProps {

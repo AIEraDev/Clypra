@@ -4,27 +4,27 @@ import type {
   TextPropertyTab,
   VideoPropertyTab,
   AudioPropertyTab,
-} from "./types";
+} from "../types";
 import type { TextPreset } from "@/store/presetStore";
-import { TextStyleSection } from "./TextStyleSection";
-import { VideoStyleSection } from "./VideoStyleSection";
-import { TransformSection } from "./TransformSection";
-import { MotionPresetSection } from "./MotionPresetSection";
-import { TextTrackingSection } from "./TextTrackingSection";
-import { TextToSpeechSection } from "./TextToSpeechSection";
-import { TextAiAvatarsSection } from "./TextAiAvatarsSection";
-import { AudioSection } from "./AudioSection";
-import { AudioStyleSection } from "./AudioStyleSection";
-import { AudioBasicTab } from "./AudioBasicTab";
-import { AudioVoiceChangerTab } from "./AudioVoiceChangerTab";
-import { EffectsFiltersSection } from "./EffectsFiltersSection";
-import { StickerSettingsSection } from "./StickerSettingsSection";
-import { TimelineEffectSection } from "./TimelineEffectSection";
-import { VideoAdjustTab } from "./VideoAdjustTab";
-import { AdjustmentsSection } from "./AdjustmentsSection";
-import { PlaybackSection } from "./PlaybackSection";
-import { SpeedStyleSection } from "./SpeedStyleSection";
-import { ChromaKeySection } from "./ChromaKeySection";
+import { TextStyleSection } from "../TextStyleSection";
+import { VideoStyleSection } from "../VideoStyleSection";
+import { TransformSection } from "../TransformSection";
+import { MotionPresetSection } from "../MotionPresetSection";
+import { TextTrackingSection } from "../TextTrackingSection";
+import { TextToSpeechSection } from "../TextToSpeechSection";
+import { TextAiAvatarsSection } from "../TextAiAvatarsSection";
+import { AudioSection } from "../AudioSection";
+import { AudioStyleSection } from "../AudioStyleSection";
+import { AudioBasicTab } from "../AudioBasicTab";
+import { AudioVoiceChangerTab } from "../AudioVoiceChangerTab";
+import { EffectsFiltersSection } from "../EffectsFiltersSection";
+import { StickerSettingsSection } from "../StickerSettingsSection";
+import { TimelineEffectSection } from "../TimelineEffectSection";
+import { VideoAdjustTab } from "../VideoAdjustTab";
+import { AdjustmentsSection } from "../AdjustmentsSection";
+import { PlaybackSection } from "../PlaybackSection";
+import { SpeedStyleSection } from "../SpeedStyleSection";
+import { ChromaKeySection } from "../ChromaKeySection";
 import type { Command } from "@/core/history/Command";
 import { RelinkAudioCommand } from "@/core/history/commands/UnlinkAudioCommand";
 

@@ -1,9 +1,16 @@
 import React, { useState } from "react";
-import { Plus, Library as LibraryIcon, Type, Music, Sliders, Shuffle } from "lucide-react";
+import {
+  Plus,
+  Library as LibraryIcon,
+  Type,
+  Music,
+  Sliders,
+  Shuffle,
+} from "lucide-react";
 import { TopBar } from "./TopBar";
 import { Sidebar as EnhancedMediaPanel, type TabType } from "./sidebar";
 import { PreviewPanel } from "./preview/PreviewPanel";
-import { PropertiesPanel } from "./PropertiesPanel";
+import { PropertiesPanel } from "./properties/core/PropertiesPanel";
 import { Timeline } from "./timeline/Timeline";
 import { BottomSheet } from "../ui/BottomSheet";
 import { useUIStore } from "@/store/uiStore";
@@ -49,35 +56,66 @@ export const MobileEditorLayout: React.FC = () => {
         </div>
 
         {/* Middle Section: Touch Action Toolbar */}
-        <div className="h-10 shrink-0 panel-shell flex items-center justify-between px-[3px] bg-surface/50 backdrop-blur-sm select-none gap-0.5 w-full" style={{ boxShadow: "none" }}>
+        <div
+          className="h-10 shrink-0 panel-shell flex items-center justify-between px-[3px] bg-surface/50 backdrop-blur-sm select-none gap-0.5 w-full"
+          style={{ boxShadow: "none" }}
+        >
           {/* Action Tabs */}
-          <button onClick={importMedia} disabled={isImporting} className="flex flex-col flex-1 items-center justify-center rounded-sm bg-white/6 text-text-primary active:bg-white/10 transition-colors cursor-pointer shrink-0" title="Import Files">
+          <button
+            onClick={importMedia}
+            disabled={isImporting}
+            className="flex flex-col flex-1 items-center justify-center rounded-sm bg-white/6 text-text-primary active:bg-white/10 transition-colors cursor-pointer shrink-0"
+            title="Import Files"
+          >
             <Plus className="w-4 h-4 text-accent-soft" />
             <span className="text-[9px] font-medium mt-0.5">Import</span>
           </button>
 
-          <button onClick={() => openLibraryWithTab("media")} className="flex flex-col flex-1 items-center justify-center rounded-sm bg-white/6 text-text-primary active:bg-white/10 transition-colors cursor-pointer shrink-0" title="Media Assets">
+          <button
+            onClick={() => openLibraryWithTab("media")}
+            className="flex flex-col flex-1 items-center justify-center rounded-sm bg-white/6 text-text-primary active:bg-white/10 transition-colors cursor-pointer shrink-0"
+            title="Media Assets"
+          >
             <LibraryIcon className="w-4 h-4" />
             <span className="text-[9px] font-medium mt-0.5">Media</span>
           </button>
 
-          <button onClick={() => openLibraryWithTab("text")} className="flex flex-col flex-1 items-center justify-center rounded-sm bg-white/6 text-text-primary active:bg-white/10 transition-colors cursor-pointer shrink-0" title="Add Text">
+          <button
+            onClick={() => openLibraryWithTab("text")}
+            className="flex flex-col flex-1 items-center justify-center rounded-sm bg-white/6 text-text-primary active:bg-white/10 transition-colors cursor-pointer shrink-0"
+            title="Add Text"
+          >
             <Type className="w-4 h-4" />
             <span className="text-[9px] font-medium mt-0.5">Text</span>
           </button>
 
-          <button onClick={() => openLibraryWithTab("audio")} className="flex flex-col flex-1 items-center justify-center rounded-sm bg-white/6 text-text-primary active:bg-white/10 transition-colors cursor-pointer shrink-0" title="Add Audio">
+          <button
+            onClick={() => openLibraryWithTab("audio")}
+            className="flex flex-col flex-1 items-center justify-center rounded-sm bg-white/6 text-text-primary active:bg-white/10 transition-colors cursor-pointer shrink-0"
+            title="Add Audio"
+          >
             <Music className="w-4 h-4" />
             <span className="text-[9px] font-medium mt-0.5">Audio</span>
           </button>
 
-          <button onClick={() => openLibraryWithTab("transitions")} className="flex flex-col flex-1 items-center justify-center rounded-sm bg-white/6 text-text-primary active:bg-white/10 transition-colors cursor-pointer shrink-0" title="Transitions">
+          <button
+            onClick={() => openLibraryWithTab("transitions")}
+            className="flex flex-col flex-1 items-center justify-center rounded-sm bg-white/6 text-text-primary active:bg-white/10 transition-colors cursor-pointer shrink-0"
+            title="Transitions"
+          >
             <Shuffle className="w-4 h-4" />
             <span className="text-[9px] font-medium mt-0.5">Transitions</span>
           </button>
 
-          <button onClick={() => setPropertiesSheetOpen(true)} disabled={!hasSelectedClip} className={`flex flex-col flex-1 items-center justify-center rounded-sm transition-colors cursor-pointer shrink-0 bg-white/6 active:bg-white/10 ${hasSelectedClip ? "text-text-primary" : "text-text-muted cursor-not-allowed"}`} title="Clip Properties">
-            <Sliders className={`w-4 h-4 ${hasSelectedClip ? "text-accent-soft" : ""}`} />
+          <button
+            onClick={() => setPropertiesSheetOpen(true)}
+            disabled={!hasSelectedClip}
+            className={`flex flex-col flex-1 items-center justify-center rounded-sm transition-colors cursor-pointer shrink-0 bg-white/6 active:bg-white/10 ${hasSelectedClip ? "text-text-primary" : "text-text-muted cursor-not-allowed"}`}
+            title="Clip Properties"
+          >
+            <Sliders
+              className={`w-4 h-4 ${hasSelectedClip ? "text-accent-soft" : ""}`}
+            />
             <span className="text-[9px] font-medium mt-0.5">Adjust</span>
           </button>
         </div>
@@ -89,14 +127,25 @@ export const MobileEditorLayout: React.FC = () => {
       </div>
 
       {/* Library Bottom Sheet Drawer */}
-      <BottomSheet title="Asset Library" isOpen={mediaSheetOpen} onClose={() => setMediaSheetOpen(false)}>
+      <BottomSheet
+        title="Asset Library"
+        isOpen={mediaSheetOpen}
+        onClose={() => setMediaSheetOpen(false)}
+      >
         <div className="p-3 h-[50vh] flex flex-col">
-          <EnhancedMediaPanel onAddToTimeline={handleAddToTimeline} initialTab={activeMediaTab} />
+          <EnhancedMediaPanel
+            onAddToTimeline={handleAddToTimeline}
+            initialTab={activeMediaTab}
+          />
         </div>
       </BottomSheet>
 
       {/* Properties/Adjust Bottom Sheet Drawer */}
-      <BottomSheet title="Clip Adjustments" isOpen={propertiesSheetOpen} onClose={() => setPropertiesSheetOpen(false)}>
+      <BottomSheet
+        title="Clip Adjustments"
+        isOpen={propertiesSheetOpen}
+        onClose={() => setPropertiesSheetOpen(false)}
+      >
         <div className="p-3 h-[50vh] flex flex-col">
           <PropertiesPanel />
         </div>

@@ -3,7 +3,7 @@ import { TopBar } from "./TopBar";
 import { Sidebar as EnhancedMediaPanel } from "./sidebar";
 import { PreviewPanel } from "./preview/PreviewPanel";
 import { SourcePreview } from "./preview/SourcePreview";
-import { PropertiesPanel } from "./PropertiesPanel";
+import { PropertiesPanel } from "./properties/core/PropertiesPanel";
 import { Timeline } from "./timeline/Timeline";
 import { useWindowSize } from "@/hooks/useWindowSize";
 import { MobileEditorLayout } from "./MobileEditorLayout";

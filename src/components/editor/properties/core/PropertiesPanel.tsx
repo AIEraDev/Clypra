@@ -13,15 +13,15 @@ import type { TextClip, MediaAsset } from "@/types";
 import { usePropertyEditCoordinator } from "@/hooks/usePropertyEditCoordinator";
 import { useClipPropertyHandlers } from "@/hooks/useClipPropertyHandlers";
 
-import { EmptyPropertiesState } from "./properties/EmptyPropertiesState";
-import PropertyPanelHeader from "./properties/PropertyPanelHeader";
+import { EmptyPropertiesState } from "./EmptyPropertiesState";
+import PropertyPanelHeader from "./PropertyPanelHeader";
 import type {
   TextPropertyTab,
   VideoPropertyTab,
   AudioPropertyTab,
-} from "./properties/types";
-import PropertyPanelBody from "./properties/PropertyPanelBody";
-import PropertyPanelCollapsed from "./properties/PropertyPanelCollapsed";
+} from "../types";
+import PropertyPanelBody from "./PropertyPanelBody";
+import PropertyPanelCollapsed from "./PropertyPanelCollapsed";
 
 export interface PropertiesPanelProps {
   width?: number;
