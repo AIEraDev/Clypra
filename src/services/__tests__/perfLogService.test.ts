@@ -53,5 +53,21 @@ describe("PerfLogService Phase 5 Session Telemetry Integration", () => {
         },
       });
     }).not.toThrow();
+
+    expect(() => {
+      perfLogService.enqueue({
+        kind: "timeline-zoom-rollup",
+        sessionId: "test-session",
+        timestampEpochMs: Date.now(),
+        payload: {
+          schema_version: 1,
+          window_ms: 30000,
+          gestures: { count: 3, input_events: 12 },
+          input_kinds: { wheel_modifier: 3 },
+          fps_active: 60,
+          dpr: 2,
+        },
+      });
+    }).not.toThrow();
   });
 });

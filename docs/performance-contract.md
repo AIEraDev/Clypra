@@ -31,6 +31,20 @@ warm legacy playback and call the result a regression or an improvement.
 | Filmstrip coarse preload | ≤ 300 tiles / ≤ 1.8 MB | Asset-wide coarse baseline (10s to 3h media) |
 | Filmstrip warm session restore | < 10 ms (0 video decodes)| Zero-decode restore from Rust TIER_CACHE / WebP atlas |
 
+### Timeline Zoom, Ruler & Frame Cell Budgets (Proposed)
+
+| Metric | Proposed budget | Scope |
+| --- | ---: | --- |
+| Frame time during zoom gesture | p95 ≤ 16.7 ms; no frame > 100 ms | Continuous wheel / pinch zoom animation |
+| Settle after last input | ≤ 250 ms | From last wheel/touch input to spring idle |
+| Discrete wheel notches to traverse working range | 6–7 | Full [10 px/s, maxPps] zoom range traversal |
+| Ruler tick generation per render | p95 ≤ 1 ms; cap hits 0 in normal sessions | Viewport tick calculation loop |
+| Frame cell update per rAF | p95 ≤ 50 µs; mismatches = 0 | Ruler header current-frame cell layout |
+| Anchor drift after settle | ≤ 1 px | Time-under-cursor stability after anchored zoom |
+| Invariant counters | 0 | zoom_out_raised_pps, pps_out_of_bounds, anchor_drift_gt_1px, conflicting_max_pps |
+| Filmstrip visible tiles after zoom ends | ≤ 150 ms P95 | Radial playhead-near tiles on timeline view (existing contract row) |
+| Collector overhead | ≤ 20 µs per event; no steady-state allocation | In-memory telemetry collection hot path |
+
 ## Filmstrip & thumbnail pipeline scheduling
 
 The timeline filmstrip decouples background coarse baseline extraction from viewport-bounded

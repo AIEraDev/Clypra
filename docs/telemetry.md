@@ -20,11 +20,13 @@ Each session report contains only the following fields:
 - GPU adapter name and backend (e.g. "Intel HD 520", "d3d12")
 - Preview quality tier and canvas dimensions
 - UNCH / skipped-download counts
+- Timeline zoom performance rollups (frame rate percentiles, spring settle time, discrete wheel delta buckets, DPR, and ruler/frame-cell timing aggregates — strictly zero PII)
 - App version and git commit SHA
 
 ## What is NOT collected
 - Project names, file paths, or media content
 - User account information
+- Raw pointer coordinates, individual wheel event timestamps, or user interaction paths
 - Hostnames or IP addresses (beyond standard TLS connection metadata)
 
 ## Retention

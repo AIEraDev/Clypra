@@ -1,4 +1,5 @@
 import { filmstripTelemetry } from "@/lib/filmstrip/filmstripTelemetry";
+import { timelineZoomTelemetry } from "@/lib/timeline/timelineZoomTelemetry";
 import { getAnchoredZoomScrollLeft } from "@/lib/timeline/timelineViewport";
 import { clampTimelinePixelsPerSecond } from "@/lib/timeline/timelineZoom";
 import { useTimelineStore } from "@/store/timelineStore";
@@ -54,6 +55,8 @@ export class TimelineZoomSpring {
   private allowOverviewFloor = false;
   private isApplyingFrame = false;
   private animationGeneration = 0;
+  private animationStartTime: number | null = null;
+  private lastTickTime: number | null = null;
   private unsubscribeStore: () => void;
 
   constructor(container: HTMLDivElement) {
@@ -67,6 +70,14 @@ export class TimelineZoomSpring {
         // External zoom change (e.g. toolbar button, slider, keyboard shortcut)
         if (this.mode !== "idle") {
           this.cancelScheduledFrame();
+          if (timelineZoomTelemetry.isEnabled()) {
+            const now = performance.now();
+            const duration = this.animationStartTime !== null ? now - this.animationStartTime : 0;
+            timelineZoomTelemetry.recordSettle(duration, duration > 2000);
+            timelineZoomTelemetry.endGesture(state.pixelsPerSecond);
+          }
+          this.animationStartTime = null;
+          this.lastTickTime = null;
           this.mode = "idle";
           filmstripTelemetry.endZoomGesture();
         }
@@ -122,6 +133,9 @@ export class TimelineZoomSpring {
     this.anchor = anchor;
     this.inertiaVelocity = 0;
     this.mode = "spring";
+    if (timelineZoomTelemetry.isEnabled() && this.animationStartTime === null) {
+      this.animationStartTime = performance.now();
+    }
     this.scheduleIfNeeded();
   }
 
@@ -139,14 +153,25 @@ export class TimelineZoomSpring {
     this.inertiaVelocity = velocity;
     this.anchor = anchor;
     this.mode = "inertia";
+    if (timelineZoomTelemetry.isEnabled() && this.animationStartTime === null) {
+      this.animationStartTime = performance.now();
+    }
     this.scheduleIfNeeded();
   }
 
   dispose(): void {
     this.cancelScheduledFrame();
     if (this.mode !== "idle") {
+      if (timelineZoomTelemetry.isEnabled()) {
+        const now = performance.now();
+        const duration = this.animationStartTime !== null ? now - this.animationStartTime : 0;
+        timelineZoomTelemetry.recordSettle(duration, duration > 2000);
+        timelineZoomTelemetry.endGesture(this.currentPps);
+      }
       filmstripTelemetry.endZoomGesture();
     }
+    this.animationStartTime = null;
+    this.lastTickTime = null;
     this.mode = "idle";
     this.unsubscribeStore();
   }
@@ -174,6 +199,16 @@ export class TimelineZoomSpring {
     this.rafId = null;
     if (!this.anchor || this.mode === "idle") return;
 
+    const isTelemetryActive = timelineZoomTelemetry.isEnabled();
+    let now = 0;
+    if (isTelemetryActive) {
+      now = performance.now();
+      if (this.lastTickTime !== null) {
+        timelineZoomTelemetry.recordFrame(now - this.lastTickTime);
+      }
+      this.lastTickTime = now;
+    }
+
     if (this.mode === "spring") {
       const diff = this.targetPps - this.currentPps;
       if (Math.abs(diff) < SETTLE_THRESHOLD_PPS) {
@@ -181,6 +216,13 @@ export class TimelineZoomSpring {
         this.currentPps = this.targetPps;
         this.applyFrame();
         this.mode = "idle";
+        if (isTelemetryActive) {
+          const duration = this.animationStartTime !== null ? now - this.animationStartTime : 0;
+          this.animationStartTime = null;
+          this.lastTickTime = null;
+          timelineZoomTelemetry.recordSettle(duration, duration > 2000);
+          timelineZoomTelemetry.endGesture(this.currentPps);
+        }
         filmstripTelemetry.endZoomGesture();
         return;
       }
@@ -192,6 +234,13 @@ export class TimelineZoomSpring {
       this.inertiaVelocity *= INERTIA_FRICTION;
       if (Math.abs(this.inertiaVelocity) < INERTIA_MIN_VELOCITY) {
         this.mode = "idle";
+        if (isTelemetryActive) {
+          const duration = this.animationStartTime !== null ? now - this.animationStartTime : 0;
+          this.animationStartTime = null;
+          this.lastTickTime = null;
+          timelineZoomTelemetry.recordSettle(duration, duration > 2000);
+          timelineZoomTelemetry.endGesture(this.currentPps);
+        }
         filmstripTelemetry.endZoomGesture();
         return;
       }
@@ -204,6 +253,13 @@ export class TimelineZoomSpring {
       if (nextPps === this.currentPps) {
         // Hit PPS boundary — stop inertia.
         this.mode = "idle";
+        if (isTelemetryActive) {
+          const duration = this.animationStartTime !== null ? now - this.animationStartTime : 0;
+          this.animationStartTime = null;
+          this.lastTickTime = null;
+          timelineZoomTelemetry.recordSettle(duration, duration > 2000);
+          timelineZoomTelemetry.endGesture(this.currentPps);
+        }
         filmstripTelemetry.endZoomGesture();
         return;
       }

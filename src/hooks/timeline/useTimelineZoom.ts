@@ -2,6 +2,7 @@ import { useEffect, useRef, RefObject } from "react";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import {
+  calculateDiscreteWheelZoomTarget,
   clampTimelinePixelsPerSecond,
   getTimelineMaxPps,
   TIMELINE_MAX_PPS,
@@ -15,6 +16,7 @@ import {
 } from "@/lib/timeline/timelineViewport";
 import { TimelineZoomSpring, type ZoomAnchor } from "./useTimelineZoomSpring";
 import { filmstripTelemetry } from "@/lib/filmstrip/filmstripTelemetry";
+import { timelineZoomTelemetry } from "@/lib/timeline/timelineZoomTelemetry";
 
 const WHEEL_ZOOM_SENSITIVITY = 0.006;
 const WHEEL_ZOOM_SPEED_MULTIPLIER = 2.5;
@@ -55,8 +57,14 @@ export function useTimelineZoom(
     let wheelRafId = 0;
     let zoomSettleTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const noteZoomInput = () => {
-      filmstripTelemetry.beginZoomGesture();
+    const noteZoomInput = (isModifierZoom: boolean, isOverRuler: boolean) => {
+      const inputKind = isOverRuler ? "wheel_ruler" : "wheel_modifier";
+      const currentPps = spring.getCurrentPps();
+      const gestureId = timelineZoomTelemetry.beginGesture(
+        inputKind,
+        currentPps,
+      );
+      filmstripTelemetry.beginZoomGesture(gestureId);
       if (zoomSettleTimer) clearTimeout(zoomSettleTimer);
       // The spring converges in roughly 120ms. This leaves enough room for its
       // final frames while grouping a continuous wheel/trackpad gesture once.
@@ -64,6 +72,7 @@ export function useTimelineZoom(
         zoomSettleTimer = null;
         if (spring.isIdle()) {
           filmstripTelemetry.endZoomGesture();
+          timelineZoomTelemetry.endGesture(spring.getCurrentPps());
         }
       }, 300);
     };
@@ -77,9 +86,6 @@ export function useTimelineZoom(
         sequenceDurationRef.current ??
         useProjectStore.getState().project?.duration;
       const maxPps = getTimelineMaxPps(frameRate, effectiveDuration);
-      const nominalMin = TIMELINE_MIN_PPS; // 10 px/s
-      // Derived notch step: covers [nominalMin, maxPps] in 7 notches
-      const notchStep = Math.pow(maxPps / nominalMin, 1 / 7);
 
       // Stack onto the spring's target PPS so rapid notches compound without loss
       const basePps = spring.getTargetPps();
@@ -89,13 +95,15 @@ export function useTimelineZoom(
         const notches = pendingNotches;
         pendingNotches = 0;
         pendingDy = 0;
-        const factor = Math.pow(notchStep, Math.abs(notches));
-        targetPps = clampTimelinePixelsPerSecond(
-          notches > 0 ? basePps * factor : basePps / factor,
-          true,
+        targetPps = calculateDiscreteWheelZoomTarget(
+          basePps,
+          notches,
           frameRate,
           effectiveDuration,
         );
+        if (notches < 0 && targetPps > basePps + 0.01) {
+          timelineZoomTelemetry.recordInvariant("zoom_out_raised_pps");
+        }
       } else {
         const dy = pendingDy * WHEEL_ZOOM_SPEED_MULTIPLIER;
         pendingDy = 0;
@@ -109,6 +117,10 @@ export function useTimelineZoom(
           frameRate,
           effectiveDuration,
         );
+      }
+
+      if (targetPps < 0.000001 - 0.01 || targetPps > maxPps + 0.01) {
+        timelineZoomTelemetry.recordInvariant("pps_out_of_bounds");
       }
 
       if (Math.abs(targetPps - basePps) < 0.05) return;
@@ -157,10 +169,18 @@ export function useTimelineZoom(
       // Plain wheel over tracks retains native scroll; zooms if modifier is held OR over ruler (D3)
       if (!isModifierZoom && !isOverRuler) return;
       e.preventDefault();
-      noteZoomInput();
+      noteZoomInput(isModifierZoom, isOverRuler);
 
       const isDiscrete =
         e.deltaMode !== WheelEvent.DOM_DELTA_PIXEL || Math.abs(e.deltaY) >= 4;
+      const modifier = isOverRuler ? "ruler" : "modifier";
+
+      timelineZoomTelemetry.recordWheel(
+        e.deltaY,
+        e.deltaMode,
+        isDiscrete,
+        modifier,
+      );
 
       if (isDiscrete) {
         pendingNotches += e.deltaY < 0 ? 1 : -1;
@@ -184,7 +204,12 @@ export function useTimelineZoom(
 
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2) {
-        filmstripTelemetry.beginZoomGesture();
+        const currentPps = useTimelineStore.getState().pixelsPerSecond;
+        const gestureId = timelineZoomTelemetry.beginGesture(
+          "pinch",
+          currentPps,
+        );
+        filmstripTelemetry.beginZoomGesture(gestureId);
         isPinching = true;
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -293,6 +318,7 @@ export function useTimelineZoom(
       if (wheelRafId) cancelAnimationFrame(wheelRafId);
       if (zoomSettleTimer) clearTimeout(zoomSettleTimer);
       filmstripTelemetry.endZoomGesture();
+      timelineZoomTelemetry.endGesture(spring.getCurrentPps());
       spring.dispose();
     };
   }, [containerRef, enabled]);

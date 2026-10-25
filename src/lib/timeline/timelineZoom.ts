@@ -84,6 +84,28 @@ export function clampTimelinePixelsPerSecond(
   return Math.min(maxPps, Math.max(minPps, val));
 }
 
+/**
+ * Calculates discrete mouse-wheel zoom target PPS by compounding geometric notch steps.
+ * Replaces the continuous 0.22 clamp with a reference-calibrated 7-notch traversal from min to max.
+ */
+export function calculateDiscreteWheelZoomTarget(
+  basePps: number,
+  notches: number,
+  frameRate: number = 30,
+  sequenceDuration?: number,
+): number {
+  const maxPps = getTimelineMaxPps(frameRate, sequenceDuration);
+  const nominalMin = TIMELINE_MIN_PPS; // 10 px/s
+  const notchStep = Math.pow(maxPps / nominalMin, 1 / 7);
+  const factor = Math.pow(notchStep, Math.abs(notches));
+  return clampTimelinePixelsPerSecond(
+    notches > 0 ? basePps * factor : basePps / factor,
+    true,
+    frameRate,
+    sequenceDuration,
+  );
+}
+
 // Zoom is logarithmic in interaction space, while SRP boundaries remain absolute.
 export function getSrpTierForZoom(zoom: number, config: SrpConfig = DEFAULT_SRP_CONFIG): SpatialTier {
   const tiers = Object.keys(config)

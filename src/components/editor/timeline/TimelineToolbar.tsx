@@ -12,6 +12,7 @@ import { useClipCommands, useTimelineCommands } from "@/core/commands";
 import { useAnchoredTimelineZoom, usePreviewQualityCapabilities } from "@/hooks";
 import type { TimelineZoomAnchor } from "@/hooks/timeline/useAnchoredTimelineZoom";
 import { VoiceoverRecorderButton } from "./VoiceoverRecorderButton";
+import { timelineZoomTelemetry } from "@/lib/timeline/timelineZoomTelemetry";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
 
@@ -125,6 +126,7 @@ const TimelineToolbarComponent: React.FC = () => {
 
   const handleZoomPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!hasTimelineContent) return;
+    timelineZoomTelemetry.beginGesture("slider", pixelsPerSecond);
     e.currentTarget.setPointerCapture(e.pointerId);
     zoomGestureAnchorRef.current = captureZoomAnchor();
     setZoomFromClientX(e.clientX);
@@ -143,6 +145,7 @@ const TimelineToolbarComponent: React.FC = () => {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
     zoomGestureAnchorRef.current = null;
+    timelineZoomTelemetry.endGesture(useTimelineStore.getState().pixelsPerSecond);
   };
 
   const handleZoomPointerCancel = () => {
@@ -150,6 +153,7 @@ const TimelineToolbarComponent: React.FC = () => {
     zoomDragRafRef.current = null;
     pendingZoomClientXRef.current = null;
     zoomGestureAnchorRef.current = null;
+    timelineZoomTelemetry.endGesture(useTimelineStore.getState().pixelsPerSecond);
   };
 
   const handleZoomKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -162,10 +166,14 @@ const TimelineToolbarComponent: React.FC = () => {
       zoomByStep(1);
     } else if (e.key === "Home") {
       e.preventDefault();
+      timelineZoomTelemetry.beginGesture("keyboard", pixelsPerSecond);
       applyZoomLevel(TIMELINE_ZOOM_MIN, captureZoomAnchor());
+      timelineZoomTelemetry.endGesture(useTimelineStore.getState().pixelsPerSecond);
     } else if (e.key === "End") {
       e.preventDefault();
+      timelineZoomTelemetry.beginGesture("keyboard", pixelsPerSecond);
       applyZoomLevel(maxZoom, captureZoomAnchor());
+      timelineZoomTelemetry.endGesture(useTimelineStore.getState().pixelsPerSecond);
     }
   };
 

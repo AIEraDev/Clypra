@@ -27,6 +27,7 @@ import {
   recordSeekResolved,
   resetPlayheadPaintTracking,
 } from "@/lib/playback/syncMetrics";
+import { timelineZoomTelemetry } from "@/lib/timeline/timelineZoomTelemetry";
 import {
   getPreviewInteractionCoordinator,
   type PreviewInteractionToken,
@@ -60,6 +61,8 @@ export function getPlayheadFrameCellLayout(
   frameRate: number,
   startOffset: number = TIMELINE_CLIP_START_OFFSET_PX,
 ): PlayheadFrameCellLayout {
+  const isTelemetryActive = timelineZoomTelemetry.isEnabled();
+  const t0 = isTelemetryActive ? performance.now() : 0;
   const safeFps = Number.isFinite(frameRate) && frameRate > 0 ? frameRate : 30;
   const safePps =
     Number.isFinite(pixelsPerSecond) && pixelsPerSecond > 0 ? pixelsPerSecond : 50;
@@ -68,11 +71,18 @@ export function getPlayheadFrameCellLayout(
   const frameLeft = Math.round((currentFrame * safePps) / safeFps) + startOffset;
   const frameRight =
     Math.round(((currentFrame + 1) * safePps) / safeFps) + startOffset;
-  return {
+  const layout = {
     left: Math.max(0, frameLeft),
     width: Math.max(1, frameRight - frameLeft),
     currentFrame,
   };
+  if (isTelemetryActive) {
+    const durationUs = Math.round((performance.now() - t0) * 1000);
+    const expectedFrame = getFrameIndexAtTime(safeTime, safeFps);
+    const mismatch = currentFrame !== expectedFrame;
+    timelineZoomTelemetry.recordFrameCellUpdate(durationUs, mismatch);
+  }
+  return layout;
 }
 
 export const Playhead: React.FC<PlayheadProps> = ({
@@ -97,6 +107,10 @@ export const Playhead: React.FC<PlayheadProps> = ({
 
   const showFrameCell =
     pixelsPerSecond / frameRate >= PLAYHEAD_FRAME_CELL_MIN_PX_PER_FRAME;
+
+  useEffect(() => {
+    timelineZoomTelemetry.recordFrameCellMount(showFrameCell);
+  }, [showFrameCell]);
 
   const [isDragging, setIsDragging] = useState(false);
   const playheadRef = useRef<HTMLDivElement | null>(null);

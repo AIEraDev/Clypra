@@ -69,9 +69,13 @@ export class FilmstripTelemetryRecorder {
   private completedZoomGestures: Array<{
     durationMs: number;
     inputEvents: number;
+    gestureId?: string;
   }> = [];
-  private activeZoomGesture: { startedAt: number; inputEvents: number } | null =
-    null;
+  private activeZoomGesture: {
+    startedAt: number;
+    inputEvents: number;
+    gestureId?: string;
+  } | null = null;
   private zoomTierTransitions = 0;
   private cancelledRequests = 0;
   private stallCount = 0;
@@ -180,13 +184,20 @@ export class FilmstripTelemetryRecorder {
     this.paintTimesMs.push(durationMs);
   }
 
-  /** Starts or extends one wheel/trackpad zoom gesture; never records raw wheel events. */
-  beginZoomGesture(): void {
+  /** Starts or extends one wheel/trackpad zoom gesture; accepts optional join key. */
+  beginZoomGesture(gestureId?: string): void {
     if (this.activeZoomGesture) {
       this.activeZoomGesture.inputEvents++;
+      if (gestureId && !this.activeZoomGesture.gestureId) {
+        this.activeZoomGesture.gestureId = gestureId;
+      }
       return;
     }
-    this.activeZoomGesture = { startedAt: performance.now(), inputEvents: 1 };
+    this.activeZoomGesture = {
+      startedAt: performance.now(),
+      inputEvents: 1,
+      gestureId,
+    };
   }
 
   /** Completes the compact gesture summary once input and spring motion settle. */
@@ -200,6 +211,7 @@ export class FilmstripTelemetryRecorder {
     this.completedZoomGestures.push({
       durationMs: Math.max(0, performance.now() - gesture.startedAt),
       inputEvents: gesture.inputEvents,
+      ...(gesture.gestureId ? { gestureId: gesture.gestureId } : {}),
     });
   }
 

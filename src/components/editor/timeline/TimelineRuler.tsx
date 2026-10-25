@@ -17,6 +17,7 @@ import {
   formatTimelineRulerLabel,
   getTimelineRulerScale,
 } from "@/lib/timeline/rulerScale";
+import { timelineZoomTelemetry } from "@/lib/timeline/timelineZoomTelemetry";
 
 import type { TimelineMarker } from "@/types";
 
@@ -396,8 +397,11 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
         ? viewportWidth
         : 1200;
 
+    const isTelemetryActive = timelineZoomTelemetry.isEnabled();
+    const t0 = isTelemetryActive ? performance.now() : 0;
     const { majorIntervalSeconds: majorInterval, minorIntervalSeconds: minorInterval, labelMode } =
       getTimelineRulerScale(validPPS, frameRate);
+
     const padPx = 60;
     const canvasDuration = getTimelineCanvasDuration(sequenceDuration ?? 0);
     const startTime = Math.max(0, (contentScrollLeft - padPx) / validPPS);
@@ -409,6 +413,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
     const divisions = Math.max(1, Math.round(majorInterval / minorInterval));
     const startStep = Math.max(0, Math.floor(startTime / minorInterval));
     const endStep = Math.ceil(endTime / minorInterval);
+    const hitCap = endStep > startStep + 2500;
 
     if (
       minorInterval > 0 &&
@@ -432,6 +437,17 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
         const isMajor = step % divisions === 0;
         result.push({ time, isMajor, x });
       }
+    }
+
+    if (isTelemetryActive) {
+      const renderMs = performance.now() - t0;
+      timelineZoomTelemetry.recordRulerRender(
+        result.length,
+        renderMs,
+        hitCap,
+        labelMode,
+        majorInterval,
+      );
     }
 
     return result;

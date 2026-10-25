@@ -149,6 +149,9 @@ Each line:
 | `text-rollup`       | `PerformanceEventPayload` | Text renderer window                                |
 | `sticker-rollup`    | `PerformanceEventPayload` | Sticker renderer window                             |
 | `composition-rollup`| `PerformanceEventPayload` | Evaluated media and multi-stack complexity window   |
+| `filmstrip-rollup`  | `FilmstripSessionSummary` | Filmstrip tile pipeline and zoom gesture metrics    |
+| `timeline-zoom-rollup` | `TimelineZoomRollupPayload` | Timeline zoom, ruler cadence & frame cell window   |
+| `frontend-av-sync`  | `FrontendAvSyncSnapshot`  | Frontend playhead drift and seek latency rolling    |
 | `fallback-event`    | `PerformanceEventPayload` | WebGPU→WebGL or HW→SW fallback                      |
 | `ai-inference`      | `PerformanceEventPayload` | Whisper / auto-reframe / silence detection          |
 | `native-sync`       | `SyncMetricsSnapshot`     | A/V drift, frame pacing, seek correctness from Rust |
@@ -185,6 +188,15 @@ Adaptive sampling:
 ### `appVersion.ts` (`src/lib/app/appVersion.ts`)
 
 Shared version resolver. Reads from `@tauri-apps/api/app`'s `getVersion()` — the authoritative source tied to `tauri.conf.json` / `Cargo.toml`. Result cached for the process lifetime. Called by both `telemetryCollector` and `perfLogService`. `primeAppVersion()` is called at app startup in `main.tsx` to warm the cache before any event is collected.
+
+### `timelineZoomTelemetry.ts` (`src/lib/timeline/timelineZoomTelemetry.ts`)
+
+In-memory telemetry collector for timeline zoom gestures, spring animation convergence, ruler tick calculation, and current-frame cell layout:
+- **Zero-PII & hot-path zero-allocation:** Collects numeric timings using preallocated typed arrays (`Float32Array`, `Int32Array`) on rAF, wheel, and scrub loops.
+- **Fixed wheel buckets:** Categorizes deltaY into `<5`, `5-15`, `15-50`, `50-120`, and `>120` intervals.
+- **Percentiles at flush:** Computes p50/p95 frame times and settle durations via nearest-rank percentile at flush time.
+- **Anomaly detection:** Flags windows with frames > 33ms or > 100ms, settle timeouts (> 2000ms), ruler cap hits (> 2500 steps), layout width cap engagement (32M px), or frame-index mismatches against `getFrameIndexAtTime`.
+- **Invariant verification:** Validates that `zoom_out_raised_pps`, `pps_out_of_bounds`, `anchor_drift_gt_1px`, and `conflicting_max_pps` remain strictly 0.
 
 ### Rust commands (`src-tauri/src/diagnostics/perf_log.rs`)
 

@@ -80,6 +80,10 @@ jobs:
       - name: Layer A Playwright Pixel Validation
         run: npx playwright test tests/e2e/preview-canvas-pixel-validation.spec.ts | tee test-results/layer-a-playwright.log
 
+      - name: Playwright Timeline Zoom Parity (Non-blocking)
+        continue-on-error: true
+        run: npx playwright test tests/e2e/timeline-zoom-parity.spec.ts | tee test-results/timeline-zoom-playwright.log || true
+
       - name: Verify Mutation Canary Invariants (Frontend & Layer A)
         run: npm run verify:canary-mutations -- --frontend | tee test-results/frontend-canary-mutations.log
 

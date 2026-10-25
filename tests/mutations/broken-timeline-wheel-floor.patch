@@ -1,0 +1,13 @@
+--- a/src/lib/timeline/timelineZoom.ts
++++ b/src/lib/timeline/timelineZoom.ts
+@@ -76,9 +76,7 @@ export function clampTimelinePixelsPerSecond(
+   sequenceDuration?: number,
+ ): number {
+   const maxPps = getTimelineMaxPps(frameRate, sequenceDuration);
+-  const minPps = allowOverviewFloor
+-    ? TIMELINE_OVERVIEW_ZOOM_MIN * TIMELINE_PPS_PER_ZOOM
+-    : TIMELINE_MIN_PPS;
++  const minPps = TIMELINE_MIN_PPS;
+   const val =
+     typeof pps === "number" && !isNaN(pps)
+       ? pps

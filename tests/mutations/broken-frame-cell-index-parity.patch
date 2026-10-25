@@ -1,0 +1,11 @@
+--- a/src/components/editor/timeline/Playhead.tsx
++++ b/src/components/editor/timeline/Playhead.tsx
+@@ -67,7 +67,7 @@ export function getPlayheadFrameCellLayout(
+   const safePps =
+     Number.isFinite(pixelsPerSecond) && pixelsPerSecond > 0 ? pixelsPerSecond : 50;
+   const safeTime = Number.isFinite(time) && !isNaN(time) ? Math.max(0, time) : 0;
+-  const currentFrame = getFrameIndexAtTime(safeTime, safeFps);
++  const currentFrame = Math.floor(safeTime * safeFps + 0.5);
+   const frameLeft = Math.round((currentFrame * safePps) / safeFps) + startOffset;
+   const frameRight =
+     Math.round(((currentFrame + 1) * safePps) / safeFps) + startOffset;
