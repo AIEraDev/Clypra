@@ -34,9 +34,9 @@ import { resolveTextClipStyleUpdate } from "@/lib/text/textClip";
 import { isTauriRuntime } from "@/lib/platform/tauri";
 import { getBundledNativeFontIds } from "@/core/fonts/nativeFontRegistry";
 
-import { CAPTION_STYLE_KEYS } from "./data/textStyleData";
-import { TextBasicTab } from "./TextBasicTab";
-import { TextBubbleTab } from "./TextBubbleTab";
+import { CAPTION_STYLE_KEYS } from "../../data/textStyleData";
+import { TextBasicTab } from "../tabs/TextBasicTab";
+import { TextBubbleTab } from "../tabs/TextBubbleTab";
 import { TextTemplateOverlay } from "./TextTemplateOverlay";
 
 // Re-export shared font utilities so existing imports from this path keep
@@ -49,7 +49,7 @@ export {
   COLOR_PALETTE,
   SOLID_COLOR_SWATCHES,
   FONT_WEIGHTS,
-} from "./data/fontData";
+} from "../../data/fontData";
 
 // ---------------------------------------------------------------------------
 // TextContentEditor

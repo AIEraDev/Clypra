@@ -31,19 +31,19 @@ import {
 import { getFontLoader } from "@/core/fonts/FontLoader";
 import { getPlaybackClock } from "@/core/playback/PlaybackClock";
 import type { TextClip } from "@/types";
-import { PropertySlider } from "./primitives/PropertySlider";
-import { KeyframeNavControls } from "./primitives/KeyframeNavControls";
+import { PropertySlider } from "../../primitives/PropertySlider";
+import { KeyframeNavControls } from "../../primitives/KeyframeNavControls";
 import {
   GOOGLE_FONTS,
   SYSTEM_FONTS,
   SOLID_COLOR_SWATCHES,
   resolveFontPickerValue,
-} from "./data/fontData";
-import { PresetStyleGrid } from "./PresetStyleGrid";
-import { TextTransformSection } from "./TextTransformSection";
-import { TextStrokeSection } from "./TextStrokeSection";
-import { TextBackgroundSection } from "./TextBackgroundSection";
-import type { TextStylePreset } from "./data/textStylePresets";
+} from "../../data/fontData";
+import { PresetStyleGrid } from "../sections/PresetStyleGrid";
+import { TextTransformSection } from "../sections/TextTransformSection";
+import { TextStrokeSection } from "../sections/TextStrokeSection";
+import { TextBackgroundSection } from "../sections/TextBackgroundSection";
+import type { TextStylePreset } from "../../data/textStylePresets";
 
 interface TextBasicTabProps {
   textClip: TextClip;

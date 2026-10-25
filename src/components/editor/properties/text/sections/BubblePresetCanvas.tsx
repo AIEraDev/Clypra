@@ -11,7 +11,7 @@
 
 import React, { useEffect, useRef } from "react";
 import { renderBubbleBackground } from "@/core/render/bubbleRenderer";
-import type { BubblePreset } from "./data/bubblePresets";
+import type { BubblePreset } from "../../data/bubblePresets";
 
 interface BubblePresetCanvasProps {
   preset: BubblePreset;

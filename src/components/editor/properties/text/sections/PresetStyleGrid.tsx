@@ -13,7 +13,7 @@ import {
   TEXT_STYLE_PRESETS,
   isPresetActive,
   type TextStylePreset,
-} from "./data/textStylePresets";
+} from "../../data/textStylePresets";
 
 interface PresetStyleGridProps {
   textClip: TextClip;

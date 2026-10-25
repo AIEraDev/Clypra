@@ -12,7 +12,14 @@
  */
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { Ban, ArrowDown, Check, SlidersHorizontal, Search, X } from "lucide-react";
+import {
+  Ban,
+  ArrowDown,
+  Check,
+  SlidersHorizontal,
+  Search,
+  X,
+} from "lucide-react";
 import { useTranslation } from "@/i18n";
 import type { TextClip } from "@/types";
 import {
@@ -21,8 +28,8 @@ import {
   isBubblePresetActive,
   type BubbleCategory,
   type BubblePreset,
-} from "./data/bubblePresets";
-import { BubblePresetCanvas } from "./BubblePresetCanvas";
+} from "../../data/bubblePresets";
+import { BubblePresetCanvas } from "../sections/BubblePresetCanvas";
 
 interface TextBubbleTabProps {
   textClip: TextClip;
@@ -36,7 +43,8 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
   handleUpdateMultiple,
 }) => {
   const { t } = useTranslation();
-  const [selectedCategory, setSelectedCategory] = useState<BubbleCategory>("all");
+  const [selectedCategory, setSelectedCategory] =
+    useState<BubbleCategory>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const filterRef = useRef<HTMLDivElement>(null);
@@ -67,9 +75,13 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
       if (selectedCategory !== "all") {
         const matchesCategory =
           preset.category === selectedCategory ||
-          (selectedCategory === "paper" && (preset.category === "notes" || preset.tags?.includes("paper"))) ||
-          (selectedCategory === "labels" && (preset.category === "banner" || preset.tags?.includes("label"))) ||
-          (selectedCategory === "decorative" && (preset.category === "floral" || preset.tags?.includes("decorative")));
+          (selectedCategory === "paper" &&
+            (preset.category === "notes" || preset.tags?.includes("paper"))) ||
+          (selectedCategory === "labels" &&
+            (preset.category === "banner" || preset.tags?.includes("label"))) ||
+          (selectedCategory === "decorative" &&
+            (preset.category === "floral" ||
+              preset.tags?.includes("decorative")));
 
         if (!matchesCategory) return false;
       }
@@ -78,7 +90,9 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
       if (query) {
         const matchName = preset.name.toLowerCase().includes(query);
         const matchSample = preset.sampleText?.toLowerCase().includes(query);
-        const matchTags = preset.tags?.some((t) => t.toLowerCase().includes(query));
+        const matchTags = preset.tags?.some((t) =>
+          t.toLowerCase().includes(query),
+        );
         if (!matchName && !matchSample && !matchTags) return false;
       }
 
@@ -107,9 +121,12 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
       updates.color = preset.textColor;
     }
     if (preset.defaultTextStyle) {
-      if (preset.defaultTextStyle.color) updates.color = preset.defaultTextStyle.color;
-      if (preset.defaultTextStyle.fontStyle) updates.fontStyle = preset.defaultTextStyle.fontStyle;
-      if (preset.defaultTextStyle.textDecoration) updates.textDecoration = preset.defaultTextStyle.textDecoration;
+      if (preset.defaultTextStyle.color)
+        updates.color = preset.defaultTextStyle.color;
+      if (preset.defaultTextStyle.fontStyle)
+        updates.fontStyle = preset.defaultTextStyle.fontStyle;
+      if (preset.defaultTextStyle.textDecoration)
+        updates.textDecoration = preset.defaultTextStyle.textDecoration;
     }
 
     if (handleUpdateMultiple) {
@@ -119,8 +136,10 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
       handleCustomStyleUpdate("styleId", undefined);
       handleCustomStyleUpdate("styleDefinition", undefined);
       if (updates.color) handleCustomStyleUpdate("color", updates.color);
-      if (updates.fontStyle) handleCustomStyleUpdate("fontStyle", updates.fontStyle);
-      if (updates.textDecoration) handleCustomStyleUpdate("textDecoration", updates.textDecoration);
+      if (updates.fontStyle)
+        handleCustomStyleUpdate("fontStyle", updates.fontStyle);
+      if (updates.textDecoration)
+        handleCustomStyleUpdate("textDecoration", updates.textDecoration);
     }
   };
 

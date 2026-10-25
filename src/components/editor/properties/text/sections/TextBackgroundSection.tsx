@@ -20,8 +20,8 @@ import { ClypraColorPicker } from "@clypra/ui-color-picker";
 import { useTranslation } from "@/i18n";
 import { getPlaybackClock } from "@/core/playback/PlaybackClock";
 import type { TextClip } from "@/types";
-import { InlineKeyframeNav } from "./primitives/InlineKeyframeNav";
-import { SOLID_COLOR_SWATCHES } from "./data/fontData";
+import { InlineKeyframeNav } from "../../primitives/InlineKeyframeNav";
+import { SOLID_COLOR_SWATCHES } from "../../data/fontData";
 import { resolveTextBackgroundGeometry } from "@/lib/text/backgroundGeometry";
 
 interface TextBackgroundSectionProps {

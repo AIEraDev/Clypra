@@ -6,13 +6,13 @@ import type {
   AudioPropertyTab,
 } from "../types";
 import type { TextPreset } from "@/store/presetStore";
-import { TextStyleSection } from "../TextStyleSection";
+import { TextStyleSection } from "../text/sections/TextStyleSection";
 import { VideoStyleSection } from "../video/sections/VideoStyleSection";
 import { TransformSection } from "../shared/TransformSection";
 import { MotionPresetSection } from "../shared/MotionPresetSection";
-import { TextTrackingSection } from "../TextTrackingSection";
-import { TextToSpeechSection } from "../TextToSpeechSection";
-import { TextAiAvatarsSection } from "../TextAiAvatarsSection";
+import { TextTrackingSection } from "../text/sections/TextTrackingSection";
+import { TextToSpeechSection } from "../text/sections/TextToSpeechSection";
+import { TextAiAvatarsSection } from "../text/sections/TextAiAvatarsSection";
 import { AudioSection } from "../audio/sections/AudioSection";
 import { AudioStyleSection } from "../video/sections/AudioStyleSection";
 import { AudioBasicTab } from "../audio/tabs/AudioBasicTab";

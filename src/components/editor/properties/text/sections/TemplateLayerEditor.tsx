@@ -3,7 +3,10 @@ import { Type, Square, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ClypraColorPicker } from "@clypra/ui-color-picker";
 import { resolveTextTemplateArtifact } from "@clypra-studio/engine";
-import { FONT_PICKER_OPTIONS, resolveFontPickerValue } from "./data/fontData";
+import {
+  FONT_PICKER_OPTIONS,
+  resolveFontPickerValue,
+} from "../../data/fontData";
 
 interface TemplateLayerEditorProps {
   template: any;

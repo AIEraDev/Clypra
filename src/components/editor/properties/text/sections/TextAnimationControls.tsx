@@ -14,8 +14,8 @@ import {
   EXIT_PRESETS,
   createDefaultAnimation,
 } from "@/lib/text/textAnimation";
-import { PropertySlider } from "./primitives/PropertySlider";
-import { PropertySelect } from "./primitives/PropertySelect";
+import { PropertySlider } from "../../primitives/PropertySlider";
+import { PropertySelect } from "../../primitives/PropertySelect";
 
 interface TextAnimationControlsProps {
   clip: TextClip;

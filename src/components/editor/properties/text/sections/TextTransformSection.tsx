@@ -17,7 +17,7 @@ import { useTranslation } from "@/i18n";
 import { useProjectStore } from "@/store/projectStore";
 import { getPlaybackClock } from "@/core/playback/PlaybackClock";
 import type { TextClip } from "@/types";
-import { InlineKeyframeNav } from "./primitives/InlineKeyframeNav";
+import { InlineKeyframeNav } from "../../primitives/InlineKeyframeNav";
 
 interface TextTransformSectionProps {
   textClip: TextClip;
