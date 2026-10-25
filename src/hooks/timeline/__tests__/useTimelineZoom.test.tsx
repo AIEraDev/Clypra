@@ -366,4 +366,52 @@ describe("useTimelineZoom discrete wheel notch traversal and stacking (W4)", () 
     expect(pps).toBeGreaterThan(100);
     expect(pps).toBeLessThan(110);
   });
+
+  it("caps maximum zoom during wheel zoom based on sequence duration (32M px WebKit ceiling)", async () => {
+    // 2-hour sequence (7,200 seconds)
+    const longDuration = 7200;
+    const effectiveMax = getTimelineMaxPps(30, longDuration); // 32,000,000 / 7200 = 4,444.44 px/s
+
+    function LongSequenceContainer() {
+      const containerRef = useRef<HTMLDivElement>(null);
+      useTimelineZoom(containerRef, true, longDuration);
+      return (
+        <div
+          ref={containerRef}
+          id="timeline-tracks-container"
+          style={{ width: "800px", height: "400px", overflow: "hidden" }}
+        />
+      );
+    }
+
+    const { container } = render(<LongSequenceContainer />);
+    const scroller = setupContainer(container);
+
+    act(() => {
+      useTimelineStore.getState().setPixelsPerSecond(3000);
+    });
+
+    // 10 aggressive zoom-in notches
+    for (let i = 0; i < 10; i++) {
+      act(() => {
+        scroller.dispatchEvent(
+          new WheelEvent("wheel", {
+            bubbles: true,
+            cancelable: true,
+            clientX: 400,
+            clientY: 200,
+            deltaY: -100,
+            deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+            ctrlKey: true,
+          }),
+        );
+        flushAllFrames();
+      });
+    }
+
+    const pps = useTimelineStore.getState().pixelsPerSecond;
+    expect(pps).toBeCloseTo(effectiveMax, 1);
+    expect(pps).toBeLessThanOrEqual(effectiveMax);
+    expect(pps * longDuration).toBeLessThanOrEqual(32_000_000);
+  });
 });

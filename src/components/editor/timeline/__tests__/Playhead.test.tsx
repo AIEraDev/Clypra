@@ -1,11 +1,12 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import {
   Playhead,
   PLAYHEAD_FRAME_CELL_MIN_PX_PER_FRAME,
   getPlayheadFrameCellLayout,
 } from "../Playhead";
+import { getFrameIndexAtTime } from "@/lib/utils/frameTime";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 
@@ -201,6 +202,25 @@ describe("Playhead Component", () => {
       expect(layoutJustBefore.currentFrame).toBe(2);
     });
 
+    it("strictly preserves 100% parity with Clypra's canonical getFrameIndexAtTime across boundary cases", () => {
+      const testTimes = [
+        0,
+        0.0001,
+        1 / 30,
+        2 / 30 - 0.0001,
+        2 / 30,
+        0.1,
+        0.5,
+        1.0,
+        2.5,
+        10.3333,
+      ];
+      for (const time of testTimes) {
+        const layout = getPlayheadFrameCellLayout(time, 3000, 30);
+        expect(layout.currentFrame).toBe(getFrameIndexAtTime(time, 30));
+      }
+    });
+
     it("clamps negative or NaN time safely to frame 0", () => {
       const negative = getPlayheadFrameCellLayout(-1.5, 3000, 30, 20);
       expect(negative.currentFrame).toBe(0);
@@ -266,6 +286,69 @@ describe("Playhead Component", () => {
       expect(cell2.style.left).toBe("15020px");
       expect(cell2.style.width).toBe("200px");
       expect(cell2.style.height).toBe("24px");
+    });
+
+    it("dynamically resizes cell while paused as pixelsPerSecond changes (spring zoom parity)", () => {
+      const containerRef = { current: document.createElement("div") };
+
+      const { container, rerender } = render(
+        <Playhead pixelsPerSecond={100} duration={30} containerRef={containerRef} />,
+      );
+      // Below 75 px/frame -> hidden
+      expect(container.querySelector("[data-playhead-frame-cell='true']")).toBeNull();
+
+      // Zoom spring animates to 2449 pps (81.63 px/frame) -> cell appears with 81px width
+      rerender(
+        <Playhead pixelsPerSecond={2449} duration={30} containerRef={containerRef} />,
+      );
+      let cell = container.querySelector("[data-playhead-frame-cell='true']") as HTMLElement;
+      expect(cell).not.toBeNull();
+      expect(cell.style.width).toBe("81px");
+
+      // Zoom spring animates to 6000 pps (200 px/frame) -> cell expands to 200px width
+      rerender(
+        <Playhead pixelsPerSecond={6000} duration={30} containerRef={containerRef} />,
+      );
+      cell = container.querySelector("[data-playhead-frame-cell='true']") as HTMLElement;
+      expect(cell).not.toBeNull();
+      expect(cell.style.width).toBe("200px");
+
+      // Zoom out to 1500 pps (50 px/frame) -> cell unmounts
+      rerender(
+        <Playhead pixelsPerSecond={1500} duration={30} containerRef={containerRef} />,
+      );
+      expect(container.querySelector("[data-playhead-frame-cell='true']")).toBeNull();
+    });
+
+    it("reacts dynamically when project frame rate changes", () => {
+      const containerRef = { current: document.createElement("div") };
+
+      // At 2000 pps and 30fps: 2000 / 30 = 66.67 px/frame (< 75 threshold) -> hidden
+      const { container } = render(
+        <Playhead pixelsPerSecond={2000} duration={30} containerRef={containerRef} />,
+      );
+      expect(container.querySelector("[data-playhead-frame-cell='true']")).toBeNull();
+
+      // Project frame rate changes to 24fps: 2000 / 24 = 83.33 px/frame (>= 75 threshold) -> appears!
+      act(() => {
+        useProjectStore.setState({
+          project: {
+            id: "test-proj",
+            name: "Test",
+            aspectRatio: "16:9",
+            canvasWidth: 1920,
+            canvasHeight: 1080,
+            duration: 30,
+            frameRate: 24,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+        });
+      });
+
+      const cell = container.querySelector("[data-playhead-frame-cell='true']") as HTMLElement;
+      expect(cell).not.toBeNull();
+      expect(cell.style.width).toBe(`${Math.round(2000 / 24)}px`); // 83px
     });
   });
 });

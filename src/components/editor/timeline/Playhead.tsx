@@ -12,7 +12,10 @@ import {
 } from "@/hooks/usePlaybackClock";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
-import { snapToFrameBoundary } from "@/lib/utils/frameTime";
+import {
+  snapToFrameBoundary,
+  getFrameIndexAtTime,
+} from "@/lib/utils/frameTime";
 import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
 import {
   timelineTimeToPixel,
@@ -48,8 +51,8 @@ export interface PlayheadFrameCellLayout {
 
 /**
  * Compute current frame cell bounds for the ruler header row.
- * Uses integer frame arithmetic: Math.floor(time * frameRate + 1e-4) to guard against
- * IEEE 754 precision issues at exact boundaries (e.g. 0.1 * 30 = 2.9999999999999996 -> 3).
+ * Uses Clypra's canonical getFrameIndexAtTime() to ensure 100% frame ownership parity
+ * with NativeProgramPreview and the video compositing pipeline.
  */
 export function getPlayheadFrameCellLayout(
   time: number,
@@ -61,7 +64,7 @@ export function getPlayheadFrameCellLayout(
   const safePps =
     Number.isFinite(pixelsPerSecond) && pixelsPerSecond > 0 ? pixelsPerSecond : 50;
   const safeTime = Number.isFinite(time) && !isNaN(time) ? Math.max(0, time) : 0;
-  const currentFrame = Math.max(0, Math.floor(safeTime * safeFps + 1e-4));
+  const currentFrame = getFrameIndexAtTime(safeTime, safeFps);
   const frameLeft = Math.round((currentFrame * safePps) / safeFps) + startOffset;
   const frameRight =
     Math.round(((currentFrame + 1) * safePps) / safeFps) + startOffset;

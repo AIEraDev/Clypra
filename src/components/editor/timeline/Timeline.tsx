@@ -214,7 +214,11 @@ export const Timeline: React.FC = () => {
   );
 
   // Consume extracted hooks
-  useTimelineZoom(containerRef, hasTimelineContent);
+  useTimelineZoom(
+    containerRef,
+    hasTimelineContent,
+    hasClips ? duration : 0,
+  );
   const { isDraggingOver, isDraggingMedia } =
     useTimelineTauriDrop(containerRef);
   const {

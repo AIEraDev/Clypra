@@ -1,4 +1,4 @@
-import { useEffect, RefObject } from "react";
+import { useEffect, useRef, RefObject } from "react";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import {
@@ -36,7 +36,11 @@ function normalizeWheelDeltaY(
 export function useTimelineZoom(
   containerRef: RefObject<HTMLDivElement | null>,
   enabled = true,
+  sequenceDuration?: number,
 ) {
+  const sequenceDurationRef = useRef(sequenceDuration);
+  sequenceDurationRef.current = sequenceDuration;
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !enabled) return;
@@ -69,7 +73,10 @@ export function useTimelineZoom(
       if (pendingNotches === 0 && pendingDy === 0) return;
 
       const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
-      const maxPps = getTimelineMaxPps(frameRate);
+      const effectiveDuration =
+        sequenceDurationRef.current ??
+        useProjectStore.getState().project?.duration;
+      const maxPps = getTimelineMaxPps(frameRate, effectiveDuration);
       const nominalMin = TIMELINE_MIN_PPS; // 10 px/s
       // Derived notch step: covers [nominalMin, maxPps] in 7 notches
       const notchStep = Math.pow(maxPps / nominalMin, 1 / 7);
@@ -87,6 +94,7 @@ export function useTimelineZoom(
           notches > 0 ? basePps * factor : basePps / factor,
           true,
           frameRate,
+          effectiveDuration,
         );
       } else {
         const dy = pendingDy * WHEEL_ZOOM_SPEED_MULTIPLIER;
@@ -99,6 +107,7 @@ export function useTimelineZoom(
           basePps * Math.exp(exponent),
           true,
           frameRate,
+          effectiveDuration,
         );
       }
 
@@ -197,10 +206,14 @@ export function useTimelineZoom(
 
       const scale = currentDist / initialDist;
       const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
+      const effectiveDuration =
+        sequenceDurationRef.current ??
+        useProjectStore.getState().project?.duration;
       const nextPps = clampTimelinePixelsPerSecond(
         initialPps * scale,
         false,
         frameRate,
+        effectiveDuration,
       );
 
       const rect = container.getBoundingClientRect();
