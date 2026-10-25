@@ -396,7 +396,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
         ? viewportWidth
         : 1200;
 
-    const { majorIntervalSeconds: majorInterval, minorIntervalSeconds: minorInterval } =
+    const { majorIntervalSeconds: majorInterval, minorIntervalSeconds: minorInterval, labelMode } =
       getTimelineRulerScale(validPPS, frameRate);
     const padPx = 60;
     const canvasDuration = getTimelineCanvasDuration(sequenceDuration ?? 0);
@@ -405,7 +405,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
       (contentScrollLeft + validViewportWidth + padPx) / validPPS;
     const endTime = Math.min(canvasDuration, rawEndTime);
 
-    const result: { time: number; isMajor: boolean }[] = [];
+    const result: { time: number; isMajor: boolean; x: number }[] = [];
     const divisions = Math.max(1, Math.round(majorInterval / minorInterval));
     const startStep = Math.max(0, Math.floor(startTime / minorInterval));
     const endStep = Math.ceil(endTime / minorInterval);
@@ -417,10 +417,20 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
       isFinite(endTime)
     ) {
       const maxSteps = Math.min(endStep, startStep + 2500);
+      const isFrameMode = labelMode === "frames";
+      const minorFrames = isFrameMode
+        ? Math.max(1, Math.round(minorInterval * frameRate))
+        : 0;
+
       for (let step = startStep; step <= maxSteps; step++) {
-        const time = step * minorInterval;
+        const time = isFrameMode
+          ? (step * minorFrames) / frameRate
+          : step * minorInterval;
+        const x = isFrameMode
+          ? Math.round((step * minorFrames * validPPS) / frameRate) + startOffset
+          : timeToPixel(time, validPPS) + startOffset;
         const isMajor = step % divisions === 0;
-        result.push({ time, isMajor });
+        result.push({ time, isMajor, x });
       }
     }
 
@@ -467,8 +477,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
       onClick={handleBackgroundClick}
     >
       {/* ── Tick marks ── */}
-      {ticks.map(({ time, isMajor }) => {
-        const x = timeToPixel(time, pixelsPerSecond) + startOffset;
+      {ticks.map(({ time, isMajor, x }) => {
         return (
           <div
             key={time}

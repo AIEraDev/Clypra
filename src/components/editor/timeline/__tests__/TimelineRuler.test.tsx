@@ -75,4 +75,15 @@ describe("TimelineRuler coordinate mapping", () => {
     expect(screen.getByText("00:01")).toBeInTheDocument();
     expect(screen.queryByText("10f")).not.toBeInTheDocument();
   });
+
+  it("computes tick positions from the integer frame index without float accumulation drift (W5)", () => {
+    const { container } = render(
+      <TimelineRuler pixelsPerSecond={6000} scrollLeft={0} sequenceDuration={1} startOffset={20} />,
+    );
+    const tickDivs = container.querySelectorAll("div[style*='position: absolute'][style*='left:']");
+    const leftPositions = Array.from(tickDivs).map((el) => (el as HTMLElement).style.left);
+    expect(leftPositions).toContain("20px");
+    expect(leftPositions).toContain("220px");
+    expect(leftPositions).toContain("420px");
+  });
 });
