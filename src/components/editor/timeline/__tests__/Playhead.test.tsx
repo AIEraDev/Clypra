@@ -1,7 +1,11 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { Playhead } from "../Playhead";
+import {
+  Playhead,
+  PLAYHEAD_FRAME_CELL_MIN_PX_PER_FRAME,
+  getPlayheadFrameCellLayout,
+} from "../Playhead";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 
@@ -174,5 +178,94 @@ describe("Playhead Component", () => {
     });
 
     expect(beginScrubMock).toHaveBeenCalledTimes(1);
+  });
+
+  describe("getPlayheadFrameCellLayout (W6 parity math)", () => {
+    it("calculates frame cell bounds accurately from integer frame indices", () => {
+      // 30 fps, 6000 pps, time 2.5s (frame 75), startOffset = 20
+      const layout = getPlayheadFrameCellLayout(2.5, 6000, 30, 20);
+      expect(layout.currentFrame).toBe(75);
+      expect(layout.left).toBe(Math.round((75 * 6000) / 30) + 20); // 15020
+      expect(layout.width).toBe(200); // 200 px/frame
+    });
+
+    it("guards against floating-point boundary rounding error using epsilon", () => {
+      // In JS, 0.1 * 30 = 2.9999999999999996.
+      // Plain Math.floor(0.1 * 30) incorrectly yields frame 2 instead of 3.
+      const layoutAtExactBoundary = getPlayheadFrameCellLayout(0.1, 3000, 30, 20);
+      expect(layoutAtExactBoundary.currentFrame).toBe(3);
+      expect(layoutAtExactBoundary.left).toBe(Math.round((3 * 3000) / 30) + 20); // 320
+
+      // Time just before boundary (0.099s) yields frame 2
+      const layoutJustBefore = getPlayheadFrameCellLayout(0.099, 3000, 30, 20);
+      expect(layoutJustBefore.currentFrame).toBe(2);
+    });
+
+    it("clamps negative or NaN time safely to frame 0", () => {
+      const negative = getPlayheadFrameCellLayout(-1.5, 3000, 30, 20);
+      expect(negative.currentFrame).toBe(0);
+      expect(negative.left).toBe(20);
+
+      const nanTime = getPlayheadFrameCellLayout(NaN, 3000, 30, 20);
+      expect(nanTime.currentFrame).toBe(0);
+      expect(nanTime.left).toBe(20);
+    });
+
+    it("matches exact integer pixel tick spacing across non-whole ratios", () => {
+      // 2449 pps at 30 fps (81.633 px/frame)
+      const pps = 2449;
+      const fps = 30;
+      for (let f = 0; f < 10; f++) {
+        const layout = getPlayheadFrameCellLayout(f / fps, pps, fps, 0);
+        const expectedLeft = Math.round((f * pps) / fps);
+        const expectedRight = Math.round(((f + 1) * pps) / fps);
+        expect(layout.left).toBe(expectedLeft);
+        expect(layout.width).toBe(expectedRight - expectedLeft);
+      }
+    });
+  });
+
+  describe("Current-frame ruler cell visibility and positioning (W6)", () => {
+    it("does not render frame cell when zoom is below 75 px/frame threshold", () => {
+      const containerRef = { current: document.createElement("div") };
+
+      // Standard zoom: 100 pps at 30fps (3.33 px/frame)
+      const { container: c1 } = render(
+        <Playhead pixelsPerSecond={100} duration={30} containerRef={containerRef} />,
+      );
+      expect(c1.querySelector("[data-playhead-frame-cell='true']")).toBeNull();
+
+      // Intermediate zoom: 1549 pps at 30fps (51.6 px/frame, Screenshot 4)
+      const { container: c2 } = render(
+        <Playhead pixelsPerSecond={1549} duration={30} containerRef={containerRef} />,
+      );
+      expect(c2.querySelector("[data-playhead-frame-cell='true']")).toBeNull();
+    });
+
+    it("renders frame cell when zoom reaches or exceeds 75 px/frame threshold", () => {
+      const containerRef = { current: document.createElement("div") };
+
+      // Screenshot 2: 2449 pps at 30fps = 81.63 px/frame (>= 75 threshold)
+      const { container: c1 } = render(
+        <Playhead pixelsPerSecond={2449} duration={30} containerRef={containerRef} />,
+      );
+      const cell1 = c1.querySelector("[data-playhead-frame-cell='true']") as HTMLElement;
+      expect(cell1).not.toBeNull();
+      expect(cell1.style.height).toBe("24px");
+      expect(cell1.className).toContain("pointer-events-none");
+
+      // Screenshot 1: 6000 pps at 30fps = 200 px/frame (max zoom)
+      // Clock mock is at 2.5s (frame 75).
+      // frameLeft = Math.round(75 * 6000 / 30) + 20 = 15020px
+      // frameWidth = 200px
+      const { container: c2 } = render(
+        <Playhead pixelsPerSecond={6000} duration={30} containerRef={containerRef} />,
+      );
+      const cell2 = c2.querySelector("[data-playhead-frame-cell='true']") as HTMLElement;
+      expect(cell2).not.toBeNull();
+      expect(cell2.style.left).toBe("15020px");
+      expect(cell2.style.width).toBe("200px");
+      expect(cell2.style.height).toBe("24px");
+    });
   });
 });

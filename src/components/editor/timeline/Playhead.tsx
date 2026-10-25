@@ -17,6 +17,7 @@ import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
 import {
   timelineTimeToPixel,
   timelinePixelToTime,
+  TIMELINE_CLIP_START_OFFSET_PX,
 } from "@/lib/timeline/timelineViewport";
 import {
   recordPlayheadPaint,
@@ -33,6 +34,42 @@ interface PlayheadProps {
   duration: number;
   containerRef: RefObject<HTMLDivElement | null>;
   rulerHeight?: number;
+  startOffset?: number;
+}
+
+/** Threshold in CSS px per frame above which the current-frame cell in the ruler becomes visible. */
+export const PLAYHEAD_FRAME_CELL_MIN_PX_PER_FRAME = 75;
+
+export interface PlayheadFrameCellLayout {
+  left: number;
+  width: number;
+  currentFrame: number;
+}
+
+/**
+ * Compute current frame cell bounds for the ruler header row.
+ * Uses integer frame arithmetic: Math.floor(time * frameRate + 1e-4) to guard against
+ * IEEE 754 precision issues at exact boundaries (e.g. 0.1 * 30 = 2.9999999999999996 -> 3).
+ */
+export function getPlayheadFrameCellLayout(
+  time: number,
+  pixelsPerSecond: number,
+  frameRate: number,
+  startOffset: number = TIMELINE_CLIP_START_OFFSET_PX,
+): PlayheadFrameCellLayout {
+  const safeFps = Number.isFinite(frameRate) && frameRate > 0 ? frameRate : 30;
+  const safePps =
+    Number.isFinite(pixelsPerSecond) && pixelsPerSecond > 0 ? pixelsPerSecond : 50;
+  const safeTime = Number.isFinite(time) && !isNaN(time) ? Math.max(0, time) : 0;
+  const currentFrame = Math.max(0, Math.floor(safeTime * safeFps + 1e-4));
+  const frameLeft = Math.round((currentFrame * safePps) / safeFps) + startOffset;
+  const frameRight =
+    Math.round(((currentFrame + 1) * safePps) / safeFps) + startOffset;
+  return {
+    left: Math.max(0, frameLeft),
+    width: Math.max(1, frameRight - frameLeft),
+    currentFrame,
+  };
 }
 
 export const Playhead: React.FC<PlayheadProps> = ({
@@ -40,6 +77,7 @@ export const Playhead: React.FC<PlayheadProps> = ({
   duration,
   containerRef,
   rulerHeight = 24,
+  startOffset = TIMELINE_CLIP_START_OFFSET_PX,
 }) => {
   const clockState = usePlaybackClock();
   const {
@@ -50,8 +88,22 @@ export const Playhead: React.FC<PlayheadProps> = ({
   } = useTransportControls();
   const previewInteractionCoordinator = getPreviewInteractionCoordinator();
   const { setScrollLeft } = useTimelineStore();
+  const projectFrameRate = useProjectStore((state) => state.project?.frameRate);
+  const frameRate =
+    projectFrameRate && projectFrameRate > 0 ? projectFrameRate : 30;
+
+  const showFrameCell =
+    pixelsPerSecond / frameRate >= PLAYHEAD_FRAME_CELL_MIN_PX_PER_FRAME;
+
   const [isDragging, setIsDragging] = useState(false);
   const playheadRef = useRef<HTMLDivElement | null>(null);
+  const frameCellRef = useRef<HTMLDivElement | null>(null);
+  const showFrameCellRef = useRef(showFrameCell);
+  showFrameCellRef.current = showFrameCell;
+  const frameRateRef = useRef(frameRate);
+  frameRateRef.current = frameRate;
+  const startOffsetRef = useRef(startOffset);
+  startOffsetRef.current = startOffset;
   const rafRef = useRef<number | null>(null);
   const scrollVelocityRef = useRef(0);
   const pointerIdRef = useRef<number | null>(null);
@@ -75,6 +127,12 @@ export const Playhead: React.FC<PlayheadProps> = ({
   // ✅ Use canonical timeToPixel helper for playhead left calculation.
   // This value drives the paused / scrub position via React state.
   const left = Math.max(0, timelineTimeToPixel(currentTime, pixelsPerSecond));
+  const frameCellLayout = getPlayheadFrameCellLayout(
+    currentTime,
+    pixelsPerSecond,
+    frameRate,
+    startOffset,
+  );
 
   // ── Playback animation: rAF loop at up to 60 fps ────────────────────────
   // During playback the clock subscription is deliberately throttled to 10fps
@@ -99,6 +157,19 @@ export const Playhead: React.FC<PlayheadProps> = ({
       }
       const pos = Math.max(0, timelineTimeToPixel(clock.time, pixelsPerSecondRef.current));
       el.style.left = `${pos}px`;
+
+      const cellEl = frameCellRef.current;
+      if (cellEl && showFrameCellRef.current) {
+        const cellLayout = getPlayheadFrameCellLayout(
+          clock.time,
+          pixelsPerSecondRef.current,
+          frameRateRef.current,
+          startOffsetRef.current,
+        );
+        cellEl.style.left = `${cellLayout.left}px`;
+        cellEl.style.width = `${cellLayout.width}px`;
+      }
+
       recordPlayheadPaint();
       recordSeekResolved();
       animRafId = requestAnimationFrame(loop);
@@ -115,9 +186,31 @@ export const Playhead: React.FC<PlayheadProps> = ({
     if (clockState.state === "playing" && !isDragging) return;
     const el = playheadRef.current;
     if (el) el.style.left = `${left}px`;
+
+    const cellEl = frameCellRef.current;
+    if (cellEl && showFrameCell) {
+      const cellLayout = getPlayheadFrameCellLayout(
+        currentTime,
+        pixelsPerSecond,
+        frameRate,
+        startOffset,
+      );
+      cellEl.style.left = `${cellLayout.left}px`;
+      cellEl.style.width = `${cellLayout.width}px`;
+    }
+
     resetPlayheadPaintTracking();
     recordSeekResolved();
-  }, [left, pixelsPerSecond, clockState.state, isDragging]);
+  }, [
+    left,
+    pixelsPerSecond,
+    clockState.state,
+    isDragging,
+    showFrameCell,
+    currentTime,
+    frameRate,
+    startOffset,
+  ]);
 
   // ✅ PERFORMANCE OPTIMIZED: Throttled state updates to reduce React render storms
   const lastScrollUpdateRef = useRef(0);
@@ -196,6 +289,18 @@ export const Playhead: React.FC<PlayheadProps> = ({
       if (el) {
         const visualPos = Math.max(0, timelineTimeToPixel(newTime, pixelsPerSecond));
         el.style.left = `${visualPos}px`;
+      }
+
+      const cellEl = frameCellRef.current;
+      if (cellEl && showFrameCellRef.current) {
+        const cellLayout = getPlayheadFrameCellLayout(
+          newTime,
+          pixelsPerSecond,
+          frameRate,
+          startOffsetRef.current,
+        );
+        cellEl.style.left = `${cellLayout.left}px`;
+        cellEl.style.width = `${cellLayout.width}px`;
       }
 
       // Throttled scrub calls (reduce clock update frequency)
@@ -447,12 +552,40 @@ export const Playhead: React.FC<PlayheadProps> = ({
     beginScrub(newTime, "playhead");
 
     setIsDragging(true);
+
+    const cellEl = frameCellRef.current;
+    if (cellEl && showFrameCellRef.current) {
+      const cellLayout = getPlayheadFrameCellLayout(
+        newTime,
+        pixelsPerSecond,
+        frameRate,
+        startOffsetRef.current,
+      );
+      cellEl.style.left = `${cellLayout.left}px`;
+      cellEl.style.width = `${cellLayout.width}px`;
+    }
   };
 
   return (
-    <div
-      ref={playheadRef}
-      data-playhead="true"
+    <>
+      {showFrameCell && (
+        <div
+          ref={frameCellRef}
+          data-playhead-frame-cell="true"
+          className="absolute select-none pointer-events-none bg-white/10 border border-white/20 rounded-[2px]"
+          style={{
+            top: 0,
+            height: `${rulerHeight}px`,
+            left: `${frameCellLayout.left}px`,
+            width: `${frameCellLayout.width}px`,
+            zIndex: 35,
+            boxSizing: "border-box",
+          }}
+        />
+      )}
+      <div
+        ref={playheadRef}
+        data-playhead="true"
       data-timeline-interactive="true"
       className="absolute select-none pointer-events-none"
       style={{
@@ -530,5 +663,6 @@ export const Playhead: React.FC<PlayheadProps> = ({
         />
       </div>
     </div>
+  </>
   );
 };
