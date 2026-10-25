@@ -65,7 +65,7 @@ describe("TimelineRuler coordinate mapping", () => {
       <TimelineRuler pixelsPerSecond={500} scrollLeft={0} sequenceDuration={20} />,
     );
 
-    expect(screen.getAllByText("5f").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("10f").length).toBeGreaterThan(0);
     expect(screen.getByText("00:00")).toBeInTheDocument();
 
     rerender(
@@ -73,6 +73,6 @@ describe("TimelineRuler coordinate mapping", () => {
     );
 
     expect(screen.getByText("00:01")).toBeInTheDocument();
-    expect(screen.queryByText("5f")).not.toBeInTheDocument();
+    expect(screen.queryByText("10f")).not.toBeInTheDocument();
   });
 });
