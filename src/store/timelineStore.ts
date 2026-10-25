@@ -1267,7 +1267,8 @@ export const useTimelineStore = create<TimelineStore>(
     },
 
     setPixelsPerSecond: (pps, allowOverviewFloor = false) => {
-      const clamped = clampTimelinePixelsPerSecond(pps, allowOverviewFloor);
+      const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
+      const clamped = clampTimelinePixelsPerSecond(pps, allowOverviewFloor, frameRate);
       const zoomLevel = clamped / TIMELINE_PPS_PER_ZOOM;
       set((state) => {
         // Zoom animation writes on every RAF. Avoid notifying every subscriber
@@ -1286,8 +1287,9 @@ export const useTimelineStore = create<TimelineStore>(
     },
 
     setZoom: (level) => {
+      const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
       get().setPixelsPerSecond(
-        TIMELINE_PPS_PER_ZOOM * clampTimelineZoom(level),
+        TIMELINE_PPS_PER_ZOOM * clampTimelineZoom(level, frameRate),
       );
     },
 

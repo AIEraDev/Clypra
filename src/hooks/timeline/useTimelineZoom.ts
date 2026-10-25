@@ -1,5 +1,6 @@
 import { useEffect, RefObject } from "react";
 import { useTimelineStore } from "@/store/timelineStore";
+import { useProjectStore } from "@/store/projectStore";
 import {
   clampTimelinePixelsPerSecond,
   TIMELINE_MAX_PPS,
@@ -77,12 +78,14 @@ export function useTimelineZoom(
         Math.min(0.22, -dy * WHEEL_ZOOM_SENSITIVITY),
       );
       const basePps = spring.getCurrentPps();
+      const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
       // Fit Sequence intentionally permits an overview density below the
       // normal interaction floor. Wheel zoom must preserve that reachable
       // state rather than making an outward gesture jump back to 10 px/s.
       const targetPps = clampTimelinePixelsPerSecond(
         basePps * Math.exp(exponent),
         true,
+        frameRate,
       );
       if (Math.abs(targetPps - basePps) < 0.05) return;
 
@@ -161,9 +164,11 @@ export function useTimelineZoom(
       if (initialDist === 0) return;
 
       const scale = currentDist / initialDist;
-      const nextPps = Math.max(
-        TIMELINE_MIN_PPS,
-        Math.min(TIMELINE_MAX_PPS, initialPps * scale),
+      const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
+      const nextPps = clampTimelinePixelsPerSecond(
+        initialPps * scale,
+        false,
+        frameRate,
       );
 
       const rect = container.getBoundingClientRect();

@@ -23,30 +23,63 @@ export const TIMELINE_TEMPORAL_LABELS: Record<TemporalTier, string> = {
   [TemporalTier.L3]: "Frame cadence",
 };
 
+export const TIMELINE_MAX_PX_PER_FRAME = 200;
+/**
+ * Safe upper bound on timeline scroll content width (in CSS px) to prevent
+ * layout overflow in WebKit/WKWebView (WebKit LayoutUnit 32-bit fixed point limit is 33,554,431 px).
+ */
+export const MAX_SAFE_SCROLL_WIDTH_PX = 32_000_000;
+
+export function getTimelineMaxPps(frameRate: number = 30, sequenceDuration?: number): number {
+  const safeFps = Number.isFinite(frameRate) && frameRate > 0 ? Math.round(frameRate) : 30;
+  const baseMax = TIMELINE_MAX_PX_PER_FRAME * safeFps;
+  if (typeof sequenceDuration === "number" && sequenceDuration > 0) {
+    const canvasDuration = sequenceDuration + 2;
+    const durationCapped = Math.floor(MAX_SAFE_SCROLL_WIDTH_PX / canvasDuration);
+    return Math.max(TIMELINE_MIN_PPS, Math.min(baseMax, durationCapped));
+  }
+  return baseMax;
+}
+
+export function getTimelineZoomMax(frameRate: number = 30, sequenceDuration?: number): number {
+  return getTimelineMaxPps(frameRate, sequenceDuration) / TIMELINE_PPS_PER_ZOOM;
+}
+
 export function getTimelineZoomMin(config: SrpConfig = DEFAULT_SRP_CONFIG): number {
   return Math.min(...Object.values(config).map((boundary) => boundary.min));
 }
 
-export function getTimelineZoomMax(config: SrpConfig = DEFAULT_SRP_CONFIG): number {
-  return Math.max(...Object.values(config).map((boundary) => boundary.max));
-}
-
 export const TIMELINE_ZOOM_MIN = getTimelineZoomMin(); // 0.1
-export const TIMELINE_ZOOM_MAX = getTimelineZoomMax(); // 5.0
+export const TIMELINE_ZOOM_MAX = getTimelineZoomMax(30); // 60.0 (6,000 px/s @ 30fps)
 export const TIMELINE_MIN_PPS = TIMELINE_ZOOM_MIN * TIMELINE_PPS_PER_ZOOM; // 10 px/s
-export const TIMELINE_MAX_PPS = TIMELINE_ZOOM_MAX * TIMELINE_PPS_PER_ZOOM; // 500 px/s
+export const TIMELINE_MAX_PPS = TIMELINE_ZOOM_MAX * TIMELINE_PPS_PER_ZOOM; // 6,000 px/s
 const LOG_ZOOM_MIN = Math.log2(TIMELINE_ZOOM_MIN);
-const LOG_ZOOM_MAX = Math.log2(TIMELINE_ZOOM_MAX);
 
-export function clampTimelineZoom(zoom: number): number {
+export function clampTimelineZoom(
+  zoom: number,
+  frameRate: number = 30,
+  sequenceDuration?: number,
+): number {
+  const maxZoom = getTimelineZoomMax(frameRate, sequenceDuration);
   const val = typeof zoom === "number" && !isNaN(zoom) ? zoom : TIMELINE_ZOOM_DEFAULT;
-  return Math.min(TIMELINE_ZOOM_MAX, Math.max(TIMELINE_ZOOM_MIN, val));
+  return Math.min(maxZoom, Math.max(TIMELINE_ZOOM_MIN, val));
 }
 
-export function clampTimelinePixelsPerSecond(pps: number, allowOverviewFloor = false): number {
-  const minPps = allowOverviewFloor ? TIMELINE_OVERVIEW_ZOOM_MIN * TIMELINE_PPS_PER_ZOOM : TIMELINE_MIN_PPS;
-  const val = typeof pps === "number" && !isNaN(pps) ? pps : TIMELINE_ZOOM_DEFAULT * TIMELINE_PPS_PER_ZOOM;
-  return Math.min(TIMELINE_MAX_PPS, Math.max(minPps, val));
+export function clampTimelinePixelsPerSecond(
+  pps: number,
+  allowOverviewFloor = false,
+  frameRate: number = 30,
+  sequenceDuration?: number,
+): number {
+  const maxPps = getTimelineMaxPps(frameRate, sequenceDuration);
+  const minPps = allowOverviewFloor
+    ? TIMELINE_OVERVIEW_ZOOM_MIN * TIMELINE_PPS_PER_ZOOM
+    : TIMELINE_MIN_PPS;
+  const val =
+    typeof pps === "number" && !isNaN(pps)
+      ? pps
+      : TIMELINE_ZOOM_DEFAULT * TIMELINE_PPS_PER_ZOOM;
+  return Math.min(maxPps, Math.max(minPps, val));
 }
 
 // Zoom is logarithmic in interaction space, while SRP boundaries remain absolute.
@@ -65,21 +98,48 @@ export function getSrpTierForZoom(zoom: number, config: SrpConfig = DEFAULT_SRP_
   return zoom < config[tiers[0]].min ? tiers[0] : tiers[tiers.length - 1];
 }
 
-export function getZoomRatio(zoom: number): number {
-  const clamped = clampTimelineZoom(zoom);
-  return (Math.log2(clamped) - LOG_ZOOM_MIN) / (LOG_ZOOM_MAX - LOG_ZOOM_MIN);
+export function getZoomRatio(
+  zoom: number,
+  frameRate: number = 30,
+  sequenceDuration?: number,
+): number {
+  const maxZoom = getTimelineZoomMax(frameRate, sequenceDuration);
+  const logZoomMax = Math.log2(maxZoom);
+  const clamped = clampTimelineZoom(zoom, frameRate, sequenceDuration);
+  return (Math.log2(clamped) - LOG_ZOOM_MIN) / (logZoomMax - LOG_ZOOM_MIN);
 }
 
-export function getZoomFromRatio(ratio: number): number {
+export function getZoomFromRatio(
+  ratio: number,
+  frameRate: number = 30,
+  sequenceDuration?: number,
+): number {
+  const maxZoom = getTimelineZoomMax(frameRate, sequenceDuration);
+  const logZoomMax = Math.log2(maxZoom);
   const clampedRatio = Math.min(1, Math.max(0, ratio));
-  return 2 ** (LOG_ZOOM_MIN + clampedRatio * (LOG_ZOOM_MAX - LOG_ZOOM_MIN));
+  return 2 ** (LOG_ZOOM_MIN + clampedRatio * (logZoomMax - LOG_ZOOM_MIN));
 }
 
-export function snapTimelineZoomToTierAnchors(zoom: number, config: SrpConfig = DEFAULT_SRP_CONFIG): number {
-  const clamped = clampTimelineZoom(zoom);
-  const anchors = Array.from(new Set([TIMELINE_ZOOM_MIN, TIMELINE_ZOOM_MAX, ...Object.values(config).flatMap((boundary) => [boundary.min, boundary.max])])).sort((a, b) => a - b);
+export function snapTimelineZoomToTierAnchors(
+  zoom: number,
+  config: SrpConfig = DEFAULT_SRP_CONFIG,
+  frameRate: number = 30,
+  sequenceDuration?: number,
+): number {
+  const maxZoom = getTimelineZoomMax(frameRate, sequenceDuration);
+  const clamped = clampTimelineZoom(zoom, frameRate, sequenceDuration);
+  const anchors = Array.from(
+    new Set([
+      TIMELINE_ZOOM_MIN,
+      maxZoom,
+      ...Object.values(config).flatMap((boundary) => [boundary.min, boundary.max]),
+    ]),
+  ).sort((a, b) => a - b);
 
-  return anchors.find((anchor) => Math.abs(clamped - anchor) <= TIMELINE_TIER_SNAP_EPSILON) ?? clamped;
+  return (
+    anchors.find((anchor) => Math.abs(clamped - anchor) <= TIMELINE_TIER_SNAP_EPSILON) ??
+    clamped
+  );
 }
 
 export function getTimelineTemporalDetail(pixelsPerSecond: number): {

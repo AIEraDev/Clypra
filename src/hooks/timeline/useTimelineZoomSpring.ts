@@ -2,6 +2,7 @@ import { filmstripTelemetry } from "@/lib/filmstrip/filmstripTelemetry";
 import { getAnchoredZoomScrollLeft } from "@/lib/timeline/timelineViewport";
 import { clampTimelinePixelsPerSecond } from "@/lib/timeline/timelineZoom";
 import { useTimelineStore } from "@/store/timelineStore";
+import { useProjectStore } from "@/store/projectStore";
 
 /**
  * Per-frame exponential decay constant — controls how quickly currentPps chases targetPps.
@@ -103,9 +104,11 @@ export class TimelineZoomSpring {
     if (this.mode === "idle") {
       this.currentPps = useTimelineStore.getState().pixelsPerSecond;
     }
+    const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
     this.targetPps = clampTimelinePixelsPerSecond(
       targetPps,
       allowOverviewFloor,
+      frameRate,
     );
     this.allowOverviewFloor = allowOverviewFloor;
     this.anchor = anchor;
@@ -184,7 +187,12 @@ export class TimelineZoomSpring {
         filmstripTelemetry.endZoomGesture();
         return;
       }
-      const nextPps = clampTimelinePixelsPerSecond(this.currentPps * (1 + this.inertiaVelocity));
+      const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
+      const nextPps = clampTimelinePixelsPerSecond(
+        this.currentPps * (1 + this.inertiaVelocity),
+        false,
+        frameRate,
+      );
       if (nextPps === this.currentPps) {
         // Hit PPS boundary — stop inertia.
         this.mode = "idle";

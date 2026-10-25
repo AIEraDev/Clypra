@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { useTimelineStore } from "@/store/timelineStore";
+import { useProjectStore } from "@/store/projectStore";
 import {
   TIMELINE_CLIP_START_OFFSET_PX,
   getAnchoredZoomScrollLeft,
@@ -81,7 +82,8 @@ export function useAnchoredTimelineZoom() {
       const viewportEndSeconds = getTimelineViewportEndForDuration(
         state.getTimelineEndTime(),
       );
-      const nextPps = zoomToPixelsPerSecond(zoomLevel);
+      const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
+      const nextPps = zoomToPixelsPerSecond(zoomLevel, frameRate);
       const resolvedAnchor = anchor ?? captureZoomAnchor();
 
       state.setPixelsPerSecond(nextPps);
@@ -108,11 +110,12 @@ export function useAnchoredTimelineZoom() {
       const state = useTimelineStore.getState();
       if (state.tracks.length === 0 && state.clips.length === 0) return;
       const anchor = captureZoomAnchor();
+      const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
       const nextZoom =
         direction > 0
           ? state.zoomLevel * TIMELINE_ZOOM_GEOMETRIC_FACTOR
           : state.zoomLevel / TIMELINE_ZOOM_GEOMETRIC_FACTOR;
-      applyZoomLevel(clampTimelineZoom(nextZoom), anchor);
+      applyZoomLevel(clampTimelineZoom(nextZoom, frameRate), anchor);
     },
     [applyZoomLevel, captureZoomAnchor],
   );
