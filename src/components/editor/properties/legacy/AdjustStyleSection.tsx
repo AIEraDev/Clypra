@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import type { Clip } from "@/types";
-import { VideoAdjustTab } from "./video/tabs/VideoAdjustTab";
+import { VideoAdjustTab } from "../video/tabs/VideoAdjustTab";
 
 type AdjustSubTab = "basic" | "hsl" | "curves" | "color-wheel" | "mask";
 

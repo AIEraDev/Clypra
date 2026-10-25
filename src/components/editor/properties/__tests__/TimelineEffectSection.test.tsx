@@ -1,6 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { TimelineEffectSection, getEffectIntensityPercent } from "../TimelineEffectSection";
+import {
+  TimelineEffectSection,
+  getEffectIntensityPercent,
+} from "../effects/sections/TimelineEffectSection";
 import type { Clip } from "@/types";
 
 const baseEffectClip: Clip = {
@@ -32,7 +35,12 @@ describe("TimelineEffectSection", () => {
   it("writes timeline effect intensity in canonical 0..1 form", () => {
     const handleUpdate = vi.fn();
 
-    render(<TimelineEffectSection selectedClip={{ ...baseEffectClip, intensity: 0.8 } as Clip} handleUpdate={handleUpdate} />);
+    render(
+      <TimelineEffectSection
+        selectedClip={{ ...baseEffectClip, intensity: 0.8 } as Clip}
+        handleUpdate={handleUpdate}
+      />,
+    );
 
     const intensityInput = screen.getByRole("spinbutton");
     expect((intensityInput as HTMLInputElement).value).toBe("80");

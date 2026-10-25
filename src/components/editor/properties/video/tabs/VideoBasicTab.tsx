@@ -9,8 +9,8 @@ import React from "react";
 import type { Clip } from "@/types";
 import { VideoTransformControls } from "../sections/VideoTransformControls";
 import { VideoBlendControls } from "../sections/VideoBlendControls";
-import { BackgroundInspectorPanel } from "../../BackgroundInspectorPanel";
-import { EffectsFiltersSection } from "../../EffectsFiltersSection";
+import { BackgroundInspectorPanel } from "../../project/BackgroundInspectorPanel";
+import { EffectsFiltersSection } from "../../effects/sections/EffectsFiltersSection";
 import { PropertySectionHeader } from "../../primitives/PropertySectionHeader";
 
 interface VideoBasicTabProps {

@@ -17,9 +17,9 @@ import { UpdateClipCommand } from "@/core/history/commands";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import type { Clip, PlaybackMapping } from "@/types";
 import { resolveClipSourceTime } from "@/core/timeline/sourceTime";
-import { SliderTrack } from "./primitives/SliderTrack";
-import { NumericControl } from "./primitives/NumericControl";
-import { PropertySection } from "./primitives/PropertySection";
+import { SliderTrack } from "../primitives/SliderTrack";
+import { NumericControl } from "../primitives/NumericControl";
+import { PropertySection } from "../primitives/PropertySection";
 
 interface PlaybackSectionProps {
   selectedClip: Clip;

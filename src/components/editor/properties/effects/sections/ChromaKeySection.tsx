@@ -5,9 +5,9 @@ import type { Clip } from "@/types";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useEyedropper } from "@/core/hooks/useEyedropper";
 import { defaultChromaKeyConfig } from "@/types/compositor";
-import { PropertySection } from "./primitives/PropertySection";
-import { SliderTrack } from "./primitives/SliderTrack";
-import { NumericControl } from "./primitives/NumericControl";
+import { PropertySection } from "../../primitives/PropertySection";
+import { SliderTrack } from "../../primitives/SliderTrack";
+import { NumericControl } from "../../primitives/NumericControl";
 
 interface ChromaKeySectionProps {
   selectedClip: Clip;

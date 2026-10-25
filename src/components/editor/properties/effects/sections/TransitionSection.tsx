@@ -5,10 +5,10 @@ import type {
   TransitionType,
   TransitionEasing,
 } from "@/types";
-import { PropertySection } from "./primitives/PropertySection";
-import { SliderTrack } from "./primitives/SliderTrack";
-import { NumericControl } from "./primitives/NumericControl";
-import { PropertySelect } from "./primitives/PropertySelect";
+import { PropertySection } from "../../primitives/PropertySection";
+import { SliderTrack } from "../../primitives/SliderTrack";
+import { NumericControl } from "../../primitives/NumericControl";
+import { PropertySelect } from "../../primitives/PropertySelect";
 
 interface TransitionSectionProps {
   selectedTransition: TransitionTimelineItem;

@@ -1,9 +1,9 @@
 import React, { useCallback } from "react";
 import { Sparkles, SlidersHorizontal, Trash2, Filter } from "lucide-react";
 import type { Clip } from "@/types";
-import { SliderTrack } from "./primitives/SliderTrack";
-import { NumericControl } from "./primitives/NumericControl";
-import { PropertySection } from "./primitives/PropertySection";
+import { SliderTrack } from "../../primitives/SliderTrack";
+import { NumericControl } from "../../primitives/NumericControl";
+import { PropertySection } from "../../primitives/PropertySection";
 
 interface EffectsFiltersSectionProps {
   selectedClip: Clip;
