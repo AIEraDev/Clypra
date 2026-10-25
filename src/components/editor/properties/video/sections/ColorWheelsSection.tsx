@@ -1,5 +1,5 @@
 import React from "react";
-import { ColorWheel, type ColorWheelValue } from "./primitives/ColorWheel";
+import { ColorWheel, type ColorWheelValue } from "../../primitives/ColorWheel";
 import type { Clip } from "@/types";
 
 interface ColorWheelsSectionProps {
@@ -20,7 +20,10 @@ export const ColorWheelsSection: React.FC<ColorWheelsSectionProps> = ({
   const gamma = wheels.gamma ?? defaultWheelVal;
   const gain = wheels.gain ?? defaultWheelVal;
 
-  const updateWheel = (wheelKey: "lift" | "gamma" | "gain", newVal: ColorWheelValue) => {
+  const updateWheel = (
+    wheelKey: "lift" | "gamma" | "gain",
+    newVal: ColorWheelValue,
+  ) => {
     const nextWheels = { ...wheels, [wheelKey]: newVal };
     const nextAdjustments = { ...adjustments, wheels: nextWheels };
     handleUpdate("adjustments", nextAdjustments);
@@ -33,7 +36,9 @@ export const ColorWheelsSection: React.FC<ColorWheelsSectionProps> = ({
   return (
     <div className="space-y-2 pt-2 border-t border-white/5">
       <div className="flex items-center justify-between px-0.5">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">3-Way Color Wheels</span>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">
+          3-Way Color Wheels
+        </span>
       </div>
 
       <div className="grid grid-cols-3 gap-1.5">

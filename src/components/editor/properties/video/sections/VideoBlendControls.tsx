@@ -8,11 +8,11 @@
 
 import React, { useCallback, useState } from "react";
 import type { Clip } from "@/types";
-import { PropertySectionHeader } from "./primitives/PropertySectionHeader";
-import { PropertySelect } from "./primitives/PropertySelect";
-import { SliderTrack } from "./primitives/SliderTrack";
-import { NumericControl } from "./primitives/NumericControl";
-import { KeyframeNavControls } from "./primitives/KeyframeNavControls";
+import { PropertySectionHeader } from "../../primitives/PropertySectionHeader";
+import { PropertySelect } from "../../primitives/PropertySelect";
+import { SliderTrack } from "../../primitives/SliderTrack";
+import { NumericControl } from "../../primitives/NumericControl";
+import { KeyframeNavControls } from "../../primitives/KeyframeNavControls";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { useUIStore } from "@/store/uiStore";
 

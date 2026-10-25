@@ -11,7 +11,7 @@
 
 import React, { useState } from "react";
 import type { Clip } from "@/types";
-import { VideoBasicTab } from "./VideoBasicTab";
+import { VideoBasicTab } from "../tabs/VideoBasicTab";
 
 interface VideoStyleSectionProps {
   selectedClip: Clip;

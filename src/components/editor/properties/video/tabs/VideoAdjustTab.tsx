@@ -2,10 +2,10 @@ import React, { useMemo, useState } from "react";
 import type { Clip } from "@/types";
 import { filterCacheManager } from "@/features/filters/cache/filterCache";
 import type { ColorAdjustments } from "@clypra-studio/engine";
-import { LUTSection } from "./LUTSection";
-import { PropertySectionHeader } from "./primitives/PropertySectionHeader";
-import { GradientSliderControl } from "./primitives/GradientSliderControl";
-import { HSLSection } from "./HSLSection";
+import { LUTSection } from "../sections/LUTSection";
+import { PropertySectionHeader } from "../../primitives/PropertySectionHeader";
+import { GradientSliderControl } from "../../primitives/GradientSliderControl";
+import { HSLSection } from "../sections/HSLSection";
 
 type AdjustSubTab = "basic" | "hsl" | "curves" | "color-wheel" | "mask";
 

@@ -1,7 +1,7 @@
 import React from "react";
 import type { Clip } from "@/types";
-import { SliderTrack } from "./primitives/SliderTrack";
-import { NumericControl } from "./primitives/NumericControl";
+import { SliderTrack } from "../../primitives/SliderTrack";
+import { NumericControl } from "../../primitives/NumericControl";
 
 interface LUTSectionProps {
   selectedClip: Clip;

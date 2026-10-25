@@ -4,8 +4,8 @@ import type { Clip } from "@/types";
 import { PropertySection } from "./primitives/PropertySection";
 import { filterCacheManager } from "@/features/filters/cache/filterCache";
 import type { ColorAdjustments } from "@clypra-studio/engine";
-import { ColorWheelsSection } from "./ColorWheelsSection";
-import { LUTSection } from "./LUTSection";
+import { ColorWheelsSection } from "./video/sections/ColorWheelsSection";
+import { LUTSection } from "./video/sections/LUTSection";
 import { ClypraColorPicker } from "@clypra/ui-color-picker";
 
 interface AdjustmentsSectionProps {

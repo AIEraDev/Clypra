@@ -8,8 +8,8 @@
 import React, { useState } from "react";
 import type { Clip } from "@/types";
 import type { ColorAdjustments } from "@clypra-studio/engine";
-import { PropertySectionHeader } from "./primitives/PropertySectionHeader";
-import { GradientSliderControl } from "./primitives/GradientSliderControl";
+import { PropertySectionHeader } from "../../primitives/PropertySectionHeader";
+import { GradientSliderControl } from "../../primitives/GradientSliderControl";
 
 interface HSLSectionProps {
   selectedClip: Clip;

@@ -15,12 +15,12 @@
 import React, { useCallback, useMemo, useState } from "react";
 import type { Clip } from "@/types";
 import { type ClipFitModeExtended } from "@/lib/timeline/timelineClip";
-import { PropertySectionHeader } from "./primitives/PropertySectionHeader";
-import { NumericControl } from "./primitives/NumericControl";
-import { SliderTrack } from "./primitives/SliderTrack";
+import { PropertySectionHeader } from "../../primitives/PropertySectionHeader";
+import { NumericControl } from "../../primitives/NumericControl";
+import { SliderTrack } from "../../primitives/SliderTrack";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { useUIStore } from "@/store/uiStore";
-import { KeyframeNavControls } from "./primitives/KeyframeNavControls";
+import { KeyframeNavControls } from "../../primitives/KeyframeNavControls";
 
 interface VideoTransformControlsProps {
   selectedClip: Clip;

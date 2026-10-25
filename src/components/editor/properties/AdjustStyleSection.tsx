@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import type { Clip } from "@/types";
-import { VideoAdjustTab } from "./VideoAdjustTab";
+import { VideoAdjustTab } from "./video/tabs/VideoAdjustTab";
 
 type AdjustSubTab = "basic" | "hsl" | "curves" | "color-wheel" | "mask";
 
@@ -20,56 +20,61 @@ export const AdjustStyleSection: React.FC<AdjustStyleSectionProps> = ({
       {/* Sticky header: sub-tab switcher */}
       <div className="bg-(--color-gray-900) pt-2 sticky top-0 z-10 space-y-1.5">
         <div className="bg-panel p-0.5 rounded-sm flex gap-1 border border-white/5">
-          {(["basic", "hsl", "curves", "color-wheel", "mask"] as const).map((tab) => {
-            const isLocked = tab !== "basic"; // Only Basic is unlocked for now
-            const labels = {
-              basic: "Basic",
-              hsl: "HSL",
-              curves: "Curves",
-              "color-wheel": "Color wheel",
-              mask: "Mask",
-            };
+          {(["basic", "hsl", "curves", "color-wheel", "mask"] as const).map(
+            (tab) => {
+              const isLocked = tab !== "basic"; // Only Basic is unlocked for now
+              const labels = {
+                basic: "Basic",
+                hsl: "HSL",
+                curves: "Curves",
+                "color-wheel": "Color wheel",
+                mask: "Mask",
+              };
 
-            return (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => !isLocked && setActiveSubTab(tab)}
-                disabled={isLocked}
-                title={isLocked ? "Coming soon" : undefined}
-                className={`flex-1 py-0.5 text-xs rounded-sm transition-all text-center flex items-center justify-center gap-1 ${
-                  isLocked
-                    ? "text-[#8e8e93]/50 cursor-not-allowed"
-                    : activeSubTab === tab
-                      ? "bg-[#38383e] text-white shadow-sm font-semibold cursor-pointer"
-                      : "text-[#8e8e93] hover:text-white cursor-pointer"
-                }`}
-              >
-                {labels[tab]}
-                {isLocked && (
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="w-2.5 h-2.5 shrink-0"
-                  >
-                    <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                  </svg>
-                )}
-              </button>
-            );
-          })}
+              return (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => !isLocked && setActiveSubTab(tab)}
+                  disabled={isLocked}
+                  title={isLocked ? "Coming soon" : undefined}
+                  className={`flex-1 py-0.5 text-xs rounded-sm transition-all text-center flex items-center justify-center gap-1 ${
+                    isLocked
+                      ? "text-[#8e8e93]/50 cursor-not-allowed"
+                      : activeSubTab === tab
+                        ? "bg-[#38383e] text-white shadow-sm font-semibold cursor-pointer"
+                        : "text-[#8e8e93] hover:text-white cursor-pointer"
+                  }`}
+                >
+                  {labels[tab]}
+                  {isLocked && (
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="w-2.5 h-2.5 shrink-0"
+                    >
+                      <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </svg>
+                  )}
+                </button>
+              );
+            },
+          )}
         </div>
       </div>
 
       {/* Basic tab content */}
       {activeSubTab === "basic" && (
-        <VideoAdjustTab selectedClip={selectedClip} handleUpdate={handleUpdate} />
+        <VideoAdjustTab
+          selectedClip={selectedClip}
+          handleUpdate={handleUpdate}
+        />
       )}
 
       {/* HSL tab (locked) */}

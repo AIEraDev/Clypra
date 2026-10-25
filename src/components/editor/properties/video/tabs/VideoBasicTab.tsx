@@ -7,11 +7,11 @@
 
 import React from "react";
 import type { Clip } from "@/types";
-import { VideoTransformControls } from "./VideoTransformControls";
-import { VideoBlendControls } from "./VideoBlendControls";
-import { BackgroundInspectorPanel } from "./BackgroundInspectorPanel";
-import { EffectsFiltersSection } from "./EffectsFiltersSection";
-import { PropertySectionHeader } from "./primitives/PropertySectionHeader";
+import { VideoTransformControls } from "../sections/VideoTransformControls";
+import { VideoBlendControls } from "../sections/VideoBlendControls";
+import { BackgroundInspectorPanel } from "../../BackgroundInspectorPanel";
+import { EffectsFiltersSection } from "../../EffectsFiltersSection";
+import { PropertySectionHeader } from "../../primitives/PropertySectionHeader";
 
 interface VideoBasicTabProps {
   selectedClip: Clip;
