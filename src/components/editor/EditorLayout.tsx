@@ -124,7 +124,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
           : propertiesPanelWidth;
 
   // Panel resize constraints — all viewport-relative so they scale with screen size
-  const panelMin = Math.round(Math.max(vw * 0.14, 180)); // ~14% vw, min 180px
+  const panelMin = Math.round(Math.max(vw * 0.16, 280)); // ~16% vw, min 280px
   const panelMax = Math.round(Math.min(vw * 0.42, 640)); // ~42% vw, max 640px
   // Snap points relative to viewport: compact (~18% vw) and default (~22% vw)
   const panelSnapPoints = [compactPanelW, defaultPanelW];
