@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import type { Clip } from "@/types";
-import { AudioSection } from "../../AudioSection";
+import { AudioSection } from "../../audio/sections/AudioSection";
 
 type AudioSubTab = "basic" | "voice-changer";
 

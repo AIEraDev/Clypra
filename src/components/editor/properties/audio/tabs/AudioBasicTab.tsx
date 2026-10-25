@@ -9,9 +9,9 @@ import React, { useState, useCallback } from "react";
 import { Volume2, VolumeX } from "lucide-react";
 import type { Clip } from "@/types";
 import { dbToLinearGain, getClipAudioProperties } from "@/types/audio";
-import { SliderTrack } from "./primitives/SliderTrack";
-import { NumericControl } from "./primitives/NumericControl";
-import { KeyframeNavControls } from "./primitives/KeyframeNavControls";
+import { SliderTrack } from "../../primitives/SliderTrack";
+import { NumericControl } from "../../primitives/NumericControl";
+import { KeyframeNavControls } from "../../primitives/KeyframeNavControls";
 
 interface AudioBasicTabProps {
   selectedClip: Clip;

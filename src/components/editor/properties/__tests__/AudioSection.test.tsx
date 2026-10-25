@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { AudioSection } from "../AudioSection";
+import { AudioSection } from "../audio/sections/AudioSection";
 import type { Clip } from "@/types";
 
 const baseAudioClip: Clip = {
@@ -23,7 +23,12 @@ const baseAudioClip: Clip = {
 
 describe("AudioSection", () => {
   it("displays fades clamped to clip duration", () => {
-    render(<AudioSection selectedClip={{ ...baseAudioClip, fadeIn: 4, fadeOut: 3 } as Clip} handleUpdate={vi.fn()} />);
+    render(
+      <AudioSection
+        selectedClip={{ ...baseAudioClip, fadeIn: 4, fadeOut: 3 } as Clip}
+        handleUpdate={vi.fn()}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /fade/i }));
 
@@ -34,7 +39,9 @@ describe("AudioSection", () => {
 
   it("writes fade values clamped to clip duration", () => {
     const handleUpdate = vi.fn();
-    render(<AudioSection selectedClip={baseAudioClip} handleUpdate={handleUpdate} />);
+    render(
+      <AudioSection selectedClip={baseAudioClip} handleUpdate={handleUpdate} />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /fade/i }));
     const fadeInInput = screen.getAllByRole("spinbutton")[1];
@@ -45,25 +52,43 @@ describe("AudioSection", () => {
 
   it("exposes editable volume automation in the property container", () => {
     const handleUpdate = vi.fn();
-    render(<AudioSection selectedClip={{ ...baseAudioClip, volumeKeyframes: [{ id: "kf", time: 0.5, gain: 0.75 }] }} handleUpdate={handleUpdate} />);
+    render(
+      <AudioSection
+        selectedClip={{
+          ...baseAudioClip,
+          volumeKeyframes: [{ id: "kf", time: 0.5, gain: 0.75 }],
+        }}
+        handleUpdate={handleUpdate}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /volume automation/i }));
-    fireEvent.change(screen.getByLabelText("Keyframe kf level"), { target: { value: "50" } });
+    fireEvent.change(screen.getByLabelText("Keyframe kf level"), {
+      target: { value: "50" },
+    });
 
-    expect(handleUpdate).toHaveBeenCalledWith("volumeKeyframes", [{ id: "kf", time: 0.5, gain: 0.5 }]);
+    expect(handleUpdate).toHaveBeenCalledWith("volumeKeyframes", [
+      { id: "kf", time: 0.5, gain: 0.5 },
+    ]);
   });
 
   it("exposes channel routing and pitch preservation controls", () => {
     const handleUpdate = vi.fn();
-    render(<AudioSection selectedClip={baseAudioClip} handleUpdate={handleUpdate} />);
+    render(
+      <AudioSection selectedClip={baseAudioClip} handleUpdate={handleUpdate} />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /channel & speed/i }));
-    fireEvent.change(screen.getByLabelText("Channel mode"), { target: { value: "mono" } });
+    fireEvent.change(screen.getByLabelText("Channel mode"), {
+      target: { value: "mono" },
+    });
     fireEvent.click(screen.getByLabelText("Preserve pitch"));
 
     expect(handleUpdate).toHaveBeenCalledWith("audio", {
       channelConfig: { mode: "mono", downmix: "auto", channelMap: undefined },
     });
-    expect(handleUpdate).toHaveBeenCalledWith("audio", { speed: { preservePitch: true } });
+    expect(handleUpdate).toHaveBeenCalledWith("audio", {
+      speed: { preservePitch: true },
+    });
   });
 });
