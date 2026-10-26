@@ -1,14 +1,11 @@
 import React, { useCallback } from "react";
-import {
-  Volume2,
-  VolumeX,
-  RotateCcw,
-  ChevronLeft,
-  ChevronRight,
-} from "lucide-react";
+import { Volume2, VolumeX, RotateCcw } from "lucide-react";
 import type { Clip } from "@/types";
 import { dbToLinearGain, getClipAudioProperties } from "@/types/audio";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
+import { SliderTrack } from "../../primitives/SliderTrack";
+import { NumericControl } from "../../primitives/NumericControl";
+import { KeyframeNavControls } from "../../primitives/KeyframeNavControls";
 
 interface AudioSectionProps {
   selectedClip: Clip;
@@ -136,92 +133,6 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
     handlePanChange(0);
   }, [handlePanChange]);
 
-  // Keyframe control component
-  interface KeyframeControlsProps {
-    onReset?: () => void;
-    hasKeyframes?: boolean;
-    isAtKeyframe?: boolean;
-    hasPrev?: boolean;
-    hasNext?: boolean;
-    onToggleKeyframe?: () => void;
-    onPrevKeyframe?: () => void;
-    onNextKeyframe?: () => void;
-    resetTitle?: string;
-  }
-
-  const KeyframeControls: React.FC<KeyframeControlsProps> = ({
-    onReset,
-    hasKeyframes = false,
-    isAtKeyframe = false,
-    hasPrev = false,
-    hasNext = false,
-    onToggleKeyframe,
-    onPrevKeyframe,
-    onNextKeyframe,
-    resetTitle = "Reset to default",
-  }) => (
-    <div className="flex items-center gap-0.5">
-      {onReset && (
-        <button
-          type="button"
-          onClick={onReset}
-          className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/5 text-white/40 hover:text-white/60 transition-colors cursor-pointer"
-          title={resetTitle}
-          aria-label={resetTitle}
-        >
-          <RotateCcw className="w-3 h-3" />
-        </button>
-      )}
-      {onPrevKeyframe && (
-        <button
-          type="button"
-          onClick={onPrevKeyframe}
-          disabled={!hasPrev}
-          className={`w-5 h-5 flex items-center justify-center rounded transition-colors ${
-            hasPrev
-              ? "hover:bg-white/5 text-white/60 hover:text-white cursor-pointer"
-              : "text-white/20 cursor-not-allowed"
-          }`}
-          title="Previous keyframe"
-          aria-label="Previous keyframe"
-        >
-          <ChevronLeft className="w-3 h-3" />
-        </button>
-      )}
-      {onToggleKeyframe && (
-        <button
-          type="button"
-          onClick={onToggleKeyframe}
-          className={`w-5 h-5 flex items-center justify-center rounded hover:bg-white/5 transition-colors cursor-pointer ${
-            isAtKeyframe ? "text-cyan-400" : "text-white/40 hover:text-white/60"
-          }`}
-          title={isAtKeyframe ? "Remove keyframe" : "Add keyframe"}
-          aria-label={isAtKeyframe ? "Remove keyframe" : "Add keyframe"}
-        >
-          <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 2L2 12l10 10 10-10L12 2z" />
-          </svg>
-        </button>
-      )}
-      {onNextKeyframe && (
-        <button
-          type="button"
-          onClick={onNextKeyframe}
-          disabled={!hasNext}
-          className={`w-5 h-5 flex items-center justify-center rounded transition-colors ${
-            hasNext
-              ? "hover:bg-white/5 text-white/60 hover:text-white cursor-pointer"
-              : "text-white/20 cursor-not-allowed"
-          }`}
-          title="Next keyframe"
-          aria-label="Next keyframe"
-        >
-          <ChevronRight className="w-3 h-3" />
-        </button>
-      )}
-    </div>
-  );
-
   return (
     <div className="space-y-4 px-3 py-2">
       {/* Volume */}
@@ -235,6 +146,7 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
               {audio.gainDb.toFixed(1)}dB
             </span>
             <button
+              type="button"
               onClick={toggleMute}
               className={`flex items-center justify-center w-6 h-6 rounded transition-all cursor-pointer ${
                 isMuted
@@ -242,6 +154,7 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
                   : "bg-white/5 hover:bg-white/10 text-cyan-400"
               }`}
               title={isMuted ? "Unmute" : "Mute"}
+              aria-label={isMuted ? "Unmute" : "Mute"}
             >
               {isMuted ? (
                 <VolumeX className="w-3.5 h-3.5" />
@@ -249,9 +162,16 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
                 <Volume2 className="w-3.5 h-3.5" />
               )}
             </button>
-            <KeyframeControls
-              onReset={handleResetVolume}
-              resetTitle="Reset volume"
+            <button
+              type="button"
+              onClick={handleResetVolume}
+              className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/5 text-white/40 hover:text-white/60 transition-colors cursor-pointer"
+              title="Reset volume"
+              aria-label="Reset volume"
+            >
+              <RotateCcw className="w-3 h-3" />
+            </button>
+            <KeyframeNavControls
               hasKeyframes={volumeKeyframes.length > 0}
               isAtKeyframe={isAtVolumeKf}
               hasPrev={hasPrevVolumeKf}
@@ -259,31 +179,29 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
               onToggleKeyframe={handleToggleVolumeKeyframe}
               onPrevKeyframe={() => handleJumpToVolumeKeyframe("prev")}
               onNextKeyframe={() => handleJumpToVolumeKeyframe("next")}
+              label="Volume"
             />
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <input
-            type="range"
+          <SliderTrack
+            value={volumePercent}
             min={0}
             max={100}
             step={1}
-            value={volumePercent}
-            onChange={(e) => handleVolumePercentChange(Number(e.target.value))}
-            className="flex-1 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-cyan-500
-              [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 
-              [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-cyan-500 [&::-webkit-slider-thumb]:cursor-pointer
-              [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full 
-              [&::-moz-range-thumb]:bg-cyan-500 [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
+            onChange={handleVolumePercentChange}
           />
-          <input
-            type="number"
+          <NumericControl
+            value={volumePercent}
+            onChange={handleVolumePercentChange}
+            step={1}
             min={0}
             max={100}
-            step={1}
-            value={volumePercent}
-            onChange={(e) => handleVolumePercentChange(Number(e.target.value))}
-            className="w-16 px-2 py-1 text-[11px] text-white bg-[#2a2a2e] border border-white/10 rounded focus:outline-none focus:border-cyan-500/50 text-right"
+            suffix="%"
+            inputWidth="w-16"
+            inputPosition="text-right"
+            decimals={0}
+            ariaLabel="Volume"
           />
         </div>
       </div>
@@ -298,38 +216,36 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
             <span className="text-[11px] text-white/60 font-mono">
               {fadeIn.toFixed(2)}s
             </span>
-            <KeyframeControls
-              onReset={handleResetFadeIn}
-              resetTitle="Reset fade in"
-            />
+            <button
+              type="button"
+              onClick={handleResetFadeIn}
+              className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/5 text-white/40 hover:text-white/60 transition-colors cursor-pointer"
+              title="Reset fade in"
+              aria-label="Reset fade in"
+            >
+              <RotateCcw className="w-3 h-3" />
+            </button>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <input
-            type="range"
-            min={0}
-            max={maxFadeSeconds}
-            step={0.01}
+          <SliderTrack
             value={fadeIn}
-            onChange={(e) =>
-              handleUpdate("fadeIn", clampFade(Number(e.target.value)))
-            }
-            className="flex-1 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-cyan-500
-              [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 
-              [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-cyan-500 [&::-webkit-slider-thumb]:cursor-pointer
-              [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full 
-              [&::-moz-range-thumb]:bg-cyan-500 [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
-          />
-          <input
-            type="number"
             min={0}
             max={maxFadeSeconds}
             step={0.01}
-            value={fadeIn.toFixed(2)}
-            onChange={(e) =>
-              handleUpdate("fadeIn", clampFade(parseFloat(e.target.value) || 0))
-            }
-            className="w-16 px-2 py-1 text-[11px] text-white bg-[#2a2a2e] border border-white/10 rounded focus:outline-none focus:border-cyan-500/50 text-right"
+            onChange={(val) => handleUpdate("fadeIn", clampFade(val))}
+          />
+          <NumericControl
+            value={fadeIn}
+            onChange={(val) => handleUpdate("fadeIn", clampFade(val))}
+            step={0.01}
+            min={0}
+            max={maxFadeSeconds}
+            suffix="s"
+            inputWidth="w-16"
+            inputPosition="text-right"
+            decimals={2}
+            ariaLabel="Fade in"
           />
         </div>
       </div>
@@ -344,41 +260,36 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
             <span className="text-[11px] text-white/60 font-mono">
               {fadeOut.toFixed(2)}s
             </span>
-            <KeyframeControls
-              onReset={handleResetFadeOut}
-              resetTitle="Reset fade out"
-            />
+            <button
+              type="button"
+              onClick={handleResetFadeOut}
+              className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/5 text-white/40 hover:text-white/60 transition-colors cursor-pointer"
+              title="Reset fade out"
+              aria-label="Reset fade out"
+            >
+              <RotateCcw className="w-3 h-3" />
+            </button>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <input
-            type="range"
-            min={0}
-            max={maxFadeSeconds}
-            step={0.01}
+          <SliderTrack
             value={fadeOut}
-            onChange={(e) =>
-              handleUpdate("fadeOut", clampFade(Number(e.target.value)))
-            }
-            className="flex-1 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-cyan-500
-              [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 
-              [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-cyan-500 [&::-webkit-slider-thumb]:cursor-pointer
-              [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full 
-              [&::-moz-range-thumb]:bg-cyan-500 [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
-          />
-          <input
-            type="number"
             min={0}
             max={maxFadeSeconds}
             step={0.01}
-            value={fadeOut.toFixed(2)}
-            onChange={(e) =>
-              handleUpdate(
-                "fadeOut",
-                clampFade(parseFloat(e.target.value) || 0),
-              )
-            }
-            className="w-16 px-2 py-1 text-[11px] text-white bg-[#2a2a2e] border border-white/10 rounded focus:outline-none focus:border-cyan-500/50 text-right"
+            onChange={(val) => handleUpdate("fadeOut", clampFade(val))}
+          />
+          <NumericControl
+            value={fadeOut}
+            onChange={(val) => handleUpdate("fadeOut", clampFade(val))}
+            step={0.01}
+            min={0}
+            max={maxFadeSeconds}
+            suffix="s"
+            inputWidth="w-16"
+            inputPosition="text-right"
+            decimals={2}
+            ariaLabel="Fade out"
           />
         </div>
       </div>
@@ -397,37 +308,36 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
                   ? `L ${Math.abs(panPercent)}%`
                   : `R ${panPercent}%`}
             </span>
-            <KeyframeControls
-              onReset={handleResetPan}
-              resetTitle="Reset pan"
-            />
+            <button
+              type="button"
+              onClick={handleResetPan}
+              className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/5 text-white/40 hover:text-white/60 transition-colors cursor-pointer"
+              title="Reset pan"
+              aria-label="Reset pan"
+            >
+              <RotateCcw className="w-3 h-3" />
+            </button>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <input
-            type="range"
+          <SliderTrack
+            value={panPercent}
             min={-100}
             max={100}
             step={1}
-            value={panPercent}
-            onChange={(e) => handlePanChange(Number(e.target.value) / 100)}
-            className="flex-1 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-cyan-500
-              [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 
-              [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-cyan-500 [&::-webkit-slider-thumb]:cursor-pointer
-              [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full 
-              [&::-moz-range-thumb]:bg-cyan-500 [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
+            onChange={(val) => handlePanChange(val / 100)}
           />
-          <input
-            type="number"
+          <NumericControl
+            value={panPercent}
+            onChange={(val) => handlePanChange(val / 100)}
+            step={1}
             min={-100}
             max={100}
-            step={1}
-            value={panPercent}
-            aria-label="Pan"
-            onChange={(e) =>
-              handlePanChange((parseInt(e.target.value, 10) || 0) / 100)
-            }
-            className="w-16 px-2 py-1 text-[11px] text-white bg-[#2a2a2e] border border-white/10 rounded focus:outline-none focus:border-cyan-500/50 text-right"
+            suffix="%"
+            inputWidth="w-16"
+            inputPosition="text-right"
+            decimals={0}
+            ariaLabel="Pan"
           />
         </div>
       </div>

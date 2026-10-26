@@ -100,6 +100,73 @@ async function injectAudioClip(page: Page) {
   });
 }
 
+async function injectVideoClip(page: Page) {
+  await page.evaluate(
+    async ({ clipId }) => {
+      const { useTimelineStore } = await import("/src/store/timelineStore.ts");
+      const { useProjectStore } = await import("/src/store/projectStore.ts");
+      const { useUIStore } = await import("/src/store/uiStore.ts");
+
+      // Register video asset with embedded audio
+      useProjectStore.getState().addMediaAsset({
+        id: "video-asset-props",
+        name: "e2e_sample_video.mp4",
+        path: "/mock/media/sample_video.mp4",
+        type: "video",
+        duration: 10,
+        size: 1024 * 1024,
+        audioChannels: 2,
+        hasAudio: true,
+        streams: [
+          { type: "video", codec: "h264", width: 1920, height: 1080 },
+          { type: "audio", codec: "aac", channels: 2, sampleRate: 48000 },
+        ],
+      } as any);
+
+      const track = useTimelineStore.getState().tracks[0] || {
+        id: "track-v1",
+        name: "Video 1",
+        type: "video",
+        locked: false,
+        muted: false,
+        visible: true,
+        volume: 1,
+        height: 64,
+      };
+
+      const videoClip = {
+        id: clipId,
+        kind: "video",
+        trackId: track.id,
+        mediaId: "video-asset-props",
+        startTime: 0,
+        duration: 10,
+        trimIn: 0,
+        trimOut: 10,
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+        opacity: 1,
+        rotation: 0,
+        volume: 1,
+        fadeIn: 0,
+        fadeOut: 0,
+        pan: 0,
+        aspectRatioLocked: true,
+      };
+
+      useTimelineStore.getState().addClip(videoClip as any);
+      useUIStore.getState().selectClip(clipId);
+    },
+    { clipId: VIDEO_CLIP_ID },
+  );
+
+  await expect(page.locator('[data-properties-panel="true"]')).toBeVisible({
+    timeout: 10_000,
+  });
+}
+
 test.describe("Audio Property Panel: Volume, Fades, Pan, and Reset E2E Suite", () => {
   test.beforeEach(async ({ page }) => {
     await setupEditor(page);
@@ -294,6 +361,110 @@ test.describe("Audio Property Panel: Volume, Fades, Pan, and Reset E2E Suite", (
         return ((clip as any)?.pan ?? 1) === 0;
       },
       { clipId: AUDIO_CLIP_ID },
+      { timeout: 5_000 },
+    );
+  });
+});
+
+test.describe("Video Clip Embedded Audio Tab Suite", () => {
+  test.beforeEach(async ({ page }) => {
+    await setupEditor(page);
+    await injectVideoClip(page);
+  });
+
+  test("SCN-E2E-AUD-04: Video clip navigation to Audio primary tab -> Basic sub-tab, verifying SliderTrack & NumericControl interaction and resets", async ({
+    page,
+  }) => {
+    const panel = page.locator('[data-properties-panel="true"]');
+    await expect(panel).toBeVisible();
+
+    // 1. Switch to Audio Primary Tab
+    const audioTabBtn = panel.getByRole("button", { name: /^Audio$/i });
+    await expect(audioTabBtn).toBeVisible();
+    await audioTabBtn.click();
+
+    // 2. Verify sub-tabs: Basic (active), Voice changer (locked)
+    const basicSubTab = panel.getByRole("button", { name: /^Basic$/i });
+    const voiceChangerSubTab = panel.getByRole("button", {
+      name: /^Voice changer$/i,
+    });
+    await expect(basicSubTab).toBeVisible();
+    await expect(voiceChangerSubTab).toBeVisible();
+    await expect(voiceChangerSubTab).toBeDisabled();
+
+    // 3. Adjust Volume via NumericControl (with Enter key)
+    const volumeInput = panel.getByRole("spinbutton", { name: "Volume" });
+    await expect(volumeInput).toBeVisible();
+    await volumeInput.focus();
+    await volumeInput.fill("75");
+    await volumeInput.press("Enter");
+
+    await page.waitForFunction(
+      async ({ clipId }) => {
+        const { useTimelineStore } = await import("/src/store/timelineStore.ts");
+        const clip = useTimelineStore
+          .getState()
+          .tracks.flatMap((t) => t.clips)
+          .find((c) => c.id === clipId);
+        return Math.abs((clip?.volume ?? 0) - 0.75) < 0.01;
+      },
+      { clipId: VIDEO_CLIP_ID },
+      { timeout: 5_000 },
+    );
+
+    // 4. Reset Volume
+    const resetVolumeBtn = panel.getByRole("button", { name: "Reset volume" });
+    await expect(resetVolumeBtn).toBeVisible();
+    await resetVolumeBtn.click();
+
+    await page.waitForFunction(
+      async ({ clipId }) => {
+        const { useTimelineStore } = await import("/src/store/timelineStore.ts");
+        const clip = useTimelineStore
+          .getState()
+          .tracks.flatMap((t) => t.clips)
+          .find((c) => c.id === clipId);
+        return (clip?.volume ?? 0) === 1.0;
+      },
+      { clipId: VIDEO_CLIP_ID },
+      { timeout: 5_000 },
+    );
+
+    // 5. Adjust Fade in
+    const fadeInInput = panel.getByRole("spinbutton", { name: "Fade in" });
+    await expect(fadeInInput).toBeVisible();
+    await fadeInInput.focus();
+    await fadeInInput.fill("1.8");
+    await fadeInInput.press("Enter");
+
+    await page.waitForFunction(
+      async ({ clipId }) => {
+        const { useTimelineStore } = await import("/src/store/timelineStore.ts");
+        const clip = useTimelineStore
+          .getState()
+          .tracks.flatMap((t) => t.clips)
+          .find((c) => c.id === clipId);
+        return Math.abs((clip?.fadeIn ?? 0) - 1.8) < 0.05;
+      },
+      { clipId: VIDEO_CLIP_ID },
+      { timeout: 5_000 },
+    );
+
+    // 6. Reset Fade in
+    const resetFadeInBtn = panel.getByRole("button", { name: "Reset fade in" });
+    await expect(resetFadeInBtn).toBeVisible();
+    await resetFadeInBtn.click();
+
+    await page.waitForFunction(
+      async ({ clipId }) => {
+        const { useTimelineStore } = await import("/src/store/timelineStore.ts");
+        const clip = useTimelineStore
+          .getState()
+          .tracks.flatMap((t) => t.clips)
+          .find((c) => c.id === clipId);
+        return (clip?.fadeIn ?? 1) === 0;
+      },
+      { clipId: VIDEO_CLIP_ID },
       { timeout: 5_000 },
     );
   });

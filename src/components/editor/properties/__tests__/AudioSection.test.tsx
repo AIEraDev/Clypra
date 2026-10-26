@@ -43,6 +43,7 @@ describe("AudioSection", () => {
 
     const fadeInInput = screen.getAllByRole("spinbutton")[1];
     fireEvent.change(fadeInInput, { target: { value: "4" } });
+    fireEvent.blur(fadeInInput);
 
     expect(handleUpdate).toHaveBeenCalledWith("fadeIn", 2);
   });
@@ -55,6 +56,7 @@ describe("AudioSection", () => {
 
     const volumeInput = screen.getAllByRole("spinbutton")[0];
     fireEvent.change(volumeInput, { target: { value: "50" } });
+    fireEvent.blur(volumeInput);
     expect(handleUpdate).toHaveBeenCalledWith("volume", 0.5);
 
     const muteButton = screen.getByTitle("Mute");
@@ -70,6 +72,7 @@ describe("AudioSection", () => {
 
     const fadeOutInput = screen.getAllByRole("spinbutton")[2];
     fireEvent.change(fadeOutInput, { target: { value: "3" } });
+    fireEvent.blur(fadeOutInput);
     expect(handleUpdate).toHaveBeenCalledWith("fadeOut", 2);
   });
 });
