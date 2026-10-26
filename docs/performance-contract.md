@@ -31,12 +31,13 @@ warm legacy playback and call the result a regression or an improvement.
 | Filmstrip coarse preload | ≤ 300 tiles / ≤ 1.8 MB | Asset-wide coarse baseline (10s to 3h media) |
 | Filmstrip warm session restore | < 10 ms (0 video decodes)| Zero-decode restore from Rust TIER_CACHE / WebP atlas |
 
-### Timeline Zoom, Ruler & Frame Cell Budgets (Proposed)
+### Timeline Zoom, Ruler & Frame Cell Budgets
 
-| Metric | Proposed budget | Scope |
+| Metric | Budget | Scope |
 | --- | ---: | --- |
 | Frame time during zoom gesture | p95 ≤ 16.7 ms; no frame > 100 ms | Continuous wheel / pinch zoom animation |
-| Settle after last input | ≤ 250 ms | From last wheel/touch input to spring idle |
+| Spring settle t99 (×2.49 notch) | ≤ 250 ms | 99th-percentile log-distance covered; tau=45 ms log-space spring |
+| Spring visual settle (×2.49 notch) | ≤ 400 ms | Last frame > 0.5 px off the lane edge; relative rule, not absolute pps threshold |
 | Discrete wheel notches to traverse working range | 6–7 | Full [10 px/s, maxPps] zoom range traversal |
 | Ruler tick generation per render | p95 ≤ 1 ms; cap hits 0 in normal sessions | Viewport tick calculation loop |
 | Frame cell update per rAF | p95 ≤ 50 µs; mismatches = 0 | Ruler header current-frame cell layout |

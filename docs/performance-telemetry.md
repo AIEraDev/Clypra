@@ -194,9 +194,19 @@ Shared version resolver. Reads from `@tauri-apps/api/app`'s `getVersion()` — t
 In-memory telemetry collector for timeline zoom gestures, spring animation convergence, ruler tick calculation, and current-frame cell layout:
 - **Zero-PII & hot-path zero-allocation:** Collects numeric timings using preallocated typed arrays (`Float32Array`, `Int32Array`) on rAF, wheel, and scrub loops.
 - **Fixed wheel buckets:** Categorizes deltaY into `<5`, `5-15`, `15-50`, `50-120`, and `>120` intervals.
-- **Percentiles at flush:** Computes p50/p95 frame times and settle durations via nearest-rank percentile at flush time.
+- **Percentiles at flush:** Computes p50/p95 frame times and settle durations via nearest-rank percentile at flush time. The rollup includes `settle_ms.p99` (the t99 metric used in the performance contract).
 - **Anomaly detection:** Flags windows with frames > 33ms or > 100ms, settle timeouts (> 2000ms), ruler cap hits (> 2500 steps), layout width cap engagement (32M px), or frame-index mismatches against `getFrameIndexAtTime`.
 - **Invariant verification:** Validates that `zoom_out_raised_pps`, `pps_out_of_bounds`, `anchor_drift_gt_1px`, and `conflicting_max_pps` remain strictly 0.
+
+> **Schema note (October 2026):** `settle_ms` records the duration from gesture start to the
+> moment the time-based log-space spring declares itself settled. The settle criterion changed
+> from an absolute `|current - target| < 0.08 px/s` threshold to a **relative 0.5 px visual
+> rule**: the spring is settled when `|log(current/target)| * laneWidth < 0.5 px`. This makes
+> settle duration frame-rate-independent and zoom-level-independent. The performance-contract
+> budgets are t99 ≤ 250 ms and visual settle ≤ 400 ms for a ×2.49 notch at tau = 45 ms.
+> Sessions recorded before this change used the absolute threshold; their `settle_ms` values
+> are not directly comparable. No `schema_version` field increment was required because the
+> field names and types are unchanged — only the triggering condition differs.
 
 ### Rust commands (`src-tauri/src/diagnostics/perf_log.rs`)
 

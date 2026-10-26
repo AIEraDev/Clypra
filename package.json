@@ -74,7 +74,8 @@
     "benchmark:rc1": "node scripts/benchmarks/run-rc1-benchmark.mjs",
     "test:all": "npm run check && npm run benchmark:rc1 && npm run build",
     "mobile:sync": "npm run build && npx cap sync",
-    "mobile:live": "CAPACITOR_LIVE_RELOAD=true npx cap sync"
+    "mobile:live": "CAPACITOR_LIVE_RELOAD=true npx cap sync",
+    "test:perf": "playwright test --config=playwright.perf.config.ts"
   },
   "dependencies": {
     "@capacitor/core": "^8.4.0",

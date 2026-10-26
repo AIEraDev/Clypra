@@ -5,10 +5,15 @@ import { defineConfig, devices } from "@playwright/test";
  * Runs browser-mode end-to-end user interface tests against the Vite frontend
  * with controlled mock boundaries for native Tauri IPC and filesystem APIs.
  *
+ * Performance benchmark specs (tests/e2e/perf/**) are excluded from this config;
+ * run them with `npm run test:perf` (playwright.perf.config.ts) which spins up
+ * a separate dev server, writes JSON output, and is never part of CI by default.
+ *
  * See https://playwright.dev/docs/test-configuration.
  */
 export default defineConfig({
   testDir: "./tests/e2e",
+  testIgnore: ["**/perf/**"],
   outputDir: "./test-results/playwright",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,

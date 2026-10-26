@@ -28,10 +28,18 @@ function TestTimelineZoomContainer() {
 describe("useTimelineZoom discrete wheel notch traversal and stacking (W4)", () => {
   let rafCallbacks: Map<number, FrameRequestCallback>;
   let nextRafId: number;
+  /** Monotonic mock clock shared by performance.now() and RAF callbacks. */
+  let mockNow: number;
 
   beforeEach(() => {
+    mockNow = 1000;
     rafCallbacks = new Map();
     nextRafId = 1;
+    // Advance mock clock 16.67 ms each call so the time-based spring integrates correctly.
+    vi.spyOn(performance, "now").mockImplementation(() => {
+      mockNow += 1000 / 60;
+      return mockNow;
+    });
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
       const id = nextRafId++;
       rafCallbacks.set(id, callback);
@@ -82,6 +90,7 @@ describe("useTimelineZoom discrete wheel notch traversal and stacking (W4)", () 
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -91,7 +100,8 @@ describe("useTimelineZoom discrete wheel notch traversal and stacking (W4)", () 
       const entries = Array.from(rafCallbacks.entries());
       rafCallbacks.clear();
       for (const [, cb] of entries) {
-        cb(performance.now());
+        // mockNow is already advanced by the performance.now() spy; pass current value.
+        cb(mockNow);
       }
       count++;
     }

@@ -6,6 +6,8 @@ describe("TimelineZoomSpring synchronization", () => {
   let container: HTMLDivElement;
   let rafCallbacks: Map<number, FrameRequestCallback>;
   let nextRafId: number;
+  /** Monotonic clock shared by performance.now() mock and RAF callbacks. */
+  let mockNow: number;
   const mockAnchor: ZoomAnchor = {
     anchorTime: 1.0,
     localTimelineX: 100,
@@ -15,8 +17,10 @@ describe("TimelineZoomSpring synchronization", () => {
   };
 
   beforeEach(() => {
+    mockNow = 1000;
     rafCallbacks = new Map();
     nextRafId = 1;
+    vi.spyOn(performance, "now").mockImplementation(() => mockNow);
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
       const id = nextRafId++;
       rafCallbacks.set(id, callback);
@@ -37,15 +41,21 @@ describe("TimelineZoomSpring synchronization", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
+  /**
+   * Flush the next scheduled RAF callback, advancing the mock clock by one
+   * 60 Hz frame (16.67 ms) so the time-based spring integrates correctly.
+   */
   function flushNextFrame(): boolean {
     const next = rafCallbacks.entries().next();
     if (next.done) return false;
     const [id, callback] = next.value;
     rafCallbacks.delete(id);
-    callback(0);
+    mockNow += 1000 / 60; // advance clock one 60 Hz frame
+    callback(mockNow);
     return true;
   }
 
