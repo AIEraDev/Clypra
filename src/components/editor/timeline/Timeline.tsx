@@ -823,6 +823,7 @@ export const Timeline: React.FC = () => {
                 scrollLeft={scrollLeft}
                 sequenceDuration={contentEnd}
                 startOffset={TIMELINE_CLIP_START_OFFSET_PX}
+                viewportWidthPx={viewportWidth}
               />
             </div>
           )}

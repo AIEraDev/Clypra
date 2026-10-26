@@ -26,6 +26,13 @@ interface TimelineRulerProps {
   scrollLeft: number;
   sequenceDuration?: number;
   startOffset?: number;
+  /**
+   * Visible viewport width in pixels (the scroll container's clientWidth, NOT the full
+   * content/canvas width). When provided the ruler skips its internal ResizeObserver and
+   * uses this value directly, preventing the ruler from trying to generate ticks for the
+   * entire scrollable canvas at high zoom levels (CLY-BUG-RULER-CAP).
+   */
+  viewportWidthPx?: number;
 }
 
 /**
@@ -341,6 +348,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
   scrollLeft,
   sequenceDuration,
   startOffset = 0,
+  viewportWidthPx,
 }) => {
   // PERF (8-G / Rank 3): TimelineRuler only needs frameRate, which changes rarely
   // (only on project settings change). Using useProjectStore avoids subscribing to
@@ -348,20 +356,29 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
   // every playback tick even though its content doesn't change with time.
   const frameRate = useProjectStore((s) => s.project?.frameRate ?? 30);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [viewportWidth, setViewportWidth] = useState(1200);
+  // Internal measurement is only used when the parent does not supply viewportWidthPx.
+  // When the parent supplies it (Timeline does via the store) the ResizeObserver is
+  // skipped, avoiding the bug where el.clientWidth equals the full content width
+  // (canvasDuration * pps + startOffset) rather than the visible scroll-container
+  // width, which caused the ruler to generate O(canvasDuration * fps) ticks instead
+  // of O(viewport / pps) ticks, hitting the 2500-step safety cap at high zoom
+  // (CLY-BUG-RULER-CAP).
+  const [internalViewportWidth, setInternalViewportWidth] = useState(1200);
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
 
   const { markers, addMarker, removeMarker, updateMarker } = useTimelineStore();
 
   useEffect(() => {
+    // Skip the ResizeObserver entirely when the parent controls viewport width.
+    if (viewportWidthPx !== undefined) return;
     const el = containerRef.current;
     if (!el) return;
-    const measure = () => setViewportWidth(el.clientWidth || 1200);
+    const measure = () => setInternalViewportWidth(el.clientWidth || 1200);
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [viewportWidthPx]);
 
   const rulerScale = useMemo(
     () => getTimelineRulerScale(pixelsPerSecond, frameRate),
@@ -392,11 +409,17 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
     // Ticks begin at startOffset pixels from the ruler's left edge, so we
     // subtract startOffset from scrollLeft to get the time-domain origin.
     const contentScrollLeft = Math.max(0, validScrollLeft - startOffset);
+    // Use the parent-supplied visible viewport width when available (preferred).
+    // Fall back to the internal ResizeObserver measurement only when the prop is
+    // absent. This prevents the fallback from accidentally measuring the full
+    // content canvas width, which would cause O(timeline_duration * fps) tick
+    // generation and hit the 2500-step safety cap at high zoom (CLY-BUG-RULER-CAP).
+    const resolvedViewportWidth = viewportWidthPx ?? internalViewportWidth;
     const validViewportWidth =
-      typeof viewportWidth === "number" &&
-      !isNaN(viewportWidth) &&
-      viewportWidth > 0
-        ? viewportWidth
+      typeof resolvedViewportWidth === "number" &&
+      !isNaN(resolvedViewportWidth) &&
+      resolvedViewportWidth > 0
+        ? resolvedViewportWidth
         : 1200;
 
     const isTelemetryActive = timelineZoomTelemetry.isEnabled();
@@ -456,7 +479,8 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
   }, [
     pixelsPerSecond,
     scrollLeft,
-    viewportWidth,
+    viewportWidthPx,
+    internalViewportWidth,
     sequenceDuration,
     startOffset,
     frameRate,
