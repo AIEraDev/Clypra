@@ -1031,6 +1031,7 @@ export const NativeProgramPreview: React.FC = () => {
     canvasHeight,
     dimensions.width,
     dimensions.height,
+    previewContainerRef as React.RefObject<HTMLElement>,
   );
   useViewportWheelZoom(previewContainerRef as React.RefObject<HTMLElement>);
   const { isPanning, spacePressed } = useViewportPan(
