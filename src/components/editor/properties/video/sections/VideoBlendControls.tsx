@@ -132,12 +132,19 @@ export const VideoBlendControls: React.FC<VideoBlendControlsProps> = ({
     openCurveEditor(selectedClip.id, "opacity");
   }, [openCurveEditor, selectedClip.id]);
 
+  const handleReset = useCallback(() => {
+    handleUpdate("blendMode", "normal");
+    handleUpdate("opacity", 1);
+  }, [handleUpdate]);
+
   return (
     <div className="space-y-3">
       <PropertySectionHeader
         title="Blend"
         isCollapsed={isBlendCollapsed}
         onToggleCollapse={() => setIsBlendCollapsed(!isBlendCollapsed)}
+        onReset={handleReset}
+        resetTitle="Reset blend"
       />
 
       {!isBlendCollapsed && (

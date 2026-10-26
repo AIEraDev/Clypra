@@ -14,6 +14,7 @@
 
 import React, { useCallback, useMemo, useState } from "react";
 import type { Clip } from "@/types";
+import { useI18n } from "@/i18n";
 import { type ClipFitModeExtended } from "@/lib/timeline/timelineClip";
 import { PropertySectionHeader } from "../../primitives/PropertySectionHeader";
 import { NumericControl } from "../../primitives/NumericControl";
@@ -39,6 +40,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
   handleUpdateMultiple,
   handleApplyFit,
 }) => {
+  const { t } = useI18n();
   const isAspectLocked = selectedClip.aspectRatioLocked ?? true;
   const [isTransformCollapsed, setIsTransformCollapsed] = useState(false);
 
@@ -252,6 +254,84 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
     return 100;
   }, [baseHeight, currentHeight]);
 
+  const handleUpdatePropertyWithKeyframe = useCallback(
+    (prop: "width" | "height" | "x" | "y" | "rotation", value: number) => {
+      const currentKfs = selectedClip.visualKeyframes?.[prop] || [];
+      const existingIdx = currentKfs.findIndex(
+        (kf) => Math.abs(kf.time - localTime) < 0.08,
+      );
+
+      if (existingIdx >= 0) {
+        const nextKfs = [...currentKfs];
+        nextKfs[existingIdx] = {
+          ...nextKfs[existingIdx],
+          value,
+        };
+        handleUpdateMultiple({
+          [prop]: value,
+          visualKeyframes: {
+            ...(selectedClip.visualKeyframes || {}),
+            [prop]: nextKfs,
+          },
+        });
+      } else {
+        handleUpdate(prop, value);
+      }
+    },
+    [selectedClip.visualKeyframes, localTime, handleUpdate, handleUpdateMultiple],
+  );
+
+  // ── Alignment Handlers (respects keyframes) ──────────────────────────────
+  const handleAlignLeft = useCallback(() => {
+    handleUpdatePropertyWithKeyframe("x", 0);
+  }, [handleUpdatePropertyWithKeyframe]);
+
+  const handleAlignCenterX = useCallback(() => {
+    handleUpdatePropertyWithKeyframe(
+      "x",
+      Math.round((canvasWidth - currentWidth) / 2),
+    );
+  }, [canvasWidth, currentWidth, handleUpdatePropertyWithKeyframe]);
+
+  const handleAlignRight = useCallback(() => {
+    handleUpdatePropertyWithKeyframe(
+      "x",
+      Math.round(canvasWidth - currentWidth),
+    );
+  }, [canvasWidth, currentWidth, handleUpdatePropertyWithKeyframe]);
+
+  const handleAlignTop = useCallback(() => {
+    handleUpdatePropertyWithKeyframe("y", 0);
+  }, [handleUpdatePropertyWithKeyframe]);
+
+  const handleAlignCenterY = useCallback(() => {
+    handleUpdatePropertyWithKeyframe(
+      "y",
+      Math.round((canvasHeight - currentHeight) / 2),
+    );
+  }, [canvasHeight, currentHeight, handleUpdatePropertyWithKeyframe]);
+
+  const handleAlignBottom = useCallback(() => {
+    handleUpdatePropertyWithKeyframe(
+      "y",
+      Math.round(canvasHeight - currentHeight),
+    );
+  }, [canvasHeight, currentHeight, handleUpdatePropertyWithKeyframe]);
+
+  // ── Reset Handler (Scale to 100%, center position, 0 rotation) ────────────
+  const handleReset = useCallback(() => {
+    const defaultX = Math.round((canvasWidth - baseWidth) / 2);
+    const defaultY = Math.round((canvasHeight - baseHeight) / 2);
+    handleUpdateMultiple({
+      x: defaultX,
+      y: defaultY,
+      width: baseWidth,
+      height: baseHeight,
+      rotation: 0,
+      aspectRatioLocked: true,
+    });
+  }, [canvasWidth, canvasHeight, baseWidth, baseHeight, handleUpdateMultiple]);
+
   /**
    * Translate the clip so its center lands at the given canvas-relative offset.
    * +x = right of center, +y = above center (Y axis is inverted for storage).
@@ -259,23 +339,29 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
   const handleDisplayXChange = useCallback(
     (nextDisplayX: number) => {
       const nextCenterX = canvasWidth / 2 + nextDisplayX;
-      handleUpdate("x", Math.round(nextCenterX - currentWidth / 2));
+      handleUpdatePropertyWithKeyframe(
+        "x",
+        Math.round(nextCenterX - currentWidth / 2),
+      );
     },
-    [canvasWidth, currentWidth, handleUpdate],
+    [canvasWidth, currentWidth, handleUpdatePropertyWithKeyframe],
   );
 
   const handleDisplayYChange = useCallback(
     (nextDisplayY: number) => {
       const nextCenterY = canvasHeight / 2 - nextDisplayY;
-      handleUpdate("y", Math.round(nextCenterY - currentHeight / 2));
+      handleUpdatePropertyWithKeyframe(
+        "y",
+        Math.round(nextCenterY - currentHeight / 2),
+      );
     },
-    [canvasHeight, currentHeight, handleUpdate],
+    [canvasHeight, currentHeight, handleUpdatePropertyWithKeyframe],
   );
 
   /** Rotation in degrees, stored directly on the clip. */
   const handleRotationChange = useCallback(
-    (val: number) => handleUpdate("rotation", val),
-    [handleUpdate],
+    (val: number) => handleUpdatePropertyWithKeyframe("rotation", val),
+    [handleUpdatePropertyWithKeyframe],
   );
 
   /**
@@ -296,9 +382,11 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
     <div className="space-y-4">
       {/* Transform Section Header */}
       <PropertySectionHeader
-        title="Transform"
+        title={t("properties.transform.title") || "Transform"}
         isCollapsed={isTransformCollapsed}
         onToggleCollapse={() => setIsTransformCollapsed(!isTransformCollapsed)}
+        onReset={handleReset}
+        resetTitle={t("properties.transform.reset") || "Reset transform"}
       />
 
       {/* Transform Controls - Collapsible */}
@@ -528,65 +616,70 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
           {/* Alignment buttons */}
           <div className="flex items-center rounded-sm">
             <button
-              className="bg-[#27272a] w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
-              title="Align left"
+              type="button"
+              className="bg-[#27272a] hover:bg-[#3f3f46] text-zinc-300 hover:text-white w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
+              title={t("properties.transform.alignLeft") || "Align left"}
+              aria-label={t("properties.transform.alignLeft") || "Align left"}
+              onClick={handleAlignLeft}
             >
               {/* prettier-ignore */}
               <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="12px" viewBox="0 0 24 24"><path d="M0 0h24v24H0z" fill="none" /><path fill="currentColor" d="M2 22V2h2v20zm4-5v-3h10v3zm0-7V7h16v3z" /></svg>
             </button>
 
             <button
-              className="bg-[#27272a] w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
-              title="Align center"
+              type="button"
+              className="bg-[#27272a] hover:bg-[#3f3f46] text-zinc-300 hover:text-white w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
+              title={t("properties.transform.alignCenterX") || "Align center horizontally"}
+              aria-label={t("properties.transform.alignCenterX") || "Align center horizontally"}
+              onClick={handleAlignCenterX}
             >
               {/* prettier-ignore */}
               <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="12px" viewBox="0 0 24 24"><path d="M0 0h24v24H0z" fill="none" /><path fill="currentColor" fillRule="evenodd" d="M11 13v-2H6.286C5.023 11 4 10.105 4 9s1.023-2 2.286-2H11V3a1 1 0 0 1 2 0v4h4.714C18.977 7 20 7.895 20 9s-1.023 2-2.286 2H13v2h3a2 2 0 1 1 0 4h-3v4a1 1 0 0 1-2 0v-4H8a2 2 0 1 1 0-4z" /></svg>
             </button>
 
             <button
-              className="bg-[#27272a] w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
-              title="Align right"
+              type="button"
+              className="bg-[#27272a] hover:bg-[#3f3f46] text-zinc-300 hover:text-white w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
+              title={t("properties.transform.alignRight") || "Align right"}
+              aria-label={t("properties.transform.alignRight") || "Align right"}
+              onClick={handleAlignRight}
             >
               {/* prettier-ignore */}
               <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="12px" viewBox="0 0 24 24"><path d="M0 0h24v24H0z" fill="none" /><path fill="currentColor" d="M20 22V2h2v20zM8 17v-3h10v3zm-6-7V7h16v3z" /></svg>
             </button>
 
             <button
-              className="bg-[#27272a] w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
-              title="Align top"
+              type="button"
+              className="bg-[#27272a] hover:bg-[#3f3f46] text-zinc-300 hover:text-white w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
+              title={t("properties.transform.alignTop") || "Align top"}
+              aria-label={t("properties.transform.alignTop") || "Align top"}
+              onClick={handleAlignTop}
             >
               {/* prettier-ignore */}
               <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="12px" viewBox="0 0 24 24"><path d="M0 0h24v24H0z" fill="none" /><path fill="currentColor" d="M7 22V6h3v16zm7-6V6h3v10zM2 4V2h20v2z" /></svg>
             </button>
 
             <button
-              className="bg-[#27272a] w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
-              title="Align middle"
+              type="button"
+              className="bg-[#27272a] hover:bg-[#3f3f46] text-zinc-300 hover:text-white w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
+              title={t("properties.transform.alignCenterY") || "Align center vertically"}
+              aria-label={t("properties.transform.alignCenterY") || "Align center vertically"}
+              onClick={handleAlignCenterY}
             >
               {/* prettier-ignore */}
               <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="12px" viewBox="0 0 24 24"><path d="M0 0h24v24H0z" fill="none" /><path fill="currentColor" fillRule="evenodd" d="M17 13v2a2 2 0 1 1-4 0v-2h-2v4.714C11 18.977 10.105 20 9 20s-2-1.023-2-2.286V13H3a1 1 0 0 1 0-2h4V6.286C7 5.023 7.895 4 9 4s2 1.023 2 2.286V11h2V9a2 2 0 1 1 4 0v2h4a1 1 0 0 1 0 2z" /></svg>
             </button>
 
             <button
-              className="bg-[#27272a] w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
-              title="Align bottom"
+              type="button"
+              className="bg-[#27272a] hover:bg-[#3f3f46] text-zinc-300 hover:text-white w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
+              title={t("properties.transform.alignBottom") || "Align bottom"}
+              aria-label={t("properties.transform.alignBottom") || "Align bottom"}
+              onClick={handleAlignBottom}
             >
               {/* prettier-ignore */}
               <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="12px" viewBox="0 0 24 24"><path d="M0 0h24v24H0z" fill="none" /><path fill="currentColor" d="M2 22v-2h20v2zm5-4V2h3v16zm7 0V8h3v10z" /></svg>
             </button>
-
-            {/* <button
-          className="bg-[#27272a] w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
-          title="Distribute horizontal"
-        >
-         
-        </button>
-        <button
-          className="bg-[#27272a] w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
-          title="Distribute vertical"
-        >
-         
-        </button> */}
           </div>
         </div>
       )}

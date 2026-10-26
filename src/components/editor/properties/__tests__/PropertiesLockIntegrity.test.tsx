@@ -16,6 +16,7 @@ vi.mock("@/i18n", () => ({
         "properties.tabs.basic": "Basic",
         "properties.tabs.speed": "Speed",
         "properties.tabs.voiceChanger": "Voice changer",
+        "properties.transform.title": "Transform",
       };
       return dict[key] || key;
     },
