@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
-import { getClipVisibleDuration, normalizeClipTiming, getClipEndTime, getTimelineContentEnd, getTimelineCanvasDuration } from "../timelineClip";
+import { getClipVisibleDuration, normalizeClipTiming, getClipEndTime, getTimelineContentEnd, getTimelineCanvasDuration, createClipFromAsset } from "../timelineClip";
 import type { Clip, MediaAsset } from "@/types";
 
 describe("timelineClip Invariants & Generative Tests", () => {
@@ -97,6 +97,120 @@ describe("timelineClip Invariants & Generative Tests", () => {
 
     it("returns 0 for empty clip list", () => {
       expect(getTimelineContentEnd([])).toBe(0);
+    });
+  });
+
+  // ─── Regression: CLY-BUG-AUDIO-WAVEFORM ─────────────────────────────────────
+  // createClipFromAsset must always set audioPath on audio clips so that
+  // useWaveformData receives a non-empty path.  Before the fix, the guard
+  // `audioPath && asset.type === "audio"` silently dropped the field when the
+  // caller omitted audioPath, leaving VolumeWaveform with an empty string and
+  // rendering a blank canvas.
+  describe("createClipFromAsset — audio clip audioPath regression (CLY-BUG-AUDIO-WAVEFORM)", () => {
+    const baseAudioAsset: MediaAsset = {
+      id: "asset-audio-1",
+      name: "Heavy urban traffic.wav",
+      path: "/Users/Test/Music/Heavy urban traffic.wav",
+      type: "audio",
+      duration: 286,
+      size: 82_000_000,
+    };
+
+    it("sets audioPath from asset.path when no explicit audioPath is given (file-drop / MediaTab drag path)", () => {
+      const clip = createClipFromAsset({
+        asset: baseAudioAsset,
+        trackId: "track-1",
+        startTime: 0,
+        width: 1920,
+        height: 1080,
+      });
+      // audioPath must be non-empty so VolumeWaveform can render the waveform
+      expect((clip as any).audioPath).toBe(baseAudioAsset.path);
+      expect((clip as any).audioPath).not.toBe("");
+    });
+
+    it("prefers an explicit audioPath over asset.path when provided", () => {
+      const explicitPath = "/Library/explicit/path.wav";
+      const clip = createClipFromAsset({
+        asset: baseAudioAsset,
+        trackId: "track-1",
+        startTime: 0,
+        width: 1920,
+        height: 1080,
+        audioPath: explicitPath,
+      });
+      expect((clip as any).audioPath).toBe(explicitPath);
+    });
+
+    it("does NOT set audioPath on video clips", () => {
+      const videoAsset: MediaAsset = {
+        id: "asset-video-1",
+        name: "clip.mp4",
+        path: "/path/clip.mp4",
+        type: "video",
+        duration: 10,
+        size: 1024,
+        width: 1920,
+        height: 1080,
+      };
+      const clip = createClipFromAsset({
+        asset: videoAsset,
+        trackId: "track-1",
+        startTime: 0,
+        width: 1920,
+        height: 1080,
+      });
+      // Video clips should not carry a top-level audioPath (audio is nested in clip.audio)
+      expect((clip as any).audioPath).toBeUndefined();
+    });
+
+    it("does NOT set audioPath on image clips", () => {
+      const imageAsset: MediaAsset = {
+        id: "asset-image-1",
+        name: "photo.jpg",
+        path: "/path/photo.jpg",
+        type: "image",
+        duration: 5,
+        size: 2048,
+        width: 4000,
+        height: 3000,
+      };
+      const clip = createClipFromAsset({
+        asset: imageAsset,
+        trackId: "track-1",
+        startTime: 0,
+        width: 1920,
+        height: 1080,
+      });
+      expect((clip as any).audioPath).toBeUndefined();
+    });
+
+    it("audioPath is always a non-empty string for any audio asset with a non-empty path", () => {
+      fc.assert(
+        fc.property(
+          fc.string({ minLength: 1 }).filter((s) => s.trim().length > 0),
+          fc.float({ min: 1, max: 3600, noNaN: true }),
+          (assetPath, duration) => {
+            const asset: MediaAsset = {
+              id: "asset-audio-gen",
+              name: "audio.wav",
+              path: assetPath,
+              type: "audio",
+              duration,
+              size: 1000,
+            };
+            const clip = createClipFromAsset({
+              asset,
+              trackId: "t1",
+              startTime: 0,
+              width: 1920,
+              height: 1080,
+            });
+            expect(typeof (clip as any).audioPath).toBe("string");
+            expect((clip as any).audioPath.length).toBeGreaterThan(0);
+          }
+        )
+      );
     });
   });
 });

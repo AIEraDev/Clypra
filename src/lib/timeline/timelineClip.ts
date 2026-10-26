@@ -242,7 +242,7 @@ export const createClipFromAsset = ({ asset, trackId, startTime, width, height, 
       stickerSourceId: asset.stickerSourceId,
       ...(isSticker && { stickerImagePath: asset.path }),
     }),
-    ...(audioPath && asset.type === "audio" && { audioPath }), // Include audioPath for audio clips
+    ...(asset.type === "audio" && { audioPath: audioPath || asset.path }), // Always populate audioPath for audio clips (falls back to asset.path so waveform works even when mediaAsset lookup fails) // Always populate audioPath for audio clips (falls back to asset.path so waveform works even when mediaAsset lookup fails)
     ...((asset.type === "audio" || asset.type === "video") && {
       audio: normalizeClipAudioProperties({ kind, audioPath, volume: 1 }),
     }),
