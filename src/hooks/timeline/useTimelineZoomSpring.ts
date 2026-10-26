@@ -2,17 +2,9 @@ import { filmstripTelemetry } from "@/lib/filmstrip/filmstripTelemetry";
 import { timelineZoomTelemetry } from "@/lib/timeline/timelineZoomTelemetry";
 import { getAnchoredZoomScrollLeft } from "@/lib/timeline/timelineViewport";
 import { clampTimelinePixelsPerSecond } from "@/lib/timeline/timelineZoom";
+import { hasZoomSettled, stepZoomSpring } from "@/lib/timeline/zoomSpringMath";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
-
-/**
- * Per-frame exponential decay constant — controls how quickly currentPps chases targetPps.
- * k = 0.22 → ~120ms to within 1% of target at 60fps. Matches Final Cut Pro feel.
- * Increase for snappier (Premiere-like, k≈0.3) or decrease for floatier (DaVinci-like, k≈0.14).
- */
-const SPRING_K = 0.22;
-/** Stop the spring animation when the gap is smaller than this (pps). */
-const SETTLE_THRESHOLD_PPS = 0.08;
 /**
  * Friction multiplier applied to inertia velocity each frame.
  * 0.88 → ~50% speed after 6 frames (≈100ms deceleration).
@@ -56,6 +48,8 @@ export class TimelineZoomSpring {
   private isApplyingFrame = false;
   private animationGeneration = 0;
   private animationStartTime: number | null = null;
+  /** Timestamp of the previous tick, for time-based spring integration. */
+  private lastTickMs = 0;
   private lastTickTime: number | null = null;
   private unsubscribeStore: () => void;
 
@@ -78,6 +72,7 @@ export class TimelineZoomSpring {
           }
           this.animationStartTime = null;
           this.lastTickTime = null;
+          this.lastTickMs = 0;
           this.mode = "idle";
           filmstripTelemetry.endZoomGesture();
         }
@@ -133,6 +128,7 @@ export class TimelineZoomSpring {
     this.anchor = anchor;
     this.inertiaVelocity = 0;
     this.mode = "spring";
+    this.lastTickMs = 0;
     if (timelineZoomTelemetry.isEnabled() && this.animationStartTime === null) {
       this.animationStartTime = performance.now();
     }
@@ -172,6 +168,7 @@ export class TimelineZoomSpring {
     }
     this.animationStartTime = null;
     this.lastTickTime = null;
+    this.lastTickMs = 0;
     this.mode = "idle";
     this.unsubscribeStore();
   }
@@ -210,11 +207,16 @@ export class TimelineZoomSpring {
     }
 
     if (this.mode === "spring") {
-      const diff = this.targetPps - this.currentPps;
-      if (Math.abs(diff) < SETTLE_THRESHOLD_PPS) {
+      // Time-based log-space spring: frame-rate independent, relative settle criterion.
+      const nowMs = performance.now();
+      const dtMs = this.lastTickMs > 0 ? nowMs - this.lastTickMs : 1000 / 60;
+      this.lastTickMs = nowMs;
+
+      if (hasZoomSettled(this.currentPps, this.targetPps, this.anchor.containerWidth)) {
         // Snap to target and stop.
         this.currentPps = this.targetPps;
         this.applyFrame();
+        this.lastTickMs = 0;
         this.mode = "idle";
         if (isTelemetryActive) {
           const duration = this.animationStartTime !== null ? now - this.animationStartTime : 0;
@@ -226,7 +228,7 @@ export class TimelineZoomSpring {
         filmstripTelemetry.endZoomGesture();
         return;
       }
-      this.currentPps += diff * SPRING_K;
+      this.currentPps = stepZoomSpring(this.currentPps, this.targetPps, dtMs);
       this.applyFrame();
       this.rafId = requestAnimationFrame(() => this.tick());
 

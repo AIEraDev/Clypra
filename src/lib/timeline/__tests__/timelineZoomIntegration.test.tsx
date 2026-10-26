@@ -167,7 +167,7 @@ describe("Timeline Zoom, Ruler & Frame Cell Integration Suite", () => {
     expect(rollup?.settle_ms.timeouts).toBe(1);
   });
 
-  it("smooth spring animation avoids visible snap at 2000ms and records timeout anomaly upon settle", () => {
+  it("smooth spring animation is time-based and records timeout anomaly upon settle", () => {
     const container = document.createElement("div");
     container.style.width = "1000px";
     container.scrollLeft = 0;
@@ -178,27 +178,34 @@ describe("Timeline Zoom, Ruler & Frame Cell Integration Suite", () => {
     let currentTime = 1000;
     vi.spyOn(performance, "now").mockImplementation(() => currentTime);
 
-    // Start spring targeting 500 px/s from 100 px/s
-    spring.setTarget(500, {
+    const anchor = {
       localTimelineX: 100,
       anchorTime: 1.0,
       containerWidth: 1000,
       viewportEndSeconds: 60,
       hasClips: false,
-    });
+    };
 
-    // Advance time past 2000ms (e.g. to 3500ms) while spring ticks
-    currentTime = 3500;
+    // Start spring targeting 500 px/s from 100 px/s.
+    spring.setTarget(500, anchor);
+
+    // Advance one tick with dt = 16.67 ms (first tick gets fallback dt = 1000/60).
+    // The time-based spring should move toward target but not snap.
+    currentTime = 1016.67;
     (spring as any).tick();
-
-    // Verify currentPps did NOT snap to 500; it smoothly stepped without jumping
-    expect(spring.getCurrentPps()).toBeLessThan(500);
     expect(spring.getCurrentPps()).toBeGreaterThan(100);
+    expect(spring.getCurrentPps()).toBeLessThan(500);
 
-    // Let the spring settle (diff = 0.04 < SETTLE_THRESHOLD_PPS 0.08)
-    (spring as any).currentPps = 499.96;
+    // Advance time so the total gesture exceeds 2000 ms, then drive the spring
+    // to settled state by setting currentPps close enough to trigger hasZoomSettled.
+    currentTime = 3500;
+    // Force spring close enough to target that hasZoomSettled returns true (within 0.5px/1000px lane).
+    // epsilon = 0.5/1000 = 5e-4; |log(499.9/500)| ≈ 2e-4 < 5e-4 → settled.
+    (spring as any).currentPps = 499.9;
+    (spring as any).lastTickMs = 3483; // so dtMs = ~17ms, normal tick
     (spring as any).tick();
 
+    expect(spring.isIdle()).toBe(true);
     expect(spring.getCurrentPps()).toBe(500);
 
     const rollup = timelineZoomTelemetry.drain();
