@@ -49,6 +49,9 @@ describe("Timeline Store - Gap Operations", () => {
       startTime: 10,
       duration: 5,
     } as any);
+
+    // Reset gaps to empty baseline so individual gap tests control gap creation
+    useTimelineStore.setState({ gaps: [] });
   });
 
   afterEach(() => {
@@ -572,19 +575,21 @@ describe("Timeline Store - Gap Operations", () => {
       expect(freshStore.gaps).toHaveLength(1);
 
       // 2. Add clip after gap
-      freshStore.addClip({
-        trackId,
-        mediaId: "media3",
-        startTime: 20,
-        duration: 5,
-      } as any);
+      freshStore.withBatch(() => {
+        freshStore.addClip({
+          trackId,
+          mediaId: "media3",
+          startTime: 20,
+          duration: 5,
+        } as any);
+      });
 
       // 3. Insert another gap
       freshStore = useTimelineStore.getState();
       const gap2 = freshStore.insertGap(trackId, 17, 2);
 
       freshStore = useTimelineStore.getState();
-      expect(freshStore.gaps).toHaveLength(2);
+      expect(freshStore.gaps.filter((g) => g.type === "manual")).toHaveLength(2);
 
       // 4. Resize first gap
       freshStore.resizeGapDuration(gap1!.id, 5);

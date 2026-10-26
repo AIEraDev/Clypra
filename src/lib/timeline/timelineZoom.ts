@@ -80,7 +80,7 @@ export function clampTimelinePixelsPerSecond(
       ? pps
       : TIMELINE_ZOOM_DEFAULT * TIMELINE_PPS_PER_ZOOM;
   if (Math.abs(val - maxPps) < 0.001) return maxPps;
-  if (Math.abs(val - minPps) < 0.001) return minPps;
+  if (Math.abs(val - minPps) < 1e-7) return val;
   return Math.min(maxPps, Math.max(minPps, val));
 }
 

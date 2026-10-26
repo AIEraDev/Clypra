@@ -618,9 +618,26 @@ describe("Timeline drag interactions", () => {
 
 describe("Timeline wheel zoom", () => {
   beforeEach(() => {
-    // Coalesced zoom uses requestAnimationFrame; run flush synchronously in tests.
+    // Coalesced zoom uses requestAnimationFrame; run flush in test harness with re-entrancy guard.
+    let isExecutingRaf = false;
+    let simulatedTime = 1000;
+    const rafQueue: Array<(time: number) => void> = [];
     vi.stubGlobal("requestAnimationFrame", (cb: (time: number) => void) => {
-      cb(0);
+      rafQueue.push(cb);
+      if (!isExecutingRaf) {
+        isExecutingRaf = true;
+        let iterations = 0;
+        try {
+          while (rafQueue.length > 0 && iterations < 60) {
+            iterations++;
+            simulatedTime += 16.6;
+            const next = rafQueue.shift();
+            next?.(simulatedTime);
+          }
+        } finally {
+          isExecutingRaf = false;
+        }
+      }
       return 1;
     });
     vi.stubGlobal("cancelAnimationFrame", vi.fn());

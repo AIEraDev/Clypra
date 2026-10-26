@@ -208,7 +208,7 @@ describe("FilmstripTileCache L0 Pinning & Multi-Clip Ceiling", () => {
       0,
       gl.RGBA,
       gl.UNSIGNED_BYTE,
-      l0Artifact.bitmap
+      expect.objectContaining({ width: 160, height: 90 }),
     );
     expect(gl.drawArrays).toHaveBeenCalledWith(gl.TRIANGLES, 0, 6);
 

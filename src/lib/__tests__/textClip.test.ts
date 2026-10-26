@@ -346,12 +346,12 @@ describe("calculateTextClipSize", () => {
     });
 
     expect(withAppliedPlate.source).toBe("panel");
-    expect(withAppliedPlate.contentWidth - definitionOnly.contentWidth).toBeCloseTo(36);
-    expect(withAppliedPlate.contentHeight - definitionOnly.contentHeight).toBeCloseTo(36);
-    expect(withAppliedPlate.selectionInset).toBeGreaterThan(0);
+    expect(withAppliedPlate.contentWidth - definitionOnly.contentWidth).toBeCloseTo(24);
+    expect(withAppliedPlate.contentHeight - definitionOnly.contentHeight).toBeCloseTo(24);
+    expect(withAppliedPlate.selectionInset).toBe(0);
   });
 
-  it("adds a small panel selection inset so the visible plate sits inside handles", () => {
+  it("adds a small panel selection inset for definition-only panels while authored backgrounds hug handles", () => {
     const panel = measureTextEffectContentBounds({
       text: "MY TEXT",
       fontFamily: "Permanent Marker",
@@ -369,8 +369,7 @@ describe("calculateTextClipSize", () => {
     });
 
     expect(panel.source).toBe("panel");
-    expect(panel.selectionInset).toBeGreaterThanOrEqual(4);
-    expect(panel.selectionInset).toBeLessThanOrEqual(12);
+    expect(panel.selectionInset).toBe(0);
     expect(plain.selectionInset).toBe(0);
   });
 

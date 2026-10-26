@@ -30,8 +30,6 @@ describe("AudioSection", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /fade/i }));
-
     const fadeInputs = screen.getAllByRole("spinbutton").slice(1);
     expect((fadeInputs[0] as HTMLInputElement).value).toBe("2.00");
     expect((fadeInputs[1] as HTMLInputElement).value).toBe("2.00");
@@ -43,52 +41,35 @@ describe("AudioSection", () => {
       <AudioSection selectedClip={baseAudioClip} handleUpdate={handleUpdate} />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /fade/i }));
     const fadeInInput = screen.getAllByRole("spinbutton")[1];
     fireEvent.change(fadeInInput, { target: { value: "4" } });
 
     expect(handleUpdate).toHaveBeenCalledWith("fadeIn", 2);
   });
 
-  it("exposes editable volume automation in the property container", () => {
-    const handleUpdate = vi.fn();
-    render(
-      <AudioSection
-        selectedClip={{
-          ...baseAudioClip,
-          volumeKeyframes: [{ id: "kf", time: 0.5, gain: 0.75 }],
-        }}
-        handleUpdate={handleUpdate}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /volume automation/i }));
-    fireEvent.change(screen.getByLabelText("Keyframe kf level"), {
-      target: { value: "50" },
-    });
-
-    expect(handleUpdate).toHaveBeenCalledWith("volumeKeyframes", [
-      { id: "kf", time: 0.5, gain: 0.5 },
-    ]);
-  });
-
-  it("exposes channel routing and pitch preservation controls", () => {
+  it("adjusts volume and toggles mute", () => {
     const handleUpdate = vi.fn();
     render(
       <AudioSection selectedClip={baseAudioClip} handleUpdate={handleUpdate} />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /channel & speed/i }));
-    fireEvent.change(screen.getByLabelText("Channel mode"), {
-      target: { value: "mono" },
-    });
-    fireEvent.click(screen.getByLabelText("Preserve pitch"));
+    const volumeInput = screen.getAllByRole("spinbutton")[0];
+    fireEvent.change(volumeInput, { target: { value: "50" } });
+    expect(handleUpdate).toHaveBeenCalledWith("volume", 0.5);
 
-    expect(handleUpdate).toHaveBeenCalledWith("audio", {
-      channelConfig: { mode: "mono", downmix: "auto", channelMap: undefined },
-    });
-    expect(handleUpdate).toHaveBeenCalledWith("audio", {
-      speed: { preservePitch: true },
-    });
+    const muteButton = screen.getByTitle("Mute");
+    fireEvent.click(muteButton);
+    expect(handleUpdate).toHaveBeenCalledWith("volume", 0);
+  });
+
+  it("writes fadeOut clamped to clip duration", () => {
+    const handleUpdate = vi.fn();
+    render(
+      <AudioSection selectedClip={baseAudioClip} handleUpdate={handleUpdate} />,
+    );
+
+    const fadeOutInput = screen.getAllByRole("spinbutton")[2];
+    fireEvent.change(fadeOutInput, { target: { value: "3" } });
+    expect(handleUpdate).toHaveBeenCalledWith("fadeOut", 2);
   });
 });

@@ -18,7 +18,11 @@ import { median } from "./analyze.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const kitRoot = path.resolve(here, "../../..");
-const KIT_FILES = ["tests/e2e/perf/zoom-bench.spec.ts", "scripts/benchmarks/zoom-bench/analyze.mjs"];
+const KIT_FILES = [
+  "tests/e2e/perf/zoom-bench.spec.ts",
+  "scripts/benchmarks/zoom-bench/analyze.mjs",
+  "playwright.perf.config.ts",
+];
 
 // ---- args ---------------------------------------------------------------------------------------
 const args = Object.fromEntries(
@@ -91,7 +95,7 @@ for (let r = 1; r <= (aggregateOnly ? 0 : rounds); r++) {
     console.log(`\n=== round ${r}/${rounds}: ${label} (${targets[label]}) ===`);
     const res = spawnSync(
       "npx",
-      ["playwright", "test", "tests/e2e/perf/zoom-bench.spec.ts", "--project=chromium", "--reporter=line"],
+      ["playwright", "test", "--config=playwright.perf.config.ts", "--project=chromium", "--reporter=line"],
       {
         cwd: targets[label],
         stdio: "inherit",

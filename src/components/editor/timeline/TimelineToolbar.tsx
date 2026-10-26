@@ -347,7 +347,7 @@ const TimelineToolbarComponent: React.FC = () => {
             <Button title={t("timeline.tools.fitSequence")} variant="ghost" size="icon-xs" className={zoomButton} onClick={fitSequence} disabled={!hasTimelineContent} aria-label={t("timeline.tools.fitSequence")}>
               <Maximize2 className="w-3 h-3" strokeWidth={2} />
             </Button>
-            <Button title={t("timeline.tools.zoomOut")} variant="ghost" size="icon-xs" className={zoomButton} onClick={() => zoomByStep(-1)} disabled={!hasTimelineContent || zoomLevel <= TIMELINE_ZOOM_MIN} aria-label={t("timeline.tools.zoomOut")}>
+            <Button title={t("timeline.tools.zoomOut")} variant="ghost" size="icon-xs" className={zoomButton} onClick={() => zoomByStep(-1)} disabled={!hasTimelineContent || zoomLevel <= TIMELINE_ZOOM_MIN} aria-label={t("timeline.tools.zoomOutTimeline")}>
               <ZoomOut className="w-3 h-3" strokeWidth={2} />
             </Button>
 
@@ -361,7 +361,7 @@ const TimelineToolbarComponent: React.FC = () => {
               <div data-testid="timeline-zoom-thumb" className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-accent bg-surface" style={{ left: `${zoomThumbLeftPx}px` }} />
             </div>
 
-            <Button title={t("timeline.tools.zoomIn")} variant="ghost" size="icon-xs" className={zoomButton} onClick={() => zoomByStep(1)} disabled={!hasTimelineContent || zoomLevel >= maxZoom} aria-label={t("timeline.tools.zoomIn")}>
+            <Button title={t("timeline.tools.zoomIn")} variant="ghost" size="icon-xs" className={zoomButton} onClick={() => zoomByStep(1)} disabled={!hasTimelineContent || zoomLevel >= maxZoom} aria-label={t("timeline.tools.zoomInTimeline")}>
               <ZoomIn className="w-3.5 h-3.5" strokeWidth={2} />
             </Button>
           </span>

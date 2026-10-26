@@ -67,7 +67,7 @@ describe("toast notification localization", () => {
 
     toast.warning("audio.clip_exceeds_memory_limit");
     expect(sonner.warning).toHaveBeenCalledWith(
-      "Audio clip exceeds the 256 MB memory limit and could not be loaded for playback.",
+      "Audio clip is too long for playback. Split the clip on the timeline into shorter sections to enable playback.",
       undefined,
     );
 

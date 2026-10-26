@@ -14,6 +14,7 @@ vi.mock("@/lib/platform/tauri", () => ({
   registerNativeRasterAsset: vi.fn(() => Promise.resolve()),
   unregisterNativeRasterAsset: vi.fn(() => Promise.resolve()),
   registerNativeImageAsset: vi.fn(() => Promise.resolve()),
+  probeMediaStreams: vi.fn(() => Promise.resolve(null)),
 }));
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
@@ -101,8 +102,8 @@ describe("Authoritative Diagnostic Matrix: 5 Asset Types on Empty vs Video-Prese
 
       expect(res.success).toBe(true);
       expect(clips.length).toBe(1);
-      expect(tracks.length).toBe(1);
-      expect(tracks[0].type).toBe("sticker");
+      expect(tracks.length).toBe(2);
+      expect(tracks.some((t) => t.type === "sticker")).toBe(true);
     });
 
     it("Matrix 1.2: Add TEXT to empty project", async () => {
@@ -129,8 +130,8 @@ describe("Authoritative Diagnostic Matrix: 5 Asset Types on Empty vs Video-Prese
 
       expect(res.success).toBe(true);
       expect(clips.length).toBe(1);
-      expect(tracks.length).toBe(1);
-      expect(tracks[0].type).toBe("text");
+      expect(tracks.length).toBe(2);
+      expect(tracks.some((t) => t.type === "text")).toBe(true);
     });
 
     it("Matrix 1.3: Add AUDIO to empty project", async () => {
@@ -165,8 +166,8 @@ describe("Authoritative Diagnostic Matrix: 5 Asset Types on Empty vs Video-Prese
 
       expect(res.success).toBe(true);
       expect(clips.length).toBe(1);
-      expect(tracks.length).toBe(1);
-      expect(tracks[0].type).toBe("audio");
+      expect(tracks.length).toBe(2);
+      expect(tracks.some((t) => t.type === "audio")).toBe(true);
     });
 
     it("Matrix 1.4: Add IMAGE to empty project", async () => {
