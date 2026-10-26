@@ -184,7 +184,7 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
       )}
 
       {/* Legacy: Audio properties (audio clips or video clips without tabs) */}
-      {hasAudioTrack && !isVideoClip && (
+      {hasAudioTrack && !isVideoClip && !activePropertyTab && (
         <AudioSection
           selectedClip={selectedClip}
           handleUpdate={handleUpdate}
