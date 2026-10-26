@@ -542,13 +542,16 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
             <div className="flex gap-0.5 bg-[#18181b] p-0.5 rounded-md">
               {(
                 [
-                  ["left", AlignLeft],
-                  ["center", AlignCenter],
-                  ["right", AlignRight],
+                  ["left", AlignLeft, "Align left"],
+                  ["center", AlignCenter, "Align center"],
+                  ["right", AlignRight, "Align right"],
                 ] as const
-              ).map(([align, Icon]) => (
+              ).map(([align, Icon, label]) => (
                 <button
                   key={align}
+                  type="button"
+                  title={label}
+                  aria-label={label}
                   onClick={() => handleUpdate("align", align)}
                   className={`flex-1 py-1 rounded flex items-center justify-center transition-all cursor-pointer ${
                     (textClip.align || "center") === align
@@ -567,13 +570,16 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
             <div className="flex gap-0.5 bg-[#18181b] p-0.5 rounded-md">
               {(
                 [
-                  ["top", AlignStartVertical],
-                  ["middle", AlignCenterVertical],
-                  ["bottom", AlignEndVertical],
+                  ["top", AlignStartVertical, "Align top"],
+                  ["middle", AlignCenterVertical, "Align middle"],
+                  ["bottom", AlignEndVertical, "Align bottom"],
                 ] as const
-              ).map(([valign, Icon]) => (
+              ).map(([valign, Icon, label]) => (
                 <button
                   key={valign}
+                  type="button"
+                  title={label}
+                  aria-label={label}
                   onClick={() => handleUpdate("valign", valign)}
                   className={`flex-1 py-1 rounded flex items-center justify-center transition-all cursor-pointer ${
                     (textClip.valign || "middle") === valign

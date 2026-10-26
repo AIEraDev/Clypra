@@ -240,6 +240,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
             onClick={handleReset}
             className="text-[#8e8e93] hover:text-white transition-colors cursor-pointer p-0.5"
             title={t("properties.background.reset") || "Reset background"}
+            aria-label={t("properties.background.reset") || "Reset background"}
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </button>

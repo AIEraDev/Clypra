@@ -211,6 +211,7 @@ export const TextStrokeSection: React.FC<TextStrokeSectionProps> = ({
             onClick={handleReset}
             className="text-[#8e8e93] hover:text-white transition-colors cursor-pointer p-0.5"
             title={t("properties.stroke.reset") || "Reset stroke"}
+            aria-label={t("properties.stroke.reset") || "Reset stroke"}
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
