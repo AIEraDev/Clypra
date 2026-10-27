@@ -22,6 +22,7 @@ import { SliderTrack } from "../../primitives/SliderTrack";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { useUIStore } from "@/store/uiStore";
 import { KeyframeNavControls } from "../../primitives/KeyframeNavControls";
+import { propertyEditTelemetry } from "@/lib/properties/propertyEditTelemetry";
 
 interface VideoTransformControlsProps {
   selectedClip: Clip;
@@ -283,10 +284,12 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
   // ── Alignment Handlers (respects keyframes) ──────────────────────────────
   const handleAlignLeft = useCallback(() => {
+    propertyEditTelemetry.recordButtonAction({ action: "align-left", category: "video", property: "x" });
     handleUpdatePropertyWithKeyframe("x", 0);
   }, [handleUpdatePropertyWithKeyframe]);
 
   const handleAlignCenterX = useCallback(() => {
+    propertyEditTelemetry.recordButtonAction({ action: "align-center-x", category: "video", property: "x" });
     handleUpdatePropertyWithKeyframe(
       "x",
       Math.round((canvasWidth - currentWidth) / 2),
@@ -294,6 +297,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
   }, [canvasWidth, currentWidth, handleUpdatePropertyWithKeyframe]);
 
   const handleAlignRight = useCallback(() => {
+    propertyEditTelemetry.recordButtonAction({ action: "align-right", category: "video", property: "x" });
     handleUpdatePropertyWithKeyframe(
       "x",
       Math.round(canvasWidth - currentWidth),
@@ -301,10 +305,12 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
   }, [canvasWidth, currentWidth, handleUpdatePropertyWithKeyframe]);
 
   const handleAlignTop = useCallback(() => {
+    propertyEditTelemetry.recordButtonAction({ action: "align-top", category: "video", property: "y" });
     handleUpdatePropertyWithKeyframe("y", 0);
   }, [handleUpdatePropertyWithKeyframe]);
 
   const handleAlignCenterY = useCallback(() => {
+    propertyEditTelemetry.recordButtonAction({ action: "align-center-y", category: "video", property: "y" });
     handleUpdatePropertyWithKeyframe(
       "y",
       Math.round((canvasHeight - currentHeight) / 2),
@@ -312,6 +318,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
   }, [canvasHeight, currentHeight, handleUpdatePropertyWithKeyframe]);
 
   const handleAlignBottom = useCallback(() => {
+    propertyEditTelemetry.recordButtonAction({ action: "align-bottom", category: "video", property: "y" });
     handleUpdatePropertyWithKeyframe(
       "y",
       Math.round(canvasHeight - currentHeight),
@@ -320,6 +327,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
   // ── Reset Handler (Scale to 100%, center position, 0 rotation) ────────────
   const handleReset = useCallback(() => {
+    propertyEditTelemetry.recordButtonAction({ action: "reset-transform", category: "video", property: "transform" });
     const defaultX = Math.round((canvasWidth - baseWidth) / 2);
     const defaultY = Math.round((canvasHeight - baseHeight) / 2);
     handleUpdateMultiple({
@@ -405,6 +413,8 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                   max={500}
                   step={1}
                   onChange={handleScaleChange}
+                  propertyId="scale"
+                  category="video"
                 />
                 <NumericControl
                   value={scalePercent}
@@ -413,6 +423,8 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                   suffix="%"
                   ariaLabel="Scale"
                   inputPosition="text-right"
+                  propertyId="scale"
+                  category="video"
                 />
               </div>
             </div>
@@ -429,6 +441,8 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                     max={500}
                     step={1}
                     onChange={handleScaleWidthChange}
+                    propertyId="scaleWidth"
+                    category="video"
                   />
                   <NumericControl
                     value={scalePercent}
@@ -439,6 +453,8 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                     min={1}
                     max={500}
                     inputPosition="text-right"
+                    propertyId="scaleWidth"
+                    category="video"
                   />
                   <KeyframeNavControls
                     hasKeyframes={scaleWidthKfState.hasKeyframes}
@@ -471,6 +487,8 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                     max={500}
                     step={1}
                     onChange={handleScaleHeightChange}
+                    propertyId="scaleHeight"
+                    category="video"
                   />
                   <NumericControl
                     value={scaleHeightPercent}
@@ -479,6 +497,8 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                     suffix="%"
                     ariaLabel="Scale height"
                     inputPosition="text-right"
+                    propertyId="scaleHeight"
+                    category="video"
                   />
                   <KeyframeNavControls
                     hasKeyframes={scaleHeightKfState.hasKeyframes}
@@ -543,6 +563,8 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                   prefix="X"
                   step={1}
                   ariaLabel="X Position"
+                  propertyId="positionX"
+                  category="video"
                 />
 
                 {/* Y Position */}
@@ -552,6 +574,8 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                   prefix="Y"
                   step={1}
                   ariaLabel="Y Position"
+                  propertyId="positionY"
+                  category="video"
                 />
               </div>
 
@@ -592,6 +616,8 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                 inputPosition="text-right"
                 ariaLabel="Rotation"
                 inputWidth="w-6"
+                propertyId="rotation"
+                category="video"
               />
 
               {/* Rotation Keyframe Controls */}

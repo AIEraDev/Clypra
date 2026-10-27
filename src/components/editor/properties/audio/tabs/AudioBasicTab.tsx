@@ -13,6 +13,7 @@ import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { SliderTrack } from "../../primitives/SliderTrack";
 import { NumericControl } from "../../primitives/NumericControl";
 import { KeyframeNavControls } from "../../primitives/KeyframeNavControls";
+import { propertyEditTelemetry } from "@/lib/properties/propertyEditTelemetry";
 
 interface AudioBasicTabProps {
   selectedClip: Clip;
@@ -130,18 +131,38 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
   );
 
   const handleResetVolume = useCallback(() => {
+    propertyEditTelemetry.recordButtonAction({
+      action: "reset-volume",
+      category: "audio",
+      property: "volume",
+    });
     handleUpdate("volume", 1.0);
   }, [handleUpdate]);
 
   const handleResetFadeIn = useCallback(() => {
+    propertyEditTelemetry.recordButtonAction({
+      action: "reset-fade-in",
+      category: "audio",
+      property: "fadeIn",
+    });
     handleUpdate("fadeIn", 0);
   }, [handleUpdate]);
 
   const handleResetFadeOut = useCallback(() => {
+    propertyEditTelemetry.recordButtonAction({
+      action: "reset-fade-out",
+      category: "audio",
+      property: "fadeOut",
+    });
     handleUpdate("fadeOut", 0);
   }, [handleUpdate]);
 
   const handleResetPan = useCallback(() => {
+    propertyEditTelemetry.recordButtonAction({
+      action: "reset-pan",
+      category: "audio",
+      property: "pan",
+    });
     handlePanChange(0);
   }, [handlePanChange]);
 
@@ -167,6 +188,8 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
             min={0}
             max={100}
             step={1}
+            propertyId="volume"
+            category="audio"
             onChange={handleVolumeChange}
           />
           <NumericControl
@@ -179,6 +202,8 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
             inputWidth="w-16"
             decimals={0}
             ariaLabel="Volume"
+            propertyId="volume"
+            category="audio"
           />
           <button
             type="button"
@@ -230,6 +255,8 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
             min={0}
             max={maxFadeSeconds}
             step={0.01}
+            propertyId="fadeIn"
+            category="audio"
             onChange={handleFadeInChange}
           />
           <NumericControl
@@ -242,6 +269,8 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
             inputWidth="w-16"
             decimals={2}
             ariaLabel="Fade in"
+            propertyId="fadeIn"
+            category="audio"
           />
         </div>
       </div>
@@ -266,6 +295,8 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
             min={0}
             max={maxFadeSeconds}
             step={0.01}
+            propertyId="fadeOut"
+            category="audio"
             onChange={handleFadeOutChange}
           />
           <NumericControl
@@ -278,6 +309,8 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
             inputWidth="w-16"
             decimals={2}
             ariaLabel="Fade out"
+            propertyId="fadeOut"
+            category="audio"
           />
         </div>
       </div>
@@ -302,6 +335,8 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
             min={-100}
             max={100}
             step={1}
+            propertyId="pan"
+            category="audio"
             onChange={(val) => handlePanChange(val / 100)}
           />
           <NumericControl
@@ -314,6 +349,8 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
             inputWidth="w-16"
             decimals={0}
             ariaLabel="Pan"
+            propertyId="pan"
+            category="audio"
           />
         </div>
       </div>

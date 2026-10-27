@@ -80,6 +80,7 @@ export type PerfLogKind =
   | "ai-inference"
   | "filmstrip-rollup"
   | "timeline-zoom-rollup"
+  | "property-edit-rollup"
   | "frontend-av-sync"
   | "timeline-edit"
   | "timecode-jump"

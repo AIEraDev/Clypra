@@ -28,6 +28,10 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect } from "react";
+import {
+  propertyEditTelemetry,
+  type PropertyCategory,
+} from "@/lib/properties/propertyEditTelemetry";
 
 export interface SliderTrackProps {
   /** Current value */
@@ -44,6 +48,10 @@ export interface SliderTrackProps {
   disabled?: boolean;
   /** Decimal places for clamping (default: inferred from step) */
   decimals?: number;
+  /** Property identifier for telemetry (e.g., "volume", "scale", "opacity") */
+  propertyId?: string;
+  /** Property category for telemetry */
+  category?: PropertyCategory;
 }
 
 export const SliderTrack: React.FC<SliderTrackProps> = ({
@@ -54,6 +62,8 @@ export const SliderTrack: React.FC<SliderTrackProps> = ({
   step = 1,
   disabled = false,
   decimals,
+  propertyId,
+  category,
 }) => {
   const resolvedDecimals =
     decimals ?? (step < 1 ? Math.max(1, -Math.floor(Math.log10(step))) : 0);
@@ -71,10 +81,13 @@ export const SliderTrack: React.FC<SliderTrackProps> = ({
   // ── Drag handling ─────────────────────────────────────────────────────────
   const trackRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef<number>(0);
+  const sampleCountRef = useRef<number>(0);
 
   const handleDrag = useCallback(
     (clientX: number) => {
       if (!trackRef.current) return;
+      sampleCountRef.current += 1;
       const rect = trackRef.current.getBoundingClientRect();
       const percent = Math.max(
         0,
@@ -89,6 +102,8 @@ export const SliderTrack: React.FC<SliderTrackProps> = ({
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       if (disabled) return;
+      dragStartRef.current = performance.now();
+      sampleCountRef.current = 1;
       setIsDragging(true);
       handleDrag(e.clientX);
     },
@@ -105,8 +120,17 @@ export const SliderTrack: React.FC<SliderTrackProps> = ({
   );
 
   const handleMouseUp = useCallback(() => {
+    if (isDragging) {
+      const durationMs = performance.now() - dragStartRef.current;
+      propertyEditTelemetry.recordSliderDrag({
+        property: propertyId || "slider",
+        category,
+        durationMs,
+        sampleCount: sampleCountRef.current,
+      });
+    }
     setIsDragging(false);
-  }, []);
+  }, [isDragging, propertyId, category]);
 
   useEffect(() => {
     if (isDragging) {

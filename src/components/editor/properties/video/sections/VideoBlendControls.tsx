@@ -15,6 +15,7 @@ import { NumericControl } from "../../primitives/NumericControl";
 import { KeyframeNavControls } from "../../primitives/KeyframeNavControls";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { useUIStore } from "@/store/uiStore";
+import { propertyEditTelemetry } from "@/lib/properties/propertyEditTelemetry";
 
 interface VideoBlendControlsProps {
   selectedClip: Clip;
@@ -133,6 +134,7 @@ export const VideoBlendControls: React.FC<VideoBlendControlsProps> = ({
   }, [openCurveEditor, selectedClip.id]);
 
   const handleReset = useCallback(() => {
+    propertyEditTelemetry.recordButtonAction({ action: "reset-blend", category: "video", property: "blend" });
     handleUpdate("blendMode", "normal");
     handleUpdate("opacity", 1);
   }, [handleUpdate]);
@@ -169,6 +171,8 @@ export const VideoBlendControls: React.FC<VideoBlendControlsProps> = ({
                 min={0}
                 max={100}
                 step={1}
+                propertyId="opacity"
+                category="video"
                 onChange={handleOpacityChange}
               />
               <NumericControl
@@ -177,6 +181,8 @@ export const VideoBlendControls: React.FC<VideoBlendControlsProps> = ({
                 step={1}
                 suffix="%"
                 ariaLabel="Opacity"
+                propertyId="opacity"
+                category="video"
                 min={0}
                 max={100}
                 inputPosition="text-right"

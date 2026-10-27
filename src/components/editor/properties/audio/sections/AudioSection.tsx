@@ -6,6 +6,7 @@ import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { SliderTrack } from "../../primitives/SliderTrack";
 import { NumericControl } from "../../primitives/NumericControl";
 import { KeyframeNavControls } from "../../primitives/KeyframeNavControls";
+import { propertyEditTelemetry } from "@/lib/properties/propertyEditTelemetry";
 
 interface AudioSectionProps {
   selectedClip: Clip;
@@ -118,18 +119,38 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
   );
 
   const handleResetVolume = useCallback(() => {
+    propertyEditTelemetry.recordButtonAction({
+      action: "reset-volume",
+      category: "audio",
+      property: "volume",
+    });
     handleVolumeChange(1.0);
   }, [handleVolumeChange]);
 
   const handleResetFadeIn = useCallback(() => {
+    propertyEditTelemetry.recordButtonAction({
+      action: "reset-fade-in",
+      category: "audio",
+      property: "fadeIn",
+    });
     handleUpdate("fadeIn", 0);
   }, [handleUpdate]);
 
   const handleResetFadeOut = useCallback(() => {
+    propertyEditTelemetry.recordButtonAction({
+      action: "reset-fade-out",
+      category: "audio",
+      property: "fadeOut",
+    });
     handleUpdate("fadeOut", 0);
   }, [handleUpdate]);
 
   const handleResetPan = useCallback(() => {
+    propertyEditTelemetry.recordButtonAction({
+      action: "reset-pan",
+      category: "audio",
+      property: "pan",
+    });
     handlePanChange(0);
   }, [handlePanChange]);
 
@@ -189,6 +210,8 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
             min={0}
             max={100}
             step={1}
+            propertyId="volume"
+            category="audio"
             onChange={handleVolumePercentChange}
           />
           <NumericControl
@@ -202,6 +225,8 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
             inputPosition="text-right"
             decimals={0}
             ariaLabel="Volume"
+            propertyId="volume"
+            category="audio"
           />
         </div>
       </div>
@@ -233,6 +258,8 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
             min={0}
             max={maxFadeSeconds}
             step={0.01}
+            propertyId="fadeIn"
+            category="audio"
             onChange={(val) => handleUpdate("fadeIn", clampFade(val))}
           />
           <NumericControl
@@ -246,6 +273,8 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
             inputPosition="text-right"
             decimals={2}
             ariaLabel="Fade in"
+            propertyId="fadeIn"
+            category="audio"
           />
         </div>
       </div>
@@ -277,6 +306,8 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
             min={0}
             max={maxFadeSeconds}
             step={0.01}
+            propertyId="fadeOut"
+            category="audio"
             onChange={(val) => handleUpdate("fadeOut", clampFade(val))}
           />
           <NumericControl
@@ -290,6 +321,8 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
             inputPosition="text-right"
             decimals={2}
             ariaLabel="Fade out"
+            propertyId="fadeOut"
+            category="audio"
           />
         </div>
       </div>
@@ -325,6 +358,8 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
             min={-100}
             max={100}
             step={1}
+            propertyId="pan"
+            category="audio"
             onChange={(val) => handlePanChange(val / 100)}
           />
           <NumericControl
@@ -338,6 +373,8 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
             inputPosition="text-right"
             decimals={0}
             ariaLabel="Pan"
+            propertyId="pan"
+            category="audio"
           />
         </div>
       </div>
