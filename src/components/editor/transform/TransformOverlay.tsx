@@ -72,6 +72,7 @@ import { calculateOptimalTemplateLayout } from "@/core/render/templateScale";
 import { toCompositorClip } from "@/core/timeline/adapter";
 import { tracePlayback } from "@/core/playback/playbackTrace";
 import type { CompositorClip } from "@/core/compositor/types";
+import { evaluateVisualPropertyKeyframes } from "@/core/evaluation/animation";
 
 export function shouldScaleTextFontForHandle(handle: TransformHandle): boolean {
   return handle !== "move" && handle !== "rotate";
@@ -379,11 +380,29 @@ export function resolveClipVisualBounds(
   canvasWidth?: number,
   canvasHeight?: number,
   presenter: ProgramPreviewPresenter | null = null,
+  currentTime?: number,
 ): CanvasVisualBounds {
   let x = clip.x;
   let y = clip.y;
   let width = clip.width;
   let height = clip.height;
+
+  const vkf = clip.visualKeyframes;
+  if (currentTime !== undefined && vkf) {
+    const offset = Math.max(0, currentTime - clip.startTime);
+    if (vkf.x?.length) {
+      x = evaluateVisualPropertyKeyframes(vkf.x, offset, clip.x, clip.duration);
+    }
+    if (vkf.y?.length) {
+      y = evaluateVisualPropertyKeyframes(vkf.y, offset, clip.y, clip.duration);
+    }
+    if (vkf.width?.length) {
+      width = evaluateVisualPropertyKeyframes(vkf.width, offset, clip.width, clip.duration);
+    }
+    if (vkf.height?.length) {
+      height = evaluateVisualPropertyKeyframes(vkf.height, offset, clip.height, clip.duration);
+    }
+  }
 
   if (
     canvasWidth &&
@@ -392,21 +411,34 @@ export function resolveClipVisualBounds(
     clip.conform.sourceWidth &&
     clip.conform.sourceHeight
   ) {
-    const resolved = resolveConform(
-      {
-        ...clip.conform,
-        userScale: clip.conform.userScale ?? 1,
-        userOffsetX: clip.conform.userOffsetX ?? 0,
-        userOffsetY: clip.conform.userOffsetY ?? 0,
-      },
-      canvasWidth,
-      canvasHeight,
+    // Only use conform-derived bounds when the user has NOT manually scaled
+    // and keyframes do not override transform geometry.
+    // Once the user touches the Scale slider, `baseWidth` is written to the
+    // clip — that signals that clip.x/y/width/height are authoritative and
+    // must not be silently overridden by resolveConform(). This mirrors the
+    // identical guard added to the evaluator so the overlay and the rendered
+    // frame always show the same bounding box.
+    const hasManualScale = (clip as any).baseWidth != null;
+    const hasKeyframes = Boolean(
+      vkf?.x?.length || vkf?.y?.length || vkf?.width?.length || vkf?.height?.length,
     );
-    if (resolved) {
-      x = resolved.x;
-      y = resolved.y;
-      width = resolved.width;
-      height = resolved.height;
+    if (!hasManualScale && !hasKeyframes) {
+      const resolved = resolveConform(
+        {
+          ...clip.conform,
+          userScale: clip.conform.userScale ?? 1,
+          userOffsetX: clip.conform.userOffsetX ?? 0,
+          userOffsetY: clip.conform.userOffsetY ?? 0,
+        },
+        canvasWidth,
+        canvasHeight,
+      );
+      if (resolved) {
+        x = resolved.x;
+        y = resolved.y;
+        width = resolved.width;
+        height = resolved.height;
+      }
     }
     return { x, y, width, height };
   }
@@ -529,10 +561,11 @@ export function resolveOverlayBaseVisualBounds(
   canvasHeight: number,
   activeDragVisualBounds?: CanvasVisualBounds | null,
   presenter: ProgramPreviewPresenter | null = null,
+  currentTime?: number,
 ): CanvasVisualBounds {
   return (
     activeDragVisualBounds ??
-    resolveClipVisualBounds(clip, canvasWidth, canvasHeight, presenter)
+    resolveClipVisualBounds(clip, canvasWidth, canvasHeight, presenter, currentTime)
   );
 }
 
@@ -594,13 +627,27 @@ export function getHitTestCandidateDiagnostics(
       return isClipActiveAtTime(clip, currentTime);
     })
     .map(({ clip, index, compositorClip }) => {
-      const visual = resolveClipVisualBounds(clip, canvasWidth, canvasHeight);
+      const visual = resolveClipVisualBounds(
+        clip,
+        canvasWidth,
+        canvasHeight,
+        null,
+        currentTime,
+      );
       const bounds = {
         x: visual.x,
         y: visual.y,
         width: visual.width,
         height: visual.height,
-        rotation: clip.rotation ?? 0,
+        rotation:
+          clip.visualKeyframes?.rotation?.length && currentTime !== undefined
+            ? evaluateVisualPropertyKeyframes(
+                clip.visualKeyframes.rotation,
+                Math.max(0, currentTime - clip.startTime),
+                clip.rotation ?? 0,
+                clip.duration,
+              )
+            : (clip.rotation ?? 0),
       };
       return {
         clip,
@@ -1164,6 +1211,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         canvasWidth,
         canvasHeight,
         getActiveProgramPreviewPresenter(),
+        currentTime,
       );
       const actualWidth = visualBounds.width;
       const actualHeight = visualBounds.height;
@@ -2009,6 +2057,51 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       }
     }
 
+    if (selectedClip?.visualKeyframes) {
+      const vkf = selectedClip.visualKeyframes;
+      const updatedVkf = { ...vkf };
+      let hasVkfChanges = false;
+      const localTime = Math.max(0, currentTime - selectedClip.startTime);
+      const t = Math.round(localTime * 100) / 100;
+
+      const updateKeyframeArray = (
+        prop: "x" | "y" | "width" | "height" | "rotation",
+        val: number,
+      ) => {
+        const kfs = vkf[prop];
+        if (!kfs || kfs.length === 0) return;
+        const idx = kfs.findIndex((k) => Math.abs(k.time - localTime) < 0.08);
+        if (idx >= 0) {
+          const next = [...kfs];
+          next[idx] = { ...next[idx], value: val };
+          updatedVkf[prop] = next;
+          hasVkfChanges = true;
+        } else {
+          updatedVkf[prop] = [
+            ...kfs,
+            {
+              id: `kf-${prop}-${Date.now()}`,
+              time: t,
+              value: val,
+              easing: "easeInOut" as const,
+            },
+          ].sort((a, b) => a.time - b.time);
+          hasVkfChanges = true;
+        }
+      };
+
+      if (finalGeometry.x !== undefined && vkf.x?.length) updateKeyframeArray("x", finalGeometry.x);
+      if (finalGeometry.y !== undefined && vkf.y?.length) updateKeyframeArray("y", finalGeometry.y);
+      if (finalGeometry.width !== undefined && vkf.width?.length) updateKeyframeArray("width", finalGeometry.width);
+      if (finalGeometry.height !== undefined && vkf.height?.length) updateKeyframeArray("height", finalGeometry.height);
+      if (finalGeometry.rotation !== undefined && vkf.rotation?.length) updateKeyframeArray("rotation", finalGeometry.rotation);
+
+      if (hasVkfChanges) {
+        newTransform.visualKeyframes = updatedVkf;
+        oldTransform.visualKeyframes = vkf;
+      }
+    }
+
     // Only create command if something actually changed
     const hasChanged =
       oldTransform.x !== newTransform.x ||
@@ -2017,6 +2110,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       oldTransform.height !== newTransform.height ||
       oldTransform.rotation !== newTransform.rotation ||
       oldTransform.fontSize !== newTransform.fontSize ||
+      Boolean(newTransform.visualKeyframes) ||
       JSON.stringify(oldTransform.conform) !==
         JSON.stringify(newTransform.conform);
 
@@ -2374,7 +2468,15 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
   // Pass zero offset because we're positioning within the overlay div itself
   // (which is already placed at displayOffset by the parent layout).
   const zeroOffset = { x: 0, y: 0 };
-  const rotation = selectedClip.rotation ?? 0;
+  const rotation =
+    selectedClip.visualKeyframes?.rotation?.length && currentTime !== undefined
+      ? evaluateVisualPropertyKeyframes(
+          selectedClip.visualKeyframes.rotation,
+          Math.max(0, currentTime - selectedClip.startTime),
+          selectedClip.rotation ?? 0,
+          selectedClip.duration,
+        )
+      : (selectedClip.rotation ?? 0);
 
   // Resolve actual rendered dimensions (accounting for conform or text template if present)
   // For clips with conform (e.g., 16:9 video fitted into 9:16 canvas) or text templates,
@@ -2385,6 +2487,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
     canvasHeight,
     isDragging ? dragVisualBoundsRef.current : null,
     getActiveProgramPreviewPresenter(),
+    currentTime,
   );
   const actualWidth = visualBounds.width;
   const actualHeight = visualBounds.height;
