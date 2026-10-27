@@ -253,10 +253,16 @@ export function evaluateTimelineScene(
         project?.canvasWidth ?? 1920,
         project?.canvasHeight ?? 1080,
       );
-      evalX = (vkf?.x?.length || kf.x !== undefined) ? evalX : conformed.x;
-      evalY = (vkf?.y?.length || kf.y !== undefined) ? evalY : conformed.y;
-      evalW = (vkf?.width?.length || kf.width !== undefined) ? evalW : conformed.width;
-      evalH = (vkf?.height?.length || kf.height !== undefined) ? evalH : conformed.height;
+      // The conform override applies for initial placement only.
+      // When the user has manually adjusted position (clip.baseWidth set by the
+      // scale UI), clip.width/height/x/y are authoritative and must not be
+      // silently replaced by the conform-derived values. Keyframed props also
+      // always take precedence.
+      const hasManualScale = (clip as any).baseWidth != null;
+      evalX = (vkf?.x?.length || kf.x !== undefined || hasManualScale) ? evalX : conformed.x;
+      evalY = (vkf?.y?.length || kf.y !== undefined || hasManualScale) ? evalY : conformed.y;
+      evalW = (vkf?.width?.length || kf.width !== undefined || hasManualScale) ? evalW : conformed.width;
+      evalH = (vkf?.height?.length || kf.height !== undefined || hasManualScale) ? evalH : conformed.height;
     }
 
     let evalRot =

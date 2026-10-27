@@ -438,4 +438,185 @@ describe("Clypra Media & Timeline Regression Suite (Phase 5 Foundation)", () => 
       expect(visual.sourceTime).toBe(2); // 3s - 1s startTime
     }
   });
+
+  // ─── Bug: conform block overrode user-scaled width/height in evaluator ─────
+  //
+  // When a clip has a `conform` property (set by fit-mode / import), the
+  // evaluator called resolveConform() and used its result for evalW/evalH/evalX/evalY
+  // unconditionally (unless keyframed). User scale writes to clip.width/height,
+  // but those values were silently discarded, so the preview never updated.
+  //
+  // Fix: guard the conform override with `clip.baseWidth != null`.
+  // `baseWidth` is written by every scale UI operation; its presence signals
+  // that the user has manually set dimensions that must not be overridden.
+  describe("Bug — conform block must not override manually-scaled clip dimensions (evaluator)", () => {
+    const conformVideoAsset: MediaAsset = {
+      id: "asset-conform-1920",
+      name: "source.mp4",
+      path: "/media/source.mp4",
+      type: "video",
+      duration: 10,
+      size: 1000000,
+      width: 1920,
+      height: 1080,
+    };
+
+    const conformTrack = {
+      id: "track-conform",
+      clips: [] as string[],
+      visible: true,
+      locked: false,
+      label: "",
+      order: 0,
+    };
+
+    it("before user scale (no baseWidth): conform-derived dimensions are used", () => {
+      const clip: any = {
+        id: "clip-conform-no-scale",
+        trackId: "track-conform",
+        mediaId: "asset-conform-1920",
+        kind: "video",
+        startTime: 0,
+        duration: 10,
+        trimIn: 0,
+        trimOut: 10,
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+        opacity: 1,
+        rotation: 0,
+        // conform present, no baseWidth → evaluator must use resolveConform
+        conform: {
+          mode: "fill",
+          sourceWidth: 1920,
+          sourceHeight: 1080,
+          userScale: 1,
+          userOffsetX: 0,
+          userOffsetY: 0,
+        },
+      };
+
+      const scene = evaluateTimelineScene(
+        1,
+        [clip],
+        [conformTrack as any],
+        [conformVideoAsset],
+        baseProject,
+      );
+
+      expect(scene.visualLayers.length).toBe(1);
+      const layer = scene.visualLayers[0];
+      if (layer.layerType === "media") {
+        // resolveConform(fill, 1920×1080 src on 1920×1080 canvas) → w=1920, h=1080
+        expect(layer.width).toBe(1920);
+        expect(layer.height).toBe(1080);
+      }
+    });
+
+    it("after user scale (baseWidth set): clip.width/height take priority over conform", () => {
+      // Simulate state after the user has scaled to 444%.
+      const scaledWidth = Math.round(1920 * 4.44);   // 8525
+      const scaledHeight = Math.round(1080 * 4.44);  // 4795
+      const scaledX = 960 - scaledWidth / 2;
+      const scaledY = 540 - scaledHeight / 2;
+
+      const clip: any = {
+        id: "clip-conform-scaled",
+        trackId: "track-conform",
+        mediaId: "asset-conform-1920",
+        kind: "video",
+        startTime: 0,
+        duration: 10,
+        trimIn: 0,
+        trimOut: 10,
+        x: scaledX,
+        y: scaledY,
+        width: scaledWidth,
+        height: scaledHeight,
+        opacity: 1,
+        rotation: 0,
+        // baseWidth is the signal that the user has manually scaled
+        baseWidth: 1920,
+        baseHeight: 1080,
+        conform: {
+          mode: "fill",
+          sourceWidth: 1920,
+          sourceHeight: 1080,
+          userScale: 1, // conform still says 1× — user scaled to 444% via UI
+          userOffsetX: 0,
+          userOffsetY: 0,
+        },
+      };
+
+      const scene = evaluateTimelineScene(
+        1,
+        [clip],
+        [conformTrack as any],
+        [conformVideoAsset],
+        baseProject,
+      );
+
+      expect(scene.visualLayers.length).toBe(1);
+      const layer = scene.visualLayers[0];
+      if (layer.layerType === "media") {
+        // Must use user-scaled dimensions, NOT the conform-derived 1920×1080
+        expect(layer.width).toBe(scaledWidth);
+        expect(layer.height).toBe(scaledHeight);
+        expect(layer.x).toBe(scaledX);
+        expect(layer.y).toBe(scaledY);
+        expect(layer.width).toBeGreaterThan(1920);
+        expect(layer.height).toBeGreaterThan(1080);
+      }
+    });
+
+    it("keyframe-driven width still overrides conform regardless of baseWidth", () => {
+      const kfWidth = 640;
+      const clip: any = {
+        id: "clip-conform-kf",
+        trackId: "track-conform",
+        mediaId: "asset-conform-1920",
+        kind: "video",
+        startTime: 0,
+        duration: 10,
+        trimIn: 0,
+        trimOut: 10,
+        x: 640,
+        y: 270,
+        width: kfWidth,
+        height: 360,
+        opacity: 1,
+        rotation: 0,
+        // No baseWidth — conform would normally take over, but keyframe wins
+        conform: {
+          mode: "fill",
+          sourceWidth: 1920,
+          sourceHeight: 1080,
+          userScale: 1,
+          userOffsetX: 0,
+          userOffsetY: 0,
+        },
+        visualKeyframes: {
+          width: [
+            { id: "kf-w-0", time: 0, value: kfWidth, easing: "linear" },
+            { id: "kf-w-10", time: 10, value: kfWidth, easing: "linear" },
+          ],
+        },
+      };
+
+      const scene = evaluateTimelineScene(
+        1,
+        [clip],
+        [conformTrack as any],
+        [conformVideoAsset],
+        baseProject,
+      );
+
+      expect(scene.visualLayers.length).toBe(1);
+      const layer = scene.visualLayers[0];
+      if (layer.layerType === "media") {
+        expect(layer.width).toBe(kfWidth);
+      }
+    });
+  });
 });
