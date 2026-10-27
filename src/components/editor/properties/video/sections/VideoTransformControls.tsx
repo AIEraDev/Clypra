@@ -19,10 +19,11 @@ import { type ClipFitModeExtended } from "@/lib/timeline/timelineClip";
 import { PropertySectionHeader } from "../../primitives/PropertySectionHeader";
 import { NumericControl } from "../../primitives/NumericControl";
 import { SliderTrack } from "../../primitives/SliderTrack";
-import { getPlaybackClock } from "@/hooks/usePlaybackClock";
+import { getPlaybackClock, usePlaybackClock } from "@/hooks/usePlaybackClock";
 import { useUIStore } from "@/store/uiStore";
 import { KeyframeNavControls } from "../../primitives/KeyframeNavControls";
 import { propertyEditTelemetry } from "@/lib/properties/propertyEditTelemetry";
+import { evaluateVisualPropertyKeyframes } from "@/core/evaluation/animation";
 
 interface VideoTransformControlsProps {
   selectedClip: Clip;
@@ -48,7 +49,10 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
   // ── Keyframe state ────────────────────────────────────────────────────────
   const openCurveEditor = useUIStore((s) => s.openCurveEditor);
 
-  const currentTime = getPlaybackClock().time;
+  const clock = getPlaybackClock();
+  const clockState =
+    typeof usePlaybackClock === "function" ? usePlaybackClock() : null;
+  const currentTime = clockState?.time ?? clock.time;
   const localTime = Math.max(
     0,
     Math.min(selectedClip.duration, currentTime - selectedClip.startTime),
@@ -76,6 +80,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
     [selectedClip.visualKeyframes, localTime],
   );
 
+  const scaleKfState = getKeyframeState(["width", "height"]);
   const scaleWidthKfState = getKeyframeState(["width"]);
   const scaleHeightKfState = getKeyframeState(["height"]);
   const positionXKfState = getKeyframeState(["x"]);
@@ -107,6 +112,40 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
       }
       if (target !== null)
         getPlaybackClock().seek(selectedClip.startTime + target);
+    },
+    [selectedClip.visualKeyframes, selectedClip.startTime, localTime],
+  );
+
+  const handleJumpUniformScaleKeyframe = useCallback(
+    (direction: "prev" | "next") => {
+      const widthKfs = selectedClip.visualKeyframes?.width || [];
+      const heightKfs = selectedClip.visualKeyframes?.height || [];
+      const allTimes = Array.from(
+        new Set([
+          ...widthKfs.map((k) => k.time),
+          ...heightKfs.map((k) => k.time),
+        ]),
+      ).sort((a, b) => a - b);
+
+      let target: number | null = null;
+      if (direction === "prev") {
+        for (let i = allTimes.length - 1; i >= 0; i--) {
+          if (allTimes[i] < localTime - 0.05) {
+            target = allTimes[i];
+            break;
+          }
+        }
+      } else {
+        for (let i = 0; i < allTimes.length; i++) {
+          if (allTimes[i] > localTime + 0.05) {
+            target = allTimes[i];
+            break;
+          }
+        }
+      }
+      if (target !== null) {
+        getPlaybackClock().seek(selectedClip.startTime + target);
+      }
     },
     [selectedClip.visualKeyframes, selectedClip.startTime, localTime],
   );
@@ -144,8 +183,154 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
     selectedClip.baseWidth ?? Math.abs(selectedClip.width ?? 1920);
   const baseHeight =
     selectedClip.baseHeight ?? Math.abs(selectedClip.height ?? 1080);
-  const currentWidth = Math.abs(selectedClip.width ?? baseWidth);
-  const currentHeight = Math.abs(selectedClip.height ?? baseHeight);
+
+  // Live evaluated values when keyframes exist
+  const currentWidth = useMemo(() => {
+    if (selectedClip.visualKeyframes?.width?.length) {
+      return evaluateVisualPropertyKeyframes(
+        selectedClip.visualKeyframes.width,
+        localTime,
+        selectedClip.width ?? baseWidth,
+        selectedClip.duration,
+      );
+    }
+    return Math.abs(selectedClip.width ?? baseWidth);
+  }, [
+    selectedClip.visualKeyframes?.width,
+    localTime,
+    selectedClip.width,
+    baseWidth,
+    selectedClip.duration,
+  ]);
+
+  const currentHeight = useMemo(() => {
+    if (selectedClip.visualKeyframes?.height?.length) {
+      return evaluateVisualPropertyKeyframes(
+        selectedClip.visualKeyframes.height,
+        localTime,
+        selectedClip.height ?? baseHeight,
+        selectedClip.duration,
+      );
+    }
+    return Math.abs(selectedClip.height ?? baseHeight);
+  }, [
+    selectedClip.visualKeyframes?.height,
+    localTime,
+    selectedClip.height,
+    baseHeight,
+    selectedClip.duration,
+  ]);
+
+  const currentClipX = useMemo(() => {
+    if (selectedClip.visualKeyframes?.x?.length) {
+      return evaluateVisualPropertyKeyframes(
+        selectedClip.visualKeyframes.x,
+        localTime,
+        selectedClip.x ?? 0,
+        selectedClip.duration,
+      );
+    }
+    return selectedClip.x ?? 0;
+  }, [
+    selectedClip.visualKeyframes?.x,
+    localTime,
+    selectedClip.x,
+    selectedClip.duration,
+  ]);
+
+  const currentClipY = useMemo(() => {
+    if (selectedClip.visualKeyframes?.y?.length) {
+      return evaluateVisualPropertyKeyframes(
+        selectedClip.visualKeyframes.y,
+        localTime,
+        selectedClip.y ?? 0,
+        selectedClip.duration,
+      );
+    }
+    return selectedClip.y ?? 0;
+  }, [
+    selectedClip.visualKeyframes?.y,
+    localTime,
+    selectedClip.y,
+    selectedClip.duration,
+  ]);
+
+  const currentRotation = useMemo(() => {
+    if (selectedClip.visualKeyframes?.rotation?.length) {
+      return evaluateVisualPropertyKeyframes(
+        selectedClip.visualKeyframes.rotation,
+        localTime,
+        selectedClip.rotation ?? 0,
+        selectedClip.duration,
+      );
+    }
+    return selectedClip.rotation ?? 0;
+  }, [
+    selectedClip.visualKeyframes?.rotation,
+    localTime,
+    selectedClip.rotation,
+    selectedClip.duration,
+  ]);
+
+  const handleToggleUniformScaleKeyframe = useCallback(() => {
+    const isAt = scaleKfState.isAtKeyframe;
+    const currentWidthKfs = selectedClip.visualKeyframes?.width || [];
+    const currentHeightKfs = selectedClip.visualKeyframes?.height || [];
+
+    if (isAt) {
+      const nextWidthKfs = currentWidthKfs.filter(
+        (kf) => Math.abs(kf.time - localTime) >= 0.08,
+      );
+      const nextHeightKfs = currentHeightKfs.filter(
+        (kf) => Math.abs(kf.time - localTime) >= 0.08,
+      );
+      handleUpdateMultiple({
+        visualKeyframes: {
+          ...(selectedClip.visualKeyframes || {}),
+          width: nextWidthKfs,
+          height: nextHeightKfs,
+        },
+      });
+    } else {
+      const t = Math.round(localTime * 100) / 100;
+      const nextWidthKfs = [
+        ...currentWidthKfs.filter((kf) => Math.abs(kf.time - localTime) >= 0.08),
+        {
+          id: `kf-width-${Date.now()}`,
+          time: t,
+          value: currentWidth,
+          easing: "easeInOut" as const,
+        },
+      ].sort((a, b) => a.time - b.time);
+
+      const nextHeightKfs = [
+        ...currentHeightKfs.filter(
+          (kf) => Math.abs(kf.time - localTime) >= 0.08,
+        ),
+        {
+          id: `kf-height-${Date.now()}`,
+          time: t,
+          value: currentHeight,
+          easing: "easeInOut" as const,
+        },
+      ].sort((a, b) => a.time - b.time);
+
+      handleUpdateMultiple({
+        visualKeyframes: {
+          ...(selectedClip.visualKeyframes || {}),
+          width: nextWidthKfs,
+          height: nextHeightKfs,
+        },
+      });
+    }
+  }, [
+    scaleKfState.isAtKeyframe,
+    selectedClip.visualKeyframes,
+    localTime,
+    currentWidth,
+    currentHeight,
+    handleUpdateMultiple,
+  ]);
 
   /** Scale percentage relative to the original source dimensions. */
   const scalePercent = useMemo(() => {
@@ -158,8 +343,8 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
   // ── Position (displayed relative to canvas center) ────────────────────────
   // The clip's (x, y) is its top-left corner. We convert to a center-relative
   // offset so that (0, 0) means "perfectly centered on the canvas".
-  const centerX = (selectedClip.x ?? 0) + currentWidth / 2;
-  const centerY = (selectedClip.y ?? 0) + currentHeight / 2;
+  const centerX = currentClipX + currentWidth / 2;
+  const centerY = currentClipY + currentHeight / 2;
   /** Positive = right of center */
   const displayX = Math.round(centerX - canvasWidth / 2);
   /** Positive = above center (Y axis flipped to match screen convention) */
@@ -170,6 +355,12 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
   /**
    * Scale uniformly from the clip's current center point.
    * Preserves the clip's on-screen center position so it doesn't jump.
+   *
+   * NOTE: newX/newY are stored as exact floats (no Math.round) so that the
+   * displayed Position values (which derive center from clip.x + width/2) do
+   * not drift by ±1px when the scaled width/height is odd-numbered. The render
+   * pipeline and UI both tolerate sub-pixel positions; rounding is only applied
+   * at the display layer (Math.round in displayX/displayY).
    */
   const handleScaleChange = useCallback(
     (newScalePercent: number) => {
@@ -180,19 +371,129 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
         ? Math.round(baseHeight * multiplier)
         : currentHeight;
 
-      // Keep the clip anchored to its current center
-      const newX = Math.round(centerX - newWidth / 2);
-      const newY = Math.round(centerY - newHeight / 2);
+      // Preserve the clip's center exactly — do NOT round newX/newY here.
+      // Rounding a half-pixel offset (e.g. centerX - odd/2 = N.5) causes
+      // Math.round to flip ±1px, making the displayed Position appear to
+      // change even though scale and position are logically independent.
+      const newX = centerX - newWidth / 2;
+      const newY = centerY - newHeight / 2;
 
-      handleUpdateMultiple({
-        width: newWidth,
-        height: newHeight,
-        x: newX,
-        y: newY,
-        // Persist baseWidth/baseHeight so future scale operations stay accurate
-        baseWidth,
-        baseHeight,
-      });
+      const widthKfs = selectedClip.visualKeyframes?.width || [];
+      const heightKfs = selectedClip.visualKeyframes?.height || [];
+      const widthIdx = widthKfs.findIndex(
+        (kf) => Math.abs(kf.time - localTime) < 0.08,
+      );
+      const heightIdx = heightKfs.findIndex(
+        (kf) => Math.abs(kf.time - localTime) < 0.08,
+      );
+
+      const hasKf =
+        widthKfs.length > 0 || (isAspectLocked && heightKfs.length > 0);
+
+      if (widthIdx >= 0 || heightIdx >= 0) {
+        const nextWidthKfs = [...widthKfs];
+        if (widthIdx >= 0) {
+          nextWidthKfs[widthIdx] = {
+            ...nextWidthKfs[widthIdx],
+            value: newWidth,
+          };
+        } else if (widthKfs.length > 0) {
+          nextWidthKfs.push({
+            id: `kf-width-${Date.now()}`,
+            time: Math.round(localTime * 100) / 100,
+            value: newWidth,
+            easing: "easeInOut" as const,
+          });
+          nextWidthKfs.sort((a, b) => a.time - b.time);
+        }
+
+        const nextHeightKfs = [...heightKfs];
+        if (isAspectLocked) {
+          if (heightIdx >= 0) {
+            nextHeightKfs[heightIdx] = {
+              ...nextHeightKfs[heightIdx],
+              value: newHeight,
+            };
+          } else if (heightKfs.length > 0) {
+            nextHeightKfs.push({
+              id: `kf-height-${Date.now()}`,
+              time: Math.round(localTime * 100) / 100,
+              value: newHeight,
+              easing: "easeInOut" as const,
+            });
+            nextHeightKfs.sort((a, b) => a.time - b.time);
+          }
+        }
+
+        handleUpdateMultiple({
+          width: newWidth,
+          height: newHeight,
+          x: newX,
+          y: newY,
+          baseWidth,
+          baseHeight,
+          visualKeyframes: {
+            ...(selectedClip.visualKeyframes || {}),
+            ...(widthKfs.length > 0 ? { width: nextWidthKfs } : {}),
+            ...(isAspectLocked && heightKfs.length > 0
+              ? { height: nextHeightKfs }
+              : {}),
+          },
+        });
+      } else if (hasKf) {
+        const t = Math.round(localTime * 100) / 100;
+        const nextWidthKfs =
+          widthKfs.length > 0
+            ? [
+                ...widthKfs,
+                {
+                  id: `kf-width-${Date.now()}`,
+                  time: t,
+                  value: newWidth,
+                  easing: "easeInOut" as const,
+                },
+              ].sort((a, b) => a.time - b.time)
+            : widthKfs;
+
+        const nextHeightKfs =
+          isAspectLocked && heightKfs.length > 0
+            ? [
+                ...heightKfs,
+                {
+                  id: `kf-height-${Date.now()}`,
+                  time: t,
+                  value: newHeight,
+                  easing: "easeInOut" as const,
+                },
+              ].sort((a, b) => a.time - b.time)
+            : heightKfs;
+
+        handleUpdateMultiple({
+          width: newWidth,
+          height: newHeight,
+          x: newX,
+          y: newY,
+          baseWidth,
+          baseHeight,
+          visualKeyframes: {
+            ...(selectedClip.visualKeyframes || {}),
+            ...(widthKfs.length > 0 ? { width: nextWidthKfs } : {}),
+            ...(isAspectLocked && heightKfs.length > 0
+              ? { height: nextHeightKfs }
+              : {}),
+          },
+        });
+      } else {
+        handleUpdateMultiple({
+          width: newWidth,
+          height: newHeight,
+          x: newX,
+          y: newY,
+          // Persist baseWidth/baseHeight so future scale operations stay accurate
+          baseWidth,
+          baseHeight,
+        });
+      }
     },
     [
       baseWidth,
@@ -201,6 +502,8 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
       currentHeight,
       centerX,
       centerY,
+      localTime,
+      selectedClip.visualKeyframes,
       handleUpdateMultiple,
     ],
   );
@@ -214,16 +517,63 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
       const multiplier = clamped / 100;
       const newWidth = Math.round(baseWidth * multiplier);
 
-      // Keep the clip anchored to its current center
-      const newX = Math.round(centerX - newWidth / 2);
+      // Exact float — see handleScaleChange comment on rounding rationale.
+      const newX = centerX - newWidth / 2;
 
-      handleUpdateMultiple({
-        width: newWidth,
-        x: newX,
-        baseWidth,
-      });
+      const widthKfs = selectedClip.visualKeyframes?.width || [];
+      const widthIdx = widthKfs.findIndex(
+        (kf) => Math.abs(kf.time - localTime) < 0.08,
+      );
+
+      if (widthIdx >= 0) {
+        const nextWidthKfs = [...widthKfs];
+        nextWidthKfs[widthIdx] = {
+          ...nextWidthKfs[widthIdx],
+          value: newWidth,
+        };
+        handleUpdateMultiple({
+          width: newWidth,
+          x: newX,
+          baseWidth,
+          visualKeyframes: {
+            ...(selectedClip.visualKeyframes || {}),
+            width: nextWidthKfs,
+          },
+        });
+      } else if (widthKfs.length > 0) {
+        const nextWidthKfs = [
+          ...widthKfs,
+          {
+            id: `kf-width-${Date.now()}`,
+            time: Math.round(localTime * 100) / 100,
+            value: newWidth,
+            easing: "easeInOut" as const,
+          },
+        ].sort((a, b) => a.time - b.time);
+        handleUpdateMultiple({
+          width: newWidth,
+          x: newX,
+          baseWidth,
+          visualKeyframes: {
+            ...(selectedClip.visualKeyframes || {}),
+            width: nextWidthKfs,
+          },
+        });
+      } else {
+        handleUpdateMultiple({
+          width: newWidth,
+          x: newX,
+          baseWidth,
+        });
+      }
     },
-    [baseWidth, centerX, handleUpdateMultiple],
+    [
+      baseWidth,
+      centerX,
+      localTime,
+      selectedClip.visualKeyframes,
+      handleUpdateMultiple,
+    ],
   );
 
   /**
@@ -235,16 +585,63 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
       const multiplier = clamped / 100;
       const newHeight = Math.round(baseHeight * multiplier);
 
-      // Keep the clip anchored to its current center
-      const newY = Math.round(centerY - newHeight / 2);
+      // Exact float — see handleScaleChange comment on rounding rationale.
+      const newY = centerY - newHeight / 2;
 
-      handleUpdateMultiple({
-        height: newHeight,
-        y: newY,
-        baseHeight,
-      });
+      const heightKfs = selectedClip.visualKeyframes?.height || [];
+      const heightIdx = heightKfs.findIndex(
+        (kf) => Math.abs(kf.time - localTime) < 0.08,
+      );
+
+      if (heightIdx >= 0) {
+        const nextHeightKfs = [...heightKfs];
+        nextHeightKfs[heightIdx] = {
+          ...nextHeightKfs[heightIdx],
+          value: newHeight,
+        };
+        handleUpdateMultiple({
+          height: newHeight,
+          y: newY,
+          baseHeight,
+          visualKeyframes: {
+            ...(selectedClip.visualKeyframes || {}),
+            height: nextHeightKfs,
+          },
+        });
+      } else if (heightKfs.length > 0) {
+        const nextHeightKfs = [
+          ...heightKfs,
+          {
+            id: `kf-height-${Date.now()}`,
+            time: Math.round(localTime * 100) / 100,
+            value: newHeight,
+            easing: "easeInOut" as const,
+          },
+        ].sort((a, b) => a.time - b.time);
+        handleUpdateMultiple({
+          height: newHeight,
+          y: newY,
+          baseHeight,
+          visualKeyframes: {
+            ...(selectedClip.visualKeyframes || {}),
+            height: nextHeightKfs,
+          },
+        });
+      } else {
+        handleUpdateMultiple({
+          height: newHeight,
+          y: newY,
+          baseHeight,
+        });
+      }
     },
-    [baseHeight, centerY, handleUpdateMultiple],
+    [
+      baseHeight,
+      centerY,
+      localTime,
+      selectedClip.visualKeyframes,
+      handleUpdateMultiple,
+    ],
   );
 
   /** Scale percentage for height */
@@ -275,11 +672,33 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
             [prop]: nextKfs,
           },
         });
+      } else if (currentKfs.length > 0) {
+        const nextKfs = [
+          ...currentKfs,
+          {
+            id: `kf-${prop}-${Date.now()}`,
+            time: Math.round(localTime * 100) / 100,
+            value,
+            easing: "easeInOut" as const,
+          },
+        ].sort((a, b) => a.time - b.time);
+        handleUpdateMultiple({
+          [prop]: value,
+          visualKeyframes: {
+            ...(selectedClip.visualKeyframes || {}),
+            [prop]: nextKfs,
+          },
+        });
       } else {
         handleUpdate(prop, value);
       }
     },
-    [selectedClip.visualKeyframes, localTime, handleUpdate, handleUpdateMultiple],
+    [
+      selectedClip.visualKeyframes,
+      localTime,
+      handleUpdate,
+      handleUpdateMultiple,
+    ],
   );
 
   // ── Alignment Handlers (respects keyframes) ──────────────────────────────
@@ -404,7 +823,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
           {isAspectLocked ? (
             <div className="space-y-1">
               <span className="text-[11px] text-white select-none block">
-                Scale
+                {t("properties.transform.scale") || "Scale"}
               </span>
               <div className="flex items-center gap-2">
                 <SliderTrack
@@ -420,11 +839,26 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                   value={scalePercent}
                   onChange={handleScaleChange}
                   step={1}
+                  min={1}
+                  max={500}
                   suffix="%"
-                  ariaLabel="Scale"
+                  ariaLabel={t("properties.transform.scale") || "Scale"}
                   inputPosition="text-right"
                   propertyId="scale"
                   category="video"
+                />
+                <KeyframeNavControls
+                  hasKeyframes={scaleKfState.hasKeyframes}
+                  isAtKeyframe={scaleKfState.isAtKeyframe}
+                  onToggleKeyframe={handleToggleUniformScaleKeyframe}
+                  onPrevKeyframe={() => handleJumpUniformScaleKeyframe("prev")}
+                  onNextKeyframe={() => handleJumpUniformScaleKeyframe("next")}
+                  hasPrev={scaleKfState.hasPrev}
+                  hasNext={scaleKfState.hasNext}
+                  onOpenCurveEditor={() =>
+                    openCurveEditor(selectedClip.id, "width")
+                  }
+                  label={t("properties.transform.scale") || "Scale"}
                 />
               </div>
             </div>
@@ -462,7 +896,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                     onToggleKeyframe={() =>
                       handleToggleKeyframe(
                         "width",
-                        Math.abs(selectedClip.width ?? 0),
+                        currentWidth,
                       )
                     }
                     onPrevKeyframe={() => handleJumpToKeyframe("width", "prev")}
@@ -506,7 +940,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                     onToggleKeyframe={() =>
                       handleToggleKeyframe(
                         "height",
-                        Math.abs(selectedClip.height ?? 0),
+                        currentHeight,
                       )
                     }
                     onPrevKeyframe={() =>

@@ -12,6 +12,7 @@ vi.mock("@/i18n", () => ({
       const dict: Record<string, string> = {
         "properties.transform.title": "Transform",
         "properties.transform.reset": "Reset transform",
+        "properties.transform.scale": "Scale",
         "properties.transform.alignLeft": "Align left",
         "properties.transform.alignCenterX": "Align center horizontally",
         "properties.transform.alignRight": "Align right",
@@ -30,6 +31,9 @@ vi.mock("@/hooks/usePlaybackClock", () => ({
   getPlaybackClock: () => ({
     time: mockCurrentTime,
     seek: vi.fn(),
+  }),
+  usePlaybackClock: () => ({
+    time: mockCurrentTime,
   }),
 }));
 
@@ -302,6 +306,313 @@ describe("VideoTransformControls & VideoBlendControls Suite", () => {
       expect(typeof updatePayload.y).toBe("number");
       expect(typeof updatePayload.width).toBe("number");
       expect(typeof updatePayload.height).toBe("number");
+    });
+  });
+
+  describe("Bug — Scale should not drift Position display (odd-width rounding)", () => {
+    /**
+     * Regression: handleScaleChange was using Math.round(centerX - newWidth/2)
+     * for newX. When newWidth is odd (e.g. 8525 at 444%), the half-pixel
+     * centerX - odd/2 = N.5 gets rounded in the wrong direction by JS
+     * (Math.round rounds .5 toward +∞), causing the stored x to be off by 1.
+     * That 1-pixel error propagates into the computed displayX, making the
+     * Position panel appear to change while the user only touched Scale.
+     *
+     * Fix: store exact-float x/y (no Math.round) so the center is preserved
+     * exactly and the display derivation (Math.round(centerX - canvasWidth/2))
+     * always produces the original value.
+     */
+
+    it("uniform scale with odd resulting width preserves display Position X exactly", () => {
+      // Clip is off-center: displayX = 28, displayY = -27
+      // centerX = 1920/2 + 28 = 988, centerY = 1080/2 - (-27) = 567
+      // clip.x = 988 - 320/2 = 828, clip.y = 567 - 180/2 = 477
+      const clip: Clip = {
+        ...baseVideoClip,
+        x: 828,
+        y: 477,
+        width: 320,
+        height: 180,
+        baseWidth: 320,
+        baseHeight: 180,
+        aspectRatioLocked: true,
+      };
+      const handleUpdateMultiple = vi.fn();
+
+      render(
+        <VideoTransformControls
+          selectedClip={clip}
+          canvasWidth={1920}
+          canvasHeight={1080}
+          handleUpdate={vi.fn()}
+          handleUpdateMultiple={handleUpdateMultiple}
+          handleApplyFit={vi.fn()}
+        />,
+      );
+
+      // Drag the scale slider to a value that produces an odd newWidth.
+      // 320 * 3 = 960 (even), 320 * 3.5 = 1120 (even) — try percent=313:
+      // 320 * 3.13 = 1001.6 → Math.round = 1002 (even, fine)
+      // Try percent=157: 320 * 1.57 = 502.4 → 502 (even)
+      // Try percent=159: 320 * 1.59 = 508.8 → 509 (ODD) ← triggers the bug
+
+      const scaleInput = screen.getByRole("spinbutton", { name: "Scale" });
+      fireEvent.focus(scaleInput);
+      fireEvent.change(scaleInput, { target: { value: "159" } });
+      fireEvent.blur(scaleInput);
+
+      expect(handleUpdateMultiple).toHaveBeenCalledTimes(1);
+      const payload = handleUpdateMultiple.mock.calls[0][0];
+
+      // newWidth = round(320 * 1.59) = 509 (odd)
+      expect(payload.width).toBe(509);
+
+      // Critical: the stored x must preserve the center exactly (as float).
+      // centerX = 828 + 320/2 = 988
+      // newX = 988 - 509/2 = 988 - 254.5 = 733.5 (exact float, NOT rounded)
+      expect(payload.x).toBe(733.5);
+
+      // Verify display derivation stays at original displayX = 28:
+      // newCenterX = payload.x + payload.width/2 = 733.5 + 254.5 = 988
+      // displayX = Math.round(988 - 1920/2) = Math.round(28) = 28 ✓
+      const newCenterX = payload.x + payload.width / 2;
+      expect(Math.round(newCenterX - 1920 / 2)).toBe(28);
+    });
+
+    it("uniform scale with odd resulting height preserves display Position Y exactly", () => {
+      // centerY = 567 (displayY = -27)
+      const clip: Clip = {
+        ...baseVideoClip,
+        x: 828,
+        y: 477,
+        width: 320,
+        height: 180,
+        baseWidth: 320,
+        baseHeight: 180,
+        aspectRatioLocked: true,
+      };
+      const handleUpdateMultiple = vi.fn();
+
+      render(
+        <VideoTransformControls
+          selectedClip={clip}
+          canvasWidth={1920}
+          canvasHeight={1080}
+          handleUpdate={vi.fn()}
+          handleUpdateMultiple={handleUpdateMultiple}
+          handleApplyFit={vi.fn()}
+        />,
+      );
+
+      // percent=159: newHeight = round(180 * 1.59) = round(286.2) = 286 (even)
+      // percent=161: newHeight = round(180 * 1.61) = round(289.8) = 290 (even)
+      // percent=167: newHeight = round(180 * 1.67) = round(300.6) = 301 (ODD) ← triggers
+      const scaleInput = screen.getByRole("spinbutton", { name: "Scale" });
+      fireEvent.focus(scaleInput);
+      fireEvent.change(scaleInput, { target: { value: "167" } });
+      fireEvent.blur(scaleInput);
+
+      expect(handleUpdateMultiple).toHaveBeenCalledTimes(1);
+      const payload = handleUpdateMultiple.mock.calls[0][0];
+
+      // newHeight = round(180 * 1.67) = 301 (odd)
+      expect(payload.height).toBe(301);
+
+      // newY = 567 - 301/2 = 567 - 150.5 = 416.5 (exact float)
+      expect(payload.y).toBe(416.5);
+
+      // display derivation stays at original displayY = -27:
+      // newCenterY = 416.5 + 150.5 = 567
+      // displayY = Math.round(1080/2 - 567) = Math.round(-27) = -27 ✓
+      const newCenterY = payload.y + payload.height / 2;
+      expect(Math.round(1080 / 2 - newCenterY)).toBe(-27);
+    });
+
+    it("non-uniform scale width preserves display Position X exactly", () => {
+      const clip: Clip = {
+        ...baseVideoClip,
+        x: 828,
+        y: 477,
+        width: 320,
+        height: 180,
+        baseWidth: 320,
+        baseHeight: 180,
+        aspectRatioLocked: false,
+      };
+      const handleUpdateMultiple = vi.fn();
+
+      render(
+        <VideoTransformControls
+          selectedClip={clip}
+          canvasWidth={1920}
+          canvasHeight={1080}
+          handleUpdate={vi.fn()}
+          handleUpdateMultiple={handleUpdateMultiple}
+          handleApplyFit={vi.fn()}
+        />,
+      );
+
+      // Non-uniform mode renders two separate sliders (Scale width / Scale height).
+      // percent=159 → newWidth=509 (odd)
+      const scaleWidthInput = screen.getByRole("spinbutton", {
+        name: "Scale width",
+      });
+      fireEvent.focus(scaleWidthInput);
+      fireEvent.change(scaleWidthInput, { target: { value: "159" } });
+      fireEvent.blur(scaleWidthInput);
+
+      expect(handleUpdateMultiple).toHaveBeenCalledTimes(1);
+      const payload = handleUpdateMultiple.mock.calls[0][0];
+
+      expect(payload.width).toBe(509);
+      // newX = 988 - 509/2 = 733.5 (exact)
+      expect(payload.x).toBe(733.5);
+
+      const newCenterX = payload.x + payload.width / 2;
+      expect(Math.round(newCenterX - 1920 / 2)).toBe(28);
+    });
+  });
+
+  describe("Uniform Scale Keyframing", () => {
+    it("toggles keyframes on uniform scale (width and height simultaneously)", () => {
+      const handleUpdateMultiple = vi.fn();
+      mockCurrentTime = 0;
+
+      render(
+        <VideoTransformControls
+          selectedClip={baseVideoClip}
+          canvasWidth={1920}
+          canvasHeight={1080}
+          handleUpdate={vi.fn()}
+          handleUpdateMultiple={handleUpdateMultiple}
+          handleApplyFit={vi.fn()}
+        />,
+      );
+
+      const addKfBtn = screen.getByTitle("Add keyframe for Scale");
+      fireEvent.click(addKfBtn);
+
+      expect(handleUpdateMultiple).toHaveBeenCalledTimes(1);
+      const payload = handleUpdateMultiple.mock.calls[0][0];
+      expect(payload.visualKeyframes?.width).toHaveLength(1);
+      expect(payload.visualKeyframes?.width[0].value).toBe(320);
+      expect(payload.visualKeyframes?.width[0].time).toBe(0);
+
+      expect(payload.visualKeyframes?.height).toHaveLength(1);
+      expect(payload.visualKeyframes?.height[0].value).toBe(180);
+      expect(payload.visualKeyframes?.height[0].time).toBe(0);
+    });
+
+    it("removes keyframe on uniform scale when already parked at a keyframe", () => {
+      const handleUpdateMultiple = vi.fn();
+      mockCurrentTime = 0;
+
+      const clipWithKeyframe: Clip = {
+        ...baseVideoClip,
+        visualKeyframes: {
+          width: [
+            { id: "kf-w1", time: 0, value: 320, easing: "easeInOut" },
+          ],
+          height: [
+            { id: "kf-h1", time: 0, value: 180, easing: "easeInOut" },
+          ],
+        },
+      };
+
+      render(
+        <VideoTransformControls
+          selectedClip={clipWithKeyframe}
+          canvasWidth={1920}
+          canvasHeight={1080}
+          handleUpdate={vi.fn()}
+          handleUpdateMultiple={handleUpdateMultiple}
+          handleApplyFit={vi.fn()}
+        />,
+      );
+
+      const removeKfBtn = screen.getByTitle("Remove keyframe for Scale");
+      fireEvent.click(removeKfBtn);
+
+      expect(handleUpdateMultiple).toHaveBeenCalledTimes(1);
+      const payload = handleUpdateMultiple.mock.calls[0][0];
+      expect(payload.visualKeyframes?.width).toHaveLength(0);
+      expect(payload.visualKeyframes?.height).toHaveLength(0);
+    });
+
+    it("updates existing keyframes when modifying uniform scale at keyframe time", () => {
+      const handleUpdateMultiple = vi.fn();
+      mockCurrentTime = 0;
+
+      const clipWithKeyframe: Clip = {
+        ...baseVideoClip,
+        baseWidth: 320,
+        baseHeight: 180,
+        visualKeyframes: {
+          width: [
+            { id: "kf-w1", time: 0, value: 320, easing: "easeInOut" },
+          ],
+          height: [
+            { id: "kf-h1", time: 0, value: 180, easing: "easeInOut" },
+          ],
+        },
+      };
+
+      render(
+        <VideoTransformControls
+          selectedClip={clipWithKeyframe}
+          canvasWidth={1920}
+          canvasHeight={1080}
+          handleUpdate={vi.fn()}
+          handleUpdateMultiple={handleUpdateMultiple}
+          handleApplyFit={vi.fn()}
+        />,
+      );
+
+      const scaleInput = screen.getByRole("spinbutton", { name: "Scale" });
+      fireEvent.focus(scaleInput);
+      fireEvent.change(scaleInput, { target: { value: "200" } });
+      fireEvent.blur(scaleInput);
+
+      expect(handleUpdateMultiple).toHaveBeenCalledTimes(1);
+      const payload = handleUpdateMultiple.mock.calls[0][0];
+      expect(payload.width).toBe(640);
+      expect(payload.height).toBe(360);
+      expect(payload.visualKeyframes?.width?.[0].value).toBe(640);
+      expect(payload.visualKeyframes?.height?.[0].value).toBe(360);
+    });
+
+    it("evaluates live keyframe values for scale display based on playhead time", () => {
+      mockCurrentTime = 4;
+
+      const clipWithKeyframes: Clip = {
+        ...baseVideoClip,
+        baseWidth: 320,
+        baseHeight: 180,
+        visualKeyframes: {
+          width: [
+            { id: "kf-w1", time: 0, value: 320, easing: "easeInOut" },
+            { id: "kf-w2", time: 4, value: 640, easing: "easeInOut" },
+          ],
+          height: [
+            { id: "kf-h1", time: 0, value: 180, easing: "easeInOut" },
+            { id: "kf-h2", time: 4, value: 360, easing: "easeInOut" },
+          ],
+        },
+      };
+
+      render(
+        <VideoTransformControls
+          selectedClip={clipWithKeyframes}
+          canvasWidth={1920}
+          canvasHeight={1080}
+          handleUpdate={vi.fn()}
+          handleUpdateMultiple={vi.fn()}
+          handleApplyFit={vi.fn()}
+        />,
+      );
+
+      const scaleInput = screen.getByRole("spinbutton", { name: "Scale" }) as HTMLInputElement;
+      expect(scaleInput.value).toBe("200");
     });
   });
 
