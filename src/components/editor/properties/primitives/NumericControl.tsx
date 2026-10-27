@@ -159,6 +159,10 @@ export const NumericControl: React.FC<NumericControlProps> = ({
     [max, resolvedDecimals],
   );
 
+  // ── Authoritative value ref to guard against stale props during hold-repeat
+  const currentValueRef = useRef(value);
+  currentValueRef.current = value;
+
   const handleInputKey = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === "Enter") {
@@ -170,34 +174,42 @@ export const NumericControl: React.FC<NumericControlProps> = ({
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        onChange(clamp(value + step));
+        const next = clamp(currentValueRef.current + step);
+        currentValueRef.current = next;
+        onChange(next);
       }
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        onChange(clamp(value - step));
+        const next = clamp(currentValueRef.current - step);
+        currentValueRef.current = next;
+        onChange(next);
       }
     },
-    [value, step, onChange, clamp, displayValue],
+    [step, onChange, clamp, displayValue],
   );
 
   // ── Increase/Decrease handlers ────────────────────────────────────────────
   const handleIncrease = useCallback(() => {
-    onChange(clamp(value + step));
+    const next = clamp(currentValueRef.current + step);
+    currentValueRef.current = next;
+    onChange(next);
     propertyEditTelemetry.recordNumericStep({
       property: propertyId || effectiveLabel,
       category,
       direction: "up",
     });
-  }, [value, step, onChange, clamp, propertyId, effectiveLabel, category]);
+  }, [step, onChange, clamp, propertyId, effectiveLabel, category]);
 
   const handleDecrease = useCallback(() => {
-    onChange(clamp(value - step));
+    const next = clamp(currentValueRef.current - step);
+    currentValueRef.current = next;
+    onChange(next);
     propertyEditTelemetry.recordNumericStep({
       property: propertyId || effectiveLabel,
       category,
       direction: "down",
     });
-  }, [value, step, onChange, clamp, propertyId, effectiveLabel, category]);
+  }, [step, onChange, clamp, propertyId, effectiveLabel, category]);
 
   return (
     <div className="flex items-center gap-1">
@@ -241,6 +253,7 @@ export const NumericControl: React.FC<NumericControlProps> = ({
         onIncrease={handleIncrease}
         onDecrease={handleDecrease}
         label={effectiveLabel}
+        disabled={disabled}
       />
     </div>
   );
