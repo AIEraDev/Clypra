@@ -42,6 +42,7 @@ import {
 } from "@/lib/timeline/timelineViewport";
 import { getTrackVisualSpec } from "@/lib/timeline/trackTypeConfig";
 import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
+import { findKeyframeSnap } from "@/lib/timeline/snapTargets";
 import { TIMELINE_ZOOM_MIN } from "@/lib/timeline/timelineZoom";
 
 import { TimelineToolbar } from "./TimelineToolbar";
@@ -697,7 +698,20 @@ export const Timeline: React.FC = () => {
       );
 
       const frameRate = getPlaybackClock().frameRate;
-      transportSeek(clampAndSnapProgramTime(time, duration, frameRate), {
+      const timelineState = useTimelineStore.getState();
+      const kfSnap = findKeyframeSnap({
+        candidateTime: time,
+        clips: timelineState.clips,
+        snapEnabled: timelineState.snapEnabled,
+        pixelsPerSecond,
+      });
+
+      const targetTime =
+        kfSnap.snapped && kfSnap.snappedTime !== undefined
+          ? Math.max(0, Math.min(kfSnap.snappedTime, duration))
+          : clampAndSnapProgramTime(time, duration, frameRate);
+
+      transportSeek(targetTime, {
         source: "timeline-click-seek",
         mode: "seek",
       });
@@ -1019,7 +1033,9 @@ export const Timeline: React.FC = () => {
                   timelineTimeToPixel(guide.time, pixelsPerSecond) +
                   getTimelineLabelColumnWidth(hasClips);
                 const guideColor =
-                  guide.type === "playhead"
+                  guide.type === "keyframe"
+                    ? "var(--color-accent)"
+                    : guide.type === "playhead"
                     ? "var(--color-timeline-drop-indicator)"
                     : "var(--color-snap-guide-clip)";
 

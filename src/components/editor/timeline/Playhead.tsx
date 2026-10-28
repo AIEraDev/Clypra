@@ -17,6 +17,7 @@ import {
   getFrameIndexAtTime,
 } from "@/lib/utils/frameTime";
 import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
+import { findKeyframeSnap } from "@/lib/timeline/snapTargets";
 import {
   timelineTimeToPixel,
   timelinePixelToTime,
@@ -132,6 +133,7 @@ export const Playhead: React.FC<PlayheadProps> = ({
     null,
   );
   const dragOffsetRef = useRef(0); // Offset captured at drag start for smooth anchor
+  const lastSnapGuideTimeRef = useRef<number | null>(null);
   // Cached for the rAF playback-animation loop — stays current without causing re-mounts.
   const pixelsPerSecondRef = useRef(pixelsPerSecond);
   pixelsPerSecondRef.current = pixelsPerSecond;
@@ -289,18 +291,42 @@ export const Playhead: React.FC<PlayheadProps> = ({
       const scrollX = container.scrollLeft;
       const playheadX = scrollX + pointerXRef.current + dragOffsetRef.current;
 
-      // Convert to time and snap to frame boundary
+      // Convert to time and snap to keyframe diamond center or frame boundary
       const rawTime = timelinePixelToTime(playheadX, pixelsPerSecond);
 
       // Get frameRate from project store directly, not clock state
       const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
+      const timelineState = useTimelineStore.getState();
+      const snapEnabled = timelineState.snapEnabled;
 
-      // Only snap if frames are visually distinguishable (> 3px apart)
-      // Prevents "sticky" playhead at extreme zoom-out levels
-      const pixelsPerFrame = pixelsPerSecond / frameRate;
-      const snappedTime =
-        pixelsPerFrame > 3 ? snapToFrameBoundary(rawTime, frameRate) : rawTime;
-      const newTime = clampAndSnapProgramTime(snappedTime, duration, frameRate);
+      const kfSnap = findKeyframeSnap({
+        candidateTime: rawTime,
+        clips: timelineState.clips,
+        snapEnabled,
+        pixelsPerSecond,
+      });
+
+      let newTime: number;
+      if (kfSnap.snapped && kfSnap.snappedTime !== undefined) {
+        newTime = Math.max(0, Math.min(kfSnap.snappedTime, duration));
+        if (lastSnapGuideTimeRef.current !== kfSnap.snappedTime) {
+          lastSnapGuideTimeRef.current = kfSnap.snappedTime;
+          timelineState.setSnapGuides([
+            { time: kfSnap.snappedTime, type: "keyframe" },
+          ]);
+        }
+      } else {
+        if (lastSnapGuideTimeRef.current !== null) {
+          lastSnapGuideTimeRef.current = null;
+          timelineState.clearSnapGuides();
+        }
+        // Only snap if frames are visually distinguishable (> 3px apart)
+        // Prevents "sticky" playhead at extreme zoom-out levels
+        const pixelsPerFrame = pixelsPerSecond / frameRate;
+        const snappedTime =
+          pixelsPerFrame > 3 ? snapToFrameBoundary(rawTime, frameRate) : rawTime;
+        newTime = clampAndSnapProgramTime(snappedTime, duration, frameRate);
+      }
 
       // Direct DOM update for 60fps responsive visual needle tracking while dragging
       const el = playheadRef.current;
@@ -340,6 +366,10 @@ export const Playhead: React.FC<PlayheadProps> = ({
     rafRef.current = requestAnimationFrame(tick);
 
     return () => {
+      if (lastSnapGuideTimeRef.current !== null) {
+        lastSnapGuideTimeRef.current = null;
+        useTimelineStore.getState().clearSnapGuides();
+      }
       if (stationaryTimerRef.current) {
         clearTimeout(stationaryTimerRef.current);
         stationaryTimerRef.current = null;
@@ -429,6 +459,10 @@ export const Playhead: React.FC<PlayheadProps> = ({
           );
           scrubInteractionRef.current = null;
         }
+        if (lastSnapGuideTimeRef.current !== null) {
+          lastSnapGuideTimeRef.current = null;
+          useTimelineStore.getState().clearSnapGuides();
+        }
         setIsDragging(false);
         scrollVelocityRef.current = 0;
         pointerIdRef.current = null;
@@ -487,6 +521,10 @@ export const Playhead: React.FC<PlayheadProps> = ({
     const handleVisibilityChange = () => {
       if (document.hidden) {
         endScrub(getPlaybackClock().time);
+        if (lastSnapGuideTimeRef.current !== null) {
+          lastSnapGuideTimeRef.current = null;
+          useTimelineStore.getState().clearSnapGuides();
+        }
         setIsDragging(false);
         scrollVelocityRef.current = 0;
         pointerIdRef.current = null;
@@ -564,12 +602,32 @@ export const Playhead: React.FC<PlayheadProps> = ({
     const rawTime = timelinePixelToTime(playheadX, pixelsPerSecond);
 
     const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
+    const timelineState = useTimelineStore.getState();
+    const snapEnabled = timelineState.snapEnabled;
 
-    // Only snap if frames are visually distinguishable (> 3px apart)
-    const pixelsPerFrame = pixelsPerSecond / frameRate;
-    const snappedTime =
-      pixelsPerFrame > 3 ? snapToFrameBoundary(rawTime, frameRate) : rawTime;
-    const newTime = clampAndSnapProgramTime(snappedTime, duration, frameRate);
+    const kfSnap = findKeyframeSnap({
+      candidateTime: rawTime,
+      clips: timelineState.clips,
+      snapEnabled,
+      pixelsPerSecond,
+    });
+
+    let newTime: number;
+    if (kfSnap.snapped && kfSnap.snappedTime !== undefined) {
+      newTime = Math.max(0, Math.min(kfSnap.snappedTime, duration));
+      lastSnapGuideTimeRef.current = kfSnap.snappedTime;
+      timelineState.setSnapGuides([
+        { time: kfSnap.snappedTime, type: "keyframe" },
+      ]);
+    } else {
+      lastSnapGuideTimeRef.current = null;
+      timelineState.clearSnapGuides();
+      // Only snap if frames are visually distinguishable (> 3px apart)
+      const pixelsPerFrame = pixelsPerSecond / frameRate;
+      const snappedTime =
+        pixelsPerFrame > 3 ? snapToFrameBoundary(rawTime, frameRate) : rawTime;
+      newTime = clampAndSnapProgramTime(snappedTime, duration, frameRate);
+    }
     beginScrub(newTime, "playhead");
 
     setIsDragging(true);
@@ -623,6 +681,10 @@ export const Playhead: React.FC<PlayheadProps> = ({
         touchAction: "none",
       }}
       onLostPointerCapture={() => {
+        if (lastSnapGuideTimeRef.current !== null) {
+          lastSnapGuideTimeRef.current = null;
+          useTimelineStore.getState().clearSnapGuides();
+        }
         setIsDragging(false);
         scrollVelocityRef.current = 0;
         pointerIdRef.current = null;

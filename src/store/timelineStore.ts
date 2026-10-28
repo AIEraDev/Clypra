@@ -109,12 +109,12 @@ interface TimelineStore {
   /** Active snap guides (vertical alignment indicators during resize/drag) */
   snapGuides: Array<{
     time: number;
-    type: "clip-start" | "clip-end" | "playhead";
+    type: "clip-start" | "clip-end" | "playhead" | "keyframe";
   }>;
   setSnapGuides: (
     guides: Array<{
       time: number;
-      type: "clip-start" | "clip-end" | "playhead";
+      type: "clip-start" | "clip-end" | "playhead" | "keyframe";
     }>,
   ) => void;
   clearSnapGuides: () => void;

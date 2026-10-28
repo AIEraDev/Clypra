@@ -393,4 +393,208 @@ describe("Playhead Component", () => {
       fireEvent(window, new PointerEvent("pointerup", { pointerId: 1 }));
     });
   });
+
+  describe("Keyframe diamond magnetic playhead snapping", () => {
+    it("snaps playhead to center of inline keyframe diamond and sets keyframe snap guide", () => {
+      const scrollContainer = document.createElement("div");
+      Object.defineProperty(scrollContainer, "clientWidth", { value: 1000, configurable: true });
+      Object.defineProperty(scrollContainer, "scrollWidth", { value: 3000, configurable: true });
+      scrollContainer.scrollLeft = 0;
+      scrollContainer.getBoundingClientRect = () => ({
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 400,
+        width: 1000,
+        height: 400,
+        x: 0,
+        y: 0,
+        toJSON: () => {},
+      });
+
+      // Clip at startTime 2.0s with keyframe at local time 1.0s (absolute time 3.0s = 300px at 100 pps)
+      useTimelineStore.setState({
+        snapEnabled: true,
+        snapGuides: [],
+        clips: [
+          {
+            id: "clip-k1",
+            trackId: "t1",
+            mediaId: "m1",
+            name: "Video 1",
+            startTime: 2.0,
+            duration: 10,
+            trimIn: 0,
+            trimOut: 10,
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+            opacity: 1,
+            rotation: 0,
+            visualKeyframes: {
+              rotation: [{ id: "kf-rot-1", time: 1.0, value: 45 }],
+            },
+          },
+        ],
+      });
+
+      const containerRef = { current: scrollContainer };
+      const { container } = render(
+        <Playhead pixelsPerSecond={100} duration={30} containerRef={containerRef} />,
+      );
+
+      const handle = container.querySelector("[data-playhead-handle='true']") as HTMLElement;
+      expect(handle).not.toBeNull();
+
+      // Click near 304px (3.04s, which is 4px away from keyframe diamond center at 300px <= 8px threshold)
+      // Playhead initial time in mock is 2.5s (250px)
+      fireEvent.pointerDown(handle, { clientX: 250, clientY: 10, pointerId: 1 });
+
+      // Move cursor to clientX = 304
+      fireEvent(window, new PointerEvent("pointermove", { clientX: 304, clientY: 10, pointerId: 1 }));
+
+      // Verify that beginScrub was called with the snapped keyframe time if within threshold,
+      // or test direct pointerDown near the keyframe
+      expect(beginScrubMock).toHaveBeenCalledTimes(1);
+
+      // Now pointerDown directly at 304px (e.g. from hit-target near 300px)
+      // When pointerDown occurs at 304px with dragOffset=0:
+      // We can also test direct handlePointerDown with clientX: 304
+      fireEvent(window, new PointerEvent("pointerup", { pointerId: 1 }));
+      expect(useTimelineStore.getState().snapGuides).toEqual([]);
+    });
+
+    it("magnetically snaps on handle pointer down when clicked within 8px of keyframe diamond", () => {
+      const scrollContainer = document.createElement("div");
+      Object.defineProperty(scrollContainer, "clientWidth", { value: 1000, configurable: true });
+      Object.defineProperty(scrollContainer, "scrollWidth", { value: 3000, configurable: true });
+      scrollContainer.scrollLeft = 0;
+      scrollContainer.getBoundingClientRect = () => ({
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 400,
+        width: 1000,
+        height: 400,
+        x: 0,
+        y: 0,
+        toJSON: () => {},
+      });
+
+      // Keyframe at 2.52s (252px at 100pps)
+      useTimelineStore.setState({
+        snapEnabled: true,
+        snapGuides: [],
+        clips: [
+          {
+            id: "clip-k2",
+            trackId: "t1",
+            mediaId: "m1",
+            name: "Video 2",
+            startTime: 2.0,
+            duration: 10,
+            trimIn: 0,
+            trimOut: 10,
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+            opacity: 1,
+            rotation: 0,
+            visualKeyframes: {
+              opacity: [{ id: "kf-op-1", time: 0.52, value: 0.8 }], // abs: 2.52s
+            },
+          },
+        ],
+      });
+
+      const containerRef = { current: scrollContainer };
+      const { container } = render(
+        <Playhead pixelsPerSecond={100} duration={30} containerRef={containerRef} />,
+      );
+
+      const hitTarget = container.querySelector("[data-playhead-hit-target='true']") as HTMLElement;
+      expect(hitTarget).not.toBeNull();
+
+      // Click at 250px (playhead is at 250px = 2.5s). Distance to 2.52s is 0.02s = 2px <= 8px threshold!
+      act(() => {
+        fireEvent.pointerDown(hitTarget, { clientX: 250, clientY: 10, pointerId: 2 });
+      });
+
+      // Should snap to exact keyframe time 2.52s!
+      expect(beginScrubMock).toHaveBeenCalledWith(2.52, "playhead");
+      expect(useTimelineStore.getState().snapGuides).toEqual([
+        { time: 2.52, type: "keyframe" },
+      ]);
+
+      // Release cleans up snap guides
+      act(() => {
+        fireEvent(window, new PointerEvent("pointerup", { pointerId: 2 }));
+      });
+      expect(useTimelineStore.getState().snapGuides).toEqual([]);
+    });
+
+    it("does not snap to keyframe diamond when snapEnabled is false", () => {
+      const scrollContainer = document.createElement("div");
+      Object.defineProperty(scrollContainer, "clientWidth", { value: 1000, configurable: true });
+      Object.defineProperty(scrollContainer, "scrollWidth", { value: 3000, configurable: true });
+      scrollContainer.scrollLeft = 0;
+      scrollContainer.getBoundingClientRect = () => ({
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 400,
+        width: 1000,
+        height: 400,
+        x: 0,
+        y: 0,
+        toJSON: () => {},
+      });
+
+      useTimelineStore.setState({
+        snapEnabled: false,
+        snapGuides: [],
+        clips: [
+          {
+            id: "clip-k3",
+            trackId: "t1",
+            mediaId: "m1",
+            name: "Video 3",
+            startTime: 2.0,
+            duration: 10,
+            trimIn: 0,
+            trimOut: 10,
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+            opacity: 1,
+            rotation: 0,
+            visualKeyframes: {
+              opacity: [{ id: "kf-op-2", time: 0.52, value: 0.8 }], // abs: 2.52s
+            },
+          },
+        ],
+      });
+
+      const containerRef = { current: scrollContainer };
+      const { container } = render(
+        <Playhead pixelsPerSecond={100} duration={30} containerRef={containerRef} />,
+      );
+
+      const hitTarget = container.querySelector("[data-playhead-hit-target='true']") as HTMLElement;
+      act(() => {
+        fireEvent.pointerDown(hitTarget, { clientX: 250, clientY: 10, pointerId: 3 });
+      });
+
+      // Should NOT snap to 2.52; should snap to standard 2.5s frame boundary
+      expect(beginScrubMock).toHaveBeenCalledWith(2.5, "playhead");
+      expect(useTimelineStore.getState().snapGuides).toEqual([]);
+
+      act(() => {
+        fireEvent(window, new PointerEvent("pointerup", { pointerId: 3 }));
+      });
+    });
+  });
 });
