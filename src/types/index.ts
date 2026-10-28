@@ -548,8 +548,6 @@ export interface Clip {
   motion?: import("./motion").ClipMotionConfig;
   /** Cinematic GPU shutter motion blur configuration */
   motionBlur?: ClipMotionBlurConfig;
-  /** Optional override to force show or hide spatial motion path on canvas preview */
-  showMotionPath?: boolean;
   audioPath?: string;
   /** Source clip identity for generated detach-audio clips. */
   detachedFromClipId?: string;
