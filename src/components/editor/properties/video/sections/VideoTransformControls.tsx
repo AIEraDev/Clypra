@@ -24,6 +24,7 @@ import { useUIStore } from "@/store/uiStore";
 import { KeyframeNavControls } from "../../primitives/KeyframeNavControls";
 import { propertyEditTelemetry } from "@/lib/properties/propertyEditTelemetry";
 import { evaluateVisualPropertyKeyframes } from "@/core/evaluation/animation";
+import { useDragTransformOverride } from "@/hooks/useDragTransformOverride";
 
 interface VideoTransformControlsProps {
   selectedClip: Clip;
@@ -45,6 +46,14 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
   const { t } = useI18n();
   const isAspectLocked = selectedClip.aspectRatioLocked ?? true;
   const [isTransformCollapsed, setIsTransformCollapsed] = useState(false);
+
+  // ── Authoritative drag override ───────────────────────────────────────────
+  // During a canvas drag, TransformController publishes live geometry without
+  // writing to the Zustand store. useDragTransformOverride subscribes to that
+  // signal and surfaces it as React state so the property panel stays in sync.
+  // dragOverride is null when no drag is active; the panel falls back to the
+  // clip's stored values (the normal path).
+  const { dragOverride } = useDragTransformOverride(selectedClip.id);
 
   // ── Keyframe state ────────────────────────────────────────────────────────
   const openCurveEditor = useUIStore((s) => s.openCurveEditor);
@@ -286,6 +295,21 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
     selectedClip.duration,
   ]);
 
+  // ── Apply drag overrides (display-only, no handleUpdate calls) ────────────
+  // When a canvas drag is active, replace the derived clip values with the
+  // live geometry published by TransformController so the property panel and
+  // the canvas handle stay in sync at 60 fps.
+  const displayClipX = dragOverride !== null ? dragOverride.x : currentClipX;
+  const displayClipY = dragOverride !== null ? dragOverride.y : currentClipY;
+  const displayRotation =
+    dragOverride !== null ? dragOverride.rotation : currentRotation;
+  // Width/height used for scalePercent: override during drag so the panel
+  // reflects the live canvas size, not the stale stored value.
+  const displayWidth =
+    dragOverride !== null ? dragOverride.width : currentWidth;
+  const displayHeight =
+    dragOverride !== null ? dragOverride.height : currentHeight;
+
   const handleToggleUniformScaleKeyframe = useCallback(() => {
     const isAt = scaleKfState.isAtKeyframe;
     const currentWidthKfs = selectedClip.visualKeyframes?.width || [];
@@ -309,7 +333,9 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
       const t = Math.round(localTime * 100) / 100;
 
       const nextWidthKfs = [
-        ...currentWidthKfs.filter((kf) => Math.abs(kf.time - localTime) >= 0.08),
+        ...currentWidthKfs.filter(
+          (kf) => Math.abs(kf.time - localTime) >= 0.08,
+        ),
         {
           id: `kf-width-${Date.now()}`,
           time: t,
@@ -442,17 +468,17 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
   /** Scale percentage relative to the original source dimensions. */
   const scalePercent = useMemo(() => {
-    if (baseWidth > 0 && currentWidth > 0) {
-      return Math.round((currentWidth / baseWidth) * 100);
+    if (baseWidth > 0 && displayWidth > 0) {
+      return Math.round((displayWidth / baseWidth) * 100);
     }
     return 100;
-  }, [baseWidth, currentWidth]);
+  }, [baseWidth, displayWidth]);
 
   // ── Position (displayed relative to canvas center) ────────────────────────
   // The clip's (x, y) is its top-left corner. We convert to a center-relative
   // offset so that (0, 0) means "perfectly centered on the canvas".
-  const centerX = currentClipX + currentWidth / 2;
-  const centerY = currentClipY + currentHeight / 2;
+  const centerX = displayClipX + displayWidth / 2;
+  const centerY = displayClipY + displayHeight / 2;
   /** Positive = right of center */
   const displayX = Math.round(centerX - canvasWidth / 2);
   /** Positive = above center (Y axis flipped to match screen convention) */
@@ -755,11 +781,11 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
   /** Scale percentage for height */
   const scaleHeightPercent = useMemo(() => {
-    if (baseHeight > 0 && currentHeight > 0) {
-      return Math.round((currentHeight / baseHeight) * 100);
+    if (baseHeight > 0 && displayHeight > 0) {
+      return Math.round((displayHeight / baseHeight) * 100);
     }
     return 100;
-  }, [baseHeight, currentHeight]);
+  }, [baseHeight, displayHeight]);
 
   const handleUpdatePropertyWithKeyframe = useCallback(
     (prop: "width" | "height" | "x" | "y" | "rotation", value: number) => {
@@ -812,12 +838,20 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
   // ── Alignment Handlers (respects keyframes) ──────────────────────────────
   const handleAlignLeft = useCallback(() => {
-    propertyEditTelemetry.recordButtonAction({ action: "align-left", category: "video", property: "x" });
+    propertyEditTelemetry.recordButtonAction({
+      action: "align-left",
+      category: "video",
+      property: "x",
+    });
     handleUpdatePropertyWithKeyframe("x", 0);
   }, [handleUpdatePropertyWithKeyframe]);
 
   const handleAlignCenterX = useCallback(() => {
-    propertyEditTelemetry.recordButtonAction({ action: "align-center-x", category: "video", property: "x" });
+    propertyEditTelemetry.recordButtonAction({
+      action: "align-center-x",
+      category: "video",
+      property: "x",
+    });
     handleUpdatePropertyWithKeyframe(
       "x",
       Math.round((canvasWidth - currentWidth) / 2),
@@ -825,7 +859,11 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
   }, [canvasWidth, currentWidth, handleUpdatePropertyWithKeyframe]);
 
   const handleAlignRight = useCallback(() => {
-    propertyEditTelemetry.recordButtonAction({ action: "align-right", category: "video", property: "x" });
+    propertyEditTelemetry.recordButtonAction({
+      action: "align-right",
+      category: "video",
+      property: "x",
+    });
     handleUpdatePropertyWithKeyframe(
       "x",
       Math.round(canvasWidth - currentWidth),
@@ -833,12 +871,20 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
   }, [canvasWidth, currentWidth, handleUpdatePropertyWithKeyframe]);
 
   const handleAlignTop = useCallback(() => {
-    propertyEditTelemetry.recordButtonAction({ action: "align-top", category: "video", property: "y" });
+    propertyEditTelemetry.recordButtonAction({
+      action: "align-top",
+      category: "video",
+      property: "y",
+    });
     handleUpdatePropertyWithKeyframe("y", 0);
   }, [handleUpdatePropertyWithKeyframe]);
 
   const handleAlignCenterY = useCallback(() => {
-    propertyEditTelemetry.recordButtonAction({ action: "align-center-y", category: "video", property: "y" });
+    propertyEditTelemetry.recordButtonAction({
+      action: "align-center-y",
+      category: "video",
+      property: "y",
+    });
     handleUpdatePropertyWithKeyframe(
       "y",
       Math.round((canvasHeight - currentHeight) / 2),
@@ -846,7 +892,11 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
   }, [canvasHeight, currentHeight, handleUpdatePropertyWithKeyframe]);
 
   const handleAlignBottom = useCallback(() => {
-    propertyEditTelemetry.recordButtonAction({ action: "align-bottom", category: "video", property: "y" });
+    propertyEditTelemetry.recordButtonAction({
+      action: "align-bottom",
+      category: "video",
+      property: "y",
+    });
     handleUpdatePropertyWithKeyframe(
       "y",
       Math.round(canvasHeight - currentHeight),
@@ -855,7 +905,11 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
   // ── Reset Handler (Scale to 100%, center position, 0 rotation) ────────────
   const handleReset = useCallback(() => {
-    propertyEditTelemetry.recordButtonAction({ action: "reset-transform", category: "video", property: "transform" });
+    propertyEditTelemetry.recordButtonAction({
+      action: "reset-transform",
+      category: "video",
+      property: "transform",
+    });
     const defaultX = Math.round((canvasWidth - baseWidth) / 2);
     const defaultY = Math.round((canvasHeight - baseHeight) / 2);
     handleUpdateMultiple({
@@ -1003,10 +1057,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                     hasKeyframes={scaleWidthKfState.hasKeyframes}
                     isAtKeyframe={scaleWidthKfState.isAtKeyframe}
                     onToggleKeyframe={() =>
-                      handleToggleKeyframe(
-                        "width",
-                        currentWidth,
-                      )
+                      handleToggleKeyframe("width", currentWidth)
                     }
                     onPrevKeyframe={() => handleJumpToKeyframe("width", "prev")}
                     onNextKeyframe={() => handleJumpToKeyframe("width", "next")}
@@ -1047,10 +1098,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                     hasKeyframes={scaleHeightKfState.hasKeyframes}
                     isAtKeyframe={scaleHeightKfState.isAtKeyframe}
                     onToggleKeyframe={() =>
-                      handleToggleKeyframe(
-                        "height",
-                        currentHeight,
-                      )
+                      handleToggleKeyframe("height", currentHeight)
                     }
                     onPrevKeyframe={() =>
                       handleJumpToKeyframe("height", "prev")
@@ -1149,7 +1197,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
             <div className="flex items-center gap-2 justify-between w-full">
               <NumericControl
-                value={Math.round(currentRotation)}
+                value={Math.round(displayRotation)}
                 onChange={handleRotationChange}
                 step={1}
                 suffix="°"
@@ -1165,7 +1213,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                 hasKeyframes={rotationKfState.hasKeyframes}
                 isAtKeyframe={rotationKfState.isAtKeyframe}
                 onToggleKeyframe={() =>
-                  handleToggleKeyframe("rotation", currentRotation)
+                  handleToggleKeyframe("rotation", displayRotation)
                 }
                 onPrevKeyframe={() => handleJumpToKeyframe("rotation", "prev")}
                 onNextKeyframe={() => handleJumpToKeyframe("rotation", "next")}
@@ -1195,8 +1243,14 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
             <button
               type="button"
               className="bg-[#27272a] hover:bg-[#3f3f46] text-zinc-300 hover:text-white w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
-              title={t("properties.transform.alignCenterX") || "Align center horizontally"}
-              aria-label={t("properties.transform.alignCenterX") || "Align center horizontally"}
+              title={
+                t("properties.transform.alignCenterX") ||
+                "Align center horizontally"
+              }
+              aria-label={
+                t("properties.transform.alignCenterX") ||
+                "Align center horizontally"
+              }
               onClick={handleAlignCenterX}
             >
               {/* prettier-ignore */}
@@ -1228,8 +1282,14 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
             <button
               type="button"
               className="bg-[#27272a] hover:bg-[#3f3f46] text-zinc-300 hover:text-white w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
-              title={t("properties.transform.alignCenterY") || "Align center vertically"}
-              aria-label={t("properties.transform.alignCenterY") || "Align center vertically"}
+              title={
+                t("properties.transform.alignCenterY") ||
+                "Align center vertically"
+              }
+              aria-label={
+                t("properties.transform.alignCenterY") ||
+                "Align center vertically"
+              }
               onClick={handleAlignCenterY}
             >
               {/* prettier-ignore */}
@@ -1240,7 +1300,9 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
               type="button"
               className="bg-[#27272a] hover:bg-[#3f3f46] text-zinc-300 hover:text-white w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
               title={t("properties.transform.alignBottom") || "Align bottom"}
-              aria-label={t("properties.transform.alignBottom") || "Align bottom"}
+              aria-label={
+                t("properties.transform.alignBottom") || "Align bottom"
+              }
               onClick={handleAlignBottom}
             >
               {/* prettier-ignore */}

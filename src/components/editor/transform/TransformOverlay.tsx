@@ -2108,24 +2108,23 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       newTransform.baseWidth = authoredSize.width;
       newTransform.baseHeight = authoredSize.height;
     } else if (
-      (selectedClip as any).kind === "text" ||
-      (selectedClip as any).kind === "text-template" ||
-      (selectedClip as any).templateId ||
-      (selectedClip as any).styleId ||
-      (selectedClip as any).styleSnapshot ||
-      (selectedClip as any).baseWidth !== undefined
+      oldTransform.width !== newTransform.width ||
+      oldTransform.height !== newTransform.height
     ) {
-      if (
-        oldTransform.width !== newTransform.width ||
-        oldTransform.height !== newTransform.height
-      ) {
-        oldTransform.baseWidth =
-          (selectedClip as any).baseWidth ?? oldTransform.width;
-        oldTransform.baseHeight =
-          (selectedClip as any).baseHeight ?? oldTransform.height;
-        newTransform.baseWidth = finalGeometry.width;
-        newTransform.baseHeight = finalGeometry.height;
-      }
+      // Preserve the PRE-DRAG base dimensions so scalePercent = newWidth/baseWidth
+      // gives the true scale ratio, not always 100%.
+      oldTransform.baseWidth =
+        (selectedClip as any).baseWidth ??
+        currentTransform.startTransform.width;
+      oldTransform.baseHeight =
+        (selectedClip as any).baseHeight ??
+        currentTransform.startTransform.height;
+      newTransform.baseWidth =
+        (selectedClip as any).baseWidth ??
+        currentTransform.startTransform.width;
+      newTransform.baseHeight =
+        (selectedClip as any).baseHeight ??
+        currentTransform.startTransform.height;
     }
 
     if (selectedClip?.visualKeyframes) {
