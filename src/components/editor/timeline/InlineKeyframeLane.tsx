@@ -1,4 +1,10 @@
-import React, { useState, useRef, useCallback, useMemo } from "react";
+import React, {
+  useState,
+  useRef,
+  useCallback,
+  useMemo,
+  useEffect,
+} from "react";
 import {
   Activity,
   Maximize2,
@@ -15,7 +21,10 @@ import {
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { useHistoryStore } from "@/store/historyStore";
-import { usePlaybackClock, usePlaybackControls } from "@/hooks/usePlaybackClock";
+import {
+  usePlaybackClock,
+  usePlaybackControls,
+} from "@/hooks/usePlaybackClock";
 import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
 import {
   retimeKeyframe,
@@ -71,6 +80,7 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
   const [selectedKeyframe, setSelectedKeyframe] = useState<{
     propertyKey: string;
     keyframeId: string;
+    keyframeTime?: number;
   } | null>(null);
 
   // Extract all property lanes
@@ -97,7 +107,9 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
     // Position (combined X / Y)
     const combinedPos = sortKeyframes([
       ...posXKeyframes,
-      ...posYKeyframes.filter((py) => !posXKeyframes.some((px) => Math.abs(px.time - py.time) < 0.02)),
+      ...posYKeyframes.filter(
+        (py) => !posXKeyframes.some((px) => Math.abs(px.time - py.time) < 0.02),
+      ),
     ]);
     if (combinedPos.length > 0) {
       list.push({
@@ -112,7 +124,9 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
     // Size / Scale (combined W / H)
     const combinedSize = sortKeyframes([
       ...widthKeyframes,
-      ...heightKeyframes.filter((h) => !widthKeyframes.some((w) => Math.abs(w.time - h.time) < 0.02)),
+      ...heightKeyframes.filter(
+        (h) => !widthKeyframes.some((w) => Math.abs(w.time - h.time) < 0.02),
+      ),
     ]);
     if (combinedSize.length > 0) {
       list.push({
@@ -169,24 +183,37 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
   ]);
 
   // Unified summary diamonds (all unique timestamps across all properties)
-  const summaryKeyframes = useMemo(() => {
-    const all = [
-      ...posXKeyframes,
-      ...posYKeyframes,
-      ...widthKeyframes,
-      ...heightKeyframes,
-      ...rotKeyframes,
-      ...opacityKeyframes,
-      ...volKeyframes,
+  const summaryKeyframes = useMemo<
+    { id: string; time: number; properties: string[] }[]
+  >(() => {
+    const propertyEntries: { prop: string; kf: Keyframe }[] = [
+      ...posXKeyframes.map((kf) => ({ prop: "Position X", kf })),
+      ...posYKeyframes.map((kf) => ({ prop: "Position Y", kf })),
+      ...widthKeyframes.map((kf) => ({ prop: "Scale Width", kf })),
+      ...heightKeyframes.map((kf) => ({ prop: "Scale Height", kf })),
+      ...rotKeyframes.map((kf) => ({ prop: "Rotation", kf })),
+      ...opacityKeyframes.map((kf) => ({ prop: "Opacity", kf })),
+      ...volKeyframes.map((kf) => ({ prop: "Volume", kf })),
     ];
-    if (all.length === 0) return [];
+    if (propertyEntries.length === 0) return [];
 
-    // Deduplicate within 0.04s
-    const unique: Keyframe[] = [];
-    const sorted = sortKeyframes(all);
-    for (const kf of sorted) {
-      if (!unique.some((u) => Math.abs(u.time - kf.time) < 0.04)) {
-        unique.push(kf);
+    propertyEntries.sort((a, b) => a.kf.time - b.kf.time);
+
+    const unique: { id: string; time: number; properties: string[] }[] = [];
+    for (const entry of propertyEntries) {
+      const existing = unique.find(
+        (u) => Math.abs(u.time - entry.kf.time) < 0.04,
+      );
+      if (existing) {
+        if (!existing.properties.includes(entry.prop)) {
+          existing.properties.push(entry.prop);
+        }
+      } else {
+        unique.push({
+          id: entry.kf.id,
+          time: entry.kf.time,
+          properties: [entry.prop],
+        });
       }
     }
     return unique;
@@ -201,8 +228,16 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
   ]);
 
   // Jump playhead to keyframe
-  const handleKeyframeClick = (e: React.MouseEvent, kf: Keyframe) => {
+  const handleKeyframeClick = (
+    e: React.MouseEvent,
+    kf: { id: string; time: number },
+  ) => {
     e.stopPropagation();
+    setSelectedKeyframe({
+      propertyKey: "all",
+      keyframeId: kf.id,
+      keyframeTime: kf.time,
+    });
     seek(clip.startTime + kf.time);
   };
 
@@ -210,7 +245,7 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
   const handleKeyframePointerDown = (
     e: React.PointerEvent,
     propertyKey: string,
-    keyframe: Keyframe,
+    keyframe: { id: string; time: number },
   ) => {
     e.stopPropagation();
     e.preventDefault();
@@ -224,7 +259,11 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
       startX: e.clientX,
       isAltDuplicate: isAlt,
     });
-    setSelectedKeyframe({ propertyKey, keyframeId: keyframe.id });
+    setSelectedKeyframe({
+      propertyKey,
+      keyframeId: keyframe.id,
+      keyframeTime: keyframe.time,
+    });
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
@@ -239,13 +278,76 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
 
     const updatePropTrack = (kfs: Keyframe[]) => {
       if (activeDrag.isAltDuplicate) {
-        return duplicateKeyframe(kfs, activeDrag.keyframeId, newTime, clip.duration);
+        return duplicateKeyframe(
+          kfs,
+          activeDrag.keyframeId,
+          newTime,
+          clip.duration,
+        );
       }
       return retimeKeyframe(kfs, activeDrag.keyframeId, newTime, clip.duration);
     };
 
-    if (activeDrag.propertyKey === "volume") {
-      const currentUnified: Keyframe<number>[] = (clip.volumeKeyframes || []).map((ak) => ({
+    if (activeDrag.propertyKey === "all") {
+      const v = { ...(clip.visualKeyframes || {}) };
+      const retimeTrackIfMatching = (kfs?: Keyframe[]) => {
+        if (!kfs || kfs.length === 0) return kfs;
+        const matchingKf = kfs.find(
+          (k) => Math.abs(k.time - activeDrag.initialTime) < 0.05,
+        );
+        if (!matchingKf) return kfs;
+        if (activeDrag.isAltDuplicate) {
+          return duplicateKeyframe(kfs, matchingKf.id, newTime, clip.duration);
+        }
+        return retimeKeyframe(kfs, matchingKf.id, newTime, clip.duration);
+      };
+      if (v.x) v.x = retimeTrackIfMatching(v.x);
+      if (v.y) v.y = retimeTrackIfMatching(v.y);
+      if (v.width) v.width = retimeTrackIfMatching(v.width);
+      if (v.height) v.height = retimeTrackIfMatching(v.height);
+      if (v.rotation) v.rotation = retimeTrackIfMatching(v.rotation);
+      if (v.opacity) v.opacity = retimeTrackIfMatching(v.opacity);
+      updatedClip.visualKeyframes = v;
+
+      if (clip.volumeKeyframes?.length) {
+        const currentUnified: Keyframe<number>[] = clip.volumeKeyframes.map(
+          (ak) => ({
+            id: ak.id,
+            time: ak.time,
+            value: ak.gain ?? ak.value ?? 1,
+            easing: ak.easing as KeyframeEasing,
+          }),
+        );
+        const matchingVol = currentUnified.find(
+          (k) => Math.abs(k.time - activeDrag.initialTime) < 0.05,
+        );
+        if (matchingVol) {
+          const updatedUnified = activeDrag.isAltDuplicate
+            ? duplicateKeyframe(
+                currentUnified,
+                matchingVol.id,
+                newTime,
+                clip.duration,
+              )
+            : retimeKeyframe(
+                currentUnified,
+                matchingVol.id,
+                newTime,
+                clip.duration,
+              );
+          updatedClip.volumeKeyframes = updatedUnified.map((k) => ({
+            id: k.id,
+            time: k.time,
+            gain: k.value,
+            value: k.value,
+            easing: k.easing as any,
+          }));
+        }
+      }
+    } else if (activeDrag.propertyKey === "volume") {
+      const currentUnified: Keyframe<number>[] = (
+        clip.volumeKeyframes || []
+      ).map((ak) => ({
         id: ak.id,
         time: ak.time,
         value: ak.gain ?? ak.value ?? 1,
@@ -292,13 +394,21 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
     }
 
     // Commit change into history undo/redo
-    const finalClip = useTimelineStore.getState().clips.find((c) => c.id === clip.id);
+    const finalClip = useTimelineStore
+      .getState()
+      .clips.find((c) => c.id === clip.id);
     if (finalClip) {
       execute(
         new TransformClipCommand(
           clip.id,
-          { visualKeyframes: clip.visualKeyframes, volumeKeyframes: clip.volumeKeyframes },
-          { visualKeyframes: finalClip.visualKeyframes, volumeKeyframes: finalClip.volumeKeyframes },
+          {
+            visualKeyframes: clip.visualKeyframes,
+            volumeKeyframes: clip.volumeKeyframes,
+          },
+          {
+            visualKeyframes: finalClip.visualKeyframes,
+            volumeKeyframes: finalClip.volumeKeyframes,
+          },
           { before: clip, after: finalClip },
         ),
       );
@@ -314,8 +424,35 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
     const oldClip = { ...clip };
     let updatedClip = { ...clip };
 
-    if (propertyKey === "volume") {
-      const currentUnified: Keyframe<number>[] = (clip.volumeKeyframes || []).map((ak) => ({
+    if (propertyKey === "all") {
+      const targetTime = selectedKeyframe.keyframeTime;
+      const v = { ...(clip.visualKeyframes || {}) };
+      const deleteIfMatching = (kfs?: Keyframe[]) => {
+        if (!kfs) return kfs;
+        if (targetTime !== undefined) {
+          return kfs.filter((k) => Math.abs(k.time - targetTime) >= 0.05);
+        }
+        return deleteKeyframe(kfs, keyframeId);
+      };
+      if (v.x) v.x = deleteIfMatching(v.x);
+      if (v.y) v.y = deleteIfMatching(v.y);
+      if (v.width) v.width = deleteIfMatching(v.width);
+      if (v.height) v.height = deleteIfMatching(v.height);
+      if (v.rotation) v.rotation = deleteIfMatching(v.rotation);
+      if (v.opacity) v.opacity = deleteIfMatching(v.opacity);
+      updatedClip.visualKeyframes = v;
+
+      if (clip.volumeKeyframes) {
+        updatedClip.volumeKeyframes = clip.volumeKeyframes.filter((ak) =>
+          targetTime !== undefined
+            ? Math.abs(ak.time - targetTime) >= 0.05
+            : ak.id !== keyframeId,
+        );
+      }
+    } else if (propertyKey === "volume") {
+      const currentUnified: Keyframe<number>[] = (
+        clip.volumeKeyframes || []
+      ).map((ak) => ({
         id: ak.id,
         time: ak.time,
         value: ak.gain ?? ak.value ?? 1,
@@ -349,13 +486,37 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
     execute(
       new TransformClipCommand(
         clip.id,
-        { visualKeyframes: oldClip.visualKeyframes, volumeKeyframes: oldClip.volumeKeyframes },
-        { visualKeyframes: updatedClip.visualKeyframes, volumeKeyframes: updatedClip.volumeKeyframes },
+        {
+          visualKeyframes: oldClip.visualKeyframes,
+          volumeKeyframes: oldClip.volumeKeyframes,
+        },
+        {
+          visualKeyframes: updatedClip.visualKeyframes,
+          volumeKeyframes: updatedClip.volumeKeyframes,
+        },
         { before: oldClip, after: updatedClip },
       ),
     );
     setSelectedKeyframe(null);
   }, [clip, selectedKeyframe, execute]);
+
+  // Keyboard shortcut listener to delete selected keyframe with Delete / Backspace
+  useEffect(() => {
+    if (!selectedKeyframe) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        e.stopPropagation();
+        handleDeleteSelectedKeyframe();
+      } else if (e.key === "Escape") {
+        setSelectedKeyframe(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedKeyframe, handleDeleteSelectedKeyframe]);
 
   if (summaryKeyframes.length === 0 && !isExpanded) {
     return null;
@@ -367,7 +528,7 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
       className={`w-full select-none transition-all ${
         isExpanded
           ? "bg-surface-app/95 border-t border-border/80 shadow-lg py-1 px-1 flex flex-col gap-1 z-30"
-          : "h-3.5 bg-black/40 border-t border-white/10 flex items-center relative overflow-hidden"
+          : "relative w-full h-full pointer-events-none flex items-center"
       }`}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -375,14 +536,19 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
     >
       {/* ── Compact Mode (Single bar with diamonds) ───────────────────────── */}
       {!isExpanded ? (
-        <div className="relative w-full h-full flex items-center">
+        <div className="relative w-full h-full pointer-events-none flex items-center">
           {/* Guide line across clip */}
-          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[1px] bg-white/15" />
+          {/* I Remove this Guide line because I don't want it in the design :) */}
+          {/* <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[1px] bg-white/20 shadow-[0_1px_1px_rgba(0,0,0,0.5)]" /> */}
 
           {/* Render diamond nodes */}
           {summaryKeyframes.map((kf) => {
             const leftPx = (kf.time / clip.duration) * clipWidthPx;
+            const isParked =
+              Math.abs(currentTime - (clip.startTime + kf.time)) < 0.05;
             const isSelected = selectedKeyframe?.keyframeId === kf.id;
+            const isActive = isParked || isSelected;
+
             return (
               <div
                 key={kf.id}
@@ -393,14 +559,14 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
                   e.stopPropagation();
                   openCurveEditor(clip.id, "rotation");
                 }}
-                onPointerDown={(e) => handleKeyframePointerDown(e, "rotation", kf)}
+                onPointerDown={(e) => handleKeyframePointerDown(e, "all", kf)}
                 style={{ left: `${leftPx}px` }}
-                className={`absolute -translate-x-1/2 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rotate-45 border transition-transform cursor-pointer hover:scale-125 ${
-                  isSelected
-                    ? "bg-accent border-white shadow-[0_0_6px_var(--color-accent)]"
-                    : "bg-amber-400/90 border-amber-200/90 hover:bg-amber-300"
+                className={`pointer-events-auto absolute -translate-x-1/2 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rotate-45 rounded-[2px] transition-transform cursor-pointer select-none ${
+                  isActive
+                    ? "bg-accent border-2 border-white shadow-[0_0_8px_var(--color-accent)] z-20"
+                    : "bg-white/95 border border-black/80 shadow-[0_1px_4px_rgba(0,0,0,0.6)] z-10"
                 }`}
-                title={`Keyframe at ${kf.time.toFixed(2)}s • Double-click for Curve Editor`}
+                title={`Keyframe at ${kf.time.toFixed(2)}s (${kf.properties.join(", ")}) • Click to seek • Drag to retime • Double-click for Curve Editor`}
               />
             );
           })}
@@ -411,7 +577,8 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
           {/* Drawer Header */}
           <div className="flex items-center justify-between px-1.5 py-0.5 text-[10px] text-text-muted border-b border-border/40">
             <span className="font-semibold text-text-primary flex items-center gap-1">
-              <Sparkles className="w-3 h-3 text-accent" /> Keyframe Animation Lanes
+              <Sparkles className="w-3 h-3 text-accent" /> Keyframe Animation
+              Lanes
             </span>
             <div className="flex items-center gap-1">
               {selectedKeyframe && (
@@ -460,8 +627,10 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
                   {lane.keyframes.map((kf, i) => {
                     if (i === lane.keyframes.length - 1) return null;
                     const nextKf = lane.keyframes[i + 1];
-                    const startPx = (kf.time / clip.duration) * (clipWidthPx - 70);
-                    const endPx = (nextKf.time / clip.duration) * (clipWidthPx - 70);
+                    const startPx =
+                      (kf.time / clip.duration) * (clipWidthPx - 70);
+                    const endPx =
+                      (nextKf.time / clip.duration) * (clipWidthPx - 70);
                     const widthPx = Math.max(1, endPx - startPx);
 
                     return (
@@ -471,7 +640,11 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
                         className="absolute top-1/2 -translate-y-1/2 h-[2px] bg-accent/40 hover:bg-accent cursor-pointer group flex items-center justify-center"
                         onClick={(e) => {
                           e.stopPropagation();
-                          openCurveEditor(clip.id, lane.key === "position" ? "rotation" : lane.key, i);
+                          openCurveEditor(
+                            clip.id,
+                            lane.key === "position" ? "rotation" : lane.key,
+                            i,
+                          );
                         }}
                         title={`Curve: ${kf.easing || "easeInOut"} • Click to Edit Curve`}
                       >
@@ -487,7 +660,8 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
 
                   {/* Diamond Keyframe Nodes */}
                   {lane.keyframes.map((kf, idx) => {
-                    const leftPx = (kf.time / clip.duration) * (clipWidthPx - 70);
+                    const leftPx =
+                      (kf.time / clip.duration) * (clipWidthPx - 70);
                     const isSelected = selectedKeyframe?.keyframeId === kf.id;
                     return (
                       <div
@@ -497,10 +671,16 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
                         onClick={(e) => handleKeyframeClick(e, kf)}
                         onDoubleClick={(e) => {
                           e.stopPropagation();
-                          openCurveEditor(clip.id, lane.key === "position" ? "rotation" : lane.key, idx);
+                          openCurveEditor(
+                            clip.id,
+                            lane.key === "position" ? "rotation" : lane.key,
+                            idx,
+                          );
                         }}
-                        onPointerDown={(e) => handleKeyframePointerDown(e, lane.key, kf)}
-                        className={`absolute -translate-x-1/2 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rotate-45 border transition-transform cursor-pointer hover:scale-130 ${
+                        onPointerDown={(e) =>
+                          handleKeyframePointerDown(e, lane.key, kf)
+                        }
+                        className={`absolute -translate-x-1/2 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rotate-45 border transition-transform cursor-pointer ${
                           isSelected
                             ? "bg-white border-accent shadow-[0_0_8px_var(--color-accent)]"
                             : "border-white/80"

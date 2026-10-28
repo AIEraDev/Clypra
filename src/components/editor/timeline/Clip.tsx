@@ -1055,7 +1055,7 @@ const ClipInner: React.FC<ClipProps> = ({
                 className={`ml-auto pointer-events-auto flex items-center gap-0.5 px-1 py-px rounded text-[8px] font-semibold transition-colors cursor-pointer shrink-0 ${
                   isKeyframeExpanded
                     ? "bg-accent text-white shadow-xs"
-                    : "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
+                    : "bg-surface-raised border border-border/60 text-text-secondary hover:text-text-primary hover:bg-surface-hover"
                 }`}
                 title={isKeyframeExpanded ? "Collapse Keyframe Lanes" : "Expand Keyframe Lanes"}
               >
@@ -1065,7 +1065,7 @@ const ClipInner: React.FC<ClipProps> = ({
             )}
           </div>
           {hasKeyframes && (
-            <div className="absolute inset-x-0 bottom-0 z-20 pointer-events-auto">
+            <div className={isKeyframeExpanded ? "absolute inset-x-0 bottom-0 z-20 pointer-events-auto" : "absolute inset-0 pointer-events-none z-20 flex items-center"}>
               <InlineKeyframeLane
                 clip={clip}
                 clipWidthPx={width}
@@ -1130,7 +1130,7 @@ const ClipInner: React.FC<ClipProps> = ({
             {mediaAsset?.name || "Sticker"}
           </span>
           {hasKeyframes && (
-            <div className="absolute inset-x-0 bottom-0 z-20 pointer-events-auto">
+            <div className={isKeyframeExpanded ? "absolute inset-x-0 bottom-0 z-20 pointer-events-auto" : "absolute inset-0 pointer-events-none z-20 flex items-center"}>
               <InlineKeyframeLane
                 clip={clip}
                 clipWidthPx={width}
@@ -1229,7 +1229,7 @@ const ClipInner: React.FC<ClipProps> = ({
               pixelsPerSecond={pixelsPerSecond}
             />
             {hasKeyframes && (
-              <div className="absolute inset-x-0 bottom-0 z-20 pointer-events-auto">
+              <div className={isKeyframeExpanded ? "absolute inset-x-0 bottom-0 z-20 pointer-events-auto" : "absolute inset-0 pointer-events-none z-20 flex items-center"}>
                 <InlineKeyframeLane
                   clip={clip}
                   clipWidthPx={width}
@@ -1271,7 +1271,7 @@ const ClipInner: React.FC<ClipProps> = ({
                 className={`ml-auto flex items-center gap-0.5 px-1 py-px rounded text-[8px] font-semibold transition-colors cursor-pointer ${
                   isKeyframeExpanded
                     ? "bg-accent text-white shadow-xs"
-                    : "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
+                    : "bg-surface-raised border border-border/60 text-text-secondary hover:text-text-primary hover:bg-surface-hover"
                 }`}
                 title={isKeyframeExpanded ? "Collapse Keyframe Lanes" : "Expand Keyframe Lanes"}
               >
@@ -1284,7 +1284,7 @@ const ClipInner: React.FC<ClipProps> = ({
           mediaAsset &&
           (mediaAsset.type === "video" || mediaAsset.type === "image") ? (
             <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
-              <div className="min-h-0 flex-1 overflow-hidden bg-clypra-clip-overlay-soft">
+              <div className="relative min-h-0 flex-1 overflow-hidden bg-clypra-clip-overlay-soft">
                 <ClipFilmstrip
                   className="h-full w-full"
                   clip={clip}
@@ -1293,14 +1293,26 @@ const ClipInner: React.FC<ClipProps> = ({
                   pixelsPerSecond={pixelsPerSecond}
                   stripHeightPx={clipFilmstripHeightPx}
                 />
+                {!isKeyframeExpanded && hasKeyframes && (
+                  <div className="absolute inset-0 pointer-events-none z-20 flex items-center">
+                    <InlineKeyframeLane
+                      clip={clip}
+                      clipWidthPx={width}
+                      pixelsPerSecond={pixelsPerSecond}
+                      isExpanded={false}
+                    />
+                  </div>
+                )}
               </div>
-              <InlineKeyframeLane
-                clip={clip}
-                clipWidthPx={width}
-                pixelsPerSecond={pixelsPerSecond}
-                isExpanded={isKeyframeExpanded}
-                onToggleExpand={() => toggleKeyframeLane(clip.id)}
-              />
+              {isKeyframeExpanded && (
+                <InlineKeyframeLane
+                  clip={clip}
+                  clipWidthPx={width}
+                  pixelsPerSecond={pixelsPerSecond}
+                  isExpanded={true}
+                  onToggleExpand={() => toggleKeyframeLane(clip.id)}
+                />
+              )}
               {mediaAsset.type === "video" && (
                 <div
                   data-testid="clip-audio-waveform"
@@ -1375,7 +1387,7 @@ const ClipInner: React.FC<ClipProps> = ({
                 clipWidthPx={width}
                 pixelsPerSecond={pixelsPerSecond}
               />
-              <div className="absolute inset-x-0 bottom-0 z-20 pointer-events-auto">
+              <div className={isKeyframeExpanded ? "absolute inset-x-0 bottom-0 z-20 pointer-events-auto" : "absolute inset-0 pointer-events-none z-20 flex items-center"}>
                 <InlineKeyframeLane
                   clip={clip}
                   clipWidthPx={width}
@@ -1386,14 +1398,39 @@ const ClipInner: React.FC<ClipProps> = ({
               </div>
             </div>
           ) : mediaAsset?.posterFrame ? (
-            <img
-              src={mediaAsset.posterFrame}
-              alt=""
-              className="min-h-0 w-full flex-1 object-cover"
-              draggable={false}
-            />
+            <div className="relative min-h-0 w-full flex-1 overflow-hidden">
+              <img
+                src={mediaAsset.posterFrame}
+                alt=""
+                className="min-h-0 w-full h-full object-cover"
+                draggable={false}
+              />
+              {hasKeyframes && (
+                <div className={isKeyframeExpanded ? "absolute inset-x-0 bottom-0 z-20 pointer-events-auto" : "absolute inset-0 pointer-events-none z-20 flex items-center"}>
+                  <InlineKeyframeLane
+                    clip={clip}
+                    clipWidthPx={width}
+                    pixelsPerSecond={pixelsPerSecond}
+                    isExpanded={isKeyframeExpanded}
+                    onToggleExpand={() => toggleKeyframeLane(clip.id)}
+                  />
+                </div>
+              )}
+            </div>
           ) : (
-            <div className="min-h-0 w-full flex-1 bg-timeline-filmstrip-empty" />
+            <div className="relative min-h-0 w-full flex-1 bg-timeline-filmstrip-empty">
+              {hasKeyframes && (
+                <div className={isKeyframeExpanded ? "absolute inset-x-0 bottom-0 z-20 pointer-events-auto" : "absolute inset-0 pointer-events-none z-20 flex items-center"}>
+                  <InlineKeyframeLane
+                    clip={clip}
+                    clipWidthPx={width}
+                    pixelsPerSecond={pixelsPerSecond}
+                    isExpanded={isKeyframeExpanded}
+                    onToggleExpand={() => toggleKeyframeLane(clip.id)}
+                  />
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}
