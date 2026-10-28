@@ -36,17 +36,6 @@ describe("selectionCoordinator", () => {
       expect(isProtectedInteractiveElement(overlay)).toBe(true);
     });
 
-    it("protects spatial motion path and motion path handles", () => {
-      const motionPath = document.createElement("svg");
-      motionPath.setAttribute("data-spatial-motion-path", "true");
-      const handle = document.createElement("g");
-      handle.setAttribute("data-motion-path-handle", "true");
-      motionPath.appendChild(handle);
-
-      expect(isProtectedInteractiveElement(handle)).toBe(true);
-      expect(isProtectedInteractiveElement(motionPath)).toBe(true);
-    });
-
     it("protects program preview viewport canvas region (delegates to canvas hit tester)", () => {
       const viewport = document.createElement("div");
       viewport.setAttribute("data-testid", "program-preview-viewport");
@@ -74,11 +63,21 @@ describe("selectionCoordinator", () => {
     });
 
     it("protects interactive form controls", () => {
-      expect(isProtectedInteractiveElement(document.createElement("button"))).toBe(true);
-      expect(isProtectedInteractiveElement(document.createElement("input"))).toBe(true);
-      expect(isProtectedInteractiveElement(document.createElement("textarea"))).toBe(true);
-      expect(isProtectedInteractiveElement(document.createElement("select"))).toBe(true);
-      expect(isProtectedInteractiveElement(document.createElement("a"))).toBe(true);
+      expect(
+        isProtectedInteractiveElement(document.createElement("button")),
+      ).toBe(true);
+      expect(
+        isProtectedInteractiveElement(document.createElement("input")),
+      ).toBe(true);
+      expect(
+        isProtectedInteractiveElement(document.createElement("textarea")),
+      ).toBe(true);
+      expect(
+        isProtectedInteractiveElement(document.createElement("select")),
+      ).toBe(true);
+      expect(isProtectedInteractiveElement(document.createElement("a"))).toBe(
+        true,
+      );
     });
 
     it("protects timeline clips and interactive timeline items", () => {

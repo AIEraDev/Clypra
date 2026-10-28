@@ -16,7 +16,9 @@ import { useUIStore } from "@/store/uiStore";
  * 8. Panel layout resizers (.resizer-horizontal, .resizer-vertical)
  * 9. Explicit opt-out attributes ([data-interactive='true'], [data-prevent-deselect='true'])
  */
-export function isProtectedInteractiveElement(target: EventTarget | null): boolean {
+export function isProtectedInteractiveElement(
+  target: EventTarget | null,
+): boolean {
   if (!target || !(target instanceof Element)) {
     return false;
   }
@@ -24,9 +26,7 @@ export function isProtectedInteractiveElement(target: EventTarget | null): boole
   // 1. Transform overlay handles and move surfaces
   if (
     target.closest("[data-transform-handle]") ||
-    target.closest("[data-transform-overlay]") ||
-    target.closest("[data-spatial-motion-path]") ||
-    target.closest("[data-motion-path-handle]")
+    target.closest("[data-transform-overlay]")
   ) {
     return true;
   }
@@ -66,7 +66,7 @@ export function isProtectedInteractiveElement(target: EventTarget | null): boole
   // 6. Accessible interactive UI roles
   if (
     target.closest(
-      '[role="button"], [role="menu"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="dialog"], [role="alertdialog"], [role="listbox"], [role="option"], [role="combobox"], [role="slider"], [role="tab"], [role="switch"], [role="checkbox"], [role="radio"]'
+      '[role="button"], [role="menu"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="dialog"], [role="alertdialog"], [role="listbox"], [role="option"], [role="combobox"], [role="slider"], [role="tab"], [role="switch"], [role="checkbox"], [role="radio"]',
     )
   ) {
     return true;
@@ -75,7 +75,7 @@ export function isProtectedInteractiveElement(target: EventTarget | null): boole
   // 7. Radix UI portals, popovers, dropdowns, tooltips, color pickers
   if (
     target.closest(
-      '[data-radix-popper-content-wrapper], [data-radix-portal], [data-radix-collection-item], [data-radix-dropdown-menu-content], [data-radix-select-content], .clypra-color-picker, [data-color-picker]'
+      "[data-radix-popper-content-wrapper], [data-radix-portal], [data-radix-collection-item], [data-radix-dropdown-menu-content], [data-radix-select-content], .clypra-color-picker, [data-color-picker]",
     )
   ) {
     return true;
@@ -83,7 +83,9 @@ export function isProtectedInteractiveElement(target: EventTarget | null): boole
 
   // 8. Panel layout splitters / resizers
   if (
-    target.closest(".resizer-horizontal, .resizer-vertical, [data-panel-resizer]")
+    target.closest(
+      ".resizer-horizontal, .resizer-vertical, [data-panel-resizer]",
+    )
   ) {
     return true;
   }
