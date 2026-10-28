@@ -230,9 +230,16 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
         selectedClip.duration,
       );
     }
+    if (selectedClip.visualKeyframes?.width?.length && selectedClip.width) {
+      const authoredCenterX = (selectedClip.x ?? 0) + selectedClip.width / 2;
+      return authoredCenterX - currentWidth / 2;
+    }
     return selectedClip.x ?? 0;
   }, [
     selectedClip.visualKeyframes?.x,
+    selectedClip.visualKeyframes?.width,
+    selectedClip.width,
+    currentWidth,
     localTime,
     selectedClip.x,
     selectedClip.duration,
@@ -247,9 +254,16 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
         selectedClip.duration,
       );
     }
+    if (selectedClip.visualKeyframes?.height?.length && selectedClip.height) {
+      const authoredCenterY = (selectedClip.y ?? 0) + selectedClip.height / 2;
+      return authoredCenterY - currentHeight / 2;
+    }
     return selectedClip.y ?? 0;
   }, [
     selectedClip.visualKeyframes?.y,
+    selectedClip.visualKeyframes?.height,
+    selectedClip.height,
+    currentHeight,
     localTime,
     selectedClip.y,
     selectedClip.duration,
@@ -293,6 +307,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
       });
     } else {
       const t = Math.round(localTime * 100) / 100;
+
       const nextWidthKfs = [
         ...currentWidthKfs.filter((kf) => Math.abs(kf.time - localTime) >= 0.08),
         {
@@ -331,6 +346,99 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
     currentHeight,
     handleUpdateMultiple,
   ]);
+
+  const handleTogglePositionKeyframe = useCallback(() => {
+    const isAt = positionXKfState.isAtKeyframe || positionYKfState.isAtKeyframe;
+    const currentXKfs = selectedClip.visualKeyframes?.x || [];
+    const currentYKfs = selectedClip.visualKeyframes?.y || [];
+
+    if (isAt) {
+      const nextXKfs = currentXKfs.filter(
+        (kf) => Math.abs(kf.time - localTime) >= 0.08,
+      );
+      const nextYKfs = currentYKfs.filter(
+        (kf) => Math.abs(kf.time - localTime) >= 0.08,
+      );
+      handleUpdateMultiple({
+        visualKeyframes: {
+          ...(selectedClip.visualKeyframes || {}),
+          x: nextXKfs,
+          y: nextYKfs,
+        },
+      });
+    } else {
+      const t = Math.round(localTime * 100) / 100;
+      const nextXKfs = [
+        ...currentXKfs.filter((kf) => Math.abs(kf.time - localTime) >= 0.08),
+        {
+          id: `kf-x-${Date.now()}`,
+          time: t,
+          value: currentClipX,
+          easing: "easeInOut" as const,
+        },
+      ].sort((a, b) => a.time - b.time);
+
+      const nextYKfs = [
+        ...currentYKfs.filter((kf) => Math.abs(kf.time - localTime) >= 0.08),
+        {
+          id: `kf-y-${Date.now()}`,
+          time: t,
+          value: currentClipY,
+          easing: "easeInOut" as const,
+        },
+      ].sort((a, b) => a.time - b.time);
+
+      handleUpdateMultiple({
+        visualKeyframes: {
+          ...(selectedClip.visualKeyframes || {}),
+          x: nextXKfs,
+          y: nextYKfs,
+        },
+      });
+    }
+  }, [
+    positionXKfState.isAtKeyframe,
+    positionYKfState.isAtKeyframe,
+    selectedClip.visualKeyframes,
+    localTime,
+    currentClipX,
+    currentClipY,
+    handleUpdateMultiple,
+  ]);
+
+  const handleJumpPositionKeyframe = useCallback(
+    (direction: "prev" | "next") => {
+      const currentXKfs = selectedClip.visualKeyframes?.x || [];
+      const currentYKfs = selectedClip.visualKeyframes?.y || [];
+      const allTimes = Array.from(
+        new Set([
+          ...currentXKfs.map((k) => k.time),
+          ...currentYKfs.map((k) => k.time),
+        ]),
+      ).sort((a, b) => a - b);
+
+      let target: number | null = null;
+      if (direction === "prev") {
+        for (let i = allTimes.length - 1; i >= 0; i--) {
+          if (allTimes[i] < localTime - 0.05) {
+            target = allTimes[i];
+            break;
+          }
+        }
+      } else {
+        for (let i = 0; i < allTimes.length; i++) {
+          if (allTimes[i] > localTime + 0.05) {
+            target = allTimes[i];
+            break;
+          }
+        }
+      }
+      if (target !== null) {
+        getPlaybackClock().seek(selectedClip.startTime + target);
+      }
+    },
+    [selectedClip.visualKeyframes, selectedClip.startTime, localTime],
+  );
 
   /** Scale percentage relative to the original source dimensions. */
   const scalePercent = useMemo(() => {
@@ -380,6 +488,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
       const widthKfs = selectedClip.visualKeyframes?.width || [];
       const heightKfs = selectedClip.visualKeyframes?.height || [];
+
       const widthIdx = widthKfs.findIndex(
         (kf) => Math.abs(kf.time - localTime) < 0.08,
       );
@@ -1021,12 +1130,9 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                 isAtKeyframe={
                   positionXKfState.isAtKeyframe || positionYKfState.isAtKeyframe
                 }
-                onToggleKeyframe={() => {
-                  handleToggleKeyframe("x", selectedClip.x ?? 0);
-                  handleToggleKeyframe("y", selectedClip.y ?? 0);
-                }}
-                onPrevKeyframe={() => handleJumpToKeyframe("x", "prev")}
-                onNextKeyframe={() => handleJumpToKeyframe("x", "next")}
+                onToggleKeyframe={handleTogglePositionKeyframe}
+                onPrevKeyframe={() => handleJumpPositionKeyframe("prev")}
+                onNextKeyframe={() => handleJumpPositionKeyframe("next")}
                 hasPrev={positionXKfState.hasPrev || positionYKfState.hasPrev}
                 hasNext={positionXKfState.hasNext || positionYKfState.hasNext}
                 onOpenCurveEditor={() => openCurveEditor(selectedClip.id, "x")}
@@ -1043,7 +1149,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
             <div className="flex items-center gap-2 justify-between w-full">
               <NumericControl
-                value={selectedClip.rotation ?? 0}
+                value={Math.round(currentRotation)}
                 onChange={handleRotationChange}
                 step={1}
                 suffix="°"
@@ -1059,7 +1165,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                 hasKeyframes={rotationKfState.hasKeyframes}
                 isAtKeyframe={rotationKfState.isAtKeyframe}
                 onToggleKeyframe={() =>
-                  handleToggleKeyframe("rotation", selectedClip.rotation ?? 0)
+                  handleToggleKeyframe("rotation", currentRotation)
                 }
                 onPrevKeyframe={() => handleJumpToKeyframe("rotation", "prev")}
                 onNextKeyframe={() => handleJumpToKeyframe("rotation", "next")}

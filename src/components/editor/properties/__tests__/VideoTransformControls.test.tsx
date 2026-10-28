@@ -655,5 +655,137 @@ describe("VideoTransformControls & VideoBlendControls Suite", () => {
       expect(handleUpdate).toHaveBeenCalledWith("blendMode", "normal");
       expect(handleUpdate).toHaveBeenCalledWith("opacity", 1);
     });
+
+    // ── Regression: Defect 3 — opacity live-eval & keyframe-aware slider ─────
+    it("[REGRESSION] opacity slider updates existing keyframe value when a keyframe exists at the playhead", () => {
+      mockCurrentTime = 2; // localTime = 2 - 0 = 2
+      const handleUpdateMultiple = vi.fn();
+      const handleUpdate = vi.fn();
+
+      const clipWithOpacityKf: Clip = {
+        ...baseVideoClip,
+        opacity: 1,
+        visualKeyframes: {
+          opacity: [
+            { id: "okf-1", time: 2, value: 0.9, easing: "linear" as const },
+            { id: "okf-2", time: 6, value: 0.2, easing: "linear" as const },
+          ],
+        },
+      };
+
+      render(
+        <VideoBlendControls
+          selectedClip={clipWithOpacityKf}
+          handleUpdate={handleUpdate}
+          handleUpdateMultiple={handleUpdateMultiple}
+        />,
+      );
+
+      const numericInput = screen.getByRole("spinbutton", { name: "Opacity" });
+      fireEvent.focus(numericInput);
+      fireEvent.change(numericInput, { target: { value: "60" } });
+      fireEvent.blur(numericInput);
+
+      // handleUpdateMultiple must be called (not bare handleUpdate)
+      expect(handleUpdateMultiple).toHaveBeenCalledTimes(1);
+      const [fields] = handleUpdateMultiple.mock.calls[0];
+      expect(fields.opacity).toBeCloseTo(0.6, 5);
+      // The keyframe at t=2 must have its value updated
+      const updatedKf = fields.visualKeyframes.opacity.find((k: any) => k.id === "okf-1");
+      expect(updatedKf).toBeDefined();
+      expect(updatedKf.value).toBeCloseTo(0.6, 5);
+      // The other keyframe must remain unchanged
+      const otherKf = fields.visualKeyframes.opacity.find((k: any) => k.id === "okf-2");
+      expect(otherKf.value).toBe(0.2);
+    });
+
+    it("[REGRESSION] opacity slider inserts a new keyframe when playhead is between existing keyframes", () => {
+      mockCurrentTime = 4; // localTime = 4 — between t=2 and t=6
+      const handleUpdateMultiple = vi.fn();
+      const handleUpdate = vi.fn();
+
+      const clipWithOpacityKf: Clip = {
+        ...baseVideoClip,
+        opacity: 1,
+        visualKeyframes: {
+          opacity: [
+            { id: "okf-1", time: 2, value: 0.9, easing: "linear" as const },
+            { id: "okf-2", time: 6, value: 0.2, easing: "linear" as const },
+          ],
+        },
+      };
+
+      render(
+        <VideoBlendControls
+          selectedClip={clipWithOpacityKf}
+          handleUpdate={handleUpdate}
+          handleUpdateMultiple={handleUpdateMultiple}
+        />,
+      );
+
+      const numericInput = screen.getByRole("spinbutton", { name: "Opacity" });
+      fireEvent.focus(numericInput);
+      fireEvent.change(numericInput, { target: { value: "55" } });
+      fireEvent.blur(numericInput);
+
+      expect(handleUpdateMultiple).toHaveBeenCalledTimes(1);
+      const [fields] = handleUpdateMultiple.mock.calls[0];
+      expect(fields.opacity).toBeCloseTo(0.55, 5);
+      // A new keyframe should be inserted at t=4
+      expect(fields.visualKeyframes.opacity).toHaveLength(3);
+      const newKf = fields.visualKeyframes.opacity.find((k: any) => Math.abs(k.time - 4) < 0.1);
+      expect(newKf).toBeDefined();
+      expect(newKf.value).toBeCloseTo(0.55, 5);
+    });
+
+    it("[REGRESSION] opacity slider falls back to plain handleUpdate when no keyframes exist", () => {
+      mockCurrentTime = 3;
+      const handleUpdateMultiple = vi.fn();
+      const handleUpdate = vi.fn();
+
+      render(
+        <VideoBlendControls
+          selectedClip={baseVideoClip}
+          handleUpdate={handleUpdate}
+          handleUpdateMultiple={handleUpdateMultiple}
+        />,
+      );
+
+      const numericInput = screen.getByRole("spinbutton", { name: "Opacity" });
+      fireEvent.focus(numericInput);
+      fireEvent.change(numericInput, { target: { value: "70" } });
+      fireEvent.blur(numericInput);
+
+      expect(handleUpdate).toHaveBeenCalledWith("opacity", 0.7);
+      expect(handleUpdateMultiple).not.toHaveBeenCalled();
+    });
+
+    it("[REGRESSION] opacity toggle keyframe uses live-evaluated opacity (not stale clip.opacity)", () => {
+      // At t=5, opacity is animated to 0.3 by keyframes
+      mockCurrentTime = 5;
+      const handleUpdate = vi.fn();
+
+      const clipAnimated: Clip = {
+        ...baseVideoClip,
+        opacity: 1,
+        visualKeyframes: {
+          opacity: [
+            { id: "okf-a", time: 0, value: 1.0, easing: "linear" as const },
+            { id: "okf-b", time: 10, value: 0.0, easing: "linear" as const },
+          ],
+        },
+      };
+
+      render(
+        <VideoBlendControls
+          selectedClip={clipAnimated}
+          handleUpdate={handleUpdate}
+        />,
+      );
+
+      // The displayed opacity % should be ~50% (midpoint of 1.0→0.0 over 10s at t=5)
+      const numericInput = screen.getByRole("spinbutton", { name: "Opacity" });
+      expect(Number((numericInput as HTMLInputElement).value)).toBeCloseTo(50, 0);
+    });
   });
 });

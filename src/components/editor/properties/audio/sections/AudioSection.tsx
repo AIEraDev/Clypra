@@ -60,7 +60,7 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
     } else {
       const newKf = {
         id: `vol-kf-${Date.now()}`,
-        time: localTime,
+        time: Math.round(localTime * 100) / 100,
         gain: volume,
       };
       const updated = [...volumeKeyframes, newKf].sort(
@@ -91,12 +91,46 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
     [volumeKeyframes, localTime, selectedClip.startTime],
   );
 
+  /**
+   * Volume change handler — keyframe-aware.
+   *
+   * When volume keyframes exist on the clip, moving the slider updates the
+   * keyframe at the current playhead position (creates one if none exists
+   * there). Without keyframes the plain clip volume property is written.
+   */
   const handleVolumeChange = useCallback(
     (newVolume: number) => {
-      const clampedVolume = Math.max(0, Math.min(1, newVolume));
-      handleUpdate("volume", clampedVolume);
+      const gain = Math.max(0, Math.min(1, newVolume));
+
+      if (volumeKeyframes.length === 0) {
+        // No keyframes – simple update
+        handleUpdate("volume", gain);
+        return;
+      }
+
+      const existingIdx = volumeKeyframes.findIndex(
+        (kf) => Math.abs(kf.time - localTime) < 0.08,
+      );
+
+      if (existingIdx >= 0) {
+        // Update the gain of the existing keyframe at the playhead
+        const nextKfs = [...volumeKeyframes];
+        nextKfs[existingIdx] = { ...nextKfs[existingIdx], gain };
+        handleUpdate("volumeKeyframes", nextKfs);
+      } else {
+        // Insert a new keyframe at the current playhead
+        const nextKfs = [
+          ...volumeKeyframes,
+          {
+            id: `vol-kf-${Date.now()}`,
+            time: Math.round(localTime * 100) / 100,
+            gain,
+          },
+        ].sort((a, b) => a.time - b.time);
+        handleUpdate("volumeKeyframes", nextKfs);
+      }
     },
-    [handleUpdate],
+    [volumeKeyframes, localTime, handleUpdate],
   );
 
   const handleVolumePercentChange = useCallback(

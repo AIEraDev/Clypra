@@ -54,6 +54,7 @@ export const VideoBasicTab: React.FC<VideoBasicTabProps> = ({
         <VideoBlendControls
           selectedClip={selectedClip}
           handleUpdate={handleUpdate}
+          handleUpdateMultiple={handleUpdateMultiple}
         />
       </div>
 

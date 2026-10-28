@@ -154,4 +154,91 @@ describe("AudioBasicTab Suite", () => {
     expect(keyframes).toHaveLength(1);
     expect(keyframes[0].time).toBe(2.5);
   });
+
+  // ── Regression: Defect 4 — handleVolumeChange must be keyframe-aware ───────
+  it("[REGRESSION] volume slider updates existing keyframe gain when keyframes exist at playhead", () => {
+    const handleUpdate = vi.fn();
+    mockClockTime = 3; // localTime = 3 - 0 = 3
+
+    const clipWithKf: Clip = {
+      ...baseClip,
+      audio: {
+        ...baseClip.audio!,
+        volumeKeyframes: [
+          { id: "vkf-1", time: 3, gain: 0.8 },
+          { id: "vkf-2", time: 7, gain: 0.4 },
+        ],
+      },
+    } as Clip;
+
+    render(<AudioBasicTab selectedClip={clipWithKf} handleUpdate={handleUpdate} />);
+
+    const volumeInput = screen.getByRole("spinbutton", { name: "Volume" });
+    fireEvent.focus(volumeInput);
+    fireEvent.change(volumeInput, { target: { value: "60" } });
+    fireEvent.blur(volumeInput);
+
+    // Must update volumeKeyframes, NOT the plain volume prop
+    const calls = handleUpdate.mock.calls;
+    const volumeKeyframesCall = calls.find(([prop]) => prop === "volumeKeyframes");
+    expect(volumeKeyframesCall).toBeDefined();
+    const updatedKfs = volumeKeyframesCall![1];
+    // The keyframe at t=3 should have its gain updated to 0.6
+    const updatedKf = updatedKfs.find((k: any) => k.id === "vkf-1");
+    expect(updatedKf).toBeDefined();
+    expect(updatedKf.gain).toBeCloseTo(0.6, 5);
+    // The other keyframe must remain untouched
+    const otherKf = updatedKfs.find((k: any) => k.id === "vkf-2");
+    expect(otherKf.gain).toBe(0.4);
+  });
+
+  it("[REGRESSION] volume slider inserts a new keyframe when keyframes exist but playhead is between them", () => {
+    const handleUpdate = vi.fn();
+    mockClockTime = 5; // localTime = 5 (between t=3 and t=7)
+
+    const clipWithKf: Clip = {
+      ...baseClip,
+      audio: {
+        ...baseClip.audio!,
+        volumeKeyframes: [
+          { id: "vkf-1", time: 3, gain: 0.8 },
+          { id: "vkf-2", time: 7, gain: 0.4 },
+        ],
+      },
+    } as Clip;
+
+    render(<AudioBasicTab selectedClip={clipWithKf} handleUpdate={handleUpdate} />);
+
+    const volumeInput = screen.getByRole("spinbutton", { name: "Volume" });
+    fireEvent.focus(volumeInput);
+    fireEvent.change(volumeInput, { target: { value: "70" } });
+    fireEvent.blur(volumeInput);
+
+    const calls = handleUpdate.mock.calls;
+    const volumeKeyframesCall = calls.find(([prop]) => prop === "volumeKeyframes");
+    expect(volumeKeyframesCall).toBeDefined();
+    const updatedKfs = volumeKeyframesCall![1];
+    // Should have inserted a new keyframe at t=5
+    expect(updatedKfs).toHaveLength(3);
+    const newKf = updatedKfs.find((k: any) => Math.abs(k.time - 5) < 0.1);
+    expect(newKf).toBeDefined();
+    expect(newKf.gain).toBeCloseTo(0.7, 5);
+  });
+
+  it("[REGRESSION] volume slider writes plain clip.volume when no keyframes exist (no regression on no-KF path)", () => {
+    const handleUpdate = vi.fn();
+    mockClockTime = 2;
+
+    render(<AudioBasicTab selectedClip={baseClip} handleUpdate={handleUpdate} />);
+
+    const volumeInput = screen.getByRole("spinbutton", { name: "Volume" });
+    fireEvent.focus(volumeInput);
+    fireEvent.change(volumeInput, { target: { value: "50" } });
+    fireEvent.blur(volumeInput);
+
+    expect(handleUpdate).toHaveBeenCalledWith("volume", 0.5);
+    // Must NOT write to volumeKeyframes
+    const kfCall = handleUpdate.mock.calls.find(([prop]) => prop === "volumeKeyframes");
+    expect(kfCall).toBeUndefined();
+  });
 });
