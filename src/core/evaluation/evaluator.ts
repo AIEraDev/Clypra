@@ -247,12 +247,21 @@ export function evaluateTimelineScene(
           ? evaluateProperty(kf.height, offset, clip.duration)
           : clip.height;
 
+    let conformedW = clip.width;
+    let conformedH = clip.height;
+    let conformedX = clip.x;
+    let conformedY = clip.y;
+
     if (clip.conform && clip.conform.sourceWidth && clip.conform.sourceHeight) {
       const conformed = resolveConform(
         clip.conform,
         project?.canvasWidth ?? 1920,
         project?.canvasHeight ?? 1080,
       );
+      conformedW = conformed.width;
+      conformedH = conformed.height;
+      conformedX = conformed.x;
+      conformedY = conformed.y;
       // The conform override applies for initial placement only.
       // When the user has manually adjusted position (clip.baseWidth set by the
       // scale UI), clip.width/height/x/y are authoritative and must not be
@@ -263,6 +272,28 @@ export function evaluateTimelineScene(
       evalY = (vkf?.y?.length || kf.y !== undefined || hasManualScale) ? evalY : conformed.y;
       evalW = (vkf?.width?.length || kf.width !== undefined || hasManualScale) ? evalW : conformed.width;
       evalH = (vkf?.height?.length || kf.height !== undefined || hasManualScale) ? evalH : conformed.height;
+    }
+
+    // Auto-center scale when X/Y are not keyframed:
+    // If width/height are animated by keyframes but X/Y have no keyframes, maintain
+    // the clip's authored center position so it scales symmetrically from center.
+    const hasXKeyframes = Boolean(vkf?.x?.length || kf.x !== undefined);
+    const hasYKeyframes = Boolean(vkf?.y?.length || kf.y !== undefined);
+    const hasWidthKeyframes = Boolean(vkf?.width?.length || kf.width !== undefined);
+    const hasHeightKeyframes = Boolean(vkf?.height?.length || kf.height !== undefined);
+
+    if (!hasSpatialCurvature && !hasXKeyframes && hasWidthKeyframes) {
+      const baseW = (clip.width !== undefined && (clip as any).baseWidth != null) ? clip.width : conformedW;
+      const baseX = (clip.x !== undefined && (clip as any).baseWidth != null) ? clip.x : conformedX;
+      const centerX = baseX + baseW / 2;
+      evalX = centerX - evalW / 2;
+    }
+
+    if (!hasSpatialCurvature && !hasYKeyframes && hasHeightKeyframes) {
+      const baseH = (clip.height !== undefined && (clip as any).baseWidth != null) ? clip.height : conformedH;
+      const baseY = (clip.y !== undefined && (clip as any).baseWidth != null) ? clip.y : conformedY;
+      const centerY = baseY + baseH / 2;
+      evalY = centerY - evalH / 2;
     }
 
     let evalRot =

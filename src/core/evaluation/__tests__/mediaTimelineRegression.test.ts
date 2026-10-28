@@ -618,5 +618,84 @@ describe("Clypra Media & Timeline Regression Suite (Phase 5 Foundation)", () => 
         expect(layer.width).toBe(kfWidth);
       }
     });
+
+    it("[REGRESSION] auto-centers keyframed scale around clip center during scrub and playback", () => {
+      const clip: any = {
+        id: "clip-scale-center-regression",
+        trackId: "track-conform",
+        mediaId: "asset-conform-1920",
+        kind: "video",
+        startTime: 0,
+        duration: 10,
+        trimIn: 0,
+        trimOut: 10,
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+        opacity: 1,
+        rotation: 0,
+        baseWidth: 1920,
+        baseHeight: 1080,
+        visualKeyframes: {
+          width: [
+            { id: "kf-w-0", time: 0, value: 1920, easing: "linear" },
+            { id: "kf-w-2", time: 2, value: 3840, easing: "linear" },
+          ],
+          height: [
+            { id: "kf-h-0", time: 0, value: 1080, easing: "linear" },
+            { id: "kf-h-2", time: 2, value: 2160, easing: "linear" },
+          ],
+        },
+      };
+
+      // At t = 0 (100% scale): center must be (960, 540)
+      const scene0 = evaluateTimelineScene(
+        0,
+        [clip],
+        [conformTrack as any],
+        [conformVideoAsset],
+        baseProject,
+      );
+      const layer0 = scene0.visualLayers[0];
+      expect(layer0.width).toBe(1920);
+      expect(layer0.height).toBe(1080);
+      expect(layer0.x).toBe(0);
+      expect(layer0.y).toBe(0);
+      expect(layer0.x + layer0.width / 2).toBe(960);
+      expect(layer0.y + layer0.height / 2).toBe(540);
+
+      // At t = 1 (150% midpoint): center must still be (960, 540)
+      const scene1 = evaluateTimelineScene(
+        1,
+        [clip],
+        [conformTrack as any],
+        [conformVideoAsset],
+        baseProject,
+      );
+      const layer1 = scene1.visualLayers[0];
+      expect(layer1.width).toBe(2880);
+      expect(layer1.height).toBe(1620);
+      expect(layer1.x).toBe(-480);
+      expect(layer1.y).toBe(-270);
+      expect(layer1.x + layer1.width / 2).toBe(960);
+      expect(layer1.y + layer1.height / 2).toBe(540);
+
+      // At t = 2 (200% scale): center must still be (960, 540)
+      const scene2 = evaluateTimelineScene(
+        2,
+        [clip],
+        [conformTrack as any],
+        [conformVideoAsset],
+        baseProject,
+      );
+      const layer2 = scene2.visualLayers[0];
+      expect(layer2.width).toBe(3840);
+      expect(layer2.height).toBe(2160);
+      expect(layer2.x).toBe(-960);
+      expect(layer2.y).toBe(-540);
+      expect(layer2.x + layer2.width / 2).toBe(960);
+      expect(layer2.y + layer2.height / 2).toBe(540);
+    });
   });
 });

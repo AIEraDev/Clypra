@@ -390,17 +390,23 @@ export function resolveClipVisualBounds(
   const vkf = clip.visualKeyframes;
   if (currentTime !== undefined && vkf) {
     const offset = Math.max(0, currentTime - clip.startTime);
-    if (vkf.x?.length) {
-      x = evaluateVisualPropertyKeyframes(vkf.x, offset, clip.x, clip.duration);
-    }
-    if (vkf.y?.length) {
-      y = evaluateVisualPropertyKeyframes(vkf.y, offset, clip.y, clip.duration);
-    }
     if (vkf.width?.length) {
       width = evaluateVisualPropertyKeyframes(vkf.width, offset, clip.width, clip.duration);
     }
     if (vkf.height?.length) {
       height = evaluateVisualPropertyKeyframes(vkf.height, offset, clip.height, clip.duration);
+    }
+    if (vkf.x?.length) {
+      x = evaluateVisualPropertyKeyframes(vkf.x, offset, clip.x, clip.duration);
+    } else if (vkf.width?.length && clip.width) {
+      const centerX = clip.x + clip.width / 2;
+      x = centerX - width / 2;
+    }
+    if (vkf.y?.length) {
+      y = evaluateVisualPropertyKeyframes(vkf.y, offset, clip.y, clip.duration);
+    } else if (vkf.height?.length && clip.height) {
+      const centerY = clip.y + clip.height / 2;
+      y = centerY - height / 2;
     }
   }
 

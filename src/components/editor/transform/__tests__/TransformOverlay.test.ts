@@ -924,5 +924,54 @@ describe("Keyframed visual bounds in TransformOverlay", () => {
     // Keyframe value takes precedence over conform
     expect(bounds.width).toBe(800);
   });
+
+  it("[REGRESSION] auto-centers keyframed scale around clip center when x/y have no keyframes", () => {
+    const clip: any = {
+      id: "video-scale-center",
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+      startTime: 0,
+      duration: 10,
+      visualKeyframes: {
+        width: [
+          { id: "kf-w1", time: 0, value: 1920, easing: "linear" },
+          { id: "kf-w2", time: 2, value: 3840, easing: "linear" },
+        ],
+        height: [
+          { id: "kf-h1", time: 0, value: 1080, easing: "linear" },
+          { id: "kf-h2", time: 2, value: 2160, easing: "linear" },
+        ],
+      },
+    };
+
+    // At t=0 (width 1920, height 1080): x=0, y=0, center=(960, 540)
+    const bounds0 = resolveClipVisualBounds(clip, 1920, 1080, null, 0);
+    expect(bounds0.width).toBe(1920);
+    expect(bounds0.height).toBe(1080);
+    expect(bounds0.x).toBe(0);
+    expect(bounds0.y).toBe(0);
+    expect(bounds0.x + bounds0.width / 2).toBe(960);
+    expect(bounds0.y + bounds0.height / 2).toBe(540);
+
+    // At t=1 (midpoint width 2880, height 1620): x=-480, y=-270, center=(960, 540)
+    const bounds1 = resolveClipVisualBounds(clip, 1920, 1080, null, 1);
+    expect(bounds1.width).toBe(2880);
+    expect(bounds1.height).toBe(1620);
+    expect(bounds1.x).toBe(-480);
+    expect(bounds1.y).toBe(-270);
+    expect(bounds1.x + bounds1.width / 2).toBe(960);
+    expect(bounds1.y + bounds1.height / 2).toBe(540);
+
+    // At t=2 (width 3840, height 2160): x=-960, y=-540, center=(960, 540)
+    const bounds2 = resolveClipVisualBounds(clip, 1920, 1080, null, 2);
+    expect(bounds2.width).toBe(3840);
+    expect(bounds2.height).toBe(2160);
+    expect(bounds2.x).toBe(-960);
+    expect(bounds2.y).toBe(-540);
+    expect(bounds2.x + bounds2.width / 2).toBe(960);
+    expect(bounds2.y + bounds2.height / 2).toBe(540);
+  });
 });
 
