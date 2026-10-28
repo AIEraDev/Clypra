@@ -38,6 +38,12 @@ Specialized rule files under [`.agents/rules/`](.agents/rules/) (`architecture.m
 ---
 
 ## 3. Implementation Standards
+- **Single-Task Platform Discipline**: When a user presents a problem and proposed solution, enforce the 5-phase pairing protocol:
+  1. *Acknowledge & Analyze*: Review the user's problem diagnosis and proposed solution hypothesis.
+  2. *Trade-Offs First (Strictly No Code)*: Evaluate architectural trade-offs, invariants, failure modes, and alternatives. Never jump directly into writing code.
+  3. *Spec, Then Task List*: Formalize the agreed design into a concise specification followed by an ordered, atomic task list.
+  4. *One Small Task at a Time*: Execute strictly one task per step; maintain platform discipline at the size of a single task.
+  5. *Write Code Last*: Write code only after the task boundary and verification criteria are settled. Verify immediately with targeted tests before proceeding.
 - **Understand Before Editing**: Trace call paths, inspect relevant Zustand stores, and check existing patterns before modifying code.
 - **Minimal Coherent Changes**: Keep edits narrow. Refactor only what is strictly necessary. Do not introduce speculative abstractions.
 - **Contract & Type Integrity**: Run `npx tsc --noEmit` after every modification. Zero `error TS` allowed. Do not use `any` or loose casts to suppress type errors.

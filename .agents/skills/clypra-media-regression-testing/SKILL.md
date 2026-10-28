@@ -12,6 +12,13 @@ description: >-
 This skill provides specific testing methodologies for Clypra's media, audio, timeline, and rendering subsystems.
 Clypra coordinates between a TypeScript/React frontend and a Rust/wgpu/CPAL backend. Testing must prevent regressions across timeline mathematics, audio synchronization, clip boundaries, decoder readiness, and export encoding.
 
+> [!IMPORTANT]
+> **Single-Task Platform Discipline** — Regression test suite design follows the same phased protocol as all engineering work:
+> 1. Discuss the failing scenario and the proposed test strategy (trade-offs only, no code yet).
+> 2. Agree on the test scope, fixture strategy, and acceptance criteria.
+> 3. Produce an atomic task list of test cases to add.
+> 4. Author and execute **one test case at a time**, confirming each passes (or fails as a negative control) before proceeding.
+
 ---
 
 ## When to Use This Skill
