@@ -37,7 +37,6 @@ import { useNativeSurfaceController } from "./useNativeSurfaceController";
 import { TransformOverlayMemoized as TransformOverlay } from "../transform/TransformOverlay";
 import { applyDragPreviewGeometry } from "./dragPreviewGeometry";
 import { setActiveProgramPreviewPresenter } from "./programPreviewPresenterState";
-import { ConnectedSpatialMotionPath } from "./SpatialMotionPath";
 import { SafeOverlay } from "../viewport/SafeOverlay";
 import {
   useViewportKeyboardShortcuts,
@@ -5334,15 +5333,7 @@ export const NativeProgramPreview: React.FC = () => {
                   displayWidth={displayWidth}
                   displayHeight={displayHeight}
                 />
-                <ConnectedSpatialMotionPath
-                  canvasWidth={canvasWidth}
-                  canvasHeight={canvasHeight}
-                  scale={scale}
-                  viewport={viewport}
-                  displayOffset={{ x: offsetX, y: offsetY }}
-                  displayWidth={displayWidth}
-                  displayHeight={displayHeight}
-                />
+
                 <SafeOverlay
                   visible={showSafeOverlay}
                   displayWidth={displayWidth}

@@ -459,32 +459,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                   <span>◆</span>
                   <span>Lanes</span>
                 </button>
-                {hasPositionKeyframes && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleUpdate(
-                        "showMotionPath",
-                        selectedClip.showMotionPath === false
-                          ? undefined
-                          : false,
-                      )
-                    }
-                    className={`flex items-center gap-1 px-1.5 py-0.5 text-[9px] rounded transition-all cursor-pointer ${
-                      selectedClip.showMotionPath === false
-                        ? "text-text-muted hover:text-accent hover:bg-accent/10"
-                        : "text-accent bg-accent/10"
-                    }`}
-                    title={
-                      selectedClip.showMotionPath === false
-                        ? "Show motion path"
-                        : "Hide motion path"
-                    }
-                  >
-                    <Route className="w-3 h-3" />
-                    Path
-                  </button>
-                )}
+
                 {isVisualClip && (
                   <div className="flex items-center gap-0.5 bg-surface-base/80 p-0.5 rounded border border-border/50">
                     <button
