@@ -18,6 +18,13 @@ pub enum BlendMode {
     Overlay = 3,
     Additive = 4,
     Difference = 5,
+    Darken = 6,
+    Lighten = 7,
+    ColorDodge = 8,
+    ColorBurn = 9,
+    HardLight = 10,
+    SoftLight = 11,
+    Exclusion = 12,
 }
 
 pub type LayerBlendMode = BlendMode;
@@ -399,6 +406,9 @@ pub struct MultiTrackCompositor {
     pipeline_multiply: OnceLock<wgpu::RenderPipeline>,
     pipeline_screen: OnceLock<wgpu::RenderPipeline>,
     pipeline_difference: OnceLock<wgpu::RenderPipeline>,
+    pipeline_darken: OnceLock<wgpu::RenderPipeline>,
+    pipeline_lighten: OnceLock<wgpu::RenderPipeline>,
+    pipeline_color_dodge: OnceLock<wgpu::RenderPipeline>,
     pipeline_transition: OnceLock<wgpu::RenderPipeline>,
     layer_shader: wgpu::ShaderModule,
     transition_shader: wgpu::ShaderModule,
@@ -544,6 +554,69 @@ impl MultiTrackCompositor {
                         },
                     },
                     "Compositor Difference Render Pipeline",
+                )
+            }),
+            BlendMode::Darken => self.pipeline_darken.get_or_init(|| {
+                Self::create_layer_pipeline(
+                    device,
+                    &self.layer_shader,
+                    &self.pipeline_layout,
+                    self.target_format,
+                    wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Min,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    },
+                    "Compositor Darken Render Pipeline",
+                )
+            }),
+            BlendMode::Lighten => self.pipeline_lighten.get_or_init(|| {
+                Self::create_layer_pipeline(
+                    device,
+                    &self.layer_shader,
+                    &self.pipeline_layout,
+                    self.target_format,
+                    wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Max,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    },
+                    "Compositor Lighten Render Pipeline",
+                )
+            }),
+            BlendMode::ColorDodge => self.pipeline_color_dodge.get_or_init(|| {
+                Self::create_layer_pipeline(
+                    device,
+                    &self.layer_shader,
+                    &self.pipeline_layout,
+                    self.target_format,
+                    wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::Dst,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    },
+                    "Compositor Color Dodge Render Pipeline",
                 )
             }),
             _ => &self.pipeline_normal,
@@ -1111,6 +1184,9 @@ impl MultiTrackCompositor {
             pipeline_multiply: OnceLock::new(),
             pipeline_screen: OnceLock::new(),
             pipeline_difference: OnceLock::new(),
+            pipeline_darken: OnceLock::new(),
+            pipeline_lighten: OnceLock::new(),
+            pipeline_color_dodge: OnceLock::new(),
             pipeline_transition: OnceLock::new(),
             layer_shader: shader,
             transition_shader,

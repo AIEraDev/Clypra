@@ -216,14 +216,14 @@ export const BackgroundInspectorPanel: React.FC = () => {
       {/* Canvas Header with Checkbox and Apply to All */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <input
+          {/* <input
             type="checkbox"
             checked={!bgConfig.isTransparent}
             onChange={() =>
               handleUpdate({ isTransparent: !bgConfig.isTransparent })
             }
             className="w-4 h-4 rounded border border-white/20 bg-[#1c1c1e] checked:bg-cyan-500 text-cyan-500 accent-cyan-500 focus:outline-none cursor-pointer"
-          />
+          /> */}
           <button
             onClick={() => setIsExpanded(!isExpanded)}
             className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${

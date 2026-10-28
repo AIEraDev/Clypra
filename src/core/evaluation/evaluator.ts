@@ -58,7 +58,7 @@ import {
   computeEffectsStoreVersion,
 } from "./cache";
 import { evaluateProperty, evaluateVisualPropertyKeyframes } from "./animation";
-import { applyLoopMotion, evaluateSpatialPosition } from "@/core/animation";
+import { applyLoopMotion } from "@/core/animation";
 import { workerPerfCollector } from "@/core/monitoring/WorkerPerfCollector";
 import { resolveClipSourceTime } from "../timeline/sourceTime";
 import { calculateTextAnimationState } from "@/lib/text/textAnimation";
@@ -93,7 +93,6 @@ export function evaluateTimelineScene(
 ): EvaluatedScene {
   const evalStartMs = performance.now();
   let keyframeEvaluationsCount = 0;
-  let spatialEvaluationsCount = 0;
   let springEvaluationsCount = 0;
   let responsiveRetimesCount = 0;
 
@@ -187,11 +186,6 @@ export function evaluateTimelineScene(
     const offset = Math.max(0, evalTime - clip.startTime);
     const vkf = clip.visualKeyframes;
     const kf = (clip as any).keyframes || {};
-    const hasSpatialCurvature = Boolean(
-      (vkf?.x?.length || 0) > 1 &&
-      (vkf?.x?.some((k) => k.spatialIn || k.spatialOut) ||
-       vkf?.y?.some((k) => (k as any).spatialIn || (k as any).spatialOut))
-    );
 
     if (vkf) {
       if (vkf.x?.length) {
@@ -209,43 +203,40 @@ export function evaluateTimelineScene(
       if (vkf.rotation?.length) keyframeEvaluationsCount++;
       if (vkf.opacity?.length) keyframeEvaluationsCount++;
     }
-    if (hasSpatialCurvature) {
-      spatialEvaluationsCount++;
-    }
 
     let evalX: number;
     let evalY: number;
 
-    if (hasSpatialCurvature) {
-      const spatialPos = evaluateSpatialPosition(clip as any, offset);
-      evalX = spatialPos.x;
-      evalY = spatialPos.y;
-    } else {
-      evalX =
-        vkf?.x?.length
-          ? evaluateVisualPropertyKeyframes(vkf.x, offset, clip.x, clip.duration)
-          : kf.x !== undefined
-            ? evaluateProperty(kf.x, offset, clip.duration)
-            : clip.x;
-      evalY =
-        vkf?.y?.length
-          ? evaluateVisualPropertyKeyframes(vkf.y, offset, clip.y, clip.duration)
-          : kf.y !== undefined
-            ? evaluateProperty(kf.y, offset, clip.duration)
-            : clip.y;
-    }
-    let evalW =
-      vkf?.width?.length
-        ? evaluateVisualPropertyKeyframes(vkf.width, offset, clip.width, clip.duration)
-        : kf.width !== undefined
-          ? evaluateProperty(kf.width, offset, clip.duration)
-          : clip.width;
-    let evalH =
-      vkf?.height?.length
-        ? evaluateVisualPropertyKeyframes(vkf.height, offset, clip.height, clip.duration)
-        : kf.height !== undefined
-          ? evaluateProperty(kf.height, offset, clip.duration)
-          : clip.height;
+    evalX = vkf?.x?.length
+      ? evaluateVisualPropertyKeyframes(vkf.x, offset, clip.x, clip.duration)
+      : kf.x !== undefined
+        ? evaluateProperty(kf.x, offset, clip.duration)
+        : clip.x;
+    evalY = vkf?.y?.length
+      ? evaluateVisualPropertyKeyframes(vkf.y, offset, clip.y, clip.duration)
+      : kf.y !== undefined
+        ? evaluateProperty(kf.y, offset, clip.duration)
+        : clip.y;
+    let evalW = vkf?.width?.length
+      ? evaluateVisualPropertyKeyframes(
+          vkf.width,
+          offset,
+          clip.width,
+          clip.duration,
+        )
+      : kf.width !== undefined
+        ? evaluateProperty(kf.width, offset, clip.duration)
+        : clip.width;
+    let evalH = vkf?.height?.length
+      ? evaluateVisualPropertyKeyframes(
+          vkf.height,
+          offset,
+          clip.height,
+          clip.duration,
+        )
+      : kf.height !== undefined
+        ? evaluateProperty(kf.height, offset, clip.duration)
+        : clip.height;
 
     let conformedW = clip.width;
     let conformedH = clip.height;
@@ -268,10 +259,22 @@ export function evaluateTimelineScene(
       // silently replaced by the conform-derived values. Keyframed props also
       // always take precedence.
       const hasManualScale = (clip as any).baseWidth != null;
-      evalX = (vkf?.x?.length || kf.x !== undefined || hasManualScale) ? evalX : conformed.x;
-      evalY = (vkf?.y?.length || kf.y !== undefined || hasManualScale) ? evalY : conformed.y;
-      evalW = (vkf?.width?.length || kf.width !== undefined || hasManualScale) ? evalW : conformed.width;
-      evalH = (vkf?.height?.length || kf.height !== undefined || hasManualScale) ? evalH : conformed.height;
+      evalX =
+        vkf?.x?.length || kf.x !== undefined || hasManualScale
+          ? evalX
+          : conformed.x;
+      evalY =
+        vkf?.y?.length || kf.y !== undefined || hasManualScale
+          ? evalY
+          : conformed.y;
+      evalW =
+        vkf?.width?.length || kf.width !== undefined || hasManualScale
+          ? evalW
+          : conformed.width;
+      evalH =
+        vkf?.height?.length || kf.height !== undefined || hasManualScale
+          ? evalH
+          : conformed.height;
     }
 
     // Auto-center scale when X/Y are not keyframed:
@@ -279,35 +282,59 @@ export function evaluateTimelineScene(
     // the clip's authored center position so it scales symmetrically from center.
     const hasXKeyframes = Boolean(vkf?.x?.length || kf.x !== undefined);
     const hasYKeyframes = Boolean(vkf?.y?.length || kf.y !== undefined);
-    const hasWidthKeyframes = Boolean(vkf?.width?.length || kf.width !== undefined);
-    const hasHeightKeyframes = Boolean(vkf?.height?.length || kf.height !== undefined);
+    const hasWidthKeyframes = Boolean(
+      vkf?.width?.length || kf.width !== undefined,
+    );
+    const hasHeightKeyframes = Boolean(
+      vkf?.height?.length || kf.height !== undefined,
+    );
 
-    if (!hasSpatialCurvature && !hasXKeyframes && hasWidthKeyframes) {
-      const baseW = (clip.width !== undefined && (clip as any).baseWidth != null) ? clip.width : conformedW;
-      const baseX = (clip.x !== undefined && (clip as any).baseWidth != null) ? clip.x : conformedX;
+    if (!hasXKeyframes && hasWidthKeyframes) {
+      const baseW =
+        clip.width !== undefined && (clip as any).baseWidth != null
+          ? clip.width
+          : conformedW;
+      const baseX =
+        clip.x !== undefined && (clip as any).baseWidth != null
+          ? clip.x
+          : conformedX;
       const centerX = baseX + baseW / 2;
       evalX = centerX - evalW / 2;
     }
 
-    if (!hasSpatialCurvature && !hasYKeyframes && hasHeightKeyframes) {
-      const baseH = (clip.height !== undefined && (clip as any).baseWidth != null) ? clip.height : conformedH;
-      const baseY = (clip.y !== undefined && (clip as any).baseWidth != null) ? clip.y : conformedY;
+    if (!hasYKeyframes && hasHeightKeyframes) {
+      const baseH =
+        clip.height !== undefined && (clip as any).baseWidth != null
+          ? clip.height
+          : conformedH;
+      const baseY =
+        clip.y !== undefined && (clip as any).baseWidth != null
+          ? clip.y
+          : conformedY;
       const centerY = baseY + baseH / 2;
       evalY = centerY - evalH / 2;
     }
 
-    let evalRot =
-      vkf?.rotation?.length
-        ? evaluateVisualPropertyKeyframes(vkf.rotation, offset, clip.rotation, clip.duration)
-        : kf.rotation !== undefined
-          ? evaluateProperty(kf.rotation, offset, clip.duration)
-          : clip.rotation;
-    let evalOpacity =
-      vkf?.opacity?.length
-        ? evaluateVisualPropertyKeyframes(vkf.opacity, offset, clip.opacity, clip.duration)
-        : kf.opacity !== undefined
-          ? evaluateProperty(kf.opacity, offset, clip.duration)
-          : clip.opacity;
+    let evalRot = vkf?.rotation?.length
+      ? evaluateVisualPropertyKeyframes(
+          vkf.rotation,
+          offset,
+          clip.rotation,
+          clip.duration,
+        )
+      : kf.rotation !== undefined
+        ? evaluateProperty(kf.rotation, offset, clip.duration)
+        : clip.rotation;
+    let evalOpacity = vkf?.opacity?.length
+      ? evaluateVisualPropertyKeyframes(
+          vkf.opacity,
+          offset,
+          clip.opacity,
+          clip.duration,
+        )
+      : kf.opacity !== undefined
+        ? evaluateProperty(kf.opacity, offset, clip.duration)
+        : clip.opacity;
 
     // Apply continuous loop emphasis motion (Float, Pulse, Wiggle, etc.)
     if (clip.motion?.loopPreset && clip.motion.loopPreset !== "none") {
@@ -479,7 +506,7 @@ export function evaluateTimelineScene(
           templateTextNode?.text ??
           (textClip.textTransform && textClip.text
             ? applyTextTransform(textClip.text, textClip.textTransform)
-            : textClip.text ?? ""),
+            : (textClip.text ?? "")),
         fontFamily: normalizeFontFamily(
           textClip.fontFamily ||
             templateStyle.fontFamily ||
@@ -904,7 +931,6 @@ export function evaluateTimelineScene(
     activeClips: activeClips.length,
     visualLayers: visualLayers.length,
     keyframeEvaluations: keyframeEvaluationsCount,
-    spatialEvaluations: spatialEvaluationsCount,
     springEvaluations: springEvaluationsCount,
     responsiveRetimes: responsiveRetimesCount,
     culledLayers: 0,
@@ -937,7 +963,11 @@ export function isOpaqueFullFrameOccluder(
 ): boolean {
   // Only video media layers can act as solid full-frame occluders. Still images (PNG, WebP, SVG)
   // and stickers frequently contain alpha channels and must never falsely cull underlying video tracks.
-  if (layer.layerType !== "media" || (layer as EvaluatedMediaLayer).mediaType !== "video") return false;
+  if (
+    layer.layerType !== "media" ||
+    (layer as EvaluatedMediaLayer).mediaType !== "video"
+  )
+    return false;
 
   // Stickers can never act as occluders
   if (
@@ -1019,7 +1049,11 @@ export function doesLayerOccludeLayer(
   bottom: EvaluatedVisualLayer,
   transitionWindows: ActiveTransitionWindow[] = [],
 ): boolean {
-  if (top.layerType !== "media" || (top as EvaluatedMediaLayer).mediaType !== "video") return false;
+  if (
+    top.layerType !== "media" ||
+    (top as EvaluatedMediaLayer).mediaType !== "video"
+  )
+    return false;
   if (
     (top as EvaluatedMediaLayer).clipKind === "sticker" ||
     Boolean((top as EvaluatedMediaLayer).stickerSourceId) ||
@@ -1030,7 +1064,6 @@ export function doesLayerOccludeLayer(
   }
   if (top.opacity < 0.999) return false;
   if (top.blendMode && top.blendMode !== "normal") return false;
-
 
   if (
     top.effects &&

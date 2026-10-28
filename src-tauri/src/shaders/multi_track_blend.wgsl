@@ -708,7 +708,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         rgb = vec3<f32>(1.0) - (vec3<f32>(1.0) - rgb) * (vec3<f32>(1.0) - leak);
     }
     let final_alpha = keyed_color.a * layer.opacity * alpha_multiplier;
-    let final_rgb = rgb * final_alpha;
+    var final_rgb = rgb * final_alpha;
+    if (layer.blend_mode == 8u) {
+        // Color Dodge: Scale source color by 1 / (1 - rgb) so that hardware blending
+        // (src_factor: Dst, dst_factor: One) produces Dst + Dst * (rgb / (1 - rgb)) = Dst / (1 - rgb).
+        let denom = max(vec3<f32>(1.0) - rgb, vec3<f32>(0.0039));
+        final_rgb = (rgb / denom) * final_alpha;
+    }
 
     return vec4<f32>(final_rgb, final_alpha);
 }

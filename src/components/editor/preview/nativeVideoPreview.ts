@@ -111,7 +111,27 @@ import {
   type NativeTextLayerSnapshot,
 } from "@/lib/platform/nativeCore";
 
-const NATIVE_BLEND_MODES = new Set(["normal", "multiply", "screen", "overlay", "add", "additive", "difference"]);
+const NATIVE_BLEND_MODES = new Set([
+  "normal",
+  "multiply",
+  "screen",
+  "overlay",
+  "add",
+  "additive",
+  "difference",
+  "darken",
+  "lighten",
+  "color-dodge",
+  "color-burn",
+  "hard-light",
+  "soft-light",
+  "exclusion",
+  "hue",
+  "saturation",
+  "color",
+  "luminosity",
+  "subtract",
+]);
 const NATIVE_COLOR_GRADE_KEYS = new Set([
   "exposure", "contrast", "saturation", "temperature", "tint",
   "brightness", "sepia", "grayscale", "hue", "vignette", "invert", "grain", "vibrance",

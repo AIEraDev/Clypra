@@ -73,12 +73,6 @@ export interface Keyframe<T = number> {
   controlPoints?: [number, number, number, number];
   /** Optional custom spring dynamics configuration */
   spring?: KeyframeSpringConfig;
-  /**
-   * Spatial tangent handles for 2D trajectories (e.g. position paths).
-   * Delta [dx, dy] in canvas coordinates relative to the keyframe position.
-   */
-  spatialIn?: { x: number; y: number };
-  spatialOut?: { x: number; y: number };
 }
 
 /**

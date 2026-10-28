@@ -648,7 +648,12 @@ export type BlendMode =
   | "soft-light"
   | "difference"
   | "exclusion"
+  | "hue"
+  | "saturation"
+  | "color"
+  | "luminosity"
   | "add"
+  | "additive"
   | "subtract";
 
 export interface VideoClip extends Clip {
