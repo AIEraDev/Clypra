@@ -3,6 +3,7 @@ import { Sliders, Check, ChevronDown, Download } from "lucide-react";
 import { useProjectStore } from "@/store/projectStore";
 import type { CanvasBackgroundConfig } from "@/types";
 import { ClypraColorPicker } from "@clypra/ui-color-picker";
+import { PropertySectionHeader } from "../primitives";
 
 const QUICK_COLORS = [
   "#000000",
@@ -174,9 +175,10 @@ const MODE_OPTIONS = [
 
 export const BackgroundInspectorPanel: React.FC = () => {
   const { project, updateProject } = useProjectStore();
-  const [isExpanded, setIsExpanded] = useState(true);
-  const [selectedMode, setSelectedMode] = useState<CanvasMode>("pattern");
+  const [selectedMode, setSelectedMode] = useState<CanvasMode>("none");
   const [videoThumbnail, setVideoThumbnail] = useState<string | null>(null);
+  const [isCanvasBackgroundCollapsed, setIsCanvasBackgroundCollapsed] =
+    useState(false);
 
   const bgConfig: CanvasBackgroundConfig = project?.canvasBackground || {
     type: "solid",
@@ -189,11 +191,6 @@ export const BackgroundInspectorPanel: React.FC = () => {
     if (!project) return;
     const newBg = { ...bgConfig, ...updates };
     updateProject({ canvasBackground: newBg });
-  };
-
-  const handleApplyToAll = () => {
-    // TODO: Apply canvas background to all clips
-    console.log("Apply canvas background to all clips");
   };
 
   // Get the currently selected video clip's first frame thumbnail
@@ -213,46 +210,17 @@ export const BackgroundInspectorPanel: React.FC = () => {
 
   return (
     <div className="space-y-3 text-xs select-none">
-      {/* Canvas Header with Checkbox and Apply to All */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {/* <input
-            type="checkbox"
-            checked={!bgConfig.isTransparent}
-            onChange={() =>
-              handleUpdate({ isTransparent: !bgConfig.isTransparent })
-            }
-            className="w-4 h-4 rounded border border-white/20 bg-[#1c1c1e] checked:bg-cyan-500 text-cyan-500 accent-cyan-500 focus:outline-none cursor-pointer"
-          /> */}
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
-              !bgConfig.isTransparent
-                ? "text-white hover:text-white/80"
-                : "text-white/40"
-            }`}
-          >
-            Canvas
-            <ChevronDown
-              className={`w-4 h-4 transition-transform ${isExpanded ? "" : "-rotate-90"}`}
-            />
-          </button>
-        </div>
-        <button
-          onClick={handleApplyToAll}
-          disabled={bgConfig.isTransparent}
-          className={`text-xs px-3 py-1.5 rounded border transition-colors ${
-            !bgConfig.isTransparent
-              ? "border-white/20 text-white hover:bg-white/5 cursor-pointer"
-              : "border-white/10 text-white/30 cursor-not-allowed"
-          }`}
-        >
-          Apply to all
-        </button>
-      </div>
+      <PropertySectionHeader
+        title="Canvas"
+        isCollapsed={!isCanvasBackgroundCollapsed}
+        onToggleCollapse={() =>
+          setIsCanvasBackgroundCollapsed(!isCanvasBackgroundCollapsed)
+        }
+        isKeyframe={false}
+      />
 
       {/* Dropdown - Always visible when expanded */}
-      {isExpanded && (
+      {isCanvasBackgroundCollapsed && (
         <select
           value={selectedMode}
           onChange={(e) => {
@@ -265,12 +233,8 @@ export const BackgroundInspectorPanel: React.FC = () => {
               handleUpdate({ type: "solid", isTransparent: false });
             else if (mode === "pattern") handleUpdate({ isTransparent: false });
           }}
-          disabled={bgConfig.isTransparent}
-          className={`w-full px-3 py-2.5 rounded border text-sm focus:outline-none focus:border-white/30 ${
-            !bgConfig.isTransparent
-              ? "border-white/10 bg-[#2a2a2e] text-white cursor-pointer hover:border-white/20"
-              : "border-white/5 bg-[#1a1a1e] text-white/30 cursor-not-allowed"
-          }`}
+          // disabled={bgConfig.isTransparent}
+          className="w-full px-3 py-2.5 rounded border text-sm focus:outline-none focus:border-white/30 border-white/5 bg-[#1a1a1e] text-white/30 cursor-pointer"
         >
           {MODE_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
@@ -281,7 +245,7 @@ export const BackgroundInspectorPanel: React.FC = () => {
       )}
 
       {/* Expanded Content */}
-      {isExpanded && !bgConfig.isTransparent && (
+      {isCanvasBackgroundCollapsed && !bgConfig.isTransparent && (
         <div className="space-y-3">
           {/* None Mode - Show nothing */}
           {selectedMode === "none" && (
