@@ -2027,7 +2027,7 @@ export function buildNativeVideoProjectRequest(
       );
 
     if (primaryLayer !== null) {
-      const blurRadius = scene.metadata.canvasBackground.blurRadius ?? 16;
+      const blurRadius = scene.metadata.canvasBackground.blurRadius ?? 80;
       const blurBgLayer: NativeProjectVideoLayer = {
         layerId: `${primaryLayer.layerId ?? "layer"}:blur-bg`,
         videoPath: primaryLayer.videoPath,

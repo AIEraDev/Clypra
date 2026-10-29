@@ -108,7 +108,7 @@ export function getCanvasBackgroundLayer(
           : undefined,
         backgroundSize: "cover",
         backgroundPosition: "center",
-        filter: `blur(${bgConfig.blurRadius ?? 16}px) brightness(0.85)`,
+        filter: `blur(${bgConfig.blurRadius ?? 80}px) brightness(0.85)`,
         opacity: clampOpacity(bgConfig.opacity),
       },
     };

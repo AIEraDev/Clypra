@@ -1,9 +1,10 @@
 import React, { useState } from "react";
-import { Check, Download } from "lucide-react";
+import { Check } from "lucide-react";
 import { useProjectStore } from "@/store/projectStore";
 import type { CanvasBackgroundConfig } from "@/types";
 import { ClypraColorPicker } from "@clypra/ui-color-picker";
 import { PropertySectionHeader } from "../primitives";
+import { SliderTrack } from "../primitives/SliderTrack";
 import { useVideoThumbnail } from "@/hooks/useVideoThumbnail";
 import { useI18n } from "@/i18n";
 
@@ -45,132 +46,47 @@ const SHADER_PRESETS = [
     desc: "Dynamic multi-color shifting mesh",
     color: "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)",
   },
-] as const;
+];
 
-// TODO: Replace with API call to Studio backend
-// GET /api/v1/patterns?category=all&page=1&limit=50
-// These are temporary mock patterns using CSS gradients
-// Real implementation should fetch actual texture images from CDN
-const PATTERN_PRESETS = [
+// Two high-quality gradient patterns that apply via the existing gradient pipeline.
+// Each entry carries both the CSS thumbnail string (for the preview swatch) and the
+// full gradient config that is written to canvasBackground on click.
+const QUALITY_PATTERNS = [
   {
-    id: "candy_cane",
-    label: "Candy Cane",
-    thumbnail:
-      "repeating-linear-gradient(45deg, #ff6b6b 0, #ff6b6b 10px, #fff 10px, #fff 20px)",
+    id: "amethyst",
+    label: "Amethyst",
+    desc: "Deep violet to indigo",
+    thumbnail: "linear-gradient(135deg, #a18cd1 0%, #fbc2eb 50%, #6a11cb 100%)",
+    gradient: {
+      type: "linear" as const,
+      stops: [
+        { color: "#6a11cb", offset: 0 },
+        { color: "#a18cd1", offset: 100 },
+      ],
+      angle: 135,
+    },
   },
   {
-    id: "snowman",
-    label: "Snowman",
-    thumbnail: "radial-gradient(circle, #8b4513 0%, #654321 100%)",
-  },
-  {
-    id: "santa",
-    label: "Santa",
-    thumbnail: "linear-gradient(180deg, #c41e3a 0%, #8b0000 100%)",
-  },
-  {
-    id: "blue_gradient",
-    label: "Blue Gradient",
-    thumbnail: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-  },
-  {
-    id: "gingerbread",
-    label: "Gingerbread",
-    thumbnail: "linear-gradient(180deg, #0f4c3a 0%, #0a3a2a 100%)",
-  },
-  {
-    id: "blocks",
-    label: "Blocks",
-    thumbnail:
-      "linear-gradient(45deg, #f59e0b 25%, #d97706 25%, #d97706 50%, #f5f5f5 50%, #f5f5f5 75%, #e5e5e5 75%)",
-  },
-  {
-    id: "plaid",
-    label: "Plaid",
-    thumbnail:
-      "repeating-linear-gradient(90deg, #d4a574 0, #d4a574 40px, #8b7355 40px, #8b7355 80px)",
-  },
-  {
-    id: "teal_pattern",
-    label: "Teal Pattern",
-    thumbnail: "radial-gradient(circle, #0d9488 0%, #0f766e 100%)",
-  },
-  {
-    id: "navy_dots",
-    label: "Navy Dots",
-    thumbnail:
-      "radial-gradient(circle at 20% 50%, #1e3a8a 2px, transparent 2px), radial-gradient(circle at 60% 50%, #1e3a8a 2px, transparent 2px), #0f1729",
-  },
-  {
-    id: "black_grid",
-    label: "Black Grid",
-    thumbnail:
-      "linear-gradient(90deg, #1a1a1a 1px, transparent 1px), linear-gradient(180deg, #1a1a1a 1px, transparent 1px), #000",
-  },
-  {
-    id: "brown_diamonds",
-    label: "Brown Diamonds",
-    thumbnail:
-      "repeating-linear-gradient(45deg, #78350f 0, #78350f 20px, #92400e 20px, #92400e 40px)",
-  },
-  {
-    id: "beige_sparkle",
-    label: "Beige Sparkle",
-    thumbnail: "linear-gradient(135deg, #e7e5e4 0%, #d6d3d1 100%)",
-  },
-  {
-    id: "pink_glitter",
-    label: "Pink Glitter",
-    thumbnail: "linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%)",
-  },
-  {
-    id: "purple_shimmer",
-    label: "Purple Shimmer",
-    thumbnail: "linear-gradient(135deg, #e9d5ff 0%, #d8b4fe 100%)",
-  },
-  {
-    id: "ocean_wave",
-    label: "Ocean Wave",
-    thumbnail: "linear-gradient(135deg, #cbd5e1 0%, #94a3b8 100%)",
-  },
-  {
-    id: "lavender_blur",
-    label: "Lavender Blur",
-    thumbnail: "linear-gradient(135deg, #e9d5ff 0%, #c4b5fd 100%)",
-  },
-  {
-    id: "rose_blur",
-    label: "Rose Blur",
-    thumbnail: "linear-gradient(135deg, #fce7f3 0%, #f9a8d4 100%)",
-  },
-  {
-    id: "cream_paper",
-    label: "Cream Paper",
-    thumbnail: "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)",
-  },
-  {
-    id: "coral_dots",
-    label: "Coral Dots",
-    thumbnail:
-      "radial-gradient(circle at 30% 40%, #fca5a5 2px, transparent 2px), #fecaca",
-  },
-  {
-    id: "cream_corner",
-    label: "Cream Corner",
-    thumbnail: "linear-gradient(135deg, #fef9c3 0%, #fef08a 100%)",
-  },
-  {
-    id: "retro_black",
-    label: "Retro Black",
-    thumbnail: "linear-gradient(180deg, #000 0%, #171717 100%)",
+    id: "golden-hour",
+    label: "Golden Hour",
+    desc: "Warm cinematic amber",
+    thumbnail: "linear-gradient(135deg, #f7971e 0%, #ffd200 50%, #e8821a 100%)",
+    gradient: {
+      type: "linear" as const,
+      stops: [
+        { color: "#e8821a", offset: 0 },
+        { color: "#ffd200", offset: 100 },
+      ],
+      angle: 135,
+    },
   },
 ];
 
 const BLUR_PRESETS = [
-  { id: "blur-0", labelKey: "properties.canvas.blur.noBlur", blurRadius: 0 },
-  { id: "blur-1", labelKey: "properties.canvas.blur.light", blurRadius: 8 },
-  { id: "blur-2", labelKey: "properties.canvas.blur.medium", blurRadius: 16 },
-  { id: "blur-3", labelKey: "properties.canvas.blur.heavy", blurRadius: 32 },
+  { id: "blur-1", labelKey: "properties.canvas.blur.light",  blurRadius: 40  },
+  { id: "blur-2", labelKey: "properties.canvas.blur.medium", blurRadius: 80  },
+  { id: "blur-3", labelKey: "properties.canvas.blur.heavy",  blurRadius: 120 },
+  { id: "blur-4", labelKey: "properties.canvas.blur.max",    blurRadius: 180 },
 ];
 
 type CanvasMode = "none" | "blur" | "color" | "pattern";
@@ -254,11 +170,15 @@ export const BackgroundInspectorPanel: React.FC<
             if (mode === "none") handleUpdate({ isTransparent: true });
             else if (mode === "color")
               handleUpdate({ type: "solid", isTransparent: false });
-            else if (mode === "pattern") handleUpdate({ isTransparent: false });
+            else if (mode === "pattern") handleUpdate({
+                isTransparent: false,
+                type: "gradient",
+                gradient: QUALITY_PATTERNS[0].gradient,
+              });
             else if (mode === "blur")
               handleUpdate({
                 type: "blur",
-                blurRadius: 16,
+                blurRadius: 80,
                 isTransparent: false,
               });
           }}
@@ -305,14 +225,16 @@ export const BackgroundInspectorPanel: React.FC<
                   title={t(blurLevel.labelKey)}
                 >
                   {thumbnailUrl ? (
-                    // Show actual video thumbnail with blur applied
+                    // Show actual video thumbnail with blur applied.
+                    // Divide blurRadius by 12 to scale the canvas-space radius
+                    // down to thumbnail-space (thumbnails are ~1/12 of canvas width).
                     <div
                       className="absolute inset-0"
                       style={{
                         backgroundImage: `url(${thumbnailUrl})`,
                         backgroundSize: "cover",
                         backgroundPosition: "center",
-                        filter: `blur(${blurLevel.blurRadius}px) brightness(0.85)`,
+                        filter: `blur(${(blurLevel.blurRadius / 12).toFixed(1)}px) brightness(0.85)`,
                       }}
                     />
                   ) : (
@@ -323,7 +245,7 @@ export const BackgroundInspectorPanel: React.FC<
                         backgroundImage:
                           "url(\"data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='100' height='100' fill='%23654321'/%3E%3Crect x='10' y='60' width='30' height='30' fill='%23ff6b35' rx='4'/%3E%3C/svg%3E\")",
                         backgroundSize: "cover",
-                        filter: `blur(${blurLevel.blurRadius}px) brightness(0.85)`,
+                        filter: `blur(${(blurLevel.blurRadius / 12).toFixed(1)}px) brightness(0.85)`,
                       }}
                     />
                   )}
@@ -333,33 +255,92 @@ export const BackgroundInspectorPanel: React.FC<
             </div>
           )}
 
-          {/* Pattern Grid View */}
+          {/* Pattern Mode — 2 quality gradient patterns */}
           {selectedMode === "pattern" && (
-            <div className="space-y-2">
-              {/* TODO: Add loading state and error handling for API patterns */}
-              {/* TODO: Add infinite scroll or pagination for large pattern libraries */}
-              <div className="grid grid-cols-7 gap-2">
-                {PATTERN_PRESETS.map((pattern) => (
-                  <button
-                    key={pattern.id}
-                    onClick={() => {
-                      // TODO: Apply pattern from API response
-                      // Should store pattern.fullUrl in canvasBackground.mediaUrl
-                      console.log("Apply pattern:", pattern.id);
-                    }}
-                    className="relative aspect-square rounded-lg overflow-hidden border border-white/10 hover:border-cyan-500/50 transition-all group"
-                    style={{ background: pattern.thumbnail }}
-                    title={pattern.label}
-                  >
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
-                    <Download className="absolute bottom-1 right-1 w-3 h-3 text-white/70 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </button>
-                ))}
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                {QUALITY_PATTERNS.map((pattern) => {
+                  const isActive =
+                    bgConfig.type === "gradient" &&
+                    bgConfig.gradient?.stops?.[0]?.color ===
+                      pattern.gradient.stops[0].color &&
+                    bgConfig.gradient?.stops?.[1]?.color ===
+                      pattern.gradient.stops[1].color;
+                  return (
+                    <button
+                      key={pattern.id}
+                      onClick={() =>
+                        handleUpdate({
+                          type: "gradient",
+                          gradient: pattern.gradient,
+                          isTransparent: false,
+                        })
+                      }
+                      className={`relative rounded-xl overflow-hidden border transition-all group h-20 ${
+                        isActive
+                          ? "border-cyan-500 ring-2 ring-cyan-500/30"
+                          : "border-white/10 hover:border-white/30"
+                      }`}
+                      title={pattern.label}
+                    >
+                      {/* Full gradient fill */}
+                      <div
+                        className="absolute inset-0"
+                        style={{ background: pattern.thumbnail }}
+                      />
+                      {/* Hover overlay */}
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors" />
+                      {/* Label */}
+                      <div className="absolute bottom-0 inset-x-0 px-2 py-1.5 bg-gradient-to-t from-black/60 to-transparent">
+                        <div className="text-[10px] font-semibold text-white leading-tight">
+                          {pattern.label}
+                        </div>
+                        <div className="text-[9px] text-white/60 leading-tight">
+                          {pattern.desc}
+                        </div>
+                      </div>
+                      {/* Active checkmark */}
+                      {isActive && (
+                        <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-cyan-500 flex items-center justify-center">
+                          <Check className="w-2.5 h-2.5 text-white" />
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
+
+              {/* Angle slider — only shown while a pattern gradient is active */}
+              {bgConfig.type === "gradient" && (
+                <div className="space-y-1 pt-1">
+                  <div className="flex justify-between text-white/50 text-[10px]">
+                    <span>Angle</span>
+                    <span>{bgConfig.gradient?.angle ?? 135}°</span>
+                  </div>
+                  <SliderTrack
+                    value={bgConfig.gradient?.angle ?? 135}
+                    min={0}
+                    max={360}
+                    onChange={(angle) =>
+                      handleUpdate({
+                        type: "gradient",
+                        gradient: {
+                          ...bgConfig.gradient,
+                          type: bgConfig.gradient?.type || "linear",
+                          stops: bgConfig.gradient?.stops || [
+                            { color: "#6a11cb", offset: 0 },
+                            { color: "#a18cd1", offset: 100 },
+                          ],
+                          angle,
+                        },
+                      })
+                    }
+                    propertyId="gradient-angle"
+                  />
+                </div>
+              )}
             </div>
           )}
-
-          {/* Color Mode */}
           {selectedMode === "color" && (
             <div className="space-y-3 p-3 rounded-lg bg-[#2a2a2e] border border-white/10">
               <div className="flex items-center justify-between">
@@ -403,251 +384,6 @@ export const BackgroundInspectorPanel: React.FC<
             </div>
           )}
 
-          {/* Pattern Mode shows gradient controls too (since patterns can be gradients) */}
-          {selectedMode === "pattern" && bgConfig.type === "gradient" && (
-            <div className="space-y-3 p-3 rounded-lg bg-[#2a2a2e] border border-white/10">
-              <div className="flex items-center justify-between">
-                <span className="font-medium text-white">Gradient Type</span>
-                <div className="flex gap-1 p-0.5 bg-[#1c1c1e] rounded border border-white/10">
-                  <button
-                    onClick={() =>
-                      handleUpdate({
-                        type: "gradient",
-                        gradient: {
-                          type: "linear",
-                          stops: bgConfig.gradient?.stops || [
-                            { color: "#1e1e2d", offset: 0 },
-                            { color: "#000000", offset: 100 },
-                          ],
-                          angle: bgConfig.gradient?.angle || 135,
-                        },
-                      })
-                    }
-                    className={`px-2 py-1 rounded text-[10px] font-medium ${
-                      bgConfig.gradient?.type !== "radial"
-                        ? "bg-cyan-500 text-white"
-                        : "text-white/60"
-                    }`}
-                  >
-                    Linear
-                  </button>
-                  <button
-                    onClick={() =>
-                      handleUpdate({
-                        type: "gradient",
-                        gradient: {
-                          type: "radial",
-                          stops: bgConfig.gradient?.stops || [
-                            { color: "#1e1e2d", offset: 0 },
-                            { color: "#000000", offset: 100 },
-                          ],
-                        },
-                      })
-                    }
-                    className={`px-2 py-1 rounded text-[10px] font-medium ${
-                      bgConfig.gradient?.type === "radial"
-                        ? "bg-cyan-500 text-white"
-                        : "text-white/60"
-                    }`}
-                  >
-                    Radial
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-white/60">Start</span>
-                  <ClypraColorPicker
-                    value={bgConfig.gradient?.stops?.[0]?.color || "#1e1e2d"}
-                    onChange={(c: string) => {
-                      const stops = [
-                        ...(bgConfig.gradient?.stops || [
-                          { color: "#1e1e2d", offset: 0 },
-                          { color: "#000000", offset: 100 },
-                        ]),
-                      ];
-                      stops[0] = { ...stops[0], color: c };
-                      handleUpdate({
-                        type: "gradient",
-                        gradient: {
-                          ...bgConfig.gradient,
-                          type: bgConfig.gradient?.type || "linear",
-                          stops,
-                        },
-                      });
-                    }}
-                    onChangeComplete={(c: string) => {
-                      const stops = [
-                        ...(bgConfig.gradient?.stops || [
-                          { color: "#1e1e2d", offset: 0 },
-                          { color: "#000000", offset: 100 },
-                        ]),
-                      ];
-                      stops[0] = { ...stops[0], color: c };
-                      handleUpdate({
-                        type: "gradient",
-                        gradient: {
-                          ...bgConfig.gradient,
-                          type: bgConfig.gradient?.type || "linear",
-                          stops,
-                        },
-                      });
-                    }}
-                    format="hex"
-                    showAlpha={true}
-                    size="sm"
-                    triggerClassName="w-24 h-6.5 bg-[#1c1c1e] border-white/20 hover:border-white/30 shrink-0"
-                    popoverClassName="right-0 left-auto mt-1 z-[100]"
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-white/60">End</span>
-                  <ClypraColorPicker
-                    value={bgConfig.gradient?.stops?.[1]?.color || "#000000"}
-                    onChange={(c: string) => {
-                      const stops = [
-                        ...(bgConfig.gradient?.stops || [
-                          { color: "#1e1e2d", offset: 0 },
-                          { color: "#000000", offset: 100 },
-                        ]),
-                      ];
-                      stops[1] = { ...stops[1], color: c };
-                      handleUpdate({
-                        type: "gradient",
-                        gradient: {
-                          ...bgConfig.gradient,
-                          type: bgConfig.gradient?.type || "linear",
-                          stops,
-                        },
-                      });
-                    }}
-                    onChangeComplete={(c: string) => {
-                      const stops = [
-                        ...(bgConfig.gradient?.stops || [
-                          { color: "#1e1e2d", offset: 0 },
-                          { color: "#000000", offset: 100 },
-                        ]),
-                      ];
-                      stops[1] = { ...stops[1], color: c };
-                      handleUpdate({
-                        type: "gradient",
-                        gradient: {
-                          ...bgConfig.gradient,
-                          type: bgConfig.gradient?.type || "linear",
-                          stops,
-                        },
-                      });
-                    }}
-                    format="hex"
-                    showAlpha={true}
-                    size="sm"
-                    triggerClassName="w-24 h-6.5 bg-[#1c1c1e] border-white/20 hover:border-white/30 shrink-0"
-                    popoverClassName="right-0 left-auto mt-1 z-[100]"
-                  />
-                </div>
-
-                {bgConfig.gradient?.type !== "radial" && (
-                  <div className="space-y-1 pt-1">
-                    <div className="flex justify-between text-white/60">
-                      <span>Angle</span>
-                      <span>{bgConfig.gradient?.angle ?? 135}°</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={360}
-                      value={bgConfig.gradient?.angle ?? 135}
-                      onChange={(e) =>
-                        handleUpdate({
-                          type: "gradient",
-                          gradient: {
-                            ...bgConfig.gradient,
-                            type: "linear",
-                            stops: bgConfig.gradient?.stops || [
-                              { color: "#1e1e2d", offset: 0 },
-                              { color: "#000000", offset: 100 },
-                            ],
-                            angle: Number(e.target.value),
-                          },
-                        })
-                      }
-                      className="w-full accent-cyan-500"
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Pattern Mode shows shader controls too (since shaders are animated patterns) */}
-          {selectedMode === "pattern" && bgConfig.type === "shader" && (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                {SHADER_PRESETS.map((preset) => (
-                  <button
-                    key={preset.id}
-                    onClick={() =>
-                      handleUpdate({
-                        type: "shader",
-                        shader: {
-                          presetId: preset.id,
-                          speed: bgConfig.shader?.speed ?? 1.0,
-                          intensity: bgConfig.shader?.intensity ?? 1.0,
-                        },
-                      })
-                    }
-                    className={`relative p-3 rounded-lg border transition-all overflow-hidden ${
-                      bgConfig.shader?.presetId === preset.id
-                        ? "border-cyan-500 ring-2 ring-cyan-500/30"
-                        : "border-white/10 hover:border-white/20"
-                    }`}
-                  >
-                    <div
-                      className="absolute inset-0 opacity-20"
-                      style={{ background: preset.color }}
-                    />
-                    <div className="relative">
-                      <div className="font-semibold text-[11px] text-white">
-                        {preset.label}
-                      </div>
-                      <div className="text-[10px] text-white/60">
-                        {preset.desc}
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-
-              <div className="p-3 rounded-lg bg-[#2a2a2e] border border-white/10 space-y-2">
-                <div className="space-y-1">
-                  <div className="flex justify-between text-white/60">
-                    <span>Speed</span>
-                    <span>{(bgConfig.shader?.speed ?? 1.0).toFixed(1)}x</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0.1}
-                    max={3.0}
-                    step={0.1}
-                    value={bgConfig.shader?.speed ?? 1.0}
-                    onChange={(e) =>
-                      handleUpdate({
-                        type: "shader",
-                        shader: {
-                          presetId:
-                            bgConfig.shader?.presetId || "liquid_aurora",
-                          speed: Number(e.target.value),
-                          intensity: bgConfig.shader?.intensity ?? 1.0,
-                        },
-                      })
-                    }
-                    className="w-full accent-cyan-500"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>

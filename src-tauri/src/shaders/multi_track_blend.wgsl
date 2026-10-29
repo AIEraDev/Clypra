@@ -239,19 +239,82 @@ fn hsv_to_rgb(color: vec3<f32>) -> vec3<f32> {
     return color.z * mix(k.xxx, clamp(p - k.xxx, vec3<f32>(0.0), vec3<f32>(1.0)), color.y);
 }
 
+// ---------------------------------------------------------------------------
+// Smooth Gaussian blur — two fully-independent 1-D passes averaged together.
+//
+// Why independent passes?  A true separable blur feeds the H-pass output into
+// the V-pass, which requires two render targets.  In a single-pass shader we
+// approximate it by running H and V each against the *original* texture and
+// averaging the two blurred results.  Averaging eliminates the directional
+// streaking that appeared when the V-pass used the H-blurred centre tap mixed
+// with raw vertical samples.
+//
+// Coverage:  each pass uses 17 taps (±8 steps).  Step size = radius / 8 px,
+// so the kernel spans ±radius pixels — wide enough to match CapCut-style blur
+// at the preset radii (40 / 80 / 120 / 180 px).
+//
+// Weights:  Gaussian with σ = 3 (in tap units), pre-normalised so the 17-tap
+// sum equals exactly 1.0.
+// ---------------------------------------------------------------------------
 fn sample_blurred_color(uv: vec2<f32>, radius: f32) -> vec4<f32> {
-    let dimensions = vec2<f32>(textureDimensions(t_diffuse));
-    let offset = vec2<f32>(radius) / max(dimensions, vec2<f32>(1.0));
-    var color = textureSampleLevel(t_diffuse, s_diffuse, uv, 0.0) * 0.227027;
-    color += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(offset.x, 0.0), 0.0) * 0.1945946;
-    color += textureSampleLevel(t_diffuse, s_diffuse, uv - vec2<f32>(offset.x, 0.0), 0.0) * 0.1945946;
-    color += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0, offset.y), 0.0) * 0.1945946;
-    color += textureSampleLevel(t_diffuse, s_diffuse, uv - vec2<f32>(0.0, offset.y), 0.0) * 0.1945946;
-    color += textureSampleLevel(t_diffuse, s_diffuse, uv + offset, 0.0) * 0.024393;
-    color += textureSampleLevel(t_diffuse, s_diffuse, uv - offset, 0.0) * 0.024393;
-    color += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(offset.x, -offset.y), 0.0) * 0.024393;
-    color += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(-offset.x, offset.y), 0.0) * 0.024393;
-    return color;
+    let dim = vec2<f32>(textureDimensions(t_diffuse));
+    // One step in UV space; 8 steps cover the full requested radius.
+    let s = (radius / 8.0) / max(dim, vec2<f32>(1.0));
+
+    // Gaussian weights for taps 0–8 (σ=3 in tap units).
+    // w[i] ∝ exp(-0.5*(i/3)²), normalised so sum over ±8 = 1.0.
+    let w0 = 0.13298;
+    let w1 = 0.12579;
+    let w2 = 0.10648;
+    let w3 = 0.08056;
+    let w4 = 0.05467;
+    let w5 = 0.03318;
+    let w6 = 0.01808;
+    let w7 = 0.00882;
+    let w8 = 0.00386;
+    // 1-D kernel sum = w0 + 2*(w1+w2+w3+w4+w5+w6+w7+w8) ≈ 1.0
+
+    // --- Horizontal 1-D blur (samples along X only, original texture) ---
+    var hb = textureSampleLevel(t_diffuse, s_diffuse, uv, 0.0) * w0;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>( s.x * 1.0, 0.0), 0.0) * w1;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(-s.x * 1.0, 0.0), 0.0) * w1;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>( s.x * 2.0, 0.0), 0.0) * w2;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(-s.x * 2.0, 0.0), 0.0) * w2;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>( s.x * 3.0, 0.0), 0.0) * w3;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(-s.x * 3.0, 0.0), 0.0) * w3;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>( s.x * 4.0, 0.0), 0.0) * w4;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(-s.x * 4.0, 0.0), 0.0) * w4;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>( s.x * 5.0, 0.0), 0.0) * w5;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(-s.x * 5.0, 0.0), 0.0) * w5;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>( s.x * 6.0, 0.0), 0.0) * w6;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(-s.x * 6.0, 0.0), 0.0) * w6;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>( s.x * 7.0, 0.0), 0.0) * w7;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(-s.x * 7.0, 0.0), 0.0) * w7;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>( s.x * 8.0, 0.0), 0.0) * w8;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(-s.x * 8.0, 0.0), 0.0) * w8;
+
+    // --- Vertical 1-D blur (samples along Y only, same original texture) ---
+    var vb = textureSampleLevel(t_diffuse, s_diffuse, uv, 0.0) * w0;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0,  s.y * 1.0), 0.0) * w1;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0, -s.y * 1.0), 0.0) * w1;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0,  s.y * 2.0), 0.0) * w2;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0, -s.y * 2.0), 0.0) * w2;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0,  s.y * 3.0), 0.0) * w3;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0, -s.y * 3.0), 0.0) * w3;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0,  s.y * 4.0), 0.0) * w4;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0, -s.y * 4.0), 0.0) * w4;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0,  s.y * 5.0), 0.0) * w5;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0, -s.y * 5.0), 0.0) * w5;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0,  s.y * 6.0), 0.0) * w6;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0, -s.y * 6.0), 0.0) * w6;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0,  s.y * 7.0), 0.0) * w7;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0, -s.y * 7.0), 0.0) * w7;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0,  s.y * 8.0), 0.0) * w8;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0, -s.y * 8.0), 0.0) * w8;
+
+    // Average the two independent 1-D blurs.  Each already sums to ~1.0,
+    // so the average is correctly normalised without any extra division.
+    return (hb + vb) * 0.5;
 }
 
 // -----------------------------------------------------------------------------
