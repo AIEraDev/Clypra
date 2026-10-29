@@ -11,15 +11,14 @@
  *
  * The returned URL is stable across re-renders until the asset path changes.
  */
-
 import { useState, useEffect } from "react";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
-import { decodeFrame, isTauriRuntime } from "@/lib/platform/tauri";
+import { renderNativePreviewFrame, isTauriRuntime } from "@/lib/platform/tauri";
 
-export function useVideoThumbnail(
-  clipId: string | null | undefined,
-): { thumbnailUrl: string | null } {
+export function useVideoThumbnail(clipId: string | null | undefined): {
+  thumbnailUrl: string | null;
+} {
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
 
   const clip = useTimelineStore((s) =>
@@ -27,16 +26,15 @@ export function useVideoThumbnail(
   );
 
   const asset = useProjectStore((s) =>
-    clip && "mediaId" in clip && clip.mediaId
-      ? (s.mediaAssets ?? []).find((a) => a.id === (clip as { mediaId: string }).mediaId)
+    clip?.mediaId
+      ? (s.mediaAssets ?? []).find((a) => a.id === clip.mediaId)
       : undefined,
   );
 
-  // Stable key: re-fetch only when the resolved asset path changes
-  const assetPath = asset?.path ?? null;
+  const assetPath = asset?.path && asset.path !== "" ? asset.path : null;
 
   useEffect(() => {
-    if (!assetPath) {
+    if (!assetPath || !isTauriRuntime()) {
       setThumbnailUrl(null);
       return;
     }
@@ -45,13 +43,30 @@ export function useVideoThumbnail(
 
     (async () => {
       try {
-        if (!isTauriRuntime()) {
-          // Web / test environment — degrade gracefully
-          if (!cancelled) setThumbnailUrl(null);
+        const rgba = await renderNativePreviewFrame(assetPath, 0, 128, 72);
+        if (cancelled) return;
+
+        const clamped = new Uint8ClampedArray(rgba);
+        const imageData = new ImageData(clamped, 128, 72);
+        const bitmap = await createImageBitmap(imageData);
+        if (cancelled) {
+          bitmap.close();
           return;
         }
-        const url = await decodeFrame(assetPath, 0, 128, 72);
-        if (!cancelled) setThumbnailUrl(url);
+
+        const canvas = document.createElement("canvas");
+        canvas.width = 128;
+        canvas.height = 72;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          bitmap.close();
+          return;
+        }
+        ctx.drawImage(bitmap, 0, 0);
+        bitmap.close();
+
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+        if (!cancelled) setThumbnailUrl(dataUrl);
       } catch {
         if (!cancelled) setThumbnailUrl(null);
       }

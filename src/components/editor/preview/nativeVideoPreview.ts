@@ -2488,6 +2488,30 @@ export function buildNativeFrameRequest(
       blendMode: "normal" as EvaluatedMediaLayer["blendMode"],
     });
   }
+  // Copy synthetic blur background layer from request.layers into videoLayers.
+  // buildNativeVideoProjectRequest injects this layer but buildNativeFrameRequest
+  // rebuilds videoLayers from scene.visualLayers — so it must be copied back
+  // explicitly, just like NATIVE_BACKGROUND_MEDIA_LAYER_ID above.
+  const blurBgLayer = request.layers.find(
+    (layer) => layer.layerId?.endsWith(":blur-bg"),
+  );
+  if (blurBgLayer) {
+    videoLayers.unshift({
+      assetId: blurBgLayer.layerId ?? "blur-bg",
+      layerId: blurBgLayer.layerId ?? "blur-bg",
+      videoPath: toNativePath(blurBgLayer.videoPath),
+      sourceTime: secondsToNativeTime(blurBgLayer.timeSecs, frameIndex),
+      x: blurBgLayer.x,
+      y: blurBgLayer.y,
+      width: blurBgLayer.width ?? request.canvasWidth,
+      height: blurBgLayer.height ?? request.canvasHeight,
+      rotation: blurBgLayer.rotation ?? 0,
+      opacity: blurBgLayer.opacity ?? 0.85,
+      zIndex: blurBgLayer.zIndex ?? -1,
+      blendMode: "normal" as EvaluatedMediaLayer["blendMode"],
+      ...(blurBgLayer.colorGrade ? { colorGrade: blurBgLayer.colorGrade } : {}),
+    });
+  }
 
   // `buildNativeVideoProjectRequest` is the canonical text mapping above.
   // Reusing it here is important: remapping the scene would reintroduce all

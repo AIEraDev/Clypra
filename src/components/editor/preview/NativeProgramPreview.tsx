@@ -5235,6 +5235,7 @@ export const NativeProgramPreview: React.FC = () => {
     dimensions.height,
     previewQuality,
     nativeSurfaceError,
+    project?.canvasBackground,
   ]);
 
   useEffect(() => {
