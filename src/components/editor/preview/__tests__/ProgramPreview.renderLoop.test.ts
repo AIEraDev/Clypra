@@ -4912,6 +4912,29 @@ describe("Feature — canvas blur background", () => {
     // blur type should produce a transparent clear color
     expect(result!.clearColor).toEqual([0, 0, 0, 0]);
   });
+
+  it("synthetic blur layer with blurRadius=0 has blurStrength=0 (No Blur guard)", async () => {
+    const { buildNativeVideoProjectRequest } =
+      await import("@/components/editor/preview/nativeVideoPreview");
+    const scene = buildMinimalBlurScene({
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+      blurRadius: 0,
+      videoPath: "/test/video.mp4",
+      layerId: "clip-1",
+      zIndex: 0,
+    });
+    const result = buildNativeVideoProjectRequest(scene);
+    expect(result).not.toBeNull();
+    const blurBgLayer = result!.layers.find((l) =>
+      (l.layerId ?? "").endsWith(":blur-bg"),
+    );
+    // The "No Blur" preset (blurRadius:0) should produce blurStrength:0 to
+    // suppress the blur pass entirely — matching the guard in getNativeColorGrade.
+    if (blurBgLayer !== undefined) {
+      expect(blurBgLayer.colorGrade?.blurStrength).toBe(0);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

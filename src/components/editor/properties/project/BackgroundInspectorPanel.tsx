@@ -5,6 +5,7 @@ import type { CanvasBackgroundConfig } from "@/types";
 import { ClypraColorPicker } from "@clypra/ui-color-picker";
 import { PropertySectionHeader } from "../primitives";
 import { useVideoThumbnail } from "@/hooks/useVideoThumbnail";
+import { useI18n } from "@/i18n";
 
 const QUICK_COLORS = [
   "#000000",
@@ -166,19 +167,25 @@ const PATTERN_PRESETS = [
 ];
 
 const BLUR_PRESETS = [
-  { id: "blur-0", label: "No Blur", blurRadius: 0 },
-  { id: "blur-1", label: "Light", blurRadius: 8 },
-  { id: "blur-2", label: "Medium", blurRadius: 16 },
-  { id: "blur-3", label: "Heavy", blurRadius: 32 },
+  { id: "blur-0", labelKey: "properties.canvas.blur.noBlur", blurRadius: 0 },
+  { id: "blur-1", labelKey: "properties.canvas.blur.light", blurRadius: 8 },
+  { id: "blur-2", labelKey: "properties.canvas.blur.medium", blurRadius: 16 },
+  { id: "blur-3", labelKey: "properties.canvas.blur.heavy", blurRadius: 32 },
 ];
 
 type CanvasMode = "none" | "blur" | "color" | "pattern";
 
-const MODE_OPTIONS = [
-  { value: "none" as const, label: "None" },
-  { value: "blur" as const, label: "Blur" },
-  { value: "color" as const, label: "Color" },
-  { value: "pattern" as const, label: "Pattern" },
+const MODE_OPTION_KEYS = [
+  { value: "none" as const, labelKey: "properties.canvas.backgroundMode.none" },
+  { value: "blur" as const, labelKey: "properties.canvas.backgroundMode.blur" },
+  {
+    value: "color" as const,
+    labelKey: "properties.canvas.backgroundMode.color",
+  },
+  {
+    value: "pattern" as const,
+    labelKey: "properties.canvas.backgroundMode.pattern",
+  },
 ];
 
 interface BackgroundInspectorPanelProps {
@@ -189,6 +196,7 @@ export const BackgroundInspectorPanel: React.FC<
   BackgroundInspectorPanelProps
 > = ({ selectedClipId }) => {
   const { project, updateProject } = useProjectStore();
+  const { t } = useI18n();
   const [isCanvasBackgroundCollapsed, setIsCanvasBackgroundCollapsed] =
     useState(false);
 
@@ -212,14 +220,24 @@ export const BackgroundInspectorPanel: React.FC<
 
   const handleUpdate = (updates: Partial<CanvasBackgroundConfig>) => {
     if (!project) return;
-    const newBg = { ...bgConfig, ...updates };
+    // Strip data: URLs from mediaUrl before persisting — the native compositor
+    // derives the blur frame from videoPath; data URLs serve only the CSS preview
+    // and must not be written to the project file (50-70 KB per preset click).
+    const sanitized = { ...updates };
+    if (
+      typeof sanitized.mediaUrl === "string" &&
+      sanitized.mediaUrl.startsWith("data:")
+    ) {
+      delete sanitized.mediaUrl;
+    }
+    const newBg = { ...bgConfig, ...sanitized };
     updateProject({ canvasBackground: newBg });
   };
 
   return (
     <div className="space-y-3 text-xs select-none">
       <PropertySectionHeader
-        title="Canvas"
+        title={t("properties.canvas.title")}
         isCollapsed={!isCanvasBackgroundCollapsed}
         onToggleCollapse={() =>
           setIsCanvasBackgroundCollapsed(!isCanvasBackgroundCollapsed)
@@ -246,9 +264,9 @@ export const BackgroundInspectorPanel: React.FC<
           }}
           className="w-full px-3 py-2.5 rounded border text-sm focus:outline-none focus:border-white/30 border-white/5 bg-[#1a1a1e] text-white/30 cursor-pointer"
         >
-          {MODE_OPTIONS.map((option) => (
+          {MODE_OPTION_KEYS.map((option) => (
             <option key={option.value} value={option.value}>
-              {option.label}
+              {t(option.labelKey)}
             </option>
           ))}
         </select>
@@ -284,7 +302,7 @@ export const BackgroundInspectorPanel: React.FC<
                       ? "border-cyan-500 ring-2 ring-cyan-500/30"
                       : "border-white/10"
                   }`}
-                  title={blurLevel.label}
+                  title={t(blurLevel.labelKey)}
                 >
                   {thumbnailUrl ? (
                     // Show actual video thumbnail with blur applied

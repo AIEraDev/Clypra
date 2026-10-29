@@ -1829,7 +1829,7 @@ function buildBlurBackgroundColorGrade(
     grainSize: 1,
     lutIntensity: 1,
     lutSize: 33,
-    blurStrength: 1,
+    blurStrength: blurRadius > 0 ? 1 : 0,
     blurRadius,
     pixelateSize: 1,
     scanlineCount: 0,
