@@ -1,5 +1,5 @@
 import React, { useCallback } from "react";
-import { Volume2, VolumeX, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import type { Clip } from "@/types";
 import { dbToLinearGain, getClipAudioProperties } from "@/types/audio";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
@@ -18,13 +18,10 @@ interface AudioSectionProps {
 export const AudioSection: React.FC<AudioSectionProps> = ({
   selectedClip,
   handleUpdate,
-  onUnlink,
-  onRelink,
 }) => {
   const audio = getClipAudioProperties(selectedClip);
   const volume = audio.muted ? 0 : dbToLinearGain(audio.gainDb);
   const volumePercent = Math.round(Math.max(0, Math.min(1, volume)) * 100);
-  const isMuted = audio.muted;
   const maxFadeSeconds = Math.max(0, Math.min(5, selectedClip.duration));
   const clampFade = useCallback(
     (value: number) =>
@@ -33,8 +30,6 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
   );
   const fadeIn = clampFade(audio.fadeIn.duration);
   const fadeOut = clampFade(audio.fadeOut.duration);
-  const pan = audio.pan ?? 0;
-  const panPercent = Math.round(pan * 100);
 
   // Keyframe calculations
   const volumeKeyframes = audio.volumeKeyframes || [];
@@ -141,16 +136,8 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
   );
 
   const toggleMute = useCallback(() => {
-    handleVolumeChange(isMuted ? 1.0 : 0);
-  }, [handleVolumeChange, isMuted]);
-
-  const handlePanChange = useCallback(
-    (val: number) => {
-      const clamped = Math.max(-1, Math.min(1, val));
-      handleUpdate("pan", clamped);
-    },
-    [handleUpdate],
-  );
+    handleVolumeChange(audio.muted ? 1.0 : 0);
+  }, [handleVolumeChange, audio.muted]);
 
   const handleResetVolume = useCallback(() => {
     propertyEditTelemetry.recordButtonAction({
@@ -179,65 +166,11 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
     handleUpdate("fadeOut", 0);
   }, [handleUpdate]);
 
-  const handleResetPan = useCallback(() => {
-    propertyEditTelemetry.recordButtonAction({
-      action: "reset-pan",
-      category: "audio",
-      property: "pan",
-    });
-    handlePanChange(0);
-  }, [handlePanChange]);
-
   return (
     <div className="space-y-4 px-3 py-2">
       {/* Volume */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <label className="text-[11px] font-medium text-white/90">
-            Volume
-          </label>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-white/60 font-mono">
-              {audio.gainDb.toFixed(1)}dB
-            </span>
-            <button
-              type="button"
-              onClick={toggleMute}
-              className={`flex items-center justify-center w-6 h-6 rounded transition-all cursor-pointer ${
-                isMuted
-                  ? "bg-red-500/15 text-red-400 hover:bg-red-500/25"
-                  : "bg-white/5 hover:bg-white/10 text-cyan-400"
-              }`}
-              title={isMuted ? "Unmute" : "Mute"}
-              aria-label={isMuted ? "Unmute" : "Mute"}
-            >
-              {isMuted ? (
-                <VolumeX className="w-3.5 h-3.5" />
-              ) : (
-                <Volume2 className="w-3.5 h-3.5" />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={handleResetVolume}
-              className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/5 text-white/40 hover:text-white/60 transition-colors cursor-pointer"
-              title="Reset volume"
-              aria-label="Reset volume"
-            >
-              <RotateCcw className="w-3 h-3" />
-            </button>
-            <KeyframeNavControls
-              hasKeyframes={volumeKeyframes.length > 0}
-              isAtKeyframe={isAtVolumeKf}
-              hasPrev={hasPrevVolumeKf}
-              hasNext={hasNextVolumeKf}
-              onToggleKeyframe={handleToggleVolumeKeyframe}
-              onPrevKeyframe={() => handleJumpToVolumeKeyframe("prev")}
-              onNextKeyframe={() => handleJumpToVolumeKeyframe("next")}
-              label="Volume"
-            />
-          </div>
-        </div>
+        <label className="text-[11px] font-medium text-white/90">Volume</label>
         <div className="flex items-center gap-2">
           <SliderTrack
             value={volumePercent}
@@ -249,43 +182,44 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
             onChange={handleVolumePercentChange}
           />
           <NumericControl
-            value={volumePercent}
-            onChange={handleVolumePercentChange}
-            step={1}
-            min={0}
-            max={100}
-            suffix="%"
-            inputWidth="w-16"
+            value={audio.gainDb}
+            onChange={(db) => handleVolumePercentChange(dbToLinearGain(db) * 100)}
+            step={0.1}
+            min={-60}
+            max={12}
+            suffix="dB"
+            inputWidth="w-20"
             inputPosition="text-right"
-            decimals={0}
+            decimals={1}
             ariaLabel="Volume"
             propertyId="volume"
             category="audio"
+          />
+          <button
+            type="button"
+            onClick={handleResetVolume}
+            className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/5 text-white/40 hover:text-white/60 transition-colors cursor-pointer"
+            title="Reset volume"
+            aria-label="Reset volume"
+          >
+            <RotateCcw className="w-3 h-3" />
+          </button>
+          <KeyframeNavControls
+            hasKeyframes={volumeKeyframes.length > 0}
+            isAtKeyframe={isAtVolumeKf}
+            hasPrev={hasPrevVolumeKf}
+            hasNext={hasNextVolumeKf}
+            onToggleKeyframe={handleToggleVolumeKeyframe}
+            onPrevKeyframe={() => handleJumpToVolumeKeyframe("prev")}
+            onNextKeyframe={() => handleJumpToVolumeKeyframe("next")}
+            label="Volume"
           />
         </div>
       </div>
 
       {/* Fade In */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <label className="text-[11px] font-medium text-white/90">
-            Fade in
-          </label>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-white/60 font-mono">
-              {fadeIn.toFixed(2)}s
-            </span>
-            <button
-              type="button"
-              onClick={handleResetFadeIn}
-              className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/5 text-white/40 hover:text-white/60 transition-colors cursor-pointer"
-              title="Reset fade in"
-              aria-label="Reset fade in"
-            >
-              <RotateCcw className="w-3 h-3" />
-            </button>
-          </div>
-        </div>
+        <label className="text-[11px] font-medium text-white/90">Fade in</label>
         <div className="flex items-center gap-2">
           <SliderTrack
             value={fadeIn}
@@ -305,35 +239,36 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
             suffix="s"
             inputWidth="w-16"
             inputPosition="text-right"
-            decimals={2}
+            decimals={1}
             ariaLabel="Fade in"
             propertyId="fadeIn"
             category="audio"
+          />
+          <button
+            type="button"
+            onClick={handleResetFadeIn}
+            className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/5 text-white/40 hover:text-white/60 transition-colors cursor-pointer"
+            title="Reset fade in"
+            aria-label="Reset fade in"
+          >
+            <RotateCcw className="w-3 h-3" />
+          </button>
+          <KeyframeNavControls
+            hasKeyframes={false}
+            isAtKeyframe={false}
+            hasPrev={false}
+            hasNext={false}
+            onToggleKeyframe={() => {}}
+            onPrevKeyframe={() => {}}
+            onNextKeyframe={() => {}}
+            label="Fade in"
           />
         </div>
       </div>
 
       {/* Fade Out */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <label className="text-[11px] font-medium text-white/90">
-            Fade out
-          </label>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-white/60 font-mono">
-              {fadeOut.toFixed(2)}s
-            </span>
-            <button
-              type="button"
-              onClick={handleResetFadeOut}
-              className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/5 text-white/40 hover:text-white/60 transition-colors cursor-pointer"
-              title="Reset fade out"
-              aria-label="Reset fade out"
-            >
-              <RotateCcw className="w-3 h-3" />
-            </button>
-          </div>
-        </div>
+        <label className="text-[11px] font-medium text-white/90">Fade out</label>
         <div className="flex items-center gap-2">
           <SliderTrack
             value={fadeOut}
@@ -353,62 +288,29 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
             suffix="s"
             inputWidth="w-16"
             inputPosition="text-right"
-            decimals={2}
+            decimals={1}
             ariaLabel="Fade out"
             propertyId="fadeOut"
             category="audio"
           />
-        </div>
-      </div>
-
-      {/* Pan / Balance */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <label className="text-[11px] font-medium text-white/90">
-            Pan / Balance
-          </label>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-white/60 font-mono">
-              {pan === 0
-                ? "Center"
-                : pan < 0
-                  ? `L ${Math.abs(panPercent)}%`
-                  : `R ${panPercent}%`}
-            </span>
-            <button
-              type="button"
-              onClick={handleResetPan}
-              className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/5 text-white/40 hover:text-white/60 transition-colors cursor-pointer"
-              title="Reset pan"
-              aria-label="Reset pan"
-            >
-              <RotateCcw className="w-3 h-3" />
-            </button>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <SliderTrack
-            value={panPercent}
-            min={-100}
-            max={100}
-            step={1}
-            propertyId="pan"
-            category="audio"
-            onChange={(val) => handlePanChange(val / 100)}
-          />
-          <NumericControl
-            value={panPercent}
-            onChange={(val) => handlePanChange(val / 100)}
-            step={1}
-            min={-100}
-            max={100}
-            suffix="%"
-            inputWidth="w-16"
-            inputPosition="text-right"
-            decimals={0}
-            ariaLabel="Pan"
-            propertyId="pan"
-            category="audio"
+          <button
+            type="button"
+            onClick={handleResetFadeOut}
+            className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/5 text-white/40 hover:text-white/60 transition-colors cursor-pointer"
+            title="Reset fade out"
+            aria-label="Reset fade out"
+          >
+            <RotateCcw className="w-3 h-3" />
+          </button>
+          <KeyframeNavControls
+            hasKeyframes={false}
+            isAtKeyframe={false}
+            hasPrev={false}
+            hasNext={false}
+            onToggleKeyframe={() => {}}
+            onPrevKeyframe={() => {}}
+            onNextKeyframe={() => {}}
+            label="Fade out"
           />
         </div>
       </div>
