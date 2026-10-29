@@ -63,6 +63,10 @@ export function useDragTransformOverride(clipId: string): {
       ) {
         return;
       }
+      // Guard: skip the state update when this instance never tracked a drag
+      // (dragOverride is already null), avoiding unnecessary React reconciliation
+      // on idle panel instances for every drag-end event.
+      const wasTracking = activeDragClipIdRef.current !== null;
       activeDragClipIdRef.current = null;
       if (rafHandleRef.current !== null) {
         cancelAnimationFrame(rafHandleRef.current);
@@ -70,7 +74,9 @@ export function useDragTransformOverride(clipId: string): {
       }
       rafScheduledRef.current = false;
       pendingGeometryRef.current = null;
-      setDragOverride(null);
+      if (wasTracking) {
+        setDragOverride(null);
+      }
     });
 
     return () => {

@@ -787,6 +787,19 @@ export function getUpdatedConformForClipBounds(
 }
 
 /**
+ * Typed fields carried by both the old and new transform objects passed to
+ * assembleBaseWidthForCommit. Using a concrete interface instead of
+ * `Record<string, any>` lets TypeScript verify that only real Clip-transform
+ * properties are read or written inside the function.
+ */
+export interface BaseWidthCommitFields {
+  baseWidth?: number;
+  baseHeight?: number;
+  width?: number;
+  height?: number;
+}
+
+/**
  * assembleBaseWidthForCommit
  *
  * Pure function extracted from handleMouseUp's baseWidth assembly logic.
@@ -805,8 +818,8 @@ export function getUpdatedConformForClipBounds(
  * @param startHeight   The pre-drag height from startTransform (fallback when baseWidth absent)
  */
 export function assembleBaseWidthForCommit(
-  oldTransform: Record<string, any>,
-  newTransform: Record<string, any>,
+  oldTransform: BaseWidthCommitFields,
+  newTransform: BaseWidthCommitFields,
   clipBaseWidth: number | undefined,
   clipBaseHeight: number | undefined,
   startWidth: number,
