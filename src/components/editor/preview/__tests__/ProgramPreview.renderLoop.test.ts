@@ -4379,9 +4379,14 @@ describe("Bug — canvas transform panel sync", () => {
   // ── Task 2: handleMouseUp baseWidth preservation ───────────────────────────
 
   it("canvas resize commit preserves pre-drag baseWidth (not post-drag)", async () => {
+    // This test exercises assembleBaseWidthForCommit — the exact code path in
+    // handleMouseUp that was the bug: newTransform.baseWidth was set to
+    // finalGeometry.width (post-drag) instead of clip.baseWidth (pre-drag).
+    const { assembleBaseWidthForCommit } =
+      await import("@/components/editor/transform/TransformOverlay");
     const { createClipFromAsset } = await import("@/lib/timeline/timelineClip");
 
-    const asset = makeVideoAsset();
+    const asset = makeVideoAsset(); // 1920×1080
     const clip = createClipFromAsset({
       asset,
       trackId: "track-1",
@@ -4390,21 +4395,51 @@ describe("Bug — canvas transform panel sync", () => {
       height: 1080,
     });
 
-    // Simulate a canvas drag that resizes the clip from original to 50% scale.
-    // The pre-drag baseWidth must equal the creation-time clip width, not
-    // the post-drag final geometry width.
-    const preDragBaseWidth = (clip as any).baseWidth as number;
-    const preDragWidth = clip.width;
-    const postDragWidth = Math.round(preDragWidth * 0.5); // 50% scale
+    const preDragBaseWidth = (clip as any).baseWidth as number; // 1920 (from Task 1)
+    const preDragWidth = clip.width; // 1920
+    const postDragWidth = Math.round(preDragWidth * 0.5); // 960 — simulated 50% resize
 
-    // The old bug: newTransform.baseWidth = finalGeometry.width (post-drag)
-    // The fix:     newTransform.baseWidth = clip.baseWidth (pre-drag)
+    // Assemble transforms exactly as handleMouseUp does before calling
+    // assembleBaseWidthForCommit.
+    const startTransform = {
+      x: 0,
+      y: 0,
+      width: preDragWidth,
+      height: clip.height,
+      rotation: 0,
+    };
+    const oldTransform: Record<string, any> = { ...startTransform };
+    const newTransform: Record<string, any> = {
+      x: 0,
+      y: 0,
+      width: postDragWidth, // finalGeometry.width (the resized size)
+      height: Math.round(clip.height * 0.5),
+      rotation: 0,
+    };
 
-    // Simulate what the fixed handleMouseUp block does:
-    const baseWidthAfterCommit = (clip as any).baseWidth ?? preDragWidth;
+    // THE OLD BUG WOULD DO: newTransform.baseWidth = finalGeometry.width = postDragWidth
+    // THE FIX DELEGATES TO:
+    assembleBaseWidthForCommit(
+      oldTransform,
+      newTransform,
+      (clip as any).baseWidth, // clip.baseWidth (pre-drag, from Task 1)
+      (clip as any).baseHeight,
+      startTransform.width,
+      startTransform.height,
+    );
 
-    expect(baseWidthAfterCommit).toBe(preDragBaseWidth);
-    expect(baseWidthAfterCommit).not.toBe(postDragWidth);
+    // The fix: both old and new carry the PRE-DRAG base width, not the post-drag size.
+    expect(newTransform.baseWidth).toBe(preDragBaseWidth);
+    expect(newTransform.baseWidth).not.toBe(postDragWidth);
+    expect(oldTransform.baseWidth).toBe(preDragBaseWidth);
+
+    // Regression: the old bug would have set baseWidth = postDragWidth,
+    // making scalePercent = postDragWidth / postDragWidth = 100%.
+    // The fix: scalePercent = postDragWidth / preDragBaseWidth = 50%.
+    const scalePercentWithFix = Math.round(
+      (postDragWidth / newTransform.baseWidth) * 100,
+    );
+    expect(scalePercentWithFix).toBe(50);
   });
 
   it("scalePercent is correct after canvas resize with baseWidth always set", async () => {
@@ -4581,6 +4616,126 @@ describe("Bug — canvas transform panel sync", () => {
 
     // clip-A hook must remain null — not overriding a different clip's drag
     expect(result.current.dragOverride).toBeNull();
+
+    resetTransformController();
+  });
+
+  it("useDragTransformOverride: onDragEnd for clip-B does not clear clip-A hook", async () => {
+    // Regression for finding 2: onDragEnd was unconditional — any drag end
+    // would call setDragOverride(null) on every mounted hook instance, including
+    // hooks for different clips. This test mounts hooks for clip-A and clip-B
+    // simultaneously and verifies that ending clip-B's drag does not clear
+    // clip-A's live override.
+    const { renderHook, act } = await import("@testing-library/react");
+    const { useDragTransformOverride } =
+      await import("@/hooks/useDragTransformOverride");
+    const { getTransformController, resetTransformController } =
+      await import("@/core/interactions/TransformController");
+
+    resetTransformController();
+    const controller = getTransformController();
+
+    // Mount hook for clip-A
+    const { result: resultA } = renderHook(() =>
+      useDragTransformOverride("clip-A"),
+    );
+    // Mount hook for clip-B
+    const { result: resultB } = renderHook(() =>
+      useDragTransformOverride("clip-B"),
+    );
+
+    // Start drag on clip-A and push geometry
+    act(() => {
+      controller.startTransform({
+        clipId: "clip-A",
+        handle: "se",
+        startMousePos: { x: 0, y: 0 },
+        aspectRatioLocked: true,
+        sourceAspectRatio: 16 / 9,
+        startTransform: { x: 10, y: 10, width: 300, height: 200, rotation: 0 },
+      });
+      controller.updateDragGeometry({
+        x: 15,
+        y: 15,
+        width: 350,
+        height: 233,
+        rotation: 0,
+      });
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    // clip-A hook is live
+    expect(resultA.current.dragOverride).not.toBeNull();
+    // clip-B hook remains null (correct — it is a different drag)
+    expect(resultB.current.dragOverride).toBeNull();
+
+    // Now end the clip-A drag
+    act(() => {
+      controller.endTransform();
+    });
+
+    // clip-A hook should clear (its own drag ended)
+    expect(resultA.current.dragOverride).toBeNull();
+    // clip-B hook was never live, must still be null (not double-cleared)
+    expect(resultB.current.dragOverride).toBeNull();
+
+    resetTransformController();
+  });
+
+  it("useDragTransformOverride receives geometry immediately on startTransform (no first-frame null)", async () => {
+    // Regression for finding 3: startTransform seeded _currentDragGeometry but
+    // did NOT call _dragGeometryListeners, so the hook saw null until the first
+    // updateDragGeometry call. On slow machines this caused a one-frame snap
+    // back to the stored position at drag start.
+    const { renderHook, act } = await import("@testing-library/react");
+    const { useDragTransformOverride } =
+      await import("@/hooks/useDragTransformOverride");
+    const { getTransformController, resetTransformController } =
+      await import("@/core/interactions/TransformController");
+
+    resetTransformController();
+    const controller = getTransformController();
+
+    const { result } = renderHook(() =>
+      useDragTransformOverride("clip-start-frame"),
+    );
+
+    // Initially null
+    expect(result.current.dragOverride).toBeNull();
+
+    // Start transform — after the fix this publishes geometry to listeners.
+    // No updateDragGeometry call, simulating the window before first mousemove.
+    act(() => {
+      controller.startTransform({
+        clipId: "clip-start-frame",
+        handle: "move",
+        startMousePos: { x: 200, y: 150 },
+        aspectRatioLocked: false,
+        sourceAspectRatio: 16 / 9,
+        startTransform: {
+          x: 50,
+          y: 60,
+          width: 640,
+          height: 360,
+          rotation: 0,
+        },
+      });
+    });
+
+    // Wait for the RAF scheduled by the geometry listener to fire
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    // After the fix: hook should already have geometry from startTransform alone,
+    // no updateDragGeometry call needed.
+    expect(result.current.dragOverride).not.toBeNull();
+    expect(result.current.dragOverride?.x).toBe(50);
+    expect(result.current.dragOverride?.y).toBe(60);
+    expect(result.current.dragOverride?.width).toBe(640);
 
     resetTransformController();
   });

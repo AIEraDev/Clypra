@@ -786,6 +786,45 @@ export function getUpdatedConformForClipBounds(
   return undefined;
 }
 
+/**
+ * assembleBaseWidthForCommit
+ *
+ * Pure function extracted from handleMouseUp's baseWidth assembly logic.
+ * Ensures the committed TransformClipCommand carries the PRE-DRAG base
+ * dimensions for non-text clips, so the property panel's scalePercent
+ * (= newWidth / baseWidth) reflects the true ratio rather than always
+ * resolving to 100%.
+ *
+ * This is the canonical, testable form of the fix in handleMouseUp.
+ * The React closure delegates directly to this function.
+ *
+ * @param oldTransform  Mutable record seeded from startTransform (mutated in-place)
+ * @param newTransform  Mutable record seeded from finalGeometry (mutated in-place)
+ * @param clipBaseWidth The clip's creation-time baseWidth (clip.baseWidth)
+ * @param startWidth    The pre-drag width from startTransform (fallback when baseWidth absent)
+ * @param startHeight   The pre-drag height from startTransform (fallback when baseWidth absent)
+ */
+export function assembleBaseWidthForCommit(
+  oldTransform: Record<string, any>,
+  newTransform: Record<string, any>,
+  clipBaseWidth: number | undefined,
+  clipBaseHeight: number | undefined,
+  startWidth: number,
+  startHeight: number,
+): void {
+  if (
+    oldTransform.width !== newTransform.width ||
+    oldTransform.height !== newTransform.height
+  ) {
+    // Preserve the PRE-DRAG base dimensions so scalePercent = newWidth/baseWidth
+    // gives the true scale ratio, not always 100%.
+    oldTransform.baseWidth = clipBaseWidth ?? startWidth;
+    oldTransform.baseHeight = clipBaseHeight ?? startHeight;
+    newTransform.baseWidth = clipBaseWidth ?? startWidth;
+    newTransform.baseHeight = clipBaseHeight ?? startHeight;
+  }
+}
+
 export const TransformOverlay: React.FC<TransformOverlayProps> = ({
   canvasWidth,
   canvasHeight,
@@ -2111,20 +2150,15 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       oldTransform.width !== newTransform.width ||
       oldTransform.height !== newTransform.height
     ) {
-      // Preserve the PRE-DRAG base dimensions so scalePercent = newWidth/baseWidth
-      // gives the true scale ratio, not always 100%.
-      oldTransform.baseWidth =
-        (selectedClip as any).baseWidth ??
-        currentTransform.startTransform.width;
-      oldTransform.baseHeight =
-        (selectedClip as any).baseHeight ??
-        currentTransform.startTransform.height;
-      newTransform.baseWidth =
-        (selectedClip as any).baseWidth ??
-        currentTransform.startTransform.width;
-      newTransform.baseHeight =
-        (selectedClip as any).baseHeight ??
-        currentTransform.startTransform.height;
+      // Delegate to the extracted pure function so the logic is testable.
+      assembleBaseWidthForCommit(
+        oldTransform,
+        newTransform,
+        (selectedClip as any).baseWidth,
+        (selectedClip as any).baseHeight,
+        currentTransform.startTransform.width,
+        currentTransform.startTransform.height,
+      );
     }
 
     if (selectedClip?.visualKeyframes) {

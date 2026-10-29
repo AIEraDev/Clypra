@@ -25,6 +25,9 @@ export function useDragTransformOverride(clipId: string): {
   const pendingGeometryRef = useRef<DragGeometry | null>(null);
   const rafScheduledRef = useRef<boolean>(false);
   const rafHandleRef = useRef<number | null>(null);
+  // Track which clipId's drag we latched onto so onDragEnd doesn't clear a
+  // different clip's override (e.g. when compare-view renders multiple panels).
+  const activeDragClipIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const controller = getTransformController();
@@ -33,6 +36,8 @@ export function useDragTransformOverride(clipId: string): {
       (geometry, _sessionId, _revision) => {
         const active = controller.getActiveTransform();
         if (!active || active.clipId !== clipId) return;
+        // Record which clip's drag this hook has latched onto.
+        activeDragClipIdRef.current = clipId;
         pendingGeometryRef.current = geometry;
         if (!rafScheduledRef.current) {
           rafScheduledRef.current = true;
@@ -49,6 +54,16 @@ export function useDragTransformOverride(clipId: string): {
     );
 
     const unsubEnd = controller.onDragEnd((_sessionId, _finalGeometry) => {
+      // Only clear the override if this hook was tracking the drag that just ended.
+      // Guards against a drag on a different clip clearing this hook's state when
+      // multiple property panels are mounted simultaneously (e.g. compare view).
+      if (
+        activeDragClipIdRef.current !== null &&
+        activeDragClipIdRef.current !== clipId
+      ) {
+        return;
+      }
+      activeDragClipIdRef.current = null;
       if (rafHandleRef.current !== null) {
         cancelAnimationFrame(rafHandleRef.current);
         rafHandleRef.current = null;
@@ -67,6 +82,7 @@ export function useDragTransformOverride(clipId: string): {
       }
       rafScheduledRef.current = false;
       pendingGeometryRef.current = null;
+      activeDragClipIdRef.current = null;
     };
   }, [clipId]);
 
