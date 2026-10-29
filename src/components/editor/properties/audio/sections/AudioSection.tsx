@@ -1,4 +1,4 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import { RotateCcw } from "lucide-react";
 import type { Clip } from "@/types";
 import { dbToLinearGain, getClipAudioProperties } from "@/types/audio";
@@ -7,6 +7,7 @@ import { SliderTrack } from "../../primitives/SliderTrack";
 import { NumericControl } from "../../primitives/NumericControl";
 import { KeyframeNavControls } from "../../primitives/KeyframeNavControls";
 import { propertyEditTelemetry } from "@/lib/properties/propertyEditTelemetry";
+import { PropertySectionHeader } from "../../primitives";
 
 interface AudioSectionProps {
   selectedClip: Clip;
@@ -19,6 +20,7 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
   selectedClip,
   handleUpdate,
 }) => {
+  const [isExpanded, setIsExpanded] = useState(true);
   const audio = getClipAudioProperties(selectedClip);
   const volume = audio.muted ? 0 : dbToLinearGain(audio.gainDb);
   const volumePercent = Math.round(Math.max(0, Math.min(1, volume)) * 100);
@@ -42,8 +44,12 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
   const isAtVolumeKf = volumeKeyframes.some(
     (k) => Math.abs(k.time - localTime) < 0.08,
   );
-  const hasPrevVolumeKf = volumeKeyframes.some((k) => k.time < localTime - 0.05);
-  const hasNextVolumeKf = volumeKeyframes.some((k) => k.time > localTime + 0.05);
+  const hasPrevVolumeKf = volumeKeyframes.some(
+    (k) => k.time < localTime - 0.05,
+  );
+  const hasNextVolumeKf = volumeKeyframes.some(
+    (k) => k.time > localTime + 0.05,
+  );
 
   const handleToggleVolumeKeyframe = useCallback(() => {
     const existing = volumeKeyframes.find(
@@ -168,152 +174,166 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
 
   return (
     <div className="space-y-4 px-3 py-2">
-      {/* Volume */}
-      <div className="space-y-2">
-        <label className="text-[11px] font-medium text-white/90">Volume</label>
-        <div className="flex items-center gap-2">
-          <SliderTrack
-            value={volumePercent}
-            min={0}
-            max={100}
-            step={1}
-            propertyId="volume"
-            category="audio"
-            onChange={handleVolumePercentChange}
-          />
-          <NumericControl
-            value={audio.gainDb}
-            onChange={(db) => handleVolumePercentChange(dbToLinearGain(db) * 100)}
-            step={0.1}
-            min={-60}
-            max={12}
-            suffix="dB"
-            inputWidth="w-20"
-            inputPosition="text-right"
-            decimals={1}
-            ariaLabel="Volume"
-            propertyId="volume"
-            category="audio"
-          />
-          <button
-            type="button"
-            onClick={handleResetVolume}
-            className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/5 text-white/40 hover:text-white/60 transition-colors cursor-pointer"
-            title="Reset volume"
-            aria-label="Reset volume"
-          >
-            <RotateCcw className="w-3 h-3" />
-          </button>
-          <KeyframeNavControls
-            hasKeyframes={volumeKeyframes.length > 0}
-            isAtKeyframe={isAtVolumeKf}
-            hasPrev={hasPrevVolumeKf}
-            hasNext={hasNextVolumeKf}
-            onToggleKeyframe={handleToggleVolumeKeyframe}
-            onPrevKeyframe={() => handleJumpToVolumeKeyframe("prev")}
-            onNextKeyframe={() => handleJumpToVolumeKeyframe("next")}
-            label="Volume"
-          />
-        </div>
-      </div>
+      <PropertySectionHeader
+        title="Basic"
+        onToggleCollapse={() => setIsExpanded(!isExpanded)}
+        onReset={() => {}}
+        isCollapsed={!isExpanded}
+      />
 
-      {/* Fade In */}
-      <div className="space-y-2">
-        <label className="text-[11px] font-medium text-white/90">Fade in</label>
-        <div className="flex items-center gap-2">
-          <SliderTrack
-            value={fadeIn}
-            min={0}
-            max={maxFadeSeconds}
-            step={0.01}
-            propertyId="fadeIn"
-            category="audio"
-            onChange={(val) => handleUpdate("fadeIn", clampFade(val))}
-          />
-          <NumericControl
-            value={fadeIn}
-            onChange={(val) => handleUpdate("fadeIn", clampFade(val))}
-            step={0.01}
-            min={0}
-            max={maxFadeSeconds}
-            suffix="s"
-            inputWidth="w-16"
-            inputPosition="text-right"
-            decimals={1}
-            ariaLabel="Fade in"
-            propertyId="fadeIn"
-            category="audio"
-          />
-          <button
-            type="button"
-            onClick={handleResetFadeIn}
-            className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/5 text-white/40 hover:text-white/60 transition-colors cursor-pointer"
-            title="Reset fade in"
-            aria-label="Reset fade in"
-          >
-            <RotateCcw className="w-3 h-3" />
-          </button>
-          <KeyframeNavControls
-            hasKeyframes={false}
-            isAtKeyframe={false}
-            hasPrev={false}
-            hasNext={false}
-            onToggleKeyframe={() => {}}
-            onPrevKeyframe={() => {}}
-            onNextKeyframe={() => {}}
-            label="Fade in"
-          />
-        </div>
-      </div>
+      {isExpanded && (
+        <>
+          {/* Volume */}
+          <div className="space-y-2">
+            <label className="text-[11px] font-medium text-white/90">
+              Volume
+            </label>
+            <div className="flex items-center">
+              {/* Slider wrapper — overlays a tick mark at the 0 dB position (75% along the -60→+20 range) */}
+              <div className="relative flex-1 mr-4">
+                <SliderTrack
+                  value={Math.max(-60, Math.min(20, audio.gainDb))}
+                  min={-60}
+                  max={20}
+                  step={0.1}
+                  propertyId="volume"
+                  category="audio"
+                  onChange={(db) => {
+                    // Below -60 dB → treat as silence (mute)
+                    if (db <= -60) {
+                      handleVolumeChange(0);
+                    } else {
+                      handleVolumeChange(dbToLinearGain(db));
+                    }
+                  }}
+                />
+                {/* 0 dB reference tick: position = (0 - (-60)) / (20 - (-60)) = 75% */}
+                <div
+                  className="absolute top-1/2 -translate-y-1/2 w-px h-2.5 bg-white/40 pointer-events-none"
+                  style={{ left: "75%" }}
+                />
+              </div>
+              <NumericControl
+                value={audio.gainDb}
+                onChange={(db) => {
+                  if (db <= -60) {
+                    handleVolumeChange(0);
+                  } else {
+                    handleVolumeChange(dbToLinearGain(Math.min(20, db)));
+                  }
+                }}
+                step={0.1}
+                min={-60}
+                max={20}
+                suffix="dB"
+                inputWidth="w-20"
+                inputPosition="text-right"
+                decimals={1}
+                ariaLabel="Volume"
+                propertyId="volume"
+                category="audio"
+                formatDisplay={(v) => (v <= -60 ? "-∞" : v.toFixed(1))}
+              />
+              <KeyframeNavControls
+                hasKeyframes={volumeKeyframes.length > 0}
+                isAtKeyframe={isAtVolumeKf}
+                hasPrev={hasPrevVolumeKf}
+                hasNext={hasNextVolumeKf}
+                onToggleKeyframe={handleToggleVolumeKeyframe}
+                onPrevKeyframe={() => handleJumpToVolumeKeyframe("prev")}
+                onNextKeyframe={() => handleJumpToVolumeKeyframe("next")}
+                label="Volume"
+              />
+            </div>
+          </div>
 
-      {/* Fade Out */}
-      <div className="space-y-2">
-        <label className="text-[11px] font-medium text-white/90">Fade out</label>
-        <div className="flex items-center gap-2">
-          <SliderTrack
-            value={fadeOut}
-            min={0}
-            max={maxFadeSeconds}
-            step={0.01}
-            propertyId="fadeOut"
-            category="audio"
-            onChange={(val) => handleUpdate("fadeOut", clampFade(val))}
-          />
-          <NumericControl
-            value={fadeOut}
-            onChange={(val) => handleUpdate("fadeOut", clampFade(val))}
-            step={0.01}
-            min={0}
-            max={maxFadeSeconds}
-            suffix="s"
-            inputWidth="w-16"
-            inputPosition="text-right"
-            decimals={1}
-            ariaLabel="Fade out"
-            propertyId="fadeOut"
-            category="audio"
-          />
-          <button
-            type="button"
-            onClick={handleResetFadeOut}
-            className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/5 text-white/40 hover:text-white/60 transition-colors cursor-pointer"
-            title="Reset fade out"
-            aria-label="Reset fade out"
-          >
-            <RotateCcw className="w-3 h-3" />
-          </button>
-          <KeyframeNavControls
-            hasKeyframes={false}
-            isAtKeyframe={false}
-            hasPrev={false}
-            hasNext={false}
-            onToggleKeyframe={() => {}}
-            onPrevKeyframe={() => {}}
-            onNextKeyframe={() => {}}
-            label="Fade out"
-          />
-        </div>
-      </div>
+          {/* Fade In */}
+          <div className="space-y-2">
+            <label className="text-[11px] font-medium text-white/90">
+              Fade in
+            </label>
+            <div className="flex items-center">
+              <SliderTrack
+                value={fadeIn}
+                min={0}
+                max={maxFadeSeconds}
+                step={0.01}
+                propertyId="fadeIn"
+                category="audio"
+                onChange={(val) => handleUpdate("fadeIn", clampFade(val))}
+                className="mr-4"
+              />
+              <NumericControl
+                value={fadeIn}
+                onChange={(val) => handleUpdate("fadeIn", clampFade(val))}
+                step={0.01}
+                min={0}
+                max={maxFadeSeconds}
+                suffix="s"
+                inputWidth="w-6"
+                inputPosition="text-right"
+                decimals={1}
+                ariaLabel="Fade in"
+                propertyId="fadeIn"
+                category="audio"
+              />
+              <KeyframeNavControls
+                hasKeyframes={false}
+                isAtKeyframe={false}
+                hasPrev={false}
+                hasNext={false}
+                onToggleKeyframe={() => {}}
+                onPrevKeyframe={() => {}}
+                onNextKeyframe={() => {}}
+                label="Fade in"
+              />
+            </div>
+          </div>
+
+          {/* Fade Out */}
+          <div className="space-y-2">
+            <label className="text-[11px] font-medium text-white/90">
+              Fade out
+            </label>
+            <div className="flex items-center">
+              <SliderTrack
+                value={fadeOut}
+                min={0}
+                max={maxFadeSeconds}
+                step={0.01}
+                propertyId="fadeOut"
+                category="audio"
+                onChange={(val) => handleUpdate("fadeOut", clampFade(val))}
+                className="mr-4"
+              />
+              <NumericControl
+                value={fadeOut}
+                onChange={(val) => handleUpdate("fadeOut", clampFade(val))}
+                step={0.01}
+                min={0}
+                max={maxFadeSeconds}
+                suffix="s"
+                inputWidth="w-6"
+                inputPosition="text-right"
+                decimals={1}
+                ariaLabel="Fade out"
+                propertyId="fadeOut"
+                category="audio"
+              />
+              <KeyframeNavControls
+                hasKeyframes={false}
+                isAtKeyframe={false}
+                hasPrev={false}
+                hasNext={false}
+                onToggleKeyframe={() => {}}
+                onPrevKeyframe={() => {}}
+                onNextKeyframe={() => {}}
+                label="Fade out"
+              />
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };

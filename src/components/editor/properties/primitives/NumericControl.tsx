@@ -84,6 +84,11 @@ export interface NumericControlProps {
   /** Property category for telemetry */
   category?: PropertyCategory;
 
+  /** Optional custom formatter for the display value when not editing.
+   * Receives the raw numeric value and returns a string. Useful for special
+   * cases like -∞ at minimum volume. Does NOT affect editing or stepping. */
+  formatDisplay?: (value: number) => string;
+
   inputPosition?: "text-center" | "text-right";
 }
 
@@ -102,6 +107,7 @@ export const NumericControl: React.FC<NumericControlProps> = ({
   propertyId,
   category,
   inputPosition = "text-center",
+  formatDisplay,
 }) => {
   // ── Decimal precision ─────────────────────────────────────────────────────
   const resolvedDecimals =
@@ -122,11 +128,14 @@ export const NumericControl: React.FC<NumericControlProps> = ({
       ? value.toFixed(resolvedDecimals)
       : String(Math.round(value));
 
+  // When a custom formatter is provided, show it while idle (not editing)
+  const idleDisplay = formatDisplay ? formatDisplay(value) : displayValue;
+
   const effectiveLabel = ariaLabel || prefix || suffix || "Numeric input";
 
   const handleInputFocus = useCallback(() => {
     focusStartRef.current = performance.now();
-    setDraft(displayValue);
+    setDraft(displayValue); // always seed with raw numeric string for editing
     setEditing(true);
   }, [displayValue]);
 
@@ -225,7 +234,7 @@ export const NumericControl: React.FC<NumericControlProps> = ({
         {/* Numeric Input */}
         <input
           type="number"
-          value={editing ? draft : displayValue}
+          value={editing ? draft : idleDisplay}
           min={min !== -Infinity ? min : undefined}
           max={max !== Infinity ? max : undefined}
           step={step}
