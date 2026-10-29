@@ -304,5 +304,14 @@
   "preview.zoom.in": "放大预览",
   "preview.zoom.out": "缩小预览",
   "preview.zoom.fit": "适合预览",
-  "preview.zoom.level": "预览缩放级别"
+  "preview.zoom.level": "预览缩放级别",
+  "properties.canvas.title": "Canvas",
+  "properties.canvas.backgroundMode.none": "None",
+  "properties.canvas.backgroundMode.blur": "Blur",
+  "properties.canvas.backgroundMode.color": "Color",
+  "properties.canvas.backgroundMode.pattern": "Pattern",
+  "properties.canvas.blur.noBlur": "No Blur",
+  "properties.canvas.blur.light": "Light",
+  "properties.canvas.blur.medium": "Medium",
+  "properties.canvas.blur.heavy": "Heavy"
 }

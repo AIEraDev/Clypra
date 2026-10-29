@@ -1,9 +1,10 @@
 import React, { useState } from "react";
-import { Sliders, Check, ChevronDown, Download } from "lucide-react";
+import { Check, Download } from "lucide-react";
 import { useProjectStore } from "@/store/projectStore";
 import type { CanvasBackgroundConfig } from "@/types";
 import { ClypraColorPicker } from "@clypra/ui-color-picker";
 import { PropertySectionHeader } from "../primitives";
+import { useVideoThumbnail } from "@/hooks/useVideoThumbnail";
 
 const QUICK_COLORS = [
   "#000000",
@@ -164,6 +165,13 @@ const PATTERN_PRESETS = [
   },
 ];
 
+const BLUR_PRESETS = [
+  { id: "blur-0", label: "No Blur", blurRadius: 0 },
+  { id: "blur-1", label: "Light", blurRadius: 8 },
+  { id: "blur-2", label: "Medium", blurRadius: 16 },
+  { id: "blur-3", label: "Heavy", blurRadius: 32 },
+];
+
 type CanvasMode = "none" | "blur" | "color" | "pattern";
 
 const MODE_OPTIONS = [
@@ -173,12 +181,18 @@ const MODE_OPTIONS = [
   { value: "pattern" as const, label: "Pattern" },
 ];
 
-export const BackgroundInspectorPanel: React.FC = () => {
+interface BackgroundInspectorPanelProps {
+  selectedClipId?: string;
+}
+
+export const BackgroundInspectorPanel: React.FC<
+  BackgroundInspectorPanelProps
+> = ({ selectedClipId }) => {
   const { project, updateProject } = useProjectStore();
-  const [selectedMode, setSelectedMode] = useState<CanvasMode>("none");
-  const [videoThumbnail, setVideoThumbnail] = useState<string | null>(null);
   const [isCanvasBackgroundCollapsed, setIsCanvasBackgroundCollapsed] =
     useState(false);
+
+  const { thumbnailUrl } = useVideoThumbnail(selectedClipId);
 
   const bgConfig: CanvasBackgroundConfig = project?.canvasBackground || {
     type: "solid",
@@ -187,26 +201,20 @@ export const BackgroundInspectorPanel: React.FC = () => {
     isTransparent: false,
   };
 
+  // Derive selected mode from bgConfig — single source of truth from the store
+  const selectedMode: CanvasMode = bgConfig.isTransparent
+    ? "none"
+    : bgConfig.type === "blur"
+      ? "blur"
+      : bgConfig.type === "solid"
+        ? "color"
+        : "pattern";
+
   const handleUpdate = (updates: Partial<CanvasBackgroundConfig>) => {
     if (!project) return;
     const newBg = { ...bgConfig, ...updates };
     updateProject({ canvasBackground: newBg });
   };
-
-  // Get the currently selected video clip's first frame thumbnail
-  React.useEffect(() => {
-    const getVideoThumbnail = async () => {
-      // TODO: Get the actual video thumbnail from the selected clip
-      // For now, we'll use a placeholder
-      // In a real implementation, you would:
-      // 1. Get the selected clip from timelineStore
-      // 2. Extract first frame using Tauri command or cached thumbnail
-      // 3. Set it as the thumbnail
-      setVideoThumbnail(null); // Will be replaced with actual thumbnail URL
-    };
-
-    getVideoThumbnail();
-  }, [project]);
 
   return (
     <div className="space-y-3 text-xs select-none">
@@ -225,15 +233,17 @@ export const BackgroundInspectorPanel: React.FC = () => {
           value={selectedMode}
           onChange={(e) => {
             const mode = e.target.value as CanvasMode;
-            setSelectedMode(mode);
-
-            // Update background type accordingly
             if (mode === "none") handleUpdate({ isTransparent: true });
             else if (mode === "color")
               handleUpdate({ type: "solid", isTransparent: false });
             else if (mode === "pattern") handleUpdate({ isTransparent: false });
+            else if (mode === "blur")
+              handleUpdate({
+                type: "blur",
+                blurRadius: 16,
+                isTransparent: false,
+              });
           }}
-          // disabled={bgConfig.isTransparent}
           className="w-full px-3 py-2.5 rounded border text-sm focus:outline-none focus:border-white/30 border-white/5 bg-[#1a1a1e] text-white/30 cursor-pointer"
         >
           {MODE_OPTIONS.map((option) => (
@@ -257,30 +267,34 @@ export const BackgroundInspectorPanel: React.FC = () => {
           {/* Blur Mode - Blur intensity levels */}
           {selectedMode === "blur" && (
             <div className="grid grid-cols-4 gap-2">
-              {[
-                { id: "blur-0", label: "No Blur", blur: "0px" },
-                { id: "blur-1", label: "Light Blur", blur: "8px" },
-                { id: "blur-2", label: "Medium Blur", blur: "16px" },
-                { id: "blur-3", label: "Heavy Blur", blur: "24px" },
-              ].map((blurLevel) => (
+              {BLUR_PRESETS.map((blurLevel) => (
                 <button
                   key={blurLevel.id}
                   onClick={() => {
-                    // TODO: Apply blur level
-                    console.log("Apply blur:", blurLevel.id);
+                    handleUpdate({
+                      type: "blur",
+                      blurRadius: blurLevel.blurRadius,
+                      mediaUrl: thumbnailUrl ?? undefined,
+                      isTransparent: false,
+                    });
                   }}
-                  className="relative aspect-square rounded-lg overflow-hidden border border-white/10 hover:border-cyan-500/50 transition-all group"
+                  className={`relative aspect-square rounded-lg overflow-hidden border hover:border-cyan-500/50 transition-all group ${
+                    bgConfig.type === "blur" &&
+                    bgConfig.blurRadius === blurLevel.blurRadius
+                      ? "border-cyan-500 ring-2 ring-cyan-500/30"
+                      : "border-white/10"
+                  }`}
                   title={blurLevel.label}
                 >
-                  {videoThumbnail ? (
+                  {thumbnailUrl ? (
                     // Show actual video thumbnail with blur applied
                     <div
                       className="absolute inset-0"
                       style={{
-                        backgroundImage: `url(${videoThumbnail})`,
+                        backgroundImage: `url(${thumbnailUrl})`,
                         backgroundSize: "cover",
                         backgroundPosition: "center",
-                        filter: `blur(${blurLevel.blur})`,
+                        filter: `blur(${blurLevel.blurRadius}px) brightness(0.85)`,
                       }}
                     />
                   ) : (
@@ -291,7 +305,7 @@ export const BackgroundInspectorPanel: React.FC = () => {
                         backgroundImage:
                           "url(\"data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='100' height='100' fill='%23654321'/%3E%3Crect x='10' y='60' width='30' height='30' fill='%23ff6b35' rx='4'/%3E%3C/svg%3E\")",
                         backgroundSize: "cover",
-                        filter: `blur(${blurLevel.blur})`,
+                        filter: `blur(${blurLevel.blurRadius}px) brightness(0.85)`,
                       }}
                     />
                   )}

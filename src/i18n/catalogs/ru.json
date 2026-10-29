@@ -308,5 +308,14 @@
   "preview.zoom.in": "Увеличить предпросмотр",
   "preview.zoom.out": "Уменьшить предпросмотр",
   "preview.zoom.fit": "Вписать предпросмотр",
-  "preview.zoom.level": "Уровень масштаба предпросмотра"
+  "preview.zoom.level": "Уровень масштаба предпросмотра",
+  "properties.canvas.title": "Canvas",
+  "properties.canvas.backgroundMode.none": "None",
+  "properties.canvas.backgroundMode.blur": "Blur",
+  "properties.canvas.backgroundMode.color": "Color",
+  "properties.canvas.backgroundMode.pattern": "Pattern",
+  "properties.canvas.blur.noBlur": "No Blur",
+  "properties.canvas.blur.light": "Light",
+  "properties.canvas.blur.medium": "Medium",
+  "properties.canvas.blur.heavy": "Heavy"
 }

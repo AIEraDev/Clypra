@@ -304,5 +304,14 @@
   "preview.zoom.in": "放大預覽",
   "preview.zoom.out": "縮小預覽",
   "preview.zoom.fit": "符合預覽",
-  "preview.zoom.level": "預覽縮放等級"
+  "preview.zoom.level": "預覽縮放等級",
+  "properties.canvas.title": "Canvas",
+  "properties.canvas.backgroundMode.none": "None",
+  "properties.canvas.backgroundMode.blur": "Blur",
+  "properties.canvas.backgroundMode.color": "Color",
+  "properties.canvas.backgroundMode.pattern": "Pattern",
+  "properties.canvas.blur.noBlur": "No Blur",
+  "properties.canvas.blur.light": "Light",
+  "properties.canvas.blur.medium": "Medium",
+  "properties.canvas.blur.heavy": "Heavy"
 }

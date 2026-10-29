@@ -4740,3 +4740,233 @@ describe("Bug — canvas transform panel sync", () => {
     resetTransformController();
   });
 });
+
+// ─── Feature — canvas blur background ─────────────────────────────────────
+
+describe("Feature — canvas blur background", () => {
+  // Import the functions under test lazily to avoid top-level module side-effects
+  // consistent with the pattern used by other dynamic-import tests in this file.
+
+  it("getCanvasBackgroundLayer blur type returns CSS with filter blur", async () => {
+    const { getCanvasBackgroundLayer } =
+      await import("@/components/editor/preview/canvasBackground");
+    const layer = getCanvasBackgroundLayer({
+      type: "blur",
+      blurRadius: 16,
+      isTransparent: false,
+      opacity: 1,
+    });
+    expect(layer.style.filter).toContain("blur(16px)");
+  });
+
+  it("getCanvasBackgroundLayer blur with mediaUrl sets backgroundImage", async () => {
+    const { getCanvasBackgroundLayer } =
+      await import("@/components/editor/preview/canvasBackground");
+    const url = "data:image/png;base64,abc";
+    const layer = getCanvasBackgroundLayer({
+      type: "blur",
+      blurRadius: 8,
+      mediaUrl: url,
+      isTransparent: false,
+      opacity: 1,
+    });
+    expect(layer.style.backgroundImage).toContain(url);
+  });
+
+  it("getCanvasBackgroundLayer blur without mediaUrl has no backgroundImage", async () => {
+    const { getCanvasBackgroundLayer } =
+      await import("@/components/editor/preview/canvasBackground");
+    const layer = getCanvasBackgroundLayer({
+      type: "blur",
+      blurRadius: 8,
+      isTransparent: false,
+      opacity: 1,
+    });
+    expect(layer.style.backgroundImage).toBeUndefined();
+  });
+
+  it("getCanvasBackgroundLayer blur uses blurRadius default of 16 when not specified", async () => {
+    const { getCanvasBackgroundLayer } =
+      await import("@/components/editor/preview/canvasBackground");
+    const layer = getCanvasBackgroundLayer({
+      type: "blur",
+      isTransparent: false,
+      opacity: 1,
+    });
+    expect(layer.style.filter).toContain("blur(16px)");
+  });
+
+  it("buildNativeVideoProjectRequest with blur canvasBackground injects synthetic layer at zIndex=-1", async () => {
+    const { buildNativeVideoProjectRequest } =
+      await import("@/components/editor/preview/nativeVideoPreview");
+    const scene = buildMinimalBlurScene({
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+      blurRadius: 16,
+      videoPath: "/test/video.mp4",
+      layerId: "clip-1",
+      zIndex: 0,
+    });
+    const result = buildNativeVideoProjectRequest(scene);
+    expect(result).not.toBeNull();
+    const blurBgLayer = result!.layers.find((l) =>
+      (l.layerId ?? "").endsWith(":blur-bg"),
+    );
+    expect(blurBgLayer).toBeDefined();
+    expect(blurBgLayer!.zIndex).toBe(-1);
+  });
+
+  it("synthetic blur layer has blurStrength=1 and correct blurRadius", async () => {
+    const { buildNativeVideoProjectRequest } =
+      await import("@/components/editor/preview/nativeVideoPreview");
+    const scene = buildMinimalBlurScene({
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+      blurRadius: 16,
+      videoPath: "/test/video.mp4",
+      layerId: "clip-1",
+      zIndex: 0,
+    });
+    const result = buildNativeVideoProjectRequest(scene);
+    expect(result).not.toBeNull();
+    const blurBgLayer = result!.layers.find((l) =>
+      (l.layerId ?? "").endsWith(":blur-bg"),
+    );
+    expect(blurBgLayer).toBeDefined();
+    expect(blurBgLayer!.colorGrade?.blurStrength).toBe(1);
+    expect(blurBgLayer!.colorGrade?.blurRadius).toBe(16);
+  });
+
+  it("synthetic blur layer uses same videoPath and timeSecs as primary layer", async () => {
+    const { buildNativeVideoProjectRequest } =
+      await import("@/components/editor/preview/nativeVideoPreview");
+    const videoPath = "/test/primary_video.mp4";
+    const scene = buildMinimalBlurScene({
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+      blurRadius: 8,
+      videoPath,
+      layerId: "clip-primary",
+      zIndex: 0,
+      sourceTime: 2.5,
+    });
+    const result = buildNativeVideoProjectRequest(scene);
+    expect(result).not.toBeNull();
+    const primaryLayer = result!.layers.find(
+      (l) => l.layerId === "clip-primary",
+    );
+    const blurBgLayer = result!.layers.find((l) =>
+      (l.layerId ?? "").endsWith(":blur-bg"),
+    );
+    expect(blurBgLayer).toBeDefined();
+    expect(blurBgLayer!.videoPath).toBe(primaryLayer!.videoPath);
+    expect(blurBgLayer!.timeSecs).toBe(primaryLayer!.timeSecs);
+  });
+
+  it("buildNativeVideoProjectRequest with blur but no video layers does NOT inject blur layer", async () => {
+    const { buildNativeVideoProjectRequest } =
+      await import("@/components/editor/preview/nativeVideoPreview");
+    const scene: import("@/core/evaluation/types").EvaluatedScene = {
+      visualLayers: [],
+      audioLayers: [],
+      transitions: [],
+      activeFilter: undefined,
+      metadata: {
+        time: 0,
+        canvasWidth: 1920,
+        canvasHeight: 1080,
+        frameRate: 30,
+        isGap: false,
+        canvasBackground: {
+          type: "blur",
+          blurRadius: 16,
+          isTransparent: false,
+          opacity: 1,
+        },
+      },
+    };
+    const result = buildNativeVideoProjectRequest(scene);
+    // With no video layers, result may be null or have no blur-bg layer
+    if (result !== null) {
+      const blurBgLayer = result.layers.find((l) =>
+        (l.layerId ?? "").endsWith(":blur-bg"),
+      );
+      expect(blurBgLayer).toBeUndefined();
+    }
+    // null result is also acceptable (no layers → nothing to render)
+  });
+
+  it("buildNativeVideoProjectRequest with blur canvasBackground sets clearColor=[0,0,0,0]", async () => {
+    const { buildNativeVideoProjectRequest } =
+      await import("@/components/editor/preview/nativeVideoPreview");
+    const scene = buildMinimalBlurScene({
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+      blurRadius: 16,
+      videoPath: "/test/video.mp4",
+      layerId: "clip-1",
+      zIndex: 0,
+    });
+    const result = buildNativeVideoProjectRequest(scene);
+    expect(result).not.toBeNull();
+    // blur type should produce a transparent clear color
+    expect(result!.clearColor).toEqual([0, 0, 0, 0]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Helper: build a minimal EvaluatedScene with one video layer and blur background
+// ---------------------------------------------------------------------------
+interface BlurSceneOptions {
+  canvasWidth: number;
+  canvasHeight: number;
+  blurRadius: number;
+  videoPath: string;
+  layerId: string;
+  zIndex: number;
+  sourceTime?: number;
+}
+
+function buildMinimalBlurScene(
+  opts: BlurSceneOptions,
+): import("@/core/evaluation/types").EvaluatedScene {
+  const mediaLayer: import("@/core/evaluation/types").EvaluatedMediaLayer = {
+    layerType: "media",
+    layerId: opts.layerId,
+    clipId: opts.layerId,
+    role: "primary",
+    zIndex: opts.zIndex,
+    mediaId: "asset-1",
+    mediaType: "video",
+    sourcePath: opts.videoPath,
+    sourceTime: opts.sourceTime ?? 0,
+    x: 0,
+    y: 0,
+    width: opts.canvasWidth,
+    height: opts.canvasHeight,
+    rotation: 0,
+    opacity: 1,
+    blendMode: "normal",
+    inTransition: false,
+  };
+
+  return {
+    visualLayers: [mediaLayer],
+    audioLayers: [],
+    transitions: [],
+    activeFilter: undefined,
+    metadata: {
+      time: 0,
+      canvasWidth: opts.canvasWidth,
+      canvasHeight: opts.canvasHeight,
+      frameRate: 30,
+      isGap: false,
+      canvasBackground: {
+        type: "blur",
+        blurRadius: opts.blurRadius,
+        isTransparent: false,
+        opacity: 1,
+      },
+    },
+  };
+}

@@ -304,5 +304,14 @@
   "preview.zoom.in": "Acercar vista previa",
   "preview.zoom.out": "Alejar vista previa",
   "preview.zoom.fit": "Ajustar vista previa",
-  "preview.zoom.level": "Nivel de zoom de vista previa"
+  "preview.zoom.level": "Nivel de zoom de vista previa",
+  "properties.canvas.title": "Canvas",
+  "properties.canvas.backgroundMode.none": "None",
+  "properties.canvas.backgroundMode.blur": "Blur",
+  "properties.canvas.backgroundMode.color": "Color",
+  "properties.canvas.backgroundMode.pattern": "Pattern",
+  "properties.canvas.blur.noBlur": "No Blur",
+  "properties.canvas.blur.light": "Light",
+  "properties.canvas.blur.medium": "Medium",
+  "properties.canvas.blur.heavy": "Heavy"
 }

@@ -114,7 +114,7 @@ export interface VideoMetadata {
 }
 
 export interface CanvasBackgroundConfig {
-  type: "solid" | "gradient" | "shader" | "media";
+  type: "solid" | "gradient" | "shader" | "media" | "blur";
   color?: string; // HEX/RGBA color
   gradient?: {
     type: "linear" | "radial";
@@ -128,6 +128,8 @@ export interface CanvasBackgroundConfig {
     colors?: string[];
   };
   mediaUrl?: string;
+  /** Blur radius in pixels (0–40, default 16). Used when type === "blur". */
+  blurRadius?: number;
   opacity?: number;
   isTransparent?: boolean;
 }

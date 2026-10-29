@@ -74,7 +74,7 @@ export const VideoBasicTab: React.FC<VideoBasicTabProps> = ({
       {/* Section 3: Canvas Background — only shown for A-roll (primary) clips */}
       {isARoll && (
         <div>
-          <BackgroundInspectorPanel />
+          <BackgroundInspectorPanel selectedClipId={selectedClip.id} />
         </div>
       )}
 
