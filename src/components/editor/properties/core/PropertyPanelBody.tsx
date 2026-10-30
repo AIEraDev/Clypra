@@ -162,6 +162,7 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
         <SpeedStyleSection
           selectedClip={selectedClip}
           handleUpdate={handleUpdate}
+          executeCommand={executePreviewCommand}
         />
       )}
 
@@ -286,6 +287,7 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
         <SpeedStyleSection
           selectedClip={selectedClip}
           handleUpdate={handleUpdate}
+          executeCommand={executePreviewCommand}
         />
       )}
 
