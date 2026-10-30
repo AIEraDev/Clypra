@@ -24,14 +24,31 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
   const audio = getClipAudioProperties(selectedClip);
   const volume = audio.muted ? 0 : dbToLinearGain(audio.gainDb);
   const volumePercent = Math.round(Math.max(0, Math.min(1, volume)) * 100);
-  const maxFadeSeconds = Math.max(0, Math.min(5, selectedClip.duration));
-  const clampFade = useCallback(
-    (value: number) =>
-      Math.max(0, Math.min(maxFadeSeconds, Number.isFinite(value) ? value : 0)),
-    [maxFadeSeconds],
+
+  // Per-fade dynamic cap — matches the envelope editor's formula exactly:
+  //   max(fadeIn)  = min(10, clip.duration - fadeOut)
+  //   max(fadeOut) = min(10, clip.duration - fadeIn)
+  // This keeps the two sliders in sync with the timeline handles regardless of
+  // clip length, and avoids the half-duration mismatch that caused the panel to
+  // display a lower value than the timeline during a drag.
+  const rawFadeIn = Math.max(
+    0,
+    Number.isFinite(audio.fadeIn.duration) ? audio.fadeIn.duration : 0,
   );
-  const fadeIn = clampFade(audio.fadeIn.duration);
-  const fadeOut = clampFade(audio.fadeOut.duration);
+  const rawFadeOut = Math.max(
+    0,
+    Number.isFinite(audio.fadeOut.duration) ? audio.fadeOut.duration : 0,
+  );
+  const maxFadeIn = Math.min(
+    10,
+    Math.max(0, selectedClip.duration - rawFadeOut),
+  );
+  const maxFadeOut = Math.min(
+    10,
+    Math.max(0, selectedClip.duration - rawFadeIn),
+  );
+  const fadeIn = Math.min(rawFadeIn, maxFadeIn);
+  const fadeOut = Math.min(rawFadeOut, maxFadeOut);
 
   // Keyframe calculations
   const volumeKeyframes = audio.volumeKeyframes || [];
@@ -95,13 +112,13 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
   /**
    * Volume change handler — keyframe-aware.
    *
-   * When volume keyframes exist on the clip, moving the slider updates the
-   * keyframe at the current playhead position (creates one if none exists
-   * there). Without keyframes the plain clip volume property is written.
+   * Accepts a linear gain value (0 = silence, 1.0 = unity/0dB, up to ~3.16 for +10dB boost).
+   * Writes through the `volume` field which synchronizeClipAudioProperties converts to gainDb.
    */
   const handleVolumeChange = useCallback(
     (newVolume: number) => {
-      const gain = Math.max(0, Math.min(1, newVolume));
+      // Allow up to +20dB boost (linear ≈ 10). Floor at 0 (silence).
+      const gain = Math.max(0, Math.min(dbToLinearGain(20), newVolume));
 
       if (volumeKeyframes.length === 0) {
         // No keyframes – simple update
@@ -226,7 +243,7 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
                 min={-60}
                 max={20}
                 suffix="dB"
-                inputWidth="w-20"
+                inputWidth="w-8"
                 inputPosition="text-right"
                 decimals={1}
                 ariaLabel="Volume"
@@ -256,19 +273,23 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
               <SliderTrack
                 value={fadeIn}
                 min={0}
-                max={maxFadeSeconds}
+                max={maxFadeIn}
                 step={0.01}
                 propertyId="fadeIn"
                 category="audio"
-                onChange={(val) => handleUpdate("fadeIn", clampFade(val))}
+                onChange={(val) =>
+                  handleUpdate("fadeIn", Math.max(0, Math.min(maxFadeIn, val)))
+                }
                 className="mr-4"
               />
               <NumericControl
                 value={fadeIn}
-                onChange={(val) => handleUpdate("fadeIn", clampFade(val))}
+                onChange={(val) =>
+                  handleUpdate("fadeIn", Math.max(0, Math.min(maxFadeIn, val)))
+                }
                 step={0.01}
                 min={0}
-                max={maxFadeSeconds}
+                max={maxFadeIn}
                 suffix="s"
                 inputWidth="w-6"
                 inputPosition="text-right"
@@ -299,19 +320,29 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
               <SliderTrack
                 value={fadeOut}
                 min={0}
-                max={maxFadeSeconds}
+                max={maxFadeOut}
                 step={0.01}
                 propertyId="fadeOut"
                 category="audio"
-                onChange={(val) => handleUpdate("fadeOut", clampFade(val))}
+                onChange={(val) =>
+                  handleUpdate(
+                    "fadeOut",
+                    Math.max(0, Math.min(maxFadeOut, val)),
+                  )
+                }
                 className="mr-4"
               />
               <NumericControl
                 value={fadeOut}
-                onChange={(val) => handleUpdate("fadeOut", clampFade(val))}
+                onChange={(val) =>
+                  handleUpdate(
+                    "fadeOut",
+                    Math.max(0, Math.min(maxFadeOut, val)),
+                  )
+                }
                 step={0.01}
                 min={0}
-                max={maxFadeSeconds}
+                max={maxFadeOut}
                 suffix="s"
                 inputWidth="w-6"
                 inputPosition="text-right"

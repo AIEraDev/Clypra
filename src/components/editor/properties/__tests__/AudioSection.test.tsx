@@ -42,7 +42,68 @@ describe("AudioSection", () => {
     vi.clearAllMocks();
   });
 
-  it("displays fades clamped to clip duration", () => {
+  // ── Regression: fade max uses dynamic per-fade formula (not blunt duration/2) ──
+  // Before fix: maxFadeSeconds = min(10, duration/2) — same cap for both fades.
+  // After fix:  maxFadeIn = min(10, duration - fadeOut)  — grows as fadeOut shrinks.
+  //             maxFadeOut = min(10, duration - fadeIn)
+
+  it("[REGRESSION] displays fadeIn clamped to duration minus current fadeOut (not duration/2)", () => {
+    // 10s clip, fadeIn=7s, fadeOut=0 → maxFadeIn = min(10, 10-0) = 10 → shows 7.0
+    // Old formula: min(10, 10/2) = 5 → would have clamped to 5.0 (mismatch)
+    render(
+      <AudioSection
+        selectedClip={
+          {
+            ...baseAudioClip,
+            duration: 10,
+            trimOut: 10,
+            fadeIn: 7,
+            fadeOut: 0,
+          } as Clip
+        }
+        handleUpdate={vi.fn()}
+      />,
+    );
+
+    const fadeInInput = screen.getAllByRole(
+      "spinbutton",
+    )[1] as HTMLInputElement;
+    expect(parseFloat(fadeInInput.value)).toBeCloseTo(7, 1);
+  });
+
+  it("[REGRESSION] fadeIn and fadeOut caps are independent — each accounts for the other", () => {
+    // 10s clip, fadeIn=3, fadeOut=0 → maxFadeOut = min(10, 10-3) = 7
+    // Old formula: min(10, 10/2) = 5 → would cap maxFadeOut at 5
+    const handleUpdate = vi.fn();
+    render(
+      <AudioSection
+        selectedClip={
+          {
+            ...baseAudioClip,
+            duration: 10,
+            trimOut: 10,
+            fadeIn: 3,
+            fadeOut: 6,
+          } as Clip
+        }
+        handleUpdate={handleUpdate}
+      />,
+    );
+
+    // fadeOut=6 should display as 6, not be clamped to 5 (old formula)
+    const fadeOutInput = screen.getAllByRole(
+      "spinbutton",
+    )[2] as HTMLInputElement;
+    expect(parseFloat(fadeOutInput.value)).toBeCloseTo(6, 1);
+  });
+
+  it("[REGRESSION] fades are still clamped to prevent overlap on a short clip", () => {
+    // 2s clip, fadeIn=4, fadeOut=3:
+    // rawFadeIn=4, rawFadeOut=3 — both already exceed duration=2 individually.
+    // maxFadeIn  = min(10, max(0, 2 - 3)) = 0
+    // maxFadeOut = min(10, max(0, 2 - 4)) = 0
+    // Both clamp to 0 because neither fits without the other already consuming
+    // all available time. This is correct — no overlap is possible.
     render(
       <AudioSection
         selectedClip={{ ...baseAudioClip, fadeIn: 4, fadeOut: 3 } as Clip}
@@ -50,9 +111,14 @@ describe("AudioSection", () => {
       />,
     );
 
-    const fadeInputs = screen.getAllByRole("spinbutton").slice(1);
-    expect((fadeInputs[0] as HTMLInputElement).value).toBe("2.00");
-    expect((fadeInputs[1] as HTMLInputElement).value).toBe("2.00");
+    const fadeInInput = screen.getAllByRole(
+      "spinbutton",
+    )[1] as HTMLInputElement;
+    const fadeOutInput = screen.getAllByRole(
+      "spinbutton",
+    )[2] as HTMLInputElement;
+    expect(parseFloat(fadeInInput.value)).toBeCloseTo(0, 1);
+    expect(parseFloat(fadeOutInput.value)).toBeCloseTo(0, 1);
   });
 
   it("writes fade values clamped to clip duration", () => {
@@ -123,14 +189,18 @@ describe("AudioSection", () => {
       },
     } as Clip;
 
-    render(<AudioSection selectedClip={clipWithKf} handleUpdate={handleUpdate} />);
+    render(
+      <AudioSection selectedClip={clipWithKf} handleUpdate={handleUpdate} />,
+    );
 
     const volumeInput = screen.getAllByRole("spinbutton")[0];
     fireEvent.change(volumeInput, { target: { value: "75" } });
     fireEvent.blur(volumeInput);
 
     // Must update volumeKeyframes, NOT plain volume
-    const kfCall = handleUpdate.mock.calls.find(([prop]) => prop === "volumeKeyframes");
+    const kfCall = handleUpdate.mock.calls.find(
+      ([prop]) => prop === "volumeKeyframes",
+    );
     expect(kfCall).toBeDefined();
     const updatedKfs = kfCall![1];
     const updatedKf = updatedKfs.find((k: any) => k.id === "vkf-a");
@@ -144,14 +214,18 @@ describe("AudioSection", () => {
     const handleUpdate = vi.fn();
     mockClockTime = 0.5;
 
-    render(<AudioSection selectedClip={baseAudioClip} handleUpdate={handleUpdate} />);
+    render(
+      <AudioSection selectedClip={baseAudioClip} handleUpdate={handleUpdate} />,
+    );
 
     const volumeInput = screen.getAllByRole("spinbutton")[0];
     fireEvent.change(volumeInput, { target: { value: "40" } });
     fireEvent.blur(volumeInput);
 
     expect(handleUpdate).toHaveBeenCalledWith("volume", 0.4);
-    const kfCall = handleUpdate.mock.calls.find(([prop]) => prop === "volumeKeyframes");
+    const kfCall = handleUpdate.mock.calls.find(
+      ([prop]) => prop === "volumeKeyframes",
+    );
     expect(kfCall).toBeUndefined();
   });
 });

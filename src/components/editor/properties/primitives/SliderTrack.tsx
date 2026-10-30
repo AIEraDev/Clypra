@@ -52,6 +52,8 @@ export interface SliderTrackProps {
   propertyId?: string;
   /** Property category for telemetry */
   category?: PropertyCategory;
+
+  className?: string;
 }
 
 export const SliderTrack: React.FC<SliderTrackProps> = ({
@@ -64,6 +66,7 @@ export const SliderTrack: React.FC<SliderTrackProps> = ({
   decimals,
   propertyId,
   category,
+  className,
 }) => {
   const resolvedDecimals =
     decimals ?? (step < 1 ? Math.max(1, -Math.floor(Math.log10(step))) : 0);
@@ -146,7 +149,7 @@ export const SliderTrack: React.FC<SliderTrackProps> = ({
   return (
     <div
       ref={trackRef}
-      className={`w-full relative cursor-pointer ${disabled ? "opacity-40 pointer-events-none" : ""}`}
+      className={`w-full relative cursor-pointer ${disabled ? "opacity-40 pointer-events-none" : ""} ${className}`}
       onMouseDown={handleMouseDown}
     >
       {/* Track background with fill gradient */}
