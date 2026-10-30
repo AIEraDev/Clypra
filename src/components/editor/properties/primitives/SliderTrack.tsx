@@ -24,6 +24,17 @@
  *   onChange={setOpacity}
  *   disabled={false}
  * />
+ *
+ * // With snap points (e.g. snap to 0 dB on a volume slider)
+ * <SliderTrack
+ *   value={gainDb}
+ *   min={-60}
+ *   max={20}
+ *   step={0.1}
+ *   snapPoints={[{ value: 0, threshold: 0.5 }]}
+ *   onSnapChange={setIsSnapping}
+ *   onChange={setGainDb}
+ * />
  * ```
  */
 
@@ -32,6 +43,17 @@ import {
   propertyEditTelemetry,
   type PropertyCategory,
 } from "@/lib/properties/propertyEditTelemetry";
+
+/** A single magnetic snap target on the slider track. */
+export interface SliderSnapPoint {
+  /** The value (in the same units as min/max) to snap to. */
+  value: number;
+  /**
+   * How close the raw drag value must come (in the same units) before snapping.
+   * The snap zone is a symmetric band: [value - threshold, value + threshold].
+   */
+  threshold: number;
+}
 
 export interface SliderTrackProps {
   /** Current value */
@@ -52,6 +74,18 @@ export interface SliderTrackProps {
   propertyId?: string;
   /** Property category for telemetry */
   category?: PropertyCategory;
+  /**
+   * Optional magnetic snap targets. When the drag position falls within a snap
+   * point's threshold the output value is locked to that snap point's value.
+   * Multiple points are evaluated in order; the first match wins.
+   */
+  snapPoints?: SliderSnapPoint[];
+  /**
+   * Called during drag whenever the snap state changes — true when the thumb is
+   * currently locked to a snap point, false when it releases.
+   * Useful for updating a visual indicator (e.g. brightening a tick mark).
+   */
+  onSnapChange?: (snapped: boolean) => void;
 
   className?: string;
 }
@@ -66,6 +100,8 @@ export const SliderTrack: React.FC<SliderTrackProps> = ({
   decimals,
   propertyId,
   category,
+  snapPoints,
+  onSnapChange,
   className,
 }) => {
   const resolvedDecimals =
@@ -86,6 +122,9 @@ export const SliderTrack: React.FC<SliderTrackProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<number>(0);
   const sampleCountRef = useRef<number>(0);
+  /** Tracks whether the thumb is currently locked to a snap point so that
+   *  onSnapChange is only called when the state actually transitions. */
+  const isSnappedRef = useRef<boolean>(false);
 
   const handleDrag = useCallback(
     (clientX: number) => {
@@ -96,10 +135,29 @@ export const SliderTrack: React.FC<SliderTrackProps> = ({
         0,
         Math.min(1, (clientX - rect.left) / rect.width),
       );
-      const newValue = min + percent * range;
+      let newValue = min + percent * range;
+
+      // ── Snap-point evaluation ───────────────────────────────────────────
+      // Evaluate snap points in order; first match wins.
+      let snapped = false;
+      if (snapPoints && snapPoints.length > 0) {
+        for (const sp of snapPoints) {
+          if (Math.abs(newValue - sp.value) <= sp.threshold) {
+            newValue = sp.value;
+            snapped = true;
+            break;
+          }
+        }
+      }
+      // Only fire onSnapChange when the snap state transitions
+      if (snapped !== isSnappedRef.current) {
+        isSnappedRef.current = snapped;
+        onSnapChange?.(snapped);
+      }
+
       onChange(clamp(newValue));
     },
-    [min, range, onChange, clamp],
+    [min, range, onChange, clamp, snapPoints, onSnapChange],
   );
 
   const handleMouseDown = useCallback(
@@ -131,9 +189,14 @@ export const SliderTrack: React.FC<SliderTrackProps> = ({
         durationMs,
         sampleCount: sampleCountRef.current,
       });
+      // Clear snap state on release so the tick doesn't stay highlighted
+      if (isSnappedRef.current) {
+        isSnappedRef.current = false;
+        onSnapChange?.(false);
+      }
     }
     setIsDragging(false);
-  }, [isDragging, propertyId, category]);
+  }, [isDragging, propertyId, category, onSnapChange]);
 
   useEffect(() => {
     if (isDragging) {
