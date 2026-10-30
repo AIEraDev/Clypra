@@ -2,10 +2,12 @@ import React, { useCallback, useState } from "react";
 import { RotateCcw, Volume2, VolumeX } from "lucide-react";
 import type { Clip } from "@/types";
 import { dbToLinearGain, getClipAudioProperties } from "@/types/audio";
+import type { AudioChannelMode, AudioDownmixMode } from "@/types/audio";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { SliderTrack } from "../../primitives/SliderTrack";
 import { NumericControl } from "../../primitives/NumericControl";
 import { KeyframeNavControls } from "../../primitives/KeyframeNavControls";
+import { PropertySelect } from "../../primitives/PropertySelect";
 import { propertyEditTelemetry } from "@/lib/properties/propertyEditTelemetry";
 import { PropertySectionHeader } from "../../primitives";
 import { AudioFXSection } from "./AudioFXSection";
@@ -485,6 +487,55 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
           </>
         )}
       </div>
+
+      {/* Channel Configuration */}
+      {isExpanded && (
+        <div className="space-y-4 px-3 pb-2 border-t border-white/5 pt-4">
+          <div className="space-y-3">
+            <label className="text-[11px] font-medium text-white/90">
+              Channel
+            </label>
+            <PropertySelect
+              label="Mode"
+              value={audio.channelConfig.mode}
+              options={[
+                { value: "auto", label: "Auto" },
+                { value: "mono", label: "Mono" },
+                { value: "stereo", label: "Stereo" },
+                { value: "multichannel", label: "Multichannel" },
+              ]}
+              onChange={(val) =>
+                handleUpdate("audio", {
+                  ...selectedClip.audio,
+                  channelConfig: {
+                    ...audio.channelConfig,
+                    mode: val as AudioChannelMode,
+                  },
+                })
+              }
+            />
+            <PropertySelect
+              label="Downmix"
+              value={audio.channelConfig.downmix}
+              options={[
+                { value: "auto", label: "Auto" },
+                { value: "mono", label: "Mono" },
+                { value: "stereo", label: "Stereo" },
+              ]}
+              onChange={(val) =>
+                handleUpdate("audio", {
+                  ...selectedClip.audio,
+                  channelConfig: {
+                    ...audio.channelConfig,
+                    downmix: val as AudioDownmixMode,
+                  },
+                })
+              }
+            />
+          </div>
+        </div>
+      )}
+
       <AudioFXSection selectedClip={selectedClip} handleUpdate={handleUpdate} />
     </div>
   );
