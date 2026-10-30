@@ -1,5 +1,6 @@
 import React, { useCallback } from "react";
 import { KeyframeNavControls } from "./KeyframeNavControls";
+import { SliderTrack } from "./SliderTrack";
 
 interface PropertySliderProps {
   label: string;
@@ -54,13 +55,6 @@ export const PropertySlider: React.FC<PropertySliderProps> = ({
   const resolvedDecimals = decimals ?? (step < 1 ? Math.max(1, -Math.floor(Math.log10(step))) : 0);
   const displayValue = resolvedDecimals > 0 ? value.toFixed(resolvedDecimals) : Math.round(value);
 
-  const handleSliderChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      onChange(Number(e.target.value));
-    },
-    [onChange],
-  );
-
   const handleInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const v = Number(e.target.value);
@@ -71,28 +65,22 @@ export const PropertySlider: React.FC<PropertySliderProps> = ({
     [onChange, min, max],
   );
 
-  // Calculate fill percentage defensively; collapsed trim ranges can make min/max equal.
-  const range = max - min;
-  const fillPercent = range > 0 ? Math.min(100, Math.max(0, ((value - min) / range) * 100)) : 0;
-
   if (compact) {
     return (
       <div className={`flex items-center gap-2.5 group ${disabled ? "opacity-40 pointer-events-none" : ""}`}>
         {icon && <span className="text-text-muted shrink-0">{icon}</span>}
         <span className="text-[10px] text-text-muted select-none shrink-0 min-w-[52px]">{label}</span>
-        <input
-          type="range"
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          onChange={handleSliderChange}
-          disabled={disabled}
-          className="flex-1 h-1 rounded-full appearance-none outline-none cursor-pointer bg-border/60 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:shadow-[0_0_6px_rgba(var(--color-accent-raw),0.4)] [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:hover:scale-125 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
-          style={{
-            background: `linear-gradient(to right, var(--color-accent) 0%, var(--color-accent) ${fillPercent}%, var(--color-border) ${fillPercent}%, var(--color-border) 100%)`,
-          }}
-        />
+        <div className="flex-1">
+          <SliderTrack
+            value={value}
+            min={min}
+            max={max}
+            step={step}
+            decimals={resolvedDecimals}
+            onChange={onChange}
+            disabled={disabled}
+          />
+        </div>
         {showInput ? (
           <input
             type="number"
@@ -141,21 +129,19 @@ export const PropertySlider: React.FC<PropertySliderProps> = ({
         </span>
       </div>
 
-      {/* Slider + Input row */}
+      {/* Slider + optional number input row */}
       <div className="flex items-center gap-2">
-        <input
-          type="range"
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          onChange={handleSliderChange}
-          disabled={disabled}
-          className="flex-1 h-1.5 rounded-full appearance-none outline-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(var(--color-accent-raw),0.35)] [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:hover:scale-110 [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
-          style={{
-            background: `linear-gradient(to right, var(--color-accent) 0%, var(--color-accent) ${fillPercent}%, var(--color-border) ${fillPercent}%, var(--color-border) 100%)`,
-          }}
-        />
+        <div className="flex-1">
+          <SliderTrack
+            value={value}
+            min={min}
+            max={max}
+            step={step}
+            decimals={resolvedDecimals}
+            onChange={onChange}
+            disabled={disabled}
+          />
+        </div>
         {showInput && (
           <input
             type="number"

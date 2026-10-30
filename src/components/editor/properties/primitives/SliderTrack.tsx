@@ -43,8 +43,12 @@ import {
   propertyEditTelemetry,
   type PropertyCategory,
 } from "@/lib/properties/propertyEditTelemetry";
+import { applySliderSnap, type SliderSnapTarget } from "@/lib/ui/sliderSnap";
 
-/** A single magnetic snap target on the slider track. */
+/** A single magnetic snap target on the slider track.
+ * @deprecated Import SliderSnapTarget from "@/lib/ui/sliderSnap" for new code.
+ *             This alias is kept for backward compatibility with existing callers.
+ */
 export interface SliderSnapPoint {
   /** The value (in the same units as min/max) to snap to. */
   value: number;
@@ -135,29 +139,33 @@ export const SliderTrack: React.FC<SliderTrackProps> = ({
         0,
         Math.min(1, (clientX - rect.left) / rect.width),
       );
-      let newValue = min + percent * range;
+      const raw = min + percent * range;
 
-      // ── Snap-point evaluation ───────────────────────────────────────────
-      // Evaluate snap points in order; first match wins.
-      let snapped = false;
-      if (snapPoints && snapPoints.length > 0) {
-        for (const sp of snapPoints) {
-          if (Math.abs(newValue - sp.value) <= sp.threshold) {
-            newValue = sp.value;
-            snapped = true;
-            break;
-          }
-        }
-      }
+      // ── Snap-point evaluation via shared utility ────────────────────────
+      // Explicit snapPoints are passed through; auto-center snap fires for
+      // symmetric sliders (min < 0 && max > 0) with no explicit 0-target.
+      const explicitTargets: SliderSnapTarget[] = (snapPoints ?? []).map(
+        (sp) => ({ value: sp.value, threshold: sp.threshold }),
+      );
+      const snappedValue = applySliderSnap({
+        raw,
+        min,
+        max,
+        snapTargets: explicitTargets,
+        // Auto-center only when no explicit snapPoints suppress it
+        autoCenter: !snapPoints?.some((sp) => sp.value === 0),
+      });
+      const snapped = snappedValue !== raw;
+
       // Only fire onSnapChange when the snap state transitions
       if (snapped !== isSnappedRef.current) {
         isSnappedRef.current = snapped;
         onSnapChange?.(snapped);
       }
 
-      onChange(clamp(newValue));
+      onChange(clamp(snappedValue));
     },
-    [min, range, onChange, clamp, snapPoints, onSnapChange],
+    [min, max, range, onChange, clamp, snapPoints, onSnapChange],
   );
 
   const handleMouseDown = useCallback(

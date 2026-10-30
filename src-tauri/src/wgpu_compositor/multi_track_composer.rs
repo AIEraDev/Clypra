@@ -147,7 +147,9 @@ pub struct ColorGradeUniforms {
     pub whites: f32,       // Hard clip ceiling adjustment
     pub blacks: f32,       // Hard clip floor adjustment
     pub fade: f32,         // Mix towards mid-gray (0..1)
-    pub _padding0: [f32; 3],      // align following vec4 uniforms to 16 bytes
+    pub _padding0: [f32; 2],      // align following vec4 uniforms to 16 bytes
+                                  // WGSL inserts 8 bytes of implicit padding between fade (f32)
+                                  // and channel_mix (vec4<f32>, align 16); Rust must match exactly.
     pub channel_mix: [f32; 4],    // RGB weights + enabled flag
     pub duotone_dark: [f32; 4],   // RGB + enabled flag
     pub duotone_light: [f32; 4],  // RGB + padding
@@ -231,7 +233,7 @@ impl Default for ColorGradeUniforms {
             whites: 0.0,
             blacks: 0.0,
             fade: 0.0,
-            _padding0: [0.0, 0.0, 0.0],
+            _padding0: [0.0, 0.0],
             channel_mix: [0.0, 0.0, 0.0, 0.0],
             duotone_dark: [0.0, 0.0, 0.0, 0.0],
             duotone_light: [1.0, 1.0, 1.0, 0.0],
