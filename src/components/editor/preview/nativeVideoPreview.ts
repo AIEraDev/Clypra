@@ -182,6 +182,18 @@ const NATIVE_COLOR_GRADE_KEYS = new Set([
   "channelMix",
   "duotone",
   "splitTone",
+  // Tonal-range adjustments (implemented in GPU shader)
+  "highlights",
+  "shadows",
+  "whites",
+  "blacks",
+  // Adjustment keys that are stored but handled separately (not bailed)
+  "fade",
+  "brilliance",
+  "sharpen",
+  "clarity",
+  "lut",
+  "hslChannels",
 ]);
 const NATIVE_BODY_EFFECT_RENDERERS = new Set([
   "body_outline",
@@ -726,6 +738,61 @@ function getNativeColorGrade(
   };
   const readAdjustment = (key: string): number | null | undefined =>
     readNumber(values?.[key]);
+
+  /**
+   * Normalize a raw UI adjustment value (stored in −100..100 scale from the
+   * Adjust tab sliders) to the native GPU shader range for each property.
+   *
+   * The legacy AdjustmentsSection already stores values in the native range
+   * (e.g. exposure −2..2, contrast −1..1). The new VideoAdjustTab stores
+   * everything as −100..100 integers. We detect which convention is in use by
+   * checking whether the absolute value exceeds the native max — values > 3
+   * on exposure or > 1 on contrast/saturation can only be new-UI scale.
+   *
+   * Safe fallback: if a value is already in native range it passes through
+   * unchanged since scaling near-zero values doesn't matter visually.
+   */
+  const normalizeAdjustment = (key: string, raw: number): number => {
+    switch (key) {
+      // EV stops: UI −100..100 → GPU −3..3
+      case "exposure":
+        return Math.abs(raw) > 3 ? raw * 0.03 : raw;
+      // Multiplier: UI −100..100 → GPU 0..2 (1.0 = neutral)
+      // Handled separately via the contrastAdjustment + 1 path
+      case "contrast":
+      case "saturation":
+        return Math.abs(raw) > 1 ? raw * 0.01 : raw;
+      // Additive: UI −100..100 → GPU −1..1
+      case "brightness":
+      case "temperature":
+      case "tint":
+      case "lift":
+        return Math.abs(raw) > 1 ? raw * 0.01 : raw;
+      // 0..1 fraction: UI 0..100 → GPU 0..1
+      case "vignette":
+      case "sepia":
+      case "grayscale":
+      case "fade":
+        return raw > 1 ? raw * 0.01 : raw;
+      // Tonal range: UI −100..100 → GPU −1..1
+      case "highlights":
+      case "shadows":
+      case "whites":
+      case "blacks":
+        return Math.abs(raw) > 1 ? raw * 0.01 : raw;
+      // Hue is in degrees for both UI and IPC (converted to radians at the end)
+      case "hue":
+        return raw;
+      default:
+        return raw;
+    }
+  };
+
+  const readAdjustmentNormalized = (key: string): number | null | undefined => {
+    const raw = readAdjustment(key);
+    if (raw === null || raw === undefined) return raw;
+    return normalizeAdjustment(key, raw);
+  };
   const readGrade = (key: string): number | null | undefined =>
     readNumber(grade?.[key]);
   const readObjectNumber = (
@@ -749,7 +816,7 @@ function getNativeColorGrade(
     fallback: number,
     ...fallbacks: Array<number | undefined>
   ): number | null => {
-    const adjustment = readAdjustment(key);
+    const adjustment = readAdjustmentNormalized(key);
     if (adjustment !== undefined) return adjustment;
     const gradeValue = readGrade(key);
     if (gradeValue !== undefined) return gradeValue;
@@ -1244,7 +1311,7 @@ function getNativeColorGrade(
     }
   }
   const exposure = choose("exposure", 0, scaledPreset("exposure"));
-  const contrastAdjustment = readAdjustment("contrast");
+  const contrastAdjustment = readAdjustmentNormalized("contrast");
   const contrast =
     contrastAdjustment === null
       ? null
@@ -1260,7 +1327,7 @@ function getNativeColorGrade(
               return value === undefined ? undefined : 1 + value;
             })(),
           );
-  const saturationAdjustment = readAdjustment("saturation");
+  const saturationAdjustment = readAdjustmentNormalized("saturation");
   const saturation =
     saturationAdjustment === null
       ? null
@@ -1304,7 +1371,7 @@ function getNativeColorGrade(
     mpgGrade?.grayscale,
     scaledPreset("grayscale"),
   );
-  const hueAdjustment = readAdjustment("hue");
+  const hueAdjustment = readAdjustmentNormalized("hue");
   const hue =
     hueAdjustment !== undefined
       ? hueAdjustment
@@ -1491,6 +1558,12 @@ function getNativeColorGrade(
         : typeof invertValue === "number" && Number.isFinite(invertValue)
           ? invertValue
           : null;
+  const highlights = readAdjustmentNormalized("highlights") ?? 0;
+  const shadows = readAdjustmentNormalized("shadows") ?? 0;
+  const whites = readAdjustmentNormalized("whites") ?? 0;
+  const blacks = readAdjustmentNormalized("blacks") ?? 0;
+  // Fade: mix towards a flat mid-gray (0.5). GPU stores as 0..1 fraction.
+  const fade = readAdjustmentNormalized("fade") ?? 0;
   if (
     exposure === null ||
     contrast === null ||
@@ -1531,6 +1604,11 @@ function getNativeColorGrade(
     invert,
     grainIntensity,
     grainSize,
+    highlights,
+    shadows,
+    whites,
+    blacks,
+    fade,
     ...(hasLut
       ? {
           lutId: effectiveLutId,
@@ -1827,6 +1905,11 @@ function buildBlurBackgroundColorGrade(
     invert: 0,
     grainIntensity: 0,
     grainSize: 1,
+    highlights: 0,
+    shadows: 0,
+    whites: 0,
+    blacks: 0,
+    fade: 0,
     lutIntensity: 1,
     lutSize: 33,
     blurStrength: blurRadius > 0 ? 1 : 0,
@@ -2492,8 +2575,8 @@ export function buildNativeFrameRequest(
   // buildNativeVideoProjectRequest injects this layer but buildNativeFrameRequest
   // rebuilds videoLayers from scene.visualLayers — so it must be copied back
   // explicitly, just like NATIVE_BACKGROUND_MEDIA_LAYER_ID above.
-  const blurBgLayer = request.layers.find(
-    (layer) => layer.layerId?.endsWith(":blur-bg"),
+  const blurBgLayer = request.layers.find((layer) =>
+    layer.layerId?.endsWith(":blur-bg"),
   );
   if (blurBgLayer) {
     videoLayers.unshift({

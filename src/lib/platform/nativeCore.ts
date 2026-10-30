@@ -646,6 +646,13 @@ export interface NativeColorGradeSnapshot {
   invert: number;
   grainIntensity: number;
   grainSize: number;
+  /** Tonal-range adjustments (−1..1, 0 = neutral) */
+  highlights: number;
+  shadows: number;
+  whites: number;
+  blacks: number;
+  /** Fade to mid-gray (0..1) */
+  fade: number;
   lutId?: string;
   lutIntensity: number;
   lutSize: number;
