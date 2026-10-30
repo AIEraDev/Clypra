@@ -1154,7 +1154,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         return;
       }
 
-      // CapCut-style interaction: a preview click while playing is an edit
+      //  interaction: a preview click while playing is an edit
       // intent. Pause first, then run the same hit test against the now-still
       // frame. The callback is transport-owned; this component only owns the
       // selection decision.

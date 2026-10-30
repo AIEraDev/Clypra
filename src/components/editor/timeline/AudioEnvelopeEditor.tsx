@@ -66,7 +66,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
   const displayVolume =
     activeDrag === "volume" && dragValue !== null ? dragValue : volume;
   // Keep the resting (100%) guide in the center of the clip body, matching
-  // the familiar CapCut-style rubber band instead of confining it to a tiny
+  // the familiar  rubber band instead of confining it to a tiny
   // footer lane. Lowering volume moves it down; raising it moves it up.
   const volumeYPercent = 80 - displayVolume * 30;
   const displayFadeIn =
@@ -167,7 +167,9 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
     // commits a TransformClipCommand which triggers the real epoch increment.
     // Sync both legacy flat field AND clip.audio so the properties panel
     // slider stays live during the drag.
-    const syncedPatch = synchronizeClipAudioProperties(clip, { [field]: nextFade });
+    const syncedPatch = synchronizeClipAudioProperties(clip, {
+      [field]: nextFade,
+    });
     updateClip(clip.id, {
       ...syncedPatch,
       _skipEpochIncrement: true,
@@ -361,7 +363,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
       onLostPointerCapture={handlePointerUp}
       className="absolute inset-0 z-40 pointer-events-none select-none overflow-hidden"
     >
-      {/* CapCut-style waveform-lane envelope overlay. */}
+      {/*  waveform-lane envelope overlay. */}
       <div ref={volumeLaneRef} className="absolute inset-0 pointer-events-none">
         {/* Fade shading and curved envelope guides. */}
         <svg

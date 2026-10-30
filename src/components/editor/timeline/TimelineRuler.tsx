@@ -36,7 +36,7 @@ interface TimelineRulerProps {
 }
 
 /**
- * CapCut-style timeline ruler with Timeline Marker support.
+ *  timeline ruler with Timeline Marker support.
  *
  * Markers:
  *   - Press M to add at playhead
@@ -424,8 +424,11 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
 
     const isTelemetryActive = timelineZoomTelemetry.isEnabled();
     const t0 = isTelemetryActive ? performance.now() : 0;
-    const { majorIntervalSeconds: majorInterval, minorIntervalSeconds: minorInterval, labelMode } =
-      getTimelineRulerScale(validPPS, frameRate);
+    const {
+      majorIntervalSeconds: majorInterval,
+      minorIntervalSeconds: minorInterval,
+      labelMode,
+    } = getTimelineRulerScale(validPPS, frameRate);
 
     const padPx = 60;
     const canvasDuration = getTimelineCanvasDuration(sequenceDuration ?? 0);
@@ -457,7 +460,8 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
           ? (step * minorFrames) / frameRate
           : step * minorInterval;
         const x = isFrameMode
-          ? Math.round((step * minorFrames * validPPS) / frameRate) + startOffset
+          ? Math.round((step * minorFrames * validPPS) / frameRate) +
+            startOffset
           : timeToPixel(time, validPPS) + startOffset;
         const isMajor = step % divisions === 0;
         result.push({ time, isMajor, x });
@@ -543,7 +547,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
               <span
                 style={{
                   position: "absolute",
-                  // CapCut-style ruler labels sit beside the major tick so
+                  //  ruler labels sit beside the major tick so
                   // the timecode never hides beneath a playhead/tick stem.
                   top: 1,
                   left: 6,
