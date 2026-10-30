@@ -3,6 +3,7 @@ import { FlipHorizontal2, Snowflake } from "lucide-react";
 import type { Clip, PlaybackMapping } from "@/types";
 import { UpdateClipCommand } from "@/core/history/commands";
 import { useHistoryStore } from "@/store/historyStore";
+import { useTimelineStore } from "@/store/timelineStore";
 import { SpeedSliderTrack } from "../primitives/SpeedSliderTrack";
 import { NumericControl } from "../primitives/NumericControl";
 import { resolveClipSourceTime } from "@/core/timeline/sourceTime";
@@ -71,13 +72,14 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
   const applyMapping = useCallback(
     (mapping: PlaybackMapping, newSpeed: number) => {
       const newDuration = durationFromSpeed(selectedClip, newSpeed);
+      const oldDuration = selectedClip.duration;
       dispatchCommand(
         new UpdateClipCommand(
           selectedClip.id,
           {
             playbackMapping: selectedClip.playbackMapping,
             speed: selectedClip.speed,
-            duration: selectedClip.duration,
+            duration: oldDuration,
           },
           {
             playbackMapping: mapping,
@@ -86,6 +88,31 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
           },
         ),
       );
+      // Ripple downstream clips on the same track when enabled
+      const delta = newDuration - oldDuration;
+      if (Math.abs(delta) > 0.001) {
+        const { rippleEditEnabled, clips } = useTimelineStore.getState();
+        if (rippleEditEnabled) {
+          const clipEnd = selectedClip.startTime + oldDuration;
+          const downstream = clips
+            .filter(
+              (c) =>
+                c.id !== selectedClip.id &&
+                c.trackId === selectedClip.trackId &&
+                c.startTime >= clipEnd - 0.001,
+            )
+            .sort((a, b) => a.startTime - b.startTime);
+          for (const c of downstream) {
+            dispatchCommand(
+              new UpdateClipCommand(
+                c.id,
+                { startTime: c.startTime },
+                { startTime: c.startTime + delta },
+              ),
+            );
+          }
+        }
+      }
     },
     [selectedClip, dispatchCommand],
   );

@@ -77,6 +77,40 @@ function durationForSpeed(
   return (clip.trimOut - clip.trimIn) / Math.max(0.001, speed);
 }
 
+/**
+ * If ripple edit is enabled, shift all clips on the same track that start at
+ * or after `clipEndTime` by `deltaTime` seconds.
+ * Must be called inside an active history transaction.
+ */
+function rippleDownstreamIfEnabled(
+  clipId: string,
+  clipEndTime: number,
+  deltaTime: number,
+): void {
+  const { rippleEditEnabled, clips } = useTimelineStore.getState();
+  if (!rippleEditEnabled || Math.abs(deltaTime) < 0.001) return;
+  const changedClip = clips.find((c) => c.id === clipId);
+  if (!changedClip) return;
+  const history = useHistoryStore.getState();
+  const downstream = clips
+    .filter(
+      (c) =>
+        c.id !== clipId &&
+        c.trackId === changedClip.trackId &&
+        c.startTime >= clipEndTime - 0.001,
+    )
+    .sort((a, b) => a.startTime - b.startTime);
+  for (const c of downstream) {
+    history.execute(
+      new UpdateClipCommand(
+        c.id,
+        { startTime: c.startTime },
+        { startTime: c.startTime + deltaTime },
+      ),
+    );
+  }
+}
+
 function getPlayheadTargetClips(
   ctx: ClipCommandContext,
 ): ClipCommandContext["clips"] {
@@ -968,6 +1002,7 @@ export const clipCommands: ClipCommand[] = [
             kind: isReversed ? "reverse" : "normal",
             speed: newSpeed,
           };
+          const newDuration = durationForSpeed(clip, newSpeed);
           history.execute(
             new UpdateClipCommand(
               id,
@@ -979,9 +1014,14 @@ export const clipCommands: ClipCommand[] = [
               {
                 playbackMapping: mapping,
                 speed: newSpeed,
-                duration: durationForSpeed(clip, newSpeed),
+                duration: newDuration,
               },
             ),
+          );
+          rippleDownstreamIfEnabled(
+            id,
+            clip.startTime + clip.duration,
+            newDuration - clip.duration,
           );
         });
         if (hasMultiple) history.commitTransaction();
@@ -1023,6 +1063,7 @@ export const clipCommands: ClipCommand[] = [
           const clip = store.clips.find((c) => c.id === id);
           if (!clip) return;
           const newSpeed = 1;
+          const newDuration1 = durationForSpeed(clip, newSpeed);
           history.execute(
             new UpdateClipCommand(
               id,
@@ -1034,9 +1075,14 @@ export const clipCommands: ClipCommand[] = [
               {
                 playbackMapping: { kind: "normal", speed: newSpeed },
                 speed: newSpeed,
-                duration: durationForSpeed(clip, newSpeed),
+                duration: newDuration1,
               },
             ),
+          );
+          rippleDownstreamIfEnabled(
+            id,
+            clip.startTime + clip.duration,
+            newDuration1 - clip.duration,
           );
         });
         if (hasMultiple) history.commitTransaction();
@@ -1084,6 +1130,7 @@ export const clipCommands: ClipCommand[] = [
             kind: isReversed ? "reverse" : "normal",
             speed: newSpeed,
           };
+          const newDuration2 = durationForSpeed(clip, newSpeed);
           history.execute(
             new UpdateClipCommand(
               id,
@@ -1095,9 +1142,14 @@ export const clipCommands: ClipCommand[] = [
               {
                 playbackMapping: mapping,
                 speed: newSpeed,
-                duration: durationForSpeed(clip, newSpeed),
+                duration: newDuration2,
               },
             ),
+          );
+          rippleDownstreamIfEnabled(
+            id,
+            clip.startTime + clip.duration,
+            newDuration2 - clip.duration,
           );
         });
         if (hasMultiple) history.commitTransaction();
