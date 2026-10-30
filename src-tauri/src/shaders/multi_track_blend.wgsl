@@ -261,7 +261,7 @@ fn hsv_to_rgb(color: vec3<f32>) -> vec3<f32> {
 // with raw vertical samples.
 //
 // Coverage:  each pass uses 17 taps (±8 steps).  Step size = radius / 8 px,
-// so the kernel spans ±radius pixels — wide enough to match CapCut-style blur
+// so the kernel spans ±radius pixels — wide enough to match  blur
 // at the preset radii (40 / 80 / 120 / 180 px).
 //
 // Weights:  Gaussian with σ = 3 (in tap units), pre-normalised so the 17-tap
