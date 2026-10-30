@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, Volume2, VolumeX } from "lucide-react";
 import type { Clip } from "@/types";
 import { dbToLinearGain, getClipAudioProperties } from "@/types/audio";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
@@ -8,6 +8,7 @@ import { NumericControl } from "../../primitives/NumericControl";
 import { KeyframeNavControls } from "../../primitives/KeyframeNavControls";
 import { propertyEditTelemetry } from "@/lib/properties/propertyEditTelemetry";
 import { PropertySectionHeader } from "../../primitives";
+import { AudioFXSection } from "./AudioFXSection";
 
 interface AudioSectionProps {
   selectedClip: Clip;
@@ -21,6 +22,8 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
   handleUpdate,
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
+  /** True while the volume thumb is magnetically locked to the 0 dB snap point. */
+  const [isVolumeSnapping, setIsVolumeSnapping] = useState(false);
   const audio = getClipAudioProperties(selectedClip);
   const volume = audio.muted ? 0 : dbToLinearGain(audio.gainDb);
   const volumePercent = Math.round(Math.max(0, Math.min(1, volume)) * 100);
@@ -189,182 +192,300 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
     handleUpdate("fadeOut", 0);
   }, [handleUpdate]);
 
-  return (
-    <div className="space-y-4 px-3 py-2">
-      <PropertySectionHeader
-        title="Basic"
-        onToggleCollapse={() => setIsExpanded(!isExpanded)}
-        onReset={() => {}}
-        isCollapsed={!isExpanded}
-      />
+  const pan = audio.pan ?? 0;
 
-      {isExpanded && (
-        <>
-          {/* Volume */}
-          <div className="space-y-2">
-            <label className="text-[11px] font-medium text-white/90">
-              Volume
-            </label>
-            <div className="flex items-center">
-              {/* Slider wrapper — overlays a tick mark at the 0 dB position (75% along the -60→+20 range) */}
-              <div className="relative flex-1 mr-4">
-                <SliderTrack
-                  value={Math.max(-60, Math.min(20, audio.gainDb))}
-                  min={-60}
-                  max={20}
-                  step={0.1}
-                  propertyId="volume"
-                  category="audio"
+  const handlePanChange = useCallback(
+    (val: number) => {
+      const clamped = Math.max(-1, Math.min(1, val));
+      handleUpdate("audioFX", {
+        ...(selectedClip.audioFX ?? {}),
+        pan: clamped,
+      });
+    },
+    [selectedClip.audioFX, handleUpdate],
+  );
+
+  const handleResetPan = useCallback(() => {
+    propertyEditTelemetry.recordButtonAction({
+      action: "reset-pan",
+      category: "audio",
+      property: "pan",
+    });
+    handlePanChange(0);
+  }, [handlePanChange]);
+
+  return (
+    <div>
+      <div className="space-y-4 px-3 py-2">
+        <PropertySectionHeader
+          title="Basic"
+          onToggleCollapse={() => setIsExpanded(!isExpanded)}
+          onReset={() => {}}
+          isCollapsed={!isExpanded}
+        />
+
+        {isExpanded && (
+          <>
+            {/* Volume */}
+            <div className="space-y-2">
+              <label className="text-[11px] font-medium text-white/90">
+                Volume
+              </label>
+              <div className="flex items-center">
+                {/* Slider wrapper — overlays a tick mark at the 0 dB position (75% along the -60→+20 range) */}
+                <div className="relative flex-1 mr-4">
+                  <SliderTrack
+                    value={Math.max(-60, Math.min(20, audio.gainDb))}
+                    min={-60}
+                    max={20}
+                    step={0.1}
+                    propertyId="volume"
+                    category="audio"
+                    snapPoints={[{ value: 0, threshold: 0.5 }]}
+                    onSnapChange={setIsVolumeSnapping}
+                    onChange={(db) => {
+                      // Below -60 dB → treat as silence (mute)
+                      if (db <= -60) {
+                        handleVolumeChange(0);
+                      } else {
+                        handleVolumeChange(dbToLinearGain(db));
+                      }
+                    }}
+                  />
+                  {/* 0 dB reference tick: position = (0 - (-60)) / (20 - (-60)) = 75%
+                    Brightens when the thumb snaps to 0 dB during a drag. */}
+                  <div
+                    className={`absolute top-1/2 -translate-y-1/2 pointer-events-none transition-all duration-75 ${
+                      isVolumeSnapping
+                        ? "w-[2px] h-3 bg-white/90"
+                        : "w-px h-2.5 bg-white/40"
+                    }`}
+                    style={{ left: "75%" }}
+                  />
+                </div>
+                <NumericControl
+                  value={audio.gainDb}
                   onChange={(db) => {
-                    // Below -60 dB → treat as silence (mute)
                     if (db <= -60) {
                       handleVolumeChange(0);
                     } else {
-                      handleVolumeChange(dbToLinearGain(db));
+                      handleVolumeChange(dbToLinearGain(Math.min(20, db)));
                     }
                   }}
+                  step={0.1}
+                  min={-60}
+                  max={20}
+                  suffix="dB"
+                  inputWidth="w-8"
+                  inputPosition="text-right"
+                  decimals={1}
+                  ariaLabel="Volume"
+                  propertyId="volume"
+                  category="audio"
+                  formatDisplay={(v) => (v <= -60 ? "-∞" : v.toFixed(1))}
                 />
-                {/* 0 dB reference tick: position = (0 - (-60)) / (20 - (-60)) = 75% */}
-                <div
-                  className="absolute top-1/2 -translate-y-1/2 w-px h-2.5 bg-white/40 pointer-events-none"
-                  style={{ left: "75%" }}
+                {/* Mute toggle — mirrors AudioBasicTab pattern */}
+                <button
+                  type="button"
+                  onClick={toggleMute}
+                  className={`flex items-center justify-center w-6 h-6 rounded transition-all cursor-pointer ml-1 ${
+                    audio.muted
+                      ? "bg-red-500/15 text-red-400 hover:bg-red-500/25"
+                      : "bg-white/5 hover:bg-white/10 text-white/50 hover:text-white"
+                  }`}
+                  title={audio.muted ? "Unmute" : "Mute"}
+                  aria-label={audio.muted ? "Unmute" : "Mute"}
+                >
+                  {audio.muted ? (
+                    <VolumeX className="w-3.5 h-3.5" />
+                  ) : (
+                    <Volume2 className="w-3.5 h-3.5" />
+                  )}
+                </button>
+                <KeyframeNavControls
+                  hasKeyframes={volumeKeyframes.length > 0}
+                  isAtKeyframe={isAtVolumeKf}
+                  hasPrev={hasPrevVolumeKf}
+                  hasNext={hasNextVolumeKf}
+                  onToggleKeyframe={handleToggleVolumeKeyframe}
+                  onPrevKeyframe={() => handleJumpToVolumeKeyframe("prev")}
+                  onNextKeyframe={() => handleJumpToVolumeKeyframe("next")}
+                  label="Volume"
                 />
               </div>
-              <NumericControl
-                value={audio.gainDb}
-                onChange={(db) => {
-                  if (db <= -60) {
-                    handleVolumeChange(0);
-                  } else {
-                    handleVolumeChange(dbToLinearGain(Math.min(20, db)));
+            </div>
+
+            {/* Fade In */}
+            <div className="space-y-2">
+              <label className="text-[11px] font-medium text-white/90">
+                Fade in
+              </label>
+              <div className="flex items-center">
+                <SliderTrack
+                  value={fadeIn}
+                  min={0}
+                  max={maxFadeIn}
+                  step={0.01}
+                  propertyId="fadeIn"
+                  category="audio"
+                  onChange={(val) =>
+                    handleUpdate(
+                      "fadeIn",
+                      Math.max(0, Math.min(maxFadeIn, val)),
+                    )
                   }
-                }}
-                step={0.1}
-                min={-60}
-                max={20}
-                suffix="dB"
-                inputWidth="w-8"
-                inputPosition="text-right"
-                decimals={1}
-                ariaLabel="Volume"
-                propertyId="volume"
-                category="audio"
-                formatDisplay={(v) => (v <= -60 ? "-∞" : v.toFixed(1))}
-              />
-              <KeyframeNavControls
-                hasKeyframes={volumeKeyframes.length > 0}
-                isAtKeyframe={isAtVolumeKf}
-                hasPrev={hasPrevVolumeKf}
-                hasNext={hasNextVolumeKf}
-                onToggleKeyframe={handleToggleVolumeKeyframe}
-                onPrevKeyframe={() => handleJumpToVolumeKeyframe("prev")}
-                onNextKeyframe={() => handleJumpToVolumeKeyframe("next")}
-                label="Volume"
-              />
+                  className="mr-4"
+                />
+                <NumericControl
+                  value={fadeIn}
+                  onChange={(val) =>
+                    handleUpdate(
+                      "fadeIn",
+                      Math.max(0, Math.min(maxFadeIn, val)),
+                    )
+                  }
+                  step={0.01}
+                  min={0}
+                  max={maxFadeIn}
+                  suffix="s"
+                  inputWidth="w-6"
+                  inputPosition="text-right"
+                  decimals={1}
+                  ariaLabel="Fade in"
+                  propertyId="fadeIn"
+                  category="audio"
+                />
+                <KeyframeNavControls
+                  hasKeyframes={false}
+                  isAtKeyframe={false}
+                  hasPrev={false}
+                  hasNext={false}
+                  onToggleKeyframe={() => {}}
+                  onPrevKeyframe={() => {}}
+                  onNextKeyframe={() => {}}
+                  label="Fade in"
+                />
+              </div>
             </div>
-          </div>
 
-          {/* Fade In */}
-          <div className="space-y-2">
-            <label className="text-[11px] font-medium text-white/90">
-              Fade in
-            </label>
-            <div className="flex items-center">
-              <SliderTrack
-                value={fadeIn}
-                min={0}
-                max={maxFadeIn}
-                step={0.01}
-                propertyId="fadeIn"
-                category="audio"
-                onChange={(val) =>
-                  handleUpdate("fadeIn", Math.max(0, Math.min(maxFadeIn, val)))
-                }
-                className="mr-4"
-              />
-              <NumericControl
-                value={fadeIn}
-                onChange={(val) =>
-                  handleUpdate("fadeIn", Math.max(0, Math.min(maxFadeIn, val)))
-                }
-                step={0.01}
-                min={0}
-                max={maxFadeIn}
-                suffix="s"
-                inputWidth="w-6"
-                inputPosition="text-right"
-                decimals={1}
-                ariaLabel="Fade in"
-                propertyId="fadeIn"
-                category="audio"
-              />
-              <KeyframeNavControls
-                hasKeyframes={false}
-                isAtKeyframe={false}
-                hasPrev={false}
-                hasNext={false}
-                onToggleKeyframe={() => {}}
-                onPrevKeyframe={() => {}}
-                onNextKeyframe={() => {}}
-                label="Fade in"
-              />
+            {/* Fade Out */}
+            <div className="space-y-2">
+              <label className="text-[11px] font-medium text-white/90">
+                Fade out
+              </label>
+              <div className="flex items-center">
+                <SliderTrack
+                  value={fadeOut}
+                  min={0}
+                  max={maxFadeOut}
+                  step={0.01}
+                  propertyId="fadeOut"
+                  category="audio"
+                  onChange={(val) =>
+                    handleUpdate(
+                      "fadeOut",
+                      Math.max(0, Math.min(maxFadeOut, val)),
+                    )
+                  }
+                  className="mr-4"
+                />
+                <NumericControl
+                  value={fadeOut}
+                  onChange={(val) =>
+                    handleUpdate(
+                      "fadeOut",
+                      Math.max(0, Math.min(maxFadeOut, val)),
+                    )
+                  }
+                  step={0.01}
+                  min={0}
+                  max={maxFadeOut}
+                  suffix="s"
+                  inputWidth="w-6"
+                  inputPosition="text-right"
+                  decimals={1}
+                  ariaLabel="Fade out"
+                  propertyId="fadeOut"
+                  category="audio"
+                />
+                <KeyframeNavControls
+                  hasKeyframes={false}
+                  isAtKeyframe={false}
+                  hasPrev={false}
+                  hasNext={false}
+                  onToggleKeyframe={() => {}}
+                  onPrevKeyframe={() => {}}
+                  onNextKeyframe={() => {}}
+                  label="Fade out"
+                />
+              </div>
             </div>
-          </div>
 
-          {/* Fade Out */}
-          <div className="space-y-2">
-            <label className="text-[11px] font-medium text-white/90">
-              Fade out
-            </label>
-            <div className="flex items-center">
-              <SliderTrack
-                value={fadeOut}
-                min={0}
-                max={maxFadeOut}
-                step={0.01}
-                propertyId="fadeOut"
-                category="audio"
-                onChange={(val) =>
-                  handleUpdate(
-                    "fadeOut",
-                    Math.max(0, Math.min(maxFadeOut, val)),
-                  )
-                }
-                className="mr-4"
-              />
-              <NumericControl
-                value={fadeOut}
-                onChange={(val) =>
-                  handleUpdate(
-                    "fadeOut",
-                    Math.max(0, Math.min(maxFadeOut, val)),
-                  )
-                }
-                step={0.01}
-                min={0}
-                max={maxFadeOut}
-                suffix="s"
-                inputWidth="w-6"
-                inputPosition="text-right"
-                decimals={1}
-                ariaLabel="Fade out"
-                propertyId="fadeOut"
-                category="audio"
-              />
-              <KeyframeNavControls
-                hasKeyframes={false}
-                isAtKeyframe={false}
-                hasPrev={false}
-                hasNext={false}
-                onToggleKeyframe={() => {}}
-                onPrevKeyframe={() => {}}
-                onNextKeyframe={() => {}}
-                label="Fade out"
-              />
+            {/* Pan / Balance — matches AudioBasicTab pattern */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-medium text-white/90">
+                  Pan
+                </label>
+                <button
+                  type="button"
+                  onClick={handleResetPan}
+                  className="w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors cursor-pointer"
+                  title="Reset pan"
+                  aria-label="Reset pan"
+                >
+                  <RotateCcw className="w-2.5 h-2.5" />
+                </button>
+              </div>
+              <div className="flex items-center">
+                {/* Center tick at 50% = pan 0 */}
+                <div className="relative flex-1 mr-4">
+                  <SliderTrack
+                    value={pan}
+                    min={-1}
+                    max={1}
+                    step={0.01}
+                    propertyId="pan"
+                    category="audio"
+                    snapPoints={[{ value: 0, threshold: 0.02 }]}
+                    onChange={handlePanChange}
+                  />
+                  {/* Center tick at pan = 0 (50% of -1→+1) */}
+                  <div
+                    className="absolute top-1/2 -translate-y-1/2 w-px h-2.5 bg-white/40 pointer-events-none"
+                    style={{ left: "50%" }}
+                  />
+                </div>
+                <NumericControl
+                  value={Math.round(pan * 100)}
+                  onChange={(pct) => handlePanChange(pct / 100)}
+                  step={1}
+                  min={-100}
+                  max={100}
+                  suffix="%"
+                  inputWidth="w-8"
+                  inputPosition="text-right"
+                  decimals={0}
+                  ariaLabel="Pan"
+                  propertyId="pan"
+                  category="audio"
+                />
+                <KeyframeNavControls
+                  hasKeyframes={false}
+                  isAtKeyframe={false}
+                  hasPrev={false}
+                  hasNext={false}
+                  onToggleKeyframe={() => {}}
+                  onPrevKeyframe={() => {}}
+                  onNextKeyframe={() => {}}
+                  label="Pan"
+                />
+              </div>
             </div>
-          </div>
-        </>
-      )}
+          </>
+        )}
+      </div>
+      <AudioFXSection selectedClip={selectedClip} handleUpdate={handleUpdate} />
     </div>
   );
 };
