@@ -1699,6 +1699,43 @@ function getNativeColorGrade(
     ...(particleParams[3] > 0
       ? { particleParams, particleColor, particleTime }
       : {}),
+    ...(() => {
+      // Pack per-channel HSL from adjustments.hslChannels
+      const CHANNEL_CENTER_HUES: Record<string, number> = {
+        red: (0 * Math.PI) / 180,
+        orange: (30 * Math.PI) / 180,
+        yellow: (60 * Math.PI) / 180,
+        green: (120 * Math.PI) / 180,
+        cyan: (180 * Math.PI) / 180,
+        blue: (210 * Math.PI) / 180,
+        purple: (270 * Math.PI) / 180,
+        magenta: (330 * Math.PI) / 180,
+      };
+      const hslChannelsMap = (values as any)?.hslChannels as
+        | Record<
+            string,
+            { hue?: number; saturation?: number; brightness?: number }
+          >
+        | undefined;
+      if (!hslChannelsMap || typeof hslChannelsMap !== "object") return {};
+      const entries: Array<[number, number, number, number]> = [];
+      for (const [name, center] of Object.entries(CHANNEL_CENTER_HUES)) {
+        const ch = hslChannelsMap[name];
+        if (!ch) continue;
+        const hueOffset = ((ch.hue ?? 0) * Math.PI) / 180; // degrees → radians
+        const satOffset = (ch.saturation ?? 0) * 0.01; // −100..100 → −1..1
+        const briOffset = (ch.brightness ?? 0) * 0.01; // −100..100 → −1..1
+        if (
+          Math.abs(hueOffset) < 0.0001 &&
+          Math.abs(satOffset) < 0.0001 &&
+          Math.abs(briOffset) < 0.0001
+        )
+          continue;
+        entries.push([hueOffset, satOffset, briOffset, center]);
+      }
+      if (entries.length === 0) return {};
+      return { hslChannelCount: entries.length, hslChannels: entries };
+    })(),
   };
 }
 

@@ -77,6 +77,11 @@ struct ColorGradeUniforms {
     particle_color: vec4<f32>, // RGB + mode/fade flag
     particle_time: vec4<f32>, // time + padding
     chromatic_params: vec4<f32>, // amount, angle_degrees, edge_feather, enabled_flag
+    // Per-channel HSL (8 color ranges: red/orange/yellow/green/cyan/blue/purple/magenta)
+    // Each vec4: [hue_offset_rad, sat_offset (-1..1), bri_offset (-1..1), center_hue_rad]
+    hsl_channel_count: u32,
+    _hsl_pad: vec3<f32>,
+    hsl_channels: array<vec4<f32>, 8>,
 };
 
 struct LayerUniforms {
@@ -734,6 +739,39 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     if (layer.color_grade.hue_rotate != 0.0) {
         rgb = hue_rotate_color(rgb, layer.color_grade.hue_rotate);
+    }
+
+    // Per-channel HSL: each channel targets a specific hue range with a
+    // Gaussian luma-distance weight. center_hue defines the hue midpoint;
+    // the adjustment window is ±0.12 radians (~7°) half-width.
+    if (layer.color_grade.hsl_channel_count > 0u) {
+        var hsv = rgb_to_hsv(clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)));
+        let pixel_hue = hsv.x * 6.2831853; // convert [0..1] to radians
+        for (var i: u32 = 0u; i < layer.color_grade.hsl_channel_count; i = i + 1u) {
+            let ch = layer.color_grade.hsl_channels[i];
+            let hue_offset   = ch.x; // radians
+            let sat_offset   = ch.y; // -1..1
+            let bri_offset   = ch.z; // -1..1
+            let center_hue   = ch.w; // radians
+
+            // Hue distance on the circular hue wheel [-π, π]
+            var dist = pixel_hue - center_hue;
+            dist = dist - round(dist / 6.2831853) * 6.2831853;
+
+            // Gaussian weight: full effect within ~25°, fades to zero by ~65°
+            let sigma = 0.44; // radians (~25°)
+            let weight = exp(-(dist * dist) / (2.0 * sigma * sigma));
+
+            if (weight > 0.001) {
+                // Hue shift
+                hsv.x = fract((hsv.x * 6.2831853 + hue_offset * weight) / 6.2831853);
+                // Saturation shift (clamped to [0,1])
+                hsv.y = clamp(hsv.y + sat_offset * weight, 0.0, 1.0);
+                // Brightness (Value) shift
+                hsv.z = clamp(hsv.z + bri_offset * weight, 0.0, 1.0);
+            }
+        }
+        rgb = hsv_to_rgb(hsv);
     }
 
     // White Balance (Temperature & Tint)

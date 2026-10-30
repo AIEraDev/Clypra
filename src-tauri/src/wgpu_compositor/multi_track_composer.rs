@@ -170,6 +170,11 @@ pub struct ColorGradeUniforms {
     pub particle_color: [f32; 4],  // RGB + mode/fade flag
     pub particle_time: [f32; 4],   // time + padding
     pub chromatic_params: [f32; 4], // amount, angle_degrees, edge_feather, enabled
+    // Per-channel HSL: up to 8 color-range targets (red/orange/yellow/green/cyan/blue/purple/magenta)
+    // Each vec4: [hue_offset_rad, sat_offset (−1..1), bri_offset (−1..1), center_hue_rad]
+    pub hsl_channel_count: u32,
+    pub _hsl_pad: [f32; 3],        // align to 16 bytes before the array
+    pub hsl_channels: [[f32; 4]; 8],
 }
 
 /// Mask-driven body effect controls matching multi_track_blend.wgsl (32 bytes).
@@ -249,6 +254,9 @@ impl Default for ColorGradeUniforms {
             particle_color: [1.0, 1.0, 1.0, 0.0],
             particle_time: [0.0, 0.0, 0.0, 0.0],
             chromatic_params: [0.0, 0.0, 0.0, 0.0],
+            hsl_channel_count: 0,
+            _hsl_pad: [0.0, 0.0, 0.0],
+            hsl_channels: [[0.0, 0.0, 0.0, 0.0]; 8],
         }
     }
 }

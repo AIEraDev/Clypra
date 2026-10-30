@@ -729,6 +729,10 @@ export interface NativeColorGradeSnapshot {
   /** RGB plus mode (1 particles, 2 dust; fractional .5 means edge fade). */
   particleColor?: [number, number, number, number];
   particleTime?: number;
+  /** Number of active per-channel HSL entries (0 = disabled). */
+  hslChannelCount?: number;
+  /** Each entry: [hue_offset_rad, sat_offset (−1..1), bri_offset (−1..1), center_hue_rad]. Up to 8. */
+  hslChannels?: Array<[number, number, number, number]>;
 }
 
 export interface NativeRasterLayerSnapshot {

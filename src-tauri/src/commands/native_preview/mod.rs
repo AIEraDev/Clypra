@@ -367,12 +367,16 @@ fn color_grade_from_snapshot(snapshot: Option<&ColorGradeSnapshot>) -> ColorGrad
             grade.chromatic_amount,
             grade.chromatic_angle,
             grade.chromatic_edge_feather,
-            if grade.chromatic_amount > 0.0 {
-                1.0
-            } else {
-                0.0
-            },
+            if grade.chromatic_amount > 0.0 { 1.0 } else { 0.0 },
         ],
+        hsl_channel_count: grade.hsl_channel_count.min(8),
+        hsl_channels: {
+            let mut arr = [[0.0_f32; 4]; 8];
+            for (i, ch) in grade.hsl_channels.iter().enumerate().take(8) {
+                arr[i] = *ch;
+            }
+            arr
+        },
         ..ColorGradeUniforms::default()
     })
 }
