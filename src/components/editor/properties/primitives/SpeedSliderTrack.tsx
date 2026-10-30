@@ -2,11 +2,11 @@
  * SpeedSliderTrack.tsx
  *
  * Specialized slider track for speed control with visual tick marks
- * spanning the full 0.10x–100.00x range.
+ * at six semantic speed landmarks: 0.10x, 1.00x, 2.00x, 5.00x, 10.00x, 100.00x.
  *
- * Six ticks are rendered: one at each end and four equally spaced between
- * them (step = (max − min) / 5). Each tick is also a magnetic snap target so
- * dragging the thumb near one locks to it exactly.
+ * Each tick is a magnetic snap target. Per-tick thresholds are tighter for the
+ * closely-spaced low-end values (1x / 2x are only 1 unit apart) and wider
+ * toward the high-speed end where the track has more pixel room.
  *
  * Snap state is surfaced via the optional `onSnapChange` callback, mirroring
  * the same pattern used by SliderTrack.
@@ -36,20 +36,20 @@ export interface SpeedSliderTrackProps {
   className?: string;
 }
 
-/** Snap threshold in speed units — symmetric band around each tick value. */
-const SNAP_THRESHOLD = 0.5;
-
 /**
- * Build the six tick values for a given [min, max] range:
- *   tick[i] = min + i * (max - min) / 5   for i = 0 … 5
- * The first tick lands on min and the last on max.
+ * Fixed semantic speed tick marks with per-tick snap thresholds.
+ *
+ * Thresholds are tight for closely-spaced low-end values and progressively
+ * wider toward the high-speed end where the track has more pixel room.
  */
-function buildTicks(min: number, max: number): number[] {
-  const step = (max - min) / 5;
-  return Array.from({ length: 6 }, (_, i) =>
-    parseFloat((min + i * step).toFixed(2)),
-  );
-}
+const SPEED_TICKS: Array<{ value: number; threshold: number }> = [
+  { value: 0.1, threshold: 0.3 }, // lowest — first ~0.9% of track
+  { value: 1.0, threshold: 0.4 }, // 1× default
+  { value: 2.0, threshold: 0.4 }, // 2×
+  { value: 5.0, threshold: 1.0 }, // 5×
+  { value: 10.0, threshold: 2.0 }, // 10×
+  { value: 100.0, threshold: 4.0 }, // highest
+];
 
 export const SpeedSliderTrack: React.FC<SpeedSliderTrackProps> = ({
   value,
@@ -68,11 +68,8 @@ export const SpeedSliderTrack: React.FC<SpeedSliderTrackProps> = ({
     [min, max, decimals],
   );
 
-  // ── Tick positions ────────────────────────────────────────────────────────
-  const range = max - min;
-  const ticks = buildTicks(min, max);
-
   // ── Track fill ────────────────────────────────────────────────────────────
+  const range = max - min;
   const fillPercent =
     range > 0 ? Math.min(100, Math.max(0, ((value - min) / range) * 100)) : 0;
 
@@ -96,11 +93,13 @@ export const SpeedSliderTrack: React.FC<SpeedSliderTrackProps> = ({
       );
       let newValue = min + percent * range;
 
-      // ── Snap-point evaluation ───────────────────────────────────────────
+      // ── Snap-point evaluation (per-tick threshold) ─────────────────────
       let snappedIdx = -1;
-      for (let i = 0; i < ticks.length; i++) {
-        if (Math.abs(newValue - ticks[i]) <= SNAP_THRESHOLD) {
-          newValue = ticks[i];
+      for (let i = 0; i < SPEED_TICKS.length; i++) {
+        const tick = SPEED_TICKS[i];
+        if (tick.value < min || tick.value > max) continue;
+        if (Math.abs(newValue - tick.value) <= tick.threshold) {
+          newValue = tick.value;
           snappedIdx = i;
           break;
         }
@@ -121,7 +120,7 @@ export const SpeedSliderTrack: React.FC<SpeedSliderTrackProps> = ({
 
       onChange(clamp(newValue));
     },
-    [min, range, onChange, clamp, ticks, onSnapChange],
+    [min, max, range, onChange, clamp, onSnapChange],
   );
 
   const handleMouseDown = useCallback(
@@ -179,19 +178,21 @@ export const SpeedSliderTrack: React.FC<SpeedSliderTrackProps> = ({
       </div>
 
       {/* Tick marks — brighten while the thumb is snapped to them */}
-      {ticks.map((tickValue, i) => {
-        const position = ((tickValue - min) / range) * 100;
-        const isSnapped = snappedTickIndex === i;
-        return (
-          <div
-            key={tickValue}
-            className={`absolute top-1/2 -translate-y-1/2 pointer-events-none bg-white transition-all duration-75 ${
-              isSnapped ? "w-[2px] h-3" : "w-px h-2.5"
-            }`}
-            style={{ left: `${position}%` }}
-          />
-        );
-      })}
+      {SPEED_TICKS.filter((t) => t.value >= min && t.value <= max).map(
+        ({ value: tickValue }, i) => {
+          const position = ((tickValue - min) / range) * 100;
+          const isSnapped = snappedTickIndex === i;
+          return (
+            <div
+              key={tickValue}
+              className={`absolute top-1/2 -translate-y-1/2 pointer-events-none bg-white transition-all duration-75 ${
+                isSnapped ? "w-[2px] h-3 opacity-90" : "w-px h-2.5 opacity-40"
+              }`}
+              style={{ left: `${position}%` }}
+            />
+          );
+        },
+      )}
 
       {/* Slider Thumbnail */}
       <div
