@@ -1,15 +1,19 @@
 /**
  * SpeedSliderTrack.tsx
  *
- * Specialized slider track for speed control with visual tick marks
- * at six semantic speed landmarks: 0.10x, 1.00x, 2.00x, 5.00x, 10.00x, 100.00x.
+ * Specialized slider track for speed control with visual tick marks at six
+ * semantic speed landmarks: 0.10x, 1.00x, 2.00x, 5.00x, 10.00x, 100.00x.
  *
- * Each tick is a magnetic snap target. Per-tick thresholds are tighter for the
- * closely-spaced low-end values (1x / 2x are only 1 unit apart) and wider
- * toward the high-speed end where the track has more pixel room.
+ * The track uses a LOGARITHMIC scale so each tick is visually equidistant —
+ * the perceptual jump from 0.1x → 1x feels the same as 1x → 10x → 100x.
  *
- * Snap state is surfaced via the optional `onSnapChange` callback, mirroring
- * the same pattern used by SliderTrack.
+ *   screen position → log-interpolated speed value
+ *   speed value → screen position via log-interpolation
+ *
+ * Snap thresholds are expressed in log-space (±0.08 of the total log range)
+ * so every tick gets the same visual snap zone width regardless of value.
+ *
+ * The `onSnapChange` callback mirrors the pattern used by SliderTrack.
  */
 
 import React, { useCallback, useRef, useState, useEffect } from "react";
@@ -17,7 +21,7 @@ import React, { useCallback, useRef, useState, useEffect } from "react";
 export interface SpeedSliderTrackProps {
   /** Current speed value */
   value: number;
-  /** Minimum speed */
+  /** Minimum speed (must be > 0) */
   min: number;
   /** Maximum speed */
   max: number;
@@ -36,20 +40,40 @@ export interface SpeedSliderTrackProps {
   className?: string;
 }
 
+/** Semantic speed landmarks the ticks snap to. */
+const SPEED_TICKS = [0.1, 1, 2, 5, 10, 100];
+
 /**
- * Fixed semantic speed tick marks with per-tick snap thresholds.
- *
- * Thresholds are tight for closely-spaced low-end values and progressively
- * wider toward the high-speed end where the track has more pixel room.
+ * Snap zone half-width in log-space.
+ * log(100/0.1) = log(1000) ≈ 6.908; 0.08 × 6.908 ≈ 0.55 log-units per side.
+ * Adjacent ticks (e.g. log(1)=0, log(2)=0.693) are ~1 log-unit apart so
+ * zones don't overlap.
  */
-const SPEED_TICKS: Array<{ value: number; threshold: number }> = [
-  { value: 0.1, threshold: 0.3 }, // lowest — first ~0.9% of track
-  { value: 1.0, threshold: 0.4 }, // 1× default
-  { value: 2.0, threshold: 0.4 }, // 2×
-  { value: 5.0, threshold: 1.0 }, // 5×
-  { value: 10.0, threshold: 2.0 }, // 10×
-  { value: 100.0, threshold: 4.0 }, // highest
-];
+const LOG_SNAP_HALF = 0.08;
+
+// ── Log-scale helpers ────────────────────────────────────────────────────────
+
+/** Map a speed value to a 0–1 screen fraction using log interpolation. */
+function valueToPercent(
+  value: number,
+  logMin: number,
+  logRange: number,
+): number {
+  return Math.max(0, Math.min(1, (Math.log(value) - logMin) / logRange));
+}
+
+/** Map a 0–1 screen fraction to a speed value using log interpolation. */
+function percentToValue(
+  percent: number,
+  logMin: number,
+  logRange: number,
+  decimals: number,
+): number {
+  const raw = Math.exp(logMin + percent * logRange);
+  return +raw.toFixed(decimals);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const SpeedSliderTrack: React.FC<SpeedSliderTrackProps> = ({
   value,
@@ -68,19 +92,20 @@ export const SpeedSliderTrack: React.FC<SpeedSliderTrackProps> = ({
     [min, max, decimals],
   );
 
+  // Pre-compute log bounds once (min/max never change during a session)
+  const logMin = Math.log(Math.max(min, 1e-6));
+  const logMax = Math.log(Math.max(max, 1e-6));
+  const logRange = logMax - logMin;
+
   // ── Track fill ────────────────────────────────────────────────────────────
-  const range = max - min;
-  const fillPercent =
-    range > 0 ? Math.min(100, Math.max(0, ((value - min) / range) * 100)) : 0;
+  const safeValue = Math.max(min, Math.min(max, value));
+  const fillPercent = valueToPercent(safeValue, logMin, logRange) * 100;
 
   // ── Drag handling ─────────────────────────────────────────────────────────
   const trackRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
-  /** Index of the currently-snapped tick, or -1 when not snapping. */
   const [snappedTickIndex, setSnappedTickIndex] = useState<number>(-1);
-  /** Ref mirror so handleDrag closure can compare without a stale value. */
   const snappedTickRef = useRef<number>(-1);
-  /** Tracks overall snap state for onSnapChange transitions. */
   const isSnappedRef = useRef<boolean>(false);
 
   const handleDrag = useCallback(
@@ -91,27 +116,31 @@ export const SpeedSliderTrack: React.FC<SpeedSliderTrackProps> = ({
         0,
         Math.min(1, (clientX - rect.left) / rect.width),
       );
-      let newValue = min + percent * range;
+      let newValue = percentToValue(percent, logMin, logRange, decimals);
 
-      // ── Snap-point evaluation (per-tick threshold) ─────────────────────
+      // ── Log-space snap evaluation ───────────────────────────────────────
+      // Each tick gets a symmetric ±LOG_SNAP_HALF zone in log-space, giving
+      // equal visual snap zone width for every tick regardless of its value.
       let snappedIdx = -1;
+      const logNewValue = Math.log(Math.max(newValue, 1e-6));
       for (let i = 0; i < SPEED_TICKS.length; i++) {
-        const tick = SPEED_TICKS[i];
-        if (tick.value < min || tick.value > max) continue;
-        if (Math.abs(newValue - tick.value) <= tick.threshold) {
-          newValue = tick.value;
+        const tickVal = SPEED_TICKS[i];
+        if (tickVal < min || tickVal > max) continue;
+        if (
+          Math.abs(logNewValue - Math.log(tickVal)) <=
+          LOG_SNAP_HALF * logRange
+        ) {
+          newValue = tickVal;
           snappedIdx = i;
           break;
         }
       }
 
-      // Update visual highlight only when the snapped tick changes
       if (snappedIdx !== snappedTickRef.current) {
         snappedTickRef.current = snappedIdx;
         setSnappedTickIndex(snappedIdx);
       }
 
-      // Fire onSnapChange only on boolean transition
       const snapped = snappedIdx >= 0;
       if (snapped !== isSnappedRef.current) {
         isSnappedRef.current = snapped;
@@ -120,7 +149,7 @@ export const SpeedSliderTrack: React.FC<SpeedSliderTrackProps> = ({
 
       onChange(clamp(newValue));
     },
-    [min, max, range, onChange, clamp, onSnapChange],
+    [logMin, logRange, decimals, min, max, onChange, clamp, onSnapChange],
   );
 
   const handleMouseDown = useCallback(
@@ -134,15 +163,12 @@ export const SpeedSliderTrack: React.FC<SpeedSliderTrackProps> = ({
 
   const handleMouseMove = useCallback(
     (e: MouseEvent) => {
-      if (isDragging) {
-        handleDrag(e.clientX);
-      }
+      if (isDragging) handleDrag(e.clientX);
     },
     [isDragging, handleDrag],
   );
 
   const handleMouseUp = useCallback(() => {
-    // Clear snap highlight on release
     if (isSnappedRef.current) {
       isSnappedRef.current = false;
       snappedTickRef.current = -1;
@@ -177,22 +203,20 @@ export const SpeedSliderTrack: React.FC<SpeedSliderTrackProps> = ({
         />
       </div>
 
-      {/* Tick marks — brighten while the thumb is snapped to them */}
-      {SPEED_TICKS.filter((t) => t.value >= min && t.value <= max).map(
-        ({ value: tickValue }, i) => {
-          const position = ((tickValue - min) / range) * 100;
-          const isSnapped = snappedTickIndex === i;
-          return (
-            <div
-              key={tickValue}
-              className={`absolute top-1/2 -translate-y-1/2 pointer-events-none bg-white transition-all duration-75 ${
-                isSnapped ? "w-[2px] h-3 opacity-90" : "w-px h-2.5 opacity-40"
-              }`}
-              style={{ left: `${position}%` }}
-            />
-          );
-        },
-      )}
+      {/* Tick marks at log-scale positions */}
+      {SPEED_TICKS.filter((t) => t >= min && t <= max).map((tickValue, i) => {
+        const position = valueToPercent(tickValue, logMin, logRange) * 100;
+        const isSnapped = snappedTickIndex === i;
+        return (
+          <div
+            key={tickValue}
+            className={`absolute top-1/2 -translate-y-1/2 pointer-events-none bg-white transition-all duration-75 ${
+              isSnapped ? "w-[2px] h-3 opacity-90" : "w-px h-2.5 opacity-40"
+            }`}
+            style={{ left: `${position}%` }}
+          />
+        );
+      })}
 
       {/* Slider Thumbnail */}
       <div
