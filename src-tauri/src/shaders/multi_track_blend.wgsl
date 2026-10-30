@@ -79,8 +79,11 @@ struct ColorGradeUniforms {
     chromatic_params: vec4<f32>, // amount, angle_degrees, edge_feather, enabled_flag
     // Per-channel HSL (8 color ranges: red/orange/yellow/green/cyan/blue/purple/magenta)
     // Each vec4: [hue_offset_rad, sat_offset (-1..1), bri_offset (-1..1), center_hue_rad]
+    // Layout: hsl_channel_count(u32) + 3×f32 pad = 16 bytes, then 8×vec4 = 128 bytes
     hsl_channel_count: u32,
-    _hsl_pad: vec3<f32>,
+    _hsl_pad0: f32,
+    _hsl_pad1: f32,
+    _hsl_pad2: f32,
     hsl_channels: array<vec4<f32>, 8>,
 };
 
