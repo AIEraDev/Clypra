@@ -111,9 +111,11 @@ export function useTimelineZoom(
           -0.22,
           Math.min(0.22, -dy * WHEEL_ZOOM_SENSITIVITY),
         );
+        // allowOverviewFloor must stay false so continuous trackpad zoom-out
+        // stops at TIMELINE_MIN_PPS, matching the zoom-button floor.
         targetPps = clampTimelinePixelsPerSecond(
           basePps * Math.exp(exponent),
-          true,
+          false,
           frameRate,
           effectiveDuration,
         );

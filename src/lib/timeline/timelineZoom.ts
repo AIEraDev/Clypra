@@ -1,5 +1,11 @@
 import { computeTemporalTierFromDensity } from "../renderEngine/tsp";
-import { DEFAULT_SRP_CONFIG, SpatialTier, TEMPORAL_TIER_INTERVALS, TemporalTier, type SrpConfig } from "../renderEngine/types";
+import {
+  DEFAULT_SRP_CONFIG,
+  SpatialTier,
+  TEMPORAL_TIER_INTERVALS,
+  TemporalTier,
+  type SrpConfig,
+} from "../renderEngine/types";
 
 export const TIMELINE_ZOOM_STEP = 0.1;
 export const TIMELINE_ZOOM_GEOMETRIC_FACTOR = 1.25;
@@ -30,22 +36,33 @@ export const TIMELINE_MAX_PX_PER_FRAME = 200;
  */
 export const MAX_SAFE_SCROLL_WIDTH_PX = 32_000_000;
 
-export function getTimelineMaxPps(frameRate: number = 30, sequenceDuration?: number): number {
-  const safeFps = Number.isFinite(frameRate) && frameRate > 0 ? Math.round(frameRate) : 30;
+export function getTimelineMaxPps(
+  frameRate: number = 30,
+  sequenceDuration?: number,
+): number {
+  const safeFps =
+    Number.isFinite(frameRate) && frameRate > 0 ? Math.round(frameRate) : 30;
   const baseMax = TIMELINE_MAX_PX_PER_FRAME * safeFps;
   if (typeof sequenceDuration === "number" && sequenceDuration > 0) {
     const canvasDuration = sequenceDuration + 2;
-    const durationCapped = Math.floor(MAX_SAFE_SCROLL_WIDTH_PX / canvasDuration);
+    const durationCapped = Math.floor(
+      MAX_SAFE_SCROLL_WIDTH_PX / canvasDuration,
+    );
     return Math.max(TIMELINE_MIN_PPS, Math.min(baseMax, durationCapped));
   }
   return baseMax;
 }
 
-export function getTimelineZoomMax(frameRate: number = 30, sequenceDuration?: number): number {
+export function getTimelineZoomMax(
+  frameRate: number = 30,
+  sequenceDuration?: number,
+): number {
   return getTimelineMaxPps(frameRate, sequenceDuration) / TIMELINE_PPS_PER_ZOOM;
 }
 
-export function getTimelineZoomMin(config: SrpConfig = DEFAULT_SRP_CONFIG): number {
+export function getTimelineZoomMin(
+  config: SrpConfig = DEFAULT_SRP_CONFIG,
+): number {
   return Math.min(...Object.values(config).map((boundary) => boundary.min));
 }
 
@@ -61,7 +78,8 @@ export function clampTimelineZoom(
   sequenceDuration?: number,
 ): number {
   const maxZoom = getTimelineZoomMax(frameRate, sequenceDuration);
-  const val = typeof zoom === "number" && !isNaN(zoom) ? zoom : TIMELINE_ZOOM_DEFAULT;
+  const val =
+    typeof zoom === "number" && !isNaN(zoom) ? zoom : TIMELINE_ZOOM_DEFAULT;
   return Math.min(maxZoom, Math.max(TIMELINE_ZOOM_MIN, val));
 }
 
@@ -98,16 +116,21 @@ export function calculateDiscreteWheelZoomTarget(
   const nominalMin = TIMELINE_MIN_PPS; // 10 px/s
   const notchStep = Math.pow(maxPps / nominalMin, 1 / 7);
   const factor = Math.pow(notchStep, Math.abs(notches));
+  // allowOverviewFloor must stay false here so the wheel floor matches the
+  // zoom-button floor (TIMELINE_MIN_PPS). Only fitSequence may cross below that.
   return clampTimelinePixelsPerSecond(
     notches > 0 ? basePps * factor : basePps / factor,
-    true,
+    false,
     frameRate,
     sequenceDuration,
   );
 }
 
 // Zoom is logarithmic in interaction space, while SRP boundaries remain absolute.
-export function getSrpTierForZoom(zoom: number, config: SrpConfig = DEFAULT_SRP_CONFIG): SpatialTier {
+export function getSrpTierForZoom(
+  zoom: number,
+  config: SrpConfig = DEFAULT_SRP_CONFIG,
+): SpatialTier {
   const tiers = Object.keys(config)
     .map(Number)
     .sort((a, b) => a - b) as SpatialTier[];
@@ -156,13 +179,17 @@ export function snapTimelineZoomToTierAnchors(
     new Set([
       TIMELINE_ZOOM_MIN,
       maxZoom,
-      ...Object.values(config).flatMap((boundary) => [boundary.min, boundary.max]),
+      ...Object.values(config).flatMap((boundary) => [
+        boundary.min,
+        boundary.max,
+      ]),
     ]),
   ).sort((a, b) => a - b);
 
   return (
-    anchors.find((anchor) => Math.abs(clamped - anchor) <= TIMELINE_TIER_SNAP_EPSILON) ??
-    clamped
+    anchors.find(
+      (anchor) => Math.abs(clamped - anchor) <= TIMELINE_TIER_SNAP_EPSILON,
+    ) ?? clamped
   );
 }
 
@@ -180,5 +207,7 @@ export function getTimelineTemporalDetail(pixelsPerSecond: number): {
 }
 
 export function formatCadenceSeconds(seconds: number): string {
-  return seconds >= 1 ? `${seconds.toFixed(seconds % 1 === 0 ? 0 : 1)}s` : `${Math.round(seconds * 1000)}ms`;
+  return seconds >= 1
+    ? `${seconds.toFixed(seconds % 1 === 0 ? 0 : 1)}s`
+    : `${Math.round(seconds * 1000)}ms`;
 }
