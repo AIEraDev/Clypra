@@ -141,6 +141,12 @@ pub struct ColorGradeUniforms {
     pub vibrance_protected_hue_b: f32,
     pub lift: f32,
     pub cross_process_amount: f32,
+    // Tonal range luma adjustments (−1..1, 0 = neutral)
+    pub highlights: f32,   // Reduce/boost bright tones
+    pub shadows: f32,      // Reduce/boost dark tones
+    pub whites: f32,       // Hard clip ceiling adjustment
+    pub blacks: f32,       // Hard clip floor adjustment
+    pub fade: f32,         // Mix towards mid-gray (0..1)
     pub _padding0: [f32; 3],      // align following vec4 uniforms to 16 bytes
     pub channel_mix: [f32; 4],    // RGB weights + enabled flag
     pub duotone_dark: [f32; 4],   // RGB + enabled flag
@@ -215,6 +221,11 @@ impl Default for ColorGradeUniforms {
             vibrance_protected_hue_b: 0.55,
             lift: 0.0,
             cross_process_amount: 0.0,
+            highlights: 0.0,
+            shadows: 0.0,
+            whites: 0.0,
+            blacks: 0.0,
+            fade: 0.0,
             _padding0: [0.0, 0.0, 0.0],
             channel_mix: [0.0, 0.0, 0.0, 0.0],
             duotone_dark: [0.0, 0.0, 0.0, 0.0],

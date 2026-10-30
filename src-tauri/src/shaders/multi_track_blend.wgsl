@@ -49,6 +49,12 @@ struct ColorGradeUniforms {
     vibrance_protected_hue_b: f32,
     lift: f32,
     cross_process_amount: f32,
+    // Tonal range luma adjustments [-1.0, 1.0], 0.0 = neutral
+    highlights: f32,         // Reduce/boost bright tones
+    shadows: f32,            // Reduce/boost dark tones
+    whites: f32,             // Hard clip ceiling
+    blacks: f32,             // Hard clip floor
+    fade: f32,               // Mix towards mid-gray [0.0, 1.0]
     channel_mix: vec4<f32>, // RGB weights + enabled flag
     duotone_dark: vec4<f32>, // RGB + enabled flag
     duotone_light: vec4<f32>, // RGB + padding
@@ -626,6 +632,38 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Lift shifts the black point; keep it before contrast to match Clypra Studio.
     if (layer.color_grade.lift != 0.0) {
         rgb = rgb + layer.color_grade.lift * (vec3<f32>(1.0) - rgb);
+    }
+
+    // Tonal-range luma adjustments (Lightroom-style).
+    // Each operates on a luminance-weighted region of the tonal range.
+    if (layer.color_grade.highlights != 0.0 || layer.color_grade.shadows != 0.0 ||
+        layer.color_grade.whites != 0.0    || layer.color_grade.blacks != 0.0) {
+        let tonal_luma = get_luminance(rgb);
+        // Highlights: smoothstep zone above 0.5 luma
+        if (layer.color_grade.highlights != 0.0) {
+            let w = smoothstep(0.4, 1.0, tonal_luma);
+            rgb = clamp(rgb + vec3<f32>(layer.color_grade.highlights * w), vec3<f32>(0.0), vec3<f32>(1.0));
+        }
+        // Shadows: smoothstep zone below 0.5 luma
+        if (layer.color_grade.shadows != 0.0) {
+            let w = 1.0 - smoothstep(0.0, 0.6, tonal_luma);
+            rgb = clamp(rgb + vec3<f32>(layer.color_grade.shadows * w), vec3<f32>(0.0), vec3<f32>(1.0));
+        }
+        // Whites: hard ceiling — pull the white point down or up
+        if (layer.color_grade.whites != 0.0) {
+            let w = smoothstep(0.75, 1.0, tonal_luma);
+            rgb = clamp(rgb + vec3<f32>(layer.color_grade.whites * w), vec3<f32>(0.0), vec3<f32>(1.0));
+        }
+        // Blacks: hard floor — push the black point up or down
+        if (layer.color_grade.blacks != 0.0) {
+            let w = 1.0 - smoothstep(0.0, 0.25, tonal_luma);
+            rgb = clamp(rgb + vec3<f32>(layer.color_grade.blacks * w), vec3<f32>(0.0), vec3<f32>(1.0));
+        }
+    }
+
+    // Fade: mix towards mid-gray (0.5) — cinematic bleach-bypass look.
+    if (layer.color_grade.fade > 0.0) {
+        rgb = mix(rgb, vec3<f32>(0.5), clamp(layer.color_grade.fade, 0.0, 1.0));
     }
 
     // Contrast Adjustment around mid-gray (0.5)

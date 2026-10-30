@@ -282,6 +282,11 @@ fn color_grade_from_snapshot(snapshot: Option<&ColorGradeSnapshot>) -> ColorGrad
         vibrance_protected_hue_b: grade.vibrance_protected_hue_b,
         lift: grade.lift,
         cross_process_amount: grade.cross_process_amount,
+        highlights: grade.highlights,
+        shadows: grade.shadows,
+        whites: grade.whites,
+        blacks: grade.blacks,
+        fade: grade.fade,
         channel_mix: [
             grade.channel_mix_r,
             grade.channel_mix_g,

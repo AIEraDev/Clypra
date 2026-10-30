@@ -309,6 +309,16 @@ pub struct ColorGradeSnapshot {
     #[serde(default)]
     pub cross_process_amount: f32,
     #[serde(default)]
+    pub highlights: f32,
+    #[serde(default)]
+    pub shadows: f32,
+    #[serde(default)]
+    pub whites: f32,
+    #[serde(default)]
+    pub blacks: f32,
+    #[serde(default)]
+    pub fade: f32,
+    #[serde(default)]
     pub channel_mix_r: f32,
     #[serde(default)]
     pub channel_mix_g: f32,
