@@ -44,6 +44,15 @@ export interface NativeAudioTimelineClip {
   downmix: AudioDownmixMode;
   channelMap?: number[];
   preservePitch: boolean;
+  /**
+   * Per-clip playback speed multiplier (1.0 = real-time, 2.0 = 2× fast, 0.5 = half speed).
+   *
+   * This is independent of the global transport speed (`setNativeAudioSpeed`).
+   * The native mixer uses this to remap source-media time within the clip's
+   * timeline footprint: source_position = relative_ticks * clip_speed.
+   * Default 1.0 when absent (no time remapping needed).
+   */
+  clipSpeed: number;
 }
 
 export interface NativeAudioTimelineSnapshot {
@@ -165,6 +174,9 @@ function toNativeAudioTimelineClip(
     channelMap: config.channelMap,
     preservePitch:
       options.preserveTransportPitch === true || config.preservePitch,
+    // Per-clip speed: how many source-media ticks to advance per timeline tick.
+    // Default 1.0 keeps existing clips unchanged.
+    clipSpeed: config.speed ?? 1.0,
   };
 }
 
