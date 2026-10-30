@@ -1,18 +1,14 @@
 import React, { useCallback } from "react";
 import {
   Move,
-  Timer,
   RotateCcw,
   FlipHorizontal2,
   FlipVertical2,
   Lock,
   Unlock,
   Crosshair,
-  TrendingUp,
-  Route,
   Aperture,
 } from "lucide-react";
-import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import type { Clip } from "@/types";
@@ -833,13 +829,6 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
           </div>
         </div>
       </PropertySection>
-
-      {/* <PropertySection title="Timing" icon={<Timer className="w-3.5 h-3.5" />} defaultCollapsed>
-        <div className="space-y-2.5">
-          <PropertySlider label="Trim In" value={selectedClip.trimIn} min={0} max={Math.max(selectedClip.trimOut - 0.1, 0)} step={0.01} suffix="s" onChange={(v) => handleUpdate("trimIn", v)} />
-          <PropertySlider label="Trim Out" value={selectedClip.trimOut} min={selectedClip.trimIn + 0.1} max={selectedClip.trimIn + selectedClip.duration + 30} step={0.01} suffix="s" onChange={(v) => handleUpdate("trimOut", v)} />
-        </div>
-      </PropertySection> */}
     </div>
   );
 };
