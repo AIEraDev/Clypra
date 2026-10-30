@@ -8,10 +8,22 @@
  * Now centralized for reusability and testability.
  */
 
-import type { AudioChannelMode, AudioDownmixMode, AudioFadeCurve, AudioKeyframe, Clip, Track, MediaAsset } from "@/types";
+import type {
+  AudioChannelMode,
+  AudioDownmixMode,
+  AudioFadeCurve,
+  AudioKeyframe,
+  Clip,
+  Track,
+  MediaAsset,
+} from "@/types";
 import { toNativePath } from "@/lib/platform/pathConversion";
 import { expandCompoundClips } from "./compoundClips";
-import { buildAudioAutomationSlice, evaluateEffectiveAudioState, isTrackAudible } from "@/core/audio/effectiveAudioState";
+import {
+  buildAudioAutomationSlice,
+  evaluateEffectiveAudioState,
+  isTrackAudible,
+} from "@/core/audio/effectiveAudioState";
 import { getClipAudioProperties } from "@/types/audio";
 import { clipHasAudio } from "@/core/media/mediaAudioDetection";
 import { resolveClipSourceTime } from "./sourceTime";
@@ -75,110 +87,163 @@ export interface ExportAudioClipConfig {
  * @param endTime - Export end time in seconds
  * @returns Array of audio clip configurations ready for FFmpeg
  */
-export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: MediaAsset[], startTime: number, endTime: number): ExportAudioClipConfig[] {
+export function getActiveAudioClips(
+  clips: Clip[],
+  tracks: Track[],
+  assets: MediaAsset[],
+  startTime: number,
+  endTime: number,
+): ExportAudioClipConfig[] {
   clips = expandCompoundClips(clips);
   // Build map of track IDs to track objects (for muted status and track volume)
   const trackMap = new Map(tracks.map((t) => [t.id, t]));
 
-  return clips
-    .filter((clip) => {
-      // Skip clips on muted tracks
-      if (!isTrackAudible(trackMap.get(clip.trackId), tracks)) return false;
+  return (
+    clips
+      .filter((clip) => {
+        // Skip clips on muted tracks
+        if (!isTrackAudible(trackMap.get(clip.trackId), tracks)) return false;
 
-      // Find asset
-      const asset = assets.find((a) => a.id === clip.mediaId);
-      if (!clipHasAudio(clip, asset)) return false;
+        // Find asset
+        const asset = assets.find((a) => a.id === clip.mediaId);
+        if (!clipHasAudio(clip, asset)) return false;
 
-      // Check if clip overlaps with export time range
-      const clipStart = clip.startTime;
-      const clipEnd = clip.startTime + clip.duration;
-      return clipStart < endTime && clipEnd > startTime;
-    })
-    .map((clip) => {
-      const asset = assets.find((a) => a.id === clip.mediaId);
-      const directAudioPath = (clip as any).audioPath as string | undefined;
-      const rawPath = directAudioPath || asset?.path || "";
-      const track = trackMap.get(clip.trackId);
-      const audio = getClipAudioProperties(clip);
+        // Check if clip overlaps with export time range
+        const clipStart = clip.startTime;
+        const clipEnd = clip.startTime + clip.duration;
+        return clipStart < endTime && clipEnd > startTime;
+      })
+      .map((clip) => {
+        const asset = assets.find((a) => a.id === clip.mediaId);
+        const directAudioPath = (clip as any).audioPath as string | undefined;
+        const rawPath = directAudioPath || asset?.path || "";
+        const track = trackMap.get(clip.trackId);
+        const audio = getClipAudioProperties(clip);
 
-      // Calculate overlap with export time range
-      const clipStart = clip.startTime;
-      const clipEnd = clip.startTime + clip.duration;
-      const overlapStart = Math.max(clipStart, startTime);
-      const overlapEnd = Math.min(clipEnd, endTime);
+        // Calculate overlap with export time range
+        const clipStart = clip.startTime;
+        const clipEnd = clip.startTime + clip.duration;
+        const overlapStart = Math.max(clipStart, startTime);
+        const overlapEnd = Math.min(clipEnd, endTime);
 
-      // Calculate relative times (relative to export start, not timeline start)
-      const relativeStartTime = overlapStart - startTime;
-      const relativeDuration = overlapEnd - overlapStart;
+        // Calculate relative times (relative to export start, not timeline start)
+        const relativeStartTime = overlapStart - startTime;
+        const relativeDuration = overlapEnd - overlapStart;
 
-      // Calculate trim offset accounting for clip overlap and speed remapping
-      const relativeTrimIn = resolveClipSourceTime(clip, overlapStart).sourceTime;
+        // Calculate trim offset accounting for clip overlap and speed remapping
+        const relativeTrimIn = resolveClipSourceTime(
+          clip,
+          overlapStart,
+        ).sourceTime;
 
-      // Calculate effective slice fade-in and fade-out relative to export overlap range
-      const rawFadeIn = audio.fadeIn.duration;
-      const rawFadeOut = audio.fadeOut.duration;
+        // Calculate effective slice fade-in and fade-out relative to export overlap range
+        const rawFadeIn = audio.fadeIn.duration;
+        const rawFadeOut = audio.fadeOut.duration;
 
-      const originalFadeInEnd = clipStart + rawFadeIn;
-      let fadeIn = Math.max(0, Math.min(relativeDuration, originalFadeInEnd - overlapStart));
+        const originalFadeInEnd = clipStart + rawFadeIn;
+        let fadeIn = Math.max(
+          0,
+          Math.min(relativeDuration, originalFadeInEnd - overlapStart),
+        );
 
-      const originalFadeOutStart = clipEnd - rawFadeOut;
-      let fadeOut = Math.max(0, Math.min(relativeDuration, overlapEnd - Math.max(overlapStart, originalFadeOutStart)));
+        const originalFadeOutStart = clipEnd - rawFadeOut;
+        let fadeOut = Math.max(
+          0,
+          Math.min(
+            relativeDuration,
+            overlapEnd - Math.max(overlapStart, originalFadeOutStart),
+          ),
+        );
 
-      // Ensure combined fade duration does not exceed slice duration
-      if (fadeIn + fadeOut > relativeDuration && relativeDuration > 0) {
-        const scale = relativeDuration / (fadeIn + fadeOut);
-        fadeIn *= scale;
-        fadeOut *= scale;
-      }
+        // Ensure combined fade duration does not exceed slice duration
+        if (fadeIn + fadeOut > relativeDuration && relativeDuration > 0) {
+          const scale = relativeDuration / (fadeIn + fadeOut);
+          fadeIn *= scale;
+          fadeOut *= scale;
+        }
 
-      const staticState = evaluateEffectiveAudioState(clip, track, clip.startTime, { tracks });
-      const effective = evaluateEffectiveAudioState(clip, track, overlapStart, { tracks });
-      // `staticGain` intentionally excludes time-varying fades/keyframes, but
-      // it also excludes the mute decision. Native preview and export must
-      // receive the canonical effective mute result or a muted clip remains
-      // audible outside the browser engine.
-      const volume = staticState.muted
-        ? 0
-        : Math.max(0, Math.min(3.0, staticState.staticGain));
-      const volumeKeyframes = buildAudioAutomationSlice(audio.volumeKeyframes, overlapStart - clipStart, relativeDuration);
+        const staticState = evaluateEffectiveAudioState(
+          clip,
+          track,
+          clip.startTime,
+          { tracks },
+        );
+        const effective = evaluateEffectiveAudioState(
+          clip,
+          track,
+          overlapStart,
+          { tracks },
+        );
+        // `staticGain` intentionally excludes time-varying fades/keyframes, but
+        // it also excludes the mute decision. Native preview and export must
+        // receive the canonical effective mute result or a muted clip remains
+        // audible outside the browser engine.
+        const volume = staticState.muted
+          ? 0
+          : Math.max(0, Math.min(3.0, staticState.staticGain));
+        const volumeKeyframes = buildAudioAutomationSlice(
+          audio.volumeKeyframes,
+          overlapStart - clipStart,
+          relativeDuration,
+        );
 
-      const effectiveClipSpeed = clip.playbackMapping?.kind === "normal"
-        ? clip.playbackMapping.speed
-        : (typeof clip.speed === "number" && clip.speed > 0 ? clip.speed : 1.0);
+        const effectiveClipSpeed = (() => {
+          const pm = clip.playbackMapping;
+          if (!pm)
+            return typeof clip.speed === "number" && clip.speed > 0
+              ? clip.speed
+              : 1.0;
+          switch (pm.kind) {
+            case "normal":
+              return pm.speed;
+            case "reverse":
+              // Audio plays forward for now (reverse audio requires sample reversal);
+              // use the speed magnitude so tempo at least matches.
+              return pm.speed;
+            case "freeze":
+              // Freeze: zero speed — audio is effectively silent (duration fills silence).
+              return 0.0;
+            case "speed_ramp":
+              // Variable: use first keyframe speed as approximation.
+              return pm.keyframes.length > 0 ? pm.keyframes[0].speed : 1.0;
+            default:
+              return 1.0;
+          }
+        })();
 
-      return {
-        clipId: clip.id,
-        // Normalize to native FS path — asset.path or directAudioPath may be an asset:// or file:// URL
-        path: toNativePath(rawPath),
-        startTime: relativeStartTime,
-        duration: relativeDuration,
-        trimIn: relativeTrimIn,
-        speed: effectiveClipSpeed,
-        volume,
-        fadeIn,
-        fadeOut,
-        fadeInCurve: audio.fadeIn.curve,
-        fadeOutCurve: audio.fadeOut.curve,
-        pan: effective.pan,
-        eqLow: audio.effects?.eq?.low,
-        eqMid: audio.effects?.eq?.mid,
-        eqHigh: audio.effects?.eq?.high,
-        noiseSuppression: audio.effects?.noiseSuppression,
-        volumeKeyframes,
-        channelMode: audio.channelConfig.mode,
-        downmix: audio.channelConfig.downmix,
-        channelMap: audio.channelConfig.channelMap,
-        preservePitch: audio.speed.preservePitch,
-      };
-    })
-    // A clip whose asset hasn't loaded yet passes clipHasAudio() (unprobed
-    // fallback returns true) but has no resolvable file path. Passing an empty
-    // path to Rust causes replaceNativeAudioClips to reject the clip silently,
-    // producing installedClips=[] even though the timeline contains audio.
-    // The startup probe then fires "no-native-audio-clips-installed", which
-    // also holds nativeAudioClockReady=false and freezes video playback.
-    // Filter these out here so only clips with a usable path reach the IPC
-    // boundary. The updateSource path re-syncs as assets hydrate.
-    .filter((config) => Boolean(config.path));
-
+        return {
+          clipId: clip.id,
+          // Normalize to native FS path — asset.path or directAudioPath may be an asset:// or file:// URL
+          path: toNativePath(rawPath),
+          startTime: relativeStartTime,
+          duration: relativeDuration,
+          trimIn: relativeTrimIn,
+          speed: effectiveClipSpeed,
+          volume,
+          fadeIn,
+          fadeOut,
+          fadeInCurve: audio.fadeIn.curve,
+          fadeOutCurve: audio.fadeOut.curve,
+          pan: effective.pan,
+          eqLow: audio.effects?.eq?.low,
+          eqMid: audio.effects?.eq?.mid,
+          eqHigh: audio.effects?.eq?.high,
+          noiseSuppression: audio.effects?.noiseSuppression,
+          volumeKeyframes,
+          channelMode: audio.channelConfig.mode,
+          downmix: audio.channelConfig.downmix,
+          channelMap: audio.channelConfig.channelMap,
+          preservePitch: audio.speed.preservePitch,
+        };
+      })
+      // A clip whose asset hasn't loaded yet passes clipHasAudio() (unprobed
+      // fallback returns true) but has no resolvable file path. Passing an empty
+      // path to Rust causes replaceNativeAudioClips to reject the clip silently,
+      // producing installedClips=[] even though the timeline contains audio.
+      // The startup probe then fires "no-native-audio-clips-installed", which
+      // also holds nativeAudioClockReady=false and freezes video playback.
+      // Filter these out here so only clips with a usable path reach the IPC
+      // boundary. The updateSource path re-syncs as assets hydrate.
+      .filter((config) => Boolean(config.path))
+  );
 }
