@@ -165,7 +165,10 @@ interface TimelineStore {
    * @param mapping - The desired PlaybackMapping (or `undefined` to clear,
    *                  which falls back to legacy `speed` scalar → 1×).
    */
-  setClipPlaybackMapping: (clipId: string, mapping: import("@/types").PlaybackMapping | undefined) => void;
+  setClipPlaybackMapping: (
+    clipId: string,
+    mapping: import("@/types").PlaybackMapping | undefined,
+  ) => void;
   addTransition: (transition: TransitionTimelineItem) => void;
   removeTransition: (transitionId: string) => void;
   updateTransition: (
@@ -463,8 +466,9 @@ export const useTimelineStore = create<TimelineStore>(
           (track) =>
             track.id === payload?.mainVideoTrackId && track.type === "video",
         );
-        const candidateInferredMain = [...videoTracksWithClips].reverse().find(
-          (track) =>
+        const candidateInferredMain = [...videoTracksWithClips]
+          .reverse()
+          .find((track) =>
             finalClipsRaw.some((clip: any) => {
               if (clip.trackId !== track.id) return false;
               if (clip.kind === "video") return true;
@@ -473,13 +477,16 @@ export const useTimelineStore = create<TimelineStore>(
               );
               return asset?.type === "video";
             }),
-        );
+          );
         const candidatePrimaryId =
           candidateExplicitMain?.id ??
           candidateInferredMain?.id ??
           (videoTracksWithClips.length > 0
             ? resolvePrimaryVideoTrackId(videoTracksWithClips)
-            : resolvePrimaryVideoTrackId(upgradedTracksRaw, payload?.mainVideoTrackId));
+            : resolvePrimaryVideoTrackId(
+                upgradedTracksRaw,
+                payload?.mainVideoTrackId,
+              ));
 
         // Clean up empty tracks (tracks with no clips) when cleanEmptyTracks is enabled,
         // but ALWAYS protect the primary A-Roll video track (even if currently empty).
@@ -491,7 +498,8 @@ export const useTimelineStore = create<TimelineStore>(
           const hasClips = finalClipsRaw.length > 0;
           finalTracks = upgradedTracksRaw.filter((track: any) => {
             if (!hasClips) return true;
-            if (candidatePrimaryId && track.id === candidatePrimaryId) return true;
+            if (candidatePrimaryId && track.id === candidatePrimaryId)
+              return true;
             return clipTrackIds.has(track.id);
           });
         }
@@ -807,7 +815,10 @@ export const useTimelineStore = create<TimelineStore>(
 
       switch (config.reuseStrategy) {
         case "primary": {
-          const primaryId = resolvePrimaryVideoTrackId(state.tracks, state.mainVideoTrackId);
+          const primaryId = resolvePrimaryVideoTrackId(
+            state.tracks,
+            state.mainVideoTrackId,
+          );
           if (primaryId) return primaryId;
           return get().insertTrackAt("video", 0);
         }
@@ -1246,9 +1257,25 @@ export const useTimelineStore = create<TimelineStore>(
     },
 
     setClipPlaybackMapping: (clipId, mapping) => {
-      get().updateClip(clipId, { playbackMapping: mapping });
+      const clip = get().clips.find((c) => c.id === clipId);
+      if (!clip) return;
+      // Derive new speed scalar for the legacy field and new timeline duration.
+      const newSpeed =
+        mapping?.kind === "normal" || mapping?.kind === "reverse"
+          ? mapping.speed
+          : mapping?.kind === "freeze"
+            ? (clip.speed ?? 1) // freeze keeps current speed scalar
+            : (clip.speed ?? 1);
+      const newDuration =
+        mapping?.kind === "freeze"
+          ? clip.duration // freeze keeps timeline footprint unchanged
+          : (clip.trimOut - clip.trimIn) / Math.max(0.001, newSpeed);
+      get().updateClip(clipId, {
+        playbackMapping: mapping,
+        speed: newSpeed,
+        duration: newDuration,
+      });
     },
-
 
     moveClip: (clipId, startTime) => {
       set((state) => {
@@ -1268,7 +1295,11 @@ export const useTimelineStore = create<TimelineStore>(
 
     setPixelsPerSecond: (pps, allowOverviewFloor = false) => {
       const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
-      const clamped = clampTimelinePixelsPerSecond(pps, allowOverviewFloor, frameRate);
+      const clamped = clampTimelinePixelsPerSecond(
+        pps,
+        allowOverviewFloor,
+        frameRate,
+      );
       const zoomLevel = clamped / TIMELINE_PPS_PER_ZOOM;
       set((state) => {
         // Zoom animation writes on every RAF. Avoid notifying every subscriber
@@ -1961,8 +1992,18 @@ export const useTimelineStore = create<TimelineStore>(
 
       // Order clips and protected gaps chronologically so they pack sequentially without collision
       const items = [
-        ...trackClips.map((c) => ({ type: "clip" as const, item: c, startTime: c.startTime, duration: c.duration })),
-        ...protectedGaps.map((g) => ({ type: "gap" as const, item: g, startTime: g.startTime, duration: g.duration })),
+        ...trackClips.map((c) => ({
+          type: "clip" as const,
+          item: c,
+          startTime: c.startTime,
+          duration: c.duration,
+        })),
+        ...protectedGaps.map((g) => ({
+          type: "gap" as const,
+          item: g,
+          startTime: g.startTime,
+          duration: g.duration,
+        })),
       ].sort((a, b) => a.startTime - b.startTime);
 
       let currentTime = 0;
@@ -1983,7 +2024,11 @@ export const useTimelineStore = create<TimelineStore>(
         const otherTrackGaps = state.gaps.filter((g) => g.trackId !== trackId);
         const thisTrackProtectedGaps = state.gaps
           .filter((g) => g.trackId === trackId && g.protected)
-          .map((g) => (repositionedGaps.has(g.id) ? { ...g, startTime: repositionedGaps.get(g.id)! } : g));
+          .map((g) =>
+            repositionedGaps.has(g.id)
+              ? { ...g, startTime: repositionedGaps.get(g.id)! }
+              : g,
+          );
 
         const next: Partial<TimelineStore> = {
           gaps: [...otherTrackGaps, ...thisTrackProtectedGaps],
