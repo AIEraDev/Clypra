@@ -27,7 +27,6 @@ import { SpeedStyleSection } from "../shared/SpeedSection";
 import { ChromaKeySection } from "../effects/sections/ChromaKeySection";
 import type { Command } from "@/core/history/Command";
 import { RelinkAudioCommand } from "@/core/history/commands/UnlinkAudioCommand";
-
 interface PropertyPanelBodyProps {
   selectedClip: Clip;
   textClip: TextClip;
@@ -40,6 +39,7 @@ interface PropertyPanelBodyProps {
   isTextClip: boolean;
   isVisualClip: boolean;
   isVideoClip: boolean;
+  isImageClip: boolean;
   isAudioClip: boolean;
   isTimelineEffectClip: boolean;
   hasAudioTrack: boolean;
@@ -66,7 +66,6 @@ interface PropertyPanelBodyProps {
   ) => void;
   deletePreset: (id: string) => void;
 }
-
 const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
   selectedClip,
   textClip,
@@ -75,6 +74,7 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
   isTextClip,
   isVisualClip,
   isVideoClip,
+  isImageClip,
   isAudioClip,
   isTimelineEffectClip,
   hasAudioTrack,
@@ -107,7 +107,6 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
           handleUpdate={handleUpdate}
         />
       )}
-
       {/* Video Tab: Sub-tabs with Basic, Remove BG, Mask, Retouch */}
       {isVideoClip && activePropertyTab === "video" && (
         <VideoStyleSection
@@ -120,7 +119,6 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
           handleApplyFit={handleApplyFit}
         />
       )}
-
       {/* Audio Tab: Audio properties with sub-tabs */}
       {isVideoClip && activePropertyTab === "audio" && (
         <>
@@ -156,7 +154,6 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
           )}
         </>
       )}
-
       {/* Speed Tab: Speed controls with sub-tabs */}
       {isVideoClip && !isAudioClip && activePropertyTab === "speed" && (
         <SpeedStyleSection
@@ -165,7 +162,6 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
           executeCommand={executePreviewCommand}
         />
       )}
-
       {/* Animation Tab: Motion presets */}
       {isVideoClip && activePropertyTab === "animation" && (
         <MotionPresetSection
@@ -175,7 +171,6 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
           canvasHeight={canvasHeight}
         />
       )}
-
       {/* Adjust Tab: Color Adjustments */}
       {isVideoClip && activePropertyTab === "adjust" && (
         <VideoAdjustTab
@@ -183,7 +178,34 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
           handleUpdate={handleUpdate}
         />
       )}
-
+      {/* Image Tab: Same VideoStyleSection as video — handles transform, Remove BG, etc. */}
+      {isImageClip && activePropertyTab === "video" && (
+        <VideoStyleSection
+          selectedClip={selectedClip}
+          isVisualClip={isVisualClip}
+          canvasWidth={canvasWidth}
+          canvasHeight={canvasHeight}
+          handleUpdate={handleUpdate}
+          handleUpdateMultiple={handleUpdateMultiple}
+          handleApplyFit={handleApplyFit}
+        />
+      )}
+      {/* Image Animation Tab */}
+      {isImageClip && activePropertyTab === "animation" && (
+        <MotionPresetSection
+          selectedClip={selectedClip}
+          handleUpdateMultiple={handleUpdateMultiple}
+          canvasWidth={canvasWidth}
+          canvasHeight={canvasHeight}
+        />
+      )}
+      {/* Image Adjust Tab */}
+      {isImageClip && activePropertyTab === "adjust" && (
+        <VideoAdjustTab
+          selectedClip={selectedClip}
+          handleUpdate={handleUpdate}
+        />
+      )}
       {/* Legacy: Audio properties (audio clips or video clips without tabs) */}
       {hasAudioTrack && !isVideoClip && !activePropertyTab && (
         <AudioSection
@@ -202,7 +224,6 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
           }
         />
       )}
-
       {/* Text Styling (text clip + text tab) */}
       {isTextClip && activePropertyTab === "text" && (
         <TextStyleSection
@@ -219,7 +240,6 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
           deletePreset={deletePreset}
         />
       )}
-
       {/* Text Animations (text clip + animation tab) */}
       {isTextClip && activePropertyTab === "animation" && (
         <MotionPresetSection
@@ -229,24 +249,20 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
           canvasHeight={canvasHeight}
         />
       )}
-
       {/* Text Tracking */}
       {/* {isTextClip && activePropertyTab === "tracking" && (
         <TextTrackingSection textClip={textClip} />
       )} */}
-
       {/* Text To Speech */}
       {/* {isTextClip && activePropertyTab === "tts" && (
         <TextToSpeechSection textClip={textClip} />
       )} */}
-
       {/* AI Avatars */}
       {/* {isTextClip && activePropertyTab === "ai_avatars" && (
         <TextAiAvatarsSection textClip={textClip} />
       )} */}
-
       {/* Legacy: Transform (visual non-text clips without tabs) */}
-      {supportsAnimation && !isTextClip && !isVideoClip && (
+      {supportsAnimation && !isTextClip && !isVideoClip && !isImageClip && (
         <TransformSection
           selectedClip={selectedClip}
           isVisualClip={isVisualClip}
@@ -257,9 +273,8 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
           canvasHeight={canvasHeight}
         />
       )}
-
       {/* Legacy: Motion & Animation Presets (In, Out, Loop) for visual non-text clips without tabs */}
-      {supportsAnimation && !isTextClip && !isVideoClip && (
+      {supportsAnimation && !isTextClip && !isVideoClip && !isImageClip && (
         <MotionPresetSection
           selectedClip={selectedClip}
           handleUpdateMultiple={handleUpdateMultiple}
@@ -267,10 +282,8 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
           canvasHeight={canvasHeight}
         />
       )}
-
       {/* Legacy: Playback speed, reverse, freeze frame (without tabs) */}
       {/* Removed - audio clips now use tabbed interface */}
-
       {/* Audio Clip Tabs */}
       {isAudioClip && activePropertyTab === "basic" && (
         <AudioBasicTab
@@ -278,11 +291,9 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
           handleUpdate={handleUpdate}
         />
       )}
-
       {isAudioClip && activePropertyTab === "voice-changer" && (
         <AudioVoiceChangerTab />
       )}
-
       {isAudioClip && activePropertyTab === "speed" && (
         <SpeedStyleSection
           selectedClip={selectedClip}
@@ -291,28 +302,24 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
           showTabs={false}
         />
       )}
-
       {/* Legacy: Color Adjustments (without tabs) */}
-      {isVisualClip && !isVideoClip && (
+      {isVisualClip && !isVideoClip && !isImageClip && (
         <AdjustmentsSection
           selectedClip={selectedClip}
           handleUpdate={handleUpdate}
         />
       )}
-
       {/* Legacy: UltraKey (Chroma Key) (without tabs) */}
-      {isVisualClip && !isVideoClip && (
+      {isVisualClip && !isVideoClip && !isImageClip && (
         <ChromaKeySection selectedClip={selectedClip} />
       )}
-
       {/* Legacy: Effects and Filters (without tabs) */}
-      {isVisualClip && !isVideoClip && (
+      {isVisualClip && !isVideoClip && !isImageClip && (
         <EffectsFiltersSection
           selectedClip={selectedClip}
           handleUpdate={handleUpdate}
         />
       )}
-
       {/* Timeline filter/effect clips */}
       {isTimelineEffectClip && (
         <TimelineEffectSection
@@ -323,5 +330,4 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
     </div>
   );
 };
-
 export default PropertyPanelBody;

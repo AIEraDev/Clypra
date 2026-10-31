@@ -8,7 +8,6 @@ import {
   Mic,
 } from "lucide-react";
 import { PropertyTabsType } from "./types";
-
 export const TEXT_TABS: PropertyTabsType[] = [
   { id: "text", labelKey: "properties.tabs.text", label: "Text", icon: Type },
   {
@@ -18,7 +17,6 @@ export const TEXT_TABS: PropertyTabsType[] = [
     icon: Sparkles,
   },
 ];
-
 export const VIDEO_TABS: PropertyTabsType[] = [
   {
     id: "video",
@@ -51,7 +49,26 @@ export const VIDEO_TABS: PropertyTabsType[] = [
     icon: Sliders,
   },
 ];
-
+export const IMAGE_TABS: PropertyTabsType[] = [
+  {
+    id: "video",
+    labelKey: "properties.tabs.video",
+    label: "Video",
+    icon: Video,
+  },
+  {
+    id: "animation",
+    labelKey: "properties.tabs.animation",
+    label: "Animation",
+    icon: Sparkles,
+  },
+  {
+    id: "adjust",
+    labelKey: "properties.tabs.adjust",
+    label: "Adjust",
+    icon: Sliders,
+  },
+];
 export const AUDIO_TABS: PropertyTabsType[] = [
   {
     id: "basic",
