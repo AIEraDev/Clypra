@@ -4,16 +4,15 @@
  * Specialized slider track for speed control with visual tick marks at six
  * semantic speed landmarks: 0.10x, 1.00x, 2.00x, 5.00x, 10.00x, 100.00x.
  *
- * The track uses a LOGARITHMIC scale so each tick is visually equidistant —
- * the perceptual jump from 0.1x → 1x feels the same as 1x → 10x → 100x.
+ * Value mapping uses a LOGARITHMIC scale so dragging feels perceptually linear
+ * (the jump 0.1x→1x covers the same distance as 1x→10x→100x).
  *
- *   screen position → log-interpolated speed value
- *   speed value → screen position via log-interpolation
+ * Tick VISUAL POSITIONS are index-based (0%, 20%, 40%, 60%, 80%, 100%) so
+ * they appear equally/evenly spaced across the track width regardless of the
+ * log-scale value differences between adjacent ticks.
  *
- * Snap thresholds are expressed in log-space (±0.08 of the total log range)
- * so every tick gets the same visual snap zone width regardless of value.
- *
- * The `onSnapChange` callback mirrors the pattern used by SliderTrack.
+ * Snap detection operates in log-space so every tick has the same visual snap
+ * zone width. The `onSnapChange` callback mirrors the pattern used by SliderTrack.
  */
 
 import React, { useCallback, useRef, useState, useEffect } from "react";
@@ -92,12 +91,12 @@ export const SpeedSliderTrack: React.FC<SpeedSliderTrackProps> = ({
     [min, max, decimals],
   );
 
-  // Pre-compute log bounds once (min/max never change during a session)
+  // Pre-compute log bounds (min/max never change during a session)
   const logMin = Math.log(Math.max(min, 1e-6));
   const logMax = Math.log(Math.max(max, 1e-6));
   const logRange = logMax - logMin;
 
-  // ── Track fill ────────────────────────────────────────────────────────────
+  // ── Track fill — log-scale so thumb position matches perceived speed ──────
   const safeValue = Math.max(min, Math.min(max, value));
   const fillPercent = valueToPercent(safeValue, logMin, logRange) * 100;
 
@@ -118,9 +117,7 @@ export const SpeedSliderTrack: React.FC<SpeedSliderTrackProps> = ({
       );
       let newValue = percentToValue(percent, logMin, logRange, decimals);
 
-      // ── Log-space snap evaluation ───────────────────────────────────────
-      // Each tick gets a symmetric ±LOG_SNAP_HALF zone in log-space, giving
-      // equal visual snap zone width for every tick regardless of its value.
+      // ── Log-space snap: equal visual grab zone width for every tick ──────
       let snappedIdx = -1;
       const logNewValue = Math.log(Math.max(newValue, 1e-6));
       for (let i = 0; i < SPEED_TICKS.length; i++) {
@@ -189,6 +186,10 @@ export const SpeedSliderTrack: React.FC<SpeedSliderTrackProps> = ({
     }
   }, [isDragging, handleMouseMove, handleMouseUp]);
 
+  // Pre-filter ticks once for rendering
+  const visibleTicks = SPEED_TICKS.filter((t) => t >= min && t <= max);
+  const tickCount = visibleTicks.length;
+
   return (
     <div
       ref={trackRef}
@@ -203,9 +204,11 @@ export const SpeedSliderTrack: React.FC<SpeedSliderTrackProps> = ({
         />
       </div>
 
-      {/* Tick marks at log-scale positions */}
-      {SPEED_TICKS.filter((t) => t >= min && t <= max).map((tickValue, i) => {
-        const position = valueToPercent(tickValue, logMin, logRange) * 100;
+      {/* Tick marks — equally spaced visually (justify-between).
+          Position = i / (n-1) so first tick is at 0% and last at 100%.
+          Values and snap still use the log-scale speed landmarks. */}
+      {visibleTicks.map((tickValue, i) => {
+        const position = tickCount > 1 ? (i / (tickCount - 1)) * 100 : 0;
         const isSnapped = snappedTickIndex === i;
         return (
           <div
