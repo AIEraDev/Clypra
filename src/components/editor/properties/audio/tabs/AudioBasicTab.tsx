@@ -52,8 +52,12 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
   const isAtVolumeKf = volumeKeyframes.some(
     (k) => Math.abs(k.time - localTime) < 0.08,
   );
-  const hasPrevVolumeKf = volumeKeyframes.some((k) => k.time < localTime - 0.05);
-  const hasNextVolumeKf = volumeKeyframes.some((k) => k.time > localTime + 0.05);
+  const hasPrevVolumeKf = volumeKeyframes.some(
+    (k) => k.time < localTime - 0.05,
+  );
+  const hasNextVolumeKf = volumeKeyframes.some(
+    (k) => k.time > localTime + 0.05,
+  );
 
   const handleToggleVolumeKeyframe = useCallback(() => {
     const existing = volumeKeyframes.find(
@@ -202,22 +206,11 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
   }, [handlePanChange]);
 
   return (
-    <div className="space-y-4 p-3">
+    <div className="space-y-4 px-3 py-2">
       {/* Volume */}
-      <div className="flex items-center gap-3">
-        <div className="min-w-[80px] flex items-center justify-between">
-          <label className="text-sm text-white/80">Volume</label>
-          <button
-            type="button"
-            onClick={handleResetVolume}
-            className="w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors cursor-pointer mr-1"
-            title="Reset volume"
-            aria-label="Reset volume"
-          >
-            <RotateCcw className="w-2.5 h-2.5" />
-          </button>
-        </div>
-        <div className="flex-1 flex items-center gap-2">
+      <div className="space-y-2">
+        <label className="text-[11px] font-medium text-white/90">Volume</label>
+        <div className="flex items-center">
           <SliderTrack
             value={volumePercent}
             min={0}
@@ -226,6 +219,7 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
             propertyId="volume"
             category="audio"
             onChange={handleVolumeChange}
+            className="mr-4"
           />
           <NumericControl
             value={volumePercent}
@@ -234,7 +228,8 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
             min={0}
             max={100}
             suffix="%"
-            inputWidth="w-16"
+            inputWidth="w-8"
+            inputPosition="text-right"
             decimals={0}
             ariaLabel="Volume"
             propertyId="volume"
@@ -243,10 +238,10 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
           <button
             type="button"
             onClick={toggleMute}
-            className={`flex items-center justify-center w-6 h-6 rounded transition-all cursor-pointer ${
+            className={`flex items-center justify-center w-6 h-6 rounded transition-all cursor-pointer ml-1 ${
               isMuted
                 ? "bg-red-500/15 text-red-400 hover:bg-red-500/25"
-                : "bg-white/5 hover:bg-white/10 text-cyan-400"
+                : "bg-white/5 hover:bg-white/10 text-white/50 hover:text-white"
             }`}
             title={isMuted ? "Unmute" : "Mute"}
             aria-label={isMuted ? "Unmute" : "Mute"}
@@ -271,20 +266,9 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
       </div>
 
       {/* Fade in */}
-      <div className="flex items-center gap-3">
-        <div className="min-w-[80px] flex items-center justify-between">
-          <label className="text-sm text-white/80">Fade in</label>
-          <button
-            type="button"
-            onClick={handleResetFadeIn}
-            className="w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors cursor-pointer mr-1"
-            title="Reset fade in"
-            aria-label="Reset fade in"
-          >
-            <RotateCcw className="w-2.5 h-2.5" />
-          </button>
-        </div>
-        <div className="flex-1 flex items-center gap-2">
+      <div className="space-y-2">
+        <label className="text-[11px] font-medium text-white/90">Fade in</label>
+        <div className="flex items-center">
           <SliderTrack
             value={fadeIn}
             min={0}
@@ -293,6 +277,7 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
             propertyId="fadeIn"
             category="audio"
             onChange={handleFadeInChange}
+            className="mr-4"
           />
           <NumericControl
             value={fadeIn}
@@ -301,30 +286,32 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
             min={0}
             max={maxFadeSeconds}
             suffix="s"
-            inputWidth="w-16"
-            decimals={2}
+            inputWidth="w-6"
+            inputPosition="text-right"
+            decimals={1}
             ariaLabel="Fade in"
             propertyId="fadeIn"
             category="audio"
+          />
+          <KeyframeNavControls
+            hasKeyframes={false}
+            isAtKeyframe={false}
+            hasPrev={false}
+            hasNext={false}
+            onToggleKeyframe={() => {}}
+            onPrevKeyframe={() => {}}
+            onNextKeyframe={() => {}}
+            label="Fade in"
           />
         </div>
       </div>
 
       {/* Fade out */}
-      <div className="flex items-center gap-3">
-        <div className="min-w-[80px] flex items-center justify-between">
-          <label className="text-sm text-white/80">Fade out</label>
-          <button
-            type="button"
-            onClick={handleResetFadeOut}
-            className="w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors cursor-pointer mr-1"
-            title="Reset fade out"
-            aria-label="Reset fade out"
-          >
-            <RotateCcw className="w-2.5 h-2.5" />
-          </button>
-        </div>
-        <div className="flex-1 flex items-center gap-2">
+      <div className="space-y-2">
+        <label className="text-[11px] font-medium text-white/90">
+          Fade out
+        </label>
+        <div className="flex items-center">
           <SliderTrack
             value={fadeOut}
             min={0}
@@ -333,6 +320,7 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
             propertyId="fadeOut"
             category="audio"
             onChange={handleFadeOutChange}
+            className="mr-4"
           />
           <NumericControl
             value={fadeOut}
@@ -341,39 +329,58 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
             min={0}
             max={maxFadeSeconds}
             suffix="s"
-            inputWidth="w-16"
-            decimals={2}
+            inputWidth="w-6"
+            inputPosition="text-right"
+            decimals={1}
             ariaLabel="Fade out"
             propertyId="fadeOut"
             category="audio"
           />
+          <KeyframeNavControls
+            hasKeyframes={false}
+            isAtKeyframe={false}
+            hasPrev={false}
+            hasNext={false}
+            onToggleKeyframe={() => {}}
+            onPrevKeyframe={() => {}}
+            onNextKeyframe={() => {}}
+            label="Fade out"
+          />
         </div>
       </div>
 
-      {/* Pan / Balance */}
-      <div className="flex items-center gap-3">
-        <div className="min-w-[80px] flex items-center justify-between">
-          <label className="text-sm text-white/80">Pan</label>
+      {/* Pan */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <label className="text-[11px] font-medium text-white/90">Pan</label>
           <button
             type="button"
             onClick={handleResetPan}
-            className="w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors cursor-pointer mr-1"
+            className="w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors cursor-pointer"
             title="Reset pan"
             aria-label="Reset pan"
           >
             <RotateCcw className="w-2.5 h-2.5" />
           </button>
         </div>
-        <div className="flex-1 flex items-center gap-2">
-          <SliderTrack
-            value={panPercent}
-            min={-100}
-            max={100}
-            step={1}
-            propertyId="pan"
-            category="audio"
-            onChange={(val) => handlePanChange(val / 100)}
-          />
+        <div className="flex items-center">
+          <div className="relative flex-1 mr-4">
+            <SliderTrack
+              value={panPercent}
+              min={-100}
+              max={100}
+              step={1}
+              propertyId="pan"
+              category="audio"
+              snapPoints={[{ value: 0, threshold: 2 }]}
+              onChange={(val) => handlePanChange(val / 100)}
+            />
+            {/* Center tick at pan = 0 */}
+            <div
+              className="absolute top-1/2 -translate-y-1/2 w-px h-2.5 bg-white/40 pointer-events-none"
+              style={{ left: "50%" }}
+            />
+          </div>
           <NumericControl
             value={panPercent}
             onChange={(val) => handlePanChange(val / 100)}
@@ -381,11 +388,22 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
             min={-100}
             max={100}
             suffix="%"
-            inputWidth="w-16"
+            inputWidth="w-8"
+            inputPosition="text-right"
             decimals={0}
             ariaLabel="Pan"
             propertyId="pan"
             category="audio"
+          />
+          <KeyframeNavControls
+            hasKeyframes={false}
+            isAtKeyframe={false}
+            hasPrev={false}
+            hasNext={false}
+            onToggleKeyframe={() => {}}
+            onPrevKeyframe={() => {}}
+            onNextKeyframe={() => {}}
+            label="Pan"
           />
         </div>
       </div>
