@@ -19,6 +19,7 @@ import {
   RelinkAudioCommand,
   UnlinkAudioCommand,
 } from "@/core/history/commands/UnlinkAudioCommand";
+import { DetachAudioCommand } from "@/core/history/commands/DetachAudioCommand";
 import {
   calculateClipDimensions,
   type ClipFitModeExtended,
@@ -80,6 +81,7 @@ export function useClipPropertyHandlers({
 }: UseClipPropertyHandlersInput): ClipPropertyHandlers {
   const { executePreviewCommand, queueTextPropertyUpdate } = coordinator;
   const tracks = useTimelineStore((s) => s.tracks);
+  const clips = useTimelineStore((s) => s.clips);
   const project = useProjectStore((s) => s.project);
 
   const handleUpdate = React.useCallback(
@@ -265,13 +267,17 @@ export function useClipPropertyHandlers({
       !selectedClip ||
       !selectedAsset ||
       selectedClip.kind !== "video" ||
-      linkedAudio
+      linkedAudio ||
+      // Guard: do not unlink if audio was already detached into a separate clip.
+      // Without this guard the user could trigger both DetachAudio and UnlinkAudio
+      // on the same clip, creating a duplicate audio track.
+      DetachAudioCommand.isAlreadyDetached(selectedClip, clips)
     )
       return;
     executePreviewCommand(
-      new UnlinkAudioCommand(selectedClip, selectedAsset.path, tracks),
+      new UnlinkAudioCommand(selectedClip, selectedAsset.path, tracks, clips),
     );
-  }, [executePreviewCommand, linkedAudio, selectedAsset, selectedClip, tracks]);
+  }, [clips, executePreviewCommand, linkedAudio, selectedAsset, selectedClip, tracks]);
 
   const handleRelinkAudio = React.useCallback(() => {
     if (!selectedClip || !sourceVideo) return;

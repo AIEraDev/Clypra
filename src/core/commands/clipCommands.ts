@@ -547,7 +547,7 @@ export const clipCommands: ClipCommand[] = [
       if (!asset) return;
       useHistoryStore
         .getState()
-        .execute(new DetachAudioCommand(clip, asset.path, ctx.tracks));
+        .execute(new DetachAudioCommand(clip, asset.path, ctx.tracks, ctx.clips));
       toast.success("Audio detached");
     },
   },
