@@ -20,6 +20,9 @@ interface SpeedStyleSectionProps {
    * Falls back to historyStore when absent (tests, Storybook).
    */
   executeCommand?: (command: Command) => void;
+  /** When false the Standard/Curve/Velocity sub-tab switcher is hidden.
+   * Audio clips only need the Standard content without navigation overhead. */
+  showTabs?: boolean;
 }
 
 /** Derive the current effective speed scalar (1.0 when absent). */
@@ -46,6 +49,7 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
   selectedClip,
   handleUpdate,
   executeCommand,
+  showTabs = true,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<SpeedSubTab>("standard");
 
@@ -192,6 +196,7 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
   return (
     <div className="space-y-1.5 select-none text-white relative p-2 pt-0">
       {/* Sub-tab switcher */}
+      {showTabs && (
       <div className="bg-(--color-gray-900) pt-2 sticky top-0 z-10 space-y-1.5">
         <div className="bg-panel p-0.5 rounded-sm flex gap-1 border border-white/5">
           {(["standard", "curve", "velocity"] as const).map((tab) => {
@@ -225,6 +230,7 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
           })}
         </div>
       </div>
+      )}
 
       {activeSubTab === "standard" && (
         <div className="space-y-4">

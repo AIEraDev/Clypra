@@ -158,7 +158,7 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
       )}
 
       {/* Speed Tab: Speed controls with sub-tabs */}
-      {isVideoClip && activePropertyTab === "speed" && (
+      {isVideoClip && !isAudioClip && activePropertyTab === "speed" && (
         <SpeedStyleSection
           selectedClip={selectedClip}
           handleUpdate={handleUpdate}
@@ -288,6 +288,7 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
           selectedClip={selectedClip}
           handleUpdate={handleUpdate}
           executeCommand={executePreviewCommand}
+          showTabs={false}
         />
       )}
 
