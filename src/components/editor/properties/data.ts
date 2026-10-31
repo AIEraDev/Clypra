@@ -60,15 +60,15 @@ export const AUDIO_TABS: PropertyTabsType[] = [
     icon: Sliders,
   },
   {
-    id: "voice-changer",
-    labelKey: "properties.tabs.voiceChanger",
-    label: "Voice changer",
-    icon: Mic,
-  },
-  {
     id: "speed",
     labelKey: "properties.tabs.speed",
     label: "Speed",
     icon: Gauge,
+  },
+  {
+    id: "voice-changer",
+    labelKey: "properties.tabs.voiceChanger",
+    label: "Voice changer",
+    icon: Mic,
   },
 ];
