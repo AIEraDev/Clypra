@@ -88,6 +88,8 @@ pub struct NativeProjectRasterLayer {
     #[serde(default = "default_blend_mode")]
     pub blend_mode: String,
     #[serde(default)]
+    pub color_grade: Option<ColorGradeSnapshot>,
+    #[serde(default)]
     pub is_mask: bool,
     #[serde(default)]
     pub is_text: bool,
@@ -460,6 +462,7 @@ pub(crate) fn to_video_project_request(
             opacity: layer.opacity,
             z_index: layer.z_index,
             blend_mode: layer.blend_mode.clone(),
+            color_grade: layer.color_grade.clone(),
             is_mask: layer.is_mask,
             is_text: layer.is_text,
         })

@@ -171,7 +171,9 @@ export function getClipTypeInfo(
       color: "text-violet-400",
     };
 
-  switch (assetType) {
+  const effectiveType = assetType || clipKind;
+
+  switch (effectiveType) {
     case "video":
       return { icon: Film, label: "Video", color: "text-blue-400" };
     case "audio":

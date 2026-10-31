@@ -23,6 +23,7 @@ import {
   unregisterNativeRasterAsset,
 } from "@/lib/platform/tauri";
 import type { NativeRasterLayerSnapshot } from "@/lib/platform/nativeCore";
+import { getNativeColorGrade } from "@/components/editor/preview/nativeVideoPreview";
 import { buildNativeImageAssetId } from "@/core/render/nativeRasterAssetIds";
 import {
   buildNativeTextRasterKey,
@@ -549,7 +550,9 @@ export class NativeRasterBridge {
           this.textSnapshotsByLayerId.delete(layerId);
           this.textVisualSnapshotsByLayerId.delete(layerId);
           this.textVisualBoundsByLayerId.delete(layerId);
-          this.textSnapshotListenersByLayerId.get(layerId)?.forEach((listener) => listener());
+          this.textSnapshotListenersByLayerId
+            .get(layerId)
+            ?.forEach((listener) => listener());
           this.textSnapshotKeysByLayerId.delete(layerId);
           this.textSnapshotBleedByLayerId.delete(layerId);
           this.lastTextPlaybackObservationAtByLayerId.delete(layerId);
@@ -576,7 +579,11 @@ export class NativeRasterBridge {
 
     for (const [assetId, info] of this.imageSourcesById.entries()) {
       const infoPath = info.sourcePath?.trim().toLowerCase() || "";
-      if (infoPath === normalized || infoPath.endsWith(normalized) || normalized.endsWith(infoPath)) {
+      if (
+        infoPath === normalized ||
+        infoPath.endsWith(normalized) ||
+        normalized.endsWith(infoPath)
+      ) {
         assetIdsToEvict.push(assetId);
       }
     }
@@ -680,8 +687,10 @@ export class NativeRasterBridge {
     const visualSnapshot: NativeTextVisualSnapshot = {
       x: value.x + localBounds.x * (displayWidth / Math.max(1, value.width)),
       y: value.y + localBounds.y * (displayHeight / Math.max(1, value.height)),
-      displayWidth: localBounds.width * (displayWidth / Math.max(1, value.width)),
-      displayHeight: localBounds.height * (displayHeight / Math.max(1, value.height)),
+      displayWidth:
+        localBounds.width * (displayWidth / Math.max(1, value.width)),
+      displayHeight:
+        localBounds.height * (displayHeight / Math.max(1, value.height)),
       pivotX: value.x + displayWidth / 2,
       pivotY: value.y + displayHeight / 2,
       selectionBoundsTight:
@@ -702,7 +711,9 @@ export class NativeRasterBridge {
     ) {
       return;
     }
-    this.textSnapshotListenersByLayerId.get(layerId)?.forEach((listener) => listener());
+    this.textSnapshotListenersByLayerId
+      .get(layerId)
+      ?.forEach((listener) => listener());
   }
 
   /**
@@ -797,10 +808,14 @@ export class NativeRasterBridge {
             isTemplate && !bleed?.bleedX && !bleed?.bleedY;
           const baseW = isContentBoundedTemplate
             ? (layer as { baseWidth?: number }).baseWidth || texW
-            : bleed?.baseWidth ?? (layer as { baseWidth?: number }).baseWidth ?? layer.width;
+            : (bleed?.baseWidth ??
+              (layer as { baseWidth?: number }).baseWidth ??
+              layer.width);
           const baseH = isContentBoundedTemplate
             ? (layer as { baseHeight?: number }).baseHeight || texH
-            : bleed?.baseHeight ?? (layer as { baseHeight?: number }).baseHeight ?? layer.height;
+            : (bleed?.baseHeight ??
+              (layer as { baseHeight?: number }).baseHeight ??
+              layer.height);
           const scaleX = isExpandedPlainText
             ? 1
             : baseW > 0
@@ -825,11 +840,11 @@ export class NativeRasterBridge {
               bleed?.positionMode === "absolute"
                 ? typeof layer.x === "number"
                   ? isExpandedPlainText
-                    // A recovered point-text raster is larger than the stale
-                    // authored box, but its cached offset remains relative to
-                    // that box. Reapply it every frame so transforms never
-                    // leave the visible text behind its selection overlay.
-                    ? layer.x + (bleed.bleedX ?? 0)
+                    ? // A recovered point-text raster is larger than the stale
+                      // authored box, but its cached offset remains relative to
+                      // that box. Reapply it every frame so transforms never
+                      // leave the visible text behind its selection overlay.
+                      layer.x + (bleed.bleedX ?? 0)
                     : isTemplateOrEffect
                       ? layer.x + (bleed.bleedX ?? 0) * scaleX
                       : previous.x
@@ -895,10 +910,10 @@ export class NativeRasterBridge {
         isTemplate && !asset.bleedX && !asset.bleedY;
       const baseW = isContentBoundedTemplate
         ? (layer as { baseWidth?: number }).baseWidth || texW
-        : (layer as { baseWidth?: number }).baseWidth ?? layer.width;
+        : ((layer as { baseWidth?: number }).baseWidth ?? layer.width);
       const baseH = isContentBoundedTemplate
         ? (layer as { baseHeight?: number }).baseHeight || texH
-        : (layer as { baseHeight?: number }).baseHeight ?? layer.height;
+        : ((layer as { baseHeight?: number }).baseHeight ?? layer.height);
       const scaleX = isExpandedPlainText
         ? 1
         : baseW > 0
@@ -923,11 +938,11 @@ export class NativeRasterBridge {
           asset.positionMode === "absolute"
             ? typeof layer.x === "number"
               ? isExpandedPlainText
-                // Point text expands its texture beyond the authored box.
-                // Its cached bleed is an unscaled placement offset, so a
-                // strict interactive raster must follow the current layer
-                // coordinates just like the non-blocking snapshot path.
-                ? layer.x + (asset.bleedX ?? 0)
+                ? // Point text expands its texture beyond the authored box.
+                  // Its cached bleed is an unscaled placement offset, so a
+                  // strict interactive raster must follow the current layer
+                  // coordinates just like the non-blocking snapshot path.
+                  layer.x + (asset.bleedX ?? 0)
                 : isTemplateOrEffect
                   ? layer.x + (asset.bleedX ?? 0) * scaleX
                   : asset.x
@@ -957,7 +972,10 @@ export class NativeRasterBridge {
             ? layer.blendMode
             : asset.blendMode,
       };
-      const positioned = positionTextRasterForLayout(layer, unrotatedPositioned);
+      const positioned = positionTextRasterForLayout(
+        layer,
+        unrotatedPositioned,
+      );
       await this.register(positioned);
       const result = snapshot(positioned);
       this.setTextSnapshot(
@@ -985,7 +1003,8 @@ export class NativeRasterBridge {
         positionMode: asset.positionMode ?? "centered",
         expandedPointText: asset.expandedPointText,
         baseWidth: (layer as { baseWidth?: number }).baseWidth ?? layer.width,
-        baseHeight: (layer as { baseHeight?: number }).baseHeight ?? layer.height,
+        baseHeight:
+          (layer as { baseHeight?: number }).baseHeight ?? layer.height,
       });
       return positioned;
     });
@@ -1132,14 +1151,15 @@ export class NativeRasterBridge {
             width: evalWidth,
             height: evalHeight,
           };
-          const asset = await this.templateRasterizerWorkerClient.rasterizeEffect(
-            layer,
-            canonicalScene,
-            evalWidth,
-            evalHeight,
-            key,
-            phase,
-          );
+          const asset =
+            await this.templateRasterizerWorkerClient.rasterizeEffect(
+              layer,
+              canonicalScene,
+              evalWidth,
+              evalHeight,
+              key,
+              phase,
+            );
           recordRendererByClipKind(textKind(layer), "worker-effect");
           return asset;
         } catch (err) {
@@ -1179,12 +1199,12 @@ export class NativeRasterBridge {
       isTemplate && !asset.bleedX && !asset.bleedY;
     const baseW = isContentBoundedTemplate
       ? (input.layer as { baseWidth?: number }).baseWidth || asset.width
-      : (input.layer as { baseWidth?: number }).baseWidth ??
-        input.layer.width;
+      : ((input.layer as { baseWidth?: number }).baseWidth ??
+        input.layer.width);
     const baseH = isContentBoundedTemplate
       ? (input.layer as { baseHeight?: number }).baseHeight || asset.height
-      : (input.layer as { baseHeight?: number }).baseHeight ??
-        input.layer.height;
+      : ((input.layer as { baseHeight?: number }).baseHeight ??
+        input.layer.height);
     const scaleX = isExpandedPlainText
       ? 1
       : baseW > 0
@@ -1265,8 +1285,11 @@ export class NativeRasterBridge {
       bleedY: asset.bleedY ?? 0,
       positionMode: asset.positionMode ?? "centered",
       expandedPointText: asset.expandedPointText,
-      baseWidth: (input.layer as { baseWidth?: number }).baseWidth ?? input.layer.width,
-      baseHeight: (input.layer as { baseHeight?: number }).baseHeight ?? input.layer.height,
+      baseWidth:
+        (input.layer as { baseWidth?: number }).baseWidth ?? input.layer.width,
+      baseHeight:
+        (input.layer as { baseHeight?: number }).baseHeight ??
+        input.layer.height,
     });
   }
 
@@ -1534,20 +1557,29 @@ export class NativeRasterBridge {
             this.registeredAssetIds.delete(assetId);
           });
         }
-        return registration.then(() => ({
-          assetId,
-          width,
-          height,
-          ...(displayWidth !== width ? { displayWidth } : {}),
-          ...(displayHeight !== height ? { displayHeight } : {}),
-          x: layer.x,
-          y: layer.y,
-          rotation: layer.rotation,
-          opacity: layer.opacity,
-          zIndex: layer.zIndex,
-          blendMode: layer.blendMode,
-          isText: false,
-        }));
+        return registration.then(() => {
+          const colorGrade = getNativeColorGrade(
+            layer.adjustments,
+            layer.colorGrade,
+            layer.filter,
+            layer.effects,
+          );
+          return {
+            assetId,
+            width,
+            height,
+            ...(displayWidth !== width ? { displayWidth } : {}),
+            ...(displayHeight !== height ? { displayHeight } : {}),
+            x: layer.x,
+            y: layer.y,
+            rotation: layer.rotation,
+            opacity: layer.opacity,
+            zIndex: layer.zIndex,
+            blendMode: layer.blendMode,
+            isText: false,
+            ...(colorGrade ? { colorGrade } : {}),
+          };
+        });
       }),
     );
 

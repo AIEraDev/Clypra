@@ -752,6 +752,8 @@ export interface NativeRasterLayerSnapshot {
   opacity: number;
   zIndex: number;
   blendMode: string;
+  /** Color grading and adjustments applied during compositing. Applies to image clips. */
+  colorGrade?: NativeColorGradeSnapshot;
   /** Mask-only assets are uploaded but omitted from visible compositing. */
   isMask?: boolean;
   /** Text bridge assets are tracked separately from other native overlays. */

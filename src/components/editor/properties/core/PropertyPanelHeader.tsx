@@ -6,6 +6,7 @@ import {
   PropertyTabsType,
   TextPropertyTab,
   VideoPropertyTab,
+  ImagePropertyTab,
   AudioPropertyTab,
 } from "../types";
 import { TEXT_TABS, VIDEO_TABS, IMAGE_TABS, AUDIO_TABS } from "../data";
@@ -15,10 +16,15 @@ interface PropertyPanelHeaderType {
   activePropertyTab:
     | TextPropertyTab
     | VideoPropertyTab
+    | ImagePropertyTab
     | AudioPropertyTab
     | null;
   setActivePropertyTab: (
-    tab: TextPropertyTab | VideoPropertyTab | AudioPropertyTab,
+    tab:
+      | TextPropertyTab
+      | VideoPropertyTab
+      | ImagePropertyTab
+      | AudioPropertyTab,
   ) => void;
   onToggleCollapse?: () => void;
   hasAudioTrack?: boolean;
@@ -49,7 +55,11 @@ const PropertyPanelHeader: React.FC<PropertyPanelHeaderType> = ({
     setActivePropertyTab(tabs[0]?.id ?? null);
   }, [clipKind]);
   function handleActiveTab(
-    tabId: TextPropertyTab | VideoPropertyTab | AudioPropertyTab,
+    tabId:
+      | TextPropertyTab
+      | VideoPropertyTab
+      | ImagePropertyTab
+      | AudioPropertyTab,
   ) {
     setActivePropertyTab(tabId);
   }

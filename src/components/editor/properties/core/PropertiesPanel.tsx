@@ -16,6 +16,7 @@ import PropertyPanelHeader from "./PropertyPanelHeader";
 import type {
   TextPropertyTab,
   VideoPropertyTab,
+  ImagePropertyTab,
   AudioPropertyTab,
 } from "../types";
 import PropertyPanelBody from "./PropertyPanelBody";
@@ -48,7 +49,11 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const deletePreset = usePresetStore((s) => s.deletePreset);
   // ── Local UI state ───────────────────────────────────────────────────────
   const [activePropertyTab, setActivePropertyTab] = useState<
-    TextPropertyTab | VideoPropertyTab | AudioPropertyTab | null
+    | TextPropertyTab
+    | VideoPropertyTab
+    | ImagePropertyTab
+    | AudioPropertyTab
+    | null
   >(null);
   const [newPresetName, setNewPresetName] = useState("");
   // ── Clip resolution ──────────────────────────────────────────────────────
@@ -84,7 +89,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     selectedClip?.kind === "sticker" ||
     Boolean(selectedClip?.mediaId?.startsWith("sticker-"));
   const isVisualClip =
-    selectedAsset?.type === "video" || selectedAsset?.type === "image";
+    selectedAsset?.type === "video" ||
+    selectedAsset?.type === "image" ||
+    selectedClip?.kind === "video" ||
+    selectedClip?.kind === "image";
   const supportsAnimation = supportsVisualAnimation(
     selectedClip,
     selectedAsset,
@@ -94,8 +102,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     selectedAsset?.type === "audio" ||
     selectedClip?.kind === "audio" ||
     !!(selectedClip as any)?.audioPath;
-  const isVideoClip = selectedAsset?.type === "video";
-  const isImageClip = selectedAsset?.type === "image" && !isSticker;
+  const isVideoClip =
+    (selectedAsset?.type === "video" || selectedClip?.kind === "video") &&
+    !isSticker;
+  const isImageClip =
+    (selectedAsset?.type === "image" || selectedClip?.kind === "image") &&
+    !isSticker;
   const isTextClip =
     selectedClip &&
     (selectedClip.kind === "text" ||
@@ -158,7 +170,13 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   // ── Clip type header info ────────────────────────────────────────────────
   const effectiveAssetType =
     selectedAsset?.type ??
-    (selectedClip.kind === "audio" ? "audio" : undefined);
+    (selectedClip.kind === "audio"
+      ? "audio"
+      : selectedClip.kind === "image"
+        ? "image"
+        : selectedClip.kind === "video"
+          ? "video"
+          : undefined);
   const typeInfo = getClipTypeInfo(
     effectiveAssetType,
     selectedClip.kind,

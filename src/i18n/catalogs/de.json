@@ -225,6 +225,7 @@
   "properties.tabs.textStyle": "Textstil",
   "properties.tabs.text": "Text",
   "properties.tabs.video": "Video",
+  "properties.tabs.image": "Bild",
   "properties.tabs.audio": "Audio",
   "properties.tabs.speed": "Geschwindigkeit",
   "properties.tabs.adjust": "Anpassen",

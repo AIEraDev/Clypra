@@ -225,6 +225,7 @@
   "properties.tabs.textStyle": "텍스트 스타일",
   "properties.tabs.text": "텍스트",
   "properties.tabs.video": "비디오",
+  "properties.tabs.image": "이미지",
   "properties.tabs.audio": "오디오",
   "properties.tabs.speed": "속도",
   "properties.tabs.adjust": "조정",

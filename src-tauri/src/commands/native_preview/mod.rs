@@ -1458,12 +1458,22 @@ async fn render_native_video_project_frame_bytes_timed(
         });
     }
     let raster_views = views.iter().skip(request.layers.len());
-    for (layer, view) in request
+    // Collect raster LUT Arcs before building specs so they outlive the NativeLayerSpec borrows.
+    let raster_luts: Vec<Option<Arc<crate::wgpu_compositor::GpuLut3D>>> = request
+        .raster_layers
+        .iter()
+        .map(|layer| {
+            resolve_native_lut(layer.color_grade.as_ref(), lut_cache.as_ref()).unwrap_or(None)
+        })
+        .collect();
+    for ((layer, view), raster_lut) in request
         .raster_layers
         .iter()
         .zip(raster_views)
         .filter(|(layer, _)| !layer.is_mask)
+        .zip(raster_luts.iter())
     {
+        let raster_color_grade = color_grade_from_snapshot(layer.color_grade.as_ref());
         specs.push(NativeLayerSpec {
             view,
             x: layer.x,
@@ -1475,10 +1485,10 @@ async fn render_native_video_project_frame_bytes_timed(
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
             crop: CropMargins::default(),
-            color_grade: ColorGradeUniforms::default(),
+            color_grade: raster_color_grade,
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
-            lut: None,
+            lut: raster_lut.clone(),
             grain_seed: 0.0,
         });
     }
@@ -3018,12 +3028,22 @@ pub(crate) async fn present_native_frame_internal(
         });
     }
     let raster_views = views.iter().skip(legacy_request.layers.len());
-    for (layer, view) in legacy_request
+    // Collect raster LUT Arcs before building specs so they outlive the NativeLayerSpec borrows.
+    let raster_luts: Vec<Option<Arc<crate::wgpu_compositor::GpuLut3D>>> = legacy_request
+        .raster_layers
+        .iter()
+        .map(|layer| {
+            resolve_native_lut(layer.color_grade.as_ref(), lut_cache.as_ref()).unwrap_or(None)
+        })
+        .collect();
+    for ((layer, view), raster_lut) in legacy_request
         .raster_layers
         .iter()
         .zip(raster_views)
         .filter(|(layer, _)| !layer.is_mask)
+        .zip(raster_luts.iter())
     {
+        let raster_color_grade = color_grade_from_snapshot(layer.color_grade.as_ref());
         specs.push(NativeLayerSpec {
             view,
             x: layer.x,
@@ -3035,10 +3055,10 @@ pub(crate) async fn present_native_frame_internal(
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
             crop: CropMargins::default(),
-            color_grade: ColorGradeUniforms::default(),
+            color_grade: raster_color_grade,
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
-            lut: None,
+            lut: raster_lut.clone(),
             grain_seed: 0.0,
         });
     }

@@ -15,6 +15,9 @@
 
 import { describe, it, expect } from "vitest";
 import { buildClipPropertyTransform } from "../properties/core/PropertiesPanel";
+import { getClipTypeInfo } from "@/lib/timeline/clipPropertyTransform";
+import { IMAGE_TABS } from "../properties/data";
+import { Image as ImageIcon } from "lucide-react";
 import type { Clip, TextClip } from "@/types";
 
 // ─── Helpers (mirrors the logic in PropertiesPanel verbatim) ─────────────────
@@ -393,5 +396,37 @@ describe("hasAudioTrack predicate", () => {
     expect(resolveHasAudioTrack(standaloneAudioClip, undefined, false)).toBe(
       true,
     );
+  });
+
+  it("is false for image clips backed by image assets", () => {
+    expect(resolveHasAudioTrack(imageClip, { type: "image" }, false)).toBe(
+      false,
+    );
+  });
+});
+
+// ─── Image Clip Property Panels & Tabs regression ─────────────────────────────
+
+describe("image clip property panels & metadata", () => {
+  it("resolves clip type info as Image when assetType is 'image'", () => {
+    const info = getClipTypeInfo("image", "image", false);
+    expect(info.label).toBe("Image");
+    expect(info.color).toBe("text-amber-400");
+  });
+
+  it("resolves clip type info as Image even when assetType is undefined (graceful hydration fallback)", () => {
+    const info = getClipTypeInfo(undefined, "image", false);
+    expect(info.label).toBe("Image");
+    expect(info.color).toBe("text-amber-400");
+  });
+
+  it("IMAGE_TABS uses ImageIcon for the Image tab", () => {
+    const imageTab = IMAGE_TABS.find((t) => t.id === "image");
+    expect(imageTab).toBeDefined();
+    expect(imageTab?.icon).toBe(ImageIcon);
+  });
+
+  it("IMAGE_TABS contains exactly image, animation, and adjust tabs", () => {
+    expect(IMAGE_TABS.map((t) => t.id)).toEqual(["image", "animation", "adjust"]);
   });
 });

@@ -3,6 +3,7 @@ import {
   Sparkles,
   Volume2,
   Video,
+  Image,
   Gauge,
   Sliders,
   Mic,
@@ -51,10 +52,10 @@ export const VIDEO_TABS: PropertyTabsType[] = [
 ];
 export const IMAGE_TABS: PropertyTabsType[] = [
   {
-    id: "video",
-    labelKey: "properties.tabs.video",
-    label: "Video",
-    icon: Video,
+    id: "image",
+    labelKey: "properties.tabs.image",
+    label: "Image",
+    icon: Image,
   },
   {
     id: "animation",

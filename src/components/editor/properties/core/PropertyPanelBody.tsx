@@ -3,11 +3,13 @@ import type { Clip, TextClip } from "@/types";
 import type {
   TextPropertyTab,
   VideoPropertyTab,
+  ImagePropertyTab,
   AudioPropertyTab,
 } from "../types";
 import type { TextPreset } from "@/store/presetStore";
 import { TextStyleSection } from "../text/sections/TextStyleSection";
 import { VideoStyleSection } from "../video/sections/VideoStyleSection";
+import { ImageStyleSection } from "../image/sections/ImageStyleSection";
 import { TransformSection } from "../shared/TransformSection";
 import { MotionPresetSection } from "../shared/MotionPresetSection";
 import { TextTrackingSection } from "../text/sections/TextTrackingSection";
@@ -33,6 +35,7 @@ interface PropertyPanelBodyProps {
   activePropertyTab:
     | TextPropertyTab
     | VideoPropertyTab
+    | ImagePropertyTab
     | AudioPropertyTab
     | null;
   isSticker: boolean;
@@ -178,9 +181,9 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
           handleUpdate={handleUpdate}
         />
       )}
-      {/* Image Tab: Same VideoStyleSection as video — handles transform, Remove BG, etc. */}
-      {isImageClip && activePropertyTab === "video" && (
-        <VideoStyleSection
+      {/* Image Tab: Dedicated ImageStyleSection — mirrors VideoStyleSection for image clips */}
+      {isImageClip && activePropertyTab === "image" && (
+        <ImageStyleSection
           selectedClip={selectedClip}
           isVisualClip={isVisualClip}
           canvasWidth={canvasWidth}

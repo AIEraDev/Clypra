@@ -280,7 +280,7 @@ function getNativeTransitionSnapshot(
   scene: EvaluatedScene,
   mediaLayers: EvaluatedMediaLayer[],
 ): NativeTransitionSnapshot | null | undefined {
-  if (scene.transitions.length === 0) return undefined;
+  if (!scene.transitions || scene.transitions.length === 0) return undefined;
   if (scene.transitions.length !== 1 || mediaLayers.length !== 2) return null;
 
   const transition = scene.transitions[0];
@@ -649,7 +649,7 @@ function resolveNativeMpgStack(
   return grade;
 }
 
-function getNativeColorGrade(
+export function getNativeColorGrade(
   adjustments: EvaluatedMediaLayer["adjustments"],
   colorGrade: EvaluatedMediaLayer["colorGrade"],
   filter: EvaluatedMediaLayer["filter"],
