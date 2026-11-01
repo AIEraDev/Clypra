@@ -31,8 +31,11 @@ on:
       - "crates/clypra-native-core/**"
       - "crates/clypra-render-wasm/**"
       - ".github/workflows/native-golden.yml"
+  # pull_request fires on every commit pushed to an open PR targeting these
+  # base branches — no paths filter so required status checks are always reported.
   pull_request:
     branches: [main, develop, master]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
