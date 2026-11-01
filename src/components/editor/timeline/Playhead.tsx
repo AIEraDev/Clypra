@@ -19,6 +19,11 @@ import {
 import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
 import { findKeyframeSnap } from "@/lib/timeline/snapTargets";
 import {
+  collectPlayheadSnapTargets,
+  evaluatePlayheadSnap,
+  type PlayheadSnapTarget,
+} from "@/lib/timeline/playheadSnapEngine";
+import {
   timelineTimeToPixel,
   timelinePixelToTime,
   TIMELINE_CLIP_START_OFFSET_PX,
@@ -134,6 +139,11 @@ export const Playhead: React.FC<PlayheadProps> = ({
   );
   const dragOffsetRef = useRef(0); // Offset captured at drag start for smooth anchor
   const lastSnapGuideTimeRef = useRef<number | null>(null);
+  const lastSnapGuideTypeRef = useRef<string | null>(null);
+  const cachedSnapTargetsRef = useRef<PlayheadSnapTarget[]>([]);
+  const currentSnappedTargetRef = useRef<PlayheadSnapTarget | null>(null);
+  const anchorPointerPxRef = useRef<number | null>(null);
+  const bypassModifierRef = useRef<boolean>(false);
   // Cached for the rAF playback-animation loop — stays current without causing re-mounts.
   const pixelsPerSecondRef = useRef(pixelsPerSecond);
   pixelsPerSecondRef.current = pixelsPerSecond;
@@ -291,7 +301,7 @@ export const Playhead: React.FC<PlayheadProps> = ({
       const scrollX = container.scrollLeft;
       const playheadX = scrollX + pointerXRef.current + dragOffsetRef.current;
 
-      // Convert to time and snap to keyframe diamond center or frame boundary
+      // Convert to time and evaluate magnetic snapping across all timeline features
       const rawTime = timelinePixelToTime(playheadX, pixelsPerSecond);
 
       // Get frameRate from project store directly, not clock state
@@ -299,25 +309,39 @@ export const Playhead: React.FC<PlayheadProps> = ({
       const timelineState = useTimelineStore.getState();
       const snapEnabled = timelineState.snapEnabled;
 
-      const kfSnap = findKeyframeSnap({
+      const snapResult = evaluatePlayheadSnap({
         candidateTime: rawTime,
-        clips: timelineState.clips,
-        snapEnabled,
+        pointerPx: playheadX,
+        currentSnappedTarget: currentSnappedTargetRef.current,
+        anchorPointerPx: anchorPointerPxRef.current,
+        snapTargets: cachedSnapTargetsRef.current,
         pixelsPerSecond,
+        snapEnabled,
+        bypassModifier: bypassModifierRef.current,
       });
 
       let newTime: number;
-      if (kfSnap.snapped && kfSnap.snappedTime !== undefined) {
-        newTime = Math.max(0, Math.min(kfSnap.snappedTime, duration));
-        if (lastSnapGuideTimeRef.current !== kfSnap.snappedTime) {
-          lastSnapGuideTimeRef.current = kfSnap.snappedTime;
-          timelineState.setSnapGuides([
-            { time: kfSnap.snappedTime, type: "keyframe" },
-          ]);
+      if (snapResult.snapped && snapResult.activeTarget) {
+        currentSnappedTargetRef.current = snapResult.activeTarget;
+        anchorPointerPxRef.current = snapResult.anchorPointerPx;
+        newTime = Math.max(0, Math.min(snapResult.time, duration));
+
+        if (
+          lastSnapGuideTimeRef.current !== snapResult.time ||
+          lastSnapGuideTypeRef.current !== snapResult.guide?.type
+        ) {
+          lastSnapGuideTimeRef.current = snapResult.time;
+          lastSnapGuideTypeRef.current = snapResult.guide?.type ?? "clip-start";
+          timelineState.setSnapGuides(
+            snapResult.guide ? [snapResult.guide] : [],
+          );
         }
       } else {
+        currentSnappedTargetRef.current = null;
+        anchorPointerPxRef.current = null;
         if (lastSnapGuideTimeRef.current !== null) {
           lastSnapGuideTimeRef.current = null;
+          lastSnapGuideTypeRef.current = null;
           timelineState.clearSnapGuides();
         }
         // Only snap if frames are visually distinguishable (> 3px apart)
@@ -398,9 +422,10 @@ export const Playhead: React.FC<PlayheadProps> = ({
       const container = containerRef.current;
       if (!container) return;
 
-      // ✅ Store pointer position in viewport space
+      // ✅ Store pointer position in viewport space & update modifier bypass state
       const viewportRect = container.getBoundingClientRect();
       pointerXRef.current = e.clientX - viewportRect.left;
+      bypassModifierRef.current = e.metaKey || e.ctrlKey;
       const now = performance.now();
       const previous = lastPointerSampleRef.current;
       if (previous) {
@@ -459,8 +484,13 @@ export const Playhead: React.FC<PlayheadProps> = ({
           );
           scrubInteractionRef.current = null;
         }
+        currentSnappedTargetRef.current = null;
+        anchorPointerPxRef.current = null;
+        cachedSnapTargetsRef.current = [];
+        bypassModifierRef.current = false;
         if (lastSnapGuideTimeRef.current !== null) {
           lastSnapGuideTimeRef.current = null;
+          lastSnapGuideTypeRef.current = null;
           useTimelineStore.getState().clearSnapGuides();
         }
         setIsDragging(false);
@@ -521,8 +551,13 @@ export const Playhead: React.FC<PlayheadProps> = ({
     const handleVisibilityChange = () => {
       if (document.hidden) {
         endScrub(getPlaybackClock().time);
+        currentSnappedTargetRef.current = null;
+        anchorPointerPxRef.current = null;
+        cachedSnapTargetsRef.current = [];
+        bypassModifierRef.current = false;
         if (lastSnapGuideTimeRef.current !== null) {
           lastSnapGuideTimeRef.current = null;
+          lastSnapGuideTypeRef.current = null;
           useTimelineStore.getState().clearSnapGuides();
         }
         setIsDragging(false);
@@ -605,22 +640,45 @@ export const Playhead: React.FC<PlayheadProps> = ({
     const timelineState = useTimelineStore.getState();
     const snapEnabled = timelineState.snapEnabled;
 
-    const kfSnap = findKeyframeSnap({
-      candidateTime: rawTime,
+    bypassModifierRef.current = e.metaKey || e.ctrlKey;
+    cachedSnapTargetsRef.current = collectPlayheadSnapTargets({
       clips: timelineState.clips,
-      snapEnabled,
+      tracks: timelineState.tracks,
+      markers: timelineState.markers,
+      transitions: timelineState.transitions,
+      gaps: timelineState.gaps,
+      captionTracks: timelineState.captionTracks,
+      duration,
+    });
+    currentSnappedTargetRef.current = null;
+    anchorPointerPxRef.current = null;
+
+    const snapResult = evaluatePlayheadSnap({
+      candidateTime: rawTime,
+      pointerPx: playheadX,
+      currentSnappedTarget: null,
+      anchorPointerPx: null,
+      snapTargets: cachedSnapTargetsRef.current,
       pixelsPerSecond,
+      snapEnabled,
+      bypassModifier: bypassModifierRef.current,
     });
 
     let newTime: number;
-    if (kfSnap.snapped && kfSnap.snappedTime !== undefined) {
-      newTime = Math.max(0, Math.min(kfSnap.snappedTime, duration));
-      lastSnapGuideTimeRef.current = kfSnap.snappedTime;
-      timelineState.setSnapGuides([
-        { time: kfSnap.snappedTime, type: "keyframe" },
-      ]);
+    if (snapResult.snapped && snapResult.activeTarget) {
+      currentSnappedTargetRef.current = snapResult.activeTarget;
+      anchorPointerPxRef.current = snapResult.anchorPointerPx;
+      newTime = Math.max(0, Math.min(snapResult.time, duration));
+      lastSnapGuideTimeRef.current = snapResult.time;
+      lastSnapGuideTypeRef.current = snapResult.guide?.type ?? "clip-start";
+      timelineState.setSnapGuides(
+        snapResult.guide ? [snapResult.guide] : [],
+      );
     } else {
+      currentSnappedTargetRef.current = null;
+      anchorPointerPxRef.current = null;
       lastSnapGuideTimeRef.current = null;
+      lastSnapGuideTypeRef.current = null;
       timelineState.clearSnapGuides();
       // Only snap if frames are visually distinguishable (> 3px apart)
       const pixelsPerFrame = pixelsPerSecond / frameRate;
@@ -681,8 +739,13 @@ export const Playhead: React.FC<PlayheadProps> = ({
         touchAction: "none",
       }}
       onLostPointerCapture={() => {
+        currentSnappedTargetRef.current = null;
+        anchorPointerPxRef.current = null;
+        cachedSnapTargetsRef.current = [];
+        bypassModifierRef.current = false;
         if (lastSnapGuideTimeRef.current !== null) {
           lastSnapGuideTimeRef.current = null;
+          lastSnapGuideTypeRef.current = null;
           useTimelineStore.getState().clearSnapGuides();
         }
         setIsDragging(false);

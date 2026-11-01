@@ -77,6 +77,23 @@ import {
   resolvePrimaryVideoTrackId,
 } from "@/lib/timeline/trackTypeConfig";
 
+export type SnapGuideType =
+  | "clip-start"
+  | "clip-end"
+  | "playhead"
+  | "keyframe"
+  | "marker"
+  | "transition"
+  | "sequence-boundary"
+  | "cut"
+  | "gap";
+
+export interface TimelineSnapGuide {
+  time: number;
+  type: SnapGuideType;
+  label?: string;
+}
+
 interface TimelineStore {
   tracks: Track[];
   clips: Clip[];
@@ -106,17 +123,9 @@ interface TimelineStore {
   pixelsPerSecond: number;
   rippleEditEnabled: boolean;
   snapEnabled: boolean;
-  /** Active snap guides (vertical alignment indicators during resize/drag) */
-  snapGuides: Array<{
-    time: number;
-    type: "clip-start" | "clip-end" | "playhead" | "keyframe";
-  }>;
-  setSnapGuides: (
-    guides: Array<{
-      time: number;
-      type: "clip-start" | "clip-end" | "playhead" | "keyframe";
-    }>,
-  ) => void;
+  /** Active snap guides (vertical alignment indicators during resize/drag/scrub) */
+  snapGuides: TimelineSnapGuide[];
+  setSnapGuides: (guides: TimelineSnapGuide[]) => void;
   clearSnapGuides: () => void;
   /** @internal Batch nesting depth — do not read directly */
   _batchDepth: number;

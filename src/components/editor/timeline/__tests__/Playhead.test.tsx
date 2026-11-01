@@ -525,7 +525,7 @@ describe("Playhead Component", () => {
       // Should snap to exact keyframe time 2.52s!
       expect(beginScrubMock).toHaveBeenCalledWith(2.52, "playhead");
       expect(useTimelineStore.getState().snapGuides).toEqual([
-        { time: 2.52, type: "keyframe" },
+        expect.objectContaining({ time: 2.52, type: "keyframe" }),
       ]);
 
       // Release cleans up snap guides
@@ -594,6 +594,202 @@ describe("Playhead Component", () => {
 
       act(() => {
         fireEvent(window, new PointerEvent("pointerup", { pointerId: 3 }));
+      });
+    });
+
+    it("magnetically snaps playhead to clip start edge with clip-start guide", () => {
+      const scrollContainer = document.createElement("div");
+      Object.defineProperty(scrollContainer, "clientWidth", { value: 1000, configurable: true });
+      Object.defineProperty(scrollContainer, "scrollWidth", { value: 2000, configurable: true });
+      scrollContainer.scrollLeft = 0;
+      scrollContainer.getBoundingClientRect = () => ({
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 500,
+        width: 1000,
+        height: 500,
+        x: 0,
+        y: 0,
+        toJSON: () => {},
+      });
+
+      // Clip starting at 2.5s (250px at 100pps) — exactly where the mocked playhead is.
+      // dragOffset = currentPlayheadX(250) - (scrollLeft(0) + clientX(250)) = 0, so
+      // playheadX = 250 → rawTime = 2.5s. Snap target at 2.5s is 0px away — well within threshold.
+      useTimelineStore.setState({
+        snapEnabled: true,
+        snapGuides: [],
+        clips: [
+          {
+            id: "clip-edge-test",
+            trackId: "t1",
+            mediaId: "m1",
+            name: "Edge Test Clip",
+            startTime: 2.5,
+            duration: 5.0,
+            trimIn: 0,
+            trimOut: 5,
+            volume: 1,
+            speed: 1,
+            muted: false,
+            kind: "video",
+          } as any,
+        ],
+      });
+
+      const { container } = render(
+        <Playhead
+          pixelsPerSecond={100}
+          duration={30}
+          containerRef={{ current: scrollContainer }}
+          rulerHeight={24}
+        />,
+      );
+
+      const hitTarget = container.querySelector(
+        "[data-playhead-hit-target='true']",
+      ) as HTMLElement;
+
+      // Click at 250px (playhead is at 2.5s = 250px; clip-start is also at 2.5s = 0px distance)
+      act(() => {
+        fireEvent.pointerDown(hitTarget, { clientX: 250, clientY: 10, pointerId: 4 });
+      });
+
+      expect(beginScrubMock).toHaveBeenCalledWith(2.5, "playhead");
+      expect(useTimelineStore.getState().snapGuides).toEqual([
+        expect.objectContaining({ time: 2.5, type: "clip-start" }),
+      ]);
+
+      act(() => {
+        fireEvent(window, new PointerEvent("pointerup", { pointerId: 4 }));
+      });
+      expect(useTimelineStore.getState().snapGuides).toEqual([]);
+    });
+
+    it("magnetically snaps playhead to timeline marker with marker guide", () => {
+      const scrollContainer = document.createElement("div");
+      Object.defineProperty(scrollContainer, "clientWidth", { value: 1000, configurable: true });
+      Object.defineProperty(scrollContainer, "scrollWidth", { value: 2000, configurable: true });
+      scrollContainer.scrollLeft = 0;
+      scrollContainer.getBoundingClientRect = () => ({
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 500,
+        width: 1000,
+        height: 500,
+        x: 0,
+        y: 0,
+        toJSON: () => {},
+      });
+
+      // Marker at 2.5s (250px) — exactly where the mocked playhead sits.
+      // dragOffset = 250 - (0 + 250) = 0 → playheadX = 250 → rawTime = 2.5s
+      // Snap target is 0px away — well within 10px threshold.
+      useTimelineStore.setState({
+        snapEnabled: true,
+        snapGuides: [],
+        clips: [],
+        markers: [{ id: "m-test", time: 2.5, name: "Beat Drop", color: "#d946ef" }],
+      });
+
+      const { container } = render(
+        <Playhead
+          pixelsPerSecond={100}
+          duration={30}
+          containerRef={{ current: scrollContainer }}
+          rulerHeight={24}
+        />,
+      );
+
+      const hitTarget = container.querySelector(
+        "[data-playhead-hit-target='true']",
+      ) as HTMLElement;
+
+      // Click at 250px — playhead and marker both at 2.5s (0px distance)
+      act(() => {
+        fireEvent.pointerDown(hitTarget, { clientX: 250, clientY: 10, pointerId: 5 });
+      });
+
+      expect(beginScrubMock).toHaveBeenCalledWith(2.5, "playhead");
+      expect(useTimelineStore.getState().snapGuides).toEqual([
+        expect.objectContaining({ time: 2.5, type: "marker" }),
+      ]);
+
+      act(() => {
+        fireEvent(window, new PointerEvent("pointerup", { pointerId: 5 }));
+      });
+      expect(useTimelineStore.getState().snapGuides).toEqual([]);
+    });
+
+    it("bypasses snapping when metaKey or ctrlKey is held", () => {
+      const scrollContainer = document.createElement("div");
+      Object.defineProperty(scrollContainer, "clientWidth", { value: 1000, configurable: true });
+      Object.defineProperty(scrollContainer, "scrollWidth", { value: 2000, configurable: true });
+      scrollContainer.scrollLeft = 0;
+      scrollContainer.getBoundingClientRect = () => ({
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 500,
+        width: 1000,
+        height: 500,
+        x: 0,
+        y: 0,
+        toJSON: () => {},
+      });
+
+      useTimelineStore.setState({
+        snapEnabled: true,
+        snapGuides: [],
+        clips: [
+          {
+            id: "clip-meta-test",
+            trackId: "t1",
+            mediaId: "m1",
+            name: "Meta Test Clip",
+            startTime: 4.0,
+            duration: 5.0,
+            trimIn: 0,
+            trimOut: 5,
+            volume: 1,
+            speed: 1,
+            muted: false,
+            kind: "video",
+          } as any,
+        ],
+      });
+
+      const { container } = render(
+        <Playhead
+          pixelsPerSecond={100}
+          duration={30}
+          containerRef={{ current: scrollContainer }}
+          rulerHeight={24}
+        />,
+      );
+
+      const hitTarget = container.querySelector(
+        "[data-playhead-hit-target='true']",
+      ) as HTMLElement;
+
+      // Click at 404px with metaKey=true (Cmd held)
+      act(() => {
+        fireEvent.pointerDown(hitTarget, {
+          clientX: 404,
+          clientY: 10,
+          pointerId: 6,
+          metaKey: true,
+        });
+      });
+
+      // Must NOT snap to 4.0; should resolve to raw frame time
+      expect(beginScrubMock).not.toHaveBeenCalledWith(4.0, "playhead");
+      expect(useTimelineStore.getState().snapGuides).toEqual([]);
+
+      act(() => {
+        fireEvent(window, new PointerEvent("pointerup", { pointerId: 6 }));
       });
     });
   });

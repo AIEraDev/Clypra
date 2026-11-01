@@ -994,7 +994,7 @@ const ClipInner: React.FC<ClipProps> = ({
         data-testid={`clip-${clip.id}-resize-left`}
         data-clip-resize-handle="true"
         className={`group/resize absolute top-0 z-30 h-full w-3 cursor-col-resize transition-colors ${resizeHandleVisibility} ${isResizing === "left" ? (isRippleResize ? "bg-clypra-clip-effect/35" : "bg-clypra-clip-fg/35") : "bg-transparent"}`}
-        style={{ left: "-6px", touchAction: "none", cursor: "col-resize" }}
+        style={{ left: "-1px", touchAction: "none", cursor: "col-resize" }}
         onPointerDown={(e) => {
           e.stopPropagation(); // Prevent drag when clicking resize handle
           handleResizeStart(e, "left");
@@ -1006,7 +1006,7 @@ const ClipInner: React.FC<ClipProps> = ({
         }
       >
         <div
-          className={`pointer-events-none absolute inset-y-0 left-0 h-full w-0.5 rounded-r bg-clypra-clip-fg/90 transition-all group-hover/resize:w-0.75 group-hover/resize:bg-clypra-clip-fg ${isResizing === "left" ? (isRippleResize ? "bg-clypra-clip-effect" : "bg-clypra-clip-fg") : ""}`}
+          className={`pointer-events-none absolute inset-y-0 left-0 h-full w-0.5 rounded-l bg-clypra-clip-fg/90 transition-all group-hover/resize:bg-clypra-clip-fg ${isResizing === "left" ? (isRippleResize ? "bg-clypra-clip-effect" : "bg-clypra-clip-fg") : ""}`}
         />
       </div>
 
@@ -1518,7 +1518,7 @@ const ClipInner: React.FC<ClipProps> = ({
         data-testid={`clip-${clip.id}-resize-right`}
         data-clip-resize-handle="true"
         className={`group/resize absolute top-0 z-30 h-full w-3 cursor-col-resize transition-colors ${resizeHandleVisibility} ${isResizing === "right" ? (isRippleResize ? "bg-clypra-clip-effect/35" : "bg-clypra-clip-fg/35") : "bg-transparent"}`}
-        style={{ right: "-6px", touchAction: "none", cursor: "col-resize" }}
+        style={{ right: "-1px", touchAction: "none", cursor: "col-resize" }}
         onPointerDown={(e) => {
           e.stopPropagation(); // Prevent drag when clicking resize handle
           handleResizeStart(e, "right");
@@ -1531,7 +1531,7 @@ const ClipInner: React.FC<ClipProps> = ({
         }
       >
         <div
-          className={`pointer-events-none absolute inset-y-0 right-0 h-full w-0.5 rounded-l bg-clypra-clip-fg/90 transition-all group-hover/resize:w-0.75 group-hover/resize:bg-clypra-clip-fg ${isResizing === "right" ? (isRippleResize ? "bg-clypra-clip-effect" : "bg-clypra-clip-fg") : ""}`}
+          className={`pointer-events-none absolute inset-y-0 right-0 h-full w-0.5 rounded-r bg-clypra-clip-fg/90 transition-all group-hover/resize:bg-clypra-clip-fg ${isResizing === "right" ? (isRippleResize ? "bg-clypra-clip-effect" : "bg-clypra-clip-fg") : ""}`}
         />
       </div>
     </div>

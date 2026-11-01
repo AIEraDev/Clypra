@@ -43,6 +43,10 @@ import {
 import { getTrackVisualSpec } from "@/lib/timeline/trackTypeConfig";
 import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
 import { findKeyframeSnap } from "@/lib/timeline/snapTargets";
+import {
+  collectPlayheadSnapTargets,
+  evaluatePlayheadSnap,
+} from "@/lib/timeline/playheadSnapEngine";
 import { TIMELINE_ZOOM_MIN } from "@/lib/timeline/timelineZoom";
 
 import { TimelineToolbar } from "./TimelineToolbar";
@@ -699,16 +703,30 @@ export const Timeline: React.FC = () => {
 
       const frameRate = getPlaybackClock().frameRate;
       const timelineState = useTimelineStore.getState();
-      const kfSnap = findKeyframeSnap({
-        candidateTime: time,
+      const snapTargets = collectPlayheadSnapTargets({
         clips: timelineState.clips,
-        snapEnabled: timelineState.snapEnabled,
+        tracks: timelineState.tracks,
+        markers: timelineState.markers,
+        transitions: timelineState.transitions,
+        gaps: timelineState.gaps,
+        captionTracks: timelineState.captionTracks,
+        duration,
+      });
+
+      const snapResult = evaluatePlayheadSnap({
+        candidateTime: time,
+        pointerPx: x,
+        currentSnappedTarget: null,
+        anchorPointerPx: null,
+        snapTargets,
         pixelsPerSecond,
+        snapEnabled: timelineState.snapEnabled,
+        bypassModifier: event.metaKey || event.ctrlKey,
       });
 
       const targetTime =
-        kfSnap.snapped && kfSnap.snappedTime !== undefined
-          ? Math.max(0, Math.min(kfSnap.snappedTime, duration))
+        snapResult.snapped && snapResult.activeTarget
+          ? Math.max(0, Math.min(snapResult.time, duration))
           : clampAndSnapProgramTime(time, duration, frameRate);
 
       transportSeek(targetTime, {
@@ -1035,6 +1053,14 @@ export const Timeline: React.FC = () => {
                 const guideColor =
                   guide.type === "keyframe"
                     ? "var(--color-accent)"
+                    : guide.type === "marker"
+                    ? "var(--color-marker-snap, #d946ef)"
+                    : guide.type === "transition"
+                    ? "var(--color-transition-snap, #f59e0b)"
+                    : guide.type === "sequence-boundary"
+                    ? "var(--color-boundary-snap, #ef4444)"
+                    : guide.type === "cut"
+                    ? "var(--color-snap-guide-clip, #00f0ff)"
                     : guide.type === "playhead"
                     ? "var(--color-timeline-drop-indicator)"
                     : "var(--color-snap-guide-clip)";
