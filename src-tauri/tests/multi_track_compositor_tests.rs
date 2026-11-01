@@ -287,6 +287,7 @@ async fn test_z_index_layer_sorting() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
         CompositeLayer {
             texture_view: &view_red,
@@ -300,6 +301,7 @@ async fn test_z_index_layer_sorting() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
         CompositeLayer {
             texture_view: &view_green,
@@ -313,6 +315,7 @@ async fn test_z_index_layer_sorting() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
     ];
 
@@ -356,6 +359,7 @@ async fn test_premultiplied_alpha_opacity_blend() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
         CompositeLayer {
             texture_view: &view_red,
@@ -369,6 +373,7 @@ async fn test_premultiplied_alpha_opacity_blend() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
     ];
 
@@ -417,6 +422,7 @@ async fn test_additive_blend_mode() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
         CompositeLayer {
             texture_view: &view_green,
@@ -430,6 +436,7 @@ async fn test_additive_blend_mode() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
     ];
 
@@ -476,6 +483,7 @@ async fn test_multiply_blend_mode() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
         CompositeLayer {
             texture_view: &view_red,
@@ -489,6 +497,7 @@ async fn test_multiply_blend_mode() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
     ];
 
@@ -534,6 +543,7 @@ async fn test_screen_blend_mode() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
         CompositeLayer {
             texture_view: &view_green,
@@ -547,6 +557,7 @@ async fn test_screen_blend_mode() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
     ];
 
@@ -596,6 +607,7 @@ async fn test_crop_margins_clipping() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
         CompositeLayer {
             texture_view: &view_white,
@@ -614,6 +626,7 @@ async fn test_crop_margins_clipping() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
     ];
 
@@ -667,6 +680,7 @@ async fn test_affine_transform_pip_placement() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
         CompositeLayer {
             texture_view: &view_red,
@@ -687,6 +701,7 @@ async fn test_affine_transform_pip_placement() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
     ];
 
@@ -745,6 +760,7 @@ async fn test_24_track_density_stress() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         });
     }
 
@@ -809,6 +825,7 @@ async fn test_lut_identity_and_half_texel_offset() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         }];
 
         let output = compositor
@@ -856,6 +873,7 @@ async fn test_exposure_ev_adjustments() {
         chroma_key: ChromaKeyUniforms::default(),
         mask_view: None,
         body_effect: BodyEffectUniforms::default(),
+        is_premultiplied: false,
     }];
 
     let out_plus = compositor
@@ -887,6 +905,7 @@ async fn test_exposure_ev_adjustments() {
         chroma_key: ChromaKeyUniforms::default(),
         mask_view: None,
         body_effect: BodyEffectUniforms::default(),
+        is_premultiplied: false,
     }];
 
     let out_minus = compositor
@@ -932,6 +951,7 @@ async fn test_body_glow_mask_binding() {
             color: [1.0, 0.0, 0.0, 0.0],
             params: [2.0, 0.5, 2.0, 0.0],
         },
+        is_premultiplied: false,
     }];
 
     let output = compositor
@@ -959,6 +979,7 @@ async fn test_body_glow_mask_binding() {
             color: [1.0, 0.5, 0.0, 0.0],
             params: [3.0, 1.0, 40.0, 1.0],
         },
+        is_premultiplied: false,
     }];
     let particle_output = compositor
         .render_to_rgba_bytes(&ctx.device, &ctx.queue, &particle_layers)
@@ -1025,6 +1046,7 @@ DOMAIN_MAX 1.0 1.0 1.0
         chroma_key: ChromaKeyUniforms::default(),
         mask_view: None,
         body_effect: BodyEffectUniforms::default(),
+        is_premultiplied: false,
     }];
 
     let out_full = compositor
@@ -1058,6 +1080,7 @@ DOMAIN_MAX 1.0 1.0 1.0
         chroma_key: ChromaKeyUniforms::default(),
         mask_view: None,
         body_effect: BodyEffectUniforms::default(),
+        is_premultiplied: false,
     }];
 
     let out_half = compositor
@@ -1104,6 +1127,7 @@ async fn test_chroma_key_green_screen_removal() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
         CompositeLayer {
             texture_view: &view_green,
@@ -1128,6 +1152,7 @@ async fn test_chroma_key_green_screen_removal() {
             },
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
     ];
 
@@ -1176,6 +1201,7 @@ async fn test_chroma_key_subject_retention() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
         CompositeLayer {
             texture_view: &view_red,
@@ -1200,6 +1226,7 @@ async fn test_chroma_key_subject_retention() {
             },
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
     ];
 
@@ -1293,6 +1320,7 @@ async fn test_burned_in_caption_preview_vs_export_pixel_parity() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
         CompositeLayer {
             texture_view: &caption_view,
@@ -1306,6 +1334,7 @@ async fn test_burned_in_caption_preview_vs_export_pixel_parity() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
     ];
 
@@ -1434,6 +1463,7 @@ async fn test_chromatic_aberration_render() {
         chroma_key: ChromaKeyUniforms::default(),
         mask_view: None,
         body_effect: BodyEffectUniforms::default(),
+        is_premultiplied: false,
     }];
 
     let out_disabled = compositor
@@ -1468,6 +1498,7 @@ async fn test_chromatic_aberration_render() {
         chroma_key: ChromaKeyUniforms::default(),
         mask_view: None,
         body_effect: BodyEffectUniforms::default(),
+        is_premultiplied: false,
     }];
 
     let out_aberration = compositor
@@ -1543,6 +1574,7 @@ async fn test_chromatic_aberration_render() {
         chroma_key: ChromaKeyUniforms::default(),
         mask_view: None,
         body_effect: BodyEffectUniforms::default(),
+        is_premultiplied: false,
     }];
 
     let out_vertical = compositor
@@ -1583,6 +1615,7 @@ async fn test_chromatic_aberration_render() {
         chroma_key: ChromaKeyUniforms::default(),
         mask_view: None,
         body_effect: BodyEffectUniforms::default(),
+        is_premultiplied: false,
     }];
 
     let out_feathered = compositor

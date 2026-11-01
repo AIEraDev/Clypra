@@ -33,6 +33,15 @@ impl RgbaLayerTextureCache {
         self.entries.contains_key(asset_id)
     }
 
+    pub(crate) fn get_any(&mut self, asset_id: &str) -> Option<(Arc<wgpu::Texture>, u32, u32)> {
+        let entry = self.entries.get(asset_id)?;
+        let texture = Arc::clone(&entry.texture);
+        let width = entry.width;
+        let height = entry.height;
+        self.touch(asset_id);
+        Some((texture, width, height))
+    }
+
     pub(crate) fn get(&mut self, asset_id: &str, width: u32, height: u32) -> Option<Arc<wgpu::Texture>> {
         let entry = self.entries.get(asset_id)?;
         if entry.width != width || entry.height != height {

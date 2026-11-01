@@ -19,6 +19,10 @@ import {
   renderNativePreviewFrame,
   renderNativeProjectFrame,
   renderNativeVideoProjectFrame,
+  renderFrameNative,
+  renderNativeFrame,
+  presentNativeFrame,
+  configureNativePlaybackRender,
   getNativePreviewSurfaceGeometry,
 } from "../platform/tauri";
 import { DensityLevel } from "@/types";
@@ -465,6 +469,241 @@ describe("native preview bridge", () => {
       },
     });
     expect(result).toBe(frame);
+  });
+
+  it("normalizes assetPath in effectLayers before invoking", async () => {
+    const frame = new ArrayBuffer(64);
+    const request = {
+      canvasWidth: 640,
+      canvasHeight: 360,
+      layers: [],
+      effectLayers: [
+        {
+          assetPath: "file:///Users/test/fixture.mov",
+          frame: 0,
+          zIndex: 100,
+          opacity: 1.0,
+          transform: { tx: 0, ty: 0, sx: 1, sy: 1, rotation: 0 },
+        },
+      ],
+    };
+    vi.mocked(invoke).mockResolvedValueOnce(frame);
+
+    const result = await renderNativeVideoProjectFrame(request);
+
+    expect(invoke).toHaveBeenCalledWith("render_native_video_project_frame", {
+      request: {
+        ...request,
+        layers: [],
+        effectLayers: [
+          {
+            ...request.effectLayers[0],
+            assetPath: "/Users/test/fixture.mov",
+          },
+        ],
+      },
+    });
+    expect(result).toBe(frame);
+  });
+
+  it("renderFrameNative delegates to render_native_video_project_frame with normalized paths", async () => {
+    const frame = new ArrayBuffer(64);
+    const request = {
+      canvasWidth: 640,
+      canvasHeight: 360,
+      layers: [],
+      effectLayers: [
+        {
+          assetPath: "/test/fixture.mov",
+          frame: 5,
+          zIndex: 50,
+        },
+      ],
+    };
+    vi.mocked(invoke).mockResolvedValueOnce(frame);
+
+    const result = await renderFrameNative(request);
+
+    expect(invoke).toHaveBeenCalledWith("render_native_video_project_frame", {
+      request: {
+        ...request,
+        layers: [],
+        effectLayers: [
+          {
+            ...request.effectLayers[0],
+            assetPath: "/test/fixture.mov",
+          },
+        ],
+      },
+    });
+    expect(result).toBe(frame);
+  });
+
+  it("renderNativeFrame normalizes effectLayers in project snapshot", async () => {
+    const frame = new ArrayBuffer(64);
+    const request = {
+      contractVersion: 1,
+      requestId: "test-req",
+      frameTime: { frameIndex: 0, ticks: 0, timescale: 30 },
+      project: {
+        schemaVersion: 1,
+        projectRevision: "rev-1",
+        canvasWidth: 640,
+        canvasHeight: 360,
+        clearColor: [0, 0, 0, 1] as [number, number, number, number],
+        videoLayers: [],
+        effectLayers: [
+          {
+            assetPath: "file:///Users/test/effect.mov",
+            frame: 0,
+          },
+        ],
+      },
+      outputWidth: 640,
+      outputHeight: 360,
+      quality: "full" as const,
+      colorPolicy: {
+        version: 1,
+        workingSpace: "linear-rec709" as const,
+        outputFormat: "rgba8Srgb" as const,
+        toneMapHdrToSdr: true,
+        displayProfile: "srgb-reference" as const,
+      },
+      renderGraphVersion: 1,
+    };
+    vi.mocked(invoke).mockResolvedValueOnce(frame);
+
+    const result = await renderNativeFrame(request);
+
+    expect(invoke).toHaveBeenCalledWith("render_native_frame", {
+      request: {
+        ...request,
+        project: {
+          ...request.project,
+          videoLayers: [],
+          effectLayers: [
+            {
+              ...request.project.effectLayers[0],
+              assetPath: "/Users/test/effect.mov",
+            },
+          ],
+        },
+      },
+    });
+    expect(result).toBe(frame);
+  });
+
+  it("presentNativeFrame normalizes effectLayers in project snapshot", async () => {
+    const presentation = {
+      presented: true,
+      frameIndex: 0,
+      generation: 1,
+      renderedAtEpochMs: 1000,
+    };
+    const request = {
+      contractVersion: 1,
+      requestId: "present-req-1",
+      frameTime: { frameIndex: 15, ticks: 15, timescale: 30 },
+      project: {
+        schemaVersion: 1,
+        projectRevision: "rev-1",
+        canvasWidth: 640,
+        canvasHeight: 360,
+        clearColor: [0, 0, 0, 1] as [number, number, number, number],
+        videoLayers: [],
+        effectLayers: [
+          {
+            assetPath: "file:///Users/test/fixture.mov",
+            frame: 15,
+            zIndex: 100,
+          },
+        ],
+      },
+      outputWidth: 640,
+      outputHeight: 360,
+      quality: "full" as const,
+      colorPolicy: {
+        version: 1,
+        workingSpace: "linear-rec709" as const,
+        outputFormat: "rgba8Srgb" as const,
+        toneMapHdrToSdr: true,
+        displayProfile: "srgb-reference" as const,
+      },
+      renderGraphVersion: 1,
+    };
+    vi.mocked(invoke).mockResolvedValueOnce(presentation);
+
+    const result = await presentNativeFrame(request);
+
+    expect(invoke).toHaveBeenCalledWith("present_native_frame", {
+      request: {
+        ...request,
+        project: {
+          ...request.project,
+          videoLayers: [],
+          effectLayers: [
+            {
+              ...request.project.effectLayers[0],
+              assetPath: "/Users/test/fixture.mov",
+            },
+          ],
+        },
+      },
+    });
+    expect(result).toBe(presentation);
+  });
+
+  it("configureNativePlaybackRender normalizes effectLayers in project snapshot", async () => {
+    const request = {
+      contractVersion: 1,
+      requestId: "config-req-1",
+      frameTime: { frameIndex: 0, ticks: 0, timescale: 30 },
+      project: {
+        schemaVersion: 1,
+        projectRevision: "rev-1",
+        canvasWidth: 640,
+        canvasHeight: 360,
+        clearColor: [0, 0, 0, 1] as [number, number, number, number],
+        videoLayers: [],
+        effectLayers: [
+          {
+            assetPath: "file:///Users/test/fixture.mov",
+            frame: 0,
+            zIndex: 100,
+          },
+        ],
+      },
+      outputWidth: 640,
+      outputHeight: 360,
+      quality: "full" as const,
+      colorPolicy: {
+        version: 1,
+        workingSpace: "linear-rec709" as const,
+        outputFormat: "rgba8Srgb" as const,
+        toneMapHdrToSdr: true,
+        displayProfile: "srgb-reference" as const,
+      },
+      renderGraphVersion: 1,
+    };
+    vi.mocked(invoke).mockResolvedValueOnce(undefined);
+
+    await configureNativePlaybackRender(request);
+
+    expect(invoke).toHaveBeenCalledWith("configure_native_playback_render", {
+      snapshot: {
+        ...request,
+        project: {
+          ...request.project,
+          videoLayers: [],
+          effectLayers: [
+            {
+              ...request.project.effectLayers[0],
+              assetPath: "/Users/test/fixture.mov",
+            },
+          ],
+        },
+      },
+    });
   });
 });
 

@@ -850,7 +850,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         rgb = vec3<f32>(1.0) - (vec3<f32>(1.0) - rgb) * (vec3<f32>(1.0) - leak);
     }
     let final_alpha = keyed_color.a * layer.opacity * alpha_multiplier;
-    var final_rgb = rgb * final_alpha;
+    var final_rgb: vec3<f32>;
+    if (layer.is_premultiplied == 1u) {
+        // Source texture is already premultiplied by source alpha.
+        // Scale only by layer opacity and temporal alpha multiplier to prevent double premultiplication.
+        final_rgb = rgb * (layer.opacity * alpha_multiplier);
+    } else {
+        // Source texture has straight alpha. Premultiply by final_alpha.
+        final_rgb = rgb * final_alpha;
+    }
     if (layer.blend_mode == 8u) {
         // Color Dodge: Scale source color by 1 / (1 - rgb) so that hardware blending
         // (src_factor: Dst, dst_factor: One) produces Dst + Dst * (rgb / (1 - rgb)) = Dst / (1 - rgb).

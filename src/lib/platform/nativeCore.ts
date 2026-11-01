@@ -815,6 +815,29 @@ export interface NativeTextLayerSnapshot {
   };
 }
 
+export interface NativeTransform2D {
+  tx?: number;
+  ty?: number;
+  sx?: number;
+  sy?: number;
+  rotation?: number;
+}
+
+export interface NativeEffectLayerSnapshot {
+  layerId?: string;
+  assetPath: string;
+  frame: number;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  rotation?: number;
+  opacity?: number;
+  zIndex?: number;
+  blendMode?: string;
+  transform?: NativeTransform2D;
+}
+
 export interface NativeProjectSnapshot {
   schemaVersion: number;
   projectRevision: string;
@@ -826,6 +849,7 @@ export interface NativeProjectSnapshot {
   videoLayers: NativeVideoLayerSnapshot[];
   rasterLayers?: NativeRasterLayerSnapshot[];
   textLayers?: NativeTextLayerSnapshot[];
+  effectLayers?: NativeEffectLayerSnapshot[];
   transition?: NativeTransitionSnapshot;
 }
 

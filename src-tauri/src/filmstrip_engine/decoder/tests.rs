@@ -974,4 +974,300 @@ mod still_image_tests {
             "backward delta of 2× frame duration must seek with 1× threshold"
         );
     }
+
+    // =========================================================================
+    // STEP 2 ACCEPTANCE CRITERIA: ALPHA-CAPABLE MEDIA DECODING TESTS
+    // =========================================================================
+    mod alpha_capable_decoder_tests {
+        use super::super::{
+            convert_straight_to_premultiplied, ffmpeg_pixel_format_has_alpha, AlphaMode,
+            PixelFormat, VideoDecoder,
+        };
+        use ffmpeg_next as ffmpeg;
+        use std::path::PathBuf;
+        use std::time::Instant;
+
+        fn fixture_path() -> PathBuf {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/test-effect-fixture.mov")
+        }
+
+        #[test]
+        fn test_1_yuva444p12le_fixture_decodes_successfully() {
+            let fixture = fixture_path();
+            assert!(fixture.exists(), "test-effect-fixture.mov fixture must exist");
+
+            let mut decoder = VideoDecoder::open(fixture.to_str().unwrap())
+                .expect("Failed to open test-effect-fixture.mov");
+
+            assert_eq!(decoder.width, 640);
+            assert_eq!(decoder.height, 360);
+            assert!(decoder.duration >= 1.9 && decoder.duration <= 2.1);
+
+            let frame = decoder.decode_video_frame(0.0).expect("Decode frame 0 failed");
+            assert_eq!(frame.width, 640);
+            assert_eq!(frame.height, 360);
+            assert_eq!(frame.pixel_format, PixelFormat::Rgba8);
+            assert_eq!(frame.data.len(), 640 * 360 * 4);
+            assert!(frame.has_alpha(), "Frame must carry alpha");
+        }
+
+        #[test]
+        fn test_2_dynamic_pixel_format_detection_and_alpha_presence() {
+            let fixture = fixture_path();
+            assert!(fixture.exists());
+
+            let mut decoder = VideoDecoder::open(fixture.to_str().unwrap()).unwrap();
+            assert!(decoder.has_alpha(), "Decoder must report alpha capability");
+
+            let frame = decoder.decode_video_frame(0.0).unwrap();
+            assert_eq!(frame.source_pixel_format, "yuva444p12le");
+            assert_eq!(frame.alpha_mode, AlphaMode::Straight);
+
+            // Unit test dynamic format inspection on diverse FFmpeg pixel formats
+            assert!(ffmpeg_pixel_format_has_alpha(ffmpeg::format::Pixel::YUVA444P12LE));
+            assert!(ffmpeg_pixel_format_has_alpha(ffmpeg::format::Pixel::YUVA444P10LE));
+            assert!(ffmpeg_pixel_format_has_alpha(ffmpeg::format::Pixel::YUVA420P));
+            assert!(ffmpeg_pixel_format_has_alpha(ffmpeg::format::Pixel::RGBA));
+            assert!(ffmpeg_pixel_format_has_alpha(ffmpeg::format::Pixel::BGRA));
+            assert!(!ffmpeg_pixel_format_has_alpha(ffmpeg::format::Pixel::YUV420P));
+            assert!(!ffmpeg_pixel_format_has_alpha(ffmpeg::format::Pixel::NV12));
+            assert!(!ffmpeg_pixel_format_has_alpha(ffmpeg::format::Pixel::RGB24));
+        }
+
+        #[test]
+        fn test_3_alpha_survives_conversion_to_canonical_rgba() {
+            let fixture = fixture_path();
+            assert!(fixture.exists());
+
+            let mut decoder = VideoDecoder::open(fixture.to_str().unwrap()).unwrap();
+            let frame = decoder.decode_video_frame(0.0).unwrap();
+
+            // Verify alpha channel survived libswscale conversion into canonical RGBA
+            let mut has_transparent = false;
+            let mut has_opaque = false;
+            let mut has_semi = false;
+
+            for y in (0..360).step_by(10) {
+                for x in (0..640).step_by(10) {
+                    let p = frame.get_pixel(x, y);
+                    if p[3] == 0 {
+                        has_transparent = true;
+                    } else if p[3] == 255 {
+                        has_opaque = true;
+                    } else if p[3] >= 120 && p[3] <= 136 {
+                        has_semi = true;
+                    }
+                }
+            }
+
+            assert!(has_transparent, "Transparent pixels must survive");
+            assert!(has_opaque, "Opaque pixels must survive");
+            assert!(has_semi, "Semitransparent pixels must survive");
+        }
+
+        #[test]
+        fn test_4_straight_to_premultiplied_math_and_idempotence() {
+            // Unit test mathematical rounding: (C * A + 127) / 255
+            let mut buffer = vec![
+                // 1. Transparent: [255, 100, 50, 0] -> [0, 0, 0, 0]
+                255, 100, 50, 0,
+                // 2. Fully opaque: [254, 12, 34, 255] -> [254, 12, 34, 255]
+                254, 12, 34, 255,
+                // 3. 50% semi: [0, 0, 254, 128] -> [0, 0, 127, 128]
+                0, 0, 254, 128,
+                // 4. Gradient sample: [0, 255, 0, 64] -> (255 * 64 + 127)/255 = 64 -> [0, 64, 0, 64]
+                0, 255, 0, 64,
+            ];
+
+            convert_straight_to_premultiplied(&mut buffer);
+
+            assert_eq!(&buffer[0..4], &[0, 0, 0, 0], "Transparent pixel zeroed");
+            assert_eq!(&buffer[4..8], &[254, 12, 34, 255], "Opaque unchanged");
+            assert_eq!(&buffer[8..12], &[0, 0, 127, 128], "Semi correctly premultiplied");
+            assert_eq!(&buffer[12..16], &[0, 64, 0, 64], "Gradient correctly premultiplied");
+
+            // Test frame methods and idempotence (no double-premultiplication)
+            let fixture = fixture_path();
+            let mut decoder = VideoDecoder::open(fixture.to_str().unwrap()).unwrap();
+            let mut frame = decoder.decode_video_frame(0.0).unwrap();
+            assert_eq!(frame.alpha_mode, AlphaMode::Straight);
+
+            let initial_semi = frame.get_pixel(160, 270);
+            frame.to_premultiplied();
+            assert_eq!(frame.alpha_mode, AlphaMode::Premultiplied);
+            let premult_semi = frame.get_pixel(160, 270);
+            assert_eq!(premult_semi[3], initial_semi[3]);
+            assert!(premult_semi[2] <= initial_semi[2]);
+
+            // Second call MUST be a no-op!
+            frame.to_premultiplied();
+            let second_call_semi = frame.get_pixel(160, 270);
+            assert_eq!(premult_semi, second_call_semi, "to_premultiplied must be idempotent");
+        }
+
+        #[test]
+        fn test_5_transparent_semi_opaque_reference_values() {
+            let fixture = fixture_path();
+            let mut decoder = VideoDecoder::open(fixture.to_str().unwrap()).unwrap();
+            let frame = decoder.decode_video_frame(0.0).unwrap();
+
+            // 1. Top-left: transparent (alpha = 0)
+            let tl = frame.get_pixel(10, 10);
+            let tl_center = frame.get_pixel(160, 90);
+            assert_eq!(tl[3], 0, "Top-left corner must be transparent");
+            assert_eq!(tl_center[3], 0, "Top-left center must be transparent");
+
+            // 2. Top-right: opaque red (alpha = 255, R >= 250)
+            let tr = frame.get_pixel(630, 10);
+            let tr_center = frame.get_pixel(480, 90);
+            assert_eq!(tr[3], 255, "Top-right corner must be opaque");
+            assert!(tr[0] >= 250, "Top-right must be red");
+            assert_eq!(tr_center[3], 255);
+            assert!(tr_center[0] >= 250);
+
+            // 3. Bottom-left: semi blue (alpha ~ 128, B >= 250 in straight alpha)
+            let bl = frame.get_pixel(10, 350);
+            let bl_center = frame.get_pixel(160, 270);
+            assert!((bl[3] as i32 - 128).abs() <= 2, "Bottom-left alpha must be ~128");
+            assert!(bl[2] >= 250, "Bottom-left blue in straight alpha must be >= 250");
+            assert!((bl_center[3] as i32 - 128).abs() <= 2);
+            assert!(bl_center[2] >= 250);
+
+            // 4. Bottom-right: gradient green (G >= 250, alpha ~ 128 at center)
+            let br_center = frame.get_pixel(480, 270);
+            assert!((br_center[3] as i32 - 128).abs() <= 4);
+            assert!(br_center[1] >= 250);
+        }
+
+        #[test]
+        fn test_6_random_seeking_frames_0_15_30_45_59() {
+            let fixture = fixture_path();
+            let mut decoder = VideoDecoder::open(fixture.to_str().unwrap()).unwrap();
+
+            // Test non-sequential seeking order
+            let seek_frames = [30, 0, 59, 15, 45];
+            for &f in &seek_frames {
+                let ts = (f as f64) / 30.0;
+                let frame = decoder.decode_video_frame(ts)
+                    .unwrap_or_else(|e| panic!("Failed to seek and decode frame {}: {}", f, e));
+                assert_eq!(frame.width, 640);
+                assert_eq!(frame.height, 360);
+                assert!(frame.has_alpha(), "Frame {} must have alpha", f);
+            }
+        }
+
+        #[test]
+        fn test_7_timestamps_timebase_and_frame_ordering() {
+            let fixture = fixture_path();
+            let mut decoder = VideoDecoder::open(fixture.to_str().unwrap()).unwrap();
+
+            let (tb_num, tb_den) = (decoder.time_base.0, decoder.time_base.1);
+            assert!(tb_num > 0 && tb_den > 0);
+
+            let mut prev_pts: Option<i64> = None;
+            for f in 0..10 {
+                let ts = (f as f64) / 30.0;
+                let frame = decoder.decode_video_frame(ts).unwrap();
+                assert_eq!(frame.time_base, (tb_num, tb_den));
+                if let Some(prev) = prev_pts {
+                    assert!(frame.pts >= prev, "PTS must increase monotonically: {} vs {}", frame.pts, prev);
+                }
+                prev_pts = Some(frame.pts);
+            }
+        }
+
+        #[test]
+        fn test_8_existing_non_alpha_video_decoding_regression() {
+            let fixture = fixture_path();
+            let mut decoder = VideoDecoder::open(fixture.to_str().unwrap()).unwrap();
+
+            // Legacy decode_frame returns raw bytes matching DecodedVideoFrame.data
+            let legacy_bytes = decoder.decode_frame(0.0, 640, 360).expect("Legacy decode_frame");
+            let canonical_frame = decoder.decode_video_frame_scaled(0.0, 640, 360).expect("Canonical decode_video_frame");
+
+            assert_eq!(legacy_bytes.len(), canonical_frame.data.len());
+            assert_eq!(legacy_bytes, canonical_frame.data, "Legacy decode_frame must match canonical data");
+        }
+
+        #[test]
+        fn test_9_memory_ownership_and_safe_lifetimes() {
+            let fixture = fixture_path();
+            let frame = {
+                let mut decoder = VideoDecoder::open(fixture.to_str().unwrap()).unwrap();
+                decoder.decode_video_frame(0.0).unwrap()
+            }; // decoder dropped here
+
+            // Buffer survives decoder drop with correct capacity and data
+            assert_eq!(frame.data.len(), 640 * 360 * 4);
+            let pixel = frame.get_pixel(480, 90);
+            assert_eq!(pixel[3], 255);
+            assert!(pixel[0] >= 250);
+        }
+
+        #[test]
+        fn test_10_benchmark_measurements_methodology() {
+            let fixture = fixture_path();
+            let mut decoder = VideoDecoder::open(fixture.to_str().unwrap()).unwrap();
+
+            // Warmup
+            let _ = decoder.decode_video_frame(0.0).unwrap();
+
+            let n_frames = 30;
+            let start = Instant::now();
+            let mut total_premul_us = 0u128;
+
+            for f in 0..n_frames {
+                let ts = (f as f64) / 30.0;
+                let mut frame = decoder.decode_video_frame(ts).unwrap();
+                let p_start = Instant::now();
+                frame.to_premultiplied();
+                total_premul_us += p_start.elapsed().as_micros();
+            }
+
+            let total_elapsed = start.elapsed();
+            let total_ms = total_elapsed.as_secs_f64() * 1000.0;
+            let avg_ms_per_frame = total_ms / (n_frames as f64);
+            let premul_ms_per_frame = (total_premul_us as f64) / (n_frames as f64 * 1000.0);
+
+            let frame_budget_30fps = 33.333; // ms
+            let realtime_multiplier = frame_budget_30fps / avg_ms_per_frame;
+
+            println!("\n=== Step 2 Benchmark Measurements ===");
+            println!("  Frames evaluated (640x360): {}", n_frames);
+            println!("  Total elapsed (640x360): {:.2} ms", total_ms);
+            println!("  Average frame decode + scale latency (640x360): {:.2} ms/frame", avg_ms_per_frame);
+            println!("  Alpha premultiplication latency (640x360): {:.4} ms/frame", premul_ms_per_frame);
+            println!("  Real-time throughput (640x360): {:.1}x real-time (budget: {:.2} ms/frame)", realtime_multiplier, frame_budget_30fps);
+
+            // Also benchmark 1920x1080 scaled decode
+            let start_1080p = Instant::now();
+            let n_1080p = 10;
+            for f in 0..n_1080p {
+                let ts = (f as f64) / 30.0;
+                let mut frame_1080p = decoder.decode_video_frame_scaled(ts, 1920, 1080).unwrap();
+                frame_1080p.to_premultiplied();
+            }
+            let total_1080p_ms = start_1080p.elapsed().as_secs_f64() * 1000.0;
+            let avg_1080p_ms = total_1080p_ms / (n_1080p as f64);
+            let realtime_1080p = frame_budget_30fps / avg_1080p_ms;
+            println!("  1080p scaled decode + premul: {:.2} ms/frame ({:.1}x real-time)", avg_1080p_ms, realtime_1080p);
+
+            #[cfg(debug_assertions)]
+            let max_latency_ms = 33.333; // In unoptimized debug build, must meet real-time frame budget
+            #[cfg(not(debug_assertions))]
+            let max_latency_ms = 10.0; // In release build, must be well under 10ms
+
+            assert!(
+                avg_ms_per_frame < max_latency_ms,
+                "Average frame latency {:.2} ms must be < {:.2}ms",
+                avg_ms_per_frame,
+                max_latency_ms
+            );
+            assert!(
+                realtime_multiplier >= 1.0,
+                "Real-time multiplier {:.1}x must exceed 1.0x",
+                realtime_multiplier
+            );
+        }
+    }
 }

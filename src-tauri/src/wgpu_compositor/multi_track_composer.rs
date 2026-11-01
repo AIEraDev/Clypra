@@ -294,6 +294,7 @@ pub struct CompositeLayer<'a> {
     pub chroma_key: ChromaKeyUniforms,
     pub mask_view: Option<&'a wgpu::TextureView>,
     pub body_effect: BodyEffectUniforms,
+    pub is_premultiplied: bool,
 }
 
 impl<'a> CompositeLayer<'a> {
@@ -310,7 +311,13 @@ impl<'a> CompositeLayer<'a> {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         }
+    }
+
+    pub fn with_premultiplied(mut self, is_premultiplied: bool) -> Self {
+        self.is_premultiplied = is_premultiplied;
+        self
     }
 }
 
@@ -1311,7 +1318,7 @@ impl MultiTrackCompositor {
                 crop_margins: layer.crop.to_vec4(),
                 opacity: layer.opacity.clamp(0.0, 1.0),
                 blend_mode: layer.blend_mode as u32,
-                is_premultiplied: 0,
+                is_premultiplied: if layer.is_premultiplied { 1 } else { 0 },
                 grain_seed: layer.chroma_key._pad0,
                 color_grade,
                 chroma_key: layer.chroma_key,

@@ -650,6 +650,14 @@ impl NativePreviewSession {
         self.rgba_layers.contains_key(asset_id)
     }
 
+    /// Retrieve an existing resident RGBA texture along with its native dimensions if cached.
+    pub fn get_rgba_layer_texture(&mut self, asset_id: &str) -> Option<(Arc<wgpu::Texture>, u32, u32)> {
+        if asset_id.trim().is_empty() {
+            return None;
+        }
+        self.rgba_layers.get_any(asset_id)
+    }
+
     pub fn was_mask_ever_registered(&self, asset_id: &str) -> bool {
         self.mask_registration_history.contains(asset_id)
     }

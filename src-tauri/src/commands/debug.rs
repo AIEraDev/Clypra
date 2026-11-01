@@ -96,6 +96,7 @@ pub async fn capture_preview_frame_bytes(
                 video_layers: vec![],
                 raster_layers: vec![],
                 text_layers: vec![],
+                effect_layers: vec![],
                 transition: None,
             },
             output_width: 1920,
