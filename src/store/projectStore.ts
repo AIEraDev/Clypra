@@ -132,6 +132,13 @@ interface ProjectStore {
       captionTracks?: CaptionTrack[];
       mediaAssets?: MediaAsset[];
       mainVideoTrackId?: string | null;
+      /**
+       * When true, skip OPFS delta-patch replay during load.
+       * Must be set for crash-recovery restores: the IndexedDB snapshot already
+       * reflects state produced by those patches, so replaying them would
+       * duplicate every clip/track that was added since the last full checkpoint.
+       */
+      skipOpfsPatches?: boolean;
     },
   ) => Promise<void> | void;
   addMediaAsset: (asset: MediaAsset) => void;
@@ -922,21 +929,54 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         );
         ensureNativeSurfaceReadiness(project.id);
 
-        // Check for OPFS delta patches to replay on load
+        // Check for OPFS delta patches to replay on load.
+        // ⚠ IMPORTANT: Skip replay when loading from a crash-recovery IndexedDB
+        // snapshot (`skipOpfsPatches: true`).  The snapshot is saved after every
+        // successful auto-save cycle that already incorporates those patch deltas,
+        // so replaying them again would append every clip/track a second time,
+        // producing the "duplicate clips on recovery" defect (BUG-CRD-001).
+        // After any load — crash-recovery or normal — we also proactively clear
+        // the stale patches file so it cannot bleed into a subsequent session.
         let effectivePayload = payload;
         try {
           const { getProjectWorkerClient } = await import("@/core/workers/projectWorkerClient");
-          const { applyJsonPatch } = await import("@/core/storage/jsonPatch");
-          const patchesRaw = await getProjectWorkerClient().readOpfs(`${project.id}.patches.json`);
-          if (patchesRaw) {
-            const patches = JSON.parse(patchesRaw);
-            if (Array.isArray(patches) && patches.length > 0) {
-              effectivePayload = applyJsonPatch(payload, patches);
-              console.log(`[ProjectStore] Replayed ${patches.length} OPFS auto-save patches for project ${project.id}`);
+          const opfsPatchFile = `${project.id}.patches.json`;
+
+          if (payload?.skipOpfsPatches) {
+            // Crash-recovery path: snapshot already up-to-date; patches must NOT
+            // be replayed.  Clear the file immediately so the next auto-save cycle
+            // starts from a clean baseline.
+            console.log(`[ProjectStore] Skipping OPFS patch replay for crash-recovery restore of project ${project.id}`);
+            try {
+              await getProjectWorkerClient().clearOpfs(opfsPatchFile);
+            } catch {
+              // Non-fatal — stale file will be overwritten by the next auto-save.
+            }
+          } else {
+            // Normal project-open path: replay any accumulated delta patches.
+            try {
+              const { applyJsonPatch } = await import("@/core/storage/jsonPatch");
+              const patchesRaw = await getProjectWorkerClient().readOpfs(opfsPatchFile);
+              if (patchesRaw) {
+                const patches = JSON.parse(patchesRaw);
+                if (Array.isArray(patches) && patches.length > 0) {
+                  effectivePayload = applyJsonPatch(payload, patches);
+                  console.log(`[ProjectStore] Replayed ${patches.length} OPFS auto-save patches for project ${project.id}`);
+                }
+              }
+              // Clear patches after a successful normal load so a future crash
+              // recovery snapshot starts from the now-fully-hydrated state.
+              try {
+                await getProjectWorkerClient().clearOpfs(opfsPatchFile);
+              } catch {
+                // Non-fatal.
+              }
+            } catch (opfsErr) {
+              console.warn("[ProjectStore] Failed to replay OPFS patches on load:", opfsErr);
             }
           }
-        } catch (opfsErr) {
-          console.warn("[ProjectStore] Failed to replay OPFS patches on load:", opfsErr);
+        } catch (workerErr) {
+          console.warn("[ProjectStore] OPFS worker unavailable during load:", workerErr);
         }
 
         lastPersistedSnapshot = null;
@@ -1924,7 +1964,13 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
               return;
             }
 
-            accumulatedOpfsPatches.push(...diffResult.patch);
+            // BUG-CRD-001 fix: diffResult.patch is computed against lastPersistedSnapshot
+            // (the full disk checkpoint baseline). It is already the complete cumulative
+            // RFC 6902 patch set from the baseline to the current state.
+            // Pushing (...diffResult.patch) on every debounce tick repeatedly appended
+            // the full patch set, multiplying "add" operations N times and producing
+            // duplicate tracks and duplicate clips on reload.
+            accumulatedOpfsPatches = diffResult.patch;
             await client.writeOpfs(
               `${scheduledProjectId}.patches.json`,
               JSON.stringify(accumulatedOpfsPatches),

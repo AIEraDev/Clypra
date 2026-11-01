@@ -4785,7 +4785,7 @@ describe("Feature — canvas blur background", () => {
     expect(layer.style.backgroundImage).toBeUndefined();
   });
 
-  it("getCanvasBackgroundLayer blur uses blurRadius default of 16 when not specified", async () => {
+  it("getCanvasBackgroundLayer blur uses blurRadius default of 80 when not specified", async () => {
     const { getCanvasBackgroundLayer } =
       await import("@/components/editor/preview/canvasBackground");
     const layer = getCanvasBackgroundLayer({
@@ -4793,7 +4793,7 @@ describe("Feature — canvas blur background", () => {
       isTransparent: false,
       opacity: 1,
     });
-    expect(layer.style.filter).toContain("blur(16px)");
+    expect(layer.style.filter).toContain("blur(80px)");
   });
 
   it("buildNativeVideoProjectRequest with blur canvasBackground injects synthetic layer at zIndex=-1", async () => {

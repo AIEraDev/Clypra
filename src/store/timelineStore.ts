@@ -431,11 +431,42 @@ export const useTimelineStore = create<TimelineStore>(
     hydrateFromProject: (payload) => {
       suppressAutoSave();
       try {
-        const finalTracksRaw = payload?.tracks ?? [];
-        const finalClipsRaw = payload?.clips ?? [];
-        const finalTransitions = payload?.transitions ?? [];
+        // Defensive deduplication: ensure corrupted project payloads, replayed
+        // delta patches, or interrupted auto-saves cannot inject duplicate
+        // tracks, clips, transitions, or markers into timeline state.
+        const seenTrackIds = new Set<string>();
+        const finalTracksRaw = (payload?.tracks ?? []).filter((track: any) => {
+          if (!track?.id) return false;
+          if (seenTrackIds.has(track.id)) return false;
+          seenTrackIds.add(track.id);
+          return true;
+        });
+
+        const seenClipIds = new Set<string>();
+        const finalClipsRaw = (payload?.clips ?? []).filter((clip: any) => {
+          if (!clip?.id) return false;
+          if (seenClipIds.has(clip.id)) return false;
+          seenClipIds.add(clip.id);
+          return true;
+        });
+
+        const seenTransitionIds = new Set<string>();
+        const finalTransitions = (payload?.transitions ?? []).filter((tr: any) => {
+          if (!tr?.id) return false;
+          if (seenTransitionIds.has(tr.id)) return false;
+          seenTransitionIds.add(tr.id);
+          return true;
+        });
+
         const finalGaps = (payload as any)?.gaps ?? []; // Load gaps from project
-        const finalMarkers: TimelineMarker[] = (payload as any)?.markers ?? [];
+
+        const seenMarkerIds = new Set<string>();
+        const finalMarkers: TimelineMarker[] = ((payload as any)?.markers ?? []).filter((mk: any) => {
+          if (!mk?.id) return false;
+          if (seenMarkerIds.has(mk.id)) return false;
+          seenMarkerIds.add(mk.id);
+          return true;
+        });
 
         // Adopt the larger video row for projects created with the previous
         // compact 68px default. Explicitly taller user rows are preserved.
