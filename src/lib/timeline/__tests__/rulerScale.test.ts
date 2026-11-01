@@ -9,7 +9,7 @@ const timecode = (seconds: number) =>
 
 describe("timeline ruler scale", () => {
   it("uses integral frame labels at close zoom", () => {
-    const scale = getTimelineRulerScale(500, 30);
+    const scale = getTimelineRulerScale(600, 30);
 
     expect(scale).toMatchObject({
       majorIntervalSeconds: 5 / 30,
@@ -37,7 +37,7 @@ describe("timeline ruler scale", () => {
   });
 
   it("keeps frame labels frame-accurate for non-30fps sequences", () => {
-    const scale = getTimelineRulerScale(400, 24);
+    const scale = getTimelineRulerScale(480, 24);
 
     expect(scale.majorIntervalSeconds).toBeCloseTo(5 / 24);
     expect(scale.minorIntervalSeconds).toBeCloseTo(1 / 24);
@@ -48,12 +48,140 @@ describe("timeline ruler scale", () => {
   });
 
   it("selects 2-frame major interval with 1-frame minor ticks at deepest zoom (CapCut parity)", () => {
-    const scale = getTimelineRulerScale(1000, 30);
+    const scale = getTimelineRulerScale(1500, 30);
 
     expect(scale).toMatchObject({
       majorIntervalSeconds: 2 / 30,
       minorIntervalSeconds: 1 / 30,
       labelMode: "frames",
+    });
+  });
+
+  it("asserts reference screenshot cadences at 30 fps (R1/R2 parity)", () => {
+    // Screenshot 3: 1,110 pps -> 3f major / 1f minor
+    expect(getTimelineRulerScale(1110, 30)).toMatchObject({
+      majorIntervalSeconds: 3 / 30,
+      minorIntervalSeconds: 1 / 30,
+      labelMode: "frames",
+    });
+
+    // Screenshot 4: 1,549 pps -> 2f major / 1f minor
+    expect(getTimelineRulerScale(1549, 30)).toMatchObject({
+      majorIntervalSeconds: 2 / 30,
+      minorIntervalSeconds: 1 / 30,
+      labelMode: "frames",
+    });
+
+    // Screenshot 2: 2,449 pps -> 2f major / 1f minor
+    expect(getTimelineRulerScale(2449, 30)).toMatchObject({
+      majorIntervalSeconds: 2 / 30,
+      minorIntervalSeconds: 1 / 30,
+      labelMode: "frames",
+    });
+
+    // Screenshot 1 (deepest): 6,000 pps -> 2f major / 1f minor
+    expect(getTimelineRulerScale(6000, 30)).toMatchObject({
+      majorIntervalSeconds: 2 / 30,
+      minorIntervalSeconds: 1 / 30,
+      labelMode: "frames",
+    });
+  });
+
+  it("asserts equivalent cadences for 24 fps and 60 fps", () => {
+    // 24 fps: 2f threshold is 90 * 12 = 1080 pps
+    expect(getTimelineRulerScale(6000, 24)).toMatchObject({
+      majorIntervalSeconds: 2 / 24,
+      minorIntervalSeconds: 1 / 24,
+      labelMode: "frames",
+    });
+    expect(getTimelineRulerScale(1549, 24)).toMatchObject({
+      majorIntervalSeconds: 2 / 24,
+      minorIntervalSeconds: 1 / 24,
+      labelMode: "frames",
+    });
+    expect(getTimelineRulerScale(1110, 24)).toMatchObject({
+      majorIntervalSeconds: 2 / 24,
+      minorIntervalSeconds: 1 / 24,
+      labelMode: "frames",
+    });
+    expect(getTimelineRulerScale(800, 24)).toMatchObject({
+      majorIntervalSeconds: 3 / 24,
+      minorIntervalSeconds: 1 / 24,
+      labelMode: "frames",
+    });
+
+    // 60 fps: 2f threshold is 90 * 30 = 2700 pps, 3f threshold is 90 * 20 = 1800 pps
+    expect(getTimelineRulerScale(6000, 60)).toMatchObject({
+      majorIntervalSeconds: 2 / 60,
+      minorIntervalSeconds: 1 / 60,
+      labelMode: "frames",
+    });
+    expect(getTimelineRulerScale(2449, 60)).toMatchObject({
+      majorIntervalSeconds: 3 / 60,
+      minorIntervalSeconds: 1 / 60,
+      labelMode: "frames",
+    });
+    expect(getTimelineRulerScale(1549, 60)).toMatchObject({
+      majorIntervalSeconds: 5 / 60,
+      minorIntervalSeconds: 1 / 60,
+      labelMode: "frames",
+    });
+    expect(getTimelineRulerScale(1110, 60)).toMatchObject({
+      majorIntervalSeconds: 5 / 60,
+      minorIntervalSeconds: 1 / 60,
+      labelMode: "frames",
+    });
+  });
+
+  it("verifies threshold stability without hysteresis or flipping at +/-1 px/s around switch points", () => {
+    // 2f <-> 3f switch at 1350 pps (30 fps)
+    expect(getTimelineRulerScale(1351, 30).majorIntervalSeconds).toBeCloseTo(2 / 30);
+    expect(getTimelineRulerScale(1350, 30).majorIntervalSeconds).toBeCloseTo(2 / 30);
+    expect(getTimelineRulerScale(1349, 30).majorIntervalSeconds).toBeCloseTo(3 / 30);
+
+    // 3f <-> 5f switch at 900 pps (30 fps)
+    expect(getTimelineRulerScale(901, 30).majorIntervalSeconds).toBeCloseTo(3 / 30);
+    expect(getTimelineRulerScale(900, 30).majorIntervalSeconds).toBeCloseTo(3 / 30);
+    expect(getTimelineRulerScale(899, 30).majorIntervalSeconds).toBeCloseTo(5 / 30);
+
+    // 5f <-> 10f switch at 540 pps (30 fps)
+    expect(getTimelineRulerScale(541, 30).majorIntervalSeconds).toBeCloseTo(5 / 30);
+    expect(getTimelineRulerScale(540, 30).majorIntervalSeconds).toBeCloseTo(5 / 30);
+    expect(getTimelineRulerScale(539, 30).majorIntervalSeconds).toBeCloseTo(10 / 30);
+
+    // 10f <-> 15f switch at 270 pps (30 fps)
+    expect(getTimelineRulerScale(271, 30).majorIntervalSeconds).toBeCloseTo(10 / 30);
+    expect(getTimelineRulerScale(270, 30).majorIntervalSeconds).toBeCloseTo(10 / 30);
+    expect(getTimelineRulerScale(269, 30).majorIntervalSeconds).toBeCloseTo(15 / 30);
+
+    // 15f <-> 1s switch at 180 pps (30 fps)
+    expect(getTimelineRulerScale(181, 30)).toMatchObject({
+      majorIntervalSeconds: 15 / 30,
+      labelMode: "frames",
+    });
+    expect(getTimelineRulerScale(180, 30)).toMatchObject({
+      majorIntervalSeconds: 15 / 30,
+      labelMode: "frames",
+    });
+    expect(getTimelineRulerScale(179, 30)).toMatchObject({
+      majorIntervalSeconds: 1,
+      labelMode: "timecode",
+    });
+  });
+
+  it("selects overview cadences at fitted / low zoom levels", () => {
+    // 4.2 px/s -> 30s major interval
+    expect(getTimelineRulerScale(4.2, 30)).toMatchObject({
+      majorIntervalSeconds: 30,
+      minorIntervalSeconds: 5,
+      labelMode: "timecode",
+    });
+
+    // 2.0 px/s -> 60s major interval
+    expect(getTimelineRulerScale(2.0, 30)).toMatchObject({
+      majorIntervalSeconds: 60,
+      minorIntervalSeconds: 10,
+      labelMode: "timecode",
     });
   });
 

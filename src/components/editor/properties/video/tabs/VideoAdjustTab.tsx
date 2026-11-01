@@ -191,17 +191,17 @@ export const VideoAdjustTab: React.FC<VideoAdjustTabProps> = ({
                   />
                   <GradientSliderControl
                     label="Highlight"
-                    value={getVal("highlight", 0)}
+                    value={getVal("highlights", 0)}
                     min={-100}
                     max={100}
-                    onChange={(val) => updateField("highlight", val)}
+                    onChange={(val) => updateField("highlights", val)}
                   />
                   <GradientSliderControl
                     label="Shadow"
-                    value={getVal("shadow", 0)}
+                    value={getVal("shadows", 0)}
                     min={-100}
                     max={100}
-                    onChange={(val) => updateField("shadow", val)}
+                    onChange={(val) => updateField("shadows", val)}
                   />
                   <GradientSliderControl
                     label="Whites"

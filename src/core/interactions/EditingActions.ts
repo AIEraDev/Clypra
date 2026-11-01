@@ -40,6 +40,8 @@ import {
   validateGroupSelection,
 } from "../history/commands";
 import type { Clip } from "@/types";
+import { defaultColorGradeUniforms } from "@/types/compositor";
+import type { ColorGradeUniforms } from "@/types/compositor";
 import { snapToFrameBoundary } from "@/lib/utils/frameTime";
 import {
   getScrollLeftToRevealTime,
@@ -162,6 +164,37 @@ export class EditingActions {
       );
 
     return { success: true, name: trimmedName };
+  }
+
+  /**
+   * Update a clip's color grade uniforms with full undo/redo history tracking.
+   *
+   * This is the canonical write path for all color grading changes. It stores
+   * a complete before/after clip snapshot so that undo/redo restores the exact
+   * full colorGrade object — not just the partial update fields.
+   */
+  static updateClipColorGrade(
+    clipId: string,
+    updates: Partial<ColorGradeUniforms>,
+  ): void {
+    const clip = useTimelineStore
+      .getState()
+      .clips.find((c) => c.id === clipId);
+    if (!clip) return;
+
+    const prevColorGrade = clip.colorGrade ?? { ...defaultColorGradeUniforms };
+    const nextColorGrade = { ...prevColorGrade, ...updates };
+
+    useHistoryStore
+      .getState()
+      .execute(
+        new UpdateClipCommand(
+          clipId,
+          { colorGrade: prevColorGrade },
+          { colorGrade: nextColorGrade },
+          { before: clip },
+        ),
+      );
   }
 
   static swapSelectedClips(): { error: string | null } {

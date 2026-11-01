@@ -3,12 +3,12 @@ import {
   Sparkles,
   Volume2,
   Video,
+  Image,
   Gauge,
   Sliders,
   Mic,
 } from "lucide-react";
 import { PropertyTabsType } from "./types";
-
 export const TEXT_TABS: PropertyTabsType[] = [
   { id: "text", labelKey: "properties.tabs.text", label: "Text", icon: Type },
   {
@@ -18,7 +18,6 @@ export const TEXT_TABS: PropertyTabsType[] = [
     icon: Sparkles,
   },
 ];
-
 export const VIDEO_TABS: PropertyTabsType[] = [
   {
     id: "video",
@@ -51,7 +50,26 @@ export const VIDEO_TABS: PropertyTabsType[] = [
     icon: Sliders,
   },
 ];
-
+export const IMAGE_TABS: PropertyTabsType[] = [
+  {
+    id: "image",
+    labelKey: "properties.tabs.image",
+    label: "Image",
+    icon: Image,
+  },
+  {
+    id: "animation",
+    labelKey: "properties.tabs.animation",
+    label: "Animation",
+    icon: Sparkles,
+  },
+  {
+    id: "adjust",
+    labelKey: "properties.tabs.adjust",
+    label: "Adjust",
+    icon: Sliders,
+  },
+];
 export const AUDIO_TABS: PropertyTabsType[] = [
   {
     id: "basic",
@@ -60,15 +78,15 @@ export const AUDIO_TABS: PropertyTabsType[] = [
     icon: Sliders,
   },
   {
-    id: "voice-changer",
-    labelKey: "properties.tabs.voiceChanger",
-    label: "Voice changer",
-    icon: Mic,
-  },
-  {
     id: "speed",
     labelKey: "properties.tabs.speed",
     label: "Speed",
     icon: Gauge,
+  },
+  {
+    id: "voice-changer",
+    labelKey: "properties.tabs.voiceChanger",
+    label: "Voice changer",
+    icon: Mic,
   },
 ];

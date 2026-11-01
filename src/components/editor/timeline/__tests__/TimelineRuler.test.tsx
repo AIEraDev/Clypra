@@ -65,7 +65,7 @@ describe("TimelineRuler coordinate mapping", () => {
       <TimelineRuler pixelsPerSecond={500} scrollLeft={0} sequenceDuration={20} />,
     );
 
-    expect(screen.getAllByText("5f").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("10f").length).toBeGreaterThan(0);
     expect(screen.getByText("00:00")).toBeInTheDocument();
 
     rerender(
@@ -73,6 +73,40 @@ describe("TimelineRuler coordinate mapping", () => {
     );
 
     expect(screen.getByText("00:01")).toBeInTheDocument();
-    expect(screen.queryByText("5f")).not.toBeInTheDocument();
+    expect(screen.queryByText("10f")).not.toBeInTheDocument();
+  });
+
+  it("computes tick positions from the integer frame index without float accumulation drift (W5)", () => {
+    const { container } = render(
+      <TimelineRuler pixelsPerSecond={6000} scrollLeft={0} sequenceDuration={1} startOffset={20} />,
+    );
+    const tickDivs = container.querySelectorAll("div[style*='position: absolute'][style*='left:']");
+    const leftPositions = Array.from(tickDivs).map((el) => (el as HTMLElement).style.left);
+    expect(leftPositions).toContain("20px");
+    expect(leftPositions).toContain("220px");
+    expect(leftPositions).toContain("420px");
+  });
+
+  it("updates marker pin position visually during drag before mouseup [CLY-BUG-006]", () => {
+    useTimelineStore.setState({
+      markers: [
+        { id: "m1", time: 2.0, name: "Test Marker", color: "#3b82f6" },
+      ],
+      scrollLeft: 0,
+      pixelsPerSecond: 100,
+    });
+
+    render(<TimelineRuler pixelsPerSecond={100} scrollLeft={0} sequenceDuration={20} />);
+
+    const pin = screen.getByTitle("Test Marker");
+    expect(pin.style.left).toBe("var(--dx, 200px)");
+
+    fireEvent.mouseDown(pin, { clientX: 200 });
+    fireEvent.mouseMove(window, { clientX: 300 });
+
+    expect(pin.style.left).toBe("300px");
+
+    fireEvent.mouseUp(window, { clientX: 300 });
+    expect(useTimelineStore.getState().markers[0]?.time).toBe(3);
   });
 });

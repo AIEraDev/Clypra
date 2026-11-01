@@ -129,6 +129,22 @@ use crate::filmstrip_engine::decoder::VideoColorMetadata;
 
         assert!(validate_project_request(&request).is_err());
         assert!(parse_blend_mode("unsupported").is_err());
+        assert_eq!(
+            parse_blend_mode("color-dodge").unwrap(),
+            crate::wgpu_compositor::BlendMode::ColorDodge
+        );
+        assert_eq!(
+            parse_blend_mode("colordodge").unwrap(),
+            crate::wgpu_compositor::BlendMode::ColorDodge
+        );
+        assert_eq!(
+            parse_blend_mode("darken").unwrap(),
+            crate::wgpu_compositor::BlendMode::Darken
+        );
+        assert_eq!(
+            parse_blend_mode("lighten").unwrap(),
+            crate::wgpu_compositor::BlendMode::Lighten
+        );
     }
 
     #[test]

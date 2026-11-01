@@ -75,7 +75,7 @@ describe("CapCut Parity Text Property Panel", () => {
     });
   });
 
-  it("renders CapCut primary top navigation tabs: Text, Animation, Tracking, Text to speech, AI avatars (and excludes top Transform tab)", () => {
+  it("renders CapCut primary top navigation tabs: Text, Animation (and excludes top Transform tab)", () => {
     render(<PropertiesPanel />);
 
     // Text tab
@@ -84,44 +84,18 @@ describe("CapCut Parity Text Property Panel", () => {
     // Animation tab
     expect(screen.getByRole("button", { name: /Animation/i })).toBeDefined();
 
-    // Tracking tab
-    expect(screen.getByRole("button", { name: /Tracking/i })).toBeDefined();
-
-    // Text to speech tab
-    expect(
-      screen.getByRole("button", { name: /Text to speech/i }),
-    ).toBeDefined();
-
-    // AI avatars tab
-    expect(screen.getByRole("button", { name: /AI avatars/i })).toBeDefined();
-
     // Top Transform tab is excluded for text clips
     expect(screen.queryByRole("button", { name: /^Transform$/i })).toBeNull();
   });
 
-  it("switches to Animation, Tracking, Text to Speech, and AI Avatars tabs properly", () => {
+  it("switches to Animation tab properly", () => {
     render(<PropertiesPanel />);
 
     // Switch to Animation tab
     fireEvent.click(screen.getByRole("button", { name: /Animation/i }));
-    expect(screen.getByText("Motion & Animation")).toBeDefined();
     expect(screen.getByText("In")).toBeDefined();
-
-    // Switch to Tracking tab
-    fireEvent.click(screen.getByRole("button", { name: /Tracking/i }));
-    expect(screen.getByText("Motion Tracking")).toBeDefined();
-    expect(screen.getByText("Start Tracking")).toBeDefined();
-
-    // Switch to Text to speech tab
-    fireEvent.click(screen.getByRole("button", { name: /Text to speech/i }));
-    expect(screen.getByText(/Source Text/i)).toBeDefined();
-    expect(screen.getByText("Generate Speech Audio")).toBeDefined();
-
-    // Switch to AI avatars tab
-    fireEvent.click(screen.getByRole("button", { name: /AI avatars/i }));
-    expect(screen.getByText("AI Digital Presenter")).toBeDefined();
-    expect(screen.getByText(/Choose Presenter/i)).toBeDefined();
-    expect(screen.getByText("Generate AI Avatar Video")).toBeDefined();
+    expect(screen.getByText("Out")).toBeDefined();
+    expect(screen.getByText("Loop")).toBeDefined();
   });
 
   it("renders CapCut Basic sub-tab with exact controls: textarea, Font, Font size, Pattern, Case, Color, Character, Line, and Save as preset", () => {
@@ -176,61 +150,19 @@ describe("CapCut Parity Text Property Panel", () => {
     ).toBeDefined();
   });
 
-  it("switches between Basic and Bubble sub-tabs while preserving sticky header textarea", async () => {
+  it("keeps Bubble sub-tab locked coming soon while preserving sticky header textarea", () => {
     render(<PropertiesPanel />);
 
     // Initially in Basic: textarea is present in sticky header
     expect(screen.getByLabelText("Plain text content")).toBeDefined();
 
-    // Click Bubble sub-tab
-    fireEvent.click(screen.getByRole("button", { name: /^Bubble$/i }));
-
-    // Verify Sticky Header with textarea is preserved across tab switch!
-    expect(screen.getByLabelText("Plain text content")).toBeDefined();
-
-    // Verify Bubble section header and category filter
-    expect(screen.getByText("Speech Bubbles")).toBeDefined();
-    expect(screen.getByTitle("Filter by category")).toBeDefined();
-    expect(screen.getByPlaceholderText("Search text bubbles...")).toBeDefined();
-
-    // Verify authentic CapCut bubble preset cards
-    expect(screen.getByTitle("None")).toBeDefined();
-    expect(screen.getByTitle("Torn Paper")).toBeDefined();
-    expect(screen.getByTitle("Lined Notebook")).toBeDefined();
-    expect(screen.getByTitle("Comic BAM Burst")).toBeDefined();
-
-    // Verify preset cards render on HTML5 Canvas rather than HTML document elements
-    const presetCanvases = document.querySelectorAll(
-      'canvas[data-bubble-preset-canvas="true"]',
-    );
-    expect(presetCanvases.length).toBeGreaterThan(5);
-
-    // Apply Torn Paper preset
-    fireEvent.click(screen.getByTitle("Torn Paper"));
-    await new Promise((r) => setTimeout(r, 100));
-
-    let clip = useTimelineStore
-      .getState()
-      .clips.find((c) => c.id === "test-text-capcut") as TextClip;
-    expect(clip.background).toBeDefined();
-    expect(clip.background?.bubblePresetId).toBe("bubble-paper-torn");
-    expect(clip.color).toBe("#ef4444");
-
-    // Click None preset to reset
-    fireEvent.click(screen.getByTitle("None"));
-    await new Promise((r) => setTimeout(r, 100));
-
-    clip = useTimelineStore
-      .getState()
-      .clips.find((c) => c.id === "test-text-capcut") as TextClip;
-    expect(clip.background).toBeUndefined();
+    // Bubble sub-tab is locked coming soon
+    const bubbleBtn = screen.getByRole("button", { name: /^Bubble$/i });
+    expect(bubbleBtn).toBeDisabled();
+    expect(bubbleBtn).toHaveAttribute("title", "Coming soon");
 
     // Effects sub-tab must NOT exist
     expect(screen.queryByRole("button", { name: /^Effects$/i })).toBeNull();
-
-    // Switch back to Basic sub-tab
-    fireEvent.click(screen.getByRole("button", { name: /^Basic$/i }));
-    expect(screen.getByLabelText("Plain text content")).toBeDefined();
   });
 
   it("toggles Pattern buttons (Bold, Underline, Italic) and dispatches updates", async () => {
@@ -533,13 +465,14 @@ describe("CapCut Parity Text Property Panel", () => {
     expect((clip.background as any)?.style).toBe("rectangle");
   });
 
-  it("CLY-BUG-003: applying a bubble preset clears styleId and styleDefinition so bubble renders", async () => {
+  it("CLY-BUG-003: custom background update clears styleId and styleDefinition", async () => {
     useTimelineStore.setState({
       clips: [
         {
           ...mockTextClip,
           styleId: "neon-glow",
           styleDefinition: { id: "neon-glow" } as any,
+          background: { enabled: true, color: "#ffffff", opacity: 0.5, padding: 10, borderRadius: 4 },
         } as TextClip,
       ],
       tracks: [mockTrack],
@@ -548,17 +481,13 @@ describe("CapCut Parity Text Property Panel", () => {
 
     render(<PropertiesPanel />);
 
-    const bubbleTab = screen.getByRole("button", { name: /bubble/i });
-    fireEvent.click(bubbleTab);
+    const rectBtn = screen.getByTitle("Rectangle");
+    fireEvent.click(rectBtn);
 
-    const tornPaperBtn = screen.getByTitle("Torn Paper");
-    fireEvent.click(tornPaperBtn);
-
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 100));
     const clip = useTimelineStore
       .getState()
       .clips.find((c) => c.id === "test-text-capcut") as TextClip;
-    expect(clip.background?.bubblePresetId).toBe("bubble-paper-torn");
     expect(clip.styleId).toBeUndefined();
     expect((clip as any).styleDefinition).toBeUndefined();
   });

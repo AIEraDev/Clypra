@@ -17,6 +17,7 @@ import {
   formatTimelineRulerLabel,
   getTimelineRulerScale,
 } from "@/lib/timeline/rulerScale";
+import { timelineZoomTelemetry } from "@/lib/timeline/timelineZoomTelemetry";
 
 import type { TimelineMarker } from "@/types";
 
@@ -25,10 +26,17 @@ interface TimelineRulerProps {
   scrollLeft: number;
   sequenceDuration?: number;
   startOffset?: number;
+  /**
+   * Visible viewport width in pixels (the scroll container's clientWidth, NOT the full
+   * content/canvas width). When provided the ruler skips its internal ResizeObserver and
+   * uses this value directly, preventing the ruler from trying to generate ticks for the
+   * entire scrollable canvas at high zoom levels (CLY-BUG-RULER-CAP).
+   */
+  viewportWidthPx?: number;
 }
 
 /**
- * CapCut-style timeline ruler with Timeline Marker support.
+ *  timeline ruler with Timeline Marker support.
  *
  * Markers:
  *   - Press M to add at playhead
@@ -95,16 +103,18 @@ const MarkerPin: React.FC<MarkerPinProps> = ({
         const dx = ev.clientX - dragStartX.current;
         const dt = pixelToTime(dx, pixelsPerSecond);
         const newTime = Math.max(0, dragStartTime.current + dt);
-        // Live visual update via a CSS custom property on the element
-        pin.current?.style.setProperty(
-          "--dx",
-          `${Math.round(newTime * pixelsPerSecond)}px`,
-        );
+        const newX = `${Math.round(newTime * pixelsPerSecond)}px`;
+        // Live visual update via CSS custom property and direct style assignment
+        pin.current?.style.setProperty("--dx", newX);
+        if (pin.current) {
+          pin.current.style.left = newX;
+        }
       };
 
       const onUp = (ev: MouseEvent) => {
         if (!dragging.current) return;
         dragging.current = false;
+        pin.current?.style.removeProperty("--dx");
         const dx = ev.clientX - dragStartX.current;
         const dt = pixelToTime(dx, pixelsPerSecond);
         const newTime = Math.max(0, dragStartTime.current + dt);
@@ -137,7 +147,7 @@ const MarkerPin: React.FC<MarkerPinProps> = ({
       title={marker.name}
       style={{
         position: "absolute",
-        left: x,
+        left: `var(--dx, ${x}px)`,
         top: 0,
         transform: "translateX(-50%)",
         cursor: "grab",
@@ -338,6 +348,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
   scrollLeft,
   sequenceDuration,
   startOffset = 0,
+  viewportWidthPx,
 }) => {
   // PERF (8-G / Rank 3): TimelineRuler only needs frameRate, which changes rarely
   // (only on project settings change). Using useProjectStore avoids subscribing to
@@ -345,20 +356,29 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
   // every playback tick even though its content doesn't change with time.
   const frameRate = useProjectStore((s) => s.project?.frameRate ?? 30);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [viewportWidth, setViewportWidth] = useState(1200);
+  // Internal measurement is only used when the parent does not supply viewportWidthPx.
+  // When the parent supplies it (Timeline does via the store) the ResizeObserver is
+  // skipped, avoiding the bug where el.clientWidth equals the full content width
+  // (canvasDuration * pps + startOffset) rather than the visible scroll-container
+  // width, which caused the ruler to generate O(canvasDuration * fps) ticks instead
+  // of O(viewport / pps) ticks, hitting the 2500-step safety cap at high zoom
+  // (CLY-BUG-RULER-CAP).
+  const [internalViewportWidth, setInternalViewportWidth] = useState(1200);
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
 
   const { markers, addMarker, removeMarker, updateMarker } = useTimelineStore();
 
   useEffect(() => {
+    // Skip the ResizeObserver entirely when the parent controls viewport width.
+    if (viewportWidthPx !== undefined) return;
     const el = containerRef.current;
     if (!el) return;
-    const measure = () => setViewportWidth(el.clientWidth || 1200);
+    const measure = () => setInternalViewportWidth(el.clientWidth || 1200);
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [viewportWidthPx]);
 
   const rulerScale = useMemo(
     () => getTimelineRulerScale(pixelsPerSecond, frameRate),
@@ -389,15 +409,27 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
     // Ticks begin at startOffset pixels from the ruler's left edge, so we
     // subtract startOffset from scrollLeft to get the time-domain origin.
     const contentScrollLeft = Math.max(0, validScrollLeft - startOffset);
+    // Use the parent-supplied visible viewport width when available (preferred).
+    // Fall back to the internal ResizeObserver measurement only when the prop is
+    // absent. This prevents the fallback from accidentally measuring the full
+    // content canvas width, which would cause O(timeline_duration * fps) tick
+    // generation and hit the 2500-step safety cap at high zoom (CLY-BUG-RULER-CAP).
+    const resolvedViewportWidth = viewportWidthPx ?? internalViewportWidth;
     const validViewportWidth =
-      typeof viewportWidth === "number" &&
-      !isNaN(viewportWidth) &&
-      viewportWidth > 0
-        ? viewportWidth
+      typeof resolvedViewportWidth === "number" &&
+      !isNaN(resolvedViewportWidth) &&
+      resolvedViewportWidth > 0
+        ? resolvedViewportWidth
         : 1200;
 
-    const { majorIntervalSeconds: majorInterval, minorIntervalSeconds: minorInterval } =
-      getTimelineRulerScale(validPPS, frameRate);
+    const isTelemetryActive = timelineZoomTelemetry.isEnabled();
+    const t0 = isTelemetryActive ? performance.now() : 0;
+    const {
+      majorIntervalSeconds: majorInterval,
+      minorIntervalSeconds: minorInterval,
+      labelMode,
+    } = getTimelineRulerScale(validPPS, frameRate);
+
     const padPx = 60;
     const canvasDuration = getTimelineCanvasDuration(sequenceDuration ?? 0);
     const startTime = Math.max(0, (contentScrollLeft - padPx) / validPPS);
@@ -405,10 +437,11 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
       (contentScrollLeft + validViewportWidth + padPx) / validPPS;
     const endTime = Math.min(canvasDuration, rawEndTime);
 
-    const result: { time: number; isMajor: boolean }[] = [];
+    const result: { time: number; isMajor: boolean; x: number }[] = [];
     const divisions = Math.max(1, Math.round(majorInterval / minorInterval));
     const startStep = Math.max(0, Math.floor(startTime / minorInterval));
     const endStep = Math.ceil(endTime / minorInterval);
+    const hitCap = endStep > startStep + 2500;
 
     if (
       minorInterval > 0 &&
@@ -417,18 +450,41 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
       isFinite(endTime)
     ) {
       const maxSteps = Math.min(endStep, startStep + 2500);
+      const isFrameMode = labelMode === "frames";
+      const minorFrames = isFrameMode
+        ? Math.max(1, Math.round(minorInterval * frameRate))
+        : 0;
+
       for (let step = startStep; step <= maxSteps; step++) {
-        const time = step * minorInterval;
+        const time = isFrameMode
+          ? (step * minorFrames) / frameRate
+          : step * minorInterval;
+        const x = isFrameMode
+          ? Math.round((step * minorFrames * validPPS) / frameRate) +
+            startOffset
+          : timeToPixel(time, validPPS) + startOffset;
         const isMajor = step % divisions === 0;
-        result.push({ time, isMajor });
+        result.push({ time, isMajor, x });
       }
+    }
+
+    if (isTelemetryActive) {
+      const renderMs = performance.now() - t0;
+      timelineZoomTelemetry.recordRulerRender(
+        result.length,
+        renderMs,
+        hitCap,
+        labelMode,
+        majorInterval,
+      );
     }
 
     return result;
   }, [
     pixelsPerSecond,
     scrollLeft,
-    viewportWidth,
+    viewportWidthPx,
+    internalViewportWidth,
     sequenceDuration,
     startOffset,
     frameRate,
@@ -456,6 +512,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
   return (
     <div
       ref={containerRef}
+      data-timeline-ruler="true"
       className="relative select-none overflow-visible"
       style={{
         height: 24,
@@ -466,8 +523,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
       onClick={handleBackgroundClick}
     >
       {/* ── Tick marks ── */}
-      {ticks.map(({ time, isMajor }) => {
-        const x = timeToPixel(time, pixelsPerSecond) + startOffset;
+      {ticks.map(({ time, isMajor, x }) => {
         return (
           <div
             key={time}
@@ -491,7 +547,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
               <span
                 style={{
                   position: "absolute",
-                  // CapCut-style ruler labels sit beside the major tick so
+                  //  ruler labels sit beside the major tick so
                   // the timecode never hides beneath a playhead/tick stem.
                   top: 1,
                   left: 6,

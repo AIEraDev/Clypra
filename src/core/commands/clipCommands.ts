@@ -65,14 +65,72 @@ function getTargetClipIds(ctx: ClipCommandContext): string[] {
   return ctx.clickedClipId ? [ctx.clickedClipId] : [];
 }
 
-function getPlayheadTargetClips(ctx: ClipCommandContext): ClipCommandContext["clips"] {
-  const ids = getTargetClipIds(ctx);
-  if (ids.length > 0) return ctx.clips.filter((clip) => ids.includes(clip.id));
-  return ctx.clips.filter((clip) => ctx.playheadTime > clip.startTime && ctx.playheadTime < clip.startTime + clip.duration);
+/**
+ * Compute the timeline duration that corresponds to a given playback speed.
+ * Source duration = trimOut − trimIn (the media span consumed by the clip).
+ * At 2× the clip occupies half the timeline; at 0.5× it occupies double.
+ */
+function durationForSpeed(
+  clip: { trimIn: number; trimOut: number },
+  speed: number,
+): number {
+  return (clip.trimOut - clip.trimIn) / Math.max(0.001, speed);
 }
 
-function isWithinPlayhead(clip: ClipCommandContext["clips"][number], playheadTime: number): boolean {
-  return playheadTime > clip.startTime && playheadTime < clip.startTime + clip.duration;
+/**
+ * If ripple edit is enabled, shift all clips on the same track that start at
+ * or after `clipEndTime` by `deltaTime` seconds.
+ * Must be called inside an active history transaction.
+ */
+function rippleDownstreamIfEnabled(
+  clipId: string,
+  clipEndTime: number,
+  deltaTime: number,
+): void {
+  const { rippleEditEnabled, clips } = useTimelineStore.getState();
+  if (!rippleEditEnabled || Math.abs(deltaTime) < 0.001) return;
+  const changedClip = clips.find((c) => c.id === clipId);
+  if (!changedClip) return;
+  const history = useHistoryStore.getState();
+  const downstream = clips
+    .filter(
+      (c) =>
+        c.id !== clipId &&
+        c.trackId === changedClip.trackId &&
+        c.startTime >= clipEndTime - 0.001,
+    )
+    .sort((a, b) => a.startTime - b.startTime);
+  for (const c of downstream) {
+    history.execute(
+      new UpdateClipCommand(
+        c.id,
+        { startTime: c.startTime },
+        { startTime: c.startTime + deltaTime },
+      ),
+    );
+  }
+}
+
+function getPlayheadTargetClips(
+  ctx: ClipCommandContext,
+): ClipCommandContext["clips"] {
+  const ids = getTargetClipIds(ctx);
+  if (ids.length > 0) return ctx.clips.filter((clip) => ids.includes(clip.id));
+  return ctx.clips.filter(
+    (clip) =>
+      ctx.playheadTime > clip.startTime &&
+      ctx.playheadTime < clip.startTime + clip.duration,
+  );
+}
+
+function isWithinPlayhead(
+  clip: ClipCommandContext["clips"][number],
+  playheadTime: number,
+): boolean {
+  return (
+    playheadTime > clip.startTime &&
+    playheadTime < clip.startTime + clip.duration
+  );
 }
 
 export const clipCommands: ClipCommand[] = [
@@ -83,8 +141,12 @@ export const clipCommands: ClipCommand[] = [
     group: "organize",
     isVisible: (ctx) => getTargetClipIds(ctx).length === 1,
     isEnabled: (ctx) => {
-      const clip = ctx.clips.find((candidate) => candidate.id === getTargetClipIds(ctx)[0]);
-      return !!clip && !ctx.tracks.find((track) => track.id === clip.trackId)?.locked;
+      const clip = ctx.clips.find(
+        (candidate) => candidate.id === getTargetClipIds(ctx)[0],
+      );
+      return (
+        !!clip && !ctx.tracks.find((track) => track.id === clip.trackId)?.locked
+      );
     },
     disabledReason: () => "The clip is on a locked track",
     execute: (ctx) => {
@@ -92,8 +154,14 @@ export const clipCommands: ClipCommand[] = [
       const clip = ctx.clips.find((candidate) => candidate.id === clipId);
       if (!clip) return;
 
-      const currentName = getClipDisplayName(clip, useProjectStore.getState().mediaAssets);
-      const nextName = typeof window !== "undefined" ? window.prompt("Rename Clip", currentName) : null;
+      const currentName = getClipDisplayName(
+        clip,
+        useProjectStore.getState().mediaAssets,
+      );
+      const nextName =
+        typeof window !== "undefined"
+          ? window.prompt("Rename Clip", currentName)
+          : null;
       if (nextName === null) return;
 
       const result = EditingActions.renameClip(clipId, nextName);
@@ -109,9 +177,20 @@ export const clipCommands: ClipCommand[] = [
     icon: Layers,
     group: "organize",
     isVisible: (ctx) => getTargetClipIds(ctx).length >= 2,
-    isEnabled: (ctx) => validateGroupSelection(getTargetClipIds(ctx), ctx.clips, ctx.tracks, ctx.transitions).valid,
+    isEnabled: (ctx) =>
+      validateGroupSelection(
+        getTargetClipIds(ctx),
+        ctx.clips,
+        ctx.tracks,
+        ctx.transitions,
+      ).valid,
     disabledReason: (ctx) => {
-      const validation = validateGroupSelection(getTargetClipIds(ctx), ctx.clips, ctx.tracks, ctx.transitions);
+      const validation = validateGroupSelection(
+        getTargetClipIds(ctx),
+        ctx.clips,
+        ctx.tracks,
+        ctx.transitions,
+      );
       return validation.valid ? undefined : validation.reason;
     },
     execute: (ctx) => {
@@ -125,14 +204,24 @@ export const clipCommands: ClipCommand[] = [
     label: "Ungroup",
     icon: Ungroup,
     group: "organize",
-    isVisible: (ctx) => getTargetClipIds(ctx).some((id) => ctx.clips.some((clip) => clip.id === id && clip.kind === "compound")),
-    isEnabled: (ctx) => getTargetClipIds(ctx).some((id) => {
-      const clip = ctx.clips.find((candidate) => candidate.id === id);
-      return !!clip && clip.kind === "compound" && !ctx.tracks.find((track) => track.id === clip.trackId)?.locked;
-    }),
+    isVisible: (ctx) =>
+      getTargetClipIds(ctx).some((id) =>
+        ctx.clips.some((clip) => clip.id === id && clip.kind === "compound"),
+      ),
+    isEnabled: (ctx) =>
+      getTargetClipIds(ctx).some((id) => {
+        const clip = ctx.clips.find((candidate) => candidate.id === id);
+        return (
+          !!clip &&
+          clip.kind === "compound" &&
+          !ctx.tracks.find((track) => track.id === clip.trackId)?.locked
+        );
+      }),
     disabledReason: () => "The compound track is locked",
     execute: (ctx) => {
-      const compound = getTargetClipIds(ctx).map((id) => ctx.clips.find((clip) => clip.id === id)).find((clip) => clip?.kind === "compound");
+      const compound = getTargetClipIds(ctx)
+        .map((id) => ctx.clips.find((clip) => clip.id === id))
+        .find((clip) => clip?.kind === "compound");
       if (!compound) return;
       const result = EditingActions.ungroupClip(compound.id);
       if (result.success) toast.success("Ungrouped clips");
@@ -188,7 +277,10 @@ export const clipCommands: ClipCommand[] = [
     isEnabled: () => clipboardService.hasClips(),
     disabledReason: () => "Clipboard is empty",
     execute: (ctx) => {
-      clipboardService.pasteClips(ctx.playheadTime, ctx.clickedTrackId || undefined);
+      clipboardService.pasteClips(
+        ctx.playheadTime,
+        ctx.clickedTrackId || undefined,
+      );
     },
   },
   {
@@ -215,7 +307,12 @@ export const clipCommands: ClipCommand[] = [
     icon: ScissorsLineDashed,
     group: "trim",
     isVisible: () => true,
-    isEnabled: (ctx) => getPlayheadTargetClips(ctx).some((clip) => clip.kind !== "compound" && !ctx.tracks.find((track) => track.id === clip.trackId)?.locked),
+    isEnabled: (ctx) =>
+      getPlayheadTargetClips(ctx).some(
+        (clip) =>
+          clip.kind !== "compound" &&
+          !ctx.tracks.find((track) => track.id === clip.trackId)?.locked,
+      ),
     disabledReason: () => "No unlocked clips under playhead",
     execute: () => {
       const results = EditingActions.splitAllAtPlayhead();
@@ -236,14 +333,29 @@ export const clipCommands: ClipCommand[] = [
       const targetClips = getPlayheadTargetClips(ctx);
       return targetClips.some((c) => {
         const isUnlocked = !ctx.tracks.find((t) => t.id === c.trackId)?.locked;
-        return c.kind !== "compound" && isUnlocked && ctx.playheadTime > c.startTime && ctx.playheadTime < c.startTime + c.duration;
+        return (
+          c.kind !== "compound" &&
+          isUnlocked &&
+          ctx.playheadTime > c.startTime &&
+          ctx.playheadTime < c.startTime + c.duration
+        );
       });
     },
     disabledReason: (ctx) => {
       const targetClips = getPlayheadTargetClips(ctx);
-      const intersects = targetClips.some((c) => c.kind !== "compound" && !ctx.tracks.find((track) => track.id === c.trackId)?.locked && isWithinPlayhead(c, ctx.playheadTime));
-      if (targetClips.some((clip) => clip.kind === "compound")) return "Compound clips are move-only; ungroup them before splitting";
-      if (!intersects && !targetClips.some((clip) => isWithinPlayhead(clip, ctx.playheadTime))) return "Playhead is outside clip bounds";
+      const intersects = targetClips.some(
+        (c) =>
+          c.kind !== "compound" &&
+          !ctx.tracks.find((track) => track.id === c.trackId)?.locked &&
+          isWithinPlayhead(c, ctx.playheadTime),
+      );
+      if (targetClips.some((clip) => clip.kind === "compound"))
+        return "Compound clips are move-only; ungroup them before splitting";
+      if (
+        !intersects &&
+        !targetClips.some((clip) => isWithinPlayhead(clip, ctx.playheadTime))
+      )
+        return "Playhead is outside clip bounds";
       return "Clip is on a locked track";
     },
     execute: (ctx) => {
@@ -273,17 +385,25 @@ export const clipCommands: ClipCommand[] = [
       const targetClips = getPlayheadTargetClips(ctx);
       return targetClips.some((c) => {
         const isUnlocked = !ctx.tracks.find((t) => t.id === c.trackId)?.locked;
-        return c.kind !== "compound" && isUnlocked && ctx.playheadTime > c.startTime && ctx.playheadTime < c.startTime + c.duration;
+        return (
+          c.kind !== "compound" &&
+          isUnlocked &&
+          ctx.playheadTime > c.startTime &&
+          ctx.playheadTime < c.startTime + c.duration
+        );
       });
     },
-    disabledReason: (ctx) => getPlayheadTargetClips(ctx).some((clip) => clip.kind === "compound")
-      ? "Compound clips are move-only; ungroup them before trimming"
-      : "Playhead is outside clip bounds",
+    disabledReason: (ctx) =>
+      getPlayheadTargetClips(ctx).some((clip) => clip.kind === "compound")
+        ? "Compound clips are move-only; ungroup them before trimming"
+        : "Playhead is outside clip bounds",
     execute: () => {
       const results = EditingActions.deleteLeftAtPlayhead();
       const successCount = results.filter((r) => r.success).length;
       if (successCount > 0) {
-        toast.success(`Trimmed start on ${successCount} clip${successCount > 1 ? "s" : ""}`);
+        toast.success(
+          `Trimmed start on ${successCount} clip${successCount > 1 ? "s" : ""}`,
+        );
       } else {
         toast.info("No clips under playhead to trim");
       }
@@ -301,17 +421,25 @@ export const clipCommands: ClipCommand[] = [
       const targetClips = getPlayheadTargetClips(ctx);
       return targetClips.some((c) => {
         const isUnlocked = !ctx.tracks.find((t) => t.id === c.trackId)?.locked;
-        return c.kind !== "compound" && isUnlocked && ctx.playheadTime > c.startTime && ctx.playheadTime < c.startTime + c.duration;
+        return (
+          c.kind !== "compound" &&
+          isUnlocked &&
+          ctx.playheadTime > c.startTime &&
+          ctx.playheadTime < c.startTime + c.duration
+        );
       });
     },
-    disabledReason: (ctx) => getPlayheadTargetClips(ctx).some((clip) => clip.kind === "compound")
-      ? "Compound clips are move-only; ungroup them before trimming"
-      : "Playhead is outside clip bounds",
+    disabledReason: (ctx) =>
+      getPlayheadTargetClips(ctx).some((clip) => clip.kind === "compound")
+        ? "Compound clips are move-only; ungroup them before trimming"
+        : "Playhead is outside clip bounds",
     execute: () => {
       const results = EditingActions.deleteRightAtPlayhead();
       const successCount = results.filter((r) => r.success).length;
       if (successCount > 0) {
-        toast.success(`Trimmed end on ${successCount} clip${successCount > 1 ? "s" : ""}`);
+        toast.success(
+          `Trimmed end on ${successCount} clip${successCount > 1 ? "s" : ""}`,
+        );
       } else {
         toast.info("No clips under playhead to trim");
       }
@@ -338,7 +466,9 @@ export const clipCommands: ClipCommand[] = [
       const ids = getTargetClipIds(ctx);
       const result = EditingActions.deleteSelection(ids, false);
       if (result) {
-        toast.success(`Ripple deleted ${result.deletedClipIds.length} clip${result.deletedClipIds.length > 1 ? "s" : ""}`);
+        toast.success(
+          `Ripple deleted ${result.deletedClipIds.length} clip${result.deletedClipIds.length > 1 ? "s" : ""}`,
+        );
       }
     },
   },
@@ -363,7 +493,9 @@ export const clipCommands: ClipCommand[] = [
       const ids = getTargetClipIds(ctx);
       const result = EditingActions.deleteSelection(ids, true);
       if (result) {
-        toast.success(`Lift deleted ${result.deletedClipIds.length} clip${result.deletedClipIds.length > 1 ? "s" : ""}`);
+        toast.success(
+          `Lift deleted ${result.deletedClipIds.length} clip${result.deletedClipIds.length > 1 ? "s" : ""}`,
+        );
       }
     },
   },
@@ -374,13 +506,18 @@ export const clipCommands: ClipCommand[] = [
     label: "Detach Audio",
     icon: AudioLines,
     group: "audio",
-    isVisible: (ctx) => getTargetClipIds(ctx).some((id) => ctx.clips.some((clip) => clip.id === id && clip.kind !== "audio")),
+    isVisible: (ctx) =>
+      getTargetClipIds(ctx).some((id) =>
+        ctx.clips.some((clip) => clip.id === id && clip.kind !== "audio"),
+      ),
     isEnabled: (ctx) => {
       const assets = useProjectStore.getState().mediaAssets;
       return getTargetClipIds(ctx).some((id) => {
         const clip = ctx.clips.find((candidate) => candidate.id === id);
         if (!clip || clip.kind === "audio") return false;
-        const track = ctx.tracks.find((candidate) => candidate.id === clip.trackId);
+        const track = ctx.tracks.find(
+          (candidate) => candidate.id === clip.trackId,
+        );
         const asset = assets.find((candidate) => candidate.id === clip.mediaId);
         return (
           track?.type === "video" &&
@@ -397,7 +534,8 @@ export const clipCommands: ClipCommand[] = [
       const clip = ctx.clips.find((candidate) => candidate.id === clipId);
       if (!clip) return "No clip selected";
       const asset = assets.find((candidate) => candidate.id === clip.mediaId);
-      if (asset && !assetHasAudio(asset)) return "Video has no audio stream to detach";
+      if (asset && !assetHasAudio(asset))
+        return "Video has no audio stream to detach";
       return "Audio is already detached, the clip has no video source, or its track is locked";
     },
     execute: (ctx) => {
@@ -407,7 +545,9 @@ export const clipCommands: ClipCommand[] = [
       if (!clip) return;
       const asset = assets.find((candidate) => candidate.id === clip.mediaId);
       if (!asset) return;
-      useHistoryStore.getState().execute(new DetachAudioCommand(clip, asset.path, ctx.tracks));
+      useHistoryStore
+        .getState()
+        .execute(new DetachAudioCommand(clip, asset.path, ctx.tracks, ctx.clips));
       toast.success("Audio detached");
     },
   },
@@ -435,9 +575,13 @@ export const clipCommands: ClipCommand[] = [
       const ids = getTargetClipIds(ctx);
       const store = useTimelineStore.getState();
       const assets = useProjectStore.getState().mediaAssets;
-      const targetClips = store.clips.filter((c) =>
-        ids.includes(c.id) &&
-        clipHasAudio(c, assets.find((a) => a.id === c.mediaId)),
+      const targetClips = store.clips.filter(
+        (c) =>
+          ids.includes(c.id) &&
+          clipHasAudio(
+            c,
+            assets.find((a) => a.id === c.mediaId),
+          ),
       );
       if (targetClips.length === 0) return;
 
@@ -460,7 +604,11 @@ export const clipCommands: ClipCommand[] = [
         if (hasMultiple) history.rollbackTransaction();
         throw err;
       }
-      toast.info(allMuted ? `Unmuted ${targetClips.length} clip(s)` : `Muted ${targetClips.length} clip(s)`);
+      toast.info(
+        allMuted
+          ? `Unmuted ${targetClips.length} clip(s)`
+          : `Muted ${targetClips.length} clip(s)`,
+      );
     },
   },
   {
@@ -486,9 +634,13 @@ export const clipCommands: ClipCommand[] = [
       const ids = getTargetClipIds(ctx);
       const store = useTimelineStore.getState();
       const assets = useProjectStore.getState().mediaAssets;
-      const targetClips = store.clips.filter((c) =>
-        ids.includes(c.id) &&
-        clipHasAudio(c, assets.find((a) => a.id === c.mediaId)),
+      const targetClips = store.clips.filter(
+        (c) =>
+          ids.includes(c.id) &&
+          clipHasAudio(
+            c,
+            assets.find((a) => a.id === c.mediaId),
+          ),
       );
       if (targetClips.length === 0) return;
 
@@ -523,18 +675,29 @@ export const clipCommands: ClipCommand[] = [
     icon: ArrowLeftRight,
     group: "organize",
     isVisible: (ctx) => ctx.selectedClipIds.length === 2,
-    isEnabled: (ctx) => ctx.selectedClipIds.length === 2 && !SwapClipsCommand.validate({
-      clips: ctx.clips,
-      tracks: ctx.tracks,
-      transitions: ctx.transitions ?? [],
-      epoch: 0,
-    }, ctx.selectedClipIds[0], ctx.selectedClipIds[1]),
-    disabledReason: (ctx) => SwapClipsCommand.validate({
-      clips: ctx.clips,
-      tracks: ctx.tracks,
-      transitions: ctx.transitions ?? [],
-      epoch: 0,
-    }, ctx.selectedClipIds[0], ctx.selectedClipIds[1]) ?? "Selected clips must be on unlocked tracks",
+    isEnabled: (ctx) =>
+      ctx.selectedClipIds.length === 2 &&
+      !SwapClipsCommand.validate(
+        {
+          clips: ctx.clips,
+          tracks: ctx.tracks,
+          transitions: ctx.transitions ?? [],
+          epoch: 0,
+        },
+        ctx.selectedClipIds[0],
+        ctx.selectedClipIds[1],
+      ),
+    disabledReason: (ctx) =>
+      SwapClipsCommand.validate(
+        {
+          clips: ctx.clips,
+          tracks: ctx.tracks,
+          transitions: ctx.transitions ?? [],
+          epoch: 0,
+        },
+        ctx.selectedClipIds[0],
+        ctx.selectedClipIds[1],
+      ) ?? "Selected clips must be on unlocked tracks",
     execute: () => {
       const result = EditingActions.swapSelectedClips();
       if (result.error) {
@@ -587,7 +750,11 @@ export const clipCommands: ClipCommand[] = [
       if (ids.length !== 1) return false;
       const clip = ctx.clips.find((c) => c.id === ids[0]);
       if (!clip || !clip.mediaId) return false;
-      return !clip.id.startsWith("text-clip-") && clip.kind !== "text" && clip.kind !== "filter";
+      return (
+        !clip.id.startsWith("text-clip-") &&
+        clip.kind !== "text" &&
+        clip.kind !== "filter"
+      );
     },
     isEnabled: (ctx) => {
       const ids = getTargetClipIds(ctx);
@@ -612,7 +779,13 @@ export const clipCommands: ClipCommand[] = [
       if (ids.length !== 1) return false;
       const clip = ctx.clips.find((c) => c.id === ids[0]);
       if (!clip) return false;
-      return clip.kind === "video" || (!clip.id.startsWith("text-clip-") && clip.kind !== "text" && clip.kind !== "filter" && clip.kind !== "audio");
+      return (
+        clip.kind === "video" ||
+        (!clip.id.startsWith("text-clip-") &&
+          clip.kind !== "text" &&
+          clip.kind !== "filter" &&
+          clip.kind !== "audio")
+      );
     },
     isEnabled: (ctx) => {
       const ids = getTargetClipIds(ctx);
@@ -624,9 +797,15 @@ export const clipCommands: ClipCommand[] = [
       const clip = ctx.clips.find((c) => c.id === ids[0]);
       if (clip) {
         const asset = clip.mediaId
-          ? useProjectStore.getState().mediaAssets.find((candidate) => candidate.id === clip.mediaId)
+          ? useProjectStore
+              .getState()
+              .mediaAssets.find((candidate) => candidate.id === clip.mediaId)
           : undefined;
-        const videoPath = (asset as any)?.path || (asset as any)?.url || clip.mediaId || clip.id;
+        const videoPath =
+          (asset as any)?.path ||
+          (asset as any)?.url ||
+          clip.mediaId ||
+          clip.id;
         void bakeClymatteClip({
           clipId: clip.id,
           videoPath,
@@ -670,13 +849,18 @@ export const clipCommands: ClipCommand[] = [
       const clip = ctx.clips.find((c) => c.id === ids[0]);
       if (!clip) return false;
       const isUnlocked = !ctx.tracks.find((t) => t.id === clip.trackId)?.locked;
-      return isUnlocked && ctx.playheadTime >= clip.startTime && ctx.playheadTime < clip.startTime + clip.duration;
+      return (
+        isUnlocked &&
+        ctx.playheadTime >= clip.startTime &&
+        ctx.playheadTime < clip.startTime + clip.duration
+      );
     },
     disabledReason: (ctx) => {
       const ids = getTargetClipIds(ctx);
       const clip = ctx.clips.find((c) => c.id === ids[0]);
       if (!clip) return "No clip selected";
-      if (ctx.tracks.find((t) => t.id === clip.trackId)?.locked) return "Clip is on a locked track";
+      if (ctx.tracks.find((t) => t.id === clip.trackId)?.locked)
+        return "Clip is on a locked track";
       return "Playhead must be inside the clip to freeze a frame";
     },
     execute: (ctx) => {
@@ -700,8 +884,13 @@ export const clipCommands: ClipCommand[] = [
       }
 
       const clock = getPlaybackClock();
-      const { sourceTime } = resolveClipSourceTime(clip, clock.time, { clampToRange: true });
-      const mapping: PlaybackMapping = { kind: "freeze", atSourceTime: sourceTime };
+      const { sourceTime } = resolveClipSourceTime(clip, clock.time, {
+        clampToRange: true,
+      });
+      const mapping: PlaybackMapping = {
+        kind: "freeze",
+        atSourceTime: sourceTime,
+      };
       history.execute(
         new UpdateClipCommand(
           clip.id,
@@ -743,18 +932,22 @@ export const clipCommands: ClipCommand[] = [
           const clip = store.clips.find((c) => c.id === id);
           if (!clip) return;
           const currentMapping = clip.playbackMapping;
-          const currentSpeed = (currentMapping?.kind === "normal" || currentMapping?.kind === "reverse")
-            ? currentMapping.speed
-            : (clip.speed ?? 1);
+          const currentSpeed =
+            currentMapping?.kind === "normal" ||
+            currentMapping?.kind === "reverse"
+              ? currentMapping.speed
+              : (clip.speed ?? 1);
           const isCurrentlyReversed = currentMapping?.kind === "reverse";
           const mapping: PlaybackMapping = isCurrentlyReversed
             ? { kind: "normal", speed: currentSpeed }
             : { kind: "reverse", speed: currentSpeed };
+          // Reverse doesn't change the source span, so duration stays the same.
+          // We still sync the legacy speed scalar so the Rust adapter picks it up.
           history.execute(
             new UpdateClipCommand(
               id,
-              { playbackMapping: currentMapping },
-              { playbackMapping: mapping },
+              { playbackMapping: currentMapping, speed: clip.speed },
+              { playbackMapping: mapping, speed: currentSpeed },
             ),
           );
         });
@@ -764,7 +957,9 @@ export const clipCommands: ClipCommand[] = [
         throw err;
       }
       const anyReversed = ids.some((id) => {
-        const c = useTimelineStore.getState().clips.find((clip) => clip.id === id);
+        const c = useTimelineStore
+          .getState()
+          .clips.find((clip) => clip.id === id);
         return c?.playbackMapping?.kind === "reverse";
       });
       toast.info(anyReversed ? "Clips reversed" : "Clips unreversed");
@@ -777,7 +972,11 @@ export const clipCommands: ClipCommand[] = [
     group: "speed",
     isVisible: (ctx) => {
       const ids = getTargetClipIds(ctx);
-      return ids.some((id) => ctx.clips.some((c) => c.id === id && (c.kind === "video" || c.kind === "audio")));
+      return ids.some((id) =>
+        ctx.clips.some(
+          (c) => c.id === id && (c.kind === "video" || c.kind === "audio"),
+        ),
+      );
     },
     isEnabled: (ctx) => {
       const ids = getTargetClipIds(ctx);
@@ -798,13 +997,31 @@ export const clipCommands: ClipCommand[] = [
           const clip = store.clips.find((c) => c.id === id);
           if (!clip) return;
           const isReversed = clip.playbackMapping?.kind === "reverse";
-          const mapping: PlaybackMapping = { kind: isReversed ? "reverse" : "normal", speed: 0.5 };
+          const newSpeed = 0.5;
+          const mapping: PlaybackMapping = {
+            kind: isReversed ? "reverse" : "normal",
+            speed: newSpeed,
+          };
+          const newDuration = durationForSpeed(clip, newSpeed);
           history.execute(
             new UpdateClipCommand(
               id,
-              { playbackMapping: clip.playbackMapping },
-              { playbackMapping: mapping },
+              {
+                playbackMapping: clip.playbackMapping,
+                speed: clip.speed,
+                duration: clip.duration,
+              },
+              {
+                playbackMapping: mapping,
+                speed: newSpeed,
+                duration: newDuration,
+              },
             ),
+          );
+          rippleDownstreamIfEnabled(
+            id,
+            clip.startTime + clip.duration,
+            newDuration - clip.duration,
           );
         });
         if (hasMultiple) history.commitTransaction();
@@ -845,12 +1062,27 @@ export const clipCommands: ClipCommand[] = [
         ids.forEach((id) => {
           const clip = store.clips.find((c) => c.id === id);
           if (!clip) return;
+          const newSpeed = 1;
+          const newDuration1 = durationForSpeed(clip, newSpeed);
           history.execute(
             new UpdateClipCommand(
               id,
-              { playbackMapping: clip.playbackMapping },
-              { playbackMapping: { kind: "normal", speed: 1 } },
+              {
+                playbackMapping: clip.playbackMapping,
+                speed: clip.speed,
+                duration: clip.duration,
+              },
+              {
+                playbackMapping: { kind: "normal", speed: newSpeed },
+                speed: newSpeed,
+                duration: newDuration1,
+              },
             ),
+          );
+          rippleDownstreamIfEnabled(
+            id,
+            clip.startTime + clip.duration,
+            newDuration1 - clip.duration,
           );
         });
         if (hasMultiple) history.commitTransaction();
@@ -868,7 +1100,11 @@ export const clipCommands: ClipCommand[] = [
     group: "speed",
     isVisible: (ctx) => {
       const ids = getTargetClipIds(ctx);
-      return ids.some((id) => ctx.clips.some((c) => c.id === id && (c.kind === "video" || c.kind === "audio")));
+      return ids.some((id) =>
+        ctx.clips.some(
+          (c) => c.id === id && (c.kind === "video" || c.kind === "audio"),
+        ),
+      );
     },
     isEnabled: (ctx) => {
       const ids = getTargetClipIds(ctx);
@@ -889,13 +1125,31 @@ export const clipCommands: ClipCommand[] = [
           const clip = store.clips.find((c) => c.id === id);
           if (!clip) return;
           const isReversed = clip.playbackMapping?.kind === "reverse";
-          const mapping: PlaybackMapping = { kind: isReversed ? "reverse" : "normal", speed: 2 };
+          const newSpeed = 2;
+          const mapping: PlaybackMapping = {
+            kind: isReversed ? "reverse" : "normal",
+            speed: newSpeed,
+          };
+          const newDuration2 = durationForSpeed(clip, newSpeed);
           history.execute(
             new UpdateClipCommand(
               id,
-              { playbackMapping: clip.playbackMapping },
-              { playbackMapping: mapping },
+              {
+                playbackMapping: clip.playbackMapping,
+                speed: clip.speed,
+                duration: clip.duration,
+              },
+              {
+                playbackMapping: mapping,
+                speed: newSpeed,
+                duration: newDuration2,
+              },
             ),
+          );
+          rippleDownstreamIfEnabled(
+            id,
+            clip.startTime + clip.duration,
+            newDuration2 - clip.duration,
           );
         });
         if (hasMultiple) history.commitTransaction();
@@ -919,7 +1173,11 @@ export const clipCommands: ClipCommand[] = [
       const ids = getTargetClipIds(ctx);
       if (ids.length !== 1) return false;
       const clip = ctx.clips.find((c) => c.id === ids[0]);
-      return !!clip && clip.kind !== "compound" && !ctx.tracks.find((t) => t.id === clip.trackId)?.locked;
+      return (
+        !!clip &&
+        clip.kind !== "compound" &&
+        !ctx.tracks.find((t) => t.id === clip.trackId)?.locked
+      );
     },
     execute: (ctx) => {
       const ids = getTargetClipIds(ctx);
@@ -940,7 +1198,11 @@ export const clipCommands: ClipCommand[] = [
       const ids = getTargetClipIds(ctx);
       if (ids.length !== 1) return false;
       const clip = ctx.clips.find((c) => c.id === ids[0]);
-      return !!clip && clip.kind !== "compound" && !ctx.tracks.find((t) => t.id === clip.trackId)?.locked;
+      return (
+        !!clip &&
+        clip.kind !== "compound" &&
+        !ctx.tracks.find((t) => t.id === clip.trackId)?.locked
+      );
     },
     execute: (ctx) => {
       const ids = getTargetClipIds(ctx);
@@ -961,7 +1223,11 @@ export const clipCommands: ClipCommand[] = [
       const ids = getTargetClipIds(ctx);
       if (ids.length !== 1) return false;
       const clip = ctx.clips.find((c) => c.id === ids[0]);
-      return !!clip && clip.kind !== "compound" && !ctx.tracks.find((t) => t.id === clip.trackId)?.locked;
+      return (
+        !!clip &&
+        clip.kind !== "compound" &&
+        !ctx.tracks.find((t) => t.id === clip.trackId)?.locked
+      );
     },
     execute: (ctx) => {
       const ids = getTargetClipIds(ctx);
@@ -982,7 +1248,11 @@ export const clipCommands: ClipCommand[] = [
       const ids = getTargetClipIds(ctx);
       if (ids.length !== 1) return false;
       const clip = ctx.clips.find((c) => c.id === ids[0]);
-      return !!clip && clip.kind !== "compound" && !ctx.tracks.find((t) => t.id === clip.trackId)?.locked;
+      return (
+        !!clip &&
+        clip.kind !== "compound" &&
+        !ctx.tracks.find((t) => t.id === clip.trackId)?.locked
+      );
     },
     execute: (ctx) => {
       const ids = getTargetClipIds(ctx);
@@ -1006,11 +1276,21 @@ export const clipCommands: ClipCommand[] = [
       const ids = getTargetClipIds(ctx);
       if (ids.length === 1) {
         const clip = ctx.clips.find((c) => c.id === ids[0]);
-        return !!clip && clip.kind !== "compound" && !ctx.tracks.find((t) => t.id === clip.trackId)?.locked;
+        return (
+          !!clip &&
+          clip.kind !== "compound" &&
+          !ctx.tracks.find((t) => t.id === clip.trackId)?.locked
+        );
       }
       if (ids.length === 2) {
         const [c1, c2] = ids.map((id) => ctx.clips.find((c) => c.id === id));
-        return !!c1 && !!c2 && c1.trackId === c2.trackId && c1.kind !== "compound" && c2.kind !== "compound";
+        return (
+          !!c1 &&
+          !!c2 &&
+          c1.trackId === c2.trackId &&
+          c1.kind !== "compound" &&
+          c2.kind !== "compound"
+        );
       }
       return false;
     },
@@ -1021,7 +1301,11 @@ export const clipCommands: ClipCommand[] = [
       if (ids.length === 1) {
         const clip = ctx.clips.find((c) => c.id === ids[0]);
         if (!clip) return;
-        const hasOutgoing = ctx.clips.some((o) => o.trackId === clip.trackId && Math.abs(clip.startTime + clip.duration - o.startTime) < 0.001);
+        const hasOutgoing = ctx.clips.some(
+          (o) =>
+            o.trackId === clip.trackId &&
+            Math.abs(clip.startTime + clip.duration - o.startTime) < 0.001,
+        );
         const res = hasOutgoing
           ? EditingActions.rollClipEdge(clip.id, "outgoing", delta)
           : EditingActions.rollClipEdge(clip.id, "incoming", delta);
@@ -1030,7 +1314,8 @@ export const clipCommands: ClipCommand[] = [
       } else if (ids.length === 2) {
         const [c1, c2] = ids.map((id) => ctx.clips.find((c) => c.id === id));
         if (c1 && c2) {
-          const [left, right] = c1.startTime <= c2.startTime ? [c1, c2] : [c2, c1];
+          const [left, right] =
+            c1.startTime <= c2.startTime ? [c1, c2] : [c2, c1];
           const res = EditingActions.rollEdit(left.id, right.id, delta);
           if (res.success) toast.info("Rolled cut point earlier by 1 frame");
           else if (res.error) toast.error(res.error);
@@ -1052,11 +1337,21 @@ export const clipCommands: ClipCommand[] = [
       const ids = getTargetClipIds(ctx);
       if (ids.length === 1) {
         const clip = ctx.clips.find((c) => c.id === ids[0]);
-        return !!clip && clip.kind !== "compound" && !ctx.tracks.find((t) => t.id === clip.trackId)?.locked;
+        return (
+          !!clip &&
+          clip.kind !== "compound" &&
+          !ctx.tracks.find((t) => t.id === clip.trackId)?.locked
+        );
       }
       if (ids.length === 2) {
         const [c1, c2] = ids.map((id) => ctx.clips.find((c) => c.id === id));
-        return !!c1 && !!c2 && c1.trackId === c2.trackId && c1.kind !== "compound" && c2.kind !== "compound";
+        return (
+          !!c1 &&
+          !!c2 &&
+          c1.trackId === c2.trackId &&
+          c1.kind !== "compound" &&
+          c2.kind !== "compound"
+        );
       }
       return false;
     },
@@ -1067,7 +1362,11 @@ export const clipCommands: ClipCommand[] = [
       if (ids.length === 1) {
         const clip = ctx.clips.find((c) => c.id === ids[0]);
         if (!clip) return;
-        const hasOutgoing = ctx.clips.some((o) => o.trackId === clip.trackId && Math.abs(clip.startTime + clip.duration - o.startTime) < 0.001);
+        const hasOutgoing = ctx.clips.some(
+          (o) =>
+            o.trackId === clip.trackId &&
+            Math.abs(clip.startTime + clip.duration - o.startTime) < 0.001,
+        );
         const res = hasOutgoing
           ? EditingActions.rollClipEdge(clip.id, "outgoing", delta)
           : EditingActions.rollClipEdge(clip.id, "incoming", delta);
@@ -1076,7 +1375,8 @@ export const clipCommands: ClipCommand[] = [
       } else if (ids.length === 2) {
         const [c1, c2] = ids.map((id) => ctx.clips.find((c) => c.id === id));
         if (c1 && c2) {
-          const [left, right] = c1.startTime <= c2.startTime ? [c1, c2] : [c2, c1];
+          const [left, right] =
+            c1.startTime <= c2.startTime ? [c1, c2] : [c2, c1];
           const res = EditingActions.rollEdit(left.id, right.id, delta);
           if (res.success) toast.info("Rolled cut point later by 1 frame");
           else if (res.error) toast.error(res.error);

@@ -43,8 +43,12 @@
  * ```
  */
 
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { IncreaseDecreaseHandler } from "./IncreaseDecreaseHandler";
+import {
+  propertyEditTelemetry,
+  type PropertyCategory,
+} from "@/lib/properties/propertyEditTelemetry";
 
 export interface NumericControlProps {
   /** Current numeric value */
@@ -72,9 +76,18 @@ export interface NumericControlProps {
   /** Disabled state */
   disabled?: boolean;
 
-  // ── Accessibility ───────────────────────────────────────────────────────
+  // ── Accessibility & Telemetry ───────────────────────────────────────────
   /** Accessible label for screen readers */
   ariaLabel?: string;
+  /** Property identifier for telemetry (e.g., "volume", "scale", "opacity") */
+  propertyId?: string;
+  /** Property category for telemetry */
+  category?: PropertyCategory;
+
+  /** Optional custom formatter for the display value when not editing.
+   * Receives the raw numeric value and returns a string. Useful for special
+   * cases like -∞ at minimum volume. Does NOT affect editing or stepping. */
+  formatDisplay?: (value: number) => string;
 
   inputPosition?: "text-center" | "text-right";
 }
@@ -91,7 +104,10 @@ export const NumericControl: React.FC<NumericControlProps> = ({
   inputWidth = "w-8",
   disabled = false,
   ariaLabel,
+  propertyId,
+  category,
   inputPosition = "text-center",
+  formatDisplay,
 }) => {
   // ── Decimal precision ─────────────────────────────────────────────────────
   const resolvedDecimals =
@@ -105,14 +121,21 @@ export const NumericControl: React.FC<NumericControlProps> = ({
   // ── Inline editing state ──────────────────────────────────────────────────
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const focusStartRef = useRef<number>(0);
 
   const displayValue =
     resolvedDecimals > 0
       ? value.toFixed(resolvedDecimals)
       : String(Math.round(value));
 
+  // When a custom formatter is provided, show it while idle (not editing)
+  const idleDisplay = formatDisplay ? formatDisplay(value) : displayValue;
+
+  const effectiveLabel = ariaLabel || prefix || suffix || "Numeric input";
+
   const handleInputFocus = useCallback(() => {
-    setDraft(displayValue);
+    focusStartRef.current = performance.now();
+    setDraft(displayValue); // always seed with raw numeric string for editing
     setEditing(true);
   }, [displayValue]);
 
@@ -121,8 +144,14 @@ export const NumericControl: React.FC<NumericControlProps> = ({
     const parsed = parseFloat(draft);
     if (!isNaN(parsed)) {
       onChange(clamp(parsed));
+      const durationMs = performance.now() - focusStartRef.current;
+      propertyEditTelemetry.recordNumericCommit({
+        property: propertyId || effectiveLabel,
+        category,
+        durationMs,
+      });
     }
-  }, [draft, onChange, clamp]);
+  }, [draft, onChange, clamp, propertyId, effectiveLabel, category]);
 
   const handleInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -139,6 +168,10 @@ export const NumericControl: React.FC<NumericControlProps> = ({
     [max, resolvedDecimals],
   );
 
+  // ── Authoritative value ref to guard against stale props during hold-repeat
+  const currentValueRef = useRef(value);
+  currentValueRef.current = value;
+
   const handleInputKey = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === "Enter") {
@@ -150,27 +183,42 @@ export const NumericControl: React.FC<NumericControlProps> = ({
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        onChange(clamp(value + step));
+        const next = clamp(currentValueRef.current + step);
+        currentValueRef.current = next;
+        onChange(next);
       }
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        onChange(clamp(value - step));
+        const next = clamp(currentValueRef.current - step);
+        currentValueRef.current = next;
+        onChange(next);
       }
     },
-    [value, step, onChange, clamp, displayValue],
+    [step, onChange, clamp, displayValue],
   );
 
   // ── Increase/Decrease handlers ────────────────────────────────────────────
   const handleIncrease = useCallback(() => {
-    onChange(clamp(value + step));
-  }, [value, step, onChange, clamp]);
+    const next = clamp(currentValueRef.current + step);
+    currentValueRef.current = next;
+    onChange(next);
+    propertyEditTelemetry.recordNumericStep({
+      property: propertyId || effectiveLabel,
+      category,
+      direction: "up",
+    });
+  }, [step, onChange, clamp, propertyId, effectiveLabel, category]);
 
   const handleDecrease = useCallback(() => {
-    onChange(clamp(value - step));
-  }, [value, step, onChange, clamp]);
-
-  // ── Accessible label ──────────────────────────────────────────────────────
-  const effectiveLabel = ariaLabel || prefix || suffix || "Numeric input";
+    const next = clamp(currentValueRef.current - step);
+    currentValueRef.current = next;
+    onChange(next);
+    propertyEditTelemetry.recordNumericStep({
+      property: propertyId || effectiveLabel,
+      category,
+      direction: "down",
+    });
+  }, [step, onChange, clamp, propertyId, effectiveLabel, category]);
 
   return (
     <div className="flex items-center gap-1">
@@ -186,7 +234,7 @@ export const NumericControl: React.FC<NumericControlProps> = ({
         {/* Numeric Input */}
         <input
           type="number"
-          value={editing ? draft : displayValue}
+          value={editing ? draft : idleDisplay}
           min={min !== -Infinity ? min : undefined}
           max={max !== Infinity ? max : undefined}
           step={step}
@@ -214,6 +262,7 @@ export const NumericControl: React.FC<NumericControlProps> = ({
         onIncrease={handleIncrease}
         onDecrease={handleDecrease}
         label={effectiveLabel}
+        disabled={disabled}
       />
     </div>
   );

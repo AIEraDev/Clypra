@@ -33,6 +33,10 @@ pub struct NativePcmClip {
     pub downmix: String,
     pub channel_map: Option<Vec<usize>>,
     pub preserve_pitch: bool,
+    /// Per-clip playback speed multiplier (1.0 = real-time).
+    /// Applied in `sample_at` to remap relative timeline ticks to source-media
+    /// sample position: source_position = relative_ticks * clip_speed.
+    pub clip_speed: f32,
 }
 
 impl NativePcmClip {
@@ -76,6 +80,7 @@ impl From<DecodedAudioClip> for NativePcmClip {
             downmix: "auto".to_string(),
             channel_map: None,
             preserve_pitch: false,
+            clip_speed: 1.0,
         }
     }
 }
@@ -121,6 +126,7 @@ pub async fn decode_native_audio_clip(
     downmix: String,
     channel_map: Option<Vec<usize>>,
     preserve_pitch: bool,
+    clip_speed: f32,
     sample_rate: u32,
     channels: u16,
 ) -> Result<NativePcmClip, String> {
@@ -173,6 +179,7 @@ pub async fn decode_native_audio_clip(
     };
     native.channel_map = channel_map.filter(|map| !map.is_empty());
     native.preserve_pitch = preserve_pitch;
+    native.clip_speed = clip_speed.max(0.001);
     Ok(native)
 }
 

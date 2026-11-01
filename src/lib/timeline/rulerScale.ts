@@ -19,8 +19,8 @@ type RulerScaleCandidate = {
   labelMode: TimelineRulerScale["labelMode"];
 };
 
-/** CapCut-style visual spacing: dense enough to read, never crowded. */
-export const MIN_RULER_LABEL_GAP_PX = 60;
+/** Reference-parity visual spacing: dense enough to read, never crowded. */
+export const MIN_RULER_LABEL_GAP_PX = 90;
 
 const SECOND_CANDIDATES: ReadonlyArray<
   Omit<RulerScaleCandidate, "labelMode">
@@ -54,12 +54,12 @@ export function getTimelineRulerScale(
   const safeFps =
     Number.isFinite(frameRate) && frameRate > 0 ? Math.round(frameRate) : 30;
 
-  const frameCandidates: RulerScaleCandidate[] = [1, 2, 5, 10, 15]
+  const frameCandidates: RulerScaleCandidate[] = [2, 3, 5, 10, 15]
     .filter((frames) => frames < safeFps)
     .map((frames) => ({
       intervalSeconds: frames / safeFps,
       minorDivisions:
-        frames <= 2 ? frames : frames === 5 ? 5 : frames === 10 ? 5 : 3,
+        frames <= 3 ? frames : frames === 5 ? 5 : frames === 10 ? 5 : 3,
       labelMode: "frames" as const,
     }));
 

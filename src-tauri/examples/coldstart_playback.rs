@@ -47,6 +47,7 @@ fn main() {
         downmix: "auto".to_string(),
         channel_map: None,
         preserve_pitch: false,
+        clip_speed: 1.0,
     };
 
     if let Err(e) = clock.install_clip(clip) {

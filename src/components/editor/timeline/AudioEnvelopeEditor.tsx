@@ -3,6 +3,7 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { useHistoryStore } from "@/store/historyStore";
 import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
 import type { Clip } from "@/types";
+import { synchronizeClipAudioProperties } from "@/types/audio";
 import { timeToPixel, pixelToTime } from "@/lib/timeline/timelineViewport";
 import {
   getPreviewInteractionCoordinator,
@@ -65,7 +66,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
   const displayVolume =
     activeDrag === "volume" && dragValue !== null ? dragValue : volume;
   // Keep the resting (100%) guide in the center of the clip body, matching
-  // the familiar CapCut-style rubber band instead of confining it to a tiny
+  // the familiar  rubber band instead of confining it to a tiny
   // footer lane. Lowering volume moves it down; raising it moves it up.
   const volumeYPercent = 80 - displayVolume * 30;
   const displayFadeIn =
@@ -153,7 +154,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
     // Read the opposite fade from the clip's current stored value (not the drag
     // ref, which tracks the handle being dragged) so the two fades cannot
     // overlap or together exceed the clip duration.
-    const MAX_FADE_SECONDS = 5;
+    const MAX_FADE_SECONDS = 10;
     const oppositeFade = drag.type === "fadeIn" ? fadeOut : fadeIn;
     const maxAllowed = Math.min(
       MAX_FADE_SECONDS,
@@ -164,8 +165,13 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
 
     // PERF (0-B extended): Skip epoch during drag preview — finishFadeDrag
     // commits a TransformClipCommand which triggers the real epoch increment.
-    updateClip(clip.id, {
+    // Sync both legacy flat field AND clip.audio so the properties panel
+    // slider stays live during the drag.
+    const syncedPatch = synchronizeClipAudioProperties(clip, {
       [field]: nextFade,
+    });
+    updateClip(clip.id, {
+      ...syncedPatch,
       _skipEpochIncrement: true,
     } as Parameters<typeof updateClip>[1]);
     fadeValueRef.current = nextFade;
@@ -357,7 +363,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
       onLostPointerCapture={handlePointerUp}
       className="absolute inset-0 z-40 pointer-events-none select-none overflow-hidden"
     >
-      {/* CapCut-style waveform-lane envelope overlay. */}
+      {/*  waveform-lane envelope overlay. */}
       <div ref={volumeLaneRef} className="absolute inset-0 pointer-events-none">
         {/* Fade shading and curved envelope guides. */}
         <svg

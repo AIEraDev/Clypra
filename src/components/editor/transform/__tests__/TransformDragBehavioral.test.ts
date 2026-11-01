@@ -208,3 +208,66 @@ describe("Live text resizing calculations", () => {
     expect(result.y).toBeCloseTo(175);
   });
 });
+
+// ─── Strong Rotation & Aspect Ratio Snapping ──────────────────────────────────
+
+describe("Strong rotation & aspect ratio snapping pressure", () => {
+  const clip = {
+    ...baseVideoClip,
+    x: 400,
+    y: 300,
+    width: 200,
+    height: 100,
+    rotation: 0,
+  };
+  const constraints = getDefaultConstraints(1920, 1080, false);
+  const pivot = { x: 500, y: 350 };
+
+  it("snaps strongly to 0° when within cardinal threshold (±9°)", () => {
+    // 7° rotation from upright
+    const rad7 = (7 * Math.PI) / 180;
+    const currentMouse = {
+      x: pivot.x + 100 * Math.sin(rad7),
+      y: pivot.y - 100 * Math.cos(rad7),
+    };
+    const startAngle = -Math.PI / 2; // directly above center (0° rotation)
+    const result = calculateTransform(clip, "rotate", { x: pivot.x, y: pivot.y - 100 }, currentMouse, constraints, startAngle, pivot);
+    expect(result.rotation).toBe(0);
+  });
+
+  it("snaps strongly to 90° when within cardinal threshold (±9°)", () => {
+    // 86° rotation (within 9° of 90°)
+    const rad86 = (86 * Math.PI) / 180;
+    const currentMouse = {
+      x: pivot.x + 100 * Math.sin(rad86),
+      y: pivot.y - 100 * Math.cos(rad86),
+    };
+    const startAngle = -Math.PI / 2;
+    const result = calculateTransform(clip, "rotate", { x: pivot.x, y: pivot.y - 100 }, currentMouse, constraints, startAngle, pivot);
+    expect(result.rotation).toBe(90);
+  });
+
+  it("snaps to 45° diagonal when within diagonal threshold (±6°)", () => {
+    // 48° rotation (within 6° of 45°)
+    const rad48 = (48 * Math.PI) / 180;
+    const currentMouse = {
+      x: pivot.x + 100 * Math.sin(rad48),
+      y: pivot.y - 100 * Math.cos(rad48),
+    };
+    const startAngle = -Math.PI / 2;
+    const result = calculateTransform(clip, "rotate", { x: pivot.x, y: pivot.y - 100 }, currentMouse, constraints, startAngle, pivot);
+    expect(result.rotation).toBe(45);
+  });
+
+  it("does not snap when beyond the snap threshold (smooth drag preserved)", () => {
+    // 25° rotation (far from 0° and 45°)
+    const rad25 = (25 * Math.PI) / 180;
+    const currentMouse = {
+      x: pivot.x + 100 * Math.sin(rad25),
+      y: pivot.y - 100 * Math.cos(rad25),
+    };
+    const startAngle = -Math.PI / 2;
+    const result = calculateTransform(clip, "rotate", { x: pivot.x, y: pivot.y - 100 }, currentMouse, constraints, startAngle, pivot);
+    expect(Math.round(result.rotation!)).toBe(25);
+  });
+});

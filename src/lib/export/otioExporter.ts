@@ -40,7 +40,9 @@ export interface OTIOMediaReferenceMissing {
   name?: string;
 }
 
-export type OTIOMediaReference = OTIOMediaReferenceExternal | OTIOMediaReferenceMissing;
+export type OTIOMediaReference =
+  | OTIOMediaReferenceExternal
+  | OTIOMediaReferenceMissing;
 
 export interface OTIOEffectLinearTimeWarp {
   OTIO_SCHEMA: "LinearTimeWarp.1";
@@ -55,7 +57,10 @@ export interface OTIOEffectFreezeFrame {
   metadata?: Record<string, unknown>;
 }
 
-export type OTIOEffect = OTIOEffectLinearTimeWarp | OTIOEffectFreezeFrame | Record<string, unknown>;
+export type OTIOEffect =
+  | OTIOEffectLinearTimeWarp
+  | OTIOEffectFreezeFrame
+  | Record<string, unknown>;
 
 export interface OTIOClip {
   OTIO_SCHEMA: "Clip.2";
@@ -111,7 +116,10 @@ export interface OTIOExportOptions {
 /**
  * Creates an OTIORationalTime with rounded frame value.
  */
-export function createRationalTime(seconds: number, rate: number): OTIORationalTime {
+export function createRationalTime(
+  seconds: number,
+  rate: number,
+): OTIORationalTime {
   return {
     OTIO_SCHEMA: "RationalTime.1",
     value: Math.round(seconds * rate),
@@ -122,7 +130,11 @@ export function createRationalTime(seconds: number, rate: number): OTIORationalT
 /**
  * Creates an OTIOTimeRange.
  */
-export function createTimeRange(startSeconds: number, durationSeconds: number, rate: number): OTIOTimeRange {
+export function createTimeRange(
+  startSeconds: number,
+  durationSeconds: number,
+  rate: number,
+): OTIOTimeRange {
   return {
     OTIO_SCHEMA: "TimeRange.1",
     start_time: createRationalTime(startSeconds, rate),
@@ -134,7 +146,11 @@ export function createTimeRange(startSeconds: number, durationSeconds: number, r
  * Formats a file system path as a standard file URL for ExternalReference.
  */
 export function toFileUrl(filePath: string): string {
-  if (filePath.startsWith("file://") || filePath.startsWith("http://") || filePath.startsWith("https://")) {
+  if (
+    filePath.startsWith("file://") ||
+    filePath.startsWith("http://") ||
+    filePath.startsWith("https://")
+  ) {
     return filePath;
   }
   const normalized = filePath.replace(/\\/g, "/");
@@ -150,7 +166,8 @@ export function exportToOTIO(options: OTIOExportOptions): OTIOTimeline {
   let missingMediaCount = 0;
 
   try {
-    const frameRate = options.frameRate && options.frameRate > 0 ? options.frameRate : 30;
+    const frameRate =
+      options.frameRate && options.frameRate > 0 ? options.frameRate : 30;
     const projectName = options.projectName || "Clypra Timeline";
     const assetsById = new Map<string, MediaAsset>();
 
@@ -222,21 +239,36 @@ export function exportToOTIO(options: OTIOExportOptions): OTIOTimeline {
 
         // Check effects (Speed / Freeze)
         const effects: OTIOEffect[] = [];
-        if (clip.playbackMapping?.kind === "freeze") {
+        const pm = clip.playbackMapping;
+        if (pm?.kind === "freeze") {
           effects.push({
             OTIO_SCHEMA: "FreezeFrame.1",
             name: "Freeze Frame",
           });
-        } else if (
-          clip.playbackMapping?.kind === "normal" &&
-          Math.abs(clip.playbackMapping.speed - 1.0) > 0.001
-        ) {
+        } else if (pm?.kind === "reverse") {
+          // OTIO LinearTimeWarp with negative time_scalar = reverse playback
+          effects.push({
+            OTIO_SCHEMA: "LinearTimeWarp.1",
+            name: "Reverse",
+            time_scalar: -pm.speed,
+          });
+        } else if (pm?.kind === "normal" && Math.abs(pm.speed - 1.0) > 0.001) {
           effects.push({
             OTIO_SCHEMA: "LinearTimeWarp.1",
             name: "Speed",
-            time_scalar: clip.playbackMapping.speed,
+            time_scalar: pm.speed,
           });
-        } else if (clip.speed && Math.abs(clip.speed - 1.0) > 0.001) {
+        } else if (pm?.kind === "speed_ramp") {
+          // No standard OTIO schema for variable-rate ramps; store as metadata
+          effects.push({
+            OTIO_SCHEMA: "Effect.1",
+            name: "Speed Ramp",
+            metadata: {
+              clypra: { speedRamp: pm.keyframes },
+            },
+          } as any);
+        } else if (!pm && clip.speed && Math.abs(clip.speed - 1.0) > 0.001) {
+          // Legacy scalar fallback
           effects.push({
             OTIO_SCHEMA: "LinearTimeWarp.1",
             name: "Speed",
@@ -244,10 +276,13 @@ export function exportToOTIO(options: OTIOExportOptions): OTIOTimeline {
           });
         }
 
+        // source_range must represent the SOURCE media span (trimIn → trimOut),
+        // not the timeline duration. The speed/warp effect controls the time mapping.
+        const sourceDuration = clip.trimOut - clip.trimIn;
         const otioClip: OTIOClip = {
           OTIO_SCHEMA: "Clip.2",
           name: clip.name || asset?.name || "Clip",
-          source_range: createTimeRange(clip.trimIn, clip.duration, frameRate),
+          source_range: createTimeRange(clip.trimIn, sourceDuration, frameRate),
           media_reference: mediaReference,
           metadata: {
             clypra: {
@@ -320,7 +355,8 @@ export function exportToOTIO(options: OTIOExportOptions): OTIOTimeline {
       missingMediaCount,
       durationMs: performance.now() - t0,
       success: validation.valid,
-      validationWarnings: validation.errors.length > 0 ? validation.errors : undefined,
+      validationWarnings:
+        validation.errors.length > 0 ? validation.errors : undefined,
     });
 
     return timeline;

@@ -18,6 +18,13 @@ pub enum BlendMode {
     Overlay = 3,
     Additive = 4,
     Difference = 5,
+    Darken = 6,
+    Lighten = 7,
+    ColorDodge = 8,
+    ColorBurn = 9,
+    HardLight = 10,
+    SoftLight = 11,
+    Exclusion = 12,
 }
 
 pub type LayerBlendMode = BlendMode;
@@ -134,7 +141,15 @@ pub struct ColorGradeUniforms {
     pub vibrance_protected_hue_b: f32,
     pub lift: f32,
     pub cross_process_amount: f32,
-    pub _padding0: [f32; 3],      // align following vec4 uniforms to 16 bytes
+    // Tonal range luma adjustments (−1..1, 0 = neutral)
+    pub highlights: f32,   // Reduce/boost bright tones
+    pub shadows: f32,      // Reduce/boost dark tones
+    pub whites: f32,       // Hard clip ceiling adjustment
+    pub blacks: f32,       // Hard clip floor adjustment
+    pub fade: f32,         // Mix towards mid-gray (0..1)
+    pub _padding0: [f32; 2],      // align following vec4 uniforms to 16 bytes
+                                  // WGSL inserts 8 bytes of implicit padding between fade (f32)
+                                  // and channel_mix (vec4<f32>, align 16); Rust must match exactly.
     pub channel_mix: [f32; 4],    // RGB weights + enabled flag
     pub duotone_dark: [f32; 4],   // RGB + enabled flag
     pub duotone_light: [f32; 4],  // RGB + padding
@@ -157,6 +172,11 @@ pub struct ColorGradeUniforms {
     pub particle_color: [f32; 4],  // RGB + mode/fade flag
     pub particle_time: [f32; 4],   // time + padding
     pub chromatic_params: [f32; 4], // amount, angle_degrees, edge_feather, enabled
+    // Per-channel HSL: up to 8 color-range targets (red/orange/yellow/green/cyan/blue/purple/magenta)
+    // Each vec4: [hue_offset_rad, sat_offset (−1..1), bri_offset (−1..1), center_hue_rad]
+    pub hsl_channel_count: u32,
+    pub _hsl_pad: [f32; 3],        // align to 16 bytes before the array
+    pub hsl_channels: [[f32; 4]; 8],
 }
 
 /// Mask-driven body effect controls matching multi_track_blend.wgsl (32 bytes).
@@ -208,7 +228,12 @@ impl Default for ColorGradeUniforms {
             vibrance_protected_hue_b: 0.55,
             lift: 0.0,
             cross_process_amount: 0.0,
-            _padding0: [0.0, 0.0, 0.0],
+            highlights: 0.0,
+            shadows: 0.0,
+            whites: 0.0,
+            blacks: 0.0,
+            fade: 0.0,
+            _padding0: [0.0, 0.0],
             channel_mix: [0.0, 0.0, 0.0, 0.0],
             duotone_dark: [0.0, 0.0, 0.0, 0.0],
             duotone_light: [1.0, 1.0, 1.0, 0.0],
@@ -231,6 +256,9 @@ impl Default for ColorGradeUniforms {
             particle_color: [1.0, 1.0, 1.0, 0.0],
             particle_time: [0.0, 0.0, 0.0, 0.0],
             chromatic_params: [0.0, 0.0, 0.0, 0.0],
+            hsl_channel_count: 0,
+            _hsl_pad: [0.0, 0.0, 0.0],
+            hsl_channels: [[0.0, 0.0, 0.0, 0.0]; 8],
         }
     }
 }
@@ -399,6 +427,9 @@ pub struct MultiTrackCompositor {
     pipeline_multiply: OnceLock<wgpu::RenderPipeline>,
     pipeline_screen: OnceLock<wgpu::RenderPipeline>,
     pipeline_difference: OnceLock<wgpu::RenderPipeline>,
+    pipeline_darken: OnceLock<wgpu::RenderPipeline>,
+    pipeline_lighten: OnceLock<wgpu::RenderPipeline>,
+    pipeline_color_dodge: OnceLock<wgpu::RenderPipeline>,
     pipeline_transition: OnceLock<wgpu::RenderPipeline>,
     layer_shader: wgpu::ShaderModule,
     transition_shader: wgpu::ShaderModule,
@@ -544,6 +575,69 @@ impl MultiTrackCompositor {
                         },
                     },
                     "Compositor Difference Render Pipeline",
+                )
+            }),
+            BlendMode::Darken => self.pipeline_darken.get_or_init(|| {
+                Self::create_layer_pipeline(
+                    device,
+                    &self.layer_shader,
+                    &self.pipeline_layout,
+                    self.target_format,
+                    wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Min,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    },
+                    "Compositor Darken Render Pipeline",
+                )
+            }),
+            BlendMode::Lighten => self.pipeline_lighten.get_or_init(|| {
+                Self::create_layer_pipeline(
+                    device,
+                    &self.layer_shader,
+                    &self.pipeline_layout,
+                    self.target_format,
+                    wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Max,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    },
+                    "Compositor Lighten Render Pipeline",
+                )
+            }),
+            BlendMode::ColorDodge => self.pipeline_color_dodge.get_or_init(|| {
+                Self::create_layer_pipeline(
+                    device,
+                    &self.layer_shader,
+                    &self.pipeline_layout,
+                    self.target_format,
+                    wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::Dst,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    },
+                    "Compositor Color Dodge Render Pipeline",
                 )
             }),
             _ => &self.pipeline_normal,
@@ -1111,6 +1205,9 @@ impl MultiTrackCompositor {
             pipeline_multiply: OnceLock::new(),
             pipeline_screen: OnceLock::new(),
             pipeline_difference: OnceLock::new(),
+            pipeline_darken: OnceLock::new(),
+            pipeline_lighten: OnceLock::new(),
+            pipeline_color_dodge: OnceLock::new(),
             pipeline_transition: OnceLock::new(),
             layer_shader: shader,
             transition_shader,

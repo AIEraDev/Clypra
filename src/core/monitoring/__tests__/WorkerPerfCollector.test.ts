@@ -86,7 +86,9 @@ describe("WorkerPerfCollector", () => {
     expect(Object.keys(summary.domains)).toHaveLength(3);
 
     expect(summary.domains["ComputeWorker:TimelineSnap"].sampleCount).toBe(1);
-    expect(summary.domains["MediaAnalysisWorker:ColorScopes"].sampleCount).toBe(1);
+    expect(summary.domains["MediaAnalysisWorker:ColorScopes"].sampleCount).toBe(
+      1,
+    );
     expect(summary.domains["ComputeWorker:Project"].overBudgetCount).toBe(1);
   });
 
@@ -126,7 +128,6 @@ describe("WorkerPerfCollector", () => {
       activeClips: 4,
       visualLayers: 4,
       keyframeEvaluations: 8,
-      spatialEvaluations: 2,
       springEvaluations: 1,
       responsiveRetimes: 2,
       culledLayers: 0,
@@ -137,7 +138,6 @@ describe("WorkerPerfCollector", () => {
       activeClips: 10,
       visualLayers: 8,
       keyframeEvaluations: 24,
-      spatialEvaluations: 4,
       springEvaluations: 3,
       responsiveRetimes: 6,
       culledLayers: 2,
@@ -151,7 +151,6 @@ describe("WorkerPerfCollector", () => {
     expect(anim.maxDurationMs).toBe(22.0);
     expect(anim.avgDurationMs).toBeCloseTo(12.6, 1);
     expect(anim.totalKeyframesEvaluated).toBe(32);
-    expect(anim.totalSpatialEvaluations).toBe(6);
     expect(anim.totalSpringEvaluations).toBe(4);
     expect(anim.totalResponsiveRetimes).toBe(8);
     expect(anim.totalOcclusionCulled).toBe(2);
@@ -174,7 +173,6 @@ describe("WorkerPerfCollector", () => {
       activeClips: 2,
       visualLayers: 2,
       keyframeEvaluations: 4,
-      spatialEvaluations: 0,
       springEvaluations: 0,
       responsiveRetimes: 0,
       culledLayers: 0,

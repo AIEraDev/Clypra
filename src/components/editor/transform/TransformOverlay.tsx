@@ -12,7 +12,13 @@
  *   relative to the overlay itself is (0, 0).
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useUIStore } from "@/store/uiStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useHistoryStore } from "@/store/historyStore";
@@ -62,7 +68,10 @@ import {
 } from "@/components/editor/preview/nativeTextPreview";
 import { useProjectStore } from "@/store/projectStore";
 import { Maximize2, Minimize2, RotateCcw } from "lucide-react";
-import { resolveConform, resolveTextTemplateArtifact } from "@clypra-studio/engine";
+import {
+  resolveConform,
+  resolveTextTemplateArtifact,
+} from "@clypra-studio/engine";
 import {
   getActiveSessionOrNull,
   subscribeToSessionChanges,
@@ -72,6 +81,7 @@ import { calculateOptimalTemplateLayout } from "@/core/render/templateScale";
 import { toCompositorClip } from "@/core/timeline/adapter";
 import { tracePlayback } from "@/core/playback/playbackTrace";
 import type { CompositorClip } from "@/core/compositor/types";
+import { evaluateVisualPropertyKeyframes } from "@/core/evaluation/animation";
 
 export function shouldScaleTextFontForHandle(handle: TransformHandle): boolean {
   return handle !== "move" && handle !== "rotate";
@@ -310,7 +320,11 @@ export interface CanvasVisualBounds {
   pivotX?: number;
   pivotY?: number;
   /** Diagnostic-only origin; emitted once when a text transform begins. */
-  source?: "browser-tight" | "native-tight" | "authored-fallback" | "layout-box";
+  source?:
+    | "browser-tight"
+    | "native-tight"
+    | "authored-fallback"
+    | "layout-box";
 }
 
 /**
@@ -379,11 +393,45 @@ export function resolveClipVisualBounds(
   canvasWidth?: number,
   canvasHeight?: number,
   presenter: ProgramPreviewPresenter | null = null,
+  currentTime?: number,
 ): CanvasVisualBounds {
   let x = clip.x;
   let y = clip.y;
   let width = clip.width;
   let height = clip.height;
+
+  const vkf = clip.visualKeyframes;
+  if (currentTime !== undefined && vkf) {
+    const offset = Math.max(0, currentTime - clip.startTime);
+    if (vkf.width?.length) {
+      width = evaluateVisualPropertyKeyframes(
+        vkf.width,
+        offset,
+        clip.width,
+        clip.duration,
+      );
+    }
+    if (vkf.height?.length) {
+      height = evaluateVisualPropertyKeyframes(
+        vkf.height,
+        offset,
+        clip.height,
+        clip.duration,
+      );
+    }
+    if (vkf.x?.length) {
+      x = evaluateVisualPropertyKeyframes(vkf.x, offset, clip.x, clip.duration);
+    } else if (vkf.width?.length && clip.width) {
+      const centerX = clip.x + clip.width / 2;
+      x = centerX - width / 2;
+    }
+    if (vkf.y?.length) {
+      y = evaluateVisualPropertyKeyframes(vkf.y, offset, clip.y, clip.duration);
+    } else if (vkf.height?.length && clip.height) {
+      const centerY = clip.y + clip.height / 2;
+      y = centerY - height / 2;
+    }
+  }
 
   if (
     canvasWidth &&
@@ -392,21 +440,37 @@ export function resolveClipVisualBounds(
     clip.conform.sourceWidth &&
     clip.conform.sourceHeight
   ) {
-    const resolved = resolveConform(
-      {
-        ...clip.conform,
-        userScale: clip.conform.userScale ?? 1,
-        userOffsetX: clip.conform.userOffsetX ?? 0,
-        userOffsetY: clip.conform.userOffsetY ?? 0,
-      },
-      canvasWidth,
-      canvasHeight,
+    // Only use conform-derived bounds when the user has NOT manually scaled
+    // and keyframes do not override transform geometry.
+    // Once the user touches the Scale slider, `baseWidth` is written to the
+    // clip — that signals that clip.x/y/width/height are authoritative and
+    // must not be silently overridden by resolveConform(). This mirrors the
+    // identical guard added to the evaluator so the overlay and the rendered
+    // frame always show the same bounding box.
+    const hasManualScale = (clip as any).baseWidth != null;
+    const hasKeyframes = Boolean(
+      vkf?.x?.length ||
+      vkf?.y?.length ||
+      vkf?.width?.length ||
+      vkf?.height?.length,
     );
-    if (resolved) {
-      x = resolved.x;
-      y = resolved.y;
-      width = resolved.width;
-      height = resolved.height;
+    if (!hasManualScale && !hasKeyframes) {
+      const resolved = resolveConform(
+        {
+          ...clip.conform,
+          userScale: clip.conform.userScale ?? 1,
+          userOffsetX: clip.conform.userOffsetX ?? 0,
+          userOffsetY: clip.conform.userOffsetY ?? 0,
+        },
+        canvasWidth,
+        canvasHeight,
+      );
+      if (resolved) {
+        x = resolved.x;
+        y = resolved.y;
+        width = resolved.width;
+        height = resolved.height;
+      }
     }
     return { x, y, width, height };
   }
@@ -445,17 +509,24 @@ export function resolveClipVisualBounds(
 
     // If already content-bounded, return clip dimensions directly
     if (!isFullArtboard && clip.width > 0 && clip.height > 0) {
-      console.log("[TransformOverlay:VisualBounds] using content-bounded clip dimensions directly", {
-        clipId: clip.id,
-        bounds: { x: clip.x, y: clip.y, width: clip.width, height: clip.height },
-      });
+      console.log(
+        "[TransformOverlay:VisualBounds] using content-bounded clip dimensions directly",
+        {
+          clipId: clip.id,
+          bounds: {
+            x: clip.x,
+            y: clip.y,
+            width: clip.width,
+            height: clip.height,
+          },
+        },
+      );
       return { x: clip.x, y: clip.y, width: clip.width, height: clip.height };
     }
 
     // 2. For full-artboard template, inspect exact rendered quad from active nativeRasterBridge if available
-    const snapshot = getActiveSessionOrNull()?.nativeRasterBridge?.getTextSnapshot(
-      clip.id,
-    );
+    const snapshot =
+      getActiveSessionOrNull()?.nativeRasterBridge?.getTextSnapshot(clip.id);
     if (
       snapshot &&
       typeof snapshot.x === "number" &&
@@ -465,10 +536,18 @@ export function resolveClipVisualBounds(
       typeof snapshot.displayHeight === "number" &&
       snapshot.displayHeight > 0
     ) {
-      console.log("[TransformOverlay:VisualBounds] using nativeRasterBridge snapshot for full artboard", {
-        clipId: clip.id,
-        snapshot: { x: snapshot.x, y: snapshot.y, width: snapshot.displayWidth, height: snapshot.displayHeight },
-      });
+      console.log(
+        "[TransformOverlay:VisualBounds] using nativeRasterBridge snapshot for full artboard",
+        {
+          clipId: clip.id,
+          snapshot: {
+            x: snapshot.x,
+            y: snapshot.y,
+            width: snapshot.displayWidth,
+            height: snapshot.displayHeight,
+          },
+        },
+      );
       return {
         x: snapshot.x,
         y: snapshot.y,
@@ -485,10 +564,13 @@ export function resolveClipVisualBounds(
         canvasHeight,
         clip.templateControlValues,
       );
-      console.log("[TransformOverlay:VisualBounds] fallback: calculated optimal template layout", {
-        clipId: clip.id,
-        contentBounds: layout.contentBounds,
-      });
+      console.log(
+        "[TransformOverlay:VisualBounds] fallback: calculated optimal template layout",
+        {
+          clipId: clip.id,
+          contentBounds: layout.contentBounds,
+        },
+      );
       return {
         x: layout.contentBounds.x,
         y: layout.contentBounds.y,
@@ -529,10 +611,17 @@ export function resolveOverlayBaseVisualBounds(
   canvasHeight: number,
   activeDragVisualBounds?: CanvasVisualBounds | null,
   presenter: ProgramPreviewPresenter | null = null,
+  currentTime?: number,
 ): CanvasVisualBounds {
   return (
     activeDragVisualBounds ??
-    resolveClipVisualBounds(clip, canvasWidth, canvasHeight, presenter)
+    resolveClipVisualBounds(
+      clip,
+      canvasWidth,
+      canvasHeight,
+      presenter,
+      currentTime,
+    )
   );
 }
 
@@ -594,13 +683,27 @@ export function getHitTestCandidateDiagnostics(
       return isClipActiveAtTime(clip, currentTime);
     })
     .map(({ clip, index, compositorClip }) => {
-      const visual = resolveClipVisualBounds(clip, canvasWidth, canvasHeight);
+      const visual = resolveClipVisualBounds(
+        clip,
+        canvasWidth,
+        canvasHeight,
+        null,
+        currentTime,
+      );
       const bounds = {
         x: visual.x,
         y: visual.y,
         width: visual.width,
         height: visual.height,
-        rotation: clip.rotation ?? 0,
+        rotation:
+          clip.visualKeyframes?.rotation?.length && currentTime !== undefined
+            ? evaluateVisualPropertyKeyframes(
+                clip.visualKeyframes.rotation,
+                Math.max(0, currentTime - clip.startTime),
+                clip.rotation ?? 0,
+                clip.duration,
+              )
+            : (clip.rotation ?? 0),
       };
       return {
         clip,
@@ -611,7 +714,10 @@ export function getHitTestCandidateDiagnostics(
         evaluationPriority: compositorClip.evaluationPriority,
         compositorClip,
         bounds,
-        hit: visual.width > 0 && visual.height > 0 && hitTestClip(canvasX, canvasY, bounds),
+        hit:
+          visual.width > 0 &&
+          visual.height > 0 &&
+          hitTestClip(canvasX, canvasY, bounds),
       };
     })
     .sort((a, b) => {
@@ -678,6 +784,58 @@ export function getUpdatedConformForClipBounds(
     }
   }
   return undefined;
+}
+
+/**
+ * Typed fields carried by both the old and new transform objects passed to
+ * assembleBaseWidthForCommit. Using a concrete interface instead of
+ * `Record<string, any>` lets TypeScript verify that only real Clip-transform
+ * properties are read or written inside the function.
+ */
+export interface BaseWidthCommitFields {
+  baseWidth?: number;
+  baseHeight?: number;
+  width?: number;
+  height?: number;
+}
+
+/**
+ * assembleBaseWidthForCommit
+ *
+ * Pure function extracted from handleMouseUp's baseWidth assembly logic.
+ * Ensures the committed TransformClipCommand carries the PRE-DRAG base
+ * dimensions for non-text clips, so the property panel's scalePercent
+ * (= newWidth / baseWidth) reflects the true ratio rather than always
+ * resolving to 100%.
+ *
+ * This is the canonical, testable form of the fix in handleMouseUp.
+ * The React closure delegates directly to this function.
+ *
+ * @param oldTransform  Mutable record seeded from startTransform (mutated in-place)
+ * @param newTransform  Mutable record seeded from finalGeometry (mutated in-place)
+ * @param clipBaseWidth The clip's creation-time baseWidth (clip.baseWidth)
+ * @param startWidth    The pre-drag width from startTransform (fallback when baseWidth absent)
+ * @param startHeight   The pre-drag height from startTransform (fallback when baseWidth absent)
+ */
+export function assembleBaseWidthForCommit(
+  oldTransform: BaseWidthCommitFields,
+  newTransform: BaseWidthCommitFields,
+  clipBaseWidth: number | undefined,
+  clipBaseHeight: number | undefined,
+  startWidth: number,
+  startHeight: number,
+): void {
+  if (
+    oldTransform.width !== newTransform.width ||
+    oldTransform.height !== newTransform.height
+  ) {
+    // Preserve the PRE-DRAG base dimensions so scalePercent = newWidth/baseWidth
+    // gives the true scale ratio, not always 100%.
+    oldTransform.baseWidth = clipBaseWidth ?? startWidth;
+    oldTransform.baseHeight = clipBaseHeight ?? startHeight;
+    newTransform.baseWidth = clipBaseWidth ?? startWidth;
+    newTransform.baseHeight = clipBaseHeight ?? startHeight;
+  }
 }
 
 export const TransformOverlay: React.FC<TransformOverlayProps> = ({
@@ -786,7 +944,6 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
   const currentTimeRef = useRef(currentTime);
   currentTimeRef.current = currentTime;
 
-
   // Get the first selected clip (multi-select transform comes later)
   const selectedClip = clips.find((c) => c.id === selectedClipIds[0]);
   const isPlaybackInteraction = interactionMode === "playing";
@@ -806,8 +963,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
     );
     const attachToActiveBridge = () => {
       unsubscribeSnapshot?.();
-      unsubscribeSnapshot = getActiveSessionOrNull()
-        ?.nativeRasterBridge?.subscribeToTextVisualSnapshot?.(
+      unsubscribeSnapshot =
+        getActiveSessionOrNull()?.nativeRasterBridge?.subscribeToTextVisualSnapshot?.(
           selectedClip.id,
           () => setTextVisualSnapshotRevision((revision) => revision + 1),
         );
@@ -892,7 +1049,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
     // Apply transform normalization to text clips whose content bounds drift from the clip transform.
     // Template clips are excluded because their bounds are determined by the template's
     // canvas dimensions and should be freely transformable without normalization
-    if (textClip.templateId || (textClip as any).kind === "text-template") return;
+    if (textClip.templateId || (textClip as any).kind === "text-template")
+      return;
     if (!hasTextClipContentTransformDrift(textClip, canvasWidth, canvasHeight))
       return;
 
@@ -991,24 +1149,25 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       // Don't handle if clicking on a handle or during drag
       if (
         isDragging ||
-        (e.target as HTMLElement).closest(
-          "[data-transform-handle], [data-spatial-motion-path], [data-motion-path-handle]",
-        )
+        (e.target as HTMLElement).closest("[data-transform-handle]")
       ) {
         return;
       }
 
-      // CapCut-style interaction: a preview click while playing is an edit
+      //  interaction: a preview click while playing is an edit
       // intent. Pause first, then run the same hit test against the now-still
       // frame. The callback is transport-owned; this component only owns the
       // selection decision.
       const selectionToken = isPlaybackInteraction
-        ? previewInteractionCoordinator.begin("selection", { pauseOnBegin: true })
+        ? previewInteractionCoordinator.begin("selection", {
+            pauseOnBegin: true,
+          })
         : null;
 
       const rect = overlayRef.current?.getBoundingClientRect();
       if (!rect) {
-        if (selectionToken) previewInteractionCoordinator.cancel(selectionToken);
+        if (selectionToken)
+          previewInteractionCoordinator.cancel(selectionToken);
         onPlaybackInteraction?.();
         return;
       }
@@ -1047,7 +1206,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         // Multi-select modifier: toggle topmost hit only.
         if (e.shiftKey || e.metaKey || e.ctrlKey) {
           toggleClipSelection(hitCandidates[0].id);
-          if (selectionToken) previewInteractionCoordinator.commit(selectionToken);
+          if (selectionToken)
+            previewInteractionCoordinator.commit(selectionToken);
           return;
         }
 
@@ -1100,16 +1260,20 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
 
       e.preventDefault();
       e.stopPropagation();
-      previewInteractionRef.current = previewInteractionCoordinator.begin("transform");
+      previewInteractionRef.current =
+        previewInteractionCoordinator.begin("transform");
       if ("text" in selectedClip) {
         textTransformTraceRef.current = {
           startedAtMs: performance.now(),
-          operation: handle === "move" || handle === "rotate" ? "transform" : "resize",
+          operation:
+            handle === "move" || handle === "rotate" ? "transform" : "resize",
           clipId: selectedClip.id,
         };
       }
       setIsDragging(true);
-      setDragRotation(handle === "rotate" ? selectedClip.rotation ?? 0 : null);
+      setDragRotation(
+        handle === "rotate" ? (selectedClip.rotation ?? 0) : null,
+      );
       setSnappedX(false);
       setSnappedY(false);
       setSnappedLeft(false);
@@ -1164,6 +1328,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         canvasWidth,
         canvasHeight,
         getActiveProgramPreviewPresenter(),
+        currentTime,
       );
       const actualWidth = visualBounds.width;
       const actualHeight = visualBounds.height;
@@ -1182,10 +1347,14 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
           width: Number(actualWidth.toFixed(2)),
           height: Number(actualHeight.toFixed(2)),
           pivotOffsetX: Number(
-            ((visualBounds.pivotX ?? actualX + actualWidth / 2) - actualX).toFixed(2),
+            (
+              (visualBounds.pivotX ?? actualX + actualWidth / 2) - actualX
+            ).toFixed(2),
           ),
           pivotOffsetY: Number(
-            ((visualBounds.pivotY ?? actualY + actualHeight / 2) - actualY).toFixed(2),
+            (
+              (visualBounds.pivotY ?? actualY + actualHeight / 2) - actualY
+            ).toFixed(2),
           ),
           handle,
         });
@@ -1423,14 +1592,21 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         const canvasCenterX = canvasWidth / 2;
         const canvasCenterY = canvasHeight / 2;
 
-        const SNAP_IN_THRESHOLD = 8;
-        const ESCAPE_THRESHOLD = 20;
+        // Screen-calibrated magnetic snapping thresholds:
+        // - SNAP_IN_THRESHOLD: within ~14px of screen distance, the object snaps into place
+        // - ESCAPE_THRESHOLD: requires ~36px of deliberate screen drag to pull out of the snap lock
+        // Converting from screen pixels to canvas coordinates ensures consistent, tactile magnetic
+        // resistance regardless of sequence resolution or preview zoom level.
+        const effectiveScale = Math.max(0.05, scale);
+        const SNAP_IN_THRESHOLD = Math.max(16, Math.round(14 / effectiveScale));
+        const ESCAPE_THRESHOLD = Math.max(45, Math.round(36 / effectiveScale));
         const rotation = selectedClip.rotation ?? 0;
 
         if (currentTransform.handle === "move") {
           const activeClips = clipsRef.current.filter(
             (c) =>
-              c.id !== selectedClip.id && isClipActiveAtTime(c, currentTimeRef.current),
+              c.id !== selectedClip.id &&
+              isClipActiveAtTime(c, currentTimeRef.current),
           );
 
           // X Axis Snapping (Left, Right, Center)
@@ -1985,27 +2161,72 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         { fontSize: newTransform.fontSize },
       );
       oldTransform.baseWidth = selectedTextClip.baseWidth ?? oldTransform.width;
-      oldTransform.baseHeight = selectedTextClip.baseHeight ?? oldTransform.height;
+      oldTransform.baseHeight =
+        selectedTextClip.baseHeight ?? oldTransform.height;
       newTransform.baseWidth = authoredSize.width;
       newTransform.baseHeight = authoredSize.height;
     } else if (
-      (selectedClip as any).kind === "text" ||
-      (selectedClip as any).kind === "text-template" ||
-      (selectedClip as any).templateId ||
-      (selectedClip as any).styleId ||
-      (selectedClip as any).styleSnapshot ||
-      (selectedClip as any).baseWidth !== undefined
+      oldTransform.width !== newTransform.width ||
+      oldTransform.height !== newTransform.height
     ) {
-      if (
-        oldTransform.width !== newTransform.width ||
-        oldTransform.height !== newTransform.height
-      ) {
-        oldTransform.baseWidth =
-          (selectedClip as any).baseWidth ?? oldTransform.width;
-        oldTransform.baseHeight =
-          (selectedClip as any).baseHeight ?? oldTransform.height;
-        newTransform.baseWidth = finalGeometry.width;
-        newTransform.baseHeight = finalGeometry.height;
+      // Delegate to the extracted pure function so the logic is testable.
+      assembleBaseWidthForCommit(
+        oldTransform,
+        newTransform,
+        (selectedClip as any).baseWidth,
+        (selectedClip as any).baseHeight,
+        currentTransform.startTransform.width,
+        currentTransform.startTransform.height,
+      );
+    }
+
+    if (selectedClip?.visualKeyframes) {
+      const vkf = selectedClip.visualKeyframes;
+      const updatedVkf = { ...vkf };
+      let hasVkfChanges = false;
+      const localTime = Math.max(0, currentTime - selectedClip.startTime);
+      const t = Math.round(localTime * 100) / 100;
+
+      const updateKeyframeArray = (
+        prop: "x" | "y" | "width" | "height" | "rotation",
+        val: number,
+      ) => {
+        const kfs = vkf[prop];
+        if (!kfs || kfs.length === 0) return;
+        const idx = kfs.findIndex((k) => Math.abs(k.time - localTime) < 0.08);
+        if (idx >= 0) {
+          const next = [...kfs];
+          next[idx] = { ...next[idx], value: val };
+          updatedVkf[prop] = next;
+          hasVkfChanges = true;
+        } else {
+          updatedVkf[prop] = [
+            ...kfs,
+            {
+              id: `kf-${prop}-${Date.now()}`,
+              time: t,
+              value: val,
+              easing: "easeInOut" as const,
+            },
+          ].sort((a, b) => a.time - b.time);
+          hasVkfChanges = true;
+        }
+      };
+
+      if (finalGeometry.x !== undefined && vkf.x?.length)
+        updateKeyframeArray("x", finalGeometry.x);
+      if (finalGeometry.y !== undefined && vkf.y?.length)
+        updateKeyframeArray("y", finalGeometry.y);
+      if (finalGeometry.width !== undefined && vkf.width?.length)
+        updateKeyframeArray("width", finalGeometry.width);
+      if (finalGeometry.height !== undefined && vkf.height?.length)
+        updateKeyframeArray("height", finalGeometry.height);
+      if (finalGeometry.rotation !== undefined && vkf.rotation?.length)
+        updateKeyframeArray("rotation", finalGeometry.rotation);
+
+      if (hasVkfChanges) {
+        newTransform.visualKeyframes = updatedVkf;
+        oldTransform.visualKeyframes = vkf;
       }
     }
 
@@ -2017,6 +2238,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       oldTransform.height !== newTransform.height ||
       oldTransform.rotation !== newTransform.rotation ||
       oldTransform.fontSize !== newTransform.fontSize ||
+      Boolean(newTransform.visualKeyframes) ||
       JSON.stringify(oldTransform.conform) !==
         JSON.stringify(newTransform.conform);
 
@@ -2036,11 +2258,17 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
     const textTrace = textTransformTraceRef.current;
     if (textTrace) {
       const browserSnapshot = getBrowserTextVisualSnapshot(textTrace.clipId);
-      const nativeSnapshot = getActiveSessionOrNull()?.nativeRasterBridge?.getTextSnapshot(
-        textTrace.clipId,
-      );
+      const nativeSnapshot =
+        getActiveSessionOrNull()?.nativeRasterBridge?.getTextSnapshot(
+          textTrace.clipId,
+        );
       traceTextInteraction({
-        kind: (selectedClip as any)?.kind === "text-template" ? "template" : (selectedClip as any)?.styleId ? "effect" : "plain",
+        kind:
+          (selectedClip as any)?.kind === "text-template"
+            ? "template"
+            : (selectedClip as any)?.styleId
+              ? "effect"
+              : "plain",
         // The completed gesture is attributed to the presenter that supplied
         // its visual geometry, so perf sessions can distinguish a DOM-canvas
         // transform from a retained native-surface handoff.
@@ -2148,8 +2376,16 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       );
     }
 
-    executePreviewCommand(new TransformClipCommand(selectedClip.id, oldVal, newVal));
-  }, [selectedClip, canvasWidth, canvasHeight, getClipAspect, executePreviewCommand]);
+    executePreviewCommand(
+      new TransformClipCommand(selectedClip.id, oldVal, newVal),
+    );
+  }, [
+    selectedClip,
+    canvasWidth,
+    canvasHeight,
+    getClipAspect,
+    executePreviewCommand,
+  ]);
 
   const handleFillCanvas = useCallback(() => {
     if (!selectedClip) return;
@@ -2207,8 +2443,16 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       );
     }
 
-    executePreviewCommand(new TransformClipCommand(selectedClip.id, oldVal, newVal));
-  }, [selectedClip, canvasWidth, canvasHeight, getClipAspect, executePreviewCommand]);
+    executePreviewCommand(
+      new TransformClipCommand(selectedClip.id, oldVal, newVal),
+    );
+  }, [
+    selectedClip,
+    canvasWidth,
+    canvasHeight,
+    getClipAspect,
+    executePreviewCommand,
+  ]);
 
   const handleResetTransform = useCallback(() => {
     if (!selectedClip) return;
@@ -2260,7 +2504,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       };
     }
 
-    executePreviewCommand(new TransformClipCommand(selectedClip.id, oldVal, newVal));
+    executePreviewCommand(
+      new TransformClipCommand(selectedClip.id, oldVal, newVal),
+    );
   }, [selectedClip, canvasWidth, canvasHeight, executePreviewCommand]);
 
   const handleContextMenu = useCallback(
@@ -2374,7 +2620,15 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
   // Pass zero offset because we're positioning within the overlay div itself
   // (which is already placed at displayOffset by the parent layout).
   const zeroOffset = { x: 0, y: 0 };
-  const rotation = selectedClip.rotation ?? 0;
+  const rotation =
+    selectedClip.visualKeyframes?.rotation?.length && currentTime !== undefined
+      ? evaluateVisualPropertyKeyframes(
+          selectedClip.visualKeyframes.rotation,
+          Math.max(0, currentTime - selectedClip.startTime),
+          selectedClip.rotation ?? 0,
+          selectedClip.duration,
+        )
+      : (selectedClip.rotation ?? 0);
 
   // Resolve actual rendered dimensions (accounting for conform or text template if present)
   // For clips with conform (e.g., 16:9 video fitted into 9:16 canvas) or text templates,
@@ -2385,6 +2639,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
     canvasHeight,
     isDragging ? dragVisualBoundsRef.current : null,
     getActiveProgramPreviewPresenter(),
+    currentTime,
   );
   const actualWidth = visualBounds.width;
   const actualHeight = visualBounds.height;
@@ -2429,7 +2684,12 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       clipId: selectedClip.id,
       clipKind: selectedClip.kind,
       styleId: (selectedClip as any).styleId,
-      clipRaw: { x: selectedClip.x, y: selectedClip.y, w: selectedClip.width, h: selectedClip.height },
+      clipRaw: {
+        x: selectedClip.x,
+        y: selectedClip.y,
+        w: selectedClip.width,
+        h: selectedClip.height,
+      },
       canvas: { width: canvasWidth, height: canvasHeight },
       visualBounds,
       screenBox: {

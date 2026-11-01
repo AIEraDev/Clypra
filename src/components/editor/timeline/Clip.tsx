@@ -134,8 +134,8 @@ const ClipInner: React.FC<ClipProps> = ({
 }) => {
   const selectClip = useUIStore((s) => s.selectClip);
   const toggleClipSelection = useUIStore((s) => s.toggleClipSelection);
-  const isKeyframeExpanded = useUIStore((s) =>
-    s.expandedKeyframeClipIds?.includes(clip.id) ?? false,
+  const isKeyframeExpanded = useUIStore(
+    (s) => s.expandedKeyframeClipIds?.includes(clip.id) ?? false,
   );
   const toggleKeyframeLane = useUIStore((s) => s.toggleKeyframeLane);
   // PERF-4 fix: granular selectors prevent all clips re-rendering on every scroll/clip change
@@ -873,20 +873,32 @@ const ClipInner: React.FC<ClipProps> = ({
   const isClipAnimatedOverlay = inferredKind === "animated-overlay";
   const isCompound = inferredKind === "compound";
 
-  const clipSpeed =
-    clip.playbackMapping?.kind === "normal"
-      ? clip.playbackMapping.speed
-      : typeof clip.speed === "number"
-        ? clip.speed
-        : 1.0;
+  const clipSpeed = (() => {
+    const pm = clip.playbackMapping;
+    if (!pm) return typeof clip.speed === "number" ? clip.speed : 1.0;
+    if (pm.kind === "normal" || pm.kind === "reverse") return pm.speed;
+    if (pm.kind === "freeze") return 0;
+    if (pm.kind === "speed_ramp" && pm.keyframes.length > 0)
+      return pm.keyframes[0].speed;
+    return typeof clip.speed === "number" ? clip.speed : 1.0;
+  })();
+  const clipSpeedLabel = (() => {
+    const pm = clip.playbackMapping;
+    if (pm?.kind === "freeze") return "Frozen";
+    if (pm?.kind === "reverse") return `${clipSpeed}× ↩`;
+    return `${clipSpeed}×`;
+  })();
   const hasCustomSpeed =
-    Number.isFinite(clipSpeed) && Math.abs(clipSpeed - 1.0) > 0.01;
+    clip.playbackMapping?.kind === "freeze" ||
+    clip.playbackMapping?.kind === "reverse" ||
+    (Number.isFinite(clipSpeed) && Math.abs(clipSpeed - 1.0) > 0.01);
 
   const audioFilterLabel =
     (clip as any).voiceFilter ||
     (clip as any).audioEffect ||
     (clip as any).audioFilter?.name ||
-    (clip.audioFX?.noiseSuppression !== undefined && clip.audioFX.noiseSuppression > 0
+    (clip.audioFX?.noiseSuppression !== undefined &&
+    clip.audioFX.noiseSuppression > 0
       ? "Denoise"
       : clip.audioFX?.eq
         ? "EQ"
@@ -901,7 +913,7 @@ const ClipInner: React.FC<ClipProps> = ({
       Object.values(clip.visualKeyframes).some(
         (kfs) => Array.isArray(kfs) && kfs.length > 0,
       )) ||
-      (clip.volumeKeyframes && clip.volumeKeyframes.length > 0),
+    (clip.volumeKeyframes && clip.volumeKeyframes.length > 0),
   );
 
   // Check if text clip is a caption or title
@@ -961,7 +973,7 @@ const ClipInner: React.FC<ClipProps> = ({
       onPointerCancel={handlePointerCancel}
       onContextMenu={handleContextMenu}
       onKeyDown={handleKeyDown}
-      className={`absolute rounded-[1px] h-full overflow-hidden border ${trackToneClass} ${selected ? "border-accent-soft" : "border-transparent"} ${locked ? "cursor-not-allowed" : isDragging ? (isInvalidPosition ? "cursor-not-allowed" : "cursor-grabbing") : "cursor-default"} ${getClipStyle()} ${mediaAsset?.isMissing ? "ring-1 ring-red-500/80" : ""} ${isDragging || isResizing || isBeingShifted ? "transition-none" : "transition-[left] duration-150 ease-out"} focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:outline-none`}
+      className={`absolute h-full ${locked ? "cursor-not-allowed" : isDragging ? (isInvalidPosition ? "cursor-not-allowed" : "cursor-grabbing") : "cursor-default"} ${isDragging || isResizing || isBeingShifted ? "transition-none" : "transition-[left] duration-150 ease-out"} focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:outline-none`}
       style={{
         left: `${displayLeft}px`,
         width: `${width}px`,
@@ -970,23 +982,19 @@ const ClipInner: React.FC<ClipProps> = ({
           : trackVisualOpacity,
         pointerEvents: "auto",
         touchAction: "none",
-        zIndex: isDragging ? 100 : 1,
-        boxShadow: "none",
+        zIndex: isDragging ? 100 : selected ? 2 : 1,
         transformOrigin: isDragging ? "0 0" : undefined,
         transform: isDragging
           ? `translateY(${dragState?.offsetY ?? 0}px)`
           : "none",
-        border: isInvalidPosition
-          ? "2px solid var(--clypra-clip-invalid)"
-          : undefined,
       }}
     >
-      {/* Left trim handle */}
+      {/* Left trim handle — positioned outside the clip boundary so it straddles the left edge */}
       <div
         data-testid={`clip-${clip.id}-resize-left`}
         data-clip-resize-handle="true"
-        className={`group/resize absolute left-0 top-0 z-30 h-full w-3 cursor-col-resize transition-colors ${resizeHandleVisibility} ${isResizing === "left" ? (isRippleResize ? "bg-clypra-clip-effect/35" : "bg-clypra-clip-fg/35") : "bg-transparent"}`}
-        style={{ touchAction: "none", cursor: "col-resize" }}
+        className={`group/resize absolute top-0 z-30 h-full w-3 cursor-col-resize transition-colors ${resizeHandleVisibility} ${isResizing === "left" ? (isRippleResize ? "bg-clypra-clip-effect/35" : "bg-clypra-clip-fg/35") : "bg-transparent"}`}
+        style={{ left: "-1px", touchAction: "none", cursor: "col-resize" }}
         onPointerDown={(e) => {
           e.stopPropagation(); // Prevent drag when clicking resize handle
           handleResizeStart(e, "left");
@@ -998,238 +1006,94 @@ const ClipInner: React.FC<ClipProps> = ({
         }
       >
         <div
-          className={`pointer-events-none absolute inset-y-0 left-0 h-full w-0.5 rounded-r bg-clypra-clip-fg/90 transition-all group-hover/resize:w-0.75 group-hover/resize:bg-clypra-clip-fg ${isResizing === "left" ? (isRippleResize ? "bg-clypra-clip-effect" : "bg-clypra-clip-fg") : ""}`}
+          className={`pointer-events-none absolute inset-y-0 left-0 h-full w-0.5 rounded-l bg-clypra-clip-fg/90 transition-all group-hover/resize:bg-clypra-clip-fg ${isResizing === "left" ? (isRippleResize ? "bg-clypra-clip-effect" : "bg-clypra-clip-fg") : ""}`}
         />
       </div>
 
-      {/* Clip content */}
-      {isCompound ? (
-        <div className="relative flex h-full w-full items-center gap-2 px-2 select-none pointer-events-none">
-          {clip.compoundPreview ? (
-            <img
-              src={resolveMediaSrc(clip.compoundPreview)}
-              alt=""
-              className="h-full w-16 shrink-0 object-cover opacity-80"
-              draggable={false}
-            />
-          ) : (
-            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-clypra-clip-overlay">
-              <Layers className="h-4 w-4" />
-            </div>
-          )}
-          <div className="min-w-0 truncate text-[11px] font-semibold">
-            {clip.name || "Compound Clip"}
-          </div>
-          <div className="shrink-0 rounded bg-clypra-clip-overlay px-1.5 py-0.5 text-[10px]">
-            {clip.compoundChildren?.length ?? 0}
-          </div>
-        </div>
-      ) : isClipText ? (
-        <div className="relative flex h-full w-full items-center px-3">
-          {/* Icon badge for text role differentiation */}
-          {(isCaption || isTitle || inferredKind === "text-template") && (
-            <div className="absolute left-1 top-1/2 -translate-y-1/2 flex items-center justify-center rounded bg-clypra-clip-badge-bg px-1.5 py-0.5 text-[9px] font-semibold text-clypra-clip-fg backdrop-blur-sm">
-              {isCaption ? "CC" : "T"}
-            </div>
-          )}
-          <div className="text-[12px] text-clypra-clip-fg font-medium tracking-[0.01em] truncate max-w-full select-none pointer-events-none pl-4 flex items-center gap-1.5">
-            <span className="truncate">{getClipDisplayText(clip)}</span>
-            {(clip as any).behindSubject && (
-              <span
-                data-testid="clip-behind-subject-badge"
-                title="Behind Subject (AI Cutout)"
-                className="flex items-center gap-0.5 rounded bg-purple-500/30 border border-purple-500/50 px-1 py-0.5 text-[8px] font-bold text-purple-200 backdrop-blur-sm shrink-0"
-              >
-                <User className="w-2.5 h-2.5" />
-                <span>Behind</span>
-              </span>
-            )}
-            {hasKeyframes && (
-              <button
-                type="button"
-                data-testid={`clip-${clip.id}-keyframe-toggle`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleKeyframeLane(clip.id);
-                }}
-                className={`ml-auto pointer-events-auto flex items-center gap-0.5 px-1 py-px rounded text-[8px] font-semibold transition-colors cursor-pointer shrink-0 ${
-                  isKeyframeExpanded
-                    ? "bg-accent text-white shadow-xs"
-                    : "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
-                }`}
-                title={isKeyframeExpanded ? "Collapse Keyframe Lanes" : "Expand Keyframe Lanes"}
-              >
-                <span>◆</span>
-                <span>Anim</span>
-              </button>
-            )}
-          </div>
-          {hasKeyframes && (
-            <div className="absolute inset-x-0 bottom-0 z-20 pointer-events-auto">
-              <InlineKeyframeLane
-                clip={clip}
-                clipWidthPx={width}
-                pixelsPerSecond={pixelsPerSecond}
-                isExpanded={isKeyframeExpanded}
-                onToggleExpand={() => toggleKeyframeLane(clip.id)}
+      {/* Inner body — carries overflow-hidden, border, rounded corner, and all visual styling */}
+      <div
+        className={`absolute inset-0 overflow-hidden rounded-[1px] border ${trackToneClass} ${selected ? "border-accent-soft" : "border-transparent"} ${getClipStyle()} ${mediaAsset?.isMissing ? "ring-1 ring-red-500/80" : ""}`}
+        style={{
+          border: isInvalidPosition
+            ? "2px solid var(--clypra-clip-invalid)"
+            : undefined,
+          boxShadow: "none",
+        }}
+      >
+        {/* Clip content */}
+        {isCompound ? (
+          <div className="relative flex h-full w-full items-center gap-2 px-2 select-none pointer-events-none">
+            {clip.compoundPreview ? (
+              <img
+                src={resolveMediaSrc(clip.compoundPreview)}
+                alt=""
+                className="h-full w-16 shrink-0 object-cover opacity-80"
+                draggable={false}
               />
-            </div>
-          )}
-        </div>
-      ) : isClipFilter ? (
-        <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
-          <div className="w-5 h-5 rounded bg-clypra-clip-effect/80 border border-clypra-clip-fg/15 flex items-center justify-center backdrop-blur-sm">
-            <Sparkles className="w-3.5 h-3.5 text-clypra-clip-fg" />
-          </div>
-          <span className="text-[10px] font-bold text-clypra-clip-fg/90 truncate">
-            {clip.name || "Filter"}
-          </span>
-        </div>
-      ) : isClipVideoEffect ? (
-        <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
-          <div className="w-5 h-5 rounded bg-clypra-clip-effect/80 border border-clypra-clip-fg/15 flex items-center justify-center backdrop-blur-sm">
-            <Sparkles className="w-3.5 h-3.5 text-clypra-clip-fg" />
-          </div>
-          <span className="text-[10px] font-bold text-clypra-clip-fg/90 truncate">
-            {clip.name || "Video Effect"}
-          </span>
-        </div>
-      ) : isClipBodyEffect ? (
-        <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
-          <div className="w-5 h-5 rounded bg-clypra-clip-effect/80 border border-clypra-clip-fg/15 flex items-center justify-center backdrop-blur-sm">
-            <Sparkles className="w-3.5 h-3.5 text-clypra-clip-fg" />
-          </div>
-          <span className="text-[10px] font-bold text-clypra-clip-fg/90 truncate">
-            {clip.name || "Body Effect"}
-          </span>
-        </div>
-      ) : isClipAnimatedOverlay ? (
-        <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
-          <div className="w-5 h-5 rounded bg-clypra-clip-effect/80 border border-clypra-clip-fg/15 flex items-center justify-center backdrop-blur-sm">
-            <Sparkles className="w-3.5 h-3.5 text-clypra-clip-fg" />
-          </div>
-          <span className="text-[10px] font-bold text-clypra-clip-fg/90 truncate">
-            {clip.name || "Overlay"}
-          </span>
-        </div>
-      ) : isSticker ? (
-        <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
-          {mediaAsset?.path ? (
-            <img
-              src={resolveMediaSrc(mediaAsset.path)}
-              alt=""
-              className="w-5 h-5 object-contain filter brightness-0 invert opacity-90 shrink-0"
-              draggable={false}
-            />
-          ) : (
-            <div className="w-5 h-5 flex items-center justify-center text-xs shrink-0">
-              🎨
-            </div>
-          )}
-          <span className="text-[10px] font-bold text-clypra-clip-fg/90 truncate">
-            {mediaAsset?.name || "Sticker"}
-          </span>
-          {hasKeyframes && (
-            <div className="absolute inset-x-0 bottom-0 z-20 pointer-events-auto">
-              <InlineKeyframeLane
-                clip={clip}
-                clipWidthPx={width}
-                pixelsPerSecond={pixelsPerSecond}
-                isExpanded={isKeyframeExpanded}
-                onToggleExpand={() => toggleKeyframeLane(clip.id)}
-              />
-            </div>
-          )}
-        </div>
-      ) : isClipAudio ? (
-        <div className="relative flex h-full w-full flex-col overflow-hidden select-none bg-timeline-clip-audio">
-          {/* Top floating badges (CapCut / modern NLE style) */}
-          <div className="absolute top-1.5 left-2 z-30 flex items-center gap-1.5 max-w-[calc(100%-16px)] pointer-events-none select-none">
-            <span
-              data-testid="audio-clip-name-badge"
-              className="truncate rounded-[3px] bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-white/95 border border-white/10 shadow-xs backdrop-blur-xs"
-            >
-              {mediaAsset?.name || clip.name || "Audio"}
-            </span>
-            {hasCustomSpeed && (
-              <span
-                data-testid="audio-clip-speed-badge"
-                className="shrink-0 flex items-center gap-1 rounded-[3px] bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold text-white/90 border border-white/10 shadow-xs backdrop-blur-xs"
-              >
-                <Gauge className="w-2.5 h-2.5 text-accent-soft" />
-                <span>Speed {clipSpeed}X</span>
-              </span>
+            ) : (
+              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-clypra-clip-overlay">
+                <Layers className="h-4 w-4" />
+              </div>
             )}
-            {audioFilterLabel && (
-              <span
-                data-testid="audio-clip-filter-badge"
-                className="shrink-0 flex items-center gap-1 rounded-[3px] bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold text-white/90 border border-white/10 shadow-xs backdrop-blur-xs"
-              >
-                <span>Voice filters {audioFilterLabel}</span>
-              </span>
+            <div className="min-w-0 truncate text-[11px] font-semibold">
+              {clip.name || "Compound Clip"}
+            </div>
+            <div className="shrink-0 rounded bg-clypra-clip-overlay px-1.5 py-0.5 text-[10px]">
+              {clip.compoundChildren?.length ?? 0}
+            </div>
+          </div>
+        ) : isClipText ? (
+          <div className="relative flex h-full w-full items-center px-3">
+            {/* Icon badge for text role differentiation */}
+            {(isCaption || isTitle || inferredKind === "text-template") && (
+              <div className="absolute left-1 top-1/2 -translate-y-1/2 flex items-center justify-center rounded bg-clypra-clip-badge-bg px-1.5 py-0.5 text-[9px] font-semibold text-clypra-clip-fg backdrop-blur-sm">
+                {isCaption ? "CC" : "T"}
+              </div>
             )}
-            {mediaAsset?.isMissing && (
-              <span
-                data-testid="clip-offline-badge"
-                className="shrink-0 rounded-[3px] bg-red-600/90 text-white px-1 py-0.5 text-[8px] font-bold uppercase tracking-wider"
-                title="Source media file is missing or offline"
-              >
-                Offline
-              </span>
-            )}
-            <span className="shrink-0 text-[8px] font-medium text-white/60 ml-0.5">
-              {formatDuration(clip.duration)}
-            </span>
+            <div className="text-[12px] text-clypra-clip-fg font-medium tracking-[0.01em] truncate max-w-full select-none pointer-events-none pl-4 flex items-center gap-1.5">
+              <span className="truncate">{getClipDisplayText(clip)}</span>
+              {(clip as any).behindSubject && (
+                <span
+                  data-testid="clip-behind-subject-badge"
+                  title="Behind Subject (AI Cutout)"
+                  className="flex items-center gap-0.5 rounded bg-purple-500/30 border border-purple-500/50 px-1 py-0.5 text-[8px] font-bold text-purple-200 backdrop-blur-sm shrink-0"
+                >
+                  <User className="w-2.5 h-2.5" />
+                  <span>Behind</span>
+                </span>
+              )}
+              {hasKeyframes && (
+                <button
+                  type="button"
+                  data-testid={`clip-${clip.id}-keyframe-toggle`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleKeyframeLane(clip.id);
+                  }}
+                  className={`ml-auto pointer-events-auto flex items-center gap-0.5 px-1 py-px rounded text-[8px] font-semibold transition-colors cursor-pointer shrink-0 ${
+                    isKeyframeExpanded
+                      ? "bg-accent text-white shadow-xs"
+                      : "bg-surface-raised border border-border/60 text-text-secondary hover:text-text-primary hover:bg-surface-hover"
+                  }`}
+                  title={
+                    isKeyframeExpanded
+                      ? "Collapse Keyframe Lanes"
+                      : "Expand Keyframe Lanes"
+                  }
+                >
+                  <span>◆</span>
+                  <span>Anim</span>
+                </button>
+              )}
+            </div>
             {hasKeyframes && (
-              <button
-                type="button"
-                data-testid={`clip-${clip.id}-keyframe-toggle`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleKeyframeLane(clip.id);
-                }}
-                className={`ml-auto flex items-center gap-0.5 px-1 py-px rounded text-[8px] font-semibold transition-colors cursor-pointer pointer-events-auto ${
+              <div
+                className={
                   isKeyframeExpanded
-                    ? "bg-accent text-white shadow-xs"
-                    : "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
-                }`}
-                title={isKeyframeExpanded ? "Collapse Keyframe Lanes" : "Expand Keyframe Lanes"}
+                    ? "absolute inset-x-0 bottom-0 z-20 pointer-events-auto"
+                    : "absolute inset-0 pointer-events-none z-20 flex items-center"
+                }
               >
-                <span>◆</span>
-                <span>Anim</span>
-              </button>
-            )}
-          </div>
-
-          {/* Full-clip bottom-anchored waveform */}
-          <div
-            data-testid="audio-clip-waveform"
-            className="relative flex min-h-0 w-full flex-1 items-end overflow-hidden px-0.5"
-          >
-            <VolumeWaveform
-              audioPath={(clip as any).audioPath || mediaAsset?.path || ""}
-              clipWidthPx={width}
-              duration={clip.duration}
-              mediaDuration={mediaAsset?.duration}
-              trimIn={clip.trimIn}
-              trimOut={clip.trimOut}
-              volume={clip.volume}
-              volumeKeyframes={clip.volumeKeyframes}
-              fadeIn={clip.fadeIn}
-              fadeOut={clip.fadeOut}
-              fadeInCurve={clip.fadeInCurve}
-              fadeOutCurve={clip.fadeOutCurve}
-              heightPx={trackHeightPx}
-              alignment="bottom"
-              className="rounded-xs"
-            />
-            <AudioEnvelopeEditor
-              clip={clip}
-              clipWidthPx={width}
-              pixelsPerSecond={pixelsPerSecond}
-            />
-            {hasKeyframes && (
-              <div className="absolute inset-x-0 bottom-0 z-20 pointer-events-auto">
                 <InlineKeyframeLane
                   clip={clip}
                   clipWidthPx={width}
@@ -1240,119 +1104,146 @@ const ClipInner: React.FC<ClipProps> = ({
               </div>
             )}
           </div>
-        </div>
-      ) : (
-        <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
-          {/* CapCut-style hierarchy: metadata, visual strip, then audio strip. */}
-          <div className="flex h-4 shrink-0 items-center gap-2 border-b border-clypra-clip-metadata-border bg-clypra-clip-metadata-bg px-1.5">
-            <div className="min-w-0 truncate text-[9px] font-semibold tracking-[0.01em] text-timeline-clip-text">
-              {mediaAsset?.name || "Clip"}
+        ) : isClipFilter ? (
+          <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
+            <div className="w-5 h-5 rounded bg-clypra-clip-effect/80 border border-clypra-clip-fg/15 flex items-center justify-center backdrop-blur-sm">
+              <Sparkles className="w-3.5 h-3.5 text-clypra-clip-fg" />
             </div>
-            {mediaAsset?.isMissing && (
-              <span
-                data-testid="clip-offline-badge"
-                className="shrink-0 bg-red-600/90 text-white px-1 py-px rounded text-[7px] font-bold uppercase tracking-wider"
-                title="Source media file is missing or offline"
-              >
-                Offline
-              </span>
-            )}
-            <div className="shrink-0 text-[9px] font-medium text-timeline-clip-duration">
-              {formatDuration(clip.duration)}
-            </div>
-            {hasKeyframes && (
-              <button
-                type="button"
-                data-testid={`clip-${clip.id}-keyframe-toggle`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleKeyframeLane(clip.id);
-                }}
-                className={`ml-auto flex items-center gap-0.5 px-1 py-px rounded text-[8px] font-semibold transition-colors cursor-pointer ${
-                  isKeyframeExpanded
-                    ? "bg-accent text-white shadow-xs"
-                    : "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
-                }`}
-                title={isKeyframeExpanded ? "Collapse Keyframe Lanes" : "Expand Keyframe Lanes"}
-              >
-                <span>◆</span>
-                <span>Anim</span>
-              </button>
-            )}
+            <span className="text-[10px] font-bold text-clypra-clip-fg/90 truncate">
+              {clip.name || "Filter"}
+            </span>
           </div>
-          {clip.kind !== "audio" &&
-          mediaAsset &&
-          (mediaAsset.type === "video" || mediaAsset.type === "image") ? (
-            <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
-              <div className="min-h-0 flex-1 overflow-hidden bg-clypra-clip-overlay-soft">
-                <ClipFilmstrip
-                  className="h-full w-full"
+        ) : isClipVideoEffect ? (
+          <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
+            <div className="w-5 h-5 rounded bg-clypra-clip-effect/80 border border-clypra-clip-fg/15 flex items-center justify-center backdrop-blur-sm">
+              <Sparkles className="w-3.5 h-3.5 text-clypra-clip-fg" />
+            </div>
+            <span className="text-[10px] font-bold text-clypra-clip-fg/90 truncate">
+              {clip.name || "Video Effect"}
+            </span>
+          </div>
+        ) : isClipBodyEffect ? (
+          <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
+            <div className="w-5 h-5 rounded bg-clypra-clip-effect/80 border border-clypra-clip-fg/15 flex items-center justify-center backdrop-blur-sm">
+              <Sparkles className="w-3.5 h-3.5 text-clypra-clip-fg" />
+            </div>
+            <span className="text-[10px] font-bold text-clypra-clip-fg/90 truncate">
+              {clip.name || "Body Effect"}
+            </span>
+          </div>
+        ) : isClipAnimatedOverlay ? (
+          <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
+            <div className="w-5 h-5 rounded bg-clypra-clip-effect/80 border border-clypra-clip-fg/15 flex items-center justify-center backdrop-blur-sm">
+              <Sparkles className="w-3.5 h-3.5 text-clypra-clip-fg" />
+            </div>
+            <span className="text-[10px] font-bold text-clypra-clip-fg/90 truncate">
+              {clip.name || "Overlay"}
+            </span>
+          </div>
+        ) : isSticker ? (
+          <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
+            {mediaAsset?.path ? (
+              <img
+                src={resolveMediaSrc(mediaAsset.path)}
+                alt=""
+                className="w-5 h-5 object-contain filter brightness-0 invert opacity-90 shrink-0"
+                draggable={false}
+              />
+            ) : (
+              <div className="w-5 h-5 flex items-center justify-center text-xs shrink-0">
+                🎨
+              </div>
+            )}
+            <span className="text-[10px] font-bold text-clypra-clip-fg/90 truncate">
+              {mediaAsset?.name || "Sticker"}
+            </span>
+            {hasKeyframes && (
+              <div
+                className={
+                  isKeyframeExpanded
+                    ? "absolute inset-x-0 bottom-0 z-20 pointer-events-auto"
+                    : "absolute inset-0 pointer-events-none z-20 flex items-center"
+                }
+              >
+                <InlineKeyframeLane
                   clip={clip}
-                  mediaAsset={mediaAsset}
                   clipWidthPx={width}
                   pixelsPerSecond={pixelsPerSecond}
-                  stripHeightPx={clipFilmstripHeightPx}
+                  isExpanded={isKeyframeExpanded}
+                  onToggleExpand={() => toggleKeyframeLane(clip.id)}
                 />
               </div>
-              <InlineKeyframeLane
-                clip={clip}
-                clipWidthPx={width}
-                pixelsPerSecond={pixelsPerSecond}
-                isExpanded={isKeyframeExpanded}
-                onToggleExpand={() => toggleKeyframeLane(clip.id)}
-              />
-              {mediaAsset.type === "video" && (
-                <div
-                  data-testid="clip-audio-waveform"
-                  className="relative h-4 shrink-0 border-t border-clypra-clip-waveform-border bg-clypra-clip-waveform-bg px-0.5"
+            )}
+          </div>
+        ) : isClipAudio ? (
+          <div className="relative flex h-full w-full flex-col overflow-hidden select-none bg-timeline-clip-audio">
+            {/* Top floating badges (CapCut / modern NLE style) */}
+            <div className="absolute top-1.5 left-2 z-30 flex items-center gap-1.5 max-w-[calc(100%-16px)] pointer-events-none select-none">
+              <span
+                data-testid="audio-clip-name-badge"
+                className="truncate rounded-[3px] bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-white/95 border border-white/10 shadow-xs backdrop-blur-xs"
+              >
+                {mediaAsset?.name || clip.name || "Audio"}
+              </span>
+              {hasCustomSpeed && (
+                <span
+                  data-testid="audio-clip-speed-badge"
+                  className="shrink-0 flex items-center gap-1 rounded-[3px] bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold text-white/90 border border-white/10 shadow-xs backdrop-blur-xs"
                 >
-                  {mediaAsset.path &&
-                  (hasAudio || mediaAsset.streams === undefined) &&
-                  !clip.detachedFromClipId &&
-                  clip.audio?.linkState !== "detached" ? (
-                    <>
-                      <VolumeWaveform
-                        audioPath={(clip as any).audioPath || mediaAsset.path}
-                        clipWidthPx={width}
-                        duration={clip.duration}
-                        mediaDuration={mediaAsset.duration}
-                        trimIn={clip.trimIn}
-                        trimOut={clip.trimOut}
-                        volume={clip.volume}
-                        volumeKeyframes={clip.volumeKeyframes}
-                        fadeIn={clip.fadeIn}
-                        fadeOut={clip.fadeOut}
-                        fadeInCurve={clip.fadeInCurve}
-                        fadeOutCurve={clip.fadeOutCurve}
-                        heightPx={16}
-                        alignment="bottom"
-                        maxHeightFraction={0.85}
-                        className="rounded-xs"
-                      />
-                      {hasAudio && (
-                        <AudioEnvelopeEditor
-                          clip={clip}
-                          clipWidthPx={width}
-                          pixelsPerSecond={pixelsPerSecond}
-                        />
-                      )}
-                    </>
-                  ) : (
-                    /* When a clip doesn't have audio, its space is still shown without wave */
-                    <div
-                      data-testid="clip-audio-empty"
-                      className="h-full w-full opacity-35 flex items-center justify-center select-none pointer-events-none"
-                      title="No audio"
-                      aria-label="No audio"
-                    >
-                      <div className="w-full h-px border-b border-dashed border-clypra-clip-fg/25" />
-                    </div>
-                  )}
-                </div>
+                  <Gauge className="w-2.5 h-2.5 text-accent-soft" />
+                  <span>{clipSpeedLabel}</span>
+                </span>
+              )}
+              {audioFilterLabel && (
+                <span
+                  data-testid="audio-clip-filter-badge"
+                  className="shrink-0 flex items-center gap-1 rounded-[3px] bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold text-white/90 border border-white/10 shadow-xs backdrop-blur-xs"
+                >
+                  <span>Voice filters {audioFilterLabel}</span>
+                </span>
+              )}
+              {mediaAsset?.isMissing && (
+                <span
+                  data-testid="clip-offline-badge"
+                  className="shrink-0 rounded-[3px] bg-red-600/90 text-white px-1 py-0.5 text-[8px] font-bold uppercase tracking-wider"
+                  title="Source media file is missing or offline"
+                >
+                  Offline
+                </span>
+              )}
+              <span className="shrink-0 text-[8px] font-medium text-white/60 ml-0.5">
+                {formatDuration(clip.duration)}
+              </span>
+              {hasKeyframes && (
+                <button
+                  type="button"
+                  data-testid={`clip-${clip.id}-keyframe-toggle`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleKeyframeLane(clip.id);
+                  }}
+                  className={`ml-auto flex items-center gap-0.5 px-1 py-px rounded text-[8px] font-semibold transition-colors cursor-pointer pointer-events-auto ${
+                    isKeyframeExpanded
+                      ? "bg-accent text-white shadow-xs"
+                      : "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
+                  }`}
+                  title={
+                    isKeyframeExpanded
+                      ? "Collapse Keyframe Lanes"
+                      : "Expand Keyframe Lanes"
+                  }
+                >
+                  <span>◆</span>
+                  <span>Anim</span>
+                </button>
               )}
             </div>
-          ) : mediaAsset?.type === "audio" || (clip as any).audioPath ? (
-            <div className="relative flex min-h-0 w-full flex-1 items-center overflow-hidden px-0.5">
+
+            {/* Full-clip bottom-anchored waveform */}
+            <div
+              data-testid="audio-clip-waveform"
+              className="relative flex min-h-0 w-full flex-1 items-end overflow-hidden px-0.5"
+            >
               <VolumeWaveform
                 audioPath={(clip as any).audioPath || mediaAsset?.path || ""}
                 clipWidthPx={width}
@@ -1366,7 +1257,7 @@ const ClipInner: React.FC<ClipProps> = ({
                 fadeOut={clip.fadeOut}
                 fadeInCurve={clip.fadeInCurve}
                 fadeOutCurve={clip.fadeOutCurve}
-                heightPx={Math.max(16, trackHeightPx - 16)}
+                heightPx={trackHeightPx}
                 alignment="bottom"
                 className="rounded-xs"
               />
@@ -1375,35 +1266,259 @@ const ClipInner: React.FC<ClipProps> = ({
                 clipWidthPx={width}
                 pixelsPerSecond={pixelsPerSecond}
               />
-              <div className="absolute inset-x-0 bottom-0 z-20 pointer-events-auto">
-                <InlineKeyframeLane
+              {hasKeyframes && (
+                <div
+                  className={
+                    isKeyframeExpanded
+                      ? "absolute inset-x-0 bottom-0 z-20 pointer-events-auto"
+                      : "absolute inset-0 pointer-events-none z-20 flex items-center"
+                  }
+                >
+                  <InlineKeyframeLane
+                    clip={clip}
+                    clipWidthPx={width}
+                    pixelsPerSecond={pixelsPerSecond}
+                    isExpanded={isKeyframeExpanded}
+                    onToggleExpand={() => toggleKeyframeLane(clip.id)}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
+            {/* Hierarchy: metadata, visual strip, then audio strip. */}
+            <div className="flex h-4 shrink-0 items-center gap-2 border-b border-clypra-clip-metadata-border bg-clypra-clip-metadata-bg px-1.5">
+              {hasCustomSpeed && (
+                <span
+                  data-testid="clip-speed-badge"
+                  className="shrink-0 flex items-center gap-1 rounded-[3px] bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold text-white/90 border border-white/10 shadow-xs backdrop-blur-xs"
+                >
+                  <Gauge className="w-2.5 h-2.5 text-accent-soft" />
+                  <span>{clipSpeedLabel}</span>
+                </span>
+              )}
+
+              <div className="min-w-0 truncate text-[9px] font-semibold tracking-[0.01em] text-timeline-clip-text">
+                {mediaAsset?.name || "Clip"}
+              </div>
+              {mediaAsset?.isMissing && (
+                <span
+                  data-testid="clip-offline-badge"
+                  className="shrink-0 bg-red-600/90 text-white px-1 py-px rounded text-[7px] font-bold uppercase tracking-wider"
+                  title="Source media file is missing or offline"
+                >
+                  Offline
+                </span>
+              )}
+              <div className="shrink-0 text-[9px] font-medium text-timeline-clip-duration">
+                {formatDuration(clip.duration)}
+              </div>
+              {hasKeyframes && (
+                <button
+                  type="button"
+                  data-testid={`clip-${clip.id}-keyframe-toggle`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleKeyframeLane(clip.id);
+                  }}
+                  className={`ml-auto flex items-center gap-0.5 px-1 py-px rounded text-[8px] font-semibold transition-colors cursor-pointer ${
+                    isKeyframeExpanded
+                      ? "bg-accent text-white shadow-xs"
+                      : "bg-surface-raised border border-border/60 text-text-secondary hover:text-text-primary hover:bg-surface-hover"
+                  }`}
+                  title={
+                    isKeyframeExpanded
+                      ? "Collapse Keyframe Lanes"
+                      : "Expand Keyframe Lanes"
+                  }
+                >
+                  <span>◆</span>
+                  <span>Anim</span>
+                </button>
+              )}
+            </div>
+            {clip.kind !== "audio" &&
+            mediaAsset &&
+            (mediaAsset.type === "video" || mediaAsset.type === "image") ? (
+              <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
+                <div className="relative min-h-0 flex-1 overflow-hidden bg-clypra-clip-overlay-soft">
+                  <ClipFilmstrip
+                    className="h-full w-full"
+                    clip={clip}
+                    mediaAsset={mediaAsset}
+                    clipWidthPx={width}
+                    pixelsPerSecond={pixelsPerSecond}
+                    stripHeightPx={clipFilmstripHeightPx}
+                  />
+                  {!isKeyframeExpanded && hasKeyframes && (
+                    <div className="absolute inset-0 pointer-events-none z-20 flex items-center">
+                      <InlineKeyframeLane
+                        clip={clip}
+                        clipWidthPx={width}
+                        pixelsPerSecond={pixelsPerSecond}
+                        isExpanded={false}
+                      />
+                    </div>
+                  )}
+                </div>
+                {isKeyframeExpanded && (
+                  <InlineKeyframeLane
+                    clip={clip}
+                    clipWidthPx={width}
+                    pixelsPerSecond={pixelsPerSecond}
+                    isExpanded={true}
+                    onToggleExpand={() => toggleKeyframeLane(clip.id)}
+                  />
+                )}
+                {mediaAsset.type === "video" && (
+                  <div
+                    data-testid="clip-audio-waveform"
+                    className="relative h-4 shrink-0 border-t border-clypra-clip-waveform-border bg-clypra-clip-waveform-bg px-0.5"
+                  >
+                    {mediaAsset.path &&
+                    (hasAudio || mediaAsset.streams === undefined) &&
+                    !clip.detachedFromClipId &&
+                    clip.audio?.linkState !== "detached" ? (
+                      <>
+                        <VolumeWaveform
+                          audioPath={(clip as any).audioPath || mediaAsset.path}
+                          clipWidthPx={width}
+                          duration={clip.duration}
+                          mediaDuration={mediaAsset.duration}
+                          trimIn={clip.trimIn}
+                          trimOut={clip.trimOut}
+                          volume={clip.volume}
+                          volumeKeyframes={clip.volumeKeyframes}
+                          fadeIn={clip.fadeIn}
+                          fadeOut={clip.fadeOut}
+                          fadeInCurve={clip.fadeInCurve}
+                          fadeOutCurve={clip.fadeOutCurve}
+                          heightPx={16}
+                          alignment="bottom"
+                          maxHeightFraction={0.85}
+                          className="rounded-xs"
+                        />
+                        {hasAudio && (
+                          <AudioEnvelopeEditor
+                            clip={clip}
+                            clipWidthPx={width}
+                            pixelsPerSecond={pixelsPerSecond}
+                          />
+                        )}
+                      </>
+                    ) : (
+                      /* When a clip doesn't have audio, its space is still shown without wave */
+                      <div
+                        data-testid="clip-audio-empty"
+                        className="h-full w-full opacity-35 flex items-center justify-center select-none pointer-events-none"
+                        title="No audio"
+                        aria-label="No audio"
+                      >
+                        <div className="w-full h-px border-b border-dashed border-clypra-clip-fg/25" />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : mediaAsset?.type === "audio" || (clip as any).audioPath ? (
+              <div className="relative flex min-h-0 w-full flex-1 items-center overflow-hidden px-0.5">
+                <VolumeWaveform
+                  audioPath={(clip as any).audioPath || mediaAsset?.path || ""}
+                  clipWidthPx={width}
+                  duration={clip.duration}
+                  mediaDuration={mediaAsset?.duration}
+                  trimIn={clip.trimIn}
+                  trimOut={clip.trimOut}
+                  volume={clip.volume}
+                  volumeKeyframes={clip.volumeKeyframes}
+                  fadeIn={clip.fadeIn}
+                  fadeOut={clip.fadeOut}
+                  fadeInCurve={clip.fadeInCurve}
+                  fadeOutCurve={clip.fadeOutCurve}
+                  heightPx={Math.max(16, trackHeightPx - 16)}
+                  alignment="bottom"
+                  className="rounded-xs"
+                />
+                <AudioEnvelopeEditor
                   clip={clip}
                   clipWidthPx={width}
                   pixelsPerSecond={pixelsPerSecond}
-                  isExpanded={isKeyframeExpanded}
-                  onToggleExpand={() => toggleKeyframeLane(clip.id)}
                 />
+                <div
+                  className={
+                    isKeyframeExpanded
+                      ? "absolute inset-x-0 bottom-0 z-20 pointer-events-auto"
+                      : "absolute inset-0 pointer-events-none z-20 flex items-center"
+                  }
+                >
+                  <InlineKeyframeLane
+                    clip={clip}
+                    clipWidthPx={width}
+                    pixelsPerSecond={pixelsPerSecond}
+                    isExpanded={isKeyframeExpanded}
+                    onToggleExpand={() => toggleKeyframeLane(clip.id)}
+                  />
+                </div>
               </div>
-            </div>
-          ) : mediaAsset?.posterFrame ? (
-            <img
-              src={mediaAsset.posterFrame}
-              alt=""
-              className="min-h-0 w-full flex-1 object-cover"
-              draggable={false}
-            />
-          ) : (
-            <div className="min-h-0 w-full flex-1 bg-timeline-filmstrip-empty" />
-          )}
-        </div>
-      )}
+            ) : mediaAsset?.posterFrame ? (
+              <div className="relative min-h-0 w-full flex-1 overflow-hidden">
+                <img
+                  src={mediaAsset.posterFrame}
+                  alt=""
+                  className="min-h-0 w-full h-full object-cover"
+                  draggable={false}
+                />
+                {hasKeyframes && (
+                  <div
+                    className={
+                      isKeyframeExpanded
+                        ? "absolute inset-x-0 bottom-0 z-20 pointer-events-auto"
+                        : "absolute inset-0 pointer-events-none z-20 flex items-center"
+                    }
+                  >
+                    <InlineKeyframeLane
+                      clip={clip}
+                      clipWidthPx={width}
+                      pixelsPerSecond={pixelsPerSecond}
+                      isExpanded={isKeyframeExpanded}
+                      onToggleExpand={() => toggleKeyframeLane(clip.id)}
+                    />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="relative min-h-0 w-full flex-1 bg-timeline-filmstrip-empty">
+                {hasKeyframes && (
+                  <div
+                    className={
+                      isKeyframeExpanded
+                        ? "absolute inset-x-0 bottom-0 z-20 pointer-events-auto"
+                        : "absolute inset-0 pointer-events-none z-20 flex items-center"
+                    }
+                  >
+                    <InlineKeyframeLane
+                      clip={clip}
+                      clipWidthPx={width}
+                      pixelsPerSecond={pixelsPerSecond}
+                      isExpanded={isKeyframeExpanded}
+                      onToggleExpand={() => toggleKeyframeLane(clip.id)}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      {/* end inner body */}
 
-      {/* Right trim handle */}
+      {/* Right trim handle — positioned outside the clip boundary so it straddles the right edge */}
       <div
         data-testid={`clip-${clip.id}-resize-right`}
         data-clip-resize-handle="true"
-        className={`group/resize absolute right-0 top-0 z-30 h-full w-3 cursor-col-resize transition-colors ${resizeHandleVisibility} ${isResizing === "right" ? (isRippleResize ? "bg-clypra-clip-effect/35" : "bg-clypra-clip-fg/35") : "bg-transparent"}`}
-        style={{ touchAction: "none", cursor: "col-resize" }}
+        className={`group/resize absolute top-0 z-30 h-full w-3 cursor-col-resize transition-colors ${resizeHandleVisibility} ${isResizing === "right" ? (isRippleResize ? "bg-clypra-clip-effect/35" : "bg-clypra-clip-fg/35") : "bg-transparent"}`}
+        style={{ right: "-1px", touchAction: "none", cursor: "col-resize" }}
         onPointerDown={(e) => {
           e.stopPropagation(); // Prevent drag when clicking resize handle
           handleResizeStart(e, "right");
@@ -1416,7 +1531,7 @@ const ClipInner: React.FC<ClipProps> = ({
         }
       >
         <div
-          className={`pointer-events-none absolute inset-y-0 right-0 h-full w-0.5 rounded-l bg-clypra-clip-fg/90 transition-all group-hover/resize:w-0.75 group-hover/resize:bg-clypra-clip-fg ${isResizing === "right" ? (isRippleResize ? "bg-clypra-clip-effect" : "bg-clypra-clip-fg") : ""}`}
+          className={`pointer-events-none absolute inset-y-0 right-0 h-full w-0.5 rounded-r bg-clypra-clip-fg/90 transition-all group-hover/resize:bg-clypra-clip-fg ${isResizing === "right" ? (isRippleResize ? "bg-clypra-clip-effect" : "bg-clypra-clip-fg") : ""}`}
         />
       </div>
     </div>

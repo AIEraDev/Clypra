@@ -6,9 +6,7 @@
  * with rubber bands, plain text, text effects, text templates, and animated stickers.
  */
 
-import {
-  normalizeClipAudioProperties,
-} from "../types";
+import { normalizeClipAudioProperties } from "../types";
 import type {
   Project,
   Track,
@@ -26,7 +24,9 @@ export interface GoldenProjectBundle {
   mediaAssets: MediaAsset[];
 }
 
-export function createGoldenProjectBundle(fixturesDir: string): GoldenProjectBundle {
+export function createGoldenProjectBundle(
+  fixturesDir: string,
+): GoldenProjectBundle {
   const normalizedDir = fixturesDir.replace(/\/+$/, "");
 
   // 1. Media Assets Catalog
@@ -40,7 +40,8 @@ export function createGoldenProjectBundle(fixturesDir: string): GoldenProjectBun
       width: 3840,
       height: 2160,
       size: 196013056,
-      posterFrame: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      posterFrame:
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
     },
     {
       id: "media-1080p-h264",
@@ -51,7 +52,8 @@ export function createGoldenProjectBundle(fixturesDir: string): GoldenProjectBun
       width: 1920,
       height: 1080,
       size: 421576704,
-      posterFrame: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      posterFrame:
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
     },
     {
       id: "media-vertical",
@@ -413,7 +415,11 @@ export function createGoldenProjectBundle(fixturesDir: string): GoldenProjectBun
       paddingY: 16,
       stroke: { color: "#000000", width: 3 },
       shadow: { color: "rgba(0,0,0,0.6)", blur: 8, offsetX: 0, offsetY: 4 },
-      entranceAnimation: { type: "slide-up", duration: 0.6, easing: "ease-out" },
+      entranceAnimation: {
+        type: "slide-up",
+        duration: 0.6,
+        easing: "ease-out",
+      },
       exitAnimation: { type: "fade", duration: 0.4, easing: "ease-in" },
     } as TextClip,
     {
@@ -549,7 +555,6 @@ export function createGoldenProjectBundle(fixturesDir: string): GoldenProjectBun
       kind: "sticker",
       role: "overlay",
       stickerFormat: "static",
-      showMotionPath: true,
       visualKeyframes: {
         x: badgePositionKeyframes,
       },

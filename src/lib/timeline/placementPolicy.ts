@@ -25,26 +25,46 @@ export type AddPlacementIntent = "playhead";
  * - Video: contain (preserve full frame and aspect ratio with letterbox/pillarbox by default)
  * - Image: contain (preserve full still content by default)
  */
-export function resolveDefaultFitModeForAsset(asset: Pick<MediaAsset, "type"> & { id?: string }): ClipFitModeExtended {
+export function resolveDefaultFitModeForAsset(
+  asset: Pick<MediaAsset, "type"> & { id?: string },
+): ClipFitModeExtended {
   if (asset.id?.startsWith("sticker-")) return "original";
   if (asset.type === "image") return "contain";
   if (asset.type === "video") return "contain";
   return DEFAULT_PLACEMENT_POLICY.defaultVisualFitMode;
 }
 
-export function resolveTargetTrackType(asset: { type: MediaAsset["type"]; id?: string; trackType?: TrackType }): "video" | "audio" | "sticker" | "text" | "filter" | "video-effect" | "body-effect" | "animated-overlay" {
+export function resolveTargetTrackType(asset: {
+  type: MediaAsset["type"];
+  id?: string;
+  trackType?: TrackType;
+}):
+  | "video"
+  | "audio"
+  | "sticker"
+  | "text"
+  | "filter"
+  | "video-effect"
+  | "body-effect"
+  | "animated-overlay" {
   // Allow explicit track type override (for text, filter, effect, and overlay clips)
   if (asset.trackType) return asset.trackType;
   if (asset.id?.startsWith("sticker-")) return "sticker";
   return asset.type === "audio" ? "audio" : "video";
 }
 
-export function resolvePreferredTrackId(params: { tracks: Track[]; asset: { type: MediaAsset["type"]; id?: string; trackType?: TrackType }; preferTrackId?: string | null }): string | null {
+export function resolvePreferredTrackId(params: {
+  tracks: Track[];
+  asset: { type: MediaAsset["type"]; id?: string; trackType?: TrackType };
+  preferTrackId?: string | null;
+}): string | null {
   const { tracks, asset, preferTrackId } = params;
   const targetType = resolveTargetTrackType(asset);
 
   if (preferTrackId) {
-    const preferred = tracks.find((t) => t.id === preferTrackId && !t.locked && t.type === targetType);
+    const preferred = tracks.find(
+      (t) => t.id === preferTrackId && !t.locked && t.type === targetType,
+    );
     if (preferred) return preferred.id;
   }
 
@@ -52,7 +72,12 @@ export function resolvePreferredTrackId(params: { tracks: Track[]; asset: { type
   return firstUnlocked?.id ?? null;
 }
 
-export function resolveClipStartTime(params: { intent: PlacementIntent; timelineEndTime: number; trackClips?: Clip[]; dropTime?: number }): number {
+export function resolveClipStartTime(params: {
+  intent: PlacementIntent;
+  timelineEndTime: number;
+  trackClips?: Clip[];
+  dropTime?: number;
+}): number {
   const { intent, timelineEndTime, trackClips = [], dropTime = 0 } = params;
 
   if (intent === "drop") return Math.max(0, dropTime);
@@ -76,7 +101,15 @@ interface ResolveAddPlacementParams {
 
 interface AddPlacementDecision {
   intent: AddPlacementIntent;
-  trackType: "video" | "audio" | "sticker" | "text" | "filter" | "video-effect" | "body-effect" | "animated-overlay";
+  trackType:
+    | "video"
+    | "audio"
+    | "sticker"
+    | "text"
+    | "filter"
+    | "video-effect"
+    | "body-effect"
+    | "animated-overlay";
   startTime: number;
   targetTrackId: string | null;
   shouldCreateTrack: boolean;
@@ -89,7 +122,11 @@ function isTrackOccupiedAtTime(trackClips: Clip[], time: number): boolean {
   });
 }
 
-function isTrackOccupiedDuring(trackClips: Clip[], startTime: number, duration: number): boolean {
+function isTrackOccupiedDuring(
+  trackClips: Clip[],
+  startTime: number,
+  duration: number,
+): boolean {
   const endTime = startTime + Math.max(0, duration);
   return trackClips.some((clip) => {
     const clipEnd = clip.startTime + clip.duration;
@@ -98,7 +135,7 @@ function isTrackOccupiedDuring(trackClips: Clip[], startTime: number, duration: 
 }
 
 /**
- * Unified Add-to-Timeline resolver (playhead-first, CapCut-style).
+ * Unified Add-to-Timeline resolver (playhead-first, ).
  *
  * Rules:
  * - Start time is clamped playhead time.
@@ -106,11 +143,28 @@ function isTrackOccupiedDuring(trackClips: Clip[], startTime: number, duration: 
  * - If target track is occupied at start time, create a new track.
  * - No overwrite/ripple side effects.
  */
-export function resolveAddToTimelinePlacement(params: ResolveAddPlacementParams): AddPlacementDecision {
-  const { asset, tracks, clips, playheadTime, sequenceEndTime, duration = 0, preferTrackId } = params;
+export function resolveAddToTimelinePlacement(
+  params: ResolveAddPlacementParams,
+): AddPlacementDecision {
+  const {
+    asset,
+    tracks,
+    clips,
+    playheadTime,
+    sequenceEndTime,
+    duration = 0,
+    preferTrackId,
+  } = params;
   const trackType = resolveTargetTrackType(asset);
-  const clampedStartTime = Math.max(0, Math.min(playheadTime, Math.max(0, sequenceEndTime)));
-  const preferredTrackId = resolvePreferredTrackId({ tracks, asset, preferTrackId });
+  const clampedStartTime = Math.max(
+    0,
+    Math.min(playheadTime, Math.max(0, sequenceEndTime)),
+  );
+  const preferredTrackId = resolvePreferredTrackId({
+    tracks,
+    asset,
+    preferTrackId,
+  });
 
   if (!preferredTrackId) {
     return {
@@ -129,7 +183,9 @@ export function resolveAddToTimelinePlacement(params: ResolveAddPlacementParams)
   // immediately after that gap.
   const candidateTracks = tracks
     .filter((track) => track.type === trackType && !track.locked)
-    .sort((a, b) => (a.id === preferredTrackId ? -1 : b.id === preferredTrackId ? 1 : 0));
+    .sort((a, b) =>
+      a.id === preferredTrackId ? -1 : b.id === preferredTrackId ? 1 : 0,
+    );
   const availableTrack = candidateTracks.find((track) => {
     const trackClips = clips.filter((clip) => clip.trackId === track.id);
     return duration > 0

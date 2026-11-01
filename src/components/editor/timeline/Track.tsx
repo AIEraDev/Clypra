@@ -634,16 +634,22 @@ const arePropsEqual = (prevProps: TrackProps, nextProps: TrackProps) => {
     const prevClip = prevProps.clips[i];
     const nextClip = nextProps.clips[i];
     if (
+      prevClip !== nextClip ||
       prevClip.id !== nextClip.id ||
       prevClip.kind !== nextClip.kind ||
       prevClip.name !== nextClip.name ||
       prevClip.text !== nextClip.text ||
       prevClip.startTime !== nextClip.startTime ||
       prevClip.duration !== nextClip.duration ||
+      prevClip.trimIn !== nextClip.trimIn ||
+      prevClip.trimOut !== nextClip.trimOut ||
       prevClip.volume !== nextClip.volume ||
       prevClip.fadeIn !== nextClip.fadeIn ||
       prevClip.fadeOut !== nextClip.fadeOut ||
-      prevClip.volumeKeyframes !== nextClip.volumeKeyframes
+      prevClip.volumeKeyframes !== nextClip.volumeKeyframes ||
+      prevClip.visualKeyframes !== nextClip.visualKeyframes ||
+      prevClip.motion !== nextClip.motion ||
+      prevClip.motionBlur !== nextClip.motionBlur
     ) {
       return false;
     }

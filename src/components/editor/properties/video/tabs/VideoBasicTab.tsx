@@ -32,6 +32,16 @@ export const VideoBasicTab: React.FC<VideoBasicTabProps> = ({
   handleUpdateMultiple,
   handleApplyFit,
 }) => {
+  // A-roll clips are primary background video clips that fill the canvas.
+  // The Canvas Background section is only meaningful for these clips.
+  const isARoll =
+    (selectedClip as any).role === "primary" ||
+    Boolean((selectedClip as any).conform) ||
+    (Math.abs(selectedClip.width - canvasWidth) < canvasWidth * 0.05 &&
+      Math.abs(selectedClip.height - canvasHeight) < canvasHeight * 0.05 &&
+      Math.abs(selectedClip.x) < canvasWidth * 0.05 &&
+      Math.abs(selectedClip.y) < canvasHeight * 0.05);
+
   return (
     <div className="">
       {/* Section 1: Transform Controls */}
@@ -54,16 +64,19 @@ export const VideoBasicTab: React.FC<VideoBasicTabProps> = ({
         <VideoBlendControls
           selectedClip={selectedClip}
           handleUpdate={handleUpdate}
+          handleUpdateMultiple={handleUpdateMultiple}
         />
       </div>
 
       {/* Divider */}
       <div className="h-px bg-white/5 my-4" />
 
-      {/* Section 3: Canvas Background (from EmptyPropertiesState) */}
-      <div>
-        <BackgroundInspectorPanel />
-      </div>
+      {/* Section 3: Canvas Background — only shown for A-roll (primary) clips */}
+      {isARoll && (
+        <div>
+          <BackgroundInspectorPanel selectedClipId={selectedClip.id} />
+        </div>
+      )}
 
       {/* Collapsible Sections */}
       {/* <div className="space-y-1.5">

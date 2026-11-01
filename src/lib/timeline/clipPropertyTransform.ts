@@ -28,7 +28,8 @@ import type { Clip, TextClip } from "@/types";
  * Derives the old/new transform pairs needed to construct a
  * `TransformClipCommand` for any clip type.
  *
- * - Trims automatically extend/recalculate `duration`.
+ * - Trims automatically extend/recalculate `duration`, respecting the clip's
+ *   current playback speed so a 2× clip stays 2× after a trim.
  * - Text clip style updates are resolved through the canvas-aware text layout
  *   system.
  * - Deep-cloneable fields (`adjustments`, `stickerSettings`, `motion`,
@@ -56,9 +57,24 @@ export function buildClipPropertyTransform(
       Number.isFinite(newTransform.trimOut)
         ? newTransform.trimOut
         : clip.trimOut;
+    const sourceDuration = Math.max(0, nextTrimOut - nextTrimIn);
+    // Respect the clip's current playback speed so trimming a 2× clip keeps
+    // the correct timeline footprint: timeline duration = source / speed.
+    const effectiveSpeed: number = (() => {
+      const m = clip.playbackMapping;
+      if (!m)
+        return typeof clip.speed === "number" && clip.speed > 0
+          ? clip.speed
+          : 1;
+      if (m.kind === "normal" || m.kind === "reverse")
+        return Math.max(0.001, m.speed);
+      // freeze / speed_ramp: duration doesn't change from trim in a simple way;
+      // fall back to 1 so duration = sourceDuration (safe default).
+      return 1;
+    })();
     newTransform = {
       ...newTransform,
-      duration: Math.max(0, nextTrimOut - nextTrimIn),
+      duration: sourceDuration / effectiveSpeed,
     };
   }
 
@@ -138,8 +154,10 @@ export function getClipTypeInfo(
   isText: boolean,
   isSticker?: boolean,
 ): ClipTypeInfo {
-  if (isText) return { icon: FileText, label: "Text", color: "text-purple-400" };
-  if (isSticker) return { icon: Smile, label: "Sticker", color: "text-pink-400" };
+  if (isText)
+    return { icon: FileText, label: "Text", color: "text-purple-400" };
+  if (isSticker)
+    return { icon: Smile, label: "Sticker", color: "text-pink-400" };
   if (clipKind === "filter")
     return { icon: Sparkles, label: "Filter", color: "text-violet-400" };
   if (clipKind === "video-effect")
@@ -147,9 +165,15 @@ export function getClipTypeInfo(
   if (clipKind === "body-effect")
     return { icon: Sparkles, label: "Body Effect", color: "text-violet-400" };
   if (clipKind === "animated-overlay")
-    return { icon: Sparkles, label: "Animated Overlay", color: "text-violet-400" };
+    return {
+      icon: Sparkles,
+      label: "Animated Overlay",
+      color: "text-violet-400",
+    };
 
-  switch (assetType) {
+  const effectiveType = assetType || clipKind;
+
+  switch (effectiveType) {
     case "video":
       return { icon: Film, label: "Video", color: "text-blue-400" };
     case "audio":

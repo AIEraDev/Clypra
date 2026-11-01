@@ -71,7 +71,6 @@ export interface AnimationEvaluationMetrics {
   maxDurationMs: number;
   overBudgetCount: number; // >16.67ms
   totalKeyframesEvaluated: number;
-  totalSpatialEvaluations: number;
   totalSpringEvaluations: number;
   totalResponsiveRetimes: number;
   totalOcclusionCulled: number;
@@ -230,18 +229,19 @@ export class WorkerPerfCollector {
   private animOverBudgetCount = 0;
   private animDurations: number[] = [];
   private animKeyframes = 0;
-  private animSpatial = 0;
   private animSpring = 0;
   private animRetimes = 0;
   private animCulled = 0;
 
   // Optional error listener (e.g. perfLogService)
-  private errorListeners: Array<(errorEvent: {
-    domain: string;
-    error: string;
-    operation?: string;
-    metadata?: Record<string, unknown>;
-  }) => void> = [];
+  private errorListeners: Array<
+    (errorEvent: {
+      domain: string;
+      error: string;
+      operation?: string;
+      metadata?: Record<string, unknown>;
+    }) => void
+  > = [];
 
   constructor() {
     this.installGlobalDiagnostics();
@@ -307,7 +307,6 @@ export class WorkerPerfCollector {
     activeClips: number;
     visualLayers: number;
     keyframeEvaluations: number;
-    spatialEvaluations: number;
     springEvaluations: number;
     responsiveRetimes: number;
     culledLayers: number;
@@ -322,7 +321,6 @@ export class WorkerPerfCollector {
     }
 
     this.animKeyframes += metrics.keyframeEvaluations;
-    this.animSpatial += metrics.spatialEvaluations;
     this.animSpring += metrics.springEvaluations;
     this.animRetimes += metrics.responsiveRetimes;
     this.animCulled += metrics.culledLayers;
@@ -346,7 +344,6 @@ export class WorkerPerfCollector {
       metadata: {
         activeClips: metrics.activeClips,
         visualLayers: metrics.visualLayers,
-        spatialEvaluations: metrics.spatialEvaluations,
         springEvaluations: metrics.springEvaluations,
         responsiveRetimes: metrics.responsiveRetimes,
         culledLayers: metrics.culledLayers,
@@ -401,7 +398,6 @@ export class WorkerPerfCollector {
         maxDurationMs: Number(this.animMaxDurationMs.toFixed(2)),
         overBudgetCount: this.animOverBudgetCount,
         totalKeyframesEvaluated: this.animKeyframes,
-        totalSpatialEvaluations: this.animSpatial,
         totalSpringEvaluations: this.animSpring,
         totalResponsiveRetimes: this.animRetimes,
         totalOcclusionCulled: this.animCulled,
@@ -448,7 +444,6 @@ export class WorkerPerfCollector {
     this.animOverBudgetCount = 0;
     this.animDurations = [];
     this.animKeyframes = 0;
-    this.animSpatial = 0;
     this.animSpring = 0;
     this.animRetimes = 0;
     this.animCulled = 0;
@@ -469,7 +464,6 @@ export class WorkerPerfCollector {
     this.animOverBudgetCount = 0;
     this.animDurations = [];
     this.animKeyframes = 0;
-    this.animSpatial = 0;
     this.animSpring = 0;
     this.animRetimes = 0;
     this.animCulled = 0;

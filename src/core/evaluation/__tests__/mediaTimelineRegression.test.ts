@@ -438,4 +438,264 @@ describe("Clypra Media & Timeline Regression Suite (Phase 5 Foundation)", () => 
       expect(visual.sourceTime).toBe(2); // 3s - 1s startTime
     }
   });
+
+  // ─── Bug: conform block overrode user-scaled width/height in evaluator ─────
+  //
+  // When a clip has a `conform` property (set by fit-mode / import), the
+  // evaluator called resolveConform() and used its result for evalW/evalH/evalX/evalY
+  // unconditionally (unless keyframed). User scale writes to clip.width/height,
+  // but those values were silently discarded, so the preview never updated.
+  //
+  // Fix: guard the conform override with `clip.baseWidth != null`.
+  // `baseWidth` is written by every scale UI operation; its presence signals
+  // that the user has manually set dimensions that must not be overridden.
+  describe("Bug — conform block must not override manually-scaled clip dimensions (evaluator)", () => {
+    const conformVideoAsset: MediaAsset = {
+      id: "asset-conform-1920",
+      name: "source.mp4",
+      path: "/media/source.mp4",
+      type: "video",
+      duration: 10,
+      size: 1000000,
+      width: 1920,
+      height: 1080,
+    };
+
+    const conformTrack = {
+      id: "track-conform",
+      clips: [] as string[],
+      visible: true,
+      locked: false,
+      label: "",
+      order: 0,
+    };
+
+    it("before user scale (no baseWidth): conform-derived dimensions are used", () => {
+      const clip: any = {
+        id: "clip-conform-no-scale",
+        trackId: "track-conform",
+        mediaId: "asset-conform-1920",
+        kind: "video",
+        startTime: 0,
+        duration: 10,
+        trimIn: 0,
+        trimOut: 10,
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+        opacity: 1,
+        rotation: 0,
+        // conform present, no baseWidth → evaluator must use resolveConform
+        conform: {
+          mode: "fill",
+          sourceWidth: 1920,
+          sourceHeight: 1080,
+          userScale: 1,
+          userOffsetX: 0,
+          userOffsetY: 0,
+        },
+      };
+
+      const scene = evaluateTimelineScene(
+        1,
+        [clip],
+        [conformTrack as any],
+        [conformVideoAsset],
+        baseProject,
+      );
+
+      expect(scene.visualLayers.length).toBe(1);
+      const layer = scene.visualLayers[0];
+      if (layer.layerType === "media") {
+        // resolveConform(fill, 1920×1080 src on 1920×1080 canvas) → w=1920, h=1080
+        expect(layer.width).toBe(1920);
+        expect(layer.height).toBe(1080);
+      }
+    });
+
+    it("after user scale (baseWidth set): clip.width/height take priority over conform", () => {
+      // Simulate state after the user has scaled to 444%.
+      const scaledWidth = Math.round(1920 * 4.44);   // 8525
+      const scaledHeight = Math.round(1080 * 4.44);  // 4795
+      const scaledX = 960 - scaledWidth / 2;
+      const scaledY = 540 - scaledHeight / 2;
+
+      const clip: any = {
+        id: "clip-conform-scaled",
+        trackId: "track-conform",
+        mediaId: "asset-conform-1920",
+        kind: "video",
+        startTime: 0,
+        duration: 10,
+        trimIn: 0,
+        trimOut: 10,
+        x: scaledX,
+        y: scaledY,
+        width: scaledWidth,
+        height: scaledHeight,
+        opacity: 1,
+        rotation: 0,
+        // baseWidth is the signal that the user has manually scaled
+        baseWidth: 1920,
+        baseHeight: 1080,
+        conform: {
+          mode: "fill",
+          sourceWidth: 1920,
+          sourceHeight: 1080,
+          userScale: 1, // conform still says 1× — user scaled to 444% via UI
+          userOffsetX: 0,
+          userOffsetY: 0,
+        },
+      };
+
+      const scene = evaluateTimelineScene(
+        1,
+        [clip],
+        [conformTrack as any],
+        [conformVideoAsset],
+        baseProject,
+      );
+
+      expect(scene.visualLayers.length).toBe(1);
+      const layer = scene.visualLayers[0];
+      if (layer.layerType === "media") {
+        // Must use user-scaled dimensions, NOT the conform-derived 1920×1080
+        expect(layer.width).toBe(scaledWidth);
+        expect(layer.height).toBe(scaledHeight);
+        expect(layer.x).toBe(scaledX);
+        expect(layer.y).toBe(scaledY);
+        expect(layer.width).toBeGreaterThan(1920);
+        expect(layer.height).toBeGreaterThan(1080);
+      }
+    });
+
+    it("keyframe-driven width still overrides conform regardless of baseWidth", () => {
+      const kfWidth = 640;
+      const clip: any = {
+        id: "clip-conform-kf",
+        trackId: "track-conform",
+        mediaId: "asset-conform-1920",
+        kind: "video",
+        startTime: 0,
+        duration: 10,
+        trimIn: 0,
+        trimOut: 10,
+        x: 640,
+        y: 270,
+        width: kfWidth,
+        height: 360,
+        opacity: 1,
+        rotation: 0,
+        // No baseWidth — conform would normally take over, but keyframe wins
+        conform: {
+          mode: "fill",
+          sourceWidth: 1920,
+          sourceHeight: 1080,
+          userScale: 1,
+          userOffsetX: 0,
+          userOffsetY: 0,
+        },
+        visualKeyframes: {
+          width: [
+            { id: "kf-w-0", time: 0, value: kfWidth, easing: "linear" },
+            { id: "kf-w-10", time: 10, value: kfWidth, easing: "linear" },
+          ],
+        },
+      };
+
+      const scene = evaluateTimelineScene(
+        1,
+        [clip],
+        [conformTrack as any],
+        [conformVideoAsset],
+        baseProject,
+      );
+
+      expect(scene.visualLayers.length).toBe(1);
+      const layer = scene.visualLayers[0];
+      if (layer.layerType === "media") {
+        expect(layer.width).toBe(kfWidth);
+      }
+    });
+
+    it("[REGRESSION] auto-centers keyframed scale around clip center during scrub and playback", () => {
+      const clip: any = {
+        id: "clip-scale-center-regression",
+        trackId: "track-conform",
+        mediaId: "asset-conform-1920",
+        kind: "video",
+        startTime: 0,
+        duration: 10,
+        trimIn: 0,
+        trimOut: 10,
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+        opacity: 1,
+        rotation: 0,
+        baseWidth: 1920,
+        baseHeight: 1080,
+        visualKeyframes: {
+          width: [
+            { id: "kf-w-0", time: 0, value: 1920, easing: "linear" },
+            { id: "kf-w-2", time: 2, value: 3840, easing: "linear" },
+          ],
+          height: [
+            { id: "kf-h-0", time: 0, value: 1080, easing: "linear" },
+            { id: "kf-h-2", time: 2, value: 2160, easing: "linear" },
+          ],
+        },
+      };
+
+      // At t = 0 (100% scale): center must be (960, 540)
+      const scene0 = evaluateTimelineScene(
+        0,
+        [clip],
+        [conformTrack as any],
+        [conformVideoAsset],
+        baseProject,
+      );
+      const layer0 = scene0.visualLayers[0];
+      expect(layer0.width).toBe(1920);
+      expect(layer0.height).toBe(1080);
+      expect(layer0.x).toBe(0);
+      expect(layer0.y).toBe(0);
+      expect(layer0.x + layer0.width / 2).toBe(960);
+      expect(layer0.y + layer0.height / 2).toBe(540);
+
+      // At t = 1 (150% midpoint): center must still be (960, 540)
+      const scene1 = evaluateTimelineScene(
+        1,
+        [clip],
+        [conformTrack as any],
+        [conformVideoAsset],
+        baseProject,
+      );
+      const layer1 = scene1.visualLayers[0];
+      expect(layer1.width).toBe(2880);
+      expect(layer1.height).toBe(1620);
+      expect(layer1.x).toBe(-480);
+      expect(layer1.y).toBe(-270);
+      expect(layer1.x + layer1.width / 2).toBe(960);
+      expect(layer1.y + layer1.height / 2).toBe(540);
+
+      // At t = 2 (200% scale): center must still be (960, 540)
+      const scene2 = evaluateTimelineScene(
+        2,
+        [clip],
+        [conformTrack as any],
+        [conformVideoAsset],
+        baseProject,
+      );
+      const layer2 = scene2.visualLayers[0];
+      expect(layer2.width).toBe(3840);
+      expect(layer2.height).toBe(2160);
+      expect(layer2.x).toBe(-960);
+      expect(layer2.y).toBe(-540);
+      expect(layer2.x + layer2.width / 2).toBe(960);
+      expect(layer2.y + layer2.height / 2).toBe(540);
+    });
+  });
 });

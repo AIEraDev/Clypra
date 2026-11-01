@@ -42,6 +42,11 @@ import {
 } from "@/lib/timeline/timelineViewport";
 import { getTrackVisualSpec } from "@/lib/timeline/trackTypeConfig";
 import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
+import { findKeyframeSnap } from "@/lib/timeline/snapTargets";
+import {
+  collectPlayheadSnapTargets,
+  evaluatePlayheadSnap,
+} from "@/lib/timeline/playheadSnapEngine";
 import { TIMELINE_ZOOM_MIN } from "@/lib/timeline/timelineZoom";
 
 import { TimelineToolbar } from "./TimelineToolbar";
@@ -214,7 +219,11 @@ export const Timeline: React.FC = () => {
   );
 
   // Consume extracted hooks
-  useTimelineZoom(containerRef, hasTimelineContent);
+  useTimelineZoom(
+    containerRef,
+    hasTimelineContent,
+    hasClips ? duration : 0,
+  );
   const { isDraggingOver, isDraggingMedia } =
     useTimelineTauriDrop(containerRef);
   const {
@@ -693,7 +702,34 @@ export const Timeline: React.FC = () => {
       );
 
       const frameRate = getPlaybackClock().frameRate;
-      transportSeek(clampAndSnapProgramTime(time, duration, frameRate), {
+      const timelineState = useTimelineStore.getState();
+      const snapTargets = collectPlayheadSnapTargets({
+        clips: timelineState.clips,
+        tracks: timelineState.tracks,
+        markers: timelineState.markers,
+        transitions: timelineState.transitions,
+        gaps: timelineState.gaps,
+        captionTracks: timelineState.captionTracks,
+        duration,
+      });
+
+      const snapResult = evaluatePlayheadSnap({
+        candidateTime: time,
+        pointerPx: x,
+        currentSnappedTarget: null,
+        anchorPointerPx: null,
+        snapTargets,
+        pixelsPerSecond,
+        snapEnabled: timelineState.snapEnabled,
+        bypassModifier: event.metaKey || event.ctrlKey,
+      });
+
+      const targetTime =
+        snapResult.snapped && snapResult.activeTarget
+          ? Math.max(0, Math.min(snapResult.time, duration))
+          : clampAndSnapProgramTime(time, duration, frameRate);
+
+      transportSeek(targetTime, {
         source: "timeline-click-seek",
         mode: "seek",
       });
@@ -802,6 +838,7 @@ export const Timeline: React.FC = () => {
 
           {hasTimelineContent && (
             <div
+              data-timeline-ruler-header="true"
               className="bg-timeline-bg overflow-hidden"
               style={{
                 position: "sticky",
@@ -818,6 +855,7 @@ export const Timeline: React.FC = () => {
                 scrollLeft={scrollLeft}
                 sequenceDuration={contentEnd}
                 startOffset={TIMELINE_CLIP_START_OFFSET_PX}
+                viewportWidthPx={viewportWidth}
               />
             </div>
           )}
@@ -1013,7 +1051,17 @@ export const Timeline: React.FC = () => {
                   timelineTimeToPixel(guide.time, pixelsPerSecond) +
                   getTimelineLabelColumnWidth(hasClips);
                 const guideColor =
-                  guide.type === "playhead"
+                  guide.type === "keyframe"
+                    ? "var(--color-accent)"
+                    : guide.type === "marker"
+                    ? "var(--color-marker-snap, #d946ef)"
+                    : guide.type === "transition"
+                    ? "var(--color-transition-snap, #f59e0b)"
+                    : guide.type === "sequence-boundary"
+                    ? "var(--color-boundary-snap, #ef4444)"
+                    : guide.type === "cut"
+                    ? "var(--color-snap-guide-clip, #00f0ff)"
+                    : guide.type === "playhead"
                     ? "var(--color-timeline-drop-indicator)"
                     : "var(--color-snap-guide-clip)";
 

@@ -1122,11 +1122,13 @@ export class NativeAudioPreviewController {
           this.silentTimeoutRetried = true;
           try {
             await stopNativeAudio();
-            if (!this.active || this.disposed || this.clock.state !== "playing") return;
+            if (!this.active || this.disposed || this.clock.state !== "playing")
+              return;
             // Re-apply output settings and restart from current clock position without blocking UI
             await setNativeAudioOutput(this.outputVolume, this.outputMuted);
             await seekNativeAudio(secondsToTicks(this.clock.time));
-            if (!this.active || this.disposed || this.clock.state !== "playing") return;
+            if (!this.active || this.disposed || this.clock.state !== "playing")
+              return;
             const nativeState = await nativePlayFromAudio();
             // Reset the probe window so the restarted stream gets a full 1.5 s.
             probe.startedAt = performance.now();
@@ -1247,6 +1249,7 @@ function hasSameClipLayout(
       clip.timelineStartTicks === candidate.timelineStartTicks &&
       clip.sourceStartTicks === candidate.sourceStartTicks &&
       clip.durationTicks === candidate.durationTicks &&
+      clip.clipSpeed === candidate.clipSpeed &&
       clip.channelMode === candidate.channelMode &&
       clip.downmix === candidate.downmix &&
       JSON.stringify(clip.channelMap ?? null) ===

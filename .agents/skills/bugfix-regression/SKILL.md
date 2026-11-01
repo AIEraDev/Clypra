@@ -28,6 +28,22 @@ Every bug fix must be evidence-driven. Never guess at a fix or apply superficial
 
 ## Step-by-Step Procedure
 
+> [!IMPORTANT]
+> **Single-Task Platform Discipline** — When the user presents a bug and proposes a fix:
+> 1. **Acknowledge & Analyze**: Review the reported symptom and the user's proposed solution.
+> 2. **Trade-Offs First (Strictly No Code)**: Evaluate architectural trade-offs, failure modes, invariants, and alternative approaches. Do not write or suggest any code at this stage.
+> 3. **Spec, Then Task List**: Formalize the agreed fix strategy into a concise specification followed by an ordered, atomic task list.
+> 4. **One Small Task at a Time**: Execute strictly one task per step; confirm completion before advancing.
+> 5. **Write Code Last**: Write the patch only after the task boundary and verification criteria (including the negative-control regression test) are settled.
+
+### Phase 0 — Trade-Off Alignment (No Code Yet)
+When a user arrives with a bug report and a proposed fix, **stop before reproducing or patching**:
+- Confirm your understanding of the symptom vs. root-cause hypothesis.
+- Evaluate the proposed fix: does it address the upstream invariant violation, or does it patch a downstream symptom?
+- Identify alternative root causes and approaches.
+- Present trade-offs and risks; wait for user confirmation of the chosen approach.
+- Only after alignment: produce the atomic task list (Phases 1–8 below) and begin Phase 1.
+
 ### 1. Reproduce the Defect
 - Formulate the smallest, deterministic reproduction scenario.
 - Identify the exact inputs, timeline state, asset characteristics (codec, sample rate, dimensions), and playback actions needed.

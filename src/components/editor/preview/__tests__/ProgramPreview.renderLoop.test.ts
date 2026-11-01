@@ -3763,7 +3763,13 @@ describe("CLY-PERF-003 — CPAL audio watchdog: silent-timeout stall regression"
     duration: 60,
     size: 5_000_000,
     streams: [
-      { index: 0, type: "audio", codec: "pcm_s16le", channels: 2, sampleRate: 48000 },
+      {
+        index: 0,
+        type: "audio",
+        codec: "pcm_s16le",
+        channels: 2,
+        sampleRate: 48000,
+      },
     ],
   });
 
@@ -3871,7 +3877,7 @@ describe("CLY-PERF-003 — CPAL audio watchdog: silent-timeout stall regression"
       source.tracks,
       source.assets,
       Math.max(0, 20 - 0.2), // 19.8
-      20 + 1.5,               // 21.5
+      20 + 1.5, // 21.5
     );
     expect(clipsAtGap).toHaveLength(0); // gap confirmed — no restart should fire
 
@@ -4075,15 +4081,16 @@ describe("CLY-PERF-004 — NativeAudioPreviewController Seek Precedence on Play"
     clock.setDuration(30);
     clock.setNativeClockAuthority(true);
 
-    const source: import("@/core/audio/nativeAudioPreviewController").NativeAudioPreviewSource = {
-      projectRevision: "p1:1",
-      frameRate: 30,
-      duration: 30,
-      audioTrackCount: 1,
-      clips: [],
-      tracks: [],
-      assets: [],
-    };
+    const source: import("@/core/audio/nativeAudioPreviewController").NativeAudioPreviewSource =
+      {
+        projectRevision: "p1:1",
+        frameRate: 30,
+        duration: 30,
+        audioTrackCount: 1,
+        clips: [],
+        tracks: [],
+        assets: [],
+      };
 
     const controller = new NativeAudioPreviewController({ clock, source });
     (controller as any).active = true;
@@ -4136,15 +4143,16 @@ describe("CLY-PERF-001 / Bug 15 — Native Audio Failure Clock Unblock", () => {
     clock.setNativeClockAuthority(true);
     clock.setDuration(30.0);
 
-    const source: import("@/core/audio/nativeAudioPreviewController").NativeAudioPreviewSource = {
-      projectRevision: "p1:1",
-      duration: 30.0,
-      frameRate: 30,
-      audioTrackCount: 1,
-      clips: [],
-      tracks: [],
-      assets: [],
-    };
+    const source: import("@/core/audio/nativeAudioPreviewController").NativeAudioPreviewSource =
+      {
+        projectRevision: "p1:1",
+        duration: 30.0,
+        frameRate: 30,
+        audioTrackCount: 1,
+        clips: [],
+        tracks: [],
+        assets: [],
+      };
 
     const controller = new NativeAudioPreviewController({ clock, source });
     (controller as any).active = true;
@@ -4278,6 +4286,710 @@ describe("CLY-PERF-002 — Paused Native Demand Acknowledgement", () => {
   });
 });
 
+describe("Bug — canvas transform panel sync", () => {
+  // ── Fixtures ────────────────────────────────────────────────────────────────
+  const makeVideoAsset = (): MediaAsset => ({
+    id: "asset-video-1",
+    name: "test-video.mp4",
+    path: "/tmp/test-video.mp4",
+    type: "video",
+    duration: 10,
+    width: 1920,
+    height: 1080,
+    size: 1024,
+  });
 
+  const makeImageAsset = (): MediaAsset => ({
+    id: "asset-image-1",
+    name: "test-image.png",
+    path: "/tmp/test-image.png",
+    type: "image",
+    duration: 0,
+    width: 800,
+    height: 600,
+    size: 512,
+  });
 
+  const makeAudioAsset = (): MediaAsset => ({
+    id: "asset-audio-1",
+    name: "test-audio.mp3",
+    path: "/tmp/test-audio.mp3",
+    type: "audio",
+    duration: 30,
+    size: 256,
+  });
 
+  // ── Task 1: createClipFromAsset baseWidth/baseHeight ───────────────────────
+
+  it("createClipFromAsset sets baseWidth/baseHeight for video clips", async () => {
+    const { createClipFromAsset } = await import("@/lib/timeline/timelineClip");
+
+    const asset = makeVideoAsset();
+    const clip = createClipFromAsset({
+      asset,
+      trackId: "track-1",
+      startTime: 0,
+      width: 1920,
+      height: 1080,
+    });
+
+    // baseWidth and baseHeight must be set and match the computed clip size
+    expect((clip as any).baseWidth).toBeDefined();
+    expect((clip as any).baseHeight).toBeDefined();
+    expect(typeof (clip as any).baseWidth).toBe("number");
+    expect(typeof (clip as any).baseHeight).toBe("number");
+    expect((clip as any).baseWidth).toBe(clip.width);
+    expect((clip as any).baseHeight).toBe(clip.height);
+  });
+
+  it("createClipFromAsset sets baseWidth/baseHeight for image clips", async () => {
+    const { createClipFromAsset } = await import("@/lib/timeline/timelineClip");
+
+    const asset = makeImageAsset();
+    const clip = createClipFromAsset({
+      asset,
+      trackId: "track-1",
+      startTime: 0,
+      width: 1920,
+      height: 1080,
+    });
+
+    expect((clip as any).baseWidth).toBeDefined();
+    expect((clip as any).baseHeight).toBeDefined();
+    expect((clip as any).baseWidth).toBe(clip.width);
+    expect((clip as any).baseHeight).toBe(clip.height);
+  });
+
+  it("createClipFromAsset does NOT set baseWidth for audio clips", async () => {
+    const { createClipFromAsset } = await import("@/lib/timeline/timelineClip");
+
+    const asset = makeAudioAsset();
+    const clip = createClipFromAsset({
+      asset,
+      trackId: "track-1",
+      startTime: 0,
+      width: 1920,
+      height: 1080,
+    });
+
+    expect((clip as any).baseWidth).toBeUndefined();
+    expect((clip as any).baseHeight).toBeUndefined();
+  });
+
+  // ── Task 2: handleMouseUp baseWidth preservation ───────────────────────────
+
+  it("canvas resize commit preserves pre-drag baseWidth (not post-drag)", async () => {
+    // This test exercises assembleBaseWidthForCommit — the exact code path in
+    // handleMouseUp that was the bug: newTransform.baseWidth was set to
+    // finalGeometry.width (post-drag) instead of clip.baseWidth (pre-drag).
+    const { assembleBaseWidthForCommit } =
+      await import("@/components/editor/transform/TransformOverlay");
+    const { createClipFromAsset } = await import("@/lib/timeline/timelineClip");
+
+    const asset = makeVideoAsset(); // 1920×1080
+    const clip = createClipFromAsset({
+      asset,
+      trackId: "track-1",
+      startTime: 0,
+      width: 1920,
+      height: 1080,
+    });
+
+    const preDragBaseWidth = (clip as any).baseWidth as number; // 1920 (from Task 1)
+    const preDragWidth = clip.width; // 1920
+    const postDragWidth = Math.round(preDragWidth * 0.5); // 960 — simulated 50% resize
+
+    // Assemble transforms exactly as handleMouseUp does before calling
+    // assembleBaseWidthForCommit.
+    const startTransform = {
+      x: 0,
+      y: 0,
+      width: preDragWidth,
+      height: clip.height,
+      rotation: 0,
+    };
+    const oldTransform: Record<string, any> = { ...startTransform };
+    const newTransform: Record<string, any> = {
+      x: 0,
+      y: 0,
+      width: postDragWidth, // finalGeometry.width (the resized size)
+      height: Math.round(clip.height * 0.5),
+      rotation: 0,
+    };
+
+    // THE OLD BUG WOULD DO: newTransform.baseWidth = finalGeometry.width = postDragWidth
+    // THE FIX DELEGATES TO:
+    assembleBaseWidthForCommit(
+      oldTransform,
+      newTransform,
+      (clip as any).baseWidth, // clip.baseWidth (pre-drag, from Task 1)
+      (clip as any).baseHeight,
+      startTransform.width,
+      startTransform.height,
+    );
+
+    // The fix: both old and new carry the PRE-DRAG base width, not the post-drag size.
+    expect(newTransform.baseWidth).toBe(preDragBaseWidth);
+    expect(newTransform.baseWidth).not.toBe(postDragWidth);
+    expect(oldTransform.baseWidth).toBe(preDragBaseWidth);
+
+    // Regression: the old bug would have set baseWidth = postDragWidth,
+    // making scalePercent = postDragWidth / postDragWidth = 100%.
+    // The fix: scalePercent = postDragWidth / preDragBaseWidth = 50%.
+    const scalePercentWithFix = Math.round(
+      (postDragWidth / newTransform.baseWidth) * 100,
+    );
+    expect(scalePercentWithFix).toBe(50);
+  });
+
+  it("scalePercent is correct after canvas resize with baseWidth always set", async () => {
+    const { createClipFromAsset } = await import("@/lib/timeline/timelineClip");
+
+    const asset = makeVideoAsset(); // 1920×1080
+    const clip = createClipFromAsset({
+      asset,
+      trackId: "track-1",
+      startTime: 0,
+      width: 1920,
+      height: 1080,
+    });
+
+    const baseWidth = (clip as any).baseWidth as number;
+
+    // After a 50% resize, the panel should show 50%, not 100%
+    const newWidth = Math.round(baseWidth * 0.5);
+    const scalePercent = Math.round((newWidth / baseWidth) * 100);
+    expect(scalePercent).toBe(50);
+
+    // After a 200% resize, the panel should show 200%
+    const newWidth2 = Math.round(baseWidth * 2);
+    const scalePercent2 = Math.round((newWidth2 / baseWidth) * 100);
+    expect(scalePercent2).toBe(200);
+
+    // scalePercent is always 100% at creation time
+    const creationScalePercent = Math.round((clip.width / baseWidth) * 100);
+    expect(creationScalePercent).toBe(100);
+  });
+
+  // ── Task 3: useDragTransformOverride hook ──────────────────────────────────
+
+  it("useDragTransformOverride returns live geometry during drag", async () => {
+    const { renderHook, act } = await import("@testing-library/react");
+    const { useDragTransformOverride } =
+      await import("@/hooks/useDragTransformOverride");
+    const { getTransformController, resetTransformController } =
+      await import("@/core/interactions/TransformController");
+
+    resetTransformController();
+    const controller = getTransformController();
+
+    const { result } = renderHook(() =>
+      useDragTransformOverride("clip-test-1"),
+    );
+
+    // Initially null
+    expect(result.current.dragOverride).toBeNull();
+
+    // Start a drag for this clip
+    act(() => {
+      controller.startTransform({
+        clipId: "clip-test-1",
+        handle: "se",
+        startMousePos: { x: 100, y: 100 },
+        aspectRatioLocked: true,
+        sourceAspectRatio: 16 / 9,
+        startTransform: { x: 0, y: 0, width: 400, height: 300, rotation: 0 },
+      });
+    });
+
+    // Publish geometry
+    const liveGeometry = {
+      x: 10,
+      y: 20,
+      width: 480,
+      height: 360,
+      rotation: 15,
+    };
+    act(() => {
+      controller.updateDragGeometry(liveGeometry);
+    });
+
+    // Wait for RAF to fire
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    expect(result.current.dragOverride).not.toBeNull();
+    expect(result.current.dragOverride?.x).toBe(10);
+    expect(result.current.dragOverride?.y).toBe(20);
+    expect(result.current.dragOverride?.width).toBe(480);
+    expect(result.current.dragOverride?.rotation).toBe(15);
+
+    resetTransformController();
+  });
+
+  it("useDragTransformOverride returns null after drag end", async () => {
+    const { renderHook, act } = await import("@testing-library/react");
+    const { useDragTransformOverride } =
+      await import("@/hooks/useDragTransformOverride");
+    const { getTransformController, resetTransformController } =
+      await import("@/core/interactions/TransformController");
+
+    resetTransformController();
+    const controller = getTransformController();
+
+    const { result } = renderHook(() =>
+      useDragTransformOverride("clip-test-end"),
+    );
+
+    // Start drag
+    act(() => {
+      controller.startTransform({
+        clipId: "clip-test-end",
+        handle: "se",
+        startMousePos: { x: 100, y: 100 },
+        aspectRatioLocked: true,
+        sourceAspectRatio: 16 / 9,
+        startTransform: { x: 0, y: 0, width: 400, height: 300, rotation: 0 },
+      });
+      controller.updateDragGeometry({
+        x: 5,
+        y: 5,
+        width: 450,
+        height: 338,
+        rotation: 0,
+      });
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    // Should be live during drag
+    expect(result.current.dragOverride).not.toBeNull();
+
+    // End the drag
+    act(() => {
+      controller.endTransform();
+    });
+
+    expect(result.current.dragOverride).toBeNull();
+
+    resetTransformController();
+  });
+
+  it("useDragTransformOverride only overrides for matching clipId", async () => {
+    const { renderHook, act } = await import("@testing-library/react");
+    const { useDragTransformOverride } =
+      await import("@/hooks/useDragTransformOverride");
+    const { getTransformController, resetTransformController } =
+      await import("@/core/interactions/TransformController");
+
+    resetTransformController();
+    const controller = getTransformController();
+
+    // Hook subscribed to "clip-A"
+    const { result } = renderHook(() => useDragTransformOverride("clip-A"));
+
+    // Drag starts on "clip-B" (different clip)
+    act(() => {
+      controller.startTransform({
+        clipId: "clip-B",
+        handle: "se",
+        startMousePos: { x: 100, y: 100 },
+        aspectRatioLocked: true,
+        sourceAspectRatio: 16 / 9,
+        startTransform: { x: 0, y: 0, width: 400, height: 300, rotation: 0 },
+      });
+      controller.updateDragGeometry({
+        x: 50,
+        y: 50,
+        width: 500,
+        height: 375,
+        rotation: 0,
+      });
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    // clip-A hook must remain null — not overriding a different clip's drag
+    expect(result.current.dragOverride).toBeNull();
+
+    resetTransformController();
+  });
+
+  it("useDragTransformOverride: onDragEnd for clip-B does not clear clip-A hook", async () => {
+    // Regression for finding 2: onDragEnd was unconditional — any drag end
+    // would call setDragOverride(null) on every mounted hook instance, including
+    // hooks for different clips. This test mounts hooks for clip-A and clip-B
+    // simultaneously and verifies that ending clip-B's drag does not clear
+    // clip-A's live override.
+    const { renderHook, act } = await import("@testing-library/react");
+    const { useDragTransformOverride } =
+      await import("@/hooks/useDragTransformOverride");
+    const { getTransformController, resetTransformController } =
+      await import("@/core/interactions/TransformController");
+
+    resetTransformController();
+    const controller = getTransformController();
+
+    // Mount hook for clip-A
+    const { result: resultA } = renderHook(() =>
+      useDragTransformOverride("clip-A"),
+    );
+    // Mount hook for clip-B
+    const { result: resultB } = renderHook(() =>
+      useDragTransformOverride("clip-B"),
+    );
+
+    // Start drag on clip-A and push geometry
+    act(() => {
+      controller.startTransform({
+        clipId: "clip-A",
+        handle: "se",
+        startMousePos: { x: 0, y: 0 },
+        aspectRatioLocked: true,
+        sourceAspectRatio: 16 / 9,
+        startTransform: { x: 10, y: 10, width: 300, height: 200, rotation: 0 },
+      });
+      controller.updateDragGeometry({
+        x: 15,
+        y: 15,
+        width: 350,
+        height: 233,
+        rotation: 0,
+      });
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    // clip-A hook is live
+    expect(resultA.current.dragOverride).not.toBeNull();
+    // clip-B hook remains null (correct — it is a different drag)
+    expect(resultB.current.dragOverride).toBeNull();
+
+    // Now end the clip-A drag
+    act(() => {
+      controller.endTransform();
+    });
+
+    // clip-A hook should clear (its own drag ended)
+    expect(resultA.current.dragOverride).toBeNull();
+    // clip-B hook was never live, must still be null (not double-cleared)
+    expect(resultB.current.dragOverride).toBeNull();
+
+    resetTransformController();
+  });
+
+  it("useDragTransformOverride receives geometry immediately on startTransform (no first-frame null)", async () => {
+    // Regression for finding 3: startTransform seeded _currentDragGeometry but
+    // did NOT call _dragGeometryListeners, so the hook saw null until the first
+    // updateDragGeometry call. On slow machines this caused a one-frame snap
+    // back to the stored position at drag start.
+    const { renderHook, act } = await import("@testing-library/react");
+    const { useDragTransformOverride } =
+      await import("@/hooks/useDragTransformOverride");
+    const { getTransformController, resetTransformController } =
+      await import("@/core/interactions/TransformController");
+
+    resetTransformController();
+    const controller = getTransformController();
+
+    const { result } = renderHook(() =>
+      useDragTransformOverride("clip-start-frame"),
+    );
+
+    // Initially null
+    expect(result.current.dragOverride).toBeNull();
+
+    // Start transform — after the fix this publishes geometry to listeners.
+    // No updateDragGeometry call, simulating the window before first mousemove.
+    act(() => {
+      controller.startTransform({
+        clipId: "clip-start-frame",
+        handle: "move",
+        startMousePos: { x: 200, y: 150 },
+        aspectRatioLocked: false,
+        sourceAspectRatio: 16 / 9,
+        startTransform: {
+          x: 50,
+          y: 60,
+          width: 640,
+          height: 360,
+          rotation: 0,
+        },
+      });
+    });
+
+    // Wait for the RAF scheduled by the geometry listener to fire
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    // After the fix: hook should already have geometry from startTransform alone,
+    // no updateDragGeometry call needed.
+    expect(result.current.dragOverride).not.toBeNull();
+    expect(result.current.dragOverride?.x).toBe(50);
+    expect(result.current.dragOverride?.y).toBe(60);
+    expect(result.current.dragOverride?.width).toBe(640);
+
+    resetTransformController();
+  });
+});
+
+// ─── Feature — canvas blur background ─────────────────────────────────────
+
+describe("Feature — canvas blur background", () => {
+  // Import the functions under test lazily to avoid top-level module side-effects
+  // consistent with the pattern used by other dynamic-import tests in this file.
+
+  it("getCanvasBackgroundLayer blur type returns CSS with filter blur", async () => {
+    const { getCanvasBackgroundLayer } =
+      await import("@/components/editor/preview/canvasBackground");
+    const layer = getCanvasBackgroundLayer({
+      type: "blur",
+      blurRadius: 16,
+      isTransparent: false,
+      opacity: 1,
+    });
+    expect(layer.style.filter).toContain("blur(16px)");
+  });
+
+  it("getCanvasBackgroundLayer blur with mediaUrl sets backgroundImage", async () => {
+    const { getCanvasBackgroundLayer } =
+      await import("@/components/editor/preview/canvasBackground");
+    const url = "data:image/png;base64,abc";
+    const layer = getCanvasBackgroundLayer({
+      type: "blur",
+      blurRadius: 8,
+      mediaUrl: url,
+      isTransparent: false,
+      opacity: 1,
+    });
+    expect(layer.style.backgroundImage).toContain(url);
+  });
+
+  it("getCanvasBackgroundLayer blur without mediaUrl has no backgroundImage", async () => {
+    const { getCanvasBackgroundLayer } =
+      await import("@/components/editor/preview/canvasBackground");
+    const layer = getCanvasBackgroundLayer({
+      type: "blur",
+      blurRadius: 8,
+      isTransparent: false,
+      opacity: 1,
+    });
+    expect(layer.style.backgroundImage).toBeUndefined();
+  });
+
+  it("getCanvasBackgroundLayer blur uses blurRadius default of 80 when not specified", async () => {
+    const { getCanvasBackgroundLayer } =
+      await import("@/components/editor/preview/canvasBackground");
+    const layer = getCanvasBackgroundLayer({
+      type: "blur",
+      isTransparent: false,
+      opacity: 1,
+    });
+    expect(layer.style.filter).toContain("blur(80px)");
+  });
+
+  it("buildNativeVideoProjectRequest with blur canvasBackground injects synthetic layer at zIndex=-1", async () => {
+    const { buildNativeVideoProjectRequest } =
+      await import("@/components/editor/preview/nativeVideoPreview");
+    const scene = buildMinimalBlurScene({
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+      blurRadius: 16,
+      videoPath: "/test/video.mp4",
+      layerId: "clip-1",
+      zIndex: 0,
+    });
+    const result = buildNativeVideoProjectRequest(scene);
+    expect(result).not.toBeNull();
+    const blurBgLayer = result!.layers.find((l) =>
+      (l.layerId ?? "").endsWith(":blur-bg"),
+    );
+    expect(blurBgLayer).toBeDefined();
+    expect(blurBgLayer!.zIndex).toBe(-1);
+  });
+
+  it("synthetic blur layer has blurStrength=1 and correct blurRadius", async () => {
+    const { buildNativeVideoProjectRequest } =
+      await import("@/components/editor/preview/nativeVideoPreview");
+    const scene = buildMinimalBlurScene({
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+      blurRadius: 16,
+      videoPath: "/test/video.mp4",
+      layerId: "clip-1",
+      zIndex: 0,
+    });
+    const result = buildNativeVideoProjectRequest(scene);
+    expect(result).not.toBeNull();
+    const blurBgLayer = result!.layers.find((l) =>
+      (l.layerId ?? "").endsWith(":blur-bg"),
+    );
+    expect(blurBgLayer).toBeDefined();
+    expect(blurBgLayer!.colorGrade?.blurStrength).toBe(1);
+    expect(blurBgLayer!.colorGrade?.blurRadius).toBe(16);
+  });
+
+  it("synthetic blur layer uses same videoPath and timeSecs as primary layer", async () => {
+    const { buildNativeVideoProjectRequest } =
+      await import("@/components/editor/preview/nativeVideoPreview");
+    const videoPath = "/test/primary_video.mp4";
+    const scene = buildMinimalBlurScene({
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+      blurRadius: 8,
+      videoPath,
+      layerId: "clip-primary",
+      zIndex: 0,
+      sourceTime: 2.5,
+    });
+    const result = buildNativeVideoProjectRequest(scene);
+    expect(result).not.toBeNull();
+    const primaryLayer = result!.layers.find(
+      (l) => l.layerId === "clip-primary",
+    );
+    const blurBgLayer = result!.layers.find((l) =>
+      (l.layerId ?? "").endsWith(":blur-bg"),
+    );
+    expect(blurBgLayer).toBeDefined();
+    expect(blurBgLayer!.videoPath).toBe(primaryLayer!.videoPath);
+    expect(blurBgLayer!.timeSecs).toBe(primaryLayer!.timeSecs);
+  });
+
+  it("buildNativeVideoProjectRequest with blur but no video layers does NOT inject blur layer", async () => {
+    const { buildNativeVideoProjectRequest } =
+      await import("@/components/editor/preview/nativeVideoPreview");
+    const scene: import("@/core/evaluation/types").EvaluatedScene = {
+      visualLayers: [],
+      audioLayers: [],
+      transitions: [],
+      activeFilter: undefined,
+      metadata: {
+        time: 0,
+        canvasWidth: 1920,
+        canvasHeight: 1080,
+        frameRate: 30,
+        isGap: false,
+        canvasBackground: {
+          type: "blur",
+          blurRadius: 16,
+          isTransparent: false,
+          opacity: 1,
+        },
+      },
+    };
+    const result = buildNativeVideoProjectRequest(scene);
+    // With no video layers, result may be null or have no blur-bg layer
+    if (result !== null) {
+      const blurBgLayer = result.layers.find((l) =>
+        (l.layerId ?? "").endsWith(":blur-bg"),
+      );
+      expect(blurBgLayer).toBeUndefined();
+    }
+    // null result is also acceptable (no layers → nothing to render)
+  });
+
+  it("buildNativeVideoProjectRequest with blur canvasBackground sets clearColor=[0,0,0,0]", async () => {
+    const { buildNativeVideoProjectRequest } =
+      await import("@/components/editor/preview/nativeVideoPreview");
+    const scene = buildMinimalBlurScene({
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+      blurRadius: 16,
+      videoPath: "/test/video.mp4",
+      layerId: "clip-1",
+      zIndex: 0,
+    });
+    const result = buildNativeVideoProjectRequest(scene);
+    expect(result).not.toBeNull();
+    // blur type should produce a transparent clear color
+    expect(result!.clearColor).toEqual([0, 0, 0, 0]);
+  });
+
+  it("synthetic blur layer with blurRadius=0 has blurStrength=0 (No Blur guard)", async () => {
+    const { buildNativeVideoProjectRequest } =
+      await import("@/components/editor/preview/nativeVideoPreview");
+    const scene = buildMinimalBlurScene({
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+      blurRadius: 0,
+      videoPath: "/test/video.mp4",
+      layerId: "clip-1",
+      zIndex: 0,
+    });
+    const result = buildNativeVideoProjectRequest(scene);
+    expect(result).not.toBeNull();
+    const blurBgLayer = result!.layers.find((l) =>
+      (l.layerId ?? "").endsWith(":blur-bg"),
+    );
+    // The "No Blur" preset (blurRadius:0) should produce blurStrength:0 to
+    // suppress the blur pass entirely — matching the guard in getNativeColorGrade.
+    if (blurBgLayer !== undefined) {
+      expect(blurBgLayer.colorGrade?.blurStrength).toBe(0);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Helper: build a minimal EvaluatedScene with one video layer and blur background
+// ---------------------------------------------------------------------------
+interface BlurSceneOptions {
+  canvasWidth: number;
+  canvasHeight: number;
+  blurRadius: number;
+  videoPath: string;
+  layerId: string;
+  zIndex: number;
+  sourceTime?: number;
+}
+
+function buildMinimalBlurScene(
+  opts: BlurSceneOptions,
+): import("@/core/evaluation/types").EvaluatedScene {
+  const mediaLayer: import("@/core/evaluation/types").EvaluatedMediaLayer = {
+    layerType: "media",
+    layerId: opts.layerId,
+    clipId: opts.layerId,
+    role: "primary",
+    zIndex: opts.zIndex,
+    mediaId: "asset-1",
+    mediaType: "video",
+    sourcePath: opts.videoPath,
+    sourceTime: opts.sourceTime ?? 0,
+    x: 0,
+    y: 0,
+    width: opts.canvasWidth,
+    height: opts.canvasHeight,
+    rotation: 0,
+    opacity: 1,
+    blendMode: "normal",
+    inTransition: false,
+  };
+
+  return {
+    visualLayers: [mediaLayer],
+    audioLayers: [],
+    transitions: [],
+    activeFilter: undefined,
+    metadata: {
+      time: 0,
+      canvasWidth: opts.canvasWidth,
+      canvasHeight: opts.canvasHeight,
+      frameRate: 30,
+      isGap: false,
+      canvasBackground: {
+        type: "blur",
+        blurRadius: opts.blurRadius,
+        isTransparent: false,
+        opacity: 1,
+      },
+    },
+  };
+}

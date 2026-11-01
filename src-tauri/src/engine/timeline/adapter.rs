@@ -138,11 +138,59 @@ impl ProjectModelAdapter {
                         .or_else(|| c.get("trim_out"))
                         .and_then(|v| v.as_f64())
                         .unwrap_or(dur_secs);
-                    let speed = c.get("speed").and_then(|v| v.as_f64()).unwrap_or(1.0);
+
+                    // Resolve playbackMapping → (source_start, playback_rate).
+                    // Priority: playbackMapping.kind > legacy clip.speed.
+                    let legacy_speed = c.get("speed").and_then(|v| v.as_f64()).unwrap_or(1.0);
+                    let pm = c.get("playbackMapping");
+                    let pm_kind = pm.and_then(|m| m.get("kind")).and_then(|v| v.as_str());
+
+                    let (effective_source_start_secs, effective_speed) = match pm_kind {
+                        Some("reverse") => {
+                            // Reverse: source time walks backward from trimOut.
+                            // TimeMapping::source_time_at uses: source_start + delta * rate
+                            // With rate<0 and source_start = trimOut, this gives trimOut - delta*|speed|
+                            let spd = pm
+                                .and_then(|m| m.get("speed"))
+                                .and_then(|v| v.as_f64())
+                                .unwrap_or(1.0)
+                                .max(0.001);
+                            (trim_out, -spd)
+                        }
+                        Some("freeze") => {
+                            // Freeze: hold a single source frame; rate = 0.
+                            let at = pm
+                                .and_then(|m| m.get("atSourceTime"))
+                                .and_then(|v| v.as_f64())
+                                .unwrap_or(trim_in);
+                            (at, 0.0)
+                        }
+                        Some("speed_ramp") => {
+                            // Variable-rate ramp: use first keyframe speed as approximation.
+                            // Full ramp support would require per-frame evaluation.
+                            let approx_speed = pm
+                                .and_then(|m| m.get("keyframes"))
+                                .and_then(|kfs| kfs.get(0))
+                                .and_then(|kf| kf.get("speed"))
+                                .and_then(|v| v.as_f64())
+                                .unwrap_or(1.0)
+                                .max(0.001);
+                            (trim_in, approx_speed)
+                        }
+                        Some("normal") => {
+                            let spd = pm
+                                .and_then(|m| m.get("speed"))
+                                .and_then(|v| v.as_f64())
+                                .unwrap_or(legacy_speed)
+                                .max(0.001);
+                            (trim_in, spd)
+                        }
+                        _ => (trim_in, legacy_speed.max(0.001)),
+                    };
 
                     let timeline_start = MediaTime::from_secs_f64(start_secs);
                     let timeline_end = MediaTime::from_secs_f64(start_secs + dur_secs);
-                    let source_start = MediaTime::from_secs_f64(trim_in);
+                    let source_start = MediaTime::from_secs_f64(effective_source_start_secs);
                     let source_end = MediaTime::from_secs_f64(trim_out);
 
                     let x = c.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
@@ -185,7 +233,7 @@ impl ProjectModelAdapter {
                         timeline_end,
                         source_start,
                         source_end,
-                        time_mapping: TimeMapping::new(timeline_start, source_start, speed),
+                        time_mapping: TimeMapping::new(timeline_start, source_start, effective_speed),
                         transform: LayerTransform {
                             x,
                             y,

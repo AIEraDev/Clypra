@@ -37,7 +37,7 @@ describe("PropertiesPanel collapse and expand behavior", () => {
     expect(onToggleCollapse).toHaveBeenCalledTimes(1);
 
     const shortcutButton = screen.getByTitle(
-      "Expand Canvas & Background Settings",
+      "Expand Project Details",
     );
     expect(shortcutButton).toBeDefined();
     fireEvent.click(shortcutButton);

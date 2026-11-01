@@ -338,7 +338,7 @@ export interface RippleComputeMessage {
   lockedTrackIds: string[];
 }
 
-export type SnapGuideType = "clip-start" | "clip-end" | "playhead" | "marker";
+export type SnapGuideType = "clip-start" | "clip-end" | "playhead" | "marker" | "keyframe";
 
 export interface SnapResult {
   type: "SNAP_RESULT";

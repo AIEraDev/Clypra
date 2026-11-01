@@ -55,6 +55,8 @@ pub async fn load_native_audio_clip(
     downmix: String,
     channel_map: Option<Vec<usize>>,
     preserve_pitch: bool,
+    #[allow(unused_variables)]
+    clip_speed: Option<f32>,
 ) -> Result<NativeAudioClipStatus, String> {
     let clock = audio_clock(&app)?;
     let (sample_rate, channels) = {
@@ -89,6 +91,7 @@ pub async fn load_native_audio_clip(
         downmix,
         channel_map,
         preserve_pitch,
+        clip_speed.unwrap_or(1.0),
         sample_rate,
         channels,
     )
@@ -160,6 +163,7 @@ pub async fn replace_native_audio_clips(
                 downmix: request.downmix,
                 channel_map: request.channel_map,
                 preserve_pitch: request.preserve_pitch,
+                clip_speed: request.clip_speed,
             });
             continue;
         }
@@ -213,6 +217,7 @@ pub async fn replace_native_audio_clips(
                 downmix,
                 channel_map: request.channel_map.filter(|map| !map.is_empty()),
                 preserve_pitch: request.preserve_pitch,
+                clip_speed: request.clip_speed,
             });
             continue;
         }
@@ -234,6 +239,7 @@ pub async fn replace_native_audio_clips(
             request.downmix,
             request.channel_map,
             request.preserve_pitch,
+            request.clip_speed,
             sample_rate,
             channels,
         )
@@ -278,6 +284,7 @@ pub async fn replace_native_audio_clips(
                     downmix: "auto".to_string(),
                     channel_map: None,
                     preserve_pitch: false,
+                    clip_speed: 1.0,
                 });
             }
         }

@@ -1,31 +1,34 @@
 import { useEffect } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-
 import { useI18n } from "@/i18n";
 import { ClipKind } from "@/types";
 import {
   PropertyTabsType,
   TextPropertyTab,
   VideoPropertyTab,
+  ImagePropertyTab,
   AudioPropertyTab,
 } from "../types";
-import { TEXT_TABS, VIDEO_TABS, AUDIO_TABS } from "../data";
-
+import { TEXT_TABS, VIDEO_TABS, IMAGE_TABS, AUDIO_TABS } from "../data";
 interface PropertyPanelHeaderType {
   collapsed: boolean;
   clipKind: ClipKind | undefined;
   activePropertyTab:
     | TextPropertyTab
     | VideoPropertyTab
+    | ImagePropertyTab
     | AudioPropertyTab
     | null;
   setActivePropertyTab: (
-    tab: TextPropertyTab | VideoPropertyTab | AudioPropertyTab,
+    tab:
+      | TextPropertyTab
+      | VideoPropertyTab
+      | ImagePropertyTab
+      | AudioPropertyTab,
   ) => void;
   onToggleCollapse?: () => void;
   hasAudioTrack?: boolean;
 }
-
 const PropertyPanelHeader: React.FC<PropertyPanelHeaderType> = ({
   collapsed,
   clipKind,
@@ -37,30 +40,30 @@ const PropertyPanelHeader: React.FC<PropertyPanelHeaderType> = ({
   const allTabs: PropertyTabsType[] =
     clipKind === "text"
       ? TEXT_TABS
-      : clipKind === "video" || clipKind === "image"
+      : clipKind === "video"
         ? VIDEO_TABS
-        : clipKind === "audio"
-          ? AUDIO_TABS
-          : [];
-
+        : clipKind === "image"
+          ? IMAGE_TABS
+          : clipKind === "audio"
+            ? AUDIO_TABS
+            : [];
   // Filter out audio tab if video has no audio track
   const tabs = allTabs.filter((tab) => tab.id !== "audio" || hasAudioTrack);
-
   const { t } = useI18n();
-
   // Reset active tab whenever the clip kind changes
   useEffect(() => {
     setActivePropertyTab(tabs[0]?.id ?? null);
   }, [clipKind]);
-
   function handleActiveTab(
-    tabId: TextPropertyTab | VideoPropertyTab | AudioPropertyTab,
+    tabId:
+      | TextPropertyTab
+      | VideoPropertyTab
+      | ImagePropertyTab
+      | AudioPropertyTab,
   ) {
     setActivePropertyTab(tabId);
   }
-
   if (!activePropertyTab || !tabs.length) return;
-
   return (
     <div>
       {collapsed ? (
@@ -95,7 +98,6 @@ const PropertyPanelHeader: React.FC<PropertyPanelHeaderType> = ({
               );
             })}
           </div>
-
           {onToggleCollapse && (
             <button
               onClick={onToggleCollapse}
@@ -110,5 +112,4 @@ const PropertyPanelHeader: React.FC<PropertyPanelHeaderType> = ({
     </div>
   );
 };
-
 export default PropertyPanelHeader;

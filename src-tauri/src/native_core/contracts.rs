@@ -309,6 +309,16 @@ pub struct ColorGradeSnapshot {
     #[serde(default)]
     pub cross_process_amount: f32,
     #[serde(default)]
+    pub highlights: f32,
+    #[serde(default)]
+    pub shadows: f32,
+    #[serde(default)]
+    pub whites: f32,
+    #[serde(default)]
+    pub blacks: f32,
+    #[serde(default)]
+    pub fade: f32,
+    #[serde(default)]
     pub channel_mix_r: f32,
     #[serde(default)]
     pub channel_mix_g: f32,
@@ -425,6 +435,12 @@ pub struct ColorGradeSnapshot {
     pub chromatic_angle: f32,
     #[serde(default)]
     pub chromatic_edge_feather: f32,
+    // Per-channel HSL (8 channels max)
+    #[serde(default)]
+    pub hsl_channel_count: u32,
+    /// Each entry: [hue_offset_rad, sat_offset, bri_offset, center_hue_rad]
+    #[serde(default)]
+    pub hsl_channels: Vec<[f32; 4]>,
 }
 
 fn default_color_grade_multiplier() -> f32 {

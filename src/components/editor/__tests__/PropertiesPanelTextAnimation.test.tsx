@@ -75,7 +75,6 @@ describe("PropertiesPanel text clip animation and transform keyframe integration
     fireEvent.click(animationTabButton);
 
     // Verify MotionPresetSection is rendered
-    expect(screen.getByText("Motion & Animation")).toBeDefined();
     expect(screen.getByText("In")).toBeDefined();
     expect(screen.getByText("Out")).toBeDefined();
     expect(screen.getByText("Loop")).toBeDefined();
@@ -85,25 +84,13 @@ describe("PropertiesPanel text clip animation and transform keyframe integration
     expect(screen.queryByText("Exit Animation")).toBeNull();
   });
 
-  it("renders TransformSection with spatial keyframe controls when switching to Transform tab", () => {
+  it("renders TextTransformSection with spatial controls on Text Style tab", () => {
     render(<PropertiesPanel />);
 
-    // Click "Transform" tab
-    const transformTabButton = screen.getByRole("button", {
-      name: /Transform/i,
-    });
-    expect(transformTabButton).toBeDefined();
-    fireEvent.click(transformTabButton);
-
-    // Verify Transform section is present with keyframe nav controls
+    // Verify Transform section is present directly within Text Style tab (Basic sub-tab)
+    expect(screen.getByText("Transform")).toBeDefined();
+    expect(screen.getByText("Scale")).toBeDefined();
     expect(screen.getByText("Position")).toBeDefined();
-    expect(screen.getByText("Size")).toBeDefined();
-    expect(screen.getByText("Rotation")).toBeDefined();
-    expect(screen.getByText("Opacity")).toBeDefined();
-    expect(screen.getByTitle("Toggle Timeline Keyframe Lanes")).toBeDefined();
-
-    // Keyframe diamond toggle buttons exist for transform properties
-    const keyframeToggles = screen.getAllByTitle(/keyframe for/i);
-    expect(keyframeToggles.length).toBeGreaterThanOrEqual(4);
+    expect(screen.getByText("Plane rotation")).toBeDefined();
   });
 });

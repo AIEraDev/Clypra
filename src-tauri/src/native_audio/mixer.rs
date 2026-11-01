@@ -366,7 +366,14 @@ pub(crate) fn sample_at_with_cache(
         return None;
     }
 
-    let source_position = relative_ticks as f64 * clip_sample_rate as f64 / TICKS_PER_SECOND as f64;
+    // Per-clip speed remapping: advance through source samples at clip_speed×
+    // the timeline rate. This is independent of the global transport playback_speed
+    // (which controls the overall clock rate). At clip_speed=2.0 the clip plays
+    // twice as many source samples per timeline tick — i.e. 2× fast motion.
+    let source_position = relative_ticks as f64
+        * clip_sample_rate as f64
+        * clip.clip_speed.max(0.001) as f64
+        / TICKS_PER_SECOND as f64;
     let interpolate = |samples: &[f32], source_position: f64, source_channel: usize| {
         let source_index = source_position.floor().max(0.0) as usize;
         let source_fraction = (source_position - source_index as f64) as f32;

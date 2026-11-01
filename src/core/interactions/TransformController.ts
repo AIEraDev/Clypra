@@ -187,6 +187,15 @@ export class TransformController {
       rotation: state.startTransform.rotation ?? 0,
       conform: state.startTransform.conform,
     };
+    // Publish initial geometry so fast-path subscribers (e.g. useDragTransformOverride)
+    // receive a non-null value on the first RAF after drag start, eliminating the
+    // one-frame snap from live position back to stored position on slow machines.
+    const sessionId = this._dragSessionId;
+    const revision = this._dragRevision;
+    const initialGeometry = this._currentDragGeometry;
+    this._dragGeometryListeners.forEach((listener) => {
+      listener(initialGeometry, sessionId, revision);
+    });
     this._notifyListeners();
   }
 

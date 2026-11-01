@@ -49,6 +49,12 @@ struct ColorGradeUniforms {
     vibrance_protected_hue_b: f32,
     lift: f32,
     cross_process_amount: f32,
+    // Tonal range luma adjustments [-1.0, 1.0], 0.0 = neutral
+    highlights: f32,         // Reduce/boost bright tones
+    shadows: f32,            // Reduce/boost dark tones
+    whites: f32,             // Hard clip ceiling
+    blacks: f32,             // Hard clip floor
+    fade: f32,               // Mix towards mid-gray [0.0, 1.0]
     channel_mix: vec4<f32>, // RGB weights + enabled flag
     duotone_dark: vec4<f32>, // RGB + enabled flag
     duotone_light: vec4<f32>, // RGB + padding
@@ -71,6 +77,14 @@ struct ColorGradeUniforms {
     particle_color: vec4<f32>, // RGB + mode/fade flag
     particle_time: vec4<f32>, // time + padding
     chromatic_params: vec4<f32>, // amount, angle_degrees, edge_feather, enabled_flag
+    // Per-channel HSL (8 color ranges: red/orange/yellow/green/cyan/blue/purple/magenta)
+    // Each vec4: [hue_offset_rad, sat_offset (-1..1), bri_offset (-1..1), center_hue_rad]
+    // Layout: hsl_channel_count(u32) + 3×f32 pad = 16 bytes, then 8×vec4 = 128 bytes
+    hsl_channel_count: u32,
+    _hsl_pad0: f32,
+    _hsl_pad1: f32,
+    _hsl_pad2: f32,
+    hsl_channels: array<vec4<f32>, 8>,
 };
 
 struct LayerUniforms {
@@ -239,19 +253,82 @@ fn hsv_to_rgb(color: vec3<f32>) -> vec3<f32> {
     return color.z * mix(k.xxx, clamp(p - k.xxx, vec3<f32>(0.0), vec3<f32>(1.0)), color.y);
 }
 
+// ---------------------------------------------------------------------------
+// Smooth Gaussian blur — two fully-independent 1-D passes averaged together.
+//
+// Why independent passes?  A true separable blur feeds the H-pass output into
+// the V-pass, which requires two render targets.  In a single-pass shader we
+// approximate it by running H and V each against the *original* texture and
+// averaging the two blurred results.  Averaging eliminates the directional
+// streaking that appeared when the V-pass used the H-blurred centre tap mixed
+// with raw vertical samples.
+//
+// Coverage:  each pass uses 17 taps (±8 steps).  Step size = radius / 8 px,
+// so the kernel spans ±radius pixels — wide enough to match  blur
+// at the preset radii (40 / 80 / 120 / 180 px).
+//
+// Weights:  Gaussian with σ = 3 (in tap units), pre-normalised so the 17-tap
+// sum equals exactly 1.0.
+// ---------------------------------------------------------------------------
 fn sample_blurred_color(uv: vec2<f32>, radius: f32) -> vec4<f32> {
-    let dimensions = vec2<f32>(textureDimensions(t_diffuse));
-    let offset = vec2<f32>(radius) / max(dimensions, vec2<f32>(1.0));
-    var color = textureSampleLevel(t_diffuse, s_diffuse, uv, 0.0) * 0.227027;
-    color += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(offset.x, 0.0), 0.0) * 0.1945946;
-    color += textureSampleLevel(t_diffuse, s_diffuse, uv - vec2<f32>(offset.x, 0.0), 0.0) * 0.1945946;
-    color += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0, offset.y), 0.0) * 0.1945946;
-    color += textureSampleLevel(t_diffuse, s_diffuse, uv - vec2<f32>(0.0, offset.y), 0.0) * 0.1945946;
-    color += textureSampleLevel(t_diffuse, s_diffuse, uv + offset, 0.0) * 0.024393;
-    color += textureSampleLevel(t_diffuse, s_diffuse, uv - offset, 0.0) * 0.024393;
-    color += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(offset.x, -offset.y), 0.0) * 0.024393;
-    color += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(-offset.x, offset.y), 0.0) * 0.024393;
-    return color;
+    let dim = vec2<f32>(textureDimensions(t_diffuse));
+    // One step in UV space; 8 steps cover the full requested radius.
+    let s = (radius / 8.0) / max(dim, vec2<f32>(1.0));
+
+    // Gaussian weights for taps 0–8 (σ=3 in tap units).
+    // w[i] ∝ exp(-0.5*(i/3)²), normalised so sum over ±8 = 1.0.
+    let w0 = 0.13298;
+    let w1 = 0.12579;
+    let w2 = 0.10648;
+    let w3 = 0.08056;
+    let w4 = 0.05467;
+    let w5 = 0.03318;
+    let w6 = 0.01808;
+    let w7 = 0.00882;
+    let w8 = 0.00386;
+    // 1-D kernel sum = w0 + 2*(w1+w2+w3+w4+w5+w6+w7+w8) ≈ 1.0
+
+    // --- Horizontal 1-D blur (samples along X only, original texture) ---
+    var hb = textureSampleLevel(t_diffuse, s_diffuse, uv, 0.0) * w0;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>( s.x * 1.0, 0.0), 0.0) * w1;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(-s.x * 1.0, 0.0), 0.0) * w1;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>( s.x * 2.0, 0.0), 0.0) * w2;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(-s.x * 2.0, 0.0), 0.0) * w2;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>( s.x * 3.0, 0.0), 0.0) * w3;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(-s.x * 3.0, 0.0), 0.0) * w3;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>( s.x * 4.0, 0.0), 0.0) * w4;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(-s.x * 4.0, 0.0), 0.0) * w4;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>( s.x * 5.0, 0.0), 0.0) * w5;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(-s.x * 5.0, 0.0), 0.0) * w5;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>( s.x * 6.0, 0.0), 0.0) * w6;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(-s.x * 6.0, 0.0), 0.0) * w6;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>( s.x * 7.0, 0.0), 0.0) * w7;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(-s.x * 7.0, 0.0), 0.0) * w7;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>( s.x * 8.0, 0.0), 0.0) * w8;
+    hb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(-s.x * 8.0, 0.0), 0.0) * w8;
+
+    // --- Vertical 1-D blur (samples along Y only, same original texture) ---
+    var vb = textureSampleLevel(t_diffuse, s_diffuse, uv, 0.0) * w0;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0,  s.y * 1.0), 0.0) * w1;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0, -s.y * 1.0), 0.0) * w1;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0,  s.y * 2.0), 0.0) * w2;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0, -s.y * 2.0), 0.0) * w2;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0,  s.y * 3.0), 0.0) * w3;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0, -s.y * 3.0), 0.0) * w3;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0,  s.y * 4.0), 0.0) * w4;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0, -s.y * 4.0), 0.0) * w4;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0,  s.y * 5.0), 0.0) * w5;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0, -s.y * 5.0), 0.0) * w5;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0,  s.y * 6.0), 0.0) * w6;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0, -s.y * 6.0), 0.0) * w6;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0,  s.y * 7.0), 0.0) * w7;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0, -s.y * 7.0), 0.0) * w7;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0,  s.y * 8.0), 0.0) * w8;
+    vb += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0, -s.y * 8.0), 0.0) * w8;
+
+    // Average the two independent 1-D blurs.  Each already sums to ~1.0,
+    // so the average is correctly normalised without any extra division.
+    return (hb + vb) * 0.5;
 }
 
 // -----------------------------------------------------------------------------
@@ -565,6 +642,38 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         rgb = rgb + layer.color_grade.lift * (vec3<f32>(1.0) - rgb);
     }
 
+    // Tonal-range luma adjustments (Lightroom-style).
+    // Each operates on a luminance-weighted region of the tonal range.
+    if (layer.color_grade.highlights != 0.0 || layer.color_grade.shadows != 0.0 ||
+        layer.color_grade.whites != 0.0    || layer.color_grade.blacks != 0.0) {
+        let tonal_luma = get_luminance(rgb);
+        // Highlights: smoothstep zone above 0.5 luma
+        if (layer.color_grade.highlights != 0.0) {
+            let w = smoothstep(0.4, 1.0, tonal_luma);
+            rgb = clamp(rgb + vec3<f32>(layer.color_grade.highlights * w), vec3<f32>(0.0), vec3<f32>(1.0));
+        }
+        // Shadows: smoothstep zone below 0.5 luma
+        if (layer.color_grade.shadows != 0.0) {
+            let w = 1.0 - smoothstep(0.0, 0.6, tonal_luma);
+            rgb = clamp(rgb + vec3<f32>(layer.color_grade.shadows * w), vec3<f32>(0.0), vec3<f32>(1.0));
+        }
+        // Whites: hard ceiling — pull the white point down or up
+        if (layer.color_grade.whites != 0.0) {
+            let w = smoothstep(0.75, 1.0, tonal_luma);
+            rgb = clamp(rgb + vec3<f32>(layer.color_grade.whites * w), vec3<f32>(0.0), vec3<f32>(1.0));
+        }
+        // Blacks: hard floor — push the black point up or down
+        if (layer.color_grade.blacks != 0.0) {
+            let w = 1.0 - smoothstep(0.0, 0.25, tonal_luma);
+            rgb = clamp(rgb + vec3<f32>(layer.color_grade.blacks * w), vec3<f32>(0.0), vec3<f32>(1.0));
+        }
+    }
+
+    // Fade: mix towards mid-gray (0.5) — cinematic bleach-bypass look.
+    if (layer.color_grade.fade > 0.0) {
+        rgb = mix(rgb, vec3<f32>(0.5), clamp(layer.color_grade.fade, 0.0, 1.0));
+    }
+
     // Contrast Adjustment around mid-gray (0.5)
     if (layer.color_grade.contrast != 1.0) {
         rgb = clamp((rgb - vec3<f32>(0.5)) * layer.color_grade.contrast + vec3<f32>(0.5), vec3<f32>(0.0), vec3<f32>(1.0));
@@ -633,6 +742,39 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     if (layer.color_grade.hue_rotate != 0.0) {
         rgb = hue_rotate_color(rgb, layer.color_grade.hue_rotate);
+    }
+
+    // Per-channel HSL: each channel targets a specific hue range with a
+    // Gaussian luma-distance weight. center_hue defines the hue midpoint;
+    // the adjustment window is ±0.12 radians (~7°) half-width.
+    if (layer.color_grade.hsl_channel_count > 0u) {
+        var hsv = rgb_to_hsv(clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)));
+        let pixel_hue = hsv.x * 6.2831853; // convert [0..1] to radians
+        for (var i: u32 = 0u; i < layer.color_grade.hsl_channel_count; i = i + 1u) {
+            let ch = layer.color_grade.hsl_channels[i];
+            let hue_offset   = ch.x; // radians
+            let sat_offset   = ch.y; // -1..1
+            let bri_offset   = ch.z; // -1..1
+            let center_hue   = ch.w; // radians
+
+            // Hue distance on the circular hue wheel [-π, π]
+            var dist = pixel_hue - center_hue;
+            dist = dist - round(dist / 6.2831853) * 6.2831853;
+
+            // Gaussian weight: full effect within ~25°, fades to zero by ~65°
+            let sigma = 0.44; // radians (~25°)
+            let weight = exp(-(dist * dist) / (2.0 * sigma * sigma));
+
+            if (weight > 0.001) {
+                // Hue shift
+                hsv.x = fract((hsv.x * 6.2831853 + hue_offset * weight) / 6.2831853);
+                // Saturation shift (clamped to [0,1])
+                hsv.y = clamp(hsv.y + sat_offset * weight, 0.0, 1.0);
+                // Brightness (Value) shift
+                hsv.z = clamp(hsv.z + bri_offset * weight, 0.0, 1.0);
+            }
+        }
+        rgb = hsv_to_rgb(hsv);
     }
 
     // White Balance (Temperature & Tint)
@@ -708,7 +850,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         rgb = vec3<f32>(1.0) - (vec3<f32>(1.0) - rgb) * (vec3<f32>(1.0) - leak);
     }
     let final_alpha = keyed_color.a * layer.opacity * alpha_multiplier;
-    let final_rgb = rgb * final_alpha;
+    var final_rgb = rgb * final_alpha;
+    if (layer.blend_mode == 8u) {
+        // Color Dodge: Scale source color by 1 / (1 - rgb) so that hardware blending
+        // (src_factor: Dst, dst_factor: One) produces Dst + Dst * (rgb / (1 - rgb)) = Dst / (1 - rgb).
+        let denom = max(vec3<f32>(1.0) - rgb, vec3<f32>(0.0039));
+        final_rgb = (rgb / denom) * final_alpha;
+    }
 
     return vec4<f32>(final_rgb, final_alpha);
 }

@@ -4,21 +4,27 @@
  * Blend mode and opacity controls for video clips.
  * Uses reusable primitives (PropertySectionHeader, PropertySelect, SliderTrack, NumericControl)
  * with full keyframe support for opacity.
+ *
+ * Opacity live-evaluates keyframes at localTime so the displayed value tracks
+ * the animated curve during scrubbing — identical pattern to VideoTransformControls.
  */
 
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import type { Clip } from "@/types";
 import { PropertySectionHeader } from "../../primitives/PropertySectionHeader";
 import { PropertySelect } from "../../primitives/PropertySelect";
 import { SliderTrack } from "../../primitives/SliderTrack";
 import { NumericControl } from "../../primitives/NumericControl";
 import { KeyframeNavControls } from "../../primitives/KeyframeNavControls";
-import { getPlaybackClock } from "@/hooks/usePlaybackClock";
+import { getPlaybackClock, usePlaybackClock } from "@/hooks/usePlaybackClock";
 import { useUIStore } from "@/store/uiStore";
+import { propertyEditTelemetry } from "@/lib/properties/propertyEditTelemetry";
+import { evaluateVisualPropertyKeyframes } from "@/core/evaluation/animation";
 
 interface VideoBlendControlsProps {
   selectedClip: Clip;
   handleUpdate: (key: string, value: any) => void;
+  handleUpdateMultiple?: (fields: Record<string, any>) => void;
 }
 
 const BLEND_MODE_OPTIONS = [
@@ -43,23 +49,43 @@ const BLEND_MODE_OPTIONS = [
 export const VideoBlendControls: React.FC<VideoBlendControlsProps> = ({
   selectedClip,
   handleUpdate,
+  handleUpdateMultiple,
 }) => {
   const [isBlendCollapsed, setIsBlendCollapsed] = useState(false);
 
   const blendMode = (selectedClip as any).blendMode || "normal";
-  const opacity = selectedClip.opacity ?? 1;
-  const opacityPercent = opacity * 100;
 
   // ── Keyframe state for opacity ────────────────────────────────────────────
   const openCurveEditor = useUIStore((s) => s.openCurveEditor);
 
-  const currentTime = getPlaybackClock().time;
+  // Subscribe to the playback clock so displayed opacity tracks scrubbing live
+  const clockState =
+    typeof usePlaybackClock === "function" ? usePlaybackClock() : null;
+  const currentTime = clockState?.time ?? getPlaybackClock().time;
   const localTime = Math.max(
     0,
     Math.min(selectedClip.duration, currentTime - selectedClip.startTime),
   );
 
   const opacityKeyframes = selectedClip.visualKeyframes?.opacity || [];
+
+  // Live-evaluated opacity — reflects animated value at current playhead position
+  const currentOpacity = useMemo(() => {
+    if (opacityKeyframes.length > 0) {
+      return evaluateVisualPropertyKeyframes(
+        opacityKeyframes,
+        localTime,
+        selectedClip.opacity ?? 1,
+        selectedClip.duration,
+      );
+    }
+    return selectedClip.opacity ?? 1;
+  }, [opacityKeyframes, localTime, selectedClip.opacity, selectedClip.duration]);
+
+  const opacityPercent = Math.round(
+    Math.max(0, Math.min(1, currentOpacity)) * 100,
+  );
+
   const opacityKfState = {
     hasKeyframes: opacityKeyframes.length > 0,
     isAtKeyframe: opacityKeyframes.some(
@@ -69,11 +95,79 @@ export const VideoBlendControls: React.FC<VideoBlendControlsProps> = ({
     hasNext: opacityKeyframes.some((k) => k.time > localTime + 0.05),
   };
 
+  /**
+   * Opacity change handler — keyframe-aware.
+   *
+   * If opacity keyframes exist on the clip, the slider/numeric update is applied
+   * to the keyframe at the current playhead position (create new if none exists
+   * there). Without keyframes it falls back to a plain clip property update.
+   */
   const handleOpacityChange = useCallback(
     (val: number) => {
-      handleUpdate("opacity", val / 100);
+      const clamped = Math.max(0, Math.min(1, val / 100));
+      if (opacityKeyframes.length === 0) {
+        // No keyframes — simple property update
+        handleUpdate("opacity", clamped);
+        return;
+      }
+      const existingIdx = opacityKeyframes.findIndex(
+        (kf) => Math.abs(kf.time - localTime) < 0.08,
+      );
+      if (existingIdx >= 0) {
+        // Update the existing keyframe's value at playhead
+        const nextKfs = [...opacityKeyframes];
+        nextKfs[existingIdx] = { ...nextKfs[existingIdx], value: clamped };
+        if (handleUpdateMultiple) {
+          handleUpdateMultiple({
+            opacity: clamped,
+            visualKeyframes: {
+              ...(selectedClip.visualKeyframes || {}),
+              opacity: nextKfs,
+            },
+          });
+        } else {
+          handleUpdate("opacity", clamped);
+          handleUpdate("visualKeyframes", {
+            ...(selectedClip.visualKeyframes || {}),
+            opacity: nextKfs,
+          });
+        }
+      } else {
+        // Keyframes exist but not at current time — insert new keyframe
+        const t = Math.round(localTime * 100) / 100;
+        const nextKfs = [
+          ...opacityKeyframes,
+          {
+            id: `opacity-${Date.now()}`,
+            time: t,
+            value: clamped,
+            easing: "easeInOut" as const,
+          },
+        ].sort((a, b) => a.time - b.time);
+        if (handleUpdateMultiple) {
+          handleUpdateMultiple({
+            opacity: clamped,
+            visualKeyframes: {
+              ...(selectedClip.visualKeyframes || {}),
+              opacity: nextKfs,
+            },
+          });
+        } else {
+          handleUpdate("opacity", clamped);
+          handleUpdate("visualKeyframes", {
+            ...(selectedClip.visualKeyframes || {}),
+            opacity: nextKfs,
+          });
+        }
+      }
     },
-    [handleUpdate],
+    [
+      opacityKeyframes,
+      localTime,
+      handleUpdate,
+      handleUpdateMultiple,
+      selectedClip.visualKeyframes,
+    ],
   );
 
   const handleToggleOpacityKeyframe = useCallback(() => {
@@ -81,18 +175,19 @@ export const VideoBlendControls: React.FC<VideoBlendControlsProps> = ({
       (k) => Math.abs(k.time - localTime) < 0.08,
     );
     if (existing) {
-      // Remove keyframe
+      // Remove keyframe at current position
       const updated = opacityKeyframes.filter((k) => k.id !== existing.id);
       handleUpdate("visualKeyframes", {
         ...selectedClip.visualKeyframes,
         opacity: updated,
       });
     } else {
-      // Add keyframe
+      // Add keyframe with the live-evaluated opacity value
       const newKf = {
         id: `opacity-${Date.now()}`,
-        time: localTime,
-        value: opacity,
+        time: Math.round(localTime * 100) / 100,
+        value: currentOpacity,
+        easing: "easeInOut" as const,
       };
       handleUpdate("visualKeyframes", {
         ...selectedClip.visualKeyframes,
@@ -102,7 +197,7 @@ export const VideoBlendControls: React.FC<VideoBlendControlsProps> = ({
   }, [
     opacityKeyframes,
     localTime,
-    opacity,
+    currentOpacity,
     handleUpdate,
     selectedClip.visualKeyframes,
   ]);
@@ -132,12 +227,20 @@ export const VideoBlendControls: React.FC<VideoBlendControlsProps> = ({
     openCurveEditor(selectedClip.id, "opacity");
   }, [openCurveEditor, selectedClip.id]);
 
+  const handleReset = useCallback(() => {
+    propertyEditTelemetry.recordButtonAction({ action: "reset-blend", category: "video", property: "blend" });
+    handleUpdate("blendMode", "normal");
+    handleUpdate("opacity", 1);
+  }, [handleUpdate]);
+
   return (
     <div className="space-y-3">
       <PropertySectionHeader
         title="Blend"
         isCollapsed={isBlendCollapsed}
         onToggleCollapse={() => setIsBlendCollapsed(!isBlendCollapsed)}
+        onReset={handleReset}
+        resetTitle="Reset blend"
       />
 
       {!isBlendCollapsed && (
@@ -162,6 +265,12 @@ export const VideoBlendControls: React.FC<VideoBlendControlsProps> = ({
                 min={0}
                 max={100}
                 step={1}
+                propertyId="opacity"
+                category="video"
+                snapPoints={[
+                  { value: 100, threshold: 4 },
+                  { value: 0, threshold: 4 },
+                ]}
                 onChange={handleOpacityChange}
               />
               <NumericControl
@@ -170,6 +279,8 @@ export const VideoBlendControls: React.FC<VideoBlendControlsProps> = ({
                 step={1}
                 suffix="%"
                 ariaLabel="Opacity"
+                propertyId="opacity"
+                category="video"
                 min={0}
                 max={100}
                 inputPosition="text-right"

@@ -104,4 +104,50 @@ describe("gapEngine Edge Cases & Property Invariants", () => {
       expect(result.error).toBe("Gap start time cannot be negative");
     });
   });
+
+  describe("removeGapWithRipple [CLY-BUG-005]", () => {
+    it("respects downstream protected gaps and does not shift clips through them", () => {
+      const g1 = createGap({ trackId: "t1", startTime: 5, duration: 5, type: "auto", source: "unknown", protected: false });
+      const c1 = {
+        id: "c1",
+        trackId: "t1",
+        mediaId: "m1",
+        name: "C1",
+        kind: "video" as const,
+        startTime: 10,
+        duration: 5,
+        trimIn: 0,
+        trimOut: 5,
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+        opacity: 1,
+        rotation: 0,
+      };
+      const g2 = createGap({ trackId: "t1", startTime: 15, duration: 5, type: "manual", source: "user-insert", protected: true });
+      const c2 = {
+        id: "c2",
+        trackId: "t1",
+        mediaId: "m2",
+        name: "C2",
+        kind: "video" as const,
+        startTime: 20,
+        duration: 5,
+        trimIn: 0,
+        trimOut: 5,
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+        opacity: 1,
+        rotation: 0,
+      };
+
+      const result = removeGapWithRipple(g1, [c1, c2], [g1, g2]);
+      expect(result.success).toBe(true);
+      expect(result.affectedClipIds).toContain("c1");
+      expect(result.affectedClipIds).not.toContain("c2");
+    });
+  });
 });

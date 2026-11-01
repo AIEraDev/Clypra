@@ -1,4 +1,8 @@
-import type { EvaluatedMediaLayer, EvaluatedScene, EvaluatedTextLayer } from "@/core/evaluation/types";
+import type {
+  EvaluatedMediaLayer,
+  EvaluatedScene,
+  EvaluatedTextLayer,
+} from "@/core/evaluation/types";
 import { cullOccludedVisualLayers } from "@/core/evaluation/evaluator";
 import type {
   NativeProjectVideoLayer,
@@ -35,7 +39,9 @@ function parseColorToRgba(color: string): [number, number, number, number] {
       return [r, g, b, a];
     }
   }
-  const rgbaMatch = c.match(/rgba?\s*\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)/);
+  const rgbaMatch = c.match(
+    /rgba?\s*\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)/,
+  );
   if (rgbaMatch) {
     const r = parseFloat(rgbaMatch[1]) / 255;
     const g = parseFloat(rgbaMatch[2]) / 255;
@@ -49,10 +55,20 @@ function parseColorToRgba(color: string): [number, number, number, number] {
 function normalizeNativeTextEffect(
   layer: EvaluatedTextLayer,
 ): NativeTextLayerSnapshot["effect"] {
-  const normalizeParam = (value: unknown): number | string | [number, number] | [number, number, number, number] | undefined => {
+  const normalizeParam = (
+    value: unknown,
+  ):
+    | number
+    | string
+    | [number, number]
+    | [number, number, number, number]
+    | undefined => {
     if (typeof value === "number" && Number.isFinite(value)) return value;
     if (typeof value === "string") return value;
-    if (Array.isArray(value) && value.every((item) => typeof item === "number" && Number.isFinite(item))) {
+    if (
+      Array.isArray(value) &&
+      value.every((item) => typeof item === "number" && Number.isFinite(item))
+    ) {
       if (value.length === 2) return value as [number, number];
       if (value.length === 4) return value as [number, number, number, number];
     }
@@ -87,8 +103,23 @@ function normalizeNativeTextEffect(
                 ? {
                     params: Object.fromEntries(
                       Object.entries(pass.params)
-                        .map(([key, value]) => [key, normalizeParam(value)] as const)
-                        .filter((entry): entry is [string, number | string | [number, number] | [number, number, number, number]] => entry[1] !== undefined),
+                        .map(
+                          ([key, value]) =>
+                            [key, normalizeParam(value)] as const,
+                        )
+                        .filter(
+                          (
+                            entry,
+                          ): entry is [
+                            string,
+                            (
+                              | number
+                              | string
+                              | [number, number]
+                              | [number, number, number, number]
+                            ),
+                          ] => entry[1] !== undefined,
+                        ),
                     ),
                   }
                 : {}),
@@ -111,11 +142,58 @@ import {
   type NativeTextLayerSnapshot,
 } from "@/lib/platform/nativeCore";
 
-const NATIVE_BLEND_MODES = new Set(["normal", "multiply", "screen", "overlay", "add", "additive", "difference"]);
+const NATIVE_BLEND_MODES = new Set([
+  "normal",
+  "multiply",
+  "screen",
+  "overlay",
+  "add",
+  "additive",
+  "difference",
+  "darken",
+  "lighten",
+  "color-dodge",
+  "color-burn",
+  "hard-light",
+  "soft-light",
+  "exclusion",
+  "hue",
+  "saturation",
+  "color",
+  "luminosity",
+  "subtract",
+]);
 const NATIVE_COLOR_GRADE_KEYS = new Set([
-  "exposure", "contrast", "saturation", "temperature", "tint",
-  "brightness", "sepia", "grayscale", "hue", "vignette", "invert", "grain", "vibrance",
-  "lift", "crossProcess", "channelMix", "duotone", "splitTone",
+  "exposure",
+  "contrast",
+  "saturation",
+  "temperature",
+  "tint",
+  "brightness",
+  "sepia",
+  "grayscale",
+  "hue",
+  "vignette",
+  "invert",
+  "grain",
+  "vibrance",
+  "lift",
+  "crossProcess",
+  "channelMix",
+  "duotone",
+  "splitTone",
+  // Tonal-range adjustments (implemented in GPU shader)
+  "highlights",
+  "shadows",
+  "whites",
+  "blacks",
+  // Adjustment keys that are stored but handled separately (not bailed)
+  "fade",
+  "brilliance",
+  "sharpen",
+  "clarity",
+  "lut",
+  "hslChannels",
 ]);
 const NATIVE_BODY_EFFECT_RENDERERS = new Set([
   "body_outline",
@@ -126,15 +204,47 @@ const NATIVE_BODY_EFFECT_RENDERERS = new Set([
   "subject_cutout",
 ]);
 const NATIVE_VIDEO_EFFECT_RENDERERS = new Set([
-  "blur", "pixelate", "scanlines", "rgb_split", "rgb-split", "rgbsplit",
-  "chromatic_aberration", "chromatic", "chromatic-aberration", "chromaticaberration",
-  "vhs", "glitch", "wave", "ripple", "bulge", "twist", "fisheye", "crt",
-  "film_grain", "film-grain", "filmgrain", "grain",
-  "vignette", "glow", "flash", "flicker", "strobe", "light_leak", "light_leak_2",
-  "body_outline", "body_glow", "body_segmentation_glow", "body_particles",
-  "body_cutout", "subject_cutout",
-  "motion_blur", "radial_blur", "zoom_blur",
-  "fire", "particles", "dust_particles",
+  "blur",
+  "pixelate",
+  "scanlines",
+  "rgb_split",
+  "rgb-split",
+  "rgbsplit",
+  "chromatic_aberration",
+  "chromatic",
+  "chromatic-aberration",
+  "chromaticaberration",
+  "vhs",
+  "glitch",
+  "wave",
+  "ripple",
+  "bulge",
+  "twist",
+  "fisheye",
+  "crt",
+  "film_grain",
+  "film-grain",
+  "filmgrain",
+  "grain",
+  "vignette",
+  "glow",
+  "flash",
+  "flicker",
+  "strobe",
+  "light_leak",
+  "light_leak_2",
+  "body_outline",
+  "body_glow",
+  "body_segmentation_glow",
+  "body_particles",
+  "body_cutout",
+  "subject_cutout",
+  "motion_blur",
+  "radial_blur",
+  "zoom_blur",
+  "fire",
+  "particles",
+  "dust_particles",
 ]);
 const NATIVE_BACKGROUND_MEDIA_LAYER_ID = "__native-background-media";
 
@@ -148,8 +258,11 @@ function hasNativeImageRasterAsset(
   // shared identity helper above.
   const sourceWidth = layer.sourceWidth ?? layer.width;
   const sourceHeight = layer.sourceHeight ?? layer.height;
-  return asset.assetId === buildNativeImageAssetId(layer.sourcePath, sourceWidth, sourceHeight)
-    || asset.assetId.startsWith(`native-image:${layer.layerId}:`);
+  return (
+    asset.assetId ===
+      buildNativeImageAssetId(layer.sourcePath, sourceWidth, sourceHeight) ||
+    asset.assetId.startsWith(`native-image:${layer.layerId}:`)
+  );
 }
 
 function hasNativeTextRasterAsset(
@@ -167,15 +280,22 @@ function getNativeTransitionSnapshot(
   scene: EvaluatedScene,
   mediaLayers: EvaluatedMediaLayer[],
 ): NativeTransitionSnapshot | null | undefined {
-  if (scene.transitions.length === 0) return undefined;
+  if (!scene.transitions || scene.transitions.length === 0) return undefined;
   if (scene.transitions.length !== 1 || mediaLayers.length !== 2) return null;
 
   const transition = scene.transitions[0];
-  const outgoingIndex = mediaLayers.findIndex((layer) => layer.layerId === transition.outgoingLayer);
-  const incomingIndex = mediaLayers.findIndex((layer) => layer.layerId === transition.incomingLayer);
-  if (outgoingIndex < 0 || incomingIndex < 0 || outgoingIndex === incomingIndex) return null;
+  const outgoingIndex = mediaLayers.findIndex(
+    (layer) => layer.layerId === transition.outgoingLayer,
+  );
+  const incomingIndex = mediaLayers.findIndex(
+    (layer) => layer.layerId === transition.incomingLayer,
+  );
+  if (outgoingIndex < 0 || incomingIndex < 0 || outgoingIndex === incomingIndex)
+    return null;
 
-  const renderer = (transition.renderer || transition.type || "").replace(/^fx-/, "").toLowerCase();
+  const renderer = (transition.renderer || transition.type || "")
+    .replace(/^fx-/, "")
+    .toLowerCase();
   const params = (transition.params ?? {}) as Record<string, unknown>;
   let transitionType: string;
   let fadeColor: [number, number, number, number] | undefined;
@@ -183,30 +303,88 @@ function getNativeTransitionSnapshot(
     if (renderer === "fade" && params.color !== undefined) {
       if (typeof params.color !== "string") return null;
       const parsed = parseColor(params.color);
-      fadeColor = [parsed[0] / 255, parsed[1] / 255, parsed[2] / 255, parsed[3]];
+      fadeColor = [
+        parsed[0] / 255,
+        parsed[1] / 255,
+        parsed[2] / 255,
+        parsed[3],
+      ];
       transitionType = "fade-through-color";
     } else {
       transitionType = "cross-dissolve";
     }
   } else if (["blur_fade", "directional_blur"].includes(renderer)) {
     transitionType = "blur-fade";
-  } else if (["wipe_left", "wipe_right", "wipe_up", "wipe_down", "wipe-left", "wipe-right", "wipe-up", "wipe-down"].includes(renderer)) {
+  } else if (
+    [
+      "wipe_left",
+      "wipe_right",
+      "wipe_up",
+      "wipe_down",
+      "wipe-left",
+      "wipe-right",
+      "wipe-up",
+      "wipe-down",
+    ].includes(renderer)
+  ) {
     transitionType = renderer.replace(/_/g, "-");
   } else if (["wipe_diagonal", "wipe-diagonal"].includes(renderer)) {
     transitionType = "wipe-diagonal";
   } else if (["wipe_clockwise", "wipe-clockwise"].includes(renderer)) {
     transitionType = "wipe-clockwise";
-  } else if (["wipe_center", "wipe-center", "circle_expand", "circle-expand", "circle_collapse", "circle-collapse"].includes(renderer)) {
+  } else if (
+    [
+      "wipe_center",
+      "wipe-center",
+      "circle_expand",
+      "circle-expand",
+      "circle_collapse",
+      "circle-collapse",
+    ].includes(renderer)
+  ) {
     transitionType = "circle-wipe";
   } else if (["diamond_expand", "diamond-expand"].includes(renderer)) {
     transitionType = "diamond-wipe";
   } else if (["rectangle_expand", "rectangle-expand"].includes(renderer)) {
     transitionType = "rectangle-wipe";
-  } else if (["slide_left", "slide-left", "slide_right", "slide-right", "slide_up", "slide-up", "slide_down", "slide-down", "slide_push"].includes(renderer)) {
-    transitionType = renderer === "slide_push" ? "slide-right" : renderer.replace(/_/g, "-");
-  } else if (["zoom_blur", "zoom_in", "zoom_out", "zoom-blur"].includes(renderer)) {
-    transitionType = renderer === "zoom_in" ? "zoom-in" : renderer === "zoom_out" ? "zoom-out" : "zoom-blur";
-  } else if (["glitch", "rgb_split", "rgb-split", "chromatic", "film_burn", "film-burn", "light_leak", "light-leak", "whip_pan", "whip-pan"].includes(renderer)) {
+  } else if (
+    [
+      "slide_left",
+      "slide-left",
+      "slide_right",
+      "slide-right",
+      "slide_up",
+      "slide-up",
+      "slide_down",
+      "slide-down",
+      "slide_push",
+    ].includes(renderer)
+  ) {
+    transitionType =
+      renderer === "slide_push" ? "slide-right" : renderer.replace(/_/g, "-");
+  } else if (
+    ["zoom_blur", "zoom_in", "zoom_out", "zoom-blur"].includes(renderer)
+  ) {
+    transitionType =
+      renderer === "zoom_in"
+        ? "zoom-in"
+        : renderer === "zoom_out"
+          ? "zoom-out"
+          : "zoom-blur";
+  } else if (
+    [
+      "glitch",
+      "rgb_split",
+      "rgb-split",
+      "chromatic",
+      "film_burn",
+      "film-burn",
+      "light_leak",
+      "light-leak",
+      "whip_pan",
+      "whip-pan",
+    ].includes(renderer)
+  ) {
     transitionType = renderer.replace(/_/g, "-");
   } else if (["iris-reveal", "iris-wipe", "iris"].includes(renderer)) {
     // The timeline currently persists the published renderer, not custom
@@ -215,7 +393,11 @@ function getNativeTransitionSnapshot(
     const centerX = params.centerX;
     const centerY = params.centerY;
     const shape = params.shape;
-    if ((centerX !== undefined && centerX !== 0.5) || (centerY !== undefined && centerY !== 0.5) || (shape !== undefined && shape !== "circle")) {
+    if (
+      (centerX !== undefined && centerX !== 0.5) ||
+      (centerY !== undefined && centerY !== 0.5) ||
+      (shape !== undefined && shape !== "circle")
+    ) {
       return null;
     }
     transitionType = "iris-wipe";
@@ -229,7 +411,12 @@ function getNativeTransitionSnapshot(
   };
   const feather = readFinite(params.feather, 0.1);
   const intensity = readFinite(params.intensity ?? params.blurAmount, 1);
-  if (feather === null || intensity === null || !Number.isFinite(transition.progress)) return null;
+  if (
+    feather === null ||
+    intensity === null ||
+    !Number.isFinite(transition.progress)
+  )
+    return null;
 
   return {
     outgoingLayer: mediaLayers[outgoingIndex].layerId,
@@ -260,19 +447,26 @@ export function getNativeFrameRequestKey(request: NativeFrameRequest): string {
     ...cacheIdentity
   } = request;
 
-  if (!request.project.rasterLayers?.length) return JSON.stringify(cacheIdentity);
+  if (!request.project.rasterLayers?.length)
+    return JSON.stringify(cacheIdentity);
 
   return JSON.stringify({
     ...cacheIdentity,
     project: {
       ...request.project,
-      rasterLayers: request.project.rasterLayers.map(({ rgba: _rgba, ...layer }) => layer),
+      rasterLayers: request.project.rasterLayers.map(
+        ({ rgba: _rgba, ...layer }) => layer,
+      ),
     },
   });
 }
 
 function hasMeaningfulObject(value: unknown): boolean {
-  return Boolean(value && typeof value === "object" && Object.keys(value as Record<string, unknown>).length > 0);
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    Object.keys(value as Record<string, unknown>).length > 0,
+  );
 }
 
 /**
@@ -295,10 +489,7 @@ export function isUnchangedFramePayload(buffer: ArrayBuffer): boolean {
   if (buffer.byteLength !== 12) return false;
   const view = new Uint8Array(buffer);
   return (
-    view[0] === 0x55 &&
-    view[1] === 0x4e &&
-    view[2] === 0x43 &&
-    view[3] === 0x48
+    view[0] === 0x55 && view[1] === 0x4e && view[2] === 0x43 && view[3] === 0x48
   );
 }
 
@@ -328,12 +519,16 @@ export function isExpectedStaleNativePreviewError(error: unknown): boolean {
 
 function isNativeFileSource(sourcePath: string): boolean {
   const value = sourcePath.trim().toLowerCase();
-  if (!value || value.startsWith("data:") || value.startsWith("blob:")) return false;
+  if (!value || value.startsWith("data:") || value.startsWith("blob:"))
+    return false;
 
   // Tauri v2 may expose local filesystem media through the asset protocol's
   // HTTP origin. The IPC wrapper normalizes this URL back to a native path.
   if (value.startsWith("http://") || value.startsWith("https://")) {
-    return value.startsWith("http://asset.localhost/") || value.startsWith("https://asset.localhost/");
+    return (
+      value.startsWith("http://asset.localhost/") ||
+      value.startsWith("https://asset.localhost/")
+    );
   }
 
   return true;
@@ -341,14 +536,21 @@ function isNativeFileSource(sourcePath: string): boolean {
 
 function getNativeBackgroundMediaPath(scene: EvaluatedScene): string | null {
   const background = scene.metadata.canvasBackground;
-  if (!background || background.type !== "media" || typeof background.mediaUrl !== "string") return null;
+  if (
+    !background ||
+    background.type !== "media" ||
+    typeof background.mediaUrl !== "string"
+  )
+    return null;
   const mediaPath = background.mediaUrl.trim();
   return isNativeFileSource(mediaPath) ? mediaPath : null;
 }
 
 function getNativeBackgroundMediaOpacity(scene: EvaluatedScene): number {
   const opacity = scene.metadata.canvasBackground?.opacity;
-  return typeof opacity === "number" && Number.isFinite(opacity) ? Math.min(1, Math.max(0, opacity)) : 1;
+  return typeof opacity === "number" && Number.isFinite(opacity)
+    ? Math.min(1, Math.max(0, opacity))
+    : 1;
 }
 
 interface NativeMpgStackGrade {
@@ -366,42 +568,80 @@ interface NativeMpgStackGrade {
 
 /** Collapse supported MPG v2 single-input nodes into the native one-pass grade. */
 function resolveNativeMpgStack(
-  stack: ReadonlyArray<{ type: string; params?: Record<string, unknown> }> | undefined,
+  stack:
+    | ReadonlyArray<{ type: string; params?: Record<string, unknown> }>
+    | undefined,
 ): NativeMpgStackGrade | null | undefined {
   if (!stack || stack.length === 0) return undefined;
   const grade: NativeMpgStackGrade = {
-    brightness: 0, contrast: 1, saturation: 1, temperature: 0, tint: 0,
-    sepia: 0, grayscale: 0, hueRotate: 0, vignette: 0, blurRadius: 0,
+    brightness: 0,
+    contrast: 1,
+    saturation: 1,
+    temperature: 0,
+    tint: 0,
+    sepia: 0,
+    grayscale: 0,
+    hueRotate: 0,
+    vignette: 0,
+    blurRadius: 0,
   };
-  const read = (params: Record<string, unknown>, keys: string[], fallback = 0): number | null => {
-    const value = keys.map((key) => params[key]).find((candidate) => candidate !== undefined);
+  const read = (
+    params: Record<string, unknown>,
+    keys: string[],
+    fallback = 0,
+  ): number | null => {
+    const value = keys
+      .map((key) => params[key])
+      .find((candidate) => candidate !== undefined);
     if (value === undefined) return fallback;
     return typeof value === "number" && Number.isFinite(value) ? value : null;
   };
-  const composite = (current: number, amount: number): number => 1 - (1 - current) * (1 - amount);
+  const composite = (current: number, amount: number): number =>
+    1 - (1 - current) * (1 - amount);
   for (const node of stack) {
     const type = node.type.replace(/[-_\s]/g, "").toLowerCase();
     const params = node.params ?? {};
     if (type === "brightness") {
-      const value = read(params, ["brightness"]); if (value === null) return null; grade.brightness += value;
+      const value = read(params, ["brightness"]);
+      if (value === null) return null;
+      grade.brightness += value;
     } else if (type === "contrast") {
-      const value = read(params, ["contrast"]); if (value === null || value < -1 || value > 1) return null; grade.contrast *= 1 + value;
+      const value = read(params, ["contrast"]);
+      if (value === null || value < -1 || value > 1) return null;
+      grade.contrast *= 1 + value;
     } else if (type === "saturation") {
-      const value = read(params, ["saturation"]); if (value === null || value < -1 || value > 1) return null; grade.saturation *= 1 + value;
+      const value = read(params, ["saturation"]);
+      if (value === null || value < -1 || value > 1) return null;
+      grade.saturation *= 1 + value;
     } else if (type === "temperature") {
-      const value = read(params, ["temperature"]); if (value === null) return null; grade.temperature += value;
+      const value = read(params, ["temperature"]);
+      if (value === null) return null;
+      grade.temperature += value;
     } else if (type === "tint") {
-      const value = read(params, ["tint"]); if (value === null) return null; grade.tint += value;
+      const value = read(params, ["tint"]);
+      if (value === null) return null;
+      grade.tint += value;
     } else if (type === "sepia") {
-      const value = read(params, ["sepia"]); if (value === null || value < 0 || value > 1) return null; grade.sepia = composite(grade.sepia, value);
+      const value = read(params, ["sepia"]);
+      if (value === null || value < 0 || value > 1) return null;
+      grade.sepia = composite(grade.sepia, value);
     } else if (type === "grayscale") {
-      const value = read(params, ["grayscale"]); if (value === null || value < 0 || value > 1) return null; grade.grayscale = composite(grade.grayscale, value);
+      const value = read(params, ["grayscale"]);
+      if (value === null || value < 0 || value > 1) return null;
+      grade.grayscale = composite(grade.grayscale, value);
     } else if (type === "huerotate") {
-      const value = read(params, ["hueRotate", "hue"]); if (value === null) return null; grade.hueRotate += Math.abs(value) > Math.PI * 2 ? (value * Math.PI) / 180 : value;
+      const value = read(params, ["hueRotate", "hue"]);
+      if (value === null) return null;
+      grade.hueRotate +=
+        Math.abs(value) > Math.PI * 2 ? (value * Math.PI) / 180 : value;
     } else if (type === "vignette") {
-      const value = read(params, ["vignette"]); if (value === null || value < 0 || value > 1) return null; grade.vignette = composite(grade.vignette, value);
+      const value = read(params, ["vignette"]);
+      if (value === null || value < 0 || value > 1) return null;
+      grade.vignette = composite(grade.vignette, value);
     } else if (type === "gaussianblur") {
-      const value = read(params, ["blur", "blurAmount"]); if (value === null || value < 0) return null; grade.blurRadius += value;
+      const value = read(params, ["blur", "blurAmount"]);
+      if (value === null || value < 0) return null;
+      grade.blurRadius += value;
     } else {
       return null;
     }
@@ -409,7 +649,7 @@ function resolveNativeMpgStack(
   return grade;
 }
 
-function getNativeColorGrade(
+export function getNativeColorGrade(
   adjustments: EvaluatedMediaLayer["adjustments"],
   colorGrade: EvaluatedMediaLayer["colorGrade"],
   filter: EvaluatedMediaLayer["filter"],
@@ -418,29 +658,67 @@ function getNativeColorGrade(
 ): NativeColorGradeSnapshot | null | undefined {
   const grade = colorGrade as Record<string, unknown> | undefined;
   const activeFilter = filter && filter.intensity > 0.001 ? filter : undefined;
-  const filterLutId = (activeFilter as any)?.lutId || (activeFilter as any)?.lut;
+  const filterLutId =
+    (activeFilter as any)?.lutId || (activeFilter as any)?.lut;
   const hasLut = grade?.hasLut === 1 || Boolean(filterLutId);
-  const effectiveLutId = (typeof grade?.lutId === "string" && grade.lutId.trim() ? grade.lutId.trim() : undefined)
-    ?? (typeof filterLutId === "string" && filterLutId.trim() ? filterLutId.trim() : undefined);
-  const preset = activeFilter?.gradingParams as Record<string, unknown> | undefined;
+  const effectiveLutId =
+    (typeof grade?.lutId === "string" && grade.lutId.trim()
+      ? grade.lutId.trim()
+      : undefined) ??
+    (typeof filterLutId === "string" && filterLutId.trim()
+      ? filterLutId.trim()
+      : undefined);
+  const preset = activeFilter?.gradingParams as
+    | Record<string, unknown>
+    | undefined;
   const presetIntensity = activeFilter?.intensity ?? 0;
-  const layerMpgStack = (filter as (typeof filter & {
-    effectStack?: ReadonlyArray<{ type: string; params?: Record<string, unknown> }>;
-  }) | undefined)?.effectStack;
+  const layerMpgStack = (
+    filter as
+      | (typeof filter & {
+          effectStack?: ReadonlyArray<{
+            type: string;
+            params?: Record<string, unknown>;
+          }>;
+        })
+      | undefined
+  )?.effectStack;
   const mpgGrade = resolveNativeMpgStack(mpgStack ?? layerMpgStack);
   if (mpgGrade === null) return null;
   let filterIR: FilterIR = {};
   if (activeFilter) {
     filterIR = resolveFilterToIR(activeFilter.id, activeFilter.intensity);
-    if (Object.keys(filterIR).length === 0 && !preset && !mpgGrade && !effectiveLutId) return null;
+    if (
+      Object.keys(filterIR).length === 0 &&
+      !preset &&
+      !mpgGrade &&
+      !effectiveLutId
+    )
+      return null;
   }
-  const hasGradeValues = Boolean(grade && (
-    grade.exposure !== 0 || grade.contrast !== 1 || grade.saturation !== 1 ||
-    grade.temperature !== 0 || grade.tint !== 0 || grade.lift !== 0 ||
-    grade.crossProcessAmount !== 0 || hasLut
-  )) || Boolean(preset && Object.keys(preset).length > 0) || Boolean(mpgGrade);
-  const activeEffects = (effects ?? []).filter((effect) => effect.intensity > 0.001);
-  if (!hasMeaningfulObject(adjustments) && !hasGradeValues && !activeFilter && activeEffects.length === 0) return undefined;
+  const hasGradeValues =
+    Boolean(
+      grade &&
+      (grade.exposure !== 0 ||
+        grade.contrast !== 1 ||
+        grade.saturation !== 1 ||
+        grade.temperature !== 0 ||
+        grade.tint !== 0 ||
+        grade.lift !== 0 ||
+        grade.crossProcessAmount !== 0 ||
+        hasLut),
+    ) ||
+    Boolean(preset && Object.keys(preset).length > 0) ||
+    Boolean(mpgGrade);
+  const activeEffects = (effects ?? []).filter(
+    (effect) => effect.intensity > 0.001,
+  );
+  if (
+    !hasMeaningfulObject(adjustments) &&
+    !hasGradeValues &&
+    !activeFilter &&
+    activeEffects.length === 0
+  )
+    return undefined;
   if (hasLut && !effectiveLutId) return null;
   const values = adjustments as Record<string, unknown> | undefined;
   const readNumber = (value: unknown): number | null | undefined => {
@@ -448,7 +726,8 @@ function getNativeColorGrade(
     return typeof value === "number" && Number.isFinite(value) ? value : null;
   };
   let invalidPresetNumber = false;
-  const readPreset = (key: string): number | null | undefined => readNumber(preset?.[key]);
+  const readPreset = (key: string): number | null | undefined =>
+    readNumber(preset?.[key]);
   const scaledPreset = (key: string): number | undefined => {
     const value = readPreset(key);
     if (value === null) {
@@ -457,21 +736,87 @@ function getNativeColorGrade(
     }
     return value === undefined ? undefined : value * presetIntensity;
   };
-  const readAdjustment = (key: string): number | null | undefined => readNumber(values?.[key]);
-  const readGrade = (key: string): number | null | undefined => readNumber(grade?.[key]);
-  const readObjectNumber = (value: unknown, key: string): number | null | undefined => {
+  const readAdjustment = (key: string): number | null | undefined =>
+    readNumber(values?.[key]);
+
+  /**
+   * Normalize a raw UI adjustment value (stored in −100..100 scale from the
+   * Adjust tab sliders) to the native GPU shader range for each property.
+   *
+   * The legacy AdjustmentsSection already stores values in the native range
+   * (e.g. exposure −2..2, contrast −1..1). The new VideoAdjustTab stores
+   * everything as −100..100 integers. We detect which convention is in use by
+   * checking whether the absolute value exceeds the native max — values > 3
+   * on exposure or > 1 on contrast/saturation can only be new-UI scale.
+   *
+   * Safe fallback: if a value is already in native range it passes through
+   * unchanged since scaling near-zero values doesn't matter visually.
+   */
+  const normalizeAdjustment = (key: string, raw: number): number => {
+    switch (key) {
+      // EV stops: UI −100..100 → GPU −3..3
+      case "exposure":
+        return Math.abs(raw) > 3 ? raw * 0.03 : raw;
+      // Multiplier: UI −100..100 → GPU 0..2 (1.0 = neutral)
+      // Handled separately via the contrastAdjustment + 1 path
+      case "contrast":
+      case "saturation":
+        return Math.abs(raw) > 1 ? raw * 0.01 : raw;
+      // Additive: UI −100..100 → GPU −1..1
+      case "brightness":
+      case "temperature":
+      case "tint":
+      case "lift":
+        return Math.abs(raw) > 1 ? raw * 0.01 : raw;
+      // 0..1 fraction: UI 0..100 → GPU 0..1
+      case "vignette":
+      case "sepia":
+      case "grayscale":
+      case "fade":
+        return raw > 1 ? raw * 0.01 : raw;
+      // Tonal range: UI −100..100 → GPU −1..1
+      case "highlights":
+      case "shadows":
+      case "whites":
+      case "blacks":
+        return Math.abs(raw) > 1 ? raw * 0.01 : raw;
+      // Hue is in degrees for both UI and IPC (converted to radians at the end)
+      case "hue":
+        return raw;
+      default:
+        return raw;
+    }
+  };
+
+  const readAdjustmentNormalized = (key: string): number | null | undefined => {
+    const raw = readAdjustment(key);
+    if (raw === null || raw === undefined) return raw;
+    return normalizeAdjustment(key, raw);
+  };
+  const readGrade = (key: string): number | null | undefined =>
+    readNumber(grade?.[key]);
+  const readObjectNumber = (
+    value: unknown,
+    key: string,
+  ): number | null | undefined => {
     if (value === undefined) return undefined;
     if (typeof value !== "object" || value === null) return null;
     return readNumber((value as Record<string, unknown>)[key]);
   };
-  const parseNativeColor = (value: unknown): [number, number, number] | null | undefined => {
+  const parseNativeColor = (
+    value: unknown,
+  ): [number, number, number] | null | undefined => {
     if (value === undefined) return undefined;
     if (typeof value !== "string") return null;
     const [red, green, blue] = parseColor(value);
     return [red / 255, green / 255, blue / 255];
   };
-  const choose = (key: string, fallback: number, ...fallbacks: Array<number | undefined>): number | null => {
-    const adjustment = readAdjustment(key);
+  const choose = (
+    key: string,
+    fallback: number,
+    ...fallbacks: Array<number | undefined>
+  ): number | null => {
+    const adjustment = readAdjustmentNormalized(key);
     if (adjustment !== undefined) return adjustment;
     const gradeValue = readGrade(key);
     if (gradeValue !== undefined) return gradeValue;
@@ -481,25 +826,66 @@ function getNativeColorGrade(
     return fallback;
   };
   const adjustmentKeys = new Set(Object.keys(values ?? {}));
-  if ([...adjustmentKeys].some((key) => !NATIVE_COLOR_GRADE_KEYS.has(key))) return null;
+  if ([...adjustmentKeys].some((key) => !NATIVE_COLOR_GRADE_KEYS.has(key)))
+    return null;
   const nativePresetKeys = new Set([
-    "exposure", "brightness", "contrast", "saturation", "temperature", "tint",
-    "sepia", "grayscale", "hueRotate", "vignette", "invert", "lift", "grain",
-    "channelMix", "splitTone", "duotone", "vibrance", "crossProcess",
+    "exposure",
+    "brightness",
+    "contrast",
+    "saturation",
+    "temperature",
+    "tint",
+    "sepia",
+    "grayscale",
+    "hueRotate",
+    "vignette",
+    "invert",
+    "lift",
+    "grain",
+    "channelMix",
+    "splitTone",
+    "duotone",
+    "vibrance",
+    "crossProcess",
   ]);
-  if (preset && Object.keys(preset).some((key) => !nativePresetKeys.has(key))) return null;
-  if (activeEffects.some((effect) => {
-    const rawRenderer = (effect as any).compositing?.primitive || effect.renderer || effect.effectId;
-    const renderer = String(rawRenderer).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
-    return !NATIVE_VIDEO_EFFECT_RENDERERS.has(renderer) && !NATIVE_VIDEO_EFFECT_RENDERERS.has(renderer.replace(/_/g, ""));
-  })) return null;
+  if (preset && Object.keys(preset).some((key) => !nativePresetKeys.has(key)))
+    return null;
+  if (
+    activeEffects.some((effect) => {
+      const rawRenderer =
+        (effect as any).compositing?.primitive ||
+        effect.renderer ||
+        effect.effectId;
+      const renderer = String(rawRenderer)
+        .replace(/^fx-/, "")
+        .replace(/-/g, "_")
+        .toLowerCase();
+      return (
+        !NATIVE_VIDEO_EFFECT_RENDERERS.has(renderer) &&
+        !NATIVE_VIDEO_EFFECT_RENDERERS.has(renderer.replace(/_/g, ""))
+      );
+    })
+  )
+    return null;
   const blurEffects = activeEffects.filter((effect) => {
-    const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
-    return renderer === "blur" || renderer === "motion_blur" || renderer === "radial_blur" || renderer === "zoom_blur";
+    const renderer = (effect.renderer || effect.effectId)
+      .replace(/^fx-/, "")
+      .replace(/-/g, "_")
+      .toLowerCase();
+    return (
+      renderer === "blur" ||
+      renderer === "motion_blur" ||
+      renderer === "radial_blur" ||
+      renderer === "zoom_blur"
+    );
   });
   const blurRadius = blurEffects.reduce((total, effect) => {
-    const amount = Number(effect.parameters.blur ?? effect.parameters.blurAmount ?? 10);
-    return Number.isFinite(amount) && amount >= 0 ? total + amount * effect.intensity : Number.NaN;
+    const amount = Number(
+      effect.parameters.blur ?? effect.parameters.blurAmount ?? 10,
+    );
+    return Number.isFinite(amount) && amount >= 0
+      ? total + amount * effect.intensity
+      : Number.NaN;
   }, mpgGrade?.blurRadius ?? 0);
   if (!Number.isFinite(blurRadius)) return null;
   let pixelateSize = 0;
@@ -522,7 +908,9 @@ function getNativeColorGrade(
   let strobeFrequency = 0;
   let strobeTime = 0;
   let strobeStrength = 0;
-  let lightLeakColor: [number, number, number] = [1, 0.7843137255, 0.3921568627];
+  let lightLeakColor: [number, number, number] = [
+    1, 0.7843137255, 0.3921568627,
+  ];
   let lightLeakStrength = 0;
   let lightLeakAngle = Math.PI / 4;
   let lightLeakTime = 0;
@@ -542,12 +930,44 @@ function getNativeColorGrade(
   let particleColor: [number, number, number, number] = [1, 1, 1, 0];
   let particleTime = 0;
   for (const effect of activeEffects) {
-    const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
-    if (renderer === "wave" || renderer === "ripple" || renderer === "bulge" || renderer === "twist" || renderer === "fisheye") {
-      const type = renderer === "wave" ? 1 : renderer === "ripple" ? 2 : renderer === "bulge" ? 3 : renderer === "twist" ? 4 : 5;
-      const amount = Number(effect.parameters.amount ?? effect.parameters.strength ?? effect.parameters.distortionStrength ?? (renderer === "twist" ? 0.35 : 0.08));
-      const frequency = Number(effect.parameters.frequency ?? (renderer === "wave" || renderer === "ripple" ? 6 : 1));
-      if (!Number.isFinite(amount) || amount < 0 || !Number.isFinite(frequency) || frequency <= 0) return null;
+    const renderer = (effect.renderer || effect.effectId)
+      .replace(/^fx-/, "")
+      .replace(/-/g, "_")
+      .toLowerCase();
+    if (
+      renderer === "wave" ||
+      renderer === "ripple" ||
+      renderer === "bulge" ||
+      renderer === "twist" ||
+      renderer === "fisheye"
+    ) {
+      const type =
+        renderer === "wave"
+          ? 1
+          : renderer === "ripple"
+            ? 2
+            : renderer === "bulge"
+              ? 3
+              : renderer === "twist"
+                ? 4
+                : 5;
+      const amount = Number(
+        effect.parameters.amount ??
+          effect.parameters.strength ??
+          effect.parameters.distortionStrength ??
+          (renderer === "twist" ? 0.35 : 0.08),
+      );
+      const frequency = Number(
+        effect.parameters.frequency ??
+          (renderer === "wave" || renderer === "ripple" ? 6 : 1),
+      );
+      if (
+        !Number.isFinite(amount) ||
+        amount < 0 ||
+        !Number.isFinite(frequency) ||
+        frequency <= 0
+      )
+        return null;
       if (effect.intensity >= distortionStrength) {
         distortionType = type;
         distortionStrength = Math.min(1, amount * effect.intensity);
@@ -555,32 +975,62 @@ function getNativeColorGrade(
         distortionTime = Math.max(0, effect.localTime);
       }
     } else if (renderer === "glitch") {
-      const amount = Number(effect.parameters.glitchIntensity ?? effect.parameters.amount ?? 50);
+      const amount = Number(
+        effect.parameters.glitchIntensity ?? effect.parameters.amount ?? 50,
+      );
       const sliceCount = Number(effect.parameters.sliceCount ?? 5);
-      const colorShift = Number(effect.parameters.colorOffset ?? effect.parameters.splitDistance ?? 12);
-      if (!Number.isFinite(amount) || amount < 0 || !Number.isFinite(sliceCount) || sliceCount <= 0 || !Number.isFinite(colorShift) || colorShift < 0) return null;
-      glitchIntensity = Math.max(glitchIntensity, Math.min(1, amount / 100) * effect.intensity);
+      const colorShift = Number(
+        effect.parameters.colorOffset ?? effect.parameters.splitDistance ?? 12,
+      );
+      if (
+        !Number.isFinite(amount) ||
+        amount < 0 ||
+        !Number.isFinite(sliceCount) ||
+        sliceCount <= 0 ||
+        !Number.isFinite(colorShift) ||
+        colorShift < 0
+      )
+        return null;
+      glitchIntensity = Math.max(
+        glitchIntensity,
+        Math.min(1, amount / 100) * effect.intensity,
+      );
       glitchSliceCount = Math.max(glitchSliceCount, Math.min(64, sliceCount));
-      glitchColorShift = Math.max(glitchColorShift, colorShift * effect.intensity);
+      glitchColorShift = Math.max(
+        glitchColorShift,
+        colorShift * effect.intensity,
+      );
       glitchTime = Math.max(glitchTime, effect.localTime);
     } else if (
       (effect as any).compositing?.primitive === "Pixelate" ||
       renderer === "pixelate" ||
       effect.effectId === "pixelate"
     ) {
-      const amount = Number(effect.parameters.pixelSize ?? effect.parameters.amount ?? 18);
+      const amount = Number(
+        effect.parameters.pixelSize ?? effect.parameters.amount ?? 18,
+      );
       if (!Number.isFinite(amount) || amount < 0) return null;
-      pixelateSize = Math.max(pixelateSize, Math.max(2, Math.floor(amount * effect.intensity)));
+      pixelateSize = Math.max(
+        pixelateSize,
+        Math.max(2, Math.floor(amount * effect.intensity)),
+      );
     } else if (
       (effect as any).compositing?.primitive === "Scanlines" ||
       renderer === "scanlines" ||
       effect.effectId === "scanlines"
     ) {
       const count = Number(effect.parameters.scanlineCount ?? 120);
-      const intensity = effect.parameters.scanlineIntensity !== undefined
-        ? Number(effect.parameters.scanlineIntensity) * effect.intensity
-        : effect.intensity;
-      if (!Number.isFinite(count) || count <= 0 || !Number.isFinite(intensity) || intensity < 0) return null;
+      const intensity =
+        effect.parameters.scanlineIntensity !== undefined
+          ? Number(effect.parameters.scanlineIntensity) * effect.intensity
+          : effect.intensity;
+      if (
+        !Number.isFinite(count) ||
+        count <= 0 ||
+        !Number.isFinite(intensity) ||
+        intensity < 0
+      )
+        return null;
       scanlineCount = Math.max(scanlineCount, count);
       scanlineIntensity = Math.max(scanlineIntensity, intensity);
     } else if (
@@ -591,9 +1041,18 @@ function getNativeColorGrade(
       effect.effectId === "chromatic-aberration" ||
       (effect as any).id === "chromatic-aberration"
     ) {
-      const amount = Number(effect.parameters.amount ?? effect.parameters.splitDistance ?? effect.parameters.rgbSplit ?? 8);
-      const angle = Number(effect.parameters.angleDegrees ?? effect.parameters.angle ?? 0);
-      const feather = Number(effect.parameters.edgeFeather ?? effect.parameters.feather ?? 0.5);
+      const amount = Number(
+        effect.parameters.amount ??
+          effect.parameters.splitDistance ??
+          effect.parameters.rgbSplit ??
+          8,
+      );
+      const angle = Number(
+        effect.parameters.angleDegrees ?? effect.parameters.angle ?? 0,
+      );
+      const feather = Number(
+        effect.parameters.edgeFeather ?? effect.parameters.feather ?? 0.5,
+      );
       if (!Number.isFinite(amount) || amount < 0) return null;
       chromaticAmount = Math.max(chromaticAmount, amount * effect.intensity);
       chromaticAngle = angle;
@@ -605,9 +1064,25 @@ function getNativeColorGrade(
       renderer === "rgbsplit" ||
       effect.effectId === "rgb-split"
     ) {
-      const shiftX = Number(effect.parameters.splitX ?? effect.parameters.rgbSplit ?? effect.parameters.splitDistance ?? 8);
-      const shiftY = Number(effect.parameters.splitY ?? effect.parameters.rgbSplit ?? effect.parameters.splitDistance ?? 8);
-      if (!Number.isFinite(shiftX) || shiftX < 0 || !Number.isFinite(shiftY) || shiftY < 0) return null;
+      const shiftX = Number(
+        effect.parameters.splitX ??
+          effect.parameters.rgbSplit ??
+          effect.parameters.splitDistance ??
+          8,
+      );
+      const shiftY = Number(
+        effect.parameters.splitY ??
+          effect.parameters.rgbSplit ??
+          effect.parameters.splitDistance ??
+          8,
+      );
+      if (
+        !Number.isFinite(shiftX) ||
+        shiftX < 0 ||
+        !Number.isFinite(shiftY) ||
+        shiftY < 0
+      )
+        return null;
       rgbSplitX = Math.max(rgbSplitX, shiftX * effect.intensity);
       rgbSplitY = Math.max(rgbSplitY, shiftY * effect.intensity);
     } else if (
@@ -618,37 +1093,76 @@ function getNativeColorGrade(
       renderer === "grain" ||
       effect.effectId === "film-grain"
     ) {
-      const intensity = Number(effect.parameters.grainIntensity ?? effect.parameters.intensity ?? 0.15);
-      const size = Number(effect.parameters.grainSize ?? effect.parameters.size ?? 1);
-      if (!Number.isFinite(intensity) || intensity < 0 || !Number.isFinite(size) || size <= 0) return null;
-      effectGrainIntensity = Math.max(effectGrainIntensity, intensity * effect.intensity);
+      const intensity = Number(
+        effect.parameters.grainIntensity ?? effect.parameters.intensity ?? 0.15,
+      );
+      const size = Number(
+        effect.parameters.grainSize ?? effect.parameters.size ?? 1,
+      );
+      if (
+        !Number.isFinite(intensity) ||
+        intensity < 0 ||
+        !Number.isFinite(size) ||
+        size <= 0
+      )
+        return null;
+      effectGrainIntensity = Math.max(
+        effectGrainIntensity,
+        intensity * effect.intensity,
+      );
       effectGrainSize = Math.max(effectGrainSize, size);
     } else if (renderer === "vignette") {
       effectVignette = Math.max(effectVignette, effect.intensity);
     } else if (renderer === "glow") {
-      const radius = Number(effect.parameters.glowAmount ?? effect.parameters.blurAmount ?? 10);
-      const strength = Number(effect.parameters.glowIntensity ?? 0.8) * effect.intensity;
+      const radius = Number(
+        effect.parameters.glowAmount ?? effect.parameters.blurAmount ?? 10,
+      );
+      const strength =
+        Number(effect.parameters.glowIntensity ?? 0.8) * effect.intensity;
       const colorValue = effect.parameters.glowColor ?? "#ffffff";
-      if (!Number.isFinite(radius) || radius < 0 || !Number.isFinite(strength) || strength < 0 || typeof colorValue !== "string") return null;
+      if (
+        !Number.isFinite(radius) ||
+        radius < 0 ||
+        !Number.isFinite(strength) ||
+        strength < 0 ||
+        typeof colorValue !== "string"
+      )
+        return null;
       const [red, green, blue] = parseColor(colorValue);
-      if (strength >= glowStrength) glowColor = [red / 255, green / 255, blue / 255];
+      if (strength >= glowStrength)
+        glowColor = [red / 255, green / 255, blue / 255];
       glowStrength = Math.max(glowStrength, Math.min(1, strength));
       glowRadius = Math.max(glowRadius, radius * effect.intensity);
     } else if (renderer === "flash") {
-      const strength = Number(effect.parameters.flashIntensity ?? 1) * effect.intensity;
+      const strength =
+        Number(effect.parameters.flashIntensity ?? 1) * effect.intensity;
       const colorValue = effect.parameters.flashColor ?? "#ffffff";
-      if (!Number.isFinite(strength) || strength < 0 || typeof colorValue !== "string") return null;
+      if (
+        !Number.isFinite(strength) ||
+        strength < 0 ||
+        typeof colorValue !== "string"
+      )
+        return null;
       const [red, green, blue] = parseColor(colorValue);
-      if (strength >= flashStrength) flashColor = [red / 255, green / 255, blue / 255];
+      if (strength >= flashStrength)
+        flashColor = [red / 255, green / 255, blue / 255];
       flashStrength = Math.max(flashStrength, Math.min(1, strength));
     } else if (renderer === "flicker") {
-      const amount = Number(effect.parameters.flickerAmount ?? 1) * effect.intensity;
+      const amount =
+        Number(effect.parameters.flickerAmount ?? 1) * effect.intensity;
       if (!Number.isFinite(amount) || amount < 0) return null;
       flickerStrength = Math.max(flickerStrength, Math.min(1, amount));
     } else if (renderer === "strobe") {
       const frequency = Number(effect.parameters.frequency ?? 10);
-      const strength = Number(effect.parameters.flashIntensity ?? 0.8) * effect.intensity;
-      if (!Number.isFinite(frequency) || frequency < 0 || !Number.isFinite(strength) || strength < 0) return null;
+      const strength =
+        Number(effect.parameters.flashIntensity ?? 0.8) * effect.intensity;
+      if (
+        !Number.isFinite(frequency) ||
+        frequency < 0 ||
+        !Number.isFinite(strength) ||
+        strength < 0
+      )
+        return null;
       if (strength >= strobeStrength) {
         strobeFrequency = frequency;
         strobeTime = Math.max(0, effect.localTime);
@@ -656,10 +1170,20 @@ function getNativeColorGrade(
       strobeStrength = Math.max(strobeStrength, Math.min(1, strength));
     } else if (renderer === "light_leak" || renderer === "light_leak_2") {
       const defaultColor = renderer === "light_leak_2" ? "#ff7096" : "#ffc864";
-      const strength = Number(effect.parameters.leakIntensity ?? effect.parameters.intensity ?? 0.3) * effect.intensity;
-      const angle = Number(effect.parameters.angle ?? 45) * Math.PI / 180;
-      const colorValue = effect.parameters.leakColor ?? effect.parameters.color ?? defaultColor;
-      if (!Number.isFinite(strength) || strength < 0 || !Number.isFinite(angle) || typeof colorValue !== "string") return null;
+      const strength =
+        Number(
+          effect.parameters.leakIntensity ?? effect.parameters.intensity ?? 0.3,
+        ) * effect.intensity;
+      const angle = (Number(effect.parameters.angle ?? 45) * Math.PI) / 180;
+      const colorValue =
+        effect.parameters.leakColor ?? effect.parameters.color ?? defaultColor;
+      if (
+        !Number.isFinite(strength) ||
+        strength < 0 ||
+        !Number.isFinite(angle) ||
+        typeof colorValue !== "string"
+      )
+        return null;
       const [red, green, blue] = parseColor(colorValue);
       if (strength >= lightLeakStrength) {
         lightLeakColor = [red / 255, green / 255, blue / 255];
@@ -668,18 +1192,29 @@ function getNativeColorGrade(
       }
       lightLeakStrength = Math.max(lightLeakStrength, Math.min(1, strength));
     } else if (renderer === "vhs" || renderer === "crt") {
-      const count = Number(effect.parameters.scanlineCount ?? (renderer === "crt" ? 120 : 100));
+      const count = Number(
+        effect.parameters.scanlineCount ?? (renderer === "crt" ? 120 : 100),
+      );
       if (!Number.isFinite(count) || count <= 0) return null;
       scanlineCount = Math.max(scanlineCount, count);
       scanlineIntensity = Math.max(scanlineIntensity, effect.intensity);
       if (renderer === "vhs") {
         const shift = Number(effect.parameters.colorOffset ?? 5);
         const noise = Number(effect.parameters.noiseAmount ?? 0.1);
-        if (!Number.isFinite(shift) || shift < 0 || !Number.isFinite(noise) || noise < 0) return null;
+        if (
+          !Number.isFinite(shift) ||
+          shift < 0 ||
+          !Number.isFinite(noise) ||
+          noise < 0
+        )
+          return null;
         const scaledShift = shift * effect.intensity;
         rgbSplitX = Math.max(rgbSplitX, scaledShift);
         rgbSplitY = Math.max(rgbSplitY, scaledShift);
-        effectGrainIntensity = Math.max(effectGrainIntensity, noise * effect.intensity);
+        effectGrainIntensity = Math.max(
+          effectGrainIntensity,
+          noise * effect.intensity,
+        );
       } else {
         effectVignette = Math.max(effectVignette, effect.intensity);
       }
@@ -692,16 +1227,31 @@ function getNativeColorGrade(
         effect.parameters.fireColor3 ?? "#FFD700",
       ];
       if (
-        !Number.isFinite(fireHeight) || fireHeight < 0.1 || fireHeight > 0.8 ||
-        !Number.isFinite(particleCount) || particleCount < 1 || particleCount > 128 ||
+        !Number.isFinite(fireHeight) ||
+        fireHeight < 0.1 ||
+        fireHeight > 0.8 ||
+        !Number.isFinite(particleCount) ||
+        particleCount < 1 ||
+        particleCount > 128 ||
         colors.some((value) => typeof value !== "string")
-      ) return null;
+      )
+        return null;
       const parsedColors = colors.map((value) => {
         const [red, green, blue] = parseColor(value as string);
-        return [red / 255, green / 255, blue / 255, 0] as [number, number, number, number];
+        return [red / 255, green / 255, blue / 255, 0] as [
+          number,
+          number,
+          number,
+          number,
+        ];
       });
       if (effect.intensity >= fireParams[2]) {
-        fireParams = [fireHeight, particleCount, Math.min(1, effect.intensity), Math.max(0, effect.localTime)];
+        fireParams = [
+          fireHeight,
+          particleCount,
+          Math.min(1, effect.intensity),
+          Math.max(0, effect.localTime),
+        ];
         [fireColor1, fireColor2, fireColor3] = parsedColors as [
           [number, number, number, number],
           [number, number, number, number],
@@ -709,101 +1259,206 @@ function getNativeColorGrade(
         ];
       }
     } else if (renderer === "particles" || renderer === "dust_particles") {
-      const particleCount = Number(effect.parameters.particleCount ?? (renderer === "dust_particles" ? 60 : 100));
-      const particleSize = Number(effect.parameters.particleSize ?? (renderer === "dust_particles" ? 2 : 3));
-      const driftSpeed = Number(effect.parameters.driftSpeed ?? (renderer === "dust_particles" ? 0.2 : 1));
-      const fadeEffect = renderer === "dust_particles"
-        ? false
-        : effect.parameters.fadeEffect === undefined || Boolean(effect.parameters.fadeEffect);
-      const colorValue = effect.parameters.particleColor ?? (renderer === "dust_particles" ? "#E0E0E0" : "#FFFFFF");
+      const particleCount = Number(
+        effect.parameters.particleCount ??
+          (renderer === "dust_particles" ? 60 : 100),
+      );
+      const particleSize = Number(
+        effect.parameters.particleSize ??
+          (renderer === "dust_particles" ? 2 : 3),
+      );
+      const driftSpeed = Number(
+        effect.parameters.driftSpeed ??
+          (renderer === "dust_particles" ? 0.2 : 1),
+      );
+      const fadeEffect =
+        renderer === "dust_particles"
+          ? false
+          : effect.parameters.fadeEffect === undefined ||
+            Boolean(effect.parameters.fadeEffect);
+      const colorValue =
+        effect.parameters.particleColor ??
+        (renderer === "dust_particles" ? "#E0E0E0" : "#FFFFFF");
       if (
-        !Number.isFinite(particleCount) || particleCount < 1 || particleCount > 128 ||
-        !Number.isFinite(particleSize) || particleSize <= 0 || particleSize > 20 ||
-        !Number.isFinite(driftSpeed) || driftSpeed < 0 || driftSpeed > 5 ||
+        !Number.isFinite(particleCount) ||
+        particleCount < 1 ||
+        particleCount > 128 ||
+        !Number.isFinite(particleSize) ||
+        particleSize <= 0 ||
+        particleSize > 20 ||
+        !Number.isFinite(driftSpeed) ||
+        driftSpeed < 0 ||
+        driftSpeed > 5 ||
         typeof colorValue !== "string"
-      ) return null;
+      )
+        return null;
       const [red, green, blue] = parseColor(colorValue);
       if (effect.intensity >= particleParams[3]) {
-        particleParams = [particleCount, particleSize, driftSpeed, Math.min(1, effect.intensity)];
-        particleColor = [red / 255, green / 255, blue / 255, (renderer === "dust_particles" ? 2 : 1) + (fadeEffect ? 0.5 : 0)];
+        particleParams = [
+          particleCount,
+          particleSize,
+          driftSpeed,
+          Math.min(1, effect.intensity),
+        ];
+        particleColor = [
+          red / 255,
+          green / 255,
+          blue / 255,
+          (renderer === "dust_particles" ? 2 : 1) + (fadeEffect ? 0.5 : 0),
+        ];
         particleTime = Math.max(0, effect.localTime);
       }
     }
   }
   const exposure = choose("exposure", 0, scaledPreset("exposure"));
-  const contrastAdjustment = readAdjustment("contrast");
-  const contrast = contrastAdjustment === null
-    ? null
-    : contrastAdjustment !== undefined
-      ? contrastAdjustment + 1
-      : choose("contrast", 1, filterIR.contrast, mpgGrade?.contrast, (() => {
-        const value = scaledPreset("contrast");
-        return value === undefined ? undefined : 1 + value;
-      })());
-  const saturationAdjustment = readAdjustment("saturation");
-  const saturation = saturationAdjustment === null
-    ? null
-    : saturationAdjustment !== undefined
-      ? saturationAdjustment + 1
-      : choose("saturation", 1, filterIR.saturate, mpgGrade?.saturation, (() => {
-        const value = scaledPreset("saturation");
-        return value === undefined ? undefined : 1 + value;
-      })());
-  const temperature = choose("temperature", 0, scaledPreset("temperature"), mpgGrade?.temperature);
+  const contrastAdjustment = readAdjustmentNormalized("contrast");
+  const contrast =
+    contrastAdjustment === null
+      ? null
+      : contrastAdjustment !== undefined
+        ? contrastAdjustment + 1
+        : choose(
+            "contrast",
+            1,
+            filterIR.contrast,
+            mpgGrade?.contrast,
+            (() => {
+              const value = scaledPreset("contrast");
+              return value === undefined ? undefined : 1 + value;
+            })(),
+          );
+  const saturationAdjustment = readAdjustmentNormalized("saturation");
+  const saturation =
+    saturationAdjustment === null
+      ? null
+      : saturationAdjustment !== undefined
+        ? saturationAdjustment + 1
+        : choose(
+            "saturation",
+            1,
+            filterIR.saturate,
+            mpgGrade?.saturation,
+            (() => {
+              const value = scaledPreset("saturation");
+              return value === undefined ? undefined : 1 + value;
+            })(),
+          );
+  const temperature = choose(
+    "temperature",
+    0,
+    scaledPreset("temperature"),
+    mpgGrade?.temperature,
+  );
   const tint = choose("tint", 0, scaledPreset("tint"), mpgGrade?.tint);
-  const brightness = choose("brightness", 0, scaledPreset("brightness"), mpgGrade?.brightness);
+  const brightness = choose(
+    "brightness",
+    0,
+    scaledPreset("brightness"),
+    mpgGrade?.brightness,
+  );
   const lift = choose("lift", 0, scaledPreset("lift"));
-  const sepia = choose("sepia", 0, filterIR.sepia, mpgGrade?.sepia, scaledPreset("sepia"));
-  const grayscale = choose("grayscale", 0, filterIR.grayscale, mpgGrade?.grayscale, scaledPreset("grayscale"));
-  const hueAdjustment = readAdjustment("hue");
-  const hue = hueAdjustment !== undefined ? hueAdjustment : filterIR.hueRotate ?? mpgGrade?.hueRotate ?? (() => {
-    const value = scaledPreset("hueRotate");
-    return value === undefined ? 0 : (value * 180) / Math.PI;
-  })();
-  const vignetteValue = choose("vignette", 0, scaledPreset("vignette"), mpgGrade?.vignette);
-  const vignette = vignetteValue === null ? null : Math.max(vignetteValue, effectVignette);
+  const sepia = choose(
+    "sepia",
+    0,
+    filterIR.sepia,
+    mpgGrade?.sepia,
+    scaledPreset("sepia"),
+  );
+  const grayscale = choose(
+    "grayscale",
+    0,
+    filterIR.grayscale,
+    mpgGrade?.grayscale,
+    scaledPreset("grayscale"),
+  );
+  const hueAdjustment = readAdjustmentNormalized("hue");
+  const hue =
+    hueAdjustment !== undefined
+      ? hueAdjustment
+      : (filterIR.hueRotate ??
+        mpgGrade?.hueRotate ??
+        (() => {
+          const value = scaledPreset("hueRotate");
+          return value === undefined ? 0 : (value * 180) / Math.PI;
+        })());
+  const vignetteValue = choose(
+    "vignette",
+    0,
+    scaledPreset("vignette"),
+    mpgGrade?.vignette,
+  );
+  const vignette =
+    vignetteValue === null ? null : Math.max(vignetteValue, effectVignette);
   const grainValue = values?.grain ?? preset?.grain;
   const grainScale = values?.grain === undefined ? presetIntensity : 1;
-  const adjustmentGrainIntensity = grainValue === undefined
-    ? 0
-    : typeof grainValue === "object" && grainValue !== null
-      ? (() => {
-        const value = readNumber((grainValue as Record<string, unknown>).intensity);
-        return value === null || value === undefined ? value ?? null : value * grainScale;
-      })()
-      : null;
-  const adjustmentGrainSize = grainValue === undefined
-    ? 1
-    : typeof grainValue === "object" && grainValue !== null
-      ? readNumber((grainValue as Record<string, unknown>).size) ?? null
-      : null;
-  const grainIntensity = adjustmentGrainIntensity === null ? null : Math.max(adjustmentGrainIntensity, effectGrainIntensity);
-  const grainSize = adjustmentGrainSize === null
-    ? null
-    : grainValue === undefined ? effectGrainSize : Math.max(adjustmentGrainSize, effectGrainSize);
+  const adjustmentGrainIntensity =
+    grainValue === undefined
+      ? 0
+      : typeof grainValue === "object" && grainValue !== null
+        ? (() => {
+            const value = readNumber(
+              (grainValue as Record<string, unknown>).intensity,
+            );
+            return value === null || value === undefined
+              ? (value ?? null)
+              : value * grainScale;
+          })()
+        : null;
+  const adjustmentGrainSize =
+    grainValue === undefined
+      ? 1
+      : typeof grainValue === "object" && grainValue !== null
+        ? (readNumber((grainValue as Record<string, unknown>).size) ?? null)
+        : null;
+  const grainIntensity =
+    adjustmentGrainIntensity === null
+      ? null
+      : Math.max(adjustmentGrainIntensity, effectGrainIntensity);
+  const grainSize =
+    adjustmentGrainSize === null
+      ? null
+      : grainValue === undefined
+        ? effectGrainSize
+        : Math.max(adjustmentGrainSize, effectGrainSize);
   const vibranceValue = values?.vibrance ?? preset?.vibrance;
   const vibranceScale = values?.vibrance === undefined ? presetIntensity : 1;
-  const vibranceAmount = vibranceValue === undefined
-    ? 0
-    : typeof vibranceValue === "object" && vibranceValue !== null
-      ? (() => {
-        const value = readNumber((vibranceValue as Record<string, unknown>).amount);
-        return value === null || value === undefined ? value ?? null : value * vibranceScale;
-      })()
-      : null;
+  const vibranceAmount =
+    vibranceValue === undefined
+      ? 0
+      : typeof vibranceValue === "object" && vibranceValue !== null
+        ? (() => {
+            const value = readNumber(
+              (vibranceValue as Record<string, unknown>).amount,
+            );
+            return value === null || value === undefined
+              ? (value ?? null)
+              : value * vibranceScale;
+          })()
+        : null;
   const crossProcessValue = values?.crossProcess ?? preset?.crossProcess;
-  const crossProcessScale = values?.crossProcess === undefined ? presetIntensity : 1;
-  const crossProcessAmount = crossProcessValue === undefined
-    ? choose("crossProcessAmount", 0)
-    : typeof crossProcessValue === "object" && crossProcessValue !== null
-      ? (() => {
-        const value = readNumber((crossProcessValue as Record<string, unknown>).amount);
-        return value === null || value === undefined ? value ?? null : value * crossProcessScale;
-      })()
-      : null;
+  const crossProcessScale =
+    values?.crossProcess === undefined ? presetIntensity : 1;
+  const crossProcessAmount =
+    crossProcessValue === undefined
+      ? choose("crossProcessAmount", 0)
+      : typeof crossProcessValue === "object" && crossProcessValue !== null
+        ? (() => {
+            const value = readNumber(
+              (crossProcessValue as Record<string, unknown>).amount,
+            );
+            return value === null || value === undefined
+              ? (value ?? null)
+              : value * crossProcessScale;
+          })()
+        : null;
   let vibranceProtectedHue: [number, number, number] = [0.91, 0.69, 0.55];
-  if (vibranceValue !== undefined && typeof vibranceValue === "object" && vibranceValue !== null) {
-    const protectedHue = (vibranceValue as Record<string, unknown>).protectedHue;
+  if (
+    vibranceValue !== undefined &&
+    typeof vibranceValue === "object" &&
+    vibranceValue !== null
+  ) {
+    const protectedHue = (vibranceValue as Record<string, unknown>)
+      .protectedHue;
     if (protectedHue !== undefined) {
       if (typeof protectedHue !== "string") return null;
       const [red, green, blue] = parseColor(protectedHue);
@@ -811,7 +1466,8 @@ function getNativeColorGrade(
     }
   }
   if (vibranceValue === preset?.vibrance && vibranceValue !== undefined) {
-    const protectedHue = (vibranceValue as Record<string, unknown>).protectedHue;
+    const protectedHue = (vibranceValue as Record<string, unknown>)
+      .protectedHue;
     if (protectedHue !== undefined) {
       if (typeof protectedHue !== "string") return null;
       const [red, green, blue] = parseColor(protectedHue);
@@ -820,52 +1476,115 @@ function getNativeColorGrade(
   }
 
   const channelMixValue = values?.channelMix ?? preset?.channelMix;
-  const channelMix = channelMixValue === undefined
-    ? [0, 0, 0] as [number, number, number]
-    : (() => {
-      const parsed = [
-        readObjectNumber(channelMixValue, "r"),
-        readObjectNumber(channelMixValue, "g"),
-        readObjectNumber(channelMixValue, "b"),
-      ];
-      return parsed.some((value) => value === null || value === undefined) ? null : parsed as [number, number, number];
-    })();
+  const channelMix =
+    channelMixValue === undefined
+      ? ([0, 0, 0] as [number, number, number])
+      : (() => {
+          const parsed = [
+            readObjectNumber(channelMixValue, "r"),
+            readObjectNumber(channelMixValue, "g"),
+            readObjectNumber(channelMixValue, "b"),
+          ];
+          return parsed.some((value) => value === null || value === undefined)
+            ? null
+            : (parsed as [number, number, number]);
+        })();
   const duotoneValue = values?.duotone ?? preset?.duotone;
-  const duotone = duotoneValue === undefined
-    ? { dark: [0, 0, 0] as [number, number, number], light: [1, 1, 1] as [number, number, number] }
-    : (() => {
-      const dark = parseNativeColor(typeof duotoneValue === "object" && duotoneValue !== null ? (duotoneValue as Record<string, unknown>).darkColor : undefined);
-      const light = parseNativeColor(typeof duotoneValue === "object" && duotoneValue !== null ? (duotoneValue as Record<string, unknown>).lightColor : undefined);
-      return dark && light ? { dark, light } : null;
-    })();
+  const duotone =
+    duotoneValue === undefined
+      ? {
+          dark: [0, 0, 0] as [number, number, number],
+          light: [1, 1, 1] as [number, number, number],
+        }
+      : (() => {
+          const dark = parseNativeColor(
+            typeof duotoneValue === "object" && duotoneValue !== null
+              ? (duotoneValue as Record<string, unknown>).darkColor
+              : undefined,
+          );
+          const light = parseNativeColor(
+            typeof duotoneValue === "object" && duotoneValue !== null
+              ? (duotoneValue as Record<string, unknown>).lightColor
+              : undefined,
+          );
+          return dark && light ? { dark, light } : null;
+        })();
   const splitToneValue = preset?.splitTone ?? values?.splitTone;
-  const splitTone = splitToneValue === undefined
-    ? { shadow: [1, 1, 1] as [number, number, number], shadowStrength: 0, highlight: [1, 1, 1] as [number, number, number], highlightStrength: 0, balance: 0.5 }
-    : (() => {
-      const split = splitToneValue as Record<string, unknown>;
-      const shadow = parseNativeColor(split.shadowColor);
-      const highlight = parseNativeColor(split.highlightColor);
-      const shadowStrength = readNumber(split.shadowStrength);
-      const highlightStrength = readNumber(split.highlightStrength);
-      const balance = readNumber(split.balance);
-      return shadow && highlight && shadowStrength !== null && shadowStrength !== undefined &&
-        highlightStrength !== null && highlightStrength !== undefined && balance !== null && balance !== undefined
-        ? { shadow, shadowStrength: shadowStrength * (values?.splitTone === undefined ? presetIntensity : 1), highlight, highlightStrength: highlightStrength * (values?.splitTone === undefined ? presetIntensity : 1), balance }
-        : null;
-    })();
+  const splitTone =
+    splitToneValue === undefined
+      ? {
+          shadow: [1, 1, 1] as [number, number, number],
+          shadowStrength: 0,
+          highlight: [1, 1, 1] as [number, number, number],
+          highlightStrength: 0,
+          balance: 0.5,
+        }
+      : (() => {
+          const split = splitToneValue as Record<string, unknown>;
+          const shadow = parseNativeColor(split.shadowColor);
+          const highlight = parseNativeColor(split.highlightColor);
+          const shadowStrength = readNumber(split.shadowStrength);
+          const highlightStrength = readNumber(split.highlightStrength);
+          const balance = readNumber(split.balance);
+          return shadow &&
+            highlight &&
+            shadowStrength !== null &&
+            shadowStrength !== undefined &&
+            highlightStrength !== null &&
+            highlightStrength !== undefined &&
+            balance !== null &&
+            balance !== undefined
+            ? {
+                shadow,
+                shadowStrength:
+                  shadowStrength *
+                  (values?.splitTone === undefined ? presetIntensity : 1),
+                highlight,
+                highlightStrength:
+                  highlightStrength *
+                  (values?.splitTone === undefined ? presetIntensity : 1),
+                balance,
+              }
+            : null;
+        })();
   const invertValue = values?.invert;
-  const invert = invertValue === undefined
-    ? 0
-    : typeof invertValue === "boolean"
-      ? (invertValue ? 1 : 0)
-      : typeof invertValue === "number" && Number.isFinite(invertValue)
+  const invert =
+    invertValue === undefined
+      ? 0
+      : typeof invertValue === "boolean"
         ? invertValue
-        : null;
+          ? 1
+          : 0
+        : typeof invertValue === "number" && Number.isFinite(invertValue)
+          ? invertValue
+          : null;
+  const highlights = readAdjustmentNormalized("highlights") ?? 0;
+  const shadows = readAdjustmentNormalized("shadows") ?? 0;
+  const whites = readAdjustmentNormalized("whites") ?? 0;
+  const blacks = readAdjustmentNormalized("blacks") ?? 0;
+  // Fade: mix towards a flat mid-gray (0.5). GPU stores as 0..1 fraction.
+  const fade = readAdjustmentNormalized("fade") ?? 0;
   if (
-    exposure === null || contrast === null || saturation === null || temperature === null || tint === null ||
-    brightness === null || lift === null || sepia === null || grayscale === null || hue === null || vignette === null || invert === null ||
-    grainIntensity === null || grainSize === null || vibranceAmount === null || crossProcessAmount === null ||
-    invalidPresetNumber || channelMix === null || duotone === null || splitTone === null
+    exposure === null ||
+    contrast === null ||
+    saturation === null ||
+    temperature === null ||
+    tint === null ||
+    brightness === null ||
+    lift === null ||
+    sepia === null ||
+    grayscale === null ||
+    hue === null ||
+    vignette === null ||
+    invert === null ||
+    grainIntensity === null ||
+    grainSize === null ||
+    vibranceAmount === null ||
+    crossProcessAmount === null ||
+    invalidPresetNumber ||
+    channelMix === null ||
+    duotone === null ||
+    splitTone === null
   ) {
     return null;
   }
@@ -885,13 +1604,25 @@ function getNativeColorGrade(
     invert,
     grainIntensity,
     grainSize,
-    ...(hasLut ? {
-      lutId: effectiveLutId,
-      lutIntensity: typeof grade?.lutIntensity === "number" && Number.isFinite(grade.lutIntensity)
-        ? grade.lutIntensity
-        : (activeFilter?.intensity ?? 1),
-      lutSize: typeof grade?.lutSize === "number" && Number.isFinite(grade.lutSize) ? grade.lutSize : 33,
-    } : { lutIntensity: 1, lutSize: 33 }),
+    highlights,
+    shadows,
+    whites,
+    blacks,
+    fade,
+    ...(hasLut
+      ? {
+          lutId: effectiveLutId,
+          lutIntensity:
+            typeof grade?.lutIntensity === "number" &&
+            Number.isFinite(grade.lutIntensity)
+              ? grade.lutIntensity
+              : (activeFilter?.intensity ?? 1),
+          lutSize:
+            typeof grade?.lutSize === "number" && Number.isFinite(grade.lutSize)
+              ? grade.lutSize
+              : 33,
+        }
+      : { lutIntensity: 1, lutSize: 33 }),
     blurStrength: blurRadius > 0 ? 1 : 0,
     blurRadius,
     pixelateSize,
@@ -946,20 +1677,65 @@ function getNativeColorGrade(
     lightLeakStrength,
     lightLeakAngle,
     lightLeakTime,
-    ...(glitchIntensity > 0 ? {
-      glitchIntensity,
-      glitchTime,
-      glitchSliceCount,
-      glitchColorShift,
-    } : {}),
-    ...(distortionStrength > 0 ? {
-      distortionType,
-      distortionStrength,
-      distortionTime,
-      distortionFrequency,
-    } : {}),
-    ...(fireParams[2] > 0 ? { fireParams, fireColor1, fireColor2, fireColor3 } : {}),
-    ...(particleParams[3] > 0 ? { particleParams, particleColor, particleTime } : {}),
+    ...(glitchIntensity > 0
+      ? {
+          glitchIntensity,
+          glitchTime,
+          glitchSliceCount,
+          glitchColorShift,
+        }
+      : {}),
+    ...(distortionStrength > 0
+      ? {
+          distortionType,
+          distortionStrength,
+          distortionTime,
+          distortionFrequency,
+        }
+      : {}),
+    ...(fireParams[2] > 0
+      ? { fireParams, fireColor1, fireColor2, fireColor3 }
+      : {}),
+    ...(particleParams[3] > 0
+      ? { particleParams, particleColor, particleTime }
+      : {}),
+    ...(() => {
+      // Pack per-channel HSL from adjustments.hslChannels
+      const CHANNEL_CENTER_HUES: Record<string, number> = {
+        red: (0 * Math.PI) / 180,
+        orange: (30 * Math.PI) / 180,
+        yellow: (60 * Math.PI) / 180,
+        green: (120 * Math.PI) / 180,
+        cyan: (180 * Math.PI) / 180,
+        blue: (210 * Math.PI) / 180,
+        purple: (270 * Math.PI) / 180,
+        magenta: (330 * Math.PI) / 180,
+      };
+      const hslChannelsMap = (values as any)?.hslChannels as
+        | Record<
+            string,
+            { hue?: number; saturation?: number; brightness?: number }
+          >
+        | undefined;
+      if (!hslChannelsMap || typeof hslChannelsMap !== "object") return {};
+      const entries: Array<[number, number, number, number]> = [];
+      for (const [name, center] of Object.entries(CHANNEL_CENTER_HUES)) {
+        const ch = hslChannelsMap[name];
+        if (!ch) continue;
+        const hueOffset = ((ch.hue ?? 0) * Math.PI) / 180; // degrees → radians
+        const satOffset = (ch.saturation ?? 0) * 0.01; // −100..100 → −1..1
+        const briOffset = (ch.brightness ?? 0) * 0.01; // −100..100 → −1..1
+        if (
+          Math.abs(hueOffset) < 0.0001 &&
+          Math.abs(satOffset) < 0.0001 &&
+          Math.abs(briOffset) < 0.0001
+        )
+          continue;
+        entries.push([hueOffset, satOffset, briOffset, center]);
+      }
+      if (entries.length === 0) return {};
+      return { hslChannelCount: entries.length, hslChannels: entries };
+    })(),
   };
 }
 
@@ -968,20 +1744,33 @@ function getNativeBodyEffect(
   rasterLayers: NativeRasterLayerSnapshot[],
 ): NativeBodyEffectSnapshot | null | undefined {
   const effects = (layer.effects ?? []).filter((effect) => {
-    const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
-    return effect.intensity > 0.001 && NATIVE_BODY_EFFECT_RENDERERS.has(renderer);
+    const renderer = (effect.renderer || effect.effectId)
+      .replace(/^fx-/, "")
+      .replace(/-/g, "_")
+      .toLowerCase();
+    return (
+      effect.intensity > 0.001 && NATIVE_BODY_EFFECT_RENDERERS.has(renderer)
+    );
   });
   if (effects.length === 0) return undefined;
 
-  const effect = effects.reduce((strongest, candidate) => candidate.intensity > strongest.intensity ? candidate : strongest);
-  const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase() as NativeBodyEffectSnapshot["renderer"];
+  const effect = effects.reduce((strongest, candidate) =>
+    candidate.intensity > strongest.intensity ? candidate : strongest,
+  );
+  const renderer = (effect.renderer || effect.effectId)
+    .replace(/^fx-/, "")
+    .replace(/-/g, "_")
+    .toLowerCase() as NativeBodyEffectSnapshot["renderer"];
   const requestedMaskId = effect.parameters.maskAssetId;
   const defaultMaskId = `${layer.layerId}_${effect.effectId}`;
-  const maskAsset = rasterLayers.find((asset) => asset.isMask && (
-    typeof requestedMaskId === "string" && requestedMaskId.trim()
-      ? asset.assetId === requestedMaskId
-      : asset.assetId === defaultMaskId || asset.assetId.startsWith(`${defaultMaskId}:`)
-  ));
+  const maskAsset = rasterLayers.find(
+    (asset) =>
+      asset.isMask &&
+      (typeof requestedMaskId === "string" && requestedMaskId.trim()
+        ? asset.assetId === requestedMaskId
+        : asset.assetId === defaultMaskId ||
+          asset.assetId.startsWith(`${defaultMaskId}:`)),
+  );
   if (!maskAsset) return null;
   const maskAssetId = maskAsset.assetId;
 
@@ -989,10 +1778,12 @@ function getNativeBodyEffect(
   const colorValue = isCutout
     ? "#ffffff"
     : renderer === "body_outline"
-      ? effect.parameters.outlineColor ?? "#ffffff"
+      ? (effect.parameters.outlineColor ?? "#ffffff")
       : renderer === "body_particles"
-        ? effect.parameters.particleColor ?? effect.parameters.glowColor ?? "#00ffff"
-        : effect.parameters.glowColor ?? "#00ffff";
+        ? (effect.parameters.particleColor ??
+          effect.parameters.glowColor ??
+          "#00ffff")
+        : (effect.parameters.glowColor ?? "#00ffff");
   if (typeof colorValue !== "string") return null;
   const [red, green, blue] = parseColor(colorValue);
   const strength = isCutout
@@ -1010,9 +1801,24 @@ function getNativeBodyEffect(
     : renderer === "body_outline"
       ? Number(effect.parameters.thickness ?? 5) * effect.intensity
       : renderer === "body_particles"
-        ? Math.min(40, Math.max(1, Math.floor(Number(effect.parameters.particleCount ?? 120) * effect.intensity)))
+        ? Math.min(
+            40,
+            Math.max(
+              1,
+              Math.floor(
+                Number(effect.parameters.particleCount ?? 120) *
+                  effect.intensity,
+              ),
+            ),
+          )
         : Number(effect.parameters.glowRadius ?? 22) * effect.intensity;
-  if (!Number.isFinite(strength) || strength < 0 || !Number.isFinite(radius) || radius < 0) return null;
+  if (
+    !Number.isFinite(strength) ||
+    strength < 0 ||
+    !Number.isFinite(radius) ||
+    radius < 0
+  )
+    return null;
 
   return {
     maskAssetId,
@@ -1041,13 +1847,21 @@ function isSupportedNativeVideoLayer(
   layer: EvaluatedMediaLayer,
   mpgStack?: ReadonlyArray<{ type: string; params?: Record<string, unknown> }>,
 ): boolean {
-  const isStaticSticker = layer.clipKind === "sticker" && layer.stickerFormat === "static";
-  const isGifSticker = layer.clipKind === "sticker" && layer.stickerFormat === "gif";
+  const isStaticSticker =
+    layer.clipKind === "sticker" && layer.stickerFormat === "static";
+  const isGifSticker =
+    layer.clipKind === "sticker" && layer.stickerFormat === "gif";
   return (
     isNativeVideoGraphLayer(layer) &&
     (layer.clipKind !== "sticker" || isStaticSticker || isGifSticker) &&
     isNativeFileSource(layer.sourcePath) &&
-    getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects, mpgStack) !== null &&
+    getNativeColorGrade(
+      layer.adjustments,
+      layer.colorGrade,
+      layer.filter,
+      layer.effects,
+      mpgStack,
+    ) !== null &&
     NATIVE_BLEND_MODES.has(layer.blendMode)
   );
 }
@@ -1057,7 +1871,10 @@ function isNativeAnimatedStickerLayer(layer: EvaluatedMediaLayer): boolean {
 }
 
 function isNativeVideoGraphLayer(layer: EvaluatedMediaLayer): boolean {
-  return layer.mediaType === "video" || (layer.clipKind === "sticker" && layer.stickerFormat === "gif");
+  return (
+    layer.mediaType === "video" ||
+    (layer.clipKind === "sticker" && layer.stickerFormat === "gif")
+  );
 }
 
 /**
@@ -1073,11 +1890,18 @@ function getNativeClearColor(
   const background = scene.metadata.canvasBackground;
   if (!background) return [0, 0, 0, 1];
   if (background.isTransparent) return [0, 0, 0, 0];
+  if (background.type === "blur") {
+    // clearColor will be transparent; the synthetic blur layer provides the fill.
+    return [0, 0, 0, 0];
+  }
   if (background.type !== "solid") {
-    const hasNativeBackground = rasterLayers.some((layer) =>
-      !layer.isMask && layer.assetId.startsWith("native-background:"),
+    const hasNativeBackground = rasterLayers.some(
+      (layer) =>
+        !layer.isMask && layer.assetId.startsWith("native-background:"),
     );
-    return hasNativeBackground || getNativeBackgroundMediaPath(scene) !== null ? [0, 0, 0, 0] : null;
+    return hasNativeBackground || getNativeBackgroundMediaPath(scene) !== null
+      ? [0, 0, 0, 0]
+      : null;
   }
 
   const color = background.color?.trim() || "#000000";
@@ -1096,51 +1920,178 @@ function getNativeClearColor(
   return [red / 255, green / 255, blue / 255, alpha * opacity];
 }
 
+/**
+ * Build a NativeColorGradeSnapshot that applies a Gaussian blur to a
+ * synthetic background layer (used by the canvas blur background feature).
+ * All other grade fields are set to neutral values.
+ */
+function buildBlurBackgroundColorGrade(
+  blurRadius: number,
+): NativeColorGradeSnapshot {
+  return {
+    exposure: 0,
+    contrast: 1,
+    saturation: 1,
+    temperature: 0,
+    tint: 0,
+    brightness: 0,
+    sepia: 0,
+    grayscale: 0,
+    hueRotate: 0,
+    vignette: 0,
+    invert: 0,
+    grainIntensity: 0,
+    grainSize: 1,
+    highlights: 0,
+    shadows: 0,
+    whites: 0,
+    blacks: 0,
+    fade: 0,
+    lutIntensity: 1,
+    lutSize: 33,
+    blurStrength: blurRadius > 0 ? 1 : 0,
+    blurRadius,
+    pixelateSize: 1,
+    scanlineCount: 0,
+    scanlineIntensity: 0,
+    rgbSplitX: 0,
+    rgbSplitY: 0,
+    vibranceAmount: 0,
+    vibranceProtectedHueR: 0,
+    vibranceProtectedHueG: 1,
+    vibranceProtectedHueB: 0,
+    lift: 0,
+    crossProcessAmount: 0,
+    channelMixR: 1,
+    channelMixG: 1,
+    channelMixB: 1,
+    channelMixEnabled: 0,
+    duotoneDarkR: 0,
+    duotoneDarkG: 0,
+    duotoneDarkB: 0,
+    duotoneLightR: 1,
+    duotoneLightG: 1,
+    duotoneLightB: 1,
+    duotoneEnabled: 0,
+    shadowTintR: 0,
+    shadowTintG: 0,
+    shadowTintB: 0,
+    shadowTintStrength: 0,
+    highlightTintR: 1,
+    highlightTintG: 1,
+    highlightTintB: 1,
+    highlightTintStrength: 0,
+    splitBalance: 0.5,
+    glowColorR: 1,
+    glowColorG: 1,
+    glowColorB: 1,
+    glowStrength: 0,
+    glowRadius: 0,
+    flashColorR: 1,
+    flashColorG: 1,
+    flashColorB: 1,
+    flashStrength: 0,
+    flickerStrength: 0,
+    strobeFrequency: 0,
+    strobeTime: 0,
+    strobeStrength: 0,
+    lightLeakColorR: 1,
+    lightLeakColorG: 1,
+    lightLeakColorB: 1,
+    lightLeakStrength: 0,
+    lightLeakAngle: 0,
+    lightLeakTime: 0,
+  };
+}
+
 export function buildNativeVideoProjectRequest(
   scene: EvaluatedScene,
   rasterLayers: NativeRasterLayerSnapshot[] = [],
 ): NativeVideoProjectFrameRequest | null {
   const canvasWidth = scene.metadata.canvasWidth || 1920;
   const canvasHeight = scene.metadata.canvasHeight || 1080;
-  const hasTransitions = Boolean(scene.transitions && scene.transitions.length > 0);
+  const hasTransitions = Boolean(
+    scene.transitions && scene.transitions.length > 0,
+  );
   const visualLayers = hasTransitions
     ? scene.visualLayers
     : cullOccludedVisualLayers(scene.visualLayers, canvasWidth, canvasHeight);
 
-  if (visualLayers.some((layer) => layer.layerType !== "media" && layer.layerType !== "text")) return null;
+  if (
+    visualLayers.some(
+      (layer) => layer.layerType !== "media" && layer.layerType !== "text",
+    )
+  )
+    return null;
   const clearColor = getNativeClearColor(scene, rasterLayers);
   if (!clearColor) return null;
 
   const textLayers = visualLayers.filter(
-    (layer): layer is EvaluatedTextLayer => layer.layerType === "text"
+    (layer): layer is EvaluatedTextLayer => layer.layerType === "text",
   );
   const allMediaLayers = visualLayers.filter(
     (layer): layer is EvaluatedMediaLayer => layer.layerType === "media",
   );
-  const animatedStickerLayers = allMediaLayers.filter(isNativeAnimatedStickerLayer);
-  const mediaLayers = allMediaLayers.filter((layer) => isNativeVideoGraphLayer(layer) && !isNativeAnimatedStickerLayer(layer));
+  const animatedStickerLayers = allMediaLayers.filter(
+    isNativeAnimatedStickerLayer,
+  );
+  const mediaLayers = allMediaLayers.filter(
+    (layer) =>
+      isNativeVideoGraphLayer(layer) && !isNativeAnimatedStickerLayer(layer),
+  );
   const imageLayers = allMediaLayers.filter(
-    (layer) => layer.mediaType === "image" && layer.stickerFormat !== "gif" && layer.stickerFormat !== "lottie",
+    (layer) =>
+      layer.mediaType === "image" &&
+      layer.stickerFormat !== "gif" &&
+      layer.stickerFormat !== "lottie",
   );
   const backgroundMediaPath = getNativeBackgroundMediaPath(scene);
-  if (imageLayers.some((layer) => !rasterLayers.some((asset) =>
-    hasNativeImageRasterAsset(layer, asset),
-  ))) return null;
-  if (animatedStickerLayers.some((layer) => !rasterLayers.some((asset) =>
-    !asset.isMask && asset.assetId.startsWith(`native-sticker:${layer.layerId}:`),
-  ))) return null;
+  if (
+    imageLayers.some(
+      (layer) =>
+        !rasterLayers.some((asset) => hasNativeImageRasterAsset(layer, asset)),
+    )
+  )
+    return null;
+  if (
+    animatedStickerLayers.some(
+      (layer) =>
+        !rasterLayers.some(
+          (asset) =>
+            !asset.isMask &&
+            asset.assetId.startsWith(`native-sticker:${layer.layerId}:`),
+        ),
+    )
+  )
+    return null;
   const transition = getNativeTransitionSnapshot(scene, mediaLayers);
   if (transition === null) return null;
   if (transition && backgroundMediaPath !== null) return null;
   const activeMediaLayers = mediaLayers;
 
-  if (scene.activeFilter && activeMediaLayers.some((layer) => layer.filter?.id !== scene.activeFilter?.id)) return null;
-  if (!activeMediaLayers.every((layer) => isSupportedNativeVideoLayer(layer, scene.activeFilter?.effectStack))) {
+  if (
+    scene.activeFilter &&
+    activeMediaLayers.some(
+      (layer) => layer.filter?.id !== scene.activeFilter?.id,
+    )
+  )
+    return null;
+  if (
+    !activeMediaLayers.every((layer) =>
+      isSupportedNativeVideoLayer(layer, scene.activeFilter?.effectStack),
+    )
+  ) {
     return null;
   }
 
   const layers: NativeProjectVideoLayer[] = activeMediaLayers.map((layer) => {
-    const colorGrade = getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects, scene.activeFilter?.effectStack);
+    const colorGrade = getNativeColorGrade(
+      layer.adjustments,
+      layer.colorGrade,
+      layer.filter,
+      layer.effects,
+      scene.activeFilter?.effectStack,
+    );
     const bodyEffect = getNativeBodyEffect(layer, rasterLayers);
     const isCutout = layer.layerId.endsWith(":subject-cutout");
     const isMaskReady = !isCutout || bodyEffect !== null;
@@ -1179,9 +2130,56 @@ export function buildNativeVideoProjectRequest(
     });
   }
 
-  if (activeMediaLayers.some((layer) => !layer.layerId.endsWith(":subject-cutout") && getNativeBodyEffect(layer, rasterLayers) === null)) return null;
+  // Inject synthetic blur background layer when canvas background is type=blur
+  if (scene.metadata.canvasBackground?.type === "blur" && layers.length > 0) {
+    // Find the primary layer: lowest non-negative zIndex among video (non-image/sticker) layers
+    const primaryLayer = layers
+      .filter(
+        (l) =>
+          l.videoPath &&
+          (l.zIndex ?? 0) >= 0 &&
+          !(l.layerId ?? "").endsWith(":subject-cutout"),
+      )
+      .reduce<NativeProjectVideoLayer | null>(
+        (min, l) =>
+          min === null || (l.zIndex ?? 0) < (min.zIndex ?? 0) ? l : min,
+        null,
+      );
 
-  if (layers.some((layer) => !Number.isFinite(layer.timeSecs) || layer.timeSecs < 0)) {
+    if (primaryLayer !== null) {
+      const blurRadius = scene.metadata.canvasBackground.blurRadius ?? 80;
+      const blurBgLayer: NativeProjectVideoLayer = {
+        layerId: `${primaryLayer.layerId ?? "layer"}:blur-bg`,
+        videoPath: primaryLayer.videoPath,
+        timeSecs: primaryLayer.timeSecs,
+        x: 0,
+        y: 0,
+        width: canvasWidth,
+        height: canvasHeight,
+        rotation: 0,
+        opacity: 0.85,
+        zIndex: -1,
+        blendMode: "normal",
+        colorGrade: buildBlurBackgroundColorGrade(blurRadius),
+      };
+      layers.unshift(blurBgLayer);
+    }
+  }
+
+  if (
+    activeMediaLayers.some(
+      (layer) =>
+        !layer.layerId.endsWith(":subject-cutout") &&
+        getNativeBodyEffect(layer, rasterLayers) === null,
+    )
+  )
+    return null;
+
+  if (
+    layers.some(
+      (layer) => !Number.isFinite(layer.timeSecs) || layer.timeSecs < 0,
+    )
+  ) {
     return null;
   }
 
@@ -1199,7 +2197,10 @@ export function buildNativeVideoProjectRequest(
         text: layer.text || "",
         fontId: layer.fontFamily || "default",
         fontSize: layer.fontSize,
-        fontWeight: typeof layer.fontWeight === "number" ? String(layer.fontWeight) : layer.fontWeight,
+        fontWeight:
+          typeof layer.fontWeight === "number"
+            ? String(layer.fontWeight)
+            : layer.fontWeight,
         fontStyle: layer.fontStyle,
         letterSpacing: layer.letterSpacing ?? 0,
         lineHeight: layer.lineHeight ?? 1.2,
@@ -1211,7 +2212,9 @@ export function buildNativeVideoProjectRequest(
           ...(run.color ? { color: parseColorToRgba(run.color) } : {}),
           highlighted: run.highlighted === true,
         })),
-        ...(layer.templateId ? { templateId: layer.templateId, templateData: layer.customization } : {}),
+        ...(layer.templateId
+          ? { templateId: layer.templateId, templateData: layer.customization }
+          : {}),
         x: layer.x,
         y: layer.y,
         boxWidth: layer.width,
@@ -1220,22 +2223,31 @@ export function buildNativeVideoProjectRequest(
         opacity: layer.opacity ?? 1,
         zIndex: layer.zIndex ?? 0,
         blendMode: layer.blendMode || "normal",
-        ...(layer.stroke ? {
-          strokeColor: parseColorToRgba(layer.stroke.color),
-          strokeWidth: layer.stroke.width,
-        } : {}),
-        ...(layer.shadow ? {
-          shadowColor: parseColorToRgba(layer.shadow.color),
-          shadowOffset: [layer.shadow.offsetX, layer.shadow.offsetY] as [number, number],
-          shadowBlur: layer.shadow.blur,
-        } : {}),
-        ...(layer.background ? {
-          background: {
-            color: parseColorToRgba(layer.background.color),
-            padding: layer.background.padding,
-            borderRadius: layer.background.borderRadius,
-          },
-        } : {}),
+        ...(layer.stroke
+          ? {
+              strokeColor: parseColorToRgba(layer.stroke.color),
+              strokeWidth: layer.stroke.width,
+            }
+          : {}),
+        ...(layer.shadow
+          ? {
+              shadowColor: parseColorToRgba(layer.shadow.color),
+              shadowOffset: [layer.shadow.offsetX, layer.shadow.offsetY] as [
+                number,
+                number,
+              ],
+              shadowBlur: layer.shadow.blur,
+            }
+          : {}),
+        ...(layer.background
+          ? {
+              background: {
+                color: parseColorToRgba(layer.background.color),
+                padding: layer.background.padding,
+                borderRadius: layer.background.borderRadius,
+              },
+            }
+          : {}),
         ...(effect ? { effect } : {}),
       };
     });
@@ -1265,98 +2277,192 @@ export function getNativePreviewBlockers(
   const add = (message: string) => {
     if (!blockers.includes(message)) blockers.push(message);
   };
-  if (scene.visualLayers.some((layer) => layer.layerType !== "media" && layer.layerType !== "text")) {
-    add("The scene contains a visual layer type without a native compositor contract.");
+  if (
+    scene.visualLayers.some(
+      (layer) => layer.layerType !== "media" && layer.layerType !== "text",
+    )
+  ) {
+    add(
+      "The scene contains a visual layer type without a native compositor contract.",
+    );
   }
 
   const background = scene.metadata.canvasBackground;
-  if (background?.type === "media" && getNativeBackgroundMediaPath(scene) === null) {
+  if (
+    background?.type === "media" &&
+    getNativeBackgroundMediaPath(scene) === null
+  ) {
     add("The media background has no native filesystem or Tauri asset source.");
   }
-  if ((background?.type === "gradient" || background?.type === "shader") && !rasterLayers.some((layer) =>
-    !layer.isMask && layer.assetId.startsWith("native-background:"),
-  )) {
-    add("The animated or gradient background has not produced its native raster asset yet.");
+  if (
+    (background?.type === "gradient" || background?.type === "shader") &&
+    !rasterLayers.some(
+      (layer) =>
+        !layer.isMask && layer.assetId.startsWith("native-background:"),
+    )
+  ) {
+    add(
+      "The animated or gradient background has not produced its native raster asset yet.",
+    );
   }
 
-  const textLayers = scene.visualLayers.filter((layer) => layer.layerType === "text");
+  const textLayers = scene.visualLayers.filter(
+    (layer) => layer.layerType === "text",
+  );
   for (const layer of textLayers) {
     // Background panels are authored by the shared browser rasterizer. The
     // native SDF fallback intentionally has no panel primitive, so submitting
     // it would silently drop the user's background until the raster arrives.
-    if (
-      layer.background &&
-      !hasNativeTextRasterAsset(layer, rasterLayers)
-    ) {
-      add(`Text background on layer ${layer.layerId} is waiting for its native raster frame.`);
+    if (layer.background && !hasNativeTextRasterAsset(layer, rasterLayers)) {
+      add(
+        `Text background on layer ${layer.layerId} is waiting for its native raster frame.`,
+      );
     }
     if (layer.templateId) {
-      add(`Text template ${layer.templateId} requires native template primitives.`);
+      add(
+        `Text template ${layer.templateId} requires native template primitives.`,
+      );
     }
-    const passes = (layer.styleDefinition as { passes?: Array<{ primitive?: string }> } | undefined)?.passes ?? [];
+    const passes =
+      (
+        layer.styleDefinition as
+          | { passes?: Array<{ primitive?: string }> }
+          | undefined
+      )?.passes ?? [];
     for (const pass of passes) {
       const primitive = (pass.primitive ?? "").toLowerCase().replace(/-/g, "_");
-      if (!["distance_threshold", "fill", "outline", "stroke", "glow", "drop_shadow", "shadow"].includes(primitive)) {
-        add(`Text effect primitive "${pass.primitive ?? "unknown"}" on layer ${layer.layerId} is not implemented by the native renderer.`);
+      if (
+        ![
+          "distance_threshold",
+          "fill",
+          "outline",
+          "stroke",
+          "glow",
+          "drop_shadow",
+          "shadow",
+        ].includes(primitive)
+      ) {
+        add(
+          `Text effect primitive "${pass.primitive ?? "unknown"}" on layer ${layer.layerId} is not implemented by the native renderer.`,
+        );
       }
     }
   }
 
   const mediaLayers = scene.visualLayers.filter(
-    (layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && isNativeVideoGraphLayer(layer) && !isNativeAnimatedStickerLayer(layer),
+    (layer): layer is EvaluatedMediaLayer =>
+      layer.layerType === "media" &&
+      isNativeVideoGraphLayer(layer) &&
+      !isNativeAnimatedStickerLayer(layer),
   );
   const imageLayers = scene.visualLayers.filter(
-    (layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && layer.mediaType === "image" && layer.stickerFormat !== "gif" && layer.stickerFormat !== "lottie",
+    (layer): layer is EvaluatedMediaLayer =>
+      layer.layerType === "media" &&
+      layer.mediaType === "image" &&
+      layer.stickerFormat !== "gif" &&
+      layer.stickerFormat !== "lottie",
   );
   const animatedStickerLayers = scene.visualLayers.filter(
-    (layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && isNativeAnimatedStickerLayer(layer),
+    (layer): layer is EvaluatedMediaLayer =>
+      layer.layerType === "media" && isNativeAnimatedStickerLayer(layer),
   );
   for (const layer of animatedStickerLayers) {
-    if (!rasterLayers.some((asset) => !asset.isMask && asset.assetId.startsWith(`native-sticker:${layer.layerId}:`))) {
-      add(`Animated sticker ${layer.layerId} is waiting for its native raster frame.`);
+    if (
+      !rasterLayers.some(
+        (asset) =>
+          !asset.isMask &&
+          asset.assetId.startsWith(`native-sticker:${layer.layerId}:`),
+      )
+    ) {
+      add(
+        `Animated sticker ${layer.layerId} is waiting for its native raster frame.`,
+      );
     }
   }
   for (const layer of imageLayers) {
-    if (!rasterLayers.some((asset) => hasNativeImageRasterAsset(layer, asset))) {
-      add(`Still image ${layer.layerId} is waiting for its alpha-preserving native raster frame.`);
+    if (
+      !rasterLayers.some((asset) => hasNativeImageRasterAsset(layer, asset))
+    ) {
+      add(
+        `Still image ${layer.layerId} is waiting for its alpha-preserving native raster frame.`,
+      );
     }
   }
   const transition = getNativeTransitionSnapshot(scene, mediaLayers);
-  if (transition === null) add("The active transition is not implemented in the native compositor.");
+  if (transition === null)
+    add("The active transition is not implemented in the native compositor.");
   if (transition && rasterLayers.some((layer) => layer.isMask)) {
     add("Native transitions currently do not support mask layers.");
   }
-  if (scene.activeFilter && mediaLayers.some((layer) => layer.filter?.id !== scene.activeFilter?.id)) {
-    add("The active filter track does not resolve consistently across native media layers.");
+  if (
+    scene.activeFilter &&
+    mediaLayers.some((layer) => layer.filter?.id !== scene.activeFilter?.id)
+  ) {
+    add(
+      "The active filter track does not resolve consistently across native media layers.",
+    );
   }
   for (const layer of mediaLayers) {
-    if (layer.layerId.endsWith(":subject-cutout") && getNativeBodyEffect(layer, rasterLayers) === null) {
+    if (
+      layer.layerId.endsWith(":subject-cutout") &&
+      getNativeBodyEffect(layer, rasterLayers) === null
+    ) {
       // In-flight cutout mask is non-blocking (base video continues rendering)
       continue;
     }
-    for (const effect of (layer.effects ?? []).filter((item) => item.intensity > 0.001)) {
-      const rawRenderer = (effect as any).compositing?.primitive || effect.renderer || effect.effectId;
-      const renderer = String(rawRenderer).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
-      if (!NATIVE_VIDEO_EFFECT_RENDERERS.has(renderer) && !NATIVE_VIDEO_EFFECT_RENDERERS.has(renderer.replace(/_/g, ""))) {
-        add(`Video effect "${renderer}" on media layer ${layer.layerId} has no native compositor implementation.`);
+    for (const effect of (layer.effects ?? []).filter(
+      (item) => item.intensity > 0.001,
+    )) {
+      const rawRenderer =
+        (effect as any).compositing?.primitive ||
+        effect.renderer ||
+        effect.effectId;
+      const renderer = String(rawRenderer)
+        .replace(/^fx-/, "")
+        .replace(/-/g, "_")
+        .toLowerCase();
+      if (
+        !NATIVE_VIDEO_EFFECT_RENDERERS.has(renderer) &&
+        !NATIVE_VIDEO_EFFECT_RENDERERS.has(renderer.replace(/_/g, ""))
+      ) {
+        add(
+          `Video effect "${renderer}" on media layer ${layer.layerId} has no native compositor implementation.`,
+        );
       }
     }
-    const filterMetadata = layer.filter as (typeof layer.filter & {
-      pipeline?: string;
-      effectStack?: ReadonlyArray<{ type: string; params?: Record<string, unknown> }>;
-    }) | undefined;
-    const filterStack = scene.activeFilter?.effectStack ?? filterMetadata?.effectStack;
-    const hasMpgFilter = scene.activeFilter?.pipeline === "v2" || filterMetadata?.pipeline === "v2" || (filterStack?.length ?? 0) > 0;
+    const filterMetadata = layer.filter as
+      | (typeof layer.filter & {
+          pipeline?: string;
+          effectStack?: ReadonlyArray<{
+            type: string;
+            params?: Record<string, unknown>;
+          }>;
+        })
+      | undefined;
+    const filterStack =
+      scene.activeFilter?.effectStack ?? filterMetadata?.effectStack;
+    const hasMpgFilter =
+      scene.activeFilter?.pipeline === "v2" ||
+      filterMetadata?.pipeline === "v2" ||
+      (filterStack?.length ?? 0) > 0;
     if (hasMpgFilter && resolveNativeMpgStack(filterStack) === null) {
-      add(`Filter "${scene.activeFilter?.id ?? filterMetadata?.id ?? "unknown"}" on media layer ${layer.layerId} contains MPG v2 nodes that are not supported by the native compositor.`);
+      add(
+        `Filter "${scene.activeFilter?.id ?? filterMetadata?.id ?? "unknown"}" on media layer ${layer.layerId} contains MPG v2 nodes that are not supported by the native compositor.`,
+      );
     } else if (hasMpgFilter && !filterStack) {
-      add(`Filter "${scene.activeFilter?.id ?? filterMetadata?.id ?? "unknown"}" on media layer ${layer.layerId} uses an MPG v2 stack without serialized nodes.`);
+      add(
+        `Filter "${scene.activeFilter?.id ?? filterMetadata?.id ?? "unknown"}" on media layer ${layer.layerId} uses an MPG v2 stack without serialized nodes.`,
+      );
     }
     if (!isSupportedNativeVideoLayer(layer, scene.activeFilter?.effectStack)) {
-      add(`Media layer ${layer.layerId} uses a source, transform, blend mode, or effect outside the native contract.`);
+      add(
+        `Media layer ${layer.layerId} uses a source, transform, blend mode, or effect outside the native contract.`,
+      );
     }
     if (getNativeBodyEffect(layer, rasterLayers) === null) {
-      add(`Body effect on media layer ${layer.layerId} is missing its native segmentation mask.`);
+      add(
+        `Body effect on media layer ${layer.layerId} is missing its native segmentation mask.`,
+      );
     }
   }
   return blockers;
@@ -1392,7 +2498,13 @@ export function buildNativeFrameRequest(
   rasterLayers: NativeRasterLayerSnapshot[] = [],
   intent: {
     generation?: number;
-    mode?: "playback" | "playback-lookahead" | "scrub" | "seek" | "frameStep" | "prefetch";
+    mode?:
+      | "playback"
+      | "playback-lookahead"
+      | "scrub"
+      | "seek"
+      | "frameStep"
+      | "prefetch";
     quality?: NativeFrameRequest["quality"];
     velocityPxPerSecond?: number;
     requestedAtMs?: number;
@@ -1403,13 +2515,22 @@ export function buildNativeFrameRequest(
   const request = buildNativeVideoProjectRequest(scene, rasterLayers);
   if (!request) return null;
 
-  const hasTransitions = Boolean(scene.transitions && scene.transitions.length > 0);
+  const hasTransitions = Boolean(
+    scene.transitions && scene.transitions.length > 0,
+  );
   const visualLayers = hasTransitions
     ? scene.visualLayers
-    : cullOccludedVisualLayers(scene.visualLayers, request.canvasWidth, request.canvasHeight);
-  const cutoutLayer = visualLayers.find((layer) => layer.layerId.endsWith(":subject-cutout"));
+    : cullOccludedVisualLayers(
+        scene.visualLayers,
+        request.canvasWidth,
+        request.canvasHeight,
+      );
+  const cutoutLayer = visualLayers.find((layer) =>
+    layer.layerId.endsWith(":subject-cutout"),
+  );
   const isCutoutMaskReady = cutoutLayer
-    ? getNativeBodyEffect(cutoutLayer as EvaluatedMediaLayer, rasterLayers) !== null
+    ? getNativeBodyEffect(cutoutLayer as EvaluatedMediaLayer, rasterLayers) !==
+      null
     : true;
   if (cutoutLayer) {
     traceCutoutEvent(
@@ -1425,9 +2546,20 @@ export function buildNativeFrameRequest(
     );
   }
   const videoLayers = visualLayers
-    .filter((layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && isNativeVideoGraphLayer(layer) && !isNativeAnimatedStickerLayer(layer))
+    .filter(
+      (layer): layer is EvaluatedMediaLayer =>
+        layer.layerType === "media" &&
+        isNativeVideoGraphLayer(layer) &&
+        !isNativeAnimatedStickerLayer(layer),
+    )
     .map((layer) => {
-      const colorGrade = getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects, scene.activeFilter?.effectStack);
+      const colorGrade = getNativeColorGrade(
+        layer.adjustments,
+        layer.colorGrade,
+        layer.filter,
+        layer.effects,
+        scene.activeFilter?.effectStack,
+      );
       const bodyEffect = getNativeBodyEffect(layer, rasterLayers);
       const isCutout = layer.layerId.endsWith(":subject-cutout");
       const isMaskReady = !isCutout || bodyEffect !== null;
@@ -1436,7 +2568,10 @@ export function buildNativeFrameRequest(
         assetId: layer.mediaId,
         layerId: layer.layerId,
         videoPath: toNativePath(layer.sourcePath),
-        sourceTime: secondsToNativeTime(layer.sourceTime, Math.max(0, Math.round(layer.sourceTime * Math.max(frameRate, 1)))),
+        sourceTime: secondsToNativeTime(
+          layer.sourceTime,
+          Math.max(0, Math.round(layer.sourceTime * Math.max(frameRate, 1))),
+        ),
         x: layer.x,
         y: layer.y,
         width: layer.width,
@@ -1451,13 +2586,18 @@ export function buildNativeFrameRequest(
       };
     });
 
-  const nativeBackgroundLayer = request.layers.find((layer) => layer.layerId === NATIVE_BACKGROUND_MEDIA_LAYER_ID);
+  const nativeBackgroundLayer = request.layers.find(
+    (layer) => layer.layerId === NATIVE_BACKGROUND_MEDIA_LAYER_ID,
+  );
   if (nativeBackgroundLayer) {
     videoLayers.push({
       assetId: NATIVE_BACKGROUND_MEDIA_LAYER_ID,
       layerId: NATIVE_BACKGROUND_MEDIA_LAYER_ID,
       videoPath: toNativePath(nativeBackgroundLayer.videoPath),
-      sourceTime: secondsToNativeTime(nativeBackgroundLayer.timeSecs, frameIndex),
+      sourceTime: secondsToNativeTime(
+        nativeBackgroundLayer.timeSecs,
+        frameIndex,
+      ),
       x: nativeBackgroundLayer.x,
       y: nativeBackgroundLayer.y,
       width: nativeBackgroundLayer.width ?? request.canvasWidth,
@@ -1466,6 +2606,30 @@ export function buildNativeFrameRequest(
       opacity: nativeBackgroundLayer.opacity ?? 1,
       zIndex: nativeBackgroundLayer.zIndex ?? -1_000_000,
       blendMode: "normal" as EvaluatedMediaLayer["blendMode"],
+    });
+  }
+  // Copy synthetic blur background layer from request.layers into videoLayers.
+  // buildNativeVideoProjectRequest injects this layer but buildNativeFrameRequest
+  // rebuilds videoLayers from scene.visualLayers — so it must be copied back
+  // explicitly, just like NATIVE_BACKGROUND_MEDIA_LAYER_ID above.
+  const blurBgLayer = request.layers.find((layer) =>
+    layer.layerId?.endsWith(":blur-bg"),
+  );
+  if (blurBgLayer) {
+    videoLayers.unshift({
+      assetId: blurBgLayer.layerId ?? "blur-bg",
+      layerId: blurBgLayer.layerId ?? "blur-bg",
+      videoPath: toNativePath(blurBgLayer.videoPath),
+      sourceTime: secondsToNativeTime(blurBgLayer.timeSecs, frameIndex),
+      x: blurBgLayer.x,
+      y: blurBgLayer.y,
+      width: blurBgLayer.width ?? request.canvasWidth,
+      height: blurBgLayer.height ?? request.canvasHeight,
+      rotation: blurBgLayer.rotation ?? 0,
+      opacity: blurBgLayer.opacity ?? 0.85,
+      zIndex: blurBgLayer.zIndex ?? -1,
+      blendMode: "normal" as EvaluatedMediaLayer["blendMode"],
+      ...(blurBgLayer.colorGrade ? { colorGrade: blurBgLayer.colorGrade } : {}),
     });
   }
 
@@ -1494,11 +2658,21 @@ export function buildNativeFrameRequest(
     quality: intent.quality ?? "full",
     colorPolicy: DEFAULT_NATIVE_COLOR_POLICY,
     renderGraphVersion: 1,
-    ...(intent.generation !== undefined ? { generation: intent.generation } : {}),
+    ...(intent.generation !== undefined
+      ? { generation: intent.generation }
+      : {}),
     ...(intent.mode ? { mode: intent.mode } : {}),
-    ...(intent.velocityPxPerSecond !== undefined ? { scrubVelocityPxPerSecond: intent.velocityPxPerSecond } : {}),
-    ...(intent.requestedAtMs !== undefined ? { requestedAtMs: intent.requestedAtMs } : {}),
-    ...(intent.isScrubbing !== undefined ? { isScrubbing: intent.isScrubbing } : {}),
-    ...(intent.allowKeyframeApprox !== undefined ? { allowKeyframeApprox: intent.allowKeyframeApprox } : {}),
+    ...(intent.velocityPxPerSecond !== undefined
+      ? { scrubVelocityPxPerSecond: intent.velocityPxPerSecond }
+      : {}),
+    ...(intent.requestedAtMs !== undefined
+      ? { requestedAtMs: intent.requestedAtMs }
+      : {}),
+    ...(intent.isScrubbing !== undefined
+      ? { isScrubbing: intent.isScrubbing }
+      : {}),
+    ...(intent.allowKeyframeApprox !== undefined
+      ? { allowKeyframeApprox: intent.allowKeyframeApprox }
+      : {}),
   });
 }

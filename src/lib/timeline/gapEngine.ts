@@ -183,27 +183,25 @@ export function insertGapWithRipple(trackId: string, startTime: number, duration
 export function removeGapWithRipple(gap: Gap, clips: Clip[], existingGaps: Gap[] = []): GapOperationResult {
   const gapEnd = gap.startTime + gap.duration;
 
-  // Find protected gaps on this track before the removed gap
-  const protectedGapsBefore = existingGaps.filter((g) => g.trackId === gap.trackId && g.protected && g.id !== gap.id && g.startTime < gap.startTime).sort((a, b) => b.startTime - a.startTime); // Sort descending (closest first)
+  // Find protected gaps on this track after the removed gap
+  const protectedGapsAfter = existingGaps
+    .filter((g) => g.trackId === gap.trackId && g.protected && g.id !== gap.id && g.startTime >= gapEnd - 0.001)
+    .sort((a, b) => a.startTime - b.startTime);
 
-  // If there's a protected gap before, only shift clips after the removed gap
-  // up until they would collide with the protected gap
-  let shiftBoundary = 0;
-  if (protectedGapsBefore.length > 0) {
-    const lastProtectedGap = protectedGapsBefore[0];
-    const protectedGapEnd = lastProtectedGap.startTime + lastProtectedGap.duration;
-    shiftBoundary = protectedGapEnd;
+  // If there's a protected gap after the removed gap, only shift clips up to the protected gap boundary.
+  // Clips starting at or after the protected gap must not shift through it.
+  let shiftBoundary = Infinity;
+  if (protectedGapsAfter.length > 0) {
+    const firstProtectedGap = protectedGapsAfter[0];
+    shiftBoundary = firstProtectedGap.startTime;
   }
 
   // Find clips that need to shift
-  // Only shift clips that are after the removed gap and won't cross the protected gap boundary
+  // Only shift clips that are after the removed gap and before any downstream protected gap
   const affectedClipIds = clips
     .filter((c) => {
-      if (c.trackId !== gap.trackId || c.startTime < gapEnd) return false;
-
-      // Check if shifting would cross the protected gap boundary
-      const newStartTime = c.startTime - gap.duration;
-      return newStartTime >= shiftBoundary;
+      if (c.trackId !== gap.trackId || c.startTime < gapEnd - 0.001) return false;
+      return c.startTime < shiftBoundary;
     })
     .map((c) => c.id);
 

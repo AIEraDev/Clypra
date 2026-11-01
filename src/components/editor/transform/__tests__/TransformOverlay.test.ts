@@ -742,3 +742,236 @@ describe("Text template hit testing", () => {
   });
 });
 
+// ─── Bug: resolveClipVisualBounds must respect manual scale (baseWidth guard) ──
+//
+// resolveClipVisualBounds used the same unconditional resolveConform() block
+// as the evaluator. After the user scaled a clip via the Scale slider, the
+// overlay bounding box stayed frozen at the pre-scale conform-derived position
+// because it discarded clip.x/y/width/height in favour of conform output.
+//
+// Fix: skip the conform override when `clip.baseWidth != null` — the same
+// sentinel used by the evaluator fix — so the overlay always matches the frame.
+describe("Bug — resolveClipVisualBounds must not override manually-scaled clip bounds", () => {
+  it("uses conform-derived bounds when clip has conform but NO baseWidth (initial placement)", () => {
+    // Fill-mode conform on a 1920×1080 source/canvas → x=0, y=0, w=1920, h=1080
+    const clip: any = {
+      id: "video-no-scale",
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+      rotation: 0,
+      kind: "video",
+      // No baseWidth → conform should control the output
+      conform: {
+        mode: "fill",
+        sourceWidth: 1920,
+        sourceHeight: 1080,
+        userScale: 1,
+        userOffsetX: 0,
+        userOffsetY: 0,
+      },
+    };
+
+    const bounds = resolveClipVisualBounds(clip, 1920, 1080);
+    expect(bounds.width).toBe(1920);
+    expect(bounds.height).toBe(1080);
+    expect(bounds.x).toBe(0);
+    expect(bounds.y).toBe(0);
+  });
+
+  it("uses clip.x/y/width/height (not conform) when baseWidth is set by the scale UI", () => {
+    // Simulate state after user scales to 444%.
+    // handleScaleChange writes: width=8525, height=4795, x=-3302.5, y=-1857.5, baseWidth=1920
+    const scaledWidth = Math.round(1920 * 4.44);   // 8525
+    const scaledHeight = Math.round(1080 * 4.44);  // 4795
+    const scaledX = 960 - scaledWidth / 2;
+    const scaledY = 540 - scaledHeight / 2;
+
+    const clip: any = {
+      id: "video-scaled-444",
+      x: scaledX,
+      y: scaledY,
+      width: scaledWidth,
+      height: scaledHeight,
+      rotation: 0,
+      kind: "video",
+      // baseWidth is the signal written by every scale operation
+      baseWidth: 1920,
+      baseHeight: 1080,
+      // conform still says userScale=1, but user has scaled to 444%
+      conform: {
+        mode: "fill",
+        sourceWidth: 1920,
+        sourceHeight: 1080,
+        userScale: 1,
+        userOffsetX: 0,
+        userOffsetY: 0,
+      },
+    };
+
+    const bounds = resolveClipVisualBounds(clip, 1920, 1080);
+
+    // The overlay MUST track the actual clip dimensions, not the conform-derived ones.
+    expect(bounds.width).toBe(scaledWidth);
+    expect(bounds.height).toBe(scaledHeight);
+    expect(bounds.x).toBe(scaledX);
+    expect(bounds.y).toBe(scaledY);
+    // The clip should visibly be larger than the canvas (zoom > 100%)
+    expect(bounds.width).toBeGreaterThan(1920);
+  });
+
+  it("uses conform-derived bounds when baseWidth is absent (even if clip.width differs due to rounding)", () => {
+    // Clips probed before baseWidth was introduced may have clip.width ≠ conform
+    // output through rounding, but we should still use conform (no baseWidth present).
+    const clip: any = {
+      id: "video-probed-no-basewidth",
+      x: 1,
+      y: 0,
+      width: 1919, // slightly off due to old rounding but no baseWidth
+      height: 1080,
+      rotation: 0,
+      kind: "video",
+      // No baseWidth → conform is authoritative
+      conform: {
+        mode: "fill",
+        sourceWidth: 1920,
+        sourceHeight: 1080,
+        userScale: 1,
+        userOffsetX: 0,
+        userOffsetY: 0,
+      },
+    };
+
+    const bounds = resolveClipVisualBounds(clip, 1920, 1080);
+    // conform.fill on 1920×1080 src/canvas → x=0, y=0, w=1920, h=1080
+    expect(bounds.x).toBe(0);
+    expect(bounds.width).toBe(1920);
+  });
+});
+
+describe("Keyframed visual bounds in TransformOverlay", () => {
+  it("evaluates keyframes for x, y, width, and height when currentTime is provided", () => {
+    const clip: any = {
+      id: "video-keyframed",
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+      startTime: 2,
+      duration: 10,
+      visualKeyframes: {
+        width: [
+          { id: "kf-w1", time: 0, value: 1000, easing: "linear" },
+          { id: "kf-w2", time: 2, value: 2000, easing: "linear" },
+        ],
+        height: [
+          { id: "kf-h1", time: 0, value: 500, easing: "linear" },
+          { id: "kf-h2", time: 2, value: 1000, easing: "linear" },
+        ],
+        x: [
+          { id: "kf-x1", time: 0, value: 100, easing: "linear" },
+          { id: "kf-x2", time: 2, value: 300, easing: "linear" },
+        ],
+        y: [
+          { id: "kf-y1", time: 0, value: 50, easing: "linear" },
+          { id: "kf-y2", time: 2, value: 150, easing: "linear" },
+        ],
+      },
+    };
+
+    // At timeline time = 3 (clip localTime = 1):
+    // Linear interpolation midway between t=0 and t=2:
+    const boundsMid = resolveClipVisualBounds(clip, 1920, 1080, null, 3);
+    expect(boundsMid.width).toBeCloseTo(1500, 1);
+    expect(boundsMid.height).toBeCloseTo(750, 1);
+    expect(boundsMid.x).toBeCloseTo(200, 1);
+    expect(boundsMid.y).toBeCloseTo(100, 1);
+
+    // At timeline time = 4 (clip localTime = 2):
+    const boundsEnd = resolveClipVisualBounds(clip, 1920, 1080, null, 4);
+    expect(boundsEnd.width).toBe(2000);
+    expect(boundsEnd.height).toBe(1000);
+    expect(boundsEnd.x).toBe(300);
+    expect(boundsEnd.y).toBe(150);
+  });
+
+  it("prioritizes keyframed bounds over initial conform overrides", () => {
+    const clip: any = {
+      id: "video-conformed-with-keyframes",
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+      startTime: 0,
+      duration: 10,
+      conform: {
+        mode: "fill",
+        sourceWidth: 1920,
+        sourceHeight: 1080,
+        userScale: 1,
+        userOffsetX: 0,
+        userOffsetY: 0,
+      },
+      visualKeyframes: {
+        width: [
+          { id: "kf-w1", time: 0, value: 800, easing: "linear" },
+        ],
+      },
+    };
+
+    const bounds = resolveClipVisualBounds(clip, 1920, 1080, null, 0);
+    // Keyframe value takes precedence over conform
+    expect(bounds.width).toBe(800);
+  });
+
+  it("[REGRESSION] auto-centers keyframed scale around clip center when x/y have no keyframes", () => {
+    const clip: any = {
+      id: "video-scale-center",
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+      startTime: 0,
+      duration: 10,
+      visualKeyframes: {
+        width: [
+          { id: "kf-w1", time: 0, value: 1920, easing: "linear" },
+          { id: "kf-w2", time: 2, value: 3840, easing: "linear" },
+        ],
+        height: [
+          { id: "kf-h1", time: 0, value: 1080, easing: "linear" },
+          { id: "kf-h2", time: 2, value: 2160, easing: "linear" },
+        ],
+      },
+    };
+
+    // At t=0 (width 1920, height 1080): x=0, y=0, center=(960, 540)
+    const bounds0 = resolveClipVisualBounds(clip, 1920, 1080, null, 0);
+    expect(bounds0.width).toBe(1920);
+    expect(bounds0.height).toBe(1080);
+    expect(bounds0.x).toBe(0);
+    expect(bounds0.y).toBe(0);
+    expect(bounds0.x + bounds0.width / 2).toBe(960);
+    expect(bounds0.y + bounds0.height / 2).toBe(540);
+
+    // At t=1 (midpoint width 2880, height 1620): x=-480, y=-270, center=(960, 540)
+    const bounds1 = resolveClipVisualBounds(clip, 1920, 1080, null, 1);
+    expect(bounds1.width).toBe(2880);
+    expect(bounds1.height).toBe(1620);
+    expect(bounds1.x).toBe(-480);
+    expect(bounds1.y).toBe(-270);
+    expect(bounds1.x + bounds1.width / 2).toBe(960);
+    expect(bounds1.y + bounds1.height / 2).toBe(540);
+
+    // At t=2 (width 3840, height 2160): x=-960, y=-540, center=(960, 540)
+    const bounds2 = resolveClipVisualBounds(clip, 1920, 1080, null, 2);
+    expect(bounds2.width).toBe(3840);
+    expect(bounds2.height).toBe(2160);
+    expect(bounds2.x).toBe(-960);
+    expect(bounds2.y).toBe(-540);
+    expect(bounds2.x + bounds2.width / 2).toBe(960);
+    expect(bounds2.y + bounds2.height / 2).toBe(540);
+  });
+});
+

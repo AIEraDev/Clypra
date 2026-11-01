@@ -959,6 +959,12 @@ const App = () => {
         markers: markers ?? [],
         mediaAssets,
         mainVideoTrackId,
+        // BUG-CRD-001 fix: The IndexedDB crash-recovery snapshot already
+        // incorporates all OPFS delta patches that existed at snapshot time.
+        // Replaying those patches again would duplicate every clip/track that
+        // was added since the last full disk checkpoint.  Skip OPFS patch
+        // replay exclusively for crash-recovery restores.
+        skipOpfsPatches: true,
       });
 
       // BUG-008 fix: Removed redundant hydrateFromProject() call.

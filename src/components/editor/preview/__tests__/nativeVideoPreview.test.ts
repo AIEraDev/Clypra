@@ -965,6 +965,17 @@ describe("buildNativeVideoProjectRequest", () => {
     );
   });
 
+  it("accepts color-dodge, darken, and lighten blend modes without native contract blockers", () => {
+    const blendModes = ["color-dodge", "darken", "lighten", "color-burn", "hard-light", "soft-light", "exclusion"] as const;
+    for (const blendMode of blendModes) {
+      const scene = makeScene([makeVideoLayer({ blendMode })]);
+      expect(getNativePreviewBlockers(scene)).toEqual([]);
+      const request = buildNativeVideoProjectRequest(scene);
+      expect(request).not.toBeNull();
+      expect(request?.layers[0].blendMode).toBe(blendMode);
+    }
+  });
+
   it("carries a registered clip LUT binding into the native request", () => {
     const request = buildNativeVideoProjectRequest(makeScene([
       makeVideoLayer({

@@ -13,9 +13,13 @@ export const resolveClipDuration = (asset: MediaAsset): number => {
 
 // Centralized timeline timing helpers
 
-export function getClipVisibleDuration(clip: Pick<Clip, "trimIn" | "trimOut">): number {
-  const trimIn = typeof clip.trimIn === "number" && !isNaN(clip.trimIn) ? clip.trimIn : 0;
-  const trimOut = typeof clip.trimOut === "number" && !isNaN(clip.trimOut) ? clip.trimOut : 0;
+export function getClipVisibleDuration(
+  clip: Pick<Clip, "trimIn" | "trimOut">,
+): number {
+  const trimIn =
+    typeof clip.trimIn === "number" && !isNaN(clip.trimIn) ? clip.trimIn : 0;
+  const trimOut =
+    typeof clip.trimOut === "number" && !isNaN(clip.trimOut) ? clip.trimOut : 0;
   const diff = trimOut - trimIn;
   return isNaN(diff) || diff < 0 ? 0 : diff;
 }
@@ -25,14 +29,24 @@ export function normalizeClipTiming(clip: Clip, asset?: MediaAsset): Clip {
   // insertion-time value; once a user extends or trims the image on the
   // timeline, that authored duration is canonical and must survive reload.
   // Video/audio clips remain bounded by their decoded source duration.
-  const sourceDuration = asset?.type === "image"
-    ? Infinity
-    : asset
-      ? resolveClipDuration(asset)
-      : Infinity;
-  const rawTrimIn = typeof clip.trimIn === "number" && !isNaN(clip.trimIn) ? clip.trimIn : 0;
-  const rawTrimOut = typeof clip.trimOut === "number" && !isNaN(clip.trimOut) ? clip.trimOut : typeof clip.duration === "number" && !isNaN(clip.duration) ? clip.duration : 0;
-  const rawStartTime = typeof clip.startTime === "number" && !isNaN(clip.startTime) ? clip.startTime : 0;
+  const sourceDuration =
+    asset?.type === "image"
+      ? Infinity
+      : asset
+        ? resolveClipDuration(asset)
+        : Infinity;
+  const rawTrimIn =
+    typeof clip.trimIn === "number" && !isNaN(clip.trimIn) ? clip.trimIn : 0;
+  const rawTrimOut =
+    typeof clip.trimOut === "number" && !isNaN(clip.trimOut)
+      ? clip.trimOut
+      : typeof clip.duration === "number" && !isNaN(clip.duration)
+        ? clip.duration
+        : 0;
+  const rawStartTime =
+    typeof clip.startTime === "number" && !isNaN(clip.startTime)
+      ? clip.startTime
+      : 0;
 
   // Ensure trim bounds are within source duration
   const trimIn = Math.max(0, Math.min(rawTrimIn, sourceDuration));
@@ -50,15 +64,24 @@ export function normalizeClipTiming(clip: Clip, asset?: MediaAsset): Clip {
   };
 }
 
-export function getClipEndTime(clip: Pick<Clip, "startTime" | "trimIn" | "trimOut">): number {
+export function getClipEndTime(
+  clip: Pick<Clip, "startTime" | "trimIn" | "trimOut">,
+): number {
   const visibleDuration = getClipVisibleDuration(clip);
-  const startTime = typeof clip.startTime === "number" && !isNaN(clip.startTime) ? clip.startTime : 0;
+  const startTime =
+    typeof clip.startTime === "number" && !isNaN(clip.startTime)
+      ? clip.startTime
+      : 0;
   return startTime + visibleDuration;
 }
 
-export function getTimelineContentEnd(clips: Pick<Clip, "startTime" | "trimIn" | "trimOut">[]): number {
+export function getTimelineContentEnd(
+  clips: Pick<Clip, "startTime" | "trimIn" | "trimOut">[],
+): number {
   if (!clips || clips.length === 0) return 0;
-  const ends = clips.map(getClipEndTime).filter((val) => typeof val === "number" && !isNaN(val));
+  const ends = clips
+    .map(getClipEndTime)
+    .filter((val) => typeof val === "number" && !isNaN(val));
   return ends.length > 0 ? Math.max(...ends, 0) : 0;
 }
 
@@ -66,8 +89,14 @@ export const TIMELINE_MIN_CANVAS_DURATION_SECONDS = 5;
 export const TIMELINE_CANVAS_PADDING_SECONDS = 2;
 
 export function getTimelineCanvasDuration(sequenceDuration: number): number {
-  const validDuration = typeof sequenceDuration === "number" && !isNaN(sequenceDuration) ? sequenceDuration : 0;
-  return Math.max(validDuration + TIMELINE_CANVAS_PADDING_SECONDS, TIMELINE_MIN_CANVAS_DURATION_SECONDS);
+  const validDuration =
+    typeof sequenceDuration === "number" && !isNaN(sequenceDuration)
+      ? sequenceDuration
+      : 0;
+  return Math.max(
+    validDuration + TIMELINE_CANVAS_PADDING_SECONDS,
+    TIMELINE_MIN_CANVAS_DURATION_SECONDS,
+  );
 }
 
 export function getTimelineViewportEnd(contentEnd: number): number {
@@ -92,13 +121,21 @@ interface CreateClipFromAssetParams {
 export type ClipFitMode = "contain" | "cover" | "stretch" | "original";
 export type ClipFitModeExtended = ClipFitMode | "fill";
 
-function getAssetBoundsForFit(asset: MediaAsset, fitMode: ClipFitModeExtended): { width: number; height: number } {
+function getAssetBoundsForFit(
+  asset: MediaAsset,
+  fitMode: ClipFitModeExtended,
+): { width: number; height: number } {
   const sourceWidth = asset.width ?? 0;
   const sourceHeight = asset.height ?? 0;
   const content = asset.contentBounds;
 
   // "fill" is perceptual-fit mode: use content bounds when available.
-  if (fitMode === "fill" && content && content.width > 0 && content.height > 0) {
+  if (
+    fitMode === "fill" &&
+    content &&
+    content.width > 0 &&
+    content.height > 0
+  ) {
     return { width: content.width, height: content.height };
   }
 
@@ -116,7 +153,12 @@ function getAssetBoundsForFit(asset: MediaAsset, fitMode: ClipFitModeExtended): 
  *
  * Default is "cover" - common short-form editor behavior where media fills frame.
  */
-export function calculateClipDimensions(asset: MediaAsset, canvasWidth: number, canvasHeight: number, fitMode: ClipFitModeExtended = "contain"): { x: number; y: number; width: number; height: number } {
+export function calculateClipDimensions(
+  asset: MediaAsset,
+  canvasWidth: number,
+  canvasHeight: number,
+  fitMode: ClipFitModeExtended = "contain",
+): { x: number; y: number; width: number; height: number } {
   const bounds = getAssetBoundsForFit(asset, fitMode);
   const assetWidth = bounds.width || canvasWidth;
   const assetHeight = bounds.height || canvasHeight;
@@ -184,15 +226,31 @@ export function calculateClipDimensions(asset: MediaAsset, canvasWidth: number, 
   return { x, y, width, height };
 }
 
-export const createClipFromAsset = ({ asset, trackId, startTime, width, height, fitMode = DEFAULT_PLACEMENT_POLICY.defaultVisualFitMode, audioPath }: CreateClipFromAssetParams): Clip => {
+export const createClipFromAsset = ({
+  asset,
+  trackId,
+  startTime,
+  width,
+  height,
+  fitMode = DEFAULT_PLACEMENT_POLICY.defaultVisualFitMode,
+  audioPath,
+}: CreateClipFromAssetParams): Clip => {
   const duration = resolveClipDuration(asset);
 
   // Calculate dimensions that preserve aspect ratio.
   // Default fit mode is centralized in placement policy.
-  const { x, y, width: clipWidth, height: clipHeight } = calculateClipDimensions(asset, width, height, fitMode);
+  const {
+    x,
+    y,
+    width: clipWidth,
+    height: clipHeight,
+  } = calculateClipDimensions(asset, width, height, fitMode);
 
   // Calculate source aspect ratio for transform constraints
-  const sourceAspectRatio = asset.type !== "audio" && asset.width && asset.height ? asset.width / asset.height : clipWidth / clipHeight;
+  const sourceAspectRatio =
+    asset.type !== "audio" && asset.width && asset.height
+      ? asset.width / asset.height
+      : clipWidth / clipHeight;
 
   const isSticker = asset.id.startsWith("sticker-");
   const kind = (isSticker ? "sticker" : asset.type) as Clip["kind"];
@@ -202,19 +260,22 @@ export const createClipFromAsset = ({ asset, trackId, startTime, width, height, 
     fitMode === "cover" || fitMode === "fill"
       ? "fill"
       : fitMode === "stretch"
-      ? "stretch"
-      : fitMode === "original"
-      ? "none"
-      : "fit";
+        ? "stretch"
+        : fitMode === "original"
+          ? "none"
+          : "fit";
 
-  const defaultConform: ClipConform | undefined = (isVisual && !isSticker) ? {
-    mode: conformMode,
-    sourceWidth: asset.width || 0,
-    sourceHeight: asset.height || 0,
-    userScale: 1,
-    userOffsetX: 0,
-    userOffsetY: 0,
-  } : undefined;
+  const defaultConform: ClipConform | undefined =
+    isVisual && !isSticker
+      ? {
+          mode: conformMode,
+          sourceWidth: asset.width || 0,
+          sourceHeight: asset.height || 0,
+          userScale: 1,
+          userOffsetX: 0,
+          userOffsetY: 0,
+        }
+      : undefined;
 
   return {
     id: generateId("clip"),
@@ -236,13 +297,20 @@ export const createClipFromAsset = ({ asset, trackId, startTime, width, height, 
     sourceAspectRatio,
     fitMode: fitMode as Clip["fitMode"],
     conform: defaultConform,
+    // Structural invariant: baseWidth/baseHeight are set once at creation for all
+    // visual clips (video, image, sticker). Audio clips never carry these fields.
+    // They serve as the immutable denominator for scalePercent in the property panel.
+    ...(asset.type !== "audio" && {
+      baseWidth: clipWidth,
+      baseHeight: clipHeight,
+    }),
     ...(asset.type !== "audio" && {
       stickerFormat: asset.stickerFormat,
       stickerAnimationPath: asset.stickerAnimationPath,
       stickerSourceId: asset.stickerSourceId,
       ...(isSticker && { stickerImagePath: asset.path }),
     }),
-    ...(audioPath && asset.type === "audio" && { audioPath }), // Include audioPath for audio clips
+    ...(asset.type === "audio" && { audioPath: audioPath || asset.path }), // Always populate audioPath for audio clips (falls back to asset.path so waveform works even when mediaAsset lookup fails) // Always populate audioPath for audio clips (falls back to asset.path so waveform works even when mediaAsset lookup fails)
     ...((asset.type === "audio" || asset.type === "video") && {
       audio: normalizeClipAudioProperties({ kind, audioPath, volume: 1 }),
     }),
@@ -301,10 +369,18 @@ export function supportsVisualAnimation(
   asset?: MediaAsset | null,
 ): boolean {
   if (!clip) return false;
-  if (clip.kind === "audio" || (asset && asset.type === "audio") || Boolean((clip as any).audioPath)) {
+  if (
+    clip.kind === "audio" ||
+    (asset && asset.type === "audio") ||
+    Boolean((clip as any).audioPath)
+  ) {
     return false;
   }
-  if (clip.kind === "filter" || clip.kind === "video-effect" || clip.kind === "body-effect") {
+  if (
+    clip.kind === "filter" ||
+    clip.kind === "video-effect" ||
+    clip.kind === "body-effect"
+  ) {
     return false;
   }
   return (
@@ -320,4 +396,3 @@ export function supportsVisualAnimation(
     asset?.type === "image"
   );
 }
-

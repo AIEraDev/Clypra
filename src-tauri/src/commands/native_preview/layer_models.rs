@@ -88,6 +88,8 @@ pub struct NativeProjectRasterLayer {
     #[serde(default = "default_blend_mode")]
     pub blend_mode: String,
     #[serde(default)]
+    pub color_grade: Option<ColorGradeSnapshot>,
+    #[serde(default)]
     pub is_mask: bool,
     #[serde(default)]
     pub is_text: bool,
@@ -154,13 +156,21 @@ pub struct NativeProjectFrameRequest {
 }
 
 pub(crate) fn parse_blend_mode(value: &str) -> Result<BlendMode, String> {
-    match value.to_ascii_lowercase().as_str() {
+    match value.to_ascii_lowercase().replace('_', "-").as_str() {
         "normal" => Ok(BlendMode::Normal),
         "multiply" => Ok(BlendMode::Multiply),
         "screen" => Ok(BlendMode::Screen),
         "overlay" => Ok(BlendMode::Overlay),
         "additive" | "add" => Ok(BlendMode::Additive),
         "difference" => Ok(BlendMode::Difference),
+        "darken" => Ok(BlendMode::Darken),
+        "lighten" => Ok(BlendMode::Lighten),
+        "color-dodge" | "colordodge" => Ok(BlendMode::ColorDodge),
+        "color-burn" | "colorburn" => Ok(BlendMode::ColorBurn),
+        "hard-light" | "hardlight" => Ok(BlendMode::HardLight),
+        "soft-light" | "softlight" => Ok(BlendMode::SoftLight),
+        "exclusion" => Ok(BlendMode::Exclusion),
+        "hue" | "saturation" | "color" | "luminosity" => Ok(BlendMode::Normal),
         other => Err(format!("Unsupported native blend mode: {}", other)),
     }
 }
@@ -452,6 +462,7 @@ pub(crate) fn to_video_project_request(
             opacity: layer.opacity,
             z_index: layer.z_index,
             blend_mode: layer.blend_mode.clone(),
+            color_grade: layer.color_grade.clone(),
             is_mask: layer.is_mask,
             is_text: layer.is_text,
         })

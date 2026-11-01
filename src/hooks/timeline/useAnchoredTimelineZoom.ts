@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { useTimelineStore } from "@/store/timelineStore";
+import { useProjectStore } from "@/store/projectStore";
 import {
   TIMELINE_CLIP_START_OFFSET_PX,
   getAnchoredZoomScrollLeft,
@@ -14,6 +15,7 @@ import {
   TIMELINE_ZOOM_GEOMETRIC_FACTOR,
   clampTimelineZoom,
 } from "@/lib/timeline/timelineZoom";
+import { timelineZoomTelemetry } from "@/lib/timeline/timelineZoomTelemetry";
 
 export type TimelineZoomAnchor = {
   anchorTime: number;
@@ -81,7 +83,8 @@ export function useAnchoredTimelineZoom() {
       const viewportEndSeconds = getTimelineViewportEndForDuration(
         state.getTimelineEndTime(),
       );
-      const nextPps = zoomToPixelsPerSecond(zoomLevel);
+      const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
+      const nextPps = zoomToPixelsPerSecond(zoomLevel, frameRate);
       const resolvedAnchor = anchor ?? captureZoomAnchor();
 
       state.setPixelsPerSecond(nextPps);
@@ -99,6 +102,15 @@ export function useAnchoredTimelineZoom() {
 
       container.scrollLeft = nextScrollLeft;
       state.setScrollLeft(nextScrollLeft);
+
+      // Check invariant: anchor drift must stay <= 1px
+      const resultingX =
+        resolvedAnchor.anchorTime * nextPps +
+        TIMELINE_CLIP_START_OFFSET_PX -
+        nextScrollLeft;
+      if (Math.abs(resultingX - resolvedAnchor.localTimelineX) > 1.0) {
+        timelineZoomTelemetry.recordInvariant("anchor_drift_gt_1px");
+      }
     },
     [captureZoomAnchor],
   );
@@ -108,11 +120,16 @@ export function useAnchoredTimelineZoom() {
       const state = useTimelineStore.getState();
       if (state.tracks.length === 0 && state.clips.length === 0) return;
       const anchor = captureZoomAnchor();
+      const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
       const nextZoom =
         direction > 0
           ? state.zoomLevel * TIMELINE_ZOOM_GEOMETRIC_FACTOR
           : state.zoomLevel / TIMELINE_ZOOM_GEOMETRIC_FACTOR;
-      applyZoomLevel(clampTimelineZoom(nextZoom), anchor);
+      const clampedZoom = clampTimelineZoom(nextZoom, frameRate);
+      const nextPps = zoomToPixelsPerSecond(clampedZoom, frameRate);
+      timelineZoomTelemetry.beginGesture("button", state.pixelsPerSecond);
+      applyZoomLevel(clampedZoom, anchor);
+      timelineZoomTelemetry.endGesture(nextPps);
     },
     [applyZoomLevel, captureZoomAnchor],
   );
@@ -127,9 +144,11 @@ export function useAnchoredTimelineZoom() {
       state.getTimelineEndTime(),
       state.clips.length > 0,
     );
+    timelineZoomTelemetry.beginGesture("fit", state.pixelsPerSecond);
     state.setPixelsPerSecond(pixelsPerSecond, true);
     container.scrollLeft = 0;
     state.setScrollLeft(0);
+    timelineZoomTelemetry.endGesture(pixelsPerSecond);
   }, []);
 
   return {

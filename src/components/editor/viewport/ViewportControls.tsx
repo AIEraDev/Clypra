@@ -5,14 +5,31 @@ import { getViewportController } from "@/core/interactions";
  * Hook for viewport keyboard shortcuts
  *
  * Uses imperative ViewportController to avoid React re-renders on zoom/pan.
+ *
+ * The containerRef parameter is required so the hook can guard against firing
+ * when the pointer is outside the preview panel. Without this guard,
+ * Cmd+= / Cmd+- / Cmd+0 would zoom BOTH the preview viewport and the timeline
+ * simultaneously (CLY-BUG-ZOOM-SCOPE).
  */
-export function useViewportKeyboardShortcuts(canvasWidth: number, canvasHeight: number, containerWidth: number, containerHeight: number) {
+export function useViewportKeyboardShortcuts(
+  canvasWidth: number,
+  canvasHeight: number,
+  containerWidth: number,
+  containerHeight: number,
+  containerRef: React.RefObject<HTMLElement>,
+) {
   React.useEffect(() => {
     const controller = getViewportController();
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // Only handle if Ctrl/Cmd is pressed
       if (!e.ctrlKey && !e.metaKey) return;
+
+      // Only zoom the preview when the pointer is inside the preview container.
+      // This prevents Cmd+= / Cmd+- from zooming both the preview viewport and
+      // the timeline ruler simultaneously (CLY-BUG-ZOOM-SCOPE).
+      const container = containerRef.current;
+      if (!container || !container.matches(":hover")) return;
 
       // Read fresh viewport state imperatively
       const viewport = controller.getViewport();
@@ -45,7 +62,7 @@ export function useViewportKeyboardShortcuts(canvasWidth: number, canvasHeight: 
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [canvasWidth, canvasHeight, containerWidth, containerHeight]);
+  }, [canvasWidth, canvasHeight, containerWidth, containerHeight, containerRef]);
 }
 
 /**

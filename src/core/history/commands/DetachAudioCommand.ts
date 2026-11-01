@@ -36,10 +36,20 @@ export class DetachAudioCommand implements Command {
   private readonly generatedTrackIndex: number;
   private readonly audioClip: Clip;
 
-  constructor(sourceClip: Clip, sourcePath: string, tracks: Track[]) {
+  constructor(sourceClip: Clip, sourcePath: string, tracks: Track[], clips: Clip[] = []) {
     this.sourceClip = cloneClipSnapshot(sourceClip);
 
-    const reusableTrack = tracks.find((track) => track.type === "audio" && !track.locked);
+    // Only reuse an existing audio track when it has no clips yet. Placing a
+    // new detached clip on a populated audio track hides existing clips (visual
+    // overlap) and can cause the native audio engine to drop them on the next
+    // replaceNativeAudioClips call. Always create a dedicated track when the
+    // candidate already has clips assigned to it.
+    const reusableTrack = tracks.find(
+      (track) =>
+        track.type === "audio" &&
+        !track.locked &&
+        !clips.some((clip) => clip.trackId === track.id),
+    );
     this.targetTrackId = reusableTrack?.id ?? generateId("track");
     this.generatedTrackIndex = reusableTrack ? -1 : tracks.length;
     this.generatedTrack = reusableTrack

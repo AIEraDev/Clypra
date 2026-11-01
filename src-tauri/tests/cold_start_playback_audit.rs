@@ -60,6 +60,7 @@ fn test_m1_cold_start_playback_stream_and_non_silent_callbacks() {
         downmix: "auto".to_string(),
         channel_map: None,
         preserve_pitch: false,
+        clip_speed: 1.0,
     };
 
     assert!(clock.install_clip(clip).is_ok());

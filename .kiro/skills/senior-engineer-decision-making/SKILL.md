@@ -55,6 +55,14 @@ Before writing code for any consequential change, work through these 10 steps:
    When consequential, compare reasonable options against correctness, complexity, performance, testability, failure recovery, and migration cost.
 7. **Choose the Least Complex Solution**:
    Choose the simplest solution that adequately and robustly meets the requirements. Never add speculative abstractions or plug-in architectures for hypothetical future needs.
+
+> [!IMPORTANT]
+> **Single-Task Platform Discipline** — Once the approach is chosen at Step 7, enforce:
+> - Decompose the solution into a numbered, atomic task list (one observable outcome per task).
+> - Execute **one task at a time**. Present the result and wait for confirmation before advancing.
+> - **Write implementation code only as the final step** of each task, after the scope and verification criteria are agreed upon.
+> - Never pre-implement or speculatively code subsequent tasks.
+
 8. **Identify Required Tests & Verification Evidence**:
    Define what proves correctness before writing code. Identify which automated test reproduces the defect and which suites prevent regression.
 9. **Implement with Scoped Discipline**:

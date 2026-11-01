@@ -29,9 +29,17 @@ export class UnlinkAudioCommand implements Command {
   private readonly audioClip: Clip;
   private readonly sourceClip: Clip;
 
-  constructor(sourceClip: Clip, sourcePath: string, tracks: Track[]) {
+  constructor(sourceClip: Clip, sourcePath: string, tracks: Track[], clips: Clip[] = []) {
     this.sourceClip = cloneClipSnapshot(sourceClip);
-    const reusable = tracks.find((track) => track.type === "audio" && !track.locked);
+    // Only reuse an existing audio track when it has no clips yet. Placing a
+    // linked audio companion on a populated track hides existing clips and can
+    // cause the native audio engine to drop them on the next replace call.
+    const reusable = tracks.find(
+      (track) =>
+        track.type === "audio" &&
+        !track.locked &&
+        !clips.some((clip) => clip.trackId === track.id),
+    );
     const trackId = reusable?.id ?? generateId("track");
     this.generatedTrack = reusable ? null : {
       id: trackId, type: "audio", name: "Linked Audio", muted: false, locked: false, visible: true,

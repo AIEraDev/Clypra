@@ -100,20 +100,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **OpenTimelineIO (.otio) Interchange** — native bidirectional import and export for the industry-standard OpenTimelineIO interchange format. Preserves track stacks, rational time boundaries, clip sources, markers, transitions, and metadata across third-party NLEs (DaVinci Resolve, Premiere Pro, Final Cut Pro) (#467).
 - **SMPTE 12M Timecode & Click-to-Jump Navigation** — implemented strict SMPTE 12M timecode parsing, formatting, and rational time arithmetic. Users can click any timecode readout in the transport or timeline HUD to directly input timecodes (e.g. `01:23:45:12` or frame offsets) to jump the playhead instantly (#467).
 - **Precision NLE Editing Modes (Slip, Slide, Roll)** — added dedicated professional trimming tools:
-  - *Slip Tool (Y)*: Adjusts clip in/out points while preserving duration and position on the timeline.
-  - *Slide Tool (U)*: Moves clip position on the timeline while adjusting neighboring adjacent heads/tails without affecting project duration.
-  - *Roll Tool (N)*: Trims the edit point between two adjacent clips simultaneously (#467).
+  - _Slip Tool (Y)_: Adjusts clip in/out points while preserving duration and position on the timeline.
+  - _Slide Tool (U)_: Moves clip position on the timeline while adjusting neighboring adjacent heads/tails without affecting project duration.
+  - _Roll Tool (N)_: Trims the edit point between two adjacent clips simultaneously (#467).
 
 ### ⚡ Realtime Playback & Throughput Optimizations
 
 - **Short-Circuit Unchanged Playback Frames (Phase 1c / Commit D)** — in continuous playback on constrained hardware, up to 83% of presentation requests are repeat frames while waiting for new decodes. Clypra now returns a 12-byte `UNCH` sentinel (`[0x55, 0x4E, 0x43, 0x48]` + `u64` frame index), bypassing wgpu fragment compose, staging buffer copies, and 22–75ms of CPU `map_async` wait per repeat frame. The frontend skips redundant canvas repaints while maintaining full transport pacing (#471).
 - **Selective Producer Hardware Download for Lookahead Priming (Phase 2 / Arm 2b)** — production implementation of Arm 2b lookahead priming. Intermediate lookahead frames are decoded directly into the GPU's hardware DPB surface without triggering costly `av_hwframe_transfer_data` PCIe host downloads (0.6ms GPU decode vs 32–40ms host transfer on Windows D3D11VA). Only display-targeted frames undergo host transfer. Nearly doubles lookahead priming throughput (up to 647 FPS on Intel iGPUs), tripling buffer depth and preventing playback starvations (#472).
 - **Standalone 4-Arm Decode Throughput Benchmark (Phase 1b)** — added an in-engine standalone benchmark measuring raw hardware decode throughput across 4 architectural strategies:
-  - *Arm 1*: Pure GPU decode without host download (~1,350+ FPS).
-  - *Arm 2*: GPU decode with sequential host download (~340 FPS).
-  - *Arm 2b*: GPU decode with selective download every N frames (~650 FPS).
-  - *Arm 3*: Software decode fallback.
-  Includes automated validation checks, git commit/dirty status tracking, and reportVersion 2 formatting (#469, #470).
+  - _Arm 1_: Pure GPU decode without host download (~1,350+ FPS).
+  - _Arm 2_: GPU decode with sequential host download (~340 FPS).
+  - _Arm 2b_: GPU decode with selective download every N frames (~650 FPS).
+  - _Arm 3_: Software decode fallback.
+    Includes automated validation checks, git commit/dirty status tracking, and reportVersion 2 formatting (#469, #470).
 - **Playback Generation & Cold-Start Stabilization** — fixed playback generation synchronization during rapid seeking and start transitions. Eliminates packet rejections on cold start and prevents video dropouts (#473).
 - **Granular Frame Delivery Attribution & Unaccounted Time Tracking** — added `ServedFrom` enum (`decoded-in-request`, `ready-cache`, `reused-current`, `short-circuit-unchanged`) and sub-millisecond stage unaccounted latency percentiles to pinpoint exact pipeline bottlenecks (#468, #469).
 
@@ -337,7 +337,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### ✨ Advanced Animation Engine: Cubic Bézier, Spring Physics & Time Anchoring
 
-- **Custom Cubic Bézier Curves** — full CSS-compatible cubic Bézier easing engine (`cubic-bezier(x1, y1, x2, y2)`) featuring an 8-iteration Newton-Raphson solver with a 14-iteration bisection fallback for inflection points and near-zero derivative boundaries. Built-in presets include standard easings, kinetic character curves (`easeOutBack` with overshoot, `easeInBack` with anticipation), and CapCut-style speed profiles (`speedHero`, `jumpCut`, `bullet`).
+- **Custom Cubic Bézier Curves** — full CSS-compatible cubic Bézier easing engine (`cubic-bezier(x1, y1, x2, y2)`) featuring an 8-iteration Newton-Raphson solver with a 14-iteration bisection fallback for inflection points and near-zero derivative boundaries. Built-in presets include standard easings, kinetic character curves (`easeOutBack` with overshoot, `easeInBack` with anticipation), and speed profiles (`speedHero`, `jumpCut`, `bullet`).
 - **Closed-Form Physical Spring Dynamics** — integrated a damped harmonic oscillator spring model (`springPhysics.ts`) solving underdamped, critically damped, and overdamped motion analytically in \(O(1)\) time without numerical Euler drift. Provides intuitive physics parameters (`stiffness`, `damping`, `mass`, `initialVelocity`) and preset configurations (`snappy`, `bouncy`, `wobbly`, `gentle`, `stiff`) for natural, organic motion graphics.
 - **Responsive Time Anchoring (Build-In / Build-Out)** — introduced intelligent keyframe time anchoring (`timeAnchor.ts`) supporting `start` (anchored to clip in-point) and `end` (projected backwards from clip out-point). Includes an elastic compression guard that proportionally scales animation segments when clips are trimmed shorter than their intro and outro durations, preventing keyframe collisions, clipping, or inverted timing.
 
@@ -475,7 +475,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### 🔊 Professional Audio Engine & Timeline Controls
 
 - **Extended native audio mixer** — Rust mixer supports fade-in / fade-out curves, keyframe interpolation, pan, channel routing, and pitch preservation.
-- **Interactive audio envelope editor** — CapCut-style volume rubber bands and fade handle knobs directly on clips with cubic Bézier curves.
+- **Interactive audio envelope editor** — volume rubber bands and fade handle knobs directly on clips with cubic Bézier curves.
 - **J/L-cut audio unlinking** — added `UnlinkAudioCommand` and `RelinkAudioCommand` for independent audio/video trimming and J/L cut workflows.
 - **Atomic audio graph updates** — `replaceNativeAudioClips` IPC synchronizes audio edits in-place without restarting playback decoders.
 - **Desktop Web Audio engine** — browser desktop audio path honors clip-level `preservePitch` with smooth time-stretching.
@@ -512,7 +512,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **Sub-pixel alignment & 20px clip-start offset** — consistent timeline coordinates across Ruler, Clips, Playhead, Gaps, and mouse/wheel seek anchors via `TIMELINE_CLIP_START_OFFSET_PX`.
 - **Refined visual hierarchy** — distinct A-roll (primary) and B-roll visual roles with dedicated track heights.
 - **Visual track ordering guards** — visual tracks are prevented from being placed below the main video track, enforced across drag/drop and history undo/redo.
-- **CapCut-style ruler** — clean ticks with compact `MM:SS` formatting under one hour and `HH:MM:SS` timecodes for longer projects.
+- ** ruler** — clean ticks with compact `MM:SS` formatting under one hour and `HH:MM:SS` timecodes for longer projects.
 - **Spring-animated zoom & canonical overview** — buttery-smooth anchored wheel zoom with spring physics; projects reliably open at standard minimum zoom.
 
 ### ⚡ Performance, Telemetry & Lookahead Pre-fetching

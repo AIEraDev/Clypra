@@ -646,6 +646,13 @@ export interface NativeColorGradeSnapshot {
   invert: number;
   grainIntensity: number;
   grainSize: number;
+  /** Tonal-range adjustments (−1..1, 0 = neutral) */
+  highlights: number;
+  shadows: number;
+  whites: number;
+  blacks: number;
+  /** Fade to mid-gray (0..1) */
+  fade: number;
   lutId?: string;
   lutIntensity: number;
   lutSize: number;
@@ -722,6 +729,10 @@ export interface NativeColorGradeSnapshot {
   /** RGB plus mode (1 particles, 2 dust; fractional .5 means edge fade). */
   particleColor?: [number, number, number, number];
   particleTime?: number;
+  /** Number of active per-channel HSL entries (0 = disabled). */
+  hslChannelCount?: number;
+  /** Each entry: [hue_offset_rad, sat_offset (−1..1), bri_offset (−1..1), center_hue_rad]. Up to 8. */
+  hslChannels?: Array<[number, number, number, number]>;
 }
 
 export interface NativeRasterLayerSnapshot {
@@ -741,6 +752,8 @@ export interface NativeRasterLayerSnapshot {
   opacity: number;
   zIndex: number;
   blendMode: string;
+  /** Color grading and adjustments applied during compositing. Applies to image clips. */
+  colorGrade?: NativeColorGradeSnapshot;
   /** Mask-only assets are uploaded but omitted from visible compositing. */
   isMask?: boolean;
   /** Text bridge assets are tracked separately from other native overlays. */

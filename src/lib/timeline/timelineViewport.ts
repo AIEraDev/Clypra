@@ -86,9 +86,14 @@ export function clampTimelineScrollLeft(
   return Math.max(0, Math.min(scrollLeft, maxScrollLeft));
 }
 
-export function zoomToPixelsPerSecond(zoomLevel: number): number {
+export function zoomToPixelsPerSecond(
+  zoomLevel: number,
+  frameRate?: number,
+): number {
   return clampTimelinePixelsPerSecond(
-    TIMELINE_PPS_PER_ZOOM * clampTimelineZoom(zoomLevel),
+    TIMELINE_PPS_PER_ZOOM * clampTimelineZoom(zoomLevel, frameRate),
+    false,
+    frameRate,
   );
 }
 

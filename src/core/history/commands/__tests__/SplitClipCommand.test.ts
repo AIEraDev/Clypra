@@ -487,4 +487,62 @@ describe("SplitClipCommand", () => {
       expect(command.getRightClipId()).toBe("right-clip-id");
     });
   });
+
+  describe("keyframe and audio fade partitioning (CLY-BUG-001 & CLY-BUG-003)", () => {
+    it("partitions visual/volume keyframes cleanly without orphaning or delaying across split", () => {
+      const clip = createTestClip({
+        startTime: 10,
+        duration: 10,
+        visualKeyframes: {
+          opacity: [
+            { id: "kf-1", time: 2, value: 0.2 }, // timeline t=12 (left half)
+            { id: "kf-2", time: 7, value: 0.7 }, // timeline t=17 (right half)
+          ],
+        },
+        volumeKeyframes: [
+          { id: "vkf-1", time: 3, gain: 0.4 }, // timeline t=13 (left half)
+          { id: "vkf-2", time: 8, gain: 0.9 }, // timeline t=18 (right half)
+        ],
+        fadeIn: 1.5,
+        fadeOut: 2.0,
+      });
+
+      const command = new SplitClipCommand(clip.id, 15, 30, clip);
+      const state = { clips: [clip], epoch: 0 };
+      const splitState = command.apply(state);
+
+      const left = splitState.clips.find((c) => c.id === command.getLeftClipId())!;
+      const right = splitState.clips.find((c) => c.id === command.getRightClipId())!;
+
+      expect(left.duration).toBe(5);
+      expect(right.duration).toBe(5);
+      expect(right.startTime).toBe(15);
+
+      // Left split should ONLY contain keyframes from 0 to 5s
+      expect(left.visualKeyframes?.opacity?.map((k) => k.id)).toEqual(["kf-1"]);
+      expect(left.visualKeyframes?.opacity?.[0].time).toBe(2);
+      expect(left.volumeKeyframes?.map((k) => k.id)).toEqual(["vkf-1"]);
+      expect(left.volumeKeyframes?.[0].time).toBe(3);
+
+      // Right split should ONLY contain keyframes from second half, shifted by leftDuration (5s)
+      expect(right.visualKeyframes?.opacity?.map((k) => k.id)).toEqual(["kf-2"]);
+      expect(right.visualKeyframes?.opacity?.[0].time).toBe(2); // 7 - 5 = 2s into right clip (timeline t=17)
+      expect(right.volumeKeyframes?.map((k) => k.id)).toEqual(["vkf-2"]);
+      expect(right.volumeKeyframes?.[0].time).toBe(3); // 8 - 5 = 3s into right clip (timeline t=18)
+
+      // Inner cut audio fades are zeroed so the continuous cut does not dip
+      expect(left.fadeIn).toBe(1.5);
+      expect(left.fadeOut).toBe(0);
+      expect(right.fadeIn).toBe(0);
+      expect(right.fadeOut).toBe(2.0);
+
+      // Undo restores the original clip with all keyframes and fades intact
+      const restored = command.invert().apply(splitState);
+      const restoredClip = restored.clips.find((c: Clip) => c.id === clip.id)!;
+      expect(restoredClip.visualKeyframes?.opacity).toHaveLength(2);
+      expect(restoredClip.volumeKeyframes).toHaveLength(2);
+      expect(restoredClip.fadeIn).toBe(1.5);
+      expect(restoredClip.fadeOut).toBe(2.0);
+    });
+  });
 });

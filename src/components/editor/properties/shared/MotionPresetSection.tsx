@@ -362,9 +362,9 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
       </div>
 
       {/* ── 3. Category Filter Pills ────────────────────────────────────────── */}
-      {/* <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5"> */}
-      {/* Favorite Star Pill */}
-      {/* <button
+      <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
+        {/* Favorite Star Pill */}
+        <button
           type="button"
           onClick={() =>
             setActiveCategory(
@@ -385,10 +385,10 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
                 : ""
             }`}
           />
-        </button> */}
+        </button>
 
-      {/* All Pill */}
-      {/* <button
+        {/* All Pill */}
+        <button
           type="button"
           onClick={() => setActiveCategory("all")}
           className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium shrink-0 transition-colors cursor-pointer ${
@@ -398,10 +398,10 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
           }`}
         >
           {t("properties.animation.categories.all")}
-        </button> */}
+        </button>
 
-      {/* Basic Pill */}
-      {/* <button
+        {/* Basic Pill */}
+        <button
           type="button"
           onClick={() => setActiveCategory("Basic")}
           className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium shrink-0 transition-colors cursor-pointer ${
@@ -411,10 +411,10 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
           }`}
         >
           {t("properties.animation.categories.basic")}
-        </button> */}
+        </button>
 
-      {/* Motion Pill */}
-      {/* <button
+        {/* Motion Pill */}
+        <button
           type="button"
           onClick={() => setActiveCategory("Motion")}
           className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium shrink-0 transition-colors cursor-pointer ${
@@ -424,10 +424,10 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
           }`}
         >
           {t("properties.animation.categories.motion")}
-        </button> */}
+        </button>
 
-      {/* 3D Pill */}
-      {/* <button
+        {/* 3D Pill */}
+        <button
           type="button"
           onClick={() => setActiveCategory("3D")}
           className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium shrink-0 transition-colors cursor-pointer ${
@@ -437,10 +437,10 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
           }`}
         >
           {t("properties.animation.categories.3d")}
-        </button> */}
+        </button>
 
-      {/* Glitch Pill */}
-      {/* <button
+        {/* Glitch Pill */}
+        <button
           type="button"
           onClick={() => setActiveCategory("Glitch")}
           className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium shrink-0 transition-colors cursor-pointer ${
@@ -450,8 +450,8 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
           }`}
         >
           {t("properties.animation.categories.glitch")}
-        </button> */}
-      {/* </div> */}
+        </button>
+      </div>
 
       {/* ── 4. CapCut 5-Column Preset Card Grid ──────────────────────────────── */}
       {phaseData.status === "error" && currentCatalog.length === 0 && (

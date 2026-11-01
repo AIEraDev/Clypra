@@ -3,6 +3,7 @@ import { useI18n } from "@/i18n";
 import type {
   TextPropertyTab,
   VideoPropertyTab,
+  ImagePropertyTab,
   AudioPropertyTab,
 } from "../types";
 import { TEXT_TABS } from "../data";
@@ -19,10 +20,15 @@ interface PropertyPanelCollapsedProps {
   activePropertyTab:
     | TextPropertyTab
     | VideoPropertyTab
+    | ImagePropertyTab
     | AudioPropertyTab
     | null;
   setActivePropertyTab: (
-    tab: TextPropertyTab | VideoPropertyTab | AudioPropertyTab,
+    tab:
+      | TextPropertyTab
+      | VideoPropertyTab
+      | ImagePropertyTab
+      | AudioPropertyTab,
   ) => void;
 }
 

@@ -9,9 +9,12 @@ const DEFAULT_BACKGROUND: CanvasBackgroundConfig = {
 };
 
 const TRANSPARENT_CHECKERBOARD =
-  "url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect width=\"8\" height=\"8\" fill=\"%231a1a24\"/><rect x=\"8\" width=\"8\" height=\"8\" fill=\"%2312121a\"/><rect y=\"8\" width=\"8\" height=\"8\" fill=\"%2312121a\"/><rect x=\"8\" y=\"8\" width=\"8\" height=\"8\" fill=\"%231a1a24\"/></svg>')";
+  'url(\'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><rect width="8" height="8" fill="%231a1a24"/><rect x="8" width="8" height="8" fill="%2312121a"/><rect y="8" width="8" height="8" fill="%2312121a"/><rect x="8" y="8" width="8" height="8" fill="%231a1a24"/></svg>\')';
 
-const SHADER_BASE_DURATION_SECONDS: Record<NonNullable<CanvasBackgroundConfig["shader"]>["presetId"], number> = {
+const SHADER_BASE_DURATION_SECONDS: Record<
+  NonNullable<CanvasBackgroundConfig["shader"]>["presetId"],
+  number
+> = {
   liquid_aurora: 18,
   neon_grid: 12,
   particle_dust: 20,
@@ -24,7 +27,9 @@ type CanvasBackgroundLayer = {
 };
 
 function clampOpacity(opacity: unknown): number {
-  return typeof opacity === "number" && Number.isFinite(opacity) ? Math.min(1, Math.max(0, opacity)) : 1;
+  return typeof opacity === "number" && Number.isFinite(opacity)
+    ? Math.min(1, Math.max(0, opacity))
+    : 1;
 }
 
 function buildGradient(config: CanvasBackgroundConfig): string {
@@ -39,7 +44,9 @@ function buildGradient(config: CanvasBackgroundConfig): string {
   return `linear-gradient(${gradient?.angle ?? 135}deg, ${start}, ${end})`;
 }
 
-export function getCanvasBackgroundLayer(config?: CanvasBackgroundConfig): CanvasBackgroundLayer {
+export function getCanvasBackgroundLayer(
+  config?: CanvasBackgroundConfig,
+): CanvasBackgroundLayer {
   const bgConfig = config || DEFAULT_BACKGROUND;
 
   if (bgConfig.isTransparent) {
@@ -88,6 +95,21 @@ export function getCanvasBackgroundLayer(config?: CanvasBackgroundConfig): Canva
         backgroundPosition: "center",
         backgroundSize: "cover",
         opacity,
+      },
+    };
+  }
+
+  if (bgConfig.type === "blur") {
+    return {
+      className: "",
+      style: {
+        backgroundImage: bgConfig.mediaUrl
+          ? `url("${bgConfig.mediaUrl}")`
+          : undefined,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        filter: `blur(${bgConfig.blurRadius ?? 80}px) brightness(0.85)`,
+        opacity: clampOpacity(bgConfig.opacity),
       },
     };
   }

@@ -147,6 +147,7 @@ async fn decode_one(
         "auto".to_string(),
         None,
         false,
+        1.0,
         SAMPLE_RATE,
         1,
     )

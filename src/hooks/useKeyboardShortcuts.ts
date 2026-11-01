@@ -478,25 +478,30 @@ export const useKeyboardShortcuts = () => {
         return;
       }
 
-      // Cmd/Ctrl+= or Cmd/Ctrl++: Zoom in
+      // Cmd/Ctrl+= or Cmd/Ctrl++: Zoom in (timeline only — not when hovering preview)
       if (isMeta && (e.key === "=" || e.key === "+" || e.code === "Equal" || e.code === "NumpadAdd")) {
+        // Skip if the pointer is over the preview panel; useViewportKeyboardShortcuts handles it there.
+        if (document.querySelector("[data-preview-space]")?.matches(":hover")) return;
         e.preventDefault();
         zoomByStep(1);
         return;
       }
 
-      // Cmd/Ctrl+- or Cmd/Ctrl+_: Zoom out
+      // Cmd/Ctrl+- or Cmd/Ctrl+_: Zoom out (timeline only — not when hovering preview)
       if (isMeta && (e.key === "-" || e.key === "_" || e.code === "Minus" || e.code === "NumpadSubtract")) {
+        if (document.querySelector("[data-preview-space]")?.matches(":hover")) return;
         e.preventDefault();
         zoomByStep(-1);
         return;
       }
 
       // Cmd/Ctrl+0 or Shift+Z (without Cmd/Ctrl): Fit sequence to timeline
+      // Cmd+0 is skipped over preview (preview uses it for zoom-to-fit).
       if (
         (isMeta && (e.key === "0" || e.code === "Digit0" || e.code === "Numpad0")) ||
         (!isMeta && !e.ctrlKey && !e.altKey && e.shiftKey && (e.key.toLowerCase() === "z" || e.code === "KeyZ"))
       ) {
+        if (isMeta && document.querySelector("[data-preview-space]")?.matches(":hover")) return;
         e.preventDefault();
         fitSequence();
         return;

@@ -41,6 +41,7 @@ import {
 } from "@/lib/playback/syncMetrics";
 import { workerPerfCollector } from "@/core/monitoring/WorkerPerfCollector";
 import { getTextMetricsSnapshot } from "@/lib/playback/textMetrics";
+import { timelineZoomTelemetry } from "@/lib/timeline/timelineZoomTelemetry";
 import { getOrCreateHashedInstallId } from "./telemetryCollector";
 
 // ── Tauri runtime guard ───────────────────────────────────────────────────────
@@ -78,6 +79,8 @@ export type PerfLogKind =
   | "seek-span"
   | "ai-inference"
   | "filmstrip-rollup"
+  | "timeline-zoom-rollup"
+  | "property-edit-rollup"
   | "frontend-av-sync"
   | "timeline-edit"
   | "timecode-jump"
@@ -562,6 +565,19 @@ export class PerfLogService {
       });
     }
 
+    // Flush the final timeline zoom/ruler window so the partial interval is not lost.
+    if (timelineZoomTelemetry.hasRecordedData()) {
+      const zoomSummary = timelineZoomTelemetry.drain();
+      if (zoomSummary) {
+        this.queue.push({
+          kind: "timeline-zoom-rollup",
+          sessionId,
+          timestampEpochMs: Date.now(),
+          payload: zoomSummary,
+        });
+      }
+    }
+
     // Flush the final frontend A/V sync window so the partial interval is not lost.
     const finalUiDrift = uiPlayheadDrift.takeAndReset();
     const finalPaintJitter = playheadPaintJitter.takeAndReset();
@@ -814,6 +830,7 @@ export class PerfLogService {
       this.flushFrontendSyncMetrics();
       this.flushWorkerSummary();
       this.flushTextMetricsSummary();
+      this.flushTimelineZoomSummary();
     }, SYNC_POLL_INTERVAL_MS);
   }
 
@@ -1030,6 +1047,22 @@ export class PerfLogService {
     }
     this.enqueue({
       kind: "text-rollup",
+      sessionId: this.sessionId,
+      timestampEpochMs: Date.now(),
+      payload: summary,
+    });
+  }
+
+  /**
+   * Drains timeline zoom, ruler, and frame-cell performance metrics into a timeline-zoom-rollup entry.
+   */
+  private flushTimelineZoomSummary(): void {
+    if (!this.sessionId) return;
+    if (!timelineZoomTelemetry.hasRecordedData()) return;
+    const summary = timelineZoomTelemetry.drain();
+    if (!summary) return;
+    this.enqueue({
+      kind: "timeline-zoom-rollup",
       sessionId: this.sessionId,
       timestampEpochMs: Date.now(),
       payload: summary,

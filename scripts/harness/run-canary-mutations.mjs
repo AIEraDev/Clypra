@@ -24,6 +24,7 @@ const CONTRACT_SUITES = [
   "src/components/editor/preview/__tests__/previewStateResetContract.test.ts",
   "src/features/text-effects/__tests__/textEditPreviewCycle.test.ts",
   "src/core/evaluation/__tests__/requestRoundTripFixture.test.ts",
+  "src/lib/timeline/__tests__/timelineZoomIntegration.test.tsx",
 ];
 
 const RUST_CONTRACT_TESTS = [

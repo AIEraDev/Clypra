@@ -12,17 +12,29 @@ import {
 } from "@/hooks/usePlaybackClock";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
-import { snapToFrameBoundary } from "@/lib/utils/frameTime";
+import {
+  snapToFrameBoundary,
+  getFrameIndexAtTime,
+} from "@/lib/utils/frameTime";
 import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
+import { findKeyframeSnap } from "@/lib/timeline/snapTargets";
+import {
+  collectPlayheadSnapTargets,
+  evaluatePlayheadSnap,
+  type PlayheadSnapTarget,
+} from "@/lib/timeline/playheadSnapEngine";
 import {
   timelineTimeToPixel,
   timelinePixelToTime,
+  TIMELINE_CLIP_START_OFFSET_PX,
+  TIMELINE_TRACK_LABEL_WIDTH_PX,
 } from "@/lib/timeline/timelineViewport";
 import {
   recordPlayheadPaint,
   recordSeekResolved,
   resetPlayheadPaintTracking,
 } from "@/lib/playback/syncMetrics";
+import { timelineZoomTelemetry } from "@/lib/timeline/timelineZoomTelemetry";
 import {
   getPreviewInteractionCoordinator,
   type PreviewInteractionToken,
@@ -33,6 +45,51 @@ interface PlayheadProps {
   duration: number;
   containerRef: RefObject<HTMLDivElement | null>;
   rulerHeight?: number;
+  startOffset?: number;
+}
+
+/** Threshold in CSS px per frame above which the current-frame cell in the ruler becomes visible. */
+export const PLAYHEAD_FRAME_CELL_MIN_PX_PER_FRAME = 75;
+
+export interface PlayheadFrameCellLayout {
+  left: number;
+  width: number;
+  currentFrame: number;
+}
+
+/**
+ * Compute current frame cell bounds for the ruler header row.
+ * Uses Clypra's canonical getFrameIndexAtTime() to ensure 100% frame ownership parity
+ * with NativeProgramPreview and the video compositing pipeline.
+ */
+export function getPlayheadFrameCellLayout(
+  time: number,
+  pixelsPerSecond: number,
+  frameRate: number,
+  startOffset: number = TIMELINE_CLIP_START_OFFSET_PX,
+): PlayheadFrameCellLayout {
+  const isTelemetryActive = timelineZoomTelemetry.isEnabled();
+  const t0 = isTelemetryActive ? performance.now() : 0;
+  const safeFps = Number.isFinite(frameRate) && frameRate > 0 ? frameRate : 30;
+  const safePps =
+    Number.isFinite(pixelsPerSecond) && pixelsPerSecond > 0 ? pixelsPerSecond : 50;
+  const safeTime = Number.isFinite(time) && !isNaN(time) ? Math.max(0, time) : 0;
+  const currentFrame = getFrameIndexAtTime(safeTime, safeFps);
+  const frameLeft = Math.round((currentFrame * safePps) / safeFps) + startOffset;
+  const frameRight =
+    Math.round(((currentFrame + 1) * safePps) / safeFps) + startOffset;
+  const layout = {
+    left: Math.max(0, frameLeft),
+    width: Math.max(1, frameRight - frameLeft),
+    currentFrame,
+  };
+  if (isTelemetryActive) {
+    const durationUs = Math.round((performance.now() - t0) * 1000);
+    const expectedFrame = getFrameIndexAtTime(safeTime, safeFps);
+    const mismatch = currentFrame !== expectedFrame;
+    timelineZoomTelemetry.recordFrameCellUpdate(durationUs, mismatch);
+  }
+  return layout;
 }
 
 export const Playhead: React.FC<PlayheadProps> = ({
@@ -40,6 +97,7 @@ export const Playhead: React.FC<PlayheadProps> = ({
   duration,
   containerRef,
   rulerHeight = 24,
+  startOffset = TIMELINE_CLIP_START_OFFSET_PX,
 }) => {
   const clockState = usePlaybackClock();
   const {
@@ -50,8 +108,26 @@ export const Playhead: React.FC<PlayheadProps> = ({
   } = useTransportControls();
   const previewInteractionCoordinator = getPreviewInteractionCoordinator();
   const { setScrollLeft } = useTimelineStore();
+  const projectFrameRate = useProjectStore((state) => state.project?.frameRate);
+  const frameRate =
+    projectFrameRate && projectFrameRate > 0 ? projectFrameRate : 30;
+
+  const showFrameCell =
+    pixelsPerSecond / frameRate >= PLAYHEAD_FRAME_CELL_MIN_PX_PER_FRAME;
+
+  useEffect(() => {
+    timelineZoomTelemetry.recordFrameCellMount(showFrameCell);
+  }, [showFrameCell]);
+
   const [isDragging, setIsDragging] = useState(false);
   const playheadRef = useRef<HTMLDivElement | null>(null);
+  const frameCellRef = useRef<HTMLDivElement | null>(null);
+  const showFrameCellRef = useRef(showFrameCell);
+  showFrameCellRef.current = showFrameCell;
+  const frameRateRef = useRef(frameRate);
+  frameRateRef.current = frameRate;
+  const startOffsetRef = useRef(startOffset);
+  startOffsetRef.current = startOffset;
   const rafRef = useRef<number | null>(null);
   const scrollVelocityRef = useRef(0);
   const pointerIdRef = useRef<number | null>(null);
@@ -62,6 +138,12 @@ export const Playhead: React.FC<PlayheadProps> = ({
     null,
   );
   const dragOffsetRef = useRef(0); // Offset captured at drag start for smooth anchor
+  const lastSnapGuideTimeRef = useRef<number | null>(null);
+  const lastSnapGuideTypeRef = useRef<string | null>(null);
+  const cachedSnapTargetsRef = useRef<PlayheadSnapTarget[]>([]);
+  const currentSnappedTargetRef = useRef<PlayheadSnapTarget | null>(null);
+  const anchorPointerPxRef = useRef<number | null>(null);
+  const bypassModifierRef = useRef<boolean>(false);
   // Cached for the rAF playback-animation loop — stays current without causing re-mounts.
   const pixelsPerSecondRef = useRef(pixelsPerSecond);
   pixelsPerSecondRef.current = pixelsPerSecond;
@@ -75,6 +157,12 @@ export const Playhead: React.FC<PlayheadProps> = ({
   // ✅ Use canonical timeToPixel helper for playhead left calculation.
   // This value drives the paused / scrub position via React state.
   const left = Math.max(0, timelineTimeToPixel(currentTime, pixelsPerSecond));
+  const frameCellLayout = getPlayheadFrameCellLayout(
+    currentTime,
+    pixelsPerSecond,
+    frameRate,
+    startOffset,
+  );
 
   // ── Playback animation: rAF loop at up to 60 fps ────────────────────────
   // During playback the clock subscription is deliberately throttled to 10fps
@@ -99,6 +187,19 @@ export const Playhead: React.FC<PlayheadProps> = ({
       }
       const pos = Math.max(0, timelineTimeToPixel(clock.time, pixelsPerSecondRef.current));
       el.style.left = `${pos}px`;
+
+      const cellEl = frameCellRef.current;
+      if (cellEl && showFrameCellRef.current) {
+        const cellLayout = getPlayheadFrameCellLayout(
+          clock.time,
+          pixelsPerSecondRef.current,
+          frameRateRef.current,
+          startOffsetRef.current,
+        );
+        cellEl.style.left = `${cellLayout.left}px`;
+        cellEl.style.width = `${cellLayout.width}px`;
+      }
+
       recordPlayheadPaint();
       recordSeekResolved();
       animRafId = requestAnimationFrame(loop);
@@ -115,9 +216,31 @@ export const Playhead: React.FC<PlayheadProps> = ({
     if (clockState.state === "playing" && !isDragging) return;
     const el = playheadRef.current;
     if (el) el.style.left = `${left}px`;
+
+    const cellEl = frameCellRef.current;
+    if (cellEl && showFrameCell) {
+      const cellLayout = getPlayheadFrameCellLayout(
+        currentTime,
+        pixelsPerSecond,
+        frameRate,
+        startOffset,
+      );
+      cellEl.style.left = `${cellLayout.left}px`;
+      cellEl.style.width = `${cellLayout.width}px`;
+    }
+
     resetPlayheadPaintTracking();
     recordSeekResolved();
-  }, [left, pixelsPerSecond, clockState.state, isDragging]);
+  }, [
+    left,
+    pixelsPerSecond,
+    clockState.state,
+    isDragging,
+    showFrameCell,
+    currentTime,
+    frameRate,
+    startOffset,
+  ]);
 
   // ✅ PERFORMANCE OPTIMIZED: Throttled state updates to reduce React render storms
   const lastScrollUpdateRef = useRef(0);
@@ -178,24 +301,74 @@ export const Playhead: React.FC<PlayheadProps> = ({
       const scrollX = container.scrollLeft;
       const playheadX = scrollX + pointerXRef.current + dragOffsetRef.current;
 
-      // Convert to time and snap to frame boundary
+      // Convert to time and evaluate magnetic snapping across all timeline features
       const rawTime = timelinePixelToTime(playheadX, pixelsPerSecond);
 
       // Get frameRate from project store directly, not clock state
       const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
+      const timelineState = useTimelineStore.getState();
+      const snapEnabled = timelineState.snapEnabled;
 
-      // Only snap if frames are visually distinguishable (> 3px apart)
-      // Prevents "sticky" playhead at extreme zoom-out levels
-      const pixelsPerFrame = pixelsPerSecond / frameRate;
-      const snappedTime =
-        pixelsPerFrame > 3 ? snapToFrameBoundary(rawTime, frameRate) : rawTime;
-      const newTime = clampAndSnapProgramTime(snappedTime, duration, frameRate);
+      const snapResult = evaluatePlayheadSnap({
+        candidateTime: rawTime,
+        pointerPx: playheadX,
+        currentSnappedTarget: currentSnappedTargetRef.current,
+        anchorPointerPx: anchorPointerPxRef.current,
+        snapTargets: cachedSnapTargetsRef.current,
+        pixelsPerSecond,
+        snapEnabled,
+        bypassModifier: bypassModifierRef.current,
+      });
+
+      let newTime: number;
+      if (snapResult.snapped && snapResult.activeTarget) {
+        currentSnappedTargetRef.current = snapResult.activeTarget;
+        anchorPointerPxRef.current = snapResult.anchorPointerPx;
+        newTime = Math.max(0, Math.min(snapResult.time, duration));
+
+        if (
+          lastSnapGuideTimeRef.current !== snapResult.time ||
+          lastSnapGuideTypeRef.current !== snapResult.guide?.type
+        ) {
+          lastSnapGuideTimeRef.current = snapResult.time;
+          lastSnapGuideTypeRef.current = snapResult.guide?.type ?? "clip-start";
+          timelineState.setSnapGuides(
+            snapResult.guide ? [snapResult.guide] : [],
+          );
+        }
+      } else {
+        currentSnappedTargetRef.current = null;
+        anchorPointerPxRef.current = null;
+        if (lastSnapGuideTimeRef.current !== null) {
+          lastSnapGuideTimeRef.current = null;
+          lastSnapGuideTypeRef.current = null;
+          timelineState.clearSnapGuides();
+        }
+        // Only snap if frames are visually distinguishable (> 3px apart)
+        // Prevents "sticky" playhead at extreme zoom-out levels
+        const pixelsPerFrame = pixelsPerSecond / frameRate;
+        const snappedTime =
+          pixelsPerFrame > 3 ? snapToFrameBoundary(rawTime, frameRate) : rawTime;
+        newTime = clampAndSnapProgramTime(snappedTime, duration, frameRate);
+      }
 
       // Direct DOM update for 60fps responsive visual needle tracking while dragging
       const el = playheadRef.current;
       if (el) {
         const visualPos = Math.max(0, timelineTimeToPixel(newTime, pixelsPerSecond));
         el.style.left = `${visualPos}px`;
+      }
+
+      const cellEl = frameCellRef.current;
+      if (cellEl && showFrameCellRef.current) {
+        const cellLayout = getPlayheadFrameCellLayout(
+          newTime,
+          pixelsPerSecond,
+          frameRate,
+          startOffsetRef.current,
+        );
+        cellEl.style.left = `${cellLayout.left}px`;
+        cellEl.style.width = `${cellLayout.width}px`;
       }
 
       // Throttled scrub calls (reduce clock update frequency)
@@ -217,6 +390,10 @@ export const Playhead: React.FC<PlayheadProps> = ({
     rafRef.current = requestAnimationFrame(tick);
 
     return () => {
+      if (lastSnapGuideTimeRef.current !== null) {
+        lastSnapGuideTimeRef.current = null;
+        useTimelineStore.getState().clearSnapGuides();
+      }
       if (stationaryTimerRef.current) {
         clearTimeout(stationaryTimerRef.current);
         stationaryTimerRef.current = null;
@@ -245,9 +422,10 @@ export const Playhead: React.FC<PlayheadProps> = ({
       const container = containerRef.current;
       if (!container) return;
 
-      // ✅ Store pointer position in viewport space
+      // ✅ Store pointer position in viewport space & update modifier bypass state
       const viewportRect = container.getBoundingClientRect();
       pointerXRef.current = e.clientX - viewportRect.left;
+      bypassModifierRef.current = e.metaKey || e.ctrlKey;
       const now = performance.now();
       const previous = lastPointerSampleRef.current;
       if (previous) {
@@ -264,6 +442,9 @@ export const Playhead: React.FC<PlayheadProps> = ({
 
       const EDGE_THRESHOLD = 80; // px from edge where auto-scroll starts
       const VELOCITY_MULTIPLIER = 0.3; // Acceleration factor
+      const hasClips = useTimelineStore.getState().clips.length > 0;
+      const leftBoundary = hasClips ? TIMELINE_TRACK_LABEL_WIDTH_PX : 0;
+      const leftThreshold = leftBoundary + EDGE_THRESHOLD;
 
       // Calculate velocity even when pointer is OUTSIDE viewport bounds
       if (
@@ -273,9 +454,9 @@ export const Playhead: React.FC<PlayheadProps> = ({
         // Near or beyond right edge → scroll right
         const distance = pointerXRef.current - (viewportWidth - EDGE_THRESHOLD);
         scrollVelocityRef.current = distance * VELOCITY_MULTIPLIER;
-      } else if (pointerXRef.current < EDGE_THRESHOLD && scrollLeft > 0) {
-        // Near or beyond left edge → scroll left
-        const distance = EDGE_THRESHOLD - pointerXRef.current;
+      } else if (pointerXRef.current < leftThreshold && scrollLeft > 0) {
+        // Near or beyond left edge of clips lane → scroll left
+        const distance = leftThreshold - pointerXRef.current;
         scrollVelocityRef.current = -distance * VELOCITY_MULTIPLIER;
       } else {
         // In safe zone → no scroll
@@ -302,6 +483,15 @@ export const Playhead: React.FC<PlayheadProps> = ({
             false,
           );
           scrubInteractionRef.current = null;
+        }
+        currentSnappedTargetRef.current = null;
+        anchorPointerPxRef.current = null;
+        cachedSnapTargetsRef.current = [];
+        bypassModifierRef.current = false;
+        if (lastSnapGuideTimeRef.current !== null) {
+          lastSnapGuideTimeRef.current = null;
+          lastSnapGuideTypeRef.current = null;
+          useTimelineStore.getState().clearSnapGuides();
         }
         setIsDragging(false);
         scrollVelocityRef.current = 0;
@@ -361,6 +551,15 @@ export const Playhead: React.FC<PlayheadProps> = ({
     const handleVisibilityChange = () => {
       if (document.hidden) {
         endScrub(getPlaybackClock().time);
+        currentSnappedTargetRef.current = null;
+        anchorPointerPxRef.current = null;
+        cachedSnapTargetsRef.current = [];
+        bypassModifierRef.current = false;
+        if (lastSnapGuideTimeRef.current !== null) {
+          lastSnapGuideTimeRef.current = null;
+          lastSnapGuideTypeRef.current = null;
+          useTimelineStore.getState().clearSnapGuides();
+        }
         setIsDragging(false);
         scrollVelocityRef.current = 0;
         pointerIdRef.current = null;
@@ -438,21 +637,92 @@ export const Playhead: React.FC<PlayheadProps> = ({
     const rawTime = timelinePixelToTime(playheadX, pixelsPerSecond);
 
     const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
+    const timelineState = useTimelineStore.getState();
+    const snapEnabled = timelineState.snapEnabled;
 
-    // Only snap if frames are visually distinguishable (> 3px apart)
-    const pixelsPerFrame = pixelsPerSecond / frameRate;
-    const snappedTime =
-      pixelsPerFrame > 3 ? snapToFrameBoundary(rawTime, frameRate) : rawTime;
-    const newTime = clampAndSnapProgramTime(snappedTime, duration, frameRate);
+    bypassModifierRef.current = e.metaKey || e.ctrlKey;
+    cachedSnapTargetsRef.current = collectPlayheadSnapTargets({
+      clips: timelineState.clips,
+      tracks: timelineState.tracks,
+      markers: timelineState.markers,
+      transitions: timelineState.transitions,
+      gaps: timelineState.gaps,
+      captionTracks: timelineState.captionTracks,
+      duration,
+    });
+    currentSnappedTargetRef.current = null;
+    anchorPointerPxRef.current = null;
+
+    const snapResult = evaluatePlayheadSnap({
+      candidateTime: rawTime,
+      pointerPx: playheadX,
+      currentSnappedTarget: null,
+      anchorPointerPx: null,
+      snapTargets: cachedSnapTargetsRef.current,
+      pixelsPerSecond,
+      snapEnabled,
+      bypassModifier: bypassModifierRef.current,
+    });
+
+    let newTime: number;
+    if (snapResult.snapped && snapResult.activeTarget) {
+      currentSnappedTargetRef.current = snapResult.activeTarget;
+      anchorPointerPxRef.current = snapResult.anchorPointerPx;
+      newTime = Math.max(0, Math.min(snapResult.time, duration));
+      lastSnapGuideTimeRef.current = snapResult.time;
+      lastSnapGuideTypeRef.current = snapResult.guide?.type ?? "clip-start";
+      timelineState.setSnapGuides(
+        snapResult.guide ? [snapResult.guide] : [],
+      );
+    } else {
+      currentSnappedTargetRef.current = null;
+      anchorPointerPxRef.current = null;
+      lastSnapGuideTimeRef.current = null;
+      lastSnapGuideTypeRef.current = null;
+      timelineState.clearSnapGuides();
+      // Only snap if frames are visually distinguishable (> 3px apart)
+      const pixelsPerFrame = pixelsPerSecond / frameRate;
+      const snappedTime =
+        pixelsPerFrame > 3 ? snapToFrameBoundary(rawTime, frameRate) : rawTime;
+      newTime = clampAndSnapProgramTime(snappedTime, duration, frameRate);
+    }
     beginScrub(newTime, "playhead");
 
     setIsDragging(true);
+
+    const cellEl = frameCellRef.current;
+    if (cellEl && showFrameCellRef.current) {
+      const cellLayout = getPlayheadFrameCellLayout(
+        newTime,
+        pixelsPerSecond,
+        frameRate,
+        startOffsetRef.current,
+      );
+      cellEl.style.left = `${cellLayout.left}px`;
+      cellEl.style.width = `${cellLayout.width}px`;
+    }
   };
 
   return (
-    <div
-      ref={playheadRef}
-      data-playhead="true"
+    <>
+      {showFrameCell && (
+        <div
+          ref={frameCellRef}
+          data-playhead-frame-cell="true"
+          className="absolute select-none pointer-events-none bg-white/10 border border-white/20 rounded-[2px]"
+          style={{
+            top: 0,
+            height: `${rulerHeight}px`,
+            left: `${frameCellLayout.left}px`,
+            width: `${frameCellLayout.width}px`,
+            zIndex: 35,
+            boxSizing: "border-box",
+          }}
+        />
+      )}
+      <div
+        ref={playheadRef}
+        data-playhead="true"
       data-timeline-interactive="true"
       className="absolute select-none pointer-events-none"
       style={{
@@ -469,6 +739,15 @@ export const Playhead: React.FC<PlayheadProps> = ({
         touchAction: "none",
       }}
       onLostPointerCapture={() => {
+        currentSnappedTargetRef.current = null;
+        anchorPointerPxRef.current = null;
+        cachedSnapTargetsRef.current = [];
+        bypassModifierRef.current = false;
+        if (lastSnapGuideTimeRef.current !== null) {
+          lastSnapGuideTimeRef.current = null;
+          lastSnapGuideTypeRef.current = null;
+          useTimelineStore.getState().clearSnapGuides();
+        }
         setIsDragging(false);
         scrollVelocityRef.current = 0;
         pointerIdRef.current = null;
@@ -530,5 +809,6 @@ export const Playhead: React.FC<PlayheadProps> = ({
         />
       </div>
     </div>
+  </>
   );
 };

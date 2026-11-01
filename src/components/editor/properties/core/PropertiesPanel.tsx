@@ -9,20 +9,18 @@ import { UnlinkAudioCommand } from "@/core/history/commands/UnlinkAudioCommand";
 import { supportsVisualAnimation } from "@/lib/timeline/timelineClip";
 import { getClipTypeInfo } from "@/lib/timeline/clipPropertyTransform";
 import type { TextClip, MediaAsset } from "@/types";
-
 import { usePropertyEditCoordinator } from "@/hooks/usePropertyEditCoordinator";
 import { useClipPropertyHandlers } from "@/hooks/useClipPropertyHandlers";
-
 import { EmptyPropertiesState } from "./EmptyPropertiesState";
 import PropertyPanelHeader from "./PropertyPanelHeader";
 import type {
   TextPropertyTab,
   VideoPropertyTab,
+  ImagePropertyTab,
   AudioPropertyTab,
 } from "../types";
 import PropertyPanelBody from "./PropertyPanelBody";
 import PropertyPanelCollapsed from "./PropertyPanelCollapsed";
-
 export interface PropertiesPanelProps {
   width?: number;
   fillWidth?: boolean;
@@ -30,10 +28,8 @@ export interface PropertiesPanelProps {
   onToggleCollapse?: () => void;
   className?: string;
 }
-
 // Re-export so existing consumers that import from here continue to work
 export { buildClipPropertyTransform } from "@/lib/timeline/clipPropertyTransform";
-
 export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   width,
   fillWidth = false,
@@ -42,7 +38,6 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   className = "",
 }) => {
   const { t } = useI18n();
-
   // ── Store subscriptions ──────────────────────────────────────────────────
   const selectedClipIds = useUIStore((s) => s.selectedClipIds);
   const clips = useTimelineStore((s) => s.clips);
@@ -52,17 +47,18 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const presets = usePresetStore((s) => s.presets);
   const savePreset = usePresetStore((s) => s.savePreset);
   const deletePreset = usePresetStore((s) => s.deletePreset);
-
   // ── Local UI state ───────────────────────────────────────────────────────
   const [activePropertyTab, setActivePropertyTab] = useState<
-    TextPropertyTab | VideoPropertyTab | AudioPropertyTab | null
+    | TextPropertyTab
+    | VideoPropertyTab
+    | ImagePropertyTab
+    | AudioPropertyTab
+    | null
   >(null);
   const [newPresetName, setNewPresetName] = useState("");
-
   // ── Clip resolution ──────────────────────────────────────────────────────
   const selectedClipId = selectedClipIds[0] ?? null;
   const selectedClip = clips.find((c) => c.id === selectedClipId);
-
   let selectedAsset: MediaAsset | undefined = mediaAssets.find(
     (a) => a.id === selectedClip?.mediaId,
   );
@@ -88,13 +84,15 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       stickerSourceId: selectedClip.stickerSourceId,
     };
   }
-
   // ── Clip-type booleans ───────────────────────────────────────────────────
   const isSticker =
     selectedClip?.kind === "sticker" ||
     Boolean(selectedClip?.mediaId?.startsWith("sticker-"));
   const isVisualClip =
-    selectedAsset?.type === "video" || selectedAsset?.type === "image";
+    selectedAsset?.type === "video" ||
+    selectedAsset?.type === "image" ||
+    selectedClip?.kind === "video" ||
+    selectedClip?.kind === "image";
   const supportsAnimation = supportsVisualAnimation(
     selectedClip,
     selectedAsset,
@@ -104,7 +102,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     selectedAsset?.type === "audio" ||
     selectedClip?.kind === "audio" ||
     !!(selectedClip as any)?.audioPath;
-  const isVideoClip = selectedAsset?.type === "video";
+  const isVideoClip =
+    (selectedAsset?.type === "video" || selectedClip?.kind === "video") &&
+    !isSticker;
+  const isImageClip =
+    (selectedAsset?.type === "image" || selectedClip?.kind === "image") &&
+    !isSticker;
   const isTextClip =
     selectedClip &&
     (selectedClip.kind === "text" ||
@@ -112,7 +115,6 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       "text" in selectedClip);
   const hasAudioTrack =
     !isTextClip && !isSticker && clipHasAudio(selectedClip, selectedAsset);
-
   const isFilter =
     selectedClip?.kind === "filter" ||
     selectedClip?.id.startsWith("filter-clip-");
@@ -120,7 +122,6 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     isFilter ||
     selectedClip?.kind === "video-effect" ||
     selectedClip?.kind === "body-effect";
-
   // ── Coordinator & handlers — must be unconditional (Rules of Hooks) ─────
   const coordinator = usePropertyEditCoordinator(!!isTextClip);
   const handlers = useClipPropertyHandlers({
@@ -142,7 +143,6 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
         : undefined,
     coordinator,
   });
-
   // ── Empty state ──────────────────────────────────────────────────────────
   if (!selectedClipId || !selectedClip) {
     return (
@@ -155,12 +155,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       />
     );
   }
-
   // ── Derived values used for display (only used past the empty-state guard) ─
   const textClip = selectedClip as unknown as TextClip;
   const canvasWidth = project?.canvasWidth ?? 1920;
   const canvasHeight = project?.canvasHeight ?? 1080;
-
   const linkedAudio = UnlinkAudioCommand.findLinkedAudio(
     selectedClip.id,
     clips,
@@ -169,11 +167,16 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     selectedClip?.audio?.linkState === "unlinked"
       ? clips.find((clip) => clip.id === selectedClip.audio?.linkedClipId)
       : undefined;
-
   // ── Clip type header info ────────────────────────────────────────────────
   const effectiveAssetType =
     selectedAsset?.type ??
-    (selectedClip.kind === "audio" ? "audio" : undefined);
+    (selectedClip.kind === "audio"
+      ? "audio"
+      : selectedClip.kind === "image"
+        ? "image"
+        : selectedClip.kind === "video"
+          ? "video"
+          : undefined);
   const typeInfo = getClipTypeInfo(
     effectiveAssetType,
     selectedClip.kind,
@@ -212,7 +215,6 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
         setActivePropertyTab={setActivePropertyTab}
         hasAudioTrack={hasAudioTrack}
       />
-
       {collapsed ? (
         <PropertyPanelCollapsed
           onToggleCollapse={onToggleCollapse}
@@ -235,6 +237,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           isTextClip={!!isTextClip}
           isVisualClip={isVisualClip}
           isVideoClip={!!isVideoClip}
+          isImageClip={isImageClip}
           isAudioClip={isAudioClip}
           isTimelineEffectClip={isTimelineEffectClip}
           hasAudioTrack={hasAudioTrack}
@@ -259,7 +262,6 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           deletePreset={deletePreset}
         />
       )}
-
       {/* Save as preset & Reset */}
       <div className="sticky bottom-0 left-0 right-0 bg-panel flex justify-end items-center gap-2 p-1.5 border-t border-white/5">
         <button

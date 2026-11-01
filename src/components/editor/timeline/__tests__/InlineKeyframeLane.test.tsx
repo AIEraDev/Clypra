@@ -7,10 +7,11 @@ import { useTimelineStore } from "@/store/timelineStore";
 import type { Clip } from "@/types";
 
 const mockSeek = vi.fn();
+let mockClockTime = 1.0;
 vi.mock("@/hooks/usePlaybackClock", () => ({
-  usePlaybackClock: () => ({ time: 1.0, isPlaying: false, duration: 10 }),
+  usePlaybackClock: () => ({ time: mockClockTime, isPlaying: false, duration: 10 }),
   usePlaybackControls: () => ({ seek: mockSeek, play: vi.fn(), pause: vi.fn() }),
-  getPlaybackClock: () => ({ time: 1.0, isPlaying: false, duration: 10, seek: mockSeek }),
+  getPlaybackClock: () => ({ time: mockClockTime, isPlaying: false, duration: 10, seek: mockSeek }),
 }));
 
 describe("InlineKeyframeLane", () => {
@@ -41,6 +42,7 @@ describe("InlineKeyframeLane", () => {
   };
 
   beforeEach(() => {
+    mockClockTime = 1.0;
     mockSeek.mockClear();
     useTimelineStore.setState({
       clips: [clipWithKeyframes],
@@ -113,5 +115,55 @@ describe("InlineKeyframeLane", () => {
       property: "rotation",
       keyframeIndex: 0,
     });
+  });
+
+  it("highlights the parked keyframe in Clypra's bg-accent and inactive in bg-white/95", () => {
+    // clip.startTime is 2. Setting clock time to 5.0 puts localTime at 3.0 (kf-rot-2 at 3s)
+    mockClockTime = 5.0;
+
+    render(
+      <InlineKeyframeLane
+        clip={clipWithKeyframes}
+        clipWidthPx={600}
+        pixelsPerSecond={100}
+        isExpanded={false}
+      />,
+    );
+
+    const diamonds = screen.getAllByRole("button");
+    // We have unique times: 0, 1, 3, 4 -> 4 diamonds
+    expect(diamonds.length).toBe(4);
+
+    // The 3rd diamond (at local time 3s) should be parked / active with Clypra's bg-accent
+    expect(diamonds[2].className).toContain("bg-accent");
+
+    // The other diamonds (e.g. 1st at local time 0s) should be inactive with Clypra's bg-white/95
+    expect(diamonds[0].className).toContain("bg-white/95");
+    expect(diamonds[1].className).toContain("bg-white/95");
+    expect(diamonds[3].className).toContain("bg-white/95");
+  });
+
+  it("deletes selected compound keyframe when Delete key is pressed", () => {
+    mockClockTime = 0;
+
+    render(
+      <InlineKeyframeLane
+        clip={clipWithKeyframes}
+        clipWidthPx={600}
+        pixelsPerSecond={100}
+        isExpanded={false}
+      />,
+    );
+
+    const diamonds = screen.getAllByRole("button");
+    // Click 1st diamond at time 0
+    fireEvent.click(diamonds[0]);
+
+    // Press Delete
+    fireEvent.keyDown(window, { key: "Delete" });
+
+    const updatedClips = useTimelineStore.getState().clips;
+    const clipAfterDelete = updatedClips.find((c) => c.id === clipWithKeyframes.id);
+    expect(clipAfterDelete?.visualKeyframes?.rotation?.some((k) => k.time === 0)).toBe(false);
   });
 });

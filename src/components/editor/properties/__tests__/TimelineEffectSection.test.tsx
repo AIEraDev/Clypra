@@ -46,6 +46,7 @@ describe("TimelineEffectSection", () => {
     expect((intensityInput as HTMLInputElement).value).toBe("80");
 
     fireEvent.change(intensityInput, { target: { value: "35" } });
+    fireEvent.blur(intensityInput);
 
     expect(handleUpdate).toHaveBeenCalledWith("intensity", 0.35);
   });

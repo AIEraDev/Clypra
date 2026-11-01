@@ -273,9 +273,12 @@ function measureTextInk(
       const inkWidth =
         Number(metrics.actualBoundingBoxLeft ?? 0) +
         Number(metrics.actualBoundingBoxRight ?? 0);
+      const fallbackSpacing = supportsCanvasLetterSpacing
+        ? 0
+        : Math.max(0, line.length - 1) * letterSpacing;
       const lineWidth =
         Math.max(Number(metrics.width ?? 0), inkWidth) +
-        0;
+        fallbackSpacing;
       lineWidths.push(lineWidth);
       width = Math.max(width, lineWidth);
       lineInkHeight = Math.max(

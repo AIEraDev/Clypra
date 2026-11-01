@@ -29,6 +29,14 @@ pub struct NativeAudioClipRequest {
     pub downmix: String,
     pub channel_map: Option<Vec<usize>>,
     pub preserve_pitch: bool,
+    /// Per-clip playback speed multiplier (1.0 = real-time).
+    /// Used by the mixer to remap source position within the clip's timeline footprint.
+    #[serde(default = "default_clip_speed")]
+    pub clip_speed: f32,
+}
+
+fn default_clip_speed() -> f32 {
+    1.0
 }
 
 /// A single entry in a batched parameter-only update request (CLY-BUG-023).

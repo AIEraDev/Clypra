@@ -1,6 +1,9 @@
 import type { AspectRatio, MediaAsset, Project, Clip } from "@/types";
 
-const ASPECT_DIMENSIONS: Record<AspectRatio, { width: number; height: number }> = {
+const ASPECT_DIMENSIONS: Record<
+  AspectRatio,
+  { width: number; height: number }
+> = {
   original: { width: 1920, height: 1080 },
   "16:9": { width: 1920, height: 1080 },
   "9:16": { width: 1080, height: 1920 },
@@ -35,7 +38,7 @@ function chooseClosestAspect(width: number, height: number): AspectRatio {
 }
 
 /**
- * CapCut-style sequence policy:
+ *  sequence policy:
  * If timeline is empty and first inserted media is visual, auto-adapt sequence
  * aspect ratio to the media orientation/aspect.
  */
@@ -49,12 +52,18 @@ export function autoAdaptSequenceForFirstVisualClip(params: {
   if (!project) return;
   if (existingClips.length > 0) return;
   if (asset.type !== "video" && asset.type !== "image") return;
-  if (!asset.width || !asset.height || asset.width <= 0 || asset.height <= 0) return;
+  if (!asset.width || !asset.height || asset.width <= 0 || asset.height <= 0)
+    return;
 
   const nextAspect = chooseClosestAspect(asset.width, asset.height);
   const nextDims = ASPECT_DIMENSIONS[nextAspect];
 
-  if (project.aspectRatio === nextAspect && project.canvasWidth === nextDims.width && project.canvasHeight === nextDims.height) return;
+  if (
+    project.aspectRatio === nextAspect &&
+    project.canvasWidth === nextDims.width &&
+    project.canvasHeight === nextDims.height
+  )
+    return;
 
   updateProject({
     aspectRatio: nextAspect,

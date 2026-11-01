@@ -27,36 +27,47 @@ Clypra is a multi-tier desktop application (React 19 + Tauri 2.x + Rust wgpu com
 
 ---
 
-## Step-by-Step Procedure
+## Step-by-Step Procedure (Single-Task Platform Discipline)
 
-### 1. Clarify Scope and Acceptance Criteria
-- Explicitly state what the feature will do and what is out of scope.
-- Identify the target user interaction model and performance requirements.
-- Identify whether the feature touches the preview render path, timeline state, or native engine.
+This skill enforces **platform discipline at the size of a single task**. When designing and building features, always progress through these distinct phases:
 
-### 2. Inspect Existing Architecture & Patterns
-- Check `AGENTS.md` and `.agents/rules/architecture.md` for governing constraints.
-- Consult `.agents/skills/clypra-dev/SKILL.md` Section 21 (*Quick Subsystem Decision Guide*).
-- Inspect similar features already implemented in `src/features/` or `src/core/`.
-- Never create a duplicate store, secondary playback clock, or parallel evaluation path.
+### Phase 1: Ingest Problem & User Solution Proposal
+- Listen carefully to the problem and the user's proposed solution.
+- Explicitly identify the user's intent, target interaction model, and expected behavior.
 
-### 3. Identify Subsystem Boundaries & Compute Tier
-Determine where each component belongs based on the Three-Layer Rule:
-- **Tier 1 (Main/React)**: UI layout, user input, dialogs, Zustand action triggers.
-- **Tier 2 (Web Worker)**: Complex data transformations (>2ms), geometry calculations, curve evaluation.
-- **Tier 3 (Rust Native)**: GPU shaders, video decoding, audio synthesis, disk I/O, IPC handlers.
+### Phase 2: Trade-Off Analysis (STRICTLY NO CODE YET)
+- Evaluate the user's proposed solution against Clypra's architecture invariants:
+  - Three-tier compute boundary (Tier 1 React vs Tier 2 Worker vs Tier 3 Rust).
+  - Single authority `PlaybackClock` and `EvaluatedScene` currency.
+  - Hardware GPU compositor (`wgpu`) vs. canvas/DOM fallback equivalence.
+- State potential failure modes, performance bottlenecks, race conditions, and migration impacts.
+- Present viable alternatives and architectural trade-offs to the user. **Do not write or emit implementation code in this turn.**
 
-### 4. Plan Proportional Implementation & Test Strategy
-- Propose the smallest coherent change to achieve the feature.
-- Plan unit tests for pure domain functions before touching state or UI.
-- If timeline mutations are involved, implement them as commands in `src/core/commands/` so they support undo/redo via `historyStore`.
-- If new types are needed, define them in `src/types/` and ensure backward compatibility.
+### Phase 3: Spec & Granular Task List
+- Once aligned on the approach, turn the agreed design into a concise specification:
+  - Target subsystem boundaries, data-flow models, and UI/native contracts.
+  - Verification targets and acceptance test oracles.
+- Break the implementation into a sequence of discrete, numbered, atomic tasks.
 
-### 5. Incremental Implementation
-- Step 1: Types & Core Engine logic (pure TypeScript functions).
-- Step 2: Zustand Store actions (if new state is required; ensure persistence rules are respected).
-- Step 3: UI Components (using Clypra design tokens and Radix/Tailwind primitives).
-- Step 4: IPC bridge handlers (if native functionality is needed, ensure path validation via `security.rs`).
+### Phase 4: Single-Task Execution Loop
+- Execute strictly **one small task at a time**.
+- Do not jump ahead or combine multiple unrelated tasks into a single broad turn.
+
+### Phase 5: Write Code Last & Verify
+- Within each task:
+  - Define the types and pure logic contracts first.
+  - Write code last, scoped strictly to the current task.
+  - Immediately verify with type checks (`npx tsc --noEmit`), unit/regression tests, and contract suites before moving to the next task.
+
+---
+
+### Implementation Progression Rules
+1. **Scope & Tier Boundaries**: Keep changes narrow across the Three-Layer Rule:
+   - **Tier 1 (Main/React)**: UI layout, user input, dialogs, Zustand action triggers.
+   - **Tier 2 (Web Worker)**: Complex data transformations (>2ms), geometry calculations, curve evaluation.
+   - **Tier 3 (Rust Native)**: GPU shaders, video decoding, audio synthesis, disk I/O, IPC handlers.
+2. **Timeline Mutations**: If mutations are involved, implement them as commands in `src/core/commands/` so they support undo/redo via `historyStore`.
+3. **Contract Parity**: When introducing new properties or types, ensure full backward compatibility in `src/types/` and serialization parity in Rust `src-tauri/`.
 
 ### 6. Mandatory Mixed-Stack Benchmark, Scalability & Deep Automation Contract
 

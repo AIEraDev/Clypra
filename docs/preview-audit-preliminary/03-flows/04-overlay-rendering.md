@@ -30,6 +30,7 @@ Overlays exist in two distinct representations depending on the active preview p
 ## 2. Native Hardware Overlay Compositing
 
 During continuous playback on the native GPU surface:
+
 1. **Raster Asset Registration**:
    - Text elements are prerasterized into RGBA bitmap buffers via offscreen canvas (`[CODE:src/components/editor/preview/nativeTextPreview.ts#L450]`).
    - Prerasterized buffers are uploaded to the GPU texture pool using `register_native_raster_asset` (`[CODE:src/lib/platform/tauri.ts#L800]`).
@@ -44,9 +45,9 @@ During continuous playback on the native GPU surface:
 ## 3. Paused DOM Overlay Presentation
 
 During paused editing and playhead scrubbing:
+
 1. The native GPU surface is hidden via the pause handover protocol (`[CODE:src/components/editor/preview/NativeProgramPreview.tsx#L4430]`).
 2. Video frames paint directly onto the HTML5 `<canvas>` element.
 3. Interactive DOM components render directly above the canvas inside the preview container:
    - `TransformOverlay.tsx`: Interactive bounding box handles for scale, rotation, and translation.
    - `SafeOverlay.tsx`: Action-safe and title-safe guidelines.
-   - `SpatialMotionPath.tsx`: Keyframe motion trajectories and control points.

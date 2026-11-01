@@ -109,6 +109,45 @@ describe("Track timeline behavior", () => {
     );
   });
 
+  it("repaints the clip immediately when visualKeyframes are added or updated", () => {
+    const track = { id: "track-1", type: "video", name: "Video", muted: false, locked: false, visible: true, height: 80 } as any;
+    const clipWithoutKf = {
+      id: "clip-1",
+      trackId: "track-1",
+      mediaId: "asset-1",
+      name: "Clip A",
+      startTime: 0,
+      duration: 5,
+      trimIn: 0,
+      trimOut: 5,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      opacity: 1,
+      rotation: 0,
+    };
+
+    const { rerender } = render(
+      <Track track={track} pixelsPerSecond={100} clips={[clipWithoutKf] as any} />,
+    );
+    expect(screen.queryByTestId("clip-clip-1-keyframe-toggle")).not.toBeInTheDocument();
+
+    const clipWithKf = {
+      ...clipWithoutKf,
+      visualKeyframes: {
+        rotation: [{ id: "kf-1", time: 1.0, value: 45 }],
+      },
+    };
+
+    rerender(
+      <Track track={track} pixelsPerSecond={100} clips={[clipWithKf] as any} />,
+    );
+
+    // Because Track arePropsEqual currently ignores visualKeyframes, this will fail!
+    expect(screen.getByTestId("clip-clip-1-keyframe-toggle")).toBeInTheDocument();
+  });
+
   it("updates a text clip label immediately when its text changes", () => {
     const track = { id: "track-text", type: "text", name: "Text", muted: false, locked: false, visible: true, height: 80 } as any;
     const clip = {
