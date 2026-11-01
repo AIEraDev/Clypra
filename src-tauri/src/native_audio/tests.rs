@@ -37,6 +37,7 @@ mod tests {
             "auto".to_string(),
             None,
             false,
+            1.0,
             48_000,
             2,
         )
@@ -68,6 +69,7 @@ mod tests {
                 downmix: "auto".to_string(),
                 channel_map: None,
                 preserve_pitch: false,
+                clip_speed: 1.0,
             });
         }
         let result = mixer.replace_clips(clips);
@@ -99,6 +101,7 @@ mod tests {
             "auto".to_string(),
             None,
             false,
+            1.0,
             48_000,
             2,
         )
@@ -122,6 +125,7 @@ mod tests {
             "auto".to_string(),
             None,
             false,
+            1.0,
             48_000,
             2,
         )
@@ -194,6 +198,7 @@ mod tests {
                 downmix: "auto".to_string(),
                 channel_map: None,
                 preserve_pitch: false,
+                clip_speed: 1.0,
             })
             .unwrap();
 
@@ -225,6 +230,7 @@ mod tests {
                 downmix: "auto".to_string(),
                 channel_map: None,
                 preserve_pitch: false,
+                clip_speed: 1.0,
             })
             .unwrap();
 
@@ -256,6 +262,7 @@ mod tests {
                 downmix: "auto".to_string(),
                 channel_map: None,
                 preserve_pitch: false,
+                clip_speed: 1.0,
             })
             .unwrap();
 
@@ -296,6 +303,7 @@ mod tests {
                 downmix: "auto".to_string(),
                 channel_map: None,
                 preserve_pitch: false,
+                clip_speed: 1.0,
             })
             .unwrap();
 
@@ -330,6 +338,7 @@ mod tests {
                 downmix: "auto".to_string(),
                 channel_map: None,
                 preserve_pitch: false,
+                clip_speed: 1.0,
             })
             .unwrap();
 
@@ -377,6 +386,7 @@ mod tests {
                 downmix: "auto".to_string(),
                 channel_map: None,
                 preserve_pitch: false,
+                clip_speed: 1.0,
             })
             .unwrap();
 
@@ -408,6 +418,7 @@ mod tests {
             downmix: "auto".to_string(),
             channel_map: None,
             preserve_pitch: false,
+            clip_speed: 1.0,
         };
         let mut mixer = NativeAudioMixer::default();
         mixer.install_clip(clip).unwrap();
@@ -436,6 +447,7 @@ mod tests {
             downmix: "mono".to_string(),
             channel_map: None,
             preserve_pitch: false,
+            clip_speed: 1.0,
         };
         let mut mixer = NativeAudioMixer::default();
         mixer.install_clip(base.clone()).unwrap();
@@ -476,6 +488,7 @@ mod tests {
                 downmix: "auto".to_string(),
                 channel_map: None,
                 preserve_pitch: true,
+                clip_speed: 1.0,
             })
             .unwrap();
         let mut output = [0.0_f32; 20];
@@ -503,6 +516,7 @@ mod tests {
             downmix: "auto".to_string(),
             channel_map: None,
             preserve_pitch: true,
+            clip_speed: 1.0,
         };
         let mut mixer = NativeAudioMixer::default();
         mixer.install_clip(clip).unwrap();
@@ -538,6 +552,7 @@ mod tests {
                 downmix: "auto".to_string(),
                 channel_map: None,
                 preserve_pitch: false,
+                clip_speed: 1.0,
             })
             .unwrap();
 
@@ -572,6 +587,7 @@ mod tests {
                 downmix: "auto".to_string(),
                 channel_map: None,
                 preserve_pitch: false,
+                clip_speed: 1.0,
             })
             .unwrap();
         mixer
@@ -593,6 +609,7 @@ mod tests {
                 downmix: "auto".to_string(),
                 channel_map: None,
                 preserve_pitch: false,
+                clip_speed: 1.0,
             })
             .unwrap();
 
@@ -619,6 +636,7 @@ mod tests {
                 downmix: "auto".to_string(),
                 channel_map: None,
                 preserve_pitch: false,
+                clip_speed: 1.0,
             })
             .unwrap();
         let mut replaced = [0.0_f32; 1];
@@ -651,6 +669,7 @@ mod tests {
                 downmix: "auto".to_string(),
                 channel_map: None,
                 preserve_pitch: false,
+                clip_speed: 1.0,
             })
             .unwrap();
 
@@ -695,6 +714,7 @@ mod tests {
                 downmix: "auto".to_string(),
                 channel_map: None,
                 preserve_pitch: false,
+                clip_speed: 1.0,
             })
             .unwrap();
 
@@ -717,6 +737,7 @@ mod tests {
                 downmix: "auto".to_string(),
                 channel_map: None,
                 preserve_pitch: false,
+                clip_speed: 1.0,
             })
             .collect();
         assert!(mixer.replace_clips(oversized).is_err());

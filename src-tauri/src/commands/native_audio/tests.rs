@@ -21,6 +21,7 @@ mod tests {
             downmix: "auto".to_string(),
             channel_map: None,
             preserve_pitch: false,
+            clip_speed: 1.0,
         };
         let is_muted = muted_req.gain <= 0.0001
             && (muted_req.volume_keyframes.is_empty()
