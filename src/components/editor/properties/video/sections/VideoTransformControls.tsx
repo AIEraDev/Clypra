@@ -995,6 +995,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                   max={500}
                   step={1}
                   onChange={handleScaleChange}
+                  snapPoints={[{ value: 100, threshold: 14 }]}
                   propertyId="scale"
                   category="video"
                 />
@@ -1038,6 +1039,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                     max={500}
                     step={1}
                     onChange={handleScaleWidthChange}
+                    snapPoints={[{ value: 100, threshold: 14 }]}
                     propertyId="scaleWidth"
                     category="video"
                   />
@@ -1081,6 +1083,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                     max={500}
                     step={1}
                     onChange={handleScaleHeightChange}
+                    snapPoints={[{ value: 100, threshold: 14 }]}
                     propertyId="scaleHeight"
                     category="video"
                   />

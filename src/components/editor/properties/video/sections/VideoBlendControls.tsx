@@ -267,6 +267,10 @@ export const VideoBlendControls: React.FC<VideoBlendControlsProps> = ({
                 step={1}
                 propertyId="opacity"
                 category="video"
+                snapPoints={[
+                  { value: 100, threshold: 4 },
+                  { value: 0, threshold: 4 },
+                ]}
                 onChange={handleOpacityChange}
               />
               <NumericControl

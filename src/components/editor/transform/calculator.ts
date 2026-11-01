@@ -15,7 +15,7 @@ import type { Clip, TransformHandle, TransformConstraints } from "@/types";
 const MIN_CLIP_SIZE_ABSOLUTE = 64; // Absolute floor (px)
 const MIN_CLIP_SIZE_RATIO_OF_SHORT_EDGE = 0.12; // 12% of sequence short edge
 const MAX_CLIP_SCALE_FROM_CANVAS = 8; // Professional guardrail against runaway scaling
-const ASPECT_RATIO_SNAP_EPSILON = 0.02; // 2% snap band for "perfect shape" feel
+const ASPECT_RATIO_SNAP_EPSILON = 0.04; // 4% snap band for tactile "perfect shape" feel
 
 function calculateTextHeight(
   text: string,
@@ -379,12 +379,22 @@ function handleRotation(
   // Normalize to -180..180
   degrees = ((degrees % 360) + 540) % 360 - 180;
 
-  // Optional: Snap to 15-degree increments
-  const snapThreshold = 5; // degrees
-  const snapAngles = [0, 45, 90, 135, 180, -45, -90, -135, -180];
+  // Magnetic rotation snapping:
+  // Cardinal angles (0°, ±90°, ±180°) have strong snap threshold (9°);
+  // Diagonal angles (±45°, ±135°) have distinct snap threshold (6°).
+  const cardinalSnapThreshold = 9; // degrees
+  const diagonalSnapThreshold = 6; // degrees
+  const cardinalAngles = [0, 90, 180, -90, -180];
+  const diagonalAngles = [45, 135, -45, -135];
 
-  for (const snapAngle of snapAngles) {
-    if (Math.abs(degrees - snapAngle) < snapThreshold) {
+  for (const snapAngle of cardinalAngles) {
+    if (Math.abs(degrees - snapAngle) <= cardinalSnapThreshold) {
+      degrees = snapAngle;
+      break;
+    }
+  }
+  for (const snapAngle of diagonalAngles) {
+    if (Math.abs(degrees - snapAngle) <= diagonalSnapThreshold) {
       degrees = snapAngle;
       break;
     }

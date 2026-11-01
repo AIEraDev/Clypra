@@ -1592,8 +1592,14 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         const canvasCenterX = canvasWidth / 2;
         const canvasCenterY = canvasHeight / 2;
 
-        const SNAP_IN_THRESHOLD = 8;
-        const ESCAPE_THRESHOLD = 20;
+        // Screen-calibrated magnetic snapping thresholds:
+        // - SNAP_IN_THRESHOLD: within ~14px of screen distance, the object snaps into place
+        // - ESCAPE_THRESHOLD: requires ~36px of deliberate screen drag to pull out of the snap lock
+        // Converting from screen pixels to canvas coordinates ensures consistent, tactile magnetic
+        // resistance regardless of sequence resolution or preview zoom level.
+        const effectiveScale = Math.max(0.05, scale);
+        const SNAP_IN_THRESHOLD = Math.max(16, Math.round(14 / effectiveScale));
+        const ESCAPE_THRESHOLD = Math.max(45, Math.round(36 / effectiveScale));
         const rotation = selectedClip.rotation ?? 0;
 
         if (currentTransform.handle === "move") {
