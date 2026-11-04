@@ -12,6 +12,7 @@ import { VideoStyleSection } from "../video/sections/VideoStyleSection";
 import { ImageStyleSection } from "../image/sections/ImageStyleSection";
 import { TransformSection } from "../shared/TransformSection";
 import { MotionPresetSection } from "../shared/MotionPresetSection";
+import { MediaAnimationSection } from "@/features/media-animations/MediaAnimationSection";
 import { TextTrackingSection } from "../text/sections/TextTrackingSection";
 import { TextToSpeechSection } from "../text/sections/TextToSpeechSection";
 import { TextAiAvatarsSection } from "../text/sections/TextAiAvatarsSection";
@@ -167,7 +168,7 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
       )}
       {/* Animation Tab: Motion presets */}
       {isVideoClip && activePropertyTab === "animation" && (
-        <MotionPresetSection
+        <MediaAnimationSection
           selectedClip={selectedClip}
           handleUpdateMultiple={handleUpdateMultiple}
           canvasWidth={canvasWidth}
@@ -195,7 +196,7 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
       )}
       {/* Image Animation Tab */}
       {isImageClip && activePropertyTab === "animation" && (
-        <MotionPresetSection
+        <MediaAnimationSection
           selectedClip={selectedClip}
           handleUpdateMultiple={handleUpdateMultiple}
           canvasWidth={canvasWidth}

@@ -265,6 +265,8 @@
   "properties.animation.categories.3d": "3D",
   "properties.animation.categories.glitch": "Glitch",
   "properties.animation.favorites": "Favorites",
+  "properties.mediaAnimation.combo": "Combo",
+  "properties.mediaAnimation.comboComingSoon": "Combo animations coming soon",
   "properties.text.presetStyle": "PRESET STYLE",
   "properties.text.expandPresets": "Expand preset styles",
   "properties.text.collapsePresets": "Collapse preset styles",
