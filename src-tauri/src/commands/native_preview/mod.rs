@@ -1466,13 +1466,11 @@ async fn render_native_video_project_frame_bytes_timed(
     }
     let mut effect_views = Vec::with_capacity(request.effect_layers.len());
     let mut effect_dims = Vec::with_capacity(request.effect_layers.len());
-    for entry in &effect_cached_entries {
-        if let Some((texture, width, height)) = entry {
-            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-            effect_views.push(view);
-            effect_dims.push((*width as f32, *height as f32));
-            textures.push(Arc::clone(texture));
-        }
+    for (texture, width, height) in effect_cached_entries.iter().flatten() {
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        effect_views.push(view);
+        effect_dims.push((*width as f32, *height as f32));
+        textures.push(Arc::clone(texture));
     }
     let conversion_time_us = conversion_started
         .elapsed()

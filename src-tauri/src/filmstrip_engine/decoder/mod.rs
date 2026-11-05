@@ -40,7 +40,7 @@ pub use crate::engine::types::{AlphaMode, PixelFormat};
 /// - Opaque pixels (A = 255) leave RGB unchanged.
 /// - Semitransparent pixels are scaled via rounded integer arithmetic: (C * A + 127) / 255.
 pub fn convert_straight_to_premultiplied(rgba: &mut [u8]) {
-    for pixel in rgba.chunks_exact_mut(4) {
+    for pixel in rgba.as_chunks_mut::<4>().0 {
         let a = pixel[3] as u32;
         if a == 255 {
             continue;
