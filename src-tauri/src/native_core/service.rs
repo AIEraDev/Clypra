@@ -570,6 +570,7 @@ mod tests {
                 }],
                 raster_layers: vec![],
                 text_layers: vec![],
+                effect_layers: vec![],
             },
             output_width: 2,
             output_height: 2,

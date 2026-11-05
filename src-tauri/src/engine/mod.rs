@@ -117,6 +117,6 @@ pub use timeline::{
     TimeMapping, TimelineEvaluator, Track, TrackId, TrackKind,
 };
 pub use types::{
-    BlendMode, CanvasSpec, ChromaSubsampling, CodecProfile, CodecType, ColorSpace, LayerTransform,
+    AlphaMode, BlendMode, CanvasSpec, ChromaSubsampling, CodecProfile, CodecType, ColorSpace, LayerTransform,
     LayerVisibility, MediaTime, PixelFormat,
 };

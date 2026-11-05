@@ -269,6 +269,8 @@
   "properties.animation.categories.3d": "3D",
   "properties.animation.categories.glitch": "Глитч",
   "properties.animation.favorites": "Избранное",
+  "properties.mediaAnimation.combo": "Combo",
+  "properties.mediaAnimation.comboComingSoon": "Combo animations coming soon",
   "properties.text.presetStyle": "ПРЕДУСТАНОВЛЕННЫЙ СТИЛЬ",
   "properties.text.expandPresets": "Развернуть стили",
   "properties.text.collapsePresets": "Свернуть стили",

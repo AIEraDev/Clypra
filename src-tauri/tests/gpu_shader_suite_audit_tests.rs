@@ -154,6 +154,7 @@ async fn test_audit_identity_3d_lut_pass_through() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         }];
 
         let output = compositor
@@ -194,6 +195,7 @@ async fn test_audit_ultrakey_matte_extraction() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
         CompositeLayer {
             texture_view: &fg_green_view,
@@ -218,6 +220,7 @@ async fn test_audit_ultrakey_matte_extraction() {
             },
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
     ];
 
@@ -249,6 +252,7 @@ async fn test_audit_ultrakey_matte_extraction() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
         CompositeLayer {
             texture_view: &fg_red_view,
@@ -273,6 +277,7 @@ async fn test_audit_ultrakey_matte_extraction() {
             },
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
     ];
 

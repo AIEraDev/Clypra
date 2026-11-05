@@ -200,6 +200,7 @@ mod tests {
                     template_data: None,
                     effect: None,
                 }],
+                effect_layers: Vec::new(),
                 transition: None,
             },
         }

@@ -648,6 +648,7 @@ pub fn run() {
             get_native_push_transport_capabilities,
             render_native_project_frame,
             render_native_video_project_frame,
+            render_frame_native,
             get_video_scopes,
             render_native_frame,
             register_native_font,

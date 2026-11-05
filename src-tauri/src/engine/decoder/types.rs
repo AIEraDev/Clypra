@@ -1,7 +1,7 @@
 use crate::engine::hardware::adapter::AdapterId;
 use crate::engine::surface::SurfaceBackend;
 use crate::engine::types::{
-    ChromaSubsampling, CodecProfile, CodecType, MediaTime, PixelFormat,
+    AlphaMode, ChromaSubsampling, CodecProfile, CodecType, MediaTime, PixelFormat,
 };
 use serde::{Deserialize, Serialize};
 
@@ -44,6 +44,8 @@ pub struct StreamProfile {
     pub height: u32,
     pub fps: f32,
     pub pixel_format: PixelFormat,
+    #[serde(default)]
+    pub alpha_mode: AlphaMode,
 }
 
 impl StreamProfile {
@@ -58,6 +60,7 @@ impl StreamProfile {
             height: 2160,
             fps: 60.0,
             pixel_format: PixelFormat::P010,
+            alpha_mode: AlphaMode::Opaque,
         }
     }
 
@@ -72,6 +75,22 @@ impl StreamProfile {
             height: 1080,
             fps: 60.0,
             pixel_format: PixelFormat::Nv12,
+            alpha_mode: AlphaMode::Opaque,
+        }
+    }
+
+    /// Standard 640x360 30fps ProRes 4444 stream with straight alpha.
+    pub fn prores_4444_alpha_30fps() -> Self {
+        Self {
+            codec: CodecType::ProRes,
+            profile: CodecProfile::ProRes4444,
+            bit_depth: 12,
+            chroma: ChromaSubsampling::Yuv444,
+            width: 640,
+            height: 360,
+            fps: 30.0,
+            pixel_format: PixelFormat::Yuva444p12,
+            alpha_mode: AlphaMode::Straight,
         }
     }
 }

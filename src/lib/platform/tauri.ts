@@ -324,6 +324,21 @@ export interface NativeProjectVideoLayer {
   bodyEffect?: import("./nativeCore").NativeBodyEffectSnapshot;
 }
 
+export interface NativeProjectEffectLayer {
+  layerId?: string;
+  assetPath: string;
+  frame: number;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  rotation?: number;
+  opacity?: number;
+  zIndex?: number;
+  blendMode?: string;
+  transform?: import("./nativeCore").NativeTransform2D;
+}
+
 export interface NativeVideoProjectFrameRequest {
   canvasWidth: number;
   canvasHeight: number;
@@ -331,6 +346,7 @@ export interface NativeVideoProjectFrameRequest {
   layers: NativeProjectVideoLayer[];
   rasterLayers?: import("./nativeCore").NativeRasterLayerSnapshot[];
   textLayers?: import("./nativeCore").NativeTextLayerSnapshot[];
+  effectLayers?: NativeProjectEffectLayer[];
   transition?: import("./nativeCore").NativeTransitionSnapshot;
 }
 
@@ -350,10 +366,23 @@ export async function renderNativeVideoProjectFrame(
       ...layer,
       videoPath: toNativePath(layer.videoPath),
     })),
+    effectLayers: request.effectLayers?.map((layer) => ({
+      ...layer,
+      assetPath: toNativePath(layer.assetPath),
+    })),
   };
   return invoke<ArrayBuffer>("render_native_video_project_frame", {
     request: nativeRequest,
   });
+}
+
+/**
+ * Alias for renderNativeVideoProjectFrame matching the effect runtime interface.
+ */
+export async function renderFrameNative(
+  request: NativeVideoProjectFrameRequest,
+): Promise<ArrayBuffer> {
+  return renderNativeVideoProjectFrame(request);
 }
 
 /**
@@ -374,6 +403,10 @@ export async function renderNativeFrame(
       videoLayers: request.project.videoLayers.map((layer) => ({
         ...layer,
         videoPath: toNativePath(layer.videoPath),
+      })),
+      effectLayers: request.project.effectLayers?.map((layer) => ({
+        ...layer,
+        assetPath: toNativePath(layer.assetPath),
       })),
     },
   };
@@ -469,6 +502,14 @@ export async function submitNativePlaybackPushFrame(
         ...layer,
         videoPath: toNativePath(layer.videoPath),
       })),
+      ...(request.project.effectLayers
+        ? {
+            effectLayers: request.project.effectLayers.map((layer) => ({
+              ...layer,
+              assetPath: toNativePath(layer.assetPath),
+            })),
+          }
+        : {}),
     },
   };
   await invoke("submit_native_playback_push_frame", { request: nativeRequest });
@@ -573,6 +614,14 @@ export async function presentNativeFrame(
         ...layer,
         videoPath: toNativePath(layer.videoPath),
       })),
+      ...(request.project.effectLayers
+        ? {
+            effectLayers: request.project.effectLayers.map((layer) => ({
+              ...layer,
+              assetPath: toNativePath(layer.assetPath),
+            })),
+          }
+        : {}),
     },
   };
   return invoke<NativeSurfacePresentation>("present_native_frame", {
@@ -597,6 +646,14 @@ export async function configureNativePlaybackRender(
         ...layer,
         videoPath: toNativePath(layer.videoPath),
       })),
+      ...(request.project.effectLayers
+        ? {
+            effectLayers: request.project.effectLayers.map((layer) => ({
+              ...layer,
+              assetPath: toNativePath(layer.assetPath),
+            })),
+          }
+        : {}),
     },
   };
   const t0 = performance.now();
@@ -635,6 +692,14 @@ export async function updateNativePlaybackRender(
         ...layer,
         videoPath: toNativePath(layer.videoPath),
       })),
+      ...(request.project.effectLayers
+        ? {
+            effectLayers: request.project.effectLayers.map((layer) => ({
+              ...layer,
+              assetPath: toNativePath(layer.assetPath),
+            })),
+          }
+        : {}),
     },
   };
   await invoke("update_native_playback_render", { snapshot: nativeRequest });
@@ -764,6 +829,14 @@ export async function queueNativeFrame(
         ...layer,
         videoPath: toNativePath(layer.videoPath),
       })),
+      ...(request.project.effectLayers
+        ? {
+            effectLayers: request.project.effectLayers.map((layer) => ({
+              ...layer,
+              assetPath: toNativePath(layer.assetPath),
+            })),
+          }
+        : {}),
     },
   };
   await invoke("queue_native_frame", { request: nativeRequest });

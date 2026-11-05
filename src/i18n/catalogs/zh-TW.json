@@ -265,6 +265,8 @@
   "properties.animation.categories.3d": "3D",
   "properties.animation.categories.glitch": "故障",
   "properties.animation.favorites": "收藏",
+  "properties.mediaAnimation.combo": "Combo",
+  "properties.mediaAnimation.comboComingSoon": "Combo animations coming soon",
   "properties.text.presetStyle": "預設樣式",
   "properties.text.expandPresets": "展開預設樣式",
   "properties.text.collapsePresets": "摺疊預設樣式",

@@ -518,6 +518,95 @@ pub struct RasterLayerSnapshot {
     pub is_mask: bool,
     #[serde(default)]
     pub is_text: bool,
+    #[serde(default)]
+    pub is_premultiplied: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Transform2D {
+    #[serde(default)]
+    pub tx: f32,
+    #[serde(default)]
+    pub ty: f32,
+    #[serde(default = "default_scale")]
+    pub sx: f32,
+    #[serde(default = "default_scale")]
+    pub sy: f32,
+    #[serde(default)]
+    pub rotation: f32,
+}
+
+pub fn default_scale() -> f32 {
+    1.0
+}
+
+impl Default for Transform2D {
+    fn default() -> Self {
+        Self {
+            tx: 0.0,
+            ty: 0.0,
+            sx: 1.0,
+            sy: 1.0,
+            rotation: 0.0,
+        }
+    }
+}
+
+impl Transform2D {
+    pub fn identity() -> Self {
+        Self::default()
+    }
+}
+
+/// Secondary media/animation effect layer snapshot (e.g. alpha-channel ProRes/WebM clips).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectLayerSnapshot {
+    #[serde(default)]
+    pub layer_id: Option<String>,
+    pub asset_path: String,
+    pub frame: i64,
+    #[serde(default)]
+    pub x: f32,
+    #[serde(default)]
+    pub y: f32,
+    #[serde(default)]
+    pub width: Option<f32>,
+    #[serde(default)]
+    pub height: Option<f32>,
+    #[serde(default)]
+    pub rotation: f32,
+    #[serde(default = "default_opacity")]
+    pub opacity: f32,
+    #[serde(default)]
+    pub z_index: i32,
+    #[serde(default = "default_blend_mode")]
+    pub blend_mode: String,
+    #[serde(default)]
+    pub transform: Option<Transform2D>,
+}
+
+impl EffectLayerSnapshot {
+    pub fn effective_x(&self) -> f32 {
+        self.transform.as_ref().map(|t| t.tx).unwrap_or(self.x)
+    }
+
+    pub fn effective_y(&self) -> f32 {
+        self.transform.as_ref().map(|t| t.ty).unwrap_or(self.y)
+    }
+
+    pub fn effective_scale_x(&self) -> f32 {
+        self.transform.as_ref().map(|t| t.sx).unwrap_or(1.0)
+    }
+
+    pub fn effective_scale_y(&self) -> f32 {
+        self.transform.as_ref().map(|t| t.sy).unwrap_or(1.0)
+    }
+
+    pub fn effective_rotation(&self) -> f32 {
+        self.transform.as_ref().map(|t| t.rotation).unwrap_or(self.rotation)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -773,6 +862,8 @@ pub struct ProjectSnapshot {
     pub raster_layers: Vec<RasterLayerSnapshot>,
     #[serde(default)]
     pub text_layers: Vec<TextLayerSnapshot>,
+    #[serde(default)]
+    pub effect_layers: Vec<EffectLayerSnapshot>,
     #[serde(default)]
     pub transition: Option<TransitionSnapshot>,
 }
@@ -1534,6 +1625,46 @@ impl FrameRequest {
                 }
             }
         }
+        if self.project.effect_layers.len() > 64 {
+            return Err(NativeCoreError::InvalidContract(
+                "ProjectSnapshot supports at most 64 effect layers".to_string(),
+            ));
+        }
+        for layer in &self.project.effect_layers {
+            if layer.asset_path.trim().is_empty()
+                || layer.frame < 0
+                || !layer.x.is_finite()
+                || !layer.y.is_finite()
+                || !layer.rotation.is_finite()
+                || !layer.opacity.is_finite()
+                || layer.opacity < 0.0
+                || layer.opacity > 1.0
+                || layer
+                    .width
+                    .map(|w| !w.is_finite() || w <= 0.0)
+                    .unwrap_or(false)
+                || layer
+                    .height
+                    .map(|h| !h.is_finite() || h <= 0.0)
+                    .unwrap_or(false)
+                || layer
+                    .transform
+                    .map(|t| {
+                        !t.tx.is_finite()
+                            || !t.ty.is_finite()
+                            || !t.sx.is_finite()
+                            || !t.sy.is_finite()
+                            || !t.rotation.is_finite()
+                            || t.sx <= 0.0
+                            || t.sy <= 0.0
+                    })
+                    .unwrap_or(false)
+            {
+                return Err(NativeCoreError::InvalidContract(
+                    "ProjectSnapshot contains an invalid effect layer".to_string(),
+                ));
+            }
+        }
         if let Some(transition) = self.project.transition.as_ref() {
             let layer_ids: Vec<&str> = if self.project.video_layers.len() == 2
                 && self.project.raster_layers.is_empty()
@@ -1670,11 +1801,12 @@ impl FrameRequest {
             layer.body_effect = None;
         }
 
-        // Overlay layers (raster_layers and text_layers) are dynamically composited on top of
+        // Overlay layers (raster_layers, text_layers, effect_layers) are dynamically composited on top of
         // decoded video frames. They do not affect video decoding, so clear them to ensure
         // lookahead pre-decoded video frames match regardless of text/sticker appearances.
         cache_request.project.raster_layers.clear();
         cache_request.project.text_layers.clear();
+        cache_request.project.effect_layers.clear();
 
         let bytes = serde_json::to_vec(&cache_request).map_err(|error| {
             NativeCoreError::InvalidContract(format!("Unable to serialize FrameRequest: {error}"))
@@ -1804,6 +1936,7 @@ mod tests {
                 }],
                 raster_layers: vec![],
                 text_layers: vec![],
+                effect_layers: vec![],
             },
             output_width: 1920,
             output_height: 1080,
@@ -1911,6 +2044,7 @@ mod tests {
             color_grade: None,
             is_mask: false,
             is_text: true,
+            is_premultiplied: false,
         });
         assert_ne!(first.cache_key().unwrap(), third.cache_key().unwrap());
 
@@ -1954,6 +2088,7 @@ mod tests {
             color_grade: None,
             is_mask: false,
             is_text: false,
+            is_premultiplied: false,
         }];
 
         value
@@ -1995,6 +2130,7 @@ mod tests {
             color_grade: None,
             is_mask: false,
             is_text: false,
+            is_premultiplied: false,
         };
         raster_at_limit.project.raster_layers = vec![raster_layer; 64];
         assert!(raster_at_limit.validate().is_ok());
@@ -2031,6 +2167,7 @@ mod tests {
                 color_grade: None,
                 is_mask: false,
                 is_text: false,
+                is_premultiplied: false,
             },
             RasterLayerSnapshot {
                 layer_id: None,
@@ -2049,6 +2186,7 @@ mod tests {
                 color_grade: None,
                 is_mask: false,
                 is_text: false,
+                is_premultiplied: false,
             },
         ];
         value.project.transition = Some(TransitionSnapshot {

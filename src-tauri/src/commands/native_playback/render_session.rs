@@ -725,6 +725,7 @@ impl NativeRenderSession {
                             color_grade: None,
                             is_mask: update.is_mask,
                             is_text: true,
+                            is_premultiplied: false,
                         });
                     }
                 }

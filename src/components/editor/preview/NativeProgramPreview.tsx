@@ -144,6 +144,7 @@ import {
 import { buildNativePlaybackSnapshotKey } from "@/core/playback/nativePlaybackSnapshot";
 import {
   buildNativeFrameRequest,
+  buildTestEffectLayer,
   getNativePreviewBlockers,
   getNativePreviewReadinessBlockers,
   getNativeFrameRequestKey,
@@ -2764,6 +2765,17 @@ export const NativeProgramPreview: React.FC = () => {
         if (!hasVideo) return;
 
         const baseRenderTarget = getNativeRenderTarget(state, false);
+        const testEffectOverlay =
+          typeof window !== "undefined" &&
+          (window as any).__CLYPRA_ENABLE_TEST_EFFECT_OVERLAY__
+            ? [
+                buildTestEffectLayer(
+                  targetFrame,
+                  frameRate,
+                  (window as any).__CLYPRA_TEST_EFFECT_FIXTURE_PATH__,
+                ),
+              ]
+            : undefined;
         const prefetchRequest = buildNativeFrameRequest(
           scene,
           revision,
@@ -2775,6 +2787,7 @@ export const NativeProgramPreview: React.FC = () => {
           {
             mode: "prefetch",
             generation: visibleRequestGeneration,
+            ...(testEffectOverlay ? { effectLayers: testEffectOverlay } : {}),
           },
         );
 
@@ -3252,6 +3265,17 @@ export const NativeProgramPreview: React.FC = () => {
           ...nativeSmartOverlays,
         ];
         const t0Eval = performance.now();
+        const testEffectOverlay =
+          typeof window !== "undefined" &&
+          (window as any).__CLYPRA_ENABLE_TEST_EFFECT_OVERLAY__
+            ? [
+                buildTestEffectLayer(
+                  frameIndex,
+                  frameRate,
+                  (window as any).__CLYPRA_TEST_EFFECT_FIXTURE_PATH__,
+                ),
+              ]
+            : undefined;
         const nativeRequest = buildNativeFrameRequest(
           scene,
           `${state.project?.id ?? "unknown-project"}:${state.epoch}`,
@@ -3260,7 +3284,10 @@ export const NativeProgramPreview: React.FC = () => {
           effectiveRenderTarget.width,
           effectiveRenderTarget.height,
           nativeRasterLayers,
-          requestIntent,
+          {
+            ...requestIntent,
+            ...(testEffectOverlay ? { effectLayers: testEffectOverlay } : {}),
+          },
         );
         const t1Eval = performance.now();
         if (

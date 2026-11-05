@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use crate::native_core::{
     BodyEffectSnapshot, ColorGradeSnapshot, FrameRequest, FrameTime, QualityTier,
-    TextLayerSnapshot, TransitionSnapshot,
+    TextLayerSnapshot, Transform2D, TransitionSnapshot,
 };
 use crate::wgpu_compositor::BlendMode;
 
@@ -119,6 +119,57 @@ pub struct NativeRasterAssetRegistration {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct NativeProjectEffectLayer {
+    #[serde(default)]
+    pub layer_id: String,
+    pub asset_path: String,
+    pub frame: i64,
+    #[serde(default)]
+    pub x: f32,
+    #[serde(default)]
+    pub y: f32,
+    #[serde(default)]
+    pub width: Option<f32>,
+    #[serde(default)]
+    pub height: Option<f32>,
+    #[serde(default)]
+    pub rotation: f32,
+    #[serde(default = "default_opacity")]
+    pub opacity: f32,
+    #[serde(default)]
+    pub z_index: i32,
+    #[serde(default = "default_blend_mode")]
+    pub blend_mode: String,
+    #[serde(default)]
+    pub transform: Option<Transform2D>,
+}
+
+impl NativeProjectEffectLayer {
+    pub fn effective_x(&self) -> f32 {
+        self.transform.as_ref().map(|t| t.tx).unwrap_or(self.x)
+    }
+
+    pub fn effective_y(&self) -> f32 {
+        self.transform.as_ref().map(|t| t.ty).unwrap_or(self.y)
+    }
+
+    pub fn effective_scale_x(&self) -> f32 {
+        self.transform.as_ref().map(|t| t.sx).unwrap_or(1.0)
+    }
+
+    pub fn effective_scale_y(&self) -> f32 {
+        self.transform.as_ref().map(|t| t.sy).unwrap_or(1.0)
+    }
+
+    pub fn effective_rotation(&self) -> f32 {
+        self.transform.as_ref().map(|t| t.rotation).unwrap_or(self.rotation)
+    }
+}
+
+pub type EffectLayer = NativeProjectEffectLayer;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NativeVideoProjectFrameRequest {
     pub canvas_width: u32,
     pub canvas_height: u32,
@@ -130,6 +181,8 @@ pub struct NativeVideoProjectFrameRequest {
     pub raster_layers: Vec<NativeProjectRasterLayer>,
     #[serde(default)]
     pub text_layers: Vec<TextLayerSnapshot>,
+    #[serde(default)]
+    pub effect_layers: Vec<NativeProjectEffectLayer>,
     #[serde(default)]
     pub transition: Option<TransitionSnapshot>,
     #[serde(default)]
@@ -247,7 +300,7 @@ pub(crate) fn validate_transition(
     Ok(())
 }
 
-pub(crate) fn validate_project_request(request: &NativeProjectFrameRequest) -> Result<(), String> {
+pub fn validate_project_request(request: &NativeProjectFrameRequest) -> Result<(), String> {
     if request.canvas_width == 0 || request.canvas_height == 0 {
         return Err("Project canvas dimensions must be non-zero".to_string());
     }
@@ -279,7 +332,7 @@ pub(crate) fn validate_project_request(request: &NativeProjectFrameRequest) -> R
     Ok(())
 }
 
-pub(crate) fn validate_video_project_request(request: &NativeVideoProjectFrameRequest) -> Result<(), String> {
+pub fn validate_video_project_request(request: &NativeVideoProjectFrameRequest) -> Result<(), String> {
     if request.canvas_width == 0 || request.canvas_height == 0 {
         return Err("Project canvas dimensions must be non-zero".to_string());
     }
@@ -398,6 +451,43 @@ pub(crate) fn validate_video_project_request(request: &NativeVideoProjectFrameRe
     if raster_bytes > 128 * 1024 * 1024 {
         return Err("Native project raster layers exceed the byte limit".to_string());
     }
+    if request.effect_layers.len() > 64 {
+        return Err("Native preview supports at most 64 effect layers per frame".to_string());
+    }
+    for layer in &request.effect_layers {
+        if layer.asset_path.trim().is_empty()
+            || layer.frame < 0
+            || !layer.x.is_finite()
+            || !layer.y.is_finite()
+            || !layer.rotation.is_finite()
+            || !layer.opacity.is_finite()
+            || layer.opacity < 0.0
+            || layer.opacity > 1.0
+            || layer
+                .width
+                .map(|w| !w.is_finite() || w <= 0.0)
+                .unwrap_or(false)
+            || layer
+                .height
+                .map(|h| !h.is_finite() || h <= 0.0)
+                .unwrap_or(false)
+            || layer
+                .transform
+                .map(|t| {
+                    !t.tx.is_finite()
+                        || !t.ty.is_finite()
+                        || !t.sx.is_finite()
+                        || !t.sy.is_finite()
+                        || !t.rotation.is_finite()
+                        || t.sx <= 0.0
+                        || t.sy <= 0.0
+                })
+                .unwrap_or(false)
+        {
+            return Err("Native project effect layer contains invalid data".to_string());
+        }
+        parse_blend_mode(&layer.blend_mode)?;
+    }
     Ok(())
 }
 
@@ -412,7 +502,7 @@ pub(crate) fn frame_time_seconds(time: FrameTime) -> Result<f64, String> {
     Ok(seconds)
 }
 
-pub(crate) fn to_video_project_request(
+pub fn to_video_project_request(
     request: &FrameRequest,
 ) -> Result<NativeVideoProjectFrameRequest, String> {
     request.validate().map_err(|error| error.to_string())?;
@@ -484,6 +574,31 @@ pub(crate) fn to_video_project_request(
             l
         })
         .collect();
+    let effect_layers = request
+        .project
+        .effect_layers
+        .iter()
+        .map(|layer| NativeProjectEffectLayer {
+            layer_id: layer.layer_id.clone().unwrap_or_default(),
+            asset_path: crate::commands::media::normalize_file_path(&layer.asset_path),
+            frame: layer.frame,
+            x: layer.x * scale_x,
+            y: layer.y * scale_y,
+            width: layer.width.map(|w| w * scale_x),
+            height: layer.height.map(|h| h * scale_y),
+            rotation: layer.rotation,
+            opacity: layer.opacity,
+            z_index: layer.z_index,
+            blend_mode: layer.blend_mode.clone(),
+            transform: layer.transform.map(|t| Transform2D {
+                tx: t.tx * scale_x,
+                ty: t.ty * scale_y,
+                sx: t.sx,
+                sy: t.sy,
+                rotation: t.rotation,
+            }),
+        })
+        .collect();
 
     Ok(NativeVideoProjectFrameRequest {
         canvas_width: request.output_width,
@@ -492,6 +607,7 @@ pub(crate) fn to_video_project_request(
         layers,
         raster_layers,
         text_layers,
+        effect_layers,
         transition: request.project.transition.clone(),
         quality: request.quality,
         mode: request.mode.clone(),

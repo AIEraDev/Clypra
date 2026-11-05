@@ -102,6 +102,18 @@ impl Default for CanvasSpec {
     }
 }
 
+/// Alpha interpretation mode for video surfaces, decoded frames, and compositing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum AlphaMode {
+    /// Opaque frame (no alpha channel or alpha is implicitly 255)
+    #[default]
+    Opaque,
+    /// Straight (unassociated) alpha: color components are not premultiplied by alpha
+    Straight,
+    /// Premultiplied (associated) alpha: color components have been multiplied by alpha
+    Premultiplied,
+}
+
 /// Pixel formats supported by the native engine and GPU pipeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PixelFormat {
@@ -115,6 +127,30 @@ pub enum PixelFormat {
     Bgra8UnormSrgb,
     /// 16-bit float RGBA (wide-gamut / HDR compositing)
     Rgba16Float,
+    /// 8-bit canonical RGBA (packed 4-channel pixel buffer)
+    Rgba8,
+    /// 12-bit YUV 4:4:4 planar with 16-bit alpha (ProRes 4444 decoded stream)
+    Yuva444p12,
+    /// 10-bit YUV 4:4:4 planar with alpha (ProRes 4444 stream)
+    Yuva444p10,
+    /// 8-bit YUV 4:2:0 planar with alpha
+    Yuva420p,
+}
+
+impl PixelFormat {
+    /// Returns true if this pixel format carries an alpha plane or alpha channel.
+    pub fn has_alpha(&self) -> bool {
+        matches!(
+            self,
+            PixelFormat::Rgba8UnormSrgb
+                | PixelFormat::Bgra8UnormSrgb
+                | PixelFormat::Rgba16Float
+                | PixelFormat::Rgba8
+                | PixelFormat::Yuva444p12
+                | PixelFormat::Yuva444p10
+                | PixelFormat::Yuva420p
+        )
+    }
 }
 
 /// Color spaces for color management across surfaces and rendering.

@@ -6,6 +6,7 @@ import type {
 import { cullOccludedVisualLayers } from "@/core/evaluation/evaluator";
 import type {
   NativeProjectVideoLayer,
+  NativeProjectEffectLayer,
   NativeVideoProjectFrameRequest,
 } from "@/lib/platform/tauri";
 import { parseColor } from "@/core/evaluation/animation";
@@ -140,6 +141,7 @@ import {
   type NativeFrameRequest,
   type NativeRasterLayerSnapshot,
   type NativeTextLayerSnapshot,
+  type NativeEffectLayerSnapshot,
 } from "@/lib/platform/nativeCore";
 
 const NATIVE_BLEND_MODES = new Set([
@@ -2007,6 +2009,7 @@ function buildBlurBackgroundColorGrade(
 export function buildNativeVideoProjectRequest(
   scene: EvaluatedScene,
   rasterLayers: NativeRasterLayerSnapshot[] = [],
+  effectLayers?: NativeProjectEffectLayer[],
 ): NativeVideoProjectFrameRequest | null {
   const canvasWidth = scene.metadata.canvasWidth || 1920;
   const canvasHeight = scene.metadata.canvasHeight || 1080;
@@ -2252,6 +2255,16 @@ export function buildNativeVideoProjectRequest(
       };
     });
 
+  const resolvedEffectLayers: NativeProjectEffectLayer[] = [
+    ...((scene as any).effectLayers ?? []),
+    ...(effectLayers ?? []),
+  ];
+  for (const layer of activeMediaLayers) {
+    if ((layer as any).effectLayers && Array.isArray((layer as any).effectLayers)) {
+      resolvedEffectLayers.push(...(layer as any).effectLayers);
+    }
+  }
+
   return {
     canvasWidth: scene.metadata.canvasWidth || 1920,
     canvasHeight: scene.metadata.canvasHeight || 1080,
@@ -2259,6 +2272,9 @@ export function buildNativeVideoProjectRequest(
     layers,
     ...(rasterLayers.length > 0 ? { rasterLayers } : {}),
     ...(nativeTextLayers.length > 0 ? { textLayers: nativeTextLayers } : {}),
+    ...(resolvedEffectLayers.length > 0
+      ? { effectLayers: resolvedEffectLayers }
+      : {}),
     ...(transition ? { transition } : {}),
   };
 }
@@ -2510,9 +2526,14 @@ export function buildNativeFrameRequest(
     requestedAtMs?: number;
     isScrubbing?: boolean;
     allowKeyframeApprox?: boolean;
+    effectLayers?: NativeEffectLayerSnapshot[];
   } = {},
 ): NativeFrameRequest | null {
-  const request = buildNativeVideoProjectRequest(scene, rasterLayers);
+  const request = buildNativeVideoProjectRequest(
+    scene,
+    rasterLayers,
+    intent.effectLayers,
+  );
   if (!request) return null;
 
   const hasTransitions = Boolean(
@@ -2651,6 +2672,9 @@ export function buildNativeFrameRequest(
       videoLayers,
       ...(rasterLayers.length > 0 ? { rasterLayers } : {}),
       ...(textLayers.length > 0 ? { textLayers } : {}),
+      ...(request.effectLayers && request.effectLayers.length > 0
+        ? { effectLayers: request.effectLayers }
+        : {}),
       ...(request.transition ? { transition: request.transition } : {}),
     },
     outputWidth,
@@ -2676,3 +2700,29 @@ export function buildNativeFrameRequest(
       : {}),
   });
 }
+
+/**
+ * Test helper for Step 6 proof-of-concept:
+ * Build a test effect layer targeting the synthetic ProRes 4444 fixture.
+ *
+ * @param currentFrame The current timeline frame index
+ * @param frameRate Project frame rate (default 30)
+ * @param assetPath Optional path to fixture (defaults to test-effect-fixture.mov)
+ */
+export function buildTestEffectLayer(
+  currentFrame: number,
+  frameRate = 30,
+  assetPath = "/Users/AIEraDev/Documents/clypra-family/clypra/tests/fixtures/test-effect-fixture.mov",
+): NativeEffectLayerSnapshot {
+  const effectFrame =
+    Math.floor((currentFrame * 30) / Math.max(1, frameRate)) % 60;
+  return {
+    layerId: "test-effect-overlay",
+    assetPath,
+    frame: effectFrame,
+    zIndex: 100,
+    opacity: 1.0,
+    transform: { tx: 0, ty: 0, sx: 1, sy: 1, rotation: 0 },
+  };
+}
+

@@ -291,6 +291,7 @@ mod tests {
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
             chroma_key: ChromaKeyUniforms::default(),
+            is_premultiplied: false,
         };
 
         let (rgba, compose_us, readback_us, map_wait_us) = compositor

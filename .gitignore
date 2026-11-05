@@ -36,6 +36,8 @@ Thumbs.db
 /fixtures/
 !tests/fixtures/roundtrip/
 tests/fixtures/*.mp4
+# Generated test-output images written by Rust effect-compositing tests at runtime
+tests/fixtures/validation_output/
 
 # Windows reserved device name (cannot be deleted)
 /nul

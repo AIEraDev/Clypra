@@ -343,6 +343,7 @@ async fn render_raster_frame(gpu: &GpuContext, request: &FrameRequest) -> Result
                 chroma_key: ChromaKeyUniforms::default(),
                 mask_view: None,
                 body_effect: BodyEffectUniforms::default(),
+                is_premultiplied: layer.is_premultiplied,
             })
         })
         .collect();

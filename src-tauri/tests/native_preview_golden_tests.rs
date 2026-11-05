@@ -175,6 +175,7 @@ async fn native_project_frame_matches_geometry_golden() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
         CompositeLayer {
             texture_view: &foreground_view,
@@ -188,6 +189,7 @@ async fn native_project_frame_matches_geometry_golden() {
             chroma_key: ChromaKeyUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
+            is_premultiplied: false,
         },
     ];
 

@@ -26,6 +26,110 @@ pub use crate::filmstrip_engine::decoder::metadata::*;
 pub use crate::filmstrip_engine::decoder::pixel_ops::*;
 pub use crate::filmstrip_engine::decoder::pool::*;
 pub use crate::filmstrip_engine::decoder::seek_planner::*;
+pub use crate::engine::types::{AlphaMode, PixelFormat};
+
+/// Mathematically exact conversion of straight RGBA8 pixels to premultiplied RGBA8.
+///
+/// In straight alpha, color components are independent of alpha:
+///   R_straight, G_straight, B_straight in [0, 255]
+/// In premultiplied alpha, color components are pre-scaled by alpha:
+///   R_premul = round(R_straight * A / 255.0)
+///
+/// Invariants:
+/// - Transparent pixels (A = 0) yield exactly RGB = (0, 0, 0), eliminating color bleeding.
+/// - Opaque pixels (A = 255) leave RGB unchanged.
+/// - Semitransparent pixels are scaled via rounded integer arithmetic: (C * A + 127) / 255.
+pub fn convert_straight_to_premultiplied(rgba: &mut [u8]) {
+    for pixel in rgba.as_chunks_mut::<4>().0 {
+        let a = pixel[3] as u32;
+        if a == 255 {
+            continue;
+        }
+        if a == 0 {
+            pixel[0] = 0;
+            pixel[1] = 0;
+            pixel[2] = 0;
+            continue;
+        }
+        pixel[0] = ((pixel[0] as u32 * a + 127) / 255) as u8;
+        pixel[1] = ((pixel[1] as u32 * a + 127) / 255) as u8;
+        pixel[2] = ((pixel[2] as u32 * a + 127) / 255) as u8;
+    }
+}
+
+/// Dynamically inspects an FFmpeg pixel format to determine whether it has an alpha plane or channel.
+/// Queries FFmpeg's format descriptor table for the AV_PIX_FMT_FLAG_ALPHA flag.
+pub fn ffmpeg_pixel_format_has_alpha(format: ffmpeg::format::Pixel) -> bool {
+    if let Some(desc) = format.descriptor() {
+        unsafe {
+            ((*desc.as_ptr()).flags & (ffmpeg::ffi::AV_PIX_FMT_FLAG_ALPHA as u64)) != 0
+        }
+    } else {
+        false
+    }
+}
+
+/// Canonical decoded video frame produced by VideoDecoder.
+/// Contains tightly packed 8-bit RGBA pixel data, geometry, presentation timestamp,
+/// time base, pixel format metadata, and explicit alpha mode contract.
+#[derive(Debug, Clone)]
+pub struct DecodedVideoFrame {
+    pub width: u32,
+    pub height: u32,
+    pub pts: i64,
+    pub time_base: (i32, i32),
+    pub pixel_format: PixelFormat,
+    pub alpha_mode: AlphaMode,
+    pub source_pixel_format: String,
+    pub color_metadata: VideoColorMetadata,
+    pub data: Vec<u8>,
+}
+
+impl DecodedVideoFrame {
+    /// Sample a pixel at (x, y) coordinates as [R, G, B, A].
+    #[inline]
+    pub fn get_pixel(&self, x: u32, y: u32) -> [u8; 4] {
+        if x >= self.width || y >= self.height {
+            return [0, 0, 0, 0];
+        }
+        let offset = ((y * self.width + x) * 4) as usize;
+        if offset + 4 <= self.data.len() {
+            [
+                self.data[offset],
+                self.data[offset + 1],
+                self.data[offset + 2],
+                self.data[offset + 3],
+            ]
+        } else {
+            [0, 0, 0, 0]
+        }
+    }
+
+    /// Converts this frame's pixel data in-place to Premultiplied Alpha if it is Straight Alpha.
+    /// If the frame is already Premultiplied or Opaque, this is a safe no-op (prevents double premultiplication).
+    pub fn to_premultiplied(&mut self) {
+        if self.alpha_mode == AlphaMode::Straight {
+            convert_straight_to_premultiplied(&mut self.data);
+            self.alpha_mode = AlphaMode::Premultiplied;
+        }
+    }
+
+    /// Consumes the frame and returns it in Premultiplied Alpha mode.
+    pub fn into_premultiplied(mut self) -> Self {
+        self.to_premultiplied();
+        self
+    }
+
+    #[inline]
+    pub fn is_premultiplied(&self) -> bool {
+        self.alpha_mode == AlphaMode::Premultiplied
+    }
+
+    #[inline]
+    pub fn has_alpha(&self) -> bool {
+        self.alpha_mode != AlphaMode::Opaque
+    }
+}
 
 
 /// Port of FFmpeg's av_display_rotation_get from libavutil/display.h.
@@ -102,7 +206,7 @@ impl DecoderState {
     }
 
     fn can_decode_forward(&self, target_pts: i64, sequential_window: i64) -> bool {
-        if target_pts < self.current_pts {
+        if target_pts <= self.current_pts {
             return false;
         }
 
@@ -1294,13 +1398,36 @@ impl VideoDecoder {
         Ok(rgba)
     }
 
+    /// Returns true if this video decoder's stream has an alpha channel.
+    pub fn has_alpha(&self) -> bool {
+        ffmpeg_pixel_format_has_alpha(self.decoder.format())
+    }
+
+    /// Seek and decode a single frame at native display resolution as a canonical `DecodedVideoFrame`.
+    pub fn decode_video_frame(&mut self, timestamp_secs: f64) -> Result<DecodedVideoFrame, String> {
+        let (display_w, display_h) = self.display_dimensions();
+        self.decode_video_frame_scaled(timestamp_secs, display_w, display_h)
+    }
+
     /// Seek and decode a single frame. Optimized for sequential timeline scrubbing.
+    /// Preserves complete backward compatibility for callers expecting a raw RGBA Vec<u8>.
     pub fn decode_frame(
         &mut self,
         timestamp_secs: f64,
         out_width: u32,
         out_height: u32,
     ) -> Result<Vec<u8>, String> {
+        self.decode_video_frame_scaled(timestamp_secs, out_width, out_height)
+            .map(|frame| frame.data)
+    }
+
+    /// Seek and decode a single frame scaled to target dimensions, returning a canonical `DecodedVideoFrame`.
+    pub fn decode_video_frame_scaled(
+        &mut self,
+        timestamp_secs: f64,
+        out_width: u32,
+        out_height: u32,
+    ) -> Result<DecodedVideoFrame, String> {
         let _start = std::time::Instant::now();
 
         // Clamp to video bounds
@@ -1319,8 +1446,8 @@ impl VideoDecoder {
         let needs_seek = if self.state.current_pts < 0 {
             // First frame - always seek
             true
-        } else if target_pts < self.state.current_pts {
-            // Backward request - must seek
+        } else if target_pts <= self.state.current_pts {
+            // Backward or identical request - must seek
             true
         } else if self.state.can_decode_forward(target_pts, sequential_window) {
             // Forward within window - decode without seeking
@@ -1454,8 +1581,22 @@ impl VideoDecoder {
             return Err(format!("No frame found at {}s", ts));
         }
 
+        let actual_pts = best_frame.pts().unwrap_or(target_pts);
+
         // Handle hardware frames (copy back from GPU to CPU if needed)
         let cpu_frame = self.to_cpu_frame(best_frame)?;
+
+        // Dynamic inspection of decoded pixel format
+        let source_format = cpu_frame.format();
+        let source_format_str = source_format.descriptor()
+            .map(|d| d.name().to_string())
+            .unwrap_or_else(|| format!("{:?}", source_format));
+        let has_alpha = ffmpeg_pixel_format_has_alpha(source_format);
+        let alpha_mode = if has_alpha {
+            AlphaMode::Straight
+        } else {
+            AlphaMode::Opaque
+        };
 
         // Explicit display geometry calculation (prevents accidental SAR handling)
         let (display_w, display_h) = self.display_dimensions();
@@ -1481,7 +1622,7 @@ impl VideoDecoder {
             (fit_w, fit_h)
         };
 
-        // Single-pass YUV→RGBA scale with display-aware dimensions
+        // Single-pass YUV→RGBA scale with display-aware dimensions (preserves alpha)
         let scaled_rgba =
             self.scale_to_rgba_explicit(&cpu_frame, scale_target_w, scale_target_h)?;
 
@@ -1506,7 +1647,17 @@ impl VideoDecoder {
             ));
         }
 
-        Ok(rgba)
+        Ok(DecodedVideoFrame {
+            width: fit_w,
+            height: fit_h,
+            pts: actual_pts,
+            time_base: (self.time_base.0, self.time_base.1),
+            pixel_format: PixelFormat::Rgba8,
+            alpha_mode,
+            source_pixel_format: source_format_str,
+            color_metadata: self.stream_metadata.color.clone(),
+            data: rgba,
+        })
     }
 
     /// Validate the native frame before any safe-wrapper code hands it to
@@ -2648,6 +2799,74 @@ impl VideoDecoder {
             flags,
         )
         .map_err(|e| e.to_string())?;
+
+        // Preserve Rec.709/BT.2020 color characteristics and range
+        unsafe {
+            let mut inv_table: *mut libc::c_int = std::ptr::null_mut();
+            let mut table: *mut libc::c_int = std::ptr::null_mut();
+            let mut src_range: libc::c_int = 0;
+            let mut dst_range: libc::c_int = 0;
+            let mut brightness: libc::c_int = 0;
+            let mut contrast: libc::c_int = 0;
+            let mut saturation: libc::c_int = 0;
+
+            let sws_ctx = scaler.as_mut_ptr();
+            let ret = ffmpeg::ffi::sws_getColorspaceDetails(
+                sws_ctx,
+                &mut inv_table,
+                &mut src_range,
+                &mut table,
+                &mut dst_range,
+                &mut brightness,
+                &mut contrast,
+                &mut saturation,
+            );
+            if ret >= 0 {
+                let target_cs = match frame.color_space() {
+                    ffmpeg::color::Space::BT709 => ffmpeg::ffi::SWS_CS_ITU709,
+                    ffmpeg::color::Space::BT2020CL | ffmpeg::color::Space::BT2020NCL => {
+                        ffmpeg::ffi::SWS_CS_BT2020
+                    }
+                    ffmpeg::color::Space::SMPTE170M | ffmpeg::color::Space::BT470BG => {
+                        ffmpeg::ffi::SWS_CS_ITU601
+                    }
+                    _ => {
+                        let matrix = &self.stream_metadata.color.matrix;
+                        if matrix.contains("709") {
+                            ffmpeg::ffi::SWS_CS_ITU709
+                        } else if matrix.contains("2020") {
+                            ffmpeg::ffi::SWS_CS_BT2020
+                        } else {
+                            ffmpeg::ffi::SWS_CS_DEFAULT
+                        }
+                    }
+                };
+                let coeff = ffmpeg::ffi::sws_getCoefficients(target_cs);
+                let input_range = match frame.color_range() {
+                    ffmpeg::color::Range::JPEG => 1,
+                    ffmpeg::color::Range::MPEG => 0,
+                    _ => {
+                        if self.stream_metadata.color.range.to_lowercase().contains("full")
+                            || self.stream_metadata.color.range.to_lowercase().contains("pc")
+                        {
+                            1
+                        } else {
+                            src_range
+                        }
+                    }
+                };
+                ffmpeg::ffi::sws_setColorspaceDetails(
+                    sws_ctx,
+                    coeff,
+                    input_range,
+                    table,
+                    1, // dstRange = full range for RGBA
+                    brightness,
+                    contrast,
+                    saturation,
+                );
+            }
+        }
 
         let mut out = ffmpeg::frame::Video::empty();
         scaler.run(frame, &mut out).map_err(|e| e.to_string())?;

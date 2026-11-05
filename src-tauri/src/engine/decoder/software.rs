@@ -47,6 +47,16 @@ impl VideoDecoderBackend for SoftwareFFmpegBackend {
                     max_fps: 60.0,
                     is_hardware: false,
                 },
+                VideoDecodeCapability {
+                    codec: CodecType::ProRes,
+                    profile: CodecProfile::ProRes4444,
+                    bit_depth: 12,
+                    chroma: ChromaSubsampling::Yuv444,
+                    max_width: 8192,
+                    max_height: 8192,
+                    max_fps: 60.0,
+                    is_hardware: false,
+                },
             ],
         }
     }
@@ -94,7 +104,21 @@ impl DecoderSession for SoftwareSession {
 
     fn receive(&mut self) -> Result<Option<VideoFrame>, DecoderError> {
         let frame_duration = MediaTime::from_secs_f64(1.0 / self.stream.fps as f64);
-        let buffer_size = (self.stream.width * self.stream.height * 3 / 2) as usize;
+        let has_alpha = self.stream.pixel_format.has_alpha()
+            || self.stream.alpha_mode != crate::engine::types::AlphaMode::Opaque;
+        let (buffer_size, stride_y, stride_uv) = if has_alpha {
+            (
+                (self.stream.width * self.stream.height * 4) as usize,
+                (self.stream.width * 4) as usize,
+                0,
+            )
+        } else {
+            (
+                (self.stream.width * self.stream.height * 3 / 2) as usize,
+                self.stream.width as usize,
+                self.stream.width as usize,
+            )
+        };
         let sync = SurfaceSync {
             producer_fence: None,
             consumer_fence: None,
@@ -112,8 +136,8 @@ impl DecoderSession for SoftwareSession {
             sync,
             SurfaceHandle::Cpu {
                 buffer: Arc::new(vec![0u8; buffer_size]),
-                stride_y: self.stream.width as usize,
-                stride_uv: self.stream.width as usize,
+                stride_y,
+                stride_uv,
             },
         );
 

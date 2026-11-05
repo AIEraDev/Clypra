@@ -9,10 +9,9 @@ use crate::native_core::{
     NATIVE_CORE_CONTRACT_VERSION,
 };
 use crate::sync_metrics::SYNC_METRICS;
-#[cfg(target_os = "windows")]
-use crate::filmstrip_engine::decoder::get_preview_decoder_for_stream;
 use crate::filmstrip_engine::decoder::{
-    get_preview_decoder, DecodeFrameOptions, VideoColorMetadata,
+    get_preview_decoder, get_preview_decoder_for_stream, DecodeFrameOptions, DecodedVideoFrame,
+    VideoColorMetadata,
 };
 use crate::wgpu_compositor::multi_track_composer::TransitionUniforms;
 #[cfg(target_os = "windows")]
@@ -222,6 +221,7 @@ struct NativeLayerSpec<'a> {
     body_effect: BodyEffectUniforms,
     lut: Option<Arc<crate::wgpu_compositor::GpuLut3D>>,
     grain_seed: f32,
+    is_premultiplied: bool,
 }
 
 fn body_effect_from_snapshot(snapshot: Option<&BodyEffectSnapshot>) -> BodyEffectUniforms {
@@ -429,6 +429,7 @@ fn build_native_composite_layers<'a>(
                     _pad0: layer.grain_seed,
                     ..ChromaKeyUniforms::default()
                 },
+                is_premultiplied: layer.is_premultiplied,
             })
         })
         .collect()
@@ -492,6 +493,7 @@ fn transition_source_layer<'a>(layer: &CompositeLayer<'a>) -> CompositeLayer<'a>
         chroma_key: layer.chroma_key,
         mask_view: layer.mask_view,
         body_effect: layer.body_effect,
+        is_premultiplied: layer.is_premultiplied,
     }
 }
 
@@ -941,6 +943,7 @@ pub async fn render_native_project_frame(
                 mask_view: None,
                 body_effect: BodyEffectUniforms::default(),
                 chroma_key: ChromaKeyUniforms::default(),
+                is_premultiplied: false,
             })
         })
         .collect();
@@ -1089,7 +1092,10 @@ async fn render_native_video_project_frame_bytes_timed(
     let canvas_height = request.canvas_height as f32;
 
     let mut textures = Vec::with_capacity(
-        request.layers.len() + request.raster_layers.len() + request.text_layers.len(),
+        request.layers.len()
+            + request.raster_layers.len()
+            + request.text_layers.len()
+            + request.effect_layers.len(),
     );
     let mut views = Vec::with_capacity(request.layers.len() + request.raster_layers.len());
     let mut decode_time_us = 0u32;
@@ -1279,22 +1285,55 @@ async fn render_native_video_project_frame_bytes_timed(
         }
     }
 
+    // Check GPU cache residency for effect layers
+    let mut effect_cached_entries: Vec<Option<(Arc<wgpu::Texture>, u32, u32)>> =
+        Vec::with_capacity(request.effect_layers.len());
+    let mut effects_to_decode = Vec::new();
+    for (idx, layer) in request.effect_layers.iter().enumerate() {
+        let texture_key = format!("effect:{}:frame:{}", layer.asset_path, layer.frame);
+        if let Some((texture, width, height)) = session.get_rgba_layer_texture(&texture_key) {
+            effect_cached_entries.push(Some((texture, width, height)));
+        } else {
+            effect_cached_entries.push(None);
+            effects_to_decode.push((idx, layer.clone()));
+        }
+    }
+
     let need_cpu_decode = render_path != FrameRenderPath::ZeroCopyDxgi;
 
-    if need_cpu_decode {
+    let (decoded_frames, decoded_effects) = if need_cpu_decode || !effects_to_decode.is_empty() {
         // Decode before taking the GPU session lock so a slow seek cannot block
         // another already-decoded preview frame from submitting work.
         drop(session);
-        let (decoded_frames, decode_timings) = decode_native_video_layers(&request, None).await?;
-        decode_time_us = decode_timings.decode_time_us;
-        decoder_mutex_wait_us = decode_timings.decoder_mutex_wait_us;
-        decode_telemetry = decode_timings;
+
+        let frames_res = if need_cpu_decode {
+            let (frames, timings) = decode_native_video_layers(&request, None).await?;
+            decode_time_us = timings.decode_time_us;
+            decoder_mutex_wait_us = timings.decoder_mutex_wait_us;
+            decode_telemetry = timings;
+            frames
+        } else {
+            Vec::new()
+        };
+
+        let effects_res = if !effects_to_decode.is_empty() {
+            decode_native_effect_layers_batch(effects_to_decode).await?
+        } else {
+            Vec::new()
+        };
 
         session = state.lock().await;
         // The prior timer was started before awaiting CPU decode, making
         // `conversionUpload` cumulative with decode. Start it at the actual
         // GPU-upload/format-conversion boundary instead.
         conversion_started = Instant::now();
+
+        (frames_res, effects_res)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+
+    if need_cpu_decode {
         for (layer, (planes, width, height, color, source_rotation)) in
             request.layers.iter().zip(decoded_frames.iter())
         {
@@ -1413,6 +1452,26 @@ async fn render_native_video_project_frame_bytes_timed(
         text_dims.push((width as f32, height as f32));
         textures.push(texture);
     }
+    for (idx, layer, decoded) in decoded_effects {
+        let texture_key = format!("effect:{}:frame:{}", layer.asset_path, layer.frame);
+        let texture = session
+            .get_or_upload_rgba_layer_to_texture(
+                &texture_key,
+                decoded.width,
+                decoded.height,
+                Some(&decoded.data),
+            )
+            .map_err(|e| e.to_string())?;
+        effect_cached_entries[idx] = Some((texture, decoded.width, decoded.height));
+    }
+    let mut effect_views = Vec::with_capacity(request.effect_layers.len());
+    let mut effect_dims = Vec::with_capacity(request.effect_layers.len());
+    for (texture, width, height) in effect_cached_entries.iter().flatten() {
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        effect_views.push(view);
+        effect_dims.push((*width as f32, *height as f32));
+        textures.push(Arc::clone(texture));
+    }
     let conversion_time_us = conversion_started
         .elapsed()
         .as_micros()
@@ -1424,7 +1483,10 @@ async fn render_native_video_project_frame_bytes_timed(
         wgpu::TextureFormat::Rgba8UnormSrgb,
     );
     let mut specs = Vec::with_capacity(
-        request.layers.len() + request.raster_layers.len() + request.text_layers.len(),
+        request.layers.len()
+            + request.raster_layers.len()
+            + request.text_layers.len()
+            + request.effect_layers.len(),
     );
     let mask_views: HashMap<&str, &wgpu::TextureView> = request
         .raster_layers
@@ -1455,6 +1517,7 @@ async fn render_native_video_project_frame_bytes_timed(
             body_effect: body_effect_from_snapshot(layer.body_effect.as_ref()),
             lut: resolve_native_lut(layer.color_grade.as_ref(), lut_cache.as_ref())?,
             grain_seed: ((layer.time_secs.max(0.0) * 60.0).floor() * 0.37) as f32,
+            is_premultiplied: false,
         });
     }
     let raster_views = views.iter().skip(request.layers.len());
@@ -1490,6 +1553,7 @@ async fn render_native_video_project_frame_bytes_timed(
             body_effect: BodyEffectUniforms::default(),
             lut: raster_lut.clone(),
             grain_seed: 0.0,
+            is_premultiplied: false,
         });
     }
     for (text_layer, (view, (width, height))) in request
@@ -1518,6 +1582,39 @@ async fn render_native_video_project_frame_bytes_timed(
             body_effect: BodyEffectUniforms::default(),
             lut: None,
             grain_seed: 0.0,
+            is_premultiplied: false,
+        });
+    }
+    for (layer, (view, (width, height))) in request
+        .effect_layers
+        .iter()
+        .zip(effect_views.iter().zip(effect_dims.iter()))
+    {
+        let base_w = layer.width.unwrap_or(*width);
+        let base_h = layer.height.unwrap_or(*height);
+        let display_width = base_w * layer.effective_scale_x();
+        let display_height = base_h * layer.effective_scale_y();
+        let layer_x = layer.effective_x();
+        let layer_y = layer.effective_y();
+        let layer_rotation = layer.effective_rotation();
+
+        specs.push(NativeLayerSpec {
+            view,
+            x: layer_x,
+            y: layer_y,
+            width: display_width,
+            height: display_height,
+            rotation: layer_rotation,
+            opacity: layer.opacity,
+            z_index: layer.z_index,
+            blend_mode: &layer.blend_mode,
+            crop: CropMargins::default(),
+            color_grade: ColorGradeUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
+            lut: None,
+            grain_seed: 0.0,
+            is_premultiplied: true,
         });
     }
     let layers = build_native_composite_layers(&specs, canvas_width, canvas_height)?;
@@ -1601,6 +1698,65 @@ async fn render_native_video_project_frame_bytes_timed(
             decode_telemetry,
         },
     ))
+}
+
+async fn decode_native_effect_layers_batch(
+    layers_with_indices: Vec<(usize, NativeProjectEffectLayer)>,
+) -> Result<Vec<(usize, NativeProjectEffectLayer, DecodedVideoFrame)>, String> {
+    if layers_with_indices.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut tasks = Vec::with_capacity(layers_with_indices.len());
+    for (idx, layer) in layers_with_indices {
+        tasks.push(tauri::async_runtime::spawn(async move {
+            let stream_id = if !layer.layer_id.is_empty() {
+                layer.layer_id.clone()
+            } else {
+                format!("effect:{}", idx)
+            };
+            let decoder = get_preview_decoder_for_stream(&layer.asset_path, &stream_id)
+                .await
+                .map_err(|e| {
+                    format!(
+                        "Failed to acquire decoder for effect layer '{}': {}",
+                        layer.asset_path, e
+                    )
+                })?;
+            let mut guard = decoder.lock().await;
+            let fps = guard.fps().max(1.0);
+            let time_secs = (layer.frame.max(0) as f64) / fps;
+            let mut decoded = guard.decode_video_frame(time_secs).map_err(|e| {
+                format!(
+                    "Failed to decode effect layer '{}' at frame {}: {}",
+                    layer.asset_path, layer.frame, e
+                )
+            })?;
+            decoded.to_premultiplied();
+            Ok::<_, String>((idx, layer, decoded))
+        }));
+    }
+
+    let mut decoded = Vec::with_capacity(tasks.len());
+    for task in tasks {
+        let result = task
+            .await
+            .map_err(|e| format!("Effect layer decode task panicked: {e}"))??;
+        decoded.push(result);
+    }
+
+    Ok(decoded)
+}
+
+async fn decode_native_effect_layers(
+    effect_layers: &[NativeProjectEffectLayer],
+) -> Result<Vec<(NativeProjectEffectLayer, DecodedVideoFrame)>, String> {
+    let indexed = effect_layers.iter().cloned().enumerate().collect();
+    let batch = decode_native_effect_layers_batch(indexed).await?;
+    Ok(batch
+        .into_iter()
+        .map(|(_, layer, frame)| (layer, frame))
+        .collect())
 }
 
 async fn decode_native_video_layers(
@@ -2570,6 +2726,7 @@ pub(crate) async fn present_native_frame_internal(
             )
         }
     };
+    let decoded_effects = decode_native_effect_layers(&legacy_request.effect_layers).await?;
     let queue_residency_us =
         ready_at.map(|ready_at| queue_residency_us(ready_at, presentation_started));
     let scheduler_wait_us = scheduler_lock_wait_us;
@@ -2790,8 +2947,12 @@ pub(crate) async fn present_native_frame_internal(
     let canvas_width = legacy_request.canvas_width as f32;
     let canvas_height = legacy_request.canvas_height as f32;
     let conversion_started = Instant::now();
-    let mut textures: Vec<Arc<wgpu::Texture>> =
-        Vec::with_capacity(legacy_request.layers.len() + legacy_request.raster_layers.len());
+    let mut textures: Vec<Arc<wgpu::Texture>> = Vec::with_capacity(
+        legacy_request.layers.len()
+            + legacy_request.raster_layers.len()
+            + legacy_request.text_layers.len()
+            + legacy_request.effect_layers.len(),
+    );
     let mut views: Vec<wgpu::TextureView> =
         Vec::with_capacity(legacy_request.layers.len() + legacy_request.raster_layers.len());
     let mut used_dxgi_zero_copy = false;
@@ -2963,6 +3124,23 @@ pub(crate) async fn present_native_frame_internal(
         text_dims.push((width as f32, height as f32));
         textures.push(texture);
     }
+    let mut effect_views = Vec::with_capacity(legacy_request.effect_layers.len());
+    let mut effect_dims = Vec::with_capacity(legacy_request.effect_layers.len());
+    for (layer, decoded_frame) in &decoded_effects {
+        let texture_key = format!("effect:{}:frame:{}", layer.asset_path, layer.frame);
+        let texture = session
+            .get_or_upload_rgba_layer_to_texture(
+                &texture_key,
+                decoded_frame.width,
+                decoded_frame.height,
+                Some(&decoded_frame.data),
+            )
+            .map_err(|e| e.to_string())?;
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        effect_views.push(view);
+        effect_dims.push((decoded_frame.width as f32, decoded_frame.height as f32));
+        textures.push(texture);
+    }
 
     let conversion_upload_us = conversion_started.elapsed().as_micros() as u64;
     let transfer_path = classify_surface_transfer_path(
@@ -2994,7 +3172,8 @@ pub(crate) async fn present_native_frame_internal(
     let mut specs = Vec::with_capacity(
         legacy_request.layers.len()
             + legacy_request.raster_layers.len()
-            + legacy_request.text_layers.len(),
+            + legacy_request.text_layers.len()
+            + legacy_request.effect_layers.len(),
     );
     let mask_views: HashMap<&str, &wgpu::TextureView> = legacy_request
         .raster_layers
@@ -3025,6 +3204,7 @@ pub(crate) async fn present_native_frame_internal(
             body_effect: body_effect_from_snapshot(layer.body_effect.as_ref()),
             lut: resolve_native_lut(layer.color_grade.as_ref(), lut_cache.as_ref())?,
             grain_seed: ((layer.time_secs.max(0.0) * 60.0).floor() * 0.37) as f32,
+            is_premultiplied: false,
         });
     }
     let raster_views = views.iter().skip(legacy_request.layers.len());
@@ -3060,6 +3240,7 @@ pub(crate) async fn present_native_frame_internal(
             body_effect: BodyEffectUniforms::default(),
             lut: raster_lut.clone(),
             grain_seed: 0.0,
+            is_premultiplied: false,
         });
     }
     for (text_layer, (view, (width, height))) in legacy_request
@@ -3088,6 +3269,39 @@ pub(crate) async fn present_native_frame_internal(
             body_effect: BodyEffectUniforms::default(),
             lut: None,
             grain_seed: 0.0,
+            is_premultiplied: false,
+        });
+    }
+    for (layer, (view, (width, height))) in legacy_request
+        .effect_layers
+        .iter()
+        .zip(effect_views.iter().zip(effect_dims.iter()))
+    {
+        let base_w = layer.width.unwrap_or(*width);
+        let base_h = layer.height.unwrap_or(*height);
+        let display_width = base_w * layer.effective_scale_x();
+        let display_height = base_h * layer.effective_scale_y();
+        let layer_x = layer.effective_x();
+        let layer_y = layer.effective_y();
+        let layer_rotation = layer.effective_rotation();
+
+        specs.push(NativeLayerSpec {
+            view,
+            x: layer_x,
+            y: layer_y,
+            width: display_width,
+            height: display_height,
+            rotation: layer_rotation,
+            opacity: layer.opacity,
+            z_index: layer.z_index,
+            blend_mode: &layer.blend_mode,
+            crop: CropMargins::default(),
+            color_grade: ColorGradeUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
+            lut: None,
+            grain_seed: 0.0,
+            is_premultiplied: true,
         });
     }
     let layers = build_native_composite_layers(&specs, canvas_width, canvas_height)?;
@@ -3315,6 +3529,15 @@ pub async fn render_native_video_project_frame(
     Ok(tauri::ipc::Response::new(
         render_native_video_project_frame_bytes(app, request).await?,
     ))
+}
+
+/// Native preview command alias for compatibility with effect runtime / animation pipelines.
+#[tauri::command]
+pub async fn render_frame_native(
+    app: tauri::AppHandle,
+    request: NativeVideoProjectFrameRequest,
+) -> Result<tauri::ipc::Response, String> {
+    render_native_video_project_frame(app, request).await
 }
 
 /// Versioned native frame-service boundary.

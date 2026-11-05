@@ -3,6 +3,7 @@ import type { EvaluatedMediaLayer, EvaluatedScene } from "@/core/evaluation/type
 import {
   buildNativeFrameRequest,
   buildNativeVideoProjectRequest,
+  buildTestEffectLayer,
   getNativePreviewBlockers,
   getNativePreviewReadinessBlockers,
   getNativeFrameRequestKey,
@@ -552,6 +553,11 @@ describe("buildNativeVideoProjectRequest", () => {
       hueRotate: (30 * Math.PI) / 180,
       vignette: 0.4,
       invert: 1,
+      highlights: 0,
+      shadows: 0,
+      whites: 0,
+      blacks: 0,
+      fade: 0,
       grainIntensity: 0,
       grainSize: 1,
       lutIntensity: 1,
@@ -1332,6 +1338,114 @@ describe("buildNativeFrameRequest", () => {
     const frameRequest = buildNativeFrameRequest(scene, "project-1:7", 0, 30, 1920, 1080);
     expect(frameRequest).not.toBeNull();
     expect((frameRequest!.project.videoLayers[0] as any).crop).toEqual(crop);
+  });
+
+  describe("Phase 1 Step 6: Native Effect Layers Integration", () => {
+    it("buildNativeVideoProjectRequest carries explicit effectLayers into request", () => {
+      const scene = makeScene([makeVideoLayer()]);
+      const effect = buildTestEffectLayer(15, 30);
+      const projectRequest = buildNativeVideoProjectRequest(scene, [], [effect]);
+
+      expect(projectRequest).not.toBeNull();
+      expect(projectRequest!.effectLayers).toBeDefined();
+      expect(projectRequest!.effectLayers).toHaveLength(1);
+      expect(projectRequest!.effectLayers![0].assetPath).toBe(effect.assetPath);
+      expect(projectRequest!.effectLayers![0].frame).toBe(15);
+      expect(projectRequest!.effectLayers![0].zIndex).toBe(100);
+      expect(projectRequest!.effectLayers![0].opacity).toBe(1.0);
+    });
+
+    it("buildNativeVideoProjectRequest collects internal effectLayers from evaluated media layers", () => {
+      const effect = buildTestEffectLayer(30, 30);
+      const mediaLayer = {
+        ...makeVideoLayer(),
+        effectLayers: [effect],
+      } as any;
+      const scene = makeScene([mediaLayer]);
+      const projectRequest = buildNativeVideoProjectRequest(scene);
+
+      expect(projectRequest).not.toBeNull();
+      expect(projectRequest!.effectLayers).toBeDefined();
+      expect(projectRequest!.effectLayers).toHaveLength(1);
+      expect(projectRequest!.effectLayers![0].frame).toBe(30);
+    });
+
+    it("buildNativeFrameRequest threads effectLayers through project snapshot", () => {
+      const scene = makeScene([makeVideoLayer()]);
+      const effect = buildTestEffectLayer(45, 30);
+      const frameRequest = buildNativeFrameRequest(
+        scene,
+        "project-1:7",
+        45,
+        30,
+        1920,
+        1080,
+        [],
+        {
+          mode: "playback",
+          effectLayers: [effect],
+        },
+      );
+
+      expect(frameRequest).not.toBeNull();
+      expect(frameRequest!.project.effectLayers).toBeDefined();
+      expect(frameRequest!.project.effectLayers).toHaveLength(1);
+      expect(frameRequest!.project.effectLayers![0].frame).toBe(45);
+      expect(frameRequest!.project.effectLayers![0].zIndex).toBe(100);
+    });
+
+    it("buildTestEffectLayer accurately maps timeline frames to rotating fixture frames (modulo 60)", () => {
+      // 30 fps playback: frames 0, 15, 30, 45, 59 map 1:1
+      expect(buildTestEffectLayer(0, 30).frame).toBe(0);
+      expect(buildTestEffectLayer(15, 30).frame).toBe(15);
+      expect(buildTestEffectLayer(30, 30).frame).toBe(30);
+      expect(buildTestEffectLayer(45, 30).frame).toBe(45);
+      expect(buildTestEffectLayer(59, 30).frame).toBe(59);
+
+      // Loop point: frame 60 wraps around to 0
+      expect(buildTestEffectLayer(60, 30).frame).toBe(0);
+      expect(buildTestEffectLayer(75, 30).frame).toBe(15);
+      expect(buildTestEffectLayer(120, 30).frame).toBe(0);
+
+      // 60 fps project: 60 frames = 1 second = 30 fixture frames
+      expect(buildTestEffectLayer(60, 60).frame).toBe(30);
+      expect(buildTestEffectLayer(120, 60).frame).toBe(0);
+    });
+
+    it("getNativeFrameRequestKey differentiates frames with distinct effect layers", () => {
+      const scene = makeScene([makeVideoLayer()]);
+      const req1 = buildNativeFrameRequest(
+        scene,
+        "rev-1",
+        0,
+        30,
+        1920,
+        1080,
+        [],
+        {
+          effectLayers: [buildTestEffectLayer(0, 30)],
+        },
+      )!;
+      const req2 = buildNativeFrameRequest(
+        scene,
+        "rev-1",
+        15,
+        30,
+        1920,
+        1080,
+        [],
+        {
+          effectLayers: [buildTestEffectLayer(15, 30)],
+        },
+      )!;
+
+      const key1 = getNativeFrameRequestKey(req1);
+      const key2 = getNativeFrameRequestKey(req2);
+
+      expect(key1).not.toBe(key2);
+      expect(key1).toContain('"frame":0');
+      expect(key2).toContain('"frame":15');
+    });
   });
 });
 

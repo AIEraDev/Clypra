@@ -361,6 +361,7 @@ async fn test_regression_multi_track_layer_pooling() {
                 chroma_key: Default::default(),
                 mask_view: None,
                 body_effect: BodyEffectUniforms::default(),
+                is_premultiplied: false,
             },
             CompositeLayer {
                 texture_view: &view2,
@@ -386,6 +387,7 @@ async fn test_regression_multi_track_layer_pooling() {
                 chroma_key: Default::default(),
                 mask_view: None,
                 body_effect: BodyEffectUniforms::default(),
+                is_premultiplied: false,
             },
             CompositeLayer {
                 texture_view: &view3,
@@ -399,6 +401,7 @@ async fn test_regression_multi_track_layer_pooling() {
                 chroma_key: Default::default(),
                 mask_view: None,
                 body_effect: BodyEffectUniforms::default(),
+                is_premultiplied: false,
             },
         ];
 
