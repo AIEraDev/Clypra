@@ -518,6 +518,8 @@ pub struct RasterLayerSnapshot {
     pub is_mask: bool,
     #[serde(default)]
     pub is_text: bool,
+    #[serde(default)]
+    pub is_premultiplied: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

@@ -102,6 +102,11 @@ fn layer_transform(
         scale_x: width / canvas_width,
         scale_y: height / canvas_height,
         rotation_rad: rotation.to_radians(),
+        canvas_aspect_ratio: if canvas_height > 0.0 {
+            canvas_width / canvas_height
+        } else {
+            1.0
+        },
     }
 }
 
@@ -337,6 +342,7 @@ async fn render_raster_frame(
                 chroma_key: ChromaKeyUniforms::default(),
                 mask_view: None,
                 body_effect: BodyEffectUniforms::default(),
+                is_premultiplied: layer.is_premultiplied,
             })
         })
         .collect();
@@ -465,6 +471,12 @@ async fn init_gpu() -> Result<GpuContext, String> {
         .await
         .map_err(|e| format!("GPU device request failed: {e}"))?;
 
+    let capabilities =
+        wgpu_compositor::preview_capabilities::PreviewCapabilities::probe(&adapter, &device);
+    let nv12_supported = adapter
+        .features()
+        .contains(wgpu::Features::TEXTURE_FORMAT_NV12);
+
     Ok(GpuContext {
         instance,
         adapter,
@@ -479,8 +491,11 @@ async fn init_gpu() -> Result<GpuContext, String> {
             driver_info: info.driver_info,
             is_software_adapter: info.device_type == wgpu::DeviceType::Cpu,
         },
+        capabilities,
         device,
         queue,
+        nv12_supported,
+        dxgi_adapter_index: None,
     })
 }
 

@@ -5,27 +5,15 @@
  * - Tabs: In / Out / Combo (no Loop)
  * - Fetches from /media-animations catalog (positionX/Y slide presets)
  * - Shows thumbnail images on preset cards when available
+ * - On hover: plays previewUrl video from the start; on blur: pauses and
+ *   reverts to the thumbnail image
  * - Combo tab shows "Coming soon" placeholder when empty
  */
 
-import React, { useState, useCallback, useMemo } from "react";
-import {
-  Sparkles,
-  ArrowUp,
-  ArrowDown,
-  ArrowLeft,
-  ArrowRight,
-  ZoomIn,
-  ZoomOut,
-  Ban,
-  Search,
-  X,
-  Star,
-  ChevronUp,
-  ChevronDown,
-} from "lucide-react";
+import React, { useState, useCallback, useMemo, useRef } from "react";
+import { Ban, Search, X, Star, ChevronUp, ChevronDown } from "lucide-react";
 import type { Clip } from "@/types";
-import type { ClipMotionConfig, MotionSubCategory } from "@/types/motion";
+import type { ClipMotionConfig } from "@/types/motion";
 import { compileClipMotionKeyframes } from "@/core/animation/motionPresets";
 import {
   useMediaAnimationCategory,
@@ -35,6 +23,7 @@ import {
 import { useI18n } from "@/i18n";
 import { SliderTrack } from "@/components/editor/properties/primitives/SliderTrack";
 import { NumericControl } from "@/components/editor/properties/primitives/NumericControl";
+import PresetCard from "./PresetCard";
 
 interface MediaAnimationSectionProps {
   selectedClip: Clip;
@@ -60,17 +49,9 @@ const saveStoredFavorites = (favs: Set<string>) => {
   } catch {}
 };
 
-const ICON_MAP: Record<string, React.FC<{ className?: string }>> = {
-  ArrowUp,
-  ArrowDown,
-  ArrowLeft,
-  ArrowRight,
-  ZoomIn,
-  ZoomOut,
-  Sparkles,
-};
+type CategoryFilter = "all" | "favorites";
 
-type CategoryFilter = "all" | "favorites" | MotionSubCategory;
+// ── MediaAnimationSection ─────────────────────────────────────────────────────
 
 export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
   selectedClip,
@@ -135,12 +116,6 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
     const q = searchQuery.trim().toLowerCase();
     return currentCatalog.filter((preset) => {
       if (activeCategory === "favorites" && !favorites.has(preset.id))
-        return false;
-      if (
-        activeCategory !== "all" &&
-        activeCategory !== "favorites" &&
-        preset.subCategory !== activeCategory
-      )
         return false;
       if (q) {
         const matchesName = preset.name.toLowerCase().includes(q);
@@ -262,42 +237,6 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
         )}
       </div>
 
-      {/* ── Category Pills ── */}
-      <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
-        <button
-          type="button"
-          onClick={() =>
-            setActiveCategory(
-              activeCategory === "favorites" ? "all" : "favorites",
-            )
-          }
-          title={t("properties.animation.favorites")}
-          className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
-            activeCategory === "favorites"
-              ? "bg-amber-400/20 text-amber-400 border border-amber-400/50"
-              : "bg-[#242428] text-text-muted hover:text-text-primary hover:bg-[#2E2E34]"
-          }`}
-        >
-          <Star
-            className={`w-3 h-3 ${activeCategory === "favorites" ? "fill-amber-400 text-amber-400" : ""}`}
-          />
-        </button>
-        {(["all", "Basic", "Motion"] as const).map((cat) => (
-          <button
-            key={cat}
-            type="button"
-            onClick={() => setActiveCategory(cat)}
-            className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium shrink-0 transition-colors cursor-pointer ${
-              activeCategory === cat
-                ? "bg-[#3A3A40] text-white font-semibold"
-                : "bg-[#242428] text-text-muted hover:text-text-primary hover:bg-[#2E2E34]"
-            }`}
-          >
-            {cat === "all" ? t("properties.animation.categories.all") : cat}
-          </button>
-        ))}
-      </div>
-
       {/* ── Error banner ── */}
       {phaseData.status === "error" && currentCatalog.length === 0 && (
         <div className="rounded-md border border-amber-400/20 bg-amber-400/5 p-2 text-[10px] text-amber-200">
@@ -307,7 +246,7 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
       )}
 
       {/* ── Preset Grid ── */}
-      <div className="grid grid-cols-5 gap-2 max-h-[320px] overflow-y-auto pr-0.5 scrollbar-thin">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(64px,1fr))] gap-2 max-h-80 overflow-y-auto pr-0.5 scrollbar-thin">
         {/* None card */}
         <button
           type="button"
@@ -315,15 +254,18 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
           className="flex flex-col items-center group cursor-pointer text-left"
         >
           <div
-            className={`w-full aspect-square rounded-lg flex flex-col items-center justify-center transition-all relative ${
+            className={`w-full h-16 rounded-md flex flex-col items-center justify-center transition-all relative ${
               !activePresetId || activePresetId === "none"
-                ? "border-2 border-[#00E5FF] shadow-[0_0_8px_rgba(0,229,255,0.35)] bg-[#00E5FF]/10 text-[#00E5FF]"
-                : "bg-[#202024] border border-border/30 text-text-muted hover:border-border hover:bg-[#28282E]"
+                ? "bg-accent/10 text-gray-50"
+                : "bg-accent/10 border border-accent/30 text-text-muted"
             }`}
           >
             <Ban className="w-5 h-5 opacity-80" />
           </div>
-          <span className="text-[10px] font-medium text-text-muted mt-1 truncate max-w-full group-hover:text-text-primary">
+          <span
+            title="None"
+            className="text-[10px] font-medium text-text-muted mt-0.5 truncate max-w-full group-hover:text-text-primary"
+          >
             {t("properties.animation.none")}
           </span>
         </button>
@@ -341,69 +283,24 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
         {phaseData.status === "loading" &&
           Array.from({ length: 9 }).map((_, i) => (
             <div key={i} className="flex flex-col items-center">
-              <div className="w-full aspect-square rounded-lg bg-[#242428] animate-pulse" />
-              <div className="w-3/4 h-2 mt-1 rounded bg-[#242428] animate-pulse" />
+              <div className="w-full h-16 rounded-md bg-accent/10 animate-pulse" />
             </div>
           ))}
 
         {/* Preset cards */}
-        {filteredPresets.map((preset) => {
-          const isSelected = activePresetId === preset.id;
-          const IconComp = ICON_MAP[preset.icon] ?? Sparkles;
-          const thumb = (preset as any).thumbnailUrl as string | undefined;
-
-          return (
-            <button
-              key={preset.id}
-              type="button"
-              onClick={() => handleSelectPreset(preset.id)}
-              className="flex flex-col items-center group cursor-pointer text-left relative"
-            >
-              <div
-                className={`w-full aspect-square rounded-lg flex flex-col items-center justify-center transition-all relative overflow-hidden ${
-                  isSelected
-                    ? "border-2 border-[#00E5FF] shadow-[0_0_8px_rgba(0,229,255,0.35)] bg-[#00E5FF]/10"
-                    : "bg-[#202024] border border-border/30 hover:border-border hover:bg-[#28282E]"
-                }`}
-              >
-                {thumb ? (
-                  <img
-                    src={thumb}
-                    alt={preset.name}
-                    className="w-full h-full object-cover"
-                    draggable={false}
-                  />
-                ) : (
-                  <>
-                    <span className="text-[9px] font-bold text-white/60 tracking-tight">
-                      ABC
-                    </span>
-                    <IconComp
-                      className={`w-4 h-4 mt-0.5 ${isSelected ? "text-[#00E5FF]" : "text-text-muted group-hover:text-text-primary"}`}
-                    />
-                  </>
-                )}
-                {/* Favorite star */}
-                <button
-                  type="button"
-                  onClick={(e) => toggleFavorite(preset.id, e)}
-                  className={`absolute top-0.5 right-0.5 p-0.5 rounded transition-all ${
-                    favorites.has(preset.id)
-                      ? "opacity-100 text-amber-400"
-                      : "opacity-0 group-hover:opacity-60 text-text-muted hover:text-amber-400"
-                  }`}
-                >
-                  <Star
-                    className={`w-2.5 h-2.5 ${favorites.has(preset.id) ? "fill-amber-400" : ""}`}
-                  />
-                </button>
-              </div>
-              <span className="text-[10px] font-medium text-text-muted mt-1 truncate max-w-full group-hover:text-text-primary">
-                {preset.name}
-              </span>
-            </button>
-          );
-        })}
+        {filteredPresets.map((preset) => (
+          <PresetCard
+            key={preset.id}
+            name={preset.name}
+            icon={preset.icon}
+            thumbnailUrl={(preset as any).thumbnailUrl as string | undefined}
+            previewUrl={(preset as any).previewUrl as string | undefined}
+            isSelected={activePresetId === preset.id}
+            isFavorite={favorites.has(preset.id)}
+            onSelect={() => handleSelectPreset(preset.id)}
+            onToggleFavorite={(e) => toggleFavorite(preset.id, e)}
+          />
+        ))}
       </div>
 
       {/* ── Duration slider (In/Out only) ── */}
