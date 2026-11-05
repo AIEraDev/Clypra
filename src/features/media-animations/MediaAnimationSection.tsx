@@ -23,6 +23,7 @@ import {
   getMediaAnimationPreset,
 } from "./mediaAnimationCatalog";
 import { mediaAnimationCacheManager } from "./cache/mediaAnimationCache";
+import type { MediaAnimationPreset } from "./cache/mediaAnimationCache";
 import { useI18n } from "@/i18n";
 import { SliderTrack } from "@/components/editor/properties/primitives/SliderTrack";
 import { NumericControl } from "@/components/editor/properties/primitives/NumericControl";
@@ -72,6 +73,14 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(
     () => new Set(),
   );
+  // Explicit set of preset IDs whose manifests have been fully downloaded
+  // in this session.  Derived from isCached() on the first render and then
+  // updated whenever a download completes so the checkmark is always in sync.
+  const [downloadedIds, setDownloadedIds] = useState<Set<string>>(() => {
+    // Seed from the OS-level cache index that was loaded during initialize().
+    // This covers presets that were downloaded in a previous session.
+    return new Set<string>();
+  });
 
   const catalogSnapshot = useMediaAnimationCatalogSnapshot();
   const phaseData = useMediaAnimationCategory(activeTab);
@@ -91,11 +100,12 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
     async (presetId: string, e: React.MouseEvent) => {
       e.stopPropagation();
       const preset = getMediaAnimationPreset(presetId);
-      const version = (preset as any)?.revisionId as string | undefined;
+      const version = preset?.revisionId;
       if (!version) return;
       setDownloadingIds((prev) => new Set(prev).add(presetId));
       try {
         await downloadManifest(presetId, version);
+        setDownloadedIds((prev) => new Set(prev).add(presetId));
       } catch (err) {
         console.error("[MediaAnimationSection] Download failed:", err);
       } finally {
@@ -316,25 +326,31 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
           ))}
 
         {/* Preset cards */}
-        {filteredPresets.map((preset) => (
-          <PresetCard
-            key={preset.id}
-            name={preset.name}
-            icon={preset.icon}
-            thumbnailUrl={(preset as any).thumbnailUrl as string | undefined}
-            previewUrl={(preset as any).previewUrl as string | undefined}
-            isSelected={activePresetId === preset.id}
-            isFavorite={favorites.has(preset.id)}
-            onSelect={() => handleSelectPreset(preset.id)}
-            onToggleFavorite={(e) => toggleFavorite(preset.id, e)}
-            isDownloaded={mediaAnimationCacheManager.isCached(
+        {filteredPresets.map((preset) => {
+          const mediaPreset = preset as MediaAnimationPreset;
+          const isDownloaded =
+            downloadedIds.has(preset.id) ||
+            mediaAnimationCacheManager.isCached(
               preset.id,
-              (preset as any).revisionId ?? "",
-            )}
-            isDownloading={downloadingIds.has(preset.id)}
-            onDownload={(e) => handleDownload(preset.id, e)}
-          />
-        ))}
+              mediaPreset.revisionId ?? "",
+            );
+          return (
+            <PresetCard
+              key={preset.id}
+              name={preset.name}
+              icon={preset.icon}
+              thumbnailUrl={mediaPreset.thumbnailUrl}
+              previewUrl={mediaPreset.previewUrl}
+              isSelected={activePresetId === preset.id}
+              isFavorite={favorites.has(preset.id)}
+              onSelect={() => handleSelectPreset(preset.id)}
+              onToggleFavorite={(e) => toggleFavorite(preset.id, e)}
+              isDownloaded={isDownloaded}
+              isDownloading={downloadingIds.has(preset.id)}
+              onDownload={(e) => handleDownload(preset.id, e)}
+            />
+          );
+        })}
       </div>
 
       {/* ── Duration slider (In/Out only) ── */}

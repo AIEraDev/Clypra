@@ -12,6 +12,7 @@ import {
   Loader2,
   Check,
 } from "lucide-react";
+import { useI18n } from "@/i18n";
 
 const ICON_MAP: Record<string, React.FC<{ className?: string }>> = {
   ArrowUp,
@@ -51,6 +52,7 @@ const PresetCard: React.FC<PresetCardProps> = ({
   isDownloading,
   onDownload,
 }) => {
+  const { t } = useI18n();
   const [isHovered, setIsHovered] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const IconComp = ICON_MAP[icon] ?? Sparkles;
@@ -173,10 +175,10 @@ const PresetCard: React.FC<PresetCardProps> = ({
           }`}
           aria-label={
             isDownloaded
-              ? "Downloaded"
+              ? t("properties.mediaAnimation.downloaded")
               : isDownloading
-                ? "Downloading"
-                : "Download animation"
+                ? t("properties.mediaAnimation.downloading")
+                : t("properties.mediaAnimation.downloadAnimation")
           }
         >
           {isDownloading ? (

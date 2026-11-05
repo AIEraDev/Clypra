@@ -12,6 +12,7 @@
 
 import { remove, BaseDirectory, exists } from "@tauri-apps/plugin-fs";
 import { globalGPUCache } from "./globalGPUCache";
+import { mediaAnimationCacheManager } from "@/features/media-animations/cache/mediaAnimationCache";
 
 export interface CacheStats {
   appCacheCleared: boolean;
@@ -339,8 +340,5 @@ export const clearAllCaches = (
   options?: Parameters<typeof CacheManager.clearAllCaches>[0],
 ) => CacheManager.clearAllCaches(options);
 export const getCacheInfo = () => CacheManager.getCacheInfo();
-
-import { mediaAnimationCacheManager } from "@/features/media-animations/cache/mediaAnimationCache";
-
 export const clearMediaAnimationCache = () =>
   mediaAnimationCacheManager.clearCache();

@@ -21,6 +21,7 @@ import type {
 import {
   mediaAnimationCacheManager,
   type AnimationManifest,
+  type MediaAnimationPreset,
 } from "./cache/mediaAnimationCache";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -28,7 +29,7 @@ import {
 export type MediaAnimationCategory = "in" | "out" | "combo";
 
 export interface MediaAnimationCategorySnapshot {
-  presets: RemoteTextAnimationPreset[];
+  presets: MediaAnimationPreset[];
   status: "idle" | "loading" | "ready" | "error";
   error?: string;
 }
@@ -46,16 +47,18 @@ const categorySnapshots: Record<
   combo: { ...IDLE },
 };
 
-const downloadedPresets = new Map<string, RemoteTextAnimationPreset>();
+const downloadedPresets = new Map<string, MediaAnimationPreset>();
 const categoryRequests: Partial<Record<MediaAnimationCategory, Promise<void>>> =
   {};
 const listeners = new Set<() => void>();
 
-// In-memory manifest map — populated by downloadManifest()
-const cachedManifests = new Map<string, AnimationManifest>();
-
-// Best-effort initialize the OS-level cache — no top-level await
-mediaAnimationCacheManager.initialize().catch(() => {});
+// Best-effort initialize the OS-level cache — no top-level await.
+// After hydration completes, emit so consumers re-evaluate isCached() for all
+// presets that were downloaded in a previous session.
+mediaAnimationCacheManager
+  .initialize()
+  .then(() => emit())
+  .catch(() => {});
 
 // ─── Derived merged snapshot ─────────────────────────────────────────────────
 
@@ -131,9 +134,7 @@ function iconForDirection(direction: string | undefined): string {
 function normalizeMediaPreset(
   item: unknown,
   category: MediaAnimationCategory,
-):
-  | (RemoteTextAnimationPreset & { thumbnailUrl?: string; previewUrl?: string })
-  | null {
+): MediaAnimationPreset | null {
   if (!item || typeof item !== "object") return null;
   const raw = item as Record<string, unknown>;
 
@@ -216,13 +217,13 @@ export async function fetchMediaAnimationCategory(
       // Response is either an array of animations or { items: [...] }
       const items: unknown[] = Array.isArray(payload)
         ? payload
-        : Array.isArray((payload as any)?.items)
-          ? (payload as any).items
+        : Array.isArray((payload as Record<string, unknown>)?.items)
+          ? (payload as { items: unknown[] }).items
           : [];
 
       const presets = items
         .map((item) => normalizeMediaPreset(item, category))
-        .filter((p): p is RemoteTextAnimationPreset => p !== null);
+        .filter((p): p is MediaAnimationPreset => p !== null);
 
       categorySnapshots[category] = { presets, status: "ready" };
     } catch (error) {
@@ -259,21 +260,26 @@ export function subscribeToMediaAnimationCatalog(
 
 export function getMediaAnimationPreset(
   id: string | undefined,
-): RemoteTextAnimationPreset | undefined {
+): MediaAnimationPreset | undefined {
   if (!id) return undefined;
   const base =
     downloadedPresets.get(id) ??
-    mergedSnapshot.presets.find((p) => p.id === id);
+    (mergedSnapshot.presets.find((p) => p.id === id) as
+      | MediaAnimationPreset
+      | undefined);
   if (!base) return undefined;
 
-  // If we have a cached manifest in memory, merge its tracks
-  const version = (base as any).revisionId as string | undefined;
+  // If we have a cached manifest in memory (either from this session's
+  // download or eagerly loaded from disk on startup), merge its tracks.
+  const version = base.revisionId;
   if (version) {
-    const manifest = cachedManifests.get(`${id}@${version}`);
+    const manifest = mediaAnimationCacheManager.manifests.get(
+      `${id}@${version}`,
+    );
     if (manifest) {
       return {
         ...base,
-        tracks: manifest.tracks as RemoteTextAnimationPreset["tracks"],
+        tracks: manifest.tracks as MediaAnimationPreset["tracks"],
         defaultDuration:
           manifest.durationFrames / (manifest.frameRateNum || 30),
       };
@@ -284,14 +290,14 @@ export function getMediaAnimationPreset(
 
 /**
  * Downloads and caches the full animation manifest for a preset.
- * After downloading, the manifest is stored in the in-memory cachedManifests
+ * After downloading, the manifest is stored in the singleton's `manifests`
  * map so getMediaAnimationPreset() can merge it synchronously.
  */
 export async function downloadManifest(
   slug: string,
   version: string,
 ): Promise<AnimationManifest> {
-  const manifest = await mediaAnimationCacheManager.ensureDownloaded(
+  return mediaAnimationCacheManager.ensureDownloaded(
     slug,
     version,
     async () => {
@@ -308,8 +314,6 @@ export async function downloadManifest(
       return response.json() as Promise<AnimationManifest>;
     },
   );
-  cachedManifests.set(`${slug}@${version}`, manifest);
-  return manifest;
 }
 
 // ─── React hooks ─────────────────────────────────────────────────────────────
@@ -333,7 +337,7 @@ export function useMediaAnimationCategory(
   // reference when the category's data changes, rather than reading the
   // mutable module-level object directly (which can return stale data).
   return snapshot.phases[
-    category === "combo" ? "in" : category
+    category === "combo" ? "loop" : category
   ] as MediaAnimationCategorySnapshot;
 }
 
