@@ -2044,6 +2044,7 @@ mod tests {
             color_grade: None,
             is_mask: false,
             is_text: true,
+            is_premultiplied: false,
         });
         assert_ne!(first.cache_key().unwrap(), third.cache_key().unwrap());
 
@@ -2087,6 +2088,7 @@ mod tests {
             color_grade: None,
             is_mask: false,
             is_text: false,
+            is_premultiplied: false,
         }];
 
         value
@@ -2128,6 +2130,7 @@ mod tests {
             color_grade: None,
             is_mask: false,
             is_text: false,
+            is_premultiplied: false,
         };
         raster_at_limit.project.raster_layers = vec![raster_layer; 64];
         assert!(raster_at_limit.validate().is_ok());
@@ -2164,6 +2167,7 @@ mod tests {
                 color_grade: None,
                 is_mask: false,
                 is_text: false,
+                is_premultiplied: false,
             },
             RasterLayerSnapshot {
                 layer_id: None,
@@ -2182,6 +2186,7 @@ mod tests {
                 color_grade: None,
                 is_mask: false,
                 is_text: false,
+                is_premultiplied: false,
             },
         ];
         value.project.transition = Some(TransitionSnapshot {

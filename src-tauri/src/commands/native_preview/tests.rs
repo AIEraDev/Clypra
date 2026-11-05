@@ -499,6 +499,7 @@ use crate::filmstrip_engine::decoder::VideoColorMetadata;
                     color_grade: None,
                     is_mask: false,
                     is_text: true,
+                    is_premultiplied: false,
                 }],
                 text_layers: vec![],
                 effect_layers: vec![],
