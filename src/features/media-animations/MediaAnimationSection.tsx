@@ -10,7 +10,7 @@
  * - Combo tab shows "Coming soon" placeholder when empty
  */
 
-import React, { useState, useCallback, useMemo, useRef } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { Ban, Search, X, Star, ChevronUp, ChevronDown } from "lucide-react";
 import type { Clip } from "@/types";
 import type { ClipMotionConfig } from "@/types/motion";
@@ -19,7 +19,10 @@ import {
   useMediaAnimationCategory,
   useMediaAnimationCatalogSnapshot,
   type MediaAnimationCategory,
+  downloadManifest,
+  getMediaAnimationPreset,
 } from "./mediaAnimationCatalog";
+import { mediaAnimationCacheManager } from "./cache/mediaAnimationCache";
 import { useI18n } from "@/i18n";
 import { SliderTrack } from "@/components/editor/properties/primitives/SliderTrack";
 import { NumericControl } from "@/components/editor/properties/primitives/NumericControl";
@@ -66,6 +69,9 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
   const [favorites, setFavorites] = useState<Set<string>>(() =>
     getStoredFavorites(),
   );
+  const [downloadingIds, setDownloadingIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const catalogSnapshot = useMediaAnimationCatalogSnapshot();
   const phaseData = useMediaAnimationCategory(activeTab);
@@ -80,6 +86,28 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
       return next;
     });
   }, []);
+
+  const handleDownload = useCallback(
+    async (presetId: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      const preset = getMediaAnimationPreset(presetId);
+      const version = (preset as any)?.revisionId as string | undefined;
+      if (!version) return;
+      setDownloadingIds((prev) => new Set(prev).add(presetId));
+      try {
+        await downloadManifest(presetId, version);
+      } catch (err) {
+        console.error("[MediaAnimationSection] Download failed:", err);
+      } finally {
+        setDownloadingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(presetId);
+          return next;
+        });
+      }
+    },
+    [],
+  );
 
   const motion: ClipMotionConfig = selectedClip.motion ?? {};
   const hasIn = Boolean(motion.inPreset && motion.inPreset !== "none");
@@ -299,6 +327,12 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
             isFavorite={favorites.has(preset.id)}
             onSelect={() => handleSelectPreset(preset.id)}
             onToggleFavorite={(e) => toggleFavorite(preset.id, e)}
+            isDownloaded={mediaAnimationCacheManager.isCached(
+              preset.id,
+              (preset as any).revisionId ?? "",
+            )}
+            isDownloading={downloadingIds.has(preset.id)}
+            onDownload={(e) => handleDownload(preset.id, e)}
           />
         ))}
       </div>

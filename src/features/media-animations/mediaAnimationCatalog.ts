@@ -18,6 +18,10 @@ import type {
   PhaseSnapshot,
   RemoteTextAnimationPreset,
 } from "@/features/text-animations/animationCatalog";
+import {
+  mediaAnimationCacheManager,
+  type AnimationManifest,
+} from "./cache/mediaAnimationCache";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -46,6 +50,12 @@ const downloadedPresets = new Map<string, RemoteTextAnimationPreset>();
 const categoryRequests: Partial<Record<MediaAnimationCategory, Promise<void>>> =
   {};
 const listeners = new Set<() => void>();
+
+// In-memory manifest map — populated by downloadManifest()
+const cachedManifests = new Map<string, AnimationManifest>();
+
+// Best-effort initialize the OS-level cache — no top-level await
+mediaAnimationCacheManager.initialize().catch(() => {});
 
 // ─── Derived merged snapshot ─────────────────────────────────────────────────
 
@@ -136,9 +146,8 @@ function normalizeMediaPreset(
   const name = typeof raw.name === "string" ? raw.name : null;
   if (!slug || !name) return null;
 
-  const tracks = Array.isArray(raw.tracks) ? raw.tracks : [];
-  const durationFrames =
-    typeof raw.durationFrames === "number" ? raw.durationFrames : 30;
+  // tracks and durationFrames are not in summary; they come from the cached manifest
+  const defaultDuration = 0.5;
   const direction =
     typeof raw.direction === "string" ? raw.direction : undefined;
   const thumbnailUrl =
@@ -150,8 +159,6 @@ function normalizeMediaPreset(
   // "combo" maps to "in" as the compiler phase — combo presets are standalone in-place animations
   const phase: MotionBehaviorCategory = category === "out" ? "out" : "in";
 
-  const defaultDuration = durationFrames / 30;
-
   return {
     id: slug,
     name,
@@ -162,7 +169,7 @@ function normalizeMediaPreset(
     description: typeof raw.description === "string" ? raw.description : name,
     defaultDuration,
     icon: iconForDirection(direction),
-    tracks: tracks as RemoteTextAnimationPreset["tracks"],
+    tracks: [], // populated after manifest download
     minDuration: 0.3,
     maxDuration: 3.0,
     previewLoopDuration: defaultDuration,
@@ -193,7 +200,7 @@ export async function fetchMediaAnimationCategory(
     emit();
 
     try {
-      const url = `${getApiBaseUrl()}/media-animations?category=${category}`;
+      const url = `${getApiBaseUrl()}/media-animations?category=${category}&fields=summary`;
       const response = await fetch(url, {
         headers: getApiHeaders(),
         credentials: "include",
@@ -254,9 +261,55 @@ export function getMediaAnimationPreset(
   id: string | undefined,
 ): RemoteTextAnimationPreset | undefined {
   if (!id) return undefined;
-  return (
-    downloadedPresets.get(id) ?? mergedSnapshot.presets.find((p) => p.id === id)
+  const base =
+    downloadedPresets.get(id) ??
+    mergedSnapshot.presets.find((p) => p.id === id);
+  if (!base) return undefined;
+
+  // If we have a cached manifest in memory, merge its tracks
+  const version = (base as any).revisionId as string | undefined;
+  if (version) {
+    const manifest = cachedManifests.get(`${id}@${version}`);
+    if (manifest) {
+      return {
+        ...base,
+        tracks: manifest.tracks as RemoteTextAnimationPreset["tracks"],
+        defaultDuration:
+          manifest.durationFrames / (manifest.frameRateNum || 30),
+      };
+    }
+  }
+  return base;
+}
+
+/**
+ * Downloads and caches the full animation manifest for a preset.
+ * After downloading, the manifest is stored in the in-memory cachedManifests
+ * map so getMediaAnimationPreset() can merge it synchronously.
+ */
+export async function downloadManifest(
+  slug: string,
+  version: string,
+): Promise<AnimationManifest> {
+  const manifest = await mediaAnimationCacheManager.ensureDownloaded(
+    slug,
+    version,
+    async () => {
+      const url = `${getApiBaseUrl()}/media-animations/${encodeURIComponent(slug)}/manifest`;
+      const response = await fetch(url, {
+        headers: getApiHeaders(),
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error(
+          `Manifest fetch failed for "${slug}" (${response.status})`,
+        );
+      }
+      return response.json() as Promise<AnimationManifest>;
+    },
   );
+  cachedManifests.set(`${slug}@${version}`, manifest);
+  return manifest;
 }
 
 // ─── React hooks ─────────────────────────────────────────────────────────────
