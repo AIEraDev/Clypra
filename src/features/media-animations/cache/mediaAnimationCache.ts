@@ -15,6 +15,7 @@ import {
   remove,
 } from "@tauri-apps/plugin-fs";
 import type { RemoteTextAnimationPreset } from "@/features/text-animations/animationCatalog";
+import { MediaAnimationTelemetry } from "../telemetry/mediaAnimationTelemetry";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -93,6 +94,8 @@ class MediaAnimationCacheManager {
   async initialize(): Promise<void> {
     if (this.initialized) return;
 
+    const t0 = performance.now();
+    let errorCount = 0;
     try {
       const dirExists = await exists(CACHE_DIR, {
         baseDir: BaseDirectory.AppCache,
@@ -105,7 +108,7 @@ class MediaAnimationCacheManager {
       }
 
       await this.loadIndex();
-      await this.hydrateManifests();
+      errorCount = await this.hydrateManifests();
       this.initialized = true;
     } catch (error) {
       // Browser / web-preview environment — no Tauri FS available
@@ -114,6 +117,14 @@ class MediaAnimationCacheManager {
         error,
       );
       this.initialized = true;
+    } finally {
+      MediaAnimationTelemetry.recordCacheHydration({
+        durationMs: Math.round(performance.now() - t0),
+        manifestCount: this.manifests.size,
+        indexEntryCount: this.cacheIndex.size,
+        errorCount,
+        fromDiskCount: this.manifests.size,
+      });
     }
 
     this.hydrateListeners.forEach((l) => l());
@@ -170,9 +181,11 @@ class MediaAnimationCacheManager {
    * Eagerly load all manifests referenced by the index into the in-memory
    * `manifests` map.  This ensures that after an app restart, callers can
    * merge tracks immediately without an additional async read.
+   * Returns the number of index entries evicted due to missing or corrupt files.
    */
-  private async hydrateManifests(): Promise<void> {
+  private async hydrateManifests(): Promise<number> {
     const entries = Array.from(this.cacheIndex.values());
+    let errorCount = 0;
     await Promise.all(
       entries.map(async (entry) => {
         const cacheKey = `${entry.slug}@${entry.version}`;
@@ -184,12 +197,15 @@ class MediaAnimationCacheManager {
           } else {
             // File missing or hash mismatch — remove stale index entry
             this.cacheIndex.delete(cacheKey);
+            errorCount++;
           }
         } catch {
           this.cacheIndex.delete(cacheKey);
+          errorCount++;
         }
       }),
     );
+    return errorCount;
   }
 
   private async saveIndex(): Promise<void> {
@@ -272,17 +288,37 @@ class MediaAnimationCacheManager {
 
     if (this.cacheIndex.has(cacheKey)) {
       const entry = this.cacheIndex.get(cacheKey)!;
+      const t0 = performance.now();
       const cached = await this.readAndVerifyManifest(entry);
+      const durationMs = Math.round(performance.now() - t0);
       if (cached) {
         this.manifests.set(cacheKey, cached);
+        MediaAnimationTelemetry.recordManifestDownload({
+          slug,
+          cacheHit: true,
+          durationMs,
+          sizeBytes: entry.sizeBytes,
+          sha256VerifyMs: durationMs,
+          status: "success",
+        });
         return cached;
+      } else {
+        MediaAnimationTelemetry.recordManifestDownload({
+          slug,
+          cacheHit: true,
+          durationMs,
+          sizeBytes: entry.sizeBytes,
+          status: "hash-mismatch",
+        });
+        // Index entry exists but file is missing or corrupt — fall through to re-download
+        this.cacheIndex.delete(cacheKey);
       }
-      // Index entry exists but file is missing or corrupt — fall through to re-download
-      this.cacheIndex.delete(cacheKey);
     }
 
     try {
+      const fetchStart = performance.now();
       const manifest = await fetchFn();
+      const fetchDurationMs = Math.round(performance.now() - fetchStart);
 
       const localPath = `media-animations/manifests/${slug}@${version}.json`;
       const json = JSON.stringify(manifest);
@@ -290,6 +326,7 @@ class MediaAnimationCacheManager {
 
       let contentHash = manifest.contentHash ?? "";
 
+      const writeStart = performance.now();
       try {
         await writeFile(localPath, data, { baseDir: BaseDirectory.AppCache });
         // Compute hash of what was actually written so verification on next
@@ -303,6 +340,7 @@ class MediaAnimationCacheManager {
           fsError,
         );
       }
+      const writeDurationMs = Math.round(performance.now() - writeStart);
 
       const entry: CachedManifestEntry = {
         slug,
@@ -317,8 +355,26 @@ class MediaAnimationCacheManager {
       this.manifests.set(cacheKey, manifest);
       await this.saveIndex();
 
+      MediaAnimationTelemetry.recordManifestDownload({
+        slug,
+        cacheHit: false,
+        durationMs: fetchDurationMs + writeDurationMs,
+        fetchDurationMs,
+        writeDurationMs,
+        sizeBytes: data.byteLength,
+        status: "success",
+      });
+
       return manifest;
     } catch (error) {
+      MediaAnimationTelemetry.recordManifestDownload({
+        slug,
+        cacheHit: false,
+        durationMs: 0,
+        sizeBytes: 0,
+        status: "error",
+        error: String(error),
+      });
       console.error(
         `[MediaAnimationCache] Failed to download manifest for "${slug}@${version}":`,
         error,

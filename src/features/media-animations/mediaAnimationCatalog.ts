@@ -22,6 +22,7 @@ import {
   type AnimationManifest,
   type MediaAnimationPreset,
 } from "./cache/mediaAnimationCache";
+import { MediaAnimationTelemetry } from "./telemetry/mediaAnimationTelemetry";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -102,10 +103,12 @@ function normalizeMediaPreset(
   if (!item || typeof item !== "object") return null;
   const raw = item as Record<string, unknown>;
 
-  console.log(
-    `[mediaAnimationCatalog] raw item (category="${category}"):`,
-    raw,
-  );
+  if (import.meta.env.DEV) {
+    console.log(
+      `[mediaAnimationCatalog] raw item (category="${category}"):`,
+      raw,
+    );
+  }
 
   const slug =
     typeof raw.slug === "string"
@@ -156,13 +159,15 @@ function normalizeMediaPreset(
     previewUrl,
   };
 
-  console.log(`[mediaAnimationCatalog] normalized:`, {
-    id: preset.id,
-    revisionId: preset.revisionId,
-    phase: preset.phase,
-    defaultDuration: preset.defaultDuration,
-    tracksCount: preset.tracks.length,
-  });
+  if (import.meta.env.DEV) {
+    console.log(`[mediaAnimationCatalog] normalized:`, {
+      id: preset.id,
+      revisionId: preset.revisionId,
+      phase: preset.phase,
+      defaultDuration: preset.defaultDuration,
+      tracksCount: preset.tracks.length,
+    });
+  }
 
   return preset;
 }
@@ -192,17 +197,24 @@ export function useMediaAnimationCategory(
 
     const url = `${getApiBaseUrl()}/media-animations?category=${category}&fields=summary`;
 
-    fetch(url, { headers: getApiHeaders(), credentials: "include" })
-      .then((res) => {
+    const t0 = performance.now();
+
+    const run = async () => {
+      try {
+        const res = await fetch(url, {
+          headers: getApiHeaders(),
+          credentials: "include",
+        });
         if (!res.ok) throw new Error(`Fetch failed (${res.status})`);
-        return res.json() as Promise<unknown>;
-      })
-      .then((payload) => {
+        const httpStatus = res.status;
+        const payload = (await res.json()) as unknown;
+
         if (cancelled) return;
+
         const items: unknown[] = Array.isArray(payload)
           ? payload
-          : Array.isArray((payload as any)?.items)
-            ? (payload as any).items
+          : Array.isArray((payload as Record<string, unknown>)?.items)
+            ? ((payload as Record<string, unknown>).items as unknown[])
             : [];
 
         const presets = items
@@ -224,16 +236,38 @@ export function useMediaAnimationCategory(
         // Notify subscribers so useMediaAnimationCatalogSnapshot re-renders.
         notifyCatalogListeners();
 
-        console.log(
-          `[useMediaAnimationCategory] category="${category}" → ${presets.length} presets`,
-        );
+        if (import.meta.env.DEV) {
+          console.log(
+            `[useMediaAnimationCategory] category="${category}" → ${presets.length} presets`,
+          );
+        }
         setSnapshot({ presets, status: "ready" });
-      })
-      .catch((err) => {
+        MediaAnimationTelemetry.recordCatalogFetch({
+          category,
+          durationMs: performance.now() - t0,
+          presetCount: presets.length,
+          status: "success",
+          httpStatus,
+        });
+      } catch (err) {
         if (cancelled) return;
         console.error(`[useMediaAnimationCategory] fetch error:`, err);
-        setSnapshot({ presets: [], status: "error", error: err.message });
-      });
+        setSnapshot({
+          presets: [],
+          status: "error",
+          error: (err as Error).message,
+        });
+        MediaAnimationTelemetry.recordCatalogFetch({
+          category,
+          durationMs: performance.now() - t0,
+          presetCount: 0,
+          status: "error",
+          error: (err as Error).message,
+        });
+      }
+    };
+
+    void run();
 
     return () => {
       cancelled = true;

@@ -42,6 +42,7 @@ import {
 import { workerPerfCollector } from "@/core/monitoring/WorkerPerfCollector";
 import { getTextMetricsSnapshot } from "@/lib/playback/textMetrics";
 import { timelineZoomTelemetry } from "@/lib/timeline/timelineZoomTelemetry";
+import { mediaAnimationRollup } from "@/features/media-animations/telemetry/mediaAnimationRollup";
 import { getOrCreateHashedInstallId } from "./telemetryCollector";
 
 // ── Tauri runtime guard ───────────────────────────────────────────────────────
@@ -99,7 +100,11 @@ export type PerfLogKind =
   | "zero-copy-violation"
   | "preview-quality-benchmark"
   | "preview-benchmark-report"
-  | "diagnostic-run";
+  | "diagnostic-run"
+  | "media-animation-catalog-fetch"
+  | "media-animation-download"
+  | "media-animation-cache-hydration"
+  | "media-animation-rollup";
 
 export interface PerfLogEntry {
   kind: PerfLogKind;
@@ -578,6 +583,17 @@ export class PerfLogService {
       }
     }
 
+    // Flush the final media animation rollup window.
+    if (mediaAnimationRollup.hasRecordedData()) {
+      const animSummary = mediaAnimationRollup.flush();
+      this.queue.push({
+        kind: "media-animation-rollup",
+        sessionId,
+        timestampEpochMs: Date.now(),
+        payload: animSummary,
+      });
+    }
+
     // Flush the final frontend A/V sync window so the partial interval is not lost.
     const finalUiDrift = uiPlayheadDrift.takeAndReset();
     const finalPaintJitter = playheadPaintJitter.takeAndReset();
@@ -831,6 +847,7 @@ export class PerfLogService {
       this.flushWorkerSummary();
       this.flushTextMetricsSummary();
       this.flushTimelineZoomSummary();
+      this.flushAnimationRollupSummary();
     }, SYNC_POLL_INTERVAL_MS);
   }
 
@@ -1066,6 +1083,24 @@ export class PerfLogService {
       sessionId: this.sessionId,
       timestampEpochMs: Date.now(),
       payload: summary,
+    });
+  }
+
+  /**
+   * Drains the media animation rollup collector into a single media-animation-rollup entry.
+   *
+   * Called every flush interval. Skips when no operations have occurred in this window.
+   */
+  private flushAnimationRollupSummary(): void {
+    if (!this.sessionId) return;
+    if (!mediaAnimationRollup.hasRecordedData()) return;
+    const sessionId = this.sessionId;
+    const animSummary = mediaAnimationRollup.flush();
+    this.enqueue({
+      kind: "media-animation-rollup",
+      sessionId,
+      timestampEpochMs: Date.now(),
+      payload: animSummary,
     });
   }
 

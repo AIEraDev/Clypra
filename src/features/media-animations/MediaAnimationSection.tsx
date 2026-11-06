@@ -26,6 +26,8 @@ import {
 import { mediaAnimationCacheManager } from "./cache/mediaAnimationCache";
 import { useI18n } from "@/i18n";
 import CategoryGrid, { type CategoryFilter } from "./CategoryGrid";
+import { MediaAnimationTelemetry } from "./telemetry/mediaAnimationTelemetry";
+import { mediaAnimationRollup } from "./telemetry/mediaAnimationRollup";
 
 interface MediaAnimationSectionProps {
   selectedClip: Clip;
@@ -136,12 +138,31 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
           const m = getMediaAnimationPreset(p.id);
           return m ?? p;
         });
+        const t0Download = performance.now();
         const recompiledKeyframes = compileClipMotionKeyframes(
           selectedClip,
           currentMotion,
           canvasWidth,
           canvasHeight,
           freshCatalog,
+        );
+        const evalDurationMsDownload = Math.round(
+          performance.now() - t0Download,
+        );
+        const downloadTrackCount = Object.keys(recompiledKeyframes).length;
+        const downloadKeyframeCount = Object.values(
+          recompiledKeyframes as Record<string, unknown[]>,
+        ).reduce((sum, kfs) => sum + (Array.isArray(kfs) ? kfs.length : 0), 0);
+        MediaAnimationTelemetry.recordAnimationEval({
+          durationMs: evalDurationMsDownload,
+          clipType: (selectedClip as { type?: string }).type ?? "unknown",
+          presetId: currentMotion.inPreset ?? currentMotion.outPreset,
+          trackCount: downloadTrackCount,
+          keyframeCount: downloadKeyframeCount,
+        });
+        mediaAnimationRollup.recordAnimationEval(
+          evalDurationMsDownload,
+          downloadTrackCount,
         );
         handleUpdateMultiple({
           motion: currentMotion,
@@ -178,6 +199,7 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
         const merged = getMediaAnimationPreset(p.id);
         return merged ?? p;
       });
+      const t0 = performance.now();
       const compiledKeyframes = compileClipMotionKeyframes(
         selectedClip,
         nextMotion,
@@ -185,6 +207,19 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
         canvasHeight,
         mergedCatalog,
       );
+      const evalDurationMs = Math.round(performance.now() - t0);
+      const trackCount = Object.keys(compiledKeyframes).length;
+      const keyframeCount = Object.values(
+        compiledKeyframes as Record<string, unknown[]>,
+      ).reduce((sum, kfs) => sum + (Array.isArray(kfs) ? kfs.length : 0), 0);
+      MediaAnimationTelemetry.recordAnimationEval({
+        durationMs: evalDurationMs,
+        clipType: (selectedClip as { type?: string }).type ?? "unknown",
+        presetId: nextMotion.inPreset ?? nextMotion.outPreset,
+        trackCount,
+        keyframeCount,
+      });
+      mediaAnimationRollup.recordAnimationEval(evalDurationMs, trackCount);
       handleUpdateMultiple({
         motion: nextMotion,
         visualKeyframes: compiledKeyframes,
