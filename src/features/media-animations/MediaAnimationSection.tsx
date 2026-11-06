@@ -7,8 +7,9 @@
  * - Shows thumbnail images on preset cards when available
  * - On hover: plays previewUrl video from the start; on blur: pauses and
  *   reverts to the thumbnail image
- * - Each tab mounts its own CategoryGrid (keyed by tab) so each category's
- *   fetch, state, and render tree are fully isolated
+ * - All three CategoryGrids (in/out/combo) are always mounted; the active
+ *   tab's container uses `contents` display while the others use `hidden`,
+ *   so each category keeps its fetch lifecycle alive across tab switches
  */
 
 import React, { useState, useCallback } from "react";
@@ -50,11 +51,6 @@ const saveStoredFavorites = (favs: Set<string>) => {
   } catch {}
 };
 
-// ── CategoryGrid ──────────────────────────────────────────────────────────────
-// Isolated per-tab grid component. Keyed by `category` in the parent so each
-// tab gets a completely independent React subtree — no shared hook state, no
-// stale snapshot bleed between tabs.
-
 // ── MediaAnimationSection ─────────────────────────────────────────────────────
 
 export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
@@ -65,6 +61,20 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
 }) => {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<MediaAnimationCategory>("in");
+  // Track which tabs have been visited so we only fetch on first visit.
+  const [visitedTabs, setVisitedTabs] = useState<Set<MediaAnimationCategory>>(
+    () => new Set<MediaAnimationCategory>(["in"]),
+  );
+
+  const handleTabChange = useCallback((tab: MediaAnimationCategory) => {
+    setActiveTab(tab);
+    setVisitedTabs((prev) => {
+      if (prev.has(tab)) return prev;
+      const next = new Set(prev);
+      next.add(tab);
+      return next;
+    });
+  }, []);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<CategoryFilter>("all");
   const [favorites, setFavorites] = useState<Set<string>>(() =>
@@ -193,26 +203,28 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
     ],
   );
 
-  const activePresetId =
-    activeTab === "in"
-      ? motion.inPreset
-      : activeTab === "out"
-        ? motion.outPreset
-        : motion.inPreset;
+  // Each grid needs the preset ID for its own category, not the active tab's.
+  const presetIdForCategory = useCallback(
+    (cat: MediaAnimationCategory): string | undefined => {
+      if (cat === "in") return motion.inPreset;
+      if (cat === "out") return motion.outPreset;
+      return motion.inPreset; // combo shares the in-preset slot
+    },
+    [motion.inPreset, motion.outPreset],
+  );
 
   const handleSelectPreset = useCallback(
-    (id: string) => {
+    (cat: MediaAnimationCategory, id: string) => {
       if (id === "none") {
-        if (activeTab === "in" || activeTab === "combo")
-          updateMotion({ inPreset: "none" });
+        if (cat === "in" || cat === "combo") updateMotion({ inPreset: "none" });
         else updateMotion({ outPreset: "none" });
         return;
       }
-      if (activeTab === "in") updateMotion({ inPreset: id });
-      else if (activeTab === "out") updateMotion({ outPreset: id });
+      if (cat === "in") updateMotion({ inPreset: id });
+      else if (cat === "out") updateMotion({ outPreset: id });
       else updateMotion({ inPreset: id });
     },
-    [activeTab, updateMotion],
+    [updateMotion],
   );
 
   return (
@@ -240,7 +252,7 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
               type="button"
               role="tab"
               aria-selected={isActive}
-              onClick={() => setActiveTab(tab)}
+              onClick={() => handleTabChange(tab)}
               className={`flex-1 py-0.5 text-xs rounded-sm transition-all text-center capitalize flex items-center justify-center gap-1 cursor-pointer ${
                 isActive
                   ? "bg-[#38383e] text-white shadow-sm font-semibold"
@@ -277,22 +289,26 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
         )}
       </div>
 
-      {/* ── Per-tab isolated grid — keyed by activeTab so each tab mounts
-           a completely independent CategoryGrid instance with its own
-           useMediaAnimationCategory hook and fetch lifecycle. ── */}
-      <CategoryGrid
-        key={activeTab}
-        category={activeTab}
-        activePresetId={activePresetId}
-        searchQuery={searchQuery}
-        activeFilter={activeFilter}
-        favorites={favorites}
-        downloadingIds={downloadingIds}
-        downloadedIds={downloadedIds}
-        onSelect={handleSelectPreset}
-        onToggleFavorite={toggleFavorite}
-        onDownload={handleDownload}
-      />
+      {/* ── Per-category isolated grids — all three are always mounted so
+           each keeps its own fetch lifecycle and state. Visibility is
+           toggled via CSS so switching tabs is instant with no remount. ── */}
+      {(["in", "out", "combo"] as MediaAnimationCategory[]).map((cat) => (
+        <div key={cat} className={activeTab === cat ? "contents" : "hidden"}>
+          <CategoryGrid
+            category={cat}
+            enabled={visitedTabs.has(cat)}
+            activePresetId={presetIdForCategory(cat)}
+            searchQuery={searchQuery}
+            activeFilter={activeFilter}
+            favorites={favorites}
+            downloadingIds={downloadingIds}
+            downloadedIds={downloadedIds}
+            onSelect={(id) => handleSelectPreset(cat, id)}
+            onToggleFavorite={toggleFavorite}
+            onDownload={handleDownload}
+          />
+        </div>
+      ))}
     </div>
   );
 };
