@@ -3182,6 +3182,13 @@ export const NativeProgramPreview: React.FC = () => {
             isPlaying ||
             Boolean(requestIntent?.isScrubbing) ||
             requestIntent?.mode === "scrub",
+          // Still images with animations (visualKeyframes) go black during
+          // playback because registerNativeImageAsset is async. Use the cached
+          // snapshot with updated animated transforms while registration settles.
+          nonBlockingImages:
+            isPlaying ||
+            Boolean(requestIntent?.isScrubbing) ||
+            requestIntent?.mode === "scrub",
         });
         traceSlowPlaybackStage("visible-raster-bridge", bridgeStartedAt, {
           frameIndex,

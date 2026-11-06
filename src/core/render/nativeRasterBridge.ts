@@ -93,6 +93,14 @@ export interface NativeRasterBridgeOptions {
    * When true, uses latest prepared snapshot while worker computes in background.
    */
   nonBlockingStickers?: boolean;
+  /**
+   * Playback must not block waiting for still-image native registration.
+   * When true, returns the last-known snapshot with updated animated transforms
+   * while the registration promise settles in the background. On the first frame
+   * (no cached snapshot yet) the registration is awaited regardless so the image
+   * appears immediately on clip entry.
+   */
+  nonBlockingImages?: boolean;
 }
 
 const MAX_TEXT_CACHE_ENTRIES = 96;
@@ -252,6 +260,16 @@ export class NativeRasterBridge {
     string,
     { sourcePath: string; width: number; height: number }
   >();
+  /**
+   * Last registered snapshot per image layer, used as a non-blocking playback
+   * fallback — mirrors stickerSnapshotsByLayerId. Keyed by layerId so animated
+   * transform values (x, y, width, height, opacity) are refreshed every frame
+   * without re-uploading the source texture.
+   */
+  private readonly imageSnapshotsByLayerId = new Map<
+    string,
+    NativeRasterLayerSnapshot
+  >();
   private readonly assetsById = new Map<string, UploadableNativeRaster>();
   private readonly textAssetsById = new Map<string, UploadableNativeRaster>();
   private readonly registeredAssetIds = new Set<string>();
@@ -352,7 +370,12 @@ export class NativeRasterBridge {
             options.nonBlockingStickers ?? options.nonBlockingText ?? false,
           )
         : Promise.resolve([]),
-      hasVisualLayers ? this.rasterizeImages(scene) : Promise.resolve([]),
+      hasVisualLayers
+        ? this.rasterizeImages(
+            scene,
+            options.nonBlockingImages ?? options.nonBlockingText ?? false,
+          )
+        : Promise.resolve([]),
     ]);
     return [...background, ...text, ...animatedStickers, ...images];
   }
@@ -594,6 +617,13 @@ export class NativeRasterBridge {
       this.registeredAssetIds.delete(assetId);
       this.assetsById.delete(assetId);
 
+      // Clear any cached snapshot for layers that used this asset.
+      for (const [layerId, snap] of this.imageSnapshotsByLayerId.entries()) {
+        if (snap.assetId === assetId) {
+          this.imageSnapshotsByLayerId.delete(layerId);
+        }
+      }
+
       if (isTauriRuntime()) {
         try {
           await unregisterNativeRasterAsset(assetId);
@@ -618,6 +648,7 @@ export class NativeRasterBridge {
     this.lastTextPlaybackObservationAtByLayerId.clear();
     this.imageCache.clear();
     this.imageSourcesById.clear();
+    this.imageSnapshotsByLayerId.clear();
     this.assetsById.clear();
     this.textAssetsById.clear();
     this.registeredAssetIds.clear();
@@ -1451,6 +1482,7 @@ export class NativeRasterBridge {
    */
   private async rasterizeImages(
     scene: EvaluatedScene,
+    nonBlocking = false,
   ): Promise<NativeRasterLayerSnapshot[]> {
     const layers = scene.visualLayers.filter(
       (layer): layer is EvaluatedMediaLayer =>
@@ -1460,6 +1492,93 @@ export class NativeRasterBridge {
         layer.stickerFormat !== "lottie",
     );
     if (layers.length === 0) return [];
+
+    // ── Non-blocking fast path (live playback) ─────────────────────────────
+    // For each image layer, if registration is already in flight or complete,
+    // return the cached snapshot immediately with updated animated transform
+    // values. This mirrors the sticker and text non-blocking paths so that
+    // visualKeyframes-driven position/opacity changes (e.g. slide-in animation)
+    // apply every frame without waiting for Tauri IPC to complete.
+    // If no cached snapshot exists yet (first time this clip is seen), fall
+    // through to the blocking path so the image appears on clip entry.
+    if (nonBlocking) {
+      const results: NativeRasterLayerSnapshot[] = [];
+      const pendingFirstFrameLayers: typeof layers = [];
+
+      for (const layer of layers) {
+        const width = Math.max(1, Math.round(layer.sourceWidth ?? layer.width));
+        const height = Math.max(
+          1,
+          Math.round(layer.sourceHeight ?? layer.height),
+        );
+        const displayWidth = Math.max(1, layer.width);
+        const displayHeight = Math.max(1, layer.height);
+        const assetId = buildNativeImageAssetId(
+          layer.sourcePath,
+          width,
+          height,
+        );
+
+        const previous = this.imageSnapshotsByLayerId.get(layer.layerId);
+        const registrationInFlight = this.imageCache.has(assetId);
+
+        if (
+          previous &&
+          (registrationInFlight || this.registeredAssetIds.has(assetId))
+        ) {
+          // Asset registered (or registering) — apply current animated transforms.
+          const colorGrade = getNativeColorGrade(
+            layer.adjustments,
+            layer.colorGrade,
+            layer.filter,
+            layer.effects,
+          );
+          const updated: NativeRasterLayerSnapshot = {
+            ...previous,
+            x: layer.x,
+            y: layer.y,
+            width,
+            height,
+            ...(displayWidth !== width ? { displayWidth } : {}),
+            ...(displayHeight !== height ? { displayHeight } : {}),
+            rotation: layer.rotation,
+            opacity: layer.opacity,
+            zIndex: layer.zIndex,
+            blendMode: layer.blendMode,
+            ...(colorGrade ? { colorGrade } : {}),
+          };
+          this.imageSnapshotsByLayerId.set(layer.layerId, updated);
+          results.push(updated);
+        } else {
+          // No cached snapshot — must block for first-frame registration.
+          pendingFirstFrameLayers.push(layer);
+        }
+      }
+
+      if (pendingFirstFrameLayers.length > 0) {
+        // Await first-frame registrations so new clips appear immediately,
+        // then merge into results.
+        const firstFrameAssets = await this._rasterizeImageLayersBlocking(
+          pendingFirstFrameLayers,
+        );
+        results.push(...firstFrameAssets);
+      }
+
+      return results;
+    }
+
+    // ── Blocking path (pause / seek / export) ─────────────────────────────
+    const assets = await this._rasterizeImageLayersBlocking(layers);
+    return assets;
+  }
+
+  /**
+   * Core blocking image rasterization — awaits every registration promise.
+   * Called directly during pause/seek and for first-frame entries during playback.
+   */
+  private async _rasterizeImageLayersBlocking(
+    layers: EvaluatedMediaLayer[],
+  ): Promise<NativeRasterLayerSnapshot[]> {
     const assets = await Promise.all(
       layers.map((layer) => {
         // Placement changes on every transform frame; the source texture does
@@ -1564,7 +1683,7 @@ export class NativeRasterBridge {
             layer.filter,
             layer.effects,
           );
-          return {
+          const snap: NativeRasterLayerSnapshot = {
             assetId,
             width,
             height,
@@ -1579,6 +1698,10 @@ export class NativeRasterBridge {
             isText: false,
             ...(colorGrade ? { colorGrade } : {}),
           };
+          // Cache the snapshot so the non-blocking path can return it
+          // with updated animated transforms on subsequent playback frames.
+          this.imageSnapshotsByLayerId.set(layer.layerId, snap);
+          return snap;
         });
       }),
     );
