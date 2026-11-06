@@ -155,7 +155,7 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
         ).reduce((sum, kfs) => sum + (Array.isArray(kfs) ? kfs.length : 0), 0);
         MediaAnimationTelemetry.recordAnimationEval({
           durationMs: evalDurationMsDownload,
-          clipType: (selectedClip as { type?: string }).type ?? "unknown",
+          clipType: selectedClip.kind ?? "unknown",
           presetId: currentMotion.inPreset ?? currentMotion.outPreset,
           trackCount: downloadTrackCount,
           keyframeCount: downloadKeyframeCount,
@@ -214,7 +214,7 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
       ).reduce((sum, kfs) => sum + (Array.isArray(kfs) ? kfs.length : 0), 0);
       MediaAnimationTelemetry.recordAnimationEval({
         durationMs: evalDurationMs,
-        clipType: (selectedClip as { type?: string }).type ?? "unknown",
+        clipType: selectedClip.kind ?? "unknown",
         presetId: nextMotion.inPreset ?? nextMotion.outPreset,
         trackCount,
         keyframeCount,

@@ -244,7 +244,7 @@ export function useMediaAnimationCategory(
         setSnapshot({ presets, status: "ready" });
         MediaAnimationTelemetry.recordCatalogFetch({
           category,
-          durationMs: performance.now() - t0,
+          durationMs: Math.round(performance.now() - t0),
           presetCount: presets.length,
           status: "success",
           httpStatus,
@@ -259,7 +259,7 @@ export function useMediaAnimationCategory(
         });
         MediaAnimationTelemetry.recordCatalogFetch({
           category,
-          durationMs: performance.now() - t0,
+          durationMs: Math.round(performance.now() - t0),
           presetCount: 0,
           status: "error",
           error: (err as Error).message,
