@@ -94,13 +94,14 @@ function buildMergedSnapshot(): AnimationCatalogSnapshot {
         ? "error"
         : "idle";
 
-  // Reuse the PhaseSnapshot shape for compatibility with the compiler.
-  // combo presets have phase "in" and are compiled via the inPreset branch —
-  // keep them in the "in" slot. "loop" is unused for media animations.
+  // phases maps the three media animation categories into the PhaseSnapshot
+  // shape. combo goes into the "loop" slot — "loop" is otherwise unused for
+  // media animations — so each category has its own independent slot and
+  // useMediaAnimationCategory can read the correct one per tab.
   const phases: Record<MotionBehaviorCategory, PhaseSnapshot> = {
     in: { ...categorySnapshots.in },
     out: { ...categorySnapshots.out },
-    loop: { presets: [], status: "idle" },
+    loop: { ...categorySnapshots.combo }, // combo stored here, read via "loop" key
   };
 
   return { presets, phases, status };
@@ -188,12 +189,7 @@ export async function fetchMediaAnimationCategory(
   const inFlight = categoryRequests[category];
   if (inFlight) return inFlight;
 
-  // Always re-fetch if forced. For normal calls, skip only if already loading.
-  // We intentionally do NOT short-circuit on status === "ready" here so that
-  // switching tabs always triggers a fresh per-category fetch. Without this,
-  // stale module-level state (e.g. from hot-reload) keeps showing wrong data
-  // in tabs that weren't the first to fetch.
-  if (!force && categorySnapshots[category].status === "loading") return;
+  if (!force && categorySnapshots[category].status === "ready") return;
 
   const run = (async () => {
     const previous = categorySnapshots[category];
@@ -337,15 +333,12 @@ export function useMediaAnimationCategory(
   useEffect(() => {
     void fetchMediaAnimationCategory(category);
   }, [category]);
-  // Derive from the immutable store snapshot so React always sees a new
-  // reference when the category's data changes, rather than reading the
-  // mutable module-level object directly (which can return stale data).
-  // combo presets use phase "in" — compileClipMotionKeyframes gates on
-  // phase === "in" for the inPreset branch, so mapping combo → "loop"
-  // would silently skip compilation. Keep it on the "in" slot.
-  return snapshot.phases[
-    category === "combo" ? "in" : category
-  ] as MediaAnimationCategorySnapshot;
+  // Map each MediaAnimationCategory to its correct phases slot:
+  // "in" → "in", "out" → "out", "combo" → "loop" (combo is stored there).
+  // Do NOT map combo → "in": that would return In presets on the Combo tab.
+  const phaseKey: MotionBehaviorCategory =
+    category === "in" ? "in" : category === "out" ? "out" : "loop";
+  return snapshot.phases[phaseKey] as MediaAnimationCategorySnapshot;
 }
 
 /**
