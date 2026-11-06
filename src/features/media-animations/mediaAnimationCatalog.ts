@@ -47,6 +47,18 @@ const categorySnapshots: Record<
   combo: { ...IDLE },
 };
 
+// Per-category immutable snapshot map — rebuilt on every emit() so each
+// category's reference changes only when its data actually changes.
+// Stored separately from mergedSnapshot so useMediaAnimationCategory can
+// return a stable reference per category without going through phases.
+const categorySnapshotRefs: Record<
+  MediaAnimationCategory,
+  MediaAnimationCategorySnapshot
+> = {
+  in: { ...IDLE },
+  out: { ...IDLE },
+  combo: { ...IDLE },
+};
 const downloadedPresets = new Map<string, MediaAnimationPreset>();
 const categoryRequests: Partial<Record<MediaAnimationCategory, Promise<void>>> =
   {};
@@ -110,6 +122,19 @@ function buildMergedSnapshot(): AnimationCatalogSnapshot {
 let mergedSnapshot: AnimationCatalogSnapshot = buildMergedSnapshot();
 
 function emit(): void {
+  // Rebuild per-category refs — only create a new object if the underlying
+  // data actually changed, so useSyncExternalStore sees new references.
+  for (const cat of ["in", "out", "combo"] as MediaAnimationCategory[]) {
+    const current = categorySnapshots[cat];
+    const ref = categorySnapshotRefs[cat];
+    if (
+      ref.status !== current.status ||
+      ref.presets !== current.presets ||
+      ref.error !== current.error
+    ) {
+      categorySnapshotRefs[cat] = { ...current };
+    }
+  }
   mergedSnapshot = buildMergedSnapshot();
   listeners.forEach((l) => l());
 }
@@ -325,7 +350,10 @@ export async function downloadManifest(
 export function useMediaAnimationCategory(
   category: MediaAnimationCategory,
 ): MediaAnimationCategorySnapshot {
-  const snapshot = useSyncExternalStore(
+  // Subscribe to the external store so React re-renders when emit() fires.
+  // Read from categorySnapshotRefs — immutable copies rebuilt on every emit
+  // only when data changes — so React's reference equality check works correctly.
+  useSyncExternalStore(
     subscribeToMediaAnimationCatalog,
     getMediaAnimationCatalogSnapshot,
     getMediaAnimationCatalogSnapshot,
@@ -333,12 +361,7 @@ export function useMediaAnimationCategory(
   useEffect(() => {
     void fetchMediaAnimationCategory(category);
   }, [category]);
-  // Map each MediaAnimationCategory to its correct phases slot:
-  // "in" → "in", "out" → "out", "combo" → "loop" (combo is stored there).
-  // Do NOT map combo → "in": that would return In presets on the Combo tab.
-  const phaseKey: MotionBehaviorCategory =
-    category === "in" ? "in" : category === "out" ? "out" : "loop";
-  return snapshot.phases[phaseKey] as MediaAnimationCategorySnapshot;
+  return categorySnapshotRefs[category];
 }
 
 /**
