@@ -12,6 +12,7 @@
 
 import { remove, BaseDirectory, exists } from "@tauri-apps/plugin-fs";
 import { globalGPUCache } from "./globalGPUCache";
+import { mediaAnimationCacheManager } from "@/features/media-animations/cache/mediaAnimationCache";
 
 export interface CacheStats {
   appCacheCleared: boolean;
@@ -20,7 +21,8 @@ export interface CacheStats {
   errors: string[];
 }
 
-const isTauri = () => typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
+const isTauri = () =>
+  typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
 
 export class CacheManager {
   /**
@@ -57,21 +59,29 @@ export class CacheManager {
    * Note: Some WebView processes may lock these files while the app is running.
    * A full restart may be required for complete deletion.
    */
-  static async clearWebViewCache(): Promise<{ success: boolean; error?: string }> {
+  static async clearWebViewCache(): Promise<{
+    success: boolean;
+    error?: string;
+  }> {
     if (!isTauri()) {
       return { success: true };
     }
 
     try {
       // Check if WebView cache exists
-      const webViewExists = await exists("EBWebView", { baseDir: BaseDirectory.AppLocalData });
+      const webViewExists = await exists("EBWebView", {
+        baseDir: BaseDirectory.AppLocalData,
+      });
 
       if (!webViewExists) {
         return { success: true };
       }
 
       // Remove WebView cache directory
-      await remove("EBWebView", { baseDir: BaseDirectory.AppLocalData, recursive: true });
+      await remove("EBWebView", {
+        baseDir: BaseDirectory.AppLocalData,
+        recursive: true,
+      });
       return { success: true };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -79,7 +89,9 @@ export class CacheManager {
 
       // WebView cache might be locked by running processes
       if (errorMsg.includes("locked") || errorMsg.includes("in use")) {
-        console.warn("⚠️ WebView cache is locked. Please restart the application for full cache clearing.");
+        console.warn(
+          "⚠️ WebView cache is locked. Please restart the application for full cache clearing.",
+        );
       }
 
       return { success: false, error: errorMsg };
@@ -217,7 +229,15 @@ export class CacheManager {
       indexedDB?: boolean;
     } = {},
   ): Promise<CacheStats> {
-    const { appCache = true, webViewCache = true, gpuCache = true, httpCache = true, localStorage: clearLS = true, sessionStorage: clearSS = true, indexedDB = true } = options;
+    const {
+      appCache = true,
+      webViewCache = true,
+      gpuCache = true,
+      httpCache = true,
+      localStorage: clearLS = true,
+      sessionStorage: clearSS = true,
+      indexedDB = true,
+    } = options;
 
     const stats: CacheStats = {
       appCacheCleared: false,
@@ -304,7 +324,9 @@ export class CacheManager {
     return {
       localStorage: localStorage.length,
       sessionStorage: sessionStorage.length,
-      gpuCache: globalGPUCache.isInitialized() ? globalGPUCache.getStats() : null,
+      gpuCache: globalGPUCache.isInitialized()
+        ? globalGPUCache.getStats()
+        : null,
     };
   }
 }
@@ -314,5 +336,9 @@ export const clearAppCache = () => CacheManager.clearAppCache();
 export const clearWebViewCache = () => CacheManager.clearWebViewCache();
 export const clearGPUCache = () => CacheManager.clearGPUCache();
 export const clearHTTPCache = () => CacheManager.clearHTTPCache();
-export const clearAllCaches = (options?: Parameters<typeof CacheManager.clearAllCaches>[0]) => CacheManager.clearAllCaches(options);
+export const clearAllCaches = (
+  options?: Parameters<typeof CacheManager.clearAllCaches>[0],
+) => CacheManager.clearAllCaches(options);
 export const getCacheInfo = () => CacheManager.getCacheInfo();
+export const clearMediaAnimationCache = () =>
+  mediaAnimationCacheManager.clearCache();

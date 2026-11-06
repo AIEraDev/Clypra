@@ -7,10 +7,11 @@
  * - Shows thumbnail images on preset cards when available
  * - On hover: plays previewUrl video from the start; on blur: pauses and
  *   reverts to the thumbnail image
- * - Combo tab shows "Coming soon" placeholder when empty
+ * - Each tab mounts its own CategoryGrid (keyed by tab) so each category's
+ *   fetch, state, and render tree are fully isolated
  */
 
-import React, { useState, useCallback, useMemo, useRef } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { Ban, Search, X, Star, ChevronUp, ChevronDown } from "lucide-react";
 import type { Clip } from "@/types";
 import type { ClipMotionConfig } from "@/types/motion";
@@ -19,7 +20,11 @@ import {
   useMediaAnimationCategory,
   useMediaAnimationCatalogSnapshot,
   type MediaAnimationCategory,
+  downloadManifest,
+  getMediaAnimationPreset,
 } from "./mediaAnimationCatalog";
+import { mediaAnimationCacheManager } from "./cache/mediaAnimationCache";
+import type { MediaAnimationPreset } from "./cache/mediaAnimationCache";
 import { useI18n } from "@/i18n";
 import { SliderTrack } from "@/components/editor/properties/primitives/SliderTrack";
 import { NumericControl } from "@/components/editor/properties/primitives/NumericControl";
@@ -51,6 +56,140 @@ const saveStoredFavorites = (favs: Set<string>) => {
 
 type CategoryFilter = "all" | "favorites";
 
+// ── CategoryGrid ──────────────────────────────────────────────────────────────
+// Isolated per-tab grid component. Keyed by `category` in the parent so each
+// tab gets a completely independent React subtree — no shared hook state, no
+// stale snapshot bleed between tabs.
+
+interface CategoryGridProps {
+  category: MediaAnimationCategory;
+  activePresetId: string | undefined;
+  searchQuery: string;
+  activeFilter: CategoryFilter;
+  favorites: Set<string>;
+  downloadingIds: Set<string>;
+  downloadedIds: Set<string>;
+  onSelect: (id: string) => void;
+  onToggleFavorite: (id: string, e: React.MouseEvent) => void;
+  onDownload: (id: string, e: React.MouseEvent) => void;
+}
+
+const CategoryGrid: React.FC<CategoryGridProps> = ({
+  category,
+  activePresetId,
+  searchQuery,
+  activeFilter,
+  favorites,
+  downloadingIds,
+  downloadedIds,
+  onSelect,
+  onToggleFavorite,
+  onDownload,
+}) => {
+  const { t } = useI18n();
+  // Each CategoryGrid instance subscribes independently to its own category.
+  // Because this component is keyed by category in the parent, switching tabs
+  // unmounts the old grid and mounts a fresh one — no state leaks.
+  const phaseData = useMediaAnimationCategory(category);
+
+  const filteredPresets = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return phaseData.presets.filter((preset) => {
+      if (activeFilter === "favorites" && !favorites.has(preset.id))
+        return false;
+      if (q) {
+        const matchesName = preset.name.toLowerCase().includes(q);
+        const matchesDesc = preset.description.toLowerCase().includes(q);
+        const matchesTags = preset.tags?.some((tag) =>
+          tag.toLowerCase().includes(q),
+        );
+        if (!matchesName && !matchesDesc && !matchesTags) return false;
+      }
+      return true;
+    });
+  }, [phaseData.presets, activeFilter, searchQuery, favorites]);
+
+  return (
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(64px,1fr))] gap-2 max-h-80 overflow-y-auto pr-0.5 scrollbar-thin">
+      {/* None card */}
+      <button
+        type="button"
+        onClick={() => onSelect("none")}
+        className="flex flex-col items-center group cursor-pointer text-left"
+      >
+        <div
+          className={`w-full h-16 rounded-md flex flex-col items-center justify-center transition-all relative ${
+            !activePresetId || activePresetId === "none"
+              ? "bg-accent/10 text-gray-50"
+              : "bg-accent/10 border border-accent/30 text-text-muted"
+          }`}
+        >
+          <Ban className="w-5 h-5 opacity-80" />
+        </div>
+        <span
+          title="None"
+          className="text-[10px] font-medium text-text-muted mt-0.5 truncate max-w-full group-hover:text-text-primary"
+        >
+          {t("properties.animation.none")}
+        </span>
+      </button>
+
+      {/* Combo empty state */}
+      {category === "combo" &&
+        filteredPresets.length === 0 &&
+        phaseData.status !== "loading" && (
+          <div className="col-span-4 flex items-center justify-center py-8 text-[11px] text-text-muted">
+            {t("properties.mediaAnimation.comboComingSoon")}
+          </div>
+        )}
+
+      {/* Empty state for in/out */}
+      {category !== "combo" &&
+        filteredPresets.length === 0 &&
+        phaseData.status === "ready" && (
+          <div className="col-span-4 flex items-center justify-center py-8 text-[11px] text-text-muted">
+            {t("properties.animation.none")}
+          </div>
+        )}
+
+      {/* Loading skeletons */}
+      {phaseData.status === "loading" &&
+        Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="flex flex-col items-center">
+            <div className="w-full h-16 rounded-md bg-accent/10 animate-pulse" />
+          </div>
+        ))}
+
+      {/* Preset cards */}
+      {filteredPresets.map((preset) => {
+        const mediaPreset = preset as MediaAnimationPreset;
+        const isDownloaded =
+          downloadedIds.has(preset.id) ||
+          mediaAnimationCacheManager.isCached(
+            preset.id,
+            mediaPreset.revisionId ?? "",
+          );
+        return (
+          <PresetCard
+            key={preset.id}
+            name={preset.name}
+            icon={preset.icon}
+            thumbnailUrl={mediaPreset.thumbnailUrl}
+            previewUrl={mediaPreset.previewUrl}
+            isSelected={activePresetId === preset.id}
+            isFavorite={favorites.has(preset.id)}
+            onSelect={() => onSelect(preset.id)}
+            onToggleFavorite={(e) => onToggleFavorite(preset.id, e)}
+            isDownloaded={isDownloaded}
+            isDownloading={downloadingIds.has(preset.id)}
+            onDownload={(e) => onDownload(preset.id, e)}
+          />
+        );
+      })}
+    </div>
+  );
+};
+
 // ── MediaAnimationSection ─────────────────────────────────────────────────────
 
 export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
@@ -62,13 +201,32 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<MediaAnimationCategory>("in");
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState<CategoryFilter>("all");
+  const [activeFilter, setActiveFilter] = useState<CategoryFilter>("all");
   const [favorites, setFavorites] = useState<Set<string>>(() =>
     getStoredFavorites(),
   );
+  const [downloadingIds, setDownloadingIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [downloadedIds, setDownloadedIds] = useState<Set<string>>(() => {
+    const keys = Array.from(mediaAnimationCacheManager.manifests.keys()).map(
+      (k) => k.split("@")[0],
+    );
+    return new Set(keys);
+  });
+
+  React.useEffect(() => {
+    return mediaAnimationCacheManager.onHydrated(() => {
+      setDownloadedIds((prev) => {
+        const keys = Array.from(
+          mediaAnimationCacheManager.manifests.keys(),
+        ).map((k) => k.split("@")[0]);
+        return new Set([...prev, ...keys]);
+      });
+    });
+  }, []);
 
   const catalogSnapshot = useMediaAnimationCatalogSnapshot();
-  const phaseData = useMediaAnimationCategory(activeTab);
 
   const toggleFavorite = useCallback((id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -81,6 +239,30 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
     });
   }, []);
 
+  const handleDownload = useCallback(
+    async (presetId: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (downloadingIds.has(presetId)) return;
+      const preset = getMediaAnimationPreset(presetId);
+      const version = preset?.revisionId;
+      if (!version) return;
+      setDownloadingIds((prev) => new Set(prev).add(presetId));
+      try {
+        await downloadManifest(presetId, version);
+        setDownloadedIds((prev) => new Set(prev).add(presetId));
+      } catch (err) {
+        console.error("[MediaAnimationSection] Download failed:", err);
+      } finally {
+        setDownloadingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(presetId);
+          return next;
+        });
+      }
+    },
+    [downloadingIds],
+  );
+
   const motion: ClipMotionConfig = selectedClip.motion ?? {};
   const hasIn = Boolean(motion.inPreset && motion.inPreset !== "none");
   const hasOut = Boolean(motion.outPreset && motion.outPreset !== "none");
@@ -88,12 +270,16 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
   const updateMotion = useCallback(
     (updates: Partial<ClipMotionConfig>) => {
       const nextMotion: ClipMotionConfig = { ...motion, ...updates };
+      const mergedCatalog = catalogSnapshot.presets.map((p) => {
+        const merged = getMediaAnimationPreset(p.id);
+        return merged ?? p;
+      });
       const compiledKeyframes = compileClipMotionKeyframes(
         selectedClip,
         nextMotion,
         canvasWidth,
         canvasHeight,
-        catalogSnapshot.presets,
+        mergedCatalog,
       );
       handleUpdateMultiple({
         motion: nextMotion,
@@ -110,31 +296,12 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
     ],
   );
 
-  const currentCatalog = phaseData.presets;
-
-  const filteredPresets = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    return currentCatalog.filter((preset) => {
-      if (activeCategory === "favorites" && !favorites.has(preset.id))
-        return false;
-      if (q) {
-        const matchesName = preset.name.toLowerCase().includes(q);
-        const matchesDesc = preset.description.toLowerCase().includes(q);
-        const matchesTags = preset.tags?.some((tag) =>
-          tag.toLowerCase().includes(q),
-        );
-        if (!matchesName && !matchesDesc && !matchesTags) return false;
-      }
-      return true;
-    });
-  }, [currentCatalog, activeCategory, searchQuery, favorites]);
-
   const activePresetId =
     activeTab === "in"
       ? motion.inPreset
       : activeTab === "out"
         ? motion.outPreset
-        : motion.inPreset; // combo stored as inPreset
+        : motion.inPreset;
 
   const currentDuration =
     activeTab === "in"
@@ -148,7 +315,7 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
 
   const handleDurationStep = useCallback(
     (delta: number) => {
-      if (activeTab === "combo") return; // combo has fixed timing
+      if (activeTab === "combo") return;
       const next = Math.max(
         0.1,
         Math.min(maxAllowedDuration, +(currentDuration + delta).toFixed(2)),
@@ -170,14 +337,14 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
       }
       if (activeTab === "in") updateMotion({ inPreset: id });
       else if (activeTab === "out") updateMotion({ outPreset: id });
-      else updateMotion({ inPreset: id }); // combo
+      else updateMotion({ inPreset: id });
     },
     [activeTab, updateMotion],
   );
 
   return (
     <div className="space-y-1.5 select-none text-white relative p-2">
-      {/* ── Tabs: In / Out / Combo ── */}
+      {/* ── Tabs ── */}
       <div className="bg-panel p-0.5 rounded-sm flex gap-1 border border-white/5">
         {(["in", "out", "combo"] as MediaAnimationCategory[]).map((tab) => {
           const isActive = activeTab === tab;
@@ -237,71 +404,22 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
         )}
       </div>
 
-      {/* ── Error banner ── */}
-      {phaseData.status === "error" && currentCatalog.length === 0 && (
-        <div className="rounded-md border border-amber-400/20 bg-amber-400/5 p-2 text-[10px] text-amber-200">
-          Media animation catalog is unavailable. Reconnect to load published
-          presets.
-        </div>
-      )}
-
-      {/* ── Preset Grid ── */}
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(64px,1fr))] gap-2 max-h-80 overflow-y-auto pr-0.5 scrollbar-thin">
-        {/* None card */}
-        <button
-          type="button"
-          onClick={() => handleSelectPreset("none")}
-          className="flex flex-col items-center group cursor-pointer text-left"
-        >
-          <div
-            className={`w-full h-16 rounded-md flex flex-col items-center justify-center transition-all relative ${
-              !activePresetId || activePresetId === "none"
-                ? "bg-accent/10 text-gray-50"
-                : "bg-accent/10 border border-accent/30 text-text-muted"
-            }`}
-          >
-            <Ban className="w-5 h-5 opacity-80" />
-          </div>
-          <span
-            title="None"
-            className="text-[10px] font-medium text-text-muted mt-0.5 truncate max-w-full group-hover:text-text-primary"
-          >
-            {t("properties.animation.none")}
-          </span>
-        </button>
-
-        {/* Combo empty state */}
-        {activeTab === "combo" &&
-          filteredPresets.length === 0 &&
-          phaseData.status !== "loading" && (
-            <div className="col-span-4 flex items-center justify-center py-8 text-[11px] text-text-muted">
-              {t("properties.mediaAnimation.comboComingSoon")}
-            </div>
-          )}
-
-        {/* Loading skeletons */}
-        {phaseData.status === "loading" &&
-          Array.from({ length: 9 }).map((_, i) => (
-            <div key={i} className="flex flex-col items-center">
-              <div className="w-full h-16 rounded-md bg-accent/10 animate-pulse" />
-            </div>
-          ))}
-
-        {/* Preset cards */}
-        {filteredPresets.map((preset) => (
-          <PresetCard
-            key={preset.id}
-            name={preset.name}
-            icon={preset.icon}
-            thumbnailUrl={(preset as any).thumbnailUrl as string | undefined}
-            previewUrl={(preset as any).previewUrl as string | undefined}
-            isSelected={activePresetId === preset.id}
-            isFavorite={favorites.has(preset.id)}
-            onSelect={() => handleSelectPreset(preset.id)}
-            onToggleFavorite={(e) => toggleFavorite(preset.id, e)}
-          />
-        ))}
-      </div>
+      {/* ── Per-tab isolated grid — keyed by activeTab so each tab mounts
+           a completely independent CategoryGrid instance with its own
+           useMediaAnimationCategory hook and fetch lifecycle. ── */}
+      <CategoryGrid
+        key={activeTab}
+        category={activeTab}
+        activePresetId={activePresetId}
+        searchQuery={searchQuery}
+        activeFilter={activeFilter}
+        favorites={favorites}
+        downloadingIds={downloadingIds}
+        downloadedIds={downloadedIds}
+        onSelect={handleSelectPreset}
+        onToggleFavorite={toggleFavorite}
+        onDownload={handleDownload}
+      />
 
       {/* ── Duration slider (In/Out only) ── */}
       {activeTab !== "combo" && activePresetId && activePresetId !== "none" && (
