@@ -262,29 +262,146 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           deletePreset={deletePreset}
         />
       )}
-      {/* Save as preset & Reset */}
-      <div className="sticky bottom-0 left-0 right-0 bg-panel flex justify-end items-center gap-2 p-1.5 border-t border-white/5">
-        <button
-          type="button"
-          onClick={() => {
-            if (isTextClip) {
-              handlers.handleUpdateMultiple({
-                background: undefined,
-              });
-            }
-          }}
-          className="bg-[#38383e] hover:bg-[#4a4a52] text-white font-medium text-xs px-3.5 py-1.5 rounded-md transition-colors cursor-pointer shadow-sm"
-        >
-          {t("common.actions.reset")}
-        </button>
-        <button
-          type="button"
-          onClick={() => {}}
-          className="bg-cyan-400 hover:bg-cyan-300 text-black font-semibold text-xs px-4 py-1.5 rounded-md transition-colors cursor-pointer shadow-sm"
-        >
-          {t("properties.text.saveAsPreset")}
-        </button>
-      </div>
+      {/* ── Properties panel footer ─────────────────────────────────────
+           When on the animation tab with an active In/Out media animation
+           preset, show the duration control instead of Save as Preset.
+           Otherwise show the standard Reset / Save as Preset buttons. ── */}
+      {(() => {
+        const isAnimationTab = activePropertyTab === "animation";
+        const isMediaAnimClip = !!isVideoClip || !!isImageClip;
+        const motion = selectedClip?.motion;
+        const activeInPreset = motion?.inPreset && motion.inPreset !== "none";
+        const activeOutPreset =
+          motion?.outPreset && motion.outPreset !== "none";
+        const showDurationControl =
+          isAnimationTab &&
+          isMediaAnimClip &&
+          (activeInPreset || activeOutPreset);
+
+        if (showDurationControl && selectedClip) {
+          // Determine which preset tab is active based on what's set.
+          // Prefer "in" if both are set (In tab is default).
+          const tab = activeInPreset ? "in" : "out";
+          const currentDuration =
+            tab === "in"
+              ? (motion?.inDuration ?? 0.5)
+              : (motion?.outDuration ?? 0.5);
+          const maxDuration = Math.max(
+            0.5,
+            Math.min(5.0, selectedClip.duration),
+          );
+
+          const step = (delta: number) => {
+            const next = Math.max(
+              0.1,
+              Math.min(maxDuration, +(currentDuration + delta).toFixed(2)),
+            );
+            handlers.handleUpdateMultiple(
+              tab === "in"
+                ? { motion: { ...motion, inDuration: next } }
+                : { motion: { ...motion, outDuration: next } },
+            );
+          };
+
+          return (
+            <div className="sticky bottom-0 left-0 right-0 bg-panel border-t border-white/5 px-3 py-2 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-medium text-text-muted">
+                  {t("properties.animation.duration")}
+                </span>
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => step(-0.1)}
+                    className="p-0.5 rounded hover:bg-white/10 text-text-muted hover:text-white transition-colors"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 14 14"
+                      fill="none"
+                      className="stroke-current stroke-[1.5]"
+                    >
+                      <path d="M3 7h8" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                  <span className="min-w-[44px] text-center text-[11px] font-mono text-white bg-[#2a2a2a] rounded px-1.5 py-0.5">
+                    {currentDuration.toFixed(1)}s
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => step(0.1)}
+                    className="p-0.5 rounded hover:bg-white/10 text-text-muted hover:text-white transition-colors"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 14 14"
+                      fill="none"
+                      className="stroke-current stroke-[1.5]"
+                    >
+                      <path d="M7 3v8M3 7h8" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              {/* Slider track */}
+              <div
+                className="relative h-1.5 rounded-full bg-white/10 cursor-pointer"
+                onClick={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const ratio = (e.clientX - rect.left) / rect.width;
+                  const val = Math.max(
+                    0.1,
+                    Math.min(maxDuration, +(ratio * maxDuration).toFixed(2)),
+                  );
+                  handlers.handleUpdateMultiple(
+                    tab === "in"
+                      ? { motion: { ...motion, inDuration: val } }
+                      : { motion: { ...motion, outDuration: val } },
+                  );
+                }}
+              >
+                <div
+                  className="absolute inset-y-0 left-0 rounded-full bg-[#00E5FF]/70"
+                  style={{ width: `${(currentDuration / maxDuration) * 100}%` }}
+                />
+                <div
+                  className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white shadow border border-white/20"
+                  style={{
+                    left: `calc(${(currentDuration / maxDuration) * 100}% - 6px)`,
+                  }}
+                />
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <div className="sticky bottom-0 left-0 right-0 bg-panel flex justify-end items-center gap-2 p-1.5 border-t border-white/5">
+            <button
+              type="button"
+              onClick={() => {
+                if (isTextClip) {
+                  handlers.handleUpdateMultiple({
+                    background: undefined,
+                  });
+                }
+              }}
+              className="bg-[#38383e] hover:bg-[#4a4a52] text-white font-medium text-xs px-3.5 py-1.5 rounded-md transition-colors cursor-pointer shadow-sm"
+            >
+              {t("common.actions.reset")}
+            </button>
+            <button
+              type="button"
+              onClick={() => {}}
+              className="bg-cyan-400 hover:bg-cyan-300 text-black font-semibold text-xs px-4 py-1.5 rounded-md transition-colors cursor-pointer shadow-sm"
+            >
+              {t("properties.text.saveAsPreset")}
+            </button>
+          </div>
+        );
+      })()}
     </div>
   );
 };

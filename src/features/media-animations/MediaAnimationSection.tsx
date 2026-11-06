@@ -12,7 +12,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from "react";
-import { Ban, Search, X, Star, ChevronUp, ChevronDown } from "lucide-react";
+import { Ban, Search, X, Star } from "lucide-react";
 import type { Clip } from "@/types";
 import type { ClipMotionConfig } from "@/types/motion";
 import { compileClipMotionKeyframes } from "@/core/animation/motionPresets";
@@ -26,8 +26,6 @@ import {
 import { mediaAnimationCacheManager } from "./cache/mediaAnimationCache";
 import type { MediaAnimationPreset } from "./cache/mediaAnimationCache";
 import { useI18n } from "@/i18n";
-import { SliderTrack } from "@/components/editor/properties/primitives/SliderTrack";
-import { NumericControl } from "@/components/editor/properties/primitives/NumericControl";
 import PresetCard from "./PresetCard";
 
 interface MediaAnimationSectionProps {
@@ -303,30 +301,6 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
         ? motion.outPreset
         : motion.inPreset;
 
-  const currentDuration =
-    activeTab === "in"
-      ? (motion.inDuration ?? 0.5)
-      : (motion.outDuration ?? 0.5);
-
-  const maxAllowedDuration = Math.max(
-    0.5,
-    Math.min(5.0, selectedClip.duration),
-  );
-
-  const handleDurationStep = useCallback(
-    (delta: number) => {
-      if (activeTab === "combo") return;
-      const next = Math.max(
-        0.1,
-        Math.min(maxAllowedDuration, +(currentDuration + delta).toFixed(2)),
-      );
-      updateMotion(
-        activeTab === "in" ? { inDuration: next } : { outDuration: next },
-      );
-    },
-    [currentDuration, maxAllowedDuration, activeTab, updateMotion],
-  );
-
   const handleSelectPreset = useCallback(
     (id: string) => {
       if (id === "none") {
@@ -420,55 +394,6 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
         onToggleFavorite={toggleFavorite}
         onDownload={handleDownload}
       />
-
-      {/* ── Duration slider (In/Out only) ── */}
-      {activeTab !== "combo" && activePresetId && activePresetId !== "none" && (
-        <div className="pt-2 border-t border-white/5 space-y-1.5">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] text-text-muted">
-              {t("properties.animation.duration")}
-            </span>
-            <div className="flex items-center gap-0.5">
-              <button
-                type="button"
-                onClick={() => handleDurationStep(-0.1)}
-                className="p-0.5 rounded hover:bg-white/10 text-text-muted hover:text-white"
-              >
-                <ChevronDown className="w-3.5 h-3.5" />
-              </button>
-              <NumericControl
-                value={currentDuration}
-                min={0.1}
-                max={maxAllowedDuration}
-                step={0.1}
-                onChange={(v: number) =>
-                  updateMotion(
-                    activeTab === "in" ? { inDuration: v } : { outDuration: v },
-                  )
-                }
-              />
-              <button
-                type="button"
-                onClick={() => handleDurationStep(0.1)}
-                className="p-0.5 rounded hover:bg-white/10 text-text-muted hover:text-white"
-              >
-                <ChevronUp className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-          <SliderTrack
-            value={currentDuration}
-            min={0.1}
-            max={maxAllowedDuration}
-            step={0.01}
-            onChange={(v) =>
-              updateMotion(
-                activeTab === "in" ? { inDuration: v } : { outDuration: v },
-              )
-            }
-          />
-        </div>
-      )}
     </div>
   );
 };

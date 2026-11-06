@@ -1510,6 +1510,66 @@ const ClipInner: React.FC<ClipProps> = ({
             )}
           </div>
         )}
+        {/* ── Media animation duration indicator ──────────────────────────
+             A thin arrow bar at the bottom of the clip shows which animation
+             presets are applied and how long they run. The bar width is
+             proportional to the animation duration in px (capped to half
+             the clip width so In and Out never overlap). ── */}
+        {(clip.motion?.inPreset && clip.motion.inPreset !== "none") ||
+        (clip.motion?.outPreset && clip.motion.outPreset !== "none") ? (
+          <div className="pointer-events-none absolute bottom-0 inset-x-0 h-[5px] z-10">
+            {/* In animation — left-anchored, right-pointing arrow */}
+            {clip.motion?.inPreset && clip.motion.inPreset !== "none" && (
+              <div
+                className="absolute bottom-0 left-0 flex items-center"
+                style={{
+                  width: `${Math.min(
+                    Math.max(
+                      8,
+                      (clip.motion.inDuration ?? 0.5) * pixelsPerSecond,
+                    ),
+                    width / 2 - 2,
+                  )}px`,
+                }}
+              >
+                <div className="flex-1 h-[2px] bg-[#00E5FF]/70 rounded-l-full" />
+                <svg
+                  width="5"
+                  height="5"
+                  viewBox="0 0 5 5"
+                  className="shrink-0 text-[#00E5FF]/70 fill-current"
+                >
+                  <polygon points="0,0 5,2.5 0,5" />
+                </svg>
+              </div>
+            )}
+            {/* Out animation — right-anchored, left-pointing arrow */}
+            {clip.motion?.outPreset && clip.motion.outPreset !== "none" && (
+              <div
+                className="absolute bottom-0 right-0 flex items-center"
+                style={{
+                  width: `${Math.min(
+                    Math.max(
+                      8,
+                      (clip.motion.outDuration ?? 0.5) * pixelsPerSecond,
+                    ),
+                    width / 2 - 2,
+                  )}px`,
+                }}
+              >
+                <svg
+                  width="5"
+                  height="5"
+                  viewBox="0 0 5 5"
+                  className="shrink-0 text-amber-400/70 fill-current"
+                >
+                  <polygon points="5,0 0,2.5 5,5" />
+                </svg>
+                <div className="flex-1 h-[2px] bg-amber-400/70 rounded-r-full" />
+              </div>
+            )}
+          </div>
+        ) : null}
       </div>
       {/* end inner body */}
 
