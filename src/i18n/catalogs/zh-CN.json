@@ -269,6 +269,7 @@
   "properties.mediaAnimation.comboComingSoon": "Combo animations coming soon",
   "properties.mediaAnimation.downloaded": "Downloaded",
   "properties.mediaAnimation.downloading": "Downloading",
+  "properties.mediaAnimation.selectAnimation": "应用动画",
   "properties.mediaAnimation.downloadAnimation": "Download animation",
   "properties.text.presetStyle": "预设样式",
   "properties.text.expandPresets": "展开预设样式",

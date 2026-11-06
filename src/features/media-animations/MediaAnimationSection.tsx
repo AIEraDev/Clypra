@@ -73,14 +73,31 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(
     () => new Set(),
   );
-  // Explicit set of preset IDs whose manifests have been fully downloaded
-  // in this session.  Derived from isCached() on the first render and then
-  // updated whenever a download completes so the checkmark is always in sync.
+  // Explicit set of preset IDs whose manifests have been fully downloaded.
+  // Seeded synchronously from the OS cache index (populated during initialize)
+  // and updated as downloads complete this session.
   const [downloadedIds, setDownloadedIds] = useState<Set<string>>(() => {
-    // Seed from the OS-level cache index that was loaded during initialize().
-    // This covers presets that were downloaded in a previous session.
-    return new Set<string>();
+    // Seed any IDs already in the in-memory manifests map (hydrated from disk
+    // on app restart before this component mounts).
+    const keys = Array.from(mediaAnimationCacheManager.manifests.keys()).map(
+      (k) => k.split("@")[0],
+    );
+    return new Set(keys);
   });
+
+  // Subscribe to the one-shot hydration callback so that if initialize()
+  // completes after this component first renders, downloadedIds updates.
+  React.useEffect(() => {
+    return mediaAnimationCacheManager.onHydrated(() => {
+      setDownloadedIds((prev) => {
+        const keys = Array.from(
+          mediaAnimationCacheManager.manifests.keys(),
+        ).map((k) => k.split("@")[0]);
+        const next = new Set([...prev, ...keys]);
+        return next;
+      });
+    });
+  }, []);
 
   const catalogSnapshot = useMediaAnimationCatalogSnapshot();
   const phaseData = useMediaAnimationCategory(activeTab);
@@ -99,6 +116,9 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
   const handleDownload = useCallback(
     async (presetId: string, e: React.MouseEvent) => {
       e.stopPropagation();
+      // Re-entry guard — prevents concurrent downloads for the same preset
+      // when the outer card button is clicked rapidly before state propagates.
+      if (downloadingIds.has(presetId)) return;
       const preset = getMediaAnimationPreset(presetId);
       const version = preset?.revisionId;
       if (!version) return;
@@ -116,7 +136,7 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
         });
       }
     },
-    [],
+    [downloadingIds],
   );
 
   const motion: ClipMotionConfig = selectedClip.motion ?? {};
@@ -126,12 +146,22 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
   const updateMotion = useCallback(
     (updates: Partial<ClipMotionConfig>) => {
       const nextMotion: ClipMotionConfig = { ...motion, ...updates };
+
+      // Build a catalog array that merges downloaded manifest tracks into each
+      // preset. compileClipMotionKeyframes needs preset.tracks to be populated —
+      // catalogSnapshot.presets always has tracks: [] (summary listing).
+      // getMediaAnimationPreset() merges tracks from the OS cache synchronously.
+      const mergedCatalog = catalogSnapshot.presets.map((p) => {
+        const merged = getMediaAnimationPreset(p.id);
+        return merged ?? p;
+      });
+
       const compiledKeyframes = compileClipMotionKeyframes(
         selectedClip,
         nextMotion,
         canvasWidth,
         canvasHeight,
-        catalogSnapshot.presets,
+        mergedCatalog,
       );
       handleUpdateMultiple({
         motion: nextMotion,

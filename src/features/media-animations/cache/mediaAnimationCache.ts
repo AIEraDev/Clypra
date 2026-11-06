@@ -14,13 +14,7 @@ import {
   readFile,
   remove,
 } from "@tauri-apps/plugin-fs";
-import { join, appCacheDir } from "@tauri-apps/api/path";
-import type { MotionBehaviorCategory } from "@/types/motion";
-import type {
-  RemoteTextAnimationPreset,
-  AnimationTrackKeyframe,
-  AnimationTrackProperty,
-} from "@/features/text-animations/animationCatalog";
+import type { RemoteTextAnimationPreset } from "@/features/text-animations/animationCatalog";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -80,7 +74,6 @@ async function sha256Hex(data: Uint8Array): Promise<string> {
 
 class MediaAnimationCacheManager {
   private cacheIndex: Map<string, CachedManifestEntry> = new Map();
-  private cacheDir: string | null = null;
   private initialized = false;
 
   /** Listeners notified after initialize() completes so subscribers can
@@ -101,9 +94,6 @@ class MediaAnimationCacheManager {
     if (this.initialized) return;
 
     try {
-      const appCache = await appCacheDir();
-      this.cacheDir = await join(appCache, CACHE_DIR);
-
       const dirExists = await exists(CACHE_DIR, {
         baseDir: BaseDirectory.AppCache,
       });

@@ -97,6 +97,11 @@ const PresetCard: React.FC<PresetCardProps> = ({
       onClick={handleClick}
       onPointerEnter={handlePointerEnter}
       onPointerLeave={handlePointerLeave}
+      aria-label={
+        isDownloaded
+          ? t("properties.mediaAnimation.selectAnimation")
+          : t("properties.mediaAnimation.downloadAnimation")
+      }
       className="flex flex-col items-center group cursor-pointer text-left relative"
     >
       <div

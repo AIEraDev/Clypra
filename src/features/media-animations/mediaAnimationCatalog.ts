@@ -95,13 +95,12 @@ function buildMergedSnapshot(): AnimationCatalogSnapshot {
         : "idle";
 
   // Reuse the PhaseSnapshot shape for compatibility with the compiler.
-  // "loop" slot is unused for media animations — repurpose it for "combo"
-  // so every MediaAnimationCategory has a stable, immutable snapshot slot
-  // that React can diff on each emit().
+  // combo presets have phase "in" and are compiled via the inPreset branch —
+  // keep them in the "in" slot. "loop" is unused for media animations.
   const phases: Record<MotionBehaviorCategory, PhaseSnapshot> = {
     in: { ...categorySnapshots.in },
     out: { ...categorySnapshots.out },
-    loop: { ...categorySnapshots.combo },
+    loop: { presets: [], status: "idle" },
   };
 
   return { presets, phases, status };
@@ -336,8 +335,11 @@ export function useMediaAnimationCategory(
   // Derive from the immutable store snapshot so React always sees a new
   // reference when the category's data changes, rather than reading the
   // mutable module-level object directly (which can return stale data).
+  // combo presets use phase "in" — compileClipMotionKeyframes gates on
+  // phase === "in" for the inPreset branch, so mapping combo → "loop"
+  // would silently skip compilation. Keep it on the "in" slot.
   return snapshot.phases[
-    category === "combo" ? "loop" : category
+    category === "combo" ? "in" : category
   ] as MediaAnimationCategorySnapshot;
 }
 

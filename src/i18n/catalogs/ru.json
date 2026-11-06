@@ -273,6 +273,7 @@
   "properties.mediaAnimation.comboComingSoon": "Combo animations coming soon",
   "properties.mediaAnimation.downloaded": "Downloaded",
   "properties.mediaAnimation.downloading": "Downloading",
+  "properties.mediaAnimation.selectAnimation": "Применить анимацию",
   "properties.mediaAnimation.downloadAnimation": "Download animation",
   "properties.text.presetStyle": "ПРЕДУСТАНОВЛЕННЫЙ СТИЛЬ",
   "properties.text.expandPresets": "Развернуть стили",
