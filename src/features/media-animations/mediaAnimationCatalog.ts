@@ -1,16 +1,16 @@
 /**
  * mediaAnimationCatalog.ts
  *
- * Simple per-category fetch hook for the media animation catalog.
- * Each CategoryGrid mounts with its own hook instance — no shared store,
- * no subscription machinery, no merged snapshots.
+ * Per-category fetch hook for the media animation catalog.
+ * Each CategoryGrid mounts with its own hook instance for isolated fetch state.
  *
- * The only shared module-level state is a flat preset map used by
- * getMediaAnimationPreset() so the motion compiler can look up tracks
- * after a manifest download.
+ * allPresets is a shared module-level map keyed by "id@category". A lightweight
+ * listener set (catalogListeners) lets useMediaAnimationCatalogSnapshot stay
+ * reactive — it re-renders MediaAnimationSection whenever new presets arrive so
+ * that updateMotion always sees a populated catalog when the user clicks a preset.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useSyncExternalStore } from "react";
 import { getApiBaseUrl, getApiHeaders } from "@/lib/api/apiUtils";
 import type { MotionBehaviorCategory } from "@/types/motion";
 import type {
@@ -36,6 +36,47 @@ export interface MediaAnimationCategorySnapshot {
 // ─── Shared preset map (for compiler lookups after manifest download) ─────────
 
 const allPresets = new Map<string, MediaAnimationPreset>();
+
+// ─── Catalog subscription (keeps useMediaAnimationCatalogSnapshot reactive) ───
+
+const catalogListeners = new Set<() => void>();
+
+function notifyCatalogListeners(): void {
+  catalogListeners.forEach((l) => l());
+}
+
+function subscribeToCatalog(listener: () => void): () => void {
+  catalogListeners.add(listener);
+  return () => {
+    catalogListeners.delete(listener);
+  };
+}
+
+function getCatalogSnapshot(): AnimationCatalogSnapshot {
+  const seen = new Set<string>();
+  const presets: RemoteTextAnimationPreset[] = [];
+  for (const preset of allPresets.values()) {
+    if (!seen.has(preset.id)) {
+      seen.add(preset.id);
+      presets.push(preset as unknown as RemoteTextAnimationPreset);
+    }
+  }
+  return {
+    presets,
+    phases: {
+      in: {
+        presets: presets.filter((p) => (p as any).phase === "in"),
+        status: "ready",
+      },
+      out: {
+        presets: presets.filter((p) => (p as any).phase === "out"),
+        status: "ready",
+      },
+      loop: { presets: [], status: "ready" },
+    },
+    status: "ready",
+  };
+}
 
 // ─── Normalization ────────────────────────────────────────────────────────────
 
@@ -98,7 +139,7 @@ function normalizeMediaPreset(
     id: slug,
     name,
     phase,
-    category: phase,
+    category: phase, // MotionBehaviorCategory doesn't include "combo"; combo maps to "in" phase
     subCategory: "Basic",
     tags: direction ? [direction] : [],
     description: typeof raw.description === "string" ? raw.description : name,
@@ -180,6 +221,8 @@ export function useMediaAnimationCategory(
         // Key by id@category so each category keeps its own copy in the map
         // and later fetches for other categories don't overwrite this one.
         presets.forEach((p) => allPresets.set(`${p.id}@${category}`, p));
+        // Notify subscribers so useMediaAnimationCatalogSnapshot re-renders.
+        notifyCatalogListeners();
 
         console.log(
           `[useMediaAnimationCategory] category="${category}" → ${presets.length} presets`,
@@ -236,35 +279,13 @@ export function getMediaAnimationPreset(
 }
 
 /**
- * Returns a merged catalog snapshot for the motion compiler.
- * Reads from the shared allPresets map populated by the hooks.
+ * Reactive hook — returns the merged catalog snapshot and re-renders whenever
+ * a category fetch completes and writes new presets into allPresets.
+ * Uses useSyncExternalStore so MediaAnimationSection always has a fresh catalog
+ * when the user clicks a preset, even if the fetch just finished.
  */
 export function useMediaAnimationCatalogSnapshot(): AnimationCatalogSnapshot {
-  // Deduplicate by id — each preset may have up to 3 entries (id@in, id@out,
-  // id@combo) but the compiler only needs one copy per id.
-  const seen = new Set<string>();
-  const presets: RemoteTextAnimationPreset[] = [];
-  for (const preset of allPresets.values()) {
-    if (!seen.has(preset.id)) {
-      seen.add(preset.id);
-      presets.push(preset as unknown as RemoteTextAnimationPreset);
-    }
-  }
-  return {
-    presets,
-    phases: {
-      in: {
-        presets: presets.filter((p) => (p as any).phase === "in"),
-        status: "ready",
-      },
-      out: {
-        presets: presets.filter((p) => (p as any).phase === "out"),
-        status: "ready",
-      },
-      loop: { presets: [], status: "ready" },
-    },
-    status: "ready",
-  };
+  return useSyncExternalStore(subscribeToCatalog, getCatalogSnapshot);
 }
 
 /**
