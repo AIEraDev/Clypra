@@ -188,7 +188,12 @@ export async function fetchMediaAnimationCategory(
   const inFlight = categoryRequests[category];
   if (inFlight) return inFlight;
 
-  if (!force && categorySnapshots[category].status === "ready") return;
+  // Always re-fetch if forced. For normal calls, skip only if already loading.
+  // We intentionally do NOT short-circuit on status === "ready" here so that
+  // switching tabs always triggers a fresh per-category fetch. Without this,
+  // stale module-level state (e.g. from hot-reload) keeps showing wrong data
+  // in tabs that weren't the first to fetch.
+  if (!force && categorySnapshots[category].status === "loading") return;
 
   const run = (async () => {
     const previous = categorySnapshots[category];
