@@ -289,13 +289,15 @@ export function useMediaAnimationCatalogSnapshot(): AnimationCatalogSnapshot {
 }
 
 /**
- * Downloads and caches the full animation manifest for a preset.
+ * Downloads and caches the full animation manifest for a preset, then
+ * notifies catalog listeners so any component holding a catalogSnapshot
+ * (e.g. MediaAnimationSection) re-renders with the manifest-merged tracks.
  */
 export async function downloadManifest(
   slug: string,
   version: string,
 ): Promise<AnimationManifest> {
-  return mediaAnimationCacheManager.ensureDownloaded(
+  const manifest = await mediaAnimationCacheManager.ensureDownloaded(
     slug,
     version,
     async () => {
@@ -311,6 +313,14 @@ export async function downloadManifest(
       return response.json() as Promise<AnimationManifest>;
     },
   );
+
+  // Notify catalog subscribers so useMediaAnimationCatalogSnapshot re-renders
+  // with the manifest-merged tracks. This ensures that any component that
+  // builds a mergedCatalog (e.g. updateMotion in MediaAnimationSection) will
+  // pick up the full tracks on the next render after download completes.
+  notifyCatalogListeners();
+
+  return manifest;
 }
 
 // Initialize disk cache on load

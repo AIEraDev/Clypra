@@ -126,30 +126,27 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
         await downloadManifest(presetId, version);
         setDownloadedIds((prev) => new Set(prev).add(presetId));
 
-        // Recompile visualKeyframes for the clip if this preset is currently
-        // applied — download just populated the manifest so tracks are now
-        // available. This is the only place recompile fires after a download.
+        // Always recompile after download — manifest tracks are now in the
+        // cache and notifyCatalogListeners() has fired inside downloadManifest,
+        // so catalogSnapshot.presets is fresh. Recompile unconditionally so
+        // the clip gets real keyframes even if the preset was applied before
+        // the download completed (e.g. auto-download on select).
         const currentMotion: ClipMotionConfig = selectedClip.motion ?? {};
-        const isApplied =
-          currentMotion.inPreset === presetId ||
-          currentMotion.outPreset === presetId;
-        if (isApplied) {
-          const freshCatalog = catalogSnapshot.presets.map((p) => {
-            const m = getMediaAnimationPreset(p.id);
-            return m ?? p;
-          });
-          const recompiledKeyframes = compileClipMotionKeyframes(
-            selectedClip,
-            currentMotion,
-            canvasWidth,
-            canvasHeight,
-            freshCatalog,
-          );
-          handleUpdateMultiple({
-            motion: currentMotion,
-            visualKeyframes: recompiledKeyframes,
-          });
-        }
+        const freshCatalog = catalogSnapshot.presets.map((p) => {
+          const m = getMediaAnimationPreset(p.id);
+          return m ?? p;
+        });
+        const recompiledKeyframes = compileClipMotionKeyframes(
+          selectedClip,
+          currentMotion,
+          canvasWidth,
+          canvasHeight,
+          freshCatalog,
+        );
+        handleUpdateMultiple({
+          motion: currentMotion,
+          visualKeyframes: recompiledKeyframes,
+        });
       } catch (err) {
         console.error("[MediaAnimationSection] Download failed:", err);
       } finally {
@@ -223,8 +220,21 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
       if (cat === "in") updateMotion({ inPreset: id });
       else if (cat === "out") updateMotion({ outPreset: id });
       else updateMotion({ inPreset: id });
+
+      // Auto-download the manifest if not already cached so the clip gets
+      // real keyframes immediately — no manual download button click needed.
+      const preset = getMediaAnimationPreset(id);
+      const version = preset?.revisionId;
+      if (version && !mediaAnimationCacheManager.isCached(id, version)) {
+        // Fire-and-forget: trigger via handleDownload so downloading/downloaded
+        // state is tracked and recompile fires automatically on completion.
+        const syntheticEvent = {
+          stopPropagation: () => {},
+        } as React.MouseEvent;
+        handleDownload(id, syntheticEvent);
+      }
     },
-    [updateMotion],
+    [updateMotion, handleDownload],
   );
 
   return (
