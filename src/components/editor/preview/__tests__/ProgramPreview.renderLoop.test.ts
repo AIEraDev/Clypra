@@ -5055,12 +5055,15 @@ describe("Bug 13 — Lookahead cold-start stall on play", () => {
       snapshotKey?: string;
       existingCompleted?: string[];
       existingInFlight?: string[];
+      /** Map from frame index to whether it has video layers. Defaults to true. */
+      videoLayersByFrame?: Record<number, boolean>;
     } = {},
   ) {
     const {
       snapshotKey = "project-id:1:1920x1080:full",
       existingCompleted = [],
       existingInFlight = [],
+      videoLayersByFrame = {},
     } = options;
 
     const queueNativeFrameCalls: Array<{ frameIndex: number; mode: string }> =
@@ -5100,8 +5103,9 @@ describe("Bug 13 — Lookahead cold-start stall on play", () => {
         const cacheKey = `${revision}:video:prime:${frameIdx}`;
         if (completedKeys.has(cacheKey) || inFlightKeys.has(cacheKey)) continue;
 
-        // Check scene for media layers (simplified: always has media in this test)
-        const hasVideo = true; // mocked
+        // Check scene for media layers — honour the caller's per-frame override
+        // so the guard inside primeNativeLookahead is actually exercised.
+        const hasVideo = options.videoLayersByFrame?.[frameIdx] !== false; // default true
 
         if (!hasVideo) continue;
 

@@ -66,11 +66,11 @@ function getCatalogSnapshot(): AnimationCatalogSnapshot {
     presets,
     phases: {
       in: {
-        presets: presets.filter((p) => (p as any).phase === "in"),
+        presets: presets.filter((p) => p.phase === "in"),
         status: "ready",
       },
       out: {
-        presets: presets.filter((p) => (p as any).phase === "out"),
+        presets: presets.filter((p) => p.phase === "out"),
         status: "ready",
       },
       loop: { presets: [], status: "ready" },
