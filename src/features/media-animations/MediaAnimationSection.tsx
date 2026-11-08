@@ -12,7 +12,7 @@
  *   so each category keeps its fetch lifecycle alive across tab switches
  */
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { Search, X } from "lucide-react";
 import type { Clip } from "@/types";
 import type { ClipMotionConfig } from "@/types/motion";
@@ -28,6 +28,7 @@ import { useI18n } from "@/i18n";
 import CategoryGrid, { type CategoryFilter } from "./CategoryGrid";
 import { MediaAnimationTelemetry } from "./telemetry/mediaAnimationTelemetry";
 import { mediaAnimationRollup } from "./telemetry/mediaAnimationRollup";
+import { toast } from "@/lib/toast";
 
 interface MediaAnimationSectionProps {
   selectedClip: Clip;
@@ -105,6 +106,15 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
 
   const catalogSnapshot = useMediaAnimationCatalogSnapshot();
 
+  const motion: ClipMotionConfig = selectedClip.motion ?? {};
+  const hasIn = Boolean(motion.inPreset && motion.inPreset !== "none");
+  const hasOut = Boolean(motion.outPreset && motion.outPreset !== "none");
+
+  const latestSelectedClipRef = React.useRef(selectedClip);
+  latestSelectedClipRef.current = selectedClip;
+  const latestMotionRef = React.useRef(motion);
+  latestMotionRef.current = motion;
+
   const toggleFavorite = useCallback((id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setFavorites((prev) => {
@@ -117,8 +127,12 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
   }, []);
 
   const handleDownload = useCallback(
-    async (presetId: string, e: React.MouseEvent) => {
-      e.stopPropagation();
+    async (
+      presetId: string,
+      e?: React.MouseEvent,
+      motionOverride?: ClipMotionConfig,
+    ) => {
+      e?.stopPropagation();
       if (downloadingIds.has(presetId)) return;
       const preset = getMediaAnimationPreset(presetId);
       const version = preset?.revisionId;
@@ -128,19 +142,24 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
         await downloadManifest(presetId, version);
         setDownloadedIds((prev) => new Set(prev).add(presetId));
 
-        // Always recompile after download — manifest tracks are now in the
-        // cache and notifyCatalogListeners() has fired inside downloadManifest,
-        // so catalogSnapshot.presets is fresh. Recompile unconditionally so
-        // the clip gets real keyframes even if the preset was applied before
-        // the download completed (e.g. auto-download on select).
-        const currentMotion: ClipMotionConfig = selectedClip.motion ?? {};
+        // Use the explicit target motion if passed (e.g. from handleSelectPreset),
+        // or read the latest active motion ref to avoid stale closure erasure.
+        const targetMotion: ClipMotionConfig =
+          motionOverride ?? latestMotionRef.current;
+        const isActivePreset =
+          targetMotion.inPreset === presetId ||
+          targetMotion.outPreset === presetId;
+        if (!isActivePreset && !motionOverride) return;
+
+        const currentMotion: ClipMotionConfig = { ...targetMotion };
         const freshCatalog = catalogSnapshot.presets.map((p) => {
           const m = getMediaAnimationPreset(p.id);
           return m ?? p;
         });
+        const currentClip = latestSelectedClipRef.current;
         const t0Download = performance.now();
         const recompiledKeyframes = compileClipMotionKeyframes(
-          selectedClip,
+          currentClip,
           currentMotion,
           canvasWidth,
           canvasHeight,
@@ -155,7 +174,7 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
         ).reduce((sum, kfs) => sum + (Array.isArray(kfs) ? kfs.length : 0), 0);
         MediaAnimationTelemetry.recordAnimationEval({
           durationMs: evalDurationMsDownload,
-          clipType: selectedClip.kind ?? "unknown",
+          clipType: currentClip.kind ?? "unknown",
           presetId: currentMotion.inPreset ?? currentMotion.outPreset,
           trackCount: downloadTrackCount,
           keyframeCount: downloadKeyframeCount,
@@ -180,7 +199,6 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
     },
     [
       downloadingIds,
-      selectedClip,
       catalogSnapshot.presets,
       canvasWidth,
       canvasHeight,
@@ -188,20 +206,21 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
     ],
   );
 
-  const motion: ClipMotionConfig = selectedClip.motion ?? {};
-  const hasIn = Boolean(motion.inPreset && motion.inPreset !== "none");
-  const hasOut = Boolean(motion.outPreset && motion.outPreset !== "none");
-
   const updateMotion = useCallback(
     (updates: Partial<ClipMotionConfig>) => {
-      const nextMotion: ClipMotionConfig = { ...motion, ...updates };
+      const nextMotion: ClipMotionConfig = {
+        ...latestMotionRef.current,
+        ...updates,
+      };
+      latestMotionRef.current = nextMotion;
       const mergedCatalog = catalogSnapshot.presets.map((p) => {
         const merged = getMediaAnimationPreset(p.id);
         return merged ?? p;
       });
+      const currentClip = latestSelectedClipRef.current;
       const t0 = performance.now();
       const compiledKeyframes = compileClipMotionKeyframes(
-        selectedClip,
+        currentClip,
         nextMotion,
         canvasWidth,
         canvasHeight,
@@ -214,7 +233,7 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
       ).reduce((sum, kfs) => sum + (Array.isArray(kfs) ? kfs.length : 0), 0);
       MediaAnimationTelemetry.recordAnimationEval({
         durationMs: evalDurationMs,
-        clipType: selectedClip.kind ?? "unknown",
+        clipType: currentClip.kind ?? "unknown",
         presetId: nextMotion.inPreset ?? nextMotion.outPreset,
         trackCount,
         keyframeCount,
@@ -226,8 +245,6 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
       });
     },
     [
-      motion,
-      selectedClip,
       canvasWidth,
       canvasHeight,
       handleUpdateMultiple,
@@ -250,23 +267,30 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
       if (id === "none") {
         if (cat === "in" || cat === "combo") updateMotion({ inPreset: "none" });
         else updateMotion({ outPreset: "none" });
+        toast.info("properties.mediaAnimation.toastRemoved");
         return;
       }
-      if (cat === "in") updateMotion({ inPreset: id });
-      else if (cat === "out") updateMotion({ outPreset: id });
-      else updateMotion({ inPreset: id });
+
+      const updates: Partial<ClipMotionConfig> =
+        cat === "out" ? { outPreset: id } : { inPreset: id };
+      const targetMotion: ClipMotionConfig = {
+        ...latestMotionRef.current,
+        ...updates,
+      };
+
+      updateMotion(updates);
+
+      const preset = getMediaAnimationPreset(id);
+      const presetName = preset?.name || id;
+      toast.success("properties.mediaAnimation.toastApplied", {
+        interpolation: { name: presetName },
+      });
 
       // Auto-download the manifest if not already cached so the clip gets
-      // real keyframes immediately — no manual download button click needed.
-      const preset = getMediaAnimationPreset(id);
+      // real keyframes immediately — passing targetMotion avoids stale closure issues.
       const version = preset?.revisionId;
       if (version && !mediaAnimationCacheManager.isCached(id, version)) {
-        // Fire-and-forget: trigger via handleDownload so downloading/downloaded
-        // state is tracked and recompile fires automatically on completion.
-        const syntheticEvent = {
-          stopPropagation: () => {},
-        } as React.MouseEvent;
-        handleDownload(id, syntheticEvent);
+        handleDownload(id, undefined, targetMotion);
       }
     },
     [updateMotion, handleDownload],

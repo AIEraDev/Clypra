@@ -54,6 +54,18 @@ export function evaluateNumericKeyframes(
             .map((k) => ({ ...k, resolvedTime: k.time }))
             .sort((a, b) => a.resolvedTime - b.resolvedTime);
 
+  // Recover from degenerate tracks where all keyframes collapsed to resolvedTime <= 0
+  if (
+    resolved.length >= 2 &&
+    resolved[resolved.length - 1].resolvedTime <= resolved[0].resolvedTime
+  ) {
+    const effectiveDuration = Math.min(0.5, options.clipDuration ?? 0.5);
+    for (let i = 0; i < resolved.length; i++) {
+      resolved[i].resolvedTime =
+        resolved[0].resolvedTime + (i / (resolved.length - 1)) * effectiveDuration;
+    }
+  }
+
   if (time <= resolved[0].resolvedTime) return resolved[0].value;
   if (time >= resolved[resolved.length - 1].resolvedTime)
     return resolved[resolved.length - 1].value;
@@ -230,6 +242,18 @@ export function evaluateProperty<T>(
   // Handle edge cases of keyframe count
   if (resolved.length === 0) return defaultValue;
   if (resolved.length === 1) return resolved[0].value;
+
+  // Recover from degenerate tracks where all keyframes collapsed to resolvedTime <= 0
+  if (
+    resolved.length >= 2 &&
+    resolved[resolved.length - 1].resolvedTime <= resolved[0].resolvedTime
+  ) {
+    const effectiveDuration = Math.min(0.5, clipDuration ?? 0.5);
+    for (let i = 0; i < resolved.length; i++) {
+      resolved[i].resolvedTime =
+        resolved[0].resolvedTime + (i / (resolved.length - 1)) * effectiveDuration;
+    }
+  }
 
   // Bounds checks
   if (timeOffset <= resolved[0].resolvedTime) return resolved[0].value;

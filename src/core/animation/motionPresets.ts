@@ -83,17 +83,48 @@ function addTrackKeyframes(
   for (const track of preset.tracks) {
     const property = propertyFor(track.property);
     if (!property) continue;
-    const keyframes = [...track.keyframes]
-      .filter((keyframe) => Number.isFinite(keyframe.progress) && Number.isFinite(keyframe.value))
-      .sort((a, b) => a.progress - b.progress)
-      .map((keyframe, index) => ({
+    const validKeyframes = [...track.keyframes]
+      .filter((keyframe) => Number.isFinite(keyframe.value));
+    if (!validKeyframes.length) continue;
+
+    // Detect degenerate progress (e.g. malformed API manifests where all progress collapsed to 0)
+    const isDegenerate =
+      validKeyframes.length >= 2 &&
+      (validKeyframes.every((kf) => (kf.progress ?? 0) <= 0) ||
+        (validKeyframes[validKeyframes.length - 1].progress ?? 0) <=
+          (validKeyframes[0].progress ?? 0));
+
+    const sortedKeyframes = isDegenerate
+      ? validKeyframes
+      : [...validKeyframes].sort((a, b) => (a.progress ?? 0) - (b.progress ?? 0));
+
+    const keyframes = sortedKeyframes.map((keyframe, index) => {
+      let progress = Number.isFinite(keyframe.progress) ? keyframe.progress : 0;
+      if (isDegenerate) {
+        const rawFrame = (keyframe as { frame?: number }).frame;
+        const totalFrames = (preset as { durationFrames?: number }).durationFrames;
+        if (
+          typeof rawFrame === "number" &&
+          typeof totalFrames === "number" &&
+          totalFrames > 0
+        ) {
+          progress = Math.min(1, Math.max(0, rawFrame / totalFrames));
+        } else {
+          progress = index / (validKeyframes.length - 1);
+        }
+      }
+
+      return {
         id: `api-${phase}-${preset.id}-${track.property}-${index}`,
         // End-anchored keyframes count backwards from the clip end.
-        time: phase === "out" ? duration * (1 - keyframe.progress) : duration * keyframe.progress,
-        anchor: phase === "out" ? "end" as const : "start" as const,
+        time:
+          phase === "out" ? duration * (1 - progress) : duration * progress,
+        anchor: phase === "out" ? ("end" as const) : ("start" as const),
         value: valueFor(track.property, keyframe.value, base),
         easing: easingOverride ?? toKeyframeEasing(keyframe.easing),
-      }));
+      };
+    });
+
     if (keyframes.length) result[property] = [...(result[property] ?? []), ...keyframes];
   }
 }

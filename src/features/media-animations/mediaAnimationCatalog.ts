@@ -42,18 +42,7 @@ const allPresets = new Map<string, MediaAnimationPreset>();
 
 const catalogListeners = new Set<() => void>();
 
-function notifyCatalogListeners(): void {
-  catalogListeners.forEach((l) => l());
-}
-
-function subscribeToCatalog(listener: () => void): () => void {
-  catalogListeners.add(listener);
-  return () => {
-    catalogListeners.delete(listener);
-  };
-}
-
-function getCatalogSnapshot(): AnimationCatalogSnapshot {
+function buildCatalogSnapshot(): AnimationCatalogSnapshot {
   const seen = new Set<string>();
   const presets: RemoteTextAnimationPreset[] = [];
   for (const preset of allPresets.values()) {
@@ -79,6 +68,24 @@ function getCatalogSnapshot(): AnimationCatalogSnapshot {
   };
 }
 
+let cachedCatalogSnapshot: AnimationCatalogSnapshot = buildCatalogSnapshot();
+
+export function notifyCatalogListeners(): void {
+  cachedCatalogSnapshot = buildCatalogSnapshot();
+  catalogListeners.forEach((l) => l());
+}
+
+function subscribeToCatalog(listener: () => void): () => void {
+  catalogListeners.add(listener);
+  return () => {
+    catalogListeners.delete(listener);
+  };
+}
+
+export function getCatalogSnapshot(): AnimationCatalogSnapshot {
+  return cachedCatalogSnapshot;
+}
+
 // ─── Normalization ────────────────────────────────────────────────────────────
 
 function iconForDirection(direction: string | undefined): string {
@@ -94,6 +101,31 @@ function iconForDirection(direction: string | undefined): string {
     default:
       return "Sparkles";
   }
+}
+
+/**
+ * Ensures track keyframes have valid, non-degenerate progress values.
+ * Recovers from API manifests that collapsed all keyframe progress to 0.
+ */
+export function sanitizeTrackKeyframes(
+  tracks: MediaAnimationPreset["tracks"],
+): MediaAnimationPreset["tracks"] {
+  if (!Array.isArray(tracks)) return [];
+  return tracks.map((track) => {
+    const rawKeyframes = track.keyframes ?? [];
+    if (rawKeyframes.length < 2) return track;
+    const isDegenerate =
+      rawKeyframes.every((kf) => (kf.progress ?? 0) <= 0) ||
+      (rawKeyframes[rawKeyframes.length - 1].progress ?? 0) <=
+        (rawKeyframes[0].progress ?? 0);
+    if (!isDegenerate) return track;
+
+    const sanitizedKeyframes = rawKeyframes.map((kf, index) => ({
+      ...kf,
+      progress: index / (rawKeyframes.length - 1),
+    }));
+    return { ...track, keyframes: sanitizedKeyframes };
+  });
 }
 
 function normalizeMediaPreset(
@@ -148,9 +180,11 @@ function normalizeMediaPreset(
     description: typeof raw.description === "string" ? raw.description : name,
     defaultDuration,
     icon: iconForDirection(direction),
-    tracks: Array.isArray(raw.tracks)
-      ? (raw.tracks as MediaAnimationPreset["tracks"])
-      : [],
+    tracks: sanitizeTrackKeyframes(
+      Array.isArray(raw.tracks)
+        ? (raw.tracks as MediaAnimationPreset["tracks"])
+        : [],
+    ),
     minDuration: 0.3,
     maxDuration: 3.0,
     previewLoopDuration: defaultDuration,
@@ -303,7 +337,9 @@ export function getMediaAnimationPreset(
     if (manifest) {
       return {
         ...base,
-        tracks: manifest.tracks as MediaAnimationPreset["tracks"],
+        tracks: sanitizeTrackKeyframes(
+          manifest.tracks as MediaAnimationPreset["tracks"],
+        ),
         defaultDuration:
           manifest.durationFrames / (manifest.frameRateNum || 30),
       };

@@ -271,6 +271,8 @@
   "properties.mediaAnimation.downloading": "Downloading",
   "properties.mediaAnimation.selectAnimation": "Appliquer l'animation",
   "properties.mediaAnimation.downloadAnimation": "Download animation",
+  "properties.mediaAnimation.toastApplied": "Animation « {{name}} » appliquée",
+  "properties.mediaAnimation.toastRemoved": "Animation supprimée",
   "properties.text.presetStyle": "STYLE PRÉDÉFINI",
   "properties.text.expandPresets": "Développer les styles prédéfinis",
   "properties.text.collapsePresets": "Réduire les styles prédéfinis",

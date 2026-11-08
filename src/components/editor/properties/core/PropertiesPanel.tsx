@@ -8,7 +8,9 @@ import { useI18n } from "@/i18n";
 import { UnlinkAudioCommand } from "@/core/history/commands/UnlinkAudioCommand";
 import { supportsVisualAnimation } from "@/lib/timeline/timelineClip";
 import { getClipTypeInfo } from "@/lib/timeline/clipPropertyTransform";
-import type { TextClip, MediaAsset } from "@/types";
+import type { TextClip, MediaAsset, ClipMotionConfig } from "@/types";
+import { compileClipMotionKeyframes } from "@/core/animation/motionPresets";
+import { getCatalogSnapshot } from "@/features/media-animations/mediaAnimationCatalog";
 import { usePropertyEditCoordinator } from "@/hooks/usePropertyEditCoordinator";
 import { useClipPropertyHandlers } from "@/hooks/useClipPropertyHandlers";
 import { EmptyPropertiesState } from "./EmptyPropertiesState";
@@ -291,16 +293,30 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             Math.min(5.0, selectedClip.duration),
           );
 
+          const updateDuration = (nextDuration: number) => {
+            const nextMotion: ClipMotionConfig =
+              tab === "in"
+                ? { ...motion, inDuration: nextDuration }
+                : { ...motion, outDuration: nextDuration };
+            const compiledKeyframes = compileClipMotionKeyframes(
+              selectedClip,
+              nextMotion,
+              canvasWidth,
+              canvasHeight,
+              getCatalogSnapshot().presets,
+            );
+            handlers.handleUpdateMultiple({
+              motion: nextMotion,
+              visualKeyframes: compiledKeyframes,
+            });
+          };
+
           const step = (delta: number) => {
             const next = Math.max(
               0.1,
               Math.min(maxDuration, +(currentDuration + delta).toFixed(2)),
             );
-            handlers.handleUpdateMultiple(
-              tab === "in"
-                ? { motion: { ...motion, inDuration: next } }
-                : { motion: { ...motion, outDuration: next } },
-            );
+            updateDuration(next);
           };
 
           return (
@@ -355,11 +371,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     0.1,
                     Math.min(maxDuration, +(ratio * maxDuration).toFixed(2)),
                   );
-                  handlers.handleUpdateMultiple(
-                    tab === "in"
-                      ? { motion: { ...motion, inDuration: val } }
-                      : { motion: { ...motion, outDuration: val } },
-                  );
+                  updateDuration(val);
                 }}
               >
                 <div

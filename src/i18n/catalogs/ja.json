@@ -271,6 +271,8 @@
   "properties.mediaAnimation.downloading": "Downloading",
   "properties.mediaAnimation.selectAnimation": "アニメーションを適用",
   "properties.mediaAnimation.downloadAnimation": "Download animation",
+  "properties.mediaAnimation.toastApplied": "「{{name}}」アニメーションを適用しました",
+  "properties.mediaAnimation.toastRemoved": "アニメーションを削除しました",
   "properties.text.presetStyle": "プリセットスタイル",
   "properties.text.expandPresets": "プリセットスタイルを展開",
   "properties.text.collapsePresets": "プリセットスタイルを折りたたむ",
