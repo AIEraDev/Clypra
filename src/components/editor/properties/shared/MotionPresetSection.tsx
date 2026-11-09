@@ -252,6 +252,7 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
       canvasWidth,
       canvasHeight,
       handleUpdateMultiple,
+      updateMotion,
     ],
   );
 

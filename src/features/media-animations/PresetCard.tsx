@@ -77,9 +77,8 @@ const PresetCard: React.FC<PresetCardProps> = ({
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
-      if (isDownloaded) {
-        onSelect();
-      } else {
+      onSelect();
+      if (!isDownloaded) {
         onDownload(e);
       }
     },
