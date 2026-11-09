@@ -35,6 +35,8 @@ interface MediaAnimationSectionProps {
   handleUpdateMultiple: (fields: Record<string, any>) => void;
   canvasWidth?: number;
   canvasHeight?: number;
+  activeTab?: MediaAnimationCategory;
+  onTabChange?: (tab: MediaAnimationCategory) => void;
 }
 
 const FAVORITES_KEY = "clypra_favorite_media_animation_presets";
@@ -61,23 +63,46 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
   handleUpdateMultiple,
   canvasWidth = 1920,
   canvasHeight = 1080,
+  activeTab: controlledActiveTab,
+  onTabChange,
 }) => {
   const { t } = useI18n();
-  const [activeTab, setActiveTab] = useState<MediaAnimationCategory>("in");
+  const [internalActiveTab, setInternalActiveTab] =
+    useState<MediaAnimationCategory>("in");
+  const activeTab = controlledActiveTab ?? internalActiveTab;
+
   // Track which tabs have been visited so we only fetch on first visit.
   const [visitedTabs, setVisitedTabs] = useState<Set<MediaAnimationCategory>>(
-    () => new Set<MediaAnimationCategory>(["in"]),
+    () => new Set<MediaAnimationCategory>([controlledActiveTab ?? "in"]),
   );
 
-  const handleTabChange = useCallback((tab: MediaAnimationCategory) => {
-    setActiveTab(tab);
-    setVisitedTabs((prev) => {
-      if (prev.has(tab)) return prev;
-      const next = new Set(prev);
-      next.add(tab);
-      return next;
-    });
-  }, []);
+  useEffect(() => {
+    if (controlledActiveTab) {
+      setVisitedTabs((prev) => {
+        if (prev.has(controlledActiveTab)) return prev;
+        const next = new Set(prev);
+        next.add(controlledActiveTab);
+        return next;
+      });
+    }
+  }, [controlledActiveTab]);
+
+  const handleTabChange = useCallback(
+    (tab: MediaAnimationCategory) => {
+      if (onTabChange) {
+        onTabChange(tab);
+      } else {
+        setInternalActiveTab(tab);
+      }
+      setVisitedTabs((prev) => {
+        if (prev.has(tab)) return prev;
+        const next = new Set(prev);
+        next.add(tab);
+        return next;
+      });
+    },
+    [onTabChange],
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<CategoryFilter>("all");
   const [favorites, setFavorites] = useState<Set<string>>(() =>

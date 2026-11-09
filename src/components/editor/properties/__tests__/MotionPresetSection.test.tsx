@@ -331,8 +331,9 @@ describe("MotionPresetSection CapCut Parity & Kinematics", () => {
     expect(updatedHidden.length).toBe(2);
   });
 
-  it("renders pinned duration bar with stepper and slider when preset is active", () => {
+  it("delegates duration adjustment to panel footer and respects controlled tab props", () => {
     const handleUpdateMultiple = vi.fn();
+    const onTabChange = vi.fn();
     const clipWithMotion: TextClip = {
       ...mockClip,
       motion: {
@@ -345,24 +346,18 @@ describe("MotionPresetSection CapCut Parity & Kinematics", () => {
       <MotionPresetSection
         selectedClip={clipWithMotion}
         handleUpdateMultiple={handleUpdateMultiple}
+        activeTab="in"
+        onTabChange={onTabChange}
       />,
     );
 
-    // Duration bar is visible
-    expect(screen.getByText("Duration")).toBeDefined();
-    expect(screen.getByText("0.5s")).toBeDefined();
+    // Duration is now rendered in the sticky footer of PropertiesPanel, not inlined in the section
+    expect(screen.queryByText("Duration")).toBeNull();
 
-    // Click up arrow to step duration
-    const slider = screen.getByRole("slider");
-    expect(slider).toBeDefined();
-    fireEvent.change(slider, { target: { value: "0.8" } });
-
-    expect(handleUpdateMultiple).toHaveBeenCalled();
-    const lastCall =
-      handleUpdateMultiple.mock.calls[
-        handleUpdateMultiple.mock.calls.length - 1
-      ][0];
-    expect(lastCall.motion.inDuration).toBe(0.8);
+    // Clicking out tab calls onTabChange
+    const outButton = screen.getByRole("tab", { name: "Out" });
+    fireEvent.click(outButton);
+    expect(onTabChange).toHaveBeenCalledWith("out");
   });
 
   it("switches to Loop tab and provides speed and intensity controls", () => {

@@ -15,14 +15,11 @@
 
 import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
-  Clock,
   Gauge,
   Activity,
   Search,
   X,
   Star,
-  ChevronUp,
-  ChevronDown,
 } from "lucide-react";
 import type { Clip } from "@/types";
 import type {
@@ -46,6 +43,8 @@ interface MotionPresetSectionProps {
   handleUpdateMultiple: (fields: Record<string, any>) => void;
   canvasWidth?: number;
   canvasHeight?: number;
+  activeTab?: MotionBehaviorCategory;
+  onTabChange?: (tab: MotionBehaviorCategory) => void;
 }
 
 const FAVORITES_STORAGE_KEY = "clypra_favorite_animation_presets";
@@ -75,22 +74,44 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
   handleUpdateMultiple,
   canvasWidth = 1920,
   canvasHeight = 1080,
+  activeTab: controlledActiveTab,
+  onTabChange,
 }) => {
   const { t } = useI18n();
-  const [activeTab, setActiveTab] = useState<MotionBehaviorCategory>("in");
+  const [internalActiveTab, setInternalActiveTab] =
+    useState<MotionBehaviorCategory>("in");
+  const activeTab = controlledActiveTab ?? internalActiveTab;
   const [visitedTabs, setVisitedTabs] = useState<Set<MotionBehaviorCategory>>(
-    () => new Set<MotionBehaviorCategory>(["in"]),
+    () => new Set<MotionBehaviorCategory>([controlledActiveTab ?? "in"]),
   );
 
-  const handleTabChange = useCallback((tab: MotionBehaviorCategory) => {
-    setActiveTab(tab);
-    setVisitedTabs((prev) => {
-      if (prev.has(tab)) return prev;
-      const next = new Set(prev);
-      next.add(tab);
-      return next;
-    });
-  }, []);
+  useEffect(() => {
+    if (controlledActiveTab) {
+      setVisitedTabs((prev) => {
+        if (prev.has(controlledActiveTab)) return prev;
+        const next = new Set(prev);
+        next.add(controlledActiveTab);
+        return next;
+      });
+    }
+  }, [controlledActiveTab]);
+
+  const handleTabChange = useCallback(
+    (tab: MotionBehaviorCategory) => {
+      if (onTabChange) {
+        onTabChange(tab);
+      } else {
+        setInternalActiveTab(tab);
+      }
+      setVisitedTabs((prev) => {
+        if (prev.has(tab)) return prev;
+        const next = new Set(prev);
+        next.add(tab);
+        return next;
+      });
+    },
+    [onTabChange],
+  );
 
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<CategoryFilter>("all");
@@ -301,33 +322,6 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
     [updateMotion, handleDownload],
   );
 
-  const currentDuration =
-    activeTab === "in"
-      ? (motion.inDuration ?? 0.5)
-      : activeTab === "out"
-        ? (motion.outDuration ?? 0.5)
-        : 0.5;
-
-  const maxAllowedDuration = Math.max(
-    0.5,
-    Math.min(5.0, selectedClip.duration),
-  );
-
-  const handleDurationStep = useCallback(
-    (delta: number) => {
-      const next = Math.max(
-        0.1,
-        Math.min(maxAllowedDuration, +(currentDuration + delta).toFixed(2)),
-      );
-      if (activeTab === "in") {
-        updateMotion({ inDuration: next });
-      } else if (activeTab === "out") {
-        updateMotion({ outDuration: next });
-      }
-    },
-    [currentDuration, maxAllowedDuration, activeTab, updateMotion],
-  );
-
   return (
     <div className="space-y-1.5 select-none text-white relative p-2">
       {/* ── 1. CapCut Phase Switcher Tabs (In, Out, Loop) ────────────────────── */}
@@ -447,58 +441,7 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
         </div>
       ))}
 
-      {/* ── 4. CapCut Pinned Bottom Duration Bar (when In or Out preset is active) ── */}
-      {(activeTab === "in" ? hasIn : activeTab === "out" ? hasOut : false) && (
-        <div className="pt-2 border-t border-border/30 flex items-center gap-2.5 bg-surface-base/90">
-          <span className="text-[11px] font-medium text-text-muted shrink-0 flex items-center gap-1">
-            <Clock className="w-3 h-3" />
-            {t("properties.animation.duration")}
-          </span>
-
-          {/* Stepper Input: [ 0.5s ↕ ] */}
-          <div className="flex items-center bg-[#1B1B1E] border border-border/40 rounded-md px-1.5 py-0.5 shrink-0">
-            <span className="text-[11px] font-semibold text-text-primary tabular-nums mr-1">
-              {currentDuration.toFixed(1)}s
-            </span>
-            <div className="flex flex-col -space-y-1">
-              <button
-                type="button"
-                onClick={() => handleDurationStep(0.05)}
-                className="hover:text-[#00E5FF] text-text-muted p-0.5 cursor-pointer"
-              >
-                <ChevronUp className="w-2.5 h-2.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDurationStep(-0.05)}
-                className="hover:text-[#00E5FF] text-text-muted p-0.5 cursor-pointer"
-              >
-                <ChevronDown className="w-2.5 h-2.5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Continuous Slider Track */}
-          <input
-            type="range"
-            min={0.1}
-            max={maxAllowedDuration}
-            step={0.05}
-            value={currentDuration}
-            onChange={(e) => {
-              const val = parseFloat(e.target.value);
-              if (activeTab === "in") {
-                updateMotion({ inDuration: val });
-              } else if (activeTab === "out") {
-                updateMotion({ outDuration: val });
-              }
-            }}
-            className="flex-1 h-1 bg-[#333338] rounded-lg appearance-none cursor-pointer accent-[#00E5FF]"
-          />
-        </div>
-      )}
-
-      {/* ── 5. Loop Speed & Intensity Controls (when Loop tab is active and has loop) ── */}
+      {/* ── 4. Loop Speed & Intensity Controls (when Loop tab is active and has loop) ── */}
       {activeTab === "loop" && hasLoop && (
         <div className="space-y-3 pt-2 border-t border-border/30">
           {/* Speed control */}

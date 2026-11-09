@@ -93,4 +93,61 @@ describe("PropertiesPanel text clip animation and transform keyframe integration
     expect(screen.getByText("Position")).toBeDefined();
     expect(screen.getByText("Plane rotation")).toBeDefined();
   });
+
+  it("renders sticky duration footer in PropertiesPanel when text clip has an active in-preset", () => {
+    useTimelineStore.setState({
+      clips: [
+        {
+          ...mockTextClip,
+          motion: {
+            inPreset: "anim-in-flip-in",
+            inDuration: 0.6,
+          },
+        },
+      ],
+    });
+
+    render(<PropertiesPanel />);
+
+    // Click "Animation" tab
+    const animationTabButton = screen.getByRole("button", {
+      name: /Animation/i,
+    });
+    fireEvent.click(animationTabButton);
+
+    // Verify the sticky duration control is rendered in the footer
+    expect(screen.getByText("Duration")).toBeDefined();
+    expect(screen.getByText("0.6s")).toBeDefined();
+
+    // Verify stepping duration updates the pill in UI
+    const plusButton = screen.getByRole("button", {
+      name: "Increase duration",
+    });
+    fireEvent.click(plusButton);
+    expect(screen.getByText("0.7s")).toBeDefined();
+  });
+
+  it("hides sticky duration footer when text clip has no active animation preset on selected tab", () => {
+    useTimelineStore.setState({
+      clips: [
+        {
+          ...mockTextClip,
+          motion: {
+            inPreset: "none",
+          },
+        },
+      ],
+    });
+
+    render(<PropertiesPanel />);
+
+    // Click "Animation" tab
+    const animationTabButton = screen.getByRole("button", {
+      name: /Animation/i,
+    });
+    fireEvent.click(animationTabButton);
+
+    // Verify duration is NOT rendered
+    expect(screen.queryByText("Duration")).toBeNull();
+  });
 });
