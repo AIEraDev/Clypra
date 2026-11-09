@@ -21,6 +21,8 @@ import { SmartOverlaysTab } from "./tabs/SmartOverlaysTab";
 import { type TabType, type MediaTabProps } from "./types";
 import { EffectsPanel } from "@/features/video-effects/components/EffectsPanel";
 import { TextIcon, YouTubeIcon } from "@/components/ui/icons";
+import { FeaturePlaceholder } from "@/components/ui/FeaturePlaceholder";
+import { SIDEBAR_PLACEHOLDERS } from "./placeholders";
 
 const SIDEBAR_TABS = [
   { id: "media" as const, icon: YouTubeIcon, label: "Media" },
@@ -152,32 +154,38 @@ const SidebarComponent: React.FC<SidebarProps> = ({
         </div>
       ) : (
         <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-          {activeTab === "media" && (
-            <MediaTab onAddToTimeline={onAddToTimeline} />
-          )}
-          {activeTab === "audio" && (
-            <AudioTab onAddToTimeline={onAddToTimeline} />
-          )}
-          {activeTab === "text" && (
-            <TextTab onAddToTimeline={onAddToTimeline} />
-          )}
-          {activeTab === "smart-overlays" && (
-            <SmartOverlaysTab onAddToTimeline={onAddToTimeline} />
-          )}
-          {activeTab === "stickers" && (
-            <StickersTab onAddToTimeline={onAddToTimeline} />
-          )}
-          {activeTab === "effects" && (
-            <EffectsPanel onAddToTimeline={onAddToTimeline} />
-          )}
-          {activeTab === "filters" && (
-            <FiltersTab onAddToTimeline={onAddToTimeline} />
-          )}
-          {activeTab === "transitions" && (
-            <TransitionsTab onAddToTimeline={onAddToTimeline} />
-          )}
-          {activeTab === "captions" && (
-            <CaptionsTab onAddToTimeline={onAddToTimeline} />
+          {SIDEBAR_PLACEHOLDERS[activeTab] ? (
+            <FeaturePlaceholder {...SIDEBAR_PLACEHOLDERS[activeTab]} />
+          ) : (
+            <>
+              {activeTab === "media" && (
+                <MediaTab onAddToTimeline={onAddToTimeline} />
+              )}
+              {activeTab === "audio" && (
+                <AudioTab onAddToTimeline={onAddToTimeline} />
+              )}
+              {activeTab === "text" && (
+                <TextTab onAddToTimeline={onAddToTimeline} />
+              )}
+              {activeTab === "smart-overlays" && (
+                <SmartOverlaysTab onAddToTimeline={onAddToTimeline} />
+              )}
+              {activeTab === "stickers" && (
+                <StickersTab onAddToTimeline={onAddToTimeline} />
+              )}
+              {activeTab === "effects" && (
+                <EffectsPanel onAddToTimeline={onAddToTimeline} />
+              )}
+              {activeTab === "filters" && (
+                <FiltersTab onAddToTimeline={onAddToTimeline} />
+              )}
+              {activeTab === "transitions" && (
+                <TransitionsTab onAddToTimeline={onAddToTimeline} />
+              )}
+              {activeTab === "captions" && (
+                <CaptionsTab onAddToTimeline={onAddToTimeline} />
+              )}
+            </>
           )}
         </div>
       )}

@@ -157,4 +157,31 @@ describe("MediaAnimationSection Toasts", () => {
       },
     );
   });
+
+  it("filters presets using favorites toggle button", () => {
+    const handleUpdateMultiple = vi.fn();
+    render(
+      <MediaAnimationSection
+        selectedClip={sampleClip}
+        handleUpdateMultiple={handleUpdateMultiple}
+      />,
+    );
+
+    // Filter by favorites before any favorite exists
+    const favButton = screen.getByRole("button", { name: /Favorites/i });
+    expect(favButton).toBeDefined();
+
+    // Preset "Slide In Left" is initially visible
+    expect(screen.getByText("Slide In Left")).toBeDefined();
+
+    // Click favorites toggle
+    fireEvent.click(favButton);
+
+    // "Slide In Left" is not in favorites, so it should be filtered out
+    expect(screen.queryByText("Slide In Left")).toBeNull();
+
+    // Toggle off favorites filter
+    fireEvent.click(favButton);
+    expect(screen.getByText("Slide In Left")).toBeDefined();
+  });
 });

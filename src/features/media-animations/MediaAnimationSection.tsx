@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from "react";
-import { Search, X } from "lucide-react";
+import { Search, Star, X } from "lucide-react";
 import type { Clip } from "@/types";
 import type { ClipMotionConfig } from "@/types/motion";
 import { compileClipMotionKeyframes } from "@/core/animation/motionPresets";
@@ -269,12 +269,7 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
         visualKeyframes: compiledKeyframes,
       });
     },
-    [
-      canvasWidth,
-      canvasHeight,
-      handleUpdateMultiple,
-      catalogSnapshot.presets,
-    ],
+    [canvasWidth, canvasHeight, handleUpdateMultiple, catalogSnapshot.presets],
   );
 
   // Each grid needs the preset ID for its own category, not the active tab's.
@@ -363,24 +358,48 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
       </div>
 
       {/* ── Search ── */}
-      <div className="relative flex items-center bg-[#18181A] rounded-lg border border-border/40 px-2.5 py-1 focus-within:border-[#00E5FF]/60 focus-within:ring-1 focus-within:ring-[#00E5FF]/30 transition-all">
-        <Search className="w-3.5 h-3.5 text-text-muted shrink-0 mr-2" />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder={t("properties.animation.searchPlaceholder")}
-          className="bg-transparent text-[11px] text-text-primary placeholder:text-text-muted/60 outline-none w-full"
-        />
-        {searchQuery && (
-          <button
-            type="button"
-            onClick={() => setSearchQuery("")}
-            className="text-text-muted hover:text-text-primary p-0.5"
-          >
-            <X className="w-3 h-3" />
-          </button>
-        )}
+      <div className="flex items-center gap-1">
+        <div className="relative flex-1 flex items-center bg-[#18181A] rounded-md border border-border/40 px-2.5 py-1 focus-within:border-[#00E5FF]/60 focus-within:ring-1 focus-within:ring-[#00E5FF]/30 transition-all">
+          <Search className="w-3.5 h-3.5 text-text-muted shrink-0 mr-2" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={t("properties.animation.searchPlaceholder")}
+            className="bg-transparent text-[11px] text-text-primary placeholder:text-text-muted/60 outline-none w-full"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="text-text-muted hover:text-text-primary p-0.5 cursor-pointer"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={() =>
+            setActiveFilter(activeFilter === "favorites" ? "all" : "favorites")
+          }
+          title={t("properties.animation.favorites")}
+          aria-label={t("properties.animation.favorites")}
+          className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 transition-colors cursor-pointer border ${
+            activeFilter === "favorites"
+              ? "bg-amber-400/20 text-amber-400 border-amber-400/50"
+              : "bg-[#18181A] border-border/40 text-text-muted hover:text-text-primary hover:bg-[#2E2E34]"
+          }`}
+        >
+          <Star
+            className={`w-3.5 h-3.5 ${
+              activeFilter === "favorites"
+                ? "fill-amber-400 text-amber-400"
+                : ""
+            }`}
+          />
+        </button>
       </div>
 
       {/* ── Per-category isolated grids — all three are always mounted so

@@ -14,18 +14,9 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect } from "react";
-import {
-  Gauge,
-  Activity,
-  Search,
-  X,
-  Star,
-} from "lucide-react";
+import { Gauge, Activity, Search, X, Star } from "lucide-react";
 import type { Clip } from "@/types";
-import type {
-  ClipMotionConfig,
-  MotionBehaviorCategory,
-} from "@/types/motion";
+import type { ClipMotionConfig, MotionBehaviorCategory } from "@/types/motion";
 import { compileClipMotionKeyframes } from "@/core/animation/motionPresets";
 import {
   useTextAnimationCatalog,
@@ -34,7 +25,9 @@ import {
 } from "@/features/text-animations/animationCatalog";
 import { textAnimationCacheManager } from "@/features/text-animations/cache/textAnimationCache";
 import { useI18n } from "@/i18n";
-import PhaseGrid, { type CategoryFilter } from "@/features/text-animations/PhaseGrid";
+import PhaseGrid, {
+  type CategoryFilter,
+} from "@/features/text-animations/PhaseGrid";
 import { SliderTrack } from "../primitives/SliderTrack";
 import { NumericControl } from "../primitives/NumericControl";
 
@@ -131,9 +124,9 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
   useEffect(() => {
     return textAnimationCacheManager.onHydrated(() => {
       setDownloadedIds((prev) => {
-        const keys = Array.from(
-          textAnimationCacheManager.manifests.keys(),
-        ).map((k) => k.split("@")[0]);
+        const keys = Array.from(textAnimationCacheManager.manifests.keys()).map(
+          (k) => k.split("@")[0],
+        );
         return new Set([...prev, ...keys]);
       });
     });
@@ -195,12 +188,7 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
           : {}),
       });
     },
-    [
-      canvasWidth,
-      canvasHeight,
-      handleUpdateMultiple,
-      animationCatalog.presets,
-    ],
+    [canvasWidth, canvasHeight, handleUpdateMultiple, animationCatalog.presets],
   );
 
   const handleDownload = useCallback(
@@ -378,8 +366,8 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
       </div>
 
       {/* ── 2. CapCut Search Bar & Favorites Toggle ─────────────────────────── */}
-      <div className="flex items-center gap-1.5">
-        <div className="relative flex-1 flex items-center bg-[#18181A] rounded-lg border border-border/40 px-2.5 py-1 focus-within:border-[#00E5FF]/60 focus-within:ring-1 focus-within:ring-[#00E5FF]/30 transition-all">
+      <div className="flex items-center gap-1">
+        <div className="relative flex-1 flex items-center bg-[#18181A] rounded-md border border-border/40 px-2.5 py-1 focus-within:border-[#00E5FF]/60 focus-within:ring-1 focus-within:ring-[#00E5FF]/30 transition-all">
           <Search className="w-3.5 h-3.5 text-text-muted shrink-0 mr-2" />
           <input
             type="text"
@@ -406,7 +394,7 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
           }
           title={t("properties.animation.favorites")}
           aria-label={t("properties.animation.favorites")}
-          className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors cursor-pointer border ${
+          className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 transition-colors cursor-pointer border ${
             activeFilter === "favorites"
               ? "bg-amber-400/20 text-amber-400 border-amber-400/50"
               : "bg-[#18181A] border-border/40 text-text-muted hover:text-text-primary hover:bg-[#2E2E34]"
@@ -424,7 +412,10 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
 
       {/* ── 3. Isolated Grids (Always Mounted, CSS Hidden/Contents) ─────────── */}
       {(["in", "out", "loop"] as MotionBehaviorCategory[]).map((phase) => (
-        <div key={phase} className={activeTab === phase ? "contents" : "hidden"}>
+        <div
+          key={phase}
+          className={activeTab === phase ? "contents" : "hidden"}
+        >
           <PhaseGrid
             phase={phase}
             enabled={visitedTabs.has(phase)}
