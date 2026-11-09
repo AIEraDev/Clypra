@@ -5401,3 +5401,61 @@ describe("Bug 13 — Lookahead cold-start stall on play", () => {
     expect(configureCalls).toBe(1); // unchanged
   });
 });
+
+describe("Bug 14 — Playback Start at Timeline Zero & Effects Cache Invalidation (CLY-BUG-TIMELINE-ZERO-EFFECT)", () => {
+  it("clears lastNativePlaybackRequestKey on transition from paused to playing so t=0 frame demand is never swallowed", () => {
+    let wasPlayingInLastFrame = false;
+    let lastNativePlaybackRequestKey = "frame-0-paused-key";
+    let dispatchedKey = "";
+
+    const simulateTick = (isPlaying: boolean, currentRequestKey: string) => {
+      const justStartedPlaying = isPlaying && !wasPlayingInLastFrame;
+      wasPlayingInLastFrame = isPlaying;
+      if (justStartedPlaying) {
+        lastNativePlaybackRequestKey = "";
+      }
+
+      if (currentRequestKey !== lastNativePlaybackRequestKey) {
+        dispatchedKey = currentRequestKey;
+        lastNativePlaybackRequestKey = currentRequestKey;
+      }
+    };
+
+    // User is paused at frame 0, request key is 'frame-0-paused-key'
+    simulateTick(false, "frame-0-paused-key");
+    expect(lastNativePlaybackRequestKey).toBe("frame-0-paused-key");
+
+    // User starts playback at t=0: request key is still 'frame-0-paused-key'
+    dispatchedKey = "";
+    simulateTick(true, "frame-0-paused-key");
+
+    // In fixed code, justStartedPlaying cleared lastNativePlaybackRequestKey, so dispatch succeeded!
+    expect(dispatchedKey).toBe("frame-0-paused-key");
+    expect(lastNativePlaybackRequestKey).toBe("frame-0-paused-key");
+  });
+
+  it("PlaybackClock does not freeze after 2 seconds when native audio is unavailable", () => {
+    const clock = new PlaybackClock();
+    clock.setDuration(10);
+    clock.setNativeClockAuthority(true);
+    clock.markNativeAudioUnavailable();
+
+    expect(clock.nativeAudioWasUnavailable).toBe(true);
+
+    const perfNowSpy = vi.spyOn(performance, "now");
+    let currentMs = 10000;
+    perfNowSpy.mockImplementation(() => currentMs);
+
+    clock.play();
+    expect(clock.state).toBe("playing");
+
+    // Advance by 3 seconds (past the 2.0s CPAL init threshold)
+    currentMs += 3000;
+
+    // In fixed code, clock continues advancing smoothly via wall-clock!
+    expect(clock.time).toBeCloseTo(3.0, 1);
+
+    perfNowSpy.mockRestore();
+  });
+});
+

@@ -3084,6 +3084,9 @@ export const NativeProgramPreview: React.FC = () => {
         // Task 3: Detect first RAF after transition to playing.
         const justStartedPlaying = isPlaying && !wasPlayingInLastFrame;
         wasPlayingInLastFrame = isPlaying;
+        if (justStartedPlaying) {
+          lastNativePlaybackRequestKey = "";
+        }
         const frameRate = state.project?.frameRate ?? 30;
         const frameIndex = getFrameIndexAtTime(timeToRender, frameRate);
         if (playbackState !== lastTracedPlaybackState) {

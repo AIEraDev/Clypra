@@ -282,4 +282,23 @@ describe("computeClipVersion", () => {
 
     expect(computeClipVersion(clips, fade)).not.toBe(computeClipVersion(clips, dissolve));
   });
+
+  it("generates different hash when effects, filters, adjustments, colorGrade, or animations change (CLY-BUG-TIMELINE-ZERO-EFFECT)", () => {
+    const base = [{ id: "c1", trackId: "v1", mediaId: "m1", startTime: 0, duration: 5, trimIn: 0, trimOut: 5, x: 0, y: 0, width: 1920, height: 1080, opacity: 1, rotation: 0 }];
+    const withEffect = [{ ...base[0], effects: [{ effectId: "blur", intensity: 0.8 }] }];
+    const withFilter = [{ ...base[0], filter: { id: "filter-vivid", intensity: 1.0 } }];
+    const withAdjustments = [{ ...base[0], adjustments: { brightness: 0.3 } }];
+    const withColorGrade = [{ ...base[0], colorGrade: { exposure: 0.5 } }];
+    const withChromaKey = [{ ...base[0], chromaKey: { enabled: true, color: "#00FF00" } }];
+    const withEntrance = [{ ...base[0], entranceAnimation: { type: "zoom-in", duration: 0.5 } }];
+    const withExit = [{ ...base[0], exitAnimation: { type: "fade-out", duration: 0.5 } }];
+
+    expect(computeClipVersion(base)).not.toBe(computeClipVersion(withEffect));
+    expect(computeClipVersion(base)).not.toBe(computeClipVersion(withFilter));
+    expect(computeClipVersion(base)).not.toBe(computeClipVersion(withAdjustments));
+    expect(computeClipVersion(base)).not.toBe(computeClipVersion(withColorGrade));
+    expect(computeClipVersion(base)).not.toBe(computeClipVersion(withChromaKey));
+    expect(computeClipVersion(base)).not.toBe(computeClipVersion(withEntrance));
+    expect(computeClipVersion(base)).not.toBe(computeClipVersion(withExit));
+  });
 });
