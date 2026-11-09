@@ -231,6 +231,31 @@ describe("MotionPresetSection CapCut Parity & Kinematics", () => {
     expect(payload.visualKeyframes.opacity).toBeDefined();
   });
 
+  it("clears legacy entranceAnimation and exitAnimation when compiling motion presets on a text clip", () => {
+    const handleUpdateMultiple = vi.fn();
+    const clipWithLegacyAnimations: TextClip = {
+      ...mockClip,
+      entranceAnimation: { type: "slide-up", duration: 0.5, easing: "ease-out" },
+      exitAnimation: { type: "slide-down", duration: 0.5, easing: "ease-in" },
+    };
+
+    render(
+      <MotionPresetSection
+        selectedClip={clipWithLegacyAnimations}
+        handleUpdateMultiple={handleUpdateMultiple}
+      />,
+    );
+
+    const typewriterCard = screen.getByText("Typewriter");
+    fireEvent.click(typewriterCard);
+
+    expect(handleUpdateMultiple).toHaveBeenCalledTimes(1);
+    const payload = handleUpdateMultiple.mock.calls[0][0];
+    expect(payload.motion.inPreset).toBe("typewriter");
+    expect(payload.entranceAnimation).toBeUndefined();
+    expect(payload.exitAnimation).toBeUndefined();
+  });
+
   it("filters presets using search bar", () => {
     const handleUpdateMultiple = vi.fn();
     render(

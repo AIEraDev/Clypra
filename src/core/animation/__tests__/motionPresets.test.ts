@@ -85,4 +85,45 @@ describe("API-backed motion preset compiler", () => {
     expect(keyframes.x?.[0].value).toBe(100 - 1815);
     expect(keyframes.x?.[1].value).toBe(100);
   });
+
+  it("compiles scale property to both width and height keyframes for uniform scaling", () => {
+    const scalePreset: RemoteTextAnimationPreset = {
+      id: "api-in-zoom",
+      name: "API Zoom In",
+      phase: "in",
+      category: "in",
+      subCategory: "Motion",
+      tags: ["zoom", "scale"],
+      description: "API fixture",
+      defaultDuration: 0.5,
+      icon: "ZoomIn",
+      minDuration: 0.1,
+      maxDuration: 3,
+      previewLoopDuration: 1.2,
+      tracks: [
+        {
+          property: "scale",
+          keyframes: [
+            { progress: 0, value: 0 },
+            { progress: 1, value: 1, easing: "easeOut" },
+          ],
+        },
+      ],
+    };
+
+    const keyframes = compileClipMotionKeyframes(
+      clip,
+      { inPreset: "api-in-zoom", inDuration: 0.5 },
+      1920,
+      1080,
+      [scalePreset],
+    );
+
+    expect(keyframes.width).toBeDefined();
+    expect(keyframes.height).toBeDefined();
+    expect(keyframes.width?.map((k) => k.value)).toEqual([0, 400]);
+    expect(keyframes.height?.map((k) => k.value)).toEqual([0, 300]);
+    expect(keyframes.width?.map((k) => k.time)).toEqual([0, 0.5]);
+    expect(keyframes.height?.map((k) => k.time)).toEqual([0, 0.5]);
+  });
 });

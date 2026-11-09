@@ -44,30 +44,29 @@ function getBaseValues(clip: AnimatableClip): BaseValues {
   };
 }
 
-function propertyFor(trackProperty: string): VisualPropertyKey | null {
+function propertiesFor(trackProperty: string): VisualPropertyKey[] {
   switch (trackProperty) {
-    case "opacity": return "opacity";
-    case "translateX": return "x";
-    case "translateY": return "y";
-    case "rotation": return "rotation";
-    case "scale":
-    case "scaleX": return "width";
-    case "scaleY": return "height";
+    case "opacity": return ["opacity"];
+    case "translateX": return ["x"];
+    case "translateY": return ["y"];
+    case "rotation": return ["rotation"];
+    case "scale": return ["width", "height"];
+    case "scaleX": return ["width"];
+    case "scaleY": return ["height"];
     // The editor's generic visual-keyframe contract does not yet expose these.
     // They stay in the remote definition for renderers that support them.
-    default: return null;
+    default: return [];
   }
 }
 
-function valueFor(trackProperty: string, rawValue: number, base: BaseValues): number {
-  switch (trackProperty) {
+function valueForProperty(property: VisualPropertyKey, rawValue: number, base: BaseValues): number {
+  switch (property) {
     case "opacity": return base.opacity * rawValue;
-    case "translateX": return base.x + rawValue;
-    case "translateY": return base.y + rawValue;
+    case "x": return base.x + rawValue;
+    case "y": return base.y + rawValue;
     case "rotation": return base.rotation + rawValue;
-    case "scale": return base.width * rawValue;
-    case "scaleX": return base.width * rawValue;
-    case "scaleY": return base.height * rawValue;
+    case "width": return base.width * rawValue;
+    case "height": return base.height * rawValue;
     default: return rawValue;
   }
 }
@@ -81,8 +80,8 @@ function addTrackKeyframes(
   easingOverride: ClipMotionConfig["inEasing"] | ClipMotionConfig["outEasing"],
 ) {
   for (const track of preset.tracks) {
-    const property = propertyFor(track.property);
-    if (!property) continue;
+    const properties = propertiesFor(track.property);
+    if (!properties.length) continue;
     const validKeyframes = [...track.keyframes]
       .filter((keyframe) => Number.isFinite(keyframe.value));
     if (!validKeyframes.length) continue;
@@ -98,34 +97,36 @@ function addTrackKeyframes(
       ? validKeyframes
       : [...validKeyframes].sort((a, b) => (a.progress ?? 0) - (b.progress ?? 0));
 
-    const keyframes = sortedKeyframes.map((keyframe, index) => {
-      let progress = Number.isFinite(keyframe.progress) ? keyframe.progress : 0;
-      if (isDegenerate) {
-        const rawFrame = (keyframe as { frame?: number }).frame;
-        const totalFrames = (preset as { durationFrames?: number }).durationFrames;
-        if (
-          typeof rawFrame === "number" &&
-          typeof totalFrames === "number" &&
-          totalFrames > 0
-        ) {
-          progress = Math.min(1, Math.max(0, rawFrame / totalFrames));
-        } else {
-          progress = index / (validKeyframes.length - 1);
+    for (const property of properties) {
+      const keyframes = sortedKeyframes.map((keyframe, index) => {
+        let progress = Number.isFinite(keyframe.progress) ? keyframe.progress : 0;
+        if (isDegenerate) {
+          const rawFrame = (keyframe as { frame?: number }).frame;
+          const totalFrames = (preset as { durationFrames?: number }).durationFrames;
+          if (
+            typeof rawFrame === "number" &&
+            typeof totalFrames === "number" &&
+            totalFrames > 0
+          ) {
+            progress = Math.min(1, Math.max(0, rawFrame / totalFrames));
+          } else {
+            progress = index / (validKeyframes.length - 1);
+          }
         }
-      }
 
-      return {
-        id: `api-${phase}-${preset.id}-${track.property}-${index}`,
-        // End-anchored keyframes count backwards from the clip end.
-        time:
-          phase === "out" ? duration * (1 - progress) : duration * progress,
-        anchor: phase === "out" ? ("end" as const) : ("start" as const),
-        value: valueFor(track.property, keyframe.value, base),
-        easing: easingOverride ?? toKeyframeEasing(keyframe.easing),
-      };
-    });
+        return {
+          id: `api-${phase}-${preset.id}-${property}-${index}`,
+          // End-anchored keyframes count backwards from the clip end.
+          time:
+            phase === "out" ? duration * (1 - progress) : duration * progress,
+          anchor: phase === "out" ? ("end" as const) : ("start" as const),
+          value: valueForProperty(property, keyframe.value, base),
+          easing: easingOverride ?? toKeyframeEasing(keyframe.easing),
+        };
+      });
 
-    if (keyframes.length) result[property] = [...(result[property] ?? []), ...keyframes];
+      if (keyframes.length) result[property] = [...(result[property] ?? []), ...keyframes];
+    }
   }
 }
 

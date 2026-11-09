@@ -116,7 +116,13 @@ function phaseOf(value: unknown): MotionBehaviorCategory | null {
 }
 
 function categoryOf(value: unknown): MotionSubCategory {
-  return value === "3D" || value === "Glitch" || value === "Motion" ? value : "Basic";
+  if (typeof value === "string") {
+    const lower = value.toLowerCase();
+    if (lower === "3d") return "3D";
+    if (lower === "glitch") return "Glitch";
+    if (lower === "motion") return "Motion";
+  }
+  return "Basic";
 }
 
 function iconForPreset(name: string, tags: string[]): string {
@@ -130,7 +136,7 @@ function iconForPreset(name: string, tags: string[]): string {
   return "Sparkles";
 }
 
-function normalizePreset(value: unknown): RemoteTextAnimationPreset | null {
+export function normalizePreset(value: unknown): RemoteTextAnimationPreset | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
   const phase = phaseOf(raw.phase);

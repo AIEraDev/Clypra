@@ -167,6 +167,9 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
       handleUpdateMultiple({
         motion: nextMotion,
         visualKeyframes: compiledKeyframes,
+        ...(selectedClip.kind === "text"
+          ? { entranceAnimation: undefined, exitAnimation: undefined }
+          : {}),
       });
     },
     [
