@@ -74,7 +74,19 @@ describe("Sidebar FeaturePlaceholders Integration", () => {
     expect(screen.getByText("Smooth cuts between clips.")).toBeDefined();
   });
 
-  it("keeps functional tabs active (Captions, Audio, Text)", () => {
+  it("renders captions placeholder when Captions tab is clicked", () => {
+    render(<Sidebar initialTab="media" />);
+    const captionsTabButton = screen.getByRole("button", { name: /captions/i });
+    fireEvent.click(captionsTabButton);
+
+    expect(screen.getByText("Captions are planned")).toBeDefined();
+    expect(
+      screen.getByText("Generate and style subtitles for your video."),
+    ).toBeDefined();
+    expect(screen.queryByTestId("real-captions-tab")).toBeNull();
+  });
+
+  it("keeps functional tabs active (Media, Audio, Text)", () => {
     render(<Sidebar initialTab="media" />);
 
     // Audio
@@ -86,10 +98,5 @@ describe("Sidebar FeaturePlaceholders Integration", () => {
     const textTabButton = screen.getByRole("button", { name: /text/i });
     fireEvent.click(textTabButton);
     expect(screen.getByTestId("real-text-tab")).toBeDefined();
-
-    // Captions
-    const captionsTabButton = screen.getByRole("button", { name: /captions/i });
-    fireEvent.click(captionsTabButton);
-    expect(screen.getByTestId("real-captions-tab")).toBeDefined();
   });
 });

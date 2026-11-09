@@ -1,4 +1,4 @@
-import { Smile, Wand2, SlidersHorizontal, Shuffle } from "lucide-react";
+import { Smile, Wand2, SlidersHorizontal, Shuffle, MessageSquare } from "lucide-react";
 import type { FeaturePlaceholderProps } from "@/components/ui/FeaturePlaceholder";
 
 const openExternalUrl = async (url: string) => {
@@ -64,6 +64,17 @@ export const SIDEBAR_PLACEHOLDERS: Record<string, FeaturePlaceholderProps> = {
     icon: Shuffle,
     title: "More transitions are coming",
     description: "Smooth cuts between clips.",
+    status: "planned",
+    ghost: "list",
+    action: {
+      label: "Follow progress",
+      onClick: () => openExternalUrl("https://github.com/AIEraDev/Clypra"),
+    },
+  },
+  captions: {
+    icon: MessageSquare,
+    title: "Captions are planned",
+    description: "Generate and style subtitles for your video.",
     status: "planned",
     ghost: "list",
     action: {
