@@ -13,6 +13,7 @@ import {
   toKeyframeEasing,
   type RemoteTextAnimationPreset,
 } from "@/features/text-animations/animationCatalog";
+import { isGlyphAnimatedPreset } from "./glyphAnimator";
 
 type AnimatableClip = {
   x?: number;
@@ -149,12 +150,16 @@ export function compileClipMotionKeyframes(
   const base = getBaseValues(clip);
 
   const inPreset = findPreset(motion.inPreset);
-  if (inPreset?.phase === "in") {
+  // Stagger-based presets (e.g. "Flip In") are handled entirely by the
+  // per-glyph rasterizer path at render time. Never compile them into
+  // clip-level visualKeyframes — doing so rotates the whole text box as a
+  // rigid rectangle instead of animating individual characters.
+  if (inPreset?.phase === "in" && !isGlyphAnimatedPreset(inPreset)) {
     addTrackKeyframes(result, inPreset, "in", Math.max(0.1, motion.inDuration ?? inPreset.defaultDuration ?? 0.6), base, motion.inEasing);
   }
 
   const outPreset = findPreset(motion.outPreset);
-  if (outPreset?.phase === "out") {
+  if (outPreset?.phase === "out" && !isGlyphAnimatedPreset(outPreset)) {
     addTrackKeyframes(result, outPreset, "out", Math.max(0.1, motion.outDuration ?? outPreset.defaultDuration ?? 0.6), base, motion.outEasing);
   }
 

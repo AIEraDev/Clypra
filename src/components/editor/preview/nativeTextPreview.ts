@@ -856,6 +856,17 @@ function buildNativeTextKeyObject(
     textRole: layer.textRole,
     maxWidth: layer.maxWidth,
     time: timeDependent ? layer.time : undefined,
+    // Per-glyph motion animation: each progress step produces a unique raster.
+    // Round to 2 decimal places (100 steps) to avoid runaway cache growth while
+    // still producing frame-accurate glyph transforms.
+    motionInProgress:
+      layer.motionInProgress !== undefined
+        ? Math.round(layer.motionInProgress * 100) / 100
+        : undefined,
+    motionOutProgress:
+      layer.motionOutProgress !== undefined
+        ? Math.round(layer.motionOutProgress * 100) / 100
+        : undefined,
     width: layer.baseWidth ?? layer.width,
     height: layer.baseHeight ?? layer.height,
     fontFamily: layer.fontFamily,

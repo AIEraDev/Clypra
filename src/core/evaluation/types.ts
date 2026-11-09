@@ -197,6 +197,26 @@ export interface EvaluatedTextLayer extends BaseVisualLayer {
   readonly animationOperation?: "render" | "entrance" | "exit" | "animation";
   readonly animationType?: string;
 
+  /**
+   * Active motion preset config — forwarded to the rasterizer for per-glyph
+   * animation. Undefined when no motion preset is applied to this clip.
+   */
+  readonly motion?: import("@/types/motion").ClipMotionConfig;
+
+  /**
+   * Normalized in-animation progress [0, 1] at the current eval time.
+   * Defined only while the in-preset animation window is active.
+   * Used by the glyph rasterizer to evaluate stagger-based presets.
+   */
+  readonly motionInProgress?: number;
+
+  /**
+   * Normalized out-animation progress [0, 1] at the current eval time.
+   * Defined only while the out-preset animation window is active.
+   * 0 = just started exiting, 1 = fully exited.
+   */
+  readonly motionOutProgress?: number;
+
   // ─── Text Content ─────────────────────────────────────────────────────────
 
   /** Text content to render */
