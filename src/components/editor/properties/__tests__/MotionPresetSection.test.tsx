@@ -143,14 +143,17 @@ const mockPresets: RemoteTextAnimationPreset[] = [
   },
 ];
 
+const useAnimationPhaseMock = vi.fn((phase: string, _enabled?: boolean) => ({
+  presets: mockPresets.filter((p) => p.phase === phase),
+  status: "ready",
+}));
+
 vi.mock("@/features/text-animations/animationCatalog", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/features/text-animations/animationCatalog")>();
   return {
     ...actual,
-    useAnimationPhase: (phase: string) => ({
-      presets: mockPresets.filter((p) => p.phase === phase),
-      status: "ready",
-    }),
+    useAnimationPhase: (phase: string, enabled?: boolean) =>
+      useAnimationPhaseMock(phase, enabled),
     useTextAnimationCatalog: () => ({
       presets: mockPresets,
       phases: {
@@ -205,7 +208,7 @@ describe("MotionPresetSection CapCut Parity & Kinematics", () => {
     expect(screen.getByRole("tab", { name: /Loop/i })).toBeDefined();
 
     // In is active by default, showing starter presets
-    expect(screen.getByText("None")).toBeDefined();
+    expect(screen.getAllByText("None").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Typewriter")).toBeDefined();
     expect(screen.getByText("Slide Up")).toBeDefined();
     expect(screen.getByText("Zoom In")).toBeDefined();
@@ -278,7 +281,7 @@ describe("MotionPresetSection CapCut Parity & Kinematics", () => {
     expect(screen.queryByText("Typewriter")).toBeNull();
   });
 
-  it("filters presets using category pills", () => {
+  it("filters presets using favorites toggle", () => {
     const handleUpdateMultiple = vi.fn();
     render(
       <MotionPresetSection
@@ -287,12 +290,45 @@ describe("MotionPresetSection CapCut Parity & Kinematics", () => {
       />,
     );
 
-    // Click "3D" pill
-    const threeDPill = screen.getByText("3D");
-    fireEvent.click(threeDPill);
+    // Filter by favorites before any favorite exists
+    const favButton = screen.getByRole("button", { name: /Favorites/i });
+    fireEvent.click(favButton);
 
-    expect(screen.getByText("Flip In")).toBeDefined();
+    // None card is always present, but no preset cards match favorites
+    expect(screen.getAllByText("None").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText("Slide Up")).toBeNull();
     expect(screen.queryByText("Typewriter")).toBeNull();
+
+    // Toggle off favorites filter
+    fireEvent.click(favButton);
+    expect(screen.getByText("Typewriter")).toBeDefined();
+    expect(screen.getByText("Slide Up")).toBeDefined();
+  });
+
+  it("keeps all three tab grids mounted in DOM with CSS visibility toggling", () => {
+    const handleUpdateMultiple = vi.fn();
+    const { container } = render(
+      <MotionPresetSection
+        selectedClip={mockClip}
+        handleUpdateMultiple={handleUpdateMultiple}
+      />,
+    );
+
+    // Check containers: one has 'contents', two have 'hidden'
+    const contentsContainers = container.querySelectorAll(".contents");
+    const hiddenContainers = container.querySelectorAll(".hidden");
+    expect(contentsContainers.length).toBe(1);
+    expect(hiddenContainers.length).toBe(2);
+
+    // Switch to Out tab
+    const outTab = screen.getByRole("tab", { name: /Out/i });
+    fireEvent.click(outTab);
+
+    // Still exactly 1 contents and 2 hidden
+    const updatedContents = container.querySelectorAll(".contents");
+    const updatedHidden = container.querySelectorAll(".hidden");
+    expect(updatedContents.length).toBe(1);
+    expect(updatedHidden.length).toBe(2);
   });
 
   it("renders pinned duration bar with stepper and slider when preset is active", () => {
@@ -359,5 +395,32 @@ describe("MotionPresetSection CapCut Parity & Kinematics", () => {
     // Verify speed & intensity controls
     expect(screen.getByText("Speed")).toBeDefined();
     expect(screen.getByText("Intensity")).toBeDefined();
+  });
+
+  it("only enables useAnimationPhase for tabs that have been visited (lazy gating)", () => {
+    useAnimationPhaseMock.mockClear();
+    const handleUpdateMultiple = vi.fn();
+    render(
+      <MotionPresetSection
+        selectedClip={mockClip}
+        handleUpdateMultiple={handleUpdateMultiple}
+      />,
+    );
+
+    // Initial render: 'in' is enabled (true), while 'out' and 'loop' were not visited (false)
+    expect(useAnimationPhaseMock).toHaveBeenCalledWith("in", true);
+    expect(useAnimationPhaseMock).toHaveBeenCalledWith("out", false);
+    expect(useAnimationPhaseMock).toHaveBeenCalledWith("loop", false);
+
+    useAnimationPhaseMock.mockClear();
+
+    // Click Out tab
+    const outTab = screen.getByRole("tab", { name: /Out/i });
+    fireEvent.click(outTab);
+
+    // Now 'in' remains enabled (true) and 'out' became enabled (true); 'loop' is still unvisited (false)
+    expect(useAnimationPhaseMock).toHaveBeenCalledWith("in", true);
+    expect(useAnimationPhaseMock).toHaveBeenCalledWith("out", true);
+    expect(useAnimationPhaseMock).toHaveBeenCalledWith("loop", false);
   });
 });
