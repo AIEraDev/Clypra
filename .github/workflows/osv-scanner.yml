@@ -1,0 +1,34 @@
+# OSV-Scanner checks all lockfiles (package-lock.json, Cargo.lock) against the
+# Open Source Vulnerabilities database. It complements Dependabot by using a
+# broader advisory source and reports into Security > Code scanning via SARIF.
+# Docs: https://google.github.io/osv-scanner/github-action/
+name: OSV-Scanner
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    # Weekly scan (Mondays 08:00 UTC).
+    - cron: "0 8 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  scan-scheduled:
+    if: ${{ github.event_name == 'push' || github.event_name == 'schedule' }}
+    permissions:
+      actions: read
+      security-events: write
+      contents: read
+    uses: "google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.3.8"
+
+  scan-pr:
+    if: ${{ github.event_name == 'pull_request' }}
+    permissions:
+      actions: read
+      security-events: write
+      contents: read
+    uses: "google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@v2.3.8"
