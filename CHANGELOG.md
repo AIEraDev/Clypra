@@ -10,25 +10,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### 🎬 Timeline-Zero Effects & Native Playback Stability (CLY-BUG-TIMELINE-ZERO-EFFECT)
 
-- **Comprehensive Clip Versioning (`computeClipVersion`)** — Resolved the critical defect where visual effects, filters, adjustments, LUTs, chroma-key, and animations applied to clips starting at timeline zero ($t = 0$) failed to render in native preview. `computeClipVersion` now computes authoritative hashes across all visual modifiers (`effects`, `filter`, `adjustments`, `colorGrade`, `chromaKey`, `entranceAnimation`, `exitAnimation`, `conform`), eliminating stale `EvaluatedScene` cache hits (#546).
-- **Non-Video Timeline Composite Recovery (`native_preview/mod.rs`)** — Fixed playback stall on timelines consisting exclusively of text or image clips. Bypassed `playback_lookahead_miss` when `has_video_layers` is false, allowing pure raster and text timelines to composite smoothly without dropping frames (#546).
-- **Native Render Session Asset Matching (`render_session.rs`)** — Enhanced raster layer matching to identify assets by `asset_id` instead of strictly `layer_id`, ensuring animated stickers and Studio text layers maintain GPU texture identity (#546).
-- **Immediate Playback Demand Reset (`NativeProgramPreview.tsx`)** — Cleared `lastNativePlaybackRequestKey` upon unpausing, ensuring $t = 0$ frame demands are dispatched immediately on play (#546).
-- **Silent Project Playback Latching (`PlaybackClock.ts`)** — Added `!this._nativeAudioUnavailable` guard to prevent the 2.0s CPAL initialization timeout from freezing playhead advancement on silent projects (#546).
+- **Comprehensive Clip Versioning (`computeClipVersion`, #546)** — Resolved the critical defect where visual effects, filters, adjustments, LUTs, chroma-key, and animations applied to clips starting at timeline zero ($t = 0$) failed to render in native preview. `computeClipVersion` now computes authoritative hashes across all visual modifiers (`effects`, `filter`, `adjustments`, `colorGrade`, `chromaKey`, `entranceAnimation`, `exitAnimation`, `conform`), eliminating stale `EvaluatedScene` cache hits.
+- **Non-Video Timeline Composite Recovery (`native_preview/mod.rs`, #546)** — Fixed playback stall on timelines consisting exclusively of text or image clips. Bypassed `playback_lookahead_miss` when `has_video_layers` is false, allowing pure raster and text timelines to composite smoothly without dropping frames or stalling.
+- **Native Render Session Asset Matching (`render_session.rs`, #546)** — Enhanced raster layer matching to identify assets by `asset_id` instead of strictly `layer_id`, ensuring animated stickers, overlays, and Studio text layers maintain GPU texture identity.
+- **Immediate Playback Demand Reset (`NativeProgramPreview.tsx`, #546)** — Cleared `lastNativePlaybackRequestKey` upon unpausing, ensuring $t = 0$ frame demands are dispatched immediately on play.
+- **Silent Project Playback Latching (`PlaybackClock.ts`, #546)** — Added `!this._nativeAudioUnavailable` guard to prevent the 2.0s CPAL initialization timeout from freezing playhead advancement on silent projects.
 
-### ✨ Text & Media Animation Systems
+### ✨ Procedural Text & Media Animation Systems
 
-- **Per-Glyph Character Stagger Engine (`glyphAnimator.ts`)** — Introduced per-glyph text animation compilation supporting directional cascades, character-by-character reveals, and elastic overshoot curves (#546).
-- **Text Animation Pipeline & Phase Grid (`PhaseGrid.tsx`, `textAnimationCache.ts`)** — Rebuilt text motion presets on top of the `MediaAnimationSection` architecture, providing unified In/Out/Loop phase selection, reactive duration scrubbing, and OS-level manifest caching (#546).
-- **Media Animation Architecture (`MediaAnimationSection.tsx`)** — Full In/Out/Combo motion preset system for video and image clips with live hover preview, GPU capability probing, and automatic keyframe recompilation (#543, #544).
+- **Per-Glyph Character Stagger Engine (`glyphAnimator.ts`, #546)** — Introduced a high-performance per-glyph text animation engine supporting directional cascades (left-to-right, right-to-left, center-out), character-by-character reveals, and elastic overshoot easing curves.
+- **Unified Text Animation Architecture (`PhaseGrid.tsx`, `textAnimationCache.ts`, #546)** — Rebuilt text motion presets on top of the `MediaAnimationSection` architecture, providing unified In/Out/Loop phase selection, interactive duration scrubbing, and OS-level manifest caching.
+- **Procedural Media Animation Pipeline (`MediaAnimationSection.tsx`, #543, #544)** — Complete procedural motion preset system for video and image clips with live hover preview, GPU capability probing, and automatic keyframe recompilation.
+- **Media Animation Performance Telemetry (`telemetryCollector.ts`, #544)** — Added end-to-end telemetry instrumentation tracking animation compilation times, achieved frame rates, and render latencies across all animation phases.
 
-### 🛠️ Properties Panel & Export Pipeline Parity
+### 🎛️ Properties Panel, Typography & Audio Flow Parity
 
-- **Text Template Properties Tab Resolution (`PropertyPanelHeader.tsx`, CLY-BUG-TEXT-001)** — Resolved defect where selecting text-template clips omitted the properties tab bar. `PropertyPanelHeader` now correctly maps `clipKind === "text-template"` to `TEXT_TABS`, ensuring `TextStyleSection` and `TextTemplateOverlay` mount properly (#546).
-- **Chained Audio Export Tempo & Pitch Graphs (`audio_filter.rs`)** — Added chained FFmpeg `atempo` subgraphs (for speeds $<0.5\times$ or $>2.0\times$) and `asetrate` pitch adjustments to `build_export_audio_filter_complex`, eliminating audio-video drift in speed-remapped exports (#546).
-- **Native Timeline Export Cut-Only Eligibility (`nativeTimelineExport.ts`)** — Fixed eligibility analysis so clips with default `audio.speed.preservePitch === true` are not falsely disqualified from the fast native cut-only export path (#546).
-- **Audio Control Hygiene (`AudioSection.tsx`, `AudioBasicTab.tsx`)** — Added one-click reset controls (`RotateCcw`) for volume, fade-in, and fade-out, and integrated `AudioFXSection` for 3-band EQ and noise suppression (#546).
-- **Sidebar Feature Placeholders (`FeaturePlaceholder.tsx`)** — Replaced blank panels for unfinished sidebar tabs with clean, localized feature placeholders (#546).
+- **Text Template Properties Tab Resolution (`PropertyPanelHeader.tsx`, CLY-BUG-TEXT-001, #546)** — Resolved defect where selecting text-template clips omitted the properties tab bar. `PropertyPanelHeader` now correctly maps `clipKind === "text-template"` to `TEXT_TABS`, ensuring `TextStyleSection` and `TextTemplateOverlay` mount properly.
+- **Chained Audio Export Tempo & Pitch Graphs (`audio_filter.rs`, #546)** — Added chained FFmpeg `atempo` subgraphs (for speeds $<0.5\times$ or $>2.0\times$) and `asetrate` pitch adjustments to `build_export_audio_filter_complex`, eliminating audio-video drift in speed-remapped exports.
+- **Native Timeline Export Cut-Only Eligibility (`nativeTimelineExport.ts`, #546)** — Fixed eligibility analysis so clips with default `audio.speed.preservePitch === true` are not falsely disqualified from the fast native cut-only export path.
+- **Audio Control Hygiene (`AudioSection.tsx`, `AudioBasicTab.tsx`, #546)** — Added one-click reset controls (`RotateCcw`) for volume, fade-in, and fade-out, and integrated `AudioFXSection` for 3-band EQ, noise suppression, and voice effects.
+- **Image Clip Properties Panel Parity (`ImageStyleSection.tsx`, #541)** — Dedicated tabbed properties panel for image clips matching video properties (Basic, Animation, Adjust), complete with native raster color grading and filter controls.
+- **Sidebar Feature Placeholders (`FeaturePlaceholder.tsx`, #546)** — Replaced blank panels for unfinished sidebar tabs (Captions, Transitions, Filters) with clean, localized feature placeholders.
+
+### 🧲 Timeline Ergonomics, Snapping & Integrity
+
+- **Magnetic Playhead Snapping with Hysteresis (`Timeline.tsx`, #541)** — Implemented magnetic snapping for the timeline playhead with hysteresis thresholds, preventing handle jitter when scrubbing near clip boundaries, markers, or cuts.
+- **Tactile Snapping Pressure (`TransformSection.tsx`, #541)** — Increased snapping resistance and visual guides during viewport transform manipulations.
+- **Selected Clip Elevation & Handle Placement (#541)** — Pushed clip resize handles outside the clip boundary and elevated selected clips' z-index to eliminate click collision on dense multi-track timelines.
+- **Unclean Quit Duplicate Prevention (`BUG-CRD-001`, #541)** — Fixed state hydration defect where recovery after an unclean application termination created duplicate clip and track instances.
+- **Strict Command-Pattern Enforcement (Invariant 3, #511)** — Migrated all remaining direct timeline store mutators across the application to undoable history commands (`historyStore.dispatch`), guaranteeing 100% undo/redo fidelity.
+
+### 🛡️ Quality Gate & Engineering Harness Hardening
+
+- **Unified Engineering Quality Gate (`npm run verify:gate`, #511)** — Established the 4-pillar quality gate combining architecture fitness checks, strict static analysis, unit/integration verification, and fleet telemetry audits.
+- **Cumulative Audio Clock Drift Elimination (`PlaybackClock.ts`, #511)** — Fixed a 10-minute cumulative audio clock drift via micro-second remainder carry in the CPAL hardware callback engine.
+- **Physical Verification Oracles (#511)** — Wired packet-level A/V sync verification, variable frame rate (VFR) export oracles, and clean-PATH bundled sidecar resolution checks into CI.
+- **Automated Multi-OS Fleet Telemetry Gating (`daily-fleet-telemetry-audit.mjs`, #517)** — Built daily fleet telemetry analysis enforcing anonymous install deduplication, cohort P95 latency bounds, and release SLA alerts.
+- **Automated Homebrew Cask Dispatch (#513)** — Release workflow now automatically dispatches cask update events to `AIEraDev/homebrew-tap` upon publishing new releases.
 
 ## [1.6.0] - 2026-10-11
 
