@@ -141,9 +141,9 @@ describe("AudioSection", () => {
     );
 
     const volumeInput = screen.getAllByRole("spinbutton")[0];
-    fireEvent.change(volumeInput, { target: { value: "50" } });
+    fireEvent.change(volumeInput, { target: { value: "0" } });
     fireEvent.blur(volumeInput);
-    expect(handleUpdate).toHaveBeenCalledWith("volume", 0.5);
+    expect(handleUpdate).toHaveBeenCalledWith("volume", 1);
 
     const muteButton = screen.getByTitle("Mute");
     fireEvent.click(muteButton);
@@ -194,7 +194,8 @@ describe("AudioSection", () => {
     );
 
     const volumeInput = screen.getAllByRole("spinbutton")[0];
-    fireEvent.change(volumeInput, { target: { value: "75" } });
+    // -2.5 dB corresponds to ~0.75 linear gain (decimals={1} on NumericControl)
+    fireEvent.change(volumeInput, { target: { value: "-2.5" } });
     fireEvent.blur(volumeInput);
 
     // Must update volumeKeyframes, NOT plain volume
@@ -205,7 +206,7 @@ describe("AudioSection", () => {
     const updatedKfs = kfCall![1];
     const updatedKf = updatedKfs.find((k: any) => k.id === "vkf-a");
     expect(updatedKf).toBeDefined();
-    expect(updatedKf.gain).toBeCloseTo(0.75, 5);
+    expect(updatedKf.gain).toBeCloseTo(0.75, 2);
     // Other keyframe untouched
     expect(updatedKfs.find((k: any) => k.id === "vkf-b").gain).toBe(0.3);
   });
@@ -219,10 +220,14 @@ describe("AudioSection", () => {
     );
 
     const volumeInput = screen.getAllByRole("spinbutton")[0];
-    fireEvent.change(volumeInput, { target: { value: "40" } });
+    // -8.0 dB corresponds to ~0.4 linear gain (10^(-8/20) ≈ 0.398)
+    fireEvent.change(volumeInput, { target: { value: "-8" } });
     fireEvent.blur(volumeInput);
 
-    expect(handleUpdate).toHaveBeenCalledWith("volume", 0.4);
+    expect(handleUpdate).toHaveBeenCalledWith(
+      "volume",
+      expect.closeTo(0.398, 2),
+    );
     const kfCall = handleUpdate.mock.calls.find(
       ([prop]) => prop === "volumeKeyframes",
     );

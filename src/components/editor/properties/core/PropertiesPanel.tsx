@@ -8,7 +8,10 @@ import { useI18n } from "@/i18n";
 import { UnlinkAudioCommand } from "@/core/history/commands/UnlinkAudioCommand";
 import { supportsVisualAnimation } from "@/lib/timeline/timelineClip";
 import { getClipTypeInfo } from "@/lib/timeline/clipPropertyTransform";
-import type { TextClip, MediaAsset } from "@/types";
+import type { TextClip, MediaAsset, ClipMotionConfig } from "@/types";
+import { compileClipMotionKeyframes } from "@/core/animation/motionPresets";
+import { getCatalogSnapshot } from "@/features/media-animations/mediaAnimationCatalog";
+import { getTextAnimationCatalogSnapshot } from "@/features/text-animations/animationCatalog";
 import { usePropertyEditCoordinator } from "@/hooks/usePropertyEditCoordinator";
 import { useClipPropertyHandlers } from "@/hooks/useClipPropertyHandlers";
 import { EmptyPropertiesState } from "./EmptyPropertiesState";
@@ -55,6 +58,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     | AudioPropertyTab
     | null
   >(null);
+  const [animationSubTab, setAnimationSubTab] = useState<string>("in");
   const [newPresetName, setNewPresetName] = useState("");
   // ── Clip resolution ──────────────────────────────────────────────────────
   const selectedClipId = selectedClipIds[0] ?? null;
@@ -260,28 +264,35 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           executePreviewCommand={coordinator.executePreviewCommand}
           savePreset={savePreset}
           deletePreset={deletePreset}
+          animationSubTab={animationSubTab}
+          onAnimationSubTabChange={setAnimationSubTab}
         />
       )}
       {/* ── Properties panel footer ─────────────────────────────────────
-           When on the animation tab with an active In/Out media animation
-           preset, show the duration control instead of Save as Preset.
+           When on the animation tab with an active In/Out animation preset
+           (media or text), show the duration control instead of Save as Preset.
            Otherwise show the standard Reset / Save as Preset buttons. ── */}
       {(() => {
         const isAnimationTab = activePropertyTab === "animation";
-        const isMediaAnimClip = !!isVideoClip || !!isImageClip;
+        const isAnimatableClip = !!isVideoClip || !!isImageClip || !!isTextClip;
         const motion = selectedClip?.motion;
         const activeInPreset = motion?.inPreset && motion.inPreset !== "none";
         const activeOutPreset =
           motion?.outPreset && motion.outPreset !== "none";
+        // Determine whether to target in or out preset based on active animation sub-tab.
+        // Fall back to whichever preset is active if user hasn't explicitly picked a sub-tab yet.
+        const tab =
+          animationSubTab === "out"
+            ? (activeOutPreset ? "out" : activeInPreset ? "in" : "out")
+            : (activeInPreset ? "in" : activeOutPreset ? "out" : "in");
+        const hasActivePreset = tab === "out" ? activeOutPreset : activeInPreset;
         const showDurationControl =
           isAnimationTab &&
-          isMediaAnimClip &&
-          (activeInPreset || activeOutPreset);
+          isAnimatableClip &&
+          (animationSubTab === "in" || animationSubTab === "out" || !animationSubTab) &&
+          hasActivePreset;
 
         if (showDurationControl && selectedClip) {
-          // Determine which preset tab is active based on what's set.
-          // Prefer "in" if both are set (In tab is default).
-          const tab = activeInPreset ? "in" : "out";
           const currentDuration =
             tab === "in"
               ? (motion?.inDuration ?? 0.5)
@@ -291,16 +302,75 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             Math.min(5.0, selectedClip.duration),
           );
 
+          const updateDuration = (nextDuration: number) => {
+            const nextMotion: ClipMotionConfig =
+              tab === "in"
+                ? { ...motion, inDuration: nextDuration }
+                : { ...motion, outDuration: nextDuration };
+            const catalog = isTextClip
+              ? getTextAnimationCatalogSnapshot().presets
+              : getCatalogSnapshot().presets;
+            const compiledKeyframes = compileClipMotionKeyframes(
+              selectedClip,
+              nextMotion,
+              canvasWidth,
+              canvasHeight,
+              catalog,
+            );
+            const updateFn = isTextClip
+              ? handlers.handleUpdateMultipleImmediate
+              : handlers.handleUpdateMultiple;
+            updateFn({
+              motion: nextMotion,
+              visualKeyframes: compiledKeyframes,
+              ...(isTextClip
+                ? { entranceAnimation: undefined, exitAnimation: undefined }
+                : {}),
+            });
+          };
+
           const step = (delta: number) => {
             const next = Math.max(
               0.1,
               Math.min(maxDuration, +(currentDuration + delta).toFixed(2)),
             );
-            handlers.handleUpdateMultiple(
-              tab === "in"
-                ? { motion: { ...motion, inDuration: next } }
-                : { motion: { ...motion, outDuration: next } },
-            );
+            updateDuration(next);
+          };
+
+          const handleTrackPointerDown = (
+            e: React.PointerEvent<HTMLDivElement>,
+          ) => {
+            const track = e.currentTarget;
+            track.setPointerCapture(e.pointerId);
+            const updateFromPointer = (clientX: number) => {
+              const rect = track.getBoundingClientRect();
+              if (rect.width <= 0) return;
+              const ratio = Math.max(
+                0,
+                Math.min(1, (clientX - rect.left) / rect.width),
+              );
+              const val = Math.max(
+                0.1,
+                Math.min(maxDuration, +(ratio * maxDuration).toFixed(2)),
+              );
+              updateDuration(val);
+            };
+            updateFromPointer(e.clientX);
+
+            const onPointerMove = (moveEvent: PointerEvent) => {
+              updateFromPointer(moveEvent.clientX);
+            };
+            const onPointerUp = (upEvent: PointerEvent) => {
+              try {
+                track.releasePointerCapture(upEvent.pointerId);
+              } catch {}
+              window.removeEventListener("pointermove", onPointerMove);
+              window.removeEventListener("pointerup", onPointerUp);
+              window.removeEventListener("pointercancel", onPointerUp);
+            };
+            window.addEventListener("pointermove", onPointerMove);
+            window.addEventListener("pointerup", onPointerUp);
+            window.addEventListener("pointercancel", onPointerUp);
           };
 
           return (
@@ -312,8 +382,9 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 <div className="flex items-center gap-0.5">
                   <button
                     type="button"
+                    aria-label="Decrease duration"
                     onClick={() => step(-0.1)}
-                    className="p-0.5 rounded hover:bg-white/10 text-text-muted hover:text-white transition-colors"
+                    className="p-0.5 rounded hover:bg-white/10 text-text-muted hover:text-white transition-colors cursor-pointer"
                   >
                     <svg
                       width="14"
@@ -330,8 +401,9 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   </span>
                   <button
                     type="button"
+                    aria-label="Increase duration"
                     onClick={() => step(0.1)}
-                    className="p-0.5 rounded hover:bg-white/10 text-text-muted hover:text-white transition-colors"
+                    className="p-0.5 rounded hover:bg-white/10 text-text-muted hover:text-white transition-colors cursor-pointer"
                   >
                     <svg
                       width="14"
@@ -345,29 +417,17 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   </button>
                 </div>
               </div>
-              {/* Slider track */}
+              {/* Slider track with click & drag scrubbing */}
               <div
-                className="relative h-1.5 rounded-full bg-white/10 cursor-pointer"
-                onClick={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const ratio = (e.clientX - rect.left) / rect.width;
-                  const val = Math.max(
-                    0.1,
-                    Math.min(maxDuration, +(ratio * maxDuration).toFixed(2)),
-                  );
-                  handlers.handleUpdateMultiple(
-                    tab === "in"
-                      ? { motion: { ...motion, inDuration: val } }
-                      : { motion: { ...motion, outDuration: val } },
-                  );
-                }}
+                className="relative h-1.5 rounded-full bg-white/10 cursor-pointer select-none touch-none"
+                onPointerDown={handleTrackPointerDown}
               >
                 <div
-                  className="absolute inset-y-0 left-0 rounded-full bg-[#00E5FF]/70"
+                  className="absolute inset-y-0 left-0 rounded-full bg-[#00E5FF]/70 pointer-events-none"
                   style={{ width: `${(currentDuration / maxDuration) * 100}%` }}
                 />
                 <div
-                  className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white shadow border border-white/20"
+                  className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white shadow border border-white/20 pointer-events-none"
                   style={{
                     left: `calc(${(currentDuration / maxDuration) * 100}% - 6px)`,
                   }}

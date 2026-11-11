@@ -2567,10 +2567,11 @@ pub(crate) async fn present_native_frame_internal(
     let queued_key = request
         .decode_cache_key()
         .map_err(|error| error.to_string())?;
+    let has_video_layers = !request.project.video_layers.is_empty();
     let is_playback_mode = request.mode.as_deref() == Some("playback");
     let mut playback_lookahead_miss = false;
     let lookahead_wait_us: u64 = 0;
-    let queued_frame =
+    let queued_frame = if has_video_layers {
         if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
             let queue_arc = queue.inner().clone();
             let mut q = queue_arc.lock().await;
@@ -2600,8 +2601,11 @@ pub(crate) async fn present_native_frame_internal(
             }
         } else {
             None
-        };
-    if is_playback_mode {
+        }
+    } else {
+        None
+    };
+    if is_playback_mode && has_video_layers {
         record_playback_lookahead_outcome(&app, queued_frame.is_some());
     }
     if playback_lookahead_miss {

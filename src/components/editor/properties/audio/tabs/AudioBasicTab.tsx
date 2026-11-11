@@ -14,6 +14,7 @@ import { SliderTrack } from "../../primitives/SliderTrack";
 import { NumericControl } from "../../primitives/NumericControl";
 import { KeyframeNavControls } from "../../primitives/KeyframeNavControls";
 import { propertyEditTelemetry } from "@/lib/properties/propertyEditTelemetry";
+import { AudioFXSection } from "../sections/AudioFXSection";
 
 interface AudioBasicTabProps {
   selectedClip: Clip;
@@ -209,7 +210,18 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
     <div className="space-y-4 px-3 py-2">
       {/* Volume */}
       <div className="space-y-2">
-        <label className="text-[11px] font-medium text-white/90">Volume</label>
+        <div className="flex items-center justify-between">
+          <label className="text-[11px] font-medium text-white/90">Volume</label>
+          <button
+            type="button"
+            onClick={handleResetVolume}
+            className="w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors cursor-pointer"
+            title="Reset volume"
+            aria-label="Reset volume"
+          >
+            <RotateCcw className="w-2.5 h-2.5" />
+          </button>
+        </div>
         <div className="flex items-center">
           <SliderTrack
             value={volumePercent}
@@ -267,7 +279,18 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
 
       {/* Fade in */}
       <div className="space-y-2">
-        <label className="text-[11px] font-medium text-white/90">Fade in</label>
+        <div className="flex items-center justify-between">
+          <label className="text-[11px] font-medium text-white/90">Fade in</label>
+          <button
+            type="button"
+            onClick={handleResetFadeIn}
+            className="w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors cursor-pointer"
+            title="Reset fade in"
+            aria-label="Reset fade in"
+          >
+            <RotateCcw className="w-2.5 h-2.5" />
+          </button>
+        </div>
         <div className="flex items-center">
           <SliderTrack
             value={fadeIn}
@@ -308,9 +331,20 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
 
       {/* Fade out */}
       <div className="space-y-2">
-        <label className="text-[11px] font-medium text-white/90">
-          Fade out
-        </label>
+        <div className="flex items-center justify-between">
+          <label className="text-[11px] font-medium text-white/90">
+            Fade out
+          </label>
+          <button
+            type="button"
+            onClick={handleResetFadeOut}
+            className="w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors cursor-pointer"
+            title="Reset fade out"
+            aria-label="Reset fade out"
+          >
+            <RotateCcw className="w-2.5 h-2.5" />
+          </button>
+        </div>
         <div className="flex items-center">
           <SliderTrack
             value={fadeOut}
@@ -407,6 +441,9 @@ export const AudioBasicTab: React.FC<AudioBasicTabProps> = ({
           />
         </div>
       </div>
+
+      {/* Audio FX Section */}
+      <AudioFXSection selectedClip={selectedClip} handleUpdate={handleUpdate} />
     </div>
   );
 };

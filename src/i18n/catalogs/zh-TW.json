@@ -271,6 +271,8 @@
   "properties.mediaAnimation.downloading": "Downloading",
   "properties.mediaAnimation.selectAnimation": "套用動畫",
   "properties.mediaAnimation.downloadAnimation": "Download animation",
+  "properties.mediaAnimation.toastApplied": "已套用「{{name}}」動畫",
+  "properties.mediaAnimation.toastRemoved": "已移除動畫",
   "properties.text.presetStyle": "預設樣式",
   "properties.text.expandPresets": "展開預設樣式",
   "properties.text.collapsePresets": "摺疊預設樣式",

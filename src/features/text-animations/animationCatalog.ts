@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import { getApiBaseUrl, getApiHeaders } from "@/lib/api/apiUtils";
 import type { KeyframeEasing } from "@/types/keyframes";
 import type { MotionBehaviorCategory, MotionPresetMeta, MotionSubCategory } from "@/types/motion";
+import { textAnimationCacheManager } from "./cache/textAnimationCache";
 
 export type AnimationTrackProperty =
   | "opacity"
@@ -32,6 +33,8 @@ export interface RemoteTextAnimationPreset extends MotionPresetMeta {
   procedural?: { type: string; intensity: number; frequency?: number };
   revisionId?: string;
   updatedAt?: number;
+  thumbnailUrl?: string;
+  previewUrl?: string;
 }
 
 // ── Per-phase snapshot ────────────────────────────────────────────────────────
@@ -65,8 +68,7 @@ const phaseSnapshots: Record<MotionBehaviorCategory, PhaseSnapshot> = {
 
 /**
  * In-memory cache for individually downloaded preset revisions.
- * Keyed by preset id. Populated when a user clicks a preset card.
- * Not persisted to localStorage — lives for the current session only.
+ * Keyed by preset id. Populated when a user clicks a preset card or on preload.
  */
 const downloadedPresets = new Map<string, RemoteTextAnimationPreset>();
 
@@ -78,18 +80,43 @@ const listeners = new Set<() => void>();
 // ── Derived merged snapshot ───────────────────────────────────────────────────
 
 function buildMergedSnapshot(): AnimationCatalogSnapshot {
-  // Merge all fetched phase presets; then layer in individually downloaded
-  // presets so the compositor can always resolve a selected preset's tracks.
   const seen = new Set<string>();
   const presets: RemoteTextAnimationPreset[] = [];
 
   for (const phase of ["in", "out", "loop"] as MotionBehaviorCategory[]) {
     for (const p of phaseSnapshots[phase].presets) {
-      if (!seen.has(p.id)) { seen.add(p.id); presets.push(p); }
+      if (!seen.has(p.id)) {
+        seen.add(p.id);
+        presets.push(p);
+      }
     }
   }
+
+  // Layer in disk-cached manifests so full tracks are available on startup
+  for (const [cacheKey, p] of textAnimationCacheManager.manifests.entries()) {
+    const id = cacheKey.split("@")[0];
+    if (!seen.has(id)) {
+      seen.add(id);
+      presets.push(p);
+    } else {
+      const idx = presets.findIndex((x) => x.id === id);
+      if (idx !== -1 && p.tracks.length > 0) {
+        presets[idx] = p;
+      }
+    }
+  }
+
+  // Layer in session-downloaded presets
   for (const p of downloadedPresets.values()) {
-    if (!seen.has(p.id)) { seen.add(p.id); presets.push(p); }
+    if (!seen.has(p.id)) {
+      seen.add(p.id);
+      presets.push(p);
+    } else {
+      const idx = presets.findIndex((x) => x.id === p.id);
+      if (idx !== -1 && p.tracks.length > 0) {
+        presets[idx] = p;
+      }
+    }
   }
 
   const statuses = [phaseSnapshots.in.status, phaseSnapshots.out.status, phaseSnapshots.loop.status];
@@ -116,7 +143,13 @@ function phaseOf(value: unknown): MotionBehaviorCategory | null {
 }
 
 function categoryOf(value: unknown): MotionSubCategory {
-  return value === "3D" || value === "Glitch" || value === "Motion" ? value : "Basic";
+  if (typeof value === "string") {
+    const lower = value.toLowerCase();
+    if (lower === "3d") return "3D";
+    if (lower === "glitch") return "Glitch";
+    if (lower === "motion") return "Motion";
+  }
+  return "Basic";
 }
 
 function iconForPreset(name: string, tags: string[]): string {
@@ -130,21 +163,43 @@ function iconForPreset(name: string, tags: string[]): string {
   return "Sparkles";
 }
 
-function normalizePreset(value: unknown): RemoteTextAnimationPreset | null {
+export function normalizePreset(value: unknown): RemoteTextAnimationPreset | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
-  const phase = phaseOf(raw.phase);
-  if (!phase || typeof raw.id !== "string" || typeof raw.name !== "string" || !Array.isArray(raw.tracks)) return null;
+  const phase = phaseOf(raw.phase ?? raw.category);
+  if (!phase || typeof raw.id !== "string" || typeof raw.name !== "string") return null;
+  // If tracks is not an array and no revisionId exists, the preset has neither tracks nor a way to fetch them
+  if (
+    !Array.isArray(raw.tracks) &&
+    typeof raw.revisionId !== "string" &&
+    typeof raw.activeVersion !== "string"
+  ) {
+    return null;
+  }
   const tags = Array.isArray(raw.tags) ? raw.tags.filter((tag): tag is string => typeof tag === "string") : [];
-  const tracks = raw.tracks.filter((track): track is RemoteTextAnimationPreset["tracks"][number] =>
-    !!track && typeof track === "object" && typeof (track as { property?: unknown }).property === "string" && Array.isArray((track as { keyframes?: unknown }).keyframes),
-  ) as RemoteTextAnimationPreset["tracks"];
+  const tracks = Array.isArray(raw.tracks)
+    ? (raw.tracks.filter((track): track is RemoteTextAnimationPreset["tracks"][number] =>
+        !!track &&
+        typeof track === "object" &&
+        typeof (track as { property?: unknown }).property === "string" &&
+        Array.isArray((track as { keyframes?: unknown }).keyframes),
+      ) as RemoteTextAnimationPreset["tracks"])
+    : [];
+
+  const thumbnailUrl = typeof raw.thumbnailUrl === "string" ? raw.thumbnailUrl : undefined;
+  const previewUrl =
+    typeof raw.previewUrl === "string"
+      ? raw.previewUrl
+      : typeof raw.previewVideoUrl === "string"
+        ? raw.previewVideoUrl
+        : undefined;
+
   return {
     id: raw.id,
     name: raw.name,
     phase,
     category: phase,
-    subCategory: categoryOf(raw.category),
+    subCategory: categoryOf(raw.subCategory ?? raw.category),
     tags,
     description: typeof raw.description === "string" ? raw.description : `${raw.name} ${phase} animation`,
     defaultDuration: typeof raw.defaultDuration === "number" ? raw.defaultDuration : 0.6,
@@ -155,8 +210,15 @@ function normalizePreset(value: unknown): RemoteTextAnimationPreset | null {
     previewLoopDuration: typeof raw.previewLoopDuration === "number" ? raw.previewLoopDuration : 1.2,
     stagger: raw.stagger as RemoteTextAnimationPreset["stagger"],
     procedural: raw.procedural as RemoteTextAnimationPreset["procedural"],
-    revisionId: typeof raw.revisionId === "string" ? raw.revisionId : undefined,
+    revisionId:
+      typeof raw.revisionId === "string"
+        ? raw.revisionId
+        : typeof raw.activeVersion === "string"
+          ? raw.activeVersion
+          : undefined,
     updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : undefined,
+    thumbnailUrl,
+    previewUrl,
   };
 }
 
@@ -169,7 +231,6 @@ function normalizePreset(value: unknown): RemoteTextAnimationPreset | null {
  *   completes reuses the same Promise.
  * - Already-ready phases are served from the in-memory snapshot without
  *   re-fetching unless `force` is true.
- * - No localStorage: catalog lists are intentionally session-scoped.
  */
 export async function fetchAnimationPhase(
   phase: MotionBehaviorCategory,
@@ -187,18 +248,27 @@ export async function fetchAnimationPhase(
     phaseSnapshots[phase] = { ...previous, status: "loading", error: undefined };
     emit();
     try {
-      const response = await fetch(
-        `${getApiBaseUrl()}/text-animations/${phase}`,
-        { headers: getApiHeaders(), credentials: "include" },
-      );
+      const url = `${getApiBaseUrl()}/text-animations?category=${phase}&fields=summary`;
+      let response = await fetch(url, {
+        headers: getApiHeaders(),
+        credentials: "include",
+      });
+      if (!response.ok) {
+        response = await fetch(`${getApiBaseUrl()}/text-animations/${phase}`, {
+          headers: getApiHeaders(),
+          credentials: "include",
+        });
+      }
       if (!response.ok) {
         throw new Error(`Catalog fetch failed for "${phase}" (${response.status})`);
       }
       const payload: unknown = await response.json();
-      if (!Array.isArray(payload)) {
-        throw new Error(`Invalid catalog payload for phase "${phase}"`);
-      }
-      const presets = payload.map(normalizePreset).filter(Boolean) as RemoteTextAnimationPreset[];
+      const items: unknown[] = Array.isArray(payload)
+        ? payload
+        : Array.isArray((payload as Record<string, unknown>)?.items)
+          ? ((payload as Record<string, unknown>).items as unknown[])
+          : [];
+      const presets = items.map(normalizePreset).filter(Boolean) as RemoteTextAnimationPreset[];
       phaseSnapshots[phase] = { presets, status: "ready" };
     } catch (error) {
       phaseSnapshots[phase] = {
@@ -220,51 +290,59 @@ export async function fetchAnimationPhase(
 
 /**
  * Download the full immutable preset definition via the revision route and
- * cache it in-memory for this session.
+ * cache it on disk (via textAnimationCacheManager) and in-memory for this session.
  *
  * Route: GET /text-animations/{category}/{id}/revisions/{revisionId}
- *
- * The `revisionId` is returned as part of the catalog index response.
- * If the catalog hasn't loaded the preset yet (e.g. user jumped directly to
- * a preset id), falls back to searching the merged snapshot for the revisionId.
- *
- * Returns the cached preset if already downloaded.
  */
 export async function downloadAnimationPreset(
   preset: RemoteTextAnimationPreset,
 ): Promise<RemoteTextAnimationPreset | null> {
-  // Return immediately if already cached this session.
+  // Return immediately if already cached in-memory with tracks.
   const cached = downloadedPresets.get(preset.id);
-  if (cached) return cached;
+  if (cached && cached.tracks.length > 0) return cached;
 
   const { id, phase, revisionId } = preset;
 
   if (!revisionId) {
-    // No revisionId in catalog entry — nothing to resolve from the revision route.
-    // Store the catalog entry itself so the compositor can use its tracks.
     downloadedPresets.set(id, preset);
     emit();
     return preset;
   }
 
-  try {
-    const response = await fetch(
-      `${getApiBaseUrl()}/text-animations/${phase}/${id}/revisions/${revisionId}`,
-      { headers: getApiHeaders(), credentials: "include" },
-    );
-    if (!response.ok) {
-      throw new Error(`Revision fetch failed for "${id}@${revisionId}" (${response.status})`);
+  // Check disk cache first via textAnimationCacheManager
+  if (textAnimationCacheManager.isCached(id, revisionId)) {
+    const fromDisk = await textAnimationCacheManager.getManifest(id, revisionId);
+    if (fromDisk && fromDisk.tracks.length > 0) {
+      downloadedPresets.set(id, fromDisk);
+      emit();
+      return fromDisk;
     }
-    const payload: unknown = await response.json();
-    const full = normalizePreset(payload);
-    if (!full) throw new Error(`Invalid revision payload for "${id}"`);
+  }
+
+  try {
+    const full = await textAnimationCacheManager.ensureDownloaded(
+      id,
+      revisionId,
+      async () => {
+        const response = await fetch(
+          `${getApiBaseUrl()}/text-animations/${phase}/${id}/revisions/${revisionId}`,
+          { headers: getApiHeaders(), credentials: "include" },
+        );
+        if (!response.ok) {
+          throw new Error(`Revision fetch failed for "${id}@${revisionId}" (${response.status})`);
+        }
+        const payload: unknown = await response.json();
+        const normalized = normalizePreset(payload);
+        if (!normalized) throw new Error(`Invalid revision payload for "${id}"`);
+        return normalized;
+      },
+    );
 
     downloadedPresets.set(id, full);
-    emit(); // expose downloaded preset through merged snapshot
+    emit();
     return full;
   } catch (error) {
     console.error(`[AnimationCatalog] Failed to download preset "${id}":`, error);
-    // Fall back to the catalog-index entry so the compositor isn't left empty.
     downloadedPresets.set(id, preset);
     emit();
     return preset;
@@ -282,10 +360,17 @@ export function subscribeToTextAnimationCatalog(listener: () => void): () => voi
   return () => listeners.delete(listener);
 }
 
-/** Look up a preset by id — checks downloaded cache first, then merged snapshot. */
+/** Look up a preset by id — checks downloaded cache first, then disk cache, then merged snapshot. */
 export function getTextAnimationPreset(id: string | undefined): RemoteTextAnimationPreset | undefined {
   if (!id) return undefined;
-  return downloadedPresets.get(id) ?? mergedSnapshot.presets.find((p) => p.id === id);
+  const inMem = downloadedPresets.get(id);
+  if (inMem && inMem.tracks.length > 0) return inMem;
+
+  for (const [key, p] of textAnimationCacheManager.manifests.entries()) {
+    if (key.startsWith(`${id}@`) && p.tracks.length > 0) return p;
+  }
+
+  return inMem ?? mergedSnapshot.presets.find((p) => p.id === id);
 }
 
 /** Return all loaded presets for a given phase from the in-memory snapshot. */
@@ -297,18 +382,21 @@ export function getTextAnimationPresets(phase: MotionBehaviorCategory): RemoteTe
 
 /**
  * Returns the snapshot for a single phase and triggers a lazy fetch the first
- * time the phase is accessed (i.e. when the user opens that tab).
- * Re-renders only when state for any phase or the downloaded cache changes.
+ * time the phase is accessed when enabled is true.
  */
-export function useAnimationPhase(phase: MotionBehaviorCategory): PhaseSnapshot {
+export function useAnimationPhase(
+  phase: MotionBehaviorCategory,
+  enabled: boolean = true,
+): PhaseSnapshot {
   useSyncExternalStore(
     subscribeToTextAnimationCatalog,
     getTextAnimationCatalogSnapshot,
     getTextAnimationCatalogSnapshot,
   );
   useEffect(() => {
+    if (!enabled) return;
     void fetchAnimationPhase(phase);
-  }, [phase]);
+  }, [phase, enabled]);
   return phaseSnapshots[phase];
 }
 
@@ -326,6 +414,21 @@ export function useTextAnimationCatalog(): AnimationCatalogSnapshot {
 
 export function toKeyframeEasing(value: AnimationTrackKeyframe["easing"]): KeyframeEasing {
   if (typeof value !== "string") return "linear";
-  const supported: KeyframeEasing[] = ["linear", "easeIn", "easeOut", "easeInOut", "easeInQuad", "easeOutQuad", "easeInCubic", "easeOutCubic", "easeInBack", "easeOutBack", "easeOutBounce"];
-  return supported.includes(value as KeyframeEasing) ? value as KeyframeEasing : "linear";
+  const supported: KeyframeEasing[] = [
+    "linear",
+    "easeIn",
+    "easeOut",
+    "easeInOut",
+    "easeInQuad",
+    "easeOutQuad",
+    "easeInCubic",
+    "easeOutCubic",
+    "easeInBack",
+    "easeOutBack",
+    "easeOutBounce",
+  ];
+  return supported.includes(value as KeyframeEasing) ? (value as KeyframeEasing) : "linear";
 }
+
+// Initialize disk cache on load
+textAnimationCacheManager.initialize().catch(() => {});

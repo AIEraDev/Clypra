@@ -257,7 +257,11 @@ export class PlaybackClock {
     ) {
       const elapsed = Math.max(0, performance.now() - this._playStartMs) / 1000;
       const CPAL_INIT_TIMEOUT_SEC = 2.0;
-      if (elapsed > CPAL_INIT_TIMEOUT_SEC && !this._nativeClockPosition) {
+      if (
+        elapsed > CPAL_INIT_TIMEOUT_SEC &&
+        !this._nativeClockPosition &&
+        !this._nativeAudioUnavailable
+      ) {
         console.warn(
           `[PlaybackClock] CPAL initialization exceeded ${CPAL_INIT_TIMEOUT_SEC}s without delivering a position sample. ` +
             `Falling back to frozen time to prevent unbounded drift. Consider restarting playback.`,

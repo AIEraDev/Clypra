@@ -271,6 +271,8 @@
   "properties.mediaAnimation.downloading": "Downloading",
   "properties.mediaAnimation.selectAnimation": "애니메이션 적용",
   "properties.mediaAnimation.downloadAnimation": "Download animation",
+  "properties.mediaAnimation.toastApplied": "“{{name}}” 애니메이션 적용됨",
+  "properties.mediaAnimation.toastRemoved": "애니메이션 제거됨",
   "properties.text.presetStyle": "프리셋 스타일",
   "properties.text.expandPresets": "프리셋 스타일 펼치기",
   "properties.text.collapsePresets": "프리셋 스타일 접기",

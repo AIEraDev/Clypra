@@ -68,6 +68,12 @@ pub struct ExportAudioClip {
     /// Trim in offset in seconds inside the source media file
     pub trim_in: f64,
 
+    /// Speed multiplier (e.g. 1.0, 2.0, 0.5)
+    pub speed: Option<f64>,
+
+    /// Whether to preserve pitch during speed change (default true)
+    pub preserve_pitch: Option<bool>,
+
     /// Volume multiplier (0.0-1.0)
     /// This prevents precision loss during serialization round-trips
     pub volume: f64,

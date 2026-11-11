@@ -275,6 +275,8 @@
   "properties.mediaAnimation.downloading": "Downloading",
   "properties.mediaAnimation.selectAnimation": "Применить анимацию",
   "properties.mediaAnimation.downloadAnimation": "Download animation",
+  "properties.mediaAnimation.toastApplied": "Применена анимация «{{name}}»",
+  "properties.mediaAnimation.toastRemoved": "Анимация удалена",
   "properties.text.presetStyle": "ПРЕДУСТАНОВЛЕННЫЙ СТИЛЬ",
   "properties.text.expandPresets": "Развернуть стили",
   "properties.text.collapsePresets": "Свернуть стили",

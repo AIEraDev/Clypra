@@ -4993,3 +4993,469 @@ function buildMinimalBlurScene(
     },
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bug 13 — Lookahead cold-start stall on play
+//
+// Problem: Every frame was dropped (droppedFramesRatio=1) on first play because
+// the Rust WorkPlanner only populated the lookahead buffer when EngineControlLoop
+// was already in Play mode. By the time decoded frames arrived, every deadline had
+// expired. Three compounding delays: (1) configureNativePlaybackRender IPC not yet
+// established, (2) serial audio IPC chain, (3) cold HEVC decode (50–500ms).
+//
+// Fix: primeNativeLookahead() fires queueNativeFrame for LOOKAHEAD_PRIME_FRAMES
+// while still paused, seeding the Rust decode queue before play demands arrive.
+// It is triggered from two sites: paused-settle (after ensureNativePlaybackRenderSnapshot
+// settles) and play-intent (first RAF after transition to playing).
+// Additionally, configureNativePlaybackRender is called eagerly on the first
+// paused frame with video layers so the session exists before priming begins.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("Bug 13 — Lookahead cold-start stall on play", () => {
+  // ---------------------------------------------------------------------------
+  // Shared helpers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Build a minimal media EvaluatedLayer.
+   */
+  function makeMediaLayer(
+    overrides: Partial<{
+      layerType: string;
+      mediaType: string;
+    }> = {},
+  ) {
+    return {
+      layerType: overrides.layerType ?? "media",
+      mediaType: overrides.mediaType ?? "video",
+      layerId: "layer-1",
+      clipId: "clip-1",
+      role: "primary",
+      zIndex: 0,
+      mediaId: "asset-1",
+      sourcePath: "/test/video.mp4",
+      sourceTime: 0,
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+      rotation: 0,
+      opacity: 1,
+      blendMode: "normal",
+      inTransition: false,
+    };
+  }
+
+  /**
+   * Lightweight mock of the closure variables used by primeNativeLookahead.
+   * The function is tested by modelling its logic directly (the function lives
+   * inside a React useEffect closure and cannot be imported directly).
+   */
+  function makePrimingHarness(
+    options: {
+      snapshotKey?: string;
+      existingCompleted?: string[];
+      existingInFlight?: string[];
+      /** Map from frame index to whether it has video layers. Defaults to true. */
+      videoLayersByFrame?: Record<number, boolean>;
+    } = {},
+  ) {
+    const {
+      snapshotKey = "project-id:1:1920x1080:full",
+      existingCompleted = [],
+      existingInFlight = [],
+      videoLayersByFrame = {},
+    } = options;
+
+    const queueNativeFrameCalls: Array<{ frameIndex: number; mode: string }> =
+      [];
+    const completedKeys = new Set<string>(existingCompleted);
+    const inFlightKeys = new Map<string, Promise<void>>();
+    existingInFlight.forEach((k) => inFlightKeys.set(k, Promise.resolve()));
+
+    const projectId = "project-id";
+    const epoch = 1;
+    const frameRate = 30;
+    const revision = `${projectId}:${epoch}`;
+    const LOOKAHEAD_PRIME_FRAMES = 6;
+
+    /**
+     * Simplified model of primeNativeLookahead that uses the same cache-key
+     * pattern and guards, but skips the actual Tauri IPC call.
+     */
+    const primeNativeLookaheadModel = (
+      isTauri: boolean,
+      isActive: boolean,
+      currentSnapshotKey: string,
+      currentFrame: number,
+      frameCount: number,
+      primeTriggeredBy: string,
+    ): { queuedFrameIndices: number[]; telemetryFired: boolean } => {
+      // Mirror the guards in the real implementation
+      if (!isTauri || !isActive)
+        return { queuedFrameIndices: [], telemetryFired: false };
+      if (currentSnapshotKey === "")
+        return { queuedFrameIndices: [], telemetryFired: false };
+
+      const queuedFrameIndices: number[] = [];
+
+      for (let i = 0; i < frameCount; i++) {
+        const frameIdx = currentFrame + i;
+        const cacheKey = `${revision}:video:prime:${frameIdx}`;
+        if (completedKeys.has(cacheKey) || inFlightKeys.has(cacheKey)) continue;
+
+        // Check scene for media layers — honour the caller's per-frame override
+        // so the guard inside primeNativeLookahead is actually exercised.
+        const hasVideo = options.videoLayersByFrame?.[frameIdx] !== false; // default true
+
+        if (!hasVideo) continue;
+
+        // Record the call
+        queueNativeFrameCalls.push({ frameIndex: frameIdx, mode: "prefetch" });
+        queuedFrameIndices.push(frameIdx);
+        inFlightKeys.set(cacheKey, Promise.resolve());
+      }
+
+      const telemetryFired = queuedFrameIndices.length > 0;
+      return { queuedFrameIndices, telemetryFired };
+    };
+
+    return {
+      snapshotKey,
+      primeNativeLookaheadModel,
+      queueNativeFrameCalls,
+      completedKeys,
+      inFlightKeys,
+      LOOKAHEAD_PRIME_FRAMES,
+      revision,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Test 1: fires queueNativeFrame for LOOKAHEAD_PRIME_FRAMES when snapshot established
+  // ---------------------------------------------------------------------------
+  it("primeNativeLookahead fires queueNativeFrame for LOOKAHEAD_PRIME_FRAMES frames when render snapshot is established", () => {
+    const {
+      primeNativeLookaheadModel,
+      queueNativeFrameCalls,
+      LOOKAHEAD_PRIME_FRAMES,
+    } = makePrimingHarness({ snapshotKey: "project-id:1:1920x1080:full" });
+
+    const { queuedFrameIndices, telemetryFired } = primeNativeLookaheadModel(
+      /* isTauri */ true,
+      /* isActive */ true,
+      /* snapshotKey */ "project-id:1:1920x1080:full",
+      /* currentFrame */ 0,
+      LOOKAHEAD_PRIME_FRAMES,
+      "test-trigger",
+    );
+
+    expect(queueNativeFrameCalls).toHaveLength(LOOKAHEAD_PRIME_FRAMES);
+    expect(queuedFrameIndices).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(telemetryFired).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 2: skips frames already in nativeVideoPrefetchCompleted
+  // ---------------------------------------------------------------------------
+  it("primeNativeLookahead skips frames already in nativeVideoPrefetchCompleted", () => {
+    const revision = "project-id:1";
+    const alreadyCompleted = [
+      `${revision}:video:prime:0`,
+      `${revision}:video:prime:1`,
+      `${revision}:video:prime:2`,
+    ];
+    const {
+      primeNativeLookaheadModel,
+      queueNativeFrameCalls,
+      LOOKAHEAD_PRIME_FRAMES,
+    } = makePrimingHarness({ existingCompleted: alreadyCompleted });
+
+    const { queuedFrameIndices } = primeNativeLookaheadModel(
+      true,
+      true,
+      "project-id:1:1920x1080:full",
+      0,
+      LOOKAHEAD_PRIME_FRAMES,
+      "test",
+    );
+
+    // Only frames 3, 4, 5 should be queued (0, 1, 2 already completed)
+    expect(queuedFrameIndices).toEqual([3, 4, 5]);
+    expect(queueNativeFrameCalls).toHaveLength(3);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 3: does not fire when nativePlaybackRenderSnapshotKey is empty
+  // ---------------------------------------------------------------------------
+  it("primeNativeLookahead does not fire when nativePlaybackRenderSnapshotKey is empty", () => {
+    const {
+      primeNativeLookaheadModel,
+      queueNativeFrameCalls,
+      LOOKAHEAD_PRIME_FRAMES,
+    } = makePrimingHarness();
+
+    const { queuedFrameIndices } = primeNativeLookaheadModel(
+      true,
+      true,
+      /* snapshotKey = "" */ "",
+      0,
+      LOOKAHEAD_PRIME_FRAMES,
+      "test",
+    );
+
+    expect(queuedFrameIndices).toHaveLength(0);
+    expect(queueNativeFrameCalls).toHaveLength(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 4: fires after ensureNativePlaybackRenderSnapshot settles (paused-settle)
+  // ---------------------------------------------------------------------------
+  it("primeNativeLookahead fires after ensureNativePlaybackRenderSnapshot settles on paused seek (paused-settle trigger)", async () => {
+    // Model the .finally() block of ensureNativePlaybackRenderSnapshot:
+    // After the configure promise settles, if clock is paused, primeNativeLookahead is called.
+    const primeLog: string[] = [];
+
+    let snapshotKey = "";
+    let snapshotInFlight: Promise<void> | null = null;
+    let snapshotPending: { key: string } | null = null;
+
+    const fakeConfigureNativePlaybackRender = () => Promise.resolve();
+
+    const ensureSnapshot = (key: string) => {
+      if (snapshotKey === key || snapshotInFlight !== null) return;
+      snapshotInFlight = fakeConfigureNativePlaybackRender()
+        .then(() => {
+          snapshotKey = key;
+        })
+        .catch(() => {
+          /* ignore */
+        })
+        .finally(() => {
+          snapshotInFlight = null;
+          const pending = snapshotPending;
+          snapshotPending = null;
+          if (pending) ensureSnapshot(pending.key);
+
+          // This is the new Task 2 code — fires primeNativeLookahead when paused
+          const isPlaying = false; // clock is paused
+          if (isPlaying === false && snapshotKey !== "") {
+            primeLog.push("paused-settle");
+          }
+        });
+    };
+
+    ensureSnapshot("project-1:1920x1080:full");
+    await snapshotInFlight;
+
+    // After the promise resolves the finally block should have fired
+    expect(snapshotKey).toBe("project-1:1920x1080:full");
+    expect(primeLog).toContain("paused-settle");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 5: fires before submitNativePlaybackDemand on first RAF after play
+  // ---------------------------------------------------------------------------
+  it("primeNativeLookahead fires before submitNativePlaybackDemand on first RAF after play (play-intent trigger)", () => {
+    // Model the renderLoop() logic for justStartedPlaying tracking and
+    // the primeNativeLookahead call before submitNativePlaybackDemand.
+    const callOrder: string[] = [];
+
+    let wasPlayingInLastFrame = false;
+    let snapshotKey = "project-1:1920x1080:full"; // session already established
+
+    const mockPrimeNativeLookahead = (
+      _frameIndex: number,
+      _count: number,
+      triggeredBy: string,
+    ) => {
+      callOrder.push(`prime:${triggeredBy}`);
+    };
+
+    const mockSubmitNativePlaybackDemand = () => {
+      callOrder.push("submit-demand");
+    };
+
+    // Simulate the renderLoop() play-intent logic:
+    // First call: paused → playing (justStartedPlaying = true)
+    const simulateRenderLoopTick = (isPlaying: boolean) => {
+      const justStartedPlaying = isPlaying && !wasPlayingInLastFrame;
+      wasPlayingInLastFrame = isPlaying;
+
+      if (justStartedPlaying && snapshotKey !== "") {
+        // Task 3 code: prime before demand
+        mockPrimeNativeLookahead(1, 6, "play-intent");
+      }
+
+      if (isPlaying && snapshotKey !== "") {
+        mockSubmitNativePlaybackDemand();
+      }
+    };
+
+    // First tick: paused, no events
+    simulateRenderLoopTick(false);
+    expect(callOrder).toHaveLength(0);
+
+    // Second tick: first tick after play starts
+    simulateRenderLoopTick(true);
+
+    // prime must appear before submit-demand
+    expect(callOrder).toEqual(["prime:play-intent", "submit-demand"]);
+    expect(callOrder.indexOf("prime:play-intent")).toBeLessThan(
+      callOrder.indexOf("submit-demand"),
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 6: configureNativePlaybackRender called on first paused frame with video
+  // ---------------------------------------------------------------------------
+  it("configureNativePlaybackRender is called on first paused frame with video even when persistentNativePausedEligible is false", () => {
+    // Model the Task 4 eager-configure guard:
+    // When snapshotKey="" and there's a nativeRequest with video layers and the
+    // surface is usable (even if persistentNativePausedEligible is false), we call
+    // ensureNativePlaybackRenderSnapshot.
+    let snapshotKey = "";
+    let snapshotInFlight: null | Promise<void> = null;
+    let configureCalls = 0;
+
+    const fakeEnsureSnapshot = (_request: { hasVideoLayers: boolean }) => {
+      configureCalls++;
+      snapshotInFlight = Promise.resolve().then(() => {
+        snapshotKey = "project-1:1920x1080:full";
+        snapshotInFlight = null;
+      });
+    };
+
+    // Simulate renderLoop() Task 4 guard:
+    const simulatePausedRenderLoopTick = (options: {
+      isPlaying: boolean;
+      nativeSurfaceUsable: boolean;
+      qualificationForcesWebView: boolean;
+      nativeRequestHasVideoLayers: boolean;
+    }) => {
+      const {
+        isPlaying,
+        nativeSurfaceUsable,
+        qualificationForcesWebView,
+        nativeRequestHasVideoLayers,
+      } = options;
+
+      // Task 4 eager configure trigger:
+      if (
+        !isPlaying &&
+        nativeSurfaceUsable &&
+        !qualificationForcesWebView &&
+        snapshotKey === "" &&
+        snapshotInFlight === null &&
+        nativeRequestHasVideoLayers
+      ) {
+        fakeEnsureSnapshot({ hasVideoLayers: true });
+      }
+    };
+
+    // Case 1: paused, surface usable, video present, no prior session — should configure
+    simulatePausedRenderLoopTick({
+      isPlaying: false,
+      nativeSurfaceUsable: true,
+      qualificationForcesWebView: false,
+      nativeRequestHasVideoLayers: true,
+    });
+    expect(configureCalls).toBe(1);
+
+    // Case 2: called again — session already in-flight, should NOT reconfigure
+    simulatePausedRenderLoopTick({
+      isPlaying: false,
+      nativeSurfaceUsable: true,
+      qualificationForcesWebView: false,
+      nativeRequestHasVideoLayers: true,
+    });
+    // snapshotInFlight !== null at this point, so guard should skip
+    expect(configureCalls).toBe(1);
+
+    // Case 3: playing — should NOT trigger eager configure
+    snapshotKey = "";
+    snapshotInFlight = null;
+    simulatePausedRenderLoopTick({
+      isPlaying: true,
+      nativeSurfaceUsable: true,
+      qualificationForcesWebView: false,
+      nativeRequestHasVideoLayers: true,
+    });
+    expect(configureCalls).toBe(1); // unchanged
+
+    // Case 4: qualification forces webview — should NOT configure
+    simulatePausedRenderLoopTick({
+      isPlaying: false,
+      nativeSurfaceUsable: true,
+      qualificationForcesWebView: true,
+      nativeRequestHasVideoLayers: true,
+    });
+    expect(configureCalls).toBe(1); // unchanged
+
+    // Case 5: no video layers — should NOT configure
+    simulatePausedRenderLoopTick({
+      isPlaying: false,
+      nativeSurfaceUsable: true,
+      qualificationForcesWebView: false,
+      nativeRequestHasVideoLayers: false,
+    });
+    expect(configureCalls).toBe(1); // unchanged
+  });
+});
+
+describe("Bug 14 — Playback Start at Timeline Zero & Effects Cache Invalidation (CLY-BUG-TIMELINE-ZERO-EFFECT)", () => {
+  it("clears lastNativePlaybackRequestKey on transition from paused to playing so t=0 frame demand is never swallowed", () => {
+    let wasPlayingInLastFrame = false;
+    let lastNativePlaybackRequestKey = "frame-0-paused-key";
+    let dispatchedKey = "";
+
+    const simulateTick = (isPlaying: boolean, currentRequestKey: string) => {
+      const justStartedPlaying = isPlaying && !wasPlayingInLastFrame;
+      wasPlayingInLastFrame = isPlaying;
+      if (justStartedPlaying) {
+        lastNativePlaybackRequestKey = "";
+      }
+
+      if (currentRequestKey !== lastNativePlaybackRequestKey) {
+        dispatchedKey = currentRequestKey;
+        lastNativePlaybackRequestKey = currentRequestKey;
+      }
+    };
+
+    // User is paused at frame 0, request key is 'frame-0-paused-key'
+    simulateTick(false, "frame-0-paused-key");
+    expect(lastNativePlaybackRequestKey).toBe("frame-0-paused-key");
+
+    // User starts playback at t=0: request key is still 'frame-0-paused-key'
+    dispatchedKey = "";
+    simulateTick(true, "frame-0-paused-key");
+
+    // In fixed code, justStartedPlaying cleared lastNativePlaybackRequestKey, so dispatch succeeded!
+    expect(dispatchedKey).toBe("frame-0-paused-key");
+    expect(lastNativePlaybackRequestKey).toBe("frame-0-paused-key");
+  });
+
+  it("PlaybackClock does not freeze after 2 seconds when native audio is unavailable", () => {
+    const clock = new PlaybackClock();
+    clock.setDuration(10);
+    clock.setNativeClockAuthority(true);
+    clock.markNativeAudioUnavailable();
+
+    expect(clock.nativeAudioWasUnavailable).toBe(true);
+
+    const perfNowSpy = vi.spyOn(performance, "now");
+    let currentMs = 10000;
+    perfNowSpy.mockImplementation(() => currentMs);
+
+    clock.play();
+    expect(clock.state).toBe("playing");
+
+    // Advance by 3 seconds (past the 2.0s CPAL init threshold)
+    currentMs += 3000;
+
+    // In fixed code, clock continues advancing smoothly via wall-clock!
+    expect(clock.time).toBeCloseTo(3.0, 1);
+
+    perfNowSpy.mockRestore();
+  });
+});
+

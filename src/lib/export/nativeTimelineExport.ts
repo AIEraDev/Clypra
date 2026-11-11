@@ -203,7 +203,10 @@ export function analyzeNativeTimelineExport(
       audio.fadeIn.duration > 0 ||
       audio.fadeOut.duration > 0 ||
       hasAudioEffects ||
-      audio.speed.preservePitch ||
+      // Note: audio.speed.preservePitch is intentionally NOT checked here.
+      // The native cut-only path demuxes audio as-is (no atempo applied), so
+      // preservePitch has no meaning in this context. Speed changes (speed ≠ 1.0)
+      // are already disqualifying via compositor-only visual settings checks above.
       audio.channelConfig.mode !== "auto" ||
       audio.channelConfig.downmix !== "auto" ||
       Boolean(audio.channelConfig.channelMap?.length);

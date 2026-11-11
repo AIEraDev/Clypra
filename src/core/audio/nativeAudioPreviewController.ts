@@ -280,6 +280,10 @@ export class NativeAudioPreviewController {
                 // now advances via wall-clock independently of audio state.
               } else {
                 // Genuinely no audio clips (silent project or all removed).
+                // Mark unavailable so nativeAudioClockReady becomes true and
+                // video playback is not blocked waiting for a clock signal that
+                // will never arrive from CPAL.
+                this.clock.markNativeAudioUnavailable();
                 this._sourceState = "unknown";
                 this._rendererState = "detached";
               }

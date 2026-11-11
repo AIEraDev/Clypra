@@ -37,8 +37,9 @@ const PropertyPanelHeader: React.FC<PropertyPanelHeaderType> = ({
   setActivePropertyTab,
   hasAudioTrack = true,
 }) => {
+  const isText = clipKind === "text" || clipKind === "text-template";
   const allTabs: PropertyTabsType[] =
-    clipKind === "text"
+    isText
       ? TEXT_TABS
       : clipKind === "video"
         ? VIDEO_TABS

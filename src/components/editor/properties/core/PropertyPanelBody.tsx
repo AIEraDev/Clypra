@@ -69,6 +69,8 @@ interface PropertyPanelBodyProps {
     presetData: Omit<TextPreset, "id" | "name" | "isCustom">,
   ) => void;
   deletePreset: (id: string) => void;
+  animationSubTab?: string;
+  onAnimationSubTabChange?: (tab: string) => void;
 }
 const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
   selectedClip,
@@ -101,6 +103,8 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
   executePreviewCommand,
   savePreset,
   deletePreset,
+  animationSubTab,
+  onAnimationSubTabChange,
 }) => {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin flex flex-col space-y-1 relative">
@@ -173,6 +177,8 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
           handleUpdateMultiple={handleUpdateMultiple}
           canvasWidth={canvasWidth}
           canvasHeight={canvasHeight}
+          activeTab={animationSubTab as any}
+          onTabChange={onAnimationSubTabChange as any}
         />
       )}
       {/* Adjust Tab: Color Adjustments */}
@@ -201,6 +207,8 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
           handleUpdateMultiple={handleUpdateMultiple}
           canvasWidth={canvasWidth}
           canvasHeight={canvasHeight}
+          activeTab={animationSubTab as any}
+          onTabChange={onAnimationSubTabChange as any}
         />
       )}
       {/* Image Adjust Tab */}
@@ -251,6 +259,8 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
           handleUpdateMultiple={handleUpdateMultiple}
           canvasWidth={canvasWidth}
           canvasHeight={canvasHeight}
+          activeTab={animationSubTab as any}
+          onTabChange={onAnimationSubTabChange as any}
         />
       )}
       {/* Text Tracking */}

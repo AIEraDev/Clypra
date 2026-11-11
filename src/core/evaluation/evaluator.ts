@@ -469,6 +469,27 @@ export function evaluateTimelineScene(
           }))
         : undefined;
 
+      // ── Per-glyph motion animation progress ────────────────────────────────
+      // Compute normalized [0,1] in/out progress so the rasterizer can evaluate
+      // character-staggered presets (e.g. "Flip In") without flattening them
+      // into clip-level visualKeyframes. Mirrors the loop-motion pattern above.
+      let motionInProgress: number | undefined;
+      let motionOutProgress: number | undefined;
+      if (clip.motion?.inPreset && clip.motion.inPreset !== "none") {
+        const inDur = Math.max(0.1, (clip.motion as any).inDuration ?? 0.6);
+        // offset = time elapsed since clip start
+        if (offset < inDur) {
+          motionInProgress = Math.max(0, Math.min(1, offset / inDur));
+        }
+      }
+      if (clip.motion?.outPreset && clip.motion.outPreset !== "none") {
+        const outDur = Math.max(0.1, (clip.motion as any).outDuration ?? 0.6);
+        const timeFromEnd = clip.duration - offset;
+        if (timeFromEnd < outDur) {
+          motionOutProgress = Math.max(0, Math.min(1, 1 - timeFromEnd / outDur));
+        }
+      }
+
       const textLayer: EvaluatedTextLayer = {
         layerId: clip.id,
         clipId: clip.id,
@@ -557,6 +578,12 @@ export function evaluateTimelineScene(
           clip.kind === "text-template" || textClip.templateId
             ? Boolean(templateAnimated)
             : undefined,
+        // Per-glyph motion animation — forwarded to the rasterizer so it can
+        // evaluate character-stagger presets without clip-level keyframe lossy
+        // flattening. Only attached when a glyph animation is active this frame.
+        ...(clip.motion ? { motion: clip.motion } : {}),
+        ...(motionInProgress !== undefined ? { motionInProgress } : {}),
+        ...(motionOutProgress !== undefined ? { motionOutProgress } : {}),
       };
 
       visualLayers.push(textLayer);

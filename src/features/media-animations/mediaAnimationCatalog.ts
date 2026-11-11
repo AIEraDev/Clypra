@@ -1,21 +1,20 @@
 /**
- * mediaAnimationCatalog.ts — Media Animation Catalog Store
+ * mediaAnimationCatalog.ts
  *
- * Fetches published media animation presets from the Clypra API and exposes
- * them through the same external-store pattern used by animationCatalog.ts
- * so that MediaAnimationSection can use the same compileClipMotionKeyframes
- * compiler without any changes.
+ * Per-category fetch hook for the media animation catalog.
+ * Each CategoryGrid mounts with its own hook instance for isolated fetch state.
  *
- * Categories: "in" | "out" | "combo"
- * Track format returned by API: { property: "translateX"|"translateY", keyframes: [{ progress, value, easing }] }
+ * allPresets is a shared module-level map keyed by "id@category". A lightweight
+ * listener set (catalogListeners) lets useMediaAnimationCatalogSnapshot stay
+ * reactive — it re-renders MediaAnimationSection whenever new presets arrive so
+ * that updateMotion always sees a populated catalog when the user clicks a preset.
  */
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useState, useEffect, useSyncExternalStore } from "react";
 import { getApiBaseUrl, getApiHeaders } from "@/lib/api/apiUtils";
 import type { MotionBehaviorCategory } from "@/types/motion";
 import type {
   AnimationCatalogSnapshot,
-  PhaseSnapshot,
   RemoteTextAnimationPreset,
 } from "@/features/text-animations/animationCatalog";
 import {
@@ -23,6 +22,7 @@ import {
   type AnimationManifest,
   type MediaAnimationPreset,
 } from "./cache/mediaAnimationCache";
+import { MediaAnimationTelemetry } from "./telemetry/mediaAnimationTelemetry";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -34,112 +34,59 @@ export interface MediaAnimationCategorySnapshot {
   error?: string;
 }
 
-// ─── Module-level state ────────────────────────────────────────────────────────
+// ─── Shared preset map (for compiler lookups after manifest download) ─────────
 
-const IDLE: MediaAnimationCategorySnapshot = { presets: [], status: "idle" };
+const allPresets = new Map<string, MediaAnimationPreset>();
 
-const categorySnapshots: Record<
-  MediaAnimationCategory,
-  MediaAnimationCategorySnapshot
-> = {
-  in: { ...IDLE },
-  out: { ...IDLE },
-  combo: { ...IDLE },
-};
+// ─── Catalog subscription (keeps useMediaAnimationCatalogSnapshot reactive) ───
 
-// Per-category immutable snapshot map — rebuilt on every emit() so each
-// category's reference changes only when its data actually changes.
-// Stored separately from mergedSnapshot so useMediaAnimationCategory can
-// return a stable reference per category without going through phases.
-const categorySnapshotRefs: Record<
-  MediaAnimationCategory,
-  MediaAnimationCategorySnapshot
-> = {
-  in: { ...IDLE },
-  out: { ...IDLE },
-  combo: { ...IDLE },
-};
-const downloadedPresets = new Map<string, MediaAnimationPreset>();
-const categoryRequests: Partial<Record<MediaAnimationCategory, Promise<void>>> =
-  {};
-const listeners = new Set<() => void>();
+const catalogListeners = new Set<() => void>();
 
-// Best-effort initialize the OS-level cache — no top-level await.
-// After hydration completes, emit so consumers re-evaluate isCached() for all
-// presets that were downloaded in a previous session.
-mediaAnimationCacheManager
-  .initialize()
-  .then(() => emit())
-  .catch(() => {});
-
-// ─── Derived merged snapshot ─────────────────────────────────────────────────
-
-function buildMergedSnapshot(): AnimationCatalogSnapshot {
+function buildCatalogSnapshot(): AnimationCatalogSnapshot {
   const seen = new Set<string>();
   const presets: RemoteTextAnimationPreset[] = [];
-
-  for (const cat of ["in", "out", "combo"] as MediaAnimationCategory[]) {
-    for (const p of categorySnapshots[cat].presets) {
-      if (!seen.has(p.id)) {
-        seen.add(p.id);
-        presets.push(p);
-      }
+  for (const preset of allPresets.values()) {
+    if (!seen.has(preset.id)) {
+      seen.add(preset.id);
+      presets.push(preset as unknown as RemoteTextAnimationPreset);
     }
   }
-  for (const p of downloadedPresets.values()) {
-    if (!seen.has(p.id)) {
-      seen.add(p.id);
-      presets.push(p);
-    }
-  }
-
-  const statuses = (["in", "out", "combo"] as MediaAnimationCategory[]).map(
-    (c) => categorySnapshots[c].status,
-  );
-  const status: AnimationCatalogSnapshot["status"] = statuses.some(
-    (s) => s === "loading",
-  )
-    ? "loading"
-    : statuses.some((s) => s === "ready")
-      ? "ready"
-      : statuses.some((s) => s === "error")
-        ? "error"
-        : "idle";
-
-  // phases maps the three media animation categories into the PhaseSnapshot
-  // shape. combo goes into the "loop" slot — "loop" is otherwise unused for
-  // media animations — so each category has its own independent slot and
-  // useMediaAnimationCategory can read the correct one per tab.
-  const phases: Record<MotionBehaviorCategory, PhaseSnapshot> = {
-    in: { ...categorySnapshots.in },
-    out: { ...categorySnapshots.out },
-    loop: { ...categorySnapshots.combo }, // combo stored here, read via "loop" key
+  return {
+    presets,
+    phases: {
+      in: {
+        presets: presets.filter((p) => p.phase === "in"),
+        status: "ready",
+      },
+      out: {
+        presets: presets.filter((p) => p.phase === "out"),
+        status: "ready",
+      },
+      loop: { presets: [], status: "ready" },
+    },
+    status: "ready",
   };
-
-  return { presets, phases, status };
 }
 
-let mergedSnapshot: AnimationCatalogSnapshot = buildMergedSnapshot();
+let cachedCatalogSnapshot: AnimationCatalogSnapshot = buildCatalogSnapshot();
 
-function emit(): void {
-  // Rebuild per-category refs — only create a new object if the underlying
-  // data actually changed, so useSyncExternalStore sees new references.
-  for (const cat of ["in", "out", "combo"] as MediaAnimationCategory[]) {
-    const current = categorySnapshots[cat];
-    const ref = categorySnapshotRefs[cat];
-    if (
-      ref.status !== current.status ||
-      ref.presets !== current.presets ||
-      ref.error !== current.error
-    ) {
-      categorySnapshotRefs[cat] = { ...current };
-    }
-  }
-  mergedSnapshot = buildMergedSnapshot();
-  listeners.forEach((l) => l());
+export function notifyCatalogListeners(): void {
+  cachedCatalogSnapshot = buildCatalogSnapshot();
+  catalogListeners.forEach((l) => l());
 }
 
-// ─── Normalization ───────────────────────────────────────────────────────────
+function subscribeToCatalog(listener: () => void): () => void {
+  catalogListeners.add(listener);
+  return () => {
+    catalogListeners.delete(listener);
+  };
+}
+
+export function getCatalogSnapshot(): AnimationCatalogSnapshot {
+  return cachedCatalogSnapshot;
+}
+
+// ─── Normalization ────────────────────────────────────────────────────────────
 
 function iconForDirection(direction: string | undefined): string {
   switch (direction) {
@@ -156,12 +103,44 @@ function iconForDirection(direction: string | undefined): string {
   }
 }
 
+/**
+ * Ensures track keyframes have valid, non-degenerate progress values.
+ * Recovers from API manifests that collapsed all keyframe progress to 0.
+ */
+export function sanitizeTrackKeyframes(
+  tracks: MediaAnimationPreset["tracks"],
+): MediaAnimationPreset["tracks"] {
+  if (!Array.isArray(tracks)) return [];
+  return tracks.map((track) => {
+    const rawKeyframes = track.keyframes ?? [];
+    if (rawKeyframes.length < 2) return track;
+    const isDegenerate =
+      rawKeyframes.every((kf) => (kf.progress ?? 0) <= 0) ||
+      (rawKeyframes[rawKeyframes.length - 1].progress ?? 0) <=
+        (rawKeyframes[0].progress ?? 0);
+    if (!isDegenerate) return track;
+
+    const sanitizedKeyframes = rawKeyframes.map((kf, index) => ({
+      ...kf,
+      progress: index / (rawKeyframes.length - 1),
+    }));
+    return { ...track, keyframes: sanitizedKeyframes };
+  });
+}
+
 function normalizeMediaPreset(
   item: unknown,
   category: MediaAnimationCategory,
 ): MediaAnimationPreset | null {
   if (!item || typeof item !== "object") return null;
   const raw = item as Record<string, unknown>;
+
+  if (import.meta.env.DEV) {
+    console.log(
+      `[mediaAnimationCatalog] raw item (category="${category}"):`,
+      raw,
+    );
+  }
 
   const slug =
     typeof raw.slug === "string"
@@ -172,30 +151,40 @@ function normalizeMediaPreset(
   const name = typeof raw.name === "string" ? raw.name : null;
   if (!slug || !name) return null;
 
-  // tracks and durationFrames are not in summary; they come from the cached manifest
-  const defaultDuration = 0.5;
+  const durationFrames =
+    typeof raw.durationFrames === "number" ? raw.durationFrames : null;
+  const defaultDuration = durationFrames !== null ? durationFrames / 30 : 0.5;
   const direction =
     typeof raw.direction === "string" ? raw.direction : undefined;
   const thumbnailUrl =
     typeof raw.thumbnailUrl === "string" ? raw.thumbnailUrl : undefined;
   const previewUrl =
     typeof raw.previewUrl === "string" ? raw.previewUrl : undefined;
-  const version = typeof raw.version === "string" ? raw.version : undefined;
+  const version =
+    typeof raw.activeVersion === "string"
+      ? raw.activeVersion
+      : typeof raw.version === "string"
+        ? raw.version
+        : undefined;
 
-  // "combo" maps to "in" as the compiler phase — combo presets are standalone in-place animations
+  // combo presets use the "in" compiler phase (standalone in-place animations)
   const phase: MotionBehaviorCategory = category === "out" ? "out" : "in";
 
-  return {
+  const preset: MediaAnimationPreset = {
     id: slug,
     name,
     phase,
-    category: phase,
+    category: phase, // MotionBehaviorCategory doesn't include "combo"; combo maps to "in" phase
     subCategory: "Basic",
     tags: direction ? [direction] : [],
     description: typeof raw.description === "string" ? raw.description : name,
     defaultDuration,
     icon: iconForDirection(direction),
-    tracks: [], // populated after manifest download
+    tracks: sanitizeTrackKeyframes(
+      Array.isArray(raw.tracks)
+        ? (raw.tracks as MediaAnimationPreset["tracks"])
+        : [],
+    ),
     minDuration: 0.3,
     maxDuration: 3.0,
     previewLoopDuration: defaultDuration,
@@ -203,99 +192,143 @@ function normalizeMediaPreset(
     thumbnailUrl,
     previewUrl,
   };
+
+  if (import.meta.env.DEV) {
+    console.log(`[mediaAnimationCatalog] normalized:`, {
+      id: preset.id,
+      revisionId: preset.revisionId,
+      phase: preset.phase,
+      defaultDuration: preset.defaultDuration,
+      tracksCount: preset.tracks.length,
+    });
+  }
+
+  return preset;
 }
 
-// ─── Fetch ───────────────────────────────────────────────────────────────────
+// ─── Hook ─────────────────────────────────────────────────────────────────────
 
-export async function fetchMediaAnimationCategory(
+/**
+ * Fetches presets for a single category. Each CategoryGrid instance gets its
+ * own isolated state — no shared store, no bleed between tabs.
+ * The parent keys CategoryGrid by category so this remounts fresh on tab switch.
+ */
+export function useMediaAnimationCategory(
   category: MediaAnimationCategory,
-  force = false,
-): Promise<void> {
-  const inFlight = categoryRequests[category];
-  if (inFlight) return inFlight;
+  enabled: boolean = true,
+): MediaAnimationCategorySnapshot {
+  const [snapshot, setSnapshot] = useState<MediaAnimationCategorySnapshot>({
+    presets: [],
+    status: "idle",
+  });
 
-  if (!force && categorySnapshots[category].status === "ready") return;
+  useEffect(() => {
+    if (!enabled) return;
 
-  const run = (async () => {
-    const previous = categorySnapshots[category];
-    categorySnapshots[category] = {
-      ...previous,
-      status: "loading",
-      error: undefined,
-    };
-    emit();
+    let cancelled = false;
 
-    try {
-      const url = `${getApiBaseUrl()}/media-animations?category=${category}&fields=summary`;
-      const response = await fetch(url, {
-        headers: getApiHeaders(),
-        credentials: "include",
-      });
+    setSnapshot({ presets: [], status: "loading" });
 
-      if (!response.ok) {
-        throw new Error(
-          `Media animation catalog fetch failed for "${category}" (${response.status})`,
-        );
+    const url = `${getApiBaseUrl()}/media-animations?category=${category}&fields=summary`;
+
+    const t0 = performance.now();
+
+    const run = async () => {
+      try {
+        const res = await fetch(url, {
+          headers: getApiHeaders(),
+          credentials: "include",
+        });
+        if (!res.ok) throw new Error(`Fetch failed (${res.status})`);
+        const httpStatus = res.status;
+        const payload = (await res.json()) as unknown;
+
+        if (cancelled) return;
+
+        const items: unknown[] = Array.isArray(payload)
+          ? payload
+          : Array.isArray((payload as Record<string, unknown>)?.items)
+            ? ((payload as Record<string, unknown>).items as unknown[])
+            : [];
+
+        const presets = items
+          // Client-side guard: drop any item whose category doesn't match the
+          // requested one. Protects against an API that returns unfiltered
+          // data (e.g. missing auth header, edge-cache hit, future regression).
+          .filter((item) => {
+            const raw = item as Record<string, unknown>;
+            return (
+              typeof raw.category !== "string" || raw.category === category
+            );
+          })
+          .map((item) => normalizeMediaPreset(item, category))
+          .filter((p): p is MediaAnimationPreset => p !== null);
+
+        // Key by id@category so each category keeps its own copy in the map
+        // and later fetches for other categories don't overwrite this one.
+        presets.forEach((p) => allPresets.set(`${p.id}@${category}`, p));
+        // Notify subscribers so useMediaAnimationCatalogSnapshot re-renders.
+        notifyCatalogListeners();
+
+        if (import.meta.env.DEV) {
+          console.log(
+            `[useMediaAnimationCategory] category="${category}" → ${presets.length} presets`,
+          );
+        }
+        setSnapshot({ presets, status: "ready" });
+        MediaAnimationTelemetry.recordCatalogFetch({
+          category,
+          durationMs: Math.round(performance.now() - t0),
+          presetCount: presets.length,
+          status: "success",
+          httpStatus,
+        });
+      } catch (err) {
+        if (cancelled) return;
+        console.error(`[useMediaAnimationCategory] fetch error:`, err);
+        setSnapshot({
+          presets: [],
+          status: "error",
+          error: (err as Error).message,
+        });
+        MediaAnimationTelemetry.recordCatalogFetch({
+          category,
+          durationMs: Math.round(performance.now() - t0),
+          presetCount: 0,
+          status: "error",
+          error: (err as Error).message,
+        });
       }
+    };
 
-      const payload: unknown = await response.json();
-      // Response is either an array of animations or { items: [...] }
-      const items: unknown[] = Array.isArray(payload)
-        ? payload
-        : Array.isArray((payload as Record<string, unknown>)?.items)
-          ? (payload as { items: unknown[] }).items
-          : [];
+    void run();
 
-      const presets = items
-        .map((item) => normalizeMediaPreset(item, category))
-        .filter((p): p is MediaAnimationPreset => p !== null);
+    return () => {
+      cancelled = true;
+    };
+  }, [category, enabled]);
 
-      categorySnapshots[category] = { presets, status: "ready" };
-    } catch (error) {
-      categorySnapshots[category] = {
-        ...previous,
-        status: "error",
-        error:
-          error instanceof Error
-            ? error.message
-            : "Unable to load media animation catalog",
-      };
-    } finally {
-      categoryRequests[category] = undefined;
-      emit();
-    }
-  })();
-
-  categoryRequests[category] = run;
-  return run;
+  return snapshot;
 }
 
-// ─── External store API ───────────────────────────────────────────────────────
+// ─── Compiler support ─────────────────────────────────────────────────────────
 
-export function getMediaAnimationCatalogSnapshot(): AnimationCatalogSnapshot {
-  return mergedSnapshot;
-}
-
-export function subscribeToMediaAnimationCatalog(
-  listener: () => void,
-): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
-
+/**
+ * Looks up a preset by id and merges cached manifest tracks if available.
+ * Used by compileClipMotionKeyframes.
+ */
 export function getMediaAnimationPreset(
   id: string | undefined,
 ): MediaAnimationPreset | undefined {
   if (!id) return undefined;
+  // Search all categories — prefer "in" since most compiler lookups are for
+  // in-phase presets, then fall back through the others.
   const base =
-    downloadedPresets.get(id) ??
-    (mergedSnapshot.presets.find((p) => p.id === id) as
-      | MediaAnimationPreset
-      | undefined);
+    allPresets.get(`${id}@in`) ??
+    allPresets.get(`${id}@out`) ??
+    allPresets.get(`${id}@combo`);
   if (!base) return undefined;
 
-  // If we have a cached manifest in memory (either from this session's
-  // download or eagerly loaded from disk on startup), merge its tracks.
   const version = base.revisionId;
   if (version) {
     const manifest = mediaAnimationCacheManager.manifests.get(
@@ -304,7 +337,9 @@ export function getMediaAnimationPreset(
     if (manifest) {
       return {
         ...base,
-        tracks: manifest.tracks as MediaAnimationPreset["tracks"],
+        tracks: sanitizeTrackKeyframes(
+          manifest.tracks as MediaAnimationPreset["tracks"],
+        ),
         defaultDuration:
           manifest.durationFrames / (manifest.frameRateNum || 30),
       };
@@ -314,15 +349,25 @@ export function getMediaAnimationPreset(
 }
 
 /**
- * Downloads and caches the full animation manifest for a preset.
- * After downloading, the manifest is stored in the singleton's `manifests`
- * map so getMediaAnimationPreset() can merge it synchronously.
+ * Reactive hook — returns the merged catalog snapshot and re-renders whenever
+ * a category fetch completes and writes new presets into allPresets.
+ * Uses useSyncExternalStore so MediaAnimationSection always has a fresh catalog
+ * when the user clicks a preset, even if the fetch just finished.
+ */
+export function useMediaAnimationCatalogSnapshot(): AnimationCatalogSnapshot {
+  return useSyncExternalStore(subscribeToCatalog, getCatalogSnapshot);
+}
+
+/**
+ * Downloads and caches the full animation manifest for a preset, then
+ * notifies catalog listeners so any component holding a catalogSnapshot
+ * (e.g. MediaAnimationSection) re-renders with the manifest-merged tracks.
  */
 export async function downloadManifest(
   slug: string,
   version: string,
 ): Promise<AnimationManifest> {
-  return mediaAnimationCacheManager.ensureDownloaded(
+  const manifest = await mediaAnimationCacheManager.ensureDownloaded(
     slug,
     version,
     async () => {
@@ -331,47 +376,22 @@ export async function downloadManifest(
         headers: getApiHeaders(),
         credentials: "include",
       });
-      if (!response.ok) {
+      if (!response.ok)
         throw new Error(
           `Manifest fetch failed for "${slug}" (${response.status})`,
         );
-      }
       return response.json() as Promise<AnimationManifest>;
     },
   );
+
+  // Notify catalog subscribers so useMediaAnimationCatalogSnapshot re-renders
+  // with the manifest-merged tracks. This ensures that any component that
+  // builds a mergedCatalog (e.g. updateMotion in MediaAnimationSection) will
+  // pick up the full tracks on the next render after download completes.
+  notifyCatalogListeners();
+
+  return manifest;
 }
 
-// ─── React hooks ─────────────────────────────────────────────────────────────
-
-/**
- * Returns the snapshot for a single category and triggers a lazy fetch the
- * first time that category tab is opened.
- */
-export function useMediaAnimationCategory(
-  category: MediaAnimationCategory,
-): MediaAnimationCategorySnapshot {
-  // Subscribe to the external store so React re-renders when emit() fires.
-  // Read from categorySnapshotRefs — immutable copies rebuilt on every emit
-  // only when data changes — so React's reference equality check works correctly.
-  useSyncExternalStore(
-    subscribeToMediaAnimationCatalog,
-    getMediaAnimationCatalogSnapshot,
-    getMediaAnimationCatalogSnapshot,
-  );
-  useEffect(() => {
-    void fetchMediaAnimationCategory(category);
-  }, [category]);
-  return categorySnapshotRefs[category];
-}
-
-/**
- * Returns the merged catalog snapshot across all categories.
- * Used by compileClipMotionKeyframes as the catalog argument.
- */
-export function useMediaAnimationCatalogSnapshot(): AnimationCatalogSnapshot {
-  return useSyncExternalStore(
-    subscribeToMediaAnimationCatalog,
-    getMediaAnimationCatalogSnapshot,
-    getMediaAnimationCatalogSnapshot,
-  );
-}
+// Initialize disk cache on load
+mediaAnimationCacheManager.initialize().catch(() => {});

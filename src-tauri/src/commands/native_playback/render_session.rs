@@ -676,8 +676,22 @@ impl NativeRenderSession {
                             .iter()
                             .find(|r| r.layer_id.as_deref() == Some(lid))
                             .cloned()
+                            .or_else(|| {
+                                request
+                                    .project
+                                    .raster_layers
+                                    .iter()
+                                    .find(|r| !r.asset_id.is_empty() && r.asset_id == update.asset_id)
+                                    .cloned()
+                            })
                     } else {
-                        request.project.raster_layers.get(i).cloned()
+                        request
+                            .project
+                            .raster_layers
+                            .iter()
+                            .find(|r| !r.asset_id.is_empty() && r.asset_id == update.asset_id)
+                            .cloned()
+                            .or_else(|| request.project.raster_layers.get(i).cloned())
                     };
                     if let Some(mut layer) = existing {
                         if let Some(layer_id) = &update.layer_id {
@@ -724,7 +738,7 @@ impl NativeRenderSession {
                                 .unwrap_or_else(|| "normal".to_string()),
                             color_grade: None,
                             is_mask: update.is_mask,
-                            is_text: true,
+                            is_text: update.asset_id.starts_with("native-text:"),
                             is_premultiplied: false,
                         });
                     }

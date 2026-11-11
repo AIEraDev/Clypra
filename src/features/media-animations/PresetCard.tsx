@@ -77,9 +77,8 @@ const PresetCard: React.FC<PresetCardProps> = ({
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
-      if (isDownloaded) {
-        onSelect();
-      } else {
+      onSelect();
+      if (!isDownloaded) {
         onDownload(e);
       }
     },
@@ -92,9 +91,16 @@ const PresetCard: React.FC<PresetCardProps> = ({
   const showThumb = !showVideo && Boolean(thumbnailUrl);
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={handleClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handleClick(e as unknown as React.MouseEvent);
+        }
+      }}
       onPointerEnter={handlePointerEnter}
       onPointerLeave={handlePointerLeave}
       aria-label={
@@ -201,7 +207,7 @@ const PresetCard: React.FC<PresetCardProps> = ({
       >
         {name}
       </span>
-    </button>
+    </div>
   );
 };
 

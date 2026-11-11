@@ -108,6 +108,7 @@ import {
 } from "@/lib/platform/tauri";
 import { telemetryCollector } from "@/services/telemetryCollector";
 import type { TelemetryPreviewContext } from "@/services/telemetryCollector";
+import { perfLogService } from "@/services/perfLogService";
 import { warmBackgroundWorkersAndCachesAtIdle } from "@/services/idleWarmup";
 
 import type { SmartOverlayClip } from "@/types/smartOverlay";
@@ -2532,6 +2533,19 @@ export const NativeProgramPreview: React.FC = () => {
           if (pending && isActive) {
             ensureNativePlaybackRenderSnapshot(pending.request);
           }
+          // Task 2: Prime lookahead after snapshot settles while paused so
+          // frames are decoded before the user presses play.
+          if (isActive && renderStateRef.current.clock.state !== "playing") {
+            const currentFrame = getFrameIndexAtTime(
+              renderStateRef.current.clock.time,
+              renderStateRef.current.clock.frameRate,
+            );
+            primeNativeLookahead(
+              currentFrame,
+              LOOKAHEAD_PRIME_FRAMES,
+              "paused-settle",
+            );
+          }
         });
     };
 
@@ -2831,6 +2845,131 @@ export const NativeProgramPreview: React.FC = () => {
       nativeVideoPrefetchInFlight.set(key, task);
     };
 
+    // Matches PrefetchPolicy::playback_window=200ms at 30fps.
+    const LOOKAHEAD_PRIME_FRAMES = 6;
+
+    /**
+     * Cold-start lookahead primer (Bug 13 fix).
+     *
+     * Fires queueNativeFrame for `frameCount` frames starting at `currentFrame`
+     * while the clock is still paused so the Rust WorkPlanner has decoded frames
+     * ready before the first play demand arrives.
+     *
+     * MUST live inside the useEffect closure to share closure-local variables:
+     * nativePlaybackRenderSnapshotKey, nativeVideoPrefetchCompleted,
+     * nativeVideoPrefetchInFlight, nativeVideoPrefetchFailedAt, visibleRequestGeneration.
+     */
+    const primeNativeLookahead = (
+      currentFrame: number,
+      frameCount: number,
+      primeTriggeredBy: string,
+    ): void => {
+      if (!isTauriRuntime() || !isActive) return;
+      if (nativePlaybackRenderSnapshotKey === "") return;
+      const state = renderStateRef.current;
+      const project = state.project;
+      if (!project) return;
+
+      const frameRate = Math.max(1, project.frameRate ?? 30);
+      const revision = `${project.id ?? "unknown-project"}:${state.epoch}`;
+      let queuedCount = 0;
+
+      for (let i = 0; i < frameCount; i++) {
+        const frameIdx = currentFrame + i;
+        const cacheKey = `${revision}:video:prime:${frameIdx}`;
+        if (
+          nativeVideoPrefetchCompleted.has(cacheKey) ||
+          nativeVideoPrefetchInFlight.has(cacheKey)
+        ) {
+          continue;
+        }
+
+        const time = getFrameStartTime(frameIdx / frameRate, frameRate);
+        const scene = evaluateTimelineSceneCached(
+          time,
+          state.clips,
+          state.tracks,
+          state.mediaAssets,
+          project,
+          state.epoch,
+          state.transitions,
+          state.sceneVersions,
+        );
+        const hasVideo = scene.visualLayers.some(
+          (layer) => layer.layerType === "media",
+        );
+        if (!hasVideo) continue;
+
+        const baseRenderTarget = getNativeRenderTarget(state, false);
+        const primePrefetchRequest = buildNativeFrameRequest(
+          scene,
+          revision,
+          frameIdx,
+          frameRate,
+          baseRenderTarget.width,
+          baseRenderTarget.height,
+          [],
+          { mode: "prefetch", generation: visibleRequestGeneration },
+        );
+        if (
+          !primePrefetchRequest ||
+          primePrefetchRequest.project.videoLayers.length === 0
+        ) {
+          continue;
+        }
+
+        const task = queueNativeFrame(primePrefetchRequest)
+          .then(() => {
+            const current = renderStateRef.current;
+            if (
+              !isActive ||
+              current.project?.id !== project.id ||
+              current.epoch !== state.epoch
+            ) {
+              return;
+            }
+            nativeVideoPrefetchCompleted.add(cacheKey);
+            while (nativeVideoPrefetchCompleted.size > 64) {
+              const oldest = nativeVideoPrefetchCompleted.values().next().value;
+              if (oldest === undefined) break;
+              nativeVideoPrefetchCompleted.delete(oldest);
+            }
+            nativeVideoPrefetchFailedAt.delete(cacheKey);
+          })
+          .catch((error) => {
+            nativeVideoPrefetchFailedAt.set(cacheKey, performance.now());
+            console.warn("[native-preview] lookahead-prime-failed", {
+              frameIndex: frameIdx,
+              primeTriggeredBy,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          })
+          .finally(() => {
+            nativeVideoPrefetchInFlight.delete(cacheKey);
+          });
+        nativeVideoPrefetchInFlight.set(cacheKey, task);
+        queuedCount++;
+      }
+
+      if (queuedCount > 0) {
+        try {
+          perfLogService.enqueue({
+            kind: "playback-trace",
+            sessionId: perfLogService.getSessionId() ?? "unknown",
+            timestampEpochMs: Date.now(),
+            payload: {
+              event: "lookahead-prime",
+              frameIndex: currentFrame,
+              frameCount,
+              primeTriggeredBy,
+            },
+          });
+        } catch {
+          // Telemetry must never throw
+        }
+      }
+    };
+
     // Never start text/video prefetch preparation in the same turn as the first play intent.
     // Give the first native frame and audio clock a head start, then warm upcoming
     // boundaries from an idle timer.
@@ -2925,6 +3064,10 @@ export const NativeProgramPreview: React.FC = () => {
       return { clips: previewClips, previewRevision };
     };
 
+    // Task 3: Track whether the previous RAF was in play state so we can detect the
+    // first RAF after a pause→play transition and prime the lookahead buffer eagerly.
+    let wasPlayingInLastFrame = false;
+
     const renderLoop = async () => {
       if (!isActive || renderInFlight) return;
       const wasRenderInFlightAtStart = renderInFlight; // false at this point — guard passed
@@ -2938,6 +3081,12 @@ export const NativeProgramPreview: React.FC = () => {
         const timeToRender = state.clock.time;
         const playbackState = state.clock.state;
         const isPlaying = playbackState === "playing";
+        // Task 3: Detect first RAF after transition to playing.
+        const justStartedPlaying = isPlaying && !wasPlayingInLastFrame;
+        wasPlayingInLastFrame = isPlaying;
+        if (justStartedPlaying) {
+          lastNativePlaybackRequestKey = "";
+        }
         const frameRate = state.project?.frameRate ?? 30;
         const frameIndex = getFrameIndexAtTime(timeToRender, frameRate);
         if (playbackState !== lastTracedPlaybackState) {
@@ -3179,6 +3328,13 @@ export const NativeProgramPreview: React.FC = () => {
             Boolean(requestIntent?.isScrubbing) ||
             requestIntent?.mode === "scrub",
           nonBlockingStickers:
+            isPlaying ||
+            Boolean(requestIntent?.isScrubbing) ||
+            requestIntent?.mode === "scrub",
+          // Still images with animations (visualKeyframes) go black during
+          // playback because registerNativeImageAsset is async. Use the cached
+          // snapshot with updated animated transforms while registration settles.
+          nonBlockingImages:
             isPlaying ||
             Boolean(requestIntent?.isScrubbing) ||
             requestIntent?.mode === "scrub",
@@ -3655,6 +3811,27 @@ export const NativeProgramPreview: React.FC = () => {
         if (!isPlaying) {
           nativePlaybackRenderFailed = false;
         }
+        // Task 4: Eager render-session establishment on the first paused frame
+        // with video. Without this, configureNativePlaybackRender is only called
+        // inside the `requestKey !== lastNativePlaybackRequestKey` gate below,
+        // which is skipped when the user hasn't yet scrubbed. Establishing the
+        // session eagerly here ensures queueNativeFrame calls from
+        // primeNativeLookahead and prefetchUpcomingNativeVideo have a valid
+        // decode worker ready before the first play demand arrives.
+        if (
+          !isPlaying &&
+          nativeSurfaceUsable &&
+          !qualificationForcesWebView &&
+          nativePlaybackRenderSnapshotKey === "" &&
+          nativePlaybackRenderSnapshotInFlight === null &&
+          nativeRequest !== null &&
+          nativeRequest.project.videoLayers.length > 0
+        ) {
+          // Check that the next line wouldn't duplicate this call — it won't
+          // because the outer gate (nativeDirectSurfacePath || nativeReadbackFallbackPath)
+          // may be false when persistentNativePausedEligible is not yet satisfied.
+          ensureNativePlaybackRenderSnapshot(nativeRequest);
+        }
         const nativeSurfaceNeedsHide =
           nativeSurfaceShown &&
           (!nativeDirectSurfacePath ||
@@ -3831,6 +4008,18 @@ export const NativeProgramPreview: React.FC = () => {
                     telemetryCollector.recordScrubDemandDispatched(
                       latestSeekIntent.scrubSpanId,
                       demandDelayUs,
+                    );
+                  }
+                  // Task 3: Prime the lookahead buffer on the first RAF after play
+                  // starts so decoded frames are ready before frame deadlines arrive.
+                  if (
+                    justStartedPlaying &&
+                    nativePlaybackRenderSnapshotKey !== ""
+                  ) {
+                    primeNativeLookahead(
+                      frameIndex + 1,
+                      LOOKAHEAD_PRIME_FRAMES,
+                      "play-intent",
                     );
                   }
                   void submitNativePlaybackDemand(

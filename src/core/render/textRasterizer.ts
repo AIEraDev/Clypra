@@ -13,6 +13,11 @@ import {
 } from "./templateScale";
 import { renderBubbleBackground } from "./bubbleRenderer";
 import { resolveTextBackgroundGeometry } from "../../lib/text/backgroundGeometry";
+import {
+  evaluateGlyphTransform,
+  isGlyphAnimatedPreset,
+} from "../animation/glyphAnimator";
+import { getTextAnimationPreset } from "../../features/text-animations/animationCatalog";
 
 
 
@@ -383,6 +388,134 @@ function renderTemplateArtifact(
 }
 
 /**
+ * Per-glyph canvas rendering for character-staggered text animation presets.
+ *
+ * Called by rasterizeTextLayer when a text clip has an active in/out motion
+ * preset that uses stagger (e.g. "Flip In", "Wave In"). Each character is
+ * drawn with its own transform derived from the preset track evaluator, exactly
+ * matching what clypra-studio's AnimationPreviewStage produces per-frame.
+ *
+ * Canvas 2D transform order: translate → rotate → scale → skewX.
+ * Each glyph's transform origin is its own baseline center — matching Studio's
+ * per-span CSS transform-origin: center behavior.
+ *
+ * @param ctx    - 2D canvas context (main or OffscreenCanvas Worker)
+ * @param layer  - Evaluated text layer with font, text, and dimensions
+ * @param preset - The resolved text animation preset (must have stagger config)
+ * @param progress - Overall animation progress [0,1] for in or out phase
+ * @param width  - Destination canvas width in pixels
+ * @param height - Destination canvas height in pixels
+ */
+async function renderGlyphAnimatedText(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  layer: EvaluatedTextLayer,
+  preset: NonNullable<ReturnType<typeof getTextAnimationPreset>>,
+  progress: number,
+  width: number,
+  height: number,
+): Promise<void> {
+  const text = layer.text ?? "";
+  if (!text) return;
+
+  // ── Split into stagger units ──────────────────────────────────────────────
+  const staggerUnit = preset.stagger?.unit ?? "character";
+  let units: string[];
+  if (staggerUnit === "word") {
+    units = text.split(/(\s+)/).filter(Boolean);
+  } else if (staggerUnit === "line") {
+    units = text.split(/\n/);
+  } else {
+    // character (default)
+    units = Array.from(text);
+  }
+  const totalUnits = units.length;
+
+  // ── Font setup ───────────────────────────────────────────────────────────
+  const fontSize = layer.fontSize;
+  const fontWeight = layer.fontWeight ?? "normal";
+  const fontStyle = layer.fontStyle ?? "normal";
+  const fontFamily = layer.fontFamily ?? "sans-serif";
+  const fontSpec = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
+  ctx.font = fontSpec;
+  ctx.textBaseline = "alphabetic";
+
+  // ── Measure total text width to compute baseline position ────────────────
+  // We draw at the layer origin (0,0 is center of the layer's bounding box in
+  // the compositor), so translate to top-left first.
+  const layerW = width;
+  const layerH = height;
+
+  // Measure total advance width for centering
+  let totalAdvance = 0;
+  const advances: number[] = [];
+  for (const unit of units) {
+    const m = ctx.measureText(unit);
+    const advance = m.width;
+    advances.push(advance);
+    totalAdvance += advance;
+  }
+
+  const textAlign = layer.textAlign ?? "center";
+  let cursorX: number;
+  if (textAlign === "left") {
+    cursorX = -layerW / 2;
+  } else if (textAlign === "right") {
+    cursorX = layerW / 2 - totalAdvance;
+  } else {
+    // center
+    cursorX = -totalAdvance / 2;
+  }
+
+  // Vertical baseline: fontSize * 0.82 matches the engine's baseline offset
+  const baseline = fontSize * 0.82;
+  const cursorY = layerH * 0 + baseline - layerH / 2 + (layerH - fontSize) / 2;
+
+  // ── Draw each unit with its individual transform ──────────────────────────
+  for (let i = 0; i < totalUnits; i++) {
+    const unit = units[i];
+    const advance = advances[i];
+    const halfAdvance = advance / 2;
+
+    const transform = evaluateGlyphTransform(preset, progress, i, totalUnits);
+
+    // Glyph center X in canvas space
+    const glyphCenterX = cursorX + halfAdvance;
+
+    ctx.save();
+
+    // Apply blur filter before transforms (affects entire glyph draw)
+    if (transform.blur > 0) {
+      ctx.filter = `blur(${transform.blur.toFixed(2)}px)`;
+    }
+
+    // Translate to glyph center → apply transforms → draw at relative (-halfAdvance, 0)
+    ctx.translate(
+      glyphCenterX + transform.translateX,
+      cursorY + transform.translateY,
+    );
+    if (transform.rotation !== 0) {
+      ctx.rotate((transform.rotation * Math.PI) / 180);
+    }
+    if (transform.scaleX !== 1 || transform.scaleY !== 1) {
+      ctx.scale(transform.scaleX, transform.scaleY);
+    }
+    if (transform.skewX !== 0) {
+      // 2D skewX: ctx.transform(1, 0, tan(angle), 1, 0, 0)
+      ctx.transform(1, 0, Math.tan((transform.skewX * Math.PI) / 180), 1, 0, 0);
+    }
+
+    ctx.globalAlpha = Math.max(0, Math.min(1, transform.opacity));
+    ctx.fillStyle = layer.color ?? "#ffffff";
+    ctx.fillText(unit, -halfAdvance, 0);
+
+    ctx.restore();
+
+    // Advance cursor by unit width plus any tracking offset
+    cursorX += advance + transform.tracking;
+  }
+}
+
+/**
  * Rasterize a text layer.
  *
  * CRITICAL: This is the canonical text rendering path.
@@ -467,6 +600,34 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
       return;
     }
 
+  }
+
+  // ── Per-glyph animation rendering (early path) ───────────────────────────
+  // When a stagger-based motion preset is active (e.g. "Flip In"), each
+  // character has its own transform. This path handles the animation window
+  // and falls through to normal rendering once the animation is complete.
+  // Loop presets are handled separately by applyLoopMotion in the evaluator.
+  if (
+    layer.motion &&
+    (layer.motionInProgress !== undefined || layer.motionOutProgress !== undefined)
+  ) {
+    const presetId =
+      layer.motionInProgress !== undefined
+        ? layer.motion.inPreset
+        : layer.motion.outPreset;
+    // out-preset progress: 0 = just started exiting → maps to animation progress 0
+    // out-preset progress: 1 = fully exited → maps to animation progress 1
+    const animProgress =
+      layer.motionInProgress !== undefined
+        ? layer.motionInProgress
+        : (layer.motionOutProgress ?? 0);
+
+    const preset = getTextAnimationPreset(presetId);
+    if (preset && isGlyphAnimatedPreset(preset)) {
+      await renderGlyphAnimatedText(ctx, layer, preset, animProgress, width, height);
+      return;
+    }
+    // If preset not found or not glyph-animated, fall through to normal rendering.
   }
 
   // CRITICAL: For text clips, fontSize is explicitly managed by the transform system
