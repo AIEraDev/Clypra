@@ -116,11 +116,13 @@ export function calculateDiscreteWheelZoomTarget(
   const nominalMin = TIMELINE_MIN_PPS; // 10 px/s
   const notchStep = Math.pow(maxPps / nominalMin, 1 / 7);
   const factor = Math.pow(notchStep, Math.abs(notches));
-  // allowOverviewFloor must stay false here so the wheel floor matches the
-  // zoom-button floor (TIMELINE_MIN_PPS). Only fitSequence may cross below that.
+  // If basePps is already below nominalMin (e.g. Fit Sequence overview density),
+  // allowOverviewFloor is enabled so zooming out honors the overview density
+  // and does not violate invariant by jumping inward to 10 px/s.
+  const allowOverviewFloor = basePps < nominalMin;
   return clampTimelinePixelsPerSecond(
     notches > 0 ? basePps * factor : basePps / factor,
-    false,
+    allowOverviewFloor,
     frameRate,
     sequenceDuration,
   );

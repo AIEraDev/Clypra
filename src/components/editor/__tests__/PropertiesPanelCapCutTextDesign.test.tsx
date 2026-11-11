@@ -306,12 +306,12 @@ describe("CapCut Parity Text Property Panel", () => {
     expect(screen.getByTitle("Drag to rotate")).toBeDefined();
 
     // Docked canvas alignment toolbar buttons
-    expect(screen.getByTitle("Align left")).toBeDefined();
+    expect(screen.getAllByTitle("Align left").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByTitle("Align center horizontally")).toBeDefined();
-    expect(screen.getByTitle("Align right")).toBeDefined();
-    expect(screen.getByTitle("Align top")).toBeDefined();
+    expect(screen.getAllByTitle("Align right").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByTitle("Align top").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByTitle("Align center vertically")).toBeDefined();
-    expect(screen.getByTitle("Align bottom")).toBeDefined();
+    expect(screen.getAllByTitle("Align bottom").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByTitle("Distribute horizontally")).toBeDefined();
     expect(screen.getByTitle("Distribute vertically")).toBeDefined();
   });
@@ -319,8 +319,9 @@ describe("CapCut Parity Text Property Panel", () => {
   it("handles canvas alignment clicks and updates clip coordinates in store", async () => {
     render(<PropertiesPanel />);
 
-    // Click "Align left" (|←)
-    const alignLeftBtn = screen.getByTitle("Align left");
+    // Click "Align left" (|←) - query canvas alignment button in Transform section
+    const alignLeftBtns = screen.getAllByTitle("Align left");
+    const alignLeftBtn = alignLeftBtns[alignLeftBtns.length - 1];
     fireEvent.click(alignLeftBtn);
 
     await new Promise((r) => setTimeout(r, 100));
@@ -339,8 +340,9 @@ describe("CapCut Parity Text Property Panel", () => {
       .clips.find((c) => c.id === "test-text-capcut") as TextClip;
     expect(clip.x).toBe(760);
 
-    // Click "Align top" (╤)
-    const alignTopBtn = screen.getByTitle("Align top");
+    // Click "Align top" (╤) - query canvas alignment button in Transform section
+    const alignTopBtns = screen.getAllByTitle("Align top");
+    const alignTopBtn = alignTopBtns[alignTopBtns.length - 1];
     fireEvent.click(alignTopBtn);
 
     await new Promise((r) => setTimeout(r, 100));

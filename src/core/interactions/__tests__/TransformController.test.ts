@@ -158,14 +158,15 @@ describe("TransformController — onDragGeometry fast-path subscriber", () => {
     controller.updateDragGeometry(makeGeometry({ x: 222 }));
     controller.updateDragGeometry(makeGeometry({ x: 333 }));
 
-    expect(received).toHaveLength(3);
-    expect(received[0].geometry.x).toBe(111);
-    expect(received[0].sessionId).toBe(sessionId);
-    expect(received[0].revision).toBe(1);
-    expect(received[1].geometry.x).toBe(222);
-    expect(received[1].revision).toBe(2);
-    expect(received[2].geometry.x).toBe(333);
-    expect(received[2].revision).toBe(3);
+    expect(received).toHaveLength(4);
+    expect(received[0].revision).toBe(0);
+    expect(received[1].geometry.x).toBe(111);
+    expect(received[1].sessionId).toBe(sessionId);
+    expect(received[1].revision).toBe(1);
+    expect(received[2].geometry.x).toBe(222);
+    expect(received[2].revision).toBe(2);
+    expect(received[3].geometry.x).toBe(333);
+    expect(received[3].revision).toBe(3);
     controller.endTransform();
   });
 
@@ -179,7 +180,7 @@ describe("TransformController — onDragGeometry fast-path subscriber", () => {
     }
     controller.endTransform();
 
-    expect(revisions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(revisions).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
   it("does NOT call subscriber when no drag is active (updateDragGeometry ignored)", () => {
@@ -200,8 +201,8 @@ describe("TransformController — onDragGeometry fast-path subscriber", () => {
     controller.updateDragGeometry(makeGeometry());
     controller.endTransform();
 
-    expect(a).toHaveBeenCalledOnce();
-    expect(b).toHaveBeenCalledOnce();
+    expect(a).toHaveBeenCalledTimes(2);
+    expect(b).toHaveBeenCalledTimes(2);
   });
 
   it("unsubscribes cleanly and stops receiving updates", () => {
@@ -214,8 +215,8 @@ describe("TransformController — onDragGeometry fast-path subscriber", () => {
     controller.updateDragGeometry(makeGeometry({ x: 100 }));
     controller.endTransform();
 
-    expect(subscriber).toHaveBeenCalledOnce();
-    expect(subscriber.mock.calls[0][0].x).toBe(50);
+    expect(subscriber).toHaveBeenCalledTimes(2);
+    expect(subscriber.mock.calls[1][0].x).toBe(50);
   });
 });
 

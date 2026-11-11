@@ -1012,6 +1012,7 @@ const ClipInner: React.FC<ClipProps> = ({
 
       {/* Inner body — carries overflow-hidden, border, rounded corner, and all visual styling */}
       <div
+        data-testid={`clip-${clip.id}-body`}
         className={`absolute inset-0 overflow-hidden rounded-[1px] border ${trackToneClass} ${selected ? "border-accent-soft" : "border-transparent"} ${getClipStyle()} ${mediaAsset?.isMissing ? "ring-1 ring-red-500/80" : ""}`}
         style={{
           border: isInvalidPosition

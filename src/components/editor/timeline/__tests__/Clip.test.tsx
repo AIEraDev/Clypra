@@ -232,7 +232,7 @@ describe("Clip Component", () => {
       const clip = createMockClip();
       renderClip(clip, undefined, { selected: true });
 
-      const clipElement = screen.getByTestId("clip-clip-1");
+      const clipElement = screen.getByTestId("clip-clip-1-body");
       expect(clipElement.className).toContain("border-accent-soft");
       expect(clipElement.className).toContain("border");
     });
@@ -250,7 +250,7 @@ describe("Clip Component", () => {
       const mediaAsset = createMockMediaAsset({ type: "audio" });
       renderClip(clip, mediaAsset);
 
-      const clipElement = screen.getByTestId("clip-clip-1");
+      const clipElement = screen.getByTestId("clip-clip-1-body");
       expect(clipElement.className).toContain("bg-timeline-clip-audio");
     });
 
@@ -260,8 +260,9 @@ describe("Clip Component", () => {
       renderClip(clip, mediaAsset, { trackHeightPx: 40, trackVisualRole: "audio" });
 
       const clipElement = screen.getByTestId("clip-clip-1");
+      const bodyElement = screen.getByTestId("clip-clip-1-body");
       expect(clipElement).toBeInTheDocument();
-      expect(clipElement.className).toContain("clip-kind-audio");
+      expect(bodyElement.className).toContain("clip-kind-audio");
     });
 
     it("renders modern floating badges and full-height waveform for audio clips", () => {
@@ -291,7 +292,7 @@ describe("Clip Component", () => {
 
       const speedBadge = screen.getByTestId("audio-clip-speed-badge");
       expect(speedBadge).toBeInTheDocument();
-      expect(speedBadge).toHaveTextContent("Speed 0.6X");
+      expect(speedBadge).toHaveTextContent("0.6×");
     });
 
     it("renders voice filter badge when audio clip has voiceFilter or audioFX", () => {
@@ -418,8 +419,9 @@ describe("Clip Component", () => {
     });
 
     const clipElement = screen.getByTestId("clip-clip-1");
+    const bodyElement = screen.getByTestId("clip-clip-1-body");
     expect(clipElement).toHaveStyle({ opacity: "0.8" });
-    expect(clipElement.className).toContain("border-accent/30");
+    expect(bodyElement.className).toContain("border-accent/30");
   });
 
   describe("Resize Logic Validation", () => {

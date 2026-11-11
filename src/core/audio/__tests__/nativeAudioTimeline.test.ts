@@ -108,6 +108,7 @@ describe("native audio timeline contract", () => {
       id: "clip", kind: "video", trackId: track.id, mediaId: asset.id,
       startTime: 0, duration: 5, trimIn: 0, trimOut: 5,
       x: 0, y: 0, width: 0, height: 0, opacity: 1, rotation: 0,
+      audio: { speed: { preservePitch: false } },
     } as Clip;
 
     expect(buildNativeAudioTimeline([clip], [track], [asset], 0, 5).clips[0].preservePitch).toBe(false);
