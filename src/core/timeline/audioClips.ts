@@ -204,7 +204,11 @@ export function getActiveAudioClips(
               // Freeze: zero speed — audio is effectively silent (duration fills silence).
               return 0.0;
             case "speed_ramp":
-              // Variable: use first keyframe speed as approximation.
+              // TODO(CLY-BUG-010): Variable-speed clips use only the first keyframe speed as a
+              // constant approximation for the entire exported audio segment. This causes
+              // A/V drift in clips where speed changes significantly across the ramp. A proper
+              // fix requires building a segmented atempo filter chain driven by all keyframes.
+              // Tracked: https://github.com/AIEraDev/Clypra/issues/XXX
               return pm.keyframes.length > 0 ? pm.keyframes[0].speed : 1.0;
             default:
               return 1.0;

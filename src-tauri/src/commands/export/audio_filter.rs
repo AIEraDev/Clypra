@@ -48,6 +48,20 @@ pub(crate) async fn has_audio_stream(path: &str) -> bool {
 
 
 
+pub(crate) fn build_atempo_filter_chain(mut speed: f64) -> String {
+    let mut filters = Vec::new();
+    while speed > 2.0 {
+        filters.push("atempo=2.0".to_string());
+        speed /= 2.0;
+    }
+    while speed < 0.5 {
+        filters.push("atempo=0.5".to_string());
+        speed /= 0.5;
+    }
+    filters.push(format!("atempo={:.4}", speed));
+    filters.join(",")
+}
+
 pub(crate) fn build_export_audio_filter_complex(
     valid_audio_clips: &[ExportAudioClip],
     total_duration: f64,
@@ -71,7 +85,10 @@ pub(crate) fn build_export_audio_filter_complex(
     for (idx, clip) in valid_audio_clips.iter().enumerate() {
         let input_idx = idx + 1; // input 0 is pipe:0 (video)
         let delay_ms = (clip.start_time * 1000.0) as i64;
-        let end_time = clip.trim_in + clip.duration;
+        let speed = clip.speed.unwrap_or(1.0).max(0.01);
+        let preserve_pitch = clip.preserve_pitch.unwrap_or(true);
+        let source_duration = clip.duration * speed;
+        let end_time = clip.trim_in + source_duration;
 
         let fade_in = clip.fade_in.unwrap_or(0.0).max(0.0).min(clip.duration);
         let fade_out = clip.fade_out.unwrap_or(0.0).max(0.0).min(clip.duration);
@@ -82,6 +99,14 @@ pub(crate) fn build_export_audio_filter_complex(
             "[{}:a]aresample=48000,atrim=start={:.3}:end={:.3},asetpts=PTS-STARTPTS",
             input_idx, clip.trim_in, end_time
         );
+
+        if (speed - 1.0).abs() > 0.001 {
+            if preserve_pitch {
+                chain.push_str(&format!(",{}", build_atempo_filter_chain(speed)));
+            } else {
+                chain.push_str(&format!(",asetrate={:.0},aresample=48000", 48000.0 * speed));
+            }
+        }
 
         let in_curve = match clip.fade_in_curve.as_deref() {
             Some("exponential") => ":curve=exp",

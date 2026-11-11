@@ -171,7 +171,12 @@ export function normalizeClipAudioProperties(fields: LegacyAudioClipFields): Cli
       channelMap: supplied?.channelConfig?.channelMap ? [...supplied.channelConfig.channelMap] : undefined,
     },
     speed: {
-      preservePitch: supplied?.speed?.preservePitch ?? false,
+      // Default to `true` (preserve pitch) to match:
+      // 1. SpeedSection.tsx UI default (`?? true` at line 177)
+      // 2. Rust audio_filter.rs fallback (`unwrap_or(true)`)
+      // A `false` default would cause pitch-shifting on export even when the
+      // user never explicitly disabled pitch preservation.
+      preservePitch: supplied?.speed?.preservePitch ?? true,
     },
     effects: supplied?.effects ?? fields.audioFX,
   };

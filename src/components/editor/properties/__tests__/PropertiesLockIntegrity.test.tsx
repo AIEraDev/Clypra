@@ -32,6 +32,11 @@ vi.mock("@/hooks/usePlaybackClock", () => ({
     time: 0,
     seek: vi.fn(),
   }),
+  usePlaybackClock: () => ({
+    time: 0,
+    isPlaying: false,
+    isScrubbing: false,
+  }),
 }));
 
 vi.mock("@/core/playback/PlaybackClock", () => ({

@@ -146,13 +146,16 @@ export function importFromOTIO(otioInput: string | OTIOTimeline): OTIOImportResu
             }
           }
 
+          const timelineDurationSec =
+            speed > 0 ? durationSec / speed : durationSec;
+
           const clip: Clip = {
             id: clypraMeta.id || generateId("clip"),
             name: otioClip.name || "Imported Clip",
             trackId: track.id,
             mediaId,
             startTime: timelineCursorSec,
-            duration: durationSec,
+            duration: timelineDurationSec,
             trimIn: trimInSec,
             trimOut: trimOutSec,
             x: clypraMeta.x ?? 0,
@@ -170,7 +173,7 @@ export function importFromOTIO(otioInput: string | OTIOTimeline): OTIOImportResu
           };
 
           clips.push(clip);
-          timelineCursorSec += durationSec;
+          timelineCursorSec += timelineDurationSec;
         }
       }
     }

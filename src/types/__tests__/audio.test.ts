@@ -8,6 +8,7 @@ import {
 } from "../audio";
 import { fromRustClip, toRustClip } from "../serialization";
 import type { Clip } from "../index";
+import type { ExportAudioClip } from "../export";
 
 const baseClip: Clip = {
   id: "clip-audio",
@@ -48,7 +49,9 @@ describe("ClipAudioProperties", () => {
       fadeIn: { duration: 1.25, curve: "exponential" },
       fadeOut: { duration: 0.75, curve: "linear" },
       channelConfig: { mode: "auto", downmix: "auto" },
-      speed: { preservePitch: false },
+      // CLY-BUG-009 fix: default must be `true` to match SpeedSection UI (?? true)
+      // and Rust audio_filter.rs fallback (unwrap_or(true)).
+      speed: { preservePitch: true },
     });
   });
 
@@ -153,5 +156,89 @@ describe("ClipAudioProperties", () => {
       linkState: "detached",
       sourceClipId: "source-video",
     });
+  });
+});
+
+// ─── CLY-BUG-009 Regression: preservePitch default alignment ─────────────────
+describe("CLY-BUG-009 — preservePitch default is true (matches SpeedSection UI and Rust fallback)", () => {
+  it("defaults preservePitch to true when no speed config is supplied", () => {
+    // Regression guard: a clip with no speed info must produce preservePitch=true,
+    // matching SpeedSection.tsx (?? true) and audio_filter.rs unwrap_or(true).
+    const audio = normalizeClipAudioProperties({ kind: "audio" });
+    expect(audio.speed.preservePitch).toBe(true);
+  });
+
+  it("preserves an explicit preservePitch=false when user has disabled pitch preservation", () => {
+    const audio = normalizeClipAudioProperties({
+      kind: "audio",
+      audio: {
+        origin: "embedded",
+        linkState: "linked",
+        gainDb: 0,
+        pan: 0,
+        muted: false,
+        volumeKeyframes: [],
+        fadeIn: { duration: 0, curve: "linear" },
+        fadeOut: { duration: 0, curve: "linear" },
+        channelConfig: { mode: "auto", downmix: "auto" },
+        speed: { preservePitch: false },
+      },
+    });
+    expect(audio.speed.preservePitch).toBe(false);
+  });
+
+  it("preserves an explicit preservePitch=true round-trip through serialization", () => {
+    const clip: Clip = {
+      ...baseClip,
+      audio: normalizeClipAudioProperties({
+        kind: "audio",
+        audio: {
+          origin: "embedded",
+          linkState: "linked",
+          gainDb: 0,
+          pan: 0,
+          muted: false,
+          volumeKeyframes: [],
+          fadeIn: { duration: 0, curve: "linear" },
+          fadeOut: { duration: 0, curve: "linear" },
+          channelConfig: { mode: "auto", downmix: "auto" },
+          speed: { preservePitch: true },
+        },
+      }),
+    };
+    const restored = fromRustClip(toRustClip(clip));
+    expect(restored.audio?.speed.preservePitch).toBe(true);
+  });
+});
+
+// ─── CLY-BUG-008 Regression: ExportAudioClip IPC contract ───────────────────
+describe("CLY-BUG-008 — ExportAudioClip TypeScript interface declares speed and preservePitch", () => {
+  it("ExportAudioClip interface accepts speed and preservePitch without TypeScript errors", () => {
+    // This test is a compile-time contract guard: if ExportAudioClip is missing
+    // speed/preservePitch, the import causes tsc to fail.
+    // At runtime we validate the shape holds the correct values.
+    const clip: ExportAudioClip = {
+      path: "/media/song.mp3",
+      startTime: 0,
+      duration: 10,
+      trimIn: 0,
+      volume: 0.8,
+      speed: 2.0,
+      preservePitch: true,
+    };
+    expect(clip.speed).toBe(2.0);
+    expect(clip.preservePitch).toBe(true);
+  });
+
+  it("ExportAudioClip allows speed and preservePitch to be omitted (optional fields)", () => {
+    const clip: ExportAudioClip = {
+      path: "/media/song.mp3",
+      startTime: 0,
+      duration: 10,
+      trimIn: 0,
+      volume: 1.0,
+    };
+    expect(clip.speed).toBeUndefined();
+    expect(clip.preservePitch).toBeUndefined();
   });
 });

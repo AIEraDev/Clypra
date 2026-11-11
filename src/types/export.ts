@@ -42,6 +42,19 @@ export interface ExportAudioClip {
   downmix?: "auto" | "mono" | "stereo";
   /** Source channel index for each output channel (e.g. [1, 0] swaps stereo). */
   channelMap?: number[];
+  /**
+   * Playback speed multiplier for this clip (e.g. 0.5 = half speed, 2.0 = double speed).
+   * When omitted the clip plays at its original tempo (1.0×).
+   * CRITICAL: Must match `speed: Option<f64>` in Rust ExportAudioClip.
+   */
+  speed?: number;
+  /**
+   * Whether to preserve the audio pitch during speed changes.
+   * Defaults to `true` on both the TS and Rust sides — pitch is preserved unless
+   * explicitly disabled by the user.
+   * CRITICAL: Must match `preserve_pitch: Option<bool>` in Rust ExportAudioClip.
+   */
+  preservePitch?: boolean;
 }
 
 export interface ExportAudioKeyframe {

@@ -37,6 +37,8 @@ mod tests {
                 duration: 5.0,
                 volume: 1.0,
                 trim_in: 0.0,
+                speed: None,
+                preserve_pitch: None,
                 fade_in: None,
                 fade_out: None,
                 fade_in_curve: None,
@@ -57,6 +59,8 @@ mod tests {
                 duration: 4.0,
                 volume: 0.8,
                 trim_in: 0.0,
+                speed: None,
+                preserve_pitch: None,
                 fade_in: None,
                 fade_out: None,
                 fade_in_curve: None,
@@ -85,6 +89,51 @@ mod tests {
             !filter_complex.contains(":normalize=1"),
             "amix must never normalize=1 in Clypra export"
         );
+    }
+
+    #[test]
+    fn test_export_audio_speed_filter_chain() {
+        assert_eq!(
+            build_atempo_filter_chain(2.0),
+            "atempo=2.0000"
+        );
+        assert_eq!(
+            build_atempo_filter_chain(4.0),
+            "atempo=2.0,atempo=2.0000"
+        );
+        assert_eq!(
+            build_atempo_filter_chain(0.25),
+            "atempo=0.5,atempo=0.5000"
+        );
+
+        let clip_2x = ExportAudioClip {
+            path: "/path/to/voice.mp3".to_string(),
+            start_time: 1.0,
+            duration: 5.0,
+            trim_in: 0.0,
+            speed: Some(2.0),
+            preserve_pitch: Some(true),
+            volume: 1.0,
+            fade_in: None,
+            fade_out: None,
+            fade_in_curve: None,
+            fade_out_curve: None,
+            eq_low: None,
+            eq_mid: None,
+            eq_high: None,
+            pan: None,
+            noise_suppression: None,
+            volume_keyframes: None,
+            channel_map: None,
+            channel_mode: None,
+            downmix: None,
+        };
+
+        let filter = build_export_audio_filter_complex(&[clip_2x], 10.0);
+        // atrim must cover 5.0 * 2.0 = 10.0 seconds of source audio
+        assert!(filter.contains("atrim=start=0.000:end=10.000"));
+        // atempo filter must be included
+        assert!(filter.contains("atempo=2.0000"));
     }
 
     fn base_test_config() -> ExportConfig {
@@ -184,6 +233,8 @@ mod tests {
             start_time: 0.0,
             duration: -1.0,
             trim_in: 0.0,
+            speed: None,
+            preserve_pitch: None,
             volume: 1.0,
             fade_in: None,
             fade_out: None,
@@ -209,6 +260,8 @@ mod tests {
             start_time: -0.5,
             duration: 1.0,
             trim_in: 0.0,
+            speed: None,
+            preserve_pitch: None,
             volume: 1.0,
             fade_in: None,
             fade_out: None,
@@ -234,6 +287,8 @@ mod tests {
             start_time: 0.0,
             duration: 1.0,
             trim_in: 0.0,
+            speed: None,
+            preserve_pitch: None,
             volume: 1.0,
             fade_in: None,
             fade_out: None,

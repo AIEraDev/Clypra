@@ -351,3 +351,39 @@ describe("analyzeNativeTimelineExport", () => {
     ]);
   });
 });
+
+// ─── CLY-BUG-009 / CLY-BUG-011 Regression ───────────────────────────────────
+// Changing normalizeClipAudioProperties default from preservePitch=false to
+// preservePitch=true must NOT cause plain video clips to be rejected from the
+// native export path. The native path demuxes audio as-is (no atempo applied),
+// so preservePitch is irrelevant when speed === 1.0.
+describe("analyzeNativeTimelineExport — CLY-BUG-011 preservePitch default regression", () => {
+  it("does NOT reject a plain video clip because of the preservePitch=true default", () => {
+    // A clip with no explicit audio config: normalizeClipAudioProperties now
+    // returns preservePitch=true by default. This must NOT trigger the
+    // 'audio-mix export path' reason.
+    const plainClip = clip({ id: "plain", startTime: 0, duration: 9, trimIn: 0, trimOut: 9 });
+    const result = analyzeNativeTimelineExport({
+      clips: [plainClip],
+      tracks,
+      transitions: [],
+      assets,
+      project,
+      startTime: 0,
+      endTime: 9,
+      outputPath: "/output/plain.mp4",
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      codec: "h264",
+      preset: "fast",
+      crf: 23,
+      pixelFormat: "yuv420p",
+    });
+    expect(result.eligible).toBe(true);
+    if (!result.eligible) {
+      // Surface actionable failure message in CI
+      throw new Error(`Native export rejected: ${result.reasons.join(", ")}`);
+    }
+  });
+});

@@ -230,9 +230,20 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
           <>
             {/* Volume */}
             <div className="space-y-2">
-              <label className="text-[11px] font-medium text-white/90">
-                Volume
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-medium text-white/90">
+                  Volume
+                </label>
+                <button
+                  type="button"
+                  onClick={handleResetVolume}
+                  className="w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors cursor-pointer"
+                  title="Reset volume"
+                  aria-label="Reset volume"
+                >
+                  <RotateCcw className="w-2.5 h-2.5" />
+                </button>
+              </div>
               <div className="flex items-center">
                 {/* Slider wrapper — overlays a tick mark at the 0 dB position (75% along the -60→+20 range) */}
                 <div className="relative flex-1 mr-4">
@@ -319,9 +330,20 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
 
             {/* Fade In */}
             <div className="space-y-2">
-              <label className="text-[11px] font-medium text-white/90">
-                Fade in
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-medium text-white/90">
+                  Fade in
+                </label>
+                <button
+                  type="button"
+                  onClick={handleResetFadeIn}
+                  className="w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors cursor-pointer"
+                  title="Reset fade in"
+                  aria-label="Reset fade in"
+                >
+                  <RotateCcw className="w-2.5 h-2.5" />
+                </button>
+              </div>
               <div className="flex items-center">
                 <SliderTrack
                   value={fadeIn}
@@ -372,9 +394,20 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
 
             {/* Fade Out */}
             <div className="space-y-2">
-              <label className="text-[11px] font-medium text-white/90">
-                Fade out
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-medium text-white/90">
+                  Fade out
+                </label>
+                <button
+                  type="button"
+                  onClick={handleResetFadeOut}
+                  className="w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors cursor-pointer"
+                  title="Reset fade out"
+                  aria-label="Reset fade out"
+                >
+                  <RotateCcw className="w-2.5 h-2.5" />
+                </button>
+              </div>
               <div className="flex items-center">
                 <SliderTrack
                   value={fadeOut}
