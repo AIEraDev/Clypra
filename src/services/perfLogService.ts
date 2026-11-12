@@ -753,7 +753,7 @@ export class PerfLogService {
         return;
       }
 
-      const url = `${getApiBaseUrl().replace(/\/+$/, "")}/performance/telemetry/ingest/session`;
+      const url = `${getApiBaseUrl().replace(/\/+$/, "")}/api/v1/performance/telemetry/ingest/session`;
       const apiKey = getApiKey();
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
@@ -1243,9 +1243,9 @@ export class PerfLogService {
   }
 
   /**
-   * Returns true only if the user has explicitly opted in to telemetry upload.
+   * Returns true unless the user has explicitly opted out of telemetry upload.
    * Respects CLYPRA_DISABLE_TELEMETRY_UPLOAD env var for CI and contributors.
-   * Default is off for all installs including upgrades.
+   * Default is ON — enabled for all installs unless the user sets the flag to false.
    */
   private isTelemetryUploadEnabled(): boolean {
     // Never upload from a dev build — debug sessions report synthetic latch
@@ -1270,15 +1270,19 @@ export class PerfLogService {
     ) {
       return false;
     }
-    // User opt-in — default false so consent is never inferred
+    // Default ON — telemetry upload is enabled unless the user explicitly
+    // opts out (stored value === "false").  Absence of the key means the
+    // setting was never changed, which we now treat as consent-to-default
+    // rather than opt-out.
     try {
-      return localStorage.getItem("clypra.telemetryUploadEnabled") === "true";
+      const stored = localStorage.getItem("clypra.telemetryUploadEnabled");
+      return stored === null ? true : stored === "true";
     } catch {
-      return false;
+      return true;
     }
   }
 
-  /** Enable or disable telemetry upload. Persists across sessions. */
+  /** Enable or disable telemetry upload. Persists across sessions. Pass `false` to explicitly opt out. */
   static setTelemetryUploadEnabled(enabled: boolean): void {
     try {
       localStorage.setItem("clypra.telemetryUploadEnabled", String(enabled));
@@ -1287,12 +1291,13 @@ export class PerfLogService {
     }
   }
 
-  /** Returns the current opt-in state. */
+  /** Returns the current opt-in state. Defaults to true when the key is absent. */
   static isTelemetryUploadEnabledStatic(): boolean {
     try {
-      return localStorage.getItem("clypra.telemetryUploadEnabled") === "true";
+      const stored = localStorage.getItem("clypra.telemetryUploadEnabled");
+      return stored === null ? true : stored === "true";
     } catch {
-      return false;
+      return true;
     }
   }
 }

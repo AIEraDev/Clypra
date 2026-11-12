@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { perfLogService } from "../perfLogService";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { perfLogService, PerfLogService } from "../perfLogService";
 
 describe("PerfLogService Phase 5 Session Telemetry Integration", () => {
   beforeEach(() => {
@@ -85,5 +85,76 @@ describe("PerfLogService Phase 5 Session Telemetry Integration", () => {
         },
       });
     }).not.toThrow();
+  });
+});
+
+describe("PerfLogService Telemetry Upload Default Behavior", () => {
+  const TELEMETRY_KEY = "clypra.telemetryUploadEnabled";
+  let originalGetItem: typeof Storage.prototype.getItem;
+  let originalSetItem: typeof Storage.prototype.setItem;
+  let store: Record<string, string>;
+
+  beforeEach(() => {
+    // Mock localStorage with a clean store for each test
+    store = {};
+    originalGetItem = Storage.prototype.getItem;
+    originalSetItem = Storage.prototype.setItem;
+
+    Storage.prototype.getItem = vi.fn((key: string) => store[key] ?? null);
+    Storage.prototype.setItem = vi.fn((key: string, value: string) => {
+      store[key] = value;
+    });
+  });
+
+  afterEach(() => {
+    Storage.prototype.getItem = originalGetItem;
+    Storage.prototype.setItem = originalSetItem;
+  });
+
+  it("defaults to opt-in (true) when localStorage key is absent", () => {
+    // Key is absent (default state for new users)
+    expect(localStorage.getItem(TELEMETRY_KEY)).toBeNull();
+
+    // Static accessor (primary API)
+    expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(true);
+  });
+
+  it("respects explicit opt-out (false)", () => {
+    // User explicitly opts out via Settings
+    PerfLogService.setTelemetryUploadEnabled(false);
+
+    expect(localStorage.getItem(TELEMETRY_KEY)).toBe("false");
+    expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(false);
+  });
+
+  it("respects explicit opt-in (true)", () => {
+    // User explicitly opts in
+    PerfLogService.setTelemetryUploadEnabled(true);
+
+    expect(localStorage.getItem(TELEMETRY_KEY)).toBe("true");
+    expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(true);
+  });
+
+  it("allows user to toggle from default opt-in to opt-out", () => {
+    // Start with default (key absent)
+    expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(true);
+
+    // User opts out
+    PerfLogService.setTelemetryUploadEnabled(false);
+    expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(false);
+
+    // User opts back in
+    PerfLogService.setTelemetryUploadEnabled(true);
+    expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(true);
+  });
+
+  it("persists opt-out state across multiple reads", () => {
+    // Set opt-out
+    PerfLogService.setTelemetryUploadEnabled(false);
+
+    // Read multiple times
+    expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(false);
+    expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(false);
+    expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(false);
   });
 });
