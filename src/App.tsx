@@ -37,7 +37,7 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { importMediaPaths, getMediaType } from "@/hooks/useMediaImport";
 import { installNativeDiagnostics } from "@/core/runtime/nativeDiagnostics";
 import { getPreviewInteractionCoordinator } from "@/core/interactions";
-import { perfLogService, PerfLogService } from "@/services/perfLogService";
+import { perfLogService } from "@/services/perfLogService";
 import { warmBackgroundWorkersAndCachesAtIdle } from "@/services/idleWarmup";
 import {
   getColdStartReport,
@@ -147,11 +147,10 @@ const App = () => {
           const launchSessionId = `launch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           void perfLogService.openSession(launchSessionId);
 
-          // Auto-enable telemetry on first run only. If the user has already
-          // made an explicit choice (key present) we never touch their setting.
+          // Show a one-time informational toast so users know telemetry is
+          // on by default and where to turn it off. Never shown twice.
           const TELEMETRY_ONBOARDED_KEY = "clypra.telemetryOnboardingShown";
           if (!localStorage.getItem(TELEMETRY_ONBOARDED_KEY)) {
-            PerfLogService.setTelemetryUploadEnabled(true);
             localStorage.setItem(TELEMETRY_ONBOARDED_KEY, "true");
             // Delay slightly so the app finishes loading before the toast appears.
             setTimeout(() => {

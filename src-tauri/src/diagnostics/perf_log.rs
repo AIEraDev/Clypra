@@ -318,7 +318,7 @@ pub async fn upload_perf_log_session(
     }
 
     let url = format!(
-        "{}/performance/telemetry/ingest/session",
+        "{}/api/v1/performance/telemetry/ingest/session",
         api_base_url.trim_end_matches('/')
     );
 
@@ -327,6 +327,7 @@ pub async fn upload_perf_log_session(
         .connect_timeout(std::time::Duration::from_secs(15))
         .timeout(std::time::Duration::from_secs(45))
         .tcp_keepalive(std::time::Duration::from_secs(60))
+        .redirect(reqwest::redirect::Policy::limited(3))
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
 
