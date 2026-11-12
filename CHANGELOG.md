@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-11-12
+
+### 🔧 Telemetry System Fixes
+
+- **Telemetry Opt-In by Default (`perfLogService.ts`, #548)** — Changed telemetry upload behavior from opt-out to opt-in by default. When the localStorage key `clypra.telemetryUploadEnabled` is absent (new users, fresh installs), telemetry is now automatically enabled. Users explicitly opted out via Settings modal remain opted out. Previously, only users who clicked the first-run toast were opted in, silently disabling telemetry for all other users.
+- **Fixed API Endpoint Path (`perfLogService.ts`, `perf_log.rs`, #548)** — Corrected telemetry upload endpoint from `/performance/telemetry/ingest/session` to `/api/v1/performance/telemetry/ingest/session`. The previous path caused HTTP 301 redirects that the Rust reqwest client did not follow, resulting in silent upload failures. Evidence: 16+ session log files remained on disk without `.uploaded` suffix.
+- **Explicit Redirect Policy (`perf_log.rs`, #548)** — Added explicit redirect policy (`limited(3)`) to the reqwest HTTP client in the Rust upload command, ensuring graceful handling of any future API redirects.
+- **Cleaned Up First-Run Toast (`App.tsx`, #548)** — Removed redundant `setTelemetryUploadEnabled(true)` call from the first-run onboarding toast since telemetry is now enabled by default. Kept the toast for discoverability.
+- **Telemetry Default Behavior Regression Tests (`perfLogService.test.ts`, #548)** — Added 5 comprehensive regression tests verifying: (1) absent localStorage key defaults to opt-in, (2) explicit opt-out via Settings, (3) explicit opt-in, (4) toggle functionality, and (5) persistence across reads.
+
+### Impact
+
+- ✅ **Telemetry is now automatic by default** — tracking, logging, and uploading work out-of-the-box
+- ✅ **Users can opt-out** via Settings → Telemetry toggle
+- ✅ **Previously failed uploads retry automatically** on next app launch via `retryPendingUploads()`
+- ✅ **HTTP 301 redirect issue eliminated** — uploads succeed with correct API path
+
 ## [1.6.1] - 2026-11-11
 
 ### 🎬 Timeline-Zero Effects & Native Playback Stability (CLY-BUG-TIMELINE-ZERO-EFFECT)
