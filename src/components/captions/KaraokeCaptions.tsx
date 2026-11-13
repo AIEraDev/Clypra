@@ -1,123 +1,254 @@
 /**
- * KaraokeCaptions
+ * Project-backed word-highlight caption preview.
  *
- * Animated word-by-word karaoke caption overlay synchronized with Clypra's
- * PlaybackClock. Uses a localized RAF loop that reads clock.time imperatively
- * to avoid React render storms, only triggering state updates when the active
- * sentence changes.
- *
- * Word-level highlight and glow animations are pure CSS transitions driven by
- * real-time math against the clock.
+ * CaptionCue.words is the canonical timing source. The overlay is deliberately
+ * a preview surface; timeline TextClips remain the source used by normal
+ * rendering and export when this overlay is disabled.
  */
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { getPlaybackClock } from "@/core/playback";
 import { useCaptionStore } from "@/store/captionStore";
-import type { SubtitleSegment } from "@/types/captions";
+import { useTimelineStore } from "@/store/timelineStore";
+import { secondsToTicks, type CaptionCue, type CaptionTrack, type SubtitleSegment } from "@/types/captions";
+
+interface CaptionFrameState {
+  cueId: string | null;
+  legacySegmentId: number | null;
+  wordIndex: number;
+}
+
+const EMPTY_FRAME: CaptionFrameState = {
+  cueId: null,
+  legacySegmentId: null,
+  wordIndex: -1,
+};
 
 export const KaraokeCaptions: React.FC = () => {
-  const segments = useCaptionStore((s) => s.segments);
-  const style = useCaptionStore((s) => s.karaokeStyle);
-
-  const [activeSegment, setActiveSegment] = useState<SubtitleSegment | null>(null);
-  const [currentTimeMs, setCurrentTimeMs] = useState<number>(0);
-  const rafRef = useRef<number | null>(null);
+  const captionTracks = useTimelineStore((state) => state.captionTracks);
+  const segments = useCaptionStore((state) => state.segments);
+  const legacyStyle = useCaptionStore((state) => state.karaokeStyle);
+  const [frame, setFrame] = useState<CaptionFrameState>(EMPTY_FRAME);
 
   useEffect(() => {
-    if (segments.length === 0) {
-      setActiveSegment(null);
-      return;
-    }
+    let rafId: number | null = null;
+    let disposed = false;
 
-    const updateCaptions = () => {
-      const timeMs = getPlaybackClock().time * 1000;
-      setCurrentTimeMs(timeMs);
+    const tick = () => {
+      if (disposed) return;
 
-      // Binary-search-style find: segments are ordered chronologically
-      const current =
-        segments.find((s) => timeMs >= s.startMs && timeMs <= s.endMs) ?? null;
+      const nowTicks = secondsToTicks(getPlaybackClock().time);
+      const tracks = useTimelineStore.getState().captionTracks;
+      let activeTrack: CaptionTrack | undefined;
+      let activeCue: CaptionCue | undefined;
 
-      // Only trigger a React re-render when the active SENTENCE changes
-      setActiveSegment((prev) =>
-        prev?.id === current?.id ? prev : current,
-      );
+      for (const track of tracks) {
+        if (!track.visible) continue;
+        const cue = track.cues.find(
+          (candidate) =>
+            nowTicks >= candidate.startTicks && nowTicks < candidate.endTicks,
+        );
+        if (cue) {
+          activeTrack = track;
+          activeCue = cue;
+          break;
+        }
+      }
 
-      rafRef.current = requestAnimationFrame(updateCaptions);
+      if (activeTrack && activeCue) {
+        const cueOffsetTicks = nowTicks - activeCue.startTicks;
+        const wordIndex = activeCue.words?.findIndex(
+          (word) =>
+            cueOffsetTicks >= word.startOffsetTicks &&
+            cueOffsetTicks < word.endOffsetTicks,
+        ) ?? -1;
+        setFrame((previous) =>
+          previous.cueId === activeCue!.id &&
+          previous.legacySegmentId === null &&
+          previous.wordIndex === wordIndex
+            ? previous
+            : { cueId: activeCue!.id, legacySegmentId: null, wordIndex },
+        );
+      } else {
+        // Backward compatibility for projects/sessions that still populate the
+        // legacy transient Whisper segment store instead of CaptionTrack.cues.
+        const legacySegments = useCaptionStore.getState().segments;
+        const nowMs = nowTicks / 1000;
+        const activeSegment = legacySegments.find(
+          (segment) => nowMs >= segment.startMs && nowMs < segment.endMs,
+        );
+        if (activeSegment) {
+          const wordIndex = activeSegment.words.findIndex(
+            (word) => nowMs >= word.startMs && nowMs < word.endMs,
+          );
+          setFrame((previous) =>
+            previous.legacySegmentId === activeSegment.id &&
+            previous.cueId === null &&
+            previous.wordIndex === wordIndex
+              ? previous
+              : { cueId: null, legacySegmentId: activeSegment.id, wordIndex },
+          );
+        } else {
+          setFrame((previous) =>
+            previous.cueId === null && previous.legacySegmentId === null
+              ? previous
+              : EMPTY_FRAME,
+          );
+        }
+      }
+
+      rafId = requestAnimationFrame(tick);
     };
 
-    rafRef.current = requestAnimationFrame(updateCaptions);
+    rafId = requestAnimationFrame(tick);
     return () => {
-      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+      disposed = true;
+      if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  }, [segments]);
+  }, []);
 
-  if (!activeSegment) return null;
+  const activeTrack = captionTracks.find(
+    (track) =>
+      track.visible && track.cues.some((cue) => cue.id === frame.cueId),
+  );
+  const activeCue = activeTrack?.cues.find((cue) => cue.id === frame.cueId);
+  const activeSegment: SubtitleSegment | undefined =
+    frame.legacySegmentId === null
+      ? undefined
+      : segments.find((segment) => segment.id === frame.legacySegmentId);
 
+  if (!activeCue && !activeSegment) return null;
+
+  const preset = activeTrack?.preset;
+  const wordStyle = preset?.wordHighlight;
+  const textStyle = activeTrack?.defaultStyle;
+  const words = activeCue?.words;
+  const text = activeCue?.text ?? activeSegment?.text ?? "";
+  const activeColor = wordStyle?.activeColor ?? legacyStyle.activeColor;
+  const spokenColor = wordStyle?.spokenColor ?? legacyStyle.spokenColor;
+  const upcomingColor = wordStyle?.upcomingColor ?? legacyStyle.upcomingColor;
+  const position = preset?.position ?? legacyStyle.position;
   const positionClass =
-    style.position === "top"
+    position === "top"
       ? "top-12"
-      : style.position === "middle"
-      ? "top-1/2 -translate-y-1/2"
-      : "bottom-14";
+      : position === "middle"
+        ? "top-1/2 -translate-y-1/2"
+        : "bottom-14";
+  const maxWidthPercent = preset?.maxWidthPercent ?? 80;
+  const highlightMode = wordStyle?.mode ?? "current";
+  const scale = wordStyle?.activeScale ?? (legacyStyle.enableScalePop ? 1.12 : 1);
+  const glowColor = wordStyle?.glowColor ?? legacyStyle.glowColor;
+  const glowBlur = wordStyle?.glowBlur ?? 10;
+  const background = textStyle?.background;
+  const stroke = textStyle?.stroke;
+  const shadow = textStyle?.shadow;
+  const isLegacy = !activeTrack;
+
+  const fontSize = textStyle?.fontSize ?? legacyStyle.fontSize;
+  const fontFamily = textStyle?.fontFamily ?? legacyStyle.fontFamily;
+  const fontWeight = textStyle?.fontWeight ?? legacyStyle.fontWeight;
+  const color = textStyle?.color ?? legacyStyle.spokenColor;
+  const transform = preset?.textTransform ?? legacyStyle.textTransform ?? "none";
+  const align = textStyle?.align ?? "center";
+  const lineHeight = textStyle?.lineHeight ?? 1.2;
+
+  const renderWords = words?.length
+    ? words.map((word, index) => {
+        const isActive = index === frame.wordIndex;
+        const isSpoken = index < frame.wordIndex;
+        const wordColor = isActive
+          ? activeColor
+          : isSpoken && highlightMode === "cumulative"
+            ? activeColor
+            : isSpoken
+              ? spokenColor
+              : upcomingColor;
+        const glowEnabled =
+          isActive &&
+          Boolean(glowColor) &&
+          (wordStyle ? (wordStyle.glowBlur ?? 0) > 0 : legacyStyle.enableGlow);
+        return (
+          <span
+            key={`${activeCue?.id ?? activeSegment?.id}-${index}`}
+            style={{
+              display: "inline-block",
+              margin: "0 0.12em",
+              color: wordColor,
+              transform: isActive ? `scale(${scale})` : "scale(1)",
+              filter: glowEnabled ? `drop-shadow(0 0 ${glowBlur}px ${glowColor})` : "none",
+              transition: "color 60ms ease-out, transform 60ms ease-out, filter 60ms ease-out",
+            }}
+          >
+            {word.word}
+          </span>
+        );
+      })
+    : null;
+
+  const legacyWords = activeSegment?.words;
+  const renderLegacyWords = legacyWords?.length
+    ? legacyWords.map((word, index) => {
+        const isActive = index === frame.wordIndex;
+        const isSpoken = index < frame.wordIndex;
+        return (
+          <span
+            key={`${activeSegment.id}-${index}`}
+            style={{
+              display: "inline-block",
+              margin: "0 0.12em",
+              color: isActive ? activeColor : isSpoken ? spokenColor : upcomingColor,
+              transform: isActive && legacyStyle.enableScalePop ? "scale(1.12)" : "scale(1)",
+              filter: isActive && legacyStyle.enableGlow
+                ? `drop-shadow(0 0 10px ${legacyStyle.glowColor})`
+                : "none",
+              transition: "color 60ms ease-out, transform 60ms ease-out, filter 60ms ease-out",
+            }}
+          >
+            {word.word}
+          </span>
+        );
+      })
+    : null;
+
+  const boxBackground =
+    background?.color ?? (isLegacy ? legacyStyle.backgroundColor : "transparent");
 
   return (
     <div
+      aria-hidden="true"
       className={`absolute left-0 right-0 flex justify-center pointer-events-none z-50 ${positionClass}`}
       style={{ padding: "0 24px" }}
     >
       <div
         style={{
-          background: style.backgroundColor,
-          borderRadius: "14px",
-          padding: "12px 24px",
-          maxWidth: "80%",
-          textAlign: "center",
+          background: boxBackground,
+          borderRadius: background?.borderRadius ?? (isLegacy ? 14 : 0),
+          padding: background?.padding
+            ? `${background.padding}px ${background.padding * 2}px`
+            : "12px 24px",
+          maxWidth: `${Math.max(50, Math.min(96, maxWidthPercent))}%`,
+          textAlign: align,
+          WebkitTextStroke: stroke ? `${stroke.width}px ${stroke.color}` : undefined,
+          textShadow: shadow
+            ? `${shadow.offsetX}px ${shadow.offsetY}px ${shadow.blur}px ${shadow.color}`
+            : undefined,
         }}
       >
         <p
           style={{
-            fontFamily: style.fontFamily,
-            fontSize: style.fontSize,
-            fontWeight: style.fontWeight,
-            textTransform: style.textTransform ?? "uppercase",
-            lineHeight: 1.25,
+            fontFamily,
+            fontSize,
+            fontWeight,
+            color,
+            textTransform: transform,
+            lineHeight,
+            letterSpacing: textStyle?.letterSpacing,
             margin: 0,
+            whiteSpace: "pre-wrap",
           }}
         >
-          {activeSegment.words.map((wordObj, i) => {
-            const isSpoken = currentTimeMs >= wordObj.startMs;
-            const isActive =
-              currentTimeMs >= wordObj.startMs &&
-              currentTimeMs <= wordObj.endMs;
-
-            return (
-              <span
-                key={i}
-                style={{
-                  display: "inline-block",
-                  margin: "0 3px",
-                  color: isActive
-                    ? style.activeColor
-                    : isSpoken
-                    ? style.spokenColor
-                    : style.upcomingColor,
-                  transform: isActive && style.enableScalePop ? "scale(1.12)" : "scale(1)",
-                  filter:
-                    isActive && style.enableGlow
-                      ? `drop-shadow(0 0 10px ${style.glowColor})`
-                      : "none",
-                  transition:
-                    "color 60ms ease-out, transform 60ms ease-out, filter 60ms ease-out",
-                  willChange: "color, transform, filter",
-                }}
-              >
-                {wordObj.word}
-              </span>
-            );
-          })}
+          {renderWords ?? renderLegacyWords ?? text}
         </p>
       </div>
     </div>
   );
 };
-
-
