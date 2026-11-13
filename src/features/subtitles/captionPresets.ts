@@ -79,7 +79,7 @@ export const CAPTION_STYLE_PRESETS: CaptionStylePreset[] = [
     description: "A compact kinetic look that scales the active word without changing the caption's timing.",
     textStyle: {
       text: "",
-      fontFamily: "Anton",
+      fontFamily: "Outfit Variable",
       fontSize: 42,
       fontWeight: 700,
       color: "#FFFFFF",
