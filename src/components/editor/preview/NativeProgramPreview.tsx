@@ -5459,6 +5459,7 @@ export const NativeProgramPreview: React.FC = () => {
     previewQuality,
     nativeSurfaceError,
     project?.canvasBackground,
+    karaokeOverlayEnabled,
   ]);
 
   useEffect(() => {
