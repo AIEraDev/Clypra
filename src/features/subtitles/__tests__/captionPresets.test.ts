@@ -1,26 +1,47 @@
 import { describe, it, expect } from "vitest";
-import { CAPTION_STYLE_PRESETS, getCaptionPresetById } from "../captionPresets";
+import {
+  CAPTION_STYLE_PRESETS,
+  createCaptionPresetSnapshot,
+  getCaptionPresetById,
+} from "../captionPresets";
 import { getUnifiedCaptionTemplates, textEffectToCaptionTemplate } from "../captionStyles";
 import type { TemplateDefinition } from "@/features/text-templates/types";
 
 describe("Caption Style Presets & Batch Formatting System", () => {
-  it("defines 4 built-in caption style presets", () => {
-    expect(CAPTION_STYLE_PRESETS).toHaveLength(4);
+  it("defines six built-in declarative caption presets", () => {
+    expect(CAPTION_STYLE_PRESETS).toHaveLength(6);
   });
 
   it("retrieves Yellow Bold caption preset correctly", () => {
     const yellow = getCaptionPresetById("yellow-bold");
     expect(yellow).toBeDefined();
-    expect(yellow?.fillColor).toBe("#FFE600");
-    expect(yellow?.strokeColor).toBe("#000000");
-    expect(yellow?.bold).toBe(true);
+    expect(yellow?.textStyle.color).toBe("#FFFFFF");
+    expect(yellow?.textStyle.stroke?.color).toBe("#000000");
+    expect(yellow?.textStyle.fontWeight).toBe(900);
+    expect(yellow?.snapshot.wordHighlight.activeColor).toBe("#FFE600");
   });
 
   it("retrieves High-Contrast Box preset with background color", () => {
     const box = getCaptionPresetById("black-box");
     expect(box).toBeDefined();
-    expect(box?.backgroundColor).toBeDefined();
-    expect(box?.fillColor).toBe("#FFFFFF");
+    expect(box?.textStyle.background?.color).toBe("rgba(0,0,0,0.82)");
+    expect(box?.textStyle.color).toBe("#FFFFFF");
+  });
+  it("creates a self-contained preset snapshot for project persistence", () => {
+    const preset = getCaptionPresetById("word-pop");
+    expect(preset).toBeDefined();
+    const snapshot = createCaptionPresetSnapshot(preset!);
+    expect(snapshot).toMatchObject({
+      id: "word-pop",
+      version: 1,
+      position: "bottom",
+      wordHighlight: {
+        mode: "current",
+        activeColor: "#FF4D8D",
+        activeScale: 1.18,
+      },
+    });
+    expect(snapshot.wordHighlight).not.toBe(preset!.snapshot.wordHighlight);
   });
 });
 
