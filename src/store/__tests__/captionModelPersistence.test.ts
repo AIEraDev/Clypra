@@ -151,12 +151,33 @@ describe("Caption Track & Cue Model — Serialization & Store Integration", () =
         visible: true,
         locked: false,
         defaultStyle: { ...DEFAULT_CAPTION_STYLE },
+        preset: {
+          id: "word-pop",
+          version: 1,
+          position: "bottom",
+          maxWidthPercent: 84,
+          textTransform: "uppercase",
+          wordHighlight: {
+            mode: "current",
+            activeColor: "#FF4D8D",
+            spokenColor: "#FFFFFF",
+            upcomingColor: "rgba(255,255,255,0.55)",
+            activeScale: 1.18,
+            glowColor: "rgba(255,77,141,0.85)",
+            glowBlur: 12,
+          },
+        },
         cues: [
           {
             id: "cue-1",
             startTicks: 1_000_000,
             endTicks: 3_000_000,
             text: "Caption line 1",
+            words: [
+              { word: "Caption", startOffsetTicks: 0, endOffsetTicks: 850_000, probability: 0.99 },
+              { word: "line", startOffsetTicks: 900_000, endOffsetTicks: 1_350_000 },
+              { word: "1", startOffsetTicks: 1_400_000, endOffsetTicks: 1_750_000 },
+            ],
             speaker: "Host",
             styleVersion: 1,
           },
@@ -174,12 +195,16 @@ describe("Caption Track & Cue Model — Serialization & Store Integration", () =
       expect(rustProject.caption_model_version).toBe(CAPTION_MODEL_VERSION);
       expect(rustProject.caption_tracks).toHaveLength(1);
       expect(rustProject.caption_tracks?.[0].id).toBe("track-c1");
+      expect(rustProject.caption_tracks?.[0].preset?.id).toBe("word-pop");
+      expect(rustProject.caption_tracks?.[0].cues[0].words?.[0].startOffsetTicks).toBe(0);
 
       // 2. Validate and migrate payload
       const snapshot = validateAndMigrateProjectPayload(rustProject);
       expect(snapshot.captionTracks).toHaveLength(1);
       expect(snapshot.captionTracks?.[0].id).toBe("track-c1");
       expect(snapshot.captionTracks?.[0].cues[0].speaker).toBe("Host");
+      expect(snapshot.captionTracks?.[0].cues[0].words?.[1].endOffsetTicks).toBe(1_350_000);
+      expect(snapshot.captionTracks?.[0].preset?.wordHighlight.activeColor).toBe("#FF4D8D");
       expect(snapshot.project.captionModelVersion).toBe(CAPTION_MODEL_VERSION);
 
       // 3. Rust → Frontend Project
