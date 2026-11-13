@@ -125,7 +125,8 @@ sha2 = "0.10"
 [target.'cfg(all(target_os = "macos", target_arch = "x86_64"))'.dependencies]
 ort = { version = "2.0.0-rc.13", default-features = false, features = ["load-dynamic", "std", "ndarray", "tracing", "api-27"] }
 
-[target.'cfg(not(all(target_os = "macos", target_arch = "x86_64")))'.dependencies]
+# All other platforms (Linux, ARM macOS) except Windows: Use copy-dylibs
+[target.'cfg(not(any(all(target_os = "macos", target_arch = "x86_64"), target_os = "windows")))'.dependencies]
 ort = { version = "2.0.0-rc.13", features = ["copy-dylibs"] }
 
 [dev-dependencies]
@@ -135,6 +136,8 @@ proptest = "1"
 objc2 = "0.6"
 
 [target.'cfg(target_os = "windows")'.dependencies]
+# ONNX Runtime: Use load-dynamic to avoid CI binary download issues with copy-dylibs
+ort = { version = "2.0.0-rc.13", default-features = false, features = ["load-dynamic", "std", "ndarray", "tracing", "api-27"] }
 webview2-com = "0.38.2"
 windows-core = "0.61.2"
 # D3D11/DXGI COM interop for Phase 2 zero-copy texture sharing (D3D11VA → wgpu DX12).
