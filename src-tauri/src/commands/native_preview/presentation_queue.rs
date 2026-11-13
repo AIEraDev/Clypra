@@ -194,6 +194,10 @@ pub(crate) fn record_native_surface_sample(
     capability_policy: Option<String>,
     capability_probe_us: Option<u64>,
     transfer_path: Option<&str>,
+    // Phase 3.1 Rust-clock-domain end-to-end timings.
+    // `None` for dropped/stale frames that never reached the compositor.
+    command_entry_to_present_enqueue_us: Option<u64>,
+    frame_processing_us: Option<u64>,
 ) {
     let Some(service) = app.try_state::<tokio::sync::Mutex<NativeFrameService>>() else {
         return;
@@ -206,9 +210,54 @@ pub(crate) fn record_native_surface_sample(
     if let Some(session_collector) =
         app.try_state::<Arc<crate::wgpu_compositor::SessionTelemetryCollector>>()
     {
-        if let Some(path) = transfer_path {
-            session_collector.record_frame_source(path);
-        }
+        // Map the request mode to WorkloadMode for per-workload percentile buckets.
+        let workload = match request.mode.as_deref() {
+            Some("playback") | Some("playback-lookahead") => {
+                crate::wgpu_compositor::WorkloadMode::Playback
+            }
+            Some("scrub") => crate::wgpu_compositor::WorkloadMode::Scrub,
+            Some("seek") => crate::wgpu_compositor::WorkloadMode::SeekWarm,
+            Some("frame-step") => crate::wgpu_compositor::WorkloadMode::FrameStep,
+            _ => crate::wgpu_compositor::WorkloadMode::PausedInteraction,
+        };
+        // Map the transfer path string to FrameSource.
+        let source = match transfer_path {
+            Some("dxgi-zero-copy") => crate::wgpu_compositor::FrameSource::DxgiNv12 {
+                width: decode_timings.source_width.unwrap_or(0),
+                height: decode_timings.source_height.unwrap_or(0),
+            },
+            Some("cpu-nv12") => crate::wgpu_compositor::FrameSource::CpuNv12 {
+                width: decode_timings.source_width.unwrap_or(0),
+                height: decode_timings.source_height.unwrap_or(0),
+            },
+            _ => crate::wgpu_compositor::FrameSource::CpuRgba {
+                width: decode_timings.source_width.unwrap_or(0),
+                height: decode_timings.source_height.unwrap_or(0),
+            },
+        };
+        // Build a FrameOutputCorrelation if request_id is present.
+        let correlation = Some(crate::wgpu_compositor::FrameOutputCorrelation {
+            operation_id: request.request_id.clone(),
+            frame_sequence: format!("{}", request.frame_time.frame_index),
+            workload,
+        });
+        let frame_telemetry = crate::wgpu_compositor::FrameTelemetry {
+            decode_cpu_us: u64::from(decode_timings.decode_time_us),
+            upload_cpu_us: conversion_upload_us.unwrap_or(0),
+            render_submit_cpu_us: compose_us.unwrap_or(0),
+            present_cpu_us: submit_present_us.unwrap_or(0),
+            dropped,
+            deadline_miss: false,
+            source,
+            queue_wait_us: Some(scheduler_wait_us),
+            texture_acquire_wait_us: surface_acquire_us,
+            command_entry_to_present_enqueue_us,
+            frame_processing_us,
+            correlation,
+            recorded_at: Some(Instant::now()),
+            ..crate::wgpu_compositor::FrameTelemetry::default()
+        };
+        session_collector.push(&frame_telemetry);
     }
     let total_time_us = started_at.elapsed().as_micros().min(u32::MAX as u128) as u32;
     let stages_sum = u64::from(decode_timings.decode_time_us)

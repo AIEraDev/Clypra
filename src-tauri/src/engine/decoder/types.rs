@@ -266,8 +266,10 @@ impl Default for DecoderTelemetry {
             codec: CodecType::Hevc,
             bit_depth: 10,
             output_format: PixelFormat::P010,
-            is_hardware: true,
-            zero_copy: true,
+            // Phase 3.1 fix: false/false for uninitialized state.
+            // was: is_hardware: true, zero_copy: true (wrong defaults for unknown state)
+            is_hardware: false,
+            zero_copy: false,
             cpu_readback_bytes: 0,
             cpu_upload_bytes: 0,
             cross_adapter_bytes: 0,
@@ -275,6 +277,80 @@ impl Default for DecoderTelemetry {
             decode_time_us: 0,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Decoder execution mode (Phase 3.1)
+// ---------------------------------------------------------------------------
+
+/// Which GPU video acceleration backend is handling decode.
+///
+/// Used in [`DecoderExecutionMode::Hardware`] to identify the actual backend.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DecoderBackend {
+    /// Direct3D 12 Video Acceleration (preferred Windows path).
+    D3D12VA,
+    /// Direct3D 11 Video Acceleration (Windows fallback).
+    D3D11VA,
+    /// Apple VideoToolbox (macOS hardware decode).
+    VideoToolbox,
+    /// VA-API (Linux hardware decode).
+    Vaapi,
+    /// FFmpeg CPU decode (software path, any platform).
+    SoftwareFFmpeg,
+}
+
+/// Whether the decoder is using hardware acceleration or software.
+///
+/// # Initial state
+///
+/// `Unknown` is the correct default before a decoder session opens.
+/// **Never use `Hardware` or `Software` as a default.**
+/// A `DecoderExecutionMode::Unknown` in a live session indicates an
+/// instrumentation gap, not a hardware or software decoder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "mode")]
+pub enum DecoderExecutionMode {
+    /// Mode not yet determined (before session open, or not instrumented).
+    Unknown,
+    /// Software decode (CPU only).
+    Software,
+    /// Hardware video decode.
+    Hardware {
+        /// Which hardware backend is in use.
+        backend: DecoderBackend,
+        /// Human-readable device type string from the driver (e.g. "d3d11va", "d3d12va").
+        device_type: String,
+    },
+}
+
+impl Default for DecoderExecutionMode {
+    /// Default is `Unknown` — hardware or software status is not assumed.
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+
+/// Static initialization metadata recorded once when a decoder session opens.
+///
+/// This is the complement to the per-frame [`DecoderTelemetry`]: it captures
+/// what was decided at session open time (which backend, which surface backend,
+/// whether zero-copy is structurally possible).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DecoderInitMetadata {
+    /// The execution mode (hardware/software/unknown) determined at open time.
+    pub execution_mode: DecoderExecutionMode,
+    /// Human-readable backend name (e.g. "D3D12VA", "D3D11VA", "SoftwareFFmpeg").
+    pub backend_name: String,
+    /// The surface backend used to store decoded frames.
+    pub surface_backend: SurfaceBackend,
+    /// Whether the decoder can produce zero-copy GPU surfaces on this adapter.
+    /// `None` if not yet determined.
+    pub zero_copy_capable: Option<bool>,
+    /// Output pixel format selected at open time (None if not yet known).
+    pub hardware_pixel_format: Option<PixelFormat>,
 }
 
 /// Bridge between a decoded GPU surface and a renderer-compatible texture.

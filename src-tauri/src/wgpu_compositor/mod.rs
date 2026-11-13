@@ -38,6 +38,14 @@ pub use frame_request::{
 pub mod frame_telemetry;
 pub use frame_telemetry::{FrameTelemetry, FrameTelemetryRing};
 
+pub mod frame_correlation;
+pub use frame_correlation::{
+    FrameOutputCorrelation, FrameRequestCorrelation, FrameRequestOutcome, WorkloadMode,
+};
+
+pub mod frame_memory;
+pub use frame_memory::{FrameMemoryTelemetry, FrameTransferOperation, MemoryDomain};
+
 pub mod frame_cache;
 pub use frame_cache::FrameResourceCache;
 
@@ -62,7 +70,7 @@ pub mod session_telemetry;
 pub use session_telemetry::{FramesBySource, SessionSnapshot, SessionTelemetryCollector};
 
 pub mod preview_capabilities;
-pub use preview_capabilities::PreviewCapabilities;
+pub use preview_capabilities::{GpuTimestampCapabilities, PreviewCapabilities};
 
 pub mod adapter_selector;
 pub use adapter_selector::{GpuContext, SelectedGpuInfo};

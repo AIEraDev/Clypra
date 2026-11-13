@@ -149,6 +149,7 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
             transferPath: "dxgi-zero-copy",
             isHardwareAccelerated: true,
             decoderName: "h264_qsv",
+            hwDeviceType: "d3d11va",
             dxgiLatchedOff: false,
           },
         },
@@ -165,6 +166,7 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
       expect(events[0].workload.transferPath).toBe("dxgi-zero-copy");
       expect(events[0].workload.hwDecodeActive).toBe(true);
       expect(events[0].workload.decoderName).toBe("h264_qsv");
+      expect(events[0].workload.hwDeviceType).toBe("d3d11va");
       expect(events[0].workload.dxgiLatchedOff).toBe(false);
       expect(events[0].workload.presenter).toBe("native-surface");
     } finally {
@@ -390,6 +392,7 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
     expect(hw.gpuVendor).toBe("apple");
     expect(hw.gpuModel).toBe("Apple M3 Max");
     expect(hw.graphicsBackend).toBe("metal");
+    expect(hw.gpuDeviceType).toBe("IntegratedGpu");
     expect(hw.gpuVendorId).toBe(0x106b);
     expect(hw.gpuDeviceId).toBe(0x0001);
     expect(hw.gpuDriver).toBe("Metal");
@@ -480,9 +483,11 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
       textDecoration: "underline",
     });
 
-    const accumulators = (telemetryCollector as unknown as {
-      textAccumulators: Map<string, { windowStartMs: number }>;
-    }).textAccumulators;
+    const accumulators = (
+      telemetryCollector as unknown as {
+        textAccumulators: Map<string, { windowStartMs: number }>;
+      }
+    ).textAccumulators;
     const accumulator = Array.from(accumulators.entries()).find(([key]) =>
       key.includes(sessionId),
     )?.[1];
@@ -828,9 +833,7 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
         expect(renderEvent.diagnosedBottlenecks).toContain(
           "vfr-presentation-jitter",
         );
-        expect(renderEvent.diagnosedBottlenecks).toContain(
-          "vfr-audio-drift",
-        );
+        expect(renderEvent.diagnosedBottlenecks).toContain("vfr-audio-drift");
       } finally {
         telemetryCollector.setLastKnownVideoProfile(null);
       }
@@ -864,4 +867,3 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
     });
   });
 });
-

@@ -429,6 +429,15 @@ impl GpuContext {
         if available_features.contains(wgpu::Features::TEXTURE_FORMAT_NV12) {
             required_features |= wgpu::Features::TEXTURE_FORMAT_NV12;
         }
+        // Phase 3.1: Request GPU timestamp features when the adapter supports them.
+        // These are used by `GpuTimestampCapabilities` to report which timestamp
+        // query levels are available. Never required — degrade gracefully when absent.
+        if available_features.contains(wgpu::Features::TIMESTAMP_QUERY) {
+            required_features |= wgpu::Features::TIMESTAMP_QUERY;
+        }
+        if available_features.contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS) {
+            required_features |= wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
+        }
 
         let (device, queue) = best_adapter
             .request_device(
