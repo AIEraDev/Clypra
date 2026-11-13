@@ -33,6 +33,7 @@ export interface TelemetryHardwareContext {
   gpuDriverVersion?: string;
   gpuVendorId?: number;
   gpuDeviceId?: number;
+  gpuDeviceType?: string;
   gpuDriver?: string;
   gpuDriverInfo?: string;
   isSoftwareAdapter?: boolean;
@@ -708,6 +709,7 @@ export interface TelemetryEvent {
     transferPath?: string;
     hwDecodeActive?: boolean;
     decoderName?: string;
+    hwDeviceType?: string;
     dxgiLatchedOff?: boolean | null;
     dxgiLatchReason?: string;
     presenter?: "native-surface" | "bridge" | string;
@@ -887,6 +889,7 @@ export interface TelemetryRenderOptions {
   transferPath?: string;
   hwDecodeActive?: boolean;
   decoderName?: string;
+  hwDeviceType?: string;
   dxgiLatchedOff?: boolean | null;
   dxgiLatchReason?: string;
   presenter?: "native-surface" | "bridge" | string;
@@ -1104,6 +1107,7 @@ class SessionRollupAccumulator {
   // counts below for presenter and transferPath).
   private hwDecodeActive?: boolean;
   private decoderName?: string;
+  private hwDeviceType?: string;
   private dxgiLatchedOff?: boolean | null;
   private dxgiLatchReason?: string;
   // Per-window frame counts for presenter and transferPath.
@@ -1151,6 +1155,7 @@ class SessionRollupAccumulator {
     transferPath?: string,
     hwDecodeActive?: boolean,
     decoderName?: string,
+    hwDeviceType?: string,
     dxgiLatchedOff?: boolean | null,
     dxgiLatchReason?: string,
     presenter?: "native-surface" | "bridge" | string,
@@ -1267,6 +1272,7 @@ class SessionRollupAccumulator {
     }
     if (hwDecodeActive !== undefined) this.hwDecodeActive = hwDecodeActive;
     if (decoderName !== undefined) this.decoderName = decoderName;
+    if (hwDeviceType !== undefined) this.hwDeviceType = hwDeviceType;
     if (dxgiLatchedOff !== undefined) this.dxgiLatchedOff = dxgiLatchedOff;
     if (dxgiLatchReason !== undefined) this.dxgiLatchReason = dxgiLatchReason;
     if (presenter !== undefined && presenter !== null) {
@@ -1313,6 +1319,7 @@ class SessionRollupAccumulator {
     transferPath?: string;
     hwDecodeActive?: boolean;
     decoderName?: string;
+    hwDeviceType?: string;
     dxgiLatchedOff?: boolean | null;
     dxgiLatchReason?: string;
     presenter?: "native-surface" | "bridge" | string;
@@ -1434,6 +1441,7 @@ class SessionRollupAccumulator {
       transferPath: dominantKey(this.transferPathCounts),
       hwDecodeActive: this.hwDecodeActive,
       decoderName: this.decoderName,
+      hwDeviceType: this.hwDeviceType,
       dxgiLatchedOff: this.dxgiLatchedOff,
       dxgiLatchReason: this.dxgiLatchReason,
       presenter: dominantKey(this.presenterCounts),
@@ -1481,6 +1489,7 @@ class SessionRollupAccumulator {
     this.readbackSourceFrameStride = undefined;
     this.hwDecodeActive = undefined;
     this.decoderName = undefined;
+    this.hwDeviceType = undefined;
     this.dxgiLatchedOff = undefined;
     this.dxgiLatchReason = undefined;
     this.presenterCounts = new Map();
@@ -2158,6 +2167,9 @@ class TelemetryCollector {
     }
 
     // Add new GPU diagnostic fields
+    if (nativeGpu.deviceType) {
+      hw.gpuDeviceType = nativeGpu.deviceType;
+    }
     if (nativeGpu.vendorId != null) {
       hw.gpuVendorId = nativeGpu.vendorId;
     }
@@ -2330,6 +2342,7 @@ class TelemetryCollector {
         options.transferPath ?? options.renderPath,
         options.hwDecodeActive,
         options.decoderName,
+        options.hwDeviceType,
         options.dxgiLatchedOff,
         options.dxgiLatchReason,
         options.presenter ?? options.previewContext?.presenterMode,
@@ -2500,6 +2513,7 @@ class TelemetryCollector {
         transferPath: options.transferPath ?? options.renderPath,
         hwDecodeActive: options.hwDecodeActive,
         decoderName: options.decoderName,
+        hwDeviceType: options.hwDeviceType,
         dxgiLatchedOff: options.dxgiLatchedOff,
         dxgiLatchReason: options.dxgiLatchReason,
         presenter: options.presenter ?? options.previewContext?.presenterMode,
@@ -3715,6 +3729,7 @@ class TelemetryCollector {
         isHardwareAccelerated?: boolean;
         transferPath?: string;
         decoderName?: string;
+        hwDeviceType?: string;
         codecName?: string;
         sourceBitsPerRawSample?: number;
         sourceWidth?: number;
@@ -3792,6 +3807,7 @@ class TelemetryCollector {
           dxgiLatchedOff: true,
           dxgiLatchReason: last.dxgiLatchReason ?? undefined,
           decoderName: last.decoderName ?? last.codecName,
+          hwDeviceType: last.hwDeviceType,
           transferPath: last.transferPath,
           hwDecodeActive: last.isHardwareAccelerated,
           presenter: last.presenter ?? previewContext?.presenterMode,
@@ -3861,6 +3877,7 @@ class TelemetryCollector {
         transferPath: last.transferPath,
         hwDecodeActive: last.isHardwareAccelerated,
         decoderName: last.decoderName,
+        hwDeviceType: last.hwDeviceType,
         dxgiLatchedOff: last.dxgiLatchedOff,
         dxgiLatchReason: last.dxgiLatchReason ?? undefined,
         presenter: last.presenter ?? previewContext?.presenterMode,
@@ -3938,6 +3955,7 @@ class TelemetryCollector {
           transferPath: rollup.transferPath,
           hwDecodeActive: rollup.hwDecodeActive,
           decoderName: rollup.decoderName,
+          hwDeviceType: rollup.hwDeviceType,
           dxgiLatchedOff: rollup.dxgiLatchedOff,
           dxgiLatchReason: rollup.dxgiLatchReason,
           presenter: rollup.presenter ?? previewContext?.presenterMode,
