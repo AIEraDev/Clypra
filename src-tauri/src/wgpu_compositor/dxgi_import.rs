@@ -24,8 +24,19 @@
 //! Every step returns `Option` / `Result`. The caller must fall back to the
 //! existing CPU path (`av_hwframe_transfer_data` + `queue.write_texture`) on
 //! any failure so correctness is never compromised.
+//!
+//! # Diagnostic ring (Phase 3.1)
+//!
+//! Every import attempt is recorded in a module-level bounded ring of
+//! [`DxgiAttemptMetadata`] (capacity 300).  The first structural failure also
+//! sets a sticky [`DxgiFirstFailureEvent`].  Both are accessible for session
+//! telemetry reporting via [`drain_attempt_log`] and [`first_failure_event`].
 
 #![cfg(target_os = "windows")]
+
+use std::collections::VecDeque;
+use std::sync::Mutex as StdMutex;
+use std::time::Instant;
 
 use windows::core::{Interface, PCWSTR};
 use windows::Win32::Foundation::HANDLE;
@@ -35,6 +46,130 @@ use windows::Win32::Graphics::Direct3D12::{
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_NV12;
 use windows::Win32::Graphics::Dxgi::IDXGIResource1;
+
+use crate::wgpu_compositor::render_path::DxgiFailureReason;
+
+// ---------------------------------------------------------------------------
+// Diagnostic structures (Phase 3.1)
+// ---------------------------------------------------------------------------
+
+/// Per-attempt diagnostic record stored in the bounded ring.
+///
+/// # HRESULT field
+///
+/// `hresult` is `None` when the failure occurred before any COM call was made
+/// (e.g. a null pointer guard).  It is never invented — only the actual HRESULT
+/// value returned by a Windows API call is stored here.
+#[derive(Debug, Clone)]
+pub struct DxgiAttemptMetadata {
+    /// Wall-clock instant when this attempt started.
+    pub attempted_at: Instant,
+    /// Whether the import succeeded.
+    pub success: bool,
+    /// Classified failure reason (None on success).
+    pub failure_reason: Option<DxgiFailureReason>,
+    /// Raw HRESULT from the failing COM call, if one was made.
+    /// `None` on success or when failure occurred before any COM call.
+    pub hresult: Option<u32>,
+    /// Whether the D3D11 texture exposes IDXGIKeyedMutex.
+    pub has_keyed_mutex: bool,
+    /// Wall-clock nanoseconds elapsed for the entire import attempt.
+    pub attempt_duration_ns: u64,
+}
+
+/// First structural DXGI import failure in this process lifetime.
+///
+/// Sticky — only the first failure is recorded.  Reset is not supported
+/// because the failure lifecycle is session-scoped.
+#[derive(Debug, Clone)]
+pub struct DxgiFirstFailureEvent {
+    /// When the first failure was observed.
+    pub observed_at: Instant,
+    /// The classified failure reason.
+    pub reason: DxgiFailureReason,
+    /// Raw HRESULT, if available from a COM call.
+    pub hresult: Option<u32>,
+    /// Whether the D3D11 texture exposed IDXGIKeyedMutex at the time of failure.
+    pub has_keyed_mutex: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Module-level bounded ring and first-failure event
+// ---------------------------------------------------------------------------
+
+/// Maximum diagnostic ring size.  At 300 × ~64 bytes ≈ 19 KB maximum.
+const ATTEMPT_RING_CAPACITY: usize = 300;
+
+static ATTEMPT_RING: StdMutex<VecDeque<DxgiAttemptMetadata>> =
+    StdMutex::new(VecDeque::new());
+
+static FIRST_FAILURE: StdMutex<Option<DxgiFirstFailureEvent>> =
+    StdMutex::new(None);
+
+/// Drain all diagnostic records accumulated since the last call.
+///
+/// Returns up to `ATTEMPT_RING_CAPACITY` records in insertion order.
+pub fn drain_attempt_log() -> Vec<DxgiAttemptMetadata> {
+    if let Ok(mut ring) = ATTEMPT_RING.lock() {
+        ring.drain(..).collect()
+    } else {
+        Vec::new()
+    }
+}
+
+/// Return the first structural DXGI failure event for this session, if any.
+pub fn first_failure_event() -> Option<DxgiFirstFailureEvent> {
+    FIRST_FAILURE.lock().ok()?.clone()
+}
+
+// ---------------------------------------------------------------------------
+// HRESULT classification helper
+// ---------------------------------------------------------------------------
+
+/// Classify a Windows HRESULT into a [`DxgiFailureReason`] and return both.
+///
+/// Only call this when an actual COM API has returned an error.  Never invent
+/// an HRESULT.
+fn classify_hresult(hresult: u32) -> (DxgiFailureReason, u32) {
+    // Well-known HRESULT codes:
+    // DXGI_ERROR_DEVICE_REMOVED  = 0x887A0005
+    // DXGI_ERROR_DEVICE_RESET    = 0x887A0007
+    // DXGI_ERROR_UNSUPPORTED     = 0x887A0004
+    // E_ACCESSDENIED             = 0x80070005
+    let reason = match hresult {
+        0x887A_0005 | 0x887A_0007 => DxgiFailureReason::DeviceLost,
+        0x887A_0004 => DxgiFailureReason::UnsupportedResourceConfiguration,
+        0x8007_0005 => DxgiFailureReason::SynchronizationFailure,
+        _ => DxgiFailureReason::ImportFailed,
+    };
+    (reason, hresult)
+}
+
+fn record_attempt(meta: DxgiAttemptMetadata) {
+    if let Ok(mut ring) = ATTEMPT_RING.lock() {
+        if ring.len() >= ATTEMPT_RING_CAPACITY {
+            ring.pop_front();
+        }
+        ring.push_back(meta);
+    }
+}
+
+fn record_first_failure(event: DxgiFirstFailureEvent) {
+    if let Ok(mut guard) = FIRST_FAILURE.lock() {
+        if guard.is_none() {
+            log::warn!(
+                "[dxgi_import] First structural failure: {:?} (HRESULT: {:?})",
+                event.reason,
+                event.hresult
+            );
+            *guard = Some(event);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// D3d11SharedFrame — raw handles from FFmpeg D3D11VA
+// ---------------------------------------------------------------------------
 
 /// Raw handles needed to import a D3D11VA frame into wgpu without a PCIe copy.
 pub struct D3d11SharedFrame {
@@ -161,6 +296,10 @@ pub unsafe fn extract_shared_handle(
     })
 }
 
+// ---------------------------------------------------------------------------
+// ImportedNv12Texture
+// ---------------------------------------------------------------------------
+
 /// Imported NV12 texture with its biplanar wgpu views, ready for the YUV shader.
 pub struct ImportedNv12Texture {
     /// The wgpu texture wrapping the D3D11VA VRAM surface (no PCIe copy).
@@ -173,31 +312,47 @@ pub struct ImportedNv12Texture {
     pub uv_view: wgpu::TextureView,
 }
 
-use crate::wgpu_compositor::render_path::DxgiFailureReason;
+// ---------------------------------------------------------------------------
+// import_into_wgpu — instrumented (Phase 3.1)
+// ---------------------------------------------------------------------------
 
 /// Open a DXGI NT shared handle via the wgpu DX12 HAL and produce biplanar views.
+///
+/// Every call records a [`DxgiAttemptMetadata`] entry in the bounded ring.
+/// The first structural failure is also captured as a sticky [`DxgiFirstFailureEvent`].
 ///
 /// # Arguments
 ///
 /// * `device` — the wgpu device (must use the DX12 backend on Windows).
-/// * `shared` — handle produced by `extract_shared_handle`; this function takes
-///   ownership and will close it regardless of success/failure.
+/// * `shared` — handle produced by [`extract_shared_handle`]; this function takes
+///   ownership and closes the NT handle regardless of success/failure.
 ///
 /// # Returns
 ///
-/// `Ok(ImportedNv12Texture)` on success, or `Err(DxgiFailureReason)` with the
-/// precise failure cause. The caller **must** fall back to the CPU upload path on error.
+/// `Ok(ImportedNv12Texture)` on success, or `Err(DxgiFailureReason)` on failure.
+/// The caller **must** fall back to the CPU upload path on error.
 pub fn import_into_wgpu(
     device: &wgpu::Device,
     shared: D3d11SharedFrame,
 ) -> Result<ImportedNv12Texture, DxgiFailureReason> {
     use wgpu::hal::api::Dx12;
 
+    let attempt_start = Instant::now();
+
     if !device
         .features()
         .contains(wgpu::Features::TEXTURE_FORMAT_NV12)
     {
         log::warn!("DXGI zero-copy import skipped: device does not support TEXTURE_FORMAT_NV12");
+        let attempt_duration_ns = attempt_start.elapsed().as_nanos() as u64;
+        record_attempt(DxgiAttemptMetadata {
+            attempted_at: attempt_start,
+            success: false,
+            failure_reason: Some(DxgiFailureReason::UnsupportedFormat),
+            hresult: None,
+            has_keyed_mutex: false,
+            attempt_duration_ns,
+        });
         return Err(DxgiFailureReason::UnsupportedFormat);
     }
 
@@ -206,28 +361,39 @@ pub fn import_into_wgpu(
     let width = shared.width;
     let height = shared.height;
 
-    // We close nt_handle in all branches (success and failure).
-    let result = unsafe {
-        device.as_hal::<Dx12, _, Result<ImportedNv12Texture, DxgiFailureReason>>(|hal_device| {
-            let hal_device = hal_device.ok_or(DxgiFailureReason::ImportFailed)?;
+    // Error type carries: (reason, raw_hresult, has_keyed_mutex).
+    type InnerErr = (DxgiFailureReason, Option<u32>, bool);
+
+    // `shared` is dropped at end of scope — D3d11SharedFrame::drop closes nt_handle.
+    let result: Result<ImportedNv12Texture, InnerErr> = unsafe {
+        device.as_hal::<Dx12, _, Result<ImportedNv12Texture, InnerErr>>(|hal_device| {
+            let hal_device = hal_device.ok_or((DxgiFailureReason::ImportFailed, None, false))?;
 
             // Get the raw ID3D12Device so we can open the DXGI shared handle.
             let d3d12_device: &ID3D12Device = hal_device.raw_device();
 
             // Open the D3D11 texture's DXGI handle as a D3D12 resource.
+            // Preserve the raw HRESULT on failure — do not discard it.
             let mut d3d12_resource: Option<ID3D12Resource> = None;
             d3d12_device
                 .OpenSharedHandle(nt_handle, &mut d3d12_resource)
-                .map_err(|_| DxgiFailureReason::ImportFailed)?;
+                .map_err(|e| {
+                    let (reason, hr) = classify_hresult(e.code().0 as u32);
+                    (reason, Some(hr), false)
+                })?;
             let d3d12_resource: ID3D12Resource =
-                d3d12_resource.ok_or(DxgiFailureReason::InvalidTexture)?;
+                d3d12_resource.ok_or((DxgiFailureReason::InvalidTexture, None, false))?;
+
+            // Probe keyed mutex: some D3D11VA decoders use it for cross-device sync.
+            use windows::Win32::Graphics::Dxgi::IDXGIKeyedMutex;
+            let has_keyed_mutex = d3d12_resource.cast::<IDXGIKeyedMutex>().is_ok();
 
             // Verify the format is NV12 as expected.
             let resource_desc: D3D12_RESOURCE_DESC = d3d12_resource.GetDesc();
             if resource_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D
                 || resource_desc.Format != DXGI_FORMAT_NV12
             {
-                return Err(DxgiFailureReason::UnsupportedFormat);
+                return Err((DxgiFailureReason::UnsupportedFormat, None, has_keyed_mutex));
             }
 
             // Invariant 1: Catch array_index out of bounds for the texture array.
@@ -237,7 +403,7 @@ pub fn import_into_wgpu(
                 log::warn!(
                     "[dxgi_import] array_index {array_index} >= DepthOrArraySize {array_size}"
                 );
-                return Err(DxgiFailureReason::WrongArraySlice);
+                return Err((DxgiFailureReason::WrongArraySlice, None, has_keyed_mutex));
             }
 
             // Wrap the D3D12 resource as a wgpu HAL texture.
@@ -275,7 +441,6 @@ pub fn import_into_wgpu(
             );
 
             // Plane 0 = Y (luma), sampled as R8Unorm.
-            // Select the specific array slice decoded by FFmpeg.
             let y_view = texture.create_view(&wgpu::TextureViewDescriptor {
                 label: Some("NV12 Y plane"),
                 format: Some(wgpu::TextureFormat::R8Unorm),
@@ -287,7 +452,6 @@ pub fn import_into_wgpu(
             });
 
             // Plane 1 = UV (chroma, interleaved), sampled as Rg8Unorm.
-            // Select the specific array slice decoded by FFmpeg.
             let uv_view = texture.create_view(&wgpu::TextureViewDescriptor {
                 label: Some("NV12 UV plane"),
                 format: Some(wgpu::TextureFormat::Rg8Unorm),
@@ -306,6 +470,37 @@ pub fn import_into_wgpu(
         })
     };
 
-    // `shared` is dropped here, calling D3d11SharedFrame::drop which closes nt_handle safely.
-    result
+    // `shared` is dropped here — D3d11SharedFrame::drop closes nt_handle safely.
+    let attempt_duration_ns = attempt_start.elapsed().as_nanos() as u64;
+
+    match result {
+        Ok(texture) => {
+            record_attempt(DxgiAttemptMetadata {
+                attempted_at: attempt_start,
+                success: true,
+                failure_reason: None,
+                hresult: None,
+                has_keyed_mutex: false,
+                attempt_duration_ns,
+            });
+            Ok(texture)
+        }
+        Err((reason, hresult, has_keyed_mutex)) => {
+            record_attempt(DxgiAttemptMetadata {
+                attempted_at: attempt_start,
+                success: false,
+                failure_reason: Some(reason),
+                hresult,
+                has_keyed_mutex,
+                attempt_duration_ns,
+            });
+            record_first_failure(DxgiFirstFailureEvent {
+                observed_at: attempt_start,
+                reason,
+                hresult,
+                has_keyed_mutex,
+            });
+            Err(reason)
+        }
+    }
 }

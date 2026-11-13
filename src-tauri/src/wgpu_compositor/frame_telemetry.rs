@@ -1,4 +1,6 @@
 use crate::commands::render_target_manager::RenderTargetId;
+use crate::wgpu_compositor::frame_correlation::FrameOutputCorrelation;
+use crate::wgpu_compositor::frame_memory::FrameMemoryTelemetry;
 use crate::wgpu_compositor::render_path::FrameSource;
 
 /// Per-frame timing and provenance for a single rendered frame.
@@ -67,6 +69,54 @@ pub struct FrameTelemetry {
     /// IPC round-trip time (frontend seek → backend frame → frontend display, µs).
     /// Populated by the Tauri command layer in Phase 5.
     pub ipc_wait_us: Option<u64>,
+
+    // ------------------------------------------------------------------
+    // End-to-end Rust-side timings (Phase 3.1) — µs unless noted
+    // ------------------------------------------------------------------
+    /// Wall-clock time from the Rust command entry point to `surface.present()`
+    /// returning.  Measured entirely within the Rust clock domain
+    /// (`Instant::now()`); cannot be directly compared with JavaScript
+    /// `performance.now()` timestamps.
+    ///
+    /// `None` until Phase 3.1 instruments this call site.
+    pub command_entry_to_present_enqueue_us: Option<u64>,
+
+    /// Total frame production time: from the moment Rust starts assembling the
+    /// frame (after decode) to the moment `surface.present()` is called.
+    ///
+    /// `None` until Phase 3.1 instruments the render path.
+    pub frame_processing_us: Option<u64>,
+
+    /// Time spent waiting for a swapchain surface texture to become available.
+    /// Populated only when a surface acquisition is actually attempted.
+    ///
+    /// Zero is a valid measurement.  `None` means no surface acquisition was
+    /// attempted (e.g. frame was dropped before reaching the compositor).
+    pub texture_acquire_wait_us: Option<u64>,
+
+    /// Wall-clock nanoseconds consumed by writing this `FrameTelemetry` record
+    /// itself.  Used to quantify instrumentation overhead.
+    ///
+    /// **Must NOT** include its own measurement time (non-recursive).
+    /// `None` when overhead tracking is disabled.
+    pub telemetry_overhead_ns: Option<u64>,
+
+    // ------------------------------------------------------------------
+    // Correlation and memory metadata (Phase 3.1)
+    // ------------------------------------------------------------------
+    /// Correlation IDs linking this frame output to the originating operation
+    /// and enabling workload-level aggregation in `SessionTelemetry`.
+    ///
+    /// `None` for frames produced without a frontend request correlation
+    /// (e.g. during export, background prefetch, or unit tests).
+    pub correlation: Option<FrameOutputCorrelation>,
+
+    /// Memory domain and transfer path description for this frame.
+    ///
+    /// `None` until the render path populates this.  Callers must not infer
+    /// GPU readback from `FrameSource::CpuRgba` alone — the memory path must
+    /// be explicitly recorded by the decoder or upload code.
+    pub memory: Option<FrameMemoryTelemetry>,
 
     // ------------------------------------------------------------------
     // Frame disposition
@@ -306,6 +356,13 @@ mod tests {
         assert!(t.gpu_render_us.is_none());
         assert!(t.queue_wait_us.is_none());
         assert!(t.ipc_wait_us.is_none());
+        // Phase 3.1 fields
+        assert!(t.command_entry_to_present_enqueue_us.is_none());
+        assert!(t.frame_processing_us.is_none());
+        assert!(t.texture_acquire_wait_us.is_none());
+        assert!(t.telemetry_overhead_ns.is_none());
+        assert!(t.correlation.is_none());
+        assert!(t.memory.is_none());
     }
 
     #[test]

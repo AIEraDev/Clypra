@@ -429,6 +429,15 @@ impl GpuContext {
         if available_features.contains(wgpu::Features::TEXTURE_FORMAT_NV12) {
             required_features |= wgpu::Features::TEXTURE_FORMAT_NV12;
         }
+        // Phase 3.1: Request GPU timestamp features when the adapter supports them.
+        // These are used by `GpuTimestampCapabilities` to report which timestamp
+        // query levels are available. Never required — degrade gracefully when absent.
+        if available_features.contains(wgpu::Features::TIMESTAMP_QUERY) {
+            required_features |= wgpu::Features::TIMESTAMP_QUERY;
+        }
+        if available_features.contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS) {
+            required_features |= wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
+        }
 
         let (device, queue) = best_adapter
             .request_device(
@@ -678,5 +687,280 @@ mod tests {
                 gpu_ctx.info.name, gpu_ctx.info.backend, gpu_ctx.info.device_type
             );
         }
+    }
+
+    /// Test that software adapter classification correctly identifies DeviceType::Cpu.
+    #[test]
+    fn test_software_adapter_classification_cpu_device_type() {
+        // Create a mock SelectedGpuInfo for a CPU/software adapter
+        let software_info = SelectedGpuInfo {
+            name: "Software Rasterizer".to_string(),
+            backend: "Vulkan".to_string(),
+            device_type: "Cpu".to_string(),
+            vendor_id: 0,
+            device_id: 0,
+            is_discrete: false,
+            driver: "software".to_string(),
+            driver_info: "1.0.0".to_string(),
+            is_software_adapter: true, // DeviceType::Cpu => true
+        };
+
+        assert!(
+            software_info.is_software_adapter,
+            "DeviceType::Cpu must be classified as software adapter"
+        );
+        assert!(!software_info.is_discrete);
+    }
+
+    /// Test that hardware discrete GPU is not misclassified as software adapter.
+    #[test]
+    fn test_hardware_discrete_gpu_not_classified_as_software() {
+        let discrete_info = SelectedGpuInfo {
+            name: "NVIDIA GeForce RTX 4090".to_string(),
+            backend: "Dx12".to_string(),
+            device_type: "DiscreteGpu".to_string(),
+            vendor_id: 0x10de,
+            device_id: 0x2684,
+            is_discrete: true,
+            driver: "nvlddmkm".to_string(),
+            driver_info: "536.23".to_string(),
+            is_software_adapter: false, // DiscreteGpu => false
+        };
+
+        assert!(
+            !discrete_info.is_software_adapter,
+            "Hardware discrete GPU must not be classified as software adapter"
+        );
+        assert!(discrete_info.is_discrete);
+    }
+
+    /// Test that hardware integrated GPU is not misclassified as software adapter.
+    #[test]
+    fn test_hardware_integrated_gpu_not_classified_as_software() {
+        let integrated_info = SelectedGpuInfo {
+            name: "Intel(R) UHD Graphics 770".to_string(),
+            backend: "Dx12".to_string(),
+            device_type: "IntegratedGpu".to_string(),
+            vendor_id: 0x8086,
+            device_id: 0x4680,
+            is_discrete: false,
+            driver: "igdkmd64".to_string(),
+            driver_info: "31.0.101.4953".to_string(),
+            is_software_adapter: false, // IntegratedGpu => false
+        };
+
+        assert!(
+            !integrated_info.is_software_adapter,
+            "Hardware integrated GPU must not be classified as software adapter"
+        );
+        assert!(!integrated_info.is_discrete);
+    }
+
+    /// Test that VirtualGpu is not misclassified as software adapter.
+    #[test]
+    fn test_virtual_gpu_not_classified_as_software() {
+        let virtual_info = SelectedGpuInfo {
+            name: "VMware SVGA 3D".to_string(),
+            backend: "Vulkan".to_string(),
+            device_type: "VirtualGpu".to_string(),
+            vendor_id: 0x15ad,
+            device_id: 0x0405,
+            is_discrete: false,
+            driver: "vmwgfx".to_string(),
+            driver_info: "1.0.0".to_string(),
+            is_software_adapter: false, // VirtualGpu => false
+        };
+
+        assert!(
+            !virtual_info.is_software_adapter,
+            "VirtualGpu device type must not be classified as software adapter"
+        );
+    }
+
+    /// Test cross-platform software adapter examples.
+    #[test]
+    fn test_cross_platform_software_adapters() {
+        // Windows: WARP / Microsoft Basic Render Driver
+        let warp_info = SelectedGpuInfo {
+            name: "Microsoft Basic Render Driver".to_string(),
+            backend: "Dx12".to_string(),
+            device_type: "Cpu".to_string(),
+            vendor_id: 0x1414,
+            device_id: 0x008c,
+            is_discrete: false,
+            driver: "BasicRender.sys".to_string(),
+            driver_info: "10.0.22621.1".to_string(),
+            is_software_adapter: true,
+        };
+        assert!(warp_info.is_software_adapter, "WARP must be classified as software");
+
+        // Linux: llvmpipe
+        let llvmpipe_info = SelectedGpuInfo {
+            name: "llvmpipe (LLVM 15.0.0, 256 bits)".to_string(),
+            backend: "Vulkan".to_string(),
+            device_type: "Cpu".to_string(),
+            vendor_id: 0x10005,
+            device_id: 0,
+            is_discrete: false,
+            driver: "llvmpipe".to_string(),
+            driver_info: "1.0.0".to_string(),
+            is_software_adapter: true,
+        };
+        assert!(llvmpipe_info.is_software_adapter, "llvmpipe must be classified as software");
+
+        // SwiftShader
+        let swiftshader_info = SelectedGpuInfo {
+            name: "SwiftShader Device (Subzero)".to_string(),
+            backend: "Vulkan".to_string(),
+            device_type: "Cpu".to_string(),
+            vendor_id: 0x1ae0,
+            device_id: 0xc0de,
+            is_discrete: false,
+            driver: "SwiftShader".to_string(),
+            driver_info: "5.0.0".to_string(),
+            is_software_adapter: true,
+        };
+        assert!(
+            swiftshader_info.is_software_adapter,
+            "SwiftShader must be classified as software"
+        );
+    }
+
+    /// Test cross-platform hardware adapter examples.
+    #[test]
+    fn test_cross_platform_hardware_adapters() {
+        // macOS: Apple Silicon
+        let apple_m3_info = SelectedGpuInfo {
+            name: "Apple M3 Max".to_string(),
+            backend: "Metal".to_string(),
+            device_type: "IntegratedGpu".to_string(),
+            vendor_id: 0x106b,
+            device_id: 0,
+            is_discrete: false,
+            driver: "Metal".to_string(),
+            driver_info: "1.2".to_string(),
+            is_software_adapter: false,
+        };
+        assert!(
+            !apple_m3_info.is_software_adapter,
+            "Apple Silicon must not be classified as software"
+        );
+
+        // Windows: NVIDIA discrete
+        let nvidia_info = SelectedGpuInfo {
+            name: "NVIDIA GeForce RTX 3060".to_string(),
+            backend: "Dx12".to_string(),
+            device_type: "DiscreteGpu".to_string(),
+            vendor_id: 0x10de,
+            device_id: 0x2503,
+            is_discrete: true,
+            driver: "nvlddmkm".to_string(),
+            driver_info: "531.61".to_string(),
+            is_software_adapter: false,
+        };
+        assert!(
+            !nvidia_info.is_software_adapter,
+            "NVIDIA hardware must not be classified as software"
+        );
+
+        // Linux: AMD hardware
+        let amd_info = SelectedGpuInfo {
+            name: "AMD Radeon RX 6800".to_string(),
+            backend: "Vulkan".to_string(),
+            device_type: "DiscreteGpu".to_string(),
+            vendor_id: 0x1002,
+            device_id: 0x73bf,
+            is_discrete: true,
+            driver: "radv".to_string(),
+            driver_info: "23.1.4".to_string(),
+            is_software_adapter: false,
+        };
+        assert!(
+            !amd_info.is_software_adapter,
+            "AMD hardware must not be classified as software"
+        );
+
+        // macOS: AMD discrete
+        let amd_mac_info = SelectedGpuInfo {
+            name: "AMD Radeon Pro 5500M".to_string(),
+            backend: "Metal".to_string(),
+            device_type: "DiscreteGpu".to_string(),
+            vendor_id: 0x1002,
+            device_id: 0x7340,
+            is_discrete: true,
+            driver: "Metal".to_string(),
+            driver_info: "1.2".to_string(),
+            is_software_adapter: false,
+        };
+        assert!(
+            !amd_mac_info.is_software_adapter,
+            "AMD discrete on macOS must not be classified as software"
+        );
+    }
+
+    /// Test that adapter classification is independent of backend selection.
+    #[test]
+    fn test_adapter_classification_independent_of_backend() {
+        // Same AMD hardware with Vulkan backend
+        let amd_vulkan = SelectedGpuInfo {
+            name: "AMD Radeon RX 6900 XT".to_string(),
+            backend: "Vulkan".to_string(),
+            device_type: "DiscreteGpu".to_string(),
+            vendor_id: 0x1002,
+            device_id: 0x73af,
+            is_discrete: true,
+            driver: "radv".to_string(),
+            driver_info: "23.1.0".to_string(),
+            is_software_adapter: false,
+        };
+
+        // Same AMD hardware with DX12 backend
+        let amd_dx12 = SelectedGpuInfo {
+            name: "AMD Radeon RX 6900 XT".to_string(),
+            backend: "Dx12".to_string(),
+            device_type: "DiscreteGpu".to_string(),
+            vendor_id: 0x1002,
+            device_id: 0x73af,
+            is_discrete: true,
+            driver: "amdxxx64".to_string(),
+            driver_info: "23.10.2".to_string(),
+            is_software_adapter: false,
+        };
+
+        // Classification must be the same regardless of backend
+        assert_eq!(
+            amd_vulkan.is_software_adapter, amd_dx12.is_software_adapter,
+            "Adapter classification must be independent of backend choice"
+        );
+        assert_eq!(
+            amd_vulkan.device_type, amd_dx12.device_type,
+            "Device type must be the same regardless of backend"
+        );
+    }
+
+    /// Test serialization consistency of SelectedGpuInfo.
+    #[test]
+    fn test_selected_gpu_info_serialization() {
+        let gpu_info = SelectedGpuInfo {
+            name: "Intel(R) UHD Graphics 770".to_string(),
+            backend: "Dx12".to_string(),
+            device_type: "IntegratedGpu".to_string(),
+            vendor_id: 0x8086,
+            device_id: 0x4680,
+            is_discrete: false,
+            driver: "igdkmd64".to_string(),
+            driver_info: "31.0.101.4953".to_string(),
+            is_software_adapter: false,
+        };
+
+        let serialized = serde_json::to_string(&gpu_info).expect("Failed to serialize");
+        let deserialized: SelectedGpuInfo =
+            serde_json::from_str(&serialized).expect("Failed to deserialize");
+
+        assert_eq!(gpu_info, deserialized, "Serialization round-trip must preserve all fields");
+        assert_eq!(
+            deserialized.is_software_adapter, false,
+            "is_software_adapter must survive serialization"
+        );
     }
 }

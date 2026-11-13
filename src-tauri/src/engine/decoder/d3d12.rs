@@ -10,8 +10,9 @@ use std::sync::Arc;
 use super::pool::DecoderSurfacePool;
 use super::traits::{DecoderSession, VideoDecoderBackend};
 use super::types::{
-    DecoderCapabilities, DecoderError, DecoderRequest, DecoderTelemetry, EncodedPacket, SeekTarget,
-    StreamProfile, VideoDecodeCapability,
+    DecoderBackend, DecoderCapabilities, DecoderError, DecoderExecutionMode, DecoderInitMetadata,
+    DecoderRequest, DecoderTelemetry, EncodedPacket, SeekTarget, StreamProfile,
+    VideoDecodeCapability,
 };
 
 /// Direct3D 12 Video Acceleration (preferred Windows hardware backend).
@@ -104,6 +105,7 @@ pub struct D3D12VASession {
     pool: DecoderSurfacePool,
     telemetry: DecoderTelemetry,
     current_pts: MediaTime,
+    metadata: DecoderInitMetadata,
 }
 
 impl D3D12VASession {
@@ -122,6 +124,16 @@ impl D3D12VASession {
             surface_copy_count: 0,
             decode_time_us: 4200, // Typical hardware decode: ~4.2 ms
         };
+        let metadata = DecoderInitMetadata {
+            execution_mode: DecoderExecutionMode::Hardware {
+                backend: DecoderBackend::D3D12VA,
+                device_type: "d3d12va".to_string(),
+            },
+            backend_name: "D3D12VA".to_string(),
+            surface_backend: SurfaceBackend::D3D12,
+            zero_copy_capable: Some(true), // D3D12VA on same device = zero-copy
+            hardware_pixel_format: Some(stream.pixel_format),
+        };
 
         Self {
             stream,
@@ -129,6 +141,7 @@ impl D3D12VASession {
             pool,
             telemetry,
             current_pts: MediaTime::ZERO,
+            metadata,
         }
     }
 
@@ -204,5 +217,9 @@ impl DecoderSession for D3D12VASession {
 
     fn telemetry(&self) -> DecoderTelemetry {
         self.telemetry.clone()
+    }
+
+    fn init_metadata(&self) -> Option<&DecoderInitMetadata> {
+        Some(&self.metadata)
     }
 }

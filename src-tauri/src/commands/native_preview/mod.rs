@@ -2676,6 +2676,8 @@ pub(crate) async fn present_native_frame_internal(
             None,
             None,
             None,
+            None, // command_entry_to_present_enqueue_us — not reached compositor
+            None, // frame_processing_us — not reached compositor
         );
         return Ok(NativeSurfacePresentation {
             contract_version: NATIVE_CORE_CONTRACT_VERSION,
@@ -2763,6 +2765,8 @@ pub(crate) async fn present_native_frame_internal(
                     None,
                     None,
                     None,
+                    None, // command_entry_to_present_enqueue_us
+                    None, // frame_processing_us
                 );
                 return Err("Native preview frame request is stale".to_string());
             }
@@ -2861,6 +2865,8 @@ pub(crate) async fn present_native_frame_internal(
             capability_policy_str.clone(),
             capability_probe_us_value,
             None,
+            None, // command_entry_to_present_enqueue_us
+            None, // frame_processing_us
         );
         return Ok(NativeSurfacePresentation {
             contract_version: NATIVE_CORE_CONTRACT_VERSION,
@@ -2903,6 +2909,8 @@ pub(crate) async fn present_native_frame_internal(
             capability_policy_str.clone(),
             capability_probe_us_value,
             None,
+            None, // command_entry_to_present_enqueue_us
+            None, // frame_processing_us
         );
         return Ok(NativeSurfacePresentation {
             contract_version: NATIVE_CORE_CONTRACT_VERSION,
@@ -3381,6 +3389,16 @@ pub(crate) async fn present_native_frame_internal(
     let submit_present_started = Instant::now();
     surface_texture.present();
     let submit_present_us = submit_present_started.elapsed().as_micros() as u64;
+    // Phase 3.1: Rust-clock-domain end-to-end timings.
+    // Both are measured after present() returns so they include the full Rust path.
+    // `command_entry_to_present_enqueue_us`: from function entry (presentation_started / request_started_at)
+    // to after present() — entire Rust-side wall-clock. Zero is valid.
+    let command_entry_to_present_enqueue_us: Option<u64> =
+        Some(request_started_at.elapsed().as_micros() as u64);
+    // `frame_processing_us`: from start of frame assembly (conversion) to after present().
+    // = conversion_upload_us + compose_us + submit_present_us (sequential, non-overlapping on this path).
+    let frame_processing_us: Option<u64> =
+        Some(conversion_upload_us + compose_us + submit_present_us);
     let presented_ticks = (request.frame_time.ticks.max(0) as i128 * 1_000_000i128
         / request.frame_time.timescale.max(1) as i128)
         .min(i64::MAX as i128) as i64;
@@ -3421,6 +3439,8 @@ pub(crate) async fn present_native_frame_internal(
         capability_policy_str,
         capability_probe_us_value,
         Some(transfer_path),
+        command_entry_to_present_enqueue_us,
+        frame_processing_us,
     );
 
     crate::engine::ENGINE_TELEMETRY.record_frame(

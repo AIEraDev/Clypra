@@ -1,0 +1,422 @@
+[
+  {
+    "sessionId": "launch-1794560663130-uej5g0",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": null,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794559977598-hgp9ot",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": true,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794559107327-1w1x0c",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": true,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794559068990-ng2hme",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": true,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794558997672-onh2uj",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": true,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794558942278-xxmctm",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": true,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794558740796-etm0se",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": true,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "gpu-raster"
+  },
+  {
+    "sessionId": "launch-1794558626837-7lqiuq",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": true,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794558277530-xm3j01",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": true,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794558183183-sr5qlj",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": true,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794557902595-zmofno",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": true,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "gpu-raster"
+  },
+  {
+    "sessionId": "launch-1794557805467-nh8lg6",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": true,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "other"
+  },
+  {
+    "sessionId": "launch-1794557710940-yomxww",
+    "appVersion": "1.6.1",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": null,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794512035396-7l551b",
+    "appVersion": "1.6.1",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": true,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "other"
+  },
+  {
+    "sessionId": "launch-1794511846186-dzbaje",
+    "appVersion": "1.6.1",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": true,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "dxgi-zero-copy"
+  },
+  {
+    "sessionId": "launch-1794511772357-y514co",
+    "appVersion": "1.6.1",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": true,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "gpu-raster"
+  },
+  {
+    "sessionId": "launch-1794511125865-q18f75",
+    "appVersion": "1.6.1",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": true,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "other"
+  },
+  {
+    "sessionId": "launch-1794510191061-u4dlge",
+    "appVersion": "1.6.1",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": true,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "gpu-raster"
+  },
+  {
+    "sessionId": "launch-1794509243034-ks2bvn",
+    "appVersion": "1.6.0",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": null,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": null
+  },
+  {
+    "sessionId": "launch-1793999594303-4hvm37",
+    "appVersion": "1.6.0",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": null,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": null
+  },
+  {
+    "sessionId": "launch-1793007955581-7gyasw",
+    "appVersion": "1.6.0",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": null,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": null
+  },
+  {
+    "sessionId": "launch-1792919036919-d8irw1",
+    "appVersion": "1.6.0",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": null,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": null
+  },
+  {
+    "sessionId": "launch-1792917851120-fm2wvb",
+    "appVersion": "1.5.9",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": null,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": null
+  },
+  {
+    "sessionId": "launch-1792917837015-3tv0l6",
+    "appVersion": "1.5.9",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": null,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": null
+  },
+  {
+    "sessionId": "launch-1792914296452-sejpi6",
+    "appVersion": "1.5.9",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": null,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": null
+  },
+  {
+    "sessionId": "launch-1792866011837-18b565",
+    "appVersion": "1.5.9",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": null,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": null
+  },
+  {
+    "sessionId": "launch-1794557027306-bwsr2o",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) HD Graphics P530",
+    "hwDecodeActive": null,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794556529981-72gi0u",
+    "appVersion": "1.6.0",
+    "os": "windows",
+    "gpu": "intel/Intel(R) HD Graphics P530",
+    "hwDecodeActive": null,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": null
+  },
+  {
+    "sessionId": "launch-1794553985607-1pn88d",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": null,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794553157249-or42ge",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "hwDecodeActive": null,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794552833183-8k0n3y",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) Arc(TM) 140V GPU (16GB)",
+    "hwDecodeActive": true,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794552335018-jabbo5",
+    "appVersion": "1.6.2",
+    "os": "macos",
+    "gpu": "intel/Intel(R) UHD Graphics 617",
+    "hwDecodeActive": null,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794551511129-t3hzz2",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "amd/AMD Radeon (TM) Graphics",
+    "hwDecodeActive": true,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794551380556-5jsj16",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "amd/AMD Radeon (TM) Graphics",
+    "hwDecodeActive": true,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "gpu-raster"
+  },
+  {
+    "sessionId": "launch-1794550742169-5070rf",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) HD Graphics 530",
+    "hwDecodeActive": null,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794549903508-3f2tqu",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) HD Graphics 530",
+    "hwDecodeActive": true,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794549838583-yk4xqc",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) HD Graphics 530",
+    "hwDecodeActive": null,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794549813073-fzeqgn",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) HD Graphics 530",
+    "hwDecodeActive": null,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794549426334-tyauzf",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) HD Graphics 530",
+    "hwDecodeActive": null,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794549279591-g8w33w",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) HD Graphics 530",
+    "hwDecodeActive": null,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794549239909-2yv8uq",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) HD Graphics 530",
+    "hwDecodeActive": null,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "cpu-rgba"
+  },
+  {
+    "sessionId": "launch-1794537504432-2p1d25",
+    "appVersion": "1.6.2",
+    "os": "macos",
+    "gpu": "amd/AMD Radeon Pro 555X",
+    "hwDecodeActive": true,
+    "decoderName": null,
+    "hwDeviceType": null,
+    "transferPath": "other"
+  }
+]

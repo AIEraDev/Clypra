@@ -13,7 +13,7 @@ pub use pool::DecoderSurfacePool;
 pub use software::{SoftwareFFmpegBackend, SoftwareSession};
 pub use traits::{DecoderSession, SurfaceBridge, VideoDecoderBackend};
 pub use types::{
-    DecodeUsage, DecoderCapabilities, DecoderError, DecoderRequest, DecoderTelemetry,
-    EncodedPacket, RenderSurface, SeekTarget, StreamProfile, SurfacePoolConfig, SurfaceState,
-    VideoDecodeCapability,
+    DecodeUsage, DecoderBackend, DecoderCapabilities, DecoderError, DecoderExecutionMode,
+    DecoderInitMetadata, DecoderRequest, DecoderTelemetry, EncodedPacket, RenderSurface,
+    SeekTarget, StreamProfile, SurfacePoolConfig, SurfaceState, VideoDecodeCapability,
 };

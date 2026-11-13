@@ -28,10 +28,12 @@
 //! - **All Phase 5 fields populated** — `queue_wait_us`, `deadline_miss`,
 //!   `dropped`, `recorded_at`, `ipc_wait_us`, `gpu_render_us` are all tracked.
 
+use crate::wgpu_compositor::frame_correlation::WorkloadMode;
 use crate::wgpu_compositor::frame_telemetry::FrameTelemetry;
 use crate::wgpu_compositor::render_path::FrameSource;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -51,6 +53,227 @@ pub struct FramesBySource {
     pub cpu_rgba: u64,
     /// Frames with an unrecognised source (should be zero in normal operation).
     pub unknown: u64,
+}
+
+// ---------------------------------------------------------------------------
+// WorkloadSnapshot and WorkloadBucket — per-workload statistics
+// ---------------------------------------------------------------------------
+
+/// Deadline policy (in microseconds) per workload mode.
+///
+/// These are used to classify a frame as `deadline_miss` when the
+/// `FrameTelemetry::command_entry_to_present_enqueue_us` exceeds the threshold.
+/// Playback uses `present_by` from `FrameDeadline` instead.
+const DEADLINE_US_PAUSED_INTERACTION: u64 = 200_000;
+const DEADLINE_US_SEEK_COLD: u64 = 500_000;
+const DEADLINE_US_SEEK_WARM: u64 = 100_000;
+const DEADLINE_US_SCRUB: u64 = 50_000;
+const DEADLINE_US_FRAME_STEP: u64 = 100_000;
+
+/// A snapshot of per-workload performance statistics for the current session.
+///
+/// Returned as part of [`SessionSnapshot`] and serialized to JSON for the frontend.
+/// All latency fields are in **microseconds**.
+///
+/// # Request vs frame accounting
+///
+/// These two sets of counters are intentionally separate:
+///
+/// - Request counters track IPC calls from the frontend.
+/// - Frame counters track GPU frames produced and their disposition.
+///
+/// A user may generate 100 scrub requests while Clypra intentionally produces
+/// only 10 preview frames (`requests_coalesced = 90`).  That is not 90 dropped
+/// frames.  `dropped_frames` counts frames that were produced but discarded.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkloadSnapshot {
+    // ── Request accounting ────────────────────────────────────────────────────
+    /// Total IPC requests received for this workload.
+    pub requests_received: u64,
+    /// Requests for which a frame was successfully presented.
+    pub requests_completed: u64,
+    /// Requests merged into an existing in-flight frame (intentional).
+    pub requests_coalesced: u64,
+    /// Requests replaced by a later request before decoding began.
+    pub requests_superseded: u64,
+    /// Requests cancelled (e.g. clip closed, session reset).
+    pub requests_cancelled: u64,
+
+    // ── Frame accounting ──────────────────────────────────────────────────────
+    /// Total frames produced for this workload (pushed to telemetry).
+    pub expected_frames: u64,
+    /// Frames successfully presented.
+    pub completed_frames: u64,
+    /// Frames produced but discarded under scheduler backpressure.
+    pub dropped_frames: u64,
+    /// Frames whose production latency exceeded the workload deadline policy.
+    pub missed_deadlines: u64,
+
+    // ── Latency percentiles (µs) ──────────────────────────────────────────────
+    /// p50 of `command_entry_to_present_enqueue_us` for this workload.
+    pub p50_us: Option<u64>,
+    /// p95 of `command_entry_to_present_enqueue_us` for this workload.
+    pub p95_us: Option<u64>,
+    /// p99 of `command_entry_to_present_enqueue_us` for this workload.
+    pub p99_us: Option<u64>,
+    /// p50 of `frame_processing_us` for this workload.
+    pub frame_processing_p50_us: Option<u64>,
+}
+
+/// Private per-workload accumulator using a fixed-size reservoir sample.
+///
+/// # Memory bound
+///
+/// Capacity is capped at `RESERVOIR_CAPACITY` samples (1000).  At 8 bytes per
+/// sample, the worst case is 8 KB per workload × 6 workloads = 48 KB total.
+///
+/// # Reservoir sampling (Algorithm R)
+///
+/// When the reservoir is full, each new sample replaces a randomly chosen
+/// existing sample.  This gives each sample an equal probability of appearing
+/// in the reservoir, regardless of arrival order.  Percentiles computed over
+/// the reservoir are unbiased estimators of the true percentiles.
+struct WorkloadBucket {
+    /// Maximum reservoir size.
+    reservoir: Vec<u64>,
+    /// Frame processing time reservoir (parallel to `reservoir`).
+    frame_proc_reservoir: Vec<u64>,
+    /// Total samples seen (not capped — used for reservoir probability).
+    total_seen: u64,
+    /// Simple LCG state for fast pseudo-random index selection.
+    rng_state: u64,
+
+    // Request and frame counters
+    requests_received: u64,
+    requests_completed: u64,
+    requests_coalesced: u64,
+    requests_superseded: u64,
+    requests_cancelled: u64,
+    expected_frames: u64,
+    completed_frames: u64,
+    dropped_frames: u64,
+    missed_deadlines: u64,
+}
+
+/// Maximum samples retained per workload bucket (Algorithm R reservoir).
+const RESERVOIR_CAPACITY: usize = 1000;
+
+impl WorkloadBucket {
+    fn new() -> Self {
+        Self {
+            reservoir: Vec::with_capacity(RESERVOIR_CAPACITY),
+            frame_proc_reservoir: Vec::with_capacity(RESERVOIR_CAPACITY),
+            total_seen: 0,
+            // Non-zero seed for the LCG.
+            rng_state: 0xDEAD_BEEF_CAFE_1234,
+            requests_received: 0,
+            requests_completed: 0,
+            requests_coalesced: 0,
+            requests_superseded: 0,
+            requests_cancelled: 0,
+            expected_frames: 0,
+            completed_frames: 0,
+            dropped_frames: 0,
+            missed_deadlines: 0,
+        }
+    }
+
+    /// Fast LCG pseudo-random number generator (Knuth MMIX constants).
+    fn next_rand(&mut self) -> u64 {
+        self.rng_state = self
+            .rng_state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        self.rng_state
+    }
+
+    /// Record one frame sample into the reservoir (Algorithm R).
+    ///
+    /// `processing_us` is `command_entry_to_present_enqueue_us`; it is the
+    /// primary latency metric for workload percentiles.
+    /// `frame_proc_us` is `frame_processing_us` (may be `None`).
+    fn record_frame(
+        &mut self,
+        processing_us: u64,
+        frame_proc_us: Option<u64>,
+        dropped: bool,
+        deadline_miss: bool,
+        deadline_us: Option<u64>,
+    ) {
+        self.expected_frames += 1;
+        if dropped {
+            self.dropped_frames += 1;
+        } else {
+            self.completed_frames += 1;
+        }
+
+        // Deadline policy: use the workload-specific threshold when no
+        // `deadline_miss` flag is provided from the frame telemetry.
+        let missed = deadline_miss
+            || deadline_us
+                .map(|d| processing_us > d)
+                .unwrap_or(false);
+        if missed {
+            self.missed_deadlines += 1;
+        }
+
+        // Reservoir sampling (Algorithm R).
+        let n = self.total_seen as usize;
+        self.total_seen += 1;
+
+        if n < RESERVOIR_CAPACITY {
+            self.reservoir.push(processing_us);
+            self.frame_proc_reservoir
+                .push(frame_proc_us.unwrap_or(processing_us));
+        } else {
+            let j = (self.next_rand() as usize) % (n + 1);
+            if j < RESERVOIR_CAPACITY {
+                self.reservoir[j] = processing_us;
+                self.frame_proc_reservoir[j] =
+                    frame_proc_us.unwrap_or(processing_us);
+            }
+        }
+    }
+
+    /// Compute a percentile from the reservoir.  Returns `None` if empty.
+    fn percentile(values: &mut [u64], pct: f64) -> Option<u64> {
+        if values.is_empty() {
+            return None;
+        }
+        values.sort_unstable();
+        let idx = ((pct / 100.0) * (values.len() as f64 - 1.0)).round() as usize;
+        Some(values[idx.min(values.len() - 1)])
+    }
+
+    /// Produce a serializable snapshot.
+    fn snapshot(&self) -> WorkloadSnapshot {
+        // Clone to sort (sort requires &mut).
+        let mut res = self.reservoir.clone();
+        let mut fp_res = self.frame_proc_reservoir.clone();
+
+        WorkloadSnapshot {
+            requests_received: self.requests_received,
+            requests_completed: self.requests_completed,
+            requests_coalesced: self.requests_coalesced,
+            requests_superseded: self.requests_superseded,
+            requests_cancelled: self.requests_cancelled,
+            expected_frames: self.expected_frames,
+            completed_frames: self.completed_frames,
+            dropped_frames: self.dropped_frames,
+            missed_deadlines: self.missed_deadlines,
+            p50_us: Self::percentile(&mut res, 50.0),
+            p95_us: {
+                let mut r2 = self.reservoir.clone();
+                Self::percentile(&mut r2, 95.0)
+            },
+            p99_us: {
+                let mut r3 = self.reservoir.clone();
+                Self::percentile(&mut r3, 99.0)
+            },
+            frame_processing_p50_us: Self::percentile(&mut fp_res, 50.0),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -106,6 +329,12 @@ pub struct SessionSnapshot {
     pub policy_background_pauses: u64,
     /// Number of times a policy change set `interactive_throttled = true`.
     pub policy_interactive_throttles: u64,
+
+    // ── Per-workload breakdown (Phase 3.1) ────────────────────────────────────
+    /// Per-workload statistics.  Keyed by workload mode camelCase string.
+    /// Absent when no correlated frames have been recorded.
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
+    pub workload_snapshots: HashMap<String, WorkloadSnapshot>,
 }
 
 // ---------------------------------------------------------------------------
@@ -147,6 +376,9 @@ struct SessionState {
     // Policy event counters
     policy_background_pauses: u64,
     policy_interactive_throttles: u64,
+
+    // Per-workload accumulators (Phase 3.1)
+    workload_buckets: HashMap<WorkloadMode, WorkloadBucket>,
 }
 
 impl Default for SessionState {
@@ -173,6 +405,7 @@ impl Default for SessionState {
             unknown_frames: 0,
             policy_background_pauses: 0,
             policy_interactive_throttles: 0,
+            workload_buckets: HashMap::new(),
         }
     }
 }
@@ -227,11 +460,40 @@ impl SessionState {
             FrameSource::CpuNv12 { .. } => self.cpu_nv12_frames += 1,
             FrameSource::CpuRgba { .. } => self.cpu_rgba_frames += 1,
         }
+
+        // Per-workload bucket routing (Phase 3.1)
+        // Only frames with a correlation ID carry workload metadata.
+        if let Some(corr) = &t.correlation {
+            let workload = corr.workload;
+            let deadline_us = workload_deadline_us(workload);
+            let processing_us = t
+                .command_entry_to_present_enqueue_us
+                .unwrap_or(t.total_cpu_us());
+            let frame_proc_us = t.frame_processing_us;
+            let bucket = self
+                .workload_buckets
+                .entry(workload)
+                .or_insert_with(WorkloadBucket::new);
+            bucket.record_frame(
+                processing_us,
+                frame_proc_us,
+                t.dropped,
+                t.deadline_miss,
+                deadline_us,
+            );
+        }
     }
 
     fn snapshot(&self) -> SessionSnapshot {
         let duration = self.started_at.elapsed().as_secs_f64();
         let n = self.frames_produced;
+
+        // Build workload snapshot map (camelCase string keys for JSON).
+        let workload_snapshots: HashMap<String, WorkloadSnapshot> = self
+            .workload_buckets
+            .iter()
+            .map(|(mode, bucket)| (workload_key(*mode), bucket.snapshot()))
+            .collect();
 
         SessionSnapshot {
             session_duration_secs: duration,
@@ -291,7 +553,35 @@ impl SessionState {
 
             policy_background_pauses: self.policy_background_pauses,
             policy_interactive_throttles: self.policy_interactive_throttles,
+            workload_snapshots,
         }
+    }
+}
+
+/// Returns the camelCase JSON key for a workload mode.
+fn workload_key(mode: WorkloadMode) -> String {
+    // Keep in sync with WorkloadMode's serde rename_all = "camelCase".
+    match mode {
+        WorkloadMode::Playback => "playback",
+        WorkloadMode::PausedInteraction => "pausedInteraction",
+        WorkloadMode::SeekCold => "seekCold",
+        WorkloadMode::SeekWarm => "seekWarm",
+        WorkloadMode::Scrub => "scrub",
+        WorkloadMode::FrameStep => "frameStep",
+    }
+    .to_string()
+}
+
+/// Returns the workload-specific deadline threshold in microseconds.
+/// Returns `None` for `Playback` (uses `FrameDeadline::present_by` instead).
+fn workload_deadline_us(mode: WorkloadMode) -> Option<u64> {
+    match mode {
+        WorkloadMode::Playback => None,
+        WorkloadMode::PausedInteraction => Some(DEADLINE_US_PAUSED_INTERACTION),
+        WorkloadMode::SeekCold => Some(DEADLINE_US_SEEK_COLD),
+        WorkloadMode::SeekWarm => Some(DEADLINE_US_SEEK_WARM),
+        WorkloadMode::Scrub => Some(DEADLINE_US_SCRUB),
+        WorkloadMode::FrameStep => Some(DEADLINE_US_FRAME_STEP),
     }
 }
 

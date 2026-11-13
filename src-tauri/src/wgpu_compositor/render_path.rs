@@ -87,6 +87,16 @@ pub enum DxgiFailureReason {
     SurfaceCreationFailed,
     /// The imported texture dimensions do not match the expected frame dimensions.
     DimensionMismatch,
+    /// The wgpu adapter used for import does not match the adapter that decoded
+    /// the frame.  Importing across adapters requires a PCIe copy which this
+    /// pipeline does not perform.  Triggers immediate session-level DXGI disable.
+    AdapterMismatchForCurrentImportPath,
+    /// The D3D11 texture has a resource configuration that is incompatible with
+    /// the DXGI shared handle protocol (e.g. not shareable, wrong bind flags).
+    UnsupportedResourceConfiguration,
+    /// A keyed mutex acquire or release operation failed, indicating that the
+    /// texture is still owned by another device or process.
+    SynchronizationFailure,
 }
 
 impl std::fmt::Display for DxgiFailureReason {
@@ -99,6 +109,18 @@ impl std::fmt::Display for DxgiFailureReason {
             Self::DeviceLost => write!(f, "D3D12 device lost — GPU recovery required"),
             Self::SurfaceCreationFailed => write!(f, "wgpu surface creation failed"),
             Self::DimensionMismatch => write!(f, "imported texture dimensions do not match frame"),
+            Self::AdapterMismatchForCurrentImportPath => write!(
+                f,
+                "DXGI import adapter mismatch — decode and render adapters differ"
+            ),
+            Self::UnsupportedResourceConfiguration => write!(
+                f,
+                "D3D11 texture resource configuration is incompatible with DXGI sharing"
+            ),
+            Self::SynchronizationFailure => write!(
+                f,
+                "DXGI keyed mutex acquire/release failed — texture still owned by another device"
+            ),
         }
     }
 }
@@ -264,6 +286,38 @@ mod tests {
         assert!(!DxgiFailureReason::ImportFailed.to_string().is_empty());
         assert!(!DxgiFailureReason::DeviceLost.to_string().is_empty());
         assert!(!DxgiFailureReason::WrongArraySlice.to_string().is_empty());
+    }
+
+    #[test]
+    fn new_failure_variants_display_non_empty() {
+        assert!(!DxgiFailureReason::AdapterMismatchForCurrentImportPath
+            .to_string()
+            .is_empty());
+        assert!(!DxgiFailureReason::UnsupportedResourceConfiguration
+            .to_string()
+            .is_empty());
+        assert!(!DxgiFailureReason::SynchronizationFailure
+            .to_string()
+            .is_empty());
+    }
+
+    #[test]
+    fn new_failure_variants_are_not_device_lost() {
+        let not_device_lost = [
+            DxgiImportState::Failed {
+                reason: DxgiFailureReason::AdapterMismatchForCurrentImportPath,
+            },
+            DxgiImportState::Failed {
+                reason: DxgiFailureReason::UnsupportedResourceConfiguration,
+            },
+            DxgiImportState::Failed {
+                reason: DxgiFailureReason::SynchronizationFailure,
+            },
+        ];
+        for state in &not_device_lost {
+            assert!(!state.is_device_lost());
+            assert!(!state.is_usable());
+        }
     }
 
     #[test]

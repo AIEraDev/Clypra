@@ -2,8 +2,8 @@ use crate::engine::frame::VideoFrame;
 use crate::engine::hardware::adapter::GpuAdapter;
 use crate::engine::surface::{SurfaceBackend, VideoSurface};
 use super::types::{
-    DecoderCapabilities, DecoderError, DecoderRequest, DecoderTelemetry, EncodedPacket,
-    RenderSurface, SeekTarget, StreamProfile,
+    DecoderCapabilities, DecoderError, DecoderInitMetadata, DecoderRequest, DecoderTelemetry,
+    EncodedPacket, RenderSurface, SeekTarget, StreamProfile,
 };
 
 /// Primary trait implemented by all video decoder backends.
@@ -49,6 +49,15 @@ pub trait DecoderSession: Send {
 
     /// Reports real-time telemetry metrics for this session
     fn telemetry(&self) -> DecoderTelemetry;
+
+    /// Returns static initialization metadata recorded when the session opened.
+    ///
+    /// Returns `None` if the decoder backend has not yet been instrumented
+    /// with [`DecoderInitMetadata`] (Phase 3.1).  Callers must treat `None`
+    /// as an instrumentation gap, not as an error.
+    fn init_metadata(&self) -> Option<&DecoderInitMetadata> {
+        None
+    }
 }
 
 /// Trait for zero-copy surface import into the renderer.

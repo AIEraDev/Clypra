@@ -5,10 +5,10 @@ use crate::engine::types::{ChromaSubsampling, CodecProfile, CodecType, MediaTime
 
 use super::traits::{DecoderSession, VideoDecoderBackend};
 use super::types::{
-    DecoderCapabilities, DecoderError, DecoderRequest, DecoderTelemetry, EncodedPacket, SeekTarget,
-    StreamProfile, VideoDecodeCapability,
+    DecoderBackend, DecoderCapabilities, DecoderError, DecoderExecutionMode, DecoderInitMetadata,
+    DecoderRequest, DecoderTelemetry, EncodedPacket, SeekTarget, StreamProfile,
+    VideoDecodeCapability,
 };
-
 /// Direct3D 11 Video Acceleration (Windows fallback hardware backend).
 pub struct D3D11VADecoderBackend;
 
@@ -64,14 +64,26 @@ pub struct D3D11VASession {
     stream: StreamProfile,
     generation: u64,
     current_pts: MediaTime,
+    metadata: DecoderInitMetadata,
 }
 
 impl D3D11VASession {
     pub fn new(stream: StreamProfile) -> Self {
+        let metadata = DecoderInitMetadata {
+            execution_mode: DecoderExecutionMode::Hardware {
+                backend: DecoderBackend::D3D11VA,
+                device_type: "d3d11va".to_string(),
+            },
+            backend_name: "D3D11VA".to_string(),
+            surface_backend: SurfaceBackend::D3D11,
+            zero_copy_capable: Some(false), // D3D11VA requires DXGI bridge; not same-device zero-copy
+            hardware_pixel_format: Some(stream.pixel_format),
+        };
         Self {
             stream,
             generation: 1,
             current_pts: MediaTime::ZERO,
+            metadata,
         }
     }
 }
@@ -145,5 +157,9 @@ impl DecoderSession for D3D11VASession {
             surface_copy_count: 0,
             decode_time_us: 6500,
         }
+    }
+
+    fn init_metadata(&self) -> Option<&DecoderInitMetadata> {
+        Some(&self.metadata)
     }
 }

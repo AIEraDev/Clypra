@@ -708,6 +708,7 @@ async fn test_phase3_rendering_architecture_invariants() {
         hw_decode: true,
         native_surface: true,
         hdr: false,
+        gpu_timestamp_caps: Default::default(),
     };
     assert!(
         !caps_without_nv12.zero_copy_available(),
@@ -834,6 +835,12 @@ async fn test_phase3_rendering_architecture_invariants() {
         gpu_render_us: None, // Asynchronously measured in Phase 6
         queue_wait_us: None,
         ipc_wait_us: None,
+        command_entry_to_present_enqueue_us: None,
+        frame_processing_us: None,
+        texture_acquire_wait_us: None,
+        telemetry_overhead_ns: None,
+        correlation: None,
+        memory: None,
         dropped: false,
         deadline_miss: false,
         source: FrameSource::DxgiNv12 {

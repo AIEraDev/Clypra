@@ -1,0 +1,16 @@
+{
+  "v161": {
+    "count": 6,
+    "avgFpsRatio": 0.6191765247046693,
+    "avgIpcWaitMs": 62.40280053721393,
+    "cpuTransferCount": 1,
+    "dxgiCount": 1
+  },
+  "v162": {
+    "count": 27,
+    "avgFpsRatio": 0.5089542295657209,
+    "avgIpcWaitMs": 176.60844374208966,
+    "cpuTransferCount": 22,
+    "dxgiCount": 0
+  }
+}

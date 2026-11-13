@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use super::traits::{DecoderSession, VideoDecoderBackend};
 use super::types::{
-    DecoderCapabilities, DecoderError, DecoderRequest, DecoderTelemetry, EncodedPacket, SeekTarget,
-    StreamProfile, VideoDecodeCapability,
+    DecoderCapabilities, DecoderError, DecoderExecutionMode, DecoderInitMetadata, DecoderRequest,
+    DecoderTelemetry, EncodedPacket, SeekTarget, StreamProfile, VideoDecodeCapability,
 };
 
 /// Software FFmpeg CPU Decoder (Fallback when hardware decoding is unavailable).
@@ -74,14 +74,23 @@ pub struct SoftwareSession {
     stream: StreamProfile,
     generation: u64,
     current_pts: MediaTime,
+    metadata: DecoderInitMetadata,
 }
 
 impl SoftwareSession {
     pub fn new(stream: StreamProfile) -> Self {
+        let metadata = DecoderInitMetadata {
+            execution_mode: DecoderExecutionMode::Software,
+            backend_name: "SoftwareFFmpeg".to_string(),
+            surface_backend: SurfaceBackend::Cpu,
+            zero_copy_capable: Some(false),
+            hardware_pixel_format: None, // software decode has no hardware pixel format
+        };
         Self {
             stream,
             generation: 1,
             current_pts: MediaTime::ZERO,
+            metadata,
         }
     }
 }
@@ -171,5 +180,9 @@ impl DecoderSession for SoftwareSession {
             surface_copy_count: 1,
             decode_time_us: 38000, // Software decode is slow: ~38 ms
         }
+    }
+
+    fn init_metadata(&self) -> Option<&DecoderInitMetadata> {
+        Some(&self.metadata)
     }
 }

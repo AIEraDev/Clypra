@@ -1,0 +1,431 @@
+{
+  "trueSoftwareAdapters": [],
+  "hardwareGpuWithCpuTransfer": [
+    {
+      "sessionId": "launch-1794560663130-uej5g0",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794559977598-hgp9ot",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794559107327-1w1x0c",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794559068990-ng2hme",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794558997672-onh2uj",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794558942278-xxmctm",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794558626837-7lqiuq",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794558277530-xm3j01",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794558183183-sr5qlj",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794557710940-yomxww",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794557027306-bwsr2o",
+      "os": "windows",
+      "gpu": "intel/Intel(R) HD Graphics P530",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794553985607-1pn88d",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794553157249-or42ge",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794552833183-8k0n3y",
+      "os": "windows",
+      "gpu": "intel/Intel(R) Arc(TM) 140V GPU (16GB)",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794552335018-jabbo5",
+      "os": "macos",
+      "gpu": "intel/Intel(R) UHD Graphics 617",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794551511129-t3hzz2",
+      "os": "windows",
+      "gpu": "amd/AMD Radeon (TM) Graphics",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794550742169-5070rf",
+      "os": "windows",
+      "gpu": "intel/Intel(R) HD Graphics 530",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794549903508-3f2tqu",
+      "os": "windows",
+      "gpu": "intel/Intel(R) HD Graphics 530",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794549838583-yk4xqc",
+      "os": "windows",
+      "gpu": "intel/Intel(R) HD Graphics 530",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794549813073-fzeqgn",
+      "os": "windows",
+      "gpu": "intel/Intel(R) HD Graphics 530",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794549426334-tyauzf",
+      "os": "windows",
+      "gpu": "intel/Intel(R) HD Graphics 530",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794549279591-g8w33w",
+      "os": "windows",
+      "gpu": "intel/Intel(R) HD Graphics 530",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    },
+    {
+      "sessionId": "launch-1794549239909-2yv8uq",
+      "os": "windows",
+      "gpu": "intel/Intel(R) HD Graphics 530",
+      "transferPath": "cpu-rgba",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-cpu-fallback",
+      "reason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)"
+    }
+  ],
+  "hardwareGpuWithDxgi": [
+    {
+      "sessionId": "launch-1794511846186-dzbaje",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": "dxgi-zero-copy",
+      "gpuDeviceType": null,
+      "classification": "hardware-gpu-dxgi"
+    }
+  ],
+  "unknownAdapter": [
+    {
+      "sessionId": "launch-1794561004402-w3l8sa",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": null,
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1794558740796-etm0se",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": "gpu-raster",
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1794557902595-zmofno",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": "gpu-raster",
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1794557805467-nh8lg6",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": "other",
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1794513155048-davohd",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": null,
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1794512035396-7l551b",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": "other",
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1794511772357-y514co",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": "gpu-raster",
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1794511125865-q18f75",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": "other",
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1794510191061-u4dlge",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": "gpu-raster",
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1794509243034-ks2bvn",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": null,
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1793999594303-4hvm37",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": null,
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1793007955581-7gyasw",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": null,
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1792997804001-zkmvfc",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": null,
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1792919036919-d8irw1",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": null,
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1792917851120-fm2wvb",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": null,
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1792917837015-3tv0l6",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": null,
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1792914974619-zllfw9",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": null,
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1792914296452-sejpi6",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": null,
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1792866011837-18b565",
+      "os": "windows",
+      "gpu": "intel/Intel(R) UHD Graphics",
+      "transferPath": null,
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1794557206259-5zy9pw",
+      "os": "windows",
+      "gpu": "intel/Intel(R) HD Graphics P530",
+      "transferPath": null,
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1794556529981-72gi0u",
+      "os": "windows",
+      "gpu": "intel/Intel(R) HD Graphics P530",
+      "transferPath": null,
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1794551380556-5jsj16",
+      "os": "windows",
+      "gpu": "amd/AMD Radeon (TM) Graphics",
+      "transferPath": "gpu-raster",
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    },
+    {
+      "sessionId": "launch-1794537504432-2p1d25",
+      "os": "macos",
+      "gpu": "amd/AMD Radeon Pro 555X",
+      "transferPath": "other",
+      "gpuDeviceType": null,
+      "classification": "unknown",
+      "reason": "No gpuDeviceType or transferPath available"
+    }
+  ]
+}
