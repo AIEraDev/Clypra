@@ -3,11 +3,45 @@ import type { TemplateTextProperties } from "@/features/text-templates/types";
 export const CAPTION_MODEL_VERSION = 1;
 export const TICKS_PER_SECOND = 1_000_000;
 
+export interface CaptionWordTiming {
+  word: string;
+  /** Start offset from the parent cue's start, in 1MHz ticks. */
+  startOffsetTicks: number;
+  /** End offset from the parent cue's start, in 1MHz ticks. */
+  endOffsetTicks: number;
+  probability?: number;
+}
+
+export interface CaptionWordHighlightConfig {
+  mode: "current" | "cumulative";
+  activeColor: string;
+  spokenColor: string;
+  upcomingColor: string;
+  activeScale: number;
+  glowColor?: string;
+  glowBlur?: number;
+}
+
+/**
+ * Immutable preset snapshot stored with a caption track so a project does not
+ * depend on a mutable remote preset catalog to reproduce its caption styling.
+ */
+export interface CaptionPresetSnapshot {
+  id: string;
+  version: number;
+  position: "top" | "middle" | "bottom";
+  maxWidthPercent: number;
+  textTransform?: "uppercase" | "lowercase" | "capitalize" | "none";
+  wordHighlight: CaptionWordHighlightConfig;
+}
+
 export interface CaptionCue {
   id: string;
   startTicks: number; // 1,000,000 ticks/sec (1MHz)
   endTicks: number;
   text: string;
+  /** Word timings relative to startTicks; absent for imported/manual text cues. */
+  words?: CaptionWordTiming[];
   speaker?: string; // Reserved for v2 diarization
   styleOverride?: Partial<TemplateTextProperties>;
   styleVersion: number;
@@ -21,6 +55,8 @@ export interface CaptionTrack {
   visible: boolean;
   locked: boolean;
   defaultStyle: TemplateTextProperties;
+  /** Optional built-in/custom preset snapshot for reproducible word highlighting. */
+  preset?: CaptionPresetSnapshot;
   cues: CaptionCue[];
 }
 
