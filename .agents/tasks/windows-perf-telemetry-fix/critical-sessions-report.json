@@ -1,0 +1,235 @@
+[
+  {
+    "sessionId": "launch-1794549813073-fzeqgn",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) HD Graphics 530",
+    "classification": "hardware-gpu-cpu-fallback",
+    "classificationReason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)",
+    "transferPath": "cpu-rgba",
+    "presenter": "bridge",
+    "gpuDeviceType": null,
+    "hwDeviceType": null,
+    "fpsRatio": 0.007890110326942734,
+    "avgRenderedFps": 0.35505496471242304,
+    "avgTargetFps": 45,
+    "avgFrameTimeMs": 2818.8865,
+    "maxFrameTimeMs": 2901.5,
+    "droppedFrames": 0,
+    "dropRatio": 0,
+    "avgIpcWaitMs": 1449.3,
+    "dominantStage": null,
+    "dominantStageP95Us": null,
+    "scenarios": {
+      "seek": {
+        "avgFps": 0.34464931931759435,
+        "avgTarget": 60,
+        "avgFrameTime": 2901.5
+      },
+      "paused-interaction": {
+        "avgFps": 0.3654606101072517,
+        "avgTarget": 30,
+        "avgFrameTime": 2736.273
+      }
+    }
+  },
+  {
+    "sessionId": "launch-1794549239909-2yv8uq",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) HD Graphics 530",
+    "classification": "hardware-gpu-cpu-fallback",
+    "classificationReason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)",
+    "transferPath": "cpu-rgba",
+    "presenter": "bridge",
+    "gpuDeviceType": null,
+    "hwDeviceType": null,
+    "fpsRatio": 0.009942087854360786,
+    "avgRenderedFps": 0.39768351417443143,
+    "avgTargetFps": 40,
+    "avgFrameTimeMs": 2516.0040000000004,
+    "maxFrameTimeMs": 2601.9,
+    "droppedFrames": 0,
+    "dropRatio": 0,
+    "avgIpcWaitMs": 866.2666666666668,
+    "dominantStage": null,
+    "dominantStageP95Us": null,
+    "scenarios": {
+      "paused-interaction": {
+        "avgFps": 0.404358008876467,
+        "avgTarget": 30,
+        "avgFrameTime": 2473.056
+      },
+      "seek": {
+        "avgFps": 0.3843345247703601,
+        "avgTarget": 60,
+        "avgFrameTime": 2601.9
+      }
+    }
+  },
+  {
+    "sessionId": "launch-1794550742169-5070rf",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) HD Graphics 530",
+    "classification": "hardware-gpu-cpu-fallback",
+    "classificationReason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)",
+    "transferPath": "cpu-rgba",
+    "presenter": "bridge",
+    "gpuDeviceType": null,
+    "hwDeviceType": null,
+    "fpsRatio": 0.011899836222554068,
+    "avgRenderedFps": 0.35699508667662205,
+    "avgTargetFps": 30,
+    "avgFrameTimeMs": 2801.159,
+    "maxFrameTimeMs": 2801.159,
+    "droppedFrames": 0,
+    "dropRatio": 0,
+    "avgIpcWaitMs": 0,
+    "dominantStage": null,
+    "dominantStageP95Us": null,
+    "scenarios": {
+      "paused-interaction": {
+        "avgFps": 0.35699508667662205,
+        "avgTarget": 30,
+        "avgFrameTime": 2801.159
+      }
+    }
+  },
+  {
+    "sessionId": "launch-1794557027306-bwsr2o",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "intel/Intel(R) HD Graphics P530",
+    "classification": "hardware-gpu-cpu-fallback",
+    "classificationReason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)",
+    "transferPath": "cpu-rgba",
+    "presenter": "bridge",
+    "gpuDeviceType": null,
+    "hwDeviceType": null,
+    "fpsRatio": 0.012659659453951519,
+    "avgRenderedFps": 0.5063863781580608,
+    "avgTargetFps": 40,
+    "avgFrameTimeMs": 1974.8273333333334,
+    "maxFrameTimeMs": 1989,
+    "droppedFrames": 0,
+    "dropRatio": 0,
+    "avgIpcWaitMs": 662.1333333333333,
+    "dominantStage": null,
+    "dominantStageP95Us": null,
+    "scenarios": {
+      "paused-interaction": {
+        "avgFps": 0.5081969629133103,
+        "avgTarget": 30,
+        "avgFrameTime": 1967.741
+      },
+      "seek": {
+        "avgFps": 0.5027652086475616,
+        "avgTarget": 60,
+        "avgFrameTime": 1989
+      }
+    }
+  },
+  {
+    "sessionId": "launch-1794551511129-t3hzz2",
+    "appVersion": "1.6.2",
+    "os": "windows",
+    "gpu": "amd/AMD Radeon (TM) Graphics",
+    "classification": "hardware-gpu-cpu-fallback",
+    "classificationReason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)",
+    "transferPath": "cpu-rgba",
+    "presenter": "bridge",
+    "gpuDeviceType": null,
+    "hwDeviceType": null,
+    "fpsRatio": 0.031783033224066365,
+    "avgRenderedFps": 1.04884009639419,
+    "avgTargetFps": 33,
+    "avgFrameTimeMs": 1052.9909,
+    "maxFrameTimeMs": 1398.5,
+    "droppedFrames": 0,
+    "dropRatio": 0,
+    "avgIpcWaitMs": 106.52000000000001,
+    "dominantStage": "unaccounted",
+    "dominantStageP95Us": 972237,
+    "scenarios": {
+      "paused-interaction": {
+        "avgFps": 1.0613315218230541,
+        "avgTarget": 30,
+        "avgFrameTime": 1051.3343333333332
+      },
+      "seek": {
+        "avgFps": 0.9364172675344132,
+        "avgTarget": 60,
+        "avgFrameTime": 1067.9
+      }
+    }
+  },
+  {
+    "sessionId": "launch-1793007955581-7gyasw",
+    "appVersion": "1.6.0",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "classification": "unknown",
+    "classificationReason": "No gpuDeviceType or transferPath available",
+    "transferPath": null,
+    "presenter": null,
+    "gpuDeviceType": null,
+    "hwDeviceType": null,
+    "fpsRatio": 0.03606697108435495,
+    "avgRenderedFps": 1.442678843374198,
+    "avgTargetFps": 40,
+    "avgFrameTimeMs": 722.857,
+    "maxFrameTimeMs": 897.1,
+    "droppedFrames": 0,
+    "dropRatio": 0,
+    "avgIpcWaitMs": 244,
+    "dominantStage": null,
+    "dominantStageP95Us": null,
+    "scenarios": {
+      "paused-interaction": {
+        "avgFps": 1.6066667992269414,
+        "avgTarget": 30,
+        "avgFrameTime": 635.7355
+      },
+      "seek": {
+        "avgFps": 1.1147029316687105,
+        "avgTarget": 60,
+        "avgFrameTime": 897.1
+      }
+    }
+  },
+  {
+    "sessionId": "launch-1794557710940-yomxww",
+    "appVersion": "1.6.1",
+    "os": "windows",
+    "gpu": "intel/Intel(R) UHD Graphics",
+    "classification": "hardware-gpu-cpu-fallback",
+    "classificationReason": "cpu-rgba transfer (likely hardware GPU with DXGI fallback, but gpuDeviceType unavailable)",
+    "transferPath": "cpu-rgba",
+    "presenter": "bridge",
+    "gpuDeviceType": null,
+    "hwDeviceType": null,
+    "fpsRatio": 0.04981219977695534,
+    "avgRenderedFps": 1.9924879910782136,
+    "avgTargetFps": 40,
+    "avgFrameTimeMs": 588.2760000000001,
+    "maxFrameTimeMs": 953.2,
+    "droppedFrames": 0,
+    "dropRatio": 0,
+    "avgIpcWaitMs": 317.3333333333333,
+    "dominantStage": null,
+    "dominantStageP95Us": null,
+    "scenarios": {
+      "paused-interaction": {
+        "avgFps": 2.4641830986609627,
+        "avgTarget": 30,
+        "avgFrameTime": 405.814
+      },
+      "seek": {
+        "avgFps": 1.0490977759127151,
+        "avgTarget": 60,
+        "avgFrameTime": 953.2
+      }
+    }
+  }
+]
