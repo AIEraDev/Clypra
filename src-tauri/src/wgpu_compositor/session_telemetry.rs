@@ -237,7 +237,7 @@ impl WorkloadBucket {
     }
 
     /// Compute a percentile from the reservoir.  Returns `None` if empty.
-    fn percentile(values: &mut Vec<u64>, pct: f64) -> Option<u64> {
+    fn percentile(values: &mut [u64], pct: f64) -> Option<u64> {
         if values.is_empty() {
             return None;
         }
