@@ -433,6 +433,8 @@ export const CaptionsTab: React.FC<TabProps> = () => {
       fontSize: presetStyle.fontSize ?? 36,
       fontWeight: presetStyle.fontWeight ?? 700,
       color: presetStyle.color ?? "#FFFFFF",
+      lineHeight: presetStyle.lineHeight ?? 1.2,
+      letterSpacing: presetStyle.letterSpacing ?? 0,
       align: presetStyle.align ?? "center",
       valign: presetStyle.verticalAlign ?? "bottom",
       textTransform: preset.snapshot.textTransform ?? "none",
