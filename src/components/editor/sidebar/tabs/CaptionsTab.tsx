@@ -38,6 +38,11 @@ import {
   type InputWordTimestamp,
 } from "@/features/subtitles/segmentation";
 import {
+  CAPTION_STYLE_PRESETS,
+  createCaptionPresetSnapshot,
+  type CaptionStylePreset,
+} from "@/features/subtitles/captionPresets";
+import {
   type CaptionTrack,
   type CaptionCue,
   CAPTION_MODEL_VERSION,
@@ -203,16 +208,21 @@ export const CaptionsTab: React.FC<TabProps> = () => {
     if (activeTrack) {
       const updatedTrack: CaptionTrack = {
         ...activeTrack,
+        preset: undefined,
         defaultStyle: {
           ...activeTrack.defaultStyle,
           fontFamily: patch.fontFamily ?? activeTrack.defaultStyle.fontFamily,
           fontSize: patch.fontSize ?? activeTrack.defaultStyle.fontSize,
           color: patch.color ?? activeTrack.defaultStyle.color,
           fontWeight: (patch.fontWeight as any) ?? activeTrack.defaultStyle.fontWeight,
+          stroke: patch.stroke,
+          shadow: patch.shadow,
+          background: patch.background,
         },
       };
       execute(new UpdateCaptionTrackCommand(activeTrack, updatedTrack, label));
     }
+    setKaraokeOverlayEnabled(false);
   };
 
   // Handle Plain Text property changes
@@ -374,6 +384,16 @@ export const CaptionsTab: React.FC<TabProps> = () => {
       }
 
       const targetTrackId = getOrCreateTimelineCaptionTrackId();
+      if (activeTrack?.preset) {
+        execute(
+          new UpdateCaptionTrackCommand(
+            activeTrack,
+            { ...activeTrack, preset: undefined },
+            "Clear Built-in Caption Preset",
+          ),
+        );
+      }
+      setKaraokeOverlayEnabled(false);
       execute(
         new ApplyCaptionTrackStyleCommand(
           targetTrackId,
@@ -388,6 +408,94 @@ export const CaptionsTab: React.FC<TabProps> = () => {
     } finally {
       setIsApplyingTemplate(false);
     }
+  };
+
+  // Apply a declarative built-in preset to canonical caption styling and timeline TextClips.
+  const handleApplyCaptionPreset = (preset: CaptionStylePreset) => {
+    const track = getOrCreateActiveTrack();
+    const timelineTrackId = getOrCreateTimelineCaptionTrackId();
+    const presetStyle = preset.textStyle;
+    const updatedTrack: CaptionTrack = {
+      ...track,
+      preset: createCaptionPresetSnapshot(preset),
+      defaultStyle: {
+        ...track.defaultStyle,
+        ...presetStyle,
+        text: "",
+        stroke: presetStyle.stroke,
+        shadow: presetStyle.shadow,
+        background: presetStyle.background,
+      },
+    };
+
+    const patch: Partial<TextClip> = {
+      fontFamily: presetStyle.fontFamily ?? "Outfit Variable",
+      fontSize: presetStyle.fontSize ?? 36,
+      fontWeight: presetStyle.fontWeight ?? 700,
+      color: presetStyle.color ?? "#FFFFFF",
+      align: presetStyle.align ?? "center",
+      valign: presetStyle.verticalAlign ?? "bottom",
+      textTransform: preset.snapshot.textTransform ?? "none",
+      stroke: presetStyle.stroke,
+      shadow: presetStyle.shadow,
+      background: presetStyle.background,
+      styleId: undefined,
+      styleRevisionId: undefined,
+      styleContentHash: undefined,
+      styleSnapshot: undefined,
+      styleDefinition: undefined,
+      templateId: undefined,
+      templateDefinition: undefined,
+      templateSnapshot: undefined,
+    };
+
+    const history = useHistoryStore.getState();
+    history.beginTransaction(`Apply Caption Preset: ${preset.name}`);
+    try {
+      history.execute(
+        new UpdateCaptionTrackCommand(
+          track,
+          updatedTrack,
+          `Apply Caption Preset: ${preset.name}`,
+        ),
+      );
+      history.execute(
+        new ApplyCaptionTrackStyleCommand(
+          timelineTrackId,
+          patch,
+          `Apply Caption Preset: ${preset.name}`,
+        ),
+      );
+      history.commitTransaction();
+    } catch (error) {
+      history.rollbackTransaction();
+      toast.error(error instanceof Error ? error.message : "Failed to apply caption preset");
+      return;
+    }
+
+    setFontFamily(presetStyle.fontFamily ?? "Outfit Variable");
+    setFontSize(presetStyle.fontSize ?? 36);
+    setFontWeight(presetStyle.fontWeight ?? 700);
+    setFillColor(presetStyle.color ?? "#FFFFFF");
+    setUppercase(preset.snapshot.textTransform === "uppercase");
+    setAlign(presetStyle.align ?? "center");
+    setVerticalPosition(
+      preset.snapshot.position === "middle" ? "center" : preset.snapshot.position,
+    );
+    setHasStroke(Boolean(presetStyle.stroke));
+    setStrokeColor(presetStyle.stroke?.color ?? "#000000");
+    setStrokeWidth(presetStyle.stroke?.width ?? 3);
+    setHasShadow(Boolean(presetStyle.shadow));
+    setShadowColor(presetStyle.shadow?.color ?? "rgba(0,0,0,0.85)");
+    setShadowBlur(presetStyle.shadow?.blur ?? 4);
+    setShadowOffsetY(presetStyle.shadow?.offsetY ?? 2);
+    setHasBackground(Boolean(presetStyle.background));
+    setBackgroundColor(presetStyle.background?.color ?? "rgba(0,0,0,0.8)");
+    setBackgroundPadding(presetStyle.background?.padding ?? 10);
+    setBackgroundRadius(presetStyle.background?.borderRadius ?? 8);
+    setSelectedTemplateId(null);
+    setKaraokeOverlayEnabled(true);
+    toast.success(`Applied caption preset: ${preset.name}`);
   };
 
   // Reset to Plain Text Default
@@ -706,6 +814,15 @@ export const CaptionsTab: React.FC<TabProps> = () => {
                 startTicks: secondsToTicks(finalStartSec),
                 endTicks: secondsToTicks(finalEndSec),
                 text: sc.text,
+                words: sc.words
+                  .filter((word) => word.start < finalDurationSec)
+                  .map((word) => ({
+                    word: word.word,
+                    startOffsetTicks: secondsToTicks(word.start),
+                    endOffsetTicks: secondsToTicks(Math.min(word.end, finalDurationSec)),
+                    probability: word.probability,
+                  }))
+                  .filter((word) => word.endOffsetTicks > word.startOffsetTicks),
                 styleVersion: 1,
               });
 
@@ -1032,6 +1149,66 @@ export const CaptionsTab: React.FC<TabProps> = () => {
               <Type className="w-3 h-3" />
               Custom
             </button>
+          </div>
+
+          {/* Built-in word-highlight presets use the canonical CaptionCue renderer. */}
+          <div className="space-y-2 rounded-xl border border-white/8 bg-black/15 p-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-[10px] font-semibold text-text-primary">Word-highlight presets</p>
+                <p className="text-[9px] text-text-muted">One renderer, six reusable looks.</p>
+              </div>
+              <label className="flex items-center gap-1.5 text-[9px] text-text-muted cursor-pointer whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={karaokeOverlayEnabled}
+                  onChange={(event) => setKaraokeOverlayEnabled(event.target.checked)}
+                  className="accent-accent"
+                />
+                Live preview
+              </label>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {CAPTION_STYLE_PRESETS.map((preset) => {
+                const isSelected = activeTrack?.preset?.id === preset.id;
+                const previewTextColor = preset.textStyle.color ?? "#FFFFFF";
+                const previewBackground =
+                  preset.preview.backgroundColor ??
+                  preset.textStyle.background?.color ??
+                  "rgba(25,25,25,0.94)";
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => handleApplyCaptionPreset(preset)}
+                    title={preset.description}
+                    className={`flex min-w-0 flex-col gap-1.5 rounded-lg border p-2 text-left transition-colors ${
+                      isSelected
+                        ? "border-accent bg-accent/10"
+                        : "border-white/8 bg-background/45 hover:border-white/20"
+                    }`}
+                  >
+                    <span
+                      className="flex min-h-8 w-full items-center justify-center rounded px-1.5 text-[10px] font-extrabold tracking-wide"
+                      style={{ background: previewBackground }}
+                    >
+                      <span style={{ color: previewTextColor }}>
+                        {preset.preview.sampleText}{" "}
+                        <strong style={{ color: preset.snapshot.wordHighlight.activeColor }}>
+                          {preset.preview.activeWord}
+                        </strong>
+                      </span>
+                    </span>
+                    <span className="flex items-center justify-between gap-1">
+                      <span className="truncate text-[10px] font-semibold text-text-primary">
+                        {preset.name}
+                      </span>
+                      {isSelected && <Check className="h-3 w-3 shrink-0 text-accent" />}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* ── UNIFIED TIER 1: Caption Templates Gallery ── */}
