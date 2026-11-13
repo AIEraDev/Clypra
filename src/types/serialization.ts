@@ -54,7 +54,7 @@ export interface RustProject {
   timeline_schema_version?: number | null;
   audio_model_version?: number | null;
   caption_model_version?: number | null;
-  caption_tracks?: any[] | null;
+  caption_tracks?: CaptionTrack[] | null;
 }
 
 /**
