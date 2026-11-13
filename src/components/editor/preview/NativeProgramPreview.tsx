@@ -591,6 +591,13 @@ export const NativeProgramPreview: React.FC = () => {
   const mediaAssets = useProjectStore((s) => s.mediaAssets);
   const tracks = useTimelineStore((s) => s.tracks);
   const clips = useTimelineStore((s) => s.clips);
+  const previewClips = useMemo(
+    () =>
+      karaokeOverlayEnabled
+        ? clips.filter((clip) => (clip as any).textRole !== "caption")
+        : clips,
+    [clips, karaokeOverlayEnabled],
+  );
   const transitions = useTimelineStore((s) => s.transitions);
   const epoch = useTimelineStore((s) => s.epoch);
   const clearSelection = useUIStore((s) => s.clearSelection);
@@ -783,7 +790,7 @@ export const NativeProgramPreview: React.FC = () => {
   volumeRef.current = volume;
 
   const renderStateRef = useRef({
-    clips,
+    clips: previewClips,
     tracks,
     transitions,
     mediaAssets,
@@ -806,7 +813,7 @@ export const NativeProgramPreview: React.FC = () => {
     // Memoize at React-render time (driven by Zustand subscriptions) so the RAF loop
     // can pass them directly to evaluateTimelineSceneCached without rehashing every frame.
     sceneVersions: {
-      clipVersion: computeClipVersion(clips, transitions),
+      clipVersion: computeClipVersion(previewClips, transitions),
       assetsVersion: computeAssetsVersion(mediaAssets),
       effectsStoreVersion: computeEffectsStoreVersion(
         useEffectsStore.getState().definitions,
@@ -1003,7 +1010,7 @@ export const NativeProgramPreview: React.FC = () => {
       lastNativeSampleSequenceRef.current = 0;
     };
   }, []);
-  renderStateRef.current.clips = clips;
+  renderStateRef.current.clips = previewClips;
   renderStateRef.current.tracks = tracks;
   renderStateRef.current.transitions = transitions;
   renderStateRef.current.mediaAssets = mediaAssets;
@@ -1017,7 +1024,7 @@ export const NativeProgramPreview: React.FC = () => {
   // the RAF loop. Zustand only triggers a React render when the relevant slices change,
   // so this runs at most once per actual timeline/effects change, not 60× per second.
   renderStateRef.current.sceneVersions = {
-    clipVersion: computeClipVersion(clips, transitions),
+    clipVersion: computeClipVersion(previewClips, transitions),
     assetsVersion: computeAssetsVersion(mediaAssets),
     effectsStoreVersion: computeEffectsStoreVersion(
       useEffectsStore.getState().definitions,
