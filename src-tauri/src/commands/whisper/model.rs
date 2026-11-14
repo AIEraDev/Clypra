@@ -1,6 +1,84 @@
+use sha2::{Digest, Sha256};
+use std::io::Read;
 use tauri::Manager;
 
 pub const MIN_WHISPER_MODEL_BYTES: u64 = 10 * 1024 * 1024; // 10 MB minimum for any Whisper model
+
+/// Verified official Hugging Face Git LFS SHA-256 checksums
+pub const WHISPER_SHA256_TINY: &str =
+    "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21";
+pub const WHISPER_SHA256_BASE: &str =
+    "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe";
+pub const WHISPER_SHA256_SMALL: &str =
+    "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b";
+pub const WHISPER_SHA256_MEDIUM: &str =
+    "0837f6a7d5cb0d1ab86b896fe3952d43e5c9a9d7099cbab744888be62d0ba921";
+pub const WHISPER_SHA256_LARGE_V3: &str =
+    "53a7b0368c04ec47eb389710f6ab1a5f6e81f1816f19472eec305a4ec581a967";
+
+/// Returns expected SHA-256 checksum for a known model name.
+pub fn expected_sha256_for_model(size_or_name: &str) -> Option<&'static str> {
+    let clean = size_or_name
+        .strip_prefix("ggml-")
+        .unwrap_or(size_or_name)
+        .strip_suffix(".bin")
+        .unwrap_or(size_or_name)
+        .trim();
+    match clean {
+        "tiny" => Some(WHISPER_SHA256_TINY),
+        "base" => Some(WHISPER_SHA256_BASE),
+        "small" => Some(WHISPER_SHA256_SMALL),
+        "medium" => Some(WHISPER_SHA256_MEDIUM),
+        "large-v3" | "large" => Some(WHISPER_SHA256_LARGE_V3),
+        _ => None,
+    }
+}
+
+/// Computes SHA-256 checksum of a file on disk.
+pub fn compute_file_sha256(path: &std::path::Path) -> Result<String, std::io::Error> {
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024]; // 64 KB streaming buffer
+    loop {
+        let bytes_read = file.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+    }
+    let hash = hasher.finalize();
+    Ok(format!("{:x}", hash))
+}
+
+/// Verifies that a file matches an expected SHA-256 hex string.
+pub fn verify_file_sha256(path: &std::path::Path, expected_hex: &str) -> bool {
+    match compute_file_sha256(path) {
+        Ok(actual_hex) => actual_hex.eq_ignore_ascii_case(expected_hex),
+        Err(_) => false,
+    }
+}
+
+/// Validates that a file on disk matches its expected SHA-256 checksum if known.
+pub fn validate_model_checksum(
+    path: &std::path::Path,
+    model_size_or_name: &str,
+) -> Result<(), String> {
+    let Some(expected_hash) = expected_sha256_for_model(model_size_or_name) else {
+        return Ok(());
+    };
+
+    let actual_hash = compute_file_sha256(path)
+        .map_err(|e| format!("Failed to read file for checksum verification: {}", e))?;
+
+    if !actual_hash.eq_ignore_ascii_case(expected_hash) {
+        return Err(format!(
+            "Checksum mismatch for model '{}': expected {}, got {}",
+            model_size_or_name, expected_hash, actual_hash
+        ));
+    }
+
+    Ok(())
+}
 
 /// Validates that a file on disk is an actual GGML Whisper model:
 /// - File exists and is a regular file
@@ -64,9 +142,10 @@ pub fn resolve_model_file_path(
         models_dir.join(format!("{}.bin", clean_name)),
     ];
 
-    candidates
-        .into_iter()
-        .find(|candidate| is_valid_whisper_model_file(candidate))
+    candidates.into_iter().find(|candidate| {
+        is_valid_whisper_model_file(candidate)
+            && validate_model_checksum(candidate, clean_name).is_ok()
+    })
 }
 
 /// Delete a downloaded Whisper model from app data directory

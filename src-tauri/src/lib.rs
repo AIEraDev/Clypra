@@ -742,6 +742,7 @@ pub fn run() {
             cancel_whisper_download,
             verify_whisper_model_exists,
             generate_auto_captions,
+            cancel_caption_transcription,
             // Color grading and 3D LUT commands
             load_lut_cube,
             // On-device AI Engine (Silence Detection, Smart Auto-Reframe, MediaPipe Tracking)

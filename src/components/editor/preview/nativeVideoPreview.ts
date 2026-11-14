@@ -2210,11 +2210,13 @@ export function buildNativeVideoProjectRequest(
         color,
         textAlign: layer.textAlign || "left",
         verticalAlign: layer.verticalAlign || "middle",
-        runs: layer.runs?.map((run) => ({
-          text: run.text,
-          ...(run.color ? { color: parseColorToRgba(run.color) } : {}),
-          highlighted: run.highlighted === true,
-        })),
+        ...(layer.captionCue
+          ? {
+              captionCue: layer.captionCue,
+              activeWordIndex: layer.activeWordIndex,
+              captionPresetId: layer.captionPreset?.id,
+            }
+          : {}),
         ...(layer.templateId
           ? { templateId: layer.templateId, templateData: layer.customization }
           : {}),

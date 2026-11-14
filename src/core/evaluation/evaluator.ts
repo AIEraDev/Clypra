@@ -41,6 +41,11 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import {
   resolveConform,
   resolveTextTemplateArtifact,
+  CaptionEngine,
+  getCaptionPreset,
+  type CaptionCue,
+  type CaptionWord,
+  type CaptionPresetDefinition,
 } from "@clypra-studio/engine";
 import { resolveCanonicalFamily } from "@/core/fonts/fontRegistry";
 import { applyTextTransform } from "@/lib/text/textClip";
@@ -460,14 +465,35 @@ export function evaluateTimelineScene(
       const finalWidth = evalW * animationState.scale;
       const finalHeight = evalH * animationState.scale;
 
-      const karaokeTime = Math.max(0, evalTime - clip.startTime);
-      const karaokeRuns = textClip.words?.length
-        ? textClip.words.map((word, wordIndex) => ({
-            text:
-              word.word + (wordIndex < textClip.words!.length - 1 ? " " : ""),
-            highlighted: karaokeTime >= word.start && karaokeTime < word.end,
-          }))
-        : undefined;
+      // ── Word-timed Caption Evaluation ──
+      let captionCue: CaptionCue | undefined;
+      let activeWordIndex: number | undefined;
+      let captionPreset: CaptionPresetDefinition | undefined;
+
+      if (textClip.textRole === "caption" || textClip.words?.length || textClip.presetId) {
+        const rawWords: CaptionWord[] = (textClip.words ?? []).map((w, idx) => {
+          const wStart = (w as any).start ?? (w as any).startMs ?? 0;
+          const wEnd = (w as any).end ?? (w as any).endMs ?? 0;
+          return {
+            id: (w as any).id ?? `w_${idx}`,
+            text: (w as any).text ?? (w as any).word ?? "",
+            startMs: Math.round(typeof wStart === "number" && wStart < 1000 ? wStart * 1000 : wStart),
+            endMs: Math.round(typeof wEnd === "number" && wEnd < 1000 ? wEnd * 1000 : wEnd),
+          };
+        });
+
+        captionCue = {
+          id: `cue_${clip.id}`,
+          words: rawWords,
+          text: textClip.text ?? "",
+          startMs: 0,
+          endMs: Math.round(clip.duration * 1000),
+        };
+
+        const localTimeMs = Math.round(Math.max(0, evalTime - clip.startTime) * 1000);
+        activeWordIndex = CaptionEngine.resolveActiveWordIndex(captionCue, localTimeMs);
+        captionPreset = getCaptionPreset(textClip.presetId);
+      }
 
       // ── Per-glyph motion animation progress ────────────────────────────────
       // Compute normalized [0,1] in/out progress so the rasterizer can evaluate
@@ -555,7 +581,9 @@ export function evaluateTimelineScene(
           templateStyle.verticalAlign || textClip.valign || "middle",
         lineHeight: evalLineHeight,
         letterSpacing: evalLetterSpacing,
-        ...(karaokeRuns ? { runs: karaokeRuns } : {}),
+        captionCue,
+        activeWordIndex,
+        captionPreset,
         stroke: textClip.stroke,
         shadow: textClip.shadow,
         background: textClip.background,

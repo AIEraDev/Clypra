@@ -1,7 +1,63 @@
 import type { TemplateTextProperties } from "@/features/text-templates/types";
 
-export const CAPTION_MODEL_VERSION = 1;
+export const CAPTION_MODEL_VERSION = 2;
 export const TICKS_PER_SECOND = 1_000_000;
+
+/** Single word in a media transcript with source-relative millisecond timing */
+export interface TranscriptWord {
+  id: string;
+  text: string;
+  startMs: number; // Source-media relative ms (from source media start 0ms)
+  endMs: number;   // Source-media relative ms
+  probability?: number;
+}
+
+/** Canonical speech transcript for an imported or recorded media asset */
+export interface Transcript {
+  id: string; // e.g. "transcript-<mediaAssetId>"
+  sourceMediaId?: string;
+  mediaId?: string;
+  language: string;
+  text?: string;
+  words: TranscriptWord[];
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+/** JSON data-only caption styling preset */
+export interface CaptionPresetDefinition {
+  id: string;
+  name: string;
+  font: string; // Bundled OFL font: e.g. "Inter Variable", "Outfit Variable", "Montserrat Variable"
+  size: number;
+  weight: string | number;
+  fill: string;
+  activeFill: string;
+  activeScale: number;
+  stroke?: {
+    color: string;
+    width: number;
+  };
+  shadow?: {
+    color: string;
+    blur: number;
+    offsetX: number;
+    offsetY: number;
+  };
+  box?: {
+    color: string;
+    paddingX: number;
+    paddingY: number;
+    borderRadius: number;
+  };
+  maxWordsPerLine: number;
+  position: "bottom" | "middle" | "top";
+  entryAnimation?: "none" | "pop" | "fade" | "slide-up";
+  exitAnimation?: "none" | "fade" | "slide-down";
+  caseTransform?: "uppercase" | "lowercase" | "capitalize" | "none";
+  /** Forward-compatible with property animation tracks without schema migrations */
+  propertyTracks?: Record<string, unknown>;
+}
 
 export interface CaptionCue {
   id: string;

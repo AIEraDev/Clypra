@@ -16,7 +16,8 @@
  */
 
 import { AUDIO_MODEL_VERSION, normalizeClipAudioProperties } from "./audio";
-import { CAPTION_MODEL_VERSION, type CaptionTrack } from "./captions";
+import { CAPTION_MODEL_VERSION, type CaptionTrack, type Transcript } from "./captions";
+import { migrateProjectToTranscripts } from "@/core/captions/transcriptMigration";
 import type {
   Project,
   MediaAsset,
@@ -68,6 +69,7 @@ export interface RustProject {
   audio_model_version?: number | null;
   caption_model_version?: number | null;
   caption_tracks?: any[] | null;
+  transcripts?: Record<string, any> | null;
 }
 
 /**
@@ -174,6 +176,7 @@ export interface ProjectPersistenceSnapshot {
   gaps: Gap[];
   markers: TimelineMarker[];
   captionTracks?: CaptionTrack[];
+  transcripts?: Record<string, Transcript>;
   timelineSchemaVersion: number;
   epoch?: number;
   migrated: boolean;
@@ -317,29 +320,45 @@ export function validateAndMigrateProjectPayload(
       ? (raw.captionTracks as CaptionTrack[])
       : [];
 
-  const normalizedRust = toRustProject(project, {
+  // Migrate existing v1.5.0 caption TextClips into v2 Transcripts
+  const migrationResult = migrateProjectToTranscripts(
+    {
+      project,
+      clips,
+      captionTracks,
+    },
+    raw,
+  );
+  const effectiveProject = migrationResult.project;
+  const effectiveClips = migrationResult.clips;
+  const effectiveCaptionTracks = migrationResult.captionTracks;
+
+  const normalizedRust = toRustProject(effectiveProject, {
     mediaAssets,
     tracks,
-    clips,
+    clips: effectiveClips,
     transitions,
     gaps,
     markers,
-    captionTracks,
+    captionTracks: effectiveCaptionTracks,
     mainVideoTrackId: rust.main_video_track_id ?? null,
     updateModifiedTime: false,
   });
   const migrated =
-    hasDuplicates || JSON.stringify(normalizedRust) !== JSON.stringify(raw);
+    hasDuplicates ||
+    migrationResult.migrated ||
+    JSON.stringify(normalizedRust) !== JSON.stringify(raw);
   return {
-    project,
+    project: effectiveProject,
     mediaAssets,
     tracks,
-    clips,
+    clips: effectiveClips,
     transitions,
     gaps,
     markers,
-    captionTracks,
-    timelineSchemaVersion: project.timelineSchemaVersion ?? 1,
+    captionTracks: effectiveCaptionTracks,
+    transcripts: effectiveProject.transcripts,
+    timelineSchemaVersion: effectiveProject.timelineSchemaVersion ?? 1,
     migrated,
     rustProject: normalizedRust,
     mainVideoTrackId: rust.main_video_track_id ?? null,
@@ -379,6 +398,7 @@ export function fromRustProject(rust: RustProject): Project {
     timelineSchemaVersion: rust.timeline_schema_version ?? 1,
     audioModelVersion: rust.audio_model_version ?? AUDIO_MODEL_VERSION,
     captionModelVersion: rust.caption_model_version ?? CAPTION_MODEL_VERSION,
+    transcripts: (rust as any).transcripts ?? undefined,
   };
 }
 
@@ -490,12 +510,12 @@ export function fromRustClip(rust: RustClip): Clip {
   const baseClip: Clip = {
     id: rust.id,
     kind, // Now always present after migration
-    trackId: rust.trackId,
-    mediaId: rust.mediaId,
-    startTime: rust.startTime,
+    trackId: rust.trackId ?? (rust as any).track_id,
+    mediaId: rust.mediaId ?? (rust as any).media_id,
+    startTime: rust.startTime ?? (rust as any).start_time,
     duration: rust.duration,
-    trimIn: rust.trimIn,
-    trimOut: rust.trimOut,
+    trimIn: rust.trimIn ?? (rust as any).trim_in,
+    trimOut: rust.trimOut ?? (rust as any).trim_out,
     x: rust.x,
     y: rust.y,
     width: rust.width,
@@ -537,6 +557,10 @@ export function fromRustClip(rust: RustClip): Clip {
       fromRustClip(child),
     );
     delete clip.compound_children;
+  }
+
+  if ((rust as any).text_role && !(clip as any).textRole) {
+    (clip as any).textRole = (rust as any).text_role;
   }
 
   return clip as Clip;
@@ -620,6 +644,7 @@ export function toRustProject(
     caption_model_version:
       frontend.captionModelVersion ?? CAPTION_MODEL_VERSION,
     caption_tracks: options?.captionTracks ?? [],
+    transcripts: frontend.transcripts ?? {},
     ...(options?.mainVideoTrackId !== undefined
       ? { main_video_track_id: options.mainVideoTrackId }
       : {}),

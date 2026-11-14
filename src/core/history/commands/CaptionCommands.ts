@@ -8,7 +8,7 @@
 
 import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
-import type { CaptionTrack, CaptionCue } from "@/types/captions";
+import type { CaptionTrack, CaptionCue, Transcript, TranscriptWord } from "@/types/captions";
 
 interface TimelineStateWithCaptions {
   captionTracks: CaptionTrack[];
@@ -384,5 +384,82 @@ export class BatchUpdateCaptionCuesCommand implements Command {
       this.beforeTrack,
       `Undo ${this.label}`,
     );
+  }
+}
+
+/**
+ * Update the text of a single word in a canonical Transcript.
+ *
+ * Guarantees:
+ * - Word timing (startMs, endMs) remains strictly invariant.
+ * - Monotonic epoch increment.
+ * - History integrated (undo/redo supported).
+ * - Coalescing: merges rapid keystrokes on the same word within 1 second.
+ */
+export class UpdateTranscriptWordCommand implements Command {
+  readonly id: string;
+  readonly timestamp: number;
+  readonly undoable = true;
+
+  constructor(
+    readonly transcriptId: string,
+    readonly wordId: string,
+    readonly newText: string,
+    readonly previousText: string,
+    readonly label = "Edit Transcript Word",
+  ) {
+    this.id = generateCommandId();
+    this.timestamp = Date.now();
+  }
+
+  apply(state: any): any {
+    const transcripts = { ...(state.transcripts ?? {}) };
+    const transcript = transcripts[this.transcriptId];
+    if (!transcript) return state;
+
+    const words = transcript.words.map((w: TranscriptWord) =>
+      w.id === this.wordId ? { ...w, text: this.newText } : w,
+    );
+
+    return {
+      ...state,
+      transcripts: {
+        ...transcripts,
+        [this.transcriptId]: {
+          ...transcript,
+          words,
+          updatedAt: Date.now(),
+        },
+      },
+      epoch: (state.epoch ?? 0) + 1,
+    };
+  }
+
+  invert(): Command {
+    return new UpdateTranscriptWordCommand(
+      this.transcriptId,
+      this.wordId,
+      this.previousText,
+      this.newText,
+      `Undo ${this.label}`,
+    );
+  }
+
+  merge(next: Command): Command | null {
+    if (
+      next instanceof UpdateTranscriptWordCommand &&
+      next.transcriptId === this.transcriptId &&
+      next.wordId === this.wordId &&
+      next.timestamp - this.timestamp < 1000
+    ) {
+      return new UpdateTranscriptWordCommand(
+        this.transcriptId,
+        this.wordId,
+        next.newText,
+        this.previousText,
+        this.label,
+      );
+    }
+    return null;
   }
 }

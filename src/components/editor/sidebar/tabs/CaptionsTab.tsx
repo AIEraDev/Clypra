@@ -69,7 +69,10 @@ import {
 import { checkSafeZoneCompliance } from "@/lib/captions/safeZone";
 import { createTextClip } from "@/lib/text/textClip";
 import type { TextClip, Clip } from "@/types";
+import type { Transcript, TranscriptWord } from "@/types/captions";
+import { useTranscriptStore } from "@/store/transcriptStore";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { platform } from "@/core/platform";
 import type { TabProps } from "../types";
 
@@ -105,6 +108,21 @@ export const CaptionsTab: React.FC<TabProps> = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState<string | null>(null);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+
+  const handleCancelGeneration = useCallback(async () => {
+    if (activeJobId) {
+      try {
+        await invoke("cancel_caption_transcription", { jobId: activeJobId });
+      } catch (e) {
+        console.warn("[CaptionsTab] Cancel caption failed:", e);
+      }
+    }
+    setIsGenerating(false);
+    setGenerationProgress(null);
+    setActiveJobId(null);
+    toast.info("Transcription cancelled");
+  }, [activeJobId]);
 
   // Styling Tier state (Unified: Templates & Presets vs Custom Typography)
   const [stylingTier, setStylingTier] = useState<CaptionStylingTier>("templates");
@@ -644,18 +662,36 @@ export const CaptionsTab: React.FC<TabProps> = () => {
         const asset = mediaAssets.find((a) => a.id === (mediaClip as any).mediaId);
         if (!asset || !asset.path) continue;
 
+        const jobId = `caption-job-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        setActiveJobId(jobId);
+        let unlistenProgress: (() => void) | null = null;
         try {
-          // Build a short, readable display name:
-          // strip extension → strip trailing bracket IDs like [1120622...] → trim to 22 chars
-          const rawName = asset.name || "media";
-          const noExt = rawName.replace(/\.[^.]+$/, "");
-          const cleaned = noExt.replace(/\s*\[[^\]]*\]\s*$/, "").trim();
-          const displayName = cleaned.length > 22 ? `${cleaned.slice(0, 22)}…` : cleaned;
+          unlistenProgress = await listen<{ jobId: string; progress: number }>(
+            "caption_transcription_progress",
+            (event) => {
+              if (event.payload.jobId === jobId) {
+                setGenerationProgress(`Transcribing "${displayName}" (${event.payload.progress}%)…`);
+              }
+            }
+          );
+        } catch {
+          // Tauri event listener unavailable in tests/mocks
+        }
+
+        // Build a short, readable display name:
+        // strip extension → strip trailing bracket IDs like [1120622...] → trim to 22 chars
+        const rawName = asset.name || "media";
+        const noExt = rawName.replace(/\.[^.]+$/, "");
+        const cleaned = noExt.replace(/\s*\[[^\]]*\]\s*$/, "").trim();
+        const displayName = cleaned.length > 22 ? `${cleaned.slice(0, 22)}…` : cleaned;
+
+        try {
           setGenerationProgress(`Transcribing "${displayName}"…`);
           const rawSegments = await invoke<any[]>("generate_auto_captions", {
             videoPath: asset.path,
             modelSize: model,
             language: language === "auto" ? null : language,
+            jobId,
           });
 
           if (!rawSegments || rawSegments.length === 0) continue;
@@ -680,6 +716,29 @@ export const CaptionsTab: React.FC<TabProps> = () => {
               });
             }
           });
+
+          // Build canonical Transcript and store in transcriptStore
+          const transcriptId = `transcript-${asset.id}`;
+          const transcriptWords: TranscriptWord[] = allWords.map((w, idx) => ({
+            id: `word-${asset.id}-${idx}`,
+            text: w.word,
+            startMs: w.startMs,
+            endMs: w.endMs,
+            gapToNextMs: (w as any).gapToNextMs ?? 0,
+            probability: w.probability,
+          }));
+
+          const transcript: Transcript = {
+            id: transcriptId,
+            sourceMediaId: asset.id,
+            mediaId: asset.id,
+            language: language || "auto",
+            text: allWords.map((w) => w.word).join(" "),
+            words: transcriptWords,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          };
+          useTranscriptStore.getState().setTranscript(transcript);
 
           // Run Smart NLE Segmentation with selected pacing preset
           setGenerationProgress("Applying smart subtitle segmentation…");
@@ -709,7 +768,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
                 styleVersion: 1,
               });
 
-              // Create native TextClip with word timestamps
+              // Create native TextClip with word timestamps, transcriptId, and linkedClipId
               const textClip = createTextClip({
                 trackId: timelineTrackId,
                 startTime: finalStartSec,
@@ -750,11 +809,26 @@ export const CaptionsTab: React.FC<TabProps> = () => {
                   : undefined,
               });
 
+              textClip.transcriptId = transcriptId;
+              textClip.linkedClipId = mediaClip.id;
+
               generatedTimelineClips.push(textClip);
             }
           });
         } catch (clipErr: any) {
+          if (clipErr?.type === "Cancelled") {
+            toast.info("Transcription cancelled");
+            break;
+          }
+          const errorMsg =
+            typeof clipErr === "string"
+              ? clipErr
+              : clipErr?.message || clipErr?.type || JSON.stringify(clipErr);
+          toast.error(`Caption generation failed: ${errorMsg}`);
           console.error(`[CaptionsTab] Transcription error for clip ${mediaClip.id}:`, clipErr);
+        } finally {
+          if (unlistenProgress) unlistenProgress();
+          setActiveJobId(null);
         }
       }
 
@@ -979,12 +1053,23 @@ export const CaptionsTab: React.FC<TabProps> = () => {
               {isGenerating ? (generationProgress || "Generating captions…") : "Auto-Generate Captions"}
             </button>
             {isGenerating && (
-              <ClypraProgressBar
-                size="xs"
-                variant="gradient"
-                animated={true}
-                className="px-0.5"
-              />
+              <div className="flex items-center gap-2 mt-2">
+                <div className="flex-1">
+                  <ClypraProgressBar
+                    size="xs"
+                    variant="gradient"
+                    animated={true}
+                    className="px-0.5"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCancelGeneration}
+                  className="px-2.5 py-1 text-[11px] font-semibold text-white/80 hover:text-white bg-white/10 hover:bg-white/15 rounded border border-white/10 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
             )}
           </div>
         </div>

@@ -492,7 +492,7 @@ export interface TelemetryStickerRenderInput {
   outputPixels?: number;
 }
 
-export type TelemetryTextKind = "plain" | "bubble" | "effect" | "template";
+export type TelemetryTextKind = "plain" | "bubble" | "effect" | "template" | "caption";
 export type TelemetryTextRendererPath =
   | "native-raster"
   | "webview-canvas"
@@ -501,7 +501,8 @@ export type TelemetryTextPhase =
   | "session-prewarm"
   | "text-prefetch"
   | "visible-playback"
-  | "interactive-preview";
+  | "interactive-preview"
+  | "export";
 
 /** The work being measured, independent of where it was rendered. */
 export type TelemetryTextOperation =
@@ -1551,6 +1552,8 @@ class TextWindowAccumulator {
   private cacheMisses = 0;
   private layerCount = 0;
   private outputPixels = 0;
+  /** Sum of RGBA bytes transferred to compositor for caption rasters (croppedW * croppedH * 4). */
+  private captionUploadBytes = 0;
   private overflowRenderCount = 0;
   private maxOverflowX = 0;
   private maxOverflowY = 0;
@@ -1609,6 +1612,11 @@ class TextWindowAccumulator {
     this.cacheHits += 1;
   }
 
+  recordCacheMiss(uploadBytes: number = 0): void {
+    this.cacheMisses += 1;
+    if (uploadBytes > 0) this.captionUploadBytes += uploadBytes;
+  }
+
   shouldEmit(): boolean {
     return (
       Date.now() - this.windowStartMs >= (import.meta.env.DEV ? 5000 : 30000) &&
@@ -1659,6 +1667,7 @@ class TextWindowAccumulator {
       ),
       layerCount: this.layerCount,
       outputPixels: this.outputPixels,
+      captionUploadBytes: this.captionUploadBytes > 0 ? this.captionUploadBytes : undefined,
       overflowRenderCount: this.overflowRenderCount,
       maxOverflowX: this.maxOverflowX,
       maxOverflowY: this.maxOverflowY,
@@ -1678,6 +1687,7 @@ class TextWindowAccumulator {
     this.cacheMisses = 0;
     this.layerCount = 0;
     this.outputPixels = 0;
+    this.captionUploadBytes = 0;
     this.overflowRenderCount = 0;
     this.maxOverflowX = 0;
     this.maxOverflowY = 0;
@@ -1723,6 +1733,10 @@ class StickerWindowAccumulator {
 
   recordCacheHit(): void {
     this.cacheHits += 1;
+  }
+
+  recordCacheMiss(): void {
+    this.cacheMisses += 1;
   }
 
   shouldEmit(): boolean {
@@ -2890,6 +2904,37 @@ class TelemetryCollector {
       this.textAccumulators.set(key, accumulator);
     }
     accumulator.recordCacheHit();
+  }
+
+  /**
+   * Record a raster cache miss for the given text kind.
+   * For the caption kind, also accumulates upload bytes (croppedW * croppedH * 4).
+   */
+  public recordTextCacheMiss(
+    input: Pick<
+      TelemetryTextRenderInput,
+      "kind" | "rendererPath" | "phase" | "sessionId"
+    > & { uploadBytes?: number },
+  ): void {
+    if (!this.isEnabled) return;
+    const runtimeEnvironment = import.meta.env.DEV
+      ? "development"
+      : "production";
+    const key = JSON.stringify([
+      input.sessionId || "text-runtime",
+      input.kind,
+      input.rendererPath,
+      input.phase,
+      "render",
+      "none",
+      runtimeEnvironment,
+    ]);
+    let accumulator = this.textAccumulators.get(key);
+    if (!accumulator) {
+      accumulator = new TextWindowAccumulator();
+      this.textAccumulators.set(key, accumulator);
+    }
+    accumulator.recordCacheMiss(input.uploadBytes ?? 0);
   }
 
   /** Emits only completed text windows; idle sessions create no rows. */

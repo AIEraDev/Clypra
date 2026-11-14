@@ -1,0 +1,227 @@
+{
+  "clip1_normal": {
+    "speaker": "Samantha (female US, clear, rate 175)",
+    "audio_file": "clip1_normal.wav",
+    "word_count": 18,
+    "labels": [
+      {
+        "word": "Welcome",
+        "onset_ms": 20
+      },
+      {
+        "word": "to",
+        "onset_ms": 420
+      },
+      {
+        "word": "the",
+        "onset_ms": 540
+      },
+      {
+        "word": "video",
+        "onset_ms": 660
+      },
+      {
+        "word": "editor",
+        "onset_ms": 1050
+      },
+      {
+        "word": "where",
+        "onset_ms": 1480
+      },
+      {
+        "word": "you",
+        "onset_ms": 1700
+      },
+      {
+        "word": "can",
+        "onset_ms": 1850
+      },
+      {
+        "word": "trim",
+        "onset_ms": 2080
+      },
+      {
+        "word": "split",
+        "onset_ms": 2380
+      },
+      {
+        "word": "animate",
+        "onset_ms": 2820
+      },
+      {
+        "word": "and",
+        "onset_ms": 3350
+      },
+      {
+        "word": "export",
+        "onset_ms": 3520
+      },
+      {
+        "word": "high",
+        "onset_ms": 3980
+      },
+      {
+        "word": "quality",
+        "onset_ms": 4220
+      },
+      {
+        "word": "captions",
+        "onset_ms": 4680
+      },
+      {
+        "word": "easily",
+        "onset_ms": 5150
+      },
+      {
+        "word": "today",
+        "onset_ms": 5520
+      }
+    ]
+  },
+  "clip2_fast": {
+    "speaker": "Daniel (male UK, fast, rate 230)",
+    "audio_file": "clip2_fast.wav",
+    "word_count": 16,
+    "labels": [
+      {
+        "word": "Quickly",
+        "onset_ms": 30
+      },
+      {
+        "word": "moving",
+        "onset_ms": 380
+      },
+      {
+        "word": "across",
+        "onset_ms": 690
+      },
+      {
+        "word": "the",
+        "onset_ms": 1020
+      },
+      {
+        "word": "screen",
+        "onset_ms": 1140
+      },
+      {
+        "word": "the",
+        "onset_ms": 1580
+      },
+      {
+        "word": "animated",
+        "onset_ms": 1700
+      },
+      {
+        "word": "captions",
+        "onset_ms": 2140
+      },
+      {
+        "word": "pop",
+        "onset_ms": 2600
+      },
+      {
+        "word": "and",
+        "onset_ms": 2880
+      },
+      {
+        "word": "flash",
+        "onset_ms": 3020
+      },
+      {
+        "word": "in",
+        "onset_ms": 3380
+      },
+      {
+        "word": "perfect",
+        "onset_ms": 3480
+      },
+      {
+        "word": "synchronization",
+        "onset_ms": 3820
+      },
+      {
+        "word": "with",
+        "onset_ms": 4420
+      },
+      {
+        "word": "speech",
+        "onset_ms": 4580
+      }
+    ]
+  },
+  "clip3_noisy": {
+    "speaker": "Alex (male US, rate 175, mixed with background music at -18dB)",
+    "audio_file": "clip3_noisy.wav",
+    "word_count": 17,
+    "labels": [
+      {
+        "word": "Even",
+        "onset_ms": 40
+      },
+      {
+        "word": "with",
+        "onset_ms": 320
+      },
+      {
+        "word": "background",
+        "onset_ms": 480
+      },
+      {
+        "word": "noise",
+        "onset_ms": 1050
+      },
+      {
+        "word": "and",
+        "onset_ms": 1420
+      },
+      {
+        "word": "ambient",
+        "onset_ms": 1580
+      },
+      {
+        "word": "sound",
+        "onset_ms": 2020
+      },
+      {
+        "word": "the",
+        "onset_ms": 2400
+      },
+      {
+        "word": "subtitle",
+        "onset_ms": 2520
+      },
+      {
+        "word": "engine",
+        "onset_ms": 3020
+      },
+      {
+        "word": "should",
+        "onset_ms": 3420
+      },
+      {
+        "word": "detect",
+        "onset_ms": 3680
+      },
+      {
+        "word": "every",
+        "onset_ms": 4120
+      },
+      {
+        "word": "single",
+        "onset_ms": 4420
+      },
+      {
+        "word": "spoken",
+        "onset_ms": 4750
+      },
+      {
+        "word": "phrase",
+        "onset_ms": 5120
+      },
+      {
+        "word": "accurately",
+        "onset_ms": 5480
+      }
+    ]
+  }
+}

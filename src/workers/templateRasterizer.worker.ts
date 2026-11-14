@@ -39,7 +39,10 @@
 import {
   renderTextTemplateToCanvas,
   renderTextEffectToCanvas,
+  renderCaptionToCanvas,
   type TextTemplateArtifact,
+  type CaptionCue,
+  type CaptionPresetDefinition,
 } from "@clypra-studio/engine";
 import {
   calculateOptimalTemplateLayout,
@@ -113,7 +116,7 @@ for (const font of BUNDLED_FONTS) {
 
 const loadedWorkerFonts = new Set<string>();
 
-async function ensureWorkerFontLoaded(fontFamily?: string): Promise<void> {
+async function ensureWorkerFontLoaded(fontFamily?: string, isExport?: boolean): Promise<void> {
   if (!fontFamily || typeof self === "undefined" || !("fonts" in self)) return;
   const key = fontFamily.trim().toLowerCase();
   if (loadedWorkerFonts.has(key)) return;
@@ -122,6 +125,11 @@ async function ensureWorkerFontLoaded(fontFamily?: string): Promise<void> {
     fontUrlByAlias.get(key) ||
     fontUrlByAlias.get(key.replace(/\s+variable$/i, ""));
   if (!url) {
+    if (isExport) {
+      throw new Error(
+        `ExportFontResolutionError: Font "${fontFamily}" is not bundled in worker`,
+      );
+    }
     console.warn(
       `[TextRasterizerWorker] Font "${fontFamily}" is not in worker bundled fonts; canvas will use system fallback`,
     );
@@ -131,9 +139,17 @@ async function ensureWorkerFontLoaded(fontFamily?: string): Promise<void> {
   try {
     const face = new FontFace(fontFamily, `url(${url})`);
     const loadedFace = await face.load();
+    if (loadedFace.status !== "loaded") {
+      throw new Error(`FontFace status is ${loadedFace.status}`);
+    }
     (self as any).fonts.add(loadedFace);
     loadedWorkerFonts.add(key);
   } catch (err) {
+    if (isExport) {
+      throw new Error(
+        `ExportFontResolutionError: Failed to load font "${fontFamily}": ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
     console.warn(
       `[TextRasterizerWorker] Failed to load font "${fontFamily}":`,
       err,
@@ -152,6 +168,7 @@ export interface WorkerRenderTemplateMessage {
   layerWidth: number;
   layerHeight: number;
   controlValues: Record<string, unknown>;
+  phase?: string;
 }
 
 export interface WorkerRenderEffectMessage {
@@ -161,6 +178,21 @@ export interface WorkerRenderEffectMessage {
   time: number;
   evalWidth: number;
   evalHeight: number;
+  phase?: string;
+}
+
+export interface WorkerRenderCaptionMessage {
+  type: "RENDER_CAPTION";
+  id: string;
+  cue: CaptionCue;
+  activeWordIndex: number;
+  preset: CaptionPresetDefinition;
+  canvasWidth: number;
+  canvasHeight: number;
+  scale?: number;
+  positionYRatio?: number;
+  fontFamily?: string;
+  phase?: string;
 }
 
 export interface WorkerDisposeMessage {
@@ -170,6 +202,7 @@ export interface WorkerDisposeMessage {
 export type WorkerInboundMessage =
   | WorkerRenderTemplateMessage
   | WorkerRenderEffectMessage
+  | WorkerRenderCaptionMessage
   | WorkerDisposeMessage;
 
 export interface WorkerFrameReadyMessage {
@@ -563,6 +596,91 @@ async function handleRenderEffect(
   );
 }
 
+async function handleRenderCaption(
+  msg: WorkerRenderCaptionMessage,
+): Promise<void> {
+  const {
+    id,
+    cue,
+    activeWordIndex,
+    preset,
+    canvasWidth,
+    canvasHeight,
+    scale = 1.0,
+    positionYRatio = 0.85,
+    fontFamily,
+    phase,
+  } = msg;
+
+  // Export phase must block until font is loaded; throws ExportFontResolutionError on failure.
+  const isExport = phase === "export";
+  if (fontFamily) {
+    await ensureWorkerFontLoaded(fontFamily, isExport);
+  }
+
+  const rasterStart = performance.now();
+  const width = Math.max(1, Math.round(canvasWidth));
+  const height = Math.max(1, Math.round(canvasHeight));
+
+  const offscreen = new OffscreenCanvas(width, height);
+  const ctx = offscreen.getContext("2d", { alpha: true });
+  if (!ctx) throw new Error("OffscreenCanvas 2D context not available");
+
+  ctx.clearRect(0, 0, width, height);
+
+  const result = renderCaptionToCanvas(ctx, {
+    cue,
+    activeWordIndex,
+    preset,
+    canvasWidth: width,
+    canvasHeight: height,
+    scale,
+    positionYRatio,
+  });
+
+  const bounds = result.bounds;
+  const croppedWidth = Math.max(1, bounds.width);
+  const croppedHeight = Math.max(1, bounds.height);
+
+  let bitmap: ImageBitmap;
+  const cropped = new OffscreenCanvas(croppedWidth, croppedHeight);
+  const croppedCtx = cropped.getContext("2d", { alpha: true });
+  if (croppedCtx) {
+    croppedCtx.drawImage(
+      offscreen,
+      bounds.x,
+      bounds.y,
+      croppedWidth,
+      croppedHeight,
+      0,
+      0,
+      croppedWidth,
+      croppedHeight,
+    );
+    bitmap = cropped.transferToImageBitmap();
+  } else {
+    bitmap = offscreen.transferToImageBitmap();
+  }
+
+  const workerRasterMs = performance.now() - rasterStart;
+
+  (self as unknown as Worker).postMessage(
+    {
+      type: "FRAME_READY",
+      id,
+      bitmap,
+      // canvasWidth/canvasHeight are not part of WorkerFrameReadyMessage;
+      // the receiver uses offsetX/offsetY + croppedWidth/croppedHeight instead.
+      offsetX: bounds.x,
+      offsetY: bounds.y,
+      croppedWidth,
+      croppedHeight,
+      workerRasterMs,
+    } satisfies WorkerFrameReadyMessage,
+    [bitmap],
+  );
+}
+
 self.onmessage = async (
   event: MessageEvent<WorkerInboundMessage>,
 ): Promise<void> => {
@@ -579,6 +697,8 @@ self.onmessage = async (
       await handleRenderTemplate(msg);
     } else if (msg.type === "RENDER_EFFECT") {
       await handleRenderEffect(msg);
+    } else if (msg.type === "RENDER_CAPTION") {
+      await handleRenderCaption(msg);
     }
   } catch (error) {
     console.error(
