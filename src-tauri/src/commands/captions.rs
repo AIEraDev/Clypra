@@ -359,11 +359,11 @@ pub fn merge_tokens_to_words(
             let curr_ends_cjk = std::str::from_utf8(&curr.bytes)
                 .ok()
                 .and_then(|s| s.chars().last())
-                .map_or(false, is_cjk_char);
+                .is_some_and(is_cjk_char);
             let token_starts_cjk = std::str::from_utf8(&token.bytes)
                 .ok()
                 .and_then(|s| s.chars().next())
-                .map_or(false, is_cjk_char);
+                .is_some_and(is_cjk_char);
 
             let is_new_word = !is_continuation_byte
                 && (is_whitespace_boundary || curr_ends_cjk || token_starts_cjk);
