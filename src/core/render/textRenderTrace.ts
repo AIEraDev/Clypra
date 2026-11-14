@@ -216,6 +216,20 @@ export function traceTextRenderCacheHit(input: {
 }
 
 /**
+ * Record a raster cache miss with optional upload-byte tracking.
+ * For the "caption" kind, uploadBytes = croppedWidth * croppedHeight * 4.
+ */
+export function traceTextRenderCacheMiss(input: {
+  kind: TextRenderKind;
+  rendererPath: TextRenderPath;
+  phase: TextRenderTracePhase;
+  uploadBytes?: number;
+}): void {
+  const activeSession = (globalThis as { __activeProjectSession?: { sessionId?: string } }).__activeProjectSession;
+  telemetryCollector.recordTextCacheMiss({ ...input, sessionId: activeSession?.sessionId });
+}
+
+/**
  * A renderer-path failure is durable evidence, unlike a console warning. No
  * text, asset id, or source error is included to preserve the zero-PII log.
  */

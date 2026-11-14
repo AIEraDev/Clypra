@@ -117,15 +117,18 @@ export const useCaptionStore = create<CaptionStore>()(
 
       generateCaptions: async (videoPath, modelSize, language) => {
         set({ isGenerating: true, generationError: null, segments: [] });
+        const jobId = `caption-job-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         try {
           const segments = await invoke<SubtitleSegment[]>("generate_auto_captions", {
             videoPath,
             modelSize: modelSize || null,
             language: language && language !== "auto" ? language : null,
+            jobId,
           });
           set({ segments, isGenerating: false });
-        } catch (err) {
-          const errorMsg = typeof err === "string" ? err : String(err);
+        } catch (err: any) {
+          const errorMsg =
+            typeof err === "string" ? err : err?.message || err?.type || JSON.stringify(err);
           console.error("[CaptionStore] generate_auto_captions failed:", errorMsg);
           set({ isGenerating: false, generationError: errorMsg });
           throw err;

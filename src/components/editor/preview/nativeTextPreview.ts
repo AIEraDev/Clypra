@@ -3,7 +3,11 @@ import type {
   EvaluatedTextLayer,
   EvaluatedMediaLayer,
 } from "@/core/evaluation/types";
-import { resolveTextTemplateArtifact } from "@clypra-studio/engine";
+import {
+  resolveTextTemplateArtifact,
+  renderCaptionToCanvas,
+  getCaptionPreset,
+} from "@clypra-studio/engine";
 import {
   effectBleed,
   measureTextEffectContentBounds,
@@ -18,6 +22,7 @@ import { getFontLoader } from "@/core/fonts/FontLoader";
 import {
   traceTextRenderGeometry,
   traceTextRenderCacheHit,
+  traceTextRenderCacheMiss,
   traceTextRenderFallback,
   traceTextRenderTiming,
   type TextRenderKind,
@@ -32,6 +37,7 @@ import {
 } from "@/lib/playback/textMetrics";
 import { getNativeAnimatedStickerRenderer } from "./nativeStickerPreview";
 import { resolveTextPresentationGeometry } from "@/core/render/textPresentationGeometry";
+import { ExportFontResolutionError } from "@/core/fonts/fontErrors";
 
 // ─── Module-level worker client singleton ────────────────────────────────────
 //
@@ -888,7 +894,9 @@ function buildNativeTextKeyObject(
     templateControlValues: getObjectKey(layer.templateControlValues),
     templateDependencySnapshot: getObjectKey(layer.templateDependencySnapshot),
     customization: getObjectKey(layer.customization),
-    runs: getObjectKey(layer.runs),
+    captionCueId: layer.captionCue?.id,
+    activeWordIndex: layer.activeWordIndex,
+    captionPresetId: layer.captionPreset?.id,
     stroke: getObjectKey(layer.stroke),
     shadow: getObjectKey(layer.shadow),
     background: getObjectKey(layer.background),
@@ -931,7 +939,7 @@ function recolorPlainTextAsset(
     layer.stroke ||
     layer.shadow ||
     layer.background ||
-    layer.runs
+    layer.captionCue
   )
     return null;
   const rgb = parseSolidColor(color);
@@ -1345,9 +1353,22 @@ export async function rasterizeTextLayerForNative(
           );
         }
         if (!loadResult?.loaded && !getFontLoader().isLoaded(fontDescriptor)) {
+          if (options.phase === "export") {
+            throw new ExportFontResolutionError(
+              layer.fontFamily,
+              loadResult?.error || "Font could not be loaded for export",
+            );
+          }
           isFallbackFont = true;
         }
-      } catch {
+      } catch (err) {
+        if (err instanceof ExportFontResolutionError) throw err;
+        if (options.phase === "export") {
+          throw new ExportFontResolutionError(
+            layer.fontFamily,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
         isFallbackFont = true;
         // The rasterizer continues with the browser fallback font. The failure
         // is intentionally represented by telemetry rather than console noise.
@@ -1464,6 +1485,116 @@ export async function rasterizeTextLayerForNative(
       }
     }
   }
+
+  // ── Caption fast-path: delegate to OffscreenCanvas Worker ─────────────────
+  if (layer.captionCue) {
+    const rasterKey = buildNativeTextRasterKey(layer);
+    const workerClient = getTemplateWorkerClient();
+    if (workerClient) {
+      try {
+        return await workerClient.rasterizeCaption(
+          layer,
+          rasterKey,
+          options.phase ?? "visible-playback",
+        );
+      } catch (err) {
+        if (err instanceof ExportFontResolutionError) throw err;
+        console.warn(
+          `[nativeTextPreview] Worker caption rasterize failed for ${layer.layerId}, falling back to main-thread:`,
+          err,
+        );
+        traceTextRenderFallback("caption-worker-raster-failed");
+      }
+    }
+
+    // ── Main-thread caption fallback ──
+    const cue = layer.captionCue;
+    const preset = layer.captionPreset ?? getCaptionPreset(undefined);
+    const fullCanvasWidth = Math.max(1, Math.round(layer.baseWidth ?? layer.width ?? 1920));
+    const fullCanvasHeight = Math.max(1, Math.round(layer.baseHeight ?? layer.height ?? 1080));
+
+    const fullCanvas = createCanvas(fullCanvasWidth, fullCanvasHeight);
+    const fullCtx = fullCanvas.getContext("2d", { alpha: true });
+    if (!fullCtx) throw new Error("Unable to create a 2D context for caption rasterization");
+
+    fullCtx.clearRect(0, 0, fullCanvasWidth, fullCanvasHeight);
+    const rasterStartedAt = performance.now();
+    const result = renderCaptionToCanvas(fullCtx, {
+      cue,
+      activeWordIndex: layer.activeWordIndex ?? -1,
+      preset,
+      canvasWidth: fullCanvasWidth,
+      canvasHeight: fullCanvasHeight,
+    });
+    const rasterMs = performance.now() - rasterStartedAt;
+
+    const bounds = result.bounds;
+    const croppedWidth = Math.max(1, bounds.width);
+    const croppedHeight = Math.max(1, bounds.height);
+
+    const croppedCanvas = createCanvas(croppedWidth, croppedHeight);
+    const croppedCtx = croppedCanvas.getContext("2d", { alpha: true });
+    if (!croppedCtx) throw new Error("Unable to create cropped canvas context");
+
+    const readbackStartedAt = performance.now();
+    croppedCtx.drawImage(
+      fullCanvas,
+      bounds.x,
+      bounds.y,
+      croppedWidth,
+      croppedHeight,
+      0,
+      0,
+      croppedWidth,
+      croppedHeight,
+    );
+    const rgba = croppedCtx.getImageData(0, 0, croppedWidth, croppedHeight).data;
+    const readbackMs = performance.now() - readbackStartedAt;
+
+    const totalMs = performance.now() - totalStartedAt;
+
+    traceTextRenderTiming({
+      phase: options.phase ?? "visible-playback",
+      kind: "caption",
+      rendererPath: options.rendererPath ?? "native-raster",
+      layerId: layer.layerId,
+      fontFamily: layer.fontFamily,
+      fontWaitMs,
+      rasterMs,
+      readbackMs,
+      totalMs,
+      rasterWidth: croppedWidth,
+      rasterHeight: croppedHeight,
+      outputPixels: croppedWidth * croppedHeight,
+      contentLength: layer.text.length,
+    });
+
+    // Count main-thread caption cache miss with upload bytes.
+    traceTextRenderCacheMiss({
+      kind: "caption",
+      rendererPath: options.rendererPath ?? "native-raster",
+      phase: options.phase ?? "visible-playback",
+      uploadBytes: croppedWidth * croppedHeight * 4,
+    });
+
+    return {
+      assetId: `native-caption:${layer.layerId}:${hashTextRasterKey(rasterKey)}`,
+      layerId: layer.layerId,
+      rgba,
+      width: croppedWidth,
+      height: croppedHeight,
+      x: bounds.x,
+      y: bounds.y,
+      rotation: layer.rotation,
+      opacity: layer.opacity,
+      zIndex: layer.zIndex,
+      blendMode: layer.blendMode,
+      isText: true,
+      isFallbackFont,
+      positionMode: "absolute",
+    };
+  }
+
   traceTextRenderGeometry({
     path: "program-preview",
     assetId: layer.templateId ?? layer.styleId,

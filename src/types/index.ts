@@ -158,6 +158,8 @@ export interface Project {
   audioModelVersion?: number;
   /** Version of the first-class caption model. */
   captionModelVersion?: number;
+  /** Canonical speech transcripts indexed by transcriptId */
+  transcripts?: Record<string, import("./captions").Transcript>;
 }
 
 export type ThumbnailPlatformPresetKind =
@@ -783,6 +785,14 @@ export interface TextClip extends Clip {
   customization?: any;
   /** Role of the text clip: caption for subtitles, title for decorative text/graphics */
   textRole?: "caption" | "title";
+  /** ID of the source media clip on the timeline linked to this caption */
+  linkedClipId?: string;
+  /** ID of the canonical media transcript in project.transcripts */
+  transcriptId?: string;
+  /** Active caption preset identifier */
+  presetId?: string;
+  /** Optional per-clip overrides for preset styling */
+  presetOverrides?: Partial<import("./captions").CaptionPresetDefinition>;
   /** Word-level timestamps for karaoke-style caption highlighting (optional) */
   words?: CaptionWord[];
   stroke?: {

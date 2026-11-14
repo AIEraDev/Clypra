@@ -31,10 +31,12 @@
  */
 
 import { resolveTextTemplateArtifact } from "@clypra-studio/engine";
+import { ExportFontResolutionError } from "@/core/fonts/fontErrors";
 import type { EvaluatedTextLayer } from "@/core/evaluation/types";
 import {
   type TextRenderTracePhase,
   traceTextRenderCacheHit,
+  traceTextRenderCacheMiss,
 } from "@/core/render/textRenderTrace";
 import { workerPerfCollector } from "@/core/monitoring/WorkerPerfCollector";
 import { resolveTemplateControlValues } from "@/lib/text/templateControls";
@@ -49,6 +51,7 @@ import {
 import type {
   WorkerRenderTemplateMessage,
   WorkerRenderEffectMessage,
+  WorkerRenderCaptionMessage,
   WorkerOutboundMessage,
 } from "@/workers/templateRasterizer.worker";
 
@@ -90,7 +93,7 @@ function buildAsset(
   offsetY: number,
   rasterKey: string,
   phase: TextRenderTracePhase,
-  kind: "template" | "effect",
+  kind: "template" | "effect" | "caption",
   evalWidth: number,
   evalHeight: number,
   totalMs: number,
@@ -107,7 +110,10 @@ function buildAsset(
   let x: number;
   let y: number;
 
-  if (kind === "template") {
+  if (kind === "caption") {
+    x = offsetX;
+    y = offsetY;
+  } else if (kind === "template") {
     x = layer.x + offsetX;
     y = layer.y + offsetY;
   } else {
@@ -279,7 +285,17 @@ export class TemplateRasterizerWorkerClient {
         msg.error || "Worker error",
         callbacks.operation,
       );
-      callbacks.reject(new Error(msg.error));
+      if (msg.error?.includes("ExportFontResolutionError")) {
+        const fontMatch = msg.error.match(/Font "([^"]+)"/);
+        callbacks.reject(
+          new ExportFontResolutionError(
+            fontMatch ? fontMatch[1] : "unknown",
+            msg.error,
+          ),
+        );
+      } else {
+        callbacks.reject(new Error(msg.error));
+      }
     }
   }
 
@@ -306,7 +322,7 @@ export class TemplateRasterizerWorkerClient {
     }
     const promise = this._doRasterizeTemplate(layer, rasterKey, phase);
     this.inFlight.set(rasterKey, promise);
-    void promise.finally(() => this.inFlight.delete(rasterKey));
+    void promise.finally(() => this.inFlight.delete(rasterKey)).catch(() => {});
     return promise;
   }
 
@@ -365,6 +381,9 @@ export class TemplateRasterizerWorkerClient {
           transferMs,
         );
       } catch (workerErr) {
+        if (workerErr instanceof ExportFontResolutionError) {
+          throw workerErr;
+        }
         console.warn(
           `[TemplateRasterizerWorkerClient] Off-thread template render failed, falling back to main-thread:`,
           workerErr,
@@ -421,7 +440,7 @@ export class TemplateRasterizerWorkerClient {
       phase,
     );
     this.inFlight.set(rasterKey, promise);
-    void promise.finally(() => this.inFlight.delete(rasterKey));
+    void promise.finally(() => this.inFlight.delete(rasterKey)).catch(() => {});
     return promise;
   }
 
@@ -469,6 +488,9 @@ export class TemplateRasterizerWorkerClient {
           transferMs,
         );
       } catch (workerErr) {
+        if (workerErr instanceof ExportFontResolutionError) {
+          throw workerErr;
+        }
         console.warn(
           `[TemplateRasterizerWorkerClient] Off-thread effect render failed, falling back to main-thread:`,
           workerErr,
@@ -482,12 +504,125 @@ export class TemplateRasterizerWorkerClient {
     return rasterizeTextLayerForNative(layer, { phase });
   }
 
+  // ─── Caption rasterization ────────────────────────────────────────────────
+
+  /**
+   * Rasterize an animated caption cue layer.
+   * Both worker and main-thread fallback use renderCaptionToCanvas from @clypra-studio/engine.
+   */
+  rasterizeCaption(
+    layer: EvaluatedTextLayer,
+    rasterKey: string,
+    phase: TextRenderTracePhase,
+  ): Promise<NativeTextRasterAsset> {
+    const existing = this.inFlight.get(rasterKey);
+    if (existing) {
+      traceTextRenderCacheHit({
+        kind: "caption",
+        rendererPath: "native-raster",
+        phase,
+      });
+      return existing;
+    }
+    const promise = this._doRasterizeCaption(layer, rasterKey, phase);
+    this.inFlight.set(rasterKey, promise);
+    void promise.finally(() => this.inFlight.delete(rasterKey)).catch(() => {});
+    return promise;
+  }
+
+  private async _doRasterizeCaption(
+    layer: EvaluatedTextLayer,
+    rasterKey: string,
+    phase: TextRenderTracePhase,
+  ): Promise<NativeTextRasterAsset> {
+    const totalStartedAt = performance.now();
+    const cue = layer.captionCue;
+    const preset = layer.captionPreset;
+    if (!cue || !preset) {
+      const { rasterizeTextLayerForNative } = await import(
+        "@/components/editor/preview/nativeTextPreview"
+      );
+      return rasterizeTextLayerForNative(layer, { phase });
+    }
+
+    const canvasWidth = Math.max(
+      1,
+      Math.round(layer.baseWidth ?? layer.width ?? 1920),
+    );
+    const canvasHeight = Math.max(
+      1,
+      Math.round(layer.baseHeight ?? layer.height ?? 1080),
+    );
+
+    if (this.ensureWorker() && !this.disposed) {
+      try {
+        const sendAt = performance.now();
+        const { bitmap, offsetX, offsetY, croppedWidth, croppedHeight, workerRasterMs } =
+          await this._sendMessage(
+            {
+              type: "RENDER_CAPTION",
+              cue,
+              activeWordIndex: layer.activeWordIndex ?? -1,
+              preset,
+              canvasWidth,
+              canvasHeight,
+              fontFamily: preset.fontFamily,
+              phase,
+            } as Omit<WorkerRenderCaptionMessage, "id">,
+            `RENDER_CAPTION:${phase}`,
+          );
+
+        const transferMs = Math.max(
+          0,
+          performance.now() - sendAt - workerRasterMs,
+        );
+        const totalMs = performance.now() - totalStartedAt;
+
+        const asset = buildAsset(
+          bitmap,
+          layer,
+          offsetX,
+          offsetY,
+          rasterKey,
+          phase,
+          "caption",
+          canvasWidth,
+          canvasHeight,
+          totalMs,
+          workerRasterMs,
+          transferMs,
+        );
+        // Count caption cache miss with upload bytes (RGBA = width * height * 4).
+        traceTextRenderCacheMiss({
+          kind: "caption",
+          rendererPath: "native-raster",
+          phase,
+          uploadBytes: asset.width * asset.height * 4,
+        });
+        return asset;
+      } catch (workerErr) {
+        if (workerErr instanceof ExportFontResolutionError) throw workerErr;
+        console.warn(
+          `[TemplateRasterizerWorkerClient] Off-thread caption render failed, falling back to main-thread:`,
+          workerErr,
+        );
+      }
+    }
+
+    // Fall back to main thread
+    const { rasterizeTextLayerForNative } = await import(
+      "@/components/editor/preview/nativeTextPreview"
+    );
+    return rasterizeTextLayerForNative(layer, { phase });
+  }
+
   // ─── Shared worker messaging ───────────────────────────────────────────────
 
   private _sendMessage(
     params:
       | Omit<WorkerRenderTemplateMessage, "id">
-      | Omit<WorkerRenderEffectMessage, "id">,
+      | Omit<WorkerRenderEffectMessage, "id">
+      | Omit<WorkerRenderCaptionMessage, "id">,
     operation?: string,
   ): Promise<{
     bitmap: ImageBitmap;

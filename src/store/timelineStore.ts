@@ -103,6 +103,11 @@ interface TimelineStore {
   captionTracks: CaptionTrack[];
   /** Currently active caption track ID for editing */
   activeCaptionTrackId: string | null;
+  /** Transcripts (v2 Transcript model) */
+  transcripts: Record<string, import("@/types/captions").Transcript>;
+  activeTranscriptId: string | null;
+  setTranscripts: (transcripts: Record<string, import("@/types/captions").Transcript>) => void;
+  setActiveTranscriptId: (id: string | null) => void;
   /**
    * First created video track - UI metadata only.
    * Used for: default drop target, visual highlighting, user expectations.
@@ -371,6 +376,10 @@ export const useTimelineStore = create<TimelineStore>(
     markers: [],
     captionTracks: [],
     activeCaptionTrackId: null,
+    transcripts: {},
+    activeTranscriptId: null,
+    setTranscripts: (transcripts) => set({ transcripts }),
+    setActiveTranscriptId: (activeTranscriptId) => set({ activeTranscriptId }),
     mainVideoTrackId: null,
     epoch: 0,
     projectLoadRevision: 0,

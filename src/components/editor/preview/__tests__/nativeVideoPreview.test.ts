@@ -1126,7 +1126,18 @@ describe("buildNativeFrameRequest", () => {
       stroke: { color: "#00ffff", width: 3 },
       shadow: { color: "#000000aa", blur: 8, offsetX: 2, offsetY: 4 },
       background: { color: "#00000088", padding: 12, borderRadius: 8 },
-      runs: [{ text: "Hello ", highlighted: false }, { text: "world", highlighted: true }],
+      captionCue: {
+        id: "cue_1",
+        words: [
+          { id: "w0", text: "Hello", startMs: 0, endMs: 500 },
+          { id: "w1", text: "world", startMs: 500, endMs: 1000 },
+        ],
+        text: "Hello world",
+        startMs: 0,
+        endMs: 1000,
+      },
+      activeWordIndex: 1,
+      captionPresetId: "karaoke-pop",
       templateId: "lower-third",
       customization: { accent: "#00ffff" },
       styleId: "neon-glow",
@@ -1144,7 +1155,7 @@ describe("buildNativeFrameRequest", () => {
       templateId: "lower-third",
       templateData: { accent: "#00ffff" },
     });
-    expect(text?.runs?.find((run) => run.highlighted)?.text).toBe("world");
+    expect((text as any)?.captionCue?.words?.[(text as any)?.activeWordIndex]?.text).toBe("world");
   });
 
   it("keeps a text background on the compatible raster path until its pixels are ready", () => {

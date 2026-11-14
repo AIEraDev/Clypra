@@ -48,31 +48,61 @@ fn test_is_valid_whisper_model_rejects_missing_and_tiny_files() {
 }
 
 #[test]
+fn test_sha256_verification_accepts_valid_and_rejects_corrupted_or_truncated() {
+    let temp_dir = std::env::temp_dir().join("clypra_test_whisper_sha256");
+    let _ = std::fs::create_dir_all(&temp_dir);
+
+    let test_file = temp_dir.join("test_model.bin");
+    let content = b"ggml-test-model-content-for-sha256-verification-bytes-sequence";
+    std::fs::write(&test_file, content).unwrap();
+
+    let expected_hash = compute_file_sha256(&test_file).unwrap();
+
+    // 1. Correct file -> accepted
+    assert!(verify_file_sha256(&test_file, &expected_hash));
+
+    // 2. Corrupt one byte -> rejected
+    let mut corrupted = content.to_vec();
+    corrupted[10] ^= 0x55; // Flip bits in byte 10
+    let corrupt_file = temp_dir.join("corrupt_model.bin");
+    std::fs::write(&corrupt_file, &corrupted).unwrap();
+    assert!(!verify_file_sha256(&corrupt_file, &expected_hash));
+
+    // 3. Truncated file -> rejected
+    let truncated = &content[..content.len() - 5];
+    let trunc_file = temp_dir.join("trunc_model.bin");
+    std::fs::write(&trunc_file, truncated).unwrap();
+    assert!(!verify_file_sha256(&trunc_file, &expected_hash));
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
 fn test_resolve_model_file_path_rejects_corrupted_candidates() {
     let temp_dir = std::env::temp_dir().join("clypra_test_whisper_resolve");
     let models_dir = temp_dir.join("models").join("whisper");
     let _ = std::fs::create_dir_all(&models_dir);
 
-    // Put a 68-byte mock file at tiny.bin
-    let corrupt_path = models_dir.join("tiny.bin");
+    // Put a 68-byte mock file at custom.bin
+    let corrupt_path = models_dir.join("custom.bin");
     std::fs::write(&corrupt_path, b"Downloaded at: mock").unwrap();
 
-    // Put a .pt file at tiny.pt
-    let pt_path = models_dir.join("tiny.pt");
+    // Put a .pt file at custom.pt
+    let pt_path = models_dir.join("custom.pt");
     std::fs::write(&pt_path, b"pytorch").unwrap();
 
     // resolve_model_file_path must NOT return the corrupt or .pt candidate!
-    assert_eq!(resolve_model_file_path(&temp_dir, "tiny"), None);
+    assert_eq!(resolve_model_file_path(&temp_dir, "custom"), None);
 
-    // Now place a valid ggml file at ggml-tiny.bin
-    let valid_path = models_dir.join("ggml-tiny.bin");
+    // Now place a valid ggml file at ggml-custom.bin
+    let valid_path = models_dir.join("ggml-custom.bin");
     let mut file = std::fs::File::create(&valid_path).unwrap();
     file.write_all(b"ggml").unwrap();
     file.set_len(15 * 1024 * 1024).unwrap();
     drop(file);
 
     // Must now find the valid model!
-    assert_eq!(resolve_model_file_path(&temp_dir, "tiny"), Some(valid_path));
+    assert_eq!(resolve_model_file_path(&temp_dir, "custom"), Some(valid_path));
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }

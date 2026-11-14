@@ -229,6 +229,15 @@ async fn perform_download(
         );
     }
 
+    // Verify SHA-256 checksum against official pinned hash
+    if let Err(err) = super::model::validate_model_checksum(&part_path, &size) {
+        let _ = tokio::fs::remove_file(&part_path).await;
+        return Err(format!(
+            "Downloaded file failed SHA-256 verification: {}",
+            err
+        ));
+    }
+
     tokio::fs::rename(&part_path, &file_path)
         .await
         .map_err(|e| format!("Failed to finalize model file: {}", e))?;

@@ -1,6 +1,6 @@
 {
   "name": "clypra",
-  "version": "1.6.2",
+  "version": "1.6.3",
   "description": "A modern, open-source video editor built with Tauri, React, and TypeScript",
   "author": "Clypra Contributors",
   "license": "MIT",
@@ -81,7 +81,7 @@
     "@capacitor/core": "^8.4.0",
     "@capacitor/filesystem": "^8.1.2",
     "@capacitor/share": "^8.0.1",
-    "@clypra-studio/engine": "^1.10.2",
+    "@clypra-studio/engine": "^2.0.0",
     "@clypra-studio/types": "^0.6.2",
     "@clypra/ui-color-picker": "^0.2.2",
     "@fontsource-variable/dancing-script": "^5.2.8",
