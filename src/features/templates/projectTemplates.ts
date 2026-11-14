@@ -1,4 +1,5 @@
 import type { AspectRatio } from "@/types";
+import type { FrameRate } from "@/store/settingsTypes";
 
 export interface TemplateTrack {
   type: "video" | "audio" | "text";
@@ -13,7 +14,7 @@ export interface ProjectTemplate {
   resolution: string;
   width: number;
   height: number;
-  frameRate: 24 | 30 | 60;
+  frameRate: FrameRate;
   category: "social" | "video" | "podcast" | "cinematic";
   badge: string;
   initialTracks: TemplateTrack[];
@@ -23,7 +24,8 @@ export const BUILTIN_PROJECT_TEMPLATES: ProjectTemplate[] = [
   {
     id: "reels-tiktok",
     name: "Reels & TikTok Shorts",
-    description: "Vertical 9:16 layout optimized for mobile social feeds with auto-caption subtitles track.",
+    description:
+      "Vertical 9:16 layout optimized for mobile social feeds with auto-caption subtitles track.",
     aspectRatio: "9:16",
     resolution: "1080×1920",
     width: 1080,
@@ -40,7 +42,8 @@ export const BUILTIN_PROJECT_TEMPLATES: ProjectTemplate[] = [
   {
     id: "youtube-widescreen",
     name: "YouTube Widescreen",
-    description: "Standard 16:9 1080p 60fps HD video layout with B-Roll overlay track.",
+    description:
+      "Standard 16:9 1080p 60fps HD video layout with B-Roll overlay track.",
     aspectRatio: "16:9",
     resolution: "1920×1080",
     width: 1920,
@@ -58,7 +61,8 @@ export const BUILTIN_PROJECT_TEMPLATES: ProjectTemplate[] = [
   {
     id: "podcast-speech",
     name: "Podcast & Interview",
-    description: "Dual-microphone audio layout with speaker tracks and waveform visualization.",
+    description:
+      "Dual-microphone audio layout with speaker tracks and waveform visualization.",
     aspectRatio: "16:9",
     resolution: "1920×1080",
     width: 1920,
@@ -76,7 +80,8 @@ export const BUILTIN_PROJECT_TEMPLATES: ProjectTemplate[] = [
   {
     id: "cinematic-ultrawide",
     name: "Cinematic Ultra-Wide",
-    description: "21:9 anamorphic widescreen aspect ratio at 24fps cinematic frame rate.",
+    description:
+      "21:9 anamorphic widescreen aspect ratio at 24fps cinematic frame rate.",
     aspectRatio: "21:9", // Aspect ratio canvas scaling
     resolution: "2520×1080",
     width: 2520,
@@ -93,7 +98,8 @@ export const BUILTIN_PROJECT_TEMPLATES: ProjectTemplate[] = [
   {
     id: "square-instagram",
     name: "Instagram Square Post",
-    description: "1:1 square canvas preset tailored for Instagram feed posts and carousels.",
+    description:
+      "1:1 square canvas preset tailored for Instagram feed posts and carousels.",
     aspectRatio: "1:1",
     resolution: "1080×1080",
     width: 1080,
@@ -104,6 +110,40 @@ export const BUILTIN_PROJECT_TEMPLATES: ProjectTemplate[] = [
     initialTracks: [
       { type: "text", name: "Header Text" },
       { type: "video", name: "Main Media" },
+      { type: "audio", name: "Audio Track" },
+    ],
+  },
+  {
+    id: "pal-16x9",
+    name: "PAL / European (16:9)",
+    description:
+      "Standard European PAL broadcast format at 25fps. Compatible with DVB, Freeview, and European streaming platforms.",
+    aspectRatio: "16:9",
+    resolution: "1920×1080",
+    width: 1920,
+    height: 1080,
+    frameRate: 25,
+    category: "video",
+    badge: "16:9 25FPS",
+    initialTracks: [
+      { type: "video", name: "Main Video" },
+      { type: "audio", name: "Audio Track" },
+    ],
+  },
+  {
+    id: "pal-hd-16x9",
+    name: "PAL HD (16:9 50fps)",
+    description:
+      "High-frame-rate PAL HD format at 50fps. Used for sports, live events, and high-motion European broadcast content.",
+    aspectRatio: "16:9",
+    resolution: "1920×1080",
+    width: 1920,
+    height: 1080,
+    frameRate: 50,
+    category: "video",
+    badge: "16:9 50FPS",
+    initialTracks: [
+      { type: "video", name: "Main Video" },
       { type: "audio", name: "Audio Track" },
     ],
   },

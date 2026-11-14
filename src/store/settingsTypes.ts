@@ -24,7 +24,14 @@ export type FontFamily =
   | "space-grotesk"
   | "system"
   | "mono";
-export type FrameRate = 24 | 30 | 60;
+export const SUPPORTED_FRAME_RATES = [
+  23.976, 24, 25, 29.97, 30, 50, 60,
+] as const;
+export type FrameRate = (typeof SUPPORTED_FRAME_RATES)[number];
+
+export function isValidFrameRate(v: unknown): v is FrameRate {
+  return SUPPORTED_FRAME_RATES.includes(v as FrameRate);
+}
 export type PreviewQuality = "full" | "high" | "medium" | "low";
 export type LayoutPreset =
   | "default"
@@ -82,4 +89,3 @@ export interface SettingsStore {
   transferSaveDirectory: string | null;
   setTransferSaveDirectory: (v: string | null) => void;
 }
-

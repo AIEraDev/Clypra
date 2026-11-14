@@ -4,6 +4,7 @@ import type {
   AudioKeyframe,
   ClipAudioProperties,
 } from "./audio";
+import type { FrameRate } from "@/store/settingsTypes";
 
 export type AspectRatio =
   | "original"
@@ -142,7 +143,7 @@ export interface Project {
   aspectRatio: AspectRatio;
   canvasWidth: number;
   canvasHeight: number;
-  frameRate: 24 | 30 | 60;
+  frameRate: FrameRate;
   duration: number;
   canvasBackground?: CanvasBackgroundConfig;
   mediaAssets?: MediaAsset[];
