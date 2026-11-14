@@ -1,8 +1,38 @@
 import React, { useState, useEffect } from "react";
-import { Check, Palette, SlidersHorizontal, Info, Paintbrush, RotateCcw, Copy, Download, Upload, HardDrive, Captions, RefreshCw, Keyboard, Activity } from "lucide-react";
+import {
+  Check,
+  Palette,
+  SlidersHorizontal,
+  Info,
+  Paintbrush,
+  RotateCcw,
+  Copy,
+  Download,
+  Upload,
+  HardDrive,
+  Captions,
+  RefreshCw,
+  Keyboard,
+  Activity,
+} from "lucide-react";
 import { platform } from "@/core/platform";
 import { Modal } from "../primitives/Modal";
-import { useSettingsStore, Theme, UiTheme, ClipPalette, CLIP_PALETTE_IDS, FontFamily, THEME_META, CLIP_PALETTE_META, FONT_META, getThemeColors, getClipPaletteColors, getBaseThemeForCustomization, getThemeColorKeys } from "@/store/settingsStore";
+import {
+  useSettingsStore,
+  Theme,
+  UiTheme,
+  ClipPalette,
+  CLIP_PALETTE_IDS,
+  FontFamily,
+  THEME_META,
+  CLIP_PALETTE_META,
+  FONT_META,
+  getThemeColors,
+  getClipPaletteColors,
+  getBaseThemeForCustomization,
+  getThemeColorKeys,
+} from "@/store/settingsStore";
+import { SUPPORTED_FRAME_RATES, type FrameRate } from "@/store/settingsTypes";
 import { useProjectStore } from "@/store/projectStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { CacheSettings } from "@/components/settings/CacheSettings";
@@ -22,9 +52,20 @@ interface SettingsModalProps {
   onClose: () => void;
 }
 
-type Tab = "appearance" | "editor" | "shortcuts" | "captions" | "cache" | "diagnostics" | "about";
+type Tab =
+  | "appearance"
+  | "editor"
+  | "shortcuts"
+  | "captions"
+  | "cache"
+  | "diagnostics"
+  | "about";
 
-const TABS: { id: Tab; label: string; icon: React.FC<{ className?: string }> }[] = [
+const TABS: {
+  id: Tab;
+  label: string;
+  icon: React.FC<{ className?: string }>;
+}[] = [
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "editor", label: "Editor", icon: SlidersHorizontal },
   { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
@@ -35,7 +76,19 @@ const TABS: { id: Tab; label: string; icon: React.FC<{ className?: string }> }[]
 ];
 
 // ─── Enhanced theme preview with timeline ────────────────────────────────
-function ThemeSwatch({ themeId, selected, onSelect, customColors, clipPalette = "dark" }: { themeId: Theme; selected: boolean; onSelect: () => void; customColors?: Record<string, string> | null; clipPalette?: ClipPalette }) {
+function ThemeSwatch({
+  themeId,
+  selected,
+  onSelect,
+  customColors,
+  clipPalette = "dark",
+}: {
+  themeId: Theme;
+  selected: boolean;
+  onSelect: () => void;
+  customColors?: Record<string, string> | null;
+  clipPalette?: ClipPalette;
+}) {
   const colors = getThemeColors(themeId, customColors, clipPalette);
   const meta = THEME_META[themeId];
   const bg = colors["--color-bg"];
@@ -48,69 +101,165 @@ function ThemeSwatch({ themeId, selected, onSelect, customColors, clipPalette = 
 
   // Timeline-specific colors
   const timelineBg = colors["--color-timeline-bg"] || colors["--color-surface"];
-  const timelineTrackBg = colors["--color-timeline-track-bg"] || colors["--color-bg"];
+  const timelineTrackBg =
+    colors["--color-timeline-track-bg"] || colors["--color-bg"];
   const timelineTrackBorder = colors["--color-timeline-track-border"] || border;
   const timelineClipVideo = colors["--color-timeline-clip-video"];
   const timelineClipAudio = colors["--color-timeline-clip-audio"];
   const timelineRulerBg = colors["--color-timeline-ruler-bg"] || surface;
 
   return (
-    <button onClick={onSelect} className={`relative rounded-xl p-0.5 transition-all duration-200 ${selected ? "ring-2 ring-accent ring-offset-2 ring-offset-bg" : "ring-1 ring-white/6 hover:ring-white/12"}`}>
+    <button
+      onClick={onSelect}
+      className={`relative rounded-xl p-0.5 transition-all duration-200 ${selected ? "ring-2 ring-accent ring-offset-2 ring-offset-bg" : "ring-1 ring-white/6 hover:ring-white/12"}`}
+    >
       {/* Live mini-preview */}
-      <div className="rounded-[10px] overflow-hidden w-full" style={{ background: bg }}>
+      <div
+        className="rounded-[10px] overflow-hidden w-full"
+        style={{ background: bg }}
+      >
         {/* Fake topbar */}
-        <div className="h-4 flex items-center px-2 gap-1" style={{ background: surface, borderBottom: `1px solid ${border}` }}>
-          <div className="w-1 h-1 rounded-full" style={{ background: textMuted }} />
-          <div className="w-1 h-1 rounded-full" style={{ background: textMuted }} />
-          <div className="w-1 h-1 rounded-full" style={{ background: textMuted }} />
+        <div
+          className="h-4 flex items-center px-2 gap-1"
+          style={{ background: surface, borderBottom: `1px solid ${border}` }}
+        >
+          <div
+            className="w-1 h-1 rounded-full"
+            style={{ background: textMuted }}
+          />
+          <div
+            className="w-1 h-1 rounded-full"
+            style={{ background: textMuted }}
+          />
+          <div
+            className="w-1 h-1 rounded-full"
+            style={{ background: textMuted }}
+          />
           <div className="flex-1" />
-          <div className="w-8 h-1.25 rounded-sm" style={{ background: accent }} />
+          <div
+            className="w-8 h-1.25 rounded-sm"
+            style={{ background: accent }}
+          />
         </div>
         {/* Fake editor layout */}
         <div className="flex h-9.5">
           {/* Sidebar */}
-          <div className="w-[28%] p-1.5 flex flex-col gap-1" style={{ background: surface, borderRight: `1px solid ${border}` }}>
-            <div className="h-1 w-[70%] rounded-sm" style={{ background: textMuted, opacity: 0.4 }} />
-            <div className="h-1 w-[50%] rounded-sm" style={{ background: textMuted, opacity: 0.3 }} />
-            <div className="h-1 w-[60%] rounded-sm" style={{ background: textMuted, opacity: 0.25 }} />
+          <div
+            className="w-[28%] p-1.5 flex flex-col gap-1"
+            style={{ background: surface, borderRight: `1px solid ${border}` }}
+          >
+            <div
+              className="h-1 w-[70%] rounded-sm"
+              style={{ background: textMuted, opacity: 0.4 }}
+            />
+            <div
+              className="h-1 w-[50%] rounded-sm"
+              style={{ background: textMuted, opacity: 0.3 }}
+            />
+            <div
+              className="h-1 w-[60%] rounded-sm"
+              style={{ background: textMuted, opacity: 0.25 }}
+            />
           </div>
           {/* Preview area */}
           <div className="flex-1 flex items-center justify-center">
-            <div className="w-9 h-5.5 rounded-[3px]" style={{ background: surfaceRaised, border: `1px solid ${border}` }} />
+            <div
+              className="w-9 h-5.5 rounded-[3px]"
+              style={{
+                background: surfaceRaised,
+                border: `1px solid ${border}`,
+              }}
+            />
           </div>
         </div>
         {/* Enhanced timeline preview */}
-        <div style={{ background: timelineBg, borderTop: `1px solid ${timelineTrackBorder}` }}>
+        <div
+          style={{
+            background: timelineBg,
+            borderTop: `1px solid ${timelineTrackBorder}`,
+          }}
+        >
           {/* Timeline ruler */}
-          <div className="h-1.5 flex items-center px-1" style={{ background: timelineRulerBg }}>
+          <div
+            className="h-1.5 flex items-center px-1"
+            style={{ background: timelineRulerBg }}
+          >
             <div className="flex-1 flex gap-1.5">
-              <div className="w-px h-0.75" style={{ background: textMuted, opacity: 0.4 }} />
-              <div className="w-px h-0.5" style={{ background: textMuted, opacity: 0.25 }} />
-              <div className="w-px h-0.5" style={{ background: textMuted, opacity: 0.25 }} />
-              <div className="w-px h-0.75" style={{ background: textMuted, opacity: 0.4 }} />
+              <div
+                className="w-px h-0.75"
+                style={{ background: textMuted, opacity: 0.4 }}
+              />
+              <div
+                className="w-px h-0.5"
+                style={{ background: textMuted, opacity: 0.25 }}
+              />
+              <div
+                className="w-px h-0.5"
+                style={{ background: textMuted, opacity: 0.25 }}
+              />
+              <div
+                className="w-px h-0.75"
+                style={{ background: textMuted, opacity: 0.4 }}
+              />
             </div>
           </div>
           {/* Timeline tracks with clips */}
           <div className="flex">
             {/* Track labels */}
-            <div className="w-[28%] flex flex-col" style={{ borderRight: `1px solid ${timelineTrackBorder}` }}>
-              <div className="h-2.5 flex items-center px-1" style={{ background: timelineTrackBg, borderBottom: `1px solid ${timelineTrackBorder}` }}>
-                <div className="w-0.5 h-0.5 rounded-full" style={{ background: textMuted, opacity: 0.5 }} />
+            <div
+              className="w-[28%] flex flex-col"
+              style={{ borderRight: `1px solid ${timelineTrackBorder}` }}
+            >
+              <div
+                className="h-2.5 flex items-center px-1"
+                style={{
+                  background: timelineTrackBg,
+                  borderBottom: `1px solid ${timelineTrackBorder}`,
+                }}
+              >
+                <div
+                  className="w-0.5 h-0.5 rounded-full"
+                  style={{ background: textMuted, opacity: 0.5 }}
+                />
               </div>
-              <div className="h-2 flex items-center px-1" style={{ background: timelineTrackBg }}>
-                <div className="w-0.5 h-0.5 rounded-full" style={{ background: textMuted, opacity: 0.5 }} />
+              <div
+                className="h-2 flex items-center px-1"
+                style={{ background: timelineTrackBg }}
+              >
+                <div
+                  className="w-0.5 h-0.5 rounded-full"
+                  style={{ background: textMuted, opacity: 0.5 }}
+                />
               </div>
             </div>
             {/* Track content */}
             <div className="flex-1 flex flex-col">
               {/* Video track with clip */}
-              <div className="h-2.5 flex items-center gap-0.5 px-1" style={{ background: timelineTrackBg, borderBottom: `1px solid ${timelineTrackBorder}` }}>
-                <div className="h-1.5 w-[45%] rounded-px" style={{ background: timelineClipVideo, opacity: 0.9 }} />
-                <div className="h-1.5 w-[30%] rounded-px" style={{ background: timelineClipVideo, opacity: 0.9 }} />
+              <div
+                className="h-2.5 flex items-center gap-0.5 px-1"
+                style={{
+                  background: timelineTrackBg,
+                  borderBottom: `1px solid ${timelineTrackBorder}`,
+                }}
+              >
+                <div
+                  className="h-1.5 w-[45%] rounded-px"
+                  style={{ background: timelineClipVideo, opacity: 0.9 }}
+                />
+                <div
+                  className="h-1.5 w-[30%] rounded-px"
+                  style={{ background: timelineClipVideo, opacity: 0.9 }}
+                />
               </div>
               {/* Audio track with clip */}
-              <div className="h-2 flex items-center gap-0.5 px-1" style={{ background: timelineTrackBg }}>
-                <div className="h-1 w-[55%] rounded-px" style={{ background: timelineClipAudio, opacity: 0.8 }} />
+              <div
+                className="h-2 flex items-center gap-0.5 px-1"
+                style={{ background: timelineTrackBg }}
+              >
+                <div
+                  className="h-1 w-[55%] rounded-px"
+                  style={{ background: timelineClipAudio, opacity: 0.8 }}
+                />
               </div>
             </div>
           </div>
@@ -120,8 +269,12 @@ function ThemeSwatch({ themeId, selected, onSelect, customColors, clipPalette = 
       {/* Label */}
       <div className="flex items-center justify-between px-2 py-1.5">
         <div className="text-left">
-          <div className="text-[11px] font-semibold text-text-primary leading-tight">{meta.name}</div>
-          <div className="text-[9px] text-text-muted leading-tight">{meta.description}</div>
+          <div className="text-[11px] font-semibold text-text-primary leading-tight">
+            {meta.name}
+          </div>
+          <div className="text-[9px] text-text-muted leading-tight">
+            {meta.description}
+          </div>
         </div>
         {selected && (
           <div className="w-4 h-4 rounded-full bg-accent flex items-center justify-center shrink-0">
@@ -133,7 +286,15 @@ function ThemeSwatch({ themeId, selected, onSelect, customColors, clipPalette = 
   );
 }
 
-function ClipPaletteSwatch({ palette, selected, onSelect }: { palette: ClipPalette; selected: boolean; onSelect: () => void }) {
+function ClipPaletteSwatch({
+  palette,
+  selected,
+  onSelect,
+}: {
+  palette: ClipPalette;
+  selected: boolean;
+  onSelect: () => void;
+}) {
   const colors = getClipPaletteColors(palette);
   const meta = CLIP_PALETTE_META[palette];
   const video = colors["--color-timeline-clip-video"];
@@ -141,17 +302,26 @@ function ClipPaletteSwatch({ palette, selected, onSelect }: { palette: ClipPalet
   const text = colors["--color-timeline-clip-text"];
 
   return (
-    <button onClick={onSelect} className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left border transition-all ${selected ? "border-accent bg-accent/8" : "border-white/6 hover:border-white/12"}`}>
+    <button
+      onClick={onSelect}
+      className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left border transition-all ${selected ? "border-accent bg-accent/8" : "border-white/6 hover:border-white/12"}`}
+    >
       <div className="flex gap-0.5 shrink-0" aria-hidden="true">
         <span className="w-3 h-5 rounded-sm" style={{ background: video }} />
         <span className="w-3 h-5 rounded-sm" style={{ background: audio }} />
         <span className="w-3 h-5 rounded-sm" style={{ background: text }} />
       </div>
       <span className="min-w-0">
-        <span className="block text-[11px] font-semibold text-text-primary">{meta.name}</span>
-        <span className="block text-[9px] text-text-muted truncate">{meta.description}</span>
+        <span className="block text-[11px] font-semibold text-text-primary">
+          {meta.name}
+        </span>
+        <span className="block text-[9px] text-text-muted truncate">
+          {meta.description}
+        </span>
       </span>
-      {selected && <Check className="w-3.5 h-3.5 text-accent shrink-0 ml-auto" />}
+      {selected && (
+        <Check className="w-3.5 h-3.5 text-accent shrink-0 ml-auto" />
+      )}
     </button>
   );
 }
@@ -161,7 +331,9 @@ function CustomThemeEditor() {
   const { customTheme, setCustomTheme, resetCustomTheme } = useSettingsStore();
   const { t } = useI18n();
   const [baseTheme, setBaseTheme] = useState<Exclude<Theme, "custom">>("dark");
-  const [editingColors, setEditingColors] = useState<Record<string, string>>(customTheme || getBaseThemeForCustomization("dark"));
+  const [editingColors, setEditingColors] = useState<Record<string, string>>(
+    customTheme || getBaseThemeForCustomization("dark"),
+  );
   const [searchQuery, setSearchQuery] = useState("");
 
   // Update editing colors when base theme changes
@@ -172,13 +344,21 @@ function CustomThemeEditor() {
   };
 
   const colorKeys = getThemeColorKeys();
-  const filteredKeys = searchQuery ? colorKeys.filter((key) => key.toLowerCase().includes(searchQuery.toLowerCase())) : colorKeys;
+  const filteredKeys = searchQuery
+    ? colorKeys.filter((key) =>
+        key.toLowerCase().includes(searchQuery.toLowerCase()),
+      )
+    : colorKeys;
 
   // Group colors by category
   const colorGroups: Record<string, string[]> = {
-    "Base Colors": filteredKeys.filter((k) => k.match(/^--color-(bg|surface|border|text|accent|danger)/)),
+    "Base Colors": filteredKeys.filter((k) =>
+      k.match(/^--color-(bg|surface|border|text|accent|danger)/),
+    ),
     Timeline: filteredKeys.filter((k) => k.includes("timeline")),
-    Clips: filteredKeys.filter((k) => k.includes("clip") && !k.includes("timeline")),
+    Clips: filteredKeys.filter(
+      (k) => k.includes("clip") && !k.includes("timeline"),
+    ),
     Shadcn: filteredKeys.filter((k) => !k.startsWith("--color-")),
   };
 
@@ -265,14 +445,24 @@ function CustomThemeEditor() {
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between pb-3 border-b border-white/6">
-        <h3 className="text-[13px] font-semibold text-text-primary">Custom Theme Editor</h3>
+        <h3 className="text-[13px] font-semibold text-text-primary">
+          Custom Theme Editor
+        </h3>
         {/* Import/Export buttons in header */}
         <div className="flex items-center gap-2">
-          <button onClick={handleImport} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-accent hover:border-accent/40 transition-colors" title="Import theme from JSON file">
+          <button
+            onClick={handleImport}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-accent hover:border-accent/40 transition-colors"
+            title="Import theme from JSON file"
+          >
             <Upload className="w-3.5 h-3.5" />
             Import
           </button>
-          <button onClick={handleExport} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-accent hover:border-accent/40 transition-colors" title="Export theme to JSON file">
+          <button
+            onClick={handleExport}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-accent hover:border-accent/40 transition-colors"
+            title="Export theme to JSON file"
+          >
             <Download className="w-3.5 h-3.5" />
             Export
           </button>
@@ -283,9 +473,19 @@ function CustomThemeEditor() {
       <div className="flex items-center justify-between gap-3">
         {/* Base theme group */}
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-medium text-text-muted uppercase tracking-wide">Base:</span>
+          <span className="text-[10px] font-medium text-text-muted uppercase tracking-wide">
+            Base:
+          </span>
           <div className="relative">
-            <select value={baseTheme} onChange={(e) => handleBaseThemeChange(e.target.value as Exclude<Theme, "custom">)} className="appearance-none text-[11px] pl-3 pr-8 py-1.5 rounded-md bg-surface-raised border border-white/6 text-text-primary hover:border-white/12 transition-colors cursor-pointer focus:outline-none focus:border-accent/40">
+            <select
+              value={baseTheme}
+              onChange={(e) =>
+                handleBaseThemeChange(
+                  e.target.value as Exclude<Theme, "custom">,
+                )
+              }
+              className="appearance-none text-[11px] pl-3 pr-8 py-1.5 rounded-md bg-surface-raised border border-white/6 text-text-primary hover:border-white/12 transition-colors cursor-pointer focus:outline-none focus:border-accent/40"
+            >
               <option value="dark">Dark</option>
               <option value="midnight">Midnight</option>
               <option value="ocean">Ocean</option>
@@ -297,27 +497,53 @@ function CustomThemeEditor() {
               <option value="rose-cut">Rose Cut</option>
             </select>
             <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-text-muted">
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              <svg
+                className="w-3 h-3"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19 9l-7 7-7-7"
+                />
               </svg>
             </div>
           </div>
-          <button onClick={handleCopyFromBase} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-text-primary hover:border-white/12 transition-colors" title="Copy all colors from selected base theme">
+          <button
+            onClick={handleCopyFromBase}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-text-primary hover:border-white/12 transition-colors"
+            title="Copy all colors from selected base theme"
+          >
             <Copy className="w-3.5 h-3.5" />
             Copy
           </button>
         </div>
 
         {/* Reset button */}
-        <button onClick={handleReset} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-danger hover:border-danger/40 transition-colors" title={t("settings.theme.reset")}>
+        <button
+          onClick={handleReset}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-danger hover:border-danger/40 transition-colors"
+          title={t("settings.theme.reset")}
+        >
           <RotateCcw className="w-3.5 h-3.5" />
           {t("common.actions.reset")}
         </button>
       </div>
 
       {/* Search */}
-      <input type="text" placeholder={t("settings.theme.searchColors")} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full px-3 py-2 text-[12px] rounded-lg bg-surface-raised border border-white/6 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/40" />
-      {importError && <p className="text-danger text-[11px] font-medium">{importError}</p>}
+      <input
+        type="text"
+        placeholder={t("settings.theme.searchColors")}
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        className="w-full px-3 py-2 text-[12px] rounded-lg bg-surface-raised border border-white/6 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/40"
+      />
+      {importError && (
+        <p className="text-danger text-[11px] font-medium">{importError}</p>
+      )}
 
       {/* Color groups */}
       <div className="max-h-100 overflow-y-auto space-y-4 pr-2 scrollbar-thin">
@@ -325,14 +551,18 @@ function CustomThemeEditor() {
           if (keys.length === 0) return null;
           return (
             <div key={groupName}>
-              <h4 className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-2">{groupName}</h4>
+              <h4 className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-2">
+                {groupName}
+              </h4>
               <div className="space-y-2">
                 {keys.map((key) => (
                   <div key={key} className="flex items-center gap-2">
                     <ClypraColorPicker
                       value={editingColors[key] || "#000000"}
                       onChange={(c: string) => handleColorChange(key, c)}
-                      onChangeComplete={(c: string) => handleColorChange(key, c)}
+                      onChangeComplete={(c: string) =>
+                        handleColorChange(key, c)
+                      }
                       format="hex"
                       showAlpha={true}
                       size="sm"
@@ -340,8 +570,12 @@ function CustomThemeEditor() {
                       popoverClassName="left-0 mt-1 z-[200]"
                     />
                     <div className="flex-1">
-                      <div className="text-[11px] text-text-primary">{formatColorName(key)}</div>
-                      <div className="text-[9px] text-text-muted font-mono">{editingColors[key]}</div>
+                      <div className="text-[11px] text-text-primary">
+                        {formatColorName(key)}
+                      </div>
+                      <div className="text-[9px] text-text-muted font-mono">
+                        {editingColors[key]}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -352,7 +586,10 @@ function CustomThemeEditor() {
       </div>
 
       {/* Apply button */}
-      <button onClick={handleApply} className="w-full py-2 px-4 text-[12px] font-semibold rounded-lg bg-accent text-white hover:bg-accent-soft transition-colors">
+      <button
+        onClick={handleApply}
+        className="w-full py-2 px-4 text-[12px] font-semibold rounded-lg bg-accent text-white hover:bg-accent-soft transition-colors"
+      >
         Apply Custom Theme
       </button>
     </div>
@@ -361,18 +598,52 @@ function CustomThemeEditor() {
 
 // ─── Appearance Tab ──────────────────────────────────────────────────────
 function AppearanceTab() {
-  const { theme, uiTheme, clipPalette, fontFamily, customTheme, setTheme, setUiTheme, setClipPalette, setFontFamily } = useSettingsStore();
+  const {
+    theme,
+    uiTheme,
+    clipPalette,
+    fontFamily,
+    customTheme,
+    setTheme,
+    setUiTheme,
+    setClipPalette,
+    setFontFamily,
+  } = useSettingsStore();
   const { language, setLanguage, t } = useI18n();
   const [showCustomEditor, setShowCustomEditor] = useState(false);
-  const themeKeys: UiTheme[] = ["dark", "midnight", "ocean", "forest", "midnight-carbon", "ember-studio", "forest-console", "slate-noir", "rose-cut"];
+  const themeKeys: UiTheme[] = [
+    "dark",
+    "midnight",
+    "ocean",
+    "forest",
+    "midnight-carbon",
+    "ember-studio",
+    "forest-console",
+    "slate-noir",
+    "rose-cut",
+  ];
   const clipPaletteKeys: ClipPalette[] = CLIP_PALETTE_IDS;
-  const fontKeys: FontFamily[] = ["inter", "montserrat", "geist", "outfit", "roboto", "space-grotesk", "system", "mono"];
+  const fontKeys: FontFamily[] = [
+    "inter",
+    "montserrat",
+    "geist",
+    "outfit",
+    "roboto",
+    "space-grotesk",
+    "system",
+    "mono",
+  ];
 
   return (
     <div className="space-y-7">
       <section>
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">{t("settings.language.label")}</h3>
-        <SettingRow label={t("settings.language.label")} description={t("settings.language.description")}>
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">
+          {t("settings.language.label")}
+        </h3>
+        <SettingRow
+          label={t("settings.language.label")}
+          description={t("settings.language.description")}
+        >
           <select
             value={language}
             onChange={(event) => setLanguage(event.target.value as AppLanguage)}
@@ -381,7 +652,9 @@ function AppearanceTab() {
           >
             {SUPPORTED_LANGUAGES.map((lang) => (
               <option key={lang.code} value={lang.code} data-no-i18n>
-                {lang.code === "en" ? lang.name : `${lang.nativeName} (${lang.name})`}
+                {lang.code === "en"
+                  ? lang.name
+                  : `${lang.nativeName} (${lang.name})`}
               </option>
             ))}
           </select>
@@ -391,10 +664,17 @@ function AppearanceTab() {
       {/* Themes */}
       <section>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">{t("settings.theme.title")}</h3>
-          <button onClick={() => setShowCustomEditor(!showCustomEditor)} className={`flex items-center gap-1.5 px-2 py-1 text-[10px] font-medium rounded-md transition-colors ${showCustomEditor ? "bg-accent/15 text-accent border border-accent/40" : "bg-surface-raised border border-white/6 text-text-muted hover:text-text-primary"}`}>
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+            {t("settings.theme.title")}
+          </h3>
+          <button
+            onClick={() => setShowCustomEditor(!showCustomEditor)}
+            className={`flex items-center gap-1.5 px-2 py-1 text-[10px] font-medium rounded-md transition-colors ${showCustomEditor ? "bg-accent/15 text-accent border border-accent/40" : "bg-surface-raised border border-white/6 text-text-muted hover:text-text-primary"}`}
+          >
             <Paintbrush className="w-3 h-3" />
-            {showCustomEditor ? t("settings.theme.hideEditor") : t("settings.theme.custom")}
+            {showCustomEditor
+              ? t("settings.theme.hideEditor")
+              : t("settings.theme.custom")}
           </button>
         </div>
 
@@ -403,35 +683,68 @@ function AppearanceTab() {
         ) : (
           <div className="grid grid-cols-2 gap-3">
             {themeKeys.map((t) => (
-              <ThemeSwatch key={t} themeId={t} clipPalette={clipPalette} selected={theme !== "custom" && uiTheme === t} onSelect={() => setUiTheme(t)} />
+              <ThemeSwatch
+                key={t}
+                themeId={t}
+                clipPalette={clipPalette}
+                selected={theme !== "custom" && uiTheme === t}
+                onSelect={() => setUiTheme(t)}
+              />
             ))}
-            {customTheme && <ThemeSwatch key="custom" themeId="custom" clipPalette={clipPalette} selected={theme === "custom"} onSelect={() => setTheme("custom")} customColors={customTheme} />}
+            {customTheme && (
+              <ThemeSwatch
+                key="custom"
+                themeId="custom"
+                clipPalette={clipPalette}
+                selected={theme === "custom"}
+                onSelect={() => setTheme("custom")}
+                customColors={customTheme}
+              />
+            )}
           </div>
         )}
       </section>
 
       <section>
         <div className="mb-3">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Clip palette</h3>
-          <p className="text-[10px] text-text-muted mt-1">Choose clip colours independently from the interface theme.</p>
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+            Clip palette
+          </h3>
+          <p className="text-[10px] text-text-muted mt-1">
+            Choose clip colours independently from the interface theme.
+          </p>
         </div>
         <div className="grid grid-cols-2 gap-2">
           {clipPaletteKeys.map((palette) => (
-            <ClipPaletteSwatch key={palette} palette={palette} selected={clipPalette === palette} onSelect={() => setClipPalette(palette)} />
+            <ClipPaletteSwatch
+              key={palette}
+              palette={palette}
+              selected={clipPalette === palette}
+              onSelect={() => setClipPalette(palette)}
+            />
           ))}
         </div>
       </section>
 
       {/* Font Family */}
       <section>
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">{t("settings.font.title")}</h3>
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">
+          {t("settings.font.title")}
+        </h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {fontKeys.map((f) => {
             const meta = FONT_META[f];
             const isSel = fontFamily === f;
             return (
-              <button key={f} onClick={() => setFontFamily(f)} className={`flex-1 flex flex-col items-center gap-1.5 py-2.5 px-2 rounded-lg border transition-all ${isSel ? "border-accent bg-accent/8 text-accent" : "border-white/6 hover:border-white/12 text-text-muted hover:text-text-primary"}`}>
-                <span className="text-lg leading-none" style={{ fontFamily: meta.stack }}>
+              <button
+                key={f}
+                onClick={() => setFontFamily(f)}
+                className={`flex-1 flex flex-col items-center gap-1.5 py-2.5 px-2 rounded-lg border transition-all ${isSel ? "border-accent bg-accent/8 text-accent" : "border-white/6 hover:border-white/12 text-text-muted hover:text-text-primary"}`}
+              >
+                <span
+                  className="text-lg leading-none"
+                  style={{ fontFamily: meta.stack }}
+                >
                   Aa
                 </span>
                 <span className="text-[10px] font-medium">{meta.name}</span>
@@ -463,13 +776,11 @@ function EditorTab() {
   const { snapEnabled, toggleSnapEnabled } = useTimelineStore();
   const { project, updateProject } = useProjectStore();
 
-  const frameRates: Array<{ value: 24 | 30 | 60; label: string }> = [
-    { value: 24, label: "24" },
-    { value: 30, label: "30" },
-    { value: 60, label: "60" },
-  ];
-
-  const aspectRatios: Array<{ value: string; label: string; dimensions: string }> = [
+  const aspectRatios: Array<{
+    value: string;
+    label: string;
+    dimensions: string;
+  }> = [
     { value: "16:9", label: "16:9", dimensions: "1920×1080" },
     { value: "9:16", label: "9:16", dimensions: "1080×1920" },
     { value: "1:1", label: "1:1", dimensions: "1080×1080" },
@@ -499,12 +810,20 @@ function EditorTab() {
     <div className="space-y-4">
       {/* Timeline */}
       <section className="rounded-xl bg-surface-raised/40 border border-white/5 p-4 space-y-3">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Timeline</h3>
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+          Timeline
+        </h3>
         <div className="space-y-3">
-          <SettingRow label="Snap to grid" description="Clips snap to ruler ticks when dragging">
+          <SettingRow
+            label="Snap to grid"
+            description="Clips snap to ruler ticks when dragging"
+          >
             <ToggleSwitch checked={snapToGrid} onChange={setSnapToGrid} />
           </SettingRow>
-          <SettingRow label="Magnetic snap" description="Snap clips to playhead and other clip edges">
+          <SettingRow
+            label="Magnetic snap"
+            description="Snap clips to playhead and other clip edges"
+          >
             <ToggleSwitch checked={snapEnabled} onChange={toggleSnapEnabled} />
           </SettingRow>
         </div>
@@ -512,19 +831,23 @@ function EditorTab() {
 
       {/* Performance */}
       <section className="rounded-xl bg-surface-raised/40 border border-white/5 p-4 space-y-3">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">⚡ Performance & Proxies</h3>
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+          ⚡ Performance & Proxies
+        </h3>
         <div className="space-y-3">
           <SettingRow
             label="Preview Resolution"
             description="Lower resolution speeds up editing on large files. Final export always uses full quality."
           >
             <div className="flex rounded-lg overflow-hidden border border-white/6">
-              {([
-                { value: "full", label: "Full" },
-                { value: "high", label: "High" },
-                { value: "medium", label: "Med" },
-                { value: "low", label: "Proxy" },
-              ] as const).map((tier) => (
+              {(
+                [
+                  { value: "full", label: "Full" },
+                  { value: "high", label: "High" },
+                  { value: "medium", label: "Med" },
+                  { value: "low", label: "Proxy" },
+                ] as const
+              ).map((tier) => (
                 <button
                   key={tier.value}
                   onClick={() => setPreviewQuality(tier.value)}
@@ -543,13 +866,19 @@ function EditorTab() {
             label="Proxy Editing Mode"
             description="Forces low-res proxy preview throughout your session. Ideal for 1-hour+ projects."
           >
-            <ToggleSwitch checked={proxyEditingEnabled} onChange={setProxyEditingEnabled} />
+            <ToggleSwitch
+              checked={proxyEditingEnabled}
+              onChange={setProxyEditingEnabled}
+            />
           </SettingRow>
           <SettingRow
             label="Auto-clear cache on project close"
             description="Automatically frees GPU frame cache when closing a project."
           >
-            <ToggleSwitch checked={autoClearCacheOnProjectClose} onChange={setAutoClearCacheOnProjectClose} />
+            <ToggleSwitch
+              checked={autoClearCacheOnProjectClose}
+              onChange={setAutoClearCacheOnProjectClose}
+            />
           </SettingRow>
         </div>
       </section>
@@ -557,13 +886,22 @@ function EditorTab() {
       {/* Sequence Settings */}
       {project && (
         <section className="rounded-xl bg-surface-raised/40 border border-white/5 p-4 space-y-3">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Sequence Settings</h3>
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+            Sequence Settings
+          </h3>
           <div className="space-y-3">
-            <SettingRow label="Aspect ratio" description="Canvas dimensions for export">
+            <SettingRow
+              label="Aspect ratio"
+              description="Canvas dimensions for export"
+            >
               <div className="flex flex-col gap-1.5">
                 <div className="flex rounded-lg overflow-hidden border border-white/6">
                   {aspectRatios.map((ar) => (
-                    <button key={ar.value} onClick={() => handleAspectRatioChange(ar.value)} className={`px-3 py-1 text-[11px] font-semibold transition-colors cursor-pointer ${project.aspectRatio === ar.value ? "bg-accent text-white" : "bg-surface-raised text-text-muted hover:text-text-primary hover:bg-white/6"}`}>
+                    <button
+                      key={ar.value}
+                      onClick={() => handleAspectRatioChange(ar.value)}
+                      className={`px-3 py-1 text-[11px] font-semibold transition-colors cursor-pointer ${project.aspectRatio === ar.value ? "bg-accent text-white" : "bg-surface-raised text-text-muted hover:text-text-primary hover:bg-white/6"}`}
+                    >
                       {ar.label}
                     </button>
                   ))}
@@ -573,15 +911,25 @@ function EditorTab() {
                 </div>
               </div>
             </SettingRow>
-            <SettingRow label="Frame rate" description="Frames per second for this project">
-              <div className="flex rounded-lg overflow-hidden border border-white/6">
-                {frameRates.map((fr) => (
-                  <button key={fr.value} onClick={() => updateProject({ frameRate: fr.value })} className={`px-3 py-1 text-[11px] font-semibold transition-colors cursor-pointer ${project.frameRate === fr.value ? "bg-accent text-white" : "bg-surface-raised text-text-muted hover:text-text-primary hover:bg-white/6"}`}>
-                    {fr.label}
-                  </button>
+            <SettingRow
+              label="Frame rate"
+              description="Frames per second for this project"
+            >
+              <select
+                value={project.frameRate}
+                onChange={(e) =>
+                  updateProject({
+                    frameRate: Number(e.target.value) as FrameRate,
+                  })
+                }
+                className="px-2 py-1 text-[11px] font-semibold bg-surface-raised border border-white/6 rounded-lg text-text-primary cursor-pointer"
+              >
+                {SUPPORTED_FRAME_RATES.map((fps) => (
+                  <option key={fps} value={fps}>
+                    {Number.isInteger(fps) ? `${fps} fps` : `${fps} fps`}
+                  </option>
                 ))}
-                <span className="px-2 py-1 text-[10px] text-text-muted bg-surface-raised flex items-center">fps</span>
-              </div>
+              </select>
             </SettingRow>
           </div>
         </section>
@@ -589,20 +937,33 @@ function EditorTab() {
 
       {/* Defaults */}
       <section className="rounded-xl bg-surface-raised/40 border border-white/5 p-4 space-y-3">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Defaults</h3>
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+          Defaults
+        </h3>
         <div className="space-y-3">
-          <SettingRow label="Auto-save" description="Periodically save project state">
+          <SettingRow
+            label="Auto-save"
+            description="Periodically save project state"
+          >
             <ToggleSwitch checked={autoSave} onChange={setAutoSave} />
           </SettingRow>
-          <SettingRow label="Default frame rate" description="Frame rate for new projects">
-            <div className="flex rounded-lg overflow-hidden border border-white/6">
-              {frameRates.map((fr) => (
-                <button key={fr.value} onClick={() => setDefaultFrameRate(fr.value)} className={`px-3 py-1 text-[11px] font-semibold transition-colors cursor-pointer ${defaultFrameRate === fr.value ? "bg-accent text-white" : "bg-surface-raised text-text-muted hover:text-text-primary hover:bg-white/6"}`}>
-                  {fr.label}
-                </button>
+          <SettingRow
+            label="Default frame rate"
+            description="Frame rate for new projects"
+          >
+            <select
+              value={defaultFrameRate}
+              onChange={(e) =>
+                setDefaultFrameRate(Number(e.target.value) as FrameRate)
+              }
+              className="px-2 py-1 text-[11px] font-semibold bg-surface-raised border border-white/6 rounded-lg text-text-primary cursor-pointer"
+            >
+              {SUPPORTED_FRAME_RATES.map((fps) => (
+                <option key={fps} value={fps}>
+                  {Number.isInteger(fps) ? `${fps} fps` : `${fps} fps`}
+                </option>
               ))}
-              <span className="px-2 py-1 text-[10px] text-text-muted bg-surface-raised flex items-center">fps</span>
-            </div>
+            </select>
           </SettingRow>
         </div>
       </section>
@@ -610,7 +971,15 @@ function EditorTab() {
   );
 }
 
-function SettingRow({ label, description, children }: { label: string; description: string; children: React.ReactNode }) {
+function SettingRow({
+  label,
+  description,
+  children,
+}: {
+  label: string;
+  description: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex items-center justify-between gap-4 py-1">
       <div>
@@ -622,10 +991,27 @@ function SettingRow({ label, description, children }: { label: string; descripti
   );
 }
 
-function ToggleSwitch({ checked, onChange, disabled }: { checked: boolean; onChange?: (v: boolean) => void; disabled?: boolean }) {
+function ToggleSwitch({
+  checked,
+  onChange,
+  disabled,
+}: {
+  checked: boolean;
+  onChange?: (v: boolean) => void;
+  disabled?: boolean;
+}) {
   return (
-    <button type="button" role="switch" aria-checked={checked} disabled={disabled} onClick={() => onChange?.(!checked)} className={`w-9 h-5 rounded-full relative shrink-0 transition-colors ${disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"} ${checked ? "bg-accent" : "bg-white/10"}`}>
-      <div className={`absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform duration-150 ${checked ? "translate-x-4.5" : "translate-x-0.5"}`} />
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => onChange?.(!checked)}
+      className={`w-9 h-5 rounded-full relative shrink-0 transition-colors ${disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"} ${checked ? "bg-accent" : "bg-white/10"}`}
+    >
+      <div
+        className={`absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform duration-150 ${checked ? "translate-x-4.5" : "translate-x-0.5"}`}
+      />
     </button>
   );
 }
@@ -659,7 +1045,8 @@ const BuyMeCoffeeIcon = (props: React.SVGProps<SVGSVGElement>) => (
 );
 
 const openExternalUrl = async (url: string) => {
-  const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  const isTauri =
+    typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   if (isTauri) {
     try {
       const { openUrl } = await import("@tauri-apps/plugin-opener");
@@ -706,18 +1093,27 @@ function AboutTab() {
     <div className="flex flex-col items-center text-center py-6 gap-4">
       <div className="w-16 h-16 flex items-center justify-center relative">
         <div className="absolute inset-0 bg-accent/20 blur-xl rounded-full"></div>
-        <img src="/clypra.svg" alt="Clypra Logo" className="w-16 h-16 object-contain relative z-10 drop-shadow-xl" />
+        <img
+          src="/clypra.svg"
+          alt="Clypra Logo"
+          className="w-16 h-16 object-contain relative z-10 drop-shadow-xl"
+        />
       </div>
       <div>
         <h3 className="text-lg font-bold text-text-primary">Clypra</h3>
         <p className="text-xs text-text-muted mt-1">Version {appVersion}</p>
       </div>
-      <p className="text-xs text-text-muted max-w-70 leading-relaxed">A modern, native video editor built with Tauri, React, and FFmpeg. Designed for speed and creative freedom.</p>
+      <p className="text-xs text-text-muted max-w-70 leading-relaxed">
+        A modern, native video editor built with Tauri, React, and FFmpeg.
+        Designed for speed and creative freedom.
+      </p>
 
       {/* Auto-updater card */}
       <div className="w-full max-w-85 bg-linear-to-b from-white/4 to-white/1 border border-white/10 rounded-2xl p-5 flex flex-col items-center gap-4 shadow-xl backdrop-blur-md">
         <div className="flex items-center gap-2 w-full justify-between pb-3 border-b border-white/5">
-          <span className="text-xs font-semibold text-text-primary tracking-wide uppercase">Software Update</span>
+          <span className="text-xs font-semibold text-text-primary tracking-wide uppercase">
+            Software Update
+          </span>
           {updateStatus === "up-to-date" ? (
             <span className="flex h-2 w-2 relative">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
@@ -733,13 +1129,20 @@ function AboutTab() {
 
         <div className="flex flex-col items-center gap-1.5 w-full">
           {!isDesktop ? (
-            <p className="text-[11px] text-text-muted">Auto-updates are only available in the desktop app.</p>
+            <p className="text-[11px] text-text-muted">
+              Auto-updates are only available in the desktop app.
+            </p>
           ) : (
             <>
               {updateStatus === "idle" && (
                 <>
-                  <p className="text-[11px] text-text-muted mb-2">Keep Clypra running at peak performance.</p>
-                  <button onClick={handleCheckUpdate} className="flex items-center gap-1.5 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-text-primary rounded-xl text-xs font-semibold cursor-pointer shadow-sm transition-all duration-200 active:scale-95">
+                  <p className="text-[11px] text-text-muted mb-2">
+                    Keep Clypra running at peak performance.
+                  </p>
+                  <button
+                    onClick={handleCheckUpdate}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-text-primary rounded-xl text-xs font-semibold cursor-pointer shadow-sm transition-all duration-200 active:scale-95"
+                  >
                     <RefreshCw className="w-3.5 h-3.5" />
                     Check for Updates
                   </button>
@@ -751,7 +1154,9 @@ function AboutTab() {
                   <div className="relative flex items-center justify-center">
                     <div className="w-8 h-8 border-[3px] border-accent/20 border-t-accent rounded-full animate-spin"></div>
                   </div>
-                  <p className="text-xs text-text-muted">Searching for newer releases...</p>
+                  <p className="text-xs text-text-muted">
+                    Searching for newer releases...
+                  </p>
                 </div>
               )}
 
@@ -760,9 +1165,16 @@ function AboutTab() {
                   <div className="w-8 h-8 rounded-full bg-green-500/10 border border-green-500/20 flex items-center justify-center">
                     <Check className="w-4 h-4 text-green-400" />
                   </div>
-                  <p className="text-xs text-green-400 font-medium">Clypra is up to date</p>
-                  <p className="text-[10px] text-text-muted">You are currently running the latest version.</p>
-                  <button onClick={handleCheckUpdate} className="mt-2 text-[10px] text-text-muted hover:text-text-primary transition-colors hover:underline cursor-pointer">
+                  <p className="text-xs text-green-400 font-medium">
+                    Clypra is up to date
+                  </p>
+                  <p className="text-[10px] text-text-muted">
+                    You are currently running the latest version.
+                  </p>
+                  <button
+                    onClick={handleCheckUpdate}
+                    className="mt-2 text-[10px] text-text-muted hover:text-text-primary transition-colors hover:underline cursor-pointer"
+                  >
                     Check again
                   </button>
                 </div>
@@ -771,21 +1183,34 @@ function AboutTab() {
               {updateStatus === "available" && updateInfo && (
                 <div className="flex flex-col items-center gap-3 w-full">
                   <div className="flex flex-col items-center gap-1">
-                    <p className="text-xs text-text-primary font-bold">New Version Available</p>
-                    <p className="text-[10px] text-accent font-semibold">v{updateInfo.version}</p>
+                    <p className="text-xs text-text-primary font-bold">
+                      New Version Available
+                    </p>
+                    <p className="text-[10px] text-accent font-semibold">
+                      v{updateInfo.version}
+                    </p>
                   </div>
 
                   {updateInfo.body && (
                     <div className="w-full text-left">
-                      <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-1">Release Notes</p>
-                      <div className="text-[10px] text-text-muted max-h-20 overflow-y-auto px-2.5 py-2 w-full leading-normal border border-white/5 bg-white/2 rounded-xl scrollbar-thin">{updateInfo.body}</div>
+                      <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-1">
+                        Release Notes
+                      </p>
+                      <div className="text-[10px] text-text-muted max-h-20 overflow-y-auto px-2.5 py-2 w-full leading-normal border border-white/5 bg-white/2 rounded-xl scrollbar-thin">
+                        {updateInfo.body}
+                      </div>
                     </div>
                   )}
 
-                  <button onClick={() => void downloadUpdate()} className="w-full py-2 bg-linear-to-r from-accent to-violet-500 hover:from-accent-hover hover:to-violet-600 text-white rounded-xl text-xs font-semibold cursor-pointer shadow-[0_0_15px_rgba(96,165,250,0.2)] hover:shadow-[0_0_20px_rgba(96,165,250,0.4)] transition-all duration-200 active:scale-[0.98]">
+                  <button
+                    onClick={() => void downloadUpdate()}
+                    className="w-full py-2 bg-linear-to-r from-accent to-violet-500 hover:from-accent-hover hover:to-violet-600 text-white rounded-xl text-xs font-semibold cursor-pointer shadow-[0_0_15px_rgba(96,165,250,0.2)] hover:shadow-[0_0_20px_rgba(96,165,250,0.4)] transition-all duration-200 active:scale-[0.98]"
+                  >
                     Download update
                   </button>
-                  <p className="text-[9px] text-text-muted">You can keep editing while the update downloads.</p>
+                  <p className="text-[9px] text-text-muted">
+                    You can keep editing while the update downloads.
+                  </p>
                 </div>
               )}
 
@@ -793,24 +1218,43 @@ function AboutTab() {
                 <div className="flex flex-col items-center gap-3 w-full py-1">
                   <div className="flex justify-between text-[11px] text-text-primary font-medium w-full">
                     <span>Downloading update...</span>
-                    <span className="font-semibold text-accent">{downloadProgress}%</span>
+                    <span className="font-semibold text-accent">
+                      {downloadProgress}%
+                    </span>
                   </div>
                   <div className="w-full bg-white/5 border border-white/5 h-2 rounded-full overflow-hidden p-px">
-                    <div className="bg-linear-to-r from-accent to-violet-500 h-full rounded-full transition-all duration-300" style={{ width: `${downloadProgress}%` }}></div>
+                    <div
+                      className="bg-linear-to-r from-accent to-violet-500 h-full rounded-full transition-all duration-300"
+                      style={{ width: `${downloadProgress}%` }}
+                    ></div>
                   </div>
-                  <p className="text-[9px] text-text-muted">The app will not restart until you choose to apply the update.</p>
+                  <p className="text-[9px] text-text-muted">
+                    The app will not restart until you choose to apply the
+                    update.
+                  </p>
                 </div>
               )}
 
               {updateStatus === "downloaded" && updateInfo && (
                 <div className="flex flex-col items-center gap-3 w-full py-1">
-                  <p className="text-xs text-text-primary font-semibold">Update downloaded</p>
-                  <p className="text-[10px] text-text-muted text-center">Clypra will save your project, close the active session, and restart only when you choose to apply it.</p>
+                  <p className="text-xs text-text-primary font-semibold">
+                    Update downloaded
+                  </p>
+                  <p className="text-[10px] text-text-muted text-center">
+                    Clypra will save your project, close the active session, and
+                    restart only when you choose to apply it.
+                  </p>
                   <div className="flex gap-2 w-full">
-                    <button onClick={() => void applyUpdate()} className="flex-1 py-2 bg-linear-to-r from-accent to-violet-500 hover:from-accent-hover hover:to-violet-600 text-white rounded-xl text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-[0.98]">
+                    <button
+                      onClick={() => void applyUpdate()}
+                      className="flex-1 py-2 bg-linear-to-r from-accent to-violet-500 hover:from-accent-hover hover:to-violet-600 text-white rounded-xl text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-[0.98]"
+                    >
                       Restart and update
                     </button>
-                    <button onClick={later} className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-text-muted rounded-xl text-xs font-semibold cursor-pointer transition-all duration-200">
+                    <button
+                      onClick={later}
+                      className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-text-muted rounded-xl text-xs font-semibold cursor-pointer transition-all duration-200"
+                    >
                       Later
                     </button>
                   </div>
@@ -820,7 +1264,9 @@ function AboutTab() {
               {updateStatus === "applying" && (
                 <div className="flex flex-col items-center gap-3 py-2">
                   <div className="w-8 h-8 border-[3px] border-accent/20 border-t-accent rounded-full animate-spin"></div>
-                  <p className="text-xs text-text-muted">Saving project and preparing restart...</p>
+                  <p className="text-xs text-text-muted">
+                    Saving project and preparing restart...
+                  </p>
                 </div>
               )}
 
@@ -829,9 +1275,18 @@ function AboutTab() {
                   <div className="w-8 h-8 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center">
                     <span className="text-red-400 text-sm font-bold">!</span>
                   </div>
-                  <p className="text-xs text-red-400 font-medium">Update needs attention</p>
-                  <p className="text-[10px] text-text-muted max-w-65 leading-normal line-clamp-2">{updateError || "An unknown error occurred."}</p>
-                  <button onClick={() => void (updateInfo ? downloadUpdate() : handleCheckUpdate())} className="mt-1 flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-text-primary rounded-xl text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-95">
+                  <p className="text-xs text-red-400 font-medium">
+                    Update needs attention
+                  </p>
+                  <p className="text-[10px] text-text-muted max-w-65 leading-normal line-clamp-2">
+                    {updateError || "An unknown error occurred."}
+                  </p>
+                  <button
+                    onClick={() =>
+                      void (updateInfo ? downloadUpdate() : handleCheckUpdate())
+                    }
+                    className="mt-1 flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-text-primary rounded-xl text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-95"
+                  >
                     <RefreshCw className="w-3 h-3" />
                     {updateInfo ? "Retry download" : "Try Again"}
                   </button>
@@ -845,28 +1300,61 @@ function AboutTab() {
       {/* Support the Project card */}
       <div className="w-full max-w-85 bg-linear-to-b from-white/4 to-white/1 border border-white/10 rounded-2xl p-5 flex flex-col items-center gap-4 shadow-xl backdrop-blur-md">
         <div className="flex items-center gap-2 w-full justify-between pb-3 border-b border-white/5">
-          <span className="text-xs font-semibold text-text-primary tracking-wide uppercase">Support the Project</span>
-          <span className="text-[10px] text-text-muted">Free &amp; open-source ♥</span>
+          <span className="text-xs font-semibold text-text-primary tracking-wide uppercase">
+            Support the Project
+          </span>
+          <span className="text-[10px] text-text-muted">
+            Free &amp; open-source ♥
+          </span>
         </div>
-        <p className="text-[11px] text-text-muted text-center leading-relaxed">Clypra is built with love and released for free. If it saves you time, consider supporting its development.</p>
+        <p className="text-[11px] text-text-muted text-center leading-relaxed">
+          Clypra is built with love and released for free. If it saves you time,
+          consider supporting its development.
+        </p>
         <div className="flex flex-col gap-2.5 w-full">
           {/* GitHub Sponsors */}
-          <button onClick={() => openExternalUrl("https://github.com/sponsors/AIEraDev")} className="group flex items-center gap-3 w-full px-4 py-3 rounded-xl text-white text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-[0.98] shadow-md" style={{ background: "linear-gradient(135deg, #238636 0%, #1a6e2b 100%)" }}>
+          <button
+            onClick={() =>
+              openExternalUrl("https://github.com/sponsors/AIEraDev")
+            }
+            className="group flex items-center gap-3 w-full px-4 py-3 rounded-xl text-white text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-[0.98] shadow-md"
+            style={{
+              background: "linear-gradient(135deg, #238636 0%, #1a6e2b 100%)",
+            }}
+          >
             <GithubIcon className="w-4 h-4 shrink-0" />
             <span className="flex-1 text-left">GitHub Sponsors</span>
-            <span className="text-white/60 text-[10px] font-normal">Tiered</span>
+            <span className="text-white/60 text-[10px] font-normal">
+              Tiered
+            </span>
           </button>
           {/* Patreon */}
-          <button onClick={() => openExternalUrl("https://www.patreon.com/AIEraDev")} className="group flex items-center gap-3 w-full px-4 py-3 rounded-xl text-white text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-[0.98] shadow-md" style={{ background: "linear-gradient(135deg, #FF424D 0%, #e8374a 100%)" }}>
+          <button
+            onClick={() => openExternalUrl("https://www.patreon.com/AIEraDev")}
+            className="group flex items-center gap-3 w-full px-4 py-3 rounded-xl text-white text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-[0.98] shadow-md"
+            style={{
+              background: "linear-gradient(135deg, #FF424D 0%, #e8374a 100%)",
+            }}
+          >
             <PatreonIcon className="w-4 h-4 shrink-0" />
             <span className="flex-1 text-left">Support on Patreon</span>
-            <span className="text-white/60 text-[10px] font-normal">Monthly</span>
+            <span className="text-white/60 text-[10px] font-normal">
+              Monthly
+            </span>
           </button>
           {/* Buy Me a Coffee */}
-          <button onClick={() => openExternalUrl("https://buymeacoffee.com/AIEraDev")} className="group flex items-center gap-3 w-full px-4 py-3 rounded-xl text-surface text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-[0.98] shadow-md" style={{ background: "linear-gradient(135deg, #FFDD00 0%, #f5c800 100%)" }}>
+          <button
+            onClick={() => openExternalUrl("https://buymeacoffee.com/AIEraDev")}
+            className="group flex items-center gap-3 w-full px-4 py-3 rounded-xl text-surface text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-[0.98] shadow-md"
+            style={{
+              background: "linear-gradient(135deg, #FFDD00 0%, #f5c800 100%)",
+            }}
+          >
             <BuyMeCoffeeIcon className="w-4 h-4 shrink-0" />
             <span className="flex-1 text-left">Buy Me a Coffee</span>
-            <span className="text-surface/50 text-[10px] font-normal">One-time</span>
+            <span className="text-surface/50 text-[10px] font-normal">
+              One-time
+            </span>
           </button>
         </div>
       </div>
@@ -875,19 +1363,31 @@ function AboutTab() {
       <div className="w-full max-w-85 bg-white/2 border border-white/8 rounded-xl p-3 flex flex-col gap-1.5">
         <div className="flex items-center justify-between text-[11px] font-semibold text-text-primary">
           <span>Stickers &amp; Media Credits</span>
-          <span className="text-[9px] text-text-muted font-normal">CC BY 4.0 &bull; CC0</span>
+          <span className="text-[9px] text-text-muted font-normal">
+            CC BY 4.0 &bull; CC0
+          </span>
         </div>
         <p className="text-[10px] text-text-muted leading-relaxed">
-          Animated emojis by <span className="text-gray-300 font-medium">Google Noto Emoji</span> under CC BY 4.0. Vector shapes by <span className="text-gray-300 font-medium">Kenney</span> under CC0 1.0.
+          Animated emojis by{" "}
+          <span className="text-gray-300 font-medium">Google Noto Emoji</span>{" "}
+          under CC BY 4.0. Vector shapes by{" "}
+          <span className="text-gray-300 font-medium">Kenney</span> under CC0
+          1.0.
         </p>
       </div>
 
       <div className="flex items-center gap-4 mt-2">
-        <button onClick={() => openExternalUrl("https://github.com/AIEraDev/clypra")} className="text-xs font-medium text-text-muted hover:text-accent transition-colors flex items-center gap-1.5">
+        <button
+          onClick={() => openExternalUrl("https://github.com/AIEraDev/clypra")}
+          className="text-xs font-medium text-text-muted hover:text-accent transition-colors flex items-center gap-1.5"
+        >
           <GithubIcon className="w-3.5 h-3.5" />
           GitHub
         </button>
-        <button onClick={() => openExternalUrl("https://x.com/AIEraDev")} className="text-xs font-medium text-text-muted hover:text-accent transition-colors flex items-center gap-1.5">
+        <button
+          onClick={() => openExternalUrl("https://x.com/AIEraDev")}
+          className="text-xs font-medium text-text-muted hover:text-accent transition-colors flex items-center gap-1.5"
+        >
           <XIcon className="w-3.5 h-3.5" />
           @AIEraDev
         </button>
@@ -902,7 +1402,11 @@ function AboutTab() {
           <span>FFmpeg (GPL)</span>
         </div>
         <button
-          onClick={() => openExternalUrl("https://github.com/AIEraDev/clypra/blob/main/THIRD_PARTY_LICENSES.md")}
+          onClick={() =>
+            openExternalUrl(
+              "https://github.com/AIEraDev/clypra/blob/main/THIRD_PARTY_LICENSES.md",
+            )
+          }
           className="hover:text-accent underline transition-colors cursor-pointer"
         >
           Third-Party Licenses
@@ -913,7 +1417,10 @@ function AboutTab() {
 }
 
 // ─── Main Settings Modal ─────────────────────────────────────────────────
-export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
+export const SettingsModal: React.FC<SettingsModalProps> = ({
+  isOpen,
+  onClose,
+}) => {
   const [activeTab, setActiveTab] = useState<Tab>("appearance");
   const { t } = useI18n();
 
@@ -942,7 +1449,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   });
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={t("settings.modal.title")} size="lg">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={t("settings.modal.title")}
+      size="lg"
+    >
       <div className="flex flex-col h-full md:flex-row overflow-hidden min-h-0">
         {/* Sidebar — fixed width, non-scrolling */}
         <aside className="w-full md:w-56 border-b md:border-b-0 md:border-r border-white/6 p-2 flex flex-row md:flex-col gap-1 overflow-x-auto md:overflow-x-hidden shrink-0">
@@ -970,13 +1482,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         <main className="flex-1 p-5 overflow-y-auto scrollbar-thin min-w-0">
           {activeTab === "appearance" && <AppearanceTab />}
           {activeTab === "editor" && <EditorTab />}
-          {activeTab === "shortcuts" && !platform.isCapacitor() && <KeyboardShortcutsSettings />}
+          {activeTab === "shortcuts" && !platform.isCapacitor() && (
+            <KeyboardShortcutsSettings />
+          )}
           {activeTab === "captions" &&
             (platform.isCapacitor() ? (
               <div className="flex flex-col items-center justify-center p-8 text-center h-75">
                 <Captions className="w-12 h-12 text-accent/60 mb-4" />
-                <h3 className="text-base font-semibold text-text-primary mb-2">Local Auto-Captions</h3>
-                <p className="text-xs text-text-muted max-w-[320px] leading-relaxed">Local speech-to-text model downloading and transcription are currently desktop-only features due to system resource requirements.</p>
+                <h3 className="text-base font-semibold text-text-primary mb-2">
+                  Local Auto-Captions
+                </h3>
+                <p className="text-xs text-text-muted max-w-[320px] leading-relaxed">
+                  Local speech-to-text model downloading and transcription are
+                  currently desktop-only features due to system resource
+                  requirements.
+                </p>
               </div>
             ) : (
               <WhisperSettings />

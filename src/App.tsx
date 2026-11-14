@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/Tooltip";
 import { useProjectStore } from "@/store/projectStore";
 import { useUIStore } from "@/store/uiStore";
 import type { Project, AspectRatio } from "@/types";
+import type { FrameRate } from "@/store/settingsTypes";
 import { validateAndMigrateProjectPayload } from "@/types/serialization";
 import type { RecentProjectEntry } from "@/core/platform/platform";
 import { generateId } from "@/lib/utils/id";
@@ -411,7 +412,7 @@ const App = () => {
   const handleCreateProject = (
     name: string,
     aspectRatio: AspectRatio,
-    frameRate: 24 | 30 | 60,
+    frameRate: FrameRate,
     initialClipPaths?: string[],
     recordingMetadata?: { cameraOffsetSeconds?: number },
   ) => {

@@ -52,6 +52,7 @@ import {
   resolveTextEffectDefinition,
 } from "@/lib/text/textClip";
 import { useSettingsStore } from "./settingsStore";
+import type { FrameRate } from "./settingsTypes";
 import {
   saveSnapshot,
   clearSnapshot,
@@ -107,7 +108,7 @@ interface ProjectStore {
   createProject: (
     name: string,
     aspectRatio: string,
-    frameRate: 24 | 30 | 60,
+    frameRate: FrameRate,
     initialTimeline?: {
       tracks?: any[];
       clips?: any[];
@@ -153,7 +154,10 @@ interface ProjectStore {
   updateProject: (updates: Partial<Project>) => void;
   setProjectThumbnail: (thumbnail: string) => void;
   addCreatorThumbnail: (thumbnail: CreatorThumbnail) => void;
-  updateCreatorThumbnail: (id: string, patch: Partial<CreatorThumbnail>) => void;
+  updateCreatorThumbnail: (
+    id: string,
+    patch: Partial<CreatorThumbnail>,
+  ) => void;
   removeCreatorThumbnail: (id: string) => void;
   setRecentProjects: (projects: RecentProjectEntry[]) => void;
   renameProject: (projectId: string, newName: string) => Promise<void>;
@@ -226,9 +230,10 @@ export const normalizeMediaAsset = (asset: MediaAsset): MediaAsset => {
     }
   }
 
-  const isImageExt = /\.(jpg|jpeg|png|gif|webp|bmp|svg|tiff|heic|heif|avif)$/i.test(
-    asset.name || normalizedPath || "",
-  );
+  const isImageExt =
+    /\.(jpg|jpeg|png|gif|webp|bmp|svg|tiff|heic|heif|avif)$/i.test(
+      asset.name || normalizedPath || "",
+    );
 
   if (isImageExt && asset.type !== "image") {
     return {
@@ -368,11 +373,15 @@ async function persistCurrentProjectSnapshot(
   snapshot: ProjectPersistenceSnapshot,
 ): Promise<ProjectSaveResult> {
   const startMs = performance.now();
-  const { getProjectWorkerClient } = await import("@/core/workers/projectWorkerClient");
-  const serialized = await getProjectWorkerClient().serialize(snapshot.rustProject as any);
+  const { getProjectWorkerClient } =
+    await import("@/core/workers/projectWorkerClient");
+  const serialized = await getProjectWorkerClient().serialize(
+    snapshot.rustProject as any,
+  );
   const result = await persistProjectPayload(serialized.json);
   const totalSaveMs = performance.now() - startMs;
-  const { workerPerfCollector } = await import("@/core/monitoring/WorkerPerfCollector");
+  const { workerPerfCollector } =
+    await import("@/core/monitoring/WorkerPerfCollector");
   workerPerfCollector.record({
     domain: "project:autosave",
     operation: "persistCurrentProjectSnapshot",
@@ -877,20 +886,25 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         const endMs = performance.now();
         const durationUs = Math.round((endMs - startMs) * 1000);
         try {
-          performance.measure(`clypra:${stage}`, { start: startMs, end: endMs });
+          performance.measure(`clypra:${stage}`, {
+            start: startMs,
+            end: endMs,
+          });
         } catch (_) {}
         try {
-          void import("@/lib/platform/tauri").then(({ recordColdStartSpan }) => {
-            void recordColdStartSpan(
-              stage,
-              Math.round(startMs * 1000),
-              durationUs,
-              durationUs,
-              false,
-              true,
-              "hydrate",
-            );
-          });
+          void import("@/lib/platform/tauri").then(
+            ({ recordColdStartSpan }) => {
+              void recordColdStartSpan(
+                stage,
+                Math.round(startMs * 1000),
+                durationUs,
+                durationUs,
+                false,
+                true,
+                "hydrate",
+              );
+            },
+          );
         } catch (_) {}
       };
 
@@ -939,14 +953,17 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         // the stale patches file so it cannot bleed into a subsequent session.
         let effectivePayload = payload;
         try {
-          const { getProjectWorkerClient } = await import("@/core/workers/projectWorkerClient");
+          const { getProjectWorkerClient } =
+            await import("@/core/workers/projectWorkerClient");
           const opfsPatchFile = `${project.id}.patches.json`;
 
           if (payload?.skipOpfsPatches) {
             // Crash-recovery path: snapshot already up-to-date; patches must NOT
             // be replayed.  Clear the file immediately so the next auto-save cycle
             // starts from a clean baseline.
-            console.log(`[ProjectStore] Skipping OPFS patch replay for crash-recovery restore of project ${project.id}`);
+            console.log(
+              `[ProjectStore] Skipping OPFS patch replay for crash-recovery restore of project ${project.id}`,
+            );
             try {
               await getProjectWorkerClient().clearOpfs(opfsPatchFile);
             } catch {
@@ -955,13 +972,17 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           } else {
             // Normal project-open path: replay any accumulated delta patches.
             try {
-              const { applyJsonPatch } = await import("@/core/storage/jsonPatch");
-              const patchesRaw = await getProjectWorkerClient().readOpfs(opfsPatchFile);
+              const { applyJsonPatch } =
+                await import("@/core/storage/jsonPatch");
+              const patchesRaw =
+                await getProjectWorkerClient().readOpfs(opfsPatchFile);
               if (patchesRaw) {
                 const patches = JSON.parse(patchesRaw);
                 if (Array.isArray(patches) && patches.length > 0) {
                   effectivePayload = applyJsonPatch(payload, patches);
-                  console.log(`[ProjectStore] Replayed ${patches.length} OPFS auto-save patches for project ${project.id}`);
+                  console.log(
+                    `[ProjectStore] Replayed ${patches.length} OPFS auto-save patches for project ${project.id}`,
+                  );
                 }
               }
               // Clear patches after a successful normal load so a future crash
@@ -972,11 +993,17 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
                 // Non-fatal.
               }
             } catch (opfsErr) {
-              console.warn("[ProjectStore] Failed to replay OPFS patches on load:", opfsErr);
+              console.warn(
+                "[ProjectStore] Failed to replay OPFS patches on load:",
+                opfsErr,
+              );
             }
           }
         } catch (workerErr) {
-          console.warn("[ProjectStore] OPFS worker unavailable during load:", workerErr);
+          console.warn(
+            "[ProjectStore] OPFS worker unavailable during load:",
+            workerErr,
+          );
         }
 
         lastPersistedSnapshot = null;
@@ -1001,7 +1028,8 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
             ) ||
             normalizedAssets.find(
               (a) =>
-                a.type === "video" && a.streams?.some((s) => s.type === "video"),
+                a.type === "video" &&
+                a.streams?.some((s) => s.type === "video"),
             );
           const videoStream = videoAsset?.streams?.find(
             (s) => s.type === "video",
@@ -1300,17 +1328,23 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
     // Eagerly probe streams in background if not already known
     if (asset.type === "video" && asset.path && !asset.streams) {
-      void import("@/lib/platform/tauri").then(({ isTauriRuntime, probeMediaStreams }) => {
-        if (isTauriRuntime()) {
-          void probeMediaStreams(asset.path)
-            .then((streams) => {
-              get().updateMediaAsset(asset.id, { streams });
-            })
-            .catch((err) => {
-              console.warn("[projectStore] Background stream probe failed for:", asset.path, err);
-            });
-        }
-      });
+      void import("@/lib/platform/tauri").then(
+        ({ isTauriRuntime, probeMediaStreams }) => {
+          if (isTauriRuntime()) {
+            void probeMediaStreams(asset.path)
+              .then((streams) => {
+                get().updateMediaAsset(asset.id, { streams });
+              })
+              .catch((err) => {
+                console.warn(
+                  "[projectStore] Background stream probe failed for:",
+                  asset.path,
+                  err,
+                );
+              });
+          }
+        },
+      );
     }
   },
 
@@ -1903,8 +1937,11 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       lastPersistedProjectId = snapshot.project.id;
       accumulatedOpfsPatches = [];
       try {
-        const { getProjectWorkerClient } = await import("@/core/workers/projectWorkerClient");
-        void getProjectWorkerClient().clearOpfs(`${snapshot.project.id}.patches.json`);
+        const { getProjectWorkerClient } =
+          await import("@/core/workers/projectWorkerClient");
+        void getProjectWorkerClient().clearOpfs(
+          `${snapshot.project.id}.patches.json`,
+        );
       } catch {}
       set({ isDirty: false });
     }
@@ -1948,16 +1985,23 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         const snapshot = await captureCurrentProjectSnapshot();
         if (!snapshot || snapshot.project.id !== scheduledProjectId) return;
 
-        const { getProjectWorkerClient } = await import("@/core/workers/projectWorkerClient");
+        const { getProjectWorkerClient } =
+          await import("@/core/workers/projectWorkerClient");
         const client = getProjectWorkerClient();
 
         // ── Fast-path: OPFS Patch Delta Auto-Save ──────────────────────────
         // If we have a baseline snapshot from this project session, compute RFC 6902
         // delta patches and write them off-thread to OPFS. Bypasses multi-megabyte
         // IPC JSON serialization and disk writes entirely.
-        if (lastPersistedSnapshot && lastPersistedProjectId === scheduledProjectId) {
+        if (
+          lastPersistedSnapshot &&
+          lastPersistedProjectId === scheduledProjectId
+        ) {
           try {
-            const diffResult = await client.diff(lastPersistedSnapshot, snapshot.rustProject as any);
+            const diffResult = await client.diff(
+              lastPersistedSnapshot,
+              snapshot.rustProject as any,
+            );
             if (diffResult.patch.length === 0) {
               // Timeline state is identical to last persisted checkpoint — nothing to write
               set({ isDirty: false });
@@ -1982,7 +2026,10 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
               return;
             }
           } catch (diffError) {
-            console.warn("[ProjectStore] OPFS delta diff failed, falling back to full save:", diffError);
+            console.warn(
+              "[ProjectStore] OPFS delta diff failed, falling back to full save:",
+              diffError,
+            );
           }
         }
 

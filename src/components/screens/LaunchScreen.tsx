@@ -25,6 +25,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useProjectStore } from "@/store/projectStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import type { AspectRatio, MediaAsset, Project } from "@/types";
+import type { FrameRate } from "@/store/settingsTypes";
 import type { RecentProjectEntry } from "@/core/platform/platform";
 import {
   getProjectThumbnail,
@@ -43,7 +44,7 @@ interface LaunchScreenProps {
   onProjectCreate: (
     name: string,
     aspectRatio: AspectRatio,
-    frameRate: 24 | 30 | 60,
+    frameRate: FrameRate,
     initialClipPaths?: string[],
   ) => void;
   onProjectOpen: (project: RecentProjectEntry) => void;
