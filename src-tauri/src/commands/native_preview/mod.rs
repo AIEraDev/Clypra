@@ -1064,6 +1064,17 @@ pub(crate) async fn render_frame_request_rgba(
     app: &tauri::AppHandle,
     request: &FrameRequest,
 ) -> Result<Vec<u8>, String> {
+    let state = app
+        .try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
+        .ok_or_else(|| "Native preview GPU session is unavailable".to_string())?;
+    render_frame_request_rgba_with_session(app, &state, request).await
+}
+
+pub(crate) async fn render_frame_request_rgba_with_session(
+    app: &tauri::AppHandle,
+    session_lock: &Arc<tokio::sync::Mutex<NativePreviewSession>>,
+    request: &FrameRequest,
+) -> Result<Vec<u8>, String> {
     if request.contract_version != NATIVE_CORE_CONTRACT_VERSION {
         return Err(format!(
             "Unsupported native core contract version: {}",
@@ -1071,8 +1082,12 @@ pub(crate) async fn render_frame_request_rgba(
         ));
     }
     let legacy_request = to_video_project_request(request)?;
-    let (rgba, _timings) =
-        render_native_video_project_frame_bytes_timed(app.clone(), legacy_request).await?;
+    let (rgba, _timings) = render_native_video_project_frame_bytes_timed_with_session(
+        app.clone(),
+        session_lock.clone(),
+        legacy_request,
+    )
+    .await?;
     Ok(rgba)
 }
 
@@ -1080,11 +1095,25 @@ async fn render_native_video_project_frame_bytes_timed(
     app: tauri::AppHandle,
     request: NativeVideoProjectFrameRequest,
 ) -> Result<(Vec<u8>, NativeRenderStageTimings), String> {
+    let session = app
+        .try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
+        .map(|s| s.inner().clone())
+        .ok_or_else(|| "Native preview GPU session is unavailable".to_string())?;
+    render_native_video_project_frame_bytes_timed_with_session(
+        app,
+        session,
+        request,
+    )
+    .await
+}
+
+async fn render_native_video_project_frame_bytes_timed_with_session(
+    app: tauri::AppHandle,
+    state: Arc<tokio::sync::Mutex<NativePreviewSession>>,
+    request: NativeVideoProjectFrameRequest,
+) -> Result<(Vec<u8>, NativeRenderStageTimings), String> {
     validate_video_project_request(&request)?;
 
-    let state = app
-        .try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
-        .ok_or_else(|| "Native preview GPU session is unavailable".to_string())?;
     let lut_cache = app
         .try_state::<Arc<LutCache>>()
         .map(|state| state.inner().clone());

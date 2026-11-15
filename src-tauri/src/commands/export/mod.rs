@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::process::Stdio;
 use std::sync::Arc;
 use tauri::ipc::{Channel, InvokeBody, Request};
+use tauri::Manager;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 
@@ -23,11 +24,23 @@ pub use types::*;
 /// Returns a session ID that can be used to write frames and finalize.
 #[tauri::command]
 pub async fn start_video_export(
+    app: tauri::AppHandle,
     config: ExportConfig,
     on_progress: Channel<ExportProgress>,
 ) -> Result<String, String> {
     // Validate export parameters
     validate_compositor_export_config(&config)?;
+
+    // Create dedicated offscreen composition session for this export, isolating
+    // it from the interactive preview session so that export frame rendering does
+    // not contend for the preview mutex lock.
+    let export_preview_session = app
+        .try_state::<Arc<crate::wgpu_compositor::GpuContext>>()
+        .map(|gpu_ctx| {
+            Arc::new(tokio::sync::Mutex::new(
+                crate::wgpu_compositor::NativePreviewSession::new(gpu_ctx.inner().clone()),
+            ))
+        });
 
     // Generate session ID
     let session_id = uuid::Uuid::new_v4().to_string();
@@ -173,6 +186,7 @@ pub async fn start_video_export(
         last_perf_log_time: std::time::Instant::now(),
         last_composited_frame: None,
         source_eof_fallback_frames: 0,
+        preview_session: export_preview_session,
     };
 
     // Store session wrapped in Arc<Mutex<ExportSession>>
@@ -522,16 +536,30 @@ pub async fn render_and_write_export_frame(
     session_id: String,
     request: clypra_native_core::FrameRequest,
 ) -> Result<(), String> {
-    let session_arc = {
+    let (session_arc, export_preview_session) = {
         let sessions = EXPORT_SESSIONS.lock().await;
-        sessions
+        let s = sessions
             .get(&session_id)
             .cloned()
-            .ok_or_else(|| format!("Export session not found: {}", session_id))?
+            .ok_or_else(|| format!("Export session not found: {}", session_id))?;
+        let ps = s.lock().await.preview_session.clone();
+        (s, ps)
     };
 
     let (rgba, used_source_eof_fallback) =
-        match crate::commands::native_preview::render_frame_request_rgba(&app, &request).await {
+        match match &export_preview_session {
+            Some(session_lock) => {
+                crate::commands::native_preview::render_frame_request_rgba_with_session(
+                    &app,
+                    session_lock,
+                    &request,
+                )
+                .await
+            }
+            None => {
+                crate::commands::native_preview::render_frame_request_rgba(&app, &request).await
+            }
+        } {
             Ok(rgba) => (Arc::<[u8]>::from(rgba), false),
             Err(error) if is_terminal_source_eof_error(&error) => {
                 // A demuxer/container duration can extend just past the final decodable
@@ -648,17 +676,31 @@ pub async fn render_and_write_export_frames_batch(
         return Ok(());
     }
 
-    let session_arc = {
+    let (session_arc, export_preview_session) = {
         let sessions = EXPORT_SESSIONS.lock().await;
-        sessions
+        let s = sessions
             .get(&session_id)
             .cloned()
-            .ok_or_else(|| format!("Export session not found: {}", session_id))?
+            .ok_or_else(|| format!("Export session not found: {}", session_id))?;
+        let ps = s.lock().await.preview_session.clone();
+        (s, ps)
     };
 
     let mut rendered_frames = Vec::with_capacity(requests.len());
     for req in &requests {
-        let rgba = crate::commands::native_preview::render_frame_request_rgba(&app, req).await?;
+        let rgba = match &export_preview_session {
+            Some(session_lock) => {
+                crate::commands::native_preview::render_frame_request_rgba_with_session(
+                    &app,
+                    session_lock,
+                    req,
+                )
+                .await?
+            }
+            None => {
+                crate::commands::native_preview::render_frame_request_rgba(&app, req).await?
+            }
+        };
         rendered_frames.push(rgba);
     }
 

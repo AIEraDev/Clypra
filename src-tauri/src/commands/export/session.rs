@@ -48,6 +48,11 @@ pub(crate) struct ExportSession {
     /// mismatch on the final source frame cannot discard the whole file.
     pub(crate) last_composited_frame: Option<Arc<[u8]>>,
     pub(crate) source_eof_fallback_frames: u32,
+
+    /// Dedicated offscreen preview/composition session for this export,
+    /// isolating export frame rendering from the interactive preview session
+    /// to eliminate mutex lock contention.
+    pub(crate) preview_session: Option<Arc<tokio::sync::Mutex<crate::wgpu_compositor::NativePreviewSession>>>,
 }
 
 /// Type alias for the shared export session map.
