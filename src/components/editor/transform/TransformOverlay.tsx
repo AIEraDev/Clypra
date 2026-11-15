@@ -57,7 +57,7 @@ import type {
 } from "@/types";
 import { ContextMenu } from "@/components/ui/ContextMenu";
 import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
-import { forceRepaintNativeProgramPreview } from "@/components/editor/preview/NativeProgramPreview";
+import { forceRepaintNativeProgramPreview } from "@/core/preview/previewRepaintCoordinator";
 import {
   getActiveProgramPreviewPresenter,
   subscribeToActiveProgramPreviewPresenter,

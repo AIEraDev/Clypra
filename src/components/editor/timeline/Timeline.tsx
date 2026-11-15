@@ -21,7 +21,7 @@ import {
   getTimelineCanvasDuration,
 } from "@/lib/timeline/timelineClip";
 import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
-import { forceRepaintNativeProgramPreview } from "@/components/editor/preview/NativeProgramPreview";
+import { forceRepaintNativeProgramPreview } from "@/core/preview/previewRepaintCoordinator";
 import {
   useTimelineDrag,
   useTimelineTauriDrop,

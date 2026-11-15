@@ -19,6 +19,13 @@ vi.mock("@/core/runtime/nativeSurfaceLifecycle", () => ({
 
 // Mock forceRepaintNativeProgramPreview
 const mockForceRepaint = vi.fn();
+vi.mock("@/core/preview/previewRepaintCoordinator", () => ({
+  requestPreviewRepaint: () => mockForceRepaint(),
+  forceRepaintNativeProgramPreview: () => mockForceRepaint(),
+  registerPreviewRepaintHandler: () => () => {},
+  isPreviewRepaintPending: () => false,
+  resetPreviewRepaintCoordinator: () => {},
+}));
 vi.mock("@/components/editor/preview/NativeProgramPreview", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/components/editor/preview/NativeProgramPreview")>();
   return {
