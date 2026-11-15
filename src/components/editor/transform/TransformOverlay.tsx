@@ -26,6 +26,7 @@ import {
   getPreviewInteractionCoordinator,
   getTransformController,
   createLatestFrameQueue,
+  type ActiveSnapGuides,
   type DragGeometry,
   type PreviewInteractionToken,
 } from "@/core/interactions";
@@ -1440,7 +1441,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         ...(selectedClip.conform
           ? { conform: { ...selectedClip.conform } }
           : {}),
-      });
+      }, null);
     },
     [
       selectedClip,
@@ -2009,6 +2010,20 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         nextWidth / Math.max(1, currentTransform.startTransform.width);
       const visualScaleY =
         nextHeight / Math.max(1, currentTransform.startTransform.height);
+      const activeGuides: ActiveSnapGuides = {
+        snappedX: snappedXRef.current,
+        snappedY: snappedYRef.current,
+        snappedLeft: snappedLeftRef.current,
+        snappedRight: snappedRightRef.current,
+        snappedTop: snappedTopRef.current,
+        snappedBottom: snappedBottomRef.current,
+        snapGuideX: snapGuideXRef.current,
+        snapGuideY: snapGuideYRef.current,
+        rotationDegrees:
+          currentTransform.handle === "rotate"
+            ? Math.round(newTransform.rotation ?? startClip.rotation ?? 0)
+            : null,
+      };
       transformController.updateDragGeometry({
         x: nextX,
         y: nextY,
@@ -2045,7 +2060,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
               conform: newTransform.conform,
             }
           : {}),
-      });
+      }, activeGuides);
     },
     [
       isDragging,
@@ -2104,6 +2119,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
     snapGuideYRef.current = null;
     snapClipXOffsetRef.current = 0;
     snapClipYOffsetRef.current = 0;
+    transformController.setActiveGuides(null);
     if (dragCursorRef.current) {
       const cursorClass = getCursorClass(dragCursorRef.current);
       if (cursorClass) {

@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [1.6.5] - 2026-11-15
+
+### 🚀 Full Native Preview Transform & Editing Overlay
+
+- **Authoritative Native Overlay Composition (`nativeEditorOverlay.ts`, `NativeProgramPreview.tsx`)** — Implemented the full native GPU editor overlay pipeline, allowing the Metal/DirectX preview surface to remain authoritative during clip selection, dragging, resizing, and rotation without dropping to the DOM/canvas bridge.
+- **Transform Overlay Design System Parity (`TransformOverlay.tsx`, `nativeEditorOverlay.ts`)** — Matched Clypra's canonical transform styling:
+  - 1px crisp `#ffffff` bounding box with subtle drop shadow (`boxShadow: 0 2px 4px rgba(0, 0, 0, 0.15)`).
+  - 4 white 10px circular corner handles with subtle dark border (`rgba(0, 0, 0, 0.25)`).
+  - 20px white circular rotation button positioned 32px below the bottom edge with a curved rotation arrow icon.
+  - Scale-invariant screen sizing via `invScale = 1 / previewScale` so controls retain constant physical size across zooms and window resizing.
+- **Horizontal & Vertical Alignment Guides & Snap Feedback (`TransformController.ts`, `TransformOverlay.tsx`)** — Integrated live snap guide feedback into the native GPU swapchain:
+  - Vertical center guide line (`x = canvasWidth / 2`) and horizontal center guide line (`y = canvasHeight / 2`) with glowing white drop shadow when snapped to center.
+  - Canvas edge alignment guides (left, right, top, bottom) and clip-to-clip alignment lines.
+  - Live rotation degree indicator pill (`XX°`) centered at the top of the preview when rotating.
+- **Double-Downscaling & Handle Clipping Resolution (`NativeProgramPreview.tsx`, `layer_models.rs`)** — Fixed right and bottom handles disappearing when text was the only clip on the timeline or under high scaling. Bound native raster overlay dimensions strictly to `projectCanvasWidth` (1920) and `projectCanvasHeight` (1080), eliminating double-downscaling in Rust's projection matrix.
+- **macOS Native Surface Pointer Pass-Through (`config.rs`, `runtime.rs`)** — Enabled `setIgnoresMouseEvents: true` on the macOS child `NSWindow` via AppKit main-thread dispatch, allowing pointer gestures (clicks, drags, box-selection) to pass through to the WebView interaction layer underneath.
+- **Modal Layering & Native Surface Auto-Hiding (`Modal.tsx`, `uiStore.ts`, `TopBar.tsx`, `pausedNativeSurfaceEligibility.ts`)** — Resolved Settings, Transfer, New Project, and Export modals being visually obscured by the native OS child window. Added automatic native surface hiding while any modal is open, seamlessly falling back to canvas bridge and instantly restoring the native surface upon modal closure.
+
+### ⚡ WGPU Compositor Staging Ring Buffer & QoS Pipeline
+
+- **Zero-Allocation GPU Readback Staging Ring (`multi_track_composer.rs`)** — Replaced per-frame staging buffer allocations with a persistent double-buffered staging ring, reducing GPU memory churn and frame latency during preview readbacks.
+- **QoS Bottleneck Diagnostics (`controller.rs`, `metrics.rs`, `types.rs`)** — Added telemetry and degradation policies for Readback, IPC Wait, Presentation, and AV Drift deadline pressure tiers.
+
+
 ## [1.6.2] - 2026-11-12
 
 ### 🔧 Telemetry System Fixes

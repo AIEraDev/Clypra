@@ -128,6 +128,10 @@ impl NativeSurfaceRuntime {
                                 addChildWindow: ns_win as *mut objc2::runtime::AnyObject,
                                 ordered: 1isize // NSWindowAbove = 1
                             ];
+                            let _: () = objc2::msg_send![
+                                ns_win as *mut objc2::runtime::AnyObject,
+                                setIgnoresMouseEvents: true
+                            ];
                         }
                     }
                 }

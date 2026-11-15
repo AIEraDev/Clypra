@@ -14,6 +14,10 @@ pub struct PerformanceSnapshot {
     pub decode_us: u64,
     pub render_cpu_us: u64,
     pub render_gpu_us: u64,
+    pub readback_us: u64,
+    pub ipc_wait_us: u64,
+    pub submit_present_us: u64,
+    pub av_drift_ms: f32,
     pub effect_timings: HashMap<String, u64>,
     pub decode_queue_depth: usize,
     pub ready_queue_depth: usize,
@@ -29,6 +33,10 @@ impl Default for PerformanceSnapshot {
             decode_us: 0,
             render_cpu_us: 0,
             render_gpu_us: 0,
+            readback_us: 0,
+            ipc_wait_us: 0,
+            submit_present_us: 0,
+            av_drift_ms: 0.0,
             effect_timings: HashMap::new(),
             decode_queue_depth: 0,
             ready_queue_depth: 4,
@@ -105,6 +113,42 @@ impl PerformanceWindow {
         sum / self.snapshots.len() as u64
     }
 
+    /// Mean GPU-to-CPU readback latency in microseconds.
+    pub fn mean_readback_us(&self) -> u64 {
+        if self.snapshots.is_empty() {
+            return 0;
+        }
+        let sum: u64 = self.snapshots.iter().map(|s| s.readback_us).sum();
+        sum / self.snapshots.len() as u64
+    }
+
+    /// Mean IPC queue wait latency in microseconds.
+    pub fn mean_ipc_wait_us(&self) -> u64 {
+        if self.snapshots.is_empty() {
+            return 0;
+        }
+        let sum: u64 = self.snapshots.iter().map(|s| s.ipc_wait_us).sum();
+        sum / self.snapshots.len() as u64
+    }
+
+    /// Mean presentation / swapchain latency in microseconds.
+    pub fn mean_submit_present_us(&self) -> u64 {
+        if self.snapshots.is_empty() {
+            return 0;
+        }
+        let sum: u64 = self.snapshots.iter().map(|s| s.submit_present_us).sum();
+        sum / self.snapshots.len() as u64
+    }
+
+    /// Mean absolute audio/video drift in milliseconds.
+    pub fn mean_abs_av_drift_ms(&self) -> f32 {
+        if self.snapshots.is_empty() {
+            return 0.0;
+        }
+        let sum: f32 = self.snapshots.iter().map(|s| s.av_drift_ms.abs()).sum();
+        sum / self.snapshots.len() as f32
+    }
+
     /// Mean ready queue depth (available pre-decoded frames).
     pub fn mean_ready_queue_depth(&self) -> f32 {
         if self.snapshots.is_empty() {
@@ -170,6 +214,10 @@ impl PerformanceWindow {
 
         let mean_decode = self.mean_decode_us();
         let mean_gpu = self.mean_render_gpu_us();
+        let mean_readback = self.mean_readback_us();
+        let mean_ipc = self.mean_ipc_wait_us();
+        let mean_present = self.mean_submit_present_us();
+        let mean_drift = self.mean_abs_av_drift_ms();
         let miss_ratio = self.deadline_miss_ratio();
         let ready_depth = self.mean_ready_queue_depth();
         let pool_util = self.peak_pool_utilization();
@@ -212,16 +260,65 @@ impl PerformanceWindow {
             return (Bottleneck::RenderGpu, conf);
         }
 
-        // 4b. High Deadline Miss Fallback
-        // Misses without a near-budget stage are not actionable evidence for
-        // a quality downgrade (they can be caused by a blocked UI thread or a
-        // compositor wake-up). Do not mislabel them as decode starvation.
-        if miss_ratio >= 0.25 {
-            return (Bottleneck::None, 0.6);
+        // 5. Readback Bottleneck
+        // Staging buffer transfers or readback synchronous locks stall the presentation loop
+        if mean_readback > (budget * 4 / 10)
+            || (miss_ratio > 0.25 && mean_readback > (budget * 3 / 10))
+        {
+            let conf = (mean_readback as f32 / budget as f32).clamp(0.7, 1.0);
+            return (Bottleneck::Readback, conf);
         }
 
-        // 5. System Healthy
-        if miss_ratio < 0.05 && mean_decode < (budget * 7 / 10) && mean_gpu < (budget * 7 / 10) {
+        // 6. IPC Wait Bottleneck
+        // Frontend/backend IPC bridge or thread scheduling overhead exceeds budget
+        if mean_ipc > (budget * 4 / 10)
+            || (miss_ratio > 0.25 && mean_ipc > (budget * 3 / 10))
+        {
+            let conf = (mean_ipc as f32 / budget as f32).clamp(0.7, 1.0);
+            return (Bottleneck::IpcWait, conf);
+        }
+
+        // 7. Swapchain Presentation Bottleneck
+        if mean_present > (budget * 4 / 10)
+            || (miss_ratio > 0.25 && mean_present > (budget * 3 / 10))
+        {
+            let conf = (mean_present as f32 / budget as f32).clamp(0.7, 1.0);
+            return (Bottleneck::Presentation, conf);
+        }
+
+        // 8. Audio/Video Clock Drift
+        if mean_drift > 100.0 {
+            let conf = (mean_drift / 200.0).clamp(0.75, 1.0);
+            return (Bottleneck::AudioVideoDrift, conf);
+        }
+
+        // 9. High Deadline Miss Fallback:
+        // Do NOT blindly return Bottleneck::None on high miss rates!
+        // Identify the dominant non-zero stage so the engine can mitigate it.
+        if miss_ratio >= 0.25 {
+            let stages = [
+                (Bottleneck::Decode, mean_decode),
+                (Bottleneck::RenderGpu, mean_gpu),
+                (Bottleneck::Readback, mean_readback),
+                (Bottleneck::IpcWait, mean_ipc),
+                (Bottleneck::Presentation, mean_present),
+            ];
+            if let Some((max_bottleneck, max_val)) = stages.into_iter().max_by_key(|(_, val)| *val) {
+                if max_val > 0 {
+                    return (max_bottleneck, 0.75);
+                }
+            }
+        }
+
+        // 10. System Healthy
+        if miss_ratio < 0.05
+            && mean_decode < (budget * 7 / 10)
+            && mean_gpu < (budget * 7 / 10)
+            && mean_readback < (budget * 3 / 10)
+            && mean_ipc < (budget * 3 / 10)
+            && mean_present < (budget * 3 / 10)
+            && mean_drift < 40.0
+        {
             return (Bottleneck::None, 0.95);
         }
 

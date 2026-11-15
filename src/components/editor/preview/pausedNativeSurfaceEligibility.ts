@@ -12,25 +12,41 @@ export interface PausedNativeSurfaceEligibilityInput {
   safeOverlayVisible: boolean;
   karaokeOverlayVisible: boolean;
   previewMenuOpen: boolean;
+  isAnyModalOpen?: boolean;
+  nativeOverlaySupported?: boolean;
 }
 
 /**
  * A paused native frame is safe only for a clean program monitor. This keeps
  * transform handles, captions, safe areas, and menus on the established
  * WebView/canvas route rather than allowing a child window to cover them.
+ *
+ * When `nativeOverlaySupported` is true, interactive selection boundaries,
+ * handles, and safe areas are composed natively on the GPU surface. In that
+ * mode, only menus/dialogs and unsupported overlays force the WebView fallback.
  */
 export function canPresentPausedFrameOnNativeSurface(
   input: PausedNativeSurfaceEligibilityInput,
 ): boolean {
+  if (
+    !input.surfaceUsable ||
+    input.qualificationForcesWebView ||
+    input.previewMenuOpen ||
+    input.isAnyModalOpen
+  ) {
+    return false;
+  }
+
+  if (input.nativeOverlaySupported) {
+    return !input.karaokeOverlayVisible;
+  }
+
   return (
-    input.surfaceUsable &&
-    !input.qualificationForcesWebView &&
     !input.hasSelectedClip &&
     !input.hasSelectedTransition &&
     !input.hasSelectedGap &&
     !input.safeOverlayVisible &&
-    !input.karaokeOverlayVisible &&
-    !input.previewMenuOpen
+    !input.karaokeOverlayVisible
   );
 }
 

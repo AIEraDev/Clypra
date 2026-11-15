@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import { X } from "lucide-react";
 import { useI18n } from "@/i18n/I18nProvider";
+import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
 
 export interface ModalProps {
   isOpen: boolean;
@@ -24,6 +25,12 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [isOpen, onClose]);
+
+  // Ensure native GPU preview surface is hidden while any modal is open
+  useEffect(() => {
+    if (!isOpen) return;
+    void hideNativeSurfaceWhenIdle().catch(() => undefined);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

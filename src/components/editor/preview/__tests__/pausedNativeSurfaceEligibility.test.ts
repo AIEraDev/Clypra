@@ -80,4 +80,52 @@ describe("paused native surface eligibility", () => {
       }),
     ).toBe(false);
   });
+
+  describe("when nativeOverlaySupported is enabled (Workstream A)", () => {
+    const nativeOverlayMonitor = {
+      ...cleanMonitor,
+      nativeOverlaySupported: true,
+    };
+
+    it.each([
+      "hasSelectedClip",
+      "hasSelectedTransition",
+      "hasSelectedGap",
+      "safeOverlayVisible",
+    ] as const)("remains on the native surface when %s is active", (field) => {
+      expect(
+        canPresentPausedFrameOnNativeSurface({
+          ...nativeOverlayMonitor,
+          [field]: true,
+        }),
+      ).toBe(true);
+    });
+
+    it.each([
+      "previewMenuOpen",
+      "karaokeOverlayVisible",
+    ] as const)("still falls back to canvas when %s is active", (field) => {
+      expect(
+        canPresentPausedFrameOnNativeSurface({
+          ...nativeOverlayMonitor,
+          [field]: true,
+        }),
+      ).toBe(false);
+    });
+
+    it("still enforces surfaceUsable and qualification boundaries", () => {
+      expect(
+        canPresentPausedFrameOnNativeSurface({
+          ...nativeOverlayMonitor,
+          surfaceUsable: false,
+        }),
+      ).toBe(false);
+      expect(
+        canPresentPausedFrameOnNativeSurface({
+          ...nativeOverlayMonitor,
+          qualificationForcesWebView: true,
+        }),
+      ).toBe(false);
+    });
+  });
 });

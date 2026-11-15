@@ -60,6 +60,10 @@ fn test_phase_i1_decode_bottleneck_triggers_proxy_not_render_quality() {
                 decode_us: 35_000,
                 render_cpu_us: 1_000,
                 render_gpu_us: 4_000,
+                readback_us: 0,
+                ipc_wait_us: 0,
+                submit_present_us: 0,
+                av_drift_ms: 0.0,
                 effect_timings: HashMap::new(),
                 decode_queue_depth: 8,
                 ready_queue_depth: 0, // Starved
@@ -117,6 +121,10 @@ fn test_phase_i2_gpu_bottleneck_triggers_render_quality_not_proxy() {
                 decode_us: 4_000,
                 render_cpu_us: 2_000,
                 render_gpu_us: 24_000,
+                readback_us: 0,
+                ipc_wait_us: 0,
+                submit_present_us: 0,
+                av_drift_ms: 0.0,
                 effect_timings: HashMap::new(),
                 decode_queue_depth: 2,
                 ready_queue_depth: 4,
@@ -176,6 +184,10 @@ fn test_phase_i3_effect_bottleneck_triggers_effects_policy() {
                 decode_us: 4_000,
                 render_cpu_us: 1_000,
                 render_gpu_us: 20_000,
+                readback_us: 0,
+                ipc_wait_us: 0,
+                submit_present_us: 0,
+                av_drift_ms: 0.0,
                 effect_timings: effects,
                 decode_queue_depth: 2,
                 ready_queue_depth: 4,
@@ -229,6 +241,10 @@ fn test_phase_i4_hysteresis_prevents_oscillation() {
                 decode_us: if is_spike { 30_000 } else { 4_000 },
                 render_cpu_us: 1_000,
                 render_gpu_us: 5_000,
+                readback_us: 0,
+                ipc_wait_us: 0,
+                submit_present_us: 0,
+                av_drift_ms: 0.0,
                 effect_timings: HashMap::new(),
                 decode_queue_depth: 2,
                 ready_queue_depth: if is_spike { 0 } else { 4 },
@@ -281,6 +297,10 @@ fn test_phase_i5_sustained_recovery_with_asymmetric_thresholds() {
                 decode_us: 4_000,
                 render_cpu_us: 1_000,
                 render_gpu_us: 25_000, // GPU overload
+                readback_us: 0,
+                ipc_wait_us: 0,
+                submit_present_us: 0,
+                av_drift_ms: 0.0,
                 effect_timings: HashMap::new(),
                 decode_queue_depth: 2,
                 ready_queue_depth: 4,
@@ -304,6 +324,10 @@ fn test_phase_i5_sustained_recovery_with_asymmetric_thresholds() {
                 decode_us: 4_000,
                 render_cpu_us: 1_000,
                 render_gpu_us: 5_000, // Healthy
+                readback_us: 0,
+                ipc_wait_us: 0,
+                submit_present_us: 0,
+                av_drift_ms: 0.0,
                 effect_timings: HashMap::new(),
                 decode_queue_depth: 2,
                 ready_queue_depth: 4,
@@ -329,6 +353,10 @@ fn test_phase_i5_sustained_recovery_with_asymmetric_thresholds() {
                 decode_us: 4_000,
                 render_cpu_us: 1_000,
                 render_gpu_us: 5_000,
+                readback_us: 0,
+                ipc_wait_us: 0,
+                submit_present_us: 0,
+                av_drift_ms: 0.0,
                 effect_timings: HashMap::new(),
                 decode_queue_depth: 2,
                 ready_queue_depth: 4,
@@ -402,6 +430,10 @@ fn test_phase_i7_surface_memory_pressure_lookahead_reduction() {
                 decode_us: 5_000,
                 render_cpu_us: 1_000,
                 render_gpu_us: 5_000,
+                readback_us: 0,
+                ipc_wait_us: 0,
+                submit_present_us: 0,
+                av_drift_ms: 0.0,
                 effect_timings: HashMap::new(),
                 decode_queue_depth: 2,
                 ready_queue_depth: 4,
@@ -562,6 +594,10 @@ fn test_cly_perf_004_regression_play_mode_does_not_apply_scrub_policies() {
             decode_us: 4_000,
             render_cpu_us: 1_000,
             render_gpu_us: 3_500,
+            readback_us: 0,
+            ipc_wait_us: 0,
+            submit_present_us: 0,
+            av_drift_ms: 0.0,
             effect_timings: HashMap::new(),
             decode_queue_depth: 0,
             ready_queue_depth: 3,
@@ -586,4 +622,157 @@ fn test_cly_perf_004_regression_play_mode_does_not_apply_scrub_policies() {
         "Healthy Play mode must maintain Full render quality");
     assert_eq!(decision.lookahead_reduction, 0.0,
         "Healthy Play mode must have 0% lookahead reduction");
+}
+
+// ─── I10: Readback Bottleneck Triggers Render Quality Downgrade ───────────────
+// Replays the Intel UHD 630 paused bridge readback telemetry:
+// Decode time is fast (4 ms), GPU compositing is fast (2 ms), but GPU-to-CPU
+// staging readback takes 14 ms (exceeding budget * 4/10 = 6.6 ms) causing deadline misses.
+#[test]
+fn test_phase_i10_readback_bottleneck_triggers_render_quality_downgrade() {
+    let config = QoSConfig {
+        degrade_window_threshold: 3,
+        recover_window_threshold: 8,
+        target_fps: 60.0,
+        window_capacity: 10,
+    };
+    let mut controller = QoSController::new(config);
+    let proxy_mgr = create_test_proxy_manager();
+
+    // Inject 3 consecutive windows of heavy readback pressure (14 ms readback)
+    for window_idx in 0..3 {
+        for frame_idx in 0..10 {
+            let pts = MediaTime::from_frame_index((window_idx * 10 + frame_idx) as i64, 60.0);
+            controller.record_frame_snapshot(PerformanceSnapshot {
+                decode_us: 4_000,
+                render_cpu_us: 1_000,
+                render_gpu_us: 2_000,
+                readback_us: 14_000,
+                ipc_wait_us: 1_000,
+                submit_present_us: 1_000,
+                av_drift_ms: 0.0,
+                effect_timings: HashMap::new(),
+                decode_queue_depth: 2,
+                ready_queue_depth: 4,
+                surface_pool_used: 3,
+                surface_pool_capacity: 10,
+                deadline_missed: true,
+                frame_pts: pts,
+            });
+        }
+        controller.evaluate_window(
+            PlaybackMode::Play,
+            MediaTime(1_000_000),
+            &proxy_mgr,
+            Some("asset-4k-hevc"),
+        );
+    }
+
+    let decision = controller.current_decision();
+    assert_eq!(
+        decision.render_quality,
+        RenderQuality::Half,
+        "Readback pressure must degrade render quality to reduce transfer footprint"
+    );
+    assert_eq!(
+        decision.media_variant,
+        MediaVariant::Original,
+        "Readback pressure must NOT switch to proxy (source decode is not bottleneck)"
+    );
+    assert!(
+        matches!(decision.reason, QoSReason::ReadbackDeadlinePressure { .. }),
+        "Decision reason must identify readback deadline pressure"
+    );
+}
+
+// ─── I11: High Deadline Miss Ratio Diagnoses Dominant Stage (No Blind Spot) ──
+// Verifies that when miss_ratio >= 0.25, QoS no longer defaults to Bottleneck::None.
+#[test]
+fn test_phase_i11_high_miss_ratio_without_decode_starvation_diagnoses_dominant_stage() {
+    let mut window = PerformanceWindow::new(10, 60.0);
+
+    // 10 frames with 5 deadline misses (miss_ratio = 0.50).
+    // Decode is 6 ms (< budget 16.6 ms), GPU is 3 ms, but readback is 8 ms.
+    for i in 0..10 {
+        window.push(PerformanceSnapshot {
+            decode_us: 6_000,
+            render_cpu_us: 500,
+            render_gpu_us: 3_000,
+            readback_us: 8_000,
+            ipc_wait_us: 500,
+            submit_present_us: 500,
+            av_drift_ms: 5.0,
+            effect_timings: HashMap::new(),
+            decode_queue_depth: 1,
+            ready_queue_depth: 3,
+            surface_pool_used: 2,
+            surface_pool_capacity: 10,
+            deadline_missed: i % 2 == 0,
+            frame_pts: MediaTime(0),
+        });
+    }
+
+    assert_eq!(window.deadline_miss_ratio(), 0.5);
+    let (bottleneck, conf) = window.diagnose_bottleneck();
+    assert_ne!(
+        bottleneck,
+        Bottleneck::None,
+        "High deadline miss ratio must NOT be discarded as Bottleneck::None"
+    );
+    assert_eq!(
+        bottleneck,
+        Bottleneck::Readback,
+        "Dominant stage (readback) must be diagnosed"
+    );
+    assert!(conf >= 0.7);
+}
+
+// ─── I12: IPC Wait & Audio-Video Drift Diagnoses ─────────────────────────────
+#[test]
+fn test_phase_i12_ipc_wait_and_av_drift_bottlenecks() {
+    // 1. IPC Wait test
+    let mut ipc_window = PerformanceWindow::new(10, 60.0);
+    for _ in 0..10 {
+        ipc_window.push(PerformanceSnapshot {
+            decode_us: 2_000,
+            render_cpu_us: 500,
+            render_gpu_us: 2_000,
+            readback_us: 500,
+            ipc_wait_us: 12_000,
+            submit_present_us: 500,
+            av_drift_ms: 0.0,
+            effect_timings: HashMap::new(),
+            decode_queue_depth: 2,
+            ready_queue_depth: 4,
+            surface_pool_used: 2,
+            surface_pool_capacity: 10,
+            deadline_missed: true,
+            frame_pts: MediaTime(0),
+        });
+    }
+    let (ipc_bottleneck, _) = ipc_window.diagnose_bottleneck();
+    assert_eq!(ipc_bottleneck, Bottleneck::IpcWait);
+
+    // 2. AV Drift test
+    let mut drift_window = PerformanceWindow::new(10, 60.0);
+    for _ in 0..10 {
+        drift_window.push(PerformanceSnapshot {
+            decode_us: 3_000,
+            render_cpu_us: 500,
+            render_gpu_us: 3_000,
+            readback_us: 0,
+            ipc_wait_us: 0,
+            submit_present_us: 500,
+            av_drift_ms: 150.0, // 150 ms clock desync
+            effect_timings: HashMap::new(),
+            decode_queue_depth: 2,
+            ready_queue_depth: 4,
+            surface_pool_used: 2,
+            surface_pool_capacity: 10,
+            deadline_missed: false,
+            frame_pts: MediaTime(0),
+        });
+    }
+    let (drift_bottleneck, _) = drift_window.diagnose_bottleneck();
+    assert_eq!(drift_bottleneck, Bottleneck::AudioVideoDrift);
 }

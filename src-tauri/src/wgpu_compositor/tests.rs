@@ -346,4 +346,149 @@ mod tests {
             &rgba[(270 * 960 + 480) * 4..(270 * 960 + 484) * 4]
         );
     }
+
+    #[tokio::test]
+    async fn test_staging_ring_bounded_allocation_and_buffer_reuse() {
+        let renderer = match NativeWgpuRenderer::new().await {
+            Ok(renderer) => renderer,
+            Err(error) => {
+                eprintln!("No GPU adapter: {}", error);
+                return;
+            }
+        };
+
+        let mut ring = crate::wgpu_compositor::multi_track_composer::StagingRing::<2>::new();
+        assert_eq!(ring.allocation_count(), 0);
+        assert_eq!(ring.reuse_count(), 0);
+
+        // Preallocate 2 buffers of 1024 bytes each
+        ring.preallocate(&renderer.device, 1024, "Test Ring");
+        assert_eq!(ring.allocation_count(), 2);
+        assert_eq!(ring.reuse_count(), 0);
+
+        // Acquire slot 0 (reuse)
+        let _buf0 = ring.acquire(&renderer.device, 512, "Test Acquire");
+        assert_eq!(ring.allocation_count(), 2);
+        assert_eq!(ring.reuse_count(), 1);
+
+        // Acquire slot 1 (reuse)
+        let _buf1 = ring.acquire(&renderer.device, 1024, "Test Acquire");
+        assert_eq!(ring.allocation_count(), 2);
+        assert_eq!(ring.reuse_count(), 2);
+
+        // Acquire slot 0 again (reuse)
+        let _buf2 = ring.acquire(&renderer.device, 256, "Test Acquire");
+        assert_eq!(ring.allocation_count(), 2);
+        assert_eq!(ring.reuse_count(), 3);
+
+        // When requesting larger size (2048), slot 1 is reallocated to 2048
+        let _buf3 = ring.acquire(&renderer.device, 2048, "Test Acquire");
+        assert_eq!(ring.allocation_count(), 3);
+        assert_eq!(ring.reuse_count(), 3);
+
+        // Next acquire hits slot 0, which still had capacity 1024, so it is also resized to 2048
+        let _buf4 = ring.acquire(&renderer.device, 2048, "Test Acquire");
+        assert_eq!(ring.allocation_count(), 4);
+        assert_eq!(ring.reuse_count(), 3);
+
+        // Both slots in the ring now have capacity 2048; subsequent requests continue to reuse
+        let _buf5 = ring.acquire(&renderer.device, 2048, "Test Acquire");
+        assert_eq!(ring.allocation_count(), 4);
+        assert_eq!(ring.reuse_count(), 4);
+
+        let _buf6 = ring.acquire(&renderer.device, 1024, "Test Acquire");
+        assert_eq!(ring.allocation_count(), 4);
+        assert_eq!(ring.reuse_count(), 5);
+    }
+
+    #[tokio::test]
+    async fn test_multi_track_compositor_staging_ring_readback_reuse() {
+        let renderer = match NativeWgpuRenderer::new().await {
+            Ok(renderer) => renderer,
+            Err(error) => {
+                eprintln!("No GPU adapter: {}", error);
+                return;
+            }
+        };
+
+        let capabilities = PreviewCapabilities::probe(&renderer.adapter, &renderer.device);
+        let gpu = Arc::new(GpuContext {
+            instance: renderer.instance.clone(),
+            adapter: renderer.adapter,
+            info: renderer.gpu_info,
+            capabilities,
+            device: renderer.device,
+            queue: renderer.queue,
+            nv12_supported: false,
+            dxgi_adapter_index: None,
+        });
+
+        let mut session = NativePreviewSession::new(gpu.clone());
+        let w = 320u32;
+        let h = 180u32;
+        let compositor = session.get_or_create_compositor(
+            w,
+            h,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+        );
+
+        // On creation, staging_ring was preallocated with 2 buffers
+        let (alloc_init, reuse_init) = compositor.staging_ring_stats();
+        assert_eq!(alloc_init, 2, "Staging ring should preallocate 2 buffers");
+        assert_eq!(reuse_init, 0, "No reuses initially");
+
+        // Render Frame 1
+        let (rgba1, _, _, _) = compositor
+            .render_to_rgba_bytes_with_size_timed(
+                &gpu.device,
+                &gpu.queue,
+                w,
+                h,
+                &[],
+                Some(wgpu::Color { r: 0.0, g: 0.0, b: 1.0, a: 1.0 }),
+            )
+            .await
+            .expect("frame 1");
+        assert_eq!(rgba1.len(), (w * h * 4) as usize);
+
+        let (alloc_f1, reuse_f1) = compositor.staging_ring_stats();
+        assert_eq!(alloc_f1, 2, "Allocation count remains bounded at 2");
+        assert_eq!(reuse_f1, 1, "First frame reuses preallocated buffer in slot 0");
+
+        // Render Frame 2
+        let (rgba2, _, _, _) = compositor
+            .render_to_rgba_bytes_with_size_timed(
+                &gpu.device,
+                &gpu.queue,
+                w,
+                h,
+                &[],
+                Some(wgpu::Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 }),
+            )
+            .await
+            .expect("frame 2");
+        assert_eq!(rgba2.len(), (w * h * 4) as usize);
+
+        let (alloc_f2, reuse_f2) = compositor.staging_ring_stats();
+        assert_eq!(alloc_f2, 2, "Allocation count remains bounded at 2");
+        assert_eq!(reuse_f2, 2, "Second frame reuses preallocated buffer in slot 1");
+
+        // Render Frame 3
+        let (rgba3, _, _, _) = compositor
+            .render_to_rgba_bytes_with_size_timed(
+                &gpu.device,
+                &gpu.queue,
+                w,
+                h,
+                &[],
+                Some(wgpu::Color { r: 0.0, g: 1.0, b: 0.0, a: 1.0 }),
+            )
+            .await
+            .expect("frame 3");
+        assert_eq!(rgba3.len(), (w * h * 4) as usize);
+
+        let (alloc_f3, reuse_f3) = compositor.staging_ring_stats();
+        assert_eq!(alloc_f3, 2, "Zero new allocations during continuous rendering");
+        assert_eq!(reuse_f3, 3, "Third frame reuses buffer in slot 0");
+    }
 }

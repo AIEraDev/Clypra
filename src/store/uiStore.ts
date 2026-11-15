@@ -216,31 +216,41 @@ export const useUIStore = create<UIStore>((set, get) => ({
   },
 
   toggleNewProjectModal: () => {
-    set((state) => ({
-      showNewProjectModal: !state.showNewProjectModal,
-    }));
+    set((state) => {
+      const next = !state.showNewProjectModal;
+      if (next) void hideNativeSurfaceWhenIdle().catch(() => undefined);
+      return { showNewProjectModal: next };
+    });
   },
 
   toggleSettingsModal: () => {
-    set((state) => ({
-      showSettingsModal: !state.showSettingsModal,
-      settingsInitialTab: null,
-    }));
+    set((state) => {
+      const next = !state.showSettingsModal;
+      if (next) void hideNativeSurfaceWhenIdle().catch(() => undefined);
+      return {
+        showSettingsModal: next,
+        settingsInitialTab: null,
+      };
+    });
   },
 
   toggleTransferModal: () => {
-    set((state) => ({
-      showTransferModal: !state.showTransferModal,
-    }));
+    set((state) => {
+      const next = !state.showTransferModal;
+      if (next) void hideNativeSurfaceWhenIdle().catch(() => undefined);
+      return { showTransferModal: next };
+    });
   },
 
   setTransferModal: (open: boolean) => {
+    if (open) void hideNativeSurfaceWhenIdle().catch(() => undefined);
     set({
       showTransferModal: open,
     });
   },
 
   openSettingsModal: (tab) => {
+    void hideNativeSurfaceWhenIdle().catch(() => undefined);
     set({
       showSettingsModal: true,
       settingsInitialTab: tab || null,

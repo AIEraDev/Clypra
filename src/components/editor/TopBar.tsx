@@ -49,24 +49,27 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showThumbnailWorkspace, setShowThumbnailWorkspace] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const showSettingsModal = useUIStore((s) => s.showSettingsModal);
+  const showTransferModal = useUIStore((s) => s.showTransferModal);
   const exportMenuRef = useRef<HTMLDivElement>(null);
 
   useClickOutside(exportMenuRef, () => setShowExportMenu(false), { enabled: showExportMenu });
 
-  useEffect(() => {
-    if (showExportDialog || showThumbnailWorkspace || showExportMenu) {
-      void hideNativeSurfaceWhenIdle().catch(() => undefined);
-    }
-  }, [showExportDialog, showThumbnailWorkspace, showExportMenu]);
+  const hasOpenTopBarOverlay = Boolean(
+    showExportDialog ||
+    showThumbnailWorkspace ||
+    showExportMenu ||
+    showSettingsModal ||
+    showTransferModal,
+  );
 
-  // When every overlay closes, the native surface has been hidden and the
-  // WebView canvas is black. Force an unconditional repaint so the current
-  // frame is painted onto the canvas — even if time/epoch/clips are unchanged.
   useEffect(() => {
-    if (!showExportDialog && !showThumbnailWorkspace && !showExportMenu) {
+    if (hasOpenTopBarOverlay) {
+      void hideNativeSurfaceWhenIdle().catch(() => undefined);
+    } else {
       forceRepaintNativeProgramPreview();
     }
-  }, [showExportDialog, showThumbnailWorkspace, showExportMenu]);
+  }, [hasOpenTopBarOverlay]);
 
   const handleClose = () => {
     if (onRequestClose) {
