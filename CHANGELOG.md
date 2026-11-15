@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [1.6.6] - 2026-11-15
+
+### 🔤 Native Text Transform & Bounding Box Manipulation Fixes
+
+- **Interactive Text Translation & Placement Parity (`nativeRasterBridge.ts`, `nativeTextPreview.ts`)** — Resolved defect where text could not be moved using the native preview bounding box. When plain point text was rendered with transparent margin cropping (`cropTransparentBounds`), `nativeTextPreview` now assigns `expandedPointText: true` and `nativeRasterBridge` continuously places the texture quad at `layer.x + (bleedX ?? 0) * scaleX` and `layer.y + (bleedY ?? 0) * scaleY`, allowing rendered text to track pointer dragging across both interactive pause and visible playback frames instead of freezing at creation coordinates.
+- **Aspect-Aware Corner Drag Scaling (`calculator.ts`)** — Fixed inconsistent scaling on non-square text clips where normalizing against `Math.max(clip.width, clip.height)` caused severe cursor-handle divergence and sluggish scaling when dragging along the shorter dimension. Derived `scaleFactor = 1 + (primaryDelta * 2) / primaryDim` dynamically from the dominant axis, ensuring 1:1 cursor tracking regardless of text aspect ratio.
+- **Smooth Continuous Drag & 1:1 Resize Commit (`TransformOverlay.tsx`)** — Eliminated stair-stepped, jittery bounding box resizing caused by deriving transform scale from integer-quantized font sizes. Added `assembleTextCommitTransform` on mouse release to synchronize `width`, `height`, `baseWidth`, and `baseHeight` strictly with `authoredSize`, centering the geometry around the existing pivot. Guarantees `width / baseWidth === 1.0` (zero GPU texture distortion, crisp rasterization), eliminates scale drift, and prevents post-drag mutation loops in `hasTextClipContentTransformDrift`.
+
+### 🏛️ Native Preview 3-Layer Architecture Boundary Enforcement
+
+- **Decoupled Repaint Coordination (`previewRepaintCoordinator.ts`, #555)** — Extracted a dedicated singleton `previewRepaintCoordinator` to govern preview repaint requests across the Editor Interaction Layer. Completely eliminated circular import dependencies between `NativeProgramPreview.tsx` and `TransformOverlay.tsx`, and removed coupling where `projectStore.ts`, `TopBar.tsx`, `LayoutPresetMenu.tsx`, `Timeline.tsx`, and `EditorScreen.tsx` directly imported the React preview component.
+- **Active-Time Overlay Clip Filtering (`timelineClip.ts`, `nativeEditorOverlay.ts`, `NativeProgramPreview.tsx`, #555)** — Centralized `isClipActiveAtTime(clip, time)` in `src/lib/timeline/timelineClip.ts`. Resolved overlay ghosting by strictly filtering selected clips to those active at the current playhead time, preventing inactive clips from rendering bounding boxes, snap guides, or transform handles in the native GPU overlay.
+- **Decoupled Native Scene Composition Subroutine (`composite_layers_to_view`, `commands/native_preview/mod.rs`, #555)** — Factored out `composite_layers_to_view` to decouple multi-track layer composition from swapchain surface presentation (`surface_texture.present()`). The compositor can now target any generic GPU `wgpu::TextureView`, paving the way for unified offscreen render targets.
+
+### ⚡ In-Engine Export Session Isolation & Concurrency Safety
+
+- **Dedicated Offscreen Preview Session (`commands/export/session.rs`, `commands/export/mod.rs`, #555)** — Mandated a distinct `NativePreviewSession` for each export session created in `start_video_export`. Completely eliminated mutex lock contention against the interactive preview session during concurrent playback and export.
+- **Eliminated Cross-Mutex Lock-Ordering Hazard (`commands/export/mod.rs`)** — Refactored `render_and_write_export_frame` and `render_and_write_export_frames_batch` to release the global `EXPORT_SESSIONS` registry lock before awaiting the individual export session lock, eliminating potential thread starvation and deadlocks on FFmpeg pipe backpressure.
+- **Mandatory Hardware Isolation Guarantee (`commands/export/mod.rs`)** — Enforced non-optional GPU context requirement for export sessions, eliminating silent fallbacks to the interactive preview session.
+- **Concurrency & Isolation Regression Test (`commands/export/tests.rs`)** — Added `test_export_session_dedicated_preview_session_isolation` verifying Arc pointer inequality and non-blocking concurrent lock acquisition between export and interactive preview sessions.
+
 ## [1.6.5] - 2026-11-15
 
 ### 🚀 Full Native Preview Transform & Editing Overlay
