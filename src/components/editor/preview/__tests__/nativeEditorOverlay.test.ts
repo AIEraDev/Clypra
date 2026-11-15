@@ -64,12 +64,26 @@ describe("nativeEditorOverlay", () => {
       canvasHeight: 1080,
       selectedClips: [mockClip],
       safeOverlayVisible: false,
+      currentTime: 2,
     });
     expect(result).not.toBeNull();
     expect(result?.assetId).toContain("clip-1");
     expect(result?.assetId).toContain("100:150:640:360:15");
     expect(result?.zIndex).toBe(10000);
     expect(result?.rgba?.length).toBe(1920 * 1080 * 4);
+  });
+
+  it("excludes selected clips that are not active at currentTime to prevent cross-generation bleed", () => {
+    // mockClip has startTime: 0, duration: 5 (active in [0, 5))
+    // When currentTime is 6 (outside active range), rasterizeNativeEditorOverlay should return null
+    const result = rasterizeNativeEditorOverlay({
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+      selectedClips: [mockClip],
+      safeOverlayVisible: false,
+      currentTime: 6,
+    });
+    expect(result).toBeNull();
   });
 
   it("combines selected clips and safe margins into a single unified overlay", () => {

@@ -60,6 +60,7 @@ import { cn } from "@/lib/utils";
 import { AspectRatio, type Clip } from "@/types";
 import { formatTime } from "@/lib/utils/timeFormatting";
 import { refitClipsForCanvasChange } from "@/lib/timeline/refitClips";
+import { isClipActiveAtTime } from "@/lib/timeline/timelineClip";
 import { useAudioSyncEngine } from "@/hooks/useAudioSyncEngine";
 import { toast } from "@/lib/toast";
 
@@ -3444,7 +3445,11 @@ export const NativeProgramPreview: React.FC = () => {
           renderClips.length > 0 ? renderClips : (state.clips ?? []);
         const selectedClips =
           !isPlaying && currentSelectedClipIds.length > 0
-            ? allClips.filter((c) => currentSelectedClipIds.includes(c.id))
+            ? allClips.filter(
+                (c) =>
+                  currentSelectedClipIds.includes(c.id) &&
+                  isClipActiveAtTime(c, state.clock.currentTime),
+              )
             : [];
         const activeGuides = transformController.getActiveGuides();
         const overlayNeeded =

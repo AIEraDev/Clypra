@@ -6,6 +6,7 @@ import {
   unregisterNativeRasterAsset,
   isTauriRuntime,
 } from "@/lib/platform/tauri";
+import { isClipActiveAtTime } from "@/lib/timeline/timelineClip";
 import { resolveClipVisualBounds } from "../transform/TransformOverlay";
 
 export interface NativeEditorOverlayParams {
@@ -65,8 +66,12 @@ export function rasterizeNativeEditorOverlay(
   } = params;
 
   if (canvasWidth <= 0 || canvasHeight <= 0) return null;
+  const activeSelectedClips =
+    currentTime !== undefined
+      ? selectedClips.filter((c) => isClipActiveAtTime(c, currentTime))
+      : selectedClips;
   const guidesVisible = hasVisibleGuides(activeGuides);
-  if (selectedClips.length === 0 && !safeOverlayVisible && !guidesVisible) {
+  if (activeSelectedClips.length === 0 && !safeOverlayVisible && !guidesVisible) {
     return null;
   }
 
@@ -248,7 +253,7 @@ export function rasterizeNativeEditorOverlay(
   }
 
   // 3. Draw Transform Controls for Selected Clips (matching TransformOverlay.tsx styling)
-  for (const clip of selectedClips) {
+  for (const clip of activeSelectedClips) {
     const visualBounds = resolveClipVisualBounds(
       clip,
       canvasWidth,
@@ -528,7 +533,11 @@ export class NativeEditorOverlayManager {
       activeGuides,
       currentTime,
     } = params;
-    const clipSummary = selectedClips
+    const activeClips =
+      currentTime !== undefined
+        ? selectedClips.filter((c) => isClipActiveAtTime(c, currentTime))
+        : selectedClips;
+    const clipSummary = activeClips
       .map(
         (c) =>
           `${c.id}:${c.x}:${c.y}:${c.width}:${c.height}:${c.rotation}:${c.startTime}:${c.duration}`,
