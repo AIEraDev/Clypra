@@ -466,9 +466,43 @@ mod tests {
         );
     }
 
-    #[test]
-    fn export_session_stores_preview_session_isolation_slot() {
-        let session = ExportSession {
+    #[tokio::test]
+    async fn test_export_session_dedicated_preview_session_isolation() {
+        let renderer = match crate::wgpu_compositor::NativeWgpuRenderer::new().await {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("Skipping test (no GPU adapter): {e}");
+                return;
+            }
+        };
+        let nv12_supported = renderer
+            .device
+            .features()
+            .contains(wgpu::Features::TEXTURE_FORMAT_NV12);
+        let capabilities =
+            crate::wgpu_compositor::PreviewCapabilities::probe(&renderer.adapter, &renderer.device);
+        let gpu = Arc::new(crate::wgpu_compositor::GpuContext {
+            instance: renderer.instance.clone(),
+            adapter: renderer.adapter,
+            info: renderer.gpu_info,
+            capabilities,
+            device: renderer.device,
+            queue: renderer.queue,
+            nv12_supported,
+            dxgi_adapter_index: None,
+        });
+
+        // 1. Create simulated interactive preview session
+        let interactive_session = Arc::new(tokio::sync::Mutex::new(
+            crate::wgpu_compositor::NativePreviewSession::new(gpu.clone()),
+        ));
+
+        // 2. Create simulated dedicated export session
+        let export_preview_session = Arc::new(tokio::sync::Mutex::new(
+            crate::wgpu_compositor::NativePreviewSession::new(gpu.clone()),
+        ));
+
+        let export_session = ExportSession {
             process: None,
             stdin: None,
             current_frame: 0,
@@ -485,9 +519,33 @@ mod tests {
             last_perf_log_time: std::time::Instant::now(),
             last_composited_frame: None,
             source_eof_fallback_frames: 0,
-            preview_session: None,
+            preview_session: export_preview_session.clone(),
         };
 
-        assert!(session.preview_session.is_none());
+        // Assert 1: Export session receives a distinct NativePreviewSession (different Arc pointer)
+        assert!(
+            !Arc::ptr_eq(&export_session.preview_session, &interactive_session),
+            "Export session must hold an isolated session, not the interactive preview session"
+        );
+
+        // Assert 2: Holding the export session lock does NOT block acquiring the interactive session lock
+        let export_lock_guard = export_session.preview_session.lock().await;
+        let interactive_lock_attempt = interactive_session.try_lock();
+        assert!(
+            interactive_lock_attempt.is_ok(),
+            "Interactive session lock must be acquirable while export session lock is held"
+        );
+        drop(interactive_lock_attempt);
+        drop(export_lock_guard);
+
+        // Assert 3: Holding the interactive session lock does NOT block acquiring the export session lock
+        let interactive_lock_guard = interactive_session.lock().await;
+        let export_lock_attempt = export_session.preview_session.try_lock();
+        assert!(
+            export_lock_attempt.is_ok(),
+            "Export session lock must be acquirable while interactive session lock is held"
+        );
+        drop(export_lock_attempt);
+        drop(interactive_lock_guard);
     }
 }

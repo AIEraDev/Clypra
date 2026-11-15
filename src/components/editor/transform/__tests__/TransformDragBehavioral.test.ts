@@ -15,8 +15,10 @@ import {
   calculateTextResizeFontSize,
   shouldScaleTextFontForHandle,
   calculateScaledTextTransform,
+  assembleTextCommitTransform,
 } from "../TransformOverlay";
 import { calculateTransform, getDefaultConstraints } from "../calculator";
+import { createTextClip } from "@/lib/text/textClip";
 import type { Clip, TransformState } from "@/types";
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -139,6 +141,37 @@ describe("Live move & resize transform calculations", () => {
     expect(result.width).toBeGreaterThan(startClip.width);
     expect(result.height).toBeGreaterThan(startClip.height);
   });
+
+  it("scales non-square text clips consistently when dragging vertical vs horizontal dominant corner", () => {
+    const lockedConstraints = getDefaultConstraints(1920, 1080, true);
+    const wideTextClip: Clip = {
+      ...baseVideoClip,
+      width: 400,
+      height: 50,
+      sourceAspectRatio: 8,
+    };
+    // Dragging along Y by +25px on SE corner should scale height by 2 * 25 / 50 = +100% (2x)
+    const resultY = calculateTransform(
+      wideTextClip,
+      "se",
+      { x: 500, y: 150 },
+      { x: 500, y: 175 },
+      lockedConstraints,
+    );
+    expect(resultY.height).toBeCloseTo(100);
+    expect(resultY.width).toBeCloseTo(800);
+
+    // Dragging along X by +200px on SE corner should scale width by 2 * 200 / 400 = +100% (2x)
+    const resultX = calculateTransform(
+      wideTextClip,
+      "se",
+      { x: 500, y: 150 },
+      { x: 700, y: 150 },
+      lockedConstraints,
+    );
+    expect(resultX.width).toBeCloseTo(800);
+    expect(resultX.height).toBeCloseTo(100);
+  });
 });
 
 describe("raster-backed text rotation", () => {
@@ -206,6 +239,68 @@ describe("Live text resizing calculations", () => {
     const result = calculateScaledTextTransform("e", start, { x: 100, width: 300 }, 1.5);
     expect(result.height).toBeCloseTo(150);
     expect(result.y).toBeCloseTo(175);
+  });
+
+  it("synchronizes width and height with authoredSize on text resize commit (1:1 scale ratio, zero drift)", () => {
+    const textClip = createTextClip({
+      trackId: "track-1",
+      startTime: 0,
+      duration: 5,
+      text: "Scaling Text",
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+    });
+    textClip.fontSize = 40;
+    textClip.x = 100;
+    textClip.y = 100;
+    textClip.width = 250;
+    textClip.height = 60;
+    textClip.baseWidth = 250;
+    textClip.baseHeight = 60;
+
+    const oldTransform: Record<string, any> = {
+      x: 100,
+      y: 100,
+      width: 250,
+      height: 60,
+      fontSize: 40,
+    };
+
+    // User scaled corner so new font size is 80 (2x)
+    const finalGeometry = {
+      x: 50,
+      y: 70,
+      width: 500,
+      height: 120,
+    };
+    const newTransform: Record<string, any> = {
+      ...finalGeometry,
+      fontSize: 80,
+    };
+
+    assembleTextCommitTransform(
+      textClip,
+      1920,
+      finalGeometry,
+      oldTransform,
+      newTransform,
+    );
+
+    // Both base dimensions and geometry dimensions must match the newly authored size
+    expect(newTransform.baseWidth).toBe(newTransform.width);
+    expect(newTransform.baseHeight).toBe(newTransform.height);
+    expect(newTransform.baseWidth).toBeGreaterThan(250);
+    expect(newTransform.baseHeight).toBeGreaterThan(60);
+
+    // Old transform carries previous base dimensions for undo
+    expect(oldTransform.baseWidth).toBe(250);
+    expect(oldTransform.baseHeight).toBe(60);
+
+    // Center point of finalGeometry was (50 + 500/2 = 300, 70 + 120/2 = 130)
+    const committedCenterX = newTransform.x + newTransform.width / 2;
+    const committedCenterY = newTransform.y + newTransform.height / 2;
+    expect(committedCenterX).toBeCloseTo(300, 0);
+    expect(committedCenterY).toBeCloseTo(130, 0);
   });
 });
 

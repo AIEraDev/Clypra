@@ -1734,7 +1734,7 @@ export async function rasterizeTextLayerForNative(
     ...(croppedAsset || expandedLayout
       ? { positionMode: "absolute" as const }
       : {}),
-    ...(expandedLayout
+    ...(croppedAsset || expandedLayout
       ? { expandedPointText: true }
       : {}),
     bleedX: resolvedBleedX,

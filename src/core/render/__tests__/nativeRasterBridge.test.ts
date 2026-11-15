@@ -409,6 +409,87 @@ describe("NativeRasterBridge", () => {
     bridge.dispose();
   });
 
+  it("updates plain text position in absolute mode when moved instead of locking to previous coordinates", async () => {
+    const scene = {
+      visualLayers: [{
+        layerType: "text",
+        layerId: "plain-text-moved",
+        text: "Moving plain text",
+        x: 100,
+        y: 120,
+        width: 300,
+        height: 60,
+      }],
+      metadata: { canvasWidth: 1920, canvasHeight: 1080 },
+    } as unknown as EvaluatedScene;
+
+    mocks.rasterizeText.mockResolvedValue({
+      assetId: "native-text:plain-text-moved:v1",
+      rgba: [255, 255, 255, 255],
+      width: 300,
+      height: 60,
+      x: 100,
+      y: 120,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 1,
+      blendMode: "normal",
+      isText: true,
+      bleedX: 5,
+      bleedY: 3,
+      positionMode: "absolute",
+      expandedPointText: true,
+    });
+
+    const bridge = new NativeRasterBridge();
+
+    // 1. Initial render at pause
+    const initialRasters = await bridge.rasterize(scene, { frameKey: 0, phase: "interactive-preview" });
+    expect(initialRasters[0].x).toBe(105); // 100 + bleedX(5)
+    expect(initialRasters[0].y).toBe(123); // 120 + bleedY(3)
+
+    // 2. User moves plain text to new position (x: 250, y: 350)
+    const movedScene = {
+      ...scene,
+      visualLayers: [{
+        ...(scene.visualLayers[0] as object),
+        x: 250,
+        y: 350,
+      }],
+    } as unknown as EvaluatedScene;
+
+    const movedRasters = await bridge.rasterize(movedScene, {
+      frameKey: 1,
+      phase: "interactive-preview",
+      nonBlockingText: false,
+    });
+
+    // Must follow new layer.x (250 + 5 = 255) and layer.y (350 + 3 = 353), NOT stay at 105 / 123!
+    expect(movedRasters[0].x).toBe(255);
+    expect(movedRasters[0].y).toBe(353);
+
+    // 3. Playback / non-blocking move
+    const playbackMovedScene = {
+      ...scene,
+      visualLayers: [{
+        ...(scene.visualLayers[0] as object),
+        x: 400,
+        y: 500,
+      }],
+    } as unknown as EvaluatedScene;
+
+    const playbackMovedRasters = await bridge.rasterize(playbackMovedScene, {
+      frameKey: 2,
+      phase: "visible-playback",
+      nonBlockingText: true,
+    });
+
+    expect(playbackMovedRasters[0].x).toBe(405);
+    expect(playbackMovedRasters[0].y).toBe(503);
+
+    bridge.dispose();
+  });
+
   it("evict() purges cached assets and layer snapshots so subsequent frames re-rasterize", async () => {
     const scene = {
       visualLayers: [{ layerType: "text", layerId: "title", x: 10, y: 20, width: 1, height: 1 }],

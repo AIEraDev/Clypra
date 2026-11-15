@@ -834,6 +834,48 @@ export function assembleBaseWidthForCommit(
   }
 }
 
+/**
+ * assembleTextCommitTransform
+ *
+ * Pure function extracted from handleMouseUp's text resize commit logic.
+ * Ensures the committed TransformClipCommand synchronizes baseWidth/baseHeight
+ * with the new authoredSize, updates width/height to equal authoredSize, and
+ * preserves the center position of the text clip.
+ *
+ * This guarantees width / baseWidth === 1.0 (crisp vector rasterization at the new
+ * font size without GPU texture stretching) and prevents hasTextClipContentTransformDrift
+ * from triggering unexpected drift mutations.
+ */
+export function assembleTextCommitTransform(
+  selectedTextClip: TextClip,
+  canvasWidth: number,
+  finalGeometry: { x: number; y: number; width: number; height: number },
+  oldTransform: Record<string, any>,
+  newTransform: Record<string, any>,
+): void {
+  const authoredSize = calculateTextClipAuthoredSize(
+    selectedTextClip,
+    canvasWidth,
+    { fontSize: newTransform.fontSize },
+  );
+  oldTransform.baseWidth = selectedTextClip.baseWidth ?? oldTransform.width;
+  oldTransform.baseHeight =
+    selectedTextClip.baseHeight ?? oldTransform.height;
+  newTransform.baseWidth = authoredSize.width;
+  newTransform.baseHeight = authoredSize.height;
+
+  const centerX =
+    (newTransform.x ?? finalGeometry.x) +
+    (newTransform.width ?? finalGeometry.width) / 2;
+  const centerY =
+    (newTransform.y ?? finalGeometry.y) +
+    (newTransform.height ?? finalGeometry.height) / 2;
+  newTransform.width = authoredSize.width;
+  newTransform.height = authoredSize.height;
+  newTransform.x = Math.round(centerX - authoredSize.width / 2);
+  newTransform.y = Math.round(centerY - authoredSize.height / 2);
+}
+
 export const TransformOverlay: React.FC<TransformOverlayProps> = ({
   canvasWidth,
   canvasHeight,
@@ -1555,13 +1597,15 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         startFontSizeRef.current !== undefined &&
         shouldScaleTextFontForHandle(currentTransform.handle)
       ) {
-        const newFontSize = calculateTextResizeFontSize(
-          startFontSizeRef.current,
+        const textScale = calculateTextResizeScale(
           currentTransform.handle,
           currentTransform.startTransform,
           newTransform,
         );
-        const textScale = newFontSize / Math.max(1, startFontSizeRef.current);
+        const newFontSize = Math.max(
+          10,
+          Math.min(1000, Math.round(startFontSizeRef.current * textScale)),
+        );
         Object.assign(
           newTransform,
           calculateScaledTextTransform(
@@ -2160,22 +2204,24 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       selectedClip && "text" in selectedClip
         ? (selectedClip as TextClip)
         : null;
+    const isTemplateClip = Boolean(
+      (selectedClip as any)?.templateId ||
+        (selectedClip as any)?.kind === "text-template",
+    );
     if (
       selectedTextClip &&
+      !isTemplateClip &&
       startFontSizeRef.current !== undefined &&
       (oldTransform.width !== newTransform.width ||
         oldTransform.height !== newTransform.height)
     ) {
-      const authoredSize = calculateTextClipAuthoredSize(
+      assembleTextCommitTransform(
         selectedTextClip,
         canvasWidth,
-        { fontSize: newTransform.fontSize },
+        finalGeometry,
+        oldTransform,
+        newTransform,
       );
-      oldTransform.baseWidth = selectedTextClip.baseWidth ?? oldTransform.width;
-      oldTransform.baseHeight =
-        selectedTextClip.baseHeight ?? oldTransform.height;
-      newTransform.baseWidth = authoredSize.width;
-      newTransform.baseHeight = authoredSize.height;
     } else if (
       oldTransform.width !== newTransform.width ||
       oldTransform.height !== newTransform.height
