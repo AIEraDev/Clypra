@@ -875,7 +875,7 @@ export class NativeRasterBridge {
                       // authored box, but its cached offset remains relative to
                       // that box. Reapply it every frame so transforms never
                       // leave the visible text behind its selection overlay.
-                      layer.x + (bleed.bleedX ?? 0)
+                      layer.x + (bleed.bleedX ?? 0) * scaleX
                     : isTemplateOrEffect
                       ? layer.x + (bleed.bleedX ?? 0) * scaleX
                       : previous.x
@@ -887,7 +887,7 @@ export class NativeRasterBridge {
               bleed?.positionMode === "absolute"
                 ? typeof layer.y === "number"
                   ? isExpandedPlainText
-                    ? layer.y + (bleed.bleedY ?? 0)
+                    ? layer.y + (bleed.bleedY ?? 0) * scaleY
                     : isTemplateOrEffect
                       ? layer.y + (bleed.bleedY ?? 0) * scaleY
                       : previous.y
@@ -973,7 +973,7 @@ export class NativeRasterBridge {
                   // Its cached bleed is an unscaled placement offset, so a
                   // strict interactive raster must follow the current layer
                   // coordinates just like the non-blocking snapshot path.
-                  layer.x + (asset.bleedX ?? 0)
+                  layer.x + (asset.bleedX ?? 0) * scaleX
                 : isTemplateOrEffect
                   ? layer.x + (asset.bleedX ?? 0) * scaleX
                   : asset.x
@@ -985,7 +985,7 @@ export class NativeRasterBridge {
           asset.positionMode === "absolute"
             ? typeof layer.y === "number"
               ? isExpandedPlainText
-                ? layer.y + (asset.bleedY ?? 0)
+                ? layer.y + (asset.bleedY ?? 0) * scaleY
                 : isTemplateOrEffect
                   ? layer.y + (asset.bleedY ?? 0) * scaleY
                   : asset.y
@@ -1261,7 +1261,7 @@ export class NativeRasterBridge {
         if (asset.positionMode === "absolute") {
           if (typeof input.layer.x !== "number") return asset.x;
           if (isExpandedPlainText) {
-            return input.layer.x + (asset.bleedX ?? 0);
+            return input.layer.x + (asset.bleedX ?? 0) * scaleX;
           }
           return isTemplateOrEffect
             ? input.layer.x + (asset.bleedX ?? 0) * scaleX
@@ -1274,7 +1274,7 @@ export class NativeRasterBridge {
         if (asset.positionMode === "absolute") {
           if (typeof input.layer.y !== "number") return asset.y;
           if (isExpandedPlainText) {
-            return input.layer.y + (asset.bleedY ?? 0);
+            return input.layer.y + (asset.bleedY ?? 0) * scaleY;
           }
           return isTemplateOrEffect
             ? input.layer.y + (asset.bleedY ?? 0) * scaleY

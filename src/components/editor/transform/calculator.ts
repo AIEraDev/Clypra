@@ -164,11 +164,12 @@ function handleCornerDrag(clip: Clip, handle: "nw" | "ne" | "sw" | "se", delta: 
   const centerY = clip.y + clip.height / 2;
   const dirX = handle === "ne" || handle === "se" ? 1 : -1;
   const dirY = handle === "sw" || handle === "se" ? 1 : -1;
-  const primaryDelta = Math.abs(delta.x) >= Math.abs(delta.y) ? delta.x * dirX : delta.y * dirY;
+  const isPrimaryX = Math.abs(delta.x) >= Math.abs(delta.y);
+  const primaryDelta = isPrimaryX ? delta.x * dirX : delta.y * dirY;
+  const primaryDim = isPrimaryX ? clip.width : clip.height;
   // Proportional scaling: derive a scale factor from the dominant axis to avoid
   // additive delta fighting the aspect-ratio correction (eliminates stutter).
-  const refDim = Math.max(1, Math.max(clip.width, clip.height));
-  const scaleFactor = 1 + (primaryDelta * 2) / refDim;
+  const scaleFactor = 1 + (primaryDelta * 2) / Math.max(1, primaryDim);
   let newWidth = clip.width * scaleFactor;
   let newHeight = clip.height * scaleFactor;
 
