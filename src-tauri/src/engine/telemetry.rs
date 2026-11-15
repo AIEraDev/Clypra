@@ -246,10 +246,43 @@ impl EngineTelemetryCollector {
         current_mode: PlaybackMode,
         app: Option<&AppHandle>,
     ) {
+        self.record_live_frame_metrics_detailed(
+            decode_us,
+            render_us,
+            0,
+            0,
+            0,
+            0.0,
+            missed,
+            ready_depth,
+            current_pts,
+            current_mode,
+            app,
+        );
+    }
+
+    pub fn record_live_frame_metrics_detailed(
+        &self,
+        decode_us: u64,
+        render_us: u64,
+        readback_us: u64,
+        ipc_wait_us: u64,
+        submit_present_us: u64,
+        av_drift_ms: f32,
+        missed: bool,
+        ready_depth: usize,
+        current_pts: MediaTime,
+        current_mode: PlaybackMode,
+        app: Option<&AppHandle>,
+    ) {
         let snapshot = PerformanceSnapshot {
             decode_us,
             render_cpu_us: 0,
             render_gpu_us: render_us,
+            readback_us,
+            ipc_wait_us,
+            submit_present_us,
+            av_drift_ms,
             effect_timings: HashMap::new(),
             decode_queue_depth: 0,
             ready_queue_depth: ready_depth,

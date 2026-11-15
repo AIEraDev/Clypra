@@ -190,6 +190,12 @@ pub enum Bottleneck {
     Effect(String),
     /// Swapchain presentation / vsync flip wait
     Presentation,
+    /// GPU readback / staging buffer transfer latency dominates frame time
+    Readback,
+    /// IPC serialization or bridge queue dispatch wait
+    IpcWait,
+    /// Timeline clock desynchronization between audio hardware and video presenter
+    AudioVideoDrift,
     /// GPU or system memory pressure / VRAM budget exhaustion
     Memory,
 }
@@ -224,6 +230,14 @@ pub enum QoSReason {
         misses: u64,
         total_frames: u64,
     },
+    /// GPU to CPU readback / buffer staging exceeds budget
+    ReadbackDeadlinePressure { readback_mean_us: u64 },
+    /// IPC serialization or bridge dispatch wait exceeds budget
+    IpcWaitDeadlinePressure { ipc_wait_mean_us: u64 },
+    /// Presentation / swapchain acquire exceeds budget
+    PresentationDeadlinePressure { presentation_mean_us: u64 },
+    /// Audio-to-video presentation drift exceeds tolerance
+    AudioVideoDriftPressure { av_drift_abs_ms: f32 },
     /// A specific effect in the Render Graph is dominating frame budget
     ExpensiveEffectPressure {
         effect_name: String,

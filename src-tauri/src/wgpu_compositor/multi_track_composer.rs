@@ -1,6 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 use std::borrow::Cow;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use web_time::Instant;
 use wgpu::util::DeviceExt;
 
@@ -425,6 +425,98 @@ impl LayerUniformPool {
     }
 }
 
+/// Double-buffered staging ring for GPU-to-CPU readbacks (export/filmstrip).
+/// Pre-allocates and reuses up to N wgpu::Buffers to eliminate per-frame
+/// staging buffer allocations, GPU heap churn, and memory latency spikes.
+pub struct StagingRing<const N: usize = 2> {
+    buffers: [Option<Arc<wgpu::Buffer>>; N],
+    capacities: [u64; N],
+    current: usize,
+    allocation_count: usize,
+    reuse_count: usize,
+}
+
+impl<const N: usize> StagingRing<N> {
+    pub const fn new() -> Self {
+        const INIT_OPT: Option<Arc<wgpu::Buffer>> = None;
+        Self {
+            buffers: [INIT_OPT; N],
+            capacities: [0; N],
+            current: 0,
+            allocation_count: 0,
+            reuse_count: 0,
+        }
+    }
+
+    /// Pre-allocates all N staging buffers in the ring with the given byte capacity.
+    pub fn preallocate(&mut self, device: &wgpu::Device, capacity: u64, label_prefix: &str) {
+        for i in 0..N {
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(&format!("{label_prefix} Staging Buffer #{i}")),
+                size: capacity,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            self.buffers[i] = Some(Arc::new(buffer));
+            self.capacities[i] = capacity;
+            self.allocation_count += 1;
+        }
+    }
+
+    /// Acquires the next buffer in the ring. If the buffer does not exist or
+    /// its capacity is smaller than `required_size`, a new buffer is allocated.
+    /// Otherwise, the existing buffer is reused.
+    pub fn acquire(
+        &mut self,
+        device: &wgpu::Device,
+        required_size: u64,
+        label_prefix: &str,
+    ) -> Arc<wgpu::Buffer> {
+        let idx = self.current;
+        self.current = (self.current + 1) % N;
+
+        let needs_new = match &self.buffers[idx] {
+            Some(_) => self.capacities[idx] < required_size,
+            None => true,
+        };
+
+        if needs_new {
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(&format!("{label_prefix} Staging Buffer #{idx}")),
+                size: required_size,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            let arc = Arc::new(buffer);
+            self.buffers[idx] = Some(Arc::clone(&arc));
+            self.capacities[idx] = required_size;
+            self.allocation_count += 1;
+            arc
+        } else {
+            self.reuse_count += 1;
+            Arc::clone(self.buffers[idx].as_ref().unwrap())
+        }
+    }
+
+    pub fn allocation_count(&self) -> usize {
+        self.allocation_count
+    }
+
+    pub fn reuse_count(&self) -> usize {
+        self.reuse_count
+    }
+
+    pub fn current_index(&self) -> usize {
+        self.current
+    }
+}
+
+impl<const N: usize> Default for StagingRing<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// High-performance GPU multi-track compositor supporting infinite layers, PIP, transforms, opacity, 3D LUT grading, Chroma Key, and Transitions.
 pub struct MultiTrackCompositor {
     pub width: u32,
@@ -454,6 +546,7 @@ pub struct MultiTrackCompositor {
     quad_vertex_buffer: wgpu::Buffer,
     uniform_pool: LayerUniformPool,
     uniform_bind_group: wgpu::BindGroup,
+    staging_ring: std::sync::Mutex<StagingRing<2>>,
 }
 
 impl MultiTrackCompositor {
@@ -1204,6 +1297,14 @@ impl MultiTrackCompositor {
             }],
         });
 
+        let mut staging_ring = StagingRing::new();
+        let bytes_per_pixel = 4u32;
+        let unpadded_bytes_per_row = width * bytes_per_pixel;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
+        let output_buffer_size = (padded_bytes_per_row * height) as wgpu::BufferAddress;
+        staging_ring.preallocate(device, output_buffer_size, "Compositor Output Readback");
+
         Self {
             width,
             height,
@@ -1232,7 +1333,14 @@ impl MultiTrackCompositor {
             quad_vertex_buffer,
             uniform_pool,
             uniform_bind_group,
+            staging_ring: std::sync::Mutex::new(staging_ring),
         }
+    }
+
+    /// Returns `(allocation_count, reuse_count)` for the double-buffered staging ring.
+    pub fn staging_ring_stats(&self) -> (usize, usize) {
+        let ring = self.staging_ring.lock().unwrap();
+        (ring.allocation_count(), ring.reuse_count())
     }
 
     /// Bind group layout helper for diffuse texture + 3D LUT (Group 1)
@@ -1472,12 +1580,10 @@ impl MultiTrackCompositor {
         let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
         let output_buffer_size = (padded_bytes_per_row * height) as wgpu::BufferAddress;
 
-        let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Compositor Output Readback Buffer"),
-            size: output_buffer_size,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+        let output_buffer = {
+            let mut ring = self.staging_ring.lock().unwrap();
+            ring.acquire(device, output_buffer_size, "Compositor Output Readback")
+        };
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Readback Copy Encoder"),
@@ -1514,7 +1620,7 @@ impl MultiTrackCompositor {
         //
         // Native (tokio): tokio::sync::oneshot is a real Future with Waker
         //   semantics — .await suspends without blocking the thread while
-        //   device.poll(Maintain::Wait) drives the callback.
+        //   asynchronous polling with Maintain::Poll drives completion.
         //
         // WASM (browser): tokio is unavailable. futures::channel::oneshot is
         //   also a real Future/Waker channel and works correctly on the
@@ -1528,21 +1634,45 @@ impl MultiTrackCompositor {
         //   always returns None (fast-fail, not deadlock, but still wrong).
 
         #[cfg(not(target_arch = "wasm32"))]
-        let map_err: Result<(), wgpu::BufferAsyncError> = {
-            let (sender, receiver) = tokio::sync::oneshot::channel();
+        let map_err: Result<(), String> = {
+            let (sender, mut receiver) = tokio::sync::oneshot::channel();
             buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
                 let _ = sender.send(result);
             });
-            device.poll(wgpu::Maintain::Wait);
-            receiver
-                .await
-                .map_err(|e| e.to_string())?
-                .map_err(|e| e.to_string())?;
-            Ok(())
+
+            // Asynchronous non-blocking poll with cooperative yields
+            device.poll(wgpu::Maintain::Poll);
+            let mut spins = 0usize;
+            loop {
+                match receiver.try_recv() {
+                    Ok(res) => {
+                        break res.map_err(|e| format!("Buffer map async error: {:?}", e));
+                    }
+                    Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                        break Err("Buffer map channel dropped unexpectedly".to_string());
+                    }
+                    Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                        spins += 1;
+                        if spins > 2000 {
+                            device.poll(wgpu::Maintain::Wait);
+                            break receiver
+                                .await
+                                .map_err(|e| format!("Channel error: {}", e))
+                                .and_then(|res| res.map_err(|e| format!("Buffer map error: {:?}", e)));
+                        }
+                        if spins % 10 == 0 {
+                            tokio::time::sleep(std::time::Duration::from_micros(100)).await;
+                        } else {
+                            tokio::task::yield_now().await;
+                        }
+                        device.poll(wgpu::Maintain::Poll);
+                    }
+                }
+            }
         };
 
         #[cfg(target_arch = "wasm32")]
-        let map_err: Result<(), wgpu::BufferAsyncError> = {
+        let map_err: Result<(), String> = {
             // On WebGPU: the callback fires as a JS microtask → need .await.
             // On WebGL2/ANGLE: the GL backend maps synchronously inside
             // map_async — the callback fires before map_async returns, so
@@ -1584,7 +1714,7 @@ impl MultiTrackCompositor {
             Ok(())
         };
 
-        map_err.map_err(|e| e.to_string())?;
+        map_err?;
         let map_wait_us = map_started.elapsed().as_micros() as u64;
 
         let mapped_range = buffer_slice.get_mapped_range();
@@ -1807,12 +1937,10 @@ impl MultiTrackCompositor {
         let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
         let output_buffer_size = (padded_bytes_per_row * height) as wgpu::BufferAddress;
 
-        let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Transition Output Readback Buffer"),
-            size: output_buffer_size,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+        let output_buffer = {
+            let mut ring = self.staging_ring.lock().unwrap();
+            ring.acquire(device, output_buffer_size, "Transition Output Readback")
+        };
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Transition Readback Encoder"),
@@ -1848,7 +1976,7 @@ impl MultiTrackCompositor {
         //
         // Native (tokio): tokio::sync::oneshot is a real Future with Waker
         //   semantics — .await suspends without blocking the thread while
-        //   device.poll(Maintain::Wait) drives the callback.
+        //   asynchronous polling with Maintain::Poll drives completion.
         //
         // WASM (browser): tokio is unavailable. futures::channel::oneshot is
         //   also a real Future/Waker channel and works correctly on the
@@ -1862,21 +1990,45 @@ impl MultiTrackCompositor {
         //   always returns None (fast-fail, not deadlock, but still wrong).
 
         #[cfg(not(target_arch = "wasm32"))]
-        let map_err: Result<(), wgpu::BufferAsyncError> = {
-            let (sender, receiver) = tokio::sync::oneshot::channel();
+        let map_err: Result<(), String> = {
+            let (sender, mut receiver) = tokio::sync::oneshot::channel();
             buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
                 let _ = sender.send(result);
             });
-            device.poll(wgpu::Maintain::Wait);
-            receiver
-                .await
-                .map_err(|e| e.to_string())?
-                .map_err(|e| e.to_string())?;
-            Ok(())
+
+            // Asynchronous non-blocking poll with cooperative yields
+            device.poll(wgpu::Maintain::Poll);
+            let mut spins = 0usize;
+            loop {
+                match receiver.try_recv() {
+                    Ok(res) => {
+                        break res.map_err(|e| format!("Buffer map async error: {:?}", e));
+                    }
+                    Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                        break Err("Buffer map channel dropped unexpectedly".to_string());
+                    }
+                    Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                        spins += 1;
+                        if spins > 2000 {
+                            device.poll(wgpu::Maintain::Wait);
+                            break receiver
+                                .await
+                                .map_err(|e| format!("Channel error: {}", e))
+                                .and_then(|res| res.map_err(|e| format!("Buffer map error: {:?}", e)));
+                        }
+                        if spins % 10 == 0 {
+                            tokio::time::sleep(std::time::Duration::from_micros(100)).await;
+                        } else {
+                            tokio::task::yield_now().await;
+                        }
+                        device.poll(wgpu::Maintain::Poll);
+                    }
+                }
+            }
         };
 
         #[cfg(target_arch = "wasm32")]
-        let map_err: Result<(), wgpu::BufferAsyncError> = {
+        let map_err: Result<(), String> = {
             // On WebGPU: the callback fires as a JS microtask → need .await.
             // On WebGL2/ANGLE: the GL backend maps synchronously inside
             // map_async — the callback fires before map_async returns, so
@@ -1918,7 +2070,7 @@ impl MultiTrackCompositor {
             Ok(())
         };
 
-        map_err.map_err(|e| e.to_string())?;
+        map_err?;
         let map_wait_us = map_started.elapsed().as_micros() as u64;
 
         let mapped_range = buffer_slice.get_mapped_range();

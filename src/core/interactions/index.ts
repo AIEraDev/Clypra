@@ -9,6 +9,7 @@ export {
   TransformController,
   getTransformController,
   resetTransformController,
+  type ActiveSnapGuides,
   type DragGeometry,
   type TransformListener,
 } from "./TransformController";

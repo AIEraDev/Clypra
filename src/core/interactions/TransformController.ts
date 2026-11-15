@@ -33,6 +33,22 @@ import type { Clip, TransformState, TransformHandle } from "@/types";
 export type TransformListener = (state: TransformState | null) => void;
 
 /**
+ * Alignment guides and rotation feedback active during a pointer drag.
+ * Values are in canvas coordinates.
+ */
+export interface ActiveSnapGuides {
+  snappedX?: boolean;
+  snappedY?: boolean;
+  snappedLeft?: boolean;
+  snappedRight?: boolean;
+  snappedTop?: boolean;
+  snappedBottom?: boolean;
+  snapGuideX?: number | null;
+  snapGuideY?: number | null;
+  rotationDegrees?: number | null;
+}
+
+/**
  * The live geometry of a clip as computed during a drag.
  * All values are in canvas space.
  */
@@ -98,6 +114,7 @@ export class TransformController {
   private _dragSessionId: number = 0;
   private _dragRevision: number = 0;
   private _currentDragGeometry: DragGeometry | null = null;
+  private _activeGuides: ActiveSnapGuides | null = null;
 
   // Listeners for drag geometry (fast-path, called every RAF)
   private _dragGeometryListeners = new Set<DragGeometryListener>();
@@ -160,6 +177,21 @@ export class TransformController {
   }
 
   /**
+   * Alignment guides and rotation feedback active during the current drag.
+   * Null when not dragging or when no snap condition is met.
+   */
+  getActiveGuides(): ActiveSnapGuides | null {
+    return this._activeGuides;
+  }
+
+  /**
+   * Set active snap guides and rotation indicator.
+   */
+  setActiveGuides(guides: ActiveSnapGuides | null): void {
+    this._activeGuides = guides;
+  }
+
+  /**
    * Get transform mode.
    */
   getTransformMode(): "select" | "transform" | null {
@@ -177,6 +209,7 @@ export class TransformController {
     this._activeTransform = state;
     this._dragSessionId += 1;
     this._dragRevision = 0;
+    this._activeGuides = null;
     // Seed currentDragGeometry from start transform so preview layer can render
     // immediately before the first mousemove arrives.
     this._currentDragGeometry = {
@@ -219,10 +252,16 @@ export class TransformController {
    * the geometry here and renders a CSS matrix preview without any React state
    * mutation, Zustand write, or IPC call.
    */
-  updateDragGeometry(geometry: DragGeometry): void {
+  updateDragGeometry(
+    geometry: DragGeometry,
+    guides?: ActiveSnapGuides | null,
+  ): void {
     if (!this._activeTransform) return;
     this._dragRevision += 1;
     this._currentDragGeometry = geometry;
+    if (guides !== undefined) {
+      this._activeGuides = guides;
+    }
     const sessionId = this._dragSessionId;
     const revision = this._dragRevision;
     // Synchronous notify — runs in the same RAF as the caller
@@ -240,6 +279,7 @@ export class TransformController {
     const sessionId = this._dragSessionId;
     this._activeTransform = null;
     this._currentDragGeometry = null;
+    this._activeGuides = null;
     if (finalGeometry) {
       this._dragEndListeners.forEach((listener) => {
         listener(sessionId, finalGeometry);
@@ -301,6 +341,7 @@ export class TransformController {
   dispose(): void {
     this._activeTransform = null;
     this._currentDragGeometry = null;
+    this._activeGuides = null;
     this._listeners.clear();
     this._dragGeometryListeners.clear();
     this._dragEndListeners.clear();

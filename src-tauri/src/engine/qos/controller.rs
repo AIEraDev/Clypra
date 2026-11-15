@@ -261,6 +261,52 @@ impl QoSController {
                             as usize,
                     };
                 }
+                Bottleneck::Readback => {
+                    // READBACK BOTTLENECK:
+                    // Degrade RenderQuality (Full -> Half -> Quarter) to reduce transfer size by 4x/16x
+                    new_decision.render_quality = match new_decision.render_quality {
+                        RenderQuality::Full => RenderQuality::Half,
+                        RenderQuality::Half => RenderQuality::Quarter,
+                        RenderQuality::Quarter => RenderQuality::Quarter,
+                    };
+                    new_decision.lookahead_reduction =
+                        (new_decision.lookahead_reduction + 0.25).min(0.75);
+                    new_decision.reason = QoSReason::ReadbackDeadlinePressure {
+                        readback_mean_us: self.window.mean_readback_us(),
+                    };
+                }
+                Bottleneck::IpcWait => {
+                    // IPC WAIT BOTTLENECK:
+                    // Reduce lookahead and quality to throttle IPC dispatch volume
+                    new_decision.render_quality = match new_decision.render_quality {
+                        RenderQuality::Full => RenderQuality::Half,
+                        RenderQuality::Half => RenderQuality::Quarter,
+                        RenderQuality::Quarter => RenderQuality::Quarter,
+                    };
+                    new_decision.lookahead_reduction =
+                        (new_decision.lookahead_reduction + 0.25).min(0.75);
+                    new_decision.reason = QoSReason::IpcWaitDeadlinePressure {
+                        ipc_wait_mean_us: self.window.mean_ipc_wait_us(),
+                    };
+                }
+                Bottleneck::Presentation => {
+                    // PRESENTATION BOTTLENECK:
+                    // Reduce lookahead depth to prevent blocking on swapchain acquire
+                    new_decision.lookahead_reduction =
+                        (new_decision.lookahead_reduction + 0.25).min(0.75);
+                    new_decision.reason = QoSReason::PresentationDeadlinePressure {
+                        presentation_mean_us: self.window.mean_submit_present_us(),
+                    };
+                }
+                Bottleneck::AudioVideoDrift => {
+                    // AV DRIFT BOTTLENECK:
+                    // Reduce lookahead to allow transport clock re-alignment
+                    new_decision.lookahead_reduction =
+                        (new_decision.lookahead_reduction + 0.25).min(0.75);
+                    new_decision.reason = QoSReason::AudioVideoDriftPressure {
+                        av_drift_abs_ms: self.window.mean_abs_av_drift_ms(),
+                    };
+                }
                 _ => {}
             }
 

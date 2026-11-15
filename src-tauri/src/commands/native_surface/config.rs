@@ -88,6 +88,10 @@ pub(super) fn configure_surface(
                     addChildWindow: ns_win as *mut objc2::runtime::AnyObject,
                     ordered: 1isize
                 ];
+                let _: () = objc2::msg_send![
+                    ns_win as *mut objc2::runtime::AnyObject,
+                    setIgnoresMouseEvents: true
+                ];
             }
         }
         surface_window
@@ -139,6 +143,10 @@ pub(super) fn configure_surface(
                         parent_ns_win as *mut objc2::runtime::AnyObject,
                         addChildWindow: ns_win as *mut objc2::runtime::AnyObject,
                         ordered: 1isize // NSWindowAbove = 1
+                    ];
+                    let _: () = objc2::msg_send![
+                        ns_win as *mut objc2::runtime::AnyObject,
+                        setIgnoresMouseEvents: true
                     ];
                 }
             }
