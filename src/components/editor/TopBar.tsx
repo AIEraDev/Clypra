@@ -18,7 +18,7 @@ import { platform } from "@/core/platform";
 import { isMacOSPlatform } from "@/lib/platform/windowPlatform";
 import { LayoutPresetMenu } from "./layout/LayoutPresetMenu";
 import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
-import { forceRepaintNativeProgramPreview } from "@/components/editor/preview/NativeProgramPreview";
+import { forceRepaintNativeProgramPreview } from "@/core/preview/previewRepaintCoordinator";
 import { useClickOutside } from "@/hooks";
 import { useI18n } from "@/i18n";
 

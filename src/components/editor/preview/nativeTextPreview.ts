@@ -19,6 +19,7 @@ import {
 } from "@/lib/utils/fixedSizing";
 import { rasterizeTextLayer } from "@/core/render/textRasterizer";
 import { getFontLoader } from "@/core/fonts/FontLoader";
+import { requestPreviewRepaint } from "@/core/preview/previewRepaintCoordinator";
 import {
   traceTextRenderGeometry,
   traceTextRenderCacheHit,
@@ -587,9 +588,7 @@ export async function paintTextLayersToCanvas(
         if (!img) {
           img = new Image();
           img.onload = () => {
-            void import("./NativeProgramPreview")
-              .then((mod) => mod.forceRepaintNativeProgramPreview())
-              .catch(() => {});
+            requestPreviewRepaint();
           };
           img.src = src;
           browserImageCache.set(src, img);

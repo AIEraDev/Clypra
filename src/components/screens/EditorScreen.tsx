@@ -35,9 +35,9 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
 
   // Force page/preview rendering when the editor screen mounts
   useEffect(() => {
-    import("@/components/editor/preview/NativeProgramPreview")
-      .then(({ forceRepaintNativeProgramPreview }) => {
-        forceRepaintNativeProgramPreview();
+    import("@/core/preview/previewRepaintCoordinator")
+      .then(({ requestPreviewRepaint }) => {
+        requestPreviewRepaint();
       })
       .catch(() => {});
   }, []);

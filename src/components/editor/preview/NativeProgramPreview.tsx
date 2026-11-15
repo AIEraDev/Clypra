@@ -49,6 +49,11 @@ import {
 import { calculateDisplayTransform } from "@/lib/utils/coordinateSystem";
 import { PreviewLayoutManager } from "@/core/preview/PreviewLayoutManager";
 import {
+  registerPreviewRepaintHandler,
+  forceRepaintNativeProgramPreview,
+} from "@/core/preview/previewRepaintCoordinator";
+export { forceRepaintNativeProgramPreview };
+import {
   PreviewQualityManager,
   PreviewQualityTier,
 } from "./PreviewQualityManager";
@@ -60,6 +65,7 @@ import { cn } from "@/lib/utils";
 import { AspectRatio, type Clip } from "@/types";
 import { formatTime } from "@/lib/utils/timeFormatting";
 import { refitClipsForCanvasChange } from "@/lib/timeline/refitClips";
+import { isClipActiveAtTime } from "@/lib/timeline/timelineClip";
 import { useAudioSyncEngine } from "@/hooks/useAudioSyncEngine";
 import { toast } from "@/lib/toast";
 
@@ -346,29 +352,9 @@ function onFramePresentedOrPainted(
  * (the RAF loop is already running in that case).
  */
 let _globalPreviewWakeFn: (() => void) | null = null;
-let _globalPreviewForceRepaintFn: (() => void) | null = null;
-let _pendingForceRepaint = false;
 
 export function wakeNativeProgramPreviewRenderLoop(): void {
   _globalPreviewWakeFn?.();
-}
-
-/**
- * Force an unconditional canvas repaint on the next RAF tick.
- *
- * Use this after `hideNativeSurfaceWhenIdle()` or on editor project session start
- * to guarantee the WebView canvas is repainted with the current frame even if
- * time/epoch/clips haven't changed.
- *
- * If called before the preview render loop is mounted, the request is latched
- * and executed as soon as the render loop initializes.
- */
-export function forceRepaintNativeProgramPreview(): void {
-  if (_globalPreviewForceRepaintFn) {
-    _globalPreviewForceRepaintFn();
-  } else {
-    _pendingForceRepaint = true;
-  }
 }
 
 /**
@@ -3024,18 +3010,12 @@ export const NativeProgramPreview: React.FC = () => {
     // Publish to the module-level registry so external callers (TopBar, modals)
     // can force a canvas repaint after hiding the native surface.
     _globalPreviewWakeFn = scheduleNextFrame;
-    // forceRepaint sets the dirty flag first so mightNeedRender is guaranteed true,
-    // then schedules the next frame — needed when time/epoch/clips are all unchanged
-    // (e.g. immediately after closing the export dialog with a hidden native surface).
-    _globalPreviewForceRepaintFn = () => {
+    // Register with previewRepaintCoordinator so external callers (TopBar, modals, overlays)
+    // can force a canvas repaint after hiding the native surface.
+    const unregisterRepaintHandler = registerPreviewRepaintHandler(() => {
       forceRenderNeeded = true;
       scheduleNextFrame();
-    };
-    if (_pendingForceRepaint) {
-      _pendingForceRepaint = false;
-      forceRenderNeeded = true;
-      scheduleNextFrame();
-    }
+    });
 
     // Transform feedback is an ephemeral render concern. Keep it outside
     // renderStateRef and Zustand so a pointer drag cannot invalidate every
@@ -3444,7 +3424,11 @@ export const NativeProgramPreview: React.FC = () => {
           renderClips.length > 0 ? renderClips : (state.clips ?? []);
         const selectedClips =
           !isPlaying && currentSelectedClipIds.length > 0
-            ? allClips.filter((c) => currentSelectedClipIds.includes(c.id))
+            ? allClips.filter(
+                (c) =>
+                  currentSelectedClipIds.includes(c.id) &&
+                  isClipActiveAtTime(c, state.clock.currentTime),
+              )
             : [];
         const activeGuides = transformController.getActiveGuides();
         const overlayNeeded =
@@ -5485,9 +5469,7 @@ export const NativeProgramPreview: React.FC = () => {
       if (_globalPreviewWakeFn === scheduleNextFrame) {
         _globalPreviewWakeFn = null;
       }
-      if (_globalPreviewForceRepaintFn) {
-        _globalPreviewForceRepaintFn = null;
-      }
+      unregisterRepaintHandler();
       if (rafId !== null) cancelAnimationFrame(rafId);
       frameScheduled = false;
       if (handoverSafetyTimer !== null) {

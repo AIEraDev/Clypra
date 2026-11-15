@@ -3,7 +3,7 @@ import { LayoutGrid, Check } from "lucide-react";
 import { useSettingsStore, type LayoutPreset } from "@/store/settingsStore";
 import { useClickOutside } from "@/hooks";
 import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
-import { forceRepaintNativeProgramPreview } from "@/components/editor/preview/NativeProgramPreview";
+import { forceRepaintNativeProgramPreview } from "@/core/preview/previewRepaintCoordinator";
 
 interface PresetOption {
   id: LayoutPreset;

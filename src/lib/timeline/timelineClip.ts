@@ -13,6 +13,14 @@ export const resolveClipDuration = (asset: MediaAsset): number => {
 
 // Centralized timeline timing helpers
 
+export function isClipActiveAtTime(
+  clip: { startTime: number; duration: number },
+  time: number,
+): boolean {
+  const end = clip.startTime + clip.duration;
+  return clip.startTime <= time && time < end;
+}
+
 export function getClipVisibleDuration(
   clip: Pick<Clip, "trimIn" | "trimOut">,
 ): number {

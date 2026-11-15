@@ -19,8 +19,8 @@ use crate::wgpu_compositor::multi_track_composer::TransitionUniforms;
 use crate::wgpu_compositor::DxgiImportState;
 use crate::wgpu_compositor::{
     BodyEffectUniforms, ChromaKeyUniforms, ColorGradeUniforms, ColorTransformUniforms,
-    CompositeLayer, CropMargins, FrameRenderPath, LayerTransform, NativePreviewSession,
-    NativeWgpuRenderer,
+    CompositeLayer, CropMargins, FrameRenderPath, GpuContext, LayerTransform, MultiTrackCompositor,
+    NativePreviewSession, NativeWgpuRenderer,
 };
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -1064,6 +1064,17 @@ pub(crate) async fn render_frame_request_rgba(
     app: &tauri::AppHandle,
     request: &FrameRequest,
 ) -> Result<Vec<u8>, String> {
+    let state = app
+        .try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
+        .ok_or_else(|| "Native preview GPU session is unavailable".to_string())?;
+    render_frame_request_rgba_with_session(app, &state, request).await
+}
+
+pub(crate) async fn render_frame_request_rgba_with_session(
+    app: &tauri::AppHandle,
+    session_lock: &Arc<tokio::sync::Mutex<NativePreviewSession>>,
+    request: &FrameRequest,
+) -> Result<Vec<u8>, String> {
     if request.contract_version != NATIVE_CORE_CONTRACT_VERSION {
         return Err(format!(
             "Unsupported native core contract version: {}",
@@ -1071,8 +1082,12 @@ pub(crate) async fn render_frame_request_rgba(
         ));
     }
     let legacy_request = to_video_project_request(request)?;
-    let (rgba, _timings) =
-        render_native_video_project_frame_bytes_timed(app.clone(), legacy_request).await?;
+    let (rgba, _timings) = render_native_video_project_frame_bytes_timed_with_session(
+        app.clone(),
+        session_lock.clone(),
+        legacy_request,
+    )
+    .await?;
     Ok(rgba)
 }
 
@@ -1080,11 +1095,25 @@ async fn render_native_video_project_frame_bytes_timed(
     app: tauri::AppHandle,
     request: NativeVideoProjectFrameRequest,
 ) -> Result<(Vec<u8>, NativeRenderStageTimings), String> {
+    let session = app
+        .try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
+        .map(|s| s.inner().clone())
+        .ok_or_else(|| "Native preview GPU session is unavailable".to_string())?;
+    render_native_video_project_frame_bytes_timed_with_session(
+        app,
+        session,
+        request,
+    )
+    .await
+}
+
+async fn render_native_video_project_frame_bytes_timed_with_session(
+    app: tauri::AppHandle,
+    state: Arc<tokio::sync::Mutex<NativePreviewSession>>,
+    request: NativeVideoProjectFrameRequest,
+) -> Result<(Vec<u8>, NativeRenderStageTimings), String> {
     validate_video_project_request(&request)?;
 
-    let state = app
-        .try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
-        .ok_or_else(|| "Native preview GPU session is unavailable".to_string())?;
     let lut_cache = app
         .try_state::<Arc<LutCache>>()
         .map(|state| state.inner().clone());
@@ -2525,6 +2554,81 @@ pub async fn get_last_presented_request() -> Option<FrameRequest> {
     LAST_PRESENTED_REQUEST.read().await.clone()
 }
 
+/// Core Native Preview Composition subroutine:
+/// Composites structured scene layers (video, text, raster, effects, transitions)
+/// into any target texture view independently of surface presentation or swapchain lifecycle.
+pub(crate) fn composite_layers_to_view(
+    gpu: &Arc<GpuContext>,
+    compositor: &MultiTrackCompositor,
+    target_view: &wgpu::TextureView,
+    target_format: wgpu::TextureFormat,
+    request: &NativeVideoProjectFrameRequest,
+    layers: &[CompositeLayer],
+    clear_color: wgpu::Color,
+) -> Result<(), String> {
+    if let Some(transition) = request.transition.as_ref() {
+        let (from_layer, to_layer) = build_transition_sources(request, layers)?;
+        let from_texture = create_transition_source_texture(
+            &gpu.device,
+            request.canvas_width,
+            request.canvas_height,
+            target_format,
+            "Native Scene Transition From Texture",
+        );
+        let to_texture = create_transition_source_texture(
+            &gpu.device,
+            request.canvas_width,
+            request.canvas_height,
+            target_format,
+            "Native Scene Transition To Texture",
+        );
+        let from_view = from_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let to_view = to_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        compositor.composite_layers(
+            &gpu.device,
+            &gpu.queue,
+            &from_view,
+            std::slice::from_ref(&from_layer),
+            Some(clear_color),
+        )?;
+        compositor.composite_layers(
+            &gpu.device,
+            &gpu.queue,
+            &to_view,
+            std::slice::from_ref(&to_layer),
+            Some(clear_color),
+        )?;
+        compositor.composite_transition(
+            &gpu.device,
+            &gpu.queue,
+            target_view,
+            &from_view,
+            &to_view,
+            &transition_uniforms(transition),
+            Some(clear_color),
+        )?;
+        let overlays = if layers.len() > 2 { &layers[2..] } else { &[] };
+        if !overlays.is_empty() {
+            compositor.composite_layers(
+                &gpu.device,
+                &gpu.queue,
+                target_view,
+                overlays,
+                None,
+            )?;
+        }
+    } else {
+        compositor.composite_layers(
+            &gpu.device,
+            &gpu.queue,
+            target_view,
+            layers,
+            Some(clear_color),
+        )?;
+    }
+    Ok(())
+}
+
 pub(crate) async fn present_native_frame_internal(
     app: tauri::AppHandle,
     request: FrameRequest,
@@ -3323,66 +3427,15 @@ pub(crate) async fn present_native_frame_internal(
         b: legacy_request.clear_color[2].clamp(0.0, 1.0) as f64,
         a: legacy_request.clear_color[3].clamp(0.0, 1.0) as f64,
     };
-    if let Some(transition) = legacy_request.transition.as_ref() {
-        let (from_layer, to_layer) = build_transition_sources(&legacy_request, &layers)?;
-        let from_texture = create_transition_source_texture(
-            &gpu.device,
-            legacy_request.canvas_width,
-            legacy_request.canvas_height,
-            target_format,
-            "Native Surface Transition From Texture",
-        );
-        let to_texture = create_transition_source_texture(
-            &gpu.device,
-            legacy_request.canvas_width,
-            legacy_request.canvas_height,
-            target_format,
-            "Native Surface Transition To Texture",
-        );
-        let from_view = from_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let to_view = to_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        compositor.composite_layers(
-            &gpu.device,
-            &gpu.queue,
-            &from_view,
-            std::slice::from_ref(&from_layer),
-            Some(clear_color),
-        )?;
-        compositor.composite_layers(
-            &gpu.device,
-            &gpu.queue,
-            &to_view,
-            std::slice::from_ref(&to_layer),
-            Some(clear_color),
-        )?;
-        compositor.composite_transition(
-            &gpu.device,
-            &gpu.queue,
-            &target_view,
-            &from_view,
-            &to_view,
-            &transition_uniforms(transition),
-            Some(clear_color),
-        )?;
-        let overlays = if layers.len() > 2 { &layers[2..] } else { &[] };
-        if !overlays.is_empty() {
-            compositor.composite_layers(
-                &gpu.device,
-                &gpu.queue,
-                &target_view,
-                overlays,
-                None,
-            )?;
-        }
-    } else {
-        compositor.composite_layers(
-            &gpu.device,
-            &gpu.queue,
-            &target_view,
-            &layers,
-            Some(clear_color),
-        )?;
-    }
+    composite_layers_to_view(
+        &gpu,
+        compositor,
+        &target_view,
+        target_format,
+        &legacy_request,
+        &layers,
+        clear_color,
+    )?;
     let compose_us = compose_started.elapsed().as_micros() as u64;
     // Keep decoded textures and views alive until after queue submission.
     let _textures = textures;

@@ -680,9 +680,9 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       return { projectInitialization: null };
     });
     // Force preview rendering on editor project session start
-    import("@/components/editor/preview/NativeProgramPreview")
-      .then(({ forceRepaintNativeProgramPreview }) => {
-        forceRepaintNativeProgramPreview();
+    import("@/core/preview/previewRepaintCoordinator")
+      .then(({ requestPreviewRepaint }) => {
+        requestPreviewRepaint();
       })
       .catch(() => {});
   },

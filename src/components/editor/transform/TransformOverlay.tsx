@@ -57,7 +57,7 @@ import type {
 } from "@/types";
 import { ContextMenu } from "@/components/ui/ContextMenu";
 import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
-import { forceRepaintNativeProgramPreview } from "@/components/editor/preview/NativeProgramPreview";
+import { forceRepaintNativeProgramPreview } from "@/core/preview/previewRepaintCoordinator";
 import {
   getActiveProgramPreviewPresenter,
   subscribeToActiveProgramPreviewPresenter,
@@ -197,13 +197,8 @@ export function calculateScaledTextTransform(
   };
 }
 
-export function isClipActiveAtTime(
-  clip: { startTime: number; duration: number },
-  time: number,
-): boolean {
-  const end = clip.startTime + clip.duration;
-  return clip.startTime <= time && time < end;
-}
+import { isClipActiveAtTime } from "@/lib/timeline/timelineClip";
+export { isClipActiveAtTime };
 
 export function buildTransformStartClip(
   selectedClip: Clip,

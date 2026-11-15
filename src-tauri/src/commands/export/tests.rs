@@ -465,4 +465,29 @@ mod tests {
             path_str
         );
     }
+
+    #[test]
+    fn export_session_stores_preview_session_isolation_slot() {
+        let session = ExportSession {
+            process: None,
+            stdin: None,
+            current_frame: 0,
+            total_frames: 10,
+            start_time: std::time::Instant::now(),
+            last_progress_emit: std::time::Instant::now(),
+            on_progress: tauri::ipc::Channel::new(|_| Ok(())),
+            width: 1920,
+            height: 1080,
+            frame_rate: 30.0,
+            final_output_path: std::path::PathBuf::from("/tmp/test.mp4"),
+            temp_output_path: std::path::PathBuf::from("/tmp/test.tmp.mp4"),
+            frame_write_times: std::collections::VecDeque::new(),
+            last_perf_log_time: std::time::Instant::now(),
+            last_composited_frame: None,
+            source_eof_fallback_frames: 0,
+            preview_session: None,
+        };
+
+        assert!(session.preview_session.is_none());
+    }
 }
