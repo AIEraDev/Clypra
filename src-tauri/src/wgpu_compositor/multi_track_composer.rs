@@ -1660,7 +1660,7 @@ impl MultiTrackCompositor {
                                 .map_err(|e| format!("Channel error: {}", e))
                                 .and_then(|res| res.map_err(|e| format!("Buffer map error: {:?}", e)));
                         }
-                        if spins % 10 == 0 {
+                        if spins.is_multiple_of(10) {
                             tokio::time::sleep(std::time::Duration::from_micros(100)).await;
                         } else {
                             tokio::task::yield_now().await;
@@ -2016,7 +2016,7 @@ impl MultiTrackCompositor {
                                 .map_err(|e| format!("Channel error: {}", e))
                                 .and_then(|res| res.map_err(|e| format!("Buffer map error: {:?}", e)));
                         }
-                        if spins % 10 == 0 {
+                        if spins.is_multiple_of(10) {
                             tokio::time::sleep(std::time::Duration::from_micros(100)).await;
                         } else {
                             tokio::task::yield_now().await;
