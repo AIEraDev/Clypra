@@ -63,7 +63,17 @@ pub struct DecodedActorFrame {
     pub color: VideoColorMetadata,
     pub decode_us: u32,
     pub decoder_mutex_wait_us: u64,
+    /// Wall-clock duration from `decode_frame_with_policy` entry to response
+    /// receipt: prime-cache lock + channel send + actor queue wait + decode.
     pub actor_wait_us: u64,
+    /// Time the caller spent inside `mpsc::send()` or `oneshot::send()`.
+    /// Near-zero on healthy unbounded channels; nonzero indicates backpressure.
+    /// Only populated on the non-prime-cache path.
+    pub channel_enqueue_us: u64,
+    /// Time from job enqueue at the actor inbox to the start of the actual
+    /// decode call, measured by the actor worker. High values indicate inbox
+    /// serialization contention (e.g. filmstrip engine competing with preview).
+    pub actor_queue_wait_us: u64,
     pub from_prime_cache: bool,
     pub quality: QualityTier,
     pub is_approximate: bool,
@@ -191,4 +201,7 @@ pub struct ActorDecodeRequest {
 pub struct StreamDecodeJob {
     pub request: ActorDecodeRequest,
     pub response_tx: oneshot::Sender<Result<DecodedActorFrame, String>>,
+    /// Wall-clock instant when the job was placed on the channel.
+    /// The actor worker computes `actor_queue_wait_us` from this on dequeue.
+    pub enqueued_at: std::time::Instant,
 }

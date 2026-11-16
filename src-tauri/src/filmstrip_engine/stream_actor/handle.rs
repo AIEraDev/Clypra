@@ -164,6 +164,7 @@ impl StreamDecoderActorHandle {
         }
 
         let (response_tx, response_rx) = oneshot::channel();
+        let enqueued_at = Instant::now();
         let job = StreamDecodeJob {
             request: ActorDecodeRequest {
                 time_secs,
@@ -172,6 +173,7 @@ impl StreamDecoderActorHandle {
                 generation,
             },
             response_tx,
+            enqueued_at,
         };
 
         if is_prefetch {
@@ -185,11 +187,13 @@ impl StreamDecoderActorHandle {
                 .await
                 .map_err(|_| "Stream decoder actor is shut down".to_string())?;
         }
+        let channel_enqueue_us = enqueued_at.elapsed().as_micros().min(u64::MAX as u128) as u64;
 
         let mut res = response_rx
             .await
             .map_err(|_| "Decoder actor dropped response channel".to_string())??;
         res.actor_wait_us = start.elapsed().as_micros().min(u64::MAX as u128) as u64;
+        res.channel_enqueue_us = channel_enqueue_us;
         Ok(res)
     }
 

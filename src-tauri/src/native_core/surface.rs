@@ -220,6 +220,10 @@ pub struct NativeSurfacePresentationTimings {
     #[serde(default)]
     pub actor_wait_us: u64,
     #[serde(default)]
+    pub channel_enqueue_us: u64,
+    #[serde(default)]
+    pub actor_queue_wait_us: u64,
+    #[serde(default)]
     pub demux_wait_us: u64,
     pub conversion_upload_us: u64,
     pub compose_us: u64,

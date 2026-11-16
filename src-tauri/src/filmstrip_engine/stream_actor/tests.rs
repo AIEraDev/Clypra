@@ -40,6 +40,8 @@ async fn test_prime_cache_direct_hit() {
         decode_us: 100,
         decoder_mutex_wait_us: 50,
         actor_wait_us: 0,
+        channel_enqueue_us: 0,
+        actor_queue_wait_us: 0,
         from_prime_cache: false,
         quality: QualityTier::Full,
         is_approximate: false,
@@ -108,6 +110,8 @@ async fn test_prime_cache_direct_hit() {
         decode_us: 10,
         decoder_mutex_wait_us: 5,
         actor_wait_us: 0,
+        channel_enqueue_us: 0,
+        actor_queue_wait_us: 0,
         from_prime_cache: false,
         quality: QualityTier::Full,
         is_approximate: true,
@@ -213,6 +217,8 @@ async fn playback_uses_newest_eligible_cached_frame_without_seeking_back() {
         decode_us: 99,
         decoder_mutex_wait_us: 0,
         actor_wait_us: 0,
+        channel_enqueue_us: 0,
+        actor_queue_wait_us: 0,
         from_prime_cache: false,
         quality: QualityTier::Full,
         is_approximate: false,
@@ -284,6 +290,8 @@ async fn test_cly_bug_011_playback_mode_uses_latest_frame_wins_policy() {
         decode_us: 99,
         decoder_mutex_wait_us: 0,
         actor_wait_us: 0,
+        channel_enqueue_us: 0,
+        actor_queue_wait_us: 0,
         from_prime_cache: false,
         quality: QualityTier::Full,
         is_approximate: false,
@@ -409,6 +417,8 @@ async fn test_wasted_download_accounting_and_reset() {
             decode_us: 1000,
             decoder_mutex_wait_us: 100,
             actor_wait_us: 50,
+            channel_enqueue_us: 0,
+            actor_queue_wait_us: 0,
             demux_us: 200,
             container_format: "mp4".to_string(),
             is_hardware_accelerated: true,
@@ -439,6 +449,8 @@ async fn test_wasted_download_accounting_and_reset() {
             decode_us: 1000,
             decoder_mutex_wait_us: 100,
             actor_wait_us: 50,
+            channel_enqueue_us: 0,
+            actor_queue_wait_us: 0,
             demux_us: 200,
             container_format: "mp4".to_string(),
             is_hardware_accelerated: true,
@@ -511,3 +523,73 @@ fn test_producer_lookahead_downloads_skipped_accounting() {
     reset_producer_lookahead_downloads_skipped();
     assert_eq!(producer_lookahead_downloads_skipped(), 0);
 }
+
+#[tokio::test]
+async fn test_actor_wait_decomposition_fields() {
+    let prime_cache = Arc::new(Mutex::new(VecDeque::new()));
+    let frame = DecodedActorFrame {
+        time_secs: 2.0,
+        planes: DecodedVideoPlanes::Cpu {
+            y: Arc::from(vec![0u8; 16]),
+            uv: Arc::from(vec![0u8; 8]),
+        },
+        width: 4,
+        height: 4,
+        source_rotation: 0,
+        color: VideoColorMetadata::default(),
+        decode_us: 15_000,
+        decoder_mutex_wait_us: 2_000,
+        actor_wait_us: 20_000,
+        channel_enqueue_us: 500,
+        actor_queue_wait_us: 2_500,
+        from_prime_cache: false,
+        quality: QualityTier::Full,
+        is_approximate: false,
+        demux_us: 1_000,
+        container_format: "mp4".to_string(),
+        is_hardware_accelerated: true,
+        decoder_seek_time_us: 0,
+        decoder_seek_count: 0,
+        decoder_frames_decoded: 1,
+        hardware_frame_download_us: None,
+        scale_colorspace_us: 0,
+        hardware_frames_downloaded: 0,
+        source_metadata: VideoStreamMetadata::default(),
+        served_from: crate::native_core::performance::ServedFrom::DecodedInRequest,
+        hw_device_type: Some("d3d12va".to_string()),
+        served_count: 0,
+    };
+
+    assert_eq!(frame.channel_enqueue_us, 500);
+    assert_eq!(frame.actor_queue_wait_us, 2_500);
+    assert_eq!(frame.actor_wait_us, 20_000);
+
+    prime_cache.lock().await.push_back(frame);
+
+    let (urgent_tx, _urgent_rx) = mpsc::channel(1);
+    let (prefetch_tx, _prefetch_rx) = mpsc::channel(1);
+    let handle = StreamDecoderActorHandle {
+        key: "decomp_test".to_string(),
+        urgent_tx,
+        prefetch_tx,
+        current_generation: Arc::new(AtomicU64::new(0)),
+        cancel_in_flight: Arc::new(AtomicBool::new(false)),
+        prime_cache: prime_cache.clone(),
+        frame_duration_secs: 1.0 / 30.0,
+        last_accessed_ms: Arc::new(AtomicU64::new(0)),
+    };
+
+    let opts = DecodeFrameOptions {
+        allow_keyframe_approx: false,
+        quality: QualityTier::Full,
+        is_playback: false,
+        skip_hw_download: false,
+        target_dimensions: None,
+    };
+
+    let res = handle.decode_frame(2.0, opts, false, 0).await.unwrap();
+    assert!(res.from_prime_cache);
+    assert_eq!(res.decode_us, 0);
+    assert!(res.actor_wait_us < 10_000); // Prime cache hit returns in <10ms
+}
+

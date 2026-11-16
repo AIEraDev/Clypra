@@ -21,6 +21,12 @@ pub(crate) struct NativeDecodeTimings {
     pub(crate) decode_time_us: u32,
     pub(crate) decoder_mutex_wait_us: u64,
     pub(crate) actor_wait_us: Option<u64>,
+    /// Time spent inside `mpsc::send()` placing the job on the actor channel.
+    /// Near-zero on healthy unbounded channels; nonzero indicates backpressure.
+    pub(crate) channel_enqueue_us: Option<u64>,
+    /// Time the job waited in the actor inbox before decode began.
+    /// High values indicate inbox serialization (filmstrip engine contention).
+    pub(crate) actor_queue_wait_us: Option<u64>,
     pub(crate) demux_wait_us: Option<u64>,
     pub(crate) container_format: Option<String>,
     pub(crate) is_hardware_accelerated: Option<bool>,
@@ -99,12 +105,13 @@ pub(crate) fn native_presentation_timing(
         .unwrap_or(0);
     let frame_position_ticks = frame_position_ticks.min(i64::MAX as u128) as i64;
 
-    // Only record drift during active steady-state playback.
-    // Manual scrub/seek requests and seek jumps across the timeline (> 1.5s gap)
-    // reflect deliberate user playhead navigation where audio is re-anchoring,
+    // Only record drift during active steady-state playback with active audio.
+    // Manual scrub/seek requests, silent/paused audio streams, and seek jumps across the timeline (> 1.5s gap)
+    // reflect deliberate user playhead navigation or unanchored audio,
     // not actual playback drift.
-    if record_drift {
-        let drift = frame_position_ticks.saturating_sub(status.audio_position_ticks as i64);
+    if record_drift && status.running && status.playing && status.audio_position_ticks > 0 {
+        let drift = (frame_position_ticks as i128) - (status.audio_position_ticks as i128);
+        let drift = drift.clamp(i64::MIN as i128, i64::MAX as i128) as i64;
         if drift.abs() <= 1_500_000 {
             SYNC_METRICS.av_drift.record_with_freshness(
                 drift,
@@ -260,13 +267,26 @@ pub(crate) fn record_native_surface_sample(
         session_collector.push(&frame_telemetry);
     }
     let total_time_us = started_at.elapsed().as_micros().min(u32::MAX as u128) as u32;
-    let stages_sum = u64::from(decode_timings.decode_time_us)
+    let decode_stage_us = decode_timings.actor_wait_us.unwrap_or_else(|| {
+        u64::from(decode_timings.decode_time_us)
+            + decode_timings.demux_wait_us.unwrap_or(0)
+            + decode_timings.hardware_frame_download_us.unwrap_or(0)
+            + decode_timings.scale_colorspace_us.unwrap_or(0)
+    });
+    let stages_sum = (if queue_hit { 0 } else { decode_stage_us })
         + conversion_upload_us.unwrap_or(0)
         + compose_us.unwrap_or(0)
         + submit_present_us.unwrap_or(0)
+        + surface_acquire_us.unwrap_or(0)
         + scheduler_wait_us;
     let unaccounted_us = u64::from(total_time_us).saturating_sub(stages_sum);
     let stage_overlap_us = stages_sum.saturating_sub(u64::from(total_time_us));
+    let disposition = crate::native_core::performance::FrameDisposition::from_sample(
+        dropped,
+        stale,
+        false,
+        drop_reason,
+    );
     service.record_sample(PerformanceSample {
         request_id: request.request_id.clone(),
         frame_index: request.frame_time.frame_index,
@@ -294,6 +314,7 @@ pub(crate) fn record_native_surface_sample(
         stale,
         dropped,
         drop_reason: drop_reason.map(str::to_string),
+        disposition: Some(disposition),
         seek_time_us: decode_timings.seek_time_us.unwrap_or(0),
         conversion_time_us: conversion_upload_us.unwrap_or(0).min(u32::MAX as u64) as u32,
         upload_time_us: conversion_upload_us.unwrap_or(0).min(u32::MAX as u64) as u32,
@@ -312,6 +333,8 @@ pub(crate) fn record_native_surface_sample(
         ipc_wait_us: None,
         decoder_mutex_wait_us: Some(decode_timings.decoder_mutex_wait_us),
         actor_wait_us: decode_timings.actor_wait_us,
+        channel_enqueue_us: decode_timings.channel_enqueue_us,
+        actor_queue_wait_us: decode_timings.actor_queue_wait_us,
         gpu_queue_wait_us: None,
         surface_acquire_us,
         submit_present_us,
@@ -343,6 +366,8 @@ pub(crate) fn record_native_surface_sample(
         dxgi_latched_off: None,
         dxgi_latch_reason: None,
                 dxgi_latch_context: None,
+                lookahead_horizon_frames: None,
+                lookahead_clamp_reason: None,
     });
 }
 
@@ -613,11 +638,28 @@ impl NativePreviewFrameQueue {
     }
 }
 
+/// Returned by [`deadline_aware_lookahead_count`] so callers can emit the
+/// effective horizon and the reason it was clamped/set to telemetry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LookaheadDecision {
+    /// Effective number of frames to prefetch this scheduling pass.
+    pub count: usize,
+    /// Static label identifying which gate determined the final count.
+    /// One of `"unclamped"`, `"latency-cap"`, `"rate-bound"`, `"decode-floor"`.
+    pub clamp_reason: &'static str,
+}
+
+/// Returns the effective lookahead depth for one scheduling pass together with
+/// the reason it was clamped, so callers can record the decision to telemetry.
+///
+/// At 30fps (33ms budget) this allows up to ~9 frames of lookahead headroom,
+/// but `rate_bound` limits it to 2 (or 4 for ≥50fps). On slow hardware the
+/// `decode_floor` may push it up to the `rate_bound` maximum.
 pub(crate) fn deadline_aware_lookahead_count(
     frame_rate: u32,
     configured_count: usize,
     estimated_decode_us: Option<u64>,
-) -> usize {
+) -> LookaheadDecision {
     let frame_budget_us = 1_000_000u64 / u64::from(frame_rate.max(1));
     // Presentation-latency budget: don't queue frames so far ahead that they
     // become stale before the audio clock reaches them.
@@ -632,10 +674,95 @@ pub(crate) fn deadline_aware_lookahead_count(
 
     let rate_bound = lookahead_frames_for_rate(frame_rate);
 
-    configured_count
-        .min(latency_cap)
-        .min(rate_bound)
-        .max(decode_floor.min(rate_bound))
-        .max(1)
+    // Evaluate each gate in priority order and record which one was binding.
+    let after_latency = configured_count.min(latency_cap);
+    let after_rate = after_latency.min(rate_bound);
+    let after_floor = after_rate.max(decode_floor.min(rate_bound));
+    let count = after_floor.max(1);
+
+    let clamp_reason = if count < configured_count && after_latency < configured_count {
+        "latency-cap"
+    } else if count < configured_count && after_rate < after_latency {
+        "rate-bound"
+    } else if count > after_rate {
+        // decode_floor raised the value above the unclamped result
+        "decode-floor"
+    } else {
+        "unclamped"
+    };
+
+    LookaheadDecision { count, clamp_reason }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -------------------------------------------------------------------------
+    // LookaheadDecision gate tests
+    // -------------------------------------------------------------------------
+
+    /// At 30 fps with no decode pressure and a configured depth of 2, every
+    /// gate is wide open (latency_cap ≈ 9, rate_bound = 2).
+    /// The function should return count = 2 with reason "unclamped".
+    #[test]
+    fn unclamped_path_at_30fps() {
+        let d = deadline_aware_lookahead_count(30, 2, None);
+        assert_eq!(d.count, 2, "count should be the configured depth");
+        assert_eq!(d.clamp_reason, "unclamped");
+    }
+
+    /// At 60 fps the rate-bound is 4. A configured depth of 8 must be clamped
+    /// to 4 and the reason must be "rate-bound".
+    #[test]
+    fn rate_bound_clamps_at_60fps() {
+        let d = deadline_aware_lookahead_count(60, 8, None);
+        assert_eq!(d.count, 4, "rate_bound for 60fps is 4");
+        assert_eq!(d.clamp_reason, "rate-bound");
+    }
+
+    /// At 1 fps the latency_cap is 1 (300 000 µs / 1 000 000 µs = 0 → max(1) = 1).
+    /// A configured depth of 5 should be clamped by latency_cap to 1 and the
+    /// reason must be "latency-cap".
+    #[test]
+    fn latency_cap_clamps_at_1fps() {
+        // At 1 fps: frame_budget = 1 000 000 µs,
+        // latency_cap = (300 000 / 1 000 000).max(1) = 1
+        // rate_bound = lookahead_frames_for_rate(1) = 2
+        // latency_cap wins because it's lower than rate_bound.
+        let d = deadline_aware_lookahead_count(1, 5, None);
+        assert_eq!(d.count, 1, "latency_cap forces depth to 1 at 1 fps");
+        assert_eq!(d.clamp_reason, "latency-cap");
+    }
+
+    /// If measured decode time exceeds one frame budget the floor raises the
+    /// count above the unclamped value. At 60 fps (16 666 µs budget) with a
+    /// measured decode of 40 000 µs, floor = ceil(40000/16666) = 3. The
+    /// configured depth is 2 so the floor expands it to min(3, rate_bound=4) = 3
+    /// with reason "decode-floor".
+    #[test]
+    fn decode_floor_expands_horizon_when_decode_is_slow() {
+        // 60 fps frame_budget ≈ 16 666 µs
+        // decode_floor = ceil(40 000 / 16 666) = 3
+        // configured_count = 2 < decode_floor → floor lifts to 3
+        let d = deadline_aware_lookahead_count(60, 2, Some(40_000));
+        assert_eq!(d.count, 3, "floor should expand to 3 frames");
+        assert_eq!(d.clamp_reason, "decode-floor");
+    }
+
+    /// count must never be 0 regardless of inputs.
+    #[test]
+    fn count_is_at_least_one() {
+        let d = deadline_aware_lookahead_count(0, 0, None);
+        assert!(d.count >= 1, "count must be at least 1");
+    }
+
+    /// At 60 fps with configured_count = 4 (exactly rate_bound) and no decode
+    /// pressure, every gate passes → "unclamped".
+    #[test]
+    fn at_rate_bound_exact_is_unclamped() {
+        let d = deadline_aware_lookahead_count(60, 4, None);
+        assert_eq!(d.count, 4);
+        assert_eq!(d.clamp_reason, "unclamped");
+    }
+}

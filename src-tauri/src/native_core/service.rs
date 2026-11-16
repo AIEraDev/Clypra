@@ -1,6 +1,7 @@
 use super::performance;
 use super::performance::{
-    now_ms, optional_stage_percentiles, percentile_ms, ModeStats, PreviewMode, ServedFrom,
+    now_ms, optional_stage_percentiles, percentile_ms, FrameDisposition, ModeStats, PreviewMode,
+    ServedFrom,
 };
 use super::{
     FrameCache, FramePacket, FrameRequest, NativeCoreError, NativeFrameServiceStats,
@@ -422,6 +423,9 @@ impl NativeFrameService {
                 decoder_mutex_wait: optional_stage_percentiles(&decoded_samples, |sample| {
                     sample.decoder_mutex_wait_us
                 }),
+                actor_wait: optional_stage_percentiles(&samples, |sample| sample.actor_wait_us),
+                channel_enqueue: optional_stage_percentiles(&samples, |sample| sample.channel_enqueue_us),
+                actor_queue_wait: optional_stage_percentiles(&samples, |sample| sample.actor_queue_wait_us),
                 demux_wait: optional_stage_percentiles(&decoded_samples, |sample| {
                     sample.demux_wait_us
                 }),
@@ -471,6 +475,55 @@ impl NativeFrameService {
                 sample_span_ms,
                 dropped_count: samples.iter().filter(|sample| sample.dropped).count(),
                 stale_count: samples.iter().filter(|sample| sample.stale).count(),
+                presented_count: samples
+                    .iter()
+                    .filter(|s| {
+                        s.disposition == Some(FrameDisposition::Presented)
+                            || (!s.dropped && !s.stale && !s.cancelled)
+                    })
+                    .count(),
+                late_count: samples
+                    .iter()
+                    .filter(|s| {
+                        s.disposition == Some(FrameDisposition::Late)
+                            || s.drop_reason.as_deref() == Some("late-for-audio")
+                    })
+                    .count(),
+                superseded_count: samples
+                    .iter()
+                    .filter(|s| {
+                        s.disposition == Some(FrameDisposition::Superseded)
+                            || s.stale
+                            || s.cancelled
+                            || s.drop_reason.as_deref() == Some("stale")
+                    })
+                    .count(),
+                queue_starved_count: samples
+                    .iter()
+                    .filter(|s| {
+                        s.disposition == Some(FrameDisposition::QueueStarved)
+                            || s.drop_reason.as_deref() == Some("lookahead-miss")
+                    })
+                    .count(),
+                lookahead_horizon: optional_stage_percentiles(&samples, |s| {
+                    s.lookahead_horizon_frames.map(u64::from)
+                }),
+                lookahead_clamp_latency_count: samples
+                    .iter()
+                    .filter(|s| s.lookahead_clamp_reason.as_deref() == Some("latency-cap"))
+                    .count(),
+                lookahead_clamp_rate_count: samples
+                    .iter()
+                    .filter(|s| s.lookahead_clamp_reason.as_deref() == Some("rate-bound"))
+                    .count(),
+                lookahead_clamp_floor_count: samples
+                    .iter()
+                    .filter(|s| s.lookahead_clamp_reason.as_deref() == Some("decode-floor"))
+                    .count(),
+                lookahead_clamp_unclamped_count: samples
+                    .iter()
+                    .filter(|s| s.lookahead_clamp_reason.as_deref() == Some("unclamped"))
+                    .count(),
             }
         })
         .collect();
@@ -583,6 +636,8 @@ mod tests {
             requested_at_ms: None,
             is_scrubbing: None,
             allow_keyframe_approx: None,
+            lookahead_horizon_frames: None,
+            lookahead_clamp_reason: None,
         }
     }
 
@@ -605,6 +660,7 @@ mod tests {
             stale: false,
             dropped: false,
             drop_reason: None,
+            disposition: Some(FrameDisposition::Presented),
             seek_time_us: 0,
             conversion_time_us: 0,
             upload_time_us: 0,
@@ -623,6 +679,8 @@ mod tests {
             ipc_wait_us: None,
             decoder_mutex_wait_us: None,
             actor_wait_us: None,
+            channel_enqueue_us: None,
+            actor_queue_wait_us: None,
             gpu_queue_wait_us: None,
             surface_acquire_us: None,
             submit_present_us: Some(0),
@@ -650,6 +708,8 @@ mod tests {
             dxgi_latched_off: None,
             dxgi_latch_reason: None,
             dxgi_latch_context: None,
+            lookahead_horizon_frames: None,
+            lookahead_clamp_reason: None,
         }
     }
 
@@ -713,6 +773,53 @@ mod tests {
         assert_eq!(playback_stats.stage_overlap.p50, Some(60_000));
         assert_eq!(playback_stats.unique_frames_delivered, 1);
         assert_eq!(playback_stats.repeated_frames_delivered, 0);
+    }
+
+    #[test]
+    fn mode_stats_disposition_counts_and_actor_wait() {
+        let mut service = NativeFrameService::new(1024).unwrap();
+
+        // 1 presented
+        let mut s1 = sample(1);
+        s1.actor_wait_us = Some(15_000);
+        s1.disposition = Some(FrameDisposition::Presented);
+        service.record_sample(s1);
+
+        // 1 late
+        let mut s2 = sample(2);
+        s2.actor_wait_us = Some(25_000);
+        s2.dropped = true;
+        s2.disposition = Some(FrameDisposition::Late);
+        s2.drop_reason = Some("late-for-audio".to_string());
+        service.record_sample(s2);
+
+        // 1 queue-starved (lookahead miss)
+        let mut s3 = sample(3);
+        s3.actor_wait_us = Some(20_000);
+        s3.dropped = true;
+        s3.disposition = Some(FrameDisposition::QueueStarved);
+        s3.drop_reason = Some("lookahead-miss".to_string());
+        service.record_sample(s3);
+
+        // 1 superseded (stale)
+        let mut s4 = sample(4);
+        s4.stale = true;
+        s4.disposition = Some(FrameDisposition::Superseded);
+        s4.drop_reason = Some("stale".to_string());
+        service.record_sample(s4);
+
+        let stats = service.stats();
+        let playback_stats = stats
+            .mode_stats
+            .iter()
+            .find(|m| m.mode == PreviewMode::Playback)
+            .expect("playback mode stats present");
+
+        assert_eq!(playback_stats.presented_count, 1);
+        assert_eq!(playback_stats.late_count, 1);
+        assert_eq!(playback_stats.queue_starved_count, 1);
+        assert_eq!(playback_stats.superseded_count, 1);
+        assert_eq!(playback_stats.actor_wait.p50, Some(20_000));
     }
 
     #[test]

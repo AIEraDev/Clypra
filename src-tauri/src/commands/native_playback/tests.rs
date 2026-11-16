@@ -160,6 +160,8 @@ mod tests {
             requested_at_ms: None,
             is_scrubbing: None,
             allow_keyframe_approx: None,
+            lookahead_horizon_frames: None,
+            lookahead_clamp_reason: None,
             project: crate::native_core::ProjectSnapshot {
                 schema_version: 1,
                 project_revision: "test:1".to_string(),

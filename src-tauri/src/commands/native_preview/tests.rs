@@ -26,13 +26,13 @@ use crate::filmstrip_engine::decoder::VideoColorMetadata;
         // At 30 fps: frame_budget_us = 33_333. Slow decode cannot expand the
         // preview queue beyond two entries: extra speculative work would only
         // make a weak adapter present older frames.
-        assert_eq!(deadline_aware_lookahead_count(30, 16, Some(40_000)), 2);
-        assert_eq!(deadline_aware_lookahead_count(30, 16, Some(500_000)), 2);
+        assert_eq!(deadline_aware_lookahead_count(30, 16, Some(40_000)).count, 2);
+        assert_eq!(deadline_aware_lookahead_count(30, 16, Some(500_000)).count, 2);
 
         // At 60 fps (and >=50 fps): frame_budget_us = 16_666. High framerate
         // streams expand the speculative queue to 4 entries to absorb decode jitter.
-        assert_eq!(deadline_aware_lookahead_count(60, 16, Some(20_000)), 4);
-        assert_eq!(deadline_aware_lookahead_count(60, 16, Some(500_000)), 4);
+        assert_eq!(deadline_aware_lookahead_count(60, 16, Some(20_000)).count, 4);
+        assert_eq!(deadline_aware_lookahead_count(60, 16, Some(500_000)).count, 4);
     }
 
     #[test]
@@ -516,6 +516,8 @@ use crate::filmstrip_engine::decoder::VideoColorMetadata;
             requested_at_ms: None,
             is_scrubbing: None,
             allow_keyframe_approx: None,
+            lookahead_horizon_frames: None,
+            lookahead_clamp_reason: None,
         };
 
         let legacy = super::to_video_project_request(&request).expect("request should convert");
@@ -615,6 +617,8 @@ use crate::filmstrip_engine::decoder::VideoColorMetadata;
             requested_at_ms: None,
             is_scrubbing: None,
             allow_keyframe_approx: None,
+            lookahead_horizon_frames: None,
+            lookahead_clamp_reason: None,
         };
 
         let legacy = super::to_video_project_request(&request).expect("request should convert");

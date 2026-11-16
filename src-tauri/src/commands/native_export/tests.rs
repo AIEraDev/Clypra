@@ -1,9 +1,13 @@
 use std::path::Path;
+#[cfg(target_os = "macos")]
 use std::time::Instant;
+#[cfg(target_os = "macos")]
 use tokio::time::{sleep, Duration};
+#[cfg(target_os = "macos")]
 use tokio_util::sync::CancellationToken;
 
 use super::builder::{build_mux_args, build_segment_args};
+#[cfg(target_os = "macos")]
 use super::executor::run_ffmpeg;
 use super::models::{
     acquire_export_slot, release_export_slot, validate_plan, HwAccelType, NativeTimelineClipPlan,

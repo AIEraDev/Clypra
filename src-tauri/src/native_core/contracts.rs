@@ -896,6 +896,16 @@ pub struct FrameRequest {
     pub is_scrubbing: Option<bool>,
     #[serde(default)]
     pub allow_keyframe_approx: Option<bool>,
+    /// Effective lookahead depth chosen by [`deadline_aware_lookahead_count`]
+    /// for this scheduling pass. Recorded on prefetch samples only. The frontend
+    /// never sets this field; it is populated by the Rust lookahead scheduler.
+    #[serde(default)]
+    pub lookahead_horizon_frames: Option<u8>,
+    /// Which gate determined the effective lookahead depth. One of
+    /// `"unclamped"`, `"latency-cap"`, `"rate-bound"`, `"decode-floor"`.
+    /// Populated by the Rust lookahead scheduler on prefetch samples only.
+    #[serde(default)]
+    pub lookahead_clamp_reason: Option<String>,
 }
 
 /// Per-frame state for the persistent native playback renderer.
@@ -1949,6 +1959,8 @@ mod tests {
             requested_at_ms: None,
             is_scrubbing: None,
             allow_keyframe_approx: None,
+            lookahead_horizon_frames: None,
+            lookahead_clamp_reason: None,
         }
     }
 

@@ -160,6 +160,21 @@ pub(crate) fn diagnose_mode_stats(mode: &ModeStats) -> Option<NativePreviewStage
             mode.decoder_mutex_wait.p95,
             "prioritize-decode",
         ),
+        (
+            "actor_wait",
+            mode.actor_wait.p95,
+            "investigate-actor-queue",
+        ),
+        (
+            "actor_queue_wait",
+            mode.actor_queue_wait.p95,
+            "investigate-actor-queue",
+        ),
+        (
+            "channel_enqueue",
+            mode.channel_enqueue.p95,
+            "investigate-actor-channel",
+        ),
         ("demux_wait", mode.demux_wait.p95, "prioritize-decode"),
         (
             "scale_colorspace",

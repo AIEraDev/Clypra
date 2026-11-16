@@ -199,6 +199,8 @@ fn test_4_versioned_frame_request_roundtrip_with_effect_layer() {
         requested_at_ms: None,
         is_scrubbing: Some(false),
         allow_keyframe_approx: Some(false),
+        lookahead_horizon_frames: None,
+        lookahead_clamp_reason: None,
     };
 
     // Must validate cleanly
@@ -344,6 +346,8 @@ fn test_6_to_video_project_request_scales_effect_layers_proportionally() {
         requested_at_ms: None,
         is_scrubbing: None,
         allow_keyframe_approx: None,
+        lookahead_horizon_frames: None,
+        lookahead_clamp_reason: None,
     };
 
     let legacy = to_video_project_request(&frame_request).expect("Must convert cleanly");
@@ -415,6 +419,8 @@ fn test_7_cache_key_behavior_invariance_and_sensitivity() {
         requested_at_ms: None,
         is_scrubbing: None,
         allow_keyframe_approx: None,
+        lookahead_horizon_frames: None,
+        lookahead_clamp_reason: None,
     };
 
     let base_decode_key = base_request.decode_cache_key().unwrap();

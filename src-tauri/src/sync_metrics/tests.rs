@@ -19,11 +19,52 @@ mod tests {
         let snapshot = accumulator.take_and_reset();
         assert_eq!(snapshot.n, 3);
         assert!((snapshot.avg_micros - 13.333).abs() < 0.01);
+        assert_eq!(snapshot.min_signed_micros, Some(-10));
+        assert_eq!(snapshot.max_signed_micros, Some(30));
         assert_eq!(snapshot.max_abs_micros, 30);
+        assert_eq!(snapshot.p50_abs_micros, 20);
         assert_eq!(snapshot.p95_abs_micros, 30);
         assert_eq!(snapshot.suppressed_n, 0);
         assert!(snapshot.p95_abs_micros_suppressed.is_none());
-        assert_eq!(accumulator.take_and_reset().n, 0);
+
+        let reset_snap = accumulator.take_and_reset();
+        assert_eq!(reset_snap.n, 0);
+        assert_eq!(reset_snap.min_signed_micros, None);
+        assert_eq!(reset_snap.max_signed_micros, None);
+        assert_eq!(reset_snap.p50_abs_micros, 0);
+    }
+
+    #[test]
+    fn negative_drift_is_preserved_and_not_masked_to_zero() {
+        let accumulator = DriftAccumulator::default();
+        // Video lagging audio: negative drift
+        accumulator.record(-15_000);
+        accumulator.record(-8_000);
+        accumulator.record(-2_000);
+
+        let snapshot = accumulator.take_and_reset();
+        assert_eq!(snapshot.n, 3);
+        assert_eq!(snapshot.min_signed_micros, Some(-15_000));
+        assert_eq!(snapshot.max_signed_micros, Some(-2_000));
+        assert!((snapshot.avg_micros - (-8333.333)).abs() < 0.01);
+        assert_eq!(snapshot.max_abs_micros, 15_000);
+        assert_eq!(snapshot.p50_abs_micros, 8_000);
+        assert_eq!(snapshot.p95_abs_micros, 15_000);
+    }
+
+    #[test]
+    fn reset_clears_signed_min_max_without_contamination() {
+        let accumulator = DriftAccumulator::default();
+        accumulator.record(-50_000);
+        accumulator.record(100_000);
+        let _ = accumulator.take_and_reset();
+
+        // After reset, record a positive-only window: min must not be contaminated by -50_000
+        accumulator.record(1_000);
+        accumulator.record(5_000);
+        let snap = accumulator.take_and_reset();
+        assert_eq!(snap.min_signed_micros, Some(1_000));
+        assert_eq!(snap.max_signed_micros, Some(5_000));
     }
 
     #[test]
