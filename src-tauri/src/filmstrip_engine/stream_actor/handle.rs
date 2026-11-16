@@ -176,7 +176,6 @@ impl StreamDecoderActorHandle {
             enqueued_at,
         };
 
-        let channel_enqueue_us;
         if is_prefetch {
             self.prefetch_tx
                 .send(job)
@@ -188,7 +187,7 @@ impl StreamDecoderActorHandle {
                 .await
                 .map_err(|_| "Stream decoder actor is shut down".to_string())?;
         }
-        channel_enqueue_us = enqueued_at.elapsed().as_micros().min(u64::MAX as u128) as u64;
+        let channel_enqueue_us = enqueued_at.elapsed().as_micros().min(u64::MAX as u128) as u64;
 
         let mut res = response_rx
             .await
