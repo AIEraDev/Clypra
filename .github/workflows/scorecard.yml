@@ -1,0 +1,45 @@
+# OpenSSF Scorecard scores the repository's supply-chain security posture
+# (branch protection, pinned dependencies, token permissions, dangerous
+# workflow patterns, etc.) and reports findings into Security > Code scanning.
+# Docs: https://github.com/ossf/scorecard-action
+name: Scorecard
+
+on:
+  branch_protection_rule:
+  push:
+    branches: [master]
+  schedule:
+    # Weekly (Mondays 09:00 UTC).
+    - cron: "0 9 * * 1"
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      id-token: write
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@v2
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Publishing to the public OpenSSF Scorecard API only works on the
+          # upstream repo's default branch. Leave false on forks; flip to true
+          # once merged into AIEraDev/Clypra to enable the score badge.
+          publish_results: false
+
+      - name: Upload SARIF to code scanning
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results.sarif
