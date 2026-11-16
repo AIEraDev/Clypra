@@ -52,6 +52,8 @@ pub struct DriftAccumulator {
     // ── Active (non-suppressed) samples ──────────────────────────────────────
     pub count: AtomicU64,
     pub sum_micros: AtomicI64,
+    pub min_signed_micros: AtomicI64,
+    pub max_signed_micros: AtomicI64,
     pub max_abs_micros: AtomicI64,
     samples_p95: parking_lot::Mutex<Vec<i64>>,
 
@@ -74,6 +76,8 @@ impl Default for DriftAccumulator {
         Self {
             count: AtomicU64::new(0),
             sum_micros: AtomicI64::new(0),
+            min_signed_micros: AtomicI64::new(i64::MAX),
+            max_signed_micros: AtomicI64::new(i64::MIN),
             max_abs_micros: AtomicI64::new(0),
             samples_p95: parking_lot::Mutex::new(Vec::new()),
             suppressed_count: AtomicU64::new(0),
@@ -92,6 +96,8 @@ impl DriftAccumulator {
     pub fn record(&self, drift_micros: i64) {
         self.count.fetch_add(1, Ordering::Relaxed);
         self.sum_micros.fetch_add(drift_micros, Ordering::Relaxed);
+        self.min_signed_micros.fetch_min(drift_micros, Ordering::Relaxed);
+        self.max_signed_micros.fetch_max(drift_micros, Ordering::Relaxed);
         self.max_abs_micros
             .fetch_max(drift_micros.saturating_abs(), Ordering::Relaxed);
         let mut samples = self.samples_p95.lock();
@@ -159,11 +165,14 @@ impl DriftAccumulator {
     pub(super) fn take_and_reset(&self) -> DriftSnapshot {
         let count = self.count.swap(0, Ordering::Relaxed);
         let sum = self.sum_micros.swap(0, Ordering::Relaxed);
+        let min_signed = self.min_signed_micros.swap(i64::MAX, Ordering::Relaxed);
+        let max_signed = self.max_signed_micros.swap(i64::MIN, Ordering::Relaxed);
         let max_abs = self.max_abs_micros.swap(0, Ordering::Relaxed);
         let suppressed_n = self.suppressed_count.swap(0, Ordering::Relaxed);
         let config = *self.suppression_config.lock();
 
         let mut samples = self.samples_p95.lock();
+        let p50_abs = percentile_abs(&samples, 0.50);
         let p95_abs = percentile_abs(&samples, 0.95);
         samples.clear();
 
@@ -182,7 +191,10 @@ impl DriftAccumulator {
             } else {
                 sum as f64 / count as f64
             },
+            min_signed_micros: if count == 0 { None } else { Some(min_signed) },
+            max_signed_micros: if count == 0 { None } else { Some(max_signed) },
             max_abs_micros: max_abs,
+            p50_abs_micros: p50_abs,
             p95_abs_micros: p95_abs,
             suppressed_n,
             p95_abs_micros_suppressed,
@@ -194,6 +206,8 @@ impl DriftAccumulator {
     pub(super) fn snapshot(&self) -> DriftSnapshot {
         let count = self.count.load(Ordering::Relaxed);
         let sum = self.sum_micros.load(Ordering::Relaxed);
+        let min_signed = self.min_signed_micros.load(Ordering::Relaxed);
+        let max_signed = self.max_signed_micros.load(Ordering::Relaxed);
         let max_abs = self.max_abs_micros.load(Ordering::Relaxed);
         let suppressed_n = self.suppressed_count.load(Ordering::Relaxed);
         let config = *self.suppression_config.lock();
@@ -213,7 +227,10 @@ impl DriftAccumulator {
             } else {
                 sum as f64 / count as f64
             },
+            min_signed_micros: if count == 0 { None } else { Some(min_signed) },
+            max_signed_micros: if count == 0 { None } else { Some(max_signed) },
             max_abs_micros: max_abs,
+            p50_abs_micros: percentile_abs(&samples, 0.50),
             p95_abs_micros: percentile_abs(&samples, 0.95),
             suppressed_n,
             p95_abs_micros_suppressed,
@@ -241,7 +258,15 @@ pub struct DriftSnapshot {
     /// Number of active (non-suppressed) drift samples in this window.
     pub n: u64,
     pub avg_micros: f64,
+    /// Minimum signed drift (frame_time - audio_time) in microseconds.
+    /// Negative values indicate video lagging behind audio.
+    pub min_signed_micros: Option<i64>,
+    /// Maximum signed drift (frame_time - audio_time) in microseconds.
+    /// Positive values indicate video leading audio.
+    pub max_signed_micros: Option<i64>,
     pub max_abs_micros: i64,
+    /// P50 (median) absolute drift computed from active samples only.
+    pub p50_abs_micros: i64,
     /// P95 absolute drift computed from active samples only.
     /// This is the number to use for dashboard reporting once the suppression
     /// guard is validated. See also `p95_abs_micros_suppressed`.

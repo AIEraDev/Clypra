@@ -6,7 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
-## [1.6.6] - 2026-11-15
+## [1.6.6] - 2026-11-16
+
+### 📊 Production Telemetry Instrumentation & Lookahead Queue Observability
+
+- **A/V Drift Negative Masking Fix (`drift.rs`, `presentation_queue.rs`)** — Replaced saturating unsigned subtraction with signed `i128` arithmetic clamped to `i64`. Added signed `min_signed_micros` / `max_signed_micros` and `p50_abs_micros` tracking on `DriftAccumulator`. Gated drift metric collection to active audio playback (`status.running && status.playing && status.audio_position_ticks > 0`), ensuring valid acoustic sync observations.
+- **Playback Lookahead Observability & Frame Dispositions (`performance.rs`, `service.rs`)** — Added `FrameDisposition` classification (`Presented`, `Late`, `Superseded`, `QueueStarved`). Decomposed stage timings to `scheduler_wait_us + actor_wait_us`, resolving previously unaccounted pipeline time in lookahead prefetch. Added disposition counts to `ModeStats`.
+- **Adaptive Lookahead Horizon Instrumentation (`presentation_queue.rs`, `nativeCore.ts`)** — Refactored `deadline_aware_lookahead_count` to return `LookaheadDecision { count, clamp_reason }`. Tracked effective lookahead depth and clamp reasons (`latency-cap`, `rate-bound`, `decode-floor`, `unclamped`) across telemetry samples.
+- **Decoder Actor Mailbox Wait Profiling (`stream_actor`, `types.rs`, `handle.rs`, `worker.rs`)** — Decomposed `actor_wait_us` into `channel_enqueue_us` (Tokio channel send latency) and `actor_queue_wait_us` (worker inbox queue wait) to distinguish channel backpressure from FFmpeg decoder mutex contention.
 
 ### 🔤 Native Text Transform & Bounding Box Manipulation Fixes
 

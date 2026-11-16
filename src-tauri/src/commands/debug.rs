@@ -110,6 +110,8 @@ pub async fn capture_preview_frame_bytes(
             requested_at_ms: None,
             is_scrubbing: None,
             allow_keyframe_approx: None,
+            lookahead_horizon_frames: None,
+            lookahead_clamp_reason: None,
         }
     };
     crate::commands::native_preview::render_frame_request_rgba(app, &req).await

@@ -53,6 +53,41 @@ pub enum ServedFrom {
     UnchangedSkipped,
 }
 
+/// Classification of final frame delivery outcome.
+///
+/// Serialised as kebab-case strings for JSON telemetry reporting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FrameDisposition {
+    /// Frame was successfully rendered and presented to the target surface.
+    Presented,
+    /// Frame arrived or completed after its presentation deadline.
+    Late,
+    /// Frame was cancelled or discarded because a newer frame/generation superseded it.
+    Superseded,
+    /// Frame could not be presented because the lookahead queue was starved.
+    QueueStarved,
+}
+
+impl FrameDisposition {
+    pub fn from_sample(
+        dropped: bool,
+        stale: bool,
+        cancelled: bool,
+        drop_reason: Option<&str>,
+    ) -> Self {
+        if !dropped && !stale && !cancelled {
+            FrameDisposition::Presented
+        } else if drop_reason == Some("lookahead-miss") || drop_reason == Some("queue-starved") {
+            FrameDisposition::QueueStarved
+        } else if drop_reason == Some("late-for-audio") || drop_reason == Some("deadline-miss") {
+            FrameDisposition::Late
+        } else {
+            FrameDisposition::Superseded
+        }
+    }
+}
+
 /// Runtime limits used to protect the fast editing path during migration.
 /// Durations are integer microseconds; timestamps remain governed by FrameTime.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -131,6 +166,8 @@ pub struct PerformanceSample {
     #[serde(default)]
     pub drop_reason: Option<String>,
     #[serde(default)]
+    pub disposition: Option<FrameDisposition>,
+    #[serde(default)]
     pub seek_time_us: u32,
     #[serde(default)]
     pub conversion_time_us: u32,
@@ -179,6 +216,12 @@ pub struct PerformanceSample {
     /// When prime cache hits, this is nearly zero (<10µs).
     #[serde(default)]
     pub actor_wait_us: Option<u64>,
+    /// Time the caller spent inside mpsc::send placing the decode request on the actor channel.
+    #[serde(default)]
+    pub channel_enqueue_us: Option<u64>,
+    /// Time the decode request waited in the actor inbox before decode execution began.
+    #[serde(default)]
+    pub actor_queue_wait_us: Option<u64>,
     #[serde(default)]
     pub gpu_queue_wait_us: Option<u64>,
     #[serde(default)]
@@ -275,6 +318,16 @@ pub struct PerformanceSample {
     /// of wgpu_compositor; the command layer overwrites this field.
     #[serde(default)]
     pub dxgi_latch_context: Option<serde_json::Value>,
+    /// Effective lookahead depth chosen by the scheduler for this prefetch pass.
+    /// Only populated on `PlaybackLookahead` mode samples. `None` on all other
+    /// paths. Values are in `[1, NATIVE_PREVIEW_QUEUE_CAPACITY]`.
+    #[serde(default)]
+    pub lookahead_horizon_frames: Option<u8>,
+    /// Which gate in `deadline_aware_lookahead_count` determined the horizon.
+    /// One of `"unclamped"`, `"latency-cap"`, `"rate-bound"`, `"decode-floor"`.
+    /// Only present when `lookahead_horizon_frames` is `Some`.
+    #[serde(default)]
+    pub lookahead_clamp_reason: Option<String>,
 }
 
 impl PerformanceSample {
@@ -480,6 +533,9 @@ pub struct ModeStats {
     pub queue_residency: StagePercentiles,
     pub ipc_wait: StagePercentiles,
     pub decoder_mutex_wait: StagePercentiles,
+    pub actor_wait: StagePercentiles,
+    pub channel_enqueue: StagePercentiles,
+    pub actor_queue_wait: StagePercentiles,
     pub demux_wait: StagePercentiles,
     /// Actual container seeks per decoded frame request. Steady playback
     /// should approach zero once the decoder is warm.
@@ -520,6 +576,26 @@ pub struct ModeStats {
     pub sample_span_ms: Option<u64>,
     pub dropped_count: usize,
     pub stale_count: usize,
+    pub presented_count: usize,
+    pub late_count: usize,
+    pub superseded_count: usize,
+    pub queue_starved_count: usize,
+    /// Percentiles of `lookahead_horizon_frames` across `PlaybackLookahead`
+    /// samples. Use to verify which effective depth the scheduler chose most
+    /// often during a session.
+    pub lookahead_horizon: StagePercentiles,
+    /// Number of lookahead scheduling passes where `latency-cap` was the
+    /// binding gate. High values at ≥50fps indicate that residency budget is
+    /// already the limiting constraint.
+    pub lookahead_clamp_latency_count: usize,
+    /// Number of passes where `rate-bound` was the binding gate. This is the
+    /// typical steady-state path.
+    pub lookahead_clamp_rate_count: usize,
+    /// Number of passes where `decode-floor` expanded the horizon above the
+    /// rate-bound value because measured decode time exceeded one frame budget.
+    pub lookahead_clamp_floor_count: usize,
+    /// Unclamped passes (configured count was already within all gates).
+    pub lookahead_clamp_unclamped_count: usize,
 }
 
 pub(crate) fn optional_stage_percentiles(
@@ -592,6 +668,7 @@ mod tests {
             stale: false,
             dropped: false,
             drop_reason: None,
+            disposition: None,
             seek_time_us: 0,
             conversion_time_us: 0,
             upload_time_us: 0,
@@ -610,6 +687,8 @@ mod tests {
             ipc_wait_us: None,
             decoder_mutex_wait_us: None,
             actor_wait_us: None,
+            channel_enqueue_us: None,
+            actor_queue_wait_us: None,
             gpu_queue_wait_us: None,
             surface_acquire_us: None,
             submit_present_us: None,
@@ -637,6 +716,8 @@ mod tests {
             dxgi_latched_off: None,
             dxgi_latch_reason: None,
             dxgi_latch_context: None,
+            lookahead_horizon_frames: None,
+            lookahead_clamp_reason: None,
         };
         assert!(sample.exceeds_render_budget(&budget));
     }
@@ -646,5 +727,25 @@ mod tests {
         let mut values = vec![30_000, 10_000, 20_000];
         assert_eq!(percentile_ms(&mut values, 0.50), Some(20.0));
         assert_eq!(percentile_ms(&mut [], 0.95), None);
+    }
+
+    #[test]
+    fn frame_disposition_classification_matches_semantics() {
+        assert_eq!(
+            FrameDisposition::from_sample(false, false, false, None),
+            FrameDisposition::Presented
+        );
+        assert_eq!(
+            FrameDisposition::from_sample(true, false, false, Some("lookahead-miss")),
+            FrameDisposition::QueueStarved
+        );
+        assert_eq!(
+            FrameDisposition::from_sample(true, false, false, Some("late-for-audio")),
+            FrameDisposition::Late
+        );
+        assert_eq!(
+            FrameDisposition::from_sample(true, true, false, Some("stale")),
+            FrameDisposition::Superseded
+        );
     }
 }

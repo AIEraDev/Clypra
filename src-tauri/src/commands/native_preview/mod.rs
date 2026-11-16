@@ -1857,6 +1857,8 @@ async fn decode_native_video_layers(
         let decode_us = actor_frame.decode_us;
         let mutex_wait_us = actor_frame.decoder_mutex_wait_us;
         let actor_wait_us = actor_frame.actor_wait_us;
+        let channel_enqueue_us = actor_frame.channel_enqueue_us;
+        let actor_queue_wait_us = actor_frame.actor_queue_wait_us;
         let demux_us = actor_frame.demux_us;
         let container_format = actor_frame.container_format.clone();
         let is_hw = actor_frame.is_hardware_accelerated;
@@ -1876,6 +1878,8 @@ async fn decode_native_video_layers(
                 decode_time_us: decode_us,
                 decoder_mutex_wait_us: mutex_wait_us,
                 actor_wait_us: Some(actor_wait_us),
+                channel_enqueue_us: Some(channel_enqueue_us),
+                actor_queue_wait_us: Some(actor_queue_wait_us),
                 demux_wait_us: Some(u64::from(demux_us)),
                 container_format: Some(container_format),
                 is_hardware_accelerated: Some(is_hw),
@@ -1946,6 +1950,8 @@ async fn decode_native_video_layers(
                 let decode_us = actor_frame.decode_us;
                 let mutex_wait_us = actor_frame.decoder_mutex_wait_us;
                 let actor_wait_us = actor_frame.actor_wait_us;
+                let channel_enqueue_us = actor_frame.channel_enqueue_us;
+                let actor_queue_wait_us = actor_frame.actor_queue_wait_us;
                 let demux_us = actor_frame.demux_us;
                 let container_format = actor_frame.container_format.clone();
                 let is_hw = actor_frame.is_hardware_accelerated;
@@ -1955,6 +1961,8 @@ async fn decode_native_video_layers(
                     decode_us,
                     mutex_wait_us,
                     actor_wait_us,
+                    channel_enqueue_us,
+                    actor_queue_wait_us,
                     demux_us,
                     container_format,
                     is_hw,
@@ -1968,6 +1976,8 @@ async fn decode_native_video_layers(
     let mut max_decode_us = 0u32;
     let mut total_mutex_wait_us = 0u64;
     let mut max_actor_wait_us = 0u64;
+    let mut max_channel_enqueue_us = 0u64;
+    let mut max_actor_queue_wait_us = 0u64;
     let mut max_demux_us = 0u64;
     let mut primary_container = None;
     let mut all_hw = true;
@@ -1979,11 +1989,13 @@ async fn decode_native_video_layers(
         max_decode_us = max_decode_us.max(res.1);
         total_mutex_wait_us = total_mutex_wait_us.saturating_add(res.2);
         max_actor_wait_us = max_actor_wait_us.max(res.3);
-        max_demux_us = max_demux_us.max(u64::from(res.4));
-        if primary_container.is_none() && !res.5.is_empty() {
-            primary_container = Some(res.5.clone());
+        max_channel_enqueue_us = max_channel_enqueue_us.max(res.4);
+        max_actor_queue_wait_us = max_actor_queue_wait_us.max(res.5);
+        max_demux_us = max_demux_us.max(u64::from(res.6));
+        if primary_container.is_none() && !res.7.is_empty() {
+            primary_container = Some(res.7.clone());
         }
-        if !res.6 {
+        if !res.8 {
             all_hw = false;
         }
         unique_results.push(res);
@@ -2001,6 +2013,8 @@ async fn decode_native_video_layers(
             decode_time_us: max_decode_us,
             decoder_mutex_wait_us: total_mutex_wait_us,
             actor_wait_us: Some(max_actor_wait_us),
+            channel_enqueue_us: Some(max_channel_enqueue_us),
+            actor_queue_wait_us: Some(max_actor_queue_wait_us),
             demux_wait_us: Some(max_demux_us),
             container_format: primary_container,
             is_hardware_accelerated: Some(all_hw),
@@ -2129,8 +2143,10 @@ pub async fn queue_native_frame(
                     if let Ok(mut service) = service.try_lock() {
                         let total_time_us =
                             command_started.elapsed().as_micros().min(u32::MAX as u128) as u32;
-                        let unaccounted_us = u64::from(total_time_us)
-                            .saturating_sub(u64::from(decode_timings.decode_time_us));
+                        let measured_stages = scheduler_wait_us
+                            + decode_timings.actor_wait_us.unwrap_or_else(|| u64::from(decode_timings.decode_time_us));
+                        let unaccounted_us = u64::from(total_time_us).saturating_sub(measured_stages);
+                        let stage_overlap_us = measured_stages.saturating_sub(u64::from(total_time_us));
                         service.record_sample(PerformanceSample {
                             request_id: request.request_id.clone(),
                             frame_index: request.frame_time.frame_index,
@@ -2149,6 +2165,7 @@ pub async fn queue_native_frame(
                             stale: false,
                             dropped: false,
                             drop_reason: None,
+                            disposition: Some(crate::native_core::performance::FrameDisposition::Presented),
                             seek_time_us: decode_timings.seek_time_us.unwrap_or(0),
                             conversion_time_us: 0,
                             upload_time_us: 0,
@@ -2167,6 +2184,8 @@ pub async fn queue_native_frame(
                             ipc_wait_us: None,
                             decoder_mutex_wait_us: Some(decode_timings.decoder_mutex_wait_us),
                             actor_wait_us: decode_timings.actor_wait_us,
+                            channel_enqueue_us: decode_timings.channel_enqueue_us,
+                            actor_queue_wait_us: decode_timings.actor_queue_wait_us,
                             gpu_queue_wait_us: None,
                             surface_acquire_us: None,
                             submit_present_us: None,
@@ -2186,7 +2205,7 @@ pub async fn queue_native_frame(
                             unaccounted_us: Some(unaccounted_us),
                             codec_name: decode_timings.codec_name.clone(),
                             hardware_frames_downloaded: decode_timings.hardware_frames_downloaded,
-                            stage_overlap_us: Some(0),
+                            stage_overlap_us: Some(stage_overlap_us),
                             served_from: decode_timings.served_from.or(Some(
                                 crate::native_core::performance::ServedFrom::DecodedInRequest,
                             )),
@@ -2195,7 +2214,12 @@ pub async fn queue_native_frame(
                             cache_insert_us: None,
                             dxgi_latched_off: None,
                             dxgi_latch_reason: None,
-                dxgi_latch_context: None,
+                            dxgi_latch_context: None,
+                            // Carry the scheduler's lookahead decision onto this
+                            // sample so fleet analysis can correlate effective
+                            // horizon depth with actor_wait and queue_residency.
+                            lookahead_horizon_frames: request.lookahead_horizon_frames,
+                            lookahead_clamp_reason: request.lookahead_clamp_reason.clone(),
                         });
                     }
                 }
@@ -2372,9 +2396,9 @@ pub(crate) fn schedule_lookahead_predecode(
         // NEVER decode backwards during playback!
         // If highest_frame_index >= current_audio_frame, start at highest_frame_index + 1
         // so the decoder moves strictly FORWARD in 11ms sequential steps.
-        let (start_frame_index, target_end_frame_index) = {
+        let (start_frame_index, target_end_frame_index, lookahead_decision) = {
             let queue_opt = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>();
-            let (highest, effective_lookahead_count) = if let Some(queue) = &queue_opt {
+            let (highest, lookahead_decision) = if let Some(queue) = &queue_opt {
                 let mut queue_state = queue.lock().await;
                 queue_state.discard_discontinuity(current_audio_frame, lookahead_count);
                 (
@@ -2391,6 +2415,7 @@ pub(crate) fn schedule_lookahead_predecode(
                     deadline_aware_lookahead_count(frame_rate, lookahead_count, None),
                 )
             };
+            let effective_lookahead_count = lookahead_decision.count;
 
             let target_end = current_audio_frame.saturating_add(effective_lookahead_count as u64);
             let start = match highest {
@@ -2400,7 +2425,7 @@ pub(crate) fn schedule_lookahead_predecode(
                 _ => current_audio_frame,
             };
 
-            (start, target_end)
+            (start, target_end, lookahead_decision)
         };
 
         worker_start_clone.store(start_frame_index, std::sync::atomic::Ordering::Release);
@@ -2447,6 +2472,10 @@ pub(crate) fn schedule_lookahead_predecode(
             req.frame_time.frame_index = target_frame_index;
             req.frame_time.ticks = (target_time_secs * DEFAULT_TIME_SCALE as f64).round() as i64;
             req.frame_time.timescale = DEFAULT_TIME_SCALE;
+            // Record the lookahead scheduler decision so the frame's
+            // PerformanceSample carries the effective horizon and gate reason.
+            req.lookahead_horizon_frames = Some(lookahead_decision.count.min(255) as u8);
+            req.lookahead_clamp_reason = Some(lookahead_decision.clamp_reason.to_string());
 
             for layer in &mut req.project.video_layers {
                 let base_source_frame = layer.source_time.frame_index;
@@ -3572,6 +3601,8 @@ pub(crate) async fn present_native_frame_internal(
             decode_us: decode_timings.decode_time_us,
             decoder_mutex_wait_us: decode_timings.decoder_mutex_wait_us,
             actor_wait_us: decode_timings.actor_wait_us.unwrap_or(0),
+            channel_enqueue_us: decode_timings.channel_enqueue_us.unwrap_or(0),
+            actor_queue_wait_us: decode_timings.actor_queue_wait_us.unwrap_or(0),
             demux_wait_us: decode_timings.demux_wait_us.unwrap_or(0),
             conversion_upload_us,
             compose_us,
@@ -3702,6 +3733,7 @@ pub async fn render_native_frame(
                         stale: false,
                         dropped: false,
                         drop_reason: None,
+                        disposition: Some(crate::native_core::performance::FrameDisposition::Presented),
                         seek_time_us: 0,
                         conversion_time_us: 0,
                         upload_time_us: 0,
@@ -3720,6 +3752,8 @@ pub async fn render_native_frame(
                         ipc_wait_us: None,
                         decoder_mutex_wait_us: None,
                         actor_wait_us: None,
+                        channel_enqueue_us: None,
+                        actor_queue_wait_us: None,
                         gpu_queue_wait_us: None,
                         surface_acquire_us: None,
                         submit_present_us: None,
@@ -3749,6 +3783,8 @@ pub async fn render_native_frame(
                         dxgi_latched_off: None,
                         dxgi_latch_reason: None,
                 dxgi_latch_context: None,
+                lookahead_horizon_frames: None,
+                lookahead_clamp_reason: None,
                     });
                     log::debug!(
                         "[preview-diag][rust] render_native_frame UNCH: frame={} gen={:?}",
@@ -3783,6 +3819,7 @@ pub async fn render_native_frame(
                 stale: false,
                 dropped: false,
                 drop_reason: None,
+                disposition: Some(crate::native_core::performance::FrameDisposition::Presented),
                 seek_time_us: 0,
                 conversion_time_us: 0,
                 upload_time_us: 0,
@@ -3801,6 +3838,8 @@ pub async fn render_native_frame(
                 ipc_wait_us: None,
                 decoder_mutex_wait_us: None,
                 actor_wait_us: None,
+                channel_enqueue_us: None,
+                actor_queue_wait_us: None,
                 gpu_queue_wait_us: None,
                 surface_acquire_us: None,
                 submit_present_us: None,
@@ -3828,6 +3867,8 @@ pub async fn render_native_frame(
                         dxgi_latched_off: None,
                         dxgi_latch_reason: None,
                 dxgi_latch_context: None,
+                lookahead_horizon_frames: None,
+                lookahead_clamp_reason: None,
             });
             record_successful_readback_metrics(&app, &request);
             return Ok(tauri::ipc::Response::new(packet.data));
@@ -3943,6 +3984,7 @@ pub async fn render_native_frame(
             stale: false,
             dropped: false,
             drop_reason: None,
+            disposition: Some(crate::native_core::performance::FrameDisposition::Presented),
             seek_time_us: stage_timings.decode_telemetry.seek_time_us.unwrap_or(0),
             conversion_time_us: stage_timings.conversion_time_us,
             upload_time_us: 0,
@@ -3964,6 +4006,8 @@ pub async fn render_native_frame(
             ipc_wait_us: None,
             decoder_mutex_wait_us: Some(stage_timings.decoder_mutex_wait_us),
             actor_wait_us: stage_timings.decode_telemetry.actor_wait_us.or(Some(0)),
+            channel_enqueue_us: stage_timings.decode_telemetry.channel_enqueue_us,
+            actor_queue_wait_us: stage_timings.decode_telemetry.actor_queue_wait_us,
             gpu_queue_wait_us: None,
             surface_acquire_us: None,
             submit_present_us: None,
@@ -3991,6 +4035,8 @@ pub async fn render_native_frame(
             dxgi_latched_off: None,
             dxgi_latch_reason: None,
                 dxgi_latch_context: None,
+                lookahead_horizon_frames: None,
+                lookahead_clamp_reason: None,
         });
 
         // Commit D: record this delivery so that the next identical playback

@@ -244,6 +244,8 @@ export interface NativePerformanceSample {
   ipcWaitUs?: number;
   decoderMutexWaitUs?: number;
   actorWaitUs?: number;
+  channelEnqueueUs?: number;
+  actorQueueWaitUs?: number;
   gpuQueueWaitUs?: number;
   surfaceAcquireUs?: number;
   submitPresentUs?: number;
@@ -318,6 +320,18 @@ export interface NativePerformanceSample {
   decoderName?: string;
   /** Presenter path active at frame time ("native-surface" or "bridge"). */
   presenter?: "native-surface" | "bridge" | string;
+  /**
+   * Effective lookahead depth chosen by the scheduler for this prefetch pass.
+   * Only populated on PlaybackLookahead samples. Correlate with actorWait
+   * and queueResidencyUs to tune the horizon for a given GPU/framerate.
+   */
+  lookaheadHorizonFrames?: number;
+  /**
+   * Which gate in deadline_aware_lookahead_count determined the horizon.
+   * One of "unclamped" | "latency-cap" | "rate-bound" | "decode-floor".
+   * Only present when lookaheadHorizonFrames is set.
+   */
+  lookaheadClampReason?: "unclamped" | "latency-cap" | "rate-bound" | "decode-floor" | string;
 }
 
 export interface NativePerformanceSampleBatch {
@@ -345,6 +359,12 @@ export interface NativeStagePercentiles {
   sampleCount: number;
 }
 
+export type NativeFrameDisposition =
+  | "presented"
+  | "late"
+  | "superseded"
+  | "queue-starved";
+
 export interface NativeModeStats {
   mode: NativePreviewMode;
   decode: NativeStagePercentiles;
@@ -360,6 +380,9 @@ export interface NativeModeStats {
   queueResidency: NativeStagePercentiles;
   ipcWait: NativeStagePercentiles;
   decoderMutexWait: NativeStagePercentiles;
+  actorWait?: NativeStagePercentiles;
+  channelEnqueue?: NativeStagePercentiles;
+  actorQueueWait?: NativeStagePercentiles;
   demuxWait: NativeStagePercentiles;
   decoderSeekCount: NativeStagePercentiles;
   decoderFramesDecoded: NativeStagePercentiles;
@@ -378,6 +401,23 @@ export interface NativeModeStats {
   sampleSpanMs: number | null;
   droppedCount: number;
   staleCount: number;
+  presentedCount?: number;
+  lateCount?: number;
+  supersededCount?: number;
+  queueStarvedCount?: number;
+  /**
+   * Percentiles of lookaheadHorizonFrames across PlaybackLookahead samples.
+   * Use to verify which effective depth the scheduler chose most often.
+   */
+  lookaheadHorizon: NativeStagePercentiles;
+  /** Passes where latency-cap was the binding gate. */
+  lookaheadClampLatencyCount: number;
+  /** Passes where rate-bound was the binding gate (typical steady state). */
+  lookaheadClampRateCount: number;
+  /** Passes where decode-floor expanded the horizon above rate-bound. */
+  lookaheadClampFloorCount: number;
+  /** Passes where the configured count was within all gates (unclamped). */
+  lookaheadClampUnclampedCount: number;
   /** Consumer cache lock wait percentiles. */
   cacheLockWait: NativeStagePercentiles;
   /** Cache insert duration percentiles (consumer path). */
@@ -494,6 +534,8 @@ export interface NativeSurfacePresentation {
     decodeUs: number;
     decoderMutexWaitUs: number;
     actorWaitUs?: number;
+    channelEnqueueUs?: number;
+    actorQueueWaitUs?: number;
     demuxWaitUs?: number;
     conversionUploadUs: number;
     composeUs: number;
@@ -510,8 +552,15 @@ export interface NativeSurfacePresentation {
 export interface NativeSyncDriftSnapshot {
   n: number;
   avg_micros: number;
+  min_signed_micros?: number | null;
+  max_signed_micros?: number | null;
   max_abs_micros: number;
+  p50_abs_micros?: number;
   p95_abs_micros: number;
+  suppressed_n?: number;
+  p95_abs_micros_suppressed?: number | null;
+  suppression_multiplier?: number;
+  suppression_floor_us?: number;
 }
 
 export interface NativeSyncFramePacingSnapshot {

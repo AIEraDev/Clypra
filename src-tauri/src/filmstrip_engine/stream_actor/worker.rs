@@ -148,12 +148,18 @@ impl StreamDecoderActor {
             // Perform single decode
             let target_time = job.request.time_secs;
             let options = job.request.options;
+            // Measure how long this job waited in the inbox before decode began.
+            // High values indicate serialization contention (filmstrip engine or
+            // another consumer sharing this actor).
+            let actor_queue_wait_us =
+                job.enqueued_at.elapsed().as_micros().min(u64::MAX as u128) as u64;
             let res = self
                 .decode_one(target_time, options, job.request.generation)
                 .await;
 
             match res {
-                Ok(frame) => {
+                Ok(mut frame) => {
+                    frame.actor_queue_wait_us = actor_queue_wait_us;
                     last_decoded_time = Some(target_time);
                     last_decoded_options = Some(options);
 
@@ -300,6 +306,7 @@ impl StreamDecoderActor {
                                     stale: false,
                                     dropped: false,
                                     drop_reason: None,
+                                    disposition: Some(crate::native_core::performance::FrameDisposition::Presented),
                                     seek_time_us: frame.decoder_seek_time_us,
                                     conversion_time_us: 0,
                                     upload_time_us: 0,
@@ -318,6 +325,8 @@ impl StreamDecoderActor {
                                     ipc_wait_us: None,
                                     decoder_mutex_wait_us: Some(frame.decoder_mutex_wait_us),
                                     actor_wait_us: None,
+                                    channel_enqueue_us: None,
+                                    actor_queue_wait_us: None,
                                     gpu_queue_wait_us: None,
                                     surface_acquire_us: None,
                                     submit_present_us: None,
@@ -357,6 +366,8 @@ impl StreamDecoderActor {
                                     dxgi_latched_off: None,
                                     dxgi_latch_reason: None,
                                     dxgi_latch_context: None,
+                                    lookahead_horizon_frames: None,
+                                    lookahead_clamp_reason: None,
                                 });
                             }
                         }
@@ -571,6 +582,8 @@ impl StreamDecoderActor {
             decode_us,
             decoder_mutex_wait_us: mutex_wait_us,
             actor_wait_us: 0,
+            channel_enqueue_us: 0, // populated by handle.rs after channel send
+            actor_queue_wait_us: 0, // populated by worker loop before decode_one is called
             from_prime_cache: false,
             quality: options.quality,
             is_approximate: is_approx,
