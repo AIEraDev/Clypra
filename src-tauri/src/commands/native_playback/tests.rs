@@ -241,7 +241,6 @@ mod tests {
             playback_lookahead_miss_streak: AtomicU8::new(0),
             playback_lookahead_feedback_armed: AtomicBool::new(false),
             lifecycle_registry: Mutex::new(FrameLifecycleRegistry::default()),
-            active_request_ids: Mutex::new(HashMap::new()),
         }
     }
 

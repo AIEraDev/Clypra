@@ -227,7 +227,7 @@ pub fn start_debug_ipc_server(app: tauri::AppHandle) {
                             if let Ok(mut lock) = crate::commands::native_preview::LAST_PRESENTED_REQUEST.try_write() {
                                 *lock = Some(payload.request.clone());
                             }
-                            match crate::commands::native_preview::present_native_frame_internal(app.clone(), payload.request.clone()).await {
+                            match crate::commands::native_preview::present_native_frame_internal(app.clone(), payload.request.clone(), crate::wgpu_compositor::RenderLifecycleContext::empty()).await {
                                 Ok(pres) => (axum::http::StatusCode::OK, axum::Json(pres)).into_response(),
                                 Err(err) if err.contains("Native surface has not been configured") => {
                                     use crate::native_core::surface::{NativeSurfaceGeometry, NativeSurfacePresentation, NativeSurfaceProbe, NativeSurfaceStatus};

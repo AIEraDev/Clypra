@@ -52,6 +52,7 @@ pub(crate) struct QueuedNativeFrame {
     pub(crate) queued_at: Instant,
     pub(crate) ready_at: Instant,
     pub(crate) scheduler_wait_us: u64,
+    pub(crate) lifecycle_context: crate::wgpu_compositor::RenderLifecycleContext,
 }
 
 /// Never make a frame ready so far ahead that lookahead itself becomes a

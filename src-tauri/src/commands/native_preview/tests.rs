@@ -295,6 +295,7 @@ use crate::filmstrip_engine::decoder::VideoColorMetadata;
             queued_at: Instant::now(),
             ready_at: Instant::now(),
             scheduler_wait_us: 0,
+            lifecycle_context: crate::wgpu_compositor::RenderLifecycleContext::empty(),
         };
         assert!(queue.begin("frame-1", None));
         assert!(!queue.begin("frame-1", None));
@@ -359,6 +360,7 @@ use crate::filmstrip_engine::decoder::VideoColorMetadata;
                 queued_at: Instant::now(),
                 ready_at: Instant::now(),
                 scheduler_wait_us: 0,
+                lifecycle_context: crate::wgpu_compositor::RenderLifecycleContext::empty(),
             },
             stale_epoch,
         ));
@@ -379,6 +381,7 @@ use crate::filmstrip_engine::decoder::VideoColorMetadata;
                 queued_at: now,
                 ready_at: now,
                 scheduler_wait_us: 0,
+                lifecycle_context: crate::wgpu_compositor::RenderLifecycleContext::empty(),
             },
             epoch,
         ));
@@ -400,6 +403,7 @@ use crate::filmstrip_engine::decoder::VideoColorMetadata;
             queued_at: Instant::now(),
             ready_at: Instant::now(),
             scheduler_wait_us: 0,
+            lifecycle_context: crate::wgpu_compositor::RenderLifecycleContext::empty(),
         };
 
         // Populate with frames from the old playhead at 400..405
@@ -431,6 +435,7 @@ use crate::filmstrip_engine::decoder::VideoColorMetadata;
             queued_at: Instant::now(),
             ready_at: Instant::now(),
             scheduler_wait_us: 0,
+            lifecycle_context: crate::wgpu_compositor::RenderLifecycleContext::empty(),
         };
 
         queue.begin("frame-50", Some(50));

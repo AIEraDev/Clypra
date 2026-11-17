@@ -20,7 +20,7 @@ use crate::wgpu_compositor::DxgiImportState;
 use crate::wgpu_compositor::{
     BodyEffectUniforms, ChromaKeyUniforms, ColorGradeUniforms, ColorTransformUniforms,
     CompositeLayer, CropMargins, FrameRenderPath, GpuContext, LayerTransform, MultiTrackCompositor,
-    NativePreviewSession, NativeWgpuRenderer,
+    NativePreviewSession, NativeWgpuRenderer, RenderLifecycleContext,
 };
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -1336,7 +1336,7 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
         drop(session);
 
         let frames_res = if need_cpu_decode {
-            let (frames, timings) = decode_native_video_layers(&request, None).await?;
+            let (frames, timings, _returned_context) = decode_native_video_layers(&request, None, RenderLifecycleContext::empty()).await?;
             decode_time_us = timings.decode_time_us;
             decoder_mutex_wait_us = timings.decoder_mutex_wait_us;
             decode_telemetry = timings;
@@ -1791,9 +1791,10 @@ async fn decode_native_effect_layers(
 async fn decode_native_video_layers(
     request: &NativeVideoProjectFrameRequest,
     cancellation: Option<(Arc<AtomicU64>, u64)>,
-) -> Result<(Vec<DecodedNativeVideoFrame>, NativeDecodeTimings), String> {
+    lifecycle_context: RenderLifecycleContext,
+) -> Result<(Vec<DecodedNativeVideoFrame>, NativeDecodeTimings, RenderLifecycleContext), String> {
     if request.layers.is_empty() {
-        return Ok((Vec::new(), NativeDecodeTimings::default()));
+        return Ok((Vec::new(), NativeDecodeTimings::default(), lifecycle_context));
     }
 
     let decode_options = DecodeFrameOptions {
@@ -1897,6 +1898,7 @@ async fn decode_native_video_layers(
                 served_from: Some(actor_served_from),
                 hw_device_type,
             },
+            lifecycle_context,
         ));
     }
 
@@ -2023,6 +2025,7 @@ async fn decode_native_video_layers(
             // until the report can represent one row per source.
             ..NativeDecodeTimings::default()
         },
+        lifecycle_context,
     ))
 }
 
@@ -2117,8 +2120,8 @@ pub async fn queue_native_frame(
             }
         }
     }
-    match decode_native_video_layers(&legacy_request, cancellation).await {
-        Ok((decoded_frames, decode_timings)) => {
+    match decode_native_video_layers(&legacy_request, cancellation, RenderLifecycleContext::empty()).await {
+        Ok((decoded_frames, decode_timings, lifecycle_context)) => {
             // Start this clock as soon as decoding is complete, before taking
             // the queue lock. A contended producer lock should be visible as
             // part of the time the decoded result is unavailable to present.
@@ -2135,6 +2138,7 @@ pub async fn queue_native_frame(
                         queued_at: command_started,
                         ready_at,
                         scheduler_wait_us,
+                        lifecycle_context,
                     },
                     lifecycle_epoch,
                 );
@@ -2661,6 +2665,7 @@ pub(crate) fn composite_layers_to_view(
 pub(crate) async fn present_native_frame_internal(
     app: tauri::AppHandle,
     request: FrameRequest,
+    _lifecycle_context: RenderLifecycleContext,
 ) -> Result<NativeSurfacePresentation, String> {
     let presentation_started = Instant::now();
     let presentation_sequence =
@@ -2836,6 +2841,7 @@ pub(crate) async fn present_native_frame_internal(
         ready_at,
         request_started_at,
         queue_hit,
+        _lifecycle_context,
     ) = match queued_frame {
         Some(frame) => (
             frame.decoded_frames,
@@ -2844,10 +2850,11 @@ pub(crate) async fn present_native_frame_internal(
             Some(frame.ready_at),
             presentation_started,
             true,
+            frame.lifecycle_context,
         ),
         None => {
-            let (decoded_frames, decode_timings) =
-                decode_native_video_layers(&legacy_request, None).await?;
+            let (decoded_frames, decode_timings, lifecycle_context) =
+                decode_native_video_layers(&legacy_request, None, RenderLifecycleContext::empty()).await?;
             if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>()
             {
                 queue
@@ -2862,6 +2869,7 @@ pub(crate) async fn present_native_frame_internal(
                 None,
                 presentation_started,
                 false,
+                lifecycle_context,
             )
         }
     };
@@ -3624,7 +3632,7 @@ pub async fn present_native_frame(
     app: tauri::AppHandle,
     request: FrameRequest,
 ) -> Result<NativeSurfacePresentation, String> {
-    present_native_frame_internal(app, request).await
+    present_native_frame_internal(app, request, RenderLifecycleContext::empty()).await
 }
 
 /// Legacy-shaped command retained as a compatibility boundary while callers

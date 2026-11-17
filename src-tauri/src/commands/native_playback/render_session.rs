@@ -7,7 +7,7 @@ use crate::native_core::{
     FrameRequest, FrameTime, NativePlaybackFrameDemand, PlaybackPlan, QualityTier,
     DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION,
 };
-use crate::wgpu_compositor::{AbandonReason, FrameLifecycleRegistry, FrameRequestId};
+use crate::wgpu_compositor::{AbandonReason, FrameLifecycleRegistry, FrameRequestId, RenderLifecycleContext};
 use parking_lot::RwLock;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -48,10 +48,6 @@ pub(crate) struct NativeRenderSession {
     pub(crate) playback_lookahead_feedback_armed: AtomicBool,
     /// Frame lifecycle tracking for request, frame, and presentation identities.
     pub(crate) lifecycle_registry: Mutex<FrameLifecycleRegistry>,
-    /// Active request ID tracking keyed by external request_id.
-    /// Enables lifecycle correlation across async boundaries without
-    /// modifying FrameRequest serialization contract.
-    pub(crate) active_request_ids: Mutex<HashMap<String, FrameRequestId>>,
 }
 
 const LOOKAHEAD_QUALITY_DOWNGRADE_MISS_STREAK: u8 = 2;
@@ -180,7 +176,6 @@ impl NativeRenderSession {
             playback_lookahead_miss_streak: AtomicU8::new(0),
             playback_lookahead_feedback_armed: AtomicBool::new(false),
             lifecycle_registry: Mutex::new(FrameLifecycleRegistry::default()),
-            active_request_ids: Mutex::new(HashMap::new()),
         }))
     }
 
@@ -893,13 +888,6 @@ impl NativeRenderSession {
                 Err(_) => continue,
             };
 
-            // Store internal request ID in active map for lifecycle correlation
-            if let Some(internal_id) = internal_request_id {
-                if let Ok(mut map) = self.active_request_ids.lock() {
-                    map.insert(base_request.request_id.clone(), internal_id);
-                }
-            }
-
             // Reading the lease collection here documents and enforces the
             // ownership boundary: these decoder entries stay pinned for the
             // complete lifetime of the render session, while their mutexes
@@ -981,13 +969,8 @@ impl NativeRenderSession {
                     } else {
                         None
                     };
-                    if let Some(internal_id) = audio_clock_internal_id {
-                        if let Ok(mut map) = self.active_request_ids.lock() {
-                            map.insert(request.request_id.clone(), internal_id);
-                        }
-                    }
 
-                    if let Some(presentation) = self.render_one(&app, request, generation).await {
+                    if let Some(presentation) = self.render_one(&app, request, generation, audio_clock_internal_id).await {
                         if presentation.presented {
                             frames_rendered += 1;
                             if let Some(t) = &presentation.timings {
@@ -1060,7 +1043,7 @@ impl NativeRenderSession {
                 continue;
             }
 
-            let _ = self.render_one(&app, base_request, generation).await;
+            let _ = self.render_one(&app, base_request, generation, internal_request_id).await;
         }
     }
 
@@ -1069,31 +1052,31 @@ impl NativeRenderSession {
         app: &AppHandle,
         request: FrameRequest,
         generation: u64,
+        internal_request_id: Option<FrameRequestId>,
     ) -> Option<crate::native_core::NativeSurfacePresentation> {
         if generation < self.generation.load(Ordering::Acquire) {
             // Recency cancellation is deliberately before the shared
             // audio-clock lateness decision in present_native_frame.
-            // Mark the request cancelled if we have its lifecycle ID
-            if let Ok(mut map) = self.active_request_ids.lock() {
-                if let Some(internal_id) = map.remove(&request.request_id) {
-                    if let Ok(mut registry) = self.lifecycle_registry.lock() {
-                        use crate::wgpu_compositor::RequestTerminalDisposition;
-                        let _ = registry.finish_request(&internal_id, RequestTerminalDisposition::Cancelled);
-                    }
+            if let Some(internal_id) = internal_request_id {
+                if let Ok(mut registry) = self.lifecycle_registry.lock() {
+                    use crate::wgpu_compositor::RequestTerminalDisposition;
+                    let _ = registry.finish_request(&internal_id, RequestTerminalDisposition::Cancelled);
                 }
             }
             return None;
         }
-        match crate::commands::native_preview::present_native_frame_internal(app.clone(), request.clone())
+        let lifecycle_ctx = internal_request_id.as_ref()
+            .map(|id| RenderLifecycleContext::new(id.clone()))
+            .unwrap_or_else(RenderLifecycleContext::empty);
+        match crate::commands::native_preview::present_native_frame_internal(app.clone(), request.clone(), lifecycle_ctx)
             .await
         {
             Ok(presentation) => {
                 let is_explicit_paused_demand = presentation.mode.as_deref() != Some("playback");
                 if presentation.presented {
-                    // Record successful presentation in lifecycle registry
-                    // TODO(Task 4): Wire up FrameId and full presented transition
-                    // For now, we leave the request in Active state; terminal
-                    // success transitions will be wired in Task 4 after FrameId allocation
+                    // TODO(Task 4): Wire up FrameId and mark Terminal(Presented)
+                    // For now, we leave the request in Active state in the registry;
+                    // terminal success transitions will be wired in Task 4 after FrameId allocation
                     if !self.first_presented.swap(true, Ordering::AcqRel) {
                         crate::cold_start::record_first_frame();
                         let elapsed_us = self
@@ -1145,14 +1128,12 @@ impl NativeRenderSession {
             }
             Err(_) => {
                 // Presentation failed - mark request as failed
-                if let Ok(mut map) = self.active_request_ids.lock() {
-                    if let Some(internal_id) = map.remove(&request.request_id) {
-                        if let Ok(mut registry) = self.lifecycle_registry.lock() {
-                            use crate::wgpu_compositor::{RequestTerminalDisposition, RequestFailureReason};
-                            let _ = registry.finish_request(&internal_id, RequestTerminalDisposition::Failed {
-                                reason: RequestFailureReason::PipelineFailure,
-                            });
-                        }
+                if let Some(internal_id) = internal_request_id {
+                    if let Ok(mut registry) = self.lifecycle_registry.lock() {
+                        use crate::wgpu_compositor::{RequestTerminalDisposition, RequestFailureReason};
+                        let _ = registry.finish_request(&internal_id, RequestTerminalDisposition::Failed {
+                            reason: RequestFailureReason::PipelineFailure,
+                        });
                     }
                 }
                 None
@@ -1239,7 +1220,6 @@ mod tests {
             playback_lookahead_miss_streak: AtomicU8::new(0),
             playback_lookahead_feedback_armed: AtomicBool::new(false),
             lifecycle_registry: Mutex::new(FrameLifecycleRegistry::default()),
-            active_request_ids: Mutex::new(HashMap::new()),
         })
     }
 
@@ -1377,5 +1357,55 @@ mod tests {
         let registry = session.lifecycle_registry.lock().unwrap();
         let state = registry.request_state(&request_id).expect("request exists");
         assert!(matches!(state, LifecycleState::Active), "Request should remain active until explicit transition");
+    }
+
+    #[test]
+    fn overlapping_requests_with_same_external_id_remain_independent() {
+        let session = mock_session();
+        let external_id = "playback-reused";
+
+        // Submit request A with external ID "playback-reused"
+        let demand_a = mock_demand(external_id, 1);
+        session.submit(demand_a).expect("submit demand A");
+        let internal_id_a = session.pending.lock().unwrap().internal_request_id.clone().expect("request A allocated");
+
+        // Extract request A from pending slot (simulating it being processed)
+        let (_, extracted_id_a) = session.pending.lock().unwrap().take().expect("take request A");
+        assert_eq!(extracted_id_a, Some(internal_id_a.clone()), "Request A identity extracted");
+
+        // Submit request B with the SAME external ID while A is still active
+        let demand_b = mock_demand(external_id, 2);
+        session.submit(demand_b).expect("submit demand B");
+        let internal_id_b = session.pending.lock().unwrap().internal_request_id.clone().expect("request B allocated");
+
+        // Internal IDs must be distinct despite same external ID
+        assert_ne!(internal_id_a, internal_id_b, "Internal IDs must be distinct even when external ID is reused");
+
+        // Both requests exist independently in the registry
+        let registry = session.lifecycle_registry.lock().unwrap();
+        let state_a = registry.request_state(&internal_id_a).expect("request A exists");
+        let state_b = registry.request_state(&internal_id_b).expect("request B exists");
+        assert!(matches!(state_a, LifecycleState::Active), "Request A remains active");
+        assert!(matches!(state_b, LifecycleState::Active), "Request B remains active");
+
+        // Completing B should not affect A
+        drop(registry);
+        session.lifecycle_registry.lock().unwrap().finish_request(&internal_id_b, RequestTerminalDisposition::Cancelled).expect("finish B");
+
+        let registry = session.lifecycle_registry.lock().unwrap();
+        let state_a_after_b = registry.request_state(&internal_id_a).expect("request A still exists");
+        let state_b_after = registry.request_state(&internal_id_b).expect("request B still exists");
+        assert!(matches!(state_a_after_b, LifecycleState::Active), "Request A unaffected by B completion");
+        assert!(matches!(state_b_after, LifecycleState::Terminal(_)), "Request B is terminal");
+
+        // Completing A late should not corrupt B
+        drop(registry);
+        session.lifecycle_registry.lock().unwrap().finish_request(&internal_id_a, RequestTerminalDisposition::Cancelled).expect("finish A");
+
+        let registry = session.lifecycle_registry.lock().unwrap();
+        let state_a_final = registry.request_state(&internal_id_a).expect("request A exists");
+        let state_b_final = registry.request_state(&internal_id_b).expect("request B still exists");
+        assert!(matches!(state_a_final, LifecycleState::Terminal(_)), "Request A is terminal");
+        assert!(matches!(state_b_final, LifecycleState::Terminal(_)), "Request B remains terminal");
     }
 }

@@ -38,6 +38,37 @@ lifecycle_id!(
     "Identity of one user or scheduler frame demand."
 );
 
+/// Non-serialized lifecycle metadata that travels alongside rendering work.
+///
+/// The Vec allows multiple requests to relate to one produced frame
+/// (e.g., refinement, recovery, or coalesced work).
+#[derive(Debug, Clone, Default)]
+pub struct RenderLifecycleContext {
+    pub request_ids: Vec<FrameRequestId>,
+}
+
+impl RenderLifecycleContext {
+    pub fn new(request_id: FrameRequestId) -> Self {
+        Self {
+            request_ids: vec![request_id],
+        }
+    }
+
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.request_ids.is_empty()
+    }
+
+    pub fn add_request(&mut self, request_id: FrameRequestId) {
+        if !self.request_ids.contains(&request_id) {
+            self.request_ids.push(request_id);
+        }
+    }
+}
+
 /// Allocates unique internal identities for one preview session.
 ///
 /// External request strings are correlation labels, not lifecycle identities:
