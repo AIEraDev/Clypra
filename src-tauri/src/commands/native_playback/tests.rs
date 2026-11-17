@@ -87,11 +87,15 @@ mod tests {
 
     #[test]
     fn latest_playback_demand_replaces_obsolete_pending_frame() {
+        use crate::wgpu_compositor::FrameRequestId;
         let mut slot = LatestPlaybackDemand::default();
-        slot.replace(demand("old", 1));
-        slot.replace(demand("new", 2));
-        let current = slot.take().unwrap();
+        let id1 = FrameRequestId::new("id1").unwrap();
+        let id2 = FrameRequestId::new("id2").unwrap();
+        slot.replace(demand("old", 1), id1);
+        slot.replace(demand("new", 2), id2.clone());
+        let (current, current_id) = slot.take().unwrap();
         assert_eq!(current.request_id, "new");
+        assert_eq!(current_id, Some(id2));
         assert!(slot.take().is_none());
     }
 
@@ -215,6 +219,7 @@ mod tests {
     }
 
     fn test_session(snapshot: FrameRequest) -> NativeRenderSession {
+        use crate::wgpu_compositor::FrameLifecycleRegistry;
         let playback_quality = snapshot.quality;
         NativeRenderSession {
             snapshot: RwLock::new(Arc::new(snapshot)),
@@ -235,6 +240,7 @@ mod tests {
             )),
             playback_lookahead_miss_streak: AtomicU8::new(0),
             playback_lookahead_feedback_armed: AtomicBool::new(false),
+            lifecycle_registry: Mutex::new(FrameLifecycleRegistry::default()),
         }
     }
 
@@ -244,11 +250,10 @@ mod tests {
         session
             .running
             .store(true, std::sync::atomic::Ordering::Release);
-        session
-            .pending
-            .lock()
-            .unwrap()
-            .replace(demand("obsolete-playback", 10));
+        
+        // Use the public submit method to allocate internal ID
+        let d = demand("obsolete-playback", 10);
+        session.submit(d).expect("submit should succeed");
 
         session.pause_continuous_playback();
 

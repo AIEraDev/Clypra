@@ -7,6 +7,7 @@ use crate::native_core::{
     FrameRequest, FrameTime, NativePlaybackFrameDemand, PlaybackPlan, QualityTier,
     DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION,
 };
+use crate::wgpu_compositor::{AbandonReason, FrameLifecycleRegistry, FrameRequestId};
 use parking_lot::RwLock;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -45,6 +46,8 @@ pub(crate) struct NativeRenderSession {
     /// too expensive. Arm adaptive lookahead only after the queue proves it
     /// can feed presentation.
     pub(crate) playback_lookahead_feedback_armed: AtomicBool,
+    /// Frame lifecycle tracking for request, frame, and presentation identities.
+    pub(crate) lifecycle_registry: Mutex<FrameLifecycleRegistry>,
 }
 
 const LOOKAHEAD_QUALITY_DOWNGRADE_MISS_STREAK: u8 = 2;
@@ -100,6 +103,8 @@ pub(crate) struct NativePlaybackStartupMilestone {
 #[derive(Default)]
 pub(crate) struct LatestPlaybackDemand {
     pub(crate) value: Option<NativePlaybackFrameDemand>,
+    /// Internal lifecycle identity allocated when this demand was accepted.
+    pub(crate) internal_request_id: Option<FrameRequestId>,
 }
 
 /// Exact paused/scrub demands are distinct from continuous playback. They
@@ -110,12 +115,15 @@ pub(crate) fn should_follow_audio_clock(has_explicit_demand: bool) -> bool {
 }
 
 impl LatestPlaybackDemand {
-    pub(crate) fn replace(&mut self, demand: NativePlaybackFrameDemand) {
+    pub(crate) fn replace(&mut self, demand: NativePlaybackFrameDemand, internal_id: FrameRequestId) {
         self.value = Some(demand);
+        self.internal_request_id = Some(internal_id);
     }
 
-    pub(crate) fn take(&mut self) -> Option<NativePlaybackFrameDemand> {
-        self.value.take()
+    pub(crate) fn take(&mut self) -> Option<(NativePlaybackFrameDemand, Option<FrameRequestId>)> {
+        let demand = self.value.take()?;
+        let internal_id = self.internal_request_id.take();
+        Some((demand, internal_id))
     }
 }
 
@@ -167,6 +175,7 @@ impl NativeRenderSession {
             playback_quality: AtomicU8::new(quality_to_code(initial_playback_quality)),
             playback_lookahead_miss_streak: AtomicU8::new(0),
             playback_lookahead_feedback_armed: AtomicBool::new(false),
+            lifecycle_registry: Mutex::new(FrameLifecycleRegistry::default()),
         }))
     }
 
@@ -227,6 +236,13 @@ impl NativeRenderSession {
     /// by the WebView after audio stops.
     pub(crate) fn pause_continuous_playback(&self) {
         if let Ok(mut pending) = self.pending.lock() {
+            // Cancel the pending demand if it exists
+            if let Some(internal_id) = pending.internal_request_id.take() {
+                if let Ok(mut registry) = self.lifecycle_registry.lock() {
+                    use crate::wgpu_compositor::{RequestTerminalDisposition};
+                    let _ = registry.finish_request(&internal_id, RequestTerminalDisposition::Cancelled);
+                }
+            }
             pending.value = None;
         }
         self.reset_playback_lookahead_feedback();
@@ -385,7 +401,18 @@ impl NativeRenderSession {
     pub(crate) fn stop(&self, app: Option<AppHandle>) {
         self.running.store(false, Ordering::Release);
         if let Ok(mut pending) = self.pending.lock() {
+            // Cancel any pending demand before clearing
+            if let Some(internal_id) = pending.internal_request_id.take() {
+                if let Ok(mut registry) = self.lifecycle_registry.lock() {
+                    use crate::wgpu_compositor::{RequestTerminalDisposition};
+                    let _ = registry.finish_request(&internal_id, RequestTerminalDisposition::Cancelled);
+                }
+            }
             pending.value = None;
+        }
+        // Abandon all active lifecycle requests on session shutdown
+        if let Ok(mut registry) = self.lifecycle_registry.lock() {
+            registry.abandon_active(AbandonReason::SessionShutdown);
         }
         self.notify.notify_one();
         if let Ok(mut worker) = self.worker.lock() {
@@ -422,6 +449,13 @@ impl NativeRenderSession {
                 .map(|pending_generation| pending_generation < generation)
                 .unwrap_or(false)
             {
+                // Cancel the obsolete pending demand
+                if let Some(internal_id) = pending.internal_request_id.take() {
+                    if let Ok(mut registry) = self.lifecycle_registry.lock() {
+                        use crate::wgpu_compositor::{RequestTerminalDisposition};
+                        let _ = registry.finish_request(&internal_id, RequestTerminalDisposition::Cancelled);
+                    }
+                }
                 pending.value = None;
             }
         }
@@ -449,10 +483,31 @@ impl NativeRenderSession {
             return Ok(());
         }
         self.generation.store(generation, Ordering::Release);
+        
+        // Allocate internal lifecycle request identity
+        let internal_request_id = {
+            let mut registry = self.lifecycle_registry.lock()
+                .map_err(|_| "Lifecycle registry lock poisoned".to_string())?;
+            registry.begin_request(&demand.request_id)
+                .map_err(|e| format!("Failed to allocate request ID: {}", e))?
+        };
+        
         if let Ok(mut pending) = self.pending.lock() {
             // This assignment is the latest-frame-wins slot: a slow decode can
             // never cause obsolete playback work to accumulate.
-            pending.replace(demand);
+            // Cancel the superseded request if one exists
+            if let Some(superseded_id) = pending.internal_request_id.take() {
+                if let Ok(mut registry) = self.lifecycle_registry.lock() {
+                    use crate::wgpu_compositor::{RequestTerminalDisposition};
+                    let _ = registry.finish_request(
+                        &superseded_id,
+                        RequestTerminalDisposition::Superseded {
+                            by_request_id: internal_request_id.clone(),
+                        }
+                    );
+                }
+            }
+            pending.replace(demand, internal_request_id);
         }
         self.notify.notify_one();
         Ok(())
@@ -809,9 +864,21 @@ impl NativeRenderSession {
                 last_rendered_generation = generation;
                 last_rendered_frame_index = None;
             }
-            let dynamic_demand = self.pending.lock().ok().and_then(|mut slot| slot.take());
+            let dynamic_demand_with_id = self.pending.lock().ok().and_then(|mut slot| slot.take());
+            let (dynamic_demand, _internal_request_id) = match dynamic_demand_with_id {
+                Some((demand, internal_id)) => (Some(demand), internal_id),
+                None => (None, None),
+            };
             if let Some(demand) = &dynamic_demand {
                 if demand.generation.unwrap_or(0) < generation {
+                    // Coalesced by generation mismatch - cancel the internal request
+                    if let Some(internal_id) = _internal_request_id {
+                        if let Ok(mut registry) = self.lifecycle_registry.lock() {
+                            use crate::wgpu_compositor::{RequestTerminalDisposition};
+                            // This is coalescing, not supersession (no successor known yet)
+                            let _ = registry.finish_request(&internal_id, RequestTerminalDisposition::Cancelled);
+                        }
+                    }
                     continue;
                 }
             }
@@ -1041,5 +1108,223 @@ impl NativeRenderSession {
             }
             Err(_) => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::wgpu_compositor::{LifecycleState, RequestTerminalDisposition};
+
+    fn mock_demand(request_id: &str, generation: u64) -> NativePlaybackFrameDemand {
+        NativePlaybackFrameDemand {
+            contract_version: NATIVE_CORE_CONTRACT_VERSION,
+            request_id: request_id.to_string(),
+            frame_time: FrameTime {
+                frame_index: 0,
+                ticks: 0,
+                timescale: DEFAULT_TIME_SCALE,
+            },
+            generation: Some(generation),
+            mode: Some("scrub".to_string()),
+            video_layers: Vec::new(),
+            raster_layers: Vec::new(),
+            text_layers: Vec::new(),
+            transition_progress: None,
+        }
+    }
+
+    fn mock_session() -> Arc<NativeRenderSession> {
+        let snapshot = FrameRequest {
+            contract_version: NATIVE_CORE_CONTRACT_VERSION,
+            request_id: "initial".to_string(),
+            frame_time: FrameTime {
+                frame_index: 0,
+                ticks: 0,
+                timescale: DEFAULT_TIME_SCALE,
+            },
+            project: crate::native_core::ProjectSnapshot {
+                schema_version: 1,
+                project_revision: "test-rev".to_string(),
+                frame_rate: 30,
+                canvas_width: 1920,
+                canvas_height: 1080,
+                clear_color: [0.0, 0.0, 0.0, 1.0],
+                video_layers: Vec::new(),
+                raster_layers: Vec::new(),
+                text_layers: Vec::new(),
+                effect_layers: Vec::new(),
+                transition: None,
+            },
+            output_width: 1920,
+            output_height: 1080,
+            quality: QualityTier::Full,
+            color_policy: crate::native_core::ColorPolicy::default(),
+            render_graph_version: 1,
+            generation: Some(0),
+            mode: None,
+            scrub_velocity_px_per_second: None,
+            requested_at_ms: None,
+            is_scrubbing: None,
+            allow_keyframe_approx: None,
+            lookahead_horizon_frames: None,
+            lookahead_clamp_reason: None,
+        };
+        
+        Arc::new(NativeRenderSession {
+            snapshot: RwLock::new(Arc::new(snapshot)),
+            last_materialized: RwLock::new(None),
+            active_streams: Mutex::new(HashSet::new()),
+            leases: Mutex::new(HashMap::new()),
+            actors: Mutex::new(HashMap::new()),
+            pending: Mutex::new(LatestPlaybackDemand::default()),
+            notify: tokio::sync::Notify::new(),
+            running: AtomicBool::new(false),
+            generation: AtomicU64::new(0),
+            worker: Mutex::new(None),
+            configured_at: Instant::now(),
+            ready_after_us: AtomicU64::new(0),
+            first_presented: AtomicBool::new(false),
+            playback_quality: AtomicU8::new(0),
+            playback_lookahead_miss_streak: AtomicU8::new(0),
+            playback_lookahead_feedback_armed: AtomicBool::new(false),
+            lifecycle_registry: Mutex::new(FrameLifecycleRegistry::default()),
+        })
+    }
+
+    #[test]
+    fn repeated_external_ids_produce_distinct_internal_request_ids() {
+        let session = mock_session();
+        let demand1 = mock_demand("playback", 1);
+        let demand2 = mock_demand("playback", 2);
+        
+        session.submit(demand1).expect("first submit");
+        let first_id = session.pending.lock().unwrap().internal_request_id.clone().expect("first id allocated");
+        
+        session.submit(demand2).expect("second submit");
+        let second_id = session.pending.lock().unwrap().internal_request_id.clone().expect("second id allocated");
+        
+        assert_ne!(first_id, second_id, "Repeated external ID must produce distinct internal IDs");
+    }
+
+    #[test]
+    fn superseded_request_records_successor_relationship() {
+        let session = mock_session();
+        let demand1 = mock_demand("request-1", 1);
+        let demand2 = mock_demand("request-2", 2);
+        
+        session.submit(demand1).expect("first submit");
+        let first_id = session.pending.lock().unwrap().internal_request_id.clone().expect("first id");
+        
+        session.submit(demand2).expect("second submit supersedes first");
+        let second_id = session.pending.lock().unwrap().internal_request_id.clone().expect("second id");
+        
+        let registry = session.lifecycle_registry.lock().unwrap();
+        let first_state = registry.request_state(&first_id).expect("first request exists");
+        assert!(matches!(
+            first_state,
+            LifecycleState::Terminal(RequestTerminalDisposition::Superseded { by_request_id })
+            if by_request_id == &second_id
+        ), "First request should be superseded by second");
+    }
+
+    #[test]
+    fn generation_mismatch_coalesces_request() {
+        let session = mock_session();
+        session.generation.store(10, Ordering::Release);
+        
+        let stale_demand = mock_demand("stale", 5);
+        session.submit(stale_demand).expect("submit stale");
+        
+        // The generation check in submit rejects it immediately
+        assert!(session.pending.lock().unwrap().value.is_none(), "Stale demand rejected by generation check");
+    }
+
+    #[test]
+    fn pause_cancels_pending_request() {
+        let session = mock_session();
+        let demand = mock_demand("pause-test", 1);
+        
+        session.submit(demand).expect("submit demand");
+        let request_id = session.pending.lock().unwrap().internal_request_id.clone().expect("request allocated");
+        
+        session.pause_continuous_playback();
+        
+        let registry = session.lifecycle_registry.lock().unwrap();
+        let state = registry.request_state(&request_id).expect("request exists");
+        assert!(matches!(
+            state,
+            LifecycleState::Terminal(RequestTerminalDisposition::Cancelled)
+        ), "Paused request should be cancelled");
+    }
+
+    #[test]
+    fn invalidate_cancels_obsolete_pending_request() {
+        let session = mock_session();
+        let demand = mock_demand("invalidate-test", 5);
+        
+        session.submit(demand).expect("submit demand");
+        let request_id = session.pending.lock().unwrap().internal_request_id.clone().expect("request allocated");
+        
+        session.invalidate(10);
+        
+        let registry = session.lifecycle_registry.lock().unwrap();
+        let state = registry.request_state(&request_id).expect("request exists");
+        assert!(matches!(
+            state,
+            LifecycleState::Terminal(RequestTerminalDisposition::Cancelled)
+        ), "Invalidated request should be cancelled");
+    }
+
+    #[test]
+    fn shutdown_abandons_unresolved_requests() {
+        let session = mock_session();
+        let demand = mock_demand("shutdown-test", 1);
+        
+        session.submit(demand).expect("submit demand");
+        let request_id = session.pending.lock().unwrap().internal_request_id.clone().expect("request allocated");
+        
+        // Take the demand to simulate it being processed but not yet resolved
+        let _ = session.pending.lock().unwrap().take();
+        
+        session.stop(None);
+        
+        let registry = session.lifecycle_registry.lock().unwrap();
+        let state = registry.request_state(&request_id).expect("request exists");
+        // The request is active when taken, and stop() should abandon all active requests
+        assert!(matches!(
+            state,
+            LifecycleState::Terminal(RequestTerminalDisposition::Abandoned { reason: AbandonReason::SessionShutdown })
+        ), "Shutdown should abandon unresolved requests, got {:?}", state);
+    }
+
+    #[test]
+    fn request_identity_survives_async_boundary() {
+        let session = mock_session();
+        let demand = mock_demand("async-test", 1);
+        
+        session.submit(demand).expect("submit demand");
+        let allocated_id = session.pending.lock().unwrap().internal_request_id.clone().expect("request allocated");
+        
+        // Simulate async take
+        let taken = session.pending.lock().unwrap().take();
+        assert!(taken.is_some(), "Demand should be takeable");
+        
+        let (_, taken_id) = taken.unwrap();
+        assert_eq!(taken_id, Some(allocated_id), "Internal ID should survive async handoff");
+    }
+
+    #[test]
+    fn request_cannot_become_presented_without_explicit_transition() {
+        let session = mock_session();
+        let demand = mock_demand("no-auto-present", 1);
+        
+        session.submit(demand).expect("submit demand");
+        let request_id = session.pending.lock().unwrap().internal_request_id.clone().expect("request allocated");
+        
+        // Request remains active until explicitly transitioned
+        let registry = session.lifecycle_registry.lock().unwrap();
+        let state = registry.request_state(&request_id).expect("request exists");
+        assert!(matches!(state, LifecycleState::Active), "Request should remain active until explicit transition");
     }
 }
