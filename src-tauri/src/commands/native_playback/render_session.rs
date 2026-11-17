@@ -48,6 +48,10 @@ pub(crate) struct NativeRenderSession {
     pub(crate) playback_lookahead_feedback_armed: AtomicBool,
     /// Frame lifecycle tracking for request, frame, and presentation identities.
     pub(crate) lifecycle_registry: Mutex<FrameLifecycleRegistry>,
+    /// Active request ID tracking keyed by external request_id.
+    /// Enables lifecycle correlation across async boundaries without
+    /// modifying FrameRequest serialization contract.
+    pub(crate) active_request_ids: Mutex<HashMap<String, FrameRequestId>>,
 }
 
 const LOOKAHEAD_QUALITY_DOWNGRADE_MISS_STREAK: u8 = 2;
@@ -176,6 +180,7 @@ impl NativeRenderSession {
             playback_lookahead_miss_streak: AtomicU8::new(0),
             playback_lookahead_feedback_armed: AtomicBool::new(false),
             lifecycle_registry: Mutex::new(FrameLifecycleRegistry::default()),
+            active_request_ids: Mutex::new(HashMap::new()),
         }))
     }
 
@@ -865,14 +870,14 @@ impl NativeRenderSession {
                 last_rendered_frame_index = None;
             }
             let dynamic_demand_with_id = self.pending.lock().ok().and_then(|mut slot| slot.take());
-            let (dynamic_demand, _internal_request_id) = match dynamic_demand_with_id {
+            let (dynamic_demand, internal_request_id) = match dynamic_demand_with_id {
                 Some((demand, internal_id)) => (Some(demand), internal_id),
                 None => (None, None),
             };
             if let Some(demand) = &dynamic_demand {
                 if demand.generation.unwrap_or(0) < generation {
                     // Coalesced by generation mismatch - cancel the internal request
-                    if let Some(internal_id) = _internal_request_id {
+                    if let Some(internal_id) = internal_request_id {
                         if let Ok(mut registry) = self.lifecycle_registry.lock() {
                             use crate::wgpu_compositor::{RequestTerminalDisposition};
                             // This is coalescing, not supersession (no successor known yet)
@@ -887,6 +892,13 @@ impl NativeRenderSession {
                 Ok(req) => req,
                 Err(_) => continue,
             };
+
+            // Store internal request ID in active map for lifecycle correlation
+            if let Some(internal_id) = internal_request_id {
+                if let Ok(mut map) = self.active_request_ids.lock() {
+                    map.insert(base_request.request_id.clone(), internal_id);
+                }
+            }
 
             // Reading the lease collection here documents and enforces the
             // ownership boundary: these decoder entries stay pinned for the
@@ -960,6 +972,18 @@ impl NativeRenderSession {
                             {
                                 layer.source_time = ft;
                             }
+                        }
+                    }
+
+                    // Allocate lifecycle identity for audio-clock continuous playback frame
+                    let audio_clock_internal_id = if let Ok(mut registry) = self.lifecycle_registry.lock() {
+                        registry.begin_request(&request.request_id).ok()
+                    } else {
+                        None
+                    };
+                    if let Some(internal_id) = audio_clock_internal_id {
+                        if let Ok(mut map) = self.active_request_ids.lock() {
+                            map.insert(request.request_id.clone(), internal_id);
                         }
                     }
 
@@ -1049,14 +1073,27 @@ impl NativeRenderSession {
         if generation < self.generation.load(Ordering::Acquire) {
             // Recency cancellation is deliberately before the shared
             // audio-clock lateness decision in present_native_frame.
+            // Mark the request cancelled if we have its lifecycle ID
+            if let Ok(mut map) = self.active_request_ids.lock() {
+                if let Some(internal_id) = map.remove(&request.request_id) {
+                    if let Ok(mut registry) = self.lifecycle_registry.lock() {
+                        use crate::wgpu_compositor::RequestTerminalDisposition;
+                        let _ = registry.finish_request(&internal_id, RequestTerminalDisposition::Cancelled);
+                    }
+                }
+            }
             return None;
         }
-        match crate::commands::native_preview::present_native_frame_internal(app.clone(), request)
+        match crate::commands::native_preview::present_native_frame_internal(app.clone(), request.clone())
             .await
         {
             Ok(presentation) => {
                 let is_explicit_paused_demand = presentation.mode.as_deref() != Some("playback");
                 if presentation.presented {
+                    // Record successful presentation in lifecycle registry
+                    // TODO(Task 4): Wire up FrameId and full presented transition
+                    // For now, we leave the request in Active state; terminal
+                    // success transitions will be wired in Task 4 after FrameId allocation
                     if !self.first_presented.swap(true, Ordering::AcqRel) {
                         crate::cold_start::record_first_frame();
                         let elapsed_us = self
@@ -1106,7 +1143,20 @@ impl NativeRenderSession {
                 }
                 Some(presentation)
             }
-            Err(_) => None,
+            Err(_) => {
+                // Presentation failed - mark request as failed
+                if let Ok(mut map) = self.active_request_ids.lock() {
+                    if let Some(internal_id) = map.remove(&request.request_id) {
+                        if let Ok(mut registry) = self.lifecycle_registry.lock() {
+                            use crate::wgpu_compositor::{RequestTerminalDisposition, RequestFailureReason};
+                            let _ = registry.finish_request(&internal_id, RequestTerminalDisposition::Failed {
+                                reason: RequestFailureReason::PipelineFailure,
+                            });
+                        }
+                    }
+                }
+                None
+            }
         }
     }
 }
@@ -1189,6 +1239,7 @@ mod tests {
             playback_lookahead_miss_streak: AtomicU8::new(0),
             playback_lookahead_feedback_armed: AtomicBool::new(false),
             lifecycle_registry: Mutex::new(FrameLifecycleRegistry::default()),
+            active_request_ids: Mutex::new(HashMap::new()),
         })
     }
 
