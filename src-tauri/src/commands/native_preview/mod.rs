@@ -2359,6 +2359,10 @@ pub(crate) fn schedule_lookahead_predecode(
         (base_request.frame_time.frame_index, base_time_secs)
     };
 
+    // FORENSIC: Audio clock anchor
+    eprintln!("[LOOKAHEAD_FORENSICS] RANGE_CALC | audio_frame={} audio_secs={:.3}", 
+        current_audio_frame, current_audio_secs);
+
     let mut worker_guard = match LOOKAHEAD_WORKER.lock() {
         Ok(guard) => guard,
         Err(_) => return,
@@ -2420,9 +2424,10 @@ pub(crate) fn schedule_lookahead_predecode(
         // so the decoder moves strictly FORWARD in 11ms sequential steps.
         let (start_frame_index, target_end_frame_index, lookahead_decision) = {
             let queue_opt = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>();
-            let (highest, lookahead_decision) = if let Some(queue) = &queue_opt {
+            let (highest, lookahead_decision, queue_depth) = if let Some(queue) = &queue_opt {
                 let mut queue_state = queue.lock().await;
                 queue_state.discard_discontinuity(current_audio_frame, lookahead_count);
+                let depth = queue_state.len();
                 (
                     queue_state.highest_frame_index(),
                     deadline_aware_lookahead_count(
@@ -2430,14 +2435,20 @@ pub(crate) fn schedule_lookahead_predecode(
                         lookahead_count,
                         queue_state.estimated_decode_us(),
                     ),
+                    depth,
                 )
             } else {
                 (
                     None,
                     deadline_aware_lookahead_count(frame_rate, lookahead_count, None),
+                    0,
                 )
             };
             let effective_lookahead_count = lookahead_decision.count;
+
+            // FORENSIC: Queue state inspection
+            eprintln!("[LOOKAHEAD_FORENSICS] QUEUE_STATE | highest={:?} depth={} effective_count={}", 
+                highest, queue_depth, effective_lookahead_count);
 
             let target_end = current_audio_frame.saturating_add(effective_lookahead_count as u64);
             let start = match highest {
@@ -2453,10 +2464,17 @@ pub(crate) fn schedule_lookahead_predecode(
         worker_start_clone.store(start_frame_index, std::sync::atomic::Ordering::Release);
         worker_end_clone.store(target_end_frame_index, std::sync::atomic::Ordering::Release);
 
+        // FORENSIC: Range calculation result
+        eprintln!("[LOOKAHEAD_FORENSICS] RANGE_RESULT | start={} end={} valid={}", 
+            start_frame_index, target_end_frame_index, start_frame_index <= target_end_frame_index);
+
         // TEMP: Task 3 P1 lookahead lifecycle trace - worker started
         eprintln!("[LIFECYCLE_TRACE] LOOKAHEAD_WORKER_STARTED | range={}..{}", start_frame_index, target_end_frame_index);
 
         if start_frame_index > target_end_frame_index {
+            // FORENSIC: Worker early exit
+            eprintln!("[LOOKAHEAD_FORENSICS] WORKER_EXIT_EARLY | reason=empty_range start={} end={}", 
+                start_frame_index, target_end_frame_index);
             worker_finished.store(true, std::sync::atomic::Ordering::Release);
             return;
         }
@@ -2481,7 +2499,15 @@ pub(crate) fn schedule_lookahead_predecode(
                 let live_frame = ((audio_time.ticks as f64 / audio_time.timescale.max(1) as f64)
                     * fps)
                     .round() as u64;
+                
+                // FORENSIC: Before each frame decode attempt
+                eprintln!("[LOOKAHEAD_FORENSICS] DECODE_ATTEMPT | target_frame={} live_audio_frame={}", 
+                    target_frame_index, live_frame);
+                
                 if target_frame_index < live_frame {
+                    // FORENSIC: Skip decision
+                    eprintln!("[LOOKAHEAD_FORENSICS] DECODE_SKIP | target={} < live={}", 
+                        target_frame_index, live_frame);
                     continue;
                 }
             }
@@ -2531,7 +2557,24 @@ pub(crate) fn schedule_lookahead_predecode(
                 req.quality = quality;
             }
 
+            // FORENSIC: Before queue_native_frame call
+            eprintln!("[LOOKAHEAD_FORENSICS] PRE_QUEUE | target_frame={} mode=prefetch", 
+                target_frame_index);
+
             let res = queue_native_frame(app.clone(), req).await;
+            
+            // FORENSIC: After queue_native_frame result
+            match &res {
+                Ok(_) => {
+                    eprintln!("[LOOKAHEAD_FORENSICS] QUEUE_SUCCESS | frame={}", target_frame_index);
+                }
+                Err(e) => {
+                    eprintln!("[LOOKAHEAD_FORENSICS] QUEUE_FAILED | frame={} error={:?}", 
+                        target_frame_index, e);
+                    break;
+                }
+            }
+            
             if res.is_err() {
                 break;
             }
