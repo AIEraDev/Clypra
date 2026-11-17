@@ -2122,6 +2122,12 @@ pub async fn queue_native_frame(
     }
     match decode_native_video_layers(&legacy_request, cancellation, RenderLifecycleContext::empty()).await {
         Ok((decoded_frames, decode_timings, lifecycle_context)) => {
+            // TEMP: Task 3 P1 lookahead lifecycle trace - decode completed
+            if !lifecycle_context.is_empty() {
+                eprintln!("[LIFECYCLE_TRACE] LOOKAHEAD_DECODE_COMPLETED | frame={} internal={}", 
+                    request.frame_time.frame_index,
+                    lifecycle_context.request_ids.first().map(|id| id.as_str()).unwrap_or("none"));
+            }
             // Start this clock as soon as decoding is complete, before taking
             // the queue lock. A contended producer lock should be visible as
             // part of the time the decoded result is unavailable to present.
@@ -2337,6 +2343,9 @@ pub(crate) fn schedule_lookahead_predecode(
     let frame_rate = base_request.project.frame_rate.max(1);
     let fps = frame_rate as f64;
 
+    // TEMP: Task 3 P1 lookahead lifecycle trace - schedule requested
+    eprintln!("[LIFECYCLE_TRACE] LOOKAHEAD_SCHEDULE_REQUESTED | generation={} lookahead_count={}", generation, lookahead_count);
+
     // Anchor current audio playback position
     let (current_audio_frame, current_audio_secs) = if let Ok(audio_time) =
         crate::commands::native_playback::audio_clock_time(&app, true, false)
@@ -2392,6 +2401,9 @@ pub(crate) fn schedule_lookahead_predecode(
     let _base_timeline_secs =
         (base_request.frame_time.ticks as f64) / (base_request.frame_time.timescale.max(1) as f64);
 
+    // TEMP: Task 3 P1 lookahead lifecycle trace - schedule accepted
+    eprintln!("[LIFECYCLE_TRACE] LOOKAHEAD_SCHEDULE_ACCEPTED | start_frame={} lookahead_count={}", current_audio_frame, lookahead_count);
+
     let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let worker_finished = finished.clone();
 
@@ -2440,6 +2452,9 @@ pub(crate) fn schedule_lookahead_predecode(
 
         worker_start_clone.store(start_frame_index, std::sync::atomic::Ordering::Release);
         worker_end_clone.store(target_end_frame_index, std::sync::atomic::Ordering::Release);
+
+        // TEMP: Task 3 P1 lookahead lifecycle trace - worker started
+        eprintln!("[LIFECYCLE_TRACE] LOOKAHEAD_WORKER_STARTED | range={}..{}", start_frame_index, target_end_frame_index);
 
         if start_frame_index > target_end_frame_index {
             worker_finished.store(true, std::sync::atomic::Ordering::Release);
