@@ -2665,7 +2665,7 @@ pub(crate) fn composite_layers_to_view(
 pub(crate) async fn present_native_frame_internal(
     app: tauri::AppHandle,
     request: FrameRequest,
-    _lifecycle_context: RenderLifecycleContext,
+    lifecycle_context: RenderLifecycleContext,
 ) -> Result<NativeSurfacePresentation, String> {
     let presentation_started = Instant::now();
     let presentation_sequence =
@@ -2854,7 +2854,7 @@ pub(crate) async fn present_native_frame_internal(
         ),
         None => {
             let (decoded_frames, decode_timings, lifecycle_context) =
-                decode_native_video_layers(&legacy_request, None, RenderLifecycleContext::empty()).await?;
+                decode_native_video_layers(&legacy_request, None, lifecycle_context).await?;
             if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>()
             {
                 queue

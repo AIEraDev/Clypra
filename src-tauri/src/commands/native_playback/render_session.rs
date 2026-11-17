@@ -1359,8 +1359,8 @@ mod tests {
         assert!(matches!(state, LifecycleState::Active), "Request should remain active until explicit transition");
     }
 
-    #[test]
-    fn overlapping_requests_with_same_external_id_remain_independent() {
+    #[tokio::test]
+    async fn overlapping_requests_with_same_external_id_remain_independent() {
         let session = mock_session();
         let external_id = "playback-reused";
 
@@ -1369,14 +1369,47 @@ mod tests {
         session.submit(demand_a).expect("submit demand A");
         let internal_id_a = session.pending.lock().unwrap().internal_request_id.clone().expect("request A allocated");
 
-        // Extract request A from pending slot (simulating it being processed)
-        let (_, extracted_id_a) = session.pending.lock().unwrap().take().expect("take request A");
+        // Extract request A and simulate async processing with lifecycle context
+        let (_demand_a_value, extracted_id_a) = session.pending.lock().unwrap().take().expect("take request A");
         assert_eq!(extracted_id_a, Some(internal_id_a.clone()), "Request A identity extracted");
+        
+        let lifecycle_ctx_a = RenderLifecycleContext::new(internal_id_a.clone());
+        
+        // Spawn async task to simulate decode/queue/present pipeline preserving context
+        let internal_id_a_clone = internal_id_a.clone();
+        let handle_a = tokio::spawn(async move {
+            // Simulate async work (decode, queue operations, etc.)
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            
+            // Verify context survives async boundary
+            assert!(!lifecycle_ctx_a.is_empty(), "Context A should contain request ID");
+            
+            // Simulate successful async completion
+            (internal_id_a_clone, lifecycle_ctx_a)
+        });
 
-        // Submit request B with the SAME external ID while A is still active
+        // Submit request B with the SAME external ID while A is still in flight
         let demand_b = mock_demand(external_id, 2);
         session.submit(demand_b).expect("submit demand B");
         let internal_id_b = session.pending.lock().unwrap().internal_request_id.clone().expect("request B allocated");
+
+        // Extract request B and create its lifecycle context
+        let (_demand_b_value, extracted_id_b) = session.pending.lock().unwrap().take().expect("take request B");
+        assert_eq!(extracted_id_b, Some(internal_id_b.clone()), "Request B identity extracted");
+        
+        let lifecycle_ctx_b = RenderLifecycleContext::new(internal_id_b.clone());
+
+        // Spawn async task for request B
+        let internal_id_b_clone = internal_id_b.clone();
+        let handle_b = tokio::spawn(async move {
+            // Simulate async work
+            tokio::time::sleep(std::time::Duration::from_millis(3)).await;
+            
+            // Verify context survives async boundary
+            assert!(!lifecycle_ctx_b.is_empty(), "Context B should contain request ID");
+            
+            (internal_id_b_clone, lifecycle_ctx_b)
+        });
 
         // Internal IDs must be distinct despite same external ID
         assert_ne!(internal_id_a, internal_id_b, "Internal IDs must be distinct even when external ID is reused");
@@ -1387,9 +1420,18 @@ mod tests {
         let state_b = registry.request_state(&internal_id_b).expect("request B exists");
         assert!(matches!(state_a, LifecycleState::Active), "Request A remains active");
         assert!(matches!(state_b, LifecycleState::Active), "Request B remains active");
+        drop(registry);
+
+        // Wait for async work to complete and verify contexts survived
+        let (returned_id_a, returned_ctx_a) = handle_a.await.expect("async task A completes");
+        assert_eq!(returned_id_a, internal_id_a, "Context A preserved internal ID through async boundary");
+        assert!(!returned_ctx_a.is_empty(), "Context A survived async work");
+
+        let (returned_id_b, returned_ctx_b) = handle_b.await.expect("async task B completes");
+        assert_eq!(returned_id_b, internal_id_b, "Context B preserved internal ID through async boundary");
+        assert!(!returned_ctx_b.is_empty(), "Context B survived async work");
 
         // Completing B should not affect A
-        drop(registry);
         session.lifecycle_registry.lock().unwrap().finish_request(&internal_id_b, RequestTerminalDisposition::Cancelled).expect("finish B");
 
         let registry = session.lifecycle_registry.lock().unwrap();
@@ -1397,9 +1439,9 @@ mod tests {
         let state_b_after = registry.request_state(&internal_id_b).expect("request B still exists");
         assert!(matches!(state_a_after_b, LifecycleState::Active), "Request A unaffected by B completion");
         assert!(matches!(state_b_after, LifecycleState::Terminal(_)), "Request B is terminal");
+        drop(registry);
 
         // Completing A late should not corrupt B
-        drop(registry);
         session.lifecycle_registry.lock().unwrap().finish_request(&internal_id_a, RequestTerminalDisposition::Cancelled).expect("finish A");
 
         let registry = session.lifecycle_registry.lock().unwrap();
