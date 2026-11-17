@@ -14,6 +14,7 @@ use super::frame_lifecycle::{
     FrameRequestId, FrameTerminalDisposition, LifecycleError, LifecycleIdAllocator, LifecycleState,
     PresentationAttemptDisposition, PresentationAttemptId, RequestTerminalDisposition,
 };
+use serde::Serialize;
 
 #[derive(Debug, Default)]
 pub struct FrameLifecycleRegistry {
@@ -21,6 +22,24 @@ pub struct FrameLifecycleRegistry {
     requests: HashMap<FrameRequestId, LifecycleState<RequestTerminalDisposition>>,
     frames: HashMap<FrameId, RegisteredFrame>,
     attempts: HashMap<PresentationAttemptId, RegisteredPresentationAttempt>,
+}
+
+/// Diagnostic snapshot of registry retention for audit and performance analysis.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegistrySnapshot {
+    pub requests_active: usize,
+    pub requests_terminal: usize,
+    pub requests_total: usize,
+    pub frames_active: usize,
+    pub frames_terminal: usize,
+    pub frames_total: usize,
+    pub attempts_active: usize,
+    pub attempts_terminal: usize,
+    pub attempts_total: usize,
+    pub allocated_request_ids: u64,
+    pub allocated_frame_ids: u64,
+    pub allocated_attempt_ids: u64,
 }
 
 #[derive(Debug)]
@@ -277,6 +296,52 @@ impl FrameLifecycleRegistry {
                 .iter()
                 .map(|(frame_id, frame)| (frame_id, &frame.state)),
         )?)
+    }
+
+    /// Captures a diagnostic snapshot of registry retention for audit and performance analysis.
+    /// This is a lightweight operation that counts active vs terminal entries without deep inspection.
+    pub fn diagnostic_snapshot(&self) -> RegistrySnapshot {
+        let mut requests_active = 0;
+        let mut requests_terminal = 0;
+        for state in self.requests.values() {
+            match state {
+                LifecycleState::Active => requests_active += 1,
+                LifecycleState::Terminal(_) => requests_terminal += 1,
+            }
+        }
+
+        let mut frames_active = 0;
+        let mut frames_terminal = 0;
+        for frame in self.frames.values() {
+            match frame.state {
+                LifecycleState::Active => frames_active += 1,
+                LifecycleState::Terminal(_) => frames_terminal += 1,
+            }
+        }
+
+        let mut attempts_active = 0;
+        let mut attempts_terminal = 0;
+        for attempt in self.attempts.values() {
+            match attempt.state {
+                LifecycleState::Active => attempts_active += 1,
+                LifecycleState::Terminal(_) => attempts_terminal += 1,
+            }
+        }
+
+        RegistrySnapshot {
+            requests_active,
+            requests_terminal,
+            requests_total: self.requests.len(),
+            frames_active,
+            frames_terminal,
+            frames_total: self.frames.len(),
+            attempts_active,
+            attempts_terminal,
+            attempts_total: self.attempts.len(),
+            allocated_request_ids: self.ids.allocated_request_count(),
+            allocated_frame_ids: self.ids.allocated_frame_count(),
+            allocated_attempt_ids: self.ids.allocated_attempt_count(),
+        }
     }
 
     fn require_request(

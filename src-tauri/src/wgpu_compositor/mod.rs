@@ -53,7 +53,7 @@ pub use frame_lifecycle::{
 };
 
 pub mod frame_lifecycle_registry;
-pub use frame_lifecycle_registry::{FrameLifecycleRegistry, RegistryError};
+pub use frame_lifecycle_registry::{FrameLifecycleRegistry, RegistryError, RegistrySnapshot};
 
 pub mod frame_memory;
 pub use frame_memory::{FrameMemoryTelemetry, FrameTransferOperation, MemoryDomain};

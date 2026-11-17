@@ -488,8 +488,14 @@ impl NativeRenderSession {
         let internal_request_id = {
             let mut registry = self.lifecycle_registry.lock()
                 .map_err(|_| "Lifecycle registry lock poisoned".to_string())?;
-            registry.begin_request(&demand.request_id)
-                .map_err(|e| format!("Failed to allocate request ID: {}", e))?
+            let id = registry.begin_request(&demand.request_id)
+                .map_err(|e| format!("Failed to allocate request ID: {}", e))?;
+            
+            // TEMP: Task 3 runtime verification trace
+            eprintln!("[LIFECYCLE_TRACE] REQUEST_ACCEPTED | external={} internal={} generation={:?}", 
+                demand.request_id, id.as_str(), demand.generation);
+            
+            id
         };
         
         if let Ok(mut pending) = self.pending.lock() {
@@ -1030,6 +1036,32 @@ impl NativeRenderSession {
 
                             last_report = Instant::now();
                         }
+
+                        // Emit registry retention snapshot every 50 frames (Task 1: Registry Retention Audit)
+                        #[allow(clippy::manual_is_multiple_of)]
+                        if frames_rendered > 0 && frames_rendered % 50 == 0 {
+                            if let Ok(registry) = self.lifecycle_registry.lock() {
+                                let snapshot = registry.diagnostic_snapshot();
+                                let timestamp_us = self.configured_at.elapsed().as_micros().min(u64::MAX as u128) as u64;
+                                
+                                #[derive(Clone, Serialize)]
+                                #[serde(rename_all = "camelCase")]
+                                struct RegistrySnapshotTrace {
+                                    timestamp_us: u64,
+                                    frames_rendered: u64,
+                                    snapshot: crate::wgpu_compositor::RegistrySnapshot,
+                                }
+                                
+                                let _ = app.emit(
+                                    "lifecycle-registry-snapshot",
+                                    RegistrySnapshotTrace {
+                                        timestamp_us,
+                                        frames_rendered,
+                                        snapshot,
+                                    },
+                                );
+                            }
+                        }
                     }
                     continue;
                 }
@@ -1066,7 +1098,12 @@ impl NativeRenderSession {
             return None;
         }
         let lifecycle_ctx = internal_request_id.as_ref()
-            .map(|id| RenderLifecycleContext::new(id.clone()))
+            .map(|id| {
+                // TEMP: Task 3 runtime verification trace
+                eprintln!("[LIFECYCLE_TRACE] RENDER_DISPATCH | internal={} external={} mode={:?}", 
+                    id.as_str(), request.request_id, request.mode);
+                RenderLifecycleContext::new(id.clone())
+            })
             .unwrap_or_else(RenderLifecycleContext::empty);
         match crate::commands::native_preview::present_native_frame_internal(app.clone(), request.clone(), lifecycle_ctx)
             .await

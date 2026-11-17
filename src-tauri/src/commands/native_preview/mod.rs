@@ -2128,6 +2128,12 @@ pub async fn queue_native_frame(
             let ready_at = Instant::now();
             let mut queue_state = queue.lock().await;
             if is_prefetch || queue_state.is_generation_current(generation) {
+                // TEMP: Task 3 runtime verification trace - queue insertion
+                if !lifecycle_context.is_empty() {
+                    eprintln!("[LIFECYCLE_TRACE] QUEUE_INSERT | internal={} external={} key={:?}", 
+                        lifecycle_context.request_ids.first().map(|id| id.as_str()).unwrap_or("none"),
+                        request.request_id, key);
+                }
                 pending_guard.key = None;
                 let _ = queue_state.complete(
                     key,
@@ -2841,20 +2847,40 @@ pub(crate) async fn present_native_frame_internal(
         ready_at,
         request_started_at,
         queue_hit,
-        _lifecycle_context,
+        lifecycle_context_returned,
     ) = match queued_frame {
-        Some(frame) => (
-            frame.decoded_frames,
-            frame.decode_timings,
-            frame.scheduler_wait_us,
-            Some(frame.ready_at),
-            presentation_started,
-            true,
-            frame.lifecycle_context,
-        ),
+        Some(frame) => {
+            // TEMP: Task 3 runtime verification trace
+            if !frame.lifecycle_context.is_empty() {
+                eprintln!("[LIFECYCLE_TRACE] QUEUE_EXTRACT | internal={} external={} queue_hit=true", 
+                    frame.lifecycle_context.request_ids.first().map(|id| id.as_str()).unwrap_or("none"),
+                    request.request_id);
+            }
+            (
+                frame.decoded_frames,
+                frame.decode_timings,
+                frame.scheduler_wait_us,
+                Some(frame.ready_at),
+                presentation_started,
+                true,
+                frame.lifecycle_context,
+            )
+        },
         None => {
-            let (decoded_frames, decode_timings, lifecycle_context) =
+            // TEMP: Task 3 runtime verification trace
+            if !lifecycle_context.is_empty() {
+                eprintln!("[LIFECYCLE_TRACE] DECODER_DISPATCH | internal={} external={} queue_hit=false", 
+                    lifecycle_context.request_ids.first().map(|id| id.as_str()).unwrap_or("none"),
+                    request.request_id);
+            }
+            let (decoded_frames, decode_timings, lifecycle_context_after_decode) =
                 decode_native_video_layers(&legacy_request, None, lifecycle_context).await?;
+            // TEMP: Task 3 runtime verification trace - decoder result
+            if !lifecycle_context_after_decode.is_empty() {
+                eprintln!("[LIFECYCLE_TRACE] DECODER_RESULT | internal={} external={} queue_hit=false", 
+                    lifecycle_context_after_decode.request_ids.first().map(|id| id.as_str()).unwrap_or("none"),
+                    request.request_id);
+            }
             if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>()
             {
                 queue
@@ -2869,11 +2895,19 @@ pub(crate) async fn present_native_frame_internal(
                 None,
                 presentation_started,
                 false,
-                lifecycle_context,
+                lifecycle_context_after_decode,
             )
         }
     };
     let decoded_effects = decode_native_effect_layers(&legacy_request.effect_layers).await?;
+    
+    // TEMP: Task 3 runtime verification trace - presentation handoff
+    if !lifecycle_context_returned.is_empty() {
+        eprintln!("[LIFECYCLE_TRACE] PRESENTATION_HANDOFF | internal={} external={} queue_hit={}", 
+            lifecycle_context_returned.request_ids.first().map(|id| id.as_str()).unwrap_or("none"),
+            request.request_id, queue_hit);
+    }
+    
     let queue_residency_us =
         ready_at.map(|ready_at| queue_residency_us(ready_at, presentation_started));
     let scheduler_wait_us = scheduler_lock_wait_us;

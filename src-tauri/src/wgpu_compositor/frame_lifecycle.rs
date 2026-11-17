@@ -102,6 +102,21 @@ impl LifecycleIdAllocator {
         let sequence = next_sequence(&self.presentation_attempt_sequence, "PresentationAttemptId")?;
         PresentationAttemptId::new(format!("presentation-attempt:{sequence}"))
     }
+
+    /// Returns the total number of request IDs allocated (for diagnostic snapshots).
+    pub fn allocated_request_count(&self) -> u64 {
+        self.request_sequence.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Returns the total number of frame IDs allocated (for diagnostic snapshots).
+    pub fn allocated_frame_count(&self) -> u64 {
+        self.frame_sequence.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Returns the total number of presentation attempt IDs allocated (for diagnostic snapshots).
+    pub fn allocated_attempt_count(&self) -> u64 {
+        self.presentation_attempt_sequence.load(std::sync::atomic::Ordering::Relaxed)
+    }
 }
 
 fn non_empty_external_request_id(value: &str) -> Result<&str, LifecycleError> {
