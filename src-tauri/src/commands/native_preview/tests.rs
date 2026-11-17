@@ -4,6 +4,101 @@ use crate::native_core::TextLayerSnapshot;
 use crate::filmstrip_engine::decoder::VideoColorMetadata;
 
     #[test]
+    fn visible_frame_allocation_preserves_explicit_demand_attribution() {
+        let request_id = crate::wgpu_compositor::FrameRequestId::new("request:seek:1")
+            .expect("request identity");
+        let attribution = frame_attribution_for_mode(
+            &crate::wgpu_compositor::RenderLifecycleContext::new(request_id.clone()),
+            Some("scrub"),
+        )
+        .expect("attribution");
+
+        assert!(matches!(
+            attribution,
+            crate::wgpu_compositor::FrameAttribution::Correlated { request_ids, workload: crate::wgpu_compositor::WorkloadMode::Scrub }
+            if request_ids == vec![request_id]
+        ));
+    }
+
+    #[test]
+    fn visible_frame_allocation_does_not_synthesize_playback_request_attribution() {
+        let attribution = frame_attribution_for_mode(
+            &crate::wgpu_compositor::RenderLifecycleContext::empty(),
+            Some("playback"),
+        )
+        .expect("attribution");
+
+        assert!(matches!(
+            attribution,
+            crate::wgpu_compositor::FrameAttribution::Uncorrelated {
+                reason: crate::wgpu_compositor::MissingCorrelationReason::UnknownProducer
+            }
+        ));
+    }
+
+    #[test]
+    fn presentation_attempt_completion_terminalizes_frame_and_request_once() {
+        let registry = std::sync::Mutex::new(crate::wgpu_compositor::FrameLifecycleRegistry::default());
+        let request_id = registry
+            .lock()
+            .expect("registry")
+            .begin_request("scrub")
+            .expect("request");
+        let mut lifecycle = PresentationLifecycleGuard::begin(
+            &registry,
+            crate::wgpu_compositor::FrameAttribution::correlated(
+                vec![request_id.clone()],
+                crate::wgpu_compositor::WorkloadMode::Scrub,
+            )
+            .expect("attribution"),
+            vec![request_id.clone()],
+        )
+        .expect("lifecycle");
+        let frame_id = lifecycle.frame_id().clone();
+
+        lifecycle.complete().expect("complete presentation");
+
+        let registry = registry.lock().expect("registry");
+        assert!(matches!(
+            registry.frame_state(&frame_id).expect("frame"),
+            crate::wgpu_compositor::LifecycleState::Terminal(
+                crate::wgpu_compositor::FrameTerminalDisposition::Presented { .. }
+            )
+        ));
+        assert!(matches!(
+            registry.request_state(&request_id).expect("request"),
+            crate::wgpu_compositor::LifecycleState::Terminal(
+                crate::wgpu_compositor::RequestTerminalDisposition::Presented { frame_id: presented }
+            ) if presented == &frame_id
+        ));
+    }
+
+    #[test]
+    fn failed_presentation_attempt_terminalizes_its_frame_without_synthetic_request() {
+        let registry = std::sync::Mutex::new(crate::wgpu_compositor::FrameLifecycleRegistry::default());
+        let mut lifecycle = PresentationLifecycleGuard::begin(
+            &registry,
+            crate::wgpu_compositor::FrameAttribution::Uncorrelated {
+                reason: crate::wgpu_compositor::MissingCorrelationReason::UnknownProducer,
+            },
+            Vec::new(),
+        )
+        .expect("lifecycle");
+        let frame_id = lifecycle.frame_id().clone();
+
+        lifecycle.fail(crate::wgpu_compositor::PresentationFailureReason::SurfaceAcquireFailed);
+
+        let registry = registry.lock().expect("registry");
+        assert!(matches!(
+            registry.frame_state(&frame_id).expect("frame"),
+            crate::wgpu_compositor::LifecycleState::Terminal(
+                crate::wgpu_compositor::FrameTerminalDisposition::FailedAfterRecovery { .. }
+            )
+        ));
+        assert_eq!(registry.frame_accounting().expect("accounting").failed_after_recovery, 1);
+    }
+
+    #[test]
     fn visible_seek_and_scrub_requests_preempt_filmstrip_work() {
         assert!(is_preview_preemptive_request(Some(true), Some("scrub")));
         assert!(is_preview_preemptive_request(Some(false), Some("seek")));

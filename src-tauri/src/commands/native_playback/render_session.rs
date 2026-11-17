@@ -114,6 +114,14 @@ pub(crate) fn should_follow_audio_clock(has_explicit_demand: bool) -> bool {
     !has_explicit_demand
 }
 
+/// Continuous audio-clock ticks are scheduling events, not explicit user or
+/// scheduler demands. They deliberately carry no request identity: allocating
+/// one per tick would create unbounded orphaned request records and falsely
+/// imply that a user operation caused the frame.
+pub(crate) fn audio_clock_lifecycle_context() -> RenderLifecycleContext {
+    RenderLifecycleContext::empty()
+}
+
 impl LatestPlaybackDemand {
     pub(crate) fn replace(&mut self, demand: NativePlaybackFrameDemand, internal_id: FrameRequestId) {
         self.value = Some(demand);
@@ -969,14 +977,14 @@ impl NativeRenderSession {
                         }
                     }
 
-                    // Allocate lifecycle identity for audio-clock continuous playback frame
-                    let audio_clock_internal_id = if let Ok(mut registry) = self.lifecycle_registry.lock() {
-                        registry.begin_request(&request.request_id).ok()
-                    } else {
-                        None
-                    };
-
-                    if let Some(presentation) = self.render_one(&app, request, generation, audio_clock_internal_id).await {
+                    if let Some(presentation) = self.render_one(
+                        &app,
+                        request,
+                        generation,
+                        audio_clock_lifecycle_context(),
+                    )
+                    .await
+                    {
                         if presentation.presented {
                             frames_rendered += 1;
                             if let Some(t) = &presentation.timings {
@@ -1075,7 +1083,12 @@ impl NativeRenderSession {
                 continue;
             }
 
-            let _ = self.render_one(&app, base_request, generation, internal_request_id).await;
+            let lifecycle_context = internal_request_id
+                .map(RenderLifecycleContext::new)
+                .unwrap_or_else(RenderLifecycleContext::empty);
+            let _ = self
+                .render_one(&app, base_request, generation, lifecycle_context)
+                .await;
         }
     }
 
@@ -1084,36 +1097,35 @@ impl NativeRenderSession {
         app: &AppHandle,
         request: FrameRequest,
         generation: u64,
-        internal_request_id: Option<FrameRequestId>,
+        lifecycle_context: RenderLifecycleContext,
     ) -> Option<crate::native_core::NativeSurfacePresentation> {
         if generation < self.generation.load(Ordering::Acquire) {
             // Recency cancellation is deliberately before the shared
             // audio-clock lateness decision in present_native_frame.
-            if let Some(internal_id) = internal_request_id {
+            if let Some(internal_id) = lifecycle_context.request_ids.first() {
                 if let Ok(mut registry) = self.lifecycle_registry.lock() {
                     use crate::wgpu_compositor::RequestTerminalDisposition;
-                    let _ = registry.finish_request(&internal_id, RequestTerminalDisposition::Cancelled);
+                    let _ = registry.finish_request(internal_id, RequestTerminalDisposition::Cancelled);
                 }
             }
             return None;
         }
-        let lifecycle_ctx = internal_request_id.as_ref()
-            .map(|id| {
+        if let Some(id) = lifecycle_context.request_ids.first() {
                 // TEMP: Task 3 runtime verification trace
                 eprintln!("[LIFECYCLE_TRACE] RENDER_DISPATCH | internal={} external={} mode={:?}", 
                     id.as_str(), request.request_id, request.mode);
-                RenderLifecycleContext::new(id.clone())
-            })
-            .unwrap_or_else(RenderLifecycleContext::empty);
-        match crate::commands::native_preview::present_native_frame_internal(app.clone(), request.clone(), lifecycle_ctx)
+        }
+        match crate::commands::native_preview::present_native_frame_internal(
+            app.clone(),
+            request.clone(),
+            lifecycle_context.clone(),
+            Some(&self.lifecycle_registry),
+        )
             .await
         {
             Ok(presentation) => {
                 let is_explicit_paused_demand = presentation.mode.as_deref() != Some("playback");
                 if presentation.presented {
-                    // TODO(Task 4): Wire up FrameId and mark Terminal(Presented)
-                    // For now, we leave the request in Active state in the registry;
-                    // terminal success transitions will be wired in Task 4 after FrameId allocation
                     if !self.first_presented.swap(true, Ordering::AcqRel) {
                         crate::cold_start::record_first_frame();
                         let elapsed_us = self
@@ -1165,10 +1177,10 @@ impl NativeRenderSession {
             }
             Err(_) => {
                 // Presentation failed - mark request as failed
-                if let Some(internal_id) = internal_request_id {
+                if let Some(internal_id) = lifecycle_context.request_ids.first() {
                     if let Ok(mut registry) = self.lifecycle_registry.lock() {
                         use crate::wgpu_compositor::{RequestTerminalDisposition, RequestFailureReason};
-                        let _ = registry.finish_request(&internal_id, RequestTerminalDisposition::Failed {
+                        let _ = registry.finish_request(internal_id, RequestTerminalDisposition::Failed {
                             reason: RequestFailureReason::PipelineFailure,
                         });
                     }

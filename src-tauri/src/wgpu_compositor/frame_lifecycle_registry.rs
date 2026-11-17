@@ -7,7 +7,8 @@
 //! keeps the contract deterministic and prevents a second global scheduler
 //! from being introduced into preview rendering.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::time::{Duration, Instant};
 
 use super::frame_lifecycle::{
     reconcile_produced_frames, AbandonReason, FrameAccounting, FrameAttribution, FrameId,
@@ -22,6 +23,40 @@ pub struct FrameLifecycleRegistry {
     requests: HashMap<FrameRequestId, LifecycleState<RequestTerminalDisposition>>,
     frames: HashMap<FrameId, RegisteredFrame>,
     attempts: HashMap<PresentationAttemptId, RegisteredPresentationAttempt>,
+    terminal_history: VecDeque<TerminalRecord>,
+    retention: TerminalHistoryRetentionPolicy,
+    cumulative_frame_accounting: FrameAccounting,
+}
+
+/// Bounded terminal history policy for one native render session. Active
+/// lifecycles are never evicted; identity allocation remains monotonic after
+/// historical records leave the registry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerminalHistoryRetentionPolicy {
+    pub max_terminal_records: usize,
+    pub max_age: Duration,
+}
+
+impl Default for TerminalHistoryRetentionPolicy {
+    fn default() -> Self {
+        Self {
+            max_terminal_records: 4_096,
+            max_age: Duration::from_secs(5 * 60),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum TerminalRecordKind {
+    Request(FrameRequestId),
+    Frame(FrameId),
+    Attempt(PresentationAttemptId),
+}
+
+#[derive(Debug, Clone)]
+struct TerminalRecord {
+    completed_at: Instant,
+    kind: TerminalRecordKind,
 }
 
 /// Diagnostic snapshot of registry retention for audit and performance analysis.
@@ -40,6 +75,7 @@ pub struct RegistrySnapshot {
     pub allocated_request_ids: u64,
     pub allocated_frame_ids: u64,
     pub allocated_attempt_ids: u64,
+    pub cumulative_frame_accounting: FrameAccounting,
 }
 
 #[derive(Debug)]
@@ -97,6 +133,7 @@ impl FrameLifecycleRegistry {
                 state: LifecycleState::Active,
             },
         );
+        self.cumulative_frame_accounting.produced += 1;
         Ok(())
     }
 
@@ -146,6 +183,10 @@ impl FrameLifecycleRegistry {
         disposition: PresentationAttemptDisposition,
     ) -> Result<(), RegistryError> {
         self.require_attempt_mut(id)?.state.finish(disposition)?;
+        self.terminal_history.push_back(TerminalRecord {
+            completed_at: Instant::now(),
+            kind: TerminalRecordKind::Attempt(id.clone()),
+        });
         Ok(())
     }
 
@@ -174,7 +215,12 @@ impl FrameLifecycleRegistry {
                 ));
             }
         }
-        self.require_frame_mut(id)?.state.finish(disposition)?;
+        self.require_frame_mut(id)?.state.finish(disposition.clone())?;
+        self.record_frame_terminal(&disposition);
+        self.terminal_history.push_back(TerminalRecord {
+            completed_at: Instant::now(),
+            kind: TerminalRecordKind::Frame(id.clone()),
+        });
         Ok(())
     }
 
@@ -220,6 +266,10 @@ impl FrameLifecycleRegistry {
             | RequestTerminalDisposition::Abandoned { .. } => {}
         }
         self.require_request_mut(id)?.finish(disposition)?;
+        self.terminal_history.push_back(TerminalRecord {
+            completed_at: Instant::now(),
+            kind: TerminalRecordKind::Request(id.clone()),
+        });
         Ok(())
     }
 
@@ -232,13 +282,16 @@ impl FrameLifecycleRegistry {
                 let _ = state.finish(RequestTerminalDisposition::Abandoned { reason });
             }
         }
+        let mut abandoned_frames = 0;
         for frame in self.frames.values_mut() {
             if matches!(frame.state, LifecycleState::Active) {
                 let _ = frame
                     .state
                     .finish(FrameTerminalDisposition::Abandoned { reason });
+                abandoned_frames += 1;
             }
         }
+        self.cumulative_frame_accounting.abandoned += abandoned_frames;
         for attempt in self.attempts.values_mut() {
             if matches!(attempt.state, LifecycleState::Active) {
                 let _ = attempt
@@ -298,6 +351,48 @@ impl FrameLifecycleRegistry {
         )?)
     }
 
+    /// Session-wide counters survive terminal-history eviction. They are
+    /// intentionally separate from `frame_accounting`, which reconciles only
+    /// records currently retained by the registry.
+    pub fn cumulative_frame_accounting(&self) -> FrameAccounting {
+        self.cumulative_frame_accounting
+    }
+
+    pub fn set_terminal_history_retention(&mut self, retention: TerminalHistoryRetentionPolicy) {
+        self.retention = retention;
+    }
+
+    /// Evicts only terminal records that exceed either the configured age or
+    /// count bound. Unknown IDs from late callbacks remain rejected; no record
+    /// is recreated after eviction.
+    pub fn prune_terminal_history(&mut self, now: Instant) {
+        while self.terminal_history.front().is_some_and(|record| {
+            now.saturating_duration_since(record.completed_at) >= self.retention.max_age
+                || self.terminal_history.len() > self.retention.max_terminal_records
+        }) {
+            let Some(record) = self.terminal_history.pop_front() else {
+                break;
+            };
+            match record.kind {
+                TerminalRecordKind::Request(id) => {
+                    if matches!(self.requests.get(&id), Some(LifecycleState::Terminal(_))) {
+                        self.requests.remove(&id);
+                    }
+                }
+                TerminalRecordKind::Frame(id) => {
+                    if matches!(self.frames.get(&id), Some(RegisteredFrame { state: LifecycleState::Terminal(_), .. })) {
+                        self.frames.remove(&id);
+                    }
+                }
+                TerminalRecordKind::Attempt(id) => {
+                    if matches!(self.attempts.get(&id), Some(RegisteredPresentationAttempt { state: LifecycleState::Terminal(_), .. })) {
+                        self.attempts.remove(&id);
+                    }
+                }
+            }
+        }
+    }
+
     /// Captures a diagnostic snapshot of registry retention for audit and performance analysis.
     /// This is a lightweight operation that counts active vs terminal entries without deep inspection.
     pub fn diagnostic_snapshot(&self) -> RegistrySnapshot {
@@ -341,6 +436,7 @@ impl FrameLifecycleRegistry {
             allocated_request_ids: self.ids.allocated_request_count(),
             allocated_frame_ids: self.ids.allocated_frame_count(),
             allocated_attempt_ids: self.ids.allocated_attempt_count(),
+            cumulative_frame_accounting: self.cumulative_frame_accounting,
         }
     }
 
@@ -351,6 +447,16 @@ impl FrameLifecycleRegistry {
         self.requests
             .get(id)
             .ok_or_else(|| RegistryError::UnknownRequest(id.clone()))
+    }
+
+    fn record_frame_terminal(&mut self, disposition: &FrameTerminalDisposition) {
+        match disposition {
+            FrameTerminalDisposition::Presented { .. } => self.cumulative_frame_accounting.presented += 1,
+            FrameTerminalDisposition::DroppedUnderBackpressure => self.cumulative_frame_accounting.dropped_under_backpressure += 1,
+            FrameTerminalDisposition::ObsoleteBeforePresentation => self.cumulative_frame_accounting.obsolete_before_presentation += 1,
+            FrameTerminalDisposition::FailedAfterRecovery { .. } => self.cumulative_frame_accounting.failed_after_recovery += 1,
+            FrameTerminalDisposition::Abandoned { .. } => self.cumulative_frame_accounting.abandoned += 1,
+        }
     }
 
     fn require_request_mut(
@@ -712,6 +818,47 @@ mod tests {
                 LifecycleError::DuplicateTerminalTransition
             ))
         );
+    }
+
+    #[test]
+    fn terminal_history_retention_evicts_only_terminal_records_and_preserves_counters() {
+        let mut registry = FrameLifecycleRegistry::default();
+        registry.set_terminal_history_retention(TerminalHistoryRetentionPolicy {
+            max_terminal_records: 1,
+            max_age: Duration::from_secs(60),
+        });
+
+        let first = registry
+            .begin_frame(FrameAttribution::Uncorrelated {
+                reason: MissingCorrelationReason::UnknownProducer,
+            })
+            .unwrap();
+        registry
+            .finish_frame(&first, FrameTerminalDisposition::DroppedUnderBackpressure)
+            .unwrap();
+        let active = registry
+            .begin_frame(FrameAttribution::Uncorrelated {
+                reason: MissingCorrelationReason::UnknownProducer,
+            })
+            .unwrap();
+        let second = registry
+            .begin_frame(FrameAttribution::Uncorrelated {
+                reason: MissingCorrelationReason::UnknownProducer,
+            })
+            .unwrap();
+        registry
+            .finish_frame(&second, FrameTerminalDisposition::ObsoleteBeforePresentation)
+            .unwrap();
+
+        registry.prune_terminal_history(Instant::now());
+
+        assert!(matches!(registry.frame_state(&active), Ok(LifecycleState::Active)));
+        assert!(matches!(registry.frame_state(&first), Err(RegistryError::UnknownFrame(_))));
+        assert!(matches!(registry.frame_state(&second), Ok(LifecycleState::Terminal(_))));
+        let accounting = registry.cumulative_frame_accounting();
+        assert_eq!(accounting.produced, 3);
+        assert_eq!(accounting.dropped_under_backpressure, 1);
+        assert_eq!(accounting.obsolete_before_presentation, 1);
     }
 
     #[test]

@@ -294,7 +294,7 @@ impl<T> LifecycleState<T> {
 }
 
 /// Aggregate inputs for a session's produced-frame accounting.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct FrameAccounting {
     pub produced: u64,
     pub presented: u64,

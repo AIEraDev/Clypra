@@ -19,9 +19,13 @@ use crate::wgpu_compositor::multi_track_composer::TransitionUniforms;
 use crate::wgpu_compositor::DxgiImportState;
 use crate::wgpu_compositor::{
     BodyEffectUniforms, ChromaKeyUniforms, ColorGradeUniforms, ColorTransformUniforms,
-    CompositeLayer, CropMargins, FrameRenderPath, GpuContext, LayerTransform, MultiTrackCompositor,
-    NativePreviewSession, NativeWgpuRenderer, RenderLifecycleContext,
+    CompositeLayer, CropMargins, FrameAttribution, FrameFailureReason, FrameId,
+    FrameLifecycleRegistry, FrameRenderPath, FrameTerminalDisposition, MissingCorrelationReason,
+    GpuContext, LayerTransform, MultiTrackCompositor, NativePreviewSession, NativeWgpuRenderer,
+    PresentationAttemptDisposition, PresentationAttemptId, PresentationFailureReason,
+    RenderLifecycleContext, RequestTerminalDisposition,
 };
+use crate::wgpu_compositor::frame_correlation::WorkloadMode;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -32,6 +36,133 @@ use crate::filmstrip_engine::stream_actor::DecodedVideoPlanes;
 
 type DecodedNativeVideoFrame = (DecodedVideoPlanes, u32, u32, VideoColorMetadata, u32);
 static NATIVE_SURFACE_PRESENTATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+fn frame_attribution_for_mode(
+    lifecycle_context: &RenderLifecycleContext,
+    mode: Option<&str>,
+) -> Result<FrameAttribution, String> {
+    if lifecycle_context.is_empty() {
+        return Ok(FrameAttribution::Uncorrelated {
+            reason: MissingCorrelationReason::UnknownProducer,
+        });
+    }
+
+    let workload = match mode {
+        Some("scrub") => WorkloadMode::Scrub,
+        Some("frameStep") => WorkloadMode::FrameStep,
+        Some("seek") => WorkloadMode::PausedInteraction,
+        Some("playback") | Some("prefetch") | None => WorkloadMode::Playback,
+        Some(_) => WorkloadMode::PausedInteraction,
+    };
+    FrameAttribution::correlated(lifecycle_context.request_ids.clone(), workload)
+        .map_err(|error| error.to_string())
+}
+
+fn visible_frame_attribution(
+    lifecycle_context: &RenderLifecycleContext,
+    request: &FrameRequest,
+) -> Result<FrameAttribution, String> {
+    frame_attribution_for_mode(lifecycle_context, request.mode.as_deref())
+}
+
+/// Owns the two terminal transitions created once a visible frame enters the
+/// native presentation path. The guard makes every fallible return after an
+/// attempt begins explicit in the registry without holding its mutex across
+/// GPU work or async suspension.
+struct PresentationLifecycleGuard<'a> {
+    registry: &'a std::sync::Mutex<FrameLifecycleRegistry>,
+    frame_id: FrameId,
+    attempt_id: PresentationAttemptId,
+    request_ids: Vec<crate::wgpu_compositor::FrameRequestId>,
+    terminal: bool,
+}
+
+impl<'a> PresentationLifecycleGuard<'a> {
+    fn begin(
+        registry: &'a std::sync::Mutex<FrameLifecycleRegistry>,
+        attribution: FrameAttribution,
+        request_ids: Vec<crate::wgpu_compositor::FrameRequestId>,
+    ) -> Result<Self, String> {
+        let mut state = registry
+            .lock()
+            .map_err(|_| "Lifecycle registry lock poisoned".to_string())?;
+        let frame_id = state.begin_frame(attribution).map_err(|error| error.to_string())?;
+        let attempt_id = state
+            .begin_presentation_attempt(frame_id.clone())
+            .map_err(|error| error.to_string())?;
+        Ok(Self {
+            registry,
+            frame_id,
+            attempt_id,
+            request_ids,
+            terminal: false,
+        })
+    }
+
+    fn frame_id(&self) -> &FrameId {
+        &self.frame_id
+    }
+
+    fn complete(&mut self) -> Result<(), String> {
+        let mut registry = self
+            .registry
+            .lock()
+            .map_err(|_| "Lifecycle registry lock poisoned".to_string())?;
+        registry
+            .finish_presentation_attempt(&self.attempt_id, PresentationAttemptDisposition::Presented)
+            .map_err(|error| error.to_string())?;
+        registry
+            .finish_frame(
+                &self.frame_id,
+                FrameTerminalDisposition::Presented {
+                    attempt_id: self.attempt_id.clone(),
+                },
+            )
+            .map_err(|error| error.to_string())?;
+        for request_id in &self.request_ids {
+            registry
+                .finish_request(
+                    request_id,
+                    RequestTerminalDisposition::Presented {
+                        frame_id: self.frame_id.clone(),
+                    },
+                )
+                .map_err(|error| error.to_string())?;
+        }
+        registry.prune_terminal_history(Instant::now());
+        self.terminal = true;
+        Ok(())
+    }
+
+    fn fail(&mut self, reason: PresentationFailureReason) {
+        let Ok(mut registry) = self.registry.lock() else {
+            return;
+        };
+        let _ = registry.finish_presentation_attempt(
+            &self.attempt_id,
+            PresentationAttemptDisposition::Failed {
+                reason,
+                retryable: false,
+            },
+        );
+        let _ = registry.finish_frame(
+            &self.frame_id,
+            FrameTerminalDisposition::FailedAfterRecovery {
+                reason: FrameFailureReason::PresentationRecoveryExhausted,
+            },
+        );
+        registry.prune_terminal_history(Instant::now());
+        self.terminal = true;
+    }
+}
+
+impl Drop for PresentationLifecycleGuard<'_> {
+    fn drop(&mut self) {
+        if !self.terminal {
+            self.fail(PresentationFailureReason::PresentCallFailed);
+        }
+    }
+}
 
 
 pub mod font_registry;
@@ -2730,6 +2861,7 @@ pub(crate) async fn present_native_frame_internal(
     app: tauri::AppHandle,
     request: FrameRequest,
     lifecycle_context: RenderLifecycleContext,
+    lifecycle_registry: Option<&std::sync::Mutex<FrameLifecycleRegistry>>,
 ) -> Result<NativeSurfacePresentation, String> {
     let presentation_started = Instant::now();
     let presentation_sequence =
@@ -3181,9 +3313,42 @@ pub(crate) async fn present_native_frame_internal(
     // back-buffer acquisition while it is hidden. Reveal it before acquiring
     // the swapchain texture so the production first frame follows the same
     // path as subsequent frames.
-    surface.show_surface()?;
+    // A FrameId identifies visual work that is now eligible for native
+    // presentation, not a timeline index, decode-cache entry, or request
+    // label. Lookahead cache entries remain identity-free until this boundary.
+    let mut presentation_lifecycle = lifecycle_registry
+        .map(|registry| {
+            let attribution = visible_frame_attribution(&lifecycle_context_returned, &request)?;
+            PresentationLifecycleGuard::begin(
+                registry,
+                attribution,
+                lifecycle_context_returned.request_ids.clone(),
+            )
+        })
+        .transpose()?;
+    if let Some(lifecycle) = &presentation_lifecycle {
+        eprintln!(
+            "[LIFECYCLE_TRACE] FRAME_PRODUCED | frame={} external={} queue_hit={}",
+            lifecycle.frame_id().as_str(), request.request_id, queue_hit
+        );
+    }
+
+    if let Err(error) = surface.show_surface() {
+        if let Some(lifecycle) = presentation_lifecycle.as_mut() {
+            lifecycle.fail(PresentationFailureReason::SurfaceUnavailable);
+        }
+        return Err(error);
+    }
     let surface_acquire_started = Instant::now();
-    let surface_texture = surface.acquire_current_texture(&gpu.device)?;
+    let surface_texture = match surface.acquire_current_texture(&gpu.device) {
+        Ok(texture) => texture,
+        Err(error) => {
+            if let Some(lifecycle) = presentation_lifecycle.as_mut() {
+                lifecycle.fail(PresentationFailureReason::SurfaceAcquireFailed);
+            }
+            return Err(error);
+        }
+    };
     let surface_acquire_us = surface_acquire_started.elapsed().as_micros() as u64;
     let target_view = surface_texture
         .texture
@@ -3571,6 +3736,9 @@ pub(crate) async fn present_native_frame_internal(
     let submit_present_started = Instant::now();
     surface_texture.present();
     let submit_present_us = submit_present_started.elapsed().as_micros() as u64;
+    if let Some(lifecycle) = presentation_lifecycle.as_mut() {
+        lifecycle.complete()?;
+    }
     // Phase 3.1: Rust-clock-domain end-to-end timings.
     // Both are measured after present() returns so they include the full Rust path.
     // `command_entry_to_present_enqueue_us`: from function entry (presentation_started / request_started_at)
@@ -3724,7 +3892,7 @@ pub async fn present_native_frame(
     app: tauri::AppHandle,
     request: FrameRequest,
 ) -> Result<NativeSurfacePresentation, String> {
-    present_native_frame_internal(app, request, RenderLifecycleContext::empty()).await
+    present_native_frame_internal(app, request, RenderLifecycleContext::empty(), None).await
 }
 
 /// Legacy-shaped command retained as a compatibility boundary while callers

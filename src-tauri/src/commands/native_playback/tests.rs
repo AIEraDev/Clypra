@@ -3,7 +3,8 @@ use super::*;
 #[cfg(test)]
 mod tests {
     use super::render_session::{
-        playback_quality_after_lookahead_misses, should_follow_audio_clock,
+        audio_clock_lifecycle_context, playback_quality_after_lookahead_misses,
+        should_follow_audio_clock,
     };
     use super::*;
     use crate::native_core::{
@@ -106,6 +107,13 @@ mod tests {
         // not enter the continuous-playback same-frame fast path.
         assert!(!should_follow_audio_clock(true));
         assert!(should_follow_audio_clock(false));
+    }
+
+    #[test]
+    fn continuous_audio_clock_ticks_carry_no_request_identity() {
+        // A tick is a clock-derived scheduler event, not a demand. Explicit
+        // seek/scrub identities enter through NativeRenderSession::submit.
+        assert!(audio_clock_lifecycle_context().is_empty());
     }
 
     #[test]
