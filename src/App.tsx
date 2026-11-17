@@ -30,7 +30,7 @@ import { FloatingWidget } from "@/components/ui/FloatingWidget";
 import { ScreenRecordingPreviewModal } from "@/components/ui/ScreenRecordingPreviewModal";
 import { useAutoUpdater } from "@/hooks/useAutoUpdater";
 import { useGpuTelemetryInit } from "@/hooks/useGpuTelemetryInit";
-import { UpdateBanner } from "@/components/ui/UpdateBanner";
+import { UpdateModal } from "@/components/ui/primitives/UpdateModal";
 import { Toaster, toast } from "sonner";
 import { ProjectLoadingModal } from "./components/ui/modals/ProjectLoadingModal";
 import { TransferPanel } from "./components/ui/TransferPanel";
@@ -1313,8 +1313,8 @@ const App = () => {
         onCancel={handleCancelExit}
       />
 
-      {/* ── Auto-Update Banner ───────────────────────────────────────────── */}
-      <UpdateBanner updater={autoUpdater} />
+      {/* ── Auto-Update Modal ────────────────────────────────────────────── */}
+      <UpdateModal updater={autoUpdater} />
 
       {/* ── Global Toast Notifications ─────────────────────────────────── */}
       <Toaster
