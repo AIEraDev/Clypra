@@ -108,6 +108,18 @@ use crate::filmstrip_engine::decoder::VideoColorMetadata;
     }
 
     #[test]
+    fn interactive_seek_does_not_restart_forward_lookahead() {
+        assert!(!should_schedule_lookahead_predecode(Some(true), Some("seek")));
+        assert!(!should_schedule_lookahead_predecode(Some(true), Some("scrub")));
+        assert!(!should_schedule_lookahead_predecode(None, Some("seek")));
+
+        // The post-release paused frame is no longer interactive and can
+        // safely prime frames for a subsequent playback start.
+        assert!(should_schedule_lookahead_predecode(None, None));
+        assert!(should_schedule_lookahead_predecode(None, Some("playback")));
+    }
+
+    #[test]
     fn unspecified_sdr_metadata_uses_limited_rec709_defaults() {
         let params =
             color_params(&VideoColorMetadata::default()).expect("default should be supported");

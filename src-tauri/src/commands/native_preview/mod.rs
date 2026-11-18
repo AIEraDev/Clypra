@@ -2169,6 +2169,18 @@ fn is_preview_preemptive_request(is_scrubbing: Option<bool>, mode: Option<&str>)
     is_scrubbing.unwrap_or(false) || matches!(mode, Some("scrub" | "seek"))
 }
 
+/// Interactive seeks are latest-frame work. Starting a forward-only lookahead
+/// worker for every pointer update makes forward scrubbing compete with the
+/// visible request, only to cancel that worker at the next generation.
+///
+/// A settled paused frame has neither the interactive flag nor an explicit
+/// seek/scrub mode, so it may still prime the next playback start. Continuous
+/// playback continues to own its bounded forward lookahead window.
+fn should_schedule_lookahead_predecode(is_scrubbing: Option<bool>, mode: Option<&str>) -> bool {
+    !is_scrubbing.unwrap_or(false)
+        && !matches!(mode, Some("prefetch" | "scrub" | "seek"))
+}
+
 /// Decode a frame into the bounded native playback queue without presenting
 /// it. The following presentation command can then reuse the decoded planes
 /// and spend its critical path only on GPU conversion/compositing/surface
@@ -3750,7 +3762,7 @@ pub(crate) async fn present_native_frame_internal(
         Some(&app),
     );
 
-    if request.mode.as_deref() != Some("prefetch") && request.mode.as_deref() != Some("scrub") {
+    if should_schedule_lookahead_predecode(request.is_scrubbing, request.mode.as_deref()) {
         schedule_lookahead_predecode(
             app.clone(),
             request.clone(),
