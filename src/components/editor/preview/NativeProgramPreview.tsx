@@ -190,6 +190,10 @@ import {
   type NativeScrubDemandLifecycleState,
 } from "@/core/playback/nativeScrubDemandLifecycle";
 import {
+  decidePausedNativeDemandAction,
+  type PausedNativeDemandIdentity,
+} from "@/core/playback/pausedNativeDemandState";
+import {
   EMBEDDED_PREVIEW_ONLY,
   NATIVE_PREVIEW_ONLY,
   createNativePlaybackFrameDemand,
@@ -1557,6 +1561,8 @@ export const NativeProgramPreview: React.FC = () => {
       requestId: string;
       generation: number;
       frameIndex: number;
+      cancellationEpoch: number;
+      isScrubbing: boolean;
       dispatchedAtMs: number;
       commandAcknowledged: boolean;
       presentation?: NativeSurfacePresentation;
@@ -1614,6 +1620,7 @@ export const NativeProgramPreview: React.FC = () => {
         dispatchMode: "persistent-demand",
         presented: presentation.presented,
         dropped: presentation.dropped,
+        terminalDisposition: presentation.terminalDisposition,
         dropReason: presentation.dropReason,
       });
       if (presentation.presented) {
@@ -1650,6 +1657,11 @@ export const NativeProgramPreview: React.FC = () => {
           // A paced forward scrub may intentionally retain one older decode
           // long enough to paint it. It improves continuity, but only the
           // latest generation is allowed to settle the seek/playhead state.
+          // Clear the dedupe key even when the visual key is unchanged: a
+          // pointer event can advance target generation without changing its
+          // frame key, and that newer exact target must get its own terminal
+          // native operation after this older presentation completes.
+          lastNativePlaybackRequestKey = "";
           forceRenderNeeded = true;
           wakeNativeRenderLoopRef.current?.();
         }
@@ -4208,6 +4220,36 @@ export const NativeProgramPreview: React.FC = () => {
                   scheduleNextFrame();
                   return;
                 }
+                const desiredPausedDemand: PausedNativeDemandIdentity = {
+                  requestKey,
+                  generation: targetGeneration,
+                  frameIndex: requestToPresent.frameTime.frameIndex,
+                  cancellationEpoch: scrubLifecycle.cancellationEpoch,
+                  isScrubbing,
+                };
+                const activePausedDemand = pendingPausedNativeDemand
+                  ? {
+                      requestKey: pendingPausedNativeDemand.requestKey,
+                      generation: pendingPausedNativeDemand.generation,
+                      frameIndex: pendingPausedNativeDemand.frameIndex,
+                      cancellationEpoch:
+                        pendingPausedNativeDemand.cancellationEpoch,
+                      isScrubbing: pendingPausedNativeDemand.isScrubbing,
+                    }
+                  : null;
+                const pausedDemandAction = decidePausedNativeDemandAction(
+                  activePausedDemand,
+                  desiredPausedDemand,
+                );
+                if (pausedDemandAction === "hold") {
+                  // The native worker owns the active decode. Preserve it until
+                  // a terminal event; the next RAF will publish the latest
+                  // desired target instead of replacing the settle candidate.
+                  forceRenderNeeded = true;
+                  renderInFlight = false;
+                  scheduleNextFrame();
+                  return;
+                }
                 // Paused P0 seeks use the same bounded Rust-owned latest-only
                 // worker as playback. The invoke below only replaces a demand;
                 // presentation acknowledgement arrives asynchronously after the
@@ -4236,12 +4278,16 @@ export const NativeProgramPreview: React.FC = () => {
                 if (frontendSpan) {
                   nativeFrontendPerfSpans.set(requestKey, frontendSpan);
                 }
-                abandonPausedNativeDemand("superseded", false);
+                if (pausedDemandAction === "replace") {
+                  abandonPausedNativeDemand("superseded", false);
+                }
                 pendingPausedNativeDemand = {
                   requestKey,
                   requestId: pausedDemandRequest.requestId,
                   generation: targetGeneration,
                   frameIndex: requestToPresent.frameTime.frameIndex,
+                  cancellationEpoch: scrubLifecycle.cancellationEpoch,
+                  isScrubbing,
                   dispatchedAtMs: performance.now(),
                   commandAcknowledged: false,
                   acknowledgementTimeoutId: window.setTimeout(() => {

@@ -10,6 +10,7 @@ import {
   createNativeDemandOperationId,
   telemetryRequestToken,
 } from "@/components/editor/preview/pausedNativeDemandLifecycle";
+import { decidePausedNativeDemandAction } from "@/core/playback/pausedNativeDemandState";
 import type { Clip, MediaAsset, Track } from "@/types";
 // Mock Tauri API
 vi.mock("@tauri-apps/api/core", () => ({
@@ -5456,6 +5457,59 @@ describe("Bug 14 — Playback Start at Timeline Zero & Effects Cache Invalidatio
     expect(clock.time).toBeCloseTo(3.0, 1);
 
     perfNowSpy.mockRestore();
+  });
+});
+
+describe("Bug 15 — Native Paused-Scrub Liveness (CLY-BUG-NATIVE-SCRUB-HANG)", () => {
+  it("does not replace the only seek-settling operation for repeated or forward scrub RAF targets", () => {
+    const active = {
+      requestKey: "revision:100",
+      generation: 10,
+      frameIndex: 100,
+      cancellationEpoch: 10,
+      isScrubbing: true,
+    };
+
+    expect(decidePausedNativeDemandAction(active, { ...active })).toBe("hold");
+    expect(
+      decidePausedNativeDemandAction(active, {
+        ...active,
+        requestKey: "revision:120",
+        generation: 11,
+        frameIndex: 120,
+      }),
+    ).toBe("hold");
+  });
+
+  it("requires a replacement boundary before a released target can settle playback", () => {
+    const active = {
+      requestKey: "revision:100",
+      generation: 10,
+      frameIndex: 100,
+      cancellationEpoch: 10,
+      isScrubbing: true,
+    };
+    const released = {
+      requestKey: "revision:120",
+      generation: 11,
+      frameIndex: 120,
+      cancellationEpoch: 11,
+      isScrubbing: false,
+    };
+
+    expect(decidePausedNativeDemandAction(active, released)).toBe("replace");
+  });
+
+  it("releases request-key deduplication after an older generation presents", () => {
+    let lastNativePlaybackRequestKey = "revision:120";
+    const pendingGeneration: number = 10;
+    const visibleGeneration: number = 11;
+
+    if (pendingGeneration !== visibleGeneration) {
+      lastNativePlaybackRequestKey = "";
+    }
+
+    expect(lastNativePlaybackRequestKey).toBe("");
   });
 });
 

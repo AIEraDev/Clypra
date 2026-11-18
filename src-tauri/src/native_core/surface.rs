@@ -203,6 +203,11 @@ pub struct NativeSurfacePresentation {
     pub stale: bool,
     #[serde(default)]
     pub cancelled: bool,
+    /// Exactly one terminal result for an explicit native demand that reached
+    /// presentation processing. Command acknowledgement alone is not a
+    /// terminal result and is intentionally not represented here.
+    #[serde(default)]
+    pub terminal_disposition: Option<String>,
     /// Optional stage timings for playback diagnosis. These are attached only
     /// to successful surface submissions so the acknowledgement stays small on
     /// the common path while exposing which native stage misses the frame

@@ -263,6 +263,7 @@ pub fn start_debug_ipc_server(app: tauri::AppHandle) {
                                         mode: payload.request.mode,
                                         stale: false,
                                         cancelled: false,
+                                        terminal_disposition: Some("presented".to_string()),
                                         drop_reason: None,
                                         timings: None,
                                     };

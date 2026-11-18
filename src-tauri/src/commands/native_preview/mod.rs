@@ -2979,6 +2979,7 @@ pub(crate) async fn present_native_frame_internal(
             mode: request.mode,
             stale: false,
             cancelled: false,
+            terminal_disposition: Some("dropped-before-present".to_string()),
             drop_reason: Some("lookahead-miss".to_string()),
             timings: None,
         });
@@ -3173,6 +3174,7 @@ pub(crate) async fn present_native_frame_internal(
             mode: request.mode.clone(),
             stale: true,
             cancelled: false,
+            terminal_disposition: Some("superseded".to_string()),
             drop_reason: Some("superseded".to_string()),
             timings: None,
         });
@@ -3217,6 +3219,7 @@ pub(crate) async fn present_native_frame_internal(
             mode: request.mode.clone(),
             stale: false,
             cancelled: false,
+            terminal_disposition: Some("dropped-before-present".to_string()),
             drop_reason: Some("late-for-audio".to_string()),
             timings: None,
         });
@@ -3784,6 +3787,7 @@ pub(crate) async fn present_native_frame_internal(
         mode: request.mode,
         stale: false,
         cancelled: false,
+        terminal_disposition: Some("presented".to_string()),
         drop_reason: None,
         timings: Some(NativeSurfacePresentationTimings {
             total_us: request_started_at.elapsed().as_micros() as u64,

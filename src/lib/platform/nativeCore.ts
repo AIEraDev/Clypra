@@ -523,6 +523,12 @@ export interface NativeSurfacePresentation {
   mode?: "playback" | "scrub" | "seek" | "frameStep";
   stale?: boolean;
   cancelled?: boolean;
+  terminalDisposition?:
+    | "presented"
+    | "superseded"
+    | "cancelled"
+    | "dropped-before-present"
+    | "failed";
   dropReason?:
     | "stale"
     | "cancelled"
