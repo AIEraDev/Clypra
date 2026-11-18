@@ -4,7 +4,7 @@ use tauri::Manager;
 use crate::native_core::{
     ModeStats, NativeFrameService, NativeFrameServiceStats, NativeGpuRuntimeStatus, PreviewMode,
 };
-use crate::wgpu_compositor::{FrameAccounting, RequestAccounting};
+use crate::wgpu_compositor::RequestAccounting;
 use super::push_runtime::{NativePlaybackPushRuntime, NativePlaybackPushStatus};
 
 /// Returns `true` when `CLYPRA_SKIP_PLAYBACK_CACHE_INSERT=1` (or `true`) is
@@ -68,7 +68,18 @@ pub struct NativePreviewPerformanceReport {
 pub struct NativeLifecycleAccounting {
     pub requests: RequestAccounting,
     pub requests_unresolved: u64,
-    pub frames: FrameAccounting,
+    pub frames: NativeLifecycleFrameAccounting,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeLifecycleFrameAccounting {
+    pub produced: u64,
+    pub presented: u64,
+    pub dropped_under_backpressure: u64,
+    pub obsolete_before_presentation: u64,
+    pub failed_after_recovery: u64,
+    pub abandoned: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -333,7 +344,20 @@ pub async fn get_native_preview_performance_report(
                     NativeLifecycleAccounting {
                         requests: snapshot.request_accounting,
                         requests_unresolved: snapshot.request_accounting.unresolved(),
-                        frames: snapshot.cumulative_frame_accounting,
+                        frames: NativeLifecycleFrameAccounting {
+                            produced: snapshot.cumulative_frame_accounting.produced,
+                            presented: snapshot.cumulative_frame_accounting.presented,
+                            dropped_under_backpressure: snapshot
+                                .cumulative_frame_accounting
+                                .dropped_under_backpressure,
+                            obsolete_before_presentation: snapshot
+                                .cumulative_frame_accounting
+                                .obsolete_before_presentation,
+                            failed_after_recovery: snapshot
+                                .cumulative_frame_accounting
+                                .failed_after_recovery,
+                            abandoned: snapshot.cumulative_frame_accounting.abandoned,
+                        },
                     }
                 })
         });
