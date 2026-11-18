@@ -11,6 +11,28 @@ export interface NativeScrubDemandLifecycleState {
   wasScrubbing: boolean;
 }
 
+export interface NativeScrubIntentBoundary {
+  time: number;
+  isScrubbing: boolean;
+}
+
+/**
+ * Returns whether a seek intent must advance the native cancellation fence.
+ * Forward pointer movement is a replaceable target within the current decode
+ * epoch; reversal, release, and a new interaction are correctness boundaries.
+ */
+export function shouldInvalidateNativeScrubDemand(
+  previous: NativeScrubIntentBoundary | null,
+  current: NativeScrubIntentBoundary,
+): boolean {
+  return !(
+    previous !== null &&
+    previous.isScrubbing &&
+    current.isScrubbing &&
+    current.time >= previous.time
+  );
+}
+
 export function resolveNativeScrubDemandLifecycle(
   previous: NativeScrubDemandLifecycleState | null,
   targetGeneration: number,

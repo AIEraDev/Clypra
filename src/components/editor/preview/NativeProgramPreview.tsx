@@ -188,6 +188,7 @@ import {
 } from "@/core/playback/nativeScrubDemandPacing";
 import {
   resolveNativeScrubDemandLifecycle,
+  shouldInvalidateNativeScrubDemand,
   type NativeScrubDemandLifecycleState,
 } from "@/core/playback/nativeScrubDemandLifecycle";
 import {
@@ -1514,6 +1515,15 @@ export const NativeProgramPreview: React.FC = () => {
       capturedSession.transportAuthority?.getSeekController();
     let latestSeekIntent: SeekIntent | null =
       seekController?.getCurrent() ?? null;
+    let previousNativeCancellationIntent: {
+      time: number;
+      isScrubbing: boolean;
+    } | null = latestSeekIntent
+      ? {
+          time: latestSeekIntent.time,
+          isScrubbing: latestSeekIntent.isScrubbing,
+        }
+      : null;
     let visibleRequestGeneration = seekController?.getGeneration() ?? 0;
     let transportRevision = 0;
     let activeTimelineEditStartedAt: number | null = null;
@@ -2498,9 +2508,19 @@ export const NativeProgramPreview: React.FC = () => {
       );
       nativePreviewScheduler.setVisibleGeneration(intent.generation);
       lastNativePlaybackRequestKey = "";
-      void cancelNativePreviewRequests(intent.generation).catch(
-        () => undefined,
+      const shouldInvalidateNativeWork = shouldInvalidateNativeScrubDemand(
+        previousNativeCancellationIntent,
+        intent,
       );
+      previousNativeCancellationIntent = {
+        time: intent.time,
+        isScrubbing: intent.isScrubbing,
+      };
+      if (shouldInvalidateNativeWork) {
+        void cancelNativePreviewRequests(intent.generation).catch(
+          () => undefined,
+        );
+      }
       forceRenderNeeded = true;
       wakeNativeRenderLoopRef.current?.();
     });
