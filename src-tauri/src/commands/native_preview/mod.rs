@@ -3683,7 +3683,7 @@ pub(crate) async fn present_native_frame_internal(
             Some("playback") | Some("playback-lookahead")
         ),
         request.mode.as_deref() != Some("playback-lookahead"),
-        request.generation,
+        request.target_generation.or(request.generation),
     );
     drop(surface);
     drop(session);

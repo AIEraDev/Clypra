@@ -727,6 +727,16 @@ export function listenForNativePlaybackDemandPresented(
   );
 }
 
+/** Fired when an accepted latest-value demand terminates before presentation. */
+export function listenForNativePlaybackDemandTerminal(
+  onTerminal: (terminal: import("./nativeCore").NativePlaybackDemandTerminal) => void,
+): Promise<UnlistenFn> {
+  return listen<import("./nativeCore").NativePlaybackDemandTerminal>(
+    "clypra://native-playback-demand-terminal",
+    (event) => onTerminal(event.payload),
+  );
+}
+
 export interface NativePlaybackStatsPayload {
   framesRendered: number;
   fps: number;

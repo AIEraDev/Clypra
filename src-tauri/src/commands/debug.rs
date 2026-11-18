@@ -106,6 +106,7 @@ pub async fn capture_preview_frame_bytes(
             render_graph_version: 1,
             mode: Some("frameStep".to_string()),
             generation: None,
+            target_generation: None,
             scrub_velocity_px_per_second: None,
             requested_at_ms: None,
             is_scrubbing: None,

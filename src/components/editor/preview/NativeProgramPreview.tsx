@@ -107,6 +107,7 @@ import {
   listenForNativePlaybackStats,
   listenForNativePlaybackStartup,
   listenForNativePlaybackDemandPresented,
+  listenForNativePlaybackDemandTerminal,
   listenForEngineQoSDecision,
   listenForNativeMaskEviction,
   listenForNativeRasterEviction,
@@ -1487,6 +1488,7 @@ export const NativeProgramPreview: React.FC = () => {
     let unlistenStartupMilestone: (() => void) | null = null;
     let unlistenPlaybackStats: (() => void) | null = null;
     let unlistenDemandPresentation: (() => void) | null = null;
+    let unlistenDemandTerminal: (() => void) | null = null;
     let lastNativePlaybackRequestKey = "";
     if (isTauriRuntime()) {
       void listenForNativePlaybackStartup(({ stage }) => {
@@ -1692,6 +1694,27 @@ export const NativeProgramPreview: React.FC = () => {
       }).then((fn) => {
         if (!isActive) fn();
         else unlistenDemandPresentation = fn;
+      });
+      void listenForNativePlaybackDemandTerminal((terminal) => {
+        const pending = pendingPausedNativeDemand;
+        if (
+          !pending ||
+          !matchesPausedNativeDemand(pending, terminal)
+        ) {
+          return;
+        }
+        tracePlayback("native-demand-terminal", {
+          operationId: terminal.requestId,
+          generation: terminal.generation,
+          frameIndex: terminal.frameIndex,
+          disposition: terminal.disposition,
+          stage: terminal.stage,
+          reason: terminal.reason,
+        });
+        abandonPausedNativeDemand("superseded", false);
+      }).then((fn) => {
+        if (!isActive) fn();
+        else unlistenDemandTerminal = fn;
       });
     }
     const pushRequestKeysByFrameId = new Map<number, string>();
@@ -5602,6 +5625,7 @@ export const NativeProgramPreview: React.FC = () => {
       unlistenStartupMilestone?.();
       unlistenPlaybackStats?.();
       unlistenDemandPresentation?.();
+      unlistenDemandTerminal?.();
     };
     // Viewport values (scale, offsetX, offsetY, canvasWidth, canvasHeight) are
     // now read from renderStateRef inside the loop, so they are NOT listed as deps here.

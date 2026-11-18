@@ -631,6 +631,7 @@ mod tests {
             color_policy: ColorPolicy::default(),
             render_graph_version: 1,
             generation: None,
+            target_generation: None,
             mode: None,
             scrub_velocity_px_per_second: None,
             requested_at_ms: None,

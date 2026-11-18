@@ -4206,6 +4206,19 @@ describe("CLY-PERF-002 — Paused Native Demand Acknowledgement", () => {
     ).toBe(true);
   });
 
+  it("REGRESSION: a forward scrub terminal keeps its target generation separate from the cancellation epoch", () => {
+    const pending = { requestId: "preview-op-43", generation: 43 };
+
+    // Rust may keep epoch 42 to preserve useful decode work, but the WebView
+    // must still correlate the completion to visible target 43.
+    expect(
+      matchesPausedNativeDemand(pending, {
+        requestId: "preview-op-43",
+        generation: 43,
+      }),
+    ).toBe(true);
+  });
+
   it("uses unique operation IDs and never exposes a serialized request in telemetry", () => {
     const first = createNativeDemandOperationId("preview:frame-1", 7, 1);
     const second = createNativeDemandOperationId("preview:frame-1", 7, 2);

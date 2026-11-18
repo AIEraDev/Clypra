@@ -412,7 +412,12 @@ pub async fn submit_native_playback_demand(
     let runtime = state
         .lock()
         .map_err(|_| "Native playback runtime lock is poisoned".to_string())?;
-    runtime.submit_render_demand(demand)
+    let terminal = runtime.submit_render_demand(demand)?;
+    drop(runtime);
+    if let Some(terminal) = terminal {
+        let _ = app.emit("clypra://native-playback-demand-terminal", terminal);
+    }
+    Ok(())
 }
 
 #[tauri::command]

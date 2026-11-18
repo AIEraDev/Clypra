@@ -886,6 +886,11 @@ pub struct FrameRequest {
     pub render_graph_version: u32,
     #[serde(default)]
     pub generation: Option<u64>,
+    /// Visible UI target identity. Native queue/decode cancellation continues
+    /// to use `generation`; this value exists only for exact demand
+    /// correlation and must never invalidate useful forward scrub work.
+    #[serde(default)]
+    pub target_generation: Option<u64>,
     #[serde(default)]
     pub mode: Option<String>,
     #[serde(default)]
@@ -1963,6 +1968,7 @@ mod tests {
             color_policy: ColorPolicy::default(),
             render_graph_version: 1,
             generation: None,
+            target_generation: None,
             mode: None,
             scrub_velocity_px_per_second: None,
             requested_at_ms: None,

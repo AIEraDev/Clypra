@@ -1,4 +1,4 @@
-use super::render_session::NativeRenderSession;
+use super::render_session::{NativePlaybackDemandTerminal, NativeRenderSession};
 use crate::native_audio::NativeAudioClock;
 use crate::native_core::{
     FrameTime, NativeCoreError, NativePlaybackFrameDemand, PlaybackPlan, PlaybackSession,
@@ -58,7 +58,10 @@ impl NativePlaybackRuntime {
         }
     }
 
-    pub fn submit_render_demand(&self, demand: NativePlaybackFrameDemand) -> Result<(), String> {
+    pub(crate) fn submit_render_demand(
+        &self,
+        demand: NativePlaybackFrameDemand,
+    ) -> Result<Option<NativePlaybackDemandTerminal>, String> {
         self.render_session
             .as_ref()
             .ok_or_else(|| "Native playback render snapshot is not configured".to_string())?

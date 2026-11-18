@@ -169,6 +169,7 @@ mod tests {
             color_policy: crate::native_core::ColorPolicy::default(),
             render_graph_version: 1,
             generation: Some(1),
+            target_generation: None,
             mode: Some("playback".to_string()),
             scrub_velocity_px_per_second: None,
             requested_at_ms: None,

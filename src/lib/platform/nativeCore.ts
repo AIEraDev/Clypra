@@ -555,6 +555,22 @@ export interface NativeSurfacePresentation {
   };
 }
 
+/**
+ * A latest-value native demand can terminate before presentation when it is
+ * superseded, cancelled at a recency fence, or fails in the presentation
+ * pipeline. The visible target generation is kept separate from the native
+ * cancellation epoch so forward scrub acknowledgements remain correlatable.
+ */
+export interface NativePlaybackDemandTerminal {
+  requestId: string;
+  generation?: number;
+  cancellationEpoch: number;
+  frameIndex: number;
+  disposition: "superseded" | "cancelled" | "failed";
+  stage: "mailbox" | "recency-fence" | "presentation";
+  reason: string;
+}
+
 export interface NativeSyncDriftSnapshot {
   n: number;
   avg_micros: number;

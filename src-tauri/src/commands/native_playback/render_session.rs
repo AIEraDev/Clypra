@@ -100,6 +100,24 @@ pub(crate) struct NativePlaybackStartupMilestone {
     pub(crate) started_at_us: u64,
 }
 
+/// Terminal result for an explicit demand that did not reach surface
+/// presentation. This closes the latest-value mailbox observability gap.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct NativePlaybackDemandTerminal {
+    pub(crate) request_id: String,
+    /// UI target identity. It must not alias the cancellation epoch: forward
+    /// scrub targets can advance while decoder work remains valid.
+    pub(crate) generation: Option<u64>,
+    pub(crate) cancellation_epoch: u64,
+    pub(crate) frame_index: u64,
+    pub(crate) disposition: &'static str,
+    /// Owning pipeline boundary. This lets telemetry distinguish a mailbox
+    /// replacement from decode/actor or presentation work without guessing.
+    pub(crate) stage: &'static str,
+    pub(crate) reason: &'static str,
+}
+
 #[derive(Default)]
 pub(crate) struct LatestPlaybackDemand {
     pub(crate) value: Option<NativePlaybackFrameDemand>,
@@ -146,6 +164,30 @@ impl NativeRenderSession {
 
     fn cancellation_epoch(demand: &NativePlaybackFrameDemand) -> u64 {
         demand.cancellation_epoch.or(demand.generation).unwrap_or(0)
+    }
+
+    fn terminal(
+        demand: &NativePlaybackFrameDemand,
+        disposition: &'static str,
+        reason: &'static str,
+    ) -> NativePlaybackDemandTerminal {
+        NativePlaybackDemandTerminal {
+            request_id: demand.request_id.clone(),
+            generation: demand.generation,
+            cancellation_epoch: Self::cancellation_epoch(demand),
+            frame_index: demand.frame_time.frame_index,
+            disposition,
+            stage: match disposition {
+                "superseded" => "mailbox",
+                "cancelled" => "recency-fence",
+                _ => "presentation",
+            },
+            reason,
+        }
+    }
+
+    fn emit_terminal(app: &AppHandle, terminal: NativePlaybackDemandTerminal) {
+        let _ = app.emit("clypra://native-playback-demand-terminal", terminal);
     }
 
     pub(crate) async fn new(
@@ -487,7 +529,10 @@ impl NativeRenderSession {
         self.notify.notify_one();
     }
 
-    pub(crate) fn submit(&self, demand: NativePlaybackFrameDemand) -> Result<(), String> {
+    pub(crate) fn submit(
+        &self,
+        demand: NativePlaybackFrameDemand,
+    ) -> Result<Option<NativePlaybackDemandTerminal>, String> {
         if demand.contract_version != NATIVE_CORE_CONTRACT_VERSION {
             return Err(format!(
                 "Unsupported native playback demand contract version: {}",
@@ -503,7 +548,7 @@ impl NativeRenderSession {
         let generation = Self::cancellation_epoch(&demand);
         let current = self.generation.load(Ordering::Acquire);
         if generation < current {
-            return Ok(());
+            return Ok(Some(Self::terminal(&demand, "cancelled", "stale-epoch")));
         }
         self.generation.store(generation, Ordering::Release);
         
@@ -517,6 +562,7 @@ impl NativeRenderSession {
             id
         };
         
+        let mut superseded_terminal = None;
         if let Ok(mut pending) = self.pending.lock() {
             // This assignment is the latest-frame-wins slot: a slow decode can
             // never cause obsolete playback work to accumulate.
@@ -532,10 +578,17 @@ impl NativeRenderSession {
                     );
                 }
             }
+            if let Some(superseded) = pending.value.as_ref() {
+                superseded_terminal = Some(Self::terminal(
+                    superseded,
+                    "superseded",
+                    "latest-value-mailbox",
+                ));
+            }
             pending.replace(demand, internal_request_id);
         }
         self.notify.notify_one();
-        Ok(())
+        Ok(superseded_terminal)
     }
 
     pub(crate) fn materialize_request(
@@ -554,7 +607,11 @@ impl NativeRenderSession {
         if let Some(demand) = demand {
             request.request_id = demand.request_id.clone();
             request.frame_time = demand.frame_time;
+            // Keep the existing frame generation as the native cancellation
+            // fence. The visible target travels separately so forward scrub
+            // does not invalidate decoder progress on every pointer move.
             request.generation = Some(Self::cancellation_epoch(demand));
+            request.target_generation = demand.generation;
             request.mode = demand.mode.clone();
             request.is_scrubbing = Some(demand.is_scrubbing);
 
@@ -896,7 +953,7 @@ impl NativeRenderSession {
                 None => (None, None),
             };
             if let Some(demand) = &dynamic_demand {
-                if demand.generation.unwrap_or(0) < generation {
+                if Self::cancellation_epoch(demand) < generation {
                     // Coalesced by generation mismatch - cancel the internal request
                     if let Some(internal_id) = internal_request_id {
                         if let Ok(mut registry) = self.lifecycle_registry.lock() {
@@ -905,6 +962,10 @@ impl NativeRenderSession {
                             let _ = registry.finish_request(&internal_id, RequestTerminalDisposition::Cancelled);
                         }
                     }
+                    Self::emit_terminal(
+                        &app,
+                        Self::terminal(demand, "cancelled", "stale-epoch"),
+                    );
                     continue;
                 }
             }
@@ -1120,6 +1181,20 @@ impl NativeRenderSession {
                     let _ = registry.finish_request(internal_id, RequestTerminalDisposition::Cancelled);
                 }
             }
+            if request.mode.as_deref() != Some("playback") {
+                Self::emit_terminal(
+                    app,
+                    NativePlaybackDemandTerminal {
+                        request_id: request.request_id.clone(),
+                        generation: request.target_generation.or(request.generation),
+                        cancellation_epoch: generation,
+                        frame_index: request.frame_time.frame_index,
+                        disposition: "cancelled",
+                        stage: "recency-fence",
+                        reason: "recency-fence",
+                    },
+                );
+            }
             return None;
         }
         match crate::commands::native_preview::present_native_frame_internal(
@@ -1130,7 +1205,12 @@ impl NativeRenderSession {
         )
             .await
         {
-            Ok(presentation) => {
+            Ok(mut presentation) => {
+                // Surface and decoder cancellation use FrameRequest.generation,
+                // but the completion is correlated to the visible target.
+                if let Some(target_generation) = request.target_generation {
+                    presentation.generation = Some(target_generation);
+                }
                 let is_explicit_paused_demand = presentation.mode.as_deref() != Some("playback");
                 if presentation.presented {
                     if !self.first_presented.swap(true, Ordering::AcqRel) {
@@ -1192,6 +1272,20 @@ impl NativeRenderSession {
                         });
                     }
                 }
+                if request.mode.as_deref() != Some("playback") {
+                    Self::emit_terminal(
+                        app,
+                        NativePlaybackDemandTerminal {
+                            request_id: request.request_id,
+                            generation: request.target_generation.or(request.generation),
+                            cancellation_epoch: generation,
+                            frame_index: request.frame_time.frame_index,
+                            disposition: "failed",
+                            stage: "presentation",
+                            reason: "presentation-pipeline",
+                        },
+                    );
+                }
                 None
             }
         }
@@ -1251,6 +1345,7 @@ mod tests {
             color_policy: crate::native_core::ColorPolicy::default(),
             render_graph_version: 1,
             generation: Some(0),
+            target_generation: None,
             mode: None,
             scrub_velocity_px_per_second: None,
             requested_at_ms: None,
@@ -1344,9 +1439,33 @@ mod tests {
             .materialize_request(pending.value.as_ref())
             .expect("demand materializes");
         assert_eq!(request.generation, Some(10));
+        // The visible target must travel independently of cancellation.
+        assert_eq!(request.target_generation, Some(11));
         assert_eq!(request.is_scrubbing, Some(true));
         assert_eq!(session.generation.load(Ordering::Acquire), 10);
         assert!(!session.demand_requires_recency_barrier(10));
+    }
+
+    #[test]
+    fn superseding_a_forward_target_reports_the_target_identity() {
+        let session = mock_session();
+        session.generation.store(10, Ordering::Release);
+
+        let mut first = mock_demand("forward-11", 11);
+        first.cancellation_epoch = Some(10);
+        assert!(session.submit(first).expect("first submit").is_none());
+
+        let mut replacement = mock_demand("forward-12", 12);
+        replacement.cancellation_epoch = Some(10);
+        let terminal = session
+            .submit(replacement)
+            .expect("replacement submit")
+            .expect("superseded terminal");
+
+        assert_eq!(terminal.request_id, "forward-11");
+        assert_eq!(terminal.generation, Some(11));
+        assert_eq!(terminal.cancellation_epoch, 10);
+        assert_eq!(terminal.disposition, "superseded");
     }
 
     #[test]
