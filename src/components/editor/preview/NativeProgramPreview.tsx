@@ -1594,10 +1594,17 @@ export const NativeProgramPreview: React.FC = () => {
 
       window.clearTimeout(pending.acknowledgementTimeoutId);
       pendingPausedNativeDemand = null;
+      const wasSuperseded = reason === "superseded";
       nativeFrontendPerfSpans.get(pending.requestKey)?.finish({
         dropped: true,
-        cancelled: true,
-        dropReason: "cancelled",
+        stale: wasSuperseded,
+        cancelled: reason === "ack-timeout",
+        dropReason:
+          reason === "superseded"
+            ? "superseded"
+            : reason === "submit-failed"
+              ? "present-failed"
+              : "cancelled",
       });
       nativeFrontendPerfSpans.delete(pending.requestKey);
       lastNativePlaybackRequestKey = "";
@@ -1744,7 +1751,14 @@ export const NativeProgramPreview: React.FC = () => {
         if (!shouldClearPendingPausedNativeDemandOnTerminal(terminal)) {
           return;
         }
-        abandonPausedNativeDemand("superseded", false);
+        abandonPausedNativeDemand(
+          terminal.disposition === "superseded"
+            ? "superseded"
+            : terminal.stage === "presentation"
+              ? "submit-failed"
+              : "ack-timeout",
+          false,
+        );
       }).then((fn) => {
         if (!isActive) fn();
         else unlistenDemandTerminal = fn;

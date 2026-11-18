@@ -4206,6 +4206,12 @@ describe("CLY-PERF-002 — Paused Native Demand Acknowledgement", () => {
         stage: "presentation",
       }),
     ).toBe(false);
+    expect(
+      shouldClearPendingPausedNativeDemandOnTerminal({
+        disposition: "failed",
+        stage: "presentation",
+      }),
+    ).toBe(true);
   });
 
   it("REGRESSION: a stale or generation-mismatched acknowledgement cannot settle the current demand", () => {

@@ -30,6 +30,7 @@ export interface NativeFrontendPerfSample {
   cancelled: boolean;
   dropReason?:
     | "stale"
+    | "superseded"
     | "cancelled"
     | "late-for-audio"
     | "present-failed"
@@ -184,6 +185,7 @@ export class NativePerfSpan {
       cancelled?: boolean;
       dropReason?:
         | "stale"
+        | "superseded"
         | "cancelled"
         | "late-for-audio"
         | "present-failed"
