@@ -8,6 +8,7 @@ import {
   PAUSED_NATIVE_DEMAND_ACK_TIMEOUT_MS,
   shouldFallbackForPausedNativeDemand,
   createNativeDemandOperationId,
+  shouldClearPendingPausedNativeDemandOnTerminal,
   telemetryRequestToken,
 } from "@/components/editor/preview/pausedNativeDemandLifecycle";
 import { decidePausedNativeDemandAction } from "@/core/playback/pausedNativeDemandState";
@@ -4183,6 +4184,30 @@ describe("CLY-PERF-001 / Bug 15 — Native Audio Failure Clock Unblock", () => {
 });
 
 describe("CLY-PERF-002 — Paused Native Demand Acknowledgement", () => {
+  it("REGRESSION: a mailbox superseded terminal releases the stale pending demand", () => {
+    expect(
+      shouldClearPendingPausedNativeDemandOnTerminal({
+        disposition: "superseded",
+        stage: "mailbox",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps successful and dropped-before-present terminals for the presentation event", () => {
+    expect(
+      shouldClearPendingPausedNativeDemandOnTerminal({
+        disposition: "presented",
+        stage: "presentation",
+      }),
+    ).toBe(false);
+    expect(
+      shouldClearPendingPausedNativeDemandOnTerminal({
+        disposition: "dropped-before-present",
+        stage: "presentation",
+      }),
+    ).toBe(false);
+  });
+
   it("REGRESSION: a stale or generation-mismatched acknowledgement cannot settle the current demand", () => {
     const pending = { requestId: "preview-op-42", generation: 42 };
 

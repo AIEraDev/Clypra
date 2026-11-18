@@ -163,6 +163,30 @@ export interface NativePreviewPerformanceReport {
   pushBridge: NativePlaybackPushStatus | null;
   playbackCacheInsertSkipped?: boolean;
   coldStart?: ColdStartReport;
+  lifecycle?: NativeLifecycleAccounting;
+}
+
+export interface NativeLifecycleAccounting {
+  requests: {
+    accepted: number;
+    terminal: number;
+    presented: number;
+    superseded: number;
+    coalesced: number;
+    cancelled: number;
+    droppedBeforePresent: number;
+    failed: number;
+    abandoned: number;
+  };
+  requestsUnresolved: number;
+  frames: {
+    produced: number;
+    presented: number;
+    droppedUnderBackpressure: number;
+    obsoleteBeforePresentation: number;
+    failedAfterRecovery: number;
+    abandoned: number;
+  };
 }
 
 export interface NativePlaybackPushStatus {

@@ -1,10 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   resolveNativeScrubDemandLifecycle,
+  resolveNativeScrubDirection,
   shouldInvalidateNativeScrubDemand,
 } from "../nativeScrubDemandLifecycle";
 
 describe("native scrub demand lifecycle", () => {
+  it("classifies forward, backward, and stationary target movement", () => {
+    expect(resolveNativeScrubDirection(null, 100)).toBe("stationary");
+    expect(resolveNativeScrubDirection(100, 100)).toBe("stationary");
+    expect(resolveNativeScrubDirection(100, 101)).toBe("forward");
+    expect(resolveNativeScrubDirection(101, 100)).toBe("backward");
+  });
+
   it("does not invalidate native decode for a forward scrub continuation", () => {
     expect(
       shouldInvalidateNativeScrubDemand(

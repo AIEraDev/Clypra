@@ -144,6 +144,7 @@ import {
   PAUSED_NATIVE_DEMAND_ACK_TIMEOUT_MS,
   shouldFallbackForPausedNativeDemand,
   createNativeDemandOperationId,
+  shouldClearPendingPausedNativeDemandOnTerminal,
   telemetryRequestToken,
 } from "./pausedNativeDemandLifecycle";
 
@@ -188,7 +189,9 @@ import {
 } from "@/core/playback/nativeScrubDemandPacing";
 import {
   resolveNativeScrubDemandLifecycle,
+  resolveNativeScrubDirection,
   shouldInvalidateNativeScrubDemand,
+  type NativeScrubDirection,
   type NativeScrubDemandLifecycleState,
 } from "@/core/playback/nativeScrubDemandLifecycle";
 import {
@@ -1575,6 +1578,7 @@ export const NativeProgramPreview: React.FC = () => {
       frameIndex: number;
       cancellationEpoch: number;
       isScrubbing: boolean;
+      scrubDirection: NativeScrubDirection;
       dispatchedAtMs: number;
       commandAcknowledged: boolean;
       presentation?: NativeSurfacePresentation;
@@ -1602,7 +1606,8 @@ export const NativeProgramPreview: React.FC = () => {
         requestKey: telemetryRequestToken(pending.requestKey),
         generation: pending.generation,
         frameIndex: pending.frameIndex,
-        dispatchMode: "persistent-demand",
+        scrubDirection: pending.scrubDirection,
+        dispatchMode: "exact-interactive-demand",
         reason,
         useDirectFallback,
       });
@@ -1629,7 +1634,8 @@ export const NativeProgramPreview: React.FC = () => {
         requestKey: telemetryRequestToken(pending.requestKey),
         generation: pending.generation,
         frameIndex: pending.frameIndex,
-        dispatchMode: "persistent-demand",
+        scrubDirection: pending.scrubDirection,
+        dispatchMode: "exact-interactive-demand",
         presented: presentation.presented,
         dropped: presentation.dropped,
         terminalDisposition: presentation.terminalDisposition,
@@ -1706,11 +1712,16 @@ export const NativeProgramPreview: React.FC = () => {
         else unlistenDemandPresentation = fn;
       });
       void listenForNativePlaybackDemandTerminal((terminal) => {
+        const pending = pendingPausedNativeDemand;
         tracePlayback("native-demand-terminal", {
           operationId: terminal.requestId,
           lifecycleRequestId: terminal.lifecycleRequestId,
           generation: terminal.generation,
           frameIndex: terminal.frameIndex,
+          scrubDirection:
+            pending?.requestId === terminal.requestId
+              ? pending.scrubDirection
+              : undefined,
           disposition: terminal.disposition,
           stage: terminal.stage,
           reason: terminal.reason,
@@ -1720,7 +1731,6 @@ export const NativeProgramPreview: React.FC = () => {
           queueResidencyUs: terminal.queueResidencyUs,
           queueHit: terminal.queueHit,
         });
-        const pending = pendingPausedNativeDemand;
         if (
           !pending ||
           !matchesPausedNativeDemand(pending, terminal)
@@ -1728,14 +1738,10 @@ export const NativeProgramPreview: React.FC = () => {
           return;
         }
         // Successful and decode-complete outcomes are followed by the
-        // matching presentation event. Only pre-presentation terminal
-        // failures should abandon the pending interaction here.
-        if (
-          terminal.disposition === "presented" ||
-          terminal.disposition === "dropped-before-present" ||
-          (terminal.stage === "presentation" &&
-            terminal.disposition === "superseded")
-        ) {
+        // matching presentation event. A mailbox supersession has no such
+        // event, so release the stale liveness owner immediately and let the
+        // next RAF publish the newest scrub target.
+        if (!shouldClearPendingPausedNativeDemandOnTerminal(terminal)) {
           return;
         }
         abandonPausedNativeDemand("superseded", false);
@@ -4257,6 +4263,14 @@ export const NativeProgramPreview: React.FC = () => {
                   nativeScrubDemandLifecycle = null;
                   nativeScrubDemandPacing = null;
                 }
+                const previousScrubFrameIndex =
+                  nativeScrubDemandLifecycle?.lastFrameIndex ?? null;
+                const scrubDirection = isScrubbing
+                  ? resolveNativeScrubDirection(
+                      previousScrubFrameIndex,
+                      requestToPresent.frameTime.frameIndex,
+                    )
+                  : "stationary";
                 const scrubLifecycle = resolveNativeScrubDemandLifecycle(
                   nativeScrubDemandLifecycle,
                   targetGeneration,
@@ -4348,6 +4362,7 @@ export const NativeProgramPreview: React.FC = () => {
                   frameIndex: requestToPresent.frameTime.frameIndex,
                   cancellationEpoch: scrubLifecycle.cancellationEpoch,
                   isScrubbing,
+                  scrubDirection,
                   dispatchedAtMs: performance.now(),
                   commandAcknowledged: false,
                   acknowledgementTimeoutId: window.setTimeout(() => {
@@ -4370,7 +4385,8 @@ export const NativeProgramPreview: React.FC = () => {
                   requestKey: telemetryRequestToken(requestKey),
                   generation: targetGeneration,
                   frameIndex: requestToPresent.frameTime.frameIndex,
-                  dispatchMode: "persistent-demand",
+                  scrubDirection,
+                  dispatchMode: "exact-interactive-demand",
                 });
                 nativePlaybackInFlight = submitNativePlaybackDemand(
                   createNativePlaybackFrameDemand(pausedDemandRequest, {
@@ -4387,7 +4403,8 @@ export const NativeProgramPreview: React.FC = () => {
                         requestKey: telemetryRequestToken(requestKey),
                         generation: targetGeneration,
                         frameIndex: requestToPresent.frameTime.frameIndex,
-                        dispatchMode: "persistent-demand",
+                        scrubDirection,
+                        dispatchMode: "exact-interactive-demand",
                       });
                       settlePausedNativeDemand();
                     }

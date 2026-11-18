@@ -38,6 +38,25 @@ export function shouldFallbackForPausedNativeDemand(
 }
 
 /**
+ * A superseded mailbox entry has no matching presentation event. Release the
+ * frontend liveness owner immediately so the newest forward scrub target can
+ * be submitted on the next render tick. Successful and dropped-before-present
+ * outcomes still emit a paired presentation event and must remain pending.
+ */
+export function shouldClearPendingPausedNativeDemandOnTerminal(terminal: {
+  disposition: string;
+  stage: string;
+}): boolean {
+  if (
+    terminal.disposition === "presented" ||
+    terminal.disposition === "dropped-before-present"
+  ) {
+    return false;
+  }
+  return terminal.disposition === "superseded" || terminal.stage === "presentation";
+}
+
+/**
  * Native surface events are asynchronous and may arrive after a newer seek.
  * Only the exact operation that installed the pending slot may settle it.
  */

@@ -11,6 +11,18 @@ export interface NativeScrubDemandLifecycleState {
   wasScrubbing: boolean;
 }
 
+export type NativeScrubDirection = "forward" | "backward" | "stationary";
+
+export function resolveNativeScrubDirection(
+  previousFrameIndex: number | null,
+  frameIndex: number,
+): NativeScrubDirection {
+  if (previousFrameIndex === null || frameIndex === previousFrameIndex) {
+    return "stationary";
+  }
+  return frameIndex > previousFrameIndex ? "forward" : "backward";
+}
+
 export interface NativeScrubIntentBoundary {
   time: number;
   isScrubbing: boolean;
