@@ -563,12 +563,25 @@ export interface NativeSurfacePresentation {
  */
 export interface NativePlaybackDemandTerminal {
   requestId: string;
+  /** Internal native lifecycle identity; external request IDs may be reused. */
+  lifecycleRequestId?: string;
   generation?: number;
   cancellationEpoch: number;
   frameIndex: number;
-  disposition: "superseded" | "cancelled" | "failed";
-  stage: "mailbox" | "recency-fence" | "presentation";
+  disposition:
+    | "presented"
+    | "coalesced"
+    | "superseded"
+    | "cancelled"
+    | "dropped-before-present"
+    | "failed";
+  stage: "mailbox" | "audio-clock" | "recency-fence" | "decode" | "presentation";
   reason: string;
+  actorWaitUs?: number;
+  actorQueueWaitUs?: number;
+  decoderMutexWaitUs?: number;
+  queueResidencyUs?: number;
+  queueHit?: boolean;
 }
 
 export interface NativeSyncDriftSnapshot {

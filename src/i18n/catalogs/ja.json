@@ -345,5 +345,7 @@
   "update.modal.features.bugFixes": "バグ修正",
   "update.modal.features.bugFixesDesc": "安定性と信頼性の向上",
   "update.modal.downloadWithoutInterrupting": "セッションを中断せずにアップデートをダウンロード",
-  "update.modal.saveAndRestart": "プロジェクトを保存してアップデートで再起動"
+  "update.modal.saveAndRestart": "プロジェクトを保存してアップデートで再起動",
+  "settings.theme.dark": "ダーク",
+  "settings.theme.light": "ライト"
 }

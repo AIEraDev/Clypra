@@ -152,6 +152,7 @@ export const DE: Record<string, string> = {
   "Play playback": "Wiedergabe starten",
   "Base:": "Basis:",
   "Dark": "Dunkel",
+  "Light": "Hell",
   "Midnight": "Mitternacht",
   "Ocean": "Ozean",
   "Forest": "Wald",

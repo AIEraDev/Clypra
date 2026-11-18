@@ -345,5 +345,7 @@
   "update.modal.features.bugFixes": "Corrections de bogues",
   "update.modal.features.bugFixesDesc": "Améliorations de la stabilité et de la fiabilité",
   "update.modal.downloadWithoutInterrupting": "Télécharger la mise à jour sans interrompre votre session",
-  "update.modal.saveAndRestart": "Enregistrer le projet et redémarrer avec la mise à jour"
+  "update.modal.saveAndRestart": "Enregistrer le projet et redémarrer avec la mise à jour",
+  "settings.theme.dark": "Sombre",
+  "settings.theme.light": "Clair"
 }

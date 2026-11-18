@@ -13,7 +13,8 @@ use std::time::{Duration, Instant};
 use super::frame_lifecycle::{
     reconcile_produced_frames, AbandonReason, FrameAccounting, FrameAttribution, FrameId,
     FrameRequestId, FrameTerminalDisposition, LifecycleError, LifecycleIdAllocator, LifecycleState,
-    PresentationAttemptDisposition, PresentationAttemptId, RequestTerminalDisposition,
+    PresentationAttemptDisposition, PresentationAttemptId, RequestAccounting,
+    RequestTerminalDisposition,
 };
 use serde::Serialize;
 
@@ -26,6 +27,7 @@ pub struct FrameLifecycleRegistry {
     terminal_history: VecDeque<TerminalRecord>,
     retention: TerminalHistoryRetentionPolicy,
     cumulative_frame_accounting: FrameAccounting,
+    cumulative_request_accounting: RequestAccounting,
 }
 
 /// Bounded terminal history policy for one native render session. Active
@@ -76,6 +78,9 @@ pub struct RegistrySnapshot {
     pub allocated_frame_ids: u64,
     pub allocated_attempt_ids: u64,
     pub cumulative_frame_accounting: FrameAccounting,
+    /// Explicit request outcomes use accepted request IDs as their denominator.
+    /// This must never be merged with produced-frame accounting.
+    pub request_accounting: RequestAccounting,
     /// Explicit request outcomes use request IDs as their denominator. They
     /// must never be merged with produced-frame accounting.
     pub request_presented: u64,
@@ -112,6 +117,7 @@ impl FrameLifecycleRegistry {
             return Err(RegistryError::DuplicateRequest(id));
         }
         self.requests.insert(id, LifecycleState::Active);
+        self.cumulative_request_accounting.accepted += 1;
         Ok(())
     }
 
@@ -266,11 +272,15 @@ impl FrameLifecycleRegistry {
                 }
                 self.require_request(into_request_id)?;
             }
+            RequestTerminalDisposition::CoalescedWithoutSuccessor
+            | RequestTerminalDisposition::SupersededWithoutSuccessor => {}
             RequestTerminalDisposition::Cancelled
+            | RequestTerminalDisposition::DroppedBeforePresent { .. }
             | RequestTerminalDisposition::Failed { .. }
             | RequestTerminalDisposition::Abandoned { .. } => {}
         }
-        self.require_request_mut(id)?.finish(disposition)?;
+        self.require_request_mut(id)?.finish(disposition.clone())?;
+        self.record_request_terminal(&disposition);
         self.terminal_history.push_back(TerminalRecord {
             completed_at: Instant::now(),
             kind: TerminalRecordKind::Request(id.clone()),
@@ -284,7 +294,13 @@ impl FrameLifecycleRegistry {
     pub fn abandon_active(&mut self, reason: AbandonReason) {
         for state in self.requests.values_mut() {
             if matches!(state, LifecycleState::Active) {
-                let _ = state.finish(RequestTerminalDisposition::Abandoned { reason });
+                if state
+                    .finish(RequestTerminalDisposition::Abandoned { reason })
+                    .is_ok()
+                {
+                    self.cumulative_request_accounting.terminal += 1;
+                    self.cumulative_request_accounting.abandoned += 1;
+                }
             }
         }
         let mut abandoned_frames = 0;
@@ -416,8 +432,13 @@ impl FrameLifecycleRegistry {
                         RequestTerminalDisposition::Superseded { .. } => request_superseded += 1,
                         RequestTerminalDisposition::Cancelled => request_cancelled += 1,
                         RequestTerminalDisposition::Coalesced { .. }
+                        | RequestTerminalDisposition::CoalescedWithoutSuccessor
+                        | RequestTerminalDisposition::DroppedBeforePresent { .. }
                         | RequestTerminalDisposition::Failed { .. }
                         | RequestTerminalDisposition::Abandoned { .. } => {}
+                        RequestTerminalDisposition::SupersededWithoutSuccessor => {
+                            request_superseded += 1
+                        }
                     }
                 }
             }
@@ -455,6 +476,7 @@ impl FrameLifecycleRegistry {
             allocated_frame_ids: self.ids.allocated_frame_count(),
             allocated_attempt_ids: self.ids.allocated_attempt_count(),
             cumulative_frame_accounting: self.cumulative_frame_accounting,
+            request_accounting: self.cumulative_request_accounting,
             request_presented,
             request_superseded,
             request_cancelled,
@@ -477,6 +499,39 @@ impl FrameLifecycleRegistry {
             FrameTerminalDisposition::ObsoleteBeforePresentation => self.cumulative_frame_accounting.obsolete_before_presentation += 1,
             FrameTerminalDisposition::FailedAfterRecovery { .. } => self.cumulative_frame_accounting.failed_after_recovery += 1,
             FrameTerminalDisposition::Abandoned { .. } => self.cumulative_frame_accounting.abandoned += 1,
+        }
+    }
+
+    fn record_request_terminal(&mut self, disposition: &RequestTerminalDisposition) {
+        self.cumulative_request_accounting.terminal += 1;
+        match disposition {
+            RequestTerminalDisposition::Presented { .. } => {
+                self.cumulative_request_accounting.presented += 1
+            }
+            RequestTerminalDisposition::Coalesced { .. } => {
+                self.cumulative_request_accounting.coalesced += 1
+            }
+            RequestTerminalDisposition::CoalescedWithoutSuccessor => {
+                self.cumulative_request_accounting.coalesced += 1
+            }
+            RequestTerminalDisposition::Superseded { .. } => {
+                self.cumulative_request_accounting.superseded += 1
+            }
+            RequestTerminalDisposition::SupersededWithoutSuccessor => {
+                self.cumulative_request_accounting.superseded += 1
+            }
+            RequestTerminalDisposition::Cancelled => {
+                self.cumulative_request_accounting.cancelled += 1
+            }
+            RequestTerminalDisposition::DroppedBeforePresent { .. } => {
+                self.cumulative_request_accounting.dropped_before_present += 1
+            }
+            RequestTerminalDisposition::Failed { .. } => {
+                self.cumulative_request_accounting.failed += 1
+            }
+            RequestTerminalDisposition::Abandoned { .. } => {
+                self.cumulative_request_accounting.abandoned += 1
+            }
         }
     }
 
@@ -619,7 +674,7 @@ impl std::error::Error for RegistryError {}
 mod tests {
     use super::*;
     use crate::wgpu_compositor::{
-        MissingCorrelationReason, PresentationFailureReason, WorkloadMode,
+        MissingCorrelationReason, PresentationFailureReason, RequestDropReason, WorkloadMode,
     };
 
     fn request(value: &str) -> FrameRequestId {
@@ -704,6 +759,57 @@ mod tests {
             .unwrap();
         let attempt = registry.begin_presentation_attempt(frame).unwrap();
         assert!(attempt.as_str().starts_with("presentation-attempt:"));
+    }
+
+    #[test]
+    fn request_accounting_keeps_terminal_outcomes_in_separate_denominators() {
+        let superseded = request("superseded");
+        let successor = request("successor");
+        let dropped = request("dropped");
+        let cancelled = request("cancelled");
+        let failed = request("failed");
+        let mut registry = FrameLifecycleRegistry::default();
+        for id in [&superseded, &successor, &dropped, &cancelled, &failed] {
+            registry.register_request(id.clone()).unwrap();
+        }
+
+        registry
+            .finish_request(
+                &superseded,
+                RequestTerminalDisposition::Superseded {
+                    by_request_id: successor.clone(),
+                },
+            )
+            .unwrap();
+        registry
+            .finish_request(
+                &successor,
+                RequestTerminalDisposition::DroppedBeforePresent {
+                    reason: RequestDropReason::LookaheadMiss,
+                },
+            )
+            .unwrap();
+        registry
+            .finish_request(&cancelled, RequestTerminalDisposition::Cancelled)
+            .unwrap();
+        registry
+            .finish_request(
+                &failed,
+                RequestTerminalDisposition::Failed {
+                    reason: crate::wgpu_compositor::RequestFailureReason::PipelineFailure,
+                },
+            )
+            .unwrap();
+
+        let accounting = registry.diagnostic_snapshot().request_accounting;
+        assert_eq!(accounting.accepted, 5);
+        assert_eq!(accounting.terminal, 4);
+        assert_eq!(accounting.superseded, 1);
+        assert_eq!(accounting.dropped_before_present, 1);
+        assert_eq!(accounting.cancelled, 1);
+        assert_eq!(accounting.failed, 1);
+        assert_eq!(accounting.unresolved(), 1);
+        assert_eq!(accounting.reconcile(), Ok(()));
     }
 
     #[test]

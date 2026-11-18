@@ -1,19 +1,14 @@
-/** Persisted settings state and its public value types. */
-export type Theme =
-  | "dark"
-  | "midnight"
-  | "ocean"
-  | "forest"
-  | "midnight-carbon"
-  | "ember-studio"
-  | "forest-console"
-  | "slate-noir"
-  | "rose-cut"
-  | "custom";
-/** The independent UI chrome layer. */
-export type UiTheme = Exclude<Theme, "custom">;
-/** The independent clip-colour layer. */
-export type ClipPalette = UiTheme;
+/** The two supported appearance modes. */
+export type ColorMode = "dark" | "light";
+/**
+ * Runtime theme identifier.
+ * "custom" kept for backward compat with persisted localStorage data.
+ */
+export type Theme = ColorMode | "custom";
+/** Alias for the UI chrome layer — always a ColorMode. */
+export type UiTheme = ColorMode;
+/** Alias for the clip colour layer — always a ColorMode. */
+export type ClipPalette = ColorMode;
 
 export type FontFamily =
   | "inter"

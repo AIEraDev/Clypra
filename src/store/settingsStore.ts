@@ -7,10 +7,11 @@ import {
   isUiTheme,
   syncThemeToTransferService,
 } from "./themeRegistry";
-import type { SettingsStore, Theme } from "./settingsTypes";
+import type { SettingsStore, Theme, ColorMode } from "./settingsTypes";
 
 export type {
   ClipPalette,
+  ColorMode,
   FontFamily,
   FrameRate,
   LayoutPreset,
@@ -142,9 +143,32 @@ export const useSettingsStore = create<SettingsStore>()(
     }),
     {
       name: "clypra-settings",
-      version: 3,
+      version: 4,
       migrate: (persistedState: unknown, version: number) => {
         const persisted = (persistedState || {}) as Partial<SettingsStore>;
+
+        // v3 → v4: Map legacy 9-variant theme names to dark/light
+        if (version < 4) {
+          const LEGACY_DARK_THEMES = new Set([
+            "midnight",
+            "ocean",
+            "forest",
+            "midnight-carbon",
+            "ember-studio",
+            "forest-console",
+            "slate-noir",
+            "rose-cut",
+          ]);
+          if (persisted.theme && LEGACY_DARK_THEMES.has(persisted.theme as string)) {
+            persisted.theme = "dark" as Theme;
+          }
+          if (persisted.uiTheme && LEGACY_DARK_THEMES.has(persisted.uiTheme as string)) {
+            persisted.uiTheme = "dark" as ColorMode;
+          }
+          if (persisted.clipPalette && LEGACY_DARK_THEMES.has(persisted.clipPalette as string)) {
+            persisted.clipPalette = "dark" as ColorMode;
+          }
+        }
 
         // v2 → v3: Reset panel sizes that were hardcoded at 400px to
         // viewport-relative defaults so the UI fits non-Retina screens.

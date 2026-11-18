@@ -1706,6 +1706,20 @@ export const NativeProgramPreview: React.FC = () => {
         else unlistenDemandPresentation = fn;
       });
       void listenForNativePlaybackDemandTerminal((terminal) => {
+        tracePlayback("native-demand-terminal", {
+          operationId: terminal.requestId,
+          lifecycleRequestId: terminal.lifecycleRequestId,
+          generation: terminal.generation,
+          frameIndex: terminal.frameIndex,
+          disposition: terminal.disposition,
+          stage: terminal.stage,
+          reason: terminal.reason,
+          actorWaitUs: terminal.actorWaitUs,
+          actorQueueWaitUs: terminal.actorQueueWaitUs,
+          decoderMutexWaitUs: terminal.decoderMutexWaitUs,
+          queueResidencyUs: terminal.queueResidencyUs,
+          queueHit: terminal.queueHit,
+        });
         const pending = pendingPausedNativeDemand;
         if (
           !pending ||
@@ -1713,14 +1727,17 @@ export const NativeProgramPreview: React.FC = () => {
         ) {
           return;
         }
-        tracePlayback("native-demand-terminal", {
-          operationId: terminal.requestId,
-          generation: terminal.generation,
-          frameIndex: terminal.frameIndex,
-          disposition: terminal.disposition,
-          stage: terminal.stage,
-          reason: terminal.reason,
-        });
+        // Successful and decode-complete outcomes are followed by the
+        // matching presentation event. Only pre-presentation terminal
+        // failures should abandon the pending interaction here.
+        if (
+          terminal.disposition === "presented" ||
+          terminal.disposition === "dropped-before-present" ||
+          (terminal.stage === "presentation" &&
+            terminal.disposition === "superseded")
+        ) {
+          return;
+        }
         abandonPausedNativeDemand("superseded", false);
       }).then((fn) => {
         if (!isActive) fn();

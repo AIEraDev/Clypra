@@ -48,7 +48,8 @@ pub use frame_lifecycle::{
     AbandonReason, FrameAccounting, FrameAttribution, FrameFailureReason, FrameId,
     FrameRequestId, FrameTerminalDisposition, LifecycleError, LifecycleState,
     LifecycleIdAllocator, MissingCorrelationReason, PresentationAttemptDisposition, PresentationAttemptId,
-    PresentationFailureReason, RenderLifecycleContext, RequestFailureReason, RequestTerminalDisposition,
+    PresentationFailureReason, RenderLifecycleContext, RequestAccounting, RequestDropReason,
+    RequestFailureReason, RequestTerminalDisposition,
     reconcile_produced_frames,
 };
 

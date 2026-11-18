@@ -345,5 +345,7 @@
   "update.modal.features.bugFixes": "錯誤修復",
   "update.modal.features.bugFixesDesc": "穩定性和可靠性改進",
   "update.modal.downloadWithoutInterrupting": "下載更新而不中斷工作階段",
-  "update.modal.saveAndRestart": "儲存專案並重新啟動更新"
+  "update.modal.saveAndRestart": "儲存專案並重新啟動更新",
+  "settings.theme.dark": "深色",
+  "settings.theme.light": "淺色"
 }

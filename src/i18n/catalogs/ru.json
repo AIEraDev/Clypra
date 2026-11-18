@@ -349,5 +349,7 @@
   "update.modal.features.bugFixes": "Исправление ошибок",
   "update.modal.features.bugFixesDesc": "Улучшение стабильности и надежности",
   "update.modal.downloadWithoutInterrupting": "Скачать обновление без прерывания сеанса",
-  "update.modal.saveAndRestart": "Сохранить проект и перезапустить с обновлением"
+  "update.modal.saveAndRestart": "Сохранить проект и перезапустить с обновлением",
+  "settings.theme.dark": "Тёмная",
+  "settings.theme.light": "Светлая"
 }

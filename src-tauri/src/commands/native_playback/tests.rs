@@ -94,8 +94,8 @@ mod tests {
         let mut slot = LatestPlaybackDemand::default();
         let id1 = FrameRequestId::new("id1").unwrap();
         let id2 = FrameRequestId::new("id2").unwrap();
-        slot.replace(demand("old", 1), id1);
-        slot.replace(demand("new", 2), id2.clone());
+        slot.replace(demand("old", 1), Some(id1));
+        slot.replace(demand("new", 2), Some(id2.clone()));
         let (current, current_id) = slot.take().unwrap();
         assert_eq!(current.request_id, "new");
         assert_eq!(current_id, Some(id2));
@@ -107,8 +107,20 @@ mod tests {
         // A paused seek can legitimately request the frame currently reported
         // by the audio clock. It still needs a completion event, so it must
         // not enter the continuous-playback same-frame fast path.
-        assert!(!should_follow_audio_clock(true));
-        assert!(should_follow_audio_clock(false));
+        let mut paused_seek = demand("seek", 1);
+        paused_seek.mode = Some("seek".to_string());
+        paused_seek.is_scrubbing = false;
+        assert!(!should_follow_audio_clock(Some(&paused_seek)));
+
+        let mut scrubbing = demand("scrub", 1);
+        scrubbing.mode = Some("scrub".to_string());
+        scrubbing.is_scrubbing = true;
+        assert!(!should_follow_audio_clock(Some(&scrubbing)));
+
+        let playback = demand("play", 1);
+        assert!(should_follow_audio_clock(Some(&playback)));
+
+        assert!(should_follow_audio_clock(None));
     }
 
     #[test]

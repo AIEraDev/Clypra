@@ -722,6 +722,7 @@ fn test_11_cache_key_invariance_decision_2() {
         is_scrubbing: None,
         allow_keyframe_approx: None,
         generation: None,
+        target_generation: None,
         scrub_velocity_px_per_second: None,
         requested_at_ms: None,
         lookahead_horizon_frames: None,

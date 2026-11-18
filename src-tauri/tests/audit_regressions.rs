@@ -835,6 +835,7 @@ async fn test_phase3_rendering_architecture_invariants() {
         gpu_render_us: None, // Asynchronously measured in Phase 6
         queue_wait_us: None,
         ipc_wait_us: None,
+        actor_wait_us: None,
         command_entry_to_present_enqueue_us: None,
         frame_processing_us: None,
         texture_acquire_wait_us: None,

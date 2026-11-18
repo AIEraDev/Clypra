@@ -345,5 +345,7 @@
   "update.modal.features.bugFixes": "버그 수정",
   "update.modal.features.bugFixesDesc": "안정성 및 신뢰성 개선",
   "update.modal.downloadWithoutInterrupting": "세션을 중단하지 않고 업데이트 다운로드",
-  "update.modal.saveAndRestart": "프로젝트를 저장하고 업데이트로 다시 시작"
+  "update.modal.saveAndRestart": "프로젝트를 저장하고 업데이트로 다시 시작",
+  "settings.theme.dark": "다크",
+  "settings.theme.light": "라이트"
 }

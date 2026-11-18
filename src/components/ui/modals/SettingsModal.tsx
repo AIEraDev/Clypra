@@ -4,35 +4,26 @@ import {
   Palette,
   SlidersHorizontal,
   Info,
-  Paintbrush,
-  RotateCcw,
-  Copy,
-  Download,
-  Upload,
   HardDrive,
   Captions,
   RefreshCw,
   Keyboard,
   Activity,
+  Moon,
+  Sun,
 } from "lucide-react";
 import { platform } from "@/core/platform";
 import { Modal } from "../primitives/Modal";
 import {
   useSettingsStore,
-  Theme,
-  UiTheme,
-  ClipPalette,
-  CLIP_PALETTE_IDS,
   FontFamily,
-  THEME_META,
-  CLIP_PALETTE_META,
   FONT_META,
-  getThemeColors,
-  getClipPaletteColors,
-  getBaseThemeForCustomization,
-  getThemeColorKeys,
 } from "@/store/settingsStore";
-import { SUPPORTED_FRAME_RATES, type FrameRate } from "@/store/settingsTypes";
+import {
+  SUPPORTED_FRAME_RATES,
+  type FrameRate,
+  type ColorMode,
+} from "@/store/settingsTypes";
 import { useProjectStore } from "@/store/projectStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { CacheSettings } from "@/components/settings/CacheSettings";
@@ -43,7 +34,6 @@ import { isTauriDesktop } from "@/services/updaterService";
 import { useAutoUpdater } from "@/hooks/useAutoUpdater";
 import { useI18n, SUPPORTED_LANGUAGES, AppLanguage } from "@/i18n/I18nProvider";
 import { getVersion } from "@tauri-apps/api/app";
-import { ClypraColorPicker } from "@clypra/ui-color-picker";
 import { toast } from "@/lib/toast";
 import { PreviewDiagnosticsTab } from "@/components/settings/PreviewDiagnosticsTab";
 
@@ -75,554 +65,16 @@ const TABS: {
   { id: "about", label: "About", icon: Info },
 ];
 
-// ─── Enhanced theme preview with timeline ────────────────────────────────
-function ThemeSwatch({
-  themeId,
-  selected,
-  onSelect,
-  customColors,
-  clipPalette = "dark",
-}: {
-  themeId: Theme;
-  selected: boolean;
-  onSelect: () => void;
-  customColors?: Record<string, string> | null;
-  clipPalette?: ClipPalette;
-}) {
-  const colors = getThemeColors(themeId, customColors, clipPalette);
-  const meta = THEME_META[themeId];
-  const bg = colors["--color-bg"];
-  const surface = colors["--color-surface"];
-  const surfaceRaised = colors["--color-surface-raised"];
-  const accent = colors["--color-accent"];
-  const border = colors["--color-border"];
-  const textPrimary = colors["--color-text-primary"];
-  const textMuted = colors["--color-text-muted"];
-
-  // Timeline-specific colors
-  const timelineBg = colors["--color-timeline-bg"] || colors["--color-surface"];
-  const timelineTrackBg =
-    colors["--color-timeline-track-bg"] || colors["--color-bg"];
-  const timelineTrackBorder = colors["--color-timeline-track-border"] || border;
-  const timelineClipVideo = colors["--color-timeline-clip-video"];
-  const timelineClipAudio = colors["--color-timeline-clip-audio"];
-  const timelineRulerBg = colors["--color-timeline-ruler-bg"] || surface;
-
-  return (
-    <button
-      onClick={onSelect}
-      className={`relative rounded-xl p-0.5 transition-all duration-200 ${selected ? "ring-2 ring-accent ring-offset-2 ring-offset-bg" : "ring-1 ring-white/6 hover:ring-white/12"}`}
-    >
-      {/* Live mini-preview */}
-      <div
-        className="rounded-[10px] overflow-hidden w-full"
-        style={{ background: bg }}
-      >
-        {/* Fake topbar */}
-        <div
-          className="h-4 flex items-center px-2 gap-1"
-          style={{ background: surface, borderBottom: `1px solid ${border}` }}
-        >
-          <div
-            className="w-1 h-1 rounded-full"
-            style={{ background: textMuted }}
-          />
-          <div
-            className="w-1 h-1 rounded-full"
-            style={{ background: textMuted }}
-          />
-          <div
-            className="w-1 h-1 rounded-full"
-            style={{ background: textMuted }}
-          />
-          <div className="flex-1" />
-          <div
-            className="w-8 h-1.25 rounded-sm"
-            style={{ background: accent }}
-          />
-        </div>
-        {/* Fake editor layout */}
-        <div className="flex h-9.5">
-          {/* Sidebar */}
-          <div
-            className="w-[28%] p-1.5 flex flex-col gap-1"
-            style={{ background: surface, borderRight: `1px solid ${border}` }}
-          >
-            <div
-              className="h-1 w-[70%] rounded-sm"
-              style={{ background: textMuted, opacity: 0.4 }}
-            />
-            <div
-              className="h-1 w-[50%] rounded-sm"
-              style={{ background: textMuted, opacity: 0.3 }}
-            />
-            <div
-              className="h-1 w-[60%] rounded-sm"
-              style={{ background: textMuted, opacity: 0.25 }}
-            />
-          </div>
-          {/* Preview area */}
-          <div className="flex-1 flex items-center justify-center">
-            <div
-              className="w-9 h-5.5 rounded-[3px]"
-              style={{
-                background: surfaceRaised,
-                border: `1px solid ${border}`,
-              }}
-            />
-          </div>
-        </div>
-        {/* Enhanced timeline preview */}
-        <div
-          style={{
-            background: timelineBg,
-            borderTop: `1px solid ${timelineTrackBorder}`,
-          }}
-        >
-          {/* Timeline ruler */}
-          <div
-            className="h-1.5 flex items-center px-1"
-            style={{ background: timelineRulerBg }}
-          >
-            <div className="flex-1 flex gap-1.5">
-              <div
-                className="w-px h-0.75"
-                style={{ background: textMuted, opacity: 0.4 }}
-              />
-              <div
-                className="w-px h-0.5"
-                style={{ background: textMuted, opacity: 0.25 }}
-              />
-              <div
-                className="w-px h-0.5"
-                style={{ background: textMuted, opacity: 0.25 }}
-              />
-              <div
-                className="w-px h-0.75"
-                style={{ background: textMuted, opacity: 0.4 }}
-              />
-            </div>
-          </div>
-          {/* Timeline tracks with clips */}
-          <div className="flex">
-            {/* Track labels */}
-            <div
-              className="w-[28%] flex flex-col"
-              style={{ borderRight: `1px solid ${timelineTrackBorder}` }}
-            >
-              <div
-                className="h-2.5 flex items-center px-1"
-                style={{
-                  background: timelineTrackBg,
-                  borderBottom: `1px solid ${timelineTrackBorder}`,
-                }}
-              >
-                <div
-                  className="w-0.5 h-0.5 rounded-full"
-                  style={{ background: textMuted, opacity: 0.5 }}
-                />
-              </div>
-              <div
-                className="h-2 flex items-center px-1"
-                style={{ background: timelineTrackBg }}
-              >
-                <div
-                  className="w-0.5 h-0.5 rounded-full"
-                  style={{ background: textMuted, opacity: 0.5 }}
-                />
-              </div>
-            </div>
-            {/* Track content */}
-            <div className="flex-1 flex flex-col">
-              {/* Video track with clip */}
-              <div
-                className="h-2.5 flex items-center gap-0.5 px-1"
-                style={{
-                  background: timelineTrackBg,
-                  borderBottom: `1px solid ${timelineTrackBorder}`,
-                }}
-              >
-                <div
-                  className="h-1.5 w-[45%] rounded-px"
-                  style={{ background: timelineClipVideo, opacity: 0.9 }}
-                />
-                <div
-                  className="h-1.5 w-[30%] rounded-px"
-                  style={{ background: timelineClipVideo, opacity: 0.9 }}
-                />
-              </div>
-              {/* Audio track with clip */}
-              <div
-                className="h-2 flex items-center gap-0.5 px-1"
-                style={{ background: timelineTrackBg }}
-              >
-                <div
-                  className="h-1 w-[55%] rounded-px"
-                  style={{ background: timelineClipAudio, opacity: 0.8 }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Label */}
-      <div className="flex items-center justify-between px-2 py-1.5">
-        <div className="text-left">
-          <div className="text-[11px] font-semibold text-text-primary leading-tight">
-            {meta.name}
-          </div>
-          <div className="text-[9px] text-text-muted leading-tight">
-            {meta.description}
-          </div>
-        </div>
-        {selected && (
-          <div className="w-4 h-4 rounded-full bg-accent flex items-center justify-center shrink-0">
-            <Check className="w-2.5 h-2.5 text-white" />
-          </div>
-        )}
-      </div>
-    </button>
-  );
-}
-
-function ClipPaletteSwatch({
-  palette,
-  selected,
-  onSelect,
-}: {
-  palette: ClipPalette;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  const colors = getClipPaletteColors(palette);
-  const meta = CLIP_PALETTE_META[palette];
-  const video = colors["--color-timeline-clip-video"];
-  const audio = colors["--color-timeline-clip-audio"];
-  const text = colors["--color-timeline-clip-text"];
-
-  return (
-    <button
-      onClick={onSelect}
-      className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left border transition-all ${selected ? "border-accent bg-accent/8" : "border-white/6 hover:border-white/12"}`}
-    >
-      <div className="flex gap-0.5 shrink-0" aria-hidden="true">
-        <span className="w-3 h-5 rounded-sm" style={{ background: video }} />
-        <span className="w-3 h-5 rounded-sm" style={{ background: audio }} />
-        <span className="w-3 h-5 rounded-sm" style={{ background: text }} />
-      </div>
-      <span className="min-w-0">
-        <span className="block text-[11px] font-semibold text-text-primary">
-          {meta.name}
-        </span>
-        <span className="block text-[9px] text-text-muted truncate">
-          {meta.description}
-        </span>
-      </span>
-      {selected && (
-        <Check className="w-3.5 h-3.5 text-accent shrink-0 ml-auto" />
-      )}
-    </button>
-  );
-}
-
-// ─── Custom Theme Editor ─────────────────────────────────────────────────
-function CustomThemeEditor() {
-  const { customTheme, setCustomTheme, resetCustomTheme } = useSettingsStore();
-  const { t } = useI18n();
-  const [baseTheme, setBaseTheme] = useState<Exclude<Theme, "custom">>("dark");
-  const [editingColors, setEditingColors] = useState<Record<string, string>>(
-    customTheme || getBaseThemeForCustomization("dark"),
-  );
-  const [searchQuery, setSearchQuery] = useState("");
-
-  // Update editing colors when base theme changes
-  const handleBaseThemeChange = (newBaseTheme: Exclude<Theme, "custom">) => {
-    setBaseTheme(newBaseTheme);
-    const baseColors = getBaseThemeForCustomization(newBaseTheme);
-    setEditingColors(baseColors);
-  };
-
-  const colorKeys = getThemeColorKeys();
-  const filteredKeys = searchQuery
-    ? colorKeys.filter((key) =>
-        key.toLowerCase().includes(searchQuery.toLowerCase()),
-      )
-    : colorKeys;
-
-  // Group colors by category
-  const colorGroups: Record<string, string[]> = {
-    "Base Colors": filteredKeys.filter((k) =>
-      k.match(/^--color-(bg|surface|border|text|accent|danger)/),
-    ),
-    Timeline: filteredKeys.filter((k) => k.includes("timeline")),
-    Clips: filteredKeys.filter(
-      (k) => k.includes("clip") && !k.includes("timeline"),
-    ),
-    Shadcn: filteredKeys.filter((k) => !k.startsWith("--color-")),
-  };
-
-  const handleColorChange = (key: string, value: string) => {
-    const updated = { ...editingColors, [key]: value };
-    setEditingColors(updated);
-  };
-
-  const handleApply = () => {
-    setCustomTheme(editingColors);
-  };
-
-  const handleReset = () => {
-    resetCustomTheme();
-    setEditingColors(getBaseThemeForCustomization("dark"));
-  };
-
-  const handleCopyFromBase = () => {
-    const baseColors = getBaseThemeForCustomization(baseTheme);
-    setEditingColors(baseColors);
-  };
-
-  const handleExport = () => {
-    const themeData = {
-      name: "Custom Theme",
-      version: "1.0",
-      colors: editingColors,
-      exportedAt: new Date().toISOString(),
-    };
-
-    const json = JSON.stringify(themeData, null, 2);
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `clypra-theme-${Date.now()}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    toast.success("Theme exported to JSON");
-  };
-
-  const [importError, setImportError] = useState<string | null>(null);
-
-  const handleImport = () => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".json";
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
-
-      try {
-        const text = await file.text();
-        const data = JSON.parse(text);
-
-        // Validate the theme data
-        if (data.colors && typeof data.colors === "object") {
-          setImportError(null);
-          setEditingColors(data.colors);
-          toast.success("Custom theme imported successfully");
-        } else {
-          setImportError("Invalid theme file format");
-          toast.error("Invalid theme file format");
-        }
-      } catch (error) {
-        const msg = "Failed to import theme: " + (error as Error).message;
-        setImportError(msg);
-        toast.error(msg);
-      }
-    };
-    input.click();
-  };
-
-  const formatColorName = (key: string) => {
-    return key
-      .replace(/^--color-/, "")
-      .replace(/-/g, " ")
-      .replace(/\b\w/g, (l) => l.toUpperCase());
-  };
-
-  return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between pb-3 border-b border-white/6">
-        <h3 className="text-[13px] font-semibold text-text-primary">
-          Custom Theme Editor
-        </h3>
-        {/* Import/Export buttons in header */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleImport}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-accent hover:border-accent/40 transition-colors"
-            title="Import theme from JSON file"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            Import
-          </button>
-          <button
-            onClick={handleExport}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-accent hover:border-accent/40 transition-colors"
-            title="Export theme to JSON file"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Export
-          </button>
-        </div>
-      </div>
-
-      {/* Actions toolbar */}
-      <div className="flex items-center justify-between gap-3">
-        {/* Base theme group */}
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-medium text-text-muted uppercase tracking-wide">
-            Base:
-          </span>
-          <div className="relative">
-            <select
-              value={baseTheme}
-              onChange={(e) =>
-                handleBaseThemeChange(
-                  e.target.value as Exclude<Theme, "custom">,
-                )
-              }
-              className="appearance-none text-[11px] pl-3 pr-8 py-1.5 rounded-md bg-surface-raised border border-white/6 text-text-primary hover:border-white/12 transition-colors cursor-pointer focus:outline-none focus:border-accent/40"
-            >
-              <option value="dark">Dark</option>
-              <option value="midnight">Midnight</option>
-              <option value="ocean">Ocean</option>
-              <option value="forest">Forest</option>
-              <option value="midnight-carbon">Midnight Carbon</option>
-              <option value="ember-studio">Ember Studio</option>
-              <option value="forest-console">Forest Console</option>
-              <option value="slate-noir">Slate Noir</option>
-              <option value="rose-cut">Rose Cut</option>
-            </select>
-            <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-text-muted">
-              <svg
-                className="w-3 h-3"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 9l-7 7-7-7"
-                />
-              </svg>
-            </div>
-          </div>
-          <button
-            onClick={handleCopyFromBase}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-text-primary hover:border-white/12 transition-colors"
-            title="Copy all colors from selected base theme"
-          >
-            <Copy className="w-3.5 h-3.5" />
-            Copy
-          </button>
-        </div>
-
-        {/* Reset button */}
-        <button
-          onClick={handleReset}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-danger hover:border-danger/40 transition-colors"
-          title={t("settings.theme.reset")}
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-          {t("common.actions.reset")}
-        </button>
-      </div>
-
-      {/* Search */}
-      <input
-        type="text"
-        placeholder={t("settings.theme.searchColors")}
-        value={searchQuery}
-        onChange={(e) => setSearchQuery(e.target.value)}
-        className="w-full px-3 py-2 text-[12px] rounded-lg bg-surface-raised border border-white/6 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/40"
-      />
-      {importError && (
-        <p className="text-danger text-[11px] font-medium">{importError}</p>
-      )}
-
-      {/* Color groups */}
-      <div className="max-h-100 overflow-y-auto space-y-4 pr-2 scrollbar-thin">
-        {Object.entries(colorGroups).map(([groupName, keys]) => {
-          if (keys.length === 0) return null;
-          return (
-            <div key={groupName}>
-              <h4 className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-2">
-                {groupName}
-              </h4>
-              <div className="space-y-2">
-                {keys.map((key) => (
-                  <div key={key} className="flex items-center gap-2">
-                    <ClypraColorPicker
-                      value={editingColors[key] || "#000000"}
-                      onChange={(c: string) => handleColorChange(key, c)}
-                      onChangeComplete={(c: string) =>
-                        handleColorChange(key, c)
-                      }
-                      format="hex"
-                      showAlpha={true}
-                      size="sm"
-                      triggerClassName="w-16 h-7.5 bg-surface-raised border-white/6 hover:border-white/15 shrink-0"
-                      popoverClassName="left-0 mt-1 z-[200]"
-                    />
-                    <div className="flex-1">
-                      <div className="text-[11px] text-text-primary">
-                        {formatColorName(key)}
-                      </div>
-                      <div className="text-[9px] text-text-muted font-mono">
-                        {editingColors[key]}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Apply button */}
-      <button
-        onClick={handleApply}
-        className="w-full py-2 px-4 text-[12px] font-semibold rounded-lg bg-accent text-white hover:bg-accent-soft transition-colors"
-      >
-        Apply Custom Theme
-      </button>
-    </div>
-  );
-}
-
 // ─── Appearance Tab ──────────────────────────────────────────────────────
 function AppearanceTab() {
   const {
-    theme,
     uiTheme,
-    clipPalette,
     fontFamily,
-    customTheme,
     setTheme,
-    setUiTheme,
-    setClipPalette,
     setFontFamily,
   } = useSettingsStore();
   const { language, setLanguage, t } = useI18n();
-  const [showCustomEditor, setShowCustomEditor] = useState(false);
-  const themeKeys: UiTheme[] = [
-    "dark",
-    "midnight",
-    "ocean",
-    "forest",
-    "midnight-carbon",
-    "ember-studio",
-    "forest-console",
-    "slate-noir",
-    "rose-cut",
-  ];
-  const clipPaletteKeys: ClipPalette[] = CLIP_PALETTE_IDS;
+  const colorModes: ColorMode[] = ["dark", "light"];
   const fontKeys: FontFamily[] = [
     "inter",
     "montserrat",
@@ -661,67 +113,32 @@ function AppearanceTab() {
         </SettingRow>
       </section>
 
-      {/* Themes */}
+      {/* Theme (Dark / Light) */}
       <section>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
             {t("settings.theme.title")}
           </h3>
-          <button
-            onClick={() => setShowCustomEditor(!showCustomEditor)}
-            className={`flex items-center gap-1.5 px-2 py-1 text-[10px] font-medium rounded-md transition-colors ${showCustomEditor ? "bg-accent/15 text-accent border border-accent/40" : "bg-surface-raised border border-white/6 text-text-muted hover:text-text-primary"}`}
-          >
-            <Paintbrush className="w-3 h-3" />
-            {showCustomEditor
-              ? t("settings.theme.hideEditor")
-              : t("settings.theme.custom")}
-          </button>
         </div>
 
-        {showCustomEditor ? (
-          <CustomThemeEditor />
-        ) : (
-          <div className="grid grid-cols-2 gap-3">
-            {themeKeys.map((t) => (
-              <ThemeSwatch
-                key={t}
-                themeId={t}
-                clipPalette={clipPalette}
-                selected={theme !== "custom" && uiTheme === t}
-                onSelect={() => setUiTheme(t)}
-              />
-            ))}
-            {customTheme && (
-              <ThemeSwatch
-                key="custom"
-                themeId="custom"
-                clipPalette={clipPalette}
-                selected={theme === "custom"}
-                onSelect={() => setTheme("custom")}
-                customColors={customTheme}
-              />
-            )}
-          </div>
-        )}
-      </section>
-
-      <section>
-        <div className="mb-3">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
-            Clip palette
-          </h3>
-          <p className="text-[10px] text-text-muted mt-1">
-            Choose clip colours independently from the interface theme.
-          </p>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          {clipPaletteKeys.map((palette) => (
-            <ClipPaletteSwatch
-              key={palette}
-              palette={palette}
-              selected={clipPalette === palette}
-              onSelect={() => setClipPalette(palette)}
-            />
+        <div className="flex gap-1.5 p-1 bg-surface-raised rounded-xl border border-white/6">
+          {colorModes.map((mode) => (
+            <button
+              key={mode}
+              onClick={() => setTheme(mode)}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-[12px] font-semibold transition-all ${
+                uiTheme === mode
+                  ? "bg-surface-panel text-text-primary shadow-sm border border-white/10"
+                  : "text-text-muted hover:text-text-primary"
+              }`}
+            >
+              {mode === "dark" ? (
+                <Moon className="w-3.5 h-3.5" />
+              ) : (
+                <Sun className="w-3.5 h-3.5" />
+              )}
+              {mode === "dark" ? t("settings.theme.dark") : t("settings.theme.light")}
+            </button>
           ))}
         </div>
       </section>

@@ -152,6 +152,7 @@ export const ZH_CN: Record<string, string> = {
   "Play playback": "开始播放",
   "Base:": "基底：",
   "Dark": "深色",
+  "Light": "浅色",
   "Midnight": "午夜",
   "Ocean": "海洋",
   "Forest": "森林",

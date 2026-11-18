@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Download,
   X,
@@ -17,9 +17,9 @@ interface UpdateModalProps {
 }
 
 /**
- * Full-screen slide-in modal for Clypra release announcements.
- * Provides an immersive, professional experience when a new version is available.
- * Slides in from the right edge with backdrop blur overlay.
+ * Full-screen bottom-sheet modal for Clypra release announcements.
+ * Covers the entire app viewport and slides in from the bottom in 1 second.
+ * Provides an immersive, premium experience when a new version is available.
  */
 export const UpdateModal: React.FC<UpdateModalProps> = ({ updater }) => {
   const { t } = useI18n();
@@ -37,6 +37,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ updater }) => {
 
   const [visible, setVisible] = useState(false);
   const [isExiting, setIsExiting] = useState(false);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Animate in when an update is available
   useEffect(() => {
@@ -62,9 +63,17 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ updater }) => {
     return () => window.removeEventListener("keydown", handleEsc);
   }, [visible]);
 
+  // Cleanup close timer on unmount
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    };
+  }, []);
+
   const handleClose = () => {
+    if (isExiting) return;
     setIsExiting(true);
-    setTimeout(() => {
+    closeTimerRef.current = setTimeout(() => {
       setVisible(false);
       setIsExiting(false);
       if (status === "downloaded") {
@@ -72,7 +81,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ updater }) => {
       } else {
         dismiss();
       }
-    }, 350);
+    }, 700);
   };
 
   const isDownloading = status === "downloading";
@@ -98,215 +107,263 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ updater }) => {
   const releaseFeatures = [
     {
       icon: Zap,
-      title: t("Performance Improvements"),
-      desc: t("Faster rendering and preview"),
+      title: t("update.modal.features.performance"),
+      desc: t("update.modal.features.performanceDesc"),
     },
     {
       icon: Layers,
-      title: t("New Features"),
-      desc: t("Enhanced editing capabilities"),
+      title: t("update.modal.features.newFeatures"),
+      desc: t("update.modal.features.newFeaturesDesc"),
     },
     {
       icon: Settings,
-      title: t("Bug Fixes"),
-      desc: t("Stability and reliability improvements"),
+      title: t("update.modal.features.bugFixes"),
+      desc: t("update.modal.features.bugFixesDesc"),
     },
   ];
 
+  const slideState = isExiting ? "exiting" : "entering";
+
   return (
     <>
-      {/* Backdrop */}
+      {/* Full-screen backdrop — subtle darkening behind the sheet */}
       <div
-        className={`update-modal-backdrop ${isExiting ? "exiting" : ""}`}
-        onClick={handleClose}
         aria-hidden="true"
+        data-slide={slideState}
         style={{
           position: "fixed",
           inset: 0,
           zIndex: 10000,
-          background:
-            "color-mix(in srgb, var(--clypra-surface-app) 70%, transparent)",
-          backdropFilter: "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)",
+          background: "rgba(0, 0, 0, 0.55)",
+          backdropFilter: "blur(6px)",
+          WebkitBackdropFilter: "blur(6px)",
           animation: isExiting
-            ? "fadeOut 0.3s ease forwards"
-            : "fadeIn 0.3s ease forwards",
+            ? "um-backdrop-out 0.65s cubic-bezier(0.4, 0, 1, 1) forwards"
+            : "um-backdrop-in 0.6s ease forwards",
           cursor: "pointer",
         }}
+        onClick={handleClose}
       />
 
-      {/* Modal Panel */}
+      {/* Full-screen bottom sheet — slides up from bottom */}
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="update-modal-title"
         aria-describedby="update-modal-description"
-        className={`update-modal-panel ${isExiting ? "exiting" : ""}`}
+        data-slide={slideState}
         style={{
           position: "fixed",
-          right: 0,
-          top: 0,
-          bottom: 0,
-          width: "min(480px, 90vw)",
+          inset: 0,
           zIndex: 10001,
-          background:
-            "linear-gradient(165deg, var(--clypra-surface-floating) 0%, var(--clypra-surface-panel) 100%)",
-          boxShadow:
-            "-4px 0 32px rgba(0, 0, 0, 0.4), -2px 0 16px rgba(0, 0, 0, 0.2)",
-          animation: isExiting
-            ? "slideOut 0.35s cubic-bezier(0.32, 0, 0.67, 0) forwards"
-            : "slideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards",
           display: "flex",
           flexDirection: "column",
+          animation: isExiting
+            ? "um-sheet-out 0.7s cubic-bezier(0.4, 0, 0.6, 1) forwards"
+            : "um-sheet-in 1s cubic-bezier(0.16, 1, 0.3, 1) forwards",
+          pointerEvents: "auto",
           overflow: "hidden",
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
+        {/* Decorative background — full viewport gradient */}
         <div
+          aria-hidden
           style={{
-            padding: "24px 24px 20px",
-            borderBottom:
-              "1px solid color-mix(in srgb, var(--clypra-text-primary) 8%, transparent)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            flexShrink: 0,
+            position: "absolute",
+            inset: 0,
+            background:
+              "linear-gradient(160deg, var(--clypra-surface-app) 0%, var(--clypra-surface-panel) 50%, var(--clypra-surface-floating) 100%)",
+            zIndex: 0,
           }}
-        >
+        />
+
+        {/* Atmospheric glow orbs */}
+        <div aria-hidden style={{ position: "absolute", inset: 0, zIndex: 0, overflow: "hidden", pointerEvents: "none" }}>
           <div
             style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "8px",
-              padding: "6px 14px",
-              borderRadius: "20px",
+              position: "absolute",
+              width: "60vw",
+              height: "60vw",
+              top: "-20vw",
+              left: "-10vw",
+              borderRadius: "50%",
               background:
-                "linear-gradient(135deg, color-mix(in srgb, var(--clypra-interaction-focus) 15%, transparent), color-mix(in srgb, var(--clypra-clip-effect-bg) 15%, transparent))",
-              border:
-                "1px solid color-mix(in srgb, var(--clypra-interaction-focus) 25%, transparent)",
-              fontSize: "12px",
-              fontWeight: 600,
-              color: "var(--clypra-text-primary)",
+                "radial-gradient(circle, color-mix(in srgb, var(--clypra-interaction-focus) 10%, transparent) 0%, transparent 70%)",
+              animation: "um-orb-drift 8s ease-in-out infinite alternate",
             }}
-          >
-            <Sparkles
-              style={{
-                width: "14px",
-                height: "14px",
-                color: "var(--clypra-interaction-focus)",
-              }}
-            />
-            {t("New Release Available")}
-          </div>
+          />
+          <div
+            style={{
+              position: "absolute",
+              width: "50vw",
+              height: "50vw",
+              bottom: "-10vw",
+              right: "-5vw",
+              borderRadius: "50%",
+              background:
+                "radial-gradient(circle, color-mix(in srgb, var(--clypra-clip-effect-bg) 8%, transparent) 0%, transparent 70%)",
+              animation: "um-orb-drift 10s ease-in-out infinite alternate-reverse",
+            }}
+          />
+        </div>
 
+        {/* Close button — top right */}
+        <div
+          style={{
+            position: "absolute",
+            top: "24px",
+            right: "24px",
+            zIndex: 2,
+          }}
+        >
           <button
             onClick={handleClose}
             title={t("Close")}
+            aria-label={t("Close")}
             style={{
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              width: "32px",
-              height: "32px",
-              borderRadius: "10px",
+              width: "40px",
+              height: "40px",
+              borderRadius: "12px",
               border:
-                "1px solid color-mix(in srgb, var(--clypra-text-primary) 10%, transparent)",
+                "1px solid color-mix(in srgb, var(--clypra-text-primary) 12%, transparent)",
               background:
-                "color-mix(in srgb, var(--clypra-text-primary) 5%, transparent)",
+                "color-mix(in srgb, var(--clypra-surface-panel) 80%, transparent)",
+              backdropFilter: "blur(12px)",
+              WebkitBackdropFilter: "blur(12px)",
               color: "var(--clypra-text-secondary)",
               cursor: "pointer",
               transition: "all 0.15s ease",
               padding: 0,
             }}
             onMouseEnter={(e) => {
-              const btn = e.currentTarget;
-              btn.style.background =
+              e.currentTarget.style.background =
                 "color-mix(in srgb, var(--clypra-text-primary) 10%, transparent)";
-              btn.style.color = "var(--clypra-text-primary)";
+              e.currentTarget.style.color = "var(--clypra-text-primary)";
+              e.currentTarget.style.borderColor =
+                "color-mix(in srgb, var(--clypra-text-primary) 20%, transparent)";
             }}
             onMouseLeave={(e) => {
-              const btn = e.currentTarget;
-              btn.style.background =
-                "color-mix(in srgb, var(--clypra-text-primary) 5%, transparent)";
-              btn.style.color = "var(--clypra-text-secondary)";
+              e.currentTarget.style.background =
+                "color-mix(in srgb, var(--clypra-surface-panel) 80%, transparent)";
+              e.currentTarget.style.color = "var(--clypra-text-secondary)";
+              e.currentTarget.style.borderColor =
+                "color-mix(in srgb, var(--clypra-text-primary) 12%, transparent)";
             }}
           >
-            <X style={{ width: "16px", height: "16px" }} />
+            <X style={{ width: "18px", height: "18px" }} />
           </button>
         </div>
 
-        {/* Content - Scrollable */}
+        {/* Main layout — centered content */}
         <div
           style={{
+            position: "relative",
+            zIndex: 1,
             flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "80px 24px 40px",
             overflowY: "auto",
             overflowX: "hidden",
-            padding: "32px 24px 24px",
           }}
         >
-          {/* Hero Section */}
           <div
             style={{
+              width: "100%",
+              maxWidth: "680px",
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
-              textAlign: "center",
-              marginBottom: "40px",
+              gap: "0px",
             }}
           >
-            {/* Animated Icon */}
+            {/* Badge */}
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "7px",
+                padding: "7px 18px",
+                borderRadius: "24px",
+                background:
+                  "linear-gradient(135deg, color-mix(in srgb, var(--clypra-interaction-focus) 18%, transparent), color-mix(in srgb, var(--clypra-clip-effect-bg) 14%, transparent))",
+                border:
+                  "1px solid color-mix(in srgb, var(--clypra-interaction-focus) 30%, transparent)",
+                fontSize: "12px",
+                fontWeight: 700,
+                letterSpacing: "0.3px",
+                color: "var(--clypra-text-primary)",
+                marginBottom: "28px",
+                animation: "um-fade-up 0.5s ease 0.3s both",
+              }}
+            >
+              <Sparkles
+                style={{
+                  width: "13px",
+                  height: "13px",
+                  color: "var(--clypra-interaction-focus)",
+                }}
+              />
+              {t("update.modal.newRelease")}
+            </div>
+
+            {/* Hero icon */}
             <div
               style={{
                 position: "relative",
-                marginBottom: "24px",
+                marginBottom: "32px",
+                animation: "um-fade-up 0.5s ease 0.2s both",
               }}
             >
-              {/* Glow effect */}
               <div
                 aria-hidden
                 style={{
                   position: "absolute",
-                  inset: "-20px",
+                  inset: "-28px",
                   background:
-                    "radial-gradient(circle, color-mix(in srgb, var(--clypra-interaction-focus) 20%, transparent) 0%, transparent 70%)",
-                  animation: "pulse 2s ease-in-out infinite",
+                    "radial-gradient(circle, color-mix(in srgb, var(--clypra-interaction-focus) 22%, transparent) 0%, transparent 70%)",
+                  animation: "um-pulse 2.5s ease-in-out infinite",
                 }}
               />
-
               <div
                 style={{
                   position: "relative",
-                  width: "72px",
-                  height: "72px",
-                  borderRadius: "20px",
+                  width: "88px",
+                  height: "88px",
+                  borderRadius: "24px",
                   background:
-                    "linear-gradient(135deg, color-mix(in srgb, var(--clypra-interaction-focus) 20%, transparent), color-mix(in srgb, var(--clypra-clip-effect-bg) 20%, transparent))",
+                    "linear-gradient(135deg, color-mix(in srgb, var(--clypra-interaction-focus) 22%, transparent), color-mix(in srgb, var(--clypra-clip-effect-bg) 22%, transparent))",
                   border:
-                    "2px solid color-mix(in srgb, var(--clypra-interaction-focus) 30%, transparent)",
+                    "2px solid color-mix(in srgb, var(--clypra-interaction-focus) 35%, transparent)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   boxShadow:
-                    "0 8px 24px color-mix(in srgb, var(--clypra-interaction-focus) 25%, transparent)",
+                    "0 12px 40px color-mix(in srgb, var(--clypra-interaction-focus) 30%, transparent), 0 4px 16px rgba(0,0,0,0.3)",
                 }}
               >
                 {isDownloading || isApplying ? (
                   <Download
                     style={{
-                      width: "32px",
-                      height: "32px",
+                      width: "40px",
+                      height: "40px",
                       color: "var(--clypra-interaction-focus)",
                       animation: isDownloading
-                        ? "bounce 1s ease-in-out infinite"
+                        ? "um-bounce 1.2s ease-in-out infinite"
                         : undefined,
                     }}
                   />
                 ) : (
                   <Sparkles
                     style={{
-                      width: "32px",
-                      height: "32px",
+                      width: "40px",
+                      height: "40px",
                       color: "var(--clypra-interaction-focus)",
                     }}
                   />
@@ -314,53 +371,59 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ updater }) => {
               </div>
             </div>
 
-            {/* Version Title */}
-            <h2
+            {/* Version title */}
+            <h1
               id="update-modal-title"
               style={{
-                margin: "0 0 12px 0",
-                fontSize: "24px",
-                fontWeight: 700,
+                margin: "0 0 16px 0",
+                fontSize: "clamp(32px, 5vw, 52px)",
+                fontWeight: 800,
                 color: "var(--clypra-text-primary)",
-                lineHeight: 1.2,
+                lineHeight: 1.1,
+                textAlign: "center",
+                letterSpacing: "-1px",
+                animation: "um-fade-up 0.55s ease 0.25s both",
               }}
             >
               {isDownloading
-                ? t("Downloading Update...")
+                ? t("update.modal.downloadingUpdate")
                 : isDownloaded
-                  ? `Clypra ${updateInfo?.version} ${t("is ready")}`
+                  ? `Clypra ${updateInfo?.version} ${t("update.modal.isReady")}`
                   : isApplying
-                    ? t("Preparing Update...")
+                    ? t("update.modal.preparingUpdate")
                     : `Clypra ${updateInfo?.version}`}
-            </h2>
+            </h1>
 
             {/* Subtitle */}
             <p
               id="update-modal-description"
               style={{
-                margin: 0,
-                fontSize: "14px",
+                margin: "0 0 48px 0",
+                fontSize: "clamp(15px, 2vw, 18px)",
                 color: "var(--clypra-text-secondary)",
-                lineHeight: 1.5,
-                maxWidth: "360px",
+                lineHeight: 1.6,
+                textAlign: "center",
+                maxWidth: "480px",
+                animation: "um-fade-up 0.55s ease 0.35s both",
               }}
             >
               {isDownloading
-                ? t("You can keep working while it downloads")
+                ? t("update.modal.keepWorking")
                 : isDownloaded
-                  ? t("Your project will be saved before the update is applied")
+                  ? t("update.modal.projectSaved")
                   : isApplying
-                    ? t("Saving your project and closing the active session")
-                    : t("A new version has been released on GitHub")}
+                    ? t("update.modal.savingProject")
+                    : t("update.modal.releasedOnGitHub")}
             </p>
 
-            {/* Download Progress */}
+            {/* Download progress */}
             {isDownloading && (
               <div
                 style={{
-                  marginTop: "20px",
                   width: "100%",
-                  maxWidth: "300px",
+                  maxWidth: "420px",
+                  marginBottom: "48px",
+                  animation: "um-fade-up 0.4s ease both",
                 }}
               >
                 <div
@@ -368,35 +431,33 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ updater }) => {
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
-                    marginBottom: "8px",
+                    marginBottom: "10px",
                   }}
                 >
                   <span
                     style={{
-                      fontSize: "12px",
+                      fontSize: "13px",
                       fontWeight: 600,
                       color: "var(--clypra-text-secondary)",
                     }}
                   >
-                    {t("Downloading")}
+                    {t("update.modal.downloading")}
                   </span>
                   <span
                     style={{
-                      fontSize: "12px",
-                      fontWeight: 700,
+                      fontSize: "14px",
+                      fontWeight: 800,
                       color: "var(--clypra-interaction-focus)",
                     }}
                   >
                     {downloadProgress}%
                   </span>
                 </div>
-
-                {/* Progress Bar */}
                 <div
                   style={{
                     width: "100%",
-                    height: "6px",
-                    borderRadius: "3px",
+                    height: "8px",
+                    borderRadius: "4px",
                     background:
                       "color-mix(in srgb, var(--clypra-text-primary) 10%, transparent)",
                     overflow: "hidden",
@@ -408,57 +469,88 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ updater }) => {
                       width: `${downloadProgress}%`,
                       background:
                         "linear-gradient(90deg, var(--clypra-interaction-focus), var(--clypra-clip-effect-bg))",
-                      transition: "width 0.3s ease",
-                      borderRadius: "3px",
+                      transition: "width 0.4s ease",
+                      borderRadius: "4px",
+                      boxShadow:
+                        "0 0 12px color-mix(in srgb, var(--clypra-interaction-focus) 50%, transparent)",
                     }}
                   />
                 </div>
               </div>
             )}
 
-            {/* Error Message */}
+            {/* Error message */}
             {error && (
-              <p
+              <div
                 style={{
-                  marginTop: "16px",
-                  padding: "12px 16px",
-                  borderRadius: "10px",
+                  width: "100%",
+                  maxWidth: "480px",
+                  marginBottom: "32px",
+                  padding: "14px 18px",
+                  borderRadius: "12px",
                   background:
                     "color-mix(in srgb, var(--clypra-status-error) 10%, transparent)",
                   border:
-                    "1px solid color-mix(in srgb, var(--clypra-status-error) 20%, transparent)",
-                  fontSize: "12px",
+                    "1px solid color-mix(in srgb, var(--clypra-status-error) 25%, transparent)",
+                  fontSize: "13px",
                   color: "var(--clypra-status-error)",
-                  textAlign: "left",
-                  width: "100%",
+                  lineHeight: 1.5,
+                  animation: "um-fade-up 0.4s ease both",
                 }}
               >
                 {error}
-              </p>
+              </div>
             )}
-          </div>
 
-          {/* Features Section */}
-          {!isDownloading && !isApplying && status !== "downloaded" && (
-            <div style={{ marginBottom: "24px" }}>
-              <h3
-                style={{
-                  margin: "0 0 16px 0",
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  color: "var(--clypra-text-primary)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.5px",
-                }}
-              >
-                {t("What's New")}
-              </h3>
-
+            {/* Downloaded success banner */}
+            {isDownloaded && (
               <div
                 style={{
                   display: "flex",
-                  flexDirection: "column",
-                  gap: "12px",
+                  alignItems: "center",
+                  gap: "14px",
+                  width: "100%",
+                  maxWidth: "480px",
+                  padding: "18px 20px",
+                  borderRadius: "16px",
+                  background:
+                    "color-mix(in srgb, var(--clypra-status-success) 10%, transparent)",
+                  border:
+                    "1px solid color-mix(in srgb, var(--clypra-status-success) 25%, transparent)",
+                  marginBottom: "40px",
+                  animation: "um-fade-up 0.4s ease 0.4s both",
+                }}
+              >
+                <CheckCircle2
+                  style={{
+                    width: "22px",
+                    height: "22px",
+                    color: "var(--clypra-status-success)",
+                    flexShrink: 0,
+                  }}
+                />
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: "14px",
+                    color: "var(--clypra-text-primary)",
+                    lineHeight: 1.4,
+                  }}
+                >
+                  {t("update.modal.downloadSuccess")}
+                </p>
+              </div>
+            )}
+
+            {/* What's New feature cards */}
+            {!isDownloading && !isApplying && !isDownloaded && (
+              <div
+                style={{
+                  width: "100%",
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                  gap: "14px",
+                  marginBottom: "56px",
                 }}
               >
                 {releaseFeatures.map((feature, idx) => {
@@ -468,25 +560,28 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ updater }) => {
                       key={idx}
                       style={{
                         display: "flex",
+                        flexDirection: "column",
                         gap: "12px",
-                        padding: "14px",
-                        borderRadius: "12px",
+                        padding: "20px",
+                        borderRadius: "16px",
                         background:
                           "color-mix(in srgb, var(--clypra-text-primary) 4%, transparent)",
                         border:
-                          "1px solid color-mix(in srgb, var(--clypra-text-primary) 6%, transparent)",
-                        animation: `fadeInUp 0.4s ease forwards ${idx * 0.1}s`,
-                        opacity: 0,
+                          "1px solid color-mix(in srgb, var(--clypra-text-primary) 7%, transparent)",
+                        backdropFilter: "blur(8px)",
+                        WebkitBackdropFilter: "blur(8px)",
+                        animation: `um-fade-up 0.5s ease ${0.4 + idx * 0.08}s both`,
                       }}
                     >
                       <div
                         style={{
-                          flexShrink: 0,
-                          width: "36px",
-                          height: "36px",
-                          borderRadius: "10px",
+                          width: "40px",
+                          height: "40px",
+                          borderRadius: "12px",
                           background:
-                            "linear-gradient(135deg, color-mix(in srgb, var(--clypra-interaction-focus) 12%, transparent), color-mix(in srgb, var(--clypra-clip-effect-bg) 12%, transparent))",
+                            "linear-gradient(135deg, color-mix(in srgb, var(--clypra-interaction-focus) 15%, transparent), color-mix(in srgb, var(--clypra-clip-effect-bg) 15%, transparent))",
+                          border:
+                            "1px solid color-mix(in srgb, var(--clypra-interaction-focus) 20%, transparent)",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
@@ -494,19 +589,18 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ updater }) => {
                       >
                         <Icon
                           style={{
-                            width: "18px",
-                            height: "18px",
+                            width: "20px",
+                            height: "20px",
                             color: "var(--clypra-interaction-focus)",
                           }}
                         />
                       </div>
-
-                      <div style={{ flex: 1, minWidth: 0 }}>
+                      <div>
                         <p
                           style={{
-                            margin: "0 0 2px 0",
-                            fontSize: "13px",
-                            fontWeight: 600,
+                            margin: "0 0 4px 0",
+                            fontSize: "14px",
+                            fontWeight: 700,
                             color: "var(--clypra-text-primary)",
                             lineHeight: 1.3,
                           }}
@@ -518,7 +612,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ updater }) => {
                             margin: 0,
                             fontSize: "12px",
                             color: "var(--clypra-text-secondary)",
-                            lineHeight: 1.4,
+                            lineHeight: 1.5,
                           }}
                         >
                           {feature.desc}
@@ -528,215 +622,178 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ updater }) => {
                   );
                 })}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Downloaded State Message */}
-          {isDownloaded && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "12px",
-                padding: "16px",
-                borderRadius: "12px",
-                background:
-                  "color-mix(in srgb, var(--clypra-status-success) 10%, transparent)",
-                border:
-                  "1px solid color-mix(in srgb, var(--clypra-status-success) 20%, transparent)",
-                marginBottom: "24px",
-              }}
-            >
-              <CheckCircle2
+            {/* CTA buttons */}
+            {!isDownloading && !isApplying && (
+              <div
                 style={{
-                  width: "20px",
-                  height: "20px",
-                  color: "var(--clypra-status-success)",
-                  flexShrink: 0,
-                }}
-              />
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: "13px",
-                  color: "var(--clypra-text-primary)",
-                  lineHeight: 1.4,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "12px",
+                  width: "100%",
+                  maxWidth: "400px",
+                  animation: "um-fade-up 0.5s ease 0.55s both",
                 }}
               >
-                {t(
-                  "Update downloaded successfully. Restart to apply the new version.",
+                {/* Primary */}
+                {canDownload && !isDownloaded && (
+                  <button
+                    onClick={downloadUpdate}
+                    title={t("update.modal.downloadWithoutInterrupting")}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "10px",
+                      padding: "17px 28px",
+                      borderRadius: "16px",
+                      fontSize: "16px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      border: "none",
+                      background:
+                        "linear-gradient(135deg, var(--clypra-interaction-focus) 0%, var(--clypra-clip-effect-bg) 100%)",
+                      color: "var(--clypra-surface-app)",
+                      boxShadow:
+                        "0 6px 24px color-mix(in srgb, var(--clypra-interaction-focus) 40%, transparent), 0 2px 8px rgba(0,0,0,0.2)",
+                      transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                      width: "100%",
+                      letterSpacing: "0.1px",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = "translateY(-2px) scale(1.01)";
+                      e.currentTarget.style.boxShadow =
+                        "0 10px 32px color-mix(in srgb, var(--clypra-interaction-focus) 50%, transparent), 0 4px 12px rgba(0,0,0,0.25)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = "";
+                      e.currentTarget.style.boxShadow =
+                        "0 6px 24px color-mix(in srgb, var(--clypra-interaction-focus) 40%, transparent), 0 2px 8px rgba(0,0,0,0.2)";
+                    }}
+                    onMouseDown={(e) => {
+                      e.currentTarget.style.transform = "translateY(0) scale(0.99)";
+                    }}
+                    onMouseUp={(e) => {
+                      e.currentTarget.style.transform = "translateY(-2px) scale(1.01)";
+                    }}
+                  >
+                    <Download style={{ width: "18px", height: "18px" }} />
+                    {t("update.modal.downloadUpdate")}
+                    <ArrowRight style={{ width: "16px", height: "16px" }} />
+                  </button>
                 )}
-              </p>
-            </div>
-          )}
-        </div>
 
-        {/* Footer Actions */}
-        {!isDownloading && !isApplying && (
-          <div
-            style={{
-              padding: "20px 24px",
-              borderTop:
-                "1px solid color-mix(in srgb, var(--clypra-text-primary) 8%, transparent)",
-              background: "var(--clypra-surface-panel)",
-              backdropFilter: "blur(12px)",
-              WebkitBackdropFilter: "blur(12px)",
-              display: "flex",
-              flexDirection: "column",
-              gap: "10px",
-              flexShrink: 0,
-            }}
-          >
-            {/* Primary Action */}
-            {canDownload && !isDownloaded && (
-              <button
-                onClick={downloadUpdate}
-                title={t("Download update without interrupting your session")}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "8px",
-                  padding: "14px 20px",
-                  borderRadius: "12px",
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  border: "none",
-                  background:
-                    "linear-gradient(135deg, var(--clypra-interaction-focus) 0%, var(--clypra-clip-effect-bg) 100%)",
-                  color: "var(--clypra-surface-app)",
-                  boxShadow:
-                    "0 4px 16px color-mix(in srgb, var(--clypra-interaction-focus) 35%, transparent)",
-                  transition: "all 0.2s ease",
-                  width: "100%",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = "translateY(-1px)";
-                  e.currentTarget.style.boxShadow =
-                    "0 6px 20px color-mix(in srgb, var(--clypra-interaction-focus) 45%, transparent)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = "";
-                  e.currentTarget.style.boxShadow =
-                    "0 4px 16px color-mix(in srgb, var(--clypra-interaction-focus) 35%, transparent)";
-                }}
-              >
-                <Download style={{ width: "16px", height: "16px" }} />
-                {t("Download Update")}
-                <ArrowRight style={{ width: "14px", height: "14px" }} />
-              </button>
+                {isDownloaded && (
+                  <button
+                    onClick={applyUpdate}
+                    title={t("update.modal.saveAndRestart")}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "10px",
+                      padding: "17px 28px",
+                      borderRadius: "16px",
+                      fontSize: "16px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      border: "none",
+                      background:
+                        "linear-gradient(135deg, var(--clypra-interaction-focus) 0%, var(--clypra-clip-effect-bg) 100%)",
+                      color: "var(--clypra-surface-app)",
+                      boxShadow:
+                        "0 6px 24px color-mix(in srgb, var(--clypra-interaction-focus) 40%, transparent), 0 2px 8px rgba(0,0,0,0.2)",
+                      transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                      width: "100%",
+                      letterSpacing: "0.1px",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = "translateY(-2px) scale(1.01)";
+                      e.currentTarget.style.boxShadow =
+                        "0 10px 32px color-mix(in srgb, var(--clypra-interaction-focus) 50%, transparent), 0 4px 12px rgba(0,0,0,0.25)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = "";
+                      e.currentTarget.style.boxShadow =
+                        "0 6px 24px color-mix(in srgb, var(--clypra-interaction-focus) 40%, transparent), 0 2px 8px rgba(0,0,0,0.2)";
+                    }}
+                    onMouseDown={(e) => {
+                      e.currentTarget.style.transform = "translateY(0) scale(0.99)";
+                    }}
+                    onMouseUp={(e) => {
+                      e.currentTarget.style.transform = "translateY(-2px) scale(1.01)";
+                    }}
+                  >
+                    {t("update.modal.restartAndUpdate")}
+                    <ArrowRight style={{ width: "16px", height: "16px" }} />
+                  </button>
+                )}
+
+                {/* Secondary */}
+                <button
+                  onClick={handleClose}
+                  style={{
+                    padding: "14px 28px",
+                    borderRadius: "16px",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    border:
+                      "1px solid color-mix(in srgb, var(--clypra-text-primary) 14%, transparent)",
+                    background:
+                      "color-mix(in srgb, var(--clypra-text-primary) 5%, transparent)",
+                    color: "var(--clypra-text-secondary)",
+                    transition: "all 0.15s ease",
+                    width: "100%",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background =
+                      "color-mix(in srgb, var(--clypra-text-primary) 9%, transparent)";
+                    e.currentTarget.style.color = "var(--clypra-text-primary)";
+                    e.currentTarget.style.borderColor =
+                      "color-mix(in srgb, var(--clypra-text-primary) 20%, transparent)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background =
+                      "color-mix(in srgb, var(--clypra-text-primary) 5%, transparent)";
+                    e.currentTarget.style.color = "var(--clypra-text-secondary)";
+                    e.currentTarget.style.borderColor =
+                      "color-mix(in srgb, var(--clypra-text-primary) 14%, transparent)";
+                  }}
+                >
+                  {isDownloaded ? t("update.modal.remindLater") : t("update.modal.later")}
+                </button>
+              </div>
             )}
-
-            {isDownloaded && (
-              <button
-                onClick={applyUpdate}
-                title={t("Save the project and restart with the update")}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "8px",
-                  padding: "14px 20px",
-                  borderRadius: "12px",
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  border: "none",
-                  background:
-                    "linear-gradient(135deg, var(--clypra-interaction-focus) 0%, var(--clypra-clip-effect-bg) 100%)",
-                  color: "var(--clypra-surface-app)",
-                  boxShadow:
-                    "0 4px 16px color-mix(in srgb, var(--clypra-interaction-focus) 35%, transparent)",
-                  transition: "all 0.2s ease",
-                  width: "100%",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = "translateY(-1px)";
-                  e.currentTarget.style.boxShadow =
-                    "0 6px 20px color-mix(in srgb, var(--clypra-interaction-focus) 45%, transparent)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = "";
-                  e.currentTarget.style.boxShadow =
-                    "0 4px 16px color-mix(in srgb, var(--clypra-interaction-focus) 35%, transparent)";
-                }}
-              >
-                {t("Restart and update")}
-                <ArrowRight style={{ width: "14px", height: "14px" }} />
-              </button>
-            )}
-
-            {/* Secondary Action */}
-            <button
-              onClick={handleClose}
-              style={{
-                padding: "12px 20px",
-                borderRadius: "12px",
-                fontSize: "13px",
-                fontWeight: 600,
-                cursor: "pointer",
-                border:
-                  "1px solid color-mix(in srgb, var(--clypra-text-primary) 12%, transparent)",
-                background:
-                  "color-mix(in srgb, var(--clypra-text-primary) 5%, transparent)",
-                color: "var(--clypra-text-secondary)",
-                transition: "all 0.15s ease",
-                width: "100%",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background =
-                  "color-mix(in srgb, var(--clypra-text-primary) 8%, transparent)";
-                e.currentTarget.style.color = "var(--clypra-text-primary)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background =
-                  "color-mix(in srgb, var(--clypra-text-primary) 5%, transparent)";
-                e.currentTarget.style.color = "var(--clypra-text-secondary)";
-              }}
-            >
-              {isDownloaded ? t("Remind Me Later") : t("Later")}
-            </button>
           </div>
-        )}
+        </div>
       </div>
 
-      {/* Animations */}
+      {/* Keyframe animations */}
       <style>{`
-        @keyframes fadeIn {
+        @keyframes um-backdrop-in {
           from { opacity: 0; }
-          to { opacity: 1; }
+          to   { opacity: 1; }
         }
-
-        @keyframes fadeOut {
+        @keyframes um-backdrop-out {
           from { opacity: 1; }
-          to { opacity: 0; }
+          to   { opacity: 0; }
         }
 
-        @keyframes slideIn {
-          from { transform: translateX(100%); }
-          to { transform: translateX(0); }
+        @keyframes um-sheet-in {
+          from { transform: translateY(100%); }
+          to   { transform: translateY(0%); }
+        }
+        @keyframes um-sheet-out {
+          from { transform: translateY(0%); }
+          to   { transform: translateY(100%); }
         }
 
-        @keyframes slideOut {
-          from { transform: translateX(0); }
-          to { transform: translateX(100%); }
-        }
-
-        @keyframes pulse {
-          0%, 100% { opacity: 0.8; transform: scale(1); }
-          50% { opacity: 1; transform: scale(1.05); }
-        }
-
-        @keyframes bounce {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-4px); }
-        }
-
-        @keyframes fadeInUp {
+        @keyframes um-fade-up {
           from {
             opacity: 0;
-            transform: translateY(10px);
+            transform: translateY(20px);
           }
           to {
             opacity: 1;
@@ -744,22 +801,19 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ updater }) => {
           }
         }
 
-        /* Custom Scrollbar */
-        .update-modal-panel > div:nth-child(2)::-webkit-scrollbar {
-          width: 6px;
+        @keyframes um-pulse {
+          0%, 100% { opacity: 0.7; transform: scale(1); }
+          50%       { opacity: 1;   transform: scale(1.08); }
         }
 
-        .update-modal-panel > div:nth-child(2)::-webkit-scrollbar-track {
-          background: transparent;
+        @keyframes um-bounce {
+          0%, 100% { transform: translateY(0); }
+          50%       { transform: translateY(-6px); }
         }
 
-        .update-modal-panel > div:nth-child(2)::-webkit-scrollbar-thumb {
-          background: color-mix(in srgb, var(--clypra-text-primary) 20%, transparent);
-          border-radius: 3px;
-        }
-
-        .update-modal-panel > div:nth-child(2)::-webkit-scrollbar-thumb:hover {
-          background: color-mix(in srgb, var(--clypra-text-primary) 30%, transparent);
+        @keyframes um-orb-drift {
+          from { transform: translate(0, 0) scale(1); }
+          to   { transform: translate(3vw, 2vw) scale(1.08); }
         }
       `}</style>
     </>

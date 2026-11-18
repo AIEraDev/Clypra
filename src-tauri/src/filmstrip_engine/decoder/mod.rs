@@ -1940,13 +1940,17 @@ impl VideoDecoder {
             .round()
             .max(1.0) as i64;
 
-        // Allow a ready-frame cache to cover requests that are at most 1 frame
-        // behind the cached PTS.  Using exactly pts_tolerance (≈ 0.95 × frame
-        // duration) means the served frame is never more than ~1 frame ahead
-        // of the target, which is the weakest correctness guarantee consistent
-        // with smooth forward playback.  Using 2× was too loose and could
-        // deliver a frame that was visibly a full frame early.
-        let backward_jitter_threshold = pts_tolerance;
+        // Allow a ready-frame cache to cover requests that are at most 1–1.5 frames
+        // behind the cached PTS. Using 1.5× frame duration for continuous playback
+        // prevents spurious backward GOP flushes due to minor VFR timing jitter,
+        // while exact seeks maintain strict sub-frame tolerance.
+        let backward_jitter_threshold = if options.is_playback {
+            ((frame_duration_secs * 1.5) * self.time_base.1 as f64 / self.time_base.0 as f64)
+                .round()
+                .max(1.0) as i64
+        } else {
+            pts_tolerance
+        };
 
         // 1. Check LRU ring-buffer cache for recently decoded frames
         if options.is_playback {

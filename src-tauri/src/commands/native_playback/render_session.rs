@@ -7,7 +7,10 @@ use crate::native_core::{
     FrameRequest, FrameTime, NativePlaybackFrameDemand, PlaybackPlan, QualityTier,
     DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION,
 };
-use crate::wgpu_compositor::{AbandonReason, FrameLifecycleRegistry, FrameRequestId, RenderLifecycleContext};
+use crate::wgpu_compositor::{
+    AbandonReason, FrameLifecycleRegistry, FrameRequestId, LifecycleState,
+    RenderLifecycleContext, RequestDropReason, RequestTerminalDisposition,
+};
 use parking_lot::RwLock;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -106,6 +109,10 @@ pub(crate) struct NativePlaybackStartupMilestone {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct NativePlaybackDemandTerminal {
     pub(crate) request_id: String,
+    /// Internal lifecycle identity. The public request ID may be reused by
+    /// the continuous frontend loop and is not sufficient for correlation.
+    #[serde(default)]
+    pub(crate) lifecycle_request_id: Option<String>,
     /// UI target identity. It must not alias the cancellation epoch: forward
     /// scrub targets can advance while decoder work remains valid.
     pub(crate) generation: Option<u64>,
@@ -116,6 +123,16 @@ pub(crate) struct NativePlaybackDemandTerminal {
     /// replacement from decode/actor or presentation work without guessing.
     pub(crate) stage: &'static str,
     pub(crate) reason: &'static str,
+    #[serde(default)]
+    pub(crate) actor_wait_us: Option<u64>,
+    #[serde(default)]
+    pub(crate) actor_queue_wait_us: Option<u64>,
+    #[serde(default)]
+    pub(crate) decoder_mutex_wait_us: Option<u64>,
+    #[serde(default)]
+    pub(crate) queue_residency_us: Option<u64>,
+    #[serde(default)]
+    pub(crate) queue_hit: Option<bool>,
 }
 
 #[derive(Default)]
@@ -127,9 +144,18 @@ pub(crate) struct LatestPlaybackDemand {
 
 /// Exact paused/scrub demands are distinct from continuous playback. They
 /// must not be coalesced by the audio-clock frame-address fast path because
-/// the WebView awaits their matching completion event.
-pub(crate) fn should_follow_audio_clock(has_explicit_demand: bool) -> bool {
-    !has_explicit_demand
+/// the WebView awaits their matching completion event. Continuous playback
+/// demands, by contrast, must always follow the native audio clock's
+/// authoritative frame index.
+pub(crate) fn should_follow_audio_clock(demand: Option<&NativePlaybackFrameDemand>) -> bool {
+    match demand {
+        None => true,
+        Some(d) => !d.is_scrubbing && d.mode.as_deref() == Some("playback"),
+    }
+}
+
+pub(crate) fn tracks_explicit_request(demand: &NativePlaybackFrameDemand) -> bool {
+    demand.mode.as_deref() != Some("playback") || demand.is_scrubbing
 }
 
 /// Continuous audio-clock ticks are scheduling events, not explicit user or
@@ -141,9 +167,13 @@ pub(crate) fn audio_clock_lifecycle_context() -> RenderLifecycleContext {
 }
 
 impl LatestPlaybackDemand {
-    pub(crate) fn replace(&mut self, demand: NativePlaybackFrameDemand, internal_id: FrameRequestId) {
+    pub(crate) fn replace(
+        &mut self,
+        demand: NativePlaybackFrameDemand,
+        internal_id: Option<FrameRequestId>,
+    ) {
         self.value = Some(demand);
-        self.internal_request_id = Some(internal_id);
+        self.internal_request_id = internal_id;
     }
 
     pub(crate) fn take(&mut self) -> Option<(NativePlaybackFrameDemand, Option<FrameRequestId>)> {
@@ -168,11 +198,13 @@ impl NativeRenderSession {
 
     fn terminal(
         demand: &NativePlaybackFrameDemand,
+        lifecycle_request_id: Option<&FrameRequestId>,
         disposition: &'static str,
         reason: &'static str,
     ) -> NativePlaybackDemandTerminal {
         NativePlaybackDemandTerminal {
             request_id: demand.request_id.clone(),
+            lifecycle_request_id: lifecycle_request_id.map(|id| id.as_str().to_string()),
             generation: demand.generation,
             cancellation_epoch: Self::cancellation_epoch(demand),
             frame_index: demand.frame_time.frame_index,
@@ -180,14 +212,72 @@ impl NativeRenderSession {
             stage: match disposition {
                 "superseded" => "mailbox",
                 "cancelled" => "recency-fence",
+                "coalesced" => "audio-clock",
                 _ => "presentation",
             },
             reason,
+            actor_wait_us: None,
+            actor_queue_wait_us: None,
+            decoder_mutex_wait_us: None,
+            queue_residency_us: None,
+            queue_hit: None,
         }
     }
 
     fn emit_terminal(app: &AppHandle, terminal: NativePlaybackDemandTerminal) {
         let _ = app.emit("clypra://native-playback-demand-terminal", terminal);
+    }
+
+    fn finish_request_if_active(
+        &self,
+        request_id: &FrameRequestId,
+        disposition: RequestTerminalDisposition,
+    ) {
+        let Ok(mut registry) = self.lifecycle_registry.lock() else {
+            return;
+        };
+        if matches!(registry.request_state(request_id), Ok(LifecycleState::Active)) {
+            let _ = registry.finish_request(request_id, disposition);
+        }
+    }
+
+    fn terminal_for_presentation(
+        request_id: &str,
+        target_generation: Option<u64>,
+        frame_index: u64,
+        lifecycle_request_id: &FrameRequestId,
+        generation: u64,
+        presentation: &crate::native_core::NativeSurfacePresentation,
+    ) -> NativePlaybackDemandTerminal {
+        let (disposition, stage, reason) = match presentation.terminal_disposition.as_deref() {
+            Some("presented") => ("presented", "presentation", "presented"),
+            Some("superseded") => ("superseded", "presentation", "superseded"),
+            Some("dropped-before-present") => match presentation.drop_reason.as_deref() {
+                Some("lookahead-miss") => ("dropped-before-present", "decode", "lookahead-miss"),
+                Some("late-for-audio") => {
+                    ("dropped-before-present", "presentation", "late-for-audio")
+                }
+                _ => ("dropped-before-present", "presentation", "backpressure"),
+            },
+            _ if presentation.presented => ("presented", "presentation", "presented"),
+            _ => ("dropped-before-present", "presentation", "backpressure"),
+        };
+        let timings = presentation.timings.as_ref();
+        NativePlaybackDemandTerminal {
+            request_id: request_id.to_string(),
+            lifecycle_request_id: Some(lifecycle_request_id.as_str().to_string()),
+            generation: target_generation,
+            cancellation_epoch: generation,
+            frame_index,
+            disposition,
+            stage,
+            reason,
+            actor_wait_us: timings.map(|value| value.actor_wait_us),
+            actor_queue_wait_us: timings.map(|value| value.actor_queue_wait_us),
+            decoder_mutex_wait_us: timings.map(|value| value.decoder_mutex_wait_us),
+            queue_residency_us: timings.map(|value| value.queue_residency_us),
+            queue_hit: timings.map(|value| value.queue_hit),
+        }
     }
 
     pub(crate) async fn new(
@@ -548,18 +638,31 @@ impl NativeRenderSession {
         let generation = Self::cancellation_epoch(&demand);
         let current = self.generation.load(Ordering::Acquire);
         if generation < current {
-            return Ok(Some(Self::terminal(&demand, "cancelled", "stale-epoch")));
+            return Ok(Some(Self::terminal(
+                &demand,
+                None,
+                "cancelled",
+                "stale-epoch",
+            )));
         }
         self.generation.store(generation, Ordering::Release);
         
-        // Allocate internal lifecycle request identity
-        let internal_request_id = {
-            let mut registry = self.lifecycle_registry.lock()
+        // Continuous playback is an audio-clock scheduling signal rather than
+        // an explicit user demand. Do not allocate one request lifecycle per
+        // RAF tick; only exact scrub/seek/frame-step demands need a request
+        // terminal outcome.
+        let internal_request_id = if tracks_explicit_request(&demand) {
+            let mut registry = self
+                .lifecycle_registry
+                .lock()
                 .map_err(|_| "Lifecycle registry lock poisoned".to_string())?;
-            let id = registry.begin_request(&demand.request_id)
-                .map_err(|e| format!("Failed to allocate request ID: {}", e))?;
-            
-            id
+            Some(
+                registry
+                    .begin_request(&demand.request_id)
+                    .map_err(|e| format!("Failed to allocate request ID: {e}"))?,
+            )
+        } else {
+            None
         };
         
         let mut superseded_terminal = None;
@@ -567,20 +670,26 @@ impl NativeRenderSession {
             // This assignment is the latest-frame-wins slot: a slow decode can
             // never cause obsolete playback work to accumulate.
             // Cancel the superseded request if one exists
-            if let Some(superseded_id) = pending.internal_request_id.take() {
+            let superseded_id = pending.internal_request_id.take();
+            if let Some(superseded_id) = superseded_id.as_ref() {
                 if let Ok(mut registry) = self.lifecycle_registry.lock() {
-                    use crate::wgpu_compositor::{RequestTerminalDisposition};
                     let _ = registry.finish_request(
-                        &superseded_id,
-                        RequestTerminalDisposition::Superseded {
-                            by_request_id: internal_request_id.clone(),
-                        }
+                        superseded_id,
+                        match internal_request_id.as_ref() {
+                            Some(by_request_id) => RequestTerminalDisposition::Superseded {
+                                by_request_id: by_request_id.clone(),
+                            },
+                            None => RequestTerminalDisposition::SupersededWithoutSuccessor,
+                        },
                     );
                 }
             }
-            if let Some(superseded) = pending.value.as_ref() {
+            if let (Some(superseded), Some(superseded_id)) =
+                (pending.value.as_ref(), superseded_id.as_ref())
+            {
                 superseded_terminal = Some(Self::terminal(
                     superseded,
+                    Some(superseded_id),
                     "superseded",
                     "latest-value-mailbox",
                 ));
@@ -955,17 +1064,24 @@ impl NativeRenderSession {
             if let Some(demand) = &dynamic_demand {
                 if Self::cancellation_epoch(demand) < generation {
                     // Coalesced by generation mismatch - cancel the internal request
-                    if let Some(internal_id) = internal_request_id {
+                    if let Some(internal_id) = internal_request_id.as_ref() {
                         if let Ok(mut registry) = self.lifecycle_registry.lock() {
-                            use crate::wgpu_compositor::{RequestTerminalDisposition};
                             // This is coalescing, not supersession (no successor known yet)
-                            let _ = registry.finish_request(&internal_id, RequestTerminalDisposition::Cancelled);
+                            let _ = registry.finish_request(
+                                internal_id,
+                                RequestTerminalDisposition::Cancelled,
+                            );
                         }
+                        Self::emit_terminal(
+                            &app,
+                            Self::terminal(
+                                demand,
+                                Some(internal_id),
+                                "cancelled",
+                                "stale-epoch",
+                            ),
+                        );
                     }
-                    Self::emit_terminal(
-                        &app,
-                        Self::terminal(demand, "cancelled", "stale-epoch"),
-                    );
                     continue;
                 }
             }
@@ -988,7 +1104,7 @@ impl NativeRenderSession {
             // when it targets the same frame the audio clock last produced.
             // Otherwise the `last_rendered_frame_index` fast path swallows the
             // demand and leaves the WebView waiting forever for its event.
-            let audio_time = if should_follow_audio_clock(dynamic_demand.is_some()) {
+            let audio_time = if should_follow_audio_clock(dynamic_demand.as_ref()) {
                 audio_clock_time(&app, true, false).ok()
             } else {
                 None
@@ -1005,6 +1121,23 @@ impl NativeRenderSession {
                     },
                 ) {
                     if last_rendered_frame_index == Some(frame_index) {
+                        if let (Some(demand), Some(internal_id)) =
+                            (dynamic_demand.as_ref(), internal_request_id.as_ref())
+                        {
+                            self.finish_request_if_active(
+                                internal_id,
+                                RequestTerminalDisposition::CoalescedWithoutSuccessor,
+                            );
+                            Self::emit_terminal(
+                                &app,
+                                Self::terminal(
+                                    demand,
+                                    Some(internal_id),
+                                    "coalesced",
+                                    "same-frame-audio-clock",
+                                ),
+                            );
+                        }
                         continue;
                     }
                     last_rendered_frame_index = Some(frame_index);
@@ -1017,22 +1150,22 @@ impl NativeRenderSession {
                     request.frame_time.ticks = audio_time.ticks;
                     request.frame_time.timescale = audio_time.timescale;
 
-                    if dynamic_demand.is_none() {
-                        let audio_time_secs =
-                            (audio_time.ticks as f64) / (audio_time.timescale as f64);
-                        if audio_time_secs < base_timeline_secs - 0.25 {
-                            // Temporal regression: audio jumped backward relative to old materialized request.
-                            // Invalidate stale materialized state and re-anchor from baseline snapshot.
-                            *self.last_materialized.write() = None;
-                            request = (**self.snapshot.read()).clone();
-                            request.mode = Some("playback".to_string());
-                            request.frame_time.frame_index = frame_index;
-                            request.frame_time.ticks = audio_time.ticks;
-                            request.frame_time.timescale = audio_time.timescale;
-                            base_timeline_secs = (request.frame_time.ticks as f64)
-                                / (request.frame_time.timescale.max(1) as f64);
-                        }
-                        let delta_secs = (audio_time_secs - base_timeline_secs).max(0.0);
+                    let audio_time_secs =
+                        (audio_time.ticks as f64) / (audio_time.timescale.max(1) as f64);
+                    if audio_time_secs < base_timeline_secs - 0.25 {
+                        // Temporal regression: audio jumped backward relative to old materialized request.
+                        // Invalidate stale materialized state and re-anchor from baseline snapshot.
+                        *self.last_materialized.write() = None;
+                        request = (**self.snapshot.read()).clone();
+                        request.mode = Some("playback".to_string());
+                        request.frame_time.frame_index = frame_index;
+                        request.frame_time.ticks = audio_time.ticks;
+                        request.frame_time.timescale = audio_time.timescale;
+                        base_timeline_secs = (request.frame_time.ticks as f64)
+                            / (request.frame_time.timescale.max(1) as f64);
+                    }
+                    let delta_secs = (audio_time_secs - base_timeline_secs).max(0.0);
+                    if delta_secs > 0.0001 || dynamic_demand.is_none() {
                         for layer in &mut request.project.video_layers {
                             let base_source_time_secs = (layer.source_time.ticks as f64)
                                 / (layer.source_time.timescale.max(1) as f64);
@@ -1176,22 +1309,28 @@ impl NativeRenderSession {
             // Recency cancellation is deliberately before the shared
             // audio-clock lateness decision in present_native_frame.
             if let Some(internal_id) = lifecycle_context.request_ids.first() {
-                if let Ok(mut registry) = self.lifecycle_registry.lock() {
-                    use crate::wgpu_compositor::RequestTerminalDisposition;
-                    let _ = registry.finish_request(internal_id, RequestTerminalDisposition::Cancelled);
-                }
+                self.finish_request_if_active(internal_id, RequestTerminalDisposition::Cancelled);
             }
-            if request.mode.as_deref() != Some("playback") {
+            if lifecycle_context.request_ids.first().is_some() {
                 Self::emit_terminal(
                     app,
                     NativePlaybackDemandTerminal {
                         request_id: request.request_id.clone(),
+                        lifecycle_request_id: lifecycle_context
+                            .request_ids
+                            .first()
+                            .map(|id| id.as_str().to_string()),
                         generation: request.target_generation.or(request.generation),
                         cancellation_epoch: generation,
                         frame_index: request.frame_time.frame_index,
                         disposition: "cancelled",
                         stage: "recency-fence",
                         reason: "recency-fence",
+                        actor_wait_us: None,
+                        actor_queue_wait_us: None,
+                        decoder_mutex_wait_us: None,
+                        queue_residency_us: None,
+                        queue_hit: None,
                     },
                 );
             }
@@ -1211,7 +1350,37 @@ impl NativeRenderSession {
                 if let Some(target_generation) = request.target_generation {
                     presentation.generation = Some(target_generation);
                 }
-                let is_explicit_paused_demand = presentation.mode.as_deref() != Some("playback");
+                // The lifecycle identity, not the presentation mode string,
+                // is the authoritative marker for an exact interactive
+                // demand. A scrub may still carry `mode=playback` while the
+                // pointer is down and must receive the matching completion.
+                let is_explicit_paused_demand =
+                    lifecycle_context.request_ids.first().is_some();
+                if let Some(internal_id) = lifecycle_context.request_ids.first() {
+                    if let Some(disposition) = presentation.terminal_disposition.as_deref() {
+                        let request_disposition = match disposition {
+                            "presented" => None,
+                            "superseded" => {
+                                Some(RequestTerminalDisposition::SupersededWithoutSuccessor)
+                            }
+                            "dropped-before-present" => Some(
+                                RequestTerminalDisposition::DroppedBeforePresent {
+                                    reason: match presentation.drop_reason.as_deref() {
+                                        Some("lookahead-miss") => RequestDropReason::LookaheadMiss,
+                                        Some("late-for-audio") => RequestDropReason::LateForAudio,
+                                        _ => RequestDropReason::Backpressure,
+                                    },
+                                },
+                            ),
+                            _ => Some(RequestTerminalDisposition::Failed {
+                                reason: crate::wgpu_compositor::RequestFailureReason::PipelineFailure,
+                            }),
+                        };
+                        if let Some(request_disposition) = request_disposition {
+                            self.finish_request_if_active(internal_id, request_disposition);
+                        }
+                    }
+                }
                 if presentation.presented {
                     if !self.first_presented.swap(true, Ordering::AcqRel) {
                         crate::cold_start::record_first_frame();
@@ -1260,29 +1429,51 @@ impl NativeRenderSession {
                         presentation.clone(),
                     );
                 }
+                if let Some(internal_id) = lifecycle_context.request_ids.first() {
+                    Self::emit_terminal(
+                        app,
+                        Self::terminal_for_presentation(
+                            &request.request_id,
+                            request.target_generation.or(request.generation),
+                            request.frame_time.frame_index,
+                            internal_id,
+                            generation,
+                            &presentation,
+                        ),
+                    );
+                }
                 Some(presentation)
             }
             Err(_) => {
                 // Presentation failed - mark request as failed
                 if let Some(internal_id) = lifecycle_context.request_ids.first() {
-                    if let Ok(mut registry) = self.lifecycle_registry.lock() {
-                        use crate::wgpu_compositor::{RequestTerminalDisposition, RequestFailureReason};
-                        let _ = registry.finish_request(internal_id, RequestTerminalDisposition::Failed {
-                            reason: RequestFailureReason::PipelineFailure,
-                        });
-                    }
+                    self.finish_request_if_active(
+                        internal_id,
+                        RequestTerminalDisposition::Failed {
+                            reason: crate::wgpu_compositor::RequestFailureReason::PipelineFailure,
+                        },
+                    );
                 }
-                if request.mode.as_deref() != Some("playback") {
+                if lifecycle_context.request_ids.first().is_some() {
                     Self::emit_terminal(
                         app,
                         NativePlaybackDemandTerminal {
                             request_id: request.request_id,
+                            lifecycle_request_id: lifecycle_context
+                                .request_ids
+                                .first()
+                                .map(|id| id.as_str().to_string()),
                             generation: request.target_generation.or(request.generation),
                             cancellation_epoch: generation,
                             frame_index: request.frame_time.frame_index,
                             disposition: "failed",
                             stage: "presentation",
                             reason: "presentation-pipeline",
+                            actor_wait_us: None,
+                            actor_queue_wait_us: None,
+                            decoder_mutex_wait_us: None,
+                            queue_residency_us: None,
+                            queue_hit: None,
                         },
                     );
                 }
@@ -1389,6 +1580,21 @@ mod tests {
         let second_id = session.pending.lock().unwrap().internal_request_id.clone().expect("second id allocated");
         
         assert_ne!(first_id, second_id, "Repeated external ID must produce distinct internal IDs");
+    }
+
+    #[test]
+    fn continuous_playback_demands_do_not_create_explicit_request_lifecycles() {
+        let mut playback = mock_demand("playback", 1);
+        playback.mode = Some("playback".to_string());
+        playback.is_scrubbing = false;
+        assert!(!tracks_explicit_request(&playback));
+
+        playback.is_scrubbing = true;
+        assert!(tracks_explicit_request(&playback));
+
+        playback.mode = Some("seek".to_string());
+        playback.is_scrubbing = false;
+        assert!(tracks_explicit_request(&playback));
     }
 
     #[test]

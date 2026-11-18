@@ -158,6 +158,28 @@ Each line:
 | `native-diagnostic` | `NativeDiagnostic`        | Warnings / errors from the Tauri event bridge       |
 | `playback-trace`    | `PlaybackTraceEvent`      | State transitions, dropped frames, slow stages      |
 
+### Native lifecycle denominators
+
+Native preview telemetry reports two intentionally separate ledgers:
+
+- **Request accounting** uses accepted exact scrub/seek/frame-step demands as
+  its denominator. Its terminal outcomes are `presented`, `coalesced`,
+  `superseded`, `cancelled`, `droppedBeforePresent`, `failed`, and `abandoned`.
+  Continuous audio-clock playback ticks are not request records; they are
+  accounted through produced-frame telemetry.
+- **Produced-frame accounting** uses frames that entered the native
+  presentation lifecycle as its denominator. It reports `produced`,
+  `presented`, `droppedUnderBackpressure`, `obsoleteBeforePresentation`,
+  `failedAfterRecovery`, and `abandoned`.
+
+The ledgers must never be added together. A request can be superseded before a
+frame exists, while one produced frame can satisfy more than one request. The
+`lifecycle-registry-snapshot` diagnostic includes cumulative request accounting
+and retained lifecycle counts. Explicit demand terminal events include the
+internal lifecycle request identity, generation reason, queue residency/hit,
+and actor/queue/decoder wait timings so generation supersession and native
+contention can be correlated without guessing from aggregate drop ratios.
+
 ---
 
 ## 5. Client-Side Components

@@ -202,10 +202,21 @@ impl FrameAttribution {
 pub enum RequestTerminalDisposition {
     Presented { frame_id: FrameId },
     Coalesced { into_request_id: FrameRequestId },
+    CoalescedWithoutSuccessor,
     Superseded { by_request_id: FrameRequestId },
+    SupersededWithoutSuccessor,
     Cancelled,
+    DroppedBeforePresent { reason: RequestDropReason },
     Failed { reason: RequestFailureReason },
     Abandoned { reason: AbandonReason },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RequestDropReason {
+    LookaheadMiss,
+    LateForAudio,
+    Backpressure,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -304,6 +315,54 @@ pub struct FrameAccounting {
     pub abandoned: u64,
 }
 
+/// Cumulative accounting for accepted explicit demands.
+///
+/// Request outcomes intentionally use a different denominator from produced
+/// frame outcomes. A latest-value mailbox may accept many requests that never
+/// produce a frame because they are superseded or cancelled before decode.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestAccounting {
+    pub accepted: u64,
+    pub terminal: u64,
+    pub presented: u64,
+    pub superseded: u64,
+    pub coalesced: u64,
+    pub cancelled: u64,
+    pub dropped_before_present: u64,
+    pub failed: u64,
+    pub abandoned: u64,
+}
+
+impl RequestAccounting {
+    pub fn unresolved(&self) -> u64 {
+        self.accepted.saturating_sub(self.terminal)
+    }
+
+    pub fn reconcile(&self) -> Result<(), LifecycleError> {
+        let classified = self.presented
+            + self.superseded
+            + self.coalesced
+            + self.cancelled
+            + self.dropped_before_present
+            + self.failed
+            + self.abandoned;
+        if classified != self.terminal {
+            return Err(LifecycleError::UnreconciledRequestAccounting {
+                terminal: self.terminal,
+                classified,
+            });
+        }
+        if self.terminal > self.accepted {
+            return Err(LifecycleError::UnreconciledRequestAccounting {
+                terminal: self.terminal,
+                classified: self.accepted,
+            });
+        }
+        Ok(())
+    }
+}
+
 impl FrameAccounting {
     pub fn terminal_total(&self) -> u64 {
         self.presented
@@ -371,6 +430,7 @@ pub enum LifecycleError {
     DuplicateFrameIdentity(FrameId),
     UnterminatedProducedFrame(FrameId),
     UnreconciledFrameAccounting { produced: u64, terminal: u64 },
+    UnreconciledRequestAccounting { terminal: u64, classified: u64 },
 }
 
 impl std::fmt::Display for LifecycleError {
@@ -402,6 +462,10 @@ impl std::fmt::Display for LifecycleError {
             Self::UnreconciledFrameAccounting { produced, terminal } => write!(
                 f,
                 "frame accounting does not reconcile: produced={produced}, terminal={terminal}"
+            ),
+            Self::UnreconciledRequestAccounting { terminal, classified } => write!(
+                f,
+                "request accounting does not reconcile: terminal={terminal}, classified={classified}"
             ),
         }
     }
