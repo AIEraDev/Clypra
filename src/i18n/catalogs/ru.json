@@ -416,5 +416,9 @@
   "settings.about.supportTitle": "Поддержать проект",
   "settings.about.supportDesc": "Clypra создается с душой и распространяется бесплатно. Если редактор экономит ваше время, поддержите его развитие.",
   "settings.about.credits": "Стикеры и благодарности",
-  "settings.about.thirdParty": "Лицензии сторонних библиотек"
+  "settings.about.thirdParty": "Лицензии сторонних библиотек",
+
+  "app.error.title": "Ошибка приложения",
+  "app.error.description": "Что-то пошло не так. В приложении произошла непредвиденная ошибка.",
+  "app.error.restart": "Перезапустить приложение"
 }

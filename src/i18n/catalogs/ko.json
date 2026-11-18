@@ -412,5 +412,9 @@
   "settings.about.supportTitle": "프로젝트 후원",
   "settings.about.supportDesc": "Clypra는 열정으로 개발되어 무료로 배포됩니다. 작업 시간이 단축되었다면 후원을 고려해 주세요.",
   "settings.about.credits": "스티커 및 미디어 크레딧",
-  "settings.about.thirdParty": "오픈소스 라이선스"
+  "settings.about.thirdParty": "오픈소스 라이선스",
+
+  "app.error.title": "애플리케이션 오류",
+  "app.error.description": "문제가 발생했습니다. 애플리케이션에서 예기치 않은 오류가 발생했습니다.",
+  "app.error.restart": "애플리케이션 재시작"
 }

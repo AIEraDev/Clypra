@@ -412,5 +412,9 @@
   "settings.about.supportTitle": "赞助项目",
   "settings.about.supportDesc": "Clypra 由社区倾注热情打造并完全免费提供。如果它为您节省了时间，欢迎赞助支持开发。",
   "settings.about.credits": "贴纸与媒体版权声明",
-  "settings.about.thirdParty": "第三方开源许可"
+  "settings.about.thirdParty": "第三方开源许可",
+
+  "app.error.title": "应用程序错误",
+  "app.error.description": "出现了问题。应用程序遇到了意外错误。",
+  "app.error.restart": "重启应用程序"
 }

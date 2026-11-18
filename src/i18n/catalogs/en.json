@@ -412,5 +412,9 @@
   "settings.about.supportTitle": "Support the Project",
   "settings.about.supportDesc": "Clypra is built with love and released for free. If it saves you time, consider supporting its development.",
   "settings.about.credits": "Stickers & Media Credits",
-  "settings.about.thirdParty": "Third-Party Licenses"
+  "settings.about.thirdParty": "Third-Party Licenses",
+
+  "app.error.title": "Application Error",
+  "app.error.description": "Something went wrong. The application encountered an unexpected error.",
+  "app.error.restart": "Restart Application"
 }

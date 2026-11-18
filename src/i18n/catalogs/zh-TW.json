@@ -412,5 +412,9 @@
   "settings.about.supportTitle": "贊助專案",
   "settings.about.supportDesc": "Clypra 由社群傾注熱情打造並完全免費提供。若能為您節省時間，歡迎贊助支援後續開發。",
   "settings.about.credits": "貼圖與媒體版權聲明",
-  "settings.about.thirdParty": "第三方開源許可"
+  "settings.about.thirdParty": "第三方開源許可",
+
+  "app.error.title": "應用程式錯誤",
+  "app.error.description": "出了點問題。應用程式遇到了意外錯誤。",
+  "app.error.restart": "重新啟動應用程式"
 }

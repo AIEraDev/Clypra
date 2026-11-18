@@ -412,5 +412,9 @@
   "settings.about.supportTitle": "Projekt unterstützen",
   "settings.about.supportDesc": "Clypra wird mit Leidenschaft entwickelt und kostenlos veröffentlicht. Wenn es Ihnen Zeit spart, erwägen Sie bitte, die Entwicklung zu unterstützen.",
   "settings.about.credits": "Sticker- & Medien-Credits",
-  "settings.about.thirdParty": "Drittanbieter-Lizenzen"
+  "settings.about.thirdParty": "Drittanbieter-Lizenzen",
+
+  "app.error.title": "Anwendungsfehler",
+  "app.error.description": "Etwas ist schiefgelaufen. Die Anwendung ist auf einen unerwarteten Fehler gestoßen.",
+  "app.error.restart": "Anwendung neu starten"
 }

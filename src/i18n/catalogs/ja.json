@@ -412,5 +412,9 @@
   "settings.about.supportTitle": "プロジェクトを支援",
   "settings.about.supportDesc": "Clypraは愛情を込めて開発され、無料で提供されています。作業時間の節約に役立った場合は、開発支援をご検討ください。",
   "settings.about.credits": "ステッカー＆メディアクレジット",
-  "settings.about.thirdParty": "サードパーティライセンス"
+  "settings.about.thirdParty": "サードパーティライセンス",
+
+  "app.error.title": "アプリケーションエラー",
+  "app.error.description": "問題が発生しました。アプリケーションで予期しないエラーが発生しました。",
+  "app.error.restart": "アプリケーションを再起動"
 }

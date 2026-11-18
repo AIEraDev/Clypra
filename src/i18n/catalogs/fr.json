@@ -412,5 +412,9 @@
   "settings.about.supportTitle": "Soutenir le projet",
   "settings.about.supportDesc": "Clypra est développé avec passion et distribué gratuitement. S'il vous fait gagner du temps, pensez à soutenir son développement.",
   "settings.about.credits": "Crédits des autocollants & médias",
-  "settings.about.thirdParty": "Licences tierces"
+  "settings.about.thirdParty": "Licences tierces",
+
+  "app.error.title": "Erreur de l'application",
+  "app.error.description": "Un problème est survenu. L'application a rencontré une erreur inattendue.",
+  "app.error.restart": "Redémarrer l'application"
 }
