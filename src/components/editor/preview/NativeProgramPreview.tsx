@@ -186,6 +186,10 @@ import {
   type NativeScrubDemandPacingState,
 } from "@/core/playback/nativeScrubDemandPacing";
 import {
+  resolveNativeScrubDemandLifecycle,
+  type NativeScrubDemandLifecycleState,
+} from "@/core/playback/nativeScrubDemandLifecycle";
+import {
   EMBEDDED_PREVIEW_ONLY,
   NATIVE_PREVIEW_ONLY,
   createNativePlaybackFrameDemand,
@@ -1533,6 +1537,9 @@ export const NativeProgramPreview: React.FC = () => {
     const nativeFrontendPerfSpans = new Map<string, NativePerfSpan>();
     let nativeDemandSequence = 0;
     let nativeScrubDemandPacing: NativeScrubDemandPacingState | null = null;
+    let nativeScrubDemandLifecycle: NativeScrubDemandLifecycleState | null =
+      null;
+    let nativeScrubDemandSnapshotKey = "";
     const createDemandOperationRequest = (
       request: NativeFrameRequest,
       generation: number,
@@ -4066,6 +4073,12 @@ export const NativeProgramPreview: React.FC = () => {
                 nativePlaybackRenderSnapshotKey === pausedSnapshotKey &&
                 nativePlaybackRenderSnapshotInFlight === null;
               if (persistentNativePlaybackEligible) {
+                // Playback, like project snapshot replacement, is a distinct
+                // native lifecycle. A later paused scrub must never reuse an
+                // epoch from the prior interaction.
+                nativeScrubDemandLifecycle = null;
+                nativeScrubDemandPacing = null;
+                nativeScrubDemandSnapshotKey = "";
                 ensureNativePlaybackRenderSnapshot(requestToPresent);
                 const snapshotKey =
                   nativePlaybackSnapshotKeyFor(requestToPresent);
@@ -4167,6 +4180,18 @@ export const NativeProgramPreview: React.FC = () => {
                   return;
                 }
               } else if (persistentNativePausedEligible) {
+                if (nativeScrubDemandSnapshotKey !== pausedSnapshotKey) {
+                  nativeScrubDemandSnapshotKey = pausedSnapshotKey;
+                  nativeScrubDemandLifecycle = null;
+                  nativeScrubDemandPacing = null;
+                }
+                const scrubLifecycle = resolveNativeScrubDemandLifecycle(
+                  nativeScrubDemandLifecycle,
+                  targetGeneration,
+                  requestToPresent.frameTime.frameIndex,
+                  isScrubbing,
+                );
+                nativeScrubDemandLifecycle = scrubLifecycle.next;
                 const scrubDemandPacing = decideNativeScrubDemandDispatch(
                   nativeScrubDemandPacing,
                   requestToPresent.frameTime.frameIndex,
@@ -4242,7 +4267,10 @@ export const NativeProgramPreview: React.FC = () => {
                   dispatchMode: "persistent-demand",
                 });
                 nativePlaybackInFlight = submitNativePlaybackDemand(
-                  createNativePlaybackFrameDemand(pausedDemandRequest),
+                  createNativePlaybackFrameDemand(pausedDemandRequest, {
+                    cancellationEpoch: scrubLifecycle.cancellationEpoch,
+                    isScrubbing,
+                  }),
                 )
                   .then(() => {
                     nativeFrontendPerfSpans.get(requestKey)?.markIpcFinished();

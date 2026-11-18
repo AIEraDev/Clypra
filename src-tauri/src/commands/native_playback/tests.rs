@@ -78,7 +78,9 @@ mod tests {
             frame_time: FrameTime::new(frame_index, frame_index as i64, DEFAULT_TIME_SCALE)
                 .unwrap(),
             generation: Some(1),
+            cancellation_epoch: None,
             mode: Some("playback".to_string()),
+            is_scrubbing: false,
             video_layers: Vec::new(),
             raster_layers: Vec::new(),
             text_layers: Vec::new(),

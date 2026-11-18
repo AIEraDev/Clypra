@@ -140,8 +140,12 @@ impl NativeRenderSession {
     /// before it is accepted. Otherwise a previous generation can remain in
     /// decode long enough to reach the retained surface after the user has
     /// issued a newer seek.
-    pub(crate) fn demand_requires_recency_barrier(&self, generation: u64) -> bool {
-        generation > self.generation.load(Ordering::Acquire)
+    pub(crate) fn demand_requires_recency_barrier(&self, cancellation_epoch: u64) -> bool {
+        cancellation_epoch > self.generation.load(Ordering::Acquire)
+    }
+
+    fn cancellation_epoch(demand: &NativePlaybackFrameDemand) -> u64 {
+        demand.cancellation_epoch.or(demand.generation).unwrap_or(0)
     }
 
     pub(crate) async fn new(
@@ -461,7 +465,7 @@ impl NativeRenderSession {
             if pending
                 .value
                 .as_ref()
-                .and_then(|demand| demand.generation)
+                .map(Self::cancellation_epoch)
                 .map(|pending_generation| pending_generation < generation)
                 .unwrap_or(false)
             {
@@ -493,7 +497,10 @@ impl NativeRenderSession {
         if demand.request_id.trim().is_empty() || demand.frame_time.timescale == 0 {
             return Err("Native playback demand requires request_id and frame time".to_string());
         }
-        let generation = demand.generation.unwrap_or(0);
+        // Pointer targets change continuously. Only a lifecycle epoch is a
+        // cancellation fence, so forward scrub can replace its pending target
+        // without killing the decode operation already making progress.
+        let generation = Self::cancellation_epoch(&demand);
         let current = self.generation.load(Ordering::Acquire);
         if generation < current {
             return Ok(());
@@ -547,8 +554,9 @@ impl NativeRenderSession {
         if let Some(demand) = demand {
             request.request_id = demand.request_id.clone();
             request.frame_time = demand.frame_time;
-            request.generation = demand.generation;
+            request.generation = Some(Self::cancellation_epoch(demand));
             request.mode = demand.mode.clone();
+            request.is_scrubbing = Some(demand.is_scrubbing);
 
             if demand.video_layers.is_empty() {
                 request.project.video_layers.clear();
@@ -1205,7 +1213,9 @@ mod tests {
                 timescale: DEFAULT_TIME_SCALE,
             },
             generation: Some(generation),
+            cancellation_epoch: None,
             mode: Some("scrub".to_string()),
+            is_scrubbing: true,
             video_layers: Vec::new(),
             raster_layers: Vec::new(),
             text_layers: Vec::new(),
@@ -1317,6 +1327,26 @@ mod tests {
         
         // The generation check in submit rejects it immediately
         assert!(session.pending.lock().unwrap().value.is_none(), "Stale demand rejected by generation check");
+    }
+
+    #[test]
+    fn forward_scrub_target_replaces_pending_without_advancing_cancellation_epoch() {
+        let session = mock_session();
+        session.generation.store(10, Ordering::Release);
+
+        let mut demand = mock_demand("forward-target", 11);
+        demand.cancellation_epoch = Some(10);
+        session.submit(demand).expect("forward target accepted");
+
+        let pending = session.pending.lock().unwrap();
+        assert_eq!(pending.value.as_ref().and_then(|value| value.generation), Some(11));
+        let request = session
+            .materialize_request(pending.value.as_ref())
+            .expect("demand materializes");
+        assert_eq!(request.generation, Some(10));
+        assert_eq!(request.is_scrubbing, Some(true));
+        assert_eq!(session.generation.load(Ordering::Acquire), 10);
+        assert!(!session.demand_requires_recency_barrier(10));
     }
 
     #[test]

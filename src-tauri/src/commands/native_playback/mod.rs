@@ -392,7 +392,7 @@ pub async fn submit_native_playback_demand(
     demand: NativePlaybackFrameDemand,
 ) -> Result<(), String> {
     let state = runtime(&app)?;
-    let generation = demand.generation.unwrap_or(0);
+    let generation = demand.cancellation_epoch.or(demand.generation).unwrap_or(0);
     let requires_recency_barrier = {
         let runtime = state
             .lock()

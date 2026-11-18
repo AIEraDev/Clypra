@@ -985,8 +985,17 @@ pub struct NativePlaybackFrameDemand {
     pub frame_time: FrameTime,
     #[serde(default)]
     pub generation: Option<u64>,
+    /// Cancellation boundary for the demand. Unlike `generation`, which
+    /// identifies a visible UI target, this only advances when in-flight
+    /// decoder work must be invalidated.
+    #[serde(default)]
+    pub cancellation_epoch: Option<u64>,
     #[serde(default)]
     pub mode: Option<String>,
+    /// Whether this compact demand is an active pointer scrub rather than an
+    /// exact released seek.
+    #[serde(default)]
+    pub is_scrubbing: bool,
     #[serde(default)]
     pub video_layers: Vec<NativePlaybackVideoLayerUpdate>,
     #[serde(default)]

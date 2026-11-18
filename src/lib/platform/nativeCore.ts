@@ -958,7 +958,10 @@ export interface NativePlaybackFrameDemand {
   requestId: string;
   frameTime: NativeFrameTime;
   generation?: number;
+  /** Decoder/queue cancellation boundary; separate from the visible target. */
+  cancellationEpoch?: number;
   mode?: NativeFrameRequest["mode"];
+  isScrubbing?: boolean;
   videoLayers: Array<{
     layerId?: string;
     sourceTime: NativeFrameTime;
@@ -1001,13 +1004,19 @@ export interface NativePlaybackFrameDemand {
 /** Build the compact per-frame update for the persistent Rust Native session. */
 export function createNativePlaybackFrameDemand(
   request: NativeFrameRequest,
+  lifecycle?: {
+    cancellationEpoch?: number;
+    isScrubbing?: boolean;
+  },
 ): NativePlaybackFrameDemand {
   return {
     contractVersion: request.contractVersion,
     requestId: request.requestId,
     frameTime: request.frameTime,
     generation: request.generation,
+    cancellationEpoch: lifecycle?.cancellationEpoch,
     mode: request.mode,
+    isScrubbing: lifecycle?.isScrubbing ?? request.isScrubbing === true,
     videoLayers: request.project.videoLayers.map((layer) => ({
       layerId: layer.layerId,
       sourceTime: layer.sourceTime,
