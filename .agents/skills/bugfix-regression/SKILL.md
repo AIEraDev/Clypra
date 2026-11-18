@@ -115,6 +115,28 @@ npx tsc --noEmit
   - Rapid repeated user actions (scrub spam, play/pause double-click).
   - Web Worker termination or IPC timeout scenarios.
 
+### Native preview hang protocol
+
+For a desktop preview freeze, do not treat a successful Tauri command or a
+running process as proof that the preview is healthy. First establish whether
+the failure is a crash, deadlock, decode wait, lost presentation, or control
+plane liveness failure. Inspect the full operation chain:
+
+`intent → mailbox accepted → decode/composition → native presentation →
+frontend terminal handling → PlaybackClock settlement`.
+
+Use distinct target generation and cancellation epoch values. Add a deterministic
+regression that proves repeated RAF ticks at an unchanged scrub target create
+no additional operation, forward targets do not repeatedly invalidate useful
+work, and only a matching `presented` outcome completes an exact seek. Ensure
+every accepted operation reaches one terminal disposition: `presented`,
+`superseded`, `cancelled`, `dropped_before_present`, or `failed`.
+
+Desktop DOM/canvas must not be introduced as a hidden recovery path for this
+class of bug. Follow
+`docs/architecture/adr/0001-native-first-preview-ownership.md`; native failure
+must stay visible and diagnosable at its owning boundary.
+
 ### 8. Document & Report
 Report:
 - Observed defect and reproduction mechanism.

@@ -506,6 +506,32 @@ All bugs tested in `src/components/editor/preview/__tests__/ProgramPreview.rende
 
 10. **Export must not mutate timeline state.** Export runs concurrently with the UI. Never modify `timelineStore` from the export pipeline.
 
+11. **Desktop preview is native-first.** The Rust retained surface owns desktop
+    video playback, seek, scrub, frame-step, composition, decode lifecycle,
+    and terminal frame outcomes. React publishes typed intents and owns editor
+    controls; it must not grow a second frame scheduler or presenter.
+
+12. **Target selection is not cancellation.** Native preview requests carry a
+    target generation, a cancellation epoch, and an operation ID. Forward
+    scrub may replace an unstarted target without cancelling useful decode.
+    Release, direction reversal, project/snapshot replacement, source change,
+    surface recreation, and stop are cancellation boundaries. A command ack is
+    mailbox acceptance, never presentation or seek completion.
+
+13. **DOM/canvas is not a desktop video fallback.** It may implement editor
+    chrome, accessibility, pointer interaction, scopes, timeline/filmstrip,
+    and raster inputs for the native compositor. It must not present desktop
+    video during playback, seek, scrub, or frame-step. Native failure is an
+    explicit recovery/diagnostic state, never a silent HTML video, canvas, or
+    readback substitution. Read
+    `docs/architecture/adr/0001-native-first-preview-ownership.md` before
+    changing those boundaries.
+
+14. **Preview liveness is correctness.** An accepted exact target must reach
+    one terminal outcome: presented, superseded, cancelled,
+    dropped-before-present, or failed. Do not issue repeat operations for an
+    unchanged target. Only a matching `presented` outcome settles a seek.
+
 ---
 
 ## 18. Environment Variables
@@ -588,6 +614,6 @@ pnpm tauri build
 | Export format | `src/lib/export/exportPresets.ts` + `src-tauri/src/commands/export.rs` |
 | New IPC command | `src-tauri/src/commands/mod.rs` + `src/lib/platform/tauri.ts` |
 | Performance regression | Read perf logs (§15), check `framesProduced`, `mean_decode_us`, `jank_events` |
-| Preview bug | Read `docs/preview/NATIVE_SURFACE_ARCHITECTURE.md` first |
+| Preview bug | Read `docs/preview/NATIVE_SURFACE_ARCHITECTURE.md`, ADR-0001, and the latest relevant incident record first |
 | Text/caption feature | `src/features/captions/` + `src/lib/text/` + `src/lib/captions/` |
 | Thumbnail quality | `src-tauri/src/thumbnail_engine/pyramid.rs` + `src/lib/filmstrip/filmstripTiers.ts` |
