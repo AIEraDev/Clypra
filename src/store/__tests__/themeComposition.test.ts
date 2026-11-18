@@ -53,4 +53,21 @@ describe("independent UI theme and clip palette composition", () => {
       expect(Object.keys(uiTheme).some((key) => clipKeys.has(key))).toBe(false);
     }
   });
+
+  it("sets data-theme attribute on document.documentElement for dark and light modes", () => {
+    applyTheme("light", "light", null);
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+
+    applyTheme("dark", "dark", null);
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+
+    useSettingsStore.getState().setTheme("light");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    expect(useSettingsStore.getState().uiTheme).toBe("light");
+    expect(useSettingsStore.getState().clipPalette).toBe("light");
+
+    useSettingsStore.getState().setTheme("dark");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(useSettingsStore.getState().uiTheme).toBe("dark");
+  });
 });
