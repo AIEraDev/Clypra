@@ -16,7 +16,31 @@ use crate::filmstrip_engine::stream_actor::types::{
     reset_producer_downloads_wasted, reset_producer_lookahead_downloads_skipped, DecodedActorFrame,
     DecodedVideoPlanes, PRODUCER_LOOKAHEAD_DOWNLOADS_SKIPPED,
 };
+use crate::filmstrip_engine::stream_actor::worker::should_prime_forward;
 use clypra_native_core::QualityTier;
+
+#[test]
+fn exact_paused_seeks_do_not_schedule_opportunistic_forward_priming() {
+    let exact_paused_seek = DecodeFrameOptions {
+        allow_keyframe_approx: false,
+        quality: QualityTier::Full,
+        is_playback: false,
+        skip_hw_download: false,
+        target_dimensions: None,
+    };
+    let continuous_playback = DecodeFrameOptions {
+        is_playback: true,
+        ..exact_paused_seek
+    };
+    let approximate_scrub = DecodeFrameOptions {
+        allow_keyframe_approx: true,
+        ..exact_paused_seek
+    };
+
+    assert!(should_prime_forward(continuous_playback));
+    assert!(!should_prime_forward(exact_paused_seek));
+    assert!(!should_prime_forward(approximate_scrub));
+}
 
 #[tokio::test]
 async fn test_prime_cache_direct_hit() {

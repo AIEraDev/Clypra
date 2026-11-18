@@ -201,7 +201,13 @@ impl StreamDecoderActor {
             // When idle, prime the next 1-2 frames forward sequentially.
             // Any newly arrived job interrupts priming and is returned as pending_job.
             if let (Some(base_time), Some(opts)) = (last_decoded_time, last_decoded_options) {
-                if !opts.allow_keyframe_approx {
+                // Exact paused seek/scrub requests are terminal interactive
+                // work. Priming their successors can monopolize the one
+                // stream actor just as the user issues the next seek, turning
+                // a completed settle into a multi-hundred-ms queue wait.
+                // Continuous playback alone benefits from this speculative
+                // forward decode because its next frame is predictable.
+                if should_prime_forward(opts) {
                     pending_job = self.try_prime_forward(base_time, opts).await;
                 }
             }
@@ -615,4 +621,8 @@ impl StreamDecoderActor {
             served_count: 0,
         })
     }
+}
+
+pub(crate) fn should_prime_forward(options: DecodeFrameOptions) -> bool {
+    options.is_playback && !options.allow_keyframe_approx
 }
