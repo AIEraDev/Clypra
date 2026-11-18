@@ -182,6 +182,10 @@ import {
 } from "@/core/playback/previewOutputAdapters";
 import { ensureNativeFontsRegistered } from "@/core/fonts/nativeFontRegistry";
 import {
+  decideNativeScrubDemandDispatch,
+  type NativeScrubDemandPacingState,
+} from "@/core/playback/nativeScrubDemandPacing";
+import {
   EMBEDDED_PREVIEW_ONLY,
   NATIVE_PREVIEW_ONLY,
   createNativePlaybackFrameDemand,
@@ -1528,6 +1532,7 @@ export const NativeProgramPreview: React.FC = () => {
     >();
     const nativeFrontendPerfSpans = new Map<string, NativePerfSpan>();
     let nativeDemandSequence = 0;
+    let nativeScrubDemandPacing: NativeScrubDemandPacingState | null = null;
     const createDemandOperationRequest = (
       request: NativeFrameRequest,
       generation: number,
@@ -1605,6 +1610,8 @@ export const NativeProgramPreview: React.FC = () => {
         dropReason: presentation.dropReason,
       });
       if (presentation.presented) {
+        const settlesCurrentSeek =
+          pending.generation === visibleRequestGeneration;
         nativeSurfaceShown = true;
         onFramePresentedOrPainted(
           false,
@@ -1626,11 +1633,18 @@ export const NativeProgramPreview: React.FC = () => {
               }
             : undefined,
         });
-        if (clock.isSeeking) {
+        if (settlesCurrentSeek && clock.isSeeking) {
           const seekLatencyMs = clock.completeSeek();
           if (seekLatencyMs !== null) {
             telemetryCollector.recordSeekSpan(seekLatencyMs, false);
           }
+        }
+        if (!settlesCurrentSeek) {
+          // A paced forward scrub may intentionally retain one older decode
+          // long enough to paint it. It improves continuity, but only the
+          // latest generation is allowed to settle the seek/playhead state.
+          forceRenderNeeded = true;
+          wakeNativeRenderLoopRef.current?.();
         }
       } else {
         lastNativePlaybackRequestKey = "";
@@ -4153,6 +4167,22 @@ export const NativeProgramPreview: React.FC = () => {
                   return;
                 }
               } else if (persistentNativePausedEligible) {
+                const scrubDemandPacing = decideNativeScrubDemandDispatch(
+                  nativeScrubDemandPacing,
+                  requestToPresent.frameTime.frameIndex,
+                  isScrubbing,
+                  performance.now(),
+                );
+                nativeScrubDemandPacing = scrubDemandPacing.next;
+                if (!scrubDemandPacing.shouldDispatch) {
+                  // Keep the currently accepted frame decode alive. The next
+                  // render tick submits the latest forward target after the
+                  // bounded pacing interval, rather than cancelling it now.
+                  forceRenderNeeded = true;
+                  renderInFlight = false;
+                  scheduleNextFrame();
+                  return;
+                }
                 // Paused P0 seeks use the same bounded Rust-owned latest-only
                 // worker as playback. The invoke below only replaces a demand;
                 // presentation acknowledgement arrives asynchronously after the
