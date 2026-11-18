@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/clypra.svg" />
@@ -19,22 +19,79 @@
     <meta property="twitter:card" content="summary_large_image" />
     <meta property="twitter:title" content="Clypra - A Premium Video Editor" />
     <meta property="twitter:description" content="A modern, high-performance video editor engineered using Tauri, React, and Rust. Experience a professional NLE timeline, hardware acceleration, and visual asset pools directly on your machine—with mobile versions coming soon." />
+
+    <!--
+      ┌─────────────────────────────────────────────────────────────────────┐
+      │  THEME BOOTSTRAP — runs before first paint, zero flash              │
+      │                                                                     │
+      │  Reads the persisted theme from localStorage["clypra-settings"]    │
+      │  (Zustand persist key) and stamps data-theme on <html> immediately. │
+      │  Falls back to the OS preference, then "dark".                     │
+      │                                                                     │
+      │  Must stay inline & synchronous — never move to an external file.  │
+      └─────────────────────────────────────────────────────────────────────┘
+    -->
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem("clypra-settings");
+          var saved = raw ? JSON.parse(raw)?.state?.appearance : null;
+          var theme =
+            saved === "dark" || saved === "light"
+              ? saved
+              : window.matchMedia("(prefers-color-scheme: light)").matches
+                ? "light"
+                : "dark";
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (_) {
+          /* localStorage blocked (private mode / sandboxed) — keep default dark */
+        }
+      })();
+    </script>
+
     <style>
-      /* Prevent flash on load — exact design token values (dark mode default)
-         --ds-neutral-950 = #0b0e12  (surface-app)
-         --ds-neutral-920 = #0f141a  (surface-workspace)
-         --ds-neutral-900 = #12171d  (spinner track)
-         --ds-accent-500  = #5ab8d4  (accent-primary dark)                   */
-      html,
-      body {
-        margin: 0;
-        padding: 0;
-        background-color: #0b0e12;
-        color: #edf2f4;
-        overflow: hidden;
+      /*
+       * ── Design token primitives ─────────────────────────────────────────
+       * Inline only the values that the loading screen needs before the main
+       * CSS bundle loads. Keep in sync with src/design-tokens.css.
+       *
+       * Primitives (theme-invariant):
+       *   --ds-neutral-950  #0b0e12   --ds-neutral-50   #f4f6f8
+       *   --ds-neutral-900  #12171d   --ds-neutral-100  #e4e9ee
+       *   --ds-accent-500   #5ab8d4   --ds-accent-700   #2a7d99
+       */
+
+      /* Dark — default (:root) */
+      :root,
+      [data-theme="dark"] {
+        --clypra-surface-app:    #0b0e12;
+        --clypra-accent-primary: #5ab8d4;
+        --clypra-spinner-track:  #12171d;
+        --clypra-text-muted:     rgba(237, 242, 244, 0.42);
+        --clypra-accent-glow:    rgba(90, 184, 212, 0.07);
+        color-scheme: dark;
       }
 
-      /* Pre-React loading overlay */
+      /* Light */
+      [data-theme="light"] {
+        --clypra-surface-app:    #f4f6f8;
+        --clypra-accent-primary: #2a7d99;
+        --clypra-spinner-track:  #e4e9ee;
+        --clypra-text-muted:     rgba(17, 24, 39, 0.42);
+        --clypra-accent-glow:    rgba(42, 125, 153, 0.06);
+        color-scheme: light;
+      }
+
+      /* ── Reset ────────────────────────────────────────────────────────── */
+      html, body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background-color: var(--clypra-surface-app);
+        color-scheme: inherit;
+      }
+
+      /* ── Pre-React loading overlay ────────────────────────────────────── */
       #app-loading {
         position: fixed;
         inset: 0;
@@ -42,51 +99,49 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 20px;
-        /* Matches bg-surface-app + subtle accent glow used by the React shell */
+        gap: 18px;
         background:
-          radial-gradient(ellipse 60% 40% at 50% 0%, rgba(90, 184, 212, 0.07) 0%, transparent 60%),
-          #0b0e12;
-        z-index: 9999;
-        /* Smooth fade-out once React content is ready */
-        transition: opacity 0.2s ease, visibility 0.2s ease;
+          radial-gradient(ellipse 55% 35% at 50% 0%, var(--clypra-accent-glow) 0%, transparent 65%),
+          var(--clypra-surface-app);
+        /* Fade out gracefully once React content fills #root */
         opacity: 1;
         visibility: visible;
+        transition: opacity 0.25s ease, visibility 0.25s ease;
+        pointer-events: none; /* never blocks interaction */
+        z-index: 9999;
       }
 
       #app-loading .logo {
         width: 36px;
         height: 36px;
-        opacity: 0.65;
+        opacity: 0.6;
       }
 
       #app-loading .spinner {
-        width: 28px;
-        height: 28px;
-        /* Track = neutral-900 (#12171d), fill = accent-500 (#5ab8d4) */
-        border: 2px solid #12171d;
-        border-top-color: #5ab8d4;
+        width: 26px;
+        height: 26px;
+        border: 2px solid var(--clypra-spinner-track);
+        border-top-color: var(--clypra-accent-primary);
         border-radius: 50%;
-        animation: spin 0.75s linear infinite;
+        animation: clypra-spin 0.75s linear infinite;
       }
 
-      @keyframes spin {
+      @keyframes clypra-spin {
         to { transform: rotate(360deg); }
       }
 
-      /* Fade out (not snap-hide) once React mounts content into #root */
+      /* ── Hide once React mounts content ──────────────────────────────── */
       #root:not(:empty) ~ #app-loading {
         opacity: 0;
         visibility: hidden;
-        pointer-events: none;
       }
     </style>
   </head>
 
   <body>
     <div id="root"></div>
-    <div id="app-loading">
-      <img class="logo" src="/clypra.svg" alt="" aria-hidden="true" />
+    <div id="app-loading" aria-hidden="true">
+      <img class="logo" src="/clypra.svg" alt="" />
       <div class="spinner"></div>
     </div>
     <script type="module" src="/src/main.tsx"></script>
