@@ -1,8 +1,9 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Search, Settings, Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useI18n } from "@/i18n/I18nProvider";
+import { getAppVersion, getAppVersionSync } from "@/lib/app/appVersion";
 
 interface LaunchHeaderProps {
   isMacNativeWindow: boolean;
@@ -19,6 +20,27 @@ export const LaunchHeader: React.FC<LaunchHeaderProps> = ({
 }) => {
   const { uiTheme, setTheme } = useSettingsStore();
   const { t } = useI18n();
+  const [appVersion, setAppVersion] = useState<string>(() => getAppVersionSync());
+
+  useEffect(() => {
+    let isMounted = true;
+    getAppVersion()
+      .then((ver) => {
+        if (isMounted && ver) {
+          setAppVersion(ver);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const displayVersion = appVersion
+    ? appVersion.startsWith("v")
+      ? appVersion
+      : `v${appVersion}`
+    : "";
 
   return (
     <header className="relative z-20 shrink-0 w-full border-b border-border-default/60 bg-surface-panel/85 backdrop-blur-md">
@@ -56,9 +78,11 @@ export const LaunchHeader: React.FC<LaunchHeaderProps> = ({
               <span className="text-base font-bold text-text-primary tracking-tight">
                 Clypra
               </span>
-              <span className="text-[10px] font-mono font-medium px-1.5 py-0.2 rounded-md bg-surface-elevated text-text-muted border border-border-subtle">
-                v1.6.0
-              </span>
+              {displayVersion && (
+                <span className="text-[10px] font-mono font-medium px-1.5 py-0.2 rounded-md bg-surface-elevated text-text-muted border border-border-subtle">
+                  {displayVersion}
+                </span>
+              )}
             </div>
             <span className="text-[11px] text-text-muted">
               Desktop Non-Linear Video Editor

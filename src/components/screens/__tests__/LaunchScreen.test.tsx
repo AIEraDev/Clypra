@@ -6,6 +6,7 @@ import { useProjectStore } from "@/store/projectStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { platform } from "@/core/platform";
 import type { RecentProjectEntry } from "@/core/platform/platform";
+import { APP_VERSION } from "@/config/version";
 
 // Mock DualRecordService
 vi.mock("@/services/dualRecordService", () => ({
@@ -117,7 +118,7 @@ describe("LaunchScreen — Redesigned Experience", () => {
     );
 
     expect(screen.getAllByText("Clypra").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("v1.6.0")).toBeDefined();
+    expect(screen.getByText(`v${APP_VERSION}`)).toBeDefined();
     expect(screen.getByPlaceholderText("Search projects...")).toBeDefined();
   });
 
