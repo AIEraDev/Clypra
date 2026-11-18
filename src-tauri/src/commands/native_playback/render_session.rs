@@ -136,6 +136,14 @@ impl LatestPlaybackDemand {
 }
 
 impl NativeRenderSession {
+    /// A newer explicit demand must establish the native cancellation fence
+    /// before it is accepted. Otherwise a previous generation can remain in
+    /// decode long enough to reach the retained surface after the user has
+    /// issued a newer seek.
+    pub(crate) fn demand_requires_recency_barrier(&self, generation: u64) -> bool {
+        generation > self.generation.load(Ordering::Acquire)
+    }
+
     pub(crate) async fn new(
         snapshot: FrameRequest,
         configured_at: Instant,
@@ -1309,6 +1317,16 @@ mod tests {
         
         // The generation check in submit rejects it immediately
         assert!(session.pending.lock().unwrap().value.is_none(), "Stale demand rejected by generation check");
+    }
+
+    #[test]
+    fn newer_demand_requires_recency_barrier_before_acceptance() {
+        let session = mock_session();
+        session.generation.store(12, Ordering::Release);
+
+        assert!(session.demand_requires_recency_barrier(13));
+        assert!(!session.demand_requires_recency_barrier(12));
+        assert!(!session.demand_requires_recency_barrier(11));
     }
 
     #[test]

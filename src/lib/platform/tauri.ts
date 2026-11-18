@@ -1397,10 +1397,16 @@ export async function setNativeAudioOutput(
   await invoke("set_native_audio_output", { volume, muted });
 }
 
-export async function seekNativeAudio(positionTicks: number): Promise<void> {
+export async function seekNativeAudio(
+  positionTicks: number,
+  correlation?: { generation?: number },
+): Promise<void> {
   if (!isTauriRuntime())
     throw new Error("seekNativeAudio requires the Tauri runtime");
-  await invoke("seek_native_audio", { positionTicks });
+  await invoke("seek_native_audio", {
+    positionTicks,
+    generation: correlation?.generation,
+  });
 }
 
 export async function loadNativeAudioClip(options: {

@@ -65,6 +65,16 @@ impl NativePlaybackRuntime {
             .submit(demand)
     }
 
+    pub(crate) fn demand_requires_recency_barrier(
+        &self,
+        generation: u64,
+    ) -> Result<bool, String> {
+        self.render_session
+            .as_ref()
+            .map(|session| session.demand_requires_recency_barrier(generation))
+            .ok_or_else(|| "Native playback render snapshot is not configured".to_string())
+    }
+
     pub fn start_render(&self, app: AppHandle) {
         if let Some(session) = &self.render_session {
             session.start(app);

@@ -580,6 +580,7 @@ export interface NativeSyncSeekSnapshot {
     presented_ticks: number;
     latency_micros: number;
     correct: boolean;
+    generation?: number;
   }>;
 }
 

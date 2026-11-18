@@ -834,7 +834,9 @@ export class NativeAudioPreviewController {
           // Collapse rapid scrub updates and use the latest playhead.
           const targetTime = this.clock.time;
           const seekStartedAt = performance.now();
-          await seekNativeAudio(secondsToTicks(targetTime));
+          await seekNativeAudio(secondsToTicks(targetTime), {
+            generation: currentSeek?.generation,
+          });
           const audioSeekUs = elapsedUs(seekStartedAt);
           if (activeScrubId) {
             telemetryCollector.recordScrubAudioSeek(activeScrubId, audioSeekUs);

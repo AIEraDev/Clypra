@@ -3660,7 +3660,7 @@ pub(crate) async fn present_native_frame_internal(
     let presented_ticks = (request.frame_time.ticks.max(0) as i128 * 1_000_000i128
         / request.frame_time.timescale.max(1) as i128)
         .min(i64::MAX as i128) as i64;
-    SYNC_METRICS.record_frame_presented_with_options(
+    SYNC_METRICS.record_frame_presented_with_generation(
         presented_ticks,
         1_000_000i64 / i64::from(request.project.frame_rate.max(1)),
         matches!(
@@ -3668,6 +3668,7 @@ pub(crate) async fn present_native_frame_internal(
             Some("playback") | Some("playback-lookahead")
         ),
         request.mode.as_deref() != Some("playback-lookahead"),
+        request.generation,
     );
     drop(surface);
     drop(session);

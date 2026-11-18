@@ -387,11 +387,28 @@ pub async fn update_native_playback_render(
 /// Replace the single pending Native playback demand. This command returns
 /// without waiting for decode, composition, or surface presentation.
 #[tauri::command]
-pub fn submit_native_playback_demand(
+pub async fn submit_native_playback_demand(
     app: AppHandle,
     demand: NativePlaybackFrameDemand,
 ) -> Result<(), String> {
     let state = runtime(&app)?;
+    let generation = demand.generation.unwrap_or(0);
+    let requires_recency_barrier = {
+        let runtime = state
+            .lock()
+            .map_err(|_| "Native playback runtime lock is poisoned".to_string())?;
+        runtime.demand_requires_recency_barrier(generation)?
+    };
+
+    // A newer explicit seek is both a demand and a cancellation boundary.
+    // Keep those actions in one native command so a prior decode cannot
+    // outlive a frontend fire-and-forget cancellation IPC and present an old
+    // frame after the newest seek has been accepted.
+    if requires_recency_barrier {
+        crate::commands::native_preview::cancel_native_preview_requests(app.clone(), generation)
+            .await?;
+    }
+
     let runtime = state
         .lock()
         .map_err(|_| "Native playback runtime lock is poisoned".to_string())?;
