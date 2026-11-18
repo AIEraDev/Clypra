@@ -34,10 +34,6 @@ vi.mock("@/components/settings/KeyboardShortcutsSettings", () => ({
   ),
 }));
 
-vi.mock("@/components/settings/PreviewDiagnosticsTab", () => ({
-  PreviewDiagnosticsTab: () => <div data-testid="preview-diagnostics-tab" />,
-}));
-
 vi.mock("@clypra/ui-color-picker", () => ({
   ClypraColorPicker: () => <div data-testid="color-picker-mock" />,
 }));
