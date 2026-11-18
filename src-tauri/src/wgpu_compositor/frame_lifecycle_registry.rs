@@ -76,6 +76,11 @@ pub struct RegistrySnapshot {
     pub allocated_frame_ids: u64,
     pub allocated_attempt_ids: u64,
     pub cumulative_frame_accounting: FrameAccounting,
+    /// Explicit request outcomes use request IDs as their denominator. They
+    /// must never be merged with produced-frame accounting.
+    pub request_presented: u64,
+    pub request_superseded: u64,
+    pub request_cancelled: u64,
 }
 
 #[derive(Debug)]
@@ -398,10 +403,23 @@ impl FrameLifecycleRegistry {
     pub fn diagnostic_snapshot(&self) -> RegistrySnapshot {
         let mut requests_active = 0;
         let mut requests_terminal = 0;
+        let mut request_presented = 0;
+        let mut request_superseded = 0;
+        let mut request_cancelled = 0;
         for state in self.requests.values() {
             match state {
                 LifecycleState::Active => requests_active += 1,
-                LifecycleState::Terminal(_) => requests_terminal += 1,
+                LifecycleState::Terminal(disposition) => {
+                    requests_terminal += 1;
+                    match disposition {
+                        RequestTerminalDisposition::Presented { .. } => request_presented += 1,
+                        RequestTerminalDisposition::Superseded { .. } => request_superseded += 1,
+                        RequestTerminalDisposition::Cancelled => request_cancelled += 1,
+                        RequestTerminalDisposition::Coalesced { .. }
+                        | RequestTerminalDisposition::Failed { .. }
+                        | RequestTerminalDisposition::Abandoned { .. } => {}
+                    }
+                }
             }
         }
 
@@ -437,6 +455,9 @@ impl FrameLifecycleRegistry {
             allocated_frame_ids: self.ids.allocated_frame_count(),
             allocated_attempt_ids: self.ids.allocated_attempt_count(),
             cumulative_frame_accounting: self.cumulative_frame_accounting,
+            request_presented,
+            request_superseded,
+            request_cancelled,
         }
     }
 

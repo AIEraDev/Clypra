@@ -99,6 +99,7 @@ impl<'a> PresentationLifecycleGuard<'a> {
         })
     }
 
+    #[cfg(test)]
     fn frame_id(&self) -> &FrameId {
         &self.frame_id
     }
@@ -2253,24 +2254,12 @@ pub async fn queue_native_frame(
     }
     match decode_native_video_layers(&legacy_request, cancellation, RenderLifecycleContext::empty()).await {
         Ok((decoded_frames, decode_timings, lifecycle_context)) => {
-            // TEMP: Task 3 P1 lookahead lifecycle trace - decode completed
-            if !lifecycle_context.is_empty() {
-                eprintln!("[LIFECYCLE_TRACE] LOOKAHEAD_DECODE_COMPLETED | frame={} internal={}", 
-                    request.frame_time.frame_index,
-                    lifecycle_context.request_ids.first().map(|id| id.as_str()).unwrap_or("none"));
-            }
             // Start this clock as soon as decoding is complete, before taking
             // the queue lock. A contended producer lock should be visible as
             // part of the time the decoded result is unavailable to present.
             let ready_at = Instant::now();
             let mut queue_state = queue.lock().await;
             if is_prefetch || queue_state.is_generation_current(generation) {
-                // TEMP: Task 3 runtime verification trace - queue insertion
-                if !lifecycle_context.is_empty() {
-                    eprintln!("[LIFECYCLE_TRACE] QUEUE_INSERT | internal={} external={} key={:?}", 
-                        lifecycle_context.request_ids.first().map(|id| id.as_str()).unwrap_or("none"),
-                        request.request_id, key);
-                }
                 pending_guard.key = None;
                 let _ = queue_state.complete(
                     key,
@@ -2474,9 +2463,6 @@ pub(crate) fn schedule_lookahead_predecode(
     let frame_rate = base_request.project.frame_rate.max(1);
     let fps = frame_rate as f64;
 
-    // TEMP: Task 3 P1 lookahead lifecycle trace - schedule requested
-    eprintln!("[LIFECYCLE_TRACE] LOOKAHEAD_SCHEDULE_REQUESTED | generation={} lookahead_count={}", generation, lookahead_count);
-
     // Anchor current audio playback position
     let (current_audio_frame, current_audio_secs) = if let Ok(audio_time) =
         crate::commands::native_playback::audio_clock_time(&app, true, false)
@@ -2489,10 +2475,6 @@ pub(crate) fn schedule_lookahead_predecode(
             / (base_request.frame_time.timescale.max(1) as f64);
         (base_request.frame_time.frame_index, base_time_secs)
     };
-
-    // FORENSIC: Audio clock anchor
-    eprintln!("[LOOKAHEAD_FORENSICS] RANGE_CALC | audio_frame={} audio_secs={:.3}", 
-        current_audio_frame, current_audio_secs);
 
     let mut worker_guard = match LOOKAHEAD_WORKER.lock() {
         Ok(guard) => guard,
@@ -2510,7 +2492,11 @@ pub(crate) fn schedule_lookahead_predecode(
             .load(std::sync::atomic::Ordering::Acquire);
         let end_f = active.end_frame.load(std::sync::atomic::Ordering::Acquire);
         let frames_ahead = end_f.saturating_sub(current_audio_frame);
-        let has_sufficient_lookahead = frames_ahead >= 2;
+        // One ready future frame is sufficient to keep the next visible
+        // playback deadline supplied. Requiring two made the scheduler abort
+        // a still-useful worker on every advancing audio tick, which turned
+        // normal playback into repeated queue-starvation misses.
+        let has_sufficient_lookahead = frames_ahead >= 1;
         let is_in_range =
             current_audio_frame >= start_f.saturating_sub(2) && has_sufficient_lookahead;
 
@@ -2536,9 +2522,6 @@ pub(crate) fn schedule_lookahead_predecode(
     let _base_timeline_secs =
         (base_request.frame_time.ticks as f64) / (base_request.frame_time.timescale.max(1) as f64);
 
-    // TEMP: Task 3 P1 lookahead lifecycle trace - schedule accepted
-    eprintln!("[LIFECYCLE_TRACE] LOOKAHEAD_SCHEDULE_ACCEPTED | start_frame={} lookahead_count={}", current_audio_frame, lookahead_count);
-
     let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let worker_finished = finished.clone();
 
@@ -2555,10 +2538,9 @@ pub(crate) fn schedule_lookahead_predecode(
         // so the decoder moves strictly FORWARD in 11ms sequential steps.
         let (start_frame_index, target_end_frame_index, lookahead_decision) = {
             let queue_opt = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>();
-            let (highest, lookahead_decision, queue_depth) = if let Some(queue) = &queue_opt {
+            let (highest, lookahead_decision) = if let Some(queue) = &queue_opt {
                 let mut queue_state = queue.lock().await;
                 queue_state.discard_discontinuity(current_audio_frame, lookahead_count);
-                let depth = queue_state.len();
                 (
                     queue_state.highest_frame_index(),
                     deadline_aware_lookahead_count(
@@ -2566,20 +2548,14 @@ pub(crate) fn schedule_lookahead_predecode(
                         lookahead_count,
                         queue_state.estimated_decode_us(),
                     ),
-                    depth,
                 )
             } else {
                 (
                     None,
                     deadline_aware_lookahead_count(frame_rate, lookahead_count, None),
-                    0,
                 )
             };
             let effective_lookahead_count = lookahead_decision.count;
-
-            // FORENSIC: Queue state inspection
-            eprintln!("[LOOKAHEAD_FORENSICS] QUEUE_STATE | highest={:?} depth={} effective_count={}", 
-                highest, queue_depth, effective_lookahead_count);
 
             let target_end = current_audio_frame.saturating_add(effective_lookahead_count as u64);
             let start = match highest {
@@ -2595,17 +2571,7 @@ pub(crate) fn schedule_lookahead_predecode(
         worker_start_clone.store(start_frame_index, std::sync::atomic::Ordering::Release);
         worker_end_clone.store(target_end_frame_index, std::sync::atomic::Ordering::Release);
 
-        // FORENSIC: Range calculation result
-        eprintln!("[LOOKAHEAD_FORENSICS] RANGE_RESULT | start={} end={} valid={}", 
-            start_frame_index, target_end_frame_index, start_frame_index <= target_end_frame_index);
-
-        // TEMP: Task 3 P1 lookahead lifecycle trace - worker started
-        eprintln!("[LIFECYCLE_TRACE] LOOKAHEAD_WORKER_STARTED | range={}..{}", start_frame_index, target_end_frame_index);
-
         if start_frame_index > target_end_frame_index {
-            // FORENSIC: Worker early exit
-            eprintln!("[LOOKAHEAD_FORENSICS] WORKER_EXIT_EARLY | reason=empty_range start={} end={}", 
-                start_frame_index, target_end_frame_index);
             worker_finished.store(true, std::sync::atomic::Ordering::Release);
             return;
         }
@@ -2630,15 +2596,7 @@ pub(crate) fn schedule_lookahead_predecode(
                 let live_frame = ((audio_time.ticks as f64 / audio_time.timescale.max(1) as f64)
                     * fps)
                     .round() as u64;
-                
-                // FORENSIC: Before each frame decode attempt
-                eprintln!("[LOOKAHEAD_FORENSICS] DECODE_ATTEMPT | target_frame={} live_audio_frame={}", 
-                    target_frame_index, live_frame);
-                
                 if target_frame_index < live_frame {
-                    // FORENSIC: Skip decision
-                    eprintln!("[LOOKAHEAD_FORENSICS] DECODE_SKIP | target={} < live={}", 
-                        target_frame_index, live_frame);
                     continue;
                 }
             }
@@ -2688,24 +2646,7 @@ pub(crate) fn schedule_lookahead_predecode(
                 req.quality = quality;
             }
 
-            // FORENSIC: Before queue_native_frame call
-            eprintln!("[LOOKAHEAD_FORENSICS] PRE_QUEUE | target_frame={} mode=prefetch", 
-                target_frame_index);
-
             let res = queue_native_frame(app.clone(), req).await;
-            
-            // FORENSIC: After queue_native_frame result
-            match &res {
-                Ok(_) => {
-                    eprintln!("[LOOKAHEAD_FORENSICS] QUEUE_SUCCESS | frame={}", target_frame_index);
-                }
-                Err(e) => {
-                    eprintln!("[LOOKAHEAD_FORENSICS] QUEUE_FAILED | frame={} error={:?}", 
-                        target_frame_index, e);
-                    break;
-                }
-            }
-            
             if res.is_err() {
                 break;
             }
@@ -3040,12 +2981,6 @@ pub(crate) async fn present_native_frame_internal(
         lifecycle_context_returned,
     ) = match queued_frame {
         Some(frame) => {
-            // TEMP: Task 3 runtime verification trace
-            if !frame.lifecycle_context.is_empty() {
-                eprintln!("[LIFECYCLE_TRACE] QUEUE_EXTRACT | internal={} external={} queue_hit=true", 
-                    frame.lifecycle_context.request_ids.first().map(|id| id.as_str()).unwrap_or("none"),
-                    request.request_id);
-            }
             (
                 frame.decoded_frames,
                 frame.decode_timings,
@@ -3057,20 +2992,8 @@ pub(crate) async fn present_native_frame_internal(
             )
         },
         None => {
-            // TEMP: Task 3 runtime verification trace
-            if !lifecycle_context.is_empty() {
-                eprintln!("[LIFECYCLE_TRACE] DECODER_DISPATCH | internal={} external={} queue_hit=false", 
-                    lifecycle_context.request_ids.first().map(|id| id.as_str()).unwrap_or("none"),
-                    request.request_id);
-            }
             let (decoded_frames, decode_timings, lifecycle_context_after_decode) =
                 decode_native_video_layers(&legacy_request, None, lifecycle_context).await?;
-            // TEMP: Task 3 runtime verification trace - decoder result
-            if !lifecycle_context_after_decode.is_empty() {
-                eprintln!("[LIFECYCLE_TRACE] DECODER_RESULT | internal={} external={} queue_hit=false", 
-                    lifecycle_context_after_decode.request_ids.first().map(|id| id.as_str()).unwrap_or("none"),
-                    request.request_id);
-            }
             if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>()
             {
                 queue
@@ -3090,14 +3013,6 @@ pub(crate) async fn present_native_frame_internal(
         }
     };
     let decoded_effects = decode_native_effect_layers(&legacy_request.effect_layers).await?;
-    
-    // TEMP: Task 3 runtime verification trace - presentation handoff
-    if !lifecycle_context_returned.is_empty() {
-        eprintln!("[LIFECYCLE_TRACE] PRESENTATION_HANDOFF | internal={} external={} queue_hit={}", 
-            lifecycle_context_returned.request_ids.first().map(|id| id.as_str()).unwrap_or("none"),
-            request.request_id, queue_hit);
-    }
-    
     let queue_residency_us =
         ready_at.map(|ready_at| queue_residency_us(ready_at, presentation_started));
     let scheduler_wait_us = scheduler_lock_wait_us;
@@ -3326,13 +3241,6 @@ pub(crate) async fn present_native_frame_internal(
             )
         })
         .transpose()?;
-    if let Some(lifecycle) = &presentation_lifecycle {
-        eprintln!(
-            "[LIFECYCLE_TRACE] FRAME_PRODUCED | frame={} external={} queue_hit={}",
-            lifecycle.frame_id().as_str(), request.request_id, queue_hit
-        );
-    }
-
     if let Err(error) = surface.show_surface() {
         if let Some(lifecycle) = presentation_lifecycle.as_mut() {
             lifecycle.fail(PresentationFailureReason::SurfaceUnavailable);
@@ -4203,12 +4111,6 @@ pub async fn render_native_frame(
         format: PixelFormat::Rgba8Srgb,
         data: rgba.clone(),
     };
-
-    if let Some(session_collector) =
-        app.try_state::<Arc<crate::wgpu_compositor::SessionTelemetryCollector>>()
-    {
-        session_collector.record_frame_source("cpu-rgba");
-    }
 
     if let Some(cache) = app.try_state::<tokio::sync::Mutex<NativeFrameService>>() {
         let lock_start = Instant::now();

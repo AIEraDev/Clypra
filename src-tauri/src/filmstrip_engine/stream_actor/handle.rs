@@ -202,6 +202,16 @@ impl StreamDecoderActorHandle {
         self.current_generation
             .fetch_max(generation, Ordering::AcqRel);
         self.cancel_in_flight.store(true, Ordering::Release);
+        // Cached frames were decoded under an older transport generation. A
+        // playback restart after a scrub must establish a new decoder anchor,
+        // never satisfy the first demand from a stale GOP cache entry.
+        if let Ok(mut cache) = self.prime_cache.try_lock() {
+            for frame in cache.drain(..) {
+                if frame.served_count == 0 {
+                    PRODUCER_DOWNLOADS_WASTED.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        }
     }
 
     /// Clear the prime cache (e.g. on seek boundary).

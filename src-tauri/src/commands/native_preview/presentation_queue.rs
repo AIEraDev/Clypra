@@ -258,6 +258,7 @@ pub(crate) fn record_native_surface_sample(
             deadline_miss: false,
             source,
             queue_wait_us: Some(scheduler_wait_us),
+            actor_wait_us: decode_timings.actor_wait_us,
             texture_acquire_wait_us: surface_acquire_us,
             command_entry_to_present_enqueue_us,
             frame_processing_us,

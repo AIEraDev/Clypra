@@ -157,6 +157,19 @@ impl StreamDecoderActor {
                 .decode_one(target_time, options, job.request.generation)
                 .await;
 
+            // FFmpeg decoding is blocking and may complete after a newer
+            // seek/scrub generation has invalidated this job. Never cache or
+            // return that frame: doing so can resume playback from a stale
+            // HEVC reference chain after rapid interactive seeking.
+            let generation_is_current = job.request.generation == 0
+                || job.request.generation >= self.current_generation.load(Ordering::Acquire);
+            if !generation_is_current {
+                let _ = job
+                    .response_tx
+                    .send(Err("Request superseded by newer generation".to_string()));
+                continue;
+            }
+
             match res {
                 Ok(mut frame) => {
                     frame.actor_queue_wait_us = actor_queue_wait_us;

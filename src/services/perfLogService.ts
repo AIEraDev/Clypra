@@ -173,6 +173,7 @@ export class PerfLogService {
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private syncPollTimer: ReturnType<typeof setInterval> | null = null;
   private diagnosticsUnlisten: (() => void) | null = null;
+  private lifecycleSnapshotUnlisten: (() => void) | null = null;
   private playbackStartupUnlisten: (() => void) | null = null;
   private workerErrorUnlisten: (() => void) | null = null;
   private engineUnlistens: (() => void)[] = [];
@@ -670,6 +671,10 @@ export class PerfLogService {
       this.diagnosticsUnlisten();
       this.diagnosticsUnlisten = null;
     }
+    if (this.lifecycleSnapshotUnlisten) {
+      this.lifecycleSnapshotUnlisten();
+      this.lifecycleSnapshotUnlisten = null;
+    }
     if (this.playbackStartupUnlisten) {
       this.playbackStartupUnlisten();
       this.playbackStartupUnlisten = null;
@@ -1120,6 +1125,18 @@ export class PerfLogService {
         },
       );
       this.diagnosticsUnlisten = unlisten;
+      this.lifecycleSnapshotUnlisten = await tauriListen(
+        "lifecycle-registry-snapshot",
+        (payload) => {
+          if (!this.sessionId) return;
+          this.enqueue({
+            kind: "native-diagnostic",
+            sessionId: this.sessionId,
+            timestampEpochMs: Date.now(),
+            payload: { marker: "lifecycle-registry-snapshot", ...(payload as object) },
+          });
+        },
+      );
     } catch (err) {
       console.warn(
         "[PerfLogService] Failed to subscribe to native diagnostics:",

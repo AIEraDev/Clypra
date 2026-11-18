@@ -316,6 +316,11 @@ pub struct SessionSnapshot {
     pub avg_ipc_wait_us: Option<u64>,
     pub peak_ipc_wait_us: Option<u64>,
 
+    /// Decode-actor wait is reported independently from decode time so queue
+    /// ownership contention cannot be misclassified as codec throughput.
+    pub avg_actor_wait_us: Option<u64>,
+    pub peak_actor_wait_us: Option<u64>,
+
     // ── GPU render (µs) — Phase 6 will populate ──────────────────────────────
     pub avg_gpu_render_us: Option<u64>,
     pub peak_gpu_render_us: Option<u64>,
@@ -362,6 +367,10 @@ struct SessionState {
     ipc_wait_samples: u64,
     peak_ipc_wait_us: u64,
 
+    total_actor_wait_us: u64,
+    actor_wait_samples: u64,
+    peak_actor_wait_us: u64,
+
     // GPU render (Phase 6)
     total_gpu_render_us: u64,
     gpu_render_samples: u64,
@@ -396,6 +405,9 @@ impl Default for SessionState {
             total_ipc_wait_us: 0,
             ipc_wait_samples: 0,
             peak_ipc_wait_us: 0,
+            total_actor_wait_us: 0,
+            actor_wait_samples: 0,
+            peak_actor_wait_us: 0,
             total_gpu_render_us: 0,
             gpu_render_samples: 0,
             peak_gpu_render_us: 0,
@@ -443,6 +455,12 @@ impl SessionState {
             if ipc > self.peak_ipc_wait_us {
                 self.peak_ipc_wait_us = ipc;
             }
+        }
+
+        if let Some(actor_wait) = t.actor_wait_us {
+            self.total_actor_wait_us += actor_wait;
+            self.actor_wait_samples += 1;
+            self.peak_actor_wait_us = self.peak_actor_wait_us.max(actor_wait);
         }
 
         // GPU render — only measured samples (Phase 6)
@@ -531,6 +549,15 @@ impl SessionState {
             avg_ipc_wait_us: self.total_ipc_wait_us.checked_div(self.ipc_wait_samples),
             peak_ipc_wait_us: if self.ipc_wait_samples > 0 {
                 Some(self.peak_ipc_wait_us)
+            } else {
+                None
+            },
+
+            avg_actor_wait_us: self
+                .total_actor_wait_us
+                .checked_div(self.actor_wait_samples),
+            peak_actor_wait_us: if self.actor_wait_samples > 0 {
+                Some(self.peak_actor_wait_us)
             } else {
                 None
             },
@@ -743,6 +770,26 @@ mod tests {
         let s = c.snapshot();
         assert_eq!(s.avg_queue_wait_us, Some(500), "avg of 400+600 / 2");
         assert_eq!(s.peak_queue_wait_us, Some(600));
+    }
+
+    #[test]
+    fn actor_wait_is_reported_separately_from_decode_time() {
+        let c = SessionTelemetryCollector::new();
+        c.push(&FrameTelemetry {
+            decode_cpu_us: 1_000,
+            actor_wait_us: Some(20_000),
+            ..Default::default()
+        });
+        c.push(&FrameTelemetry {
+            decode_cpu_us: 3_000,
+            actor_wait_us: Some(40_000),
+            ..Default::default()
+        });
+
+        let snapshot = c.snapshot();
+        assert_eq!(snapshot.avg_decode_us, Some(2_000));
+        assert_eq!(snapshot.avg_actor_wait_us, Some(30_000));
+        assert_eq!(snapshot.peak_actor_wait_us, Some(40_000));
     }
 
     #[test]

@@ -614,6 +614,8 @@ export interface NativeSessionSnapshot {
   peakQueueWaitUs?: number | null;
   avgIpcWaitUs?: number | null;
   peakIpcWaitUs?: number | null;
+  avgActorWaitUs?: number | null;
+  peakActorWaitUs?: number | null;
   avgGpuRenderUs?: number | null;
   peakGpuRenderUs?: number | null;
   framesBySource: NativeFramesBySource;

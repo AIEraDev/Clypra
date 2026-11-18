@@ -499,10 +499,6 @@ impl NativeRenderSession {
             let id = registry.begin_request(&demand.request_id)
                 .map_err(|e| format!("Failed to allocate request ID: {}", e))?;
             
-            // TEMP: Task 3 runtime verification trace
-            eprintln!("[LIFECYCLE_TRACE] REQUEST_ACCEPTED | external={} internal={} generation={:?}", 
-                demand.request_id, id.as_str(), demand.generation);
-            
             id
         };
         
@@ -1109,11 +1105,6 @@ impl NativeRenderSession {
                 }
             }
             return None;
-        }
-        if let Some(id) = lifecycle_context.request_ids.first() {
-                // TEMP: Task 3 runtime verification trace
-                eprintln!("[LIFECYCLE_TRACE] RENDER_DISPATCH | internal={} external={} mode={:?}", 
-                    id.as_str(), request.request_id, request.mode);
         }
         match crate::commands::native_preview::present_native_frame_internal(
             app.clone(),

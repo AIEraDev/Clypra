@@ -70,6 +70,10 @@ pub struct FrameTelemetry {
     /// Populated by the Tauri command layer in Phase 5.
     pub ipc_wait_us: Option<u64>,
 
+    /// Time the decode actor held this demand before it could return a frame.
+    /// This is distinct from decoder CPU time and identifies actor contention.
+    pub actor_wait_us: Option<u64>,
+
     // ------------------------------------------------------------------
     // End-to-end Rust-side timings (Phase 3.1) — µs unless noted
     // ------------------------------------------------------------------
