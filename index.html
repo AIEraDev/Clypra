@@ -20,46 +20,65 @@
     <meta property="twitter:title" content="Clypra - A Premium Video Editor" />
     <meta property="twitter:description" content="A modern, high-performance video editor engineered using Tauri, React, and Rust. Experience a professional NLE timeline, hardware acceleration, and visual asset pools directly on your machine—with mobile versions coming soon." />
     <style>
-      /* Prevent white flash on load - match theme colors */
+      /* Prevent flash on load — exact design token values (dark mode default)
+         --ds-neutral-950 = #0b0e12  (surface-app)
+         --ds-neutral-920 = #0f141a  (surface-workspace)
+         --ds-neutral-900 = #12171d  (spinner track)
+         --ds-accent-500  = #5ab8d4  (accent-primary dark)                   */
       html,
       body {
         margin: 0;
         padding: 0;
-        background-color: #0f0f0f;
-        color: #f0f0f0;
-
+        background-color: #0b0e12;
+        color: #edf2f4;
         overflow: hidden;
       }
 
-      /* Loading spinner */
+      /* Pre-React loading overlay */
       #app-loading {
         position: fixed;
         inset: 0;
         display: flex;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
-        background: radial-gradient(100% 120% at 50% 0%, rgba(79, 184, 255, 0.08) 0%, transparent 45%), linear-gradient(180deg, #0f1115 0%, #0e1013 100%);
+        gap: 20px;
+        /* Matches bg-surface-app + subtle accent glow used by the React shell */
+        background:
+          radial-gradient(ellipse 60% 40% at 50% 0%, rgba(90, 184, 212, 0.07) 0%, transparent 60%),
+          #0b0e12;
         z-index: 9999;
+        /* Smooth fade-out once React content is ready */
+        transition: opacity 0.2s ease, visibility 0.2s ease;
+        opacity: 1;
+        visibility: visible;
+      }
+
+      #app-loading .logo {
+        width: 36px;
+        height: 36px;
+        opacity: 0.65;
       }
 
       #app-loading .spinner {
-        width: 48px;
-        height: 48px;
-        border: 3px solid #242424;
-        border-top-color: #6c63ff;
+        width: 28px;
+        height: 28px;
+        /* Track = neutral-900 (#12171d), fill = accent-500 (#5ab8d4) */
+        border: 2px solid #12171d;
+        border-top-color: #5ab8d4;
         border-radius: 50%;
-        animation: spin 0.8s linear infinite;
+        animation: spin 0.75s linear infinite;
       }
 
       @keyframes spin {
-        to {
-          transform: rotate(360deg);
-        }
+        to { transform: rotate(360deg); }
       }
 
-      /* Hide loading when React mounts */
+      /* Fade out (not snap-hide) once React mounts content into #root */
       #root:not(:empty) ~ #app-loading {
-        display: none;
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
       }
     </style>
   </head>
@@ -67,6 +86,7 @@
   <body>
     <div id="root"></div>
     <div id="app-loading">
+      <img class="logo" src="/clypra.svg" alt="" aria-hidden="true" />
       <div class="spinner"></div>
     </div>
     <script type="module" src="/src/main.tsx"></script>
