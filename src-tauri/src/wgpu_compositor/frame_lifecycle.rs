@@ -6,6 +6,7 @@
 //! this module defines their valid semantics and reconciliation invariants.
 
 use super::frame_correlation::WorkloadMode;
+use crate::native_core::NativeScrubDirection;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -45,12 +46,14 @@ lifecycle_id!(
 #[derive(Debug, Clone, Default)]
 pub struct RenderLifecycleContext {
     pub request_ids: Vec<FrameRequestId>,
+    pub scrub_direction: Option<NativeScrubDirection>,
 }
 
 impl RenderLifecycleContext {
     pub fn new(request_id: FrameRequestId) -> Self {
         Self {
             request_ids: vec![request_id],
+            scrub_direction: None,
         }
     }
 
@@ -66,6 +69,11 @@ impl RenderLifecycleContext {
         if !self.request_ids.contains(&request_id) {
             self.request_ids.push(request_id);
         }
+    }
+
+    pub fn with_scrub_direction(mut self, direction: Option<NativeScrubDirection>) -> Self {
+        self.scrub_direction = direction;
+        self
     }
 }
 

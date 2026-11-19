@@ -48,7 +48,8 @@ pub mod native_core {
         BodyEffectSnapshot, ColorGradeSnapshot, ColorPolicy, DecodeCapabilityPolicy,
         EffectLayerSnapshot, FramePacket, FrameRequest, FrameTime, NativeCoreError,
         NativePlaybackFrameDemand, NativePlaybackRasterLayerUpdate, NativePlaybackTextLayerUpdate,
-        NativePlaybackVideoLayerUpdate, PixelFormat, PlaybackClockStatus, PlaybackPlan,
+        NativePlaybackVideoLayerUpdate, NativeScrubDirection, PixelFormat, PlaybackClockStatus,
+        PlaybackPlan,
         PlaybackState, ProjectSnapshot, QualityTier, RasterLayerSnapshot,
         TemplateDefinitionSnapshot, TemplateElementKind, TemplateElementSnapshot,
         TextBackgroundSnapshot, TextEffectDefinitionSnapshot, TextEffectInstance,
@@ -68,7 +69,9 @@ pub mod native_core {
     pub use crate::session::PlaybackSession;
     pub use crate::surface::{
         NativeGpuRuntimeState, NativeGpuRuntimeStatus, NativeSurfaceGeometry,
-        NativeSurfacePresentation, NativeSurfacePresentationTimings, NativeSurfaceProbe,
+        NativeDemandOutcome, NativePresentationDropReason, NativePresentationOutcome,
+        NativeSurfacePresentation, NativeSurfacePresentationTimings,
+        NativeSurfaceProbe,
         NativeSurfaceStatus,
     };
 }
@@ -78,7 +81,8 @@ pub use contracts::{
     BodyEffectSnapshot, ColorGradeSnapshot, ColorPolicy, DecodeCapabilityPolicy,
     EffectLayerSnapshot, FramePacket, FrameRequest, FrameTime, NativeCoreError,
     NativePlaybackFrameDemand, NativePlaybackRasterLayerUpdate, NativePlaybackTextLayerUpdate,
-    NativePlaybackVideoLayerUpdate, PixelFormat, PlaybackClockStatus, PlaybackPlan, PlaybackState,
+    NativePlaybackVideoLayerUpdate, NativeScrubDirection, PixelFormat, PlaybackClockStatus,
+    PlaybackPlan, PlaybackState,
     ProjectSnapshot, QualityTier, RasterLayerSnapshot, TemplateDefinitionSnapshot,
     TemplateElementKind, TemplateElementSnapshot, TextBackgroundSnapshot,
     TextEffectDefinitionSnapshot, TextEffectInstance, TextEffectPassSnapshot, TextLayerSnapshot,
@@ -95,6 +99,9 @@ pub use golden::{compare_rgba8, GoldenDiff};
 pub use performance::{
     FrameDisposition, ModeStats, NativeFrameServiceStats, NativePerformanceSampleBatch,
     PerformanceBudget, PerformanceSample, PreviewMode, ServedFrom, StagePercentiles,
+};
+pub use surface::{
+    NativeDemandOutcome, NativePresentationDropReason, NativePresentationOutcome,
 };
 pub use sdf::{generate_padded_sdf, generate_sdf};
 pub use service::NativeFrameService;

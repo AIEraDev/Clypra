@@ -391,6 +391,22 @@ pub async fn submit_native_playback_demand(
     app: AppHandle,
     demand: NativePlaybackFrameDemand,
 ) -> Result<(), String> {
+    let explicit_demand = crate::commands::native_playback::tracks_explicit_request(&demand);
+    let workload = if demand.is_scrubbing {
+        crate::wgpu_compositor::WorkloadMode::Scrub
+    } else {
+        match demand.mode.as_deref() {
+            Some("playback") | Some("playback-lookahead") => {
+                crate::wgpu_compositor::WorkloadMode::Playback
+            }
+            Some("scrub") => crate::wgpu_compositor::WorkloadMode::Scrub,
+            Some("seek") => crate::wgpu_compositor::WorkloadMode::SeekWarm,
+            Some("frameStep") | Some("frame-step") => {
+                crate::wgpu_compositor::WorkloadMode::FrameStep
+            }
+            _ => crate::wgpu_compositor::WorkloadMode::PausedInteraction,
+        }
+    };
     let state = runtime(&app)?;
     let generation = demand.cancellation_epoch.or(demand.generation).unwrap_or(0);
     let requires_recency_barrier = {
@@ -414,8 +430,15 @@ pub async fn submit_native_playback_demand(
         .map_err(|_| "Native playback runtime lock is poisoned".to_string())?;
     let terminal = runtime.submit_render_demand(demand)?;
     drop(runtime);
+    if explicit_demand {
+        if let Some(collector) =
+            app.try_state::<Arc<crate::wgpu_compositor::SessionTelemetryCollector>>()
+        {
+            collector.record_request_received(workload);
+        }
+    }
     if let Some(terminal) = terminal {
-        let _ = app.emit("clypra://native-playback-demand-terminal", terminal);
+        NativeRenderSession::emit_terminal(&app, terminal);
     }
     Ok(())
 }

@@ -834,6 +834,7 @@ pub fn run() {
             // Box::new(invoke_handler)).
             crate::commands::debug::force_dxgi_latch,
             crate::commands::debug::reset_dxgi_latch,
+            crate::commands::debug::set_native_scrub_experiment_context,
             #[cfg(debug_assertions)]
             crate::commands::debug::capture_preview_frame,
         ]);

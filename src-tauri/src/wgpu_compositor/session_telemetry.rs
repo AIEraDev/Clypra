@@ -29,6 +29,7 @@
 //!   `dropped`, `recorded_at`, `ipc_wait_us`, `gpu_render_us` are all tracked.
 
 use crate::wgpu_compositor::frame_correlation::WorkloadMode;
+use crate::native_core::NativeDemandOutcome;
 use crate::wgpu_compositor::frame_telemetry::FrameTelemetry;
 use crate::wgpu_compositor::render_path::FrameSource;
 use parking_lot::Mutex;
@@ -36,6 +37,17 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
+
+/// Debug-only metadata identifying a controlled scrub experiment. The context
+/// is optional so production sessions keep the existing payload shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScrubExperimentContext {
+    pub experiment_id: String,
+    pub run_id: String,
+    pub cache_cleared: bool,
+    pub background_decode_disabled: bool,
+}
 
 // ---------------------------------------------------------------------------
 // FramesBySource — breakdown of frames per render path
@@ -93,12 +105,18 @@ pub struct WorkloadSnapshot {
     pub requests_received: u64,
     /// Requests for which a frame was successfully presented.
     pub requests_completed: u64,
+    /// Explicit alias with the presentation denominator named directly.
+    pub requests_presented: u64,
     /// Requests merged into an existing in-flight frame (intentional).
     pub requests_coalesced: u64,
     /// Requests replaced by a later request before decoding began.
     pub requests_superseded: u64,
     /// Requests cancelled (e.g. clip closed, session reset).
     pub requests_cancelled: u64,
+    /// Explicit demands dropped after entering presentation processing.
+    pub requests_dropped_before_present: u64,
+    /// Explicit demands that failed in the native pipeline.
+    pub requests_failed: u64,
 
     // ── Frame accounting ──────────────────────────────────────────────────────
     /// Total frames produced for this workload (pushed to telemetry).
@@ -147,9 +165,12 @@ struct WorkloadBucket {
     // Request and frame counters
     requests_received: u64,
     requests_completed: u64,
+    requests_presented: u64,
     requests_coalesced: u64,
     requests_superseded: u64,
     requests_cancelled: u64,
+    requests_dropped_before_present: u64,
+    requests_failed: u64,
     expected_frames: u64,
     completed_frames: u64,
     dropped_frames: u64,
@@ -169,9 +190,12 @@ impl WorkloadBucket {
             rng_state: 0xDEAD_BEEF_CAFE_1234,
             requests_received: 0,
             requests_completed: 0,
+            requests_presented: 0,
             requests_coalesced: 0,
             requests_superseded: 0,
             requests_cancelled: 0,
+            requests_dropped_before_present: 0,
+            requests_failed: 0,
             expected_frames: 0,
             completed_frames: 0,
             dropped_frames: 0,
@@ -236,6 +260,26 @@ impl WorkloadBucket {
         }
     }
 
+    fn record_request(&mut self) {
+        self.requests_received += 1;
+    }
+
+    fn record_request_terminal(&mut self, outcome: NativeDemandOutcome) {
+        match outcome {
+            NativeDemandOutcome::Presented => {
+                self.requests_completed += 1;
+                self.requests_presented += 1;
+            }
+            NativeDemandOutcome::Coalesced => self.requests_coalesced += 1,
+            NativeDemandOutcome::Superseded => self.requests_superseded += 1,
+            NativeDemandOutcome::Cancelled => self.requests_cancelled += 1,
+            NativeDemandOutcome::DroppedBeforePresent => {
+                self.requests_dropped_before_present += 1
+            }
+            NativeDemandOutcome::Failed => self.requests_failed += 1,
+        }
+    }
+
     /// Compute a percentile from the reservoir.  Returns `None` if empty.
     fn percentile(values: &mut [u64], pct: f64) -> Option<u64> {
         if values.is_empty() {
@@ -255,9 +299,12 @@ impl WorkloadBucket {
         WorkloadSnapshot {
             requests_received: self.requests_received,
             requests_completed: self.requests_completed,
+            requests_presented: self.requests_presented,
             requests_coalesced: self.requests_coalesced,
             requests_superseded: self.requests_superseded,
             requests_cancelled: self.requests_cancelled,
+            requests_dropped_before_present: self.requests_dropped_before_present,
+            requests_failed: self.requests_failed,
             expected_frames: self.expected_frames,
             completed_frames: self.completed_frames,
             dropped_frames: self.dropped_frames,
@@ -340,6 +387,8 @@ pub struct SessionSnapshot {
     /// Absent when no correlated frames have been recorded.
     #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub workload_snapshots: HashMap<String, WorkloadSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub experiment_context: Option<ScrubExperimentContext>,
 }
 
 // ---------------------------------------------------------------------------
@@ -388,6 +437,7 @@ struct SessionState {
 
     // Per-workload accumulators (Phase 3.1)
     workload_buckets: HashMap<WorkloadMode, WorkloadBucket>,
+    experiment_context: Option<ScrubExperimentContext>,
 }
 
 impl Default for SessionState {
@@ -418,6 +468,7 @@ impl Default for SessionState {
             policy_background_pauses: 0,
             policy_interactive_throttles: 0,
             workload_buckets: HashMap::new(),
+            experiment_context: None,
         }
     }
 }
@@ -581,6 +632,7 @@ impl SessionState {
             policy_background_pauses: self.policy_background_pauses,
             policy_interactive_throttles: self.policy_interactive_throttles,
             workload_snapshots,
+            experiment_context: self.experiment_context.clone(),
         }
     }
 }
@@ -641,6 +693,39 @@ impl SessionTelemetryCollector {
     /// `deadline_miss`, `dropped`, `gpu_render_us`, `source`.
     pub fn push(&self, telemetry: &FrameTelemetry) {
         self.inner.lock().push(telemetry);
+    }
+
+    /// Record an accepted explicit native demand. Continuous audio-clock
+    /// ticks intentionally do not call this method.
+    pub fn record_request_received(&self, workload: WorkloadMode) {
+        self.inner
+            .lock()
+            .workload_buckets
+            .entry(workload)
+            .or_insert_with(WorkloadBucket::new)
+            .record_request();
+    }
+
+    /// Record exactly one terminal outcome for an explicit native demand.
+    pub fn record_request_terminal(&self, workload: WorkloadMode, outcome: NativeDemandOutcome) {
+        self.inner
+            .lock()
+            .workload_buckets
+            .entry(workload)
+            .or_insert_with(WorkloadBucket::new)
+            .record_request_terminal(outcome);
+    }
+
+    pub fn set_experiment_context(&self, context: ScrubExperimentContext) {
+        self.inner.lock().experiment_context = Some(context);
+    }
+
+    pub fn clear_experiment_context(&self) {
+        self.inner.lock().experiment_context = None;
+    }
+
+    pub fn experiment_context(&self) -> Option<ScrubExperimentContext> {
+        self.inner.lock().experiment_context.clone()
     }
 
     /// Record a policy event — call when `PerformanceManager` updates policy.
@@ -734,6 +819,57 @@ mod tests {
         assert!(s.avg_queue_wait_us.is_none());
         assert!(s.drop_rate_pct.is_none());
         assert!(s.miss_rate_pct.is_none());
+    }
+
+    #[test]
+    fn explicit_request_counters_use_request_denominator() {
+        let c = SessionTelemetryCollector::new();
+        c.record_request_received(WorkloadMode::Scrub);
+        c.record_request_received(WorkloadMode::Scrub);
+        c.record_request_terminal(WorkloadMode::Scrub, NativeDemandOutcome::Presented);
+        c.record_request_terminal(WorkloadMode::Scrub, NativeDemandOutcome::Superseded);
+        c.record_request_received(WorkloadMode::Playback);
+        c.record_request_terminal(
+            WorkloadMode::Playback,
+            NativeDemandOutcome::DroppedBeforePresent,
+        );
+
+        let snapshot = c.snapshot();
+        let scrub = snapshot.workload_snapshots.get("scrub").expect("scrub bucket");
+        assert_eq!(scrub.requests_received, 2);
+        assert_eq!(scrub.requests_completed, 1);
+        assert_eq!(scrub.requests_superseded, 1);
+        let playback = snapshot
+            .workload_snapshots
+            .get("playback")
+            .expect("playback bucket");
+        assert_eq!(playback.requests_received, 1);
+        assert_eq!(playback.requests_dropped_before_present, 1);
+    }
+
+    #[test]
+    fn scrub_experiment_context_is_present_in_snapshot_and_json() {
+        let c = SessionTelemetryCollector::new();
+        c.set_experiment_context(ScrubExperimentContext {
+            experiment_id: "cold-backward-vs-forward".to_string(),
+            run_id: "run-01".to_string(),
+            cache_cleared: true,
+            background_decode_disabled: true,
+        });
+
+        let snapshot = c.snapshot();
+        assert_eq!(
+            snapshot
+                .experiment_context
+                .as_ref()
+                .map(|context| context.run_id.as_str()),
+            Some("run-01")
+        );
+        let json = serde_json::to_value(snapshot).expect("snapshot serializes");
+        assert_eq!(
+            json["experimentContext"]["backgroundDecodeDisabled"],
+            serde_json::Value::Bool(true)
+        );
     }
 
     #[test]

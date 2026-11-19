@@ -80,7 +80,9 @@ pub use performance_manager::{
 pub use frame_telemetry::ResourceBudget;
 
 pub mod session_telemetry;
-pub use session_telemetry::{FramesBySource, SessionSnapshot, SessionTelemetryCollector};
+pub use session_telemetry::{
+    FramesBySource, ScrubExperimentContext, SessionSnapshot, SessionTelemetryCollector,
+};
 
 pub mod preview_capabilities;
 pub use preview_capabilities::{GpuTimestampCapabilities, PreviewCapabilities};

@@ -20,6 +20,7 @@ import { resolve, basename } from "node:path";
 const MUTATIONS_DIR = resolve(process.cwd(), "tests/mutations");
 const CONTRACT_SUITES = [
   "src/core/playback/__tests__/replayBehavioralContract.test.ts",
+  "src/core/playback/__tests__/scrubTraceReplay.test.ts",
   "src/core/audio/__tests__/audioPreviewSyncContract.test.ts",
   "src/components/editor/preview/__tests__/previewStateResetContract.test.ts",
   "src/features/text-effects/__tests__/textEditPreviewCycle.test.ts",
@@ -31,6 +32,13 @@ const RUST_CONTRACT_TESTS = [
   "compositor_raster_transform_tests",
   "compositor_roundtrip_fixture_tests",
 ];
+
+const MUTATION_SUITE_OVERRIDES = new Map([
+  [
+    "broken-scrub-last-target-wins.patch",
+    ["src/core/playback/__tests__/scrubTraceReplay.test.ts"],
+  ],
+]);
 
 function runVitest(testFile) {
   const result = spawnSync(
@@ -109,6 +117,9 @@ function main() {
   const args = process.argv.slice(2);
   const frontendOnly = args.includes("--frontend");
   const rustOnly = args.includes("--rust");
+  const requestedMutation = args
+    .find((arg) => arg.startsWith("--mutation="))
+    ?.slice("--mutation=".length);
 
   console.log("\n┌──────────────────────────────────────────────┐");
   console.log("│  Canary Mutation Verification                │");
@@ -137,13 +148,16 @@ function main() {
       }
     }
 
-    // Check clean tree for Layer A Playwright tests
-    const pxlResult = runPlaywrightTest("PXL-TEXT-01");
-    if (pxlResult.exitCode !== 0) {
-      cleanFailures.push("tests/e2e/preview-canvas-pixel-validation.spec.ts");
-      console.log("  ✗ Layer A Playwright PXL-TEXT-01 FAILED on clean tree (unexpected)");
-    } else {
-      console.log("  ✓ Layer A Playwright PXL-TEXT-01 passed");
+    // A targeted mutation run only needs its mapped contract suite. The full
+    // frontend canary job still runs this Layer A smoke check.
+    if (!requestedMutation) {
+      const pxlResult = runPlaywrightTest("PXL-TEXT-01");
+      if (pxlResult.exitCode !== 0) {
+        cleanFailures.push("tests/e2e/preview-canvas-pixel-validation.spec.ts");
+        console.log("  ✗ Layer A Playwright PXL-TEXT-01 FAILED on clean tree (unexpected)");
+      } else {
+        console.log("  ✓ Layer A Playwright PXL-TEXT-01 passed");
+      }
     }
   }
 
@@ -198,8 +212,8 @@ function main() {
     process.exit(0);
   }
 
-  const patches = readdirSync(MUTATIONS_DIR).filter((f) =>
-    f.endsWith(".patch"),
+  const patches = readdirSync(MUTATIONS_DIR).filter(
+    (f) => f.endsWith(".patch") && (!requestedMutation || f === requestedMutation),
   );
   if (patches.length === 0) {
     console.log("\nNo .patch files in tests/mutations/. Skipping mutation phase.");
@@ -285,7 +299,8 @@ function main() {
         }
       }
     } else {
-      for (const suite of CONTRACT_SUITES) {
+      const suites = MUTATION_SUITE_OVERRIDES.get(patch) ?? CONTRACT_SUITES;
+      for (const suite of suites) {
         if (!existsSync(resolve(process.cwd(), suite))) continue;
         const result = runVitest(suite);
         if (

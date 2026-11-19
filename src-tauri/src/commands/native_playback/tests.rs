@@ -81,6 +81,7 @@ mod tests {
             cancellation_epoch: None,
             mode: Some("playback".to_string()),
             is_scrubbing: false,
+            scrub_direction: None,
             video_layers: Vec::new(),
             raster_layers: Vec::new(),
             text_layers: Vec::new(),

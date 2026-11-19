@@ -24,6 +24,7 @@ import type {
   NativeSyncMetricsSnapshot,
   NativeFramesBySource,
   NativeSessionSnapshot,
+  NativeScrubExperimentContext,
 } from "./nativeCore";
 import { recordRasterUpload } from "@/lib/playback/textMetrics";
 
@@ -1032,6 +1033,16 @@ export async function resetNativeSessionTelemetry(): Promise<void> {
     throw new Error("resetNativeSessionTelemetry requires the Tauri runtime");
   }
   return invoke<void>("reset_session_telemetry");
+}
+
+/** Debug-only controlled scrub experiment marker for local Tauri sessions. */
+export async function setNativeScrubExperimentContext(
+  context: NativeScrubExperimentContext,
+): Promise<void> {
+  if (!isTauriRuntime()) {
+    throw new Error("setNativeScrubExperimentContext requires the Tauri runtime");
+  }
+  return invoke<void>("set_native_scrub_experiment_context", { payload: context });
 }
 
 export async function getNativeGpuStatus(): Promise<NativeGpuRuntimeStatus> {

@@ -553,12 +553,21 @@ export interface NativeSurfacePresentation {
     | "cancelled"
     | "dropped-before-present"
     | "failed";
+  /** Stable source-level classification; prefer this over legacy strings. */
+  outcome?: "presented" | "superseded" | "droppedBeforePresent";
   dropReason?:
     | "stale"
     | "cancelled"
     | "late-for-audio"
     | "present-failed"
-    | "lookahead-miss";
+    | "lookahead-miss"
+    | "superseded"
+    | "backpressure";
+  dropReasonCode?:
+    | "lookahead-miss"
+    | "late-for-audio"
+    | "superseded"
+    | "backpressure";
   timings?: {
     totalUs: number;
     decodeUs: number;
@@ -599,8 +608,24 @@ export interface NativePlaybackDemandTerminal {
     | "cancelled"
     | "dropped-before-present"
     | "failed";
+  outcome?:
+    | "presented"
+    | "coalesced"
+    | "superseded"
+    | "cancelled"
+    | "droppedBeforePresent"
+    | "failed";
+  workload?:
+    | "playback"
+    | "pausedInteraction"
+    | "seekCold"
+    | "seekWarm"
+    | "scrub"
+    | "frameStep";
+  experimentContext?: NativeScrubExperimentContext;
   stage: "mailbox" | "audio-clock" | "recency-fence" | "decode" | "presentation";
   reason: string;
+  scrubDirection?: "forward" | "backward" | "stationary";
   actorWaitUs?: number;
   actorQueueWaitUs?: number;
   decoderMutexWaitUs?: number;
@@ -617,6 +642,13 @@ export interface NativePlaybackDemandTerminal {
     format?: string;
     probeStatus?: string;
   };
+}
+
+export interface NativeScrubExperimentContext {
+  experimentId: string;
+  runId: string;
+  cacheCleared: boolean;
+  backgroundDecodeDisabled: boolean;
 }
 
 export interface NativeSyncDriftSnapshot {
@@ -692,6 +724,25 @@ export interface NativeSessionSnapshot {
   framesBySource: NativeFramesBySource;
   policyBackgroundPauses: number;
   policyInteractiveThrottles: number;
+  workloadSnapshots?: Record<string, {
+    requestsReceived: number;
+    requestsCompleted: number;
+    requestsPresented?: number;
+    requestsCoalesced: number;
+    requestsSuperseded: number;
+    requestsCancelled: number;
+    requestsDroppedBeforePresent?: number;
+    requestsFailed?: number;
+    expectedFrames: number;
+    completedFrames: number;
+    droppedFrames: number;
+    missedDeadlines: number;
+    p50Us?: number | null;
+    p95Us?: number | null;
+    p99Us?: number | null;
+    frameProcessingP50Us?: number | null;
+  }>;
+  experimentContext?: NativeScrubExperimentContext;
 }
 
 export interface NativeFrameTime {
@@ -1032,6 +1083,7 @@ export interface NativePlaybackFrameDemand {
   cancellationEpoch?: number;
   mode?: NativeFrameRequest["mode"];
   isScrubbing?: boolean;
+  scrubDirection?: NativeScrubDirection;
   videoLayers: Array<{
     layerId?: string;
     sourceTime: NativeFrameTime;
@@ -1071,12 +1123,15 @@ export interface NativePlaybackFrameDemand {
   transitionProgress?: number;
 }
 
+export type NativeScrubDirection = "forward" | "backward" | "stationary";
+
 /** Build the compact per-frame update for the persistent Rust Native session. */
 export function createNativePlaybackFrameDemand(
   request: NativeFrameRequest,
   lifecycle?: {
     cancellationEpoch?: number;
     isScrubbing?: boolean;
+    scrubDirection?: NativeScrubDirection;
   },
 ): NativePlaybackFrameDemand {
   return {
@@ -1087,6 +1142,7 @@ export function createNativePlaybackFrameDemand(
     cancellationEpoch: lifecycle?.cancellationEpoch,
     mode: request.mode,
     isScrubbing: lifecycle?.isScrubbing ?? request.isScrubbing === true,
+    scrubDirection: lifecycle?.scrubDirection,
     videoLayers: request.project.videoLayers.map((layer) => ({
       layerId: layer.layerId,
       sourceTime: layer.sourceTime,

@@ -982,6 +982,14 @@ pub struct NativePlaybackTextLayerUpdate {
 /// one bounded pending slot and returns immediately; the render worker owns
 /// decode/composition/presentation and the audio clock remains the only late
 /// frame authority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NativeScrubDirection {
+    Forward,
+    Backward,
+    Stationary,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativePlaybackFrameDemand {
@@ -1001,6 +1009,8 @@ pub struct NativePlaybackFrameDemand {
     /// exact released seek.
     #[serde(default)]
     pub is_scrubbing: bool,
+    #[serde(default)]
+    pub scrub_direction: Option<NativeScrubDirection>,
     #[serde(default)]
     pub video_layers: Vec<NativePlaybackVideoLayerUpdate>,
     #[serde(default)]

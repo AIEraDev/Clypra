@@ -2845,20 +2845,53 @@ pub(crate) fn composite_layers_to_view(
     Ok(())
 }
 
+#[derive(Debug)]
+pub(crate) enum NativePresentationError {
+    InvalidContract(String),
+    Stale,
+    Decode(String),
+    SurfaceNotConfigured,
+    Pipeline(String),
+}
+
+impl std::fmt::Display for NativePresentationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidContract(message) | Self::Decode(message) | Self::Pipeline(message) => {
+                f.write_str(message)
+            }
+            Self::Stale => f.write_str("Native preview frame request is stale"),
+            Self::SurfaceNotConfigured => f.write_str("Native surface has not been configured"),
+        }
+    }
+}
+
+impl From<String> for NativePresentationError {
+    fn from(value: String) -> Self {
+        Self::Pipeline(value)
+    }
+}
+
+impl NativePresentationError {
+    pub(crate) fn is_decode_failure(&self) -> bool {
+        matches!(self, Self::Decode(_))
+    }
+}
+
 pub(crate) async fn present_native_frame_internal(
     app: tauri::AppHandle,
     request: FrameRequest,
     lifecycle_context: RenderLifecycleContext,
     lifecycle_registry: Option<&std::sync::Mutex<FrameLifecycleRegistry>>,
-) -> Result<NativeSurfacePresentation, String> {
+) -> Result<NativeSurfacePresentation, NativePresentationError> {
     let presentation_started = Instant::now();
     let presentation_sequence =
         NATIVE_SURFACE_PRESENTATION_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     if request.contract_version != NATIVE_CORE_CONTRACT_VERSION {
-        return Err(format!(
+        return Err(NativePresentationError::InvalidContract(format!(
             "Unsupported native core contract version: {}",
             request.contract_version
-        ));
+        )));
     }
     if let Some(generation) = request.generation {
         if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
@@ -2869,7 +2902,7 @@ pub(crate) async fn present_native_frame_internal(
                 .await
                 .is_generation_current(generation)
             {
-                return Err("Native preview frame request is stale".to_string());
+                return Err(NativePresentationError::Stale);
             }
         }
     }
@@ -2877,7 +2910,7 @@ pub(crate) async fn present_native_frame_internal(
     validate_video_project_request(&legacy_request)?;
     let surface_state = app
         .try_state::<Arc<std::sync::Mutex<NativeSurfaceRuntime>>>()
-        .ok_or_else(|| "Native surface runtime is unavailable".to_string())?;
+        .ok_or(NativePresentationError::SurfaceNotConfigured)?;
     let presentation_epoch = surface_state
         .lock()
         .unwrap_or_else(|poisoned| {
@@ -3015,7 +3048,9 @@ pub(crate) async fn present_native_frame_internal(
             stale: false,
             cancelled: false,
             terminal_disposition: Some("dropped-before-present".to_string()),
+            outcome: Some(crate::native_core::NativePresentationOutcome::DroppedBeforePresent),
             drop_reason: Some("lookahead-miss".to_string()),
+            drop_reason_code: Some(crate::native_core::NativePresentationDropReason::LookaheadMiss),
             timings: None,
         });
     }
@@ -3041,7 +3076,9 @@ pub(crate) async fn present_native_frame_internal(
         },
         None => {
             let (decoded_frames, decode_timings, lifecycle_context_after_decode) =
-                decode_native_video_layers(&legacy_request, None, lifecycle_context).await?;
+                decode_native_video_layers(&legacy_request, None, lifecycle_context)
+                    .await
+                    .map_err(NativePresentationError::Decode)?;
             if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>()
             {
                 queue
@@ -3096,7 +3133,7 @@ pub(crate) async fn present_native_frame_internal(
                     None, // command_entry_to_present_enqueue_us
                     None, // frame_processing_us
                 );
-                return Err("Native preview frame request is stale".to_string());
+                return Err(NativePresentationError::Stale);
             }
         }
     }
@@ -3125,7 +3162,7 @@ pub(crate) async fn present_native_frame_internal(
         state
     });
     if surface.runtime_epoch() != presentation_epoch {
-        return Err("Native preview frame request is stale".to_string());
+        return Err(NativePresentationError::Stale);
     }
     let target_format = surface
         .configured_format()
@@ -3220,7 +3257,9 @@ pub(crate) async fn present_native_frame_internal(
             stale: true,
             cancelled: false,
             terminal_disposition: Some("superseded".to_string()),
+            outcome: Some(crate::native_core::NativePresentationOutcome::Superseded),
             drop_reason: Some("superseded".to_string()),
+            drop_reason_code: Some(crate::native_core::NativePresentationDropReason::Superseded),
             timings: None,
         });
     }
@@ -3265,7 +3304,9 @@ pub(crate) async fn present_native_frame_internal(
             stale: false,
             cancelled: false,
             terminal_disposition: Some("dropped-before-present".to_string()),
+            outcome: Some(crate::native_core::NativePresentationOutcome::DroppedBeforePresent),
             drop_reason: Some("late-for-audio".to_string()),
+            drop_reason_code: Some(crate::native_core::NativePresentationDropReason::LateForAudio),
             timings: None,
         });
     }
@@ -3276,9 +3317,9 @@ pub(crate) async fn present_native_frame_internal(
             | wgpu::TextureFormat::Bgra8Unorm
             | wgpu::TextureFormat::Rgba8Unorm
     ) {
-        return Err(format!(
+        return Err(NativePresentationError::InvalidContract(format!(
             "Native direct presentation requires an 8-bit RGBA/BGRA surface format, got {target_format:?}"
-        ));
+        )));
     }
     // Warn once if we are presenting to a non-sRGB surface — colours will be
     // slightly different from the sRGB path but the preview will be visible.
@@ -3305,7 +3346,7 @@ pub(crate) async fn present_native_frame_internal(
         if let Some(lifecycle) = presentation_lifecycle.as_mut() {
             lifecycle.fail(PresentationFailureReason::SurfaceUnavailable);
         }
-        return Err(error);
+        return Err(NativePresentationError::Pipeline(error));
     }
     let surface_acquire_started = Instant::now();
     let surface_texture = match surface.acquire_current_texture(&gpu.device) {
@@ -3314,7 +3355,7 @@ pub(crate) async fn present_native_frame_internal(
             if let Some(lifecycle) = presentation_lifecycle.as_mut() {
                 lifecycle.fail(PresentationFailureReason::SurfaceAcquireFailed);
             }
-            return Err(error);
+            return Err(NativePresentationError::Pipeline(error));
         }
     };
     let surface_acquire_us = surface_acquire_started.elapsed().as_micros() as u64;
@@ -3446,10 +3487,10 @@ pub(crate) async fn present_native_frame_internal(
                     }
                     None => {
                         crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled();
-                        return Err(
+                        return Err(NativePresentationError::Pipeline(
                             "DXGI zero-copy texture import failed and no CPU planes cached"
                                 .to_string(),
-                        );
+                        ));
                     }
                 },
             };
@@ -3833,7 +3874,9 @@ pub(crate) async fn present_native_frame_internal(
         stale: false,
         cancelled: false,
         terminal_disposition: Some("presented".to_string()),
+        outcome: Some(crate::native_core::NativePresentationOutcome::Presented),
         drop_reason: None,
+        drop_reason_code: None,
         timings: Some(NativeSurfacePresentationTimings {
             total_us: request_started_at.elapsed().as_micros() as u64,
             decode_us: decode_timings.decode_time_us,
@@ -3862,7 +3905,9 @@ pub async fn present_native_frame(
     app: tauri::AppHandle,
     request: FrameRequest,
 ) -> Result<NativeSurfacePresentation, String> {
-    present_native_frame_internal(app, request, RenderLifecycleContext::empty(), None).await
+    present_native_frame_internal(app, request, RenderLifecycleContext::empty(), None)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 /// Legacy-shaped command retained as a compatibility boundary while callers

@@ -4,12 +4,14 @@ use crate::filmstrip_engine::decoder::{
 };
 use crate::native_core::playback::frame_for_audio_position;
 use crate::native_core::{
-    FrameRequest, FrameTime, NativePlaybackFrameDemand, PlaybackPlan, QualityTier,
+    FrameRequest, FrameTime, NativeDemandOutcome, NativePlaybackFrameDemand, NativeScrubDirection,
+    PlaybackPlan, QualityTier,
     DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION,
 };
 use crate::wgpu_compositor::{
     AbandonReason, FrameLifecycleRegistry, FrameRequestId, LifecycleState,
     RenderLifecycleContext, RequestDropReason, RequestTerminalDisposition,
+    WorkloadMode,
 };
 use parking_lot::RwLock;
 use serde::Serialize;
@@ -123,6 +125,12 @@ pub(crate) struct NativePlaybackDemandTerminal {
     /// replacement from decode/actor or presentation work without guessing.
     pub(crate) stage: &'static str,
     pub(crate) reason: &'static str,
+    pub(crate) outcome: NativeDemandOutcome,
+    pub(crate) workload: WorkloadMode,
+    #[serde(default)]
+    pub(crate) experiment_context: Option<crate::wgpu_compositor::ScrubExperimentContext>,
+    #[serde(default)]
+    pub(crate) scrub_direction: Option<NativeScrubDirection>,
     #[serde(default)]
     pub(crate) actor_wait_us: Option<u64>,
     #[serde(default)]
@@ -163,6 +171,23 @@ pub(crate) fn should_follow_audio_clock(demand: Option<&NativePlaybackFrameDeman
 
 pub(crate) fn tracks_explicit_request(demand: &NativePlaybackFrameDemand) -> bool {
     demand.mode.as_deref() != Some("playback") || demand.is_scrubbing
+}
+
+fn workload_for_mode(mode: Option<&str>, is_scrubbing: bool) -> WorkloadMode {
+    if is_scrubbing {
+        return WorkloadMode::Scrub;
+    }
+    match mode {
+        Some("playback") | Some("playback-lookahead") => WorkloadMode::Playback,
+        Some("scrub") => WorkloadMode::Scrub,
+        Some("seek") => WorkloadMode::SeekWarm,
+        Some("frameStep") | Some("frame-step") => WorkloadMode::FrameStep,
+        _ => WorkloadMode::PausedInteraction,
+    }
+}
+
+fn workload_for_demand(demand: &NativePlaybackFrameDemand) -> WorkloadMode {
+    workload_for_mode(demand.mode.as_deref(), demand.is_scrubbing)
 }
 
 /// Continuous audio-clock ticks are scheduling events, not explicit user or
@@ -208,6 +233,7 @@ impl NativeRenderSession {
         lifecycle_request_id: Option<&FrameRequestId>,
         disposition: &'static str,
         reason: &'static str,
+        outcome: NativeDemandOutcome,
     ) -> NativePlaybackDemandTerminal {
         NativePlaybackDemandTerminal {
             request_id: demand.request_id.clone(),
@@ -223,6 +249,10 @@ impl NativeRenderSession {
                 _ => "presentation",
             },
             reason,
+            outcome,
+            workload: workload_for_demand(demand),
+            experiment_context: None,
+            scrub_direction: demand.scrub_direction,
             actor_wait_us: None,
             actor_queue_wait_us: None,
             decoder_mutex_wait_us: None,
@@ -233,8 +263,23 @@ impl NativeRenderSession {
         }
     }
 
-    fn emit_terminal(app: &AppHandle, terminal: NativePlaybackDemandTerminal) {
+    pub(crate) fn emit_terminal(app: &AppHandle, mut terminal: NativePlaybackDemandTerminal) {
+        if terminal.experiment_context.is_none() {
+            terminal.experiment_context = Self::experiment_context(app);
+        }
+        if let Some(collector) =
+            app.try_state::<Arc<crate::wgpu_compositor::SessionTelemetryCollector>>()
+        {
+            collector.record_request_terminal(terminal.workload, terminal.outcome);
+        }
         let _ = app.emit("clypra://native-playback-demand-terminal", terminal);
+    }
+
+    fn experiment_context(
+        app: &AppHandle,
+    ) -> Option<crate::wgpu_compositor::ScrubExperimentContext> {
+        app.try_state::<Arc<crate::wgpu_compositor::SessionTelemetryCollector>>()
+            .and_then(|collector| collector.experiment_context())
     }
 
     fn finish_request_if_active(
@@ -256,20 +301,30 @@ impl NativeRenderSession {
         frame_index: u64,
         lifecycle_request_id: &FrameRequestId,
         generation: u64,
+        scrub_direction: Option<NativeScrubDirection>,
+        is_scrubbing: bool,
         presentation: &crate::native_core::NativeSurfacePresentation,
     ) -> NativePlaybackDemandTerminal {
-        let (disposition, stage, reason) = match presentation.terminal_disposition.as_deref() {
-            Some("presented") => ("presented", "presentation", "presented"),
-            Some("superseded") => ("superseded", "presentation", "superseded"),
-            Some("dropped-before-present") => match presentation.drop_reason.as_deref() {
-                Some("lookahead-miss") => ("dropped-before-present", "decode", "lookahead-miss"),
-                Some("late-for-audio") => {
-                    ("dropped-before-present", "presentation", "late-for-audio")
+        let (disposition, stage, reason) = match presentation.outcome {
+            Some(crate::native_core::NativePresentationOutcome::Presented) => {
+                ("presented", "presentation", "presented")
+            }
+            Some(crate::native_core::NativePresentationOutcome::Superseded) => {
+                ("superseded", "presentation", "superseded")
+            }
+            Some(crate::native_core::NativePresentationOutcome::DroppedBeforePresent) => {
+                match presentation.drop_reason_code {
+                    Some(crate::native_core::NativePresentationDropReason::LookaheadMiss) => {
+                        ("dropped-before-present", "decode", "lookahead-miss")
+                    }
+                    Some(crate::native_core::NativePresentationDropReason::LateForAudio) => {
+                        ("dropped-before-present", "presentation", "late-for-audio")
+                    }
+                    _ => ("dropped-before-present", "presentation", "backpressure"),
                 }
-                _ => ("dropped-before-present", "presentation", "backpressure"),
-            },
-            _ if presentation.presented => ("presented", "presentation", "presented"),
-            _ => ("dropped-before-present", "presentation", "backpressure"),
+            }
+            None if presentation.presented => ("presented", "presentation", "presented"),
+            None => ("dropped-before-present", "presentation", "backpressure"),
         };
         let timings = presentation.timings.as_ref();
         NativePlaybackDemandTerminal {
@@ -281,6 +336,22 @@ impl NativeRenderSession {
             disposition,
             stage,
             reason,
+            outcome: match presentation.outcome {
+                Some(crate::native_core::NativePresentationOutcome::Presented) => {
+                    NativeDemandOutcome::Presented
+                }
+                Some(crate::native_core::NativePresentationOutcome::Superseded) => {
+                    NativeDemandOutcome::Superseded
+                }
+                Some(crate::native_core::NativePresentationOutcome::DroppedBeforePresent) => {
+                    NativeDemandOutcome::DroppedBeforePresent
+                }
+                None if presentation.presented => NativeDemandOutcome::Presented,
+                None => NativeDemandOutcome::DroppedBeforePresent,
+            },
+            workload: workload_for_mode(presentation.mode.as_deref(), is_scrubbing),
+            experiment_context: None,
+            scrub_direction,
             actor_wait_us: timings.map(|value| value.actor_wait_us),
             actor_queue_wait_us: timings.map(|value| value.actor_queue_wait_us),
             decoder_mutex_wait_us: timings.map(|value| value.decoder_mutex_wait_us),
@@ -297,18 +368,30 @@ impl NativeRenderSession {
         generation: Option<u64>,
         cancellation_epoch: u64,
         frame_index: u64,
+        scrub_direction: Option<NativeScrubDirection>,
+        workload: WorkloadMode,
+        outcome: NativeDemandOutcome,
         error: String,
         surface_state: Option<crate::commands::native_surface::NativeSurfaceDiagnosticState>,
     ) -> NativePlaybackDemandTerminal {
+        let (disposition, stage, reason) = match outcome {
+            NativeDemandOutcome::Superseded => ("superseded", "decode", "latest-value-mailbox"),
+            NativeDemandOutcome::Cancelled => ("cancelled", "recency-fence", "recency-fence"),
+            _ => ("failed", "presentation", "presentation-pipeline"),
+        };
         NativePlaybackDemandTerminal {
             request_id,
             lifecycle_request_id,
             generation,
             cancellation_epoch,
             frame_index,
-            disposition: "failed",
-            stage: "presentation",
-            reason: "presentation-pipeline",
+            disposition,
+            stage,
+            reason,
+            outcome,
+            workload,
+            experiment_context: None,
+            scrub_direction,
             actor_wait_us: None,
             actor_queue_wait_us: None,
             decoder_mutex_wait_us: None,
@@ -317,6 +400,45 @@ impl NativeRenderSession {
             error: Some(error),
             surface_state,
         }
+    }
+
+    fn classify_presentation_error(
+        &self,
+        error: &crate::commands::native_preview::NativePresentationError,
+        request: &FrameRequest,
+        generation: u64,
+    ) -> NativeDemandOutcome {
+        // A decoder error is a terminal failure even when a newer target is
+        // waiting in the mailbox. Supersession only describes work that was
+        // intentionally replaced before it failed; a real decode failure is
+        // actionable and must remain visible to telemetry.
+        if error.is_decode_failure() {
+            return NativeDemandOutcome::Failed;
+        }
+        if matches!(
+            error,
+            crate::commands::native_preview::NativePresentationError::InvalidContract(_)
+                | crate::commands::native_preview::NativePresentationError::SurfaceNotConfigured
+                | crate::commands::native_preview::NativePresentationError::Pipeline(_)
+        ) {
+            return NativeDemandOutcome::Failed;
+        }
+        let has_newer_pending_target = self
+            .pending
+            .lock()
+            .ok()
+            .and_then(|pending| pending.value.as_ref().map(|demand| {
+                demand.frame_time.frame_index != request.frame_time.frame_index
+                    || demand.generation.unwrap_or(0) > request.target_generation.unwrap_or(0)
+            }))
+            .unwrap_or(false);
+        if has_newer_pending_target {
+            return NativeDemandOutcome::Superseded;
+        }
+        if self.generation.load(Ordering::Acquire) > generation {
+            return NativeDemandOutcome::Cancelled;
+        }
+        NativeDemandOutcome::Failed
     }
 
     fn surface_diagnostic_state(
@@ -687,12 +809,15 @@ impl NativeRenderSession {
         let generation = Self::cancellation_epoch(&demand);
         let current = self.generation.load(Ordering::Acquire);
         if generation < current {
-            return Ok(Some(Self::terminal(
-                &demand,
-                None,
-                "cancelled",
-                "stale-epoch",
-            )));
+            return Ok(tracks_explicit_request(&demand).then(|| {
+                Self::terminal(
+                    &demand,
+                    None,
+                    "cancelled",
+                    "stale-epoch",
+                    NativeDemandOutcome::Cancelled,
+                )
+            }));
         }
         self.generation.store(generation, Ordering::Release);
         
@@ -741,6 +866,7 @@ impl NativeRenderSession {
                     Some(superseded_id),
                     "superseded",
                     "latest-value-mailbox",
+                    NativeDemandOutcome::Superseded,
                 ));
             }
             pending.replace(demand, internal_request_id);
@@ -1128,6 +1254,7 @@ impl NativeRenderSession {
                                 Some(internal_id),
                                 "cancelled",
                                 "stale-epoch",
+                                NativeDemandOutcome::Cancelled,
                             ),
                         );
                     }
@@ -1184,6 +1311,7 @@ impl NativeRenderSession {
                                     Some(internal_id),
                                     "coalesced",
                                     "same-frame-audio-clock",
+                                    NativeDemandOutcome::Coalesced,
                                 ),
                             );
                         }
@@ -1339,7 +1467,10 @@ impl NativeRenderSession {
             }
 
             let lifecycle_context = internal_request_id
-                .map(RenderLifecycleContext::new)
+                .map(|id| {
+                    RenderLifecycleContext::new(id)
+                        .with_scrub_direction(dynamic_demand.as_ref().and_then(|d| d.scrub_direction))
+                })
                 .unwrap_or_else(RenderLifecycleContext::empty);
             let _ = self
                 .render_one(&app, base_request, generation, lifecycle_context)
@@ -1375,6 +1506,13 @@ impl NativeRenderSession {
                         disposition: "cancelled",
                         stage: "recency-fence",
                         reason: "recency-fence",
+                        outcome: NativeDemandOutcome::Cancelled,
+                        workload: workload_for_mode(
+                            request.mode.as_deref(),
+                            request.is_scrubbing.unwrap_or(false),
+                        ),
+                        experiment_context: None,
+                        scrub_direction: lifecycle_context.scrub_direction,
                         actor_wait_us: None,
                         actor_queue_wait_us: None,
                         decoder_mutex_wait_us: None,
@@ -1408,28 +1546,27 @@ impl NativeRenderSession {
                 let is_explicit_paused_demand =
                     lifecycle_context.request_ids.first().is_some();
                 if let Some(internal_id) = lifecycle_context.request_ids.first() {
-                    if let Some(disposition) = presentation.terminal_disposition.as_deref() {
-                        let request_disposition = match disposition {
-                            "presented" => None,
-                            "superseded" => {
-                                Some(RequestTerminalDisposition::SupersededWithoutSuccessor)
-                            }
-                            "dropped-before-present" => Some(
-                                RequestTerminalDisposition::DroppedBeforePresent {
-                                    reason: match presentation.drop_reason.as_deref() {
-                                        Some("lookahead-miss") => RequestDropReason::LookaheadMiss,
-                                        Some("late-for-audio") => RequestDropReason::LateForAudio,
-                                        _ => RequestDropReason::Backpressure,
-                                    },
-                                },
-                            ),
-                            _ => Some(RequestTerminalDisposition::Failed {
-                                reason: crate::wgpu_compositor::RequestFailureReason::PipelineFailure,
-                            }),
-                        };
-                        if let Some(request_disposition) = request_disposition {
-                            self.finish_request_if_active(internal_id, request_disposition);
+                    let request_disposition = match presentation.outcome {
+                        Some(crate::native_core::NativePresentationOutcome::Presented) => None,
+                        Some(crate::native_core::NativePresentationOutcome::Superseded) => {
+                            Some(RequestTerminalDisposition::SupersededWithoutSuccessor)
                         }
+                        Some(crate::native_core::NativePresentationOutcome::DroppedBeforePresent) => {
+                            Some(RequestTerminalDisposition::DroppedBeforePresent {
+                                reason: match presentation.drop_reason_code {
+                                    Some(crate::native_core::NativePresentationDropReason::LookaheadMiss) => RequestDropReason::LookaheadMiss,
+                                    Some(crate::native_core::NativePresentationDropReason::LateForAudio) => RequestDropReason::LateForAudio,
+                                    _ => RequestDropReason::Backpressure,
+                                },
+                            })
+                        }
+                        None if presentation.presented => None,
+                        None => Some(RequestTerminalDisposition::Failed {
+                            reason: crate::wgpu_compositor::RequestFailureReason::PipelineFailure,
+                        }),
+                    };
+                    if let Some(request_disposition) = request_disposition {
+                        self.finish_request_if_active(internal_id, request_disposition);
                     }
                 }
                 if presentation.presented {
@@ -1489,6 +1626,8 @@ impl NativeRenderSession {
                             request.frame_time.frame_index,
                             internal_id,
                             generation,
+                            lifecycle_context.scrub_direction,
+                            request.is_scrubbing.unwrap_or(false),
                             &presentation,
                         ),
                     );
@@ -1496,14 +1635,18 @@ impl NativeRenderSession {
                 Some(presentation)
             }
             Err(error) => {
-                // Presentation failed - mark request as failed
+                let outcome = self.classify_presentation_error(&error, &request, generation);
                 if let Some(internal_id) = lifecycle_context.request_ids.first() {
-                    self.finish_request_if_active(
-                        internal_id,
-                        RequestTerminalDisposition::Failed {
+                    let disposition = match outcome {
+                        NativeDemandOutcome::Superseded => {
+                            RequestTerminalDisposition::SupersededWithoutSuccessor
+                        }
+                        NativeDemandOutcome::Cancelled => RequestTerminalDisposition::Cancelled,
+                        _ => RequestTerminalDisposition::Failed {
                             reason: crate::wgpu_compositor::RequestFailureReason::PipelineFailure,
                         },
-                    );
+                    };
+                    self.finish_request_if_active(internal_id, disposition);
                 }
                 if lifecycle_context.request_ids.first().is_some() {
                     Self::emit_terminal(
@@ -1517,7 +1660,10 @@ impl NativeRenderSession {
                             request.target_generation.or(request.generation),
                             generation,
                             request.frame_time.frame_index,
-                            error,
+                            lifecycle_context.scrub_direction,
+                            workload_for_mode(request.mode.as_deref(), request.is_scrubbing.unwrap_or(false)),
+                            outcome,
+                            error.to_string(),
                             Self::surface_diagnostic_state(app),
                         ),
                     );
@@ -1546,6 +1692,7 @@ mod tests {
             cancellation_epoch: None,
             mode: Some("scrub".to_string()),
             is_scrubbing: true,
+            scrub_direction: Some(NativeScrubDirection::Forward),
             video_layers: Vec::new(),
             raster_layers: Vec::new(),
             text_layers: Vec::new(),
@@ -1622,11 +1769,15 @@ mod tests {
             Some(7),
             7,
             42,
+            None,
+            WorkloadMode::PausedInteraction,
+            NativeDemandOutcome::Failed,
             "Native surface acquisition timed out".to_string(),
             Some(surface_state),
         );
 
         assert_eq!(terminal.disposition, "failed");
+        assert_eq!(terminal.outcome, NativeDemandOutcome::Failed);
         assert_eq!(terminal.reason, "presentation-pipeline");
         assert_eq!(
             terminal.error.as_deref(),
@@ -1636,6 +1787,51 @@ mod tests {
         assert!(!state.configured);
         assert!(!state.has_surface);
         assert!(!state.shown);
+    }
+
+    #[test]
+    fn decode_failure_after_newer_queued_target_is_classified_failed() {
+        let session = mock_session();
+        session.generation.store(1, Ordering::Release);
+
+        let older = mock_demand("older", 1);
+        let newer = mock_demand("newer", 2);
+        session.submit(newer).expect("newer target accepted");
+
+        let mut request = session.snapshot.read().as_ref().clone();
+        request.request_id = older.request_id;
+        request.generation = Some(1);
+        request.target_generation = Some(1);
+
+        let outcome = session.classify_presentation_error(
+            &crate::commands::native_preview::NativePresentationError::Decode(
+                "decoder rejected frame".to_string(),
+            ),
+            &request,
+            1,
+        );
+
+        assert_eq!(
+            outcome,
+            NativeDemandOutcome::Failed,
+            "a real decode failure must not be relabeled as supersession"
+        );
+    }
+
+    #[test]
+    fn terminal_outcome_and_scrub_direction_are_source_typed() {
+        let demand = mock_demand("typed-terminal", 3);
+        let terminal = NativeRenderSession::terminal(
+            &demand,
+            None,
+            "superseded",
+            "latest-value-mailbox",
+            NativeDemandOutcome::Superseded,
+        );
+
+        assert_eq!(terminal.outcome, NativeDemandOutcome::Superseded);
+        assert_eq!(terminal.scrub_direction, Some(NativeScrubDirection::Forward));
+        assert_eq!(terminal.workload, WorkloadMode::Scrub);
     }
 
     #[test]
