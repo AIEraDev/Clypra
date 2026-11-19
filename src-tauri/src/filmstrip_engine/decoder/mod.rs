@@ -922,9 +922,17 @@ impl VideoDecoder {
     fn open_software_codec(
         mut ctx: ffmpeg::codec::context::Context,
     ) -> Result<(ffmpeg::codec::decoder::Video, u32, u32), String> {
+        let thread_count = std::thread::available_parallelism()
+            .map(|p| p.get())
+            .unwrap_or(4)
+            .clamp(2, 8) as i32;
+
         unsafe {
             if !ctx.as_mut_ptr().is_null() {
                 (*ctx.as_mut_ptr()).get_format = Some(Self::get_sw_format);
+                (*ctx.as_mut_ptr()).thread_count = thread_count;
+                (*ctx.as_mut_ptr()).thread_type =
+                    (ffmpeg::ffi::FF_THREAD_FRAME | ffmpeg::ffi::FF_THREAD_SLICE) as i32;
             }
         }
 
@@ -1028,6 +1036,13 @@ impl VideoDecoder {
                     (*ctx.as_mut_ptr()).hw_device_ctx = ffmpeg::ffi::av_buffer_ref(hw_ctx);
                     ffmpeg::ffi::av_buffer_unref(&mut hw_ctx);
                     (*ctx.as_mut_ptr()).get_format = Some(Self::get_hw_format);
+                    let thread_count = std::thread::available_parallelism()
+                        .map(|p| p.get())
+                        .unwrap_or(4)
+                        .clamp(2, 8) as i32;
+                    (*ctx.as_mut_ptr()).thread_count = thread_count;
+                    (*ctx.as_mut_ptr()).thread_type =
+                        (ffmpeg::ffi::FF_THREAD_FRAME | ffmpeg::ffi::FF_THREAD_SLICE) as i32;
                     let decoder = ctx.decoder().video().map_err(|e| e.to_string())?;
                     let w = decoder.width();
                     let h = decoder.height();

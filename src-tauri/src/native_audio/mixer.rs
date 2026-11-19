@@ -305,6 +305,63 @@ impl NativeAudioMixer {
 
         let output_channels = usize::from(output_channels);
         let output_sample_rate = i64::from(output_sample_rate);
+        let num_frames = output.len() / output_channels;
+        if num_frames == 0 {
+            return false;
+        }
+
+        let effective_speed = playback_speed.clamp(0.1, 4.0) as f64;
+        let buffer_duration_ticks = ((num_frames as f64
+            * TICKS_PER_SECOND as f64
+            * effective_speed)
+            / output_sample_rate as f64)
+            .ceil() as i64;
+        let buffer_end_ticks = timeline_start_ticks
+            .saturating_add(buffer_duration_ticks)
+            .saturating_add(2);
+
+        let mut stack_clips = [&self.clips[0]; 32];
+        let mut active_count = 0;
+        let mut heap_clips: Option<Vec<&NativePcmClip>> = None;
+
+        for clip in &self.clips {
+            if clip.sample_rate == 0 || clip.channels == 0 || clip.samples.is_empty() {
+                continue;
+            }
+            let clip_channels = usize::from(clip.channels) as i64;
+            let clip_sample_rate = i64::from(clip.sample_rate);
+            let duration_ticks = if clip.duration_ticks > 0 {
+                clip.duration_ticks
+            } else {
+                (clip.samples.len() as i64 / clip_channels).saturating_mul(TICKS_PER_SECOND)
+                    / clip_sample_rate
+            };
+            let clip_end_ticks = clip.timeline_start_ticks.saturating_add(duration_ticks);
+            if clip.timeline_start_ticks < buffer_end_ticks && clip_end_ticks > timeline_start_ticks {
+                if active_count < 32 {
+                    stack_clips[active_count] = clip;
+                    active_count += 1;
+                } else {
+                    let vec = heap_clips.get_or_insert_with(|| {
+                        let mut v = Vec::with_capacity(self.clips.len());
+                        v.extend_from_slice(&stack_clips);
+                        v
+                    });
+                    vec.push(clip);
+                }
+            }
+        }
+
+        if active_count == 0 {
+            return false;
+        }
+
+        let active_clips: &[&NativePcmClip] = if let Some(ref v) = heap_clips {
+            v.as_slice()
+        } else {
+            &stack_clips[..active_count]
+        };
+
         let mut has_audio = false;
 
         for (frame_index, output_frame) in output.chunks_mut(output_channels).enumerate() {
@@ -323,8 +380,7 @@ impl NativeAudioMixer {
                 .round() as i64;
             let timeline_ticks = timeline_start_ticks.saturating_add(frame_ticks);
             for (channel_index, sample) in output_frame.iter_mut().enumerate() {
-                let value = self
-                    .clips
+                let value = active_clips
                     .iter()
                     .filter_map(|clip| {
                         self.sample_at(clip, timeline_ticks, channel_index, playback_speed)

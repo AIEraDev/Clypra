@@ -2515,6 +2515,19 @@ pub(crate) fn schedule_lookahead_predecode(
         return;
     }
 
+    let is_4k_plus = base_request.project.canvas_width >= 3840
+        || base_request.project.canvas_height >= 2160
+        || base_request
+            .project
+            .video_layers
+            .iter()
+            .any(|l| l.width >= 3840.0 || l.height >= 2160.0);
+    let lookahead_count = if is_4k_plus {
+        lookahead_count.min(2)
+    } else {
+        lookahead_count
+    };
+
     // PR4: count every trigger attempt
     crate::filmstrip_engine::stream_actor::record_lookahead_trigger();
 
@@ -2614,7 +2627,11 @@ pub(crate) fn schedule_lookahead_predecode(
                     deadline_aware_lookahead_count(frame_rate, lookahead_count, None),
                 )
             };
-            let effective_lookahead_count = lookahead_decision.count;
+            let effective_lookahead_count = if is_4k_plus {
+                lookahead_decision.count.min(2)
+            } else {
+                lookahead_decision.count
+            };
 
             let target_end = current_audio_frame.saturating_add(effective_lookahead_count as u64);
             let start = match highest {
