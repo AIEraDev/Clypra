@@ -58,7 +58,7 @@ export const VideoAdjustTab: React.FC<VideoAdjustTabProps> = ({
     <div className="space-y-1.5 select-none text-white relative p-2 pt-0">
       {/* Sticky header: sub-tab switcher */}
       <div className="bg-(--color-gray-900) pt-2 sticky top-0 z-10 space-y-1.5">
-        <div className="bg-panel p-0.5 rounded-sm flex gap-1 border border-white/5">
+        <div className="bg-surface-panel p-0.5 rounded-sm flex gap-1 border border-border-default">
           {(["basic", "hsl", "curves", "color-wheel", "mask"] as const).map(
             (tab) => {
               const isLocked = tab !== "basic" && tab !== "hsl";
@@ -79,10 +79,10 @@ export const VideoAdjustTab: React.FC<VideoAdjustTabProps> = ({
                   title={isLocked ? "Coming soon" : undefined}
                   className={`flex-1 py-0.5 text-xs rounded-sm transition-all text-center flex items-center justify-center gap-1 ${
                     isLocked
-                      ? "text-[#8e8e93]/50 cursor-not-allowed"
+                      ? "text-text-muted/50 cursor-not-allowed"
                       : activeSubTab === tab
-                        ? "bg-[#38383e] text-white shadow-sm font-semibold cursor-pointer"
-                        : "text-[#8e8e93] hover:text-white cursor-pointer"
+                        ? "bg-accent-primary text-white shadow-sm font-semibold cursor-pointer"
+                        : "text-text-secondary hover:text-text-primary hover:bg-surface-hover cursor-pointer"
                   }`}
                 >
                   {labels[tab]}
@@ -127,7 +127,7 @@ export const VideoAdjustTab: React.FC<VideoAdjustTabProps> = ({
             )}
           </div>
 
-          <div className="h-px bg-white/5" />
+          <div className="h-px bg-border-default/60" />
 
           {/* Adjust Section */}
           <div className="space-y-2">
@@ -141,7 +141,7 @@ export const VideoAdjustTab: React.FC<VideoAdjustTabProps> = ({
               <div className="pt-2 space-y-4">
                 {/* Color Section */}
                 <div className="space-y-3">
-                  <div className="text-[10px] text-white/40 tracking-wider">
+                  <div className="text-[10px] text-text-muted tracking-wider">
                     Color
                   </div>
                   <GradientSliderControl
@@ -172,7 +172,7 @@ export const VideoAdjustTab: React.FC<VideoAdjustTabProps> = ({
 
                 {/* Lightness Section */}
                 <div className="space-y-3">
-                  <div className="text-[10px] text-white/40 tracking-wider">
+                  <div className="text-[10px] text-text-muted tracking-wider">
                     Lightness
                   </div>
                   <GradientSliderControl
@@ -228,7 +228,7 @@ export const VideoAdjustTab: React.FC<VideoAdjustTabProps> = ({
 
                 {/* Effects Section */}
                 <div className="space-y-3">
-                  <div className="text-[10px] text-white/40 tracking-wider">
+                  <div className="text-[10px] text-text-muted tracking-wider">
                     Effects
                   </div>
                   <GradientSliderControl

@@ -90,7 +90,7 @@ export const PropertySlider: React.FC<PropertySliderProps> = ({
             value={displayValue}
             onChange={handleInputChange}
             disabled={disabled}
-            className="w-14 px-1.5 py-0.5 text-[10px] text-center bg-surface-raised border border-border/60 rounded text-text-primary outline-none focus:border-accent tabular-nums selectable"
+            className="w-14 px-1.5 py-0.5 text-[10px] text-center bg-surface-input border border-border-default rounded text-text-primary outline-none focus:border-accent-primary tabular-nums selectable shadow-2xs"
           />
         ) : (
           <span className="text-[10px] text-text-primary tabular-nums min-w-[32px] text-right select-none">
@@ -151,7 +151,7 @@ export const PropertySlider: React.FC<PropertySliderProps> = ({
             value={displayValue}
             onChange={handleInputChange}
             disabled={disabled}
-            className="w-14 px-1.5 py-0.5 text-[10px] text-center bg-surface-raised border border-border/60 rounded text-text-primary outline-none focus:border-accent tabular-nums selectable"
+            className="w-14 px-1.5 py-0.5 text-[10px] text-center bg-surface-input border border-border-default rounded text-text-primary outline-none focus:border-accent-primary tabular-nums selectable shadow-2xs"
           />
         )}
       </div>

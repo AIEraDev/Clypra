@@ -204,7 +204,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   return (
     <div
       data-properties-panel="true"
-      className={`min-h-0 panel-shell flex flex-col overflow-hidden transition-[width] duration-150 ${
+      className={`min-h-0 bg-surface-panel border border-border-default rounded-md flex flex-col overflow-hidden transition-[width] duration-150 ${
         fillWidth && !collapsed ? "w-full flex-1" : "shrink-0"
       } ${className}`}
       style={{

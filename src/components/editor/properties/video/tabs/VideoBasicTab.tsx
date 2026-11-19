@@ -57,7 +57,7 @@ export const VideoBasicTab: React.FC<VideoBasicTabProps> = ({
       </div>
 
       {/* Divider */}
-      <div className="h-px bg-white/5 my-4" />
+      <div className="h-px bg-border-default/60 my-4" />
 
       {/* Section 2: Blend Controls */}
       <div>
@@ -69,7 +69,7 @@ export const VideoBasicTab: React.FC<VideoBasicTabProps> = ({
       </div>
 
       {/* Divider */}
-      <div className="h-px bg-white/5 my-4" />
+      <div className="h-px bg-border-default/60 my-4" />
 
       {/* Section 3: Canvas Background — only shown for A-roll (primary) clips */}
       {isARoll && (

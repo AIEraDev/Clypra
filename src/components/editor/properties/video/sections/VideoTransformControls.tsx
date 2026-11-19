@@ -1130,7 +1130,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
               type="button"
               onClick={toggleAspectLock}
               className={`relative inline-flex h-5 w-9 cursor-pointer items-center rounded-full transition-colors ${
-                isAspectLocked ? "bg-accent" : "bg-[#3f3f46]"
+                isAspectLocked ? "bg-accent-primary text-white" : "bg-surface-elevated text-text-muted border border-border-default"
               }`}
               aria-label="Toggle uniform scale"
             >
@@ -1234,7 +1234,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
           <div className="flex items-center rounded-sm">
             <button
               type="button"
-              className="bg-[#27272a] hover:bg-[#3f3f46] text-zinc-300 hover:text-white w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
+              className="bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-text-primary border border-border-default w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
               title={t("properties.transform.alignLeft") || "Align left"}
               aria-label={t("properties.transform.alignLeft") || "Align left"}
               onClick={handleAlignLeft}
@@ -1245,7 +1245,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
             <button
               type="button"
-              className="bg-[#27272a] hover:bg-[#3f3f46] text-zinc-300 hover:text-white w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
+              className="bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-text-primary border border-border-default w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
               title={
                 t("properties.transform.alignCenterX") ||
                 "Align center horizontally"
@@ -1262,7 +1262,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
             <button
               type="button"
-              className="bg-[#27272a] hover:bg-[#3f3f46] text-zinc-300 hover:text-white w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
+              className="bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-text-primary border border-border-default w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
               title={t("properties.transform.alignRight") || "Align right"}
               aria-label={t("properties.transform.alignRight") || "Align right"}
               onClick={handleAlignRight}
@@ -1273,7 +1273,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
             <button
               type="button"
-              className="bg-[#27272a] hover:bg-[#3f3f46] text-zinc-300 hover:text-white w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
+              className="bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-text-primary border border-border-default w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
               title={t("properties.transform.alignTop") || "Align top"}
               aria-label={t("properties.transform.alignTop") || "Align top"}
               onClick={handleAlignTop}
@@ -1284,7 +1284,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
             <button
               type="button"
-              className="bg-[#27272a] hover:bg-[#3f3f46] text-zinc-300 hover:text-white w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
+              className="bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-text-primary border border-border-default w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
               title={
                 t("properties.transform.alignCenterY") ||
                 "Align center vertically"
@@ -1301,7 +1301,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
             <button
               type="button"
-              className="bg-[#27272a] hover:bg-[#3f3f46] text-zinc-300 hover:text-white w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
+              className="bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-text-primary border border-border-default w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
               title={t("properties.transform.alignBottom") || "Align bottom"}
               aria-label={
                 t("properties.transform.alignBottom") || "Align bottom"

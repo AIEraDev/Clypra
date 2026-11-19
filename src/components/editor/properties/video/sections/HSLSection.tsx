@@ -166,8 +166,8 @@ export const HSLSection: React.FC<HSLSectionProps> = ({
                         ? // Eyedropper-style "All" button
                           `w-8 h-8 flex items-center justify-center rounded border-2 ${
                             isActive
-                              ? "border-white/80 bg-white/15"
-                              : "border-white/20 bg-[#2c2c2e] hover:border-white/40"
+                              ? "border-accent-primary bg-accent-primary/20"
+                              : "border-border-default bg-surface-elevated hover:border-border-hover"
                           }`
                         : // Color chip
                           `w-7 h-7 rounded-full border-2 hover:scale-110 ${
@@ -190,7 +190,7 @@ export const HSLSection: React.FC<HSLSectionProps> = ({
                         strokeWidth="2"
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                        className={isActive ? "text-white" : "text-white/60"}
+                        className={isActive ? "text-white" : "text-text-muted"}
                       >
                         <circle cx="12" cy="12" r="4" />
                         <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
@@ -203,7 +203,7 @@ export const HSLSection: React.FC<HSLSectionProps> = ({
 
             {/* Per-channel label */}
             {selectedChannel !== "all" && (
-              <div className="text-[10px] text-white/40 tracking-wider capitalize">
+              <div className="text-[10px] text-text-muted tracking-wider capitalize">
                 {selectedChannel} channel
               </div>
             )}

@@ -115,7 +115,7 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
                 <div className="min-w-0">
                   <div className="text-xs font-semibold text-white truncate flex items-center gap-1">
                     {voice.name}
-                    {isSelected && <Check className="w-3 h-3 text-cyan-400" />}
+                    {isSelected && <Check className="w-3 h-3 text-accent-primary" />}
                   </div>
                   <div className="text-[10px] text-[#8e8e93] truncate">
                     {voice.language}
@@ -128,7 +128,7 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
                 onClick={(e) => handlePlayPreview(voice.id, e)}
                 className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors cursor-pointer shrink-0 ml-1 ${
                   isPlaying
-                    ? "bg-cyan-400 text-black"
+                    ? "bg-accent-primary text-white"
                     : "bg-white/10 text-white hover:bg-white/20"
                 }`}
                 title="Preview Voice Sample"
@@ -147,7 +147,7 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
       {/* Speed & Pitch Controls */}
       <div className="space-y-3 pt-2 border-t border-border/30">
         <div className="flex items-center justify-between text-xs">
-          <span className="text-[#a1a1aa]">Speech Speed</span>
+          <span className="text-text-muted">Speech Speed</span>
           <span className="text-white font-medium">{speed.toFixed(1)}x</span>
         </div>
         <input
@@ -161,7 +161,7 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
         />
 
         <div className="flex items-center justify-between text-xs">
-          <span className="text-[#a1a1aa]">Pitch</span>
+          <span className="text-text-muted">Pitch</span>
           <span className="text-white font-medium">{pitch > 0 ? `+${pitch}` : pitch}</span>
         </div>
         <input
@@ -181,7 +181,7 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
           type="button"
           onClick={handleGenerate}
           disabled={isGenerating}
-          className="w-full py-2 px-4 rounded-lg bg-cyan-400 hover:bg-cyan-300 disabled:opacity-60 text-black font-semibold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+          className="w-full py-2 px-4 rounded-lg bg-accent-primary hover:bg-accent-primary/90 disabled:opacity-60 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm"
         >
           {isGenerating ? (
             <>

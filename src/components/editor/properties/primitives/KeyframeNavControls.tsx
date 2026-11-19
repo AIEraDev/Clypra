@@ -44,7 +44,7 @@ export const KeyframeNavControls: React.FC<KeyframeNavControlsProps> = ({
       </span>
 
       <button
-        className={`w-2.5 h-2.5 border border-text-muted text-white inline-flex justify-center items-center transition-colors duration-300 cursor-pointer group ${isAtKeyframe ? "bg-accent" : "hover:bg-accent hover:border-none"}`}
+        className={`w-2.5 h-2.5 border border-text-muted text-white inline-flex justify-center items-center transition-colors duration-300 cursor-pointer group ${isAtKeyframe ? "bg-accent-primary" : "hover:bg-accent-primary hover:border-none"}`}
         style={{ transform: "rotate(45deg)", willChange: "transform" }}
         onClick={onToggleKeyframe}
         title={

@@ -137,19 +137,19 @@ export const IncreaseDecreaseHandler: React.FC<
   );
 
   return (
-    <div className="flex flex-col bg-[#27272a] border border-white/8 rounded-sm overflow-hidden select-none">
+    <div className="flex flex-col bg-surface-elevated border border-border-default rounded-sm overflow-hidden select-none">
       <button
         type="button"
         onPointerDown={(e) => startHold("up", e)}
         onPointerUp={stopHold}
         onClick={handleIncreaseClick}
         disabled={disabled}
-        className={`h-[10px] w-[16px] flex items-center justify-center transition-colors border-b border-white/8 ${
+        className={`h-[10px] w-[16px] flex items-center justify-center transition-colors border-b border-border-default ${
           disabled
-            ? "text-[#71717a]/40 cursor-not-allowed"
+            ? "text-text-muted/40 cursor-not-allowed"
             : activeDirection === "up"
-              ? "bg-white/15 text-white cursor-pointer"
-              : "text-[#71717a] hover:text-white hover:bg-white/8 cursor-pointer"
+              ? "bg-accent-primary/20 text-accent-primary cursor-pointer"
+              : "text-text-muted hover:text-text-primary hover:bg-surface-hover cursor-pointer"
         }`}
         aria-label={`Increase ${label}`}
       >
@@ -164,10 +164,10 @@ export const IncreaseDecreaseHandler: React.FC<
         disabled={disabled}
         className={`h-[10px] w-[16px] flex items-center justify-center transition-colors ${
           disabled
-            ? "text-[#71717a]/40 cursor-not-allowed"
+            ? "text-text-muted/40 cursor-not-allowed"
             : activeDirection === "down"
-              ? "bg-white/15 text-white cursor-pointer"
-              : "text-[#71717a] hover:text-white hover:bg-white/8 cursor-pointer"
+              ? "bg-accent-primary/20 text-accent-primary cursor-pointer"
+              : "text-text-muted hover:text-text-primary hover:bg-surface-hover cursor-pointer"
         }`}
         aria-label={`Decrease ${label}`}
       >

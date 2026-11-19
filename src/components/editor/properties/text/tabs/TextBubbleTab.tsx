@@ -150,19 +150,19 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
     <div className="space-y-2.5 pb-6">
       {/* ── Search Input ── */}
       <div className="relative">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#8e8e93]" />
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search text bubbles..."
-          className="w-full bg-[#18181b] border border-white/10 rounded-md pl-8 pr-8 py-1.5 text-xs text-white placeholder-[#8e8e93]/50 outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/20 transition-colors"
+          className="w-full bg-surface-input border border-border-default rounded-md pl-8 pr-8 py-1.5 text-xs text-text-primary placeholder-text-muted/50 outline-none focus:border-accent-primary focus:ring-1 focus:ring-accent-primary/20 transition-colors"
         />
         {searchQuery && (
           <button
             type="button"
             onClick={() => setSearchQuery("")}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-[#8e8e93] hover:text-white"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-white"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -180,8 +180,8 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
               onClick={() => setSelectedCategory(cat.id)}
               className={`px-3 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-colors cursor-pointer shrink-0 ${
                 isSelected
-                  ? "bg-white/20 text-white border border-white/30 shadow-xs"
-                  : "bg-[#242426] text-[#8e8e93] hover:text-white hover:bg-[#2c2c30] border border-white/5"
+                  ? "bg-accent-primary text-white border-accent-primary shadow-xs"
+                  : "bg-[#242426] text-text-muted hover:text-white hover:bg-[#2c2c30] border border-white/5"
               }`}
             >
               {cat.label}
@@ -192,7 +192,7 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
 
       {/* ── Header Title & Category Dropdown ── */}
       <div className="flex items-center justify-between pt-0.5 relative">
-        <span className="text-[10px] text-[#8e8e93] uppercase font-semibold tracking-wider select-none">
+        <span className="text-[10px] text-text-muted uppercase font-semibold tracking-wider select-none">
           {t("properties.text.speechBubbles") || "Speech Bubbles"}
         </span>
 
@@ -205,7 +205,7 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
             title={t("properties.bubble.filterTooltip") || "Filter by category"}
           >
             <span>{activeCategoryLabel}</span>
-            <SlidersHorizontal className="w-3 h-3 text-[#8e8e93]" />
+            <SlidersHorizontal className="w-3 h-3 text-text-muted" />
           </button>
 
           {/* Filter Dropdown Popover */}
@@ -223,7 +223,7 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
                     }}
                     className={`w-full flex items-center justify-between px-3 py-1.5 text-xs text-left transition-colors cursor-pointer ${
                       isSelected
-                        ? "bg-cyan-500/10 text-cyan-400 font-semibold"
+                        ? "bg-cyan-500/10 text-accent-primary font-semibold"
                         : "text-text-muted hover:text-white hover:bg-white/5"
                     }`}
                   >
@@ -250,12 +250,12 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
               title={preset.name}
               className={`aspect-square rounded-xl flex items-center justify-center transition-all cursor-pointer relative shrink-0 p-1 select-none overflow-hidden ${
                 active
-                  ? "border-2 border-cyan-400 bg-[#28282c] shadow-[0_0_12px_rgba(34,211,238,0.2)]"
-                  : "border border-white/5 bg-[#242426] hover:border-white/20 hover:bg-[#2a2a2e]"
+                  ? "border-2 border-accent-primary bg-accent-primary/10 shadow-[0_0_12px_var(--clypra-accent-glow)]"
+                  : "border border-border-default bg-surface-elevated hover:border-border-hover hover:bg-surface-hover"
               }`}
             >
               {preset.isReset ? (
-                <Ban className="w-5 h-5 text-[#8e8e93]" />
+                <Ban className="w-5 h-5 text-text-muted" />
               ) : (
                 <>
                   {/* Canvas preset preview (uses HTML5 canvas, not HTML document elements) */}

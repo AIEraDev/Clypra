@@ -510,7 +510,7 @@ const TrackInner: React.FC<TrackProps> = ({
           const widthPx = Math.max(1, previewRightPx - previewLeftPx);
           return (
             <div
-              className="pointer-events-none absolute top-1 bottom-1 z-10 rounded border border-accent/60 bg-accent/20"
+              className="pointer-events-none absolute top-1 bottom-1 z-10 rounded border border-accent-primary/60 bg-accent-primary/20"
               style={{
                 left: `${previewLeftPx}px`,
                 width: `${widthPx}px`,

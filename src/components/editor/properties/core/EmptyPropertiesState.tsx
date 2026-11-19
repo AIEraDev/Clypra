@@ -22,7 +22,7 @@ export const EmptyPropertiesState: React.FC<EmptyPropertiesStateProps> = ({
 
   return (
     <div
-      className={`min-h-0 panel-shell flex flex-col overflow-hidden select-none transition-[width] duration-150 ${
+      className={`min-h-0 bg-surface-panel border border-border-default rounded-md flex flex-col overflow-hidden select-none transition-[width] duration-150 ${
         fillWidth && !collapsed ? "w-full flex-1" : "shrink-0"
       } ${className}`}
       style={{
@@ -30,13 +30,13 @@ export const EmptyPropertiesState: React.FC<EmptyPropertiesStateProps> = ({
       }}
     >
       {/* Header */}
-      <div className="panel-head border-b border-border relative flex items-center justify-between px-2.5 py-2.5">
+      <div className="bg-surface-panel border-b border-border-default relative flex items-center justify-between px-2.5 py-2.5">
         {collapsed ? (
           <div className="w-full flex items-center justify-center">
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
-                className="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-accent hover:bg-white/5 transition-colors cursor-pointer"
+                className="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-accent-primary hover:bg-surface-hover transition-colors cursor-pointer"
                 title={t("properties.expand")}
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
@@ -53,7 +53,7 @@ export const EmptyPropertiesState: React.FC<EmptyPropertiesStateProps> = ({
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
-                className="w-5 h-5 flex items-center justify-center rounded text-text-muted hover:text-accent hover:bg-white/5 transition-colors cursor-pointer"
+                className="w-5 h-5 flex items-center justify-center rounded text-text-muted hover:text-accent-primary hover:bg-surface-hover transition-colors cursor-pointer"
                 title={t("properties.collapse")}
               >
                 <ChevronRight className="w-3.5 h-3.5" />
@@ -68,7 +68,7 @@ export const EmptyPropertiesState: React.FC<EmptyPropertiesStateProps> = ({
         <div className="flex flex-col items-center gap-2 py-3 flex-1 overflow-y-auto scrollbar-none">
           <button
             onClick={onToggleCollapse}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-accent bg-accent/10 hover:bg-accent/20 border border-accent/20 transition-colors cursor-pointer"
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-accent-primary bg-accent-primary/10 hover:bg-accent-primary/20 border border-accent-primary/20 transition-colors cursor-pointer"
             title={t("Expand Project Details")}
           >
             <Info className="w-4 h-4" />

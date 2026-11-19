@@ -62,7 +62,7 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
 
       {/* Avatar Presets Grid */}
       <div>
-        <span className="text-xs font-medium text-[#a1a1aa] block mb-2">
+        <span className="text-xs font-medium text-text-muted block mb-2">
           Choose Presenter
         </span>
         <div className="grid grid-cols-2 gap-2">
@@ -94,7 +94,7 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
                 <div className="text-[10px] text-purple-300 truncate max-w-full">
                   {avatar.role}
                 </div>
-                <span className="text-[9px] text-[#8e8e93] bg-white/5 px-1.5 py-0.5 rounded mt-1">
+                <span className="text-[9px] text-text-muted bg-white/5 px-1.5 py-0.5 rounded mt-1">
                   {avatar.tag}
                 </span>
               </div>
@@ -106,15 +106,15 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
       {/* Framing & Placement */}
       <div className="space-y-3 pt-2 border-t border-border/30">
         <div className="flex items-center justify-between">
-          <span className="text-xs text-[#a1a1aa]">Framing</span>
-          <div className="flex bg-[#242428] border border-white/5 rounded-md p-0.5">
+          <span className="text-xs text-text-muted">Framing</span>
+          <div className="flex bg-surface-panel border border-border-default rounded-md p-0.5">
             <button
               type="button"
               onClick={() => setFraming("half")}
               className={`px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 framing === "half"
-                  ? "bg-[#38383e] text-white shadow-sm font-semibold"
-                  : "text-[#8e8e93] hover:text-white"
+                  ? "bg-accent-primary text-white shadow-sm font-semibold"
+                  : "text-text-muted hover:text-text-primary"
               }`}
             >
               Half Body
@@ -124,8 +124,8 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
               onClick={() => setFraming("full")}
               className={`px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 framing === "full"
-                  ? "bg-[#38383e] text-white shadow-sm font-semibold"
-                  : "text-[#8e8e93] hover:text-white"
+                  ? "bg-accent-primary text-white shadow-sm font-semibold"
+                  : "text-text-muted hover:text-text-primary"
               }`}
             >
               Full Body
@@ -135,8 +135,8 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
               onClick={() => setFraming("circle")}
               className={`px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 framing === "circle"
-                  ? "bg-[#38383e] text-white shadow-sm font-semibold"
-                  : "text-[#8e8e93] hover:text-white"
+                  ? "bg-accent-primary text-white shadow-sm font-semibold"
+                  : "text-text-muted hover:text-text-primary"
               }`}
             >
               Circle
@@ -145,15 +145,15 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
         </div>
 
         <div className="flex items-center justify-between">
-          <span className="text-xs text-[#a1a1aa]">Background</span>
-          <div className="flex bg-[#242428] border border-white/5 rounded-md p-0.5">
+          <span className="text-xs text-text-muted">Background</span>
+          <div className="flex bg-surface-panel border border-border-default rounded-md p-0.5">
             <button
               type="button"
               onClick={() => setBackground("transparent")}
               className={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 background === "transparent"
-                  ? "bg-[#38383e] text-white shadow-sm"
-                  : "text-[#8e8e93] hover:text-white"
+                  ? "bg-accent-primary text-white shadow-sm"
+                  : "text-text-muted hover:text-text-primary"
               }`}
             >
               Transparent
@@ -163,8 +163,8 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
               onClick={() => setBackground("greenscreen")}
               className={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 background === "greenscreen"
-                  ? "bg-[#38383e] text-white shadow-sm"
-                  : "text-[#8e8e93] hover:text-white"
+                  ? "bg-accent-primary text-white shadow-sm"
+                  : "text-text-muted hover:text-text-primary"
               }`}
             >
               Green Screen

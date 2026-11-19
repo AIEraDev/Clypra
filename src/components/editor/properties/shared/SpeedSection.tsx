@@ -198,7 +198,7 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
       {/* Sub-tab switcher */}
       {showTabs && (
       <div className="bg-(--color-gray-900) pt-2 sticky top-0 z-10 space-y-1.5">
-        <div className="bg-panel p-0.5 rounded-sm flex gap-1 border border-white/5">
+        <div className="bg-surface-panel p-0.5 rounded-sm flex gap-1 border border-border-default">
           {(["standard", "curve", "velocity"] as const).map((tab) => {
             const isLocked = tab !== "standard";
             const labels = {
@@ -215,10 +215,10 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
                 title={isLocked ? "Coming soon" : undefined}
                 className={`flex-1 py-0.5 text-xs rounded-sm transition-all text-center flex items-center justify-center gap-1 ${
                   isLocked
-                    ? "text-[#8e8e93]/50 cursor-not-allowed"
+                    ? "text-text-muted/50 cursor-not-allowed"
                     : activeSubTab === tab
-                      ? "bg-[#38383e] text-white shadow-sm font-semibold cursor-pointer"
-                      : "text-[#8e8e93] hover:text-white cursor-pointer"
+                      ? "bg-accent-primary text-white shadow-sm font-semibold cursor-pointer"
+                      : "text-text-secondary hover:text-text-primary hover:bg-surface-hover cursor-pointer"
                 }`}
               >
                 {labels[tab]}
@@ -236,16 +236,16 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
         <div className="space-y-4">
           {/* ── Speed ──────────────────────────────────────────────────────── */}
           <div className="space-y-2">
-            <label className="text-[11px] font-medium text-white/90">
+            <label className="text-[11px] font-medium text-text-primary">
               Speed
             </label>
             {isFrozen ? (
               /* Frozen state — speed slider replaced with a read-only badge */
               <div className="flex items-center gap-2">
-                <div className="flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded bg-white/5 border border-white/8">
-                  <Snowflake className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                  <span className="text-[11px] text-white/70">Frozen</span>
-                  <span className="ml-auto text-[11px] text-white/40 font-mono tabular-nums">
+                <div className="flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded bg-surface-elevated border border-border-default">
+                  <Snowflake className="w-3.5 h-3.5 text-accent-primary shrink-0" />
+                  <span className="text-[11px] text-text-secondary">Frozen</span>
+                  <span className="ml-auto text-[11px] text-text-muted font-mono tabular-nums">
                     {(
                       selectedClip.playbackMapping as {
                         kind: "freeze";
@@ -283,7 +283,7 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
           {/* ── Duration ───────────────────────────────────────────────────── */}
           {!isFrozen && (
             <div className="space-y-2">
-              <label className="text-[11px] font-medium text-white/90">
+              <label className="text-[11px] font-medium text-text-primary">
                 Duration
               </label>
               <div className="flex items-center">
@@ -330,7 +330,7 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
 
           {/* ── Playback mode buttons (Reverse / Freeze) ───────────────────── */}
           <div className="space-y-2">
-            <label className="text-[11px] font-medium text-white/90">
+            <label className="text-[11px] font-medium text-text-primary">
               Playback
             </label>
             <div className="flex items-center gap-2">
@@ -384,13 +384,13 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
           </div>
 
           {/* ── Change audio pitch toggle ───────────────────────────────────── */}
-          <div className="flex items-center justify-between py-2 border-t border-white/5">
-            <label className="text-sm text-white/80">Change audio pitch</label>
+          <div className="flex items-center justify-between py-2 border-t border-border-default">
+            <label className="text-sm text-text-primary">Change audio pitch</label>
             <button
               type="button"
               onClick={handlePreservePitchToggle}
               className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer ${
-                preservePitch ? "bg-white/10" : "bg-cyan-500"
+                preservePitch ? "bg-white/10" : "bg-accent-primary"
               }`}
             >
               <div

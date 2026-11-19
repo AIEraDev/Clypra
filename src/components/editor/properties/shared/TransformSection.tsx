@@ -364,7 +364,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                       userOffsetY: 0,
                     });
                   }}
-                  className="px-2.5 py-1.5 text-[10px] font-medium bg-surface-raised border border-border/60 rounded-md text-text-muted hover:text-text-primary hover:bg-white/[0.06] transition-all active:scale-[0.97] cursor-pointer"
+                  className="px-2.5 py-1.5 text-[10px] font-medium bg-surface-elevated border border-border-default rounded-md text-text-muted hover:text-text-primary hover:bg-surface-hover transition-all active:scale-[0.97] cursor-pointer"
                 >
                   Reset
                 </button>
@@ -536,7 +536,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                       Number(e.target.value),
                     )
                   }
-                  className="w-full bg-surface-raised border border-border/60 rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
+                  className="w-full bg-surface-elevated border border-border-default rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
                 />
               </div>
               <div>
@@ -552,7 +552,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                       Number(e.target.value),
                     )
                   }
-                  className="w-full bg-surface-raised border border-border/60 rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
+                  className="w-full bg-surface-elevated border border-border-default rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
                 />
               </div>
             </div>
@@ -620,7 +620,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                   type="number"
                   value={Math.round(Math.abs(selectedClip.width))}
                   onChange={(e) => handleWidthChange(Number(e.target.value))}
-                  className="w-full bg-surface-raised border border-border/60 rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
+                  className="w-full bg-surface-elevated border border-border-default rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
                 />
               </div>
               <div>
@@ -631,7 +631,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                   type="number"
                   value={Math.round(Math.abs(selectedClip.height))}
                   onChange={(e) => handleHeightChange(Number(e.target.value))}
-                  className="w-full bg-surface-raised border border-border/60 rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
+                  className="w-full bg-surface-elevated border border-border-default rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
                 />
               </div>
             </div>
@@ -767,7 +767,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                 className={`relative w-8 h-4 rounded-full transition-colors cursor-pointer ${
                   selectedClip.motionBlur?.enabled
                     ? "bg-accent"
-                    : "bg-surface-raised border border-border/60"
+                    : "bg-surface-elevated border border-border-default"
                 }`}
                 title="Toggle cinematic motion blur"
               >

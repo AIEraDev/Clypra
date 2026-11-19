@@ -36,7 +36,7 @@ export const PropertySectionHeader: React.FC<PropertySectionHeaderProps> = ({
       onClick={handleClick}
     >
       <div className="flex items-center gap-x-0.5">
-        <h3 className="text-xs font-medium text-white/80 tracking-wider">
+        <h3 className="text-xs font-medium text-text-primary tracking-wide font-semibold">
           {title}
         </h3>
 
@@ -54,7 +54,7 @@ export const PropertySectionHeader: React.FC<PropertySectionHeaderProps> = ({
             <button
               type="button"
               onClick={onReset}
-              className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors cursor-pointer"
+              className="w-5 h-5 flex items-center justify-center rounded hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors cursor-pointer"
               title={resetTitle || "Reset to default"}
               aria-label={resetTitle || "Reset to default"}
             >

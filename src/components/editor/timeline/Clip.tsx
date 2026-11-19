@@ -1013,7 +1013,7 @@ const ClipInner: React.FC<ClipProps> = ({
       {/* Inner body — carries overflow-hidden, border, rounded corner, and all visual styling */}
       <div
         data-testid={`clip-${clip.id}-body`}
-        className={`absolute inset-0 overflow-hidden rounded-[1px] border ${trackToneClass} ${selected ? "border-accent-soft" : "border-transparent"} ${getClipStyle()} ${mediaAsset?.isMissing ? "ring-1 ring-red-500/80" : ""}`}
+        className={`absolute inset-0 overflow-hidden rounded-[1px] border ${trackToneClass} ${selected ? "border-accent-soft border-accent-primary ring-2 ring-accent-primary/40" : "border-transparent"} ${getClipStyle()} ${mediaAsset?.isMissing ? "ring-1 ring-red-500/80" : ""}`}
         style={{
           border: isInvalidPosition
             ? "2px solid var(--clypra-clip-invalid)"
@@ -1182,14 +1182,14 @@ const ClipInner: React.FC<ClipProps> = ({
             <div className="absolute top-1.5 left-2 z-30 flex items-center gap-1.5 max-w-[calc(100%-16px)] pointer-events-none select-none">
               <span
                 data-testid="audio-clip-name-badge"
-                className="truncate rounded-[3px] bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-white/95 border border-white/10 shadow-xs backdrop-blur-xs"
+                className="truncate rounded-[3px] bg-clypra-clip-badge-bg px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-timeline-clip-text border border-clypra-clip-metadata-border shadow-xs backdrop-blur-xs"
               >
                 {mediaAsset?.name || clip.name || "Audio"}
               </span>
               {hasCustomSpeed && (
                 <span
                   data-testid="audio-clip-speed-badge"
-                  className="shrink-0 flex items-center gap-1 rounded-[3px] bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold text-white/90 border border-white/10 shadow-xs backdrop-blur-xs"
+                  className="shrink-0 flex items-center gap-1 rounded-[3px] bg-clypra-clip-badge-bg px-1.5 py-0.5 text-[9px] font-semibold text-timeline-clip-text border border-clypra-clip-metadata-border shadow-xs backdrop-blur-xs"
                 >
                   <Gauge className="w-2.5 h-2.5 text-accent-soft" />
                   <span>{clipSpeedLabel}</span>
@@ -1198,7 +1198,7 @@ const ClipInner: React.FC<ClipProps> = ({
               {audioFilterLabel && (
                 <span
                   data-testid="audio-clip-filter-badge"
-                  className="shrink-0 flex items-center gap-1 rounded-[3px] bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold text-white/90 border border-white/10 shadow-xs backdrop-blur-xs"
+                  className="shrink-0 flex items-center gap-1 rounded-[3px] bg-clypra-clip-badge-bg px-1.5 py-0.5 text-[9px] font-semibold text-timeline-clip-text border border-clypra-clip-metadata-border shadow-xs backdrop-blur-xs"
                 >
                   <span>Voice filters {audioFilterLabel}</span>
                 </span>
@@ -1212,7 +1212,7 @@ const ClipInner: React.FC<ClipProps> = ({
                   Offline
                 </span>
               )}
-              <span className="shrink-0 text-[8px] font-medium text-white/60 ml-0.5">
+              <span className="shrink-0 text-[8px] font-medium text-timeline-clip-duration ml-0.5">
                 {formatDuration(clip.duration)}
               </span>
               {hasKeyframes && (
@@ -1293,7 +1293,7 @@ const ClipInner: React.FC<ClipProps> = ({
               {hasCustomSpeed && (
                 <span
                   data-testid="clip-speed-badge"
-                  className="shrink-0 flex items-center gap-1 rounded-[3px] bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold text-white/90 border border-white/10 shadow-xs backdrop-blur-xs"
+                  className="shrink-0 flex items-center gap-1 rounded-[3px] bg-clypra-clip-badge-bg px-1.5 py-0.5 text-[9px] font-semibold text-timeline-clip-text border border-clypra-clip-metadata-border shadow-xs backdrop-blur-xs"
                 >
                   <Gauge className="w-2.5 h-2.5 text-accent-soft" />
                   <span>{clipSpeedLabel}</span>
@@ -1533,12 +1533,12 @@ const ClipInner: React.FC<ClipProps> = ({
                   )}px`,
                 }}
               >
-                <div className="flex-1 h-[2px] bg-[#00E5FF]/70 rounded-l-full" />
+                <div className="flex-1 h-[2px] bg-accent-primary/80 rounded-l-full" />
                 <svg
                   width="5"
                   height="5"
                   viewBox="0 0 5 5"
-                  className="shrink-0 text-[#00E5FF]/70 fill-current"
+                  className="shrink-0 text-accent-primary/80 fill-current"
                 >
                   <polygon points="0,0 5,2.5 0,5" />
                 </svg>

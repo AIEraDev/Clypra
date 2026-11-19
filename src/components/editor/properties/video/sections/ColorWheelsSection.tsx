@@ -34,7 +34,7 @@ export const ColorWheelsSection: React.FC<ColorWheelsSectionProps> = ({
   };
 
   return (
-    <div className="space-y-2 pt-2 border-t border-white/5">
+    <div className="space-y-2 pt-2 border-t border-border-default">
       <div className="flex items-center justify-between px-0.5">
         <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">
           3-Way Color Wheels
