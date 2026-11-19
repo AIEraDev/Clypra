@@ -637,19 +637,34 @@ impl NativeRenderSession {
     /// intentionally *not* a render-session teardown: the latest-only worker
     /// must remain alive to present the explicit paused-frame demand submitted
     /// by the WebView after audio stops.
-    pub(crate) fn pause_continuous_playback(&self) {
+    pub(crate) fn pause_continuous_playback(&self) -> Option<NativePlaybackDemandTerminal> {
+        let mut terminal = None;
         if let Ok(mut pending) = self.pending.lock() {
             // Cancel the pending demand if it exists
             if let Some(internal_id) = pending.internal_request_id.take() {
                 if let Ok(mut registry) = self.lifecycle_registry.lock() {
                     use crate::wgpu_compositor::{RequestTerminalDisposition};
-                    let _ = registry.finish_request(&internal_id, RequestTerminalDisposition::Cancelled);
+                    if registry
+                        .finish_request(&internal_id, RequestTerminalDisposition::Cancelled)
+                        .is_ok()
+                    {
+                        if let Some(demand) = pending.value.as_ref() {
+                            terminal = Some(Self::terminal(
+                                demand,
+                                Some(&internal_id),
+                                "cancelled",
+                                "pause",
+                                NativeDemandOutcome::Cancelled,
+                            ));
+                        }
+                    }
                 }
             }
             pending.value = None;
         }
         self.reset_playback_lookahead_feedback();
         self.notify.notify_one();
+        terminal
     }
 
     pub(crate) fn reset_playback_lookahead_feedback(&self) {
@@ -841,9 +856,10 @@ impl NativeRenderSession {
     /// Invalidate queued work without stopping the playback session. This is
     /// used by seek/project-generation boundaries; an in-progress decoder may
     /// finish, but it can never reach presentation afterward.
-    pub(crate) fn invalidate(&self, generation: u64) {
+    pub(crate) fn invalidate(&self, generation: u64) -> Option<NativePlaybackDemandTerminal> {
         self.generation.fetch_max(generation, Ordering::AcqRel);
         *self.last_materialized.write() = None;
+        let mut terminal = None;
         if let Ok(mut pending) = self.pending.lock() {
             if pending
                 .value
@@ -856,7 +872,20 @@ impl NativeRenderSession {
                 if let Some(internal_id) = pending.internal_request_id.take() {
                     if let Ok(mut registry) = self.lifecycle_registry.lock() {
                         use crate::wgpu_compositor::{RequestTerminalDisposition};
-                        let _ = registry.finish_request(&internal_id, RequestTerminalDisposition::Cancelled);
+                        if registry
+                            .finish_request(&internal_id, RequestTerminalDisposition::Cancelled)
+                            .is_ok()
+                        {
+                            if let Some(demand) = pending.value.as_ref() {
+                                terminal = Some(Self::terminal(
+                                    demand,
+                                    Some(&internal_id),
+                                    "cancelled",
+                                    "recency-invalidation",
+                                    NativeDemandOutcome::Cancelled,
+                                ));
+                            }
+                        }
                     }
                 }
                 pending.value = None;
@@ -868,6 +897,7 @@ impl NativeRenderSession {
             }
         }
         self.notify.notify_one();
+        terminal
     }
 
     pub(crate) fn submit(
@@ -1962,6 +1992,22 @@ mod tests {
             session.lifecycle_registry.lock().unwrap().request_state(&internal_id),
             Ok(LifecycleState::Terminal(RequestTerminalDisposition::Cancelled))
         ));
+    }
+
+    #[test]
+    fn recency_invalidation_returns_a_terminal_for_the_pending_exact_demand() {
+        let session = mock_session();
+        let demand = mock_demand("invalidate-me", 12);
+        session.submit(demand.clone()).expect("demand accepted");
+
+        let terminal = session
+            .invalidate(13)
+            .expect("obsolete exact demand is terminalized");
+        assert_eq!(terminal.request_id, demand.request_id);
+        assert_eq!(terminal.outcome, NativeDemandOutcome::Cancelled);
+        assert_eq!(terminal.reason, "recency-invalidation");
+        assert_eq!(terminal.stage, "recency-fence");
+        assert!(session.invalidate(3).is_none());
     }
 
     #[test]

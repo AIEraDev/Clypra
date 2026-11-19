@@ -95,7 +95,9 @@ impl NativePlaybackRuntime {
     /// audio clock has stopped.
     pub fn pause_render(&self, app: AppHandle) {
         if let Some(session) = &self.render_session {
-            session.pause_continuous_playback();
+            if let Some(terminal) = session.pause_continuous_playback() {
+                NativeRenderSession::emit_terminal(&app, terminal);
+            }
             tauri::async_runtime::spawn(async move {
                 crate::commands::native_preview::reset_native_preview_queue(&app).await;
             });
@@ -109,10 +111,14 @@ impl NativePlaybackRuntime {
             .unwrap_or(false)
     }
 
-    pub fn invalidate_render_generation(&self, generation: u64) {
+    pub(crate) fn invalidate_render_generation(
+        &self,
+        generation: u64,
+    ) -> Option<NativePlaybackDemandTerminal> {
         if let Some(session) = &self.render_session {
-            session.invalidate(generation);
+            return session.invalidate(generation);
         }
+        None
     }
 
     pub fn configure(&mut self, plan: PlaybackPlan) -> Result<PlaybackState, NativeCoreError> {
