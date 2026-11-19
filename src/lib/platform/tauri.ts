@@ -15,6 +15,7 @@ import type {
   NativePreviewPerformanceReport,
   NativePlaybackPlan,
   NativePlaybackFrameDemand,
+  NativePlaybackDemandAbandonment,
   NativePlaybackState,
   NativeFrameTime,
   NativeSurfaceGeometry,
@@ -712,6 +713,14 @@ export async function submitNativePlaybackDemand(
 ): Promise<void> {
   if (!isTauriRuntime()) return;
   await invoke("submit_native_playback_demand", { demand });
+}
+
+/** Finalize a native demand that the frontend abandoned waiting for. */
+export async function abandonNativePlaybackDemand(
+  abandonment: NativePlaybackDemandAbandonment,
+): Promise<boolean> {
+  if (!isTauriRuntime()) return false;
+  return invoke<boolean>("abandon_native_playback_demand", { payload: abandonment });
 }
 
 /**

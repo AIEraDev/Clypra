@@ -10,7 +10,7 @@ use crate::filmstrip_engine::decoder::{DecodeFrameOptions, VideoDecoder};
 use crate::filmstrip_engine::stream_actor::handle::StreamDecoderActorHandle;
 use crate::filmstrip_engine::stream_actor::types::{
     calculate_download_stride, record_producer_idle_us, DecodedActorFrame, DecodedVideoPlanes,
-    StreamDecodeJob, MAX_PRIME_CACHE_ENTRIES, PRODUCER_DOWNLOADS_WASTED,
+    StreamDecodeError, StreamDecodeJob, MAX_PRIME_CACHE_ENTRIES, PRODUCER_DOWNLOADS_WASTED,
     PRODUCER_LOOKAHEAD_DOWNLOADS_SKIPPED,
 };
 
@@ -98,7 +98,7 @@ impl StreamDecoderActor {
                 while let Ok(newer_job) = self.urgent_rx.try_recv() {
                     let _ = job
                         .response_tx
-                        .send(Err("Request superseded by newer urgent intent".to_string()));
+                        .send(Err(StreamDecodeError::Superseded));
                     job = newer_job;
                 }
             }
@@ -111,7 +111,7 @@ impl StreamDecoderActor {
             if job.request.generation > 0 && job.request.generation < current_gen {
                 let _ = job
                     .response_tx
-                    .send(Err("Request superseded by newer generation".to_string()));
+                    .send(Err(StreamDecodeError::Superseded));
                 continue;
             }
 
@@ -166,7 +166,7 @@ impl StreamDecoderActor {
             if !generation_is_current {
                 let _ = job
                     .response_tx
-                    .send(Err("Request superseded by newer generation".to_string()));
+                    .send(Err(StreamDecodeError::Superseded));
                 continue;
             }
 
@@ -407,10 +407,12 @@ impl StreamDecoderActor {
         target_time: f64,
         options: DecodeFrameOptions,
         job_generation: u64,
-    ) -> Result<DecodedActorFrame, String> {
+    ) -> Result<DecodedActorFrame, StreamDecodeError> {
         let decoder = Arc::clone(&self.decoder);
         let cancel_token = Arc::clone(&self.cancel_in_flight);
         let cancel_gen = Arc::clone(&self.current_generation);
+        let cancellation_state = Arc::clone(&self.cancel_in_flight);
+        let generation_state = Arc::clone(&self.current_generation);
 
         let is_cancelled = move || {
             cancel_token.load(Ordering::Acquire)
@@ -566,7 +568,7 @@ impl StreamDecoderActor {
             }
         })
         .await
-        .map_err(|e| format!("Decode spawn_blocking panicked: {e}"))?;
+        .map_err(|e| StreamDecodeError::Actor(format!("Decode spawn_blocking panicked: {e}")))?;
 
         let (
             planes,
@@ -589,7 +591,20 @@ impl StreamDecoderActor {
             served_from,
             hw_device_type,
             source_metadata,
-        ) = result?;
+        ) = match result {
+            Ok(value) => value,
+            Err(error) => {
+                if job_generation > 0
+                    && generation_state.load(Ordering::Acquire) > job_generation
+                {
+                    return Err(StreamDecodeError::Superseded);
+                }
+                if cancellation_state.load(Ordering::Acquire) {
+                    return Err(StreamDecodeError::Cancelled);
+                }
+                return Err(StreamDecodeError::Decoder(error));
+            }
+        };
 
         Ok(DecodedActorFrame {
             time_secs: target_time,

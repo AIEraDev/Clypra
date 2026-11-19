@@ -644,6 +644,19 @@ export interface NativePlaybackDemandTerminal {
   };
 }
 
+/** Frontend-owned timeout/abandonment finalization for an accepted demand. */
+export interface NativePlaybackDemandAbandonment {
+  requestId: string;
+  frameIndex: number;
+  generation?: number;
+  cancellationEpoch: number;
+  isScrubbing: boolean;
+  mode?: NativeFrameRequest["mode"];
+  scrubDirection?: NativeScrubDirection;
+  outcome: "superseded" | "cancelled" | "droppedBeforePresent" | "failed";
+  reason: string;
+}
+
 export interface NativeScrubExperimentContext {
   experimentId: string;
   runId: string;

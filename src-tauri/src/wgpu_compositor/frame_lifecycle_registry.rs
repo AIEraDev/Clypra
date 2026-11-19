@@ -492,6 +492,20 @@ impl FrameLifecycleRegistry {
             .ok_or_else(|| RegistryError::UnknownRequest(id.clone()))
     }
 
+    /// Find the active lifecycle allocated for a unique external operation ID.
+    /// Exact interactive demands use a fresh operation ID, while continuous
+    /// playback ticks intentionally never register here.
+    pub fn active_request_for_external_id(
+        &self,
+        external_request_id: &str,
+    ) -> Option<FrameRequestId> {
+        let prefix = format!("request:{external_request_id}:");
+        self.requests.iter().find_map(|(id, state)| {
+            (id.as_str().starts_with(&prefix) && matches!(state, LifecycleState::Active))
+                .then(|| id.clone())
+        })
+    }
+
     fn record_frame_terminal(&mut self, disposition: &FrameTerminalDisposition) {
         match disposition {
             FrameTerminalDisposition::Presented { .. } => self.cumulative_frame_accounting.presented += 1,

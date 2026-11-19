@@ -224,6 +224,7 @@ pub fn start_debug_ipc_server(app: tauri::AppHandle) {
         let app_handle_present = app.clone();
         let app_handle_reg = app.clone();
         let app_handle_unreg = app.clone();
+        let app_handle_experiment = app.clone();
 
         let cors = tower_http::cors::CorsLayer::new()
             .allow_origin(tower_http::cors::Any)
@@ -232,6 +233,21 @@ pub fn start_debug_ipc_server(app: tauri::AppHandle) {
 
         let router = axum::Router::new()
             .route("/debug/ping", axum::routing::get(|| async { "pong" }))
+            .route(
+                "/debug/set_native_scrub_experiment_context",
+                axum::routing::post({
+                    let app = app_handle_experiment;
+                    move |axum::Json(payload): axum::Json<DebugScrubExperimentContextPayload>| {
+                        let app = app.clone();
+                        async move {
+                            match set_native_scrub_experiment_context(app, payload) {
+                                Ok(()) => (axum::http::StatusCode::OK, "ok").into_response(),
+                                Err(err) => (axum::http::StatusCode::BAD_REQUEST, err).into_response(),
+                            }
+                        }
+                    }
+                }),
+            )
             .route(
                 "/debug/capture_preview_frame",
                 axum::routing::post({

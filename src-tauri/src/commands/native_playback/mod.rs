@@ -2,7 +2,7 @@ use crate::filmstrip_engine::decoder::get_preview_decoder_for_stream;
 use crate::native_audio::NativeAudioClock;
 use crate::native_core::{
     DecodeCapabilityPolicy, FrameRequest, FrameTime, NativePlaybackFrameDemand, PlaybackPlan,
-    PlaybackState, QualityTier, DEFAULT_TIME_SCALE,
+    PlaybackState, QualityTier, NativeDemandOutcome, NativeScrubDirection, DEFAULT_TIME_SCALE,
 };
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -17,6 +17,46 @@ mod tests;
 
 pub(crate) use render_session::*;
 pub use runtime::*;
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativePlaybackDemandAbandonment {
+    pub request_id: String,
+    pub frame_index: u64,
+    pub generation: Option<u64>,
+    pub cancellation_epoch: u64,
+    pub is_scrubbing: bool,
+    pub mode: Option<String>,
+    pub scrub_direction: Option<NativeScrubDirection>,
+    pub outcome: NativeDemandOutcome,
+    pub reason: String,
+}
+
+/// Finalize an accepted exact demand when the WebView abandons waiting for it
+/// (for example an acknowledgement timeout). Native completion racing this
+/// command is deduplicated by the session telemetry request ID.
+#[tauri::command]
+pub fn abandon_native_playback_demand(
+    app: AppHandle,
+    payload: NativePlaybackDemandAbandonment,
+) -> Result<bool, String> {
+    if payload.request_id.trim().is_empty() {
+        return Err("requestId must be non-empty".to_string());
+    }
+    let state = runtime(&app)?;
+    let session = state
+        .lock()
+        .map_err(|_| "Native playback runtime lock is poisoned".to_string())?
+        .render_session()
+        .ok_or_else(|| "Native playback render snapshot is not configured".to_string())?;
+    let terminal = session.finalize_abandoned_demand(&payload)?;
+    if let Some(terminal) = terminal {
+        NativeRenderSession::emit_terminal(&app, terminal);
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
 
 #[tauri::command]
 pub fn configure_native_playback(
@@ -391,6 +431,7 @@ pub async fn submit_native_playback_demand(
     app: AppHandle,
     demand: NativePlaybackFrameDemand,
 ) -> Result<(), String> {
+    let request_id = demand.request_id.clone();
     let explicit_demand = crate::commands::native_playback::tracks_explicit_request(&demand);
     let workload = if demand.is_scrubbing {
         crate::wgpu_compositor::WorkloadMode::Scrub
@@ -434,7 +475,7 @@ pub async fn submit_native_playback_demand(
         if let Some(collector) =
             app.try_state::<Arc<crate::wgpu_compositor::SessionTelemetryCollector>>()
         {
-            collector.record_request_received(workload);
+            collector.record_request_received_for(&request_id, workload);
         }
     }
     if let Some(terminal) = terminal {

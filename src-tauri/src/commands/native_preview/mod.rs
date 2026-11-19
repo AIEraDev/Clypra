@@ -1468,7 +1468,10 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
         drop(session);
 
         let frames_res = if need_cpu_decode {
-            let (frames, timings, _returned_context) = decode_native_video_layers(&request, None, RenderLifecycleContext::empty()).await?;
+            let (frames, timings, _returned_context) =
+                decode_native_video_layers(&request, None, RenderLifecycleContext::empty())
+                    .await
+                    .map_err(|error| error.to_string())?;
             decode_time_us = timings.decode_time_us;
             decoder_mutex_wait_us = timings.decoder_mutex_wait_us;
             decode_telemetry = timings;
@@ -1924,7 +1927,10 @@ async fn decode_native_video_layers(
     request: &NativeVideoProjectFrameRequest,
     cancellation: Option<(Arc<AtomicU64>, u64)>,
     lifecycle_context: RenderLifecycleContext,
-) -> Result<(Vec<DecodedNativeVideoFrame>, NativeDecodeTimings, RenderLifecycleContext), String> {
+) -> Result<
+    (Vec<DecodedNativeVideoFrame>, NativeDecodeTimings, RenderLifecycleContext),
+    crate::filmstrip_engine::stream_actor::StreamDecodeError,
+> {
     if request.layers.is_empty() {
         return Ok((Vec::new(), NativeDecodeTimings::default(), lifecycle_context));
     }
@@ -1977,7 +1983,8 @@ async fn decode_native_video_layers(
             &layer.video_path,
             stream_id,
         )
-        .await?;
+        .await
+        .map_err(crate::filmstrip_engine::stream_actor::StreamDecodeError::Actor)?;
         let actor_frame = if request.mode.as_deref() == Some("playback") {
             actor
                 .decode_playback_frame(layer.time_secs, decode_options, generation)
@@ -2071,7 +2078,8 @@ async fn decode_native_video_layers(
                         &video_path,
                         stream_id,
                     )
-                    .await?;
+                    .await
+                    .map_err(crate::filmstrip_engine::stream_actor::StreamDecodeError::Actor)?;
                 let actor_frame = if is_playback {
                     actor
                         .decode_playback_frame(time_secs, decode_options, generation)
@@ -2090,7 +2098,7 @@ async fn decode_native_video_layers(
                 let container_format = actor_frame.container_format.clone();
                 let is_hw = actor_frame.is_hardware_accelerated;
                 let decoded = actor_frame.into_native_video_frame();
-                Ok::<_, String>((
+                Ok::<_, crate::filmstrip_engine::stream_actor::StreamDecodeError>((
                     decoded,
                     decode_us,
                     mutex_wait_us,
@@ -2119,7 +2127,11 @@ async fn decode_native_video_layers(
     for task in unique_tasks {
         let res = task
             .await
-            .map_err(|e| format!("Decode worker task failed: {e}"))??;
+            .map_err(|e| {
+                crate::filmstrip_engine::stream_actor::StreamDecodeError::Actor(format!(
+                    "Decode worker task failed: {e}"
+                ))
+            })??;
         max_decode_us = max_decode_us.max(res.1);
         total_mutex_wait_us = total_mutex_wait_us.saturating_add(res.2);
         max_actor_wait_us = max_actor_wait_us.max(res.3);
@@ -2415,7 +2427,7 @@ pub async fn queue_native_frame(
         Err(error) => {
             pending_guard.key = None;
             queue.lock().await.fail(&key);
-            Err(error)
+            Err(error.to_string())
         }
     }
 }
@@ -2849,6 +2861,8 @@ pub(crate) fn composite_layers_to_view(
 pub(crate) enum NativePresentationError {
     InvalidContract(String),
     Stale,
+    Superseded,
+    Cancelled,
     Decode(String),
     SurfaceNotConfigured,
     Pipeline(String),
@@ -2861,6 +2875,8 @@ impl std::fmt::Display for NativePresentationError {
                 f.write_str(message)
             }
             Self::Stale => f.write_str("Native preview frame request is stale"),
+            Self::Superseded => f.write_str("Request superseded by newer generation"),
+            Self::Cancelled => f.write_str("Native preview request cancelled"),
             Self::SurfaceNotConfigured => f.write_str("Native surface has not been configured"),
         }
     }
@@ -2869,6 +2885,20 @@ impl std::fmt::Display for NativePresentationError {
 impl From<String> for NativePresentationError {
     fn from(value: String) -> Self {
         Self::Pipeline(value)
+    }
+}
+
+impl From<crate::filmstrip_engine::stream_actor::StreamDecodeError>
+    for NativePresentationError
+{
+    fn from(value: crate::filmstrip_engine::stream_actor::StreamDecodeError) -> Self {
+        use crate::filmstrip_engine::stream_actor::StreamDecodeError;
+        match value {
+            StreamDecodeError::Superseded => Self::Superseded,
+            StreamDecodeError::Cancelled => Self::Cancelled,
+            StreamDecodeError::Decoder(message) => Self::Decode(message),
+            StreamDecodeError::Actor(message) => Self::Pipeline(message),
+        }
     }
 }
 
@@ -3078,7 +3108,7 @@ pub(crate) async fn present_native_frame_internal(
             let (decoded_frames, decode_timings, lifecycle_context_after_decode) =
                 decode_native_video_layers(&legacy_request, None, lifecycle_context)
                     .await
-                    .map_err(NativePresentationError::Decode)?;
+                    .map_err(NativePresentationError::from)?;
             if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>()
             {
                 queue

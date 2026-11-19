@@ -197,6 +197,28 @@ use crate::filmstrip_engine::decoder::VideoColorMetadata;
     }
 
     #[test]
+    fn typed_stream_control_outcomes_do_not_become_decode_failures() {
+        use crate::filmstrip_engine::stream_actor::StreamDecodeError;
+
+        assert!(matches!(
+            NativePresentationError::from(StreamDecodeError::Superseded),
+            NativePresentationError::Superseded
+        ));
+        assert!(matches!(
+            NativePresentationError::from(StreamDecodeError::Cancelled),
+            NativePresentationError::Cancelled
+        ));
+        assert!(matches!(
+            NativePresentationError::from(StreamDecodeError::Decoder("decoder failed".into())),
+            NativePresentationError::Decode(_)
+        ));
+        assert!(matches!(
+            NativePresentationError::from(StreamDecodeError::Actor("actor failed".into())),
+            NativePresentationError::Pipeline(_)
+        ));
+    }
+
+    #[test]
     fn full_range_rec601_selects_the_explicit_matrix() {
         let color = VideoColorMetadata {
             range: "full".to_string(),

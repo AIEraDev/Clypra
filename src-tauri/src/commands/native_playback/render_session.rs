@@ -270,7 +270,13 @@ impl NativeRenderSession {
         if let Some(collector) =
             app.try_state::<Arc<crate::wgpu_compositor::SessionTelemetryCollector>>()
         {
-            collector.record_request_terminal(terminal.workload, terminal.outcome);
+            if !collector.record_request_terminal_once(
+                &terminal.request_id,
+                terminal.workload,
+                terminal.outcome,
+            ) {
+                return;
+            }
         }
         let _ = app.emit("clypra://native-playback-demand-terminal", terminal);
     }
@@ -293,6 +299,68 @@ impl NativeRenderSession {
         if matches!(registry.request_state(request_id), Ok(LifecycleState::Active)) {
             let _ = registry.finish_request(request_id, disposition);
         }
+    }
+
+    pub(crate) fn finalize_abandoned_demand(
+        &self,
+        payload: &super::NativePlaybackDemandAbandonment,
+    ) -> Result<Option<NativePlaybackDemandTerminal>, String> {
+        let mut registry = self
+            .lifecycle_registry
+            .lock()
+            .map_err(|_| "Lifecycle registry lock poisoned".to_string())?;
+        let Some(internal_id) = registry.active_request_for_external_id(&payload.request_id) else {
+            return Ok(None);
+        };
+        let disposition = match payload.outcome {
+            NativeDemandOutcome::Superseded => RequestTerminalDisposition::SupersededWithoutSuccessor,
+            NativeDemandOutcome::Cancelled => RequestTerminalDisposition::Cancelled,
+            NativeDemandOutcome::DroppedBeforePresent => {
+                RequestTerminalDisposition::DroppedBeforePresent {
+                    reason: RequestDropReason::Backpressure,
+                }
+            }
+            NativeDemandOutcome::Failed => RequestTerminalDisposition::Failed {
+                reason: crate::wgpu_compositor::RequestFailureReason::PipelineFailure,
+            },
+            NativeDemandOutcome::Presented
+            | NativeDemandOutcome::Coalesced => {
+                return Err("abandonment must use a non-presented terminal outcome".to_string());
+            }
+        };
+        registry
+            .finish_request(&internal_id, disposition)
+            .map_err(|error| error.to_string())?;
+        let (disposition, stage) = match payload.outcome {
+            NativeDemandOutcome::Superseded => ("superseded", "mailbox"),
+            NativeDemandOutcome::Cancelled => ("cancelled", "presentation"),
+            NativeDemandOutcome::DroppedBeforePresent => {
+                ("dropped-before-present", "presentation")
+            }
+            NativeDemandOutcome::Failed => ("failed", "presentation"),
+            NativeDemandOutcome::Presented | NativeDemandOutcome::Coalesced => unreachable!(),
+        };
+        Ok(Some(NativePlaybackDemandTerminal {
+            request_id: payload.request_id.clone(),
+            lifecycle_request_id: Some(internal_id.as_str().to_string()),
+            generation: payload.generation,
+            cancellation_epoch: payload.cancellation_epoch,
+            frame_index: payload.frame_index,
+            disposition,
+            stage,
+            reason: "frontend-abandonment",
+            outcome: payload.outcome,
+            workload: workload_for_mode(payload.mode.as_deref(), payload.is_scrubbing),
+            experiment_context: None,
+            scrub_direction: payload.scrub_direction,
+            actor_wait_us: None,
+            actor_queue_wait_us: None,
+            decoder_mutex_wait_us: None,
+            queue_residency_us: None,
+            queue_hit: None,
+            error: Some(payload.reason.clone()),
+            surface_state: None,
+        }))
     }
 
     fn terminal_for_presentation(
@@ -414,6 +482,18 @@ impl NativeRenderSession {
         // actionable and must remain visible to telemetry.
         if error.is_decode_failure() {
             return NativeDemandOutcome::Failed;
+        }
+        if matches!(
+            error,
+            crate::commands::native_preview::NativePresentationError::Superseded
+        ) {
+            return NativeDemandOutcome::Superseded;
+        }
+        if matches!(
+            error,
+            crate::commands::native_preview::NativePresentationError::Cancelled
+        ) {
+            return NativeDemandOutcome::Cancelled;
         }
         if matches!(
             error,
@@ -1816,6 +1896,72 @@ mod tests {
             NativeDemandOutcome::Failed,
             "a real decode failure must not be relabeled as supersession"
         );
+    }
+
+    #[test]
+    fn typed_decoder_cancellation_and_supersession_keep_request_outcomes_distinct() {
+        let session = mock_session();
+        let frame_request = session.snapshot.read().as_ref().clone();
+
+        assert_eq!(
+            session.classify_presentation_error(
+                &crate::commands::native_preview::NativePresentationError::Cancelled,
+                &frame_request,
+                4,
+            ),
+            NativeDemandOutcome::Cancelled,
+        );
+        assert_eq!(
+            session.classify_presentation_error(
+                &crate::commands::native_preview::NativePresentationError::Superseded,
+                &frame_request,
+                4,
+            ),
+            NativeDemandOutcome::Superseded,
+        );
+    }
+
+    #[test]
+    fn frontend_abandonment_finalizes_the_matching_active_request_once() {
+        let session = mock_session();
+        let demand = mock_demand("abandon-me", 8);
+        let internal_id = {
+            session.submit(demand.clone()).expect("demand accepted");
+            session
+                .pending
+                .lock()
+                .unwrap()
+                .internal_request_id
+                .clone()
+                .expect("lifecycle ID allocated")
+        };
+        let payload = crate::commands::native_playback::NativePlaybackDemandAbandonment {
+            request_id: demand.request_id.clone(),
+            frame_index: demand.frame_time.frame_index,
+            generation: demand.generation,
+            cancellation_epoch: demand.cancellation_epoch.unwrap_or(0),
+            is_scrubbing: true,
+            mode: demand.mode.clone(),
+            scrub_direction: demand.scrub_direction,
+            outcome: NativeDemandOutcome::Cancelled,
+            reason: "ack-timeout".to_string(),
+        };
+
+        let terminal = session
+            .finalize_abandoned_demand(&payload)
+            .expect("abandonment finalization succeeds")
+            .expect("active request is finalized");
+        assert_eq!(terminal.outcome, NativeDemandOutcome::Cancelled);
+        assert_eq!(terminal.reason, "frontend-abandonment");
+        assert_eq!(terminal.lifecycle_request_id.as_deref(), Some(internal_id.as_str()));
+        assert!(session
+            .finalize_abandoned_demand(&payload)
+            .expect("duplicate finalization succeeds")
+            .is_none());
+        assert!(matches!(
+            session.lifecycle_registry.lock().unwrap().request_state(&internal_id),
+            Ok(LifecycleState::Terminal(RequestTerminalDisposition::Cancelled))
+        ));
     }
 
     #[test]

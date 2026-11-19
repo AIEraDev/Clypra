@@ -91,6 +91,7 @@ import {
   configureNativePlaybackRender,
   updateNativePlaybackRender,
   submitNativePlaybackDemand,
+  abandonNativePlaybackDemand,
   getNativeFrameServiceStats,
   getNativeFrameServiceSamples,
   getNativeSyncMetricsSnapshot,
@@ -1561,6 +1562,7 @@ export const NativeProgramPreview: React.FC = () => {
     const abandonPausedNativeDemand = (
       reason: "superseded" | "ack-timeout" | "submit-failed",
       useDirectFallback: boolean,
+      notifyNative = true,
     ) => {
       const pending = pendingPausedNativeDemand;
       if (!pending) return;
@@ -1581,16 +1583,36 @@ export const NativeProgramPreview: React.FC = () => {
       });
       nativeFrontendPerfSpans.delete(pending.requestKey);
       lastNativePlaybackRequestKey = "";
-      tracePlayback("native-demand-abandoned", {
-        operationId: pending.requestId,
-        requestKey: telemetryRequestToken(pending.requestKey),
-        generation: pending.generation,
-        frameIndex: pending.frameIndex,
-        scrubDirection: pending.scrubDirection,
-        dispatchMode: "exact-interactive-demand",
-        reason,
-        useDirectFallback,
-      });
+      if (notifyNative) {
+        const outcome =
+          reason === "superseded"
+            ? "superseded"
+            : reason === "ack-timeout"
+              ? "cancelled"
+              : "failed";
+        void abandonNativePlaybackDemand({
+          requestId: pending.requestId,
+          frameIndex: pending.frameIndex,
+          generation: pending.generation,
+          cancellationEpoch: pending.cancellationEpoch,
+          isScrubbing: pending.isScrubbing,
+          mode: pending.isScrubbing ? "scrub" : "seek",
+          scrubDirection: pending.scrubDirection,
+          outcome,
+          reason,
+        }).catch(() => undefined);
+        tracePlayback("native-demand-abandoned", {
+          operationId: pending.requestId,
+          requestKey: telemetryRequestToken(pending.requestKey),
+          generation: pending.generation,
+          frameIndex: pending.frameIndex,
+          scrubDirection: pending.scrubDirection,
+          dispatchMode: "exact-interactive-demand",
+          reason,
+          outcome,
+          useDirectFallback,
+        });
+      }
       if (useDirectFallback) {
         // The next RAF takes the proven direct invoke path. This is a recovery
         // path only; normal paused seeks remain latest-only persistent demands.
@@ -1736,6 +1758,7 @@ export const NativeProgramPreview: React.FC = () => {
             : terminal.stage === "presentation"
               ? "submit-failed"
               : "ack-timeout",
+          false,
           false,
         );
       }).then((fn) => {

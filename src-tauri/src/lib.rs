@@ -679,6 +679,7 @@ pub fn run() {
             configure_native_playback_render,
             update_native_playback_render,
             submit_native_playback_demand,
+            abandon_native_playback_demand,
             get_engine_telemetry,
             get_playback_policy,
             get_native_playback_state,

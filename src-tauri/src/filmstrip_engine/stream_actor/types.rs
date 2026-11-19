@@ -198,9 +198,34 @@ pub struct ActorDecodeRequest {
     pub generation: u64,
 }
 
+/// Typed result for one actor-owned decode request.
+///
+/// Cancellation and supersession are control-flow outcomes, not decoder
+/// failures. Keeping them typed at the actor boundary prevents the native
+/// presentation layer from relabelling recency cancellation as `failed`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StreamDecodeError {
+    Superseded,
+    Cancelled,
+    Decoder(String),
+    Actor(String),
+}
+
+impl std::fmt::Display for StreamDecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Superseded => f.write_str("Request superseded by newer generation"),
+            Self::Cancelled => f.write_str("Native preview request cancelled"),
+            Self::Decoder(message) | Self::Actor(message) => f.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for StreamDecodeError {}
+
 pub struct StreamDecodeJob {
     pub request: ActorDecodeRequest,
-    pub response_tx: oneshot::Sender<Result<DecodedActorFrame, String>>,
+    pub response_tx: oneshot::Sender<Result<DecodedActorFrame, StreamDecodeError>>,
     /// Wall-clock instant when the job was placed on the channel.
     /// The actor worker computes `actor_queue_wait_us` from this on dequeue.
     pub enqueued_at: std::time::Instant,

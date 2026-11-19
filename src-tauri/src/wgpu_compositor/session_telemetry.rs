@@ -34,7 +34,7 @@ use crate::wgpu_compositor::frame_telemetry::FrameTelemetry;
 use crate::wgpu_compositor::render_path::FrameSource;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -437,6 +437,11 @@ struct SessionState {
 
     // Per-workload accumulators (Phase 3.1)
     workload_buckets: HashMap<WorkloadMode, WorkloadBucket>,
+    /// Explicit demand IDs accepted by the native command boundary. These
+    /// sets make frontend timeout recovery idempotent with a late native
+    /// completion for the same operation.
+    received_request_ids: HashSet<String>,
+    terminal_request_ids: HashSet<String>,
     experiment_context: Option<ScrubExperimentContext>,
 }
 
@@ -468,6 +473,8 @@ impl Default for SessionState {
             policy_background_pauses: 0,
             policy_interactive_throttles: 0,
             workload_buckets: HashMap::new(),
+            received_request_ids: HashSet::new(),
+            terminal_request_ids: HashSet::new(),
             experiment_context: None,
         }
     }
@@ -706,6 +713,19 @@ impl SessionTelemetryCollector {
             .record_request();
     }
 
+    /// Record one accepted explicit demand by its unique operation ID.
+    pub fn record_request_received_for(&self, request_id: &str, workload: WorkloadMode) {
+        let mut state = self.inner.lock();
+        if !state.received_request_ids.insert(request_id.to_string()) {
+            return;
+        }
+        state
+            .workload_buckets
+            .entry(workload)
+            .or_insert_with(WorkloadBucket::new)
+            .record_request();
+    }
+
     /// Record exactly one terminal outcome for an explicit native demand.
     pub fn record_request_terminal(&self, workload: WorkloadMode, outcome: NativeDemandOutcome) {
         self.inner
@@ -714,6 +734,29 @@ impl SessionTelemetryCollector {
             .entry(workload)
             .or_insert_with(WorkloadBucket::new)
             .record_request_terminal(outcome);
+    }
+
+    /// Record one terminal outcome for an accepted explicit demand. Returns
+    /// false for an unknown or already-terminal request so late native work
+    /// cannot duplicate a frontend timeout/supersession outcome.
+    pub fn record_request_terminal_once(
+        &self,
+        request_id: &str,
+        workload: WorkloadMode,
+        outcome: NativeDemandOutcome,
+    ) -> bool {
+        let mut state = self.inner.lock();
+        if !state.received_request_ids.contains(request_id)
+            || !state.terminal_request_ids.insert(request_id.to_string())
+        {
+            return false;
+        }
+        state
+            .workload_buckets
+            .entry(workload)
+            .or_insert_with(WorkloadBucket::new)
+            .record_request_terminal(outcome);
+        true
     }
 
     pub fn set_experiment_context(&self, context: ScrubExperimentContext) {
@@ -1014,6 +1057,38 @@ mod tests {
         let s = c.snapshot();
         assert_eq!(s.policy_background_pauses, 2);
         assert_eq!(s.policy_interactive_throttles, 1);
+    }
+
+    #[test]
+    fn keyed_request_terminal_is_recorded_once() {
+        let c = SessionTelemetryCollector::new();
+        c.record_request_received_for("op-1", WorkloadMode::Scrub);
+        assert!(c.record_request_terminal_once(
+            "op-1",
+            WorkloadMode::Scrub,
+            NativeDemandOutcome::Presented,
+        ));
+        assert!(!c.record_request_terminal_once(
+            "op-1",
+            WorkloadMode::Scrub,
+            NativeDemandOutcome::Cancelled,
+        ));
+        assert!(!c.record_request_terminal_once(
+            "unknown",
+            WorkloadMode::Scrub,
+            NativeDemandOutcome::Failed,
+        ));
+
+        let snapshot = c.snapshot();
+        let scrub = snapshot
+            .workload_snapshots
+            .get("scrub")
+            .expect("scrub workload snapshot");
+        assert_eq!(scrub.requests_received, 1);
+        assert_eq!(scrub.requests_presented, 1);
+        assert_eq!(scrub.requests_completed, 1);
+        assert_eq!(scrub.requests_cancelled, 0);
+        assert_eq!(scrub.requests_failed, 0);
     }
 
     #[test]
