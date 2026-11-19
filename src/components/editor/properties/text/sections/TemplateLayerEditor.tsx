@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { Type, Square, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/i18n";
 import { ClypraColorPicker } from "@clypra/ui-color-picker";
 import { resolveTextTemplateArtifact } from "@clypra-studio/engine";
 import {
@@ -29,6 +30,7 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
   customization = {},
   onChange,
 }) => {
+  const { t } = useI18n();
   const [expandedLayerId, setExpandedLayerId] = useState<string | null>(null);
 
   // Extract layers from either modern TextTemplateArtifact (document.nodes) or legacy template.layers
@@ -149,15 +151,15 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
   if (layers.length === 0) {
     return (
       <div className="text-center py-2 text-xs text-text-muted select-none">
-        No editable layers found in this template.
+        {t("properties.template.noEditableLayers")}
       </div>
     );
   }
 
   return (
     <div className="space-y-2 select-none">
-      <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-2">
-        Template Layers
+      <div className="text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-2">
+        {t("properties.template.layers")}
       </div>
 
       {layers.map((layer) => {
@@ -229,9 +231,9 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
               </div>
 
               {isExpanded ? (
-                <ChevronUp className="w-3.5 h-3.5 text-zinc-500" />
+                <ChevronUp className="w-3.5 h-3.5 text-text-muted" />
               ) : (
-                <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />
+                <ChevronDown className="w-3.5 h-3.5 text-text-muted" />
               )}
             </div>
 
@@ -242,8 +244,8 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
                   <>
                     {/* Text Content */}
                     <div className="space-y-1">
-                      <label className="text-[9px] text-zinc-400 block font-medium">
-                        Text Content
+                      <label className="text-[9px] text-text-muted block font-medium">
+                        {t("properties.template.textContent")}
                       </label>
                       <textarea
                         value={currentText}
@@ -261,8 +263,8 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
 
                     {/* Font Family */}
                     <div className="space-y-1">
-                      <label className="text-[9px] text-zinc-400 block font-medium">
-                        Font Family
+                      <label className="text-[9px] text-text-muted block font-medium">
+                        {t("properties.template.fontFamily")}
                       </label>
                       <select
                         value={resolveFontPickerValue(currentFontFamily)}
@@ -285,8 +287,8 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
 
                     {/* Text Color */}
                     <div className="flex items-center justify-between">
-                      <span className="text-[9px] text-zinc-400 font-medium">
-                        Text Color
+                      <span className="text-[9px] text-text-muted font-medium">
+                        {t("properties.template.textColor")}
                       </span>
                       <ClypraColorPicker
                         value={currentColor}
@@ -308,7 +310,7 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
 
                 {layer.kind === "shape" && (
                   <div className="flex items-center justify-between">
-                    <span className="text-[9px] text-zinc-400 font-medium">
+                    <span className="text-[9px] text-text-muted font-medium">
                       Fill Color
                     </span>
                     <ClypraColorPicker

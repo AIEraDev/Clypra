@@ -104,7 +104,7 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
       </div>
 
       {/* Framing & Placement */}
-      <div className="space-y-3 pt-2 border-t border-border/30">
+      <div className="space-y-3 pt-2 border-t border-border-default">
         <div className="flex items-center justify-between">
           <span className="text-xs text-text-muted">Framing</span>
           <div className="flex bg-surface-panel border border-border-default rounded-md p-0.5">

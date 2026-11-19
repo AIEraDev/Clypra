@@ -224,7 +224,7 @@ export const LUTSection: React.FC<LUTSectionProps> = ({
             onChange={(e) => toggleProtectSkinTone(e.target.checked)}
             className="sr-only peer"
           />
-          <div className="w-9 h-5 bg-surface-elevated border border-border-default peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent-primary" />
+          <div className="w-9 h-5 bg-surface-elevated border border-border-default peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-border-default after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent-primary" />
         </label>
       </div>
     </div>

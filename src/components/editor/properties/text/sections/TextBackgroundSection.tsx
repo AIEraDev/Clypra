@@ -212,7 +212,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
             onClick={handleToggleEnable}
             className={`w-4 h-4 rounded-[4px] border flex items-center justify-center transition-colors cursor-pointer ${
               isEnabled
-                ? "bg-cyan-500 border-cyan-400 text-black"
+                ? "bg-accent-primary border-accent-primary text-white"
                 : "border-border-default bg-surface-elevated hover:border-border-hover"
             }`}
             title={t("properties.background.enable") || "Enable background"}
@@ -227,7 +227,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
             className="flex items-center gap-1.5 text-xs font-semibold text-text-primary hover:text-accent-primary transition-colors cursor-pointer"
           >
             <span>{t("properties.background.title") || "Background"}</span>
-            <span className="text-[9px] text-[#8e8e93]">
+            <span className="text-[9px] text-text-muted">
               {isExpanded ? "▲" : "▼"}
             </span>
           </button>
@@ -294,7 +294,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
               }`}
               title={t("properties.background.styleSplit") || "Split lines"}
             >
-              <div className="flex flex-col items-center justify-center gap-0.5 text-[8px] font-bold text-[#8e8e93] leading-3">
+              <div className="flex flex-col items-center justify-center gap-0.5 text-[8px] font-bold text-text-muted leading-3">
                 <span className="bg-surface-panel px-1.5 py-0.5 rounded-[3px]">
                   ABC
                 </span>
@@ -307,7 +307,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
 
           {/* Row 1: Color */}
           <div className="flex items-center justify-between gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-muted shrink-0 w-24">
               {t("properties.background.color") || "Color"}
             </span>
 
@@ -328,7 +328,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
 
           {/* Row 2: Opacity */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-muted shrink-0 w-24">
               {t("properties.background.opacity") || "Opacity"}
             </span>
 
@@ -362,7 +362,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                   }}
                   className="w-full bg-transparent text-right text-text-primary outline-none pr-1"
                 />
-                <div className="flex flex-col text-[8px] text-[#8e8e93] leading-[6px]">
+                <div className="flex flex-col text-[8px] text-text-muted leading-[6px]">
                   <button
                     type="button"
                     onClick={() =>
@@ -402,7 +402,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
 
           {/* Row 3: Rounded rectangle */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-muted shrink-0 w-24">
               {t("properties.background.roundedRectangle") ||
                 "Rounded rectangle"}
             </span>
@@ -437,7 +437,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                   }}
                   className="w-full bg-transparent text-right text-text-primary outline-none pr-1"
                 />
-                <div className="flex flex-col text-[8px] text-[#8e8e93] leading-[6px]">
+                <div className="flex flex-col text-[8px] text-text-muted leading-[6px]">
                   <button
                     type="button"
                     onClick={() =>
@@ -477,7 +477,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
 
           {/* Row 4: Height */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-muted shrink-0 w-24">
               {t("properties.background.height") || "Height"}
             </span>
 
@@ -511,7 +511,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                   }}
                   className="w-full bg-transparent text-right text-text-primary outline-none pr-1"
                 />
-                <div className="flex flex-col text-[8px] text-[#8e8e93] leading-[6px]">
+                <div className="flex flex-col text-[8px] text-text-muted leading-[6px]">
                   <button
                     type="button"
                     onClick={() =>
@@ -555,7 +555,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
 
           {/* Row 5: Width */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-muted shrink-0 w-24">
               {t("properties.background.width") || "Width"}
             </span>
 
@@ -589,7 +589,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                   }}
                   className="w-full bg-transparent text-right text-text-primary outline-none pr-1"
                 />
-                <div className="flex flex-col text-[8px] text-[#8e8e93] leading-[6px]">
+                <div className="flex flex-col text-[8px] text-text-muted leading-[6px]">
                   <button
                     type="button"
                     onClick={() =>
@@ -633,7 +633,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
 
           {/* Row 6: Y-offset */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-muted shrink-0 w-24">
               {t("properties.background.yOffset") || "Y-offset"}
             </span>
 
@@ -667,7 +667,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                   }}
                   className="w-full bg-transparent text-right text-text-primary outline-none pr-1"
                 />
-                <div className="flex flex-col text-[8px] text-[#8e8e93] leading-[6px]">
+                <div className="flex flex-col text-[8px] text-text-muted leading-[6px]">
                   <button
                     type="button"
                     onClick={() =>

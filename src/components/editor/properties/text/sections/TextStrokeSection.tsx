@@ -183,7 +183,7 @@ export const TextStrokeSection: React.FC<TextStrokeSectionProps> = ({
             onClick={handleToggleEnable}
             className={`w-4 h-4 rounded-[4px] border flex items-center justify-center transition-colors cursor-pointer ${
               isEnabled
-                ? "bg-cyan-500 border-cyan-400 text-black"
+                ? "bg-accent-primary border-accent-primary text-white"
                 : "border-border-default bg-surface-elevated hover:border-border-hover"
             }`}
             title={t("properties.stroke.enable") || "Enable stroke"}
@@ -198,7 +198,7 @@ export const TextStrokeSection: React.FC<TextStrokeSectionProps> = ({
             className="flex items-center gap-1.5 text-xs font-semibold text-text-primary hover:text-accent-primary transition-colors cursor-pointer"
           >
             <span>{t("properties.stroke.title") || "Stroke"}</span>
-            <span className="text-[9px] text-[#8e8e93]">
+            <span className="text-[9px] text-text-muted">
               {isExpanded ? "▲" : "▼"}
             </span>
           </button>
@@ -235,7 +235,7 @@ export const TextStrokeSection: React.FC<TextStrokeSectionProps> = ({
         >
           {/* Row 1: Color */}
           <div className="flex items-center justify-between gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-muted shrink-0 w-24">
               {t("properties.stroke.color") || "Color"}
             </span>
 
@@ -256,7 +256,7 @@ export const TextStrokeSection: React.FC<TextStrokeSectionProps> = ({
 
           {/* Row 2: Thickness */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-muted shrink-0 w-24">
               {t("properties.stroke.thickness") || "Thickness"}
             </span>
 
@@ -284,7 +284,7 @@ export const TextStrokeSection: React.FC<TextStrokeSectionProps> = ({
                   }
                   className="w-full bg-transparent text-right text-text-primary outline-none pr-1"
                 />
-                <div className="flex flex-col text-[8px] text-[#8e8e93] leading-[6px]">
+                <div className="flex flex-col text-[8px] text-text-muted leading-[6px]">
                   <button
                     type="button"
                     onClick={() => handleThicknessChange(strokeWidth + 1)}

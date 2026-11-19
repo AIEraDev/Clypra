@@ -434,7 +434,7 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
 
       {/* ── 4. Loop Speed & Intensity Controls (when Loop tab is active and has loop) ── */}
       {activeTab === "loop" && hasLoop && (
-        <div className="space-y-3 pt-2 border-t border-border/30">
+        <div className="space-y-3 pt-2 border-t border-border-default">
           {/* Speed control */}
           <div className="space-y-1">
             <div className="flex items-center gap-1.5">

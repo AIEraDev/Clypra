@@ -226,7 +226,7 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
         </div>
 
         {/* Category: Color & White Balance */}
-        <div className="space-y-3 pt-1 border-t border-border/20">
+        <div className="space-y-3 pt-1 border-t border-border-default">
           <span className="text-[9px] font-bold uppercase tracking-wider text-text-muted select-none">
             Color & White Balance
           </span>
@@ -284,7 +284,7 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
         </div>
 
         {/* Category: Creative */}
-        <div className="space-y-3 pt-1 border-t border-border/20">
+        <div className="space-y-3 pt-1 border-t border-border-default">
           <span className="text-[9px] font-bold uppercase tracking-wider text-text-muted select-none">
             Creative
           </span>
@@ -318,7 +318,7 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
                       : false
                 }
                 onChange={(e) => updateField("invert", e.target.checked)}
-                className="w-3.5 h-3.5 rounded border border-border/60 bg-surface-raised checked:bg-accent text-accent accent-accent focus:outline-none cursor-pointer"
+                className="w-3.5 h-3.5 rounded border border-border-default bg-surface-elevated checked:bg-accent-primary text-accent-primary accent-accent-primary focus:outline-none cursor-pointer"
               />
               {isOverridden("invert") && (
                 <button
@@ -334,7 +334,7 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
         </div>
 
         {/* Category: Advanced Grading */}
-        <div className="space-y-3 pt-1 border-t border-border/20">
+        <div className="space-y-3 pt-1 border-t border-border-default">
           <span className="text-[9px] font-bold uppercase tracking-wider text-text-muted select-none">
             Advanced Grading
           </span>
@@ -353,7 +353,7 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
 
           {/* Vibrance */}
           <div
-            className={`p-2.5 rounded-lg bg-white/2 border transition-colors space-y-2.5 ${isOverridden("vibrance") ? "border-purple-500/30" : "border-border/10"}`}
+            className={`p-2.5 rounded-lg bg-surface-elevated border transition-colors space-y-2.5 ${isOverridden("vibrance") ? "border-purple-500/30" : "border-border-default"}`}
           >
             <AdjustmentSlider
               label="Vibrance Amount"
@@ -393,7 +393,7 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
                   format="hex"
                   showAlpha={false}
                   size="sm"
-                  triggerClassName="w-16 h-6.5 bg-surface border-border/60 hover:border-border shrink-0"
+                  triggerClassName="w-16 h-6.5 bg-surface-elevated border-border-default hover:border-border-hover shrink-0"
                   popoverClassName="right-0 left-auto mt-1 z-[100]"
                 />
                 {isOverridden("vibrance") && (
@@ -411,7 +411,7 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
 
           {/* Film Grain */}
           <div
-            className={`p-2.5 rounded-lg bg-white/2 border transition-colors space-y-2.5 ${isOverridden("grain") ? "border-purple-500/30" : "border-border/10"}`}
+            className={`p-2.5 rounded-lg bg-surface-elevated border transition-colors space-y-2.5 ${isOverridden("grain") ? "border-purple-500/30" : "border-border-default"}`}
           >
             <AdjustmentSlider
               label="Grain Intensity"
@@ -448,7 +448,7 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
 
           {/* Cross Process */}
           <div
-            className={`p-2.5 rounded-lg bg-white/2 border transition-colors space-y-2.5 ${isOverridden("crossProcess") ? "border-purple-500/30" : "border-border/10"}`}
+            className={`p-2.5 rounded-lg bg-surface-elevated border transition-colors space-y-2.5 ${isOverridden("crossProcess") ? "border-purple-500/30" : "border-border-default"}`}
           >
             <AdjustmentSlider
               label="Cross Process Amount"

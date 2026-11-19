@@ -1,3 +1,4 @@
+import { useI18n } from "@/i18n";
 /**
  * TextStyleSection.tsx
  *
@@ -69,6 +70,7 @@ interface TextContentEditorProps {
  */
 const TextContentEditor = React.memo<TextContentEditorProps>(
   ({ value, onChange, mode }) => {
+    const { t } = useI18n();
     const [draft, setDraft] = useState(value);
     const focusedRef = useRef(false);
 
@@ -94,8 +96,8 @@ const TextContentEditor = React.memo<TextContentEditorProps>(
           onChange(nextValue);
         }}
         rows={3}
-        placeholder="Enter text..."
-        aria-label={`${mode === "effect" ? "Effect" : "Plain"} text content`}
+        placeholder={t("properties.text.placeholder")}
+        aria-label={mode === "effect" ? t("properties.text.effectTextContent") : t("properties.text.plainTextContent")}
         className="w-full bg-surface-input border border-border-default rounded-lg p-3 text-xs text-text-primary placeholder-text-muted/50 outline-none focus:border-accent-primary focus:ring-1 focus:ring-accent-primary/20 resize-none font-sans min-h-[84px] transition-colors shadow-xs"
       />
     );
@@ -138,6 +140,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
   savePreset,
   deletePreset,
 }) => {
+  const { t } = useI18n();
   const [textSubTab, setTextSubTab] = useState<"basic" | "bubble">("basic");
   const [applyToAll, setApplyToAll] = useState(false);
 
@@ -340,7 +343,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
                 type="button"
                 onClick={() => !isLocked && setTextSubTab(tab)}
                 disabled={isLocked}
-                title={isLocked ? "Coming soon" : undefined}
+                title={isLocked ? t("common.comingSoon") : undefined}
                 className={`flex-1 py-0.5 text-xs rounded-sm transition-all text-center capitalize flex items-center justify-center gap-1 ${
                   isLocked
                     ? "text-text-muted/40 cursor-not-allowed"
@@ -349,7 +352,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
                       : "text-text-muted hover:text-text-primary hover:bg-surface-hover cursor-pointer"
                 }`}
               >
-                {tab}
+                {(tab === "basic" ? t("properties.text.basicTab") : t("properties.text.bubbleTab"))}
                 {isLocked && (
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -380,7 +383,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
         {isTextExceedingMaxDimension && (
           <div className="mt-1 flex items-start gap-1.5 p-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] leading-tight">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-            <span>Text exceeds 8192px canvas budget and was clamped.</span>
+            <span>{t("properties.text.clampedWarning")}</span>
           </div>
         )}
       </div>

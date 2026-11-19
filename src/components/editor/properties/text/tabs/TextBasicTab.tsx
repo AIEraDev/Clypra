@@ -9,6 +9,7 @@
  */
 
 import React, { useMemo } from "react";
+import { useI18n } from "@/i18n";
 import {
   AlignLeft,
   AlignCenter,
@@ -94,6 +95,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
   handleUpdateMultiple,
   savePreset,
 }) => {
+  const { t } = useI18n();
   const nativeDesktop = isTauriRuntime();
   const nativeFontIds = useMemo(
     () => new Set(getBundledNativeFontIds().map((id) => id.toLowerCase())),
@@ -202,7 +204,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
     <div className="space-y-3.5 relative">
       {/* Font family */}
       <div className="flex items-center justify-between gap-3">
-        <label className="text-xs text-text-muted shrink-0 w-20">Font</label>
+        <label className="text-xs text-text-muted shrink-0 w-20">{t("properties.text.font")}</label>
         <div className="relative flex-1">
           <select
             value={selectedFont}
@@ -259,14 +261,14 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
       {hasBidiText && (
         <div className="flex items-start gap-1.5 p-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] leading-tight">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          <span>Contains right-to-left text. Ensure font supports script.</span>
+          <span>{t("properties.text.rtlWarning")}</span>
         </div>
       )}
 
       {/* Font size */}
       <div className="flex items-center gap-3">
         <label className="text-xs text-text-muted shrink-0 w-20">
-          Font size
+          {t("properties.text.fontSize")}
         </label>
         <div className="flex-1 flex items-center">
           <input
@@ -325,7 +327,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
 
       {/* Pattern: Bold / Underline / Italic */}
       <div className="flex items-center gap-3">
-        <label className="text-xs text-text-muted shrink-0 w-20">Pattern</label>
+        <label className="text-xs text-text-muted shrink-0 w-20">{t("properties.text.pattern")}</label>
         <div className="flex items-center gap-2 flex-1">
           {/* Bold */}
           <button
@@ -341,7 +343,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
                 ? "bg-accent-primary text-white border-accent-primary shadow-sm"
                 : "bg-surface-elevated text-text-muted border-border-default hover:text-text-primary hover:bg-surface-hover"
             }`}
-            title="Bold"
+            title={t("properties.text.bold")}
           >
             B
           </button>
@@ -361,7 +363,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
                 ? "bg-accent-primary text-white border-accent-primary shadow-sm"
                 : "bg-surface-elevated text-text-muted border-border-default hover:text-text-primary hover:bg-surface-hover"
             }`}
-            title="Underline"
+            title={t("properties.text.underline")}
           >
             U
           </button>
@@ -379,7 +381,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
                 ? "bg-accent-primary text-white border-accent-primary shadow-sm"
                 : "bg-surface-elevated text-text-muted border-border-default hover:text-text-primary hover:bg-surface-hover"
             }`}
-            title="Italic"
+            title={t("properties.text.italic")}
           >
             I
           </button>
@@ -388,13 +390,13 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
 
       {/* Case: TT / tt / Tt */}
       <div className="flex items-center gap-3">
-        <label className="text-xs text-text-muted shrink-0 w-20">Case</label>
+        <label className="text-xs text-text-muted shrink-0 w-20">{t("properties.text.case")}</label>
         <div className="inline-flex gap-2 flex-1">
           {(
             [
-              ["uppercase", "TT", "Uppercase (ALL CAPS)"],
-              ["lowercase", "tt", "Lowercase (all small)"],
-              ["capitalize", "Tt", "Title Case (Capitalize Words)"],
+              ["uppercase", "TT", t("properties.text.uppercase")],
+              ["lowercase", "tt", t("properties.text.lowercase")],
+              ["capitalize", "Tt", t("properties.text.capitalize")],
             ] as const
           ).map(([transform, label, title]) => (
             <button
@@ -422,7 +424,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
       {/* Colour + keyframe stepper */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <label className="text-xs text-text-muted shrink-0 w-20">Color</label>
+          <label className="text-xs text-text-muted shrink-0 w-20">{t("properties.text.color")}</label>
           <ClypraColorPicker
             value={textClip.color || "#ffffff"}
             onChange={(c: string) => handleCustomStyleUpdate("color", c)}
@@ -443,13 +445,13 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
           onToggleKeyframe={handleToggleColorKeyframe}
           onPrevKeyframe={handlePrevColorKeyframe}
           onNextKeyframe={handleNextColorKeyframe}
-          label="Text Color"
+          label={t("properties.text.textColor")}
         />
       </div>
 
       {/* Spacing: Character */}
       <div className="flex items-center gap-2">
-        <span className="text-xs text-text-muted w-20">Character</span>
+        <span className="text-xs text-text-muted w-20">{t("properties.text.character")}</span>
         <div className="flex-1 bg-surface-input border border-border-default rounded-md px-2 py-1 flex items-center">
           <input
             type="number"
@@ -490,7 +492,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
 
       {/* Spacing: Line */}
       <div className="flex items-center gap-2">
-        <span className="text-xs text-text-muted w-20">Line</span>
+        <span className="text-xs text-text-muted w-20">{t("properties.text.line")}</span>
         <div className="flex-1 bg-surface-input border border-border-default rounded-md px-2 py-1 flex items-center">
           <input
             type="number"
@@ -535,16 +537,16 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
 
       {/* Alignment */}
       <div>
-        <span className="text-xs text-text-muted w-20">Alignments</span>
+        <span className="text-xs text-text-muted w-20">{t("properties.text.alignments")}</span>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
-            <span className="text-[8px] text-text-muted block">Horizontal</span>
+            <span className="text-[8px] text-text-muted block">{t("properties.text.horizontal")}</span>
             <div className="flex gap-0.5 bg-surface-elevated p-0.5 rounded-md border border-border-default">
               {(
                 [
-                  ["left", AlignLeft, "Align left"],
-                  ["center", AlignCenter, "Align center"],
-                  ["right", AlignRight, "Align right"],
+                  ["left", AlignLeft, t("properties.transform.alignLeft")],
+                  ["center", AlignCenter, t("properties.text.alignCenter")],
+                  ["right", AlignRight, t("properties.transform.alignRight")],
                 ] as const
               ).map(([align, Icon, label]) => (
                 <button
@@ -555,8 +557,8 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
                   onClick={() => handleUpdate("align", align)}
                   className={`flex-1 py-1 rounded flex items-center justify-center transition-all cursor-pointer ${
                     (textClip.align || "center") === align
-                      ? "bg-cyan-400 text-black font-semibold"
-                      : "text-text-muted hover:text-black hover:bg-cyan-400"
+                      ? "bg-accent-primary text-white font-semibold"
+                      : "text-text-muted hover:text-text-primary hover:bg-surface-hover"
                   }`}
                 >
                   <Icon className="w-3.5 h-3.5" />
@@ -566,13 +568,13 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
           </div>
 
           <div className="space-y-1">
-            <span className="text-[8px] text-text-muted block">Vertical</span>
+            <span className="text-[8px] text-text-muted block">{t("properties.text.vertical")}</span>
             <div className="flex gap-0.5 bg-surface-elevated p-0.5 rounded-md border border-border-default">
               {(
                 [
-                  ["top", AlignStartVertical, "Align top"],
-                  ["middle", AlignCenterVertical, "Align middle"],
-                  ["bottom", AlignEndVertical, "Align bottom"],
+                  ["top", AlignStartVertical, t("properties.transform.alignTop")],
+                  ["middle", AlignCenterVertical, t("properties.text.alignMiddle")],
+                  ["bottom", AlignEndVertical, t("properties.transform.alignBottom")],
                 ] as const
               ).map(([valign, Icon, label]) => (
                 <button
@@ -583,8 +585,8 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
                   onClick={() => handleUpdate("valign", valign)}
                   className={`flex-1 py-1 rounded flex items-center justify-center transition-all cursor-pointer ${
                     (textClip.valign || "middle") === valign
-                      ? "bg-cyan-400 text-black font-semibold"
-                      : "text-text-muted hover:text-black hover:bg-cyan-400"
+                      ? "bg-accent-primary text-white font-semibold"
+                      : "text-text-muted hover:text-text-primary hover:bg-surface-hover"
                   }`}
                 >
                   <Icon className="w-3.5 h-3.5" />
@@ -648,7 +650,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
               <span className="text-xs font-semibold text-white block">
                 Behind Subject
               </span>
-              <span className="text-[10px] text-[#8e8e93] block">
+              <span className="text-[10px] text-text-muted block">
                 Place text behind the person using AI cutout
               </span>
             </div>
@@ -685,7 +687,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
             <span className="text-xs font-semibold text-white">
               Apply to all captions
             </span>
-            <span className="text-[9px] text-[#8e8e93]">
+            <span className="text-[9px] text-text-muted">
               Broadcast styles to all clips on this track
             </span>
           </div>

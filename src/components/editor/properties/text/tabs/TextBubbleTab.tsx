@@ -155,7 +155,7 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search text bubbles..."
+          placeholder={t("properties.bubble.searchPlaceholder")}
           className="w-full bg-surface-input border border-border-default rounded-md pl-8 pr-8 py-1.5 text-xs text-text-primary placeholder-text-muted/50 outline-none focus:border-accent-primary focus:ring-1 focus:ring-accent-primary/20 transition-colors"
         />
         {searchQuery && (
@@ -193,7 +193,7 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
       {/* ── Header Title & Category Dropdown ── */}
       <div className="flex items-center justify-between pt-0.5 relative">
         <span className="text-[10px] text-text-muted uppercase font-semibold tracking-wider select-none">
-          {t("properties.text.speechBubbles") || "Speech Bubbles"}
+          {t("properties.text.speechBubbles")}
         </span>
 
         {/* Category Filter Button */}
@@ -202,7 +202,7 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
             type="button"
             onClick={() => setIsFilterOpen(!isFilterOpen)}
             className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-surface-elevated hover:bg-surface-hover border border-border-default text-[11px] text-text-primary font-medium transition-colors cursor-pointer"
-            title={t("properties.bubble.filterTooltip") || "Filter by category"}
+            title={t("properties.bubble.filterTooltip")}
           >
             <span>{activeCategoryLabel}</span>
             <SlidersHorizontal className="w-3 h-3 text-text-muted" />

@@ -145,7 +145,7 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
       </div>
 
       {/* Speed & Pitch Controls */}
-      <div className="space-y-3 pt-2 border-t border-border/30">
+      <div className="space-y-3 pt-2 border-t border-border-default">
         <div className="flex items-center justify-between text-xs">
           <span className="text-text-muted">Speech Speed</span>
           <span className="text-text-primary font-medium">{speed.toFixed(1)}x</span>

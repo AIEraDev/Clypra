@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useI18n } from "@/i18n";
 import type { Clip } from "@/types";
 import { AudioSection } from "../../audio/sections/AudioSection";
 
@@ -17,6 +18,7 @@ export const AudioStyleSection: React.FC<AudioStyleSectionProps> = ({
   onUnlink,
   onRelink,
 }) => {
+  const { t } = useI18n();
   const [activeSubTab, setActiveSubTab] = useState<AudioSubTab>("basic");
 
   return (
@@ -27,8 +29,8 @@ export const AudioStyleSection: React.FC<AudioStyleSectionProps> = ({
           {(["basic", "voice-changer"] as const).map((tab) => {
             const isLocked = tab !== "basic"; // Only Basic is unlocked for now
             const labels = {
-              basic: "Basic",
-              "voice-changer": "Voice changer",
+              basic: t("properties.text.basicTab"),
+              "voice-changer": t("properties.tabs.voiceChanger"),
             };
 
             return (
@@ -37,7 +39,7 @@ export const AudioStyleSection: React.FC<AudioStyleSectionProps> = ({
                 type="button"
                 onClick={() => !isLocked && setActiveSubTab(tab)}
                 disabled={isLocked}
-                title={isLocked ? "Coming soon" : undefined}
+                title={isLocked ? t("common.comingSoon") : undefined}
                 className={`flex-1 py-0.5 text-xs rounded-sm transition-all text-center flex items-center justify-center gap-1 ${
                   isLocked
                     ? "text-text-muted/50 cursor-not-allowed"

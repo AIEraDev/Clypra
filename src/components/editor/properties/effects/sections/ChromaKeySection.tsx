@@ -81,7 +81,7 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
               !chromaKey.enabled
                 ? "opacity-40 cursor-not-allowed bg-surface-raised border-border-default text-text-muted"
                 : isPicking
-                  ? "bg-accent border-accent text-white animate-pulse shadow-xs shadow-accent/30"
+                  ? "bg-accent-primary border-accent-primary text-white animate-pulse shadow-xs shadow-accent-primary/30"
                   : "bg-surface-raised hover:bg-surface-hover border-border-default text-text-secondary hover:text-text-primary"
             }`}
           >

@@ -11,6 +11,37 @@ vi.mock("@/i18n", () => {
     "properties.stroke.reset": "Reset stroke",
     "properties.background.title": "Background",
     "properties.background.reset": "Reset background",
+    "properties.text.font": "Font",
+    "properties.text.fontSize": "Font size",
+    "properties.text.pattern": "Pattern",
+    "properties.text.case": "Case",
+    "properties.text.color": "Color",
+    "properties.text.character": "Character",
+    "properties.text.line": "Line",
+    "properties.text.alignments": "Alignments",
+    "properties.text.horizontal": "Horizontal",
+    "properties.text.vertical": "Vertical",
+    "properties.text.bold": "Bold",
+    "properties.text.underline": "Underline",
+    "properties.text.italic": "Italic",
+    "properties.text.uppercase": "Uppercase (ALL CAPS)",
+    "properties.text.lowercase": "Lowercase (all small)",
+    "properties.text.capitalize": "Title Case (Capitalize Words)",
+    "properties.text.textColor": "Text Color",
+    "properties.text.alignCenter": "Align center",
+    "properties.text.alignMiddle": "Align middle",
+    "properties.text.rtlWarning": "Contains right-to-left text. Ensure font supports script.",
+    "properties.text.placeholder": "Enter text...",
+    "properties.text.effectTextContent": "Effect text content",
+    "properties.text.plainTextContent": "Plain text content",
+    "properties.text.basicTab": "Basic",
+    "properties.text.bubbleTab": "Bubble",
+    "properties.text.clampedWarning": "Text exceeds 8192px canvas budget and was clamped.",
+    "properties.transform.alignLeft": "Align left",
+    "properties.transform.alignRight": "Align right",
+    "properties.transform.alignTop": "Align top",
+    "properties.transform.alignBottom": "Align bottom",
+    "common.comingSoon": "Coming soon",
   };
   return {
     useI18n: () => ({
@@ -185,16 +216,16 @@ describe("TextBasicTab Suite", () => {
   it("dispatches horizontal alignment updates", () => {
     const { handleUpdate } = renderComponent();
 
-    const leftAlignBtn = screen.getByRole("button", { name: "Align left" });
-    fireEvent.click(leftAlignBtn);
+    const leftAlignBtns = screen.getAllByRole("button", { name: "Align left" });
+    fireEvent.click(leftAlignBtns[0]);
     expect(handleUpdate).toHaveBeenCalledWith("align", "left");
   });
 
   it("dispatches vertical alignment updates", () => {
     const { handleUpdate } = renderComponent();
 
-    const topAlignBtn = screen.getByRole("button", { name: "Align top" });
-    fireEvent.click(topAlignBtn);
+    const topAlignBtns = screen.getAllByRole("button", { name: "Align top" });
+    fireEvent.click(topAlignBtns[0]);
     expect(handleUpdate).toHaveBeenCalledWith("valign", "top");
   });
 

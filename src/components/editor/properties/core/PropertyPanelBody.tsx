@@ -147,7 +147,7 @@ const PropertyPanelBody: React.FC<PropertyPanelBodyProps> = ({
               }
             />
           ) : (
-            <div className="rounded-lg border border-border/40 bg-surface-raised/40 p-3 text-xs text-text-muted flex items-start gap-2.5">
+            <div className="rounded-lg border border-border-default bg-surface-elevated p-3 text-xs text-text-muted flex items-start gap-2.5">
               <VolumeX className="w-4 h-4 text-text-muted/70 shrink-0 mt-0.5" />
               <div>
                 <p className="font-medium text-text-secondary">

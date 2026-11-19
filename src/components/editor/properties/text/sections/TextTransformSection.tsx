@@ -370,7 +370,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
           className="flex items-center gap-1.5 text-xs font-semibold text-text-primary hover:text-text-secondary transition-colors cursor-pointer"
         >
           <span>{t("properties.transform.title") || "Transform"}</span>
-          <span className="text-[10px] text-[#8e8e93]">
+          <span className="text-[10px] text-text-muted">
             {isExpanded ? "▲" : "▼"}
           </span>
         </button>
@@ -419,7 +419,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
         <div className="space-y-3.5">
           {/* ── Row 1: Scale ── */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-muted shrink-0 w-24">
               {t("properties.transform.scale") || "Scale"}
             </span>
 
@@ -447,7 +447,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
                   }}
                   className="w-10 bg-transparent text-right outline-none pr-1"
                 />
-                <div className="flex flex-col ml-1 text-[8px] text-[#8e8e93] leading-[6px]">
+                <div className="flex flex-col ml-1 text-[8px] text-text-muted leading-[6px]">
                   <button
                     type="button"
                     onClick={() => handleScaleChange(scalePercent + 1)}
@@ -483,7 +483,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
 
           {/* ── Row 2: Uniform Scale ── */}
           <div className="flex items-center justify-between">
-            <span className="text-xs text-[#a1a1aa]">
+            <span className="text-xs text-text-muted">
               {t("properties.transform.uniformScale") || "Uniform scale"}
             </span>
             <button
@@ -507,7 +507,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
 
           {/* ── Row 3: Position ── */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-muted shrink-0 w-24">
               {t("properties.transform.position") || "Position"}
             </span>
 
@@ -515,7 +515,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
               <div className="flex items-center gap-2 flex-1">
                 {/* X Coordinate */}
                 <div className="flex-1 flex items-center bg-surface-input border border-border-default rounded-md px-2 py-1 text-xs">
-                  <span className="text-[#8e8e93] mr-2 text-[11px] font-medium">
+                  <span className="text-text-muted mr-2 text-[11px] font-medium">
                     X
                   </span>
                   <input
@@ -526,7 +526,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
                     }
                     className="w-full bg-transparent text-center text-text-primary outline-none"
                   />
-                  <div className="flex flex-col text-[8px] text-[#8e8e93] leading-[6px]">
+                  <div className="flex flex-col text-[8px] text-text-muted leading-[6px]">
                     <button
                       type="button"
                       onClick={() => handleDisplayXChange(displayX + 1)}
@@ -546,7 +546,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
 
                 {/* Y Coordinate */}
                 <div className="flex-1 flex items-center bg-surface-input border border-border-default rounded-md px-2 py-1 text-xs">
-                  <span className="text-[#8e8e93] mr-2 text-[11px] font-medium">
+                  <span className="text-text-muted mr-2 text-[11px] font-medium">
                     Y
                   </span>
                   <input
@@ -557,7 +557,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
                     }
                     className="w-full bg-transparent text-center text-text-primary outline-none"
                   />
-                  <div className="flex flex-col text-[8px] text-[#8e8e93] leading-[6px]">
+                  <div className="flex flex-col text-[8px] text-text-muted leading-[6px]">
                     <button
                       type="button"
                       onClick={() => handleDisplayYChange(displayY + 1)}
@@ -594,7 +594,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
 
           {/* ── Row 4: Plane Rotation ── */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-muted shrink-0 w-24">
               {t("properties.transform.planeRotation") || "Plane rotation"}
             </span>
 
@@ -614,7 +614,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
                     }}
                     className="w-full bg-transparent text-right text-text-primary outline-none pr-1"
                   />
-                  <div className="flex flex-col text-[8px] text-[#8e8e93] leading-[6px]">
+                  <div className="flex flex-col text-[8px] text-text-muted leading-[6px]">
                     <button
                       type="button"
                       onClick={() =>
