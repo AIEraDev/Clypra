@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from "react";
 import { FlipHorizontal2, Snowflake } from "lucide-react";
 import type { Clip, PlaybackMapping } from "@/types";
+import { useI18n } from "@/i18n";
 import { UpdateClipCommand } from "@/core/history/commands";
 import { useHistoryStore } from "@/store/historyStore";
 import { useTimelineStore } from "@/store/timelineStore";
@@ -51,6 +52,7 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
   executeCommand,
   showTabs = true,
 }) => {
+  const { t } = useI18n();
   const [activeSubTab, setActiveSubTab] = useState<SpeedSubTab>("standard");
 
   const kind = selectedClip.playbackMapping?.kind ?? "normal";
@@ -202,9 +204,9 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
           {(["standard", "curve", "velocity"] as const).map((tab) => {
             const isLocked = tab !== "standard";
             const labels = {
-              standard: "Standard",
-              curve: "Curve",
-              velocity: "Velocity effects",
+              standard: t("properties.speed.standard"),
+              curve: t("properties.speed.curve"),
+              velocity: t("properties.speed.velocity"),
             };
             return (
               <button
@@ -212,7 +214,7 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
                 type="button"
                 onClick={() => !isLocked && setActiveSubTab(tab)}
                 disabled={isLocked}
-                title={isLocked ? "Coming soon" : undefined}
+                title={isLocked ? t("common.comingSoon") : undefined}
                 className={`flex-1 py-0.5 text-xs rounded-sm transition-all text-center flex items-center justify-center gap-1 ${
                   isLocked
                     ? "text-text-muted/50 cursor-not-allowed"
@@ -237,14 +239,14 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
           {/* ── Speed ──────────────────────────────────────────────────────── */}
           <div className="space-y-2">
             <label className="text-[11px] font-medium text-text-primary">
-              Speed
+              {t("properties.tabs.speed")}
             </label>
             {isFrozen ? (
               /* Frozen state — speed slider replaced with a read-only badge */
               <div className="flex items-center gap-2">
                 <div className="flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded bg-surface-elevated border border-border-default">
                   <Snowflake className="w-3.5 h-3.5 text-accent-primary shrink-0" />
-                  <span className="text-[11px] text-text-secondary">Frozen</span>
+                  <span className="text-[11px] text-text-secondary">{t("properties.speed.frozen")}</span>
                   <span className="ml-auto text-[11px] text-text-muted font-mono tabular-nums">
                     {(
                       selectedClip.playbackMapping as {
@@ -284,7 +286,7 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
           {!isFrozen && (
             <div className="space-y-2">
               <label className="text-[11px] font-medium text-text-primary">
-                Duration
+                {t("properties.speed.duration")}
               </label>
               <div className="flex items-center">
                 <div className="flex-1 h-[3px] bg-white/5 rounded-full relative overflow-hidden mr-4">
@@ -331,14 +333,14 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
           {/* ── Playback mode buttons (Reverse / Freeze) ───────────────────── */}
           <div className="space-y-2">
             <label className="text-[11px] font-medium text-text-primary">
-              Playback
+              {t("properties.speed.playback")}
             </label>
             <div className="flex items-center gap-2">
               {/* Reverse toggle */}
               <button
                 type="button"
-                title={isReversed ? "Unreverse clip" : "Reverse clip"}
-                aria-label={isReversed ? "Unreverse clip" : "Reverse clip"}
+                title={isReversed ? t("properties.speed.unreverseClip") : t("properties.speed.reverseClip")}
+                aria-label={isReversed ? t("properties.speed.unreverseClip") : t("properties.speed.reverseClip")}
                 onClick={handleToggleReverse}
                 disabled={isFrozen}
                 className={iconBtn(isReversed, isFrozen)}
@@ -346,7 +348,7 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
                 <FlipHorizontal2 className="w-3.5 h-3.5" />
               </button>
               <span className="text-[11px] text-text-muted">
-                {isReversed ? "Reversed" : "Reverse"}
+                {isReversed ? t("properties.speed.reversed") : t("properties.speed.reverse")}
               </span>
 
               <div className="flex-1" />
@@ -356,23 +358,23 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
                 className="text-[11px] text-text-muted"
                 title={
                   !playheadInsideClip && !isFrozen
-                    ? "Move playhead inside clip to freeze"
+                    ? t("properties.speed.movePlayheadToFreeze")
                     : undefined
                 }
               >
-                {isFrozen ? "Frozen" : "Freeze"}
+                {isFrozen ? t("properties.speed.frozen") : t("properties.speed.freeze")}
               </span>
               <button
                 type="button"
                 title={
                   isFrozen
-                    ? "Unfreeze clip"
+                    ? t("properties.speed.unfreezeClip")
                     : playheadInsideClip
-                      ? "Freeze frame at playhead"
-                      : "Move playhead inside clip to freeze"
+                      ? t("properties.speed.freezeFrameAtPlayhead")
+                      : t("properties.speed.movePlayheadToFreeze")
                 }
                 aria-label={
-                  isFrozen ? "Unfreeze clip" : "Freeze frame at playhead"
+                  isFrozen ? t("properties.speed.unfreezeClip") : t("properties.speed.freezeFrameAtPlayhead")
                 }
                 onClick={handleToggleFreeze}
                 disabled={!isFrozen && !playheadInsideClip}
@@ -385,7 +387,7 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
 
           {/* ── Change audio pitch toggle ───────────────────────────────────── */}
           <div className="flex items-center justify-between py-2 border-t border-border-default">
-            <label className="text-sm text-text-primary">Change audio pitch</label>
+            <label className="text-sm text-text-primary">{t("properties.speed.changeAudioPitch")}</label>
             <button
               type="button"
               onClick={handlePreservePitchToggle}
@@ -405,13 +407,13 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
 
       {activeSubTab === "curve" && (
         <div className="p-4 text-center text-text-muted text-sm">
-          Speed curve feature coming soon
+          {t("properties.speed.curveComingSoon")}
         </div>
       )}
 
       {activeSubTab === "velocity" && (
         <div className="p-4 text-center text-text-muted text-sm">
-          Velocity effects coming soon
+          {t("properties.speed.velocityComingSoon")}
         </div>
       )}
     </div>

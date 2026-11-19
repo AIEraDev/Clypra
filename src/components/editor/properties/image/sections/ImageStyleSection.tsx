@@ -12,6 +12,7 @@
 
 import React, { useState } from "react";
 import type { Clip } from "@/types";
+import { useI18n } from "@/i18n";
 import { VideoBasicTab } from "../../video/tabs/VideoBasicTab";
 
 interface ImageStyleSectionProps {
@@ -33,6 +34,7 @@ export const ImageStyleSection: React.FC<ImageStyleSectionProps> = ({
   handleUpdateMultiple,
   handleApplyFit,
 }) => {
+  const { t } = useI18n();
   const [imageSubTab, setImageSubTab] = useState<
     "basic" | "removebg" | "mask" | "retouch"
   >("basic");
@@ -45,10 +47,10 @@ export const ImageStyleSection: React.FC<ImageStyleSectionProps> = ({
           {(["basic", "removebg", "mask", "retouch"] as const).map((tab) => {
             const isLocked = tab !== "basic"; // Only Basic is unlocked for now
             const labels = {
-              basic: "Basic",
-              removebg: "Remove BG",
-              mask: "Mask",
-              retouch: "Retouch",
+              basic: t("properties.subtabs.basic"),
+              removebg: t("properties.subtabs.removeBg"),
+              mask: t("properties.subtabs.mask"),
+              retouch: t("properties.subtabs.retouch"),
             };
 
             return (
@@ -57,7 +59,7 @@ export const ImageStyleSection: React.FC<ImageStyleSectionProps> = ({
                 type="button"
                 onClick={() => !isLocked && setImageSubTab(tab)}
                 disabled={isLocked}
-                title={isLocked ? "Coming soon" : undefined}
+                title={isLocked ? t("common.comingSoon") : undefined}
                 className={`flex-1 py-0.5 text-xs rounded-sm transition-all text-center flex items-center justify-center gap-1 ${
                   isLocked
                     ? "text-text-muted/40 cursor-not-allowed"
@@ -104,21 +106,21 @@ export const ImageStyleSection: React.FC<ImageStyleSectionProps> = ({
       {/* Remove BG tab */}
       {imageSubTab === "removebg" && (
         <div className="p-4 text-center text-text-muted text-sm">
-          Remove Background feature coming soon
+          {t("properties.adjust.removeBgComingSoon")}
         </div>
       )}
 
       {/* Mask tab */}
       {imageSubTab === "mask" && (
         <div className="p-4 text-center text-text-muted text-sm">
-          Mask feature coming soon
+          {t("properties.adjust.maskComingSoon")}
         </div>
       )}
 
       {/* Retouch tab */}
       {imageSubTab === "retouch" && (
         <div className="p-4 text-center text-text-muted text-sm">
-          Retouch feature coming soon
+          {t("properties.adjust.retouchComingSoon")}
         </div>
       )}
     </div>

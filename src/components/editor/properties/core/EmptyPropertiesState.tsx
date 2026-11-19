@@ -47,7 +47,7 @@ export const EmptyPropertiesState: React.FC<EmptyPropertiesStateProps> = ({
           <>
             <div className="flex items-center gap-2 pl-1.5">
               <span className="text-xs font-semibold text-text-primary">
-                Details
+                {t("properties.project.details")}
               </span>
             </div>
             {onToggleCollapse && (
@@ -69,7 +69,7 @@ export const EmptyPropertiesState: React.FC<EmptyPropertiesStateProps> = ({
           <button
             onClick={onToggleCollapse}
             className="w-8 h-8 rounded-lg flex items-center justify-center text-accent-primary bg-accent-primary/10 hover:bg-accent-primary/20 border border-accent-primary/20 transition-colors cursor-pointer"
-            title={t("Expand Project Details")}
+            title={t("properties.project.expandDetails")}
           >
             <Info className="w-4 h-4" />
           </button>

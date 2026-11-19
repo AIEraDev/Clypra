@@ -11,6 +11,7 @@
 
 import React, { useState } from "react";
 import type { Clip } from "@/types";
+import { useI18n } from "@/i18n";
 import { VideoBasicTab } from "../tabs/VideoBasicTab";
 
 interface VideoStyleSectionProps {
@@ -32,6 +33,7 @@ export const VideoStyleSection: React.FC<VideoStyleSectionProps> = ({
   handleUpdateMultiple,
   handleApplyFit,
 }) => {
+  const { t } = useI18n();
   const [videoSubTab, setVideoSubTab] = useState<
     "basic" | "removebg" | "mask" | "retouch"
   >("basic");
@@ -44,10 +46,10 @@ export const VideoStyleSection: React.FC<VideoStyleSectionProps> = ({
           {(["basic", "removebg", "mask", "retouch"] as const).map((tab) => {
             const isLocked = tab !== "basic"; // Only Basic is unlocked for now
             const labels = {
-              basic: "Basic",
-              removebg: "Remove BG",
-              mask: "Mask",
-              retouch: "Retouch",
+              basic: t("properties.subtabs.basic"),
+              removebg: t("properties.subtabs.removeBg"),
+              mask: t("properties.subtabs.mask"),
+              retouch: t("properties.subtabs.retouch"),
             };
 
             return (
@@ -56,7 +58,7 @@ export const VideoStyleSection: React.FC<VideoStyleSectionProps> = ({
                 type="button"
                 onClick={() => !isLocked && setVideoSubTab(tab)}
                 disabled={isLocked}
-                title={isLocked ? "Coming soon" : undefined}
+                title={isLocked ? t("common.comingSoon") : undefined}
                 className={`flex-1 py-0.5 text-xs rounded-sm transition-all text-center flex items-center justify-center gap-1 ${
                   isLocked
                     ? "text-text-muted/50 cursor-not-allowed"
@@ -103,21 +105,21 @@ export const VideoStyleSection: React.FC<VideoStyleSectionProps> = ({
       {/* Remove BG tab */}
       {videoSubTab === "removebg" && (
         <div className="p-4 text-center text-text-muted text-sm">
-          Remove Background feature coming soon
+          {t("properties.adjust.removeBgComingSoon")}
         </div>
       )}
 
       {/* Mask tab */}
       {videoSubTab === "mask" && (
         <div className="p-4 text-center text-text-muted text-sm">
-          Mask feature coming soon
+          {t("properties.adjust.maskComingSoon")}
         </div>
       )}
 
       {/* Retouch tab */}
       {videoSubTab === "retouch" && (
         <div className="p-4 text-center text-text-muted text-sm">
-          Retouch feature coming soon
+          {t("properties.adjust.retouchComingSoon")}
         </div>
       )}
     </div>

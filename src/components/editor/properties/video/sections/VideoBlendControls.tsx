@@ -11,6 +11,7 @@
 
 import React, { useCallback, useMemo, useState } from "react";
 import type { Clip } from "@/types";
+import { useI18n } from "@/i18n";
 import { PropertySectionHeader } from "../../primitives/PropertySectionHeader";
 import { PropertySelect } from "../../primitives/PropertySelect";
 import { SliderTrack } from "../../primitives/SliderTrack";
@@ -51,6 +52,7 @@ export const VideoBlendControls: React.FC<VideoBlendControlsProps> = ({
   handleUpdate,
   handleUpdateMultiple,
 }) => {
+  const { t } = useI18n();
   const [isBlendCollapsed, setIsBlendCollapsed] = useState(false);
 
   const blendMode = (selectedClip as any).blendMode || "normal";
@@ -236,18 +238,18 @@ export const VideoBlendControls: React.FC<VideoBlendControlsProps> = ({
   return (
     <div className="space-y-3">
       <PropertySectionHeader
-        title="Blend"
+        title={t("properties.blend.title")}
         isCollapsed={isBlendCollapsed}
         onToggleCollapse={() => setIsBlendCollapsed(!isBlendCollapsed)}
         onReset={handleReset}
-        resetTitle="Reset blend"
+        resetTitle={t("properties.blend.reset")}
       />
 
       {!isBlendCollapsed && (
         <div className="space-y-4">
           {/* Blend Mode */}
           <PropertySelect
-            label="Mode"
+            label={t("properties.blend.mode")}
             value={blendMode}
             options={BLEND_MODE_OPTIONS}
             onChange={(val) => handleUpdate("blendMode", val)}
@@ -257,7 +259,7 @@ export const VideoBlendControls: React.FC<VideoBlendControlsProps> = ({
           {/* Opacity with Keyframe Support */}
           <div className="space-y-1">
             <span className="text-[11px] text-text-primary select-none block">
-              Opacity
+              {t("properties.blend.opacity")}
             </span>
             <div className="flex items-center gap-2">
               <SliderTrack
@@ -278,7 +280,7 @@ export const VideoBlendControls: React.FC<VideoBlendControlsProps> = ({
                 onChange={handleOpacityChange}
                 step={1}
                 suffix="%"
-                ariaLabel="Opacity"
+                ariaLabel={t("properties.blend.opacity")}
                 propertyId="opacity"
                 category="video"
                 min={0}
@@ -294,7 +296,7 @@ export const VideoBlendControls: React.FC<VideoBlendControlsProps> = ({
                 hasPrev={opacityKfState.hasPrev}
                 hasNext={opacityKfState.hasNext}
                 onOpenCurveEditor={handleOpenOpacityCurveEditor}
-                label="Opacity"
+                label={t("properties.blend.opacity")}
               />
             </div>
           </div>

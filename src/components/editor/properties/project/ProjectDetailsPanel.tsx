@@ -9,14 +9,14 @@ export const ProjectDetailsPanel: React.FC = () => {
   if (!project) {
     return (
       <div className="p-4 text-center text-text-muted text-sm">
-        No project loaded
+        {t("properties.project.noProjectLoaded")}
       </div>
     );
   }
 
   // Helper function to format aspect ratio
   const formatAspectRatio = (aspectRatio: string): string => {
-    if (aspectRatio === "original") return "Original";
+    if (aspectRatio === "original") return t("properties.project.original");
     return aspectRatio; // Returns the ratio string like "16:9", "9:16", etc.
   };
 
@@ -26,32 +26,32 @@ export const ProjectDetailsPanel: React.FC = () => {
       <div>
         <div className="space-y-3">
           <div className="flex items-start justify-between py-2 border-b border-border-default/60">
-            <span className="text-xs text-text-muted">Name:</span>
+            <span className="text-xs text-text-muted">{t("properties.project.name")}:</span>
             <span className="text-xs text-text-primary text-right font-medium">
               {project.name}
             </span>
           </div>
 
           <div className="flex items-start justify-between py-2 border-b border-border-default/60">
-            <span className="text-xs text-text-muted">Color space:</span>
-            <span className="text-xs text-text-primary font-medium">Rec. 709 SDR</span>
+            <span className="text-xs text-text-muted">{t("properties.project.colorSpace")}:</span>
+            <span className="text-xs text-text-primary font-medium">{t("properties.project.colorSpaceValue")}</span>
           </div>
 
           <div className="flex items-start justify-between py-2 border-b border-border-default/60">
-            <span className="text-xs text-text-muted">Imported media:</span>
+            <span className="text-xs text-text-muted">{t("properties.project.importedMedia")}:</span>
             <span className="text-xs text-text-primary font-medium">
-              Stay in original location
+              {t("properties.project.stayInOriginalLocation")}
             </span>
           </div>
 
           <div className="flex items-start justify-between py-2 border-b border-border-default/60">
-            <span className="text-xs text-text-muted">Arrange layers:</span>
-            <span className="text-xs text-text-primary font-medium">Turned on</span>
+            <span className="text-xs text-text-muted">{t("properties.project.arrangeLayers")}:</span>
+            <span className="text-xs text-text-primary font-medium">{t("common.status.enabled")}</span>
           </div>
 
           <div className="flex items-start justify-between py-2 border-b border-border-default/60">
-            <span className="text-xs text-text-muted">Proxy:</span>
-            <span className="text-xs text-text-primary font-medium">Turned off</span>
+            <span className="text-xs text-text-muted">{t("properties.project.proxy")}:</span>
+            <span className="text-xs text-text-primary font-medium">{t("common.status.disabled")}</span>
           </div>
         </div>
       </div>
@@ -60,26 +60,26 @@ export const ProjectDetailsPanel: React.FC = () => {
       <div>
         <div className="space-y-3">
           <div className="flex items-start justify-between py-2 border-b border-border-default/60">
-            <span className="text-xs text-text-muted">Timeline name:</span>
+            <span className="text-xs text-text-muted">{t("properties.project.timelineName")}:</span>
             <span className="text-xs text-text-primary font-medium">Timeline 01</span>
           </div>
 
           <div className="flex items-start justify-between py-2 border-b border-border-default/60">
-            <span className="text-xs text-text-muted">Aspect ratio:</span>
+            <span className="text-xs text-text-muted">{t("properties.project.aspectRatio")}:</span>
             <span className="text-xs text-text-primary font-medium">
               {formatAspectRatio(project.aspectRatio)}
             </span>
           </div>
 
           <div className="flex items-start justify-between py-2 border-b border-border-default/60">
-            <span className="text-xs text-text-muted">Resolution:</span>
+            <span className="text-xs text-text-muted">{t("properties.project.resolution")}:</span>
             <span className="text-xs text-text-primary font-medium">
               {project.canvasWidth} × {project.canvasHeight}
             </span>
           </div>
 
           <div className="flex items-start justify-between py-2 border-b border-border-default/60">
-            <span className="text-xs text-text-muted">Frame rate:</span>
+            <span className="text-xs text-text-muted">{t("properties.project.frameRate")}:</span>
             <span className="text-xs text-text-primary font-medium">{project.frameRate}fps</span>
           </div>
         </div>
@@ -94,7 +94,7 @@ export const ProjectDetailsPanel: React.FC = () => {
             console.log("Open project settings");
           }}
         >
-          Modify
+          {t("common.actions.modify")}
         </button>
       </div>
     </div>

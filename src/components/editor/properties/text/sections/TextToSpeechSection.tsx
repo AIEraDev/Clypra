@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Volume2, Play, Pause, Sparkles, Check } from "lucide-react";
 import type { TextClip } from "@/types";
+import { useI18n } from "@/i18n";
 
 interface TextToSpeechSectionProps {
   textClip: TextClip;
@@ -28,6 +29,7 @@ const VOICES: VoicePreset[] = [
 export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
   textClip,
 }) => {
+  const { t } = useI18n();
   const [selectedVoice, setSelectedVoice] = useState<string>("jessie");
   const [category, setCategory] = useState<string>("All");
   const [speed, setSpeed] = useState<number>(1.0);
@@ -131,7 +133,7 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
                     ? "bg-accent-primary text-white"
                     : "bg-surface-elevated text-text-primary hover:bg-surface-hover"
                 }`}
-                title="Preview Voice Sample"
+                title={t("properties.tts.previewVoice")}
               >
                 {isPlaying ? (
                   <Pause className="w-3 h-3 fill-current" />
@@ -147,7 +149,7 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
       {/* Speed & Pitch Controls */}
       <div className="space-y-3 pt-2 border-t border-border-default">
         <div className="flex items-center justify-between text-xs">
-          <span className="text-text-muted">Speech Speed</span>
+          <span className="text-text-muted">{t("properties.tts.speechSpeed")}</span>
           <span className="text-text-primary font-medium">{speed.toFixed(1)}x</span>
         </div>
         <input
@@ -161,7 +163,7 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
         />
 
         <div className="flex items-center justify-between text-xs">
-          <span className="text-text-muted">Pitch</span>
+          <span className="text-text-muted">{t("properties.tts.pitch")}</span>
           <span className="text-text-primary font-medium">{pitch > 0 ? `+${pitch}` : pitch}</span>
         </div>
         <input
@@ -186,17 +188,17 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
           {isGenerating ? (
             <>
               <div className="w-3.5 h-3.5 border-2 border-black border-t-transparent rounded-full animate-spin" />
-              Synthesizing Speech...
+              {t("properties.tts.synthesizing")}
             </>
           ) : generated ? (
             <>
               <Check className="w-4 h-4 text-black" />
-              Speech Generated &bull; Added to Audio Track
+              {t("properties.tts.generated")}
             </>
           ) : (
             <>
               <Volume2 className="w-3.5 h-3.5 fill-black" />
-              Generate Speech Audio
+              {t("properties.tts.generate")}
             </>
           )}
         </button>
