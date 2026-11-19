@@ -14,7 +14,7 @@ import {
   resolveOverlayBaseVisualBounds,
   resolveClipVisualBounds,
   resolveVisualDragGeometry,
-} from "../TransformOverlay";
+} from "@/lib/transform/transformUtils";
 import { getCursorForHandle } from "../calculator";
 import type { TextClip, TransformHandle, TransformState } from "@/types";
 

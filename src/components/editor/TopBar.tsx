@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, lazy, Suspense } from "react";
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
+import { createPortal } from "react-dom";
 import {
   Upload,
   Home,
@@ -55,11 +56,32 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showThumbnailWorkspace, setShowThumbnailWorkspace] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [exportMenuPos, setExportMenuPos] = useState<{
+    top: number;
+    right: number;
+  } | null>(null);
   const showSettingsModal = useUIStore((s) => s.showSettingsModal);
   const showTransferModal = useUIStore((s) => s.showTransferModal);
-  const exportMenuRef = useRef<HTMLDivElement>(null);
+  const exportButtonGroupRef = useRef<HTMLDivElement>(null);
+  const exportMenuPanelRef = useRef<HTMLDivElement>(null);
 
-  useClickOutside(exportMenuRef, () => setShowExportMenu(false), {
+  const openExportMenu = useCallback(() => {
+    if (exportButtonGroupRef.current) {
+      const rect = exportButtonGroupRef.current.getBoundingClientRect();
+      setExportMenuPos({
+        top: rect.bottom + 6,
+        right: window.innerWidth - rect.right,
+      });
+    }
+    setShowExportMenu(true);
+  }, []);
+
+  const closeExportMenu = useCallback(() => {
+    setShowExportMenu(false);
+    setExportMenuPos(null);
+  }, []);
+
+  useClickOutside([exportButtonGroupRef, exportMenuPanelRef], closeExportMenu, {
     enabled: showExportMenu,
   });
 
@@ -235,8 +257,8 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
 
           {/* Export & Thumbnail Dropdown */}
           <div
-            className="relative inline-flex items-center"
-            ref={exportMenuRef}
+            className="inline-flex items-center"
+            ref={exportButtonGroupRef}
           >
             <div className="flex items-center rounded-lg bg-accent-primary text-white shadow-xs overflow-hidden">
               <Button
@@ -259,7 +281,7 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
               <Button
                 variant="default"
                 size="icon-sm"
-                onClick={() => setShowExportMenu((prev) => !prev)}
+                onClick={() => (showExportMenu ? closeExportMenu() : openExportMenu())}
                 className="h-6 w-5 px-0 rounded-none bg-accent-primary hover:bg-accent-primary/90 text-white border-l border-white/20"
                 style={
                   {
@@ -273,55 +295,73 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
                 <ChevronDown className="w-3 h-3" />
               </Button>
             </div>
-
-            {showExportMenu && (
-              <div
-                className="absolute right-0 top-full mt-1.5 w-60 rounded-xl bg-surface-floating border border-border-default shadow-2xl p-1.5 z-50 backdrop-blur-md animate-in fade-in zoom-in-95 duration-150"
-                style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowExportMenu(false);
-                    setShowExportDialog(true);
-                  }}
-                  className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
-                >
-                  <VideoIcon className="w-4 h-4 text-accent-primary mt-0.5 flex-shrink-0" />
-                  <div className="flex flex-col">
-                    <span className="text-xs font-medium text-text-primary">
-                      {t("export.menu.videoTitle")}
-                    </span>
-                    <span className="text-[10px] text-text-muted leading-tight mt-0.5">
-                      {t("export.menu.videoDesc")}
-                    </span>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowExportMenu(false);
-                    setShowThumbnailWorkspace(true);
-                  }}
-                  className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
-                >
-                  <ImageIcon className="w-4 h-4 text-status-warning mt-0.5 flex-shrink-0" />
-                  <div className="flex flex-col">
-                    <span className="text-xs font-medium text-text-primary flex items-center gap-1.5">
-                      {t("export.menu.thumbTitle")}
-                      <span className="text-[9px] px-1 py-0.2 rounded bg-status-warning/15 text-status-warning font-mono font-bold">
-                        {t("common.labels.new")}
-                      </span>
-                    </span>
-                    <span className="text-[10px] text-text-muted leading-tight mt-0.5">
-                      {t("export.menu.thumbDesc")}
-                    </span>
-                  </div>
-                </button>
-              </div>
-            )}
           </div>
+
+          {/* Export menu portal — renders above native GPU surface */}
+          {showExportMenu && exportMenuPos && typeof document !== "undefined" &&
+            createPortal(
+              <>
+                {/* Backdrop to catch outside clicks */}
+                <div
+                  className="fixed inset-0 z-dropdown-overlay"
+                  onClick={closeExportMenu}
+                  onPointerDown={closeExportMenu}
+                  aria-hidden="true"
+                />
+                <div
+                  ref={exportMenuPanelRef}
+                  className="fixed z-dropdown-panel w-60 rounded-xl bg-surface-floating border border-border-default shadow-2xl p-1.5 backdrop-blur-md animate-in fade-in zoom-in-95 duration-150"
+                  style={{
+                    top: exportMenuPos.top,
+                    right: exportMenuPos.right,
+                    WebkitAppRegion: "no-drag",
+                  } as React.CSSProperties}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      closeExportMenu();
+                      setShowExportDialog(true);
+                    }}
+                    className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
+                  >
+                    <VideoIcon className="w-4 h-4 text-accent-primary mt-0.5 flex-shrink-0" />
+                    <div className="flex flex-col">
+                      <span className="text-xs font-medium text-text-primary">
+                        {t("export.menu.videoTitle")}
+                      </span>
+                      <span className="text-[10px] text-text-muted leading-tight mt-0.5">
+                        {t("export.menu.videoDesc")}
+                      </span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      closeExportMenu();
+                      setShowThumbnailWorkspace(true);
+                    }}
+                    className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
+                  >
+                    <ImageIcon className="w-4 h-4 text-status-warning mt-0.5 flex-shrink-0" />
+                    <div className="flex flex-col">
+                      <span className="text-xs font-medium text-text-primary flex items-center gap-1.5">
+                        {t("export.menu.thumbTitle")}
+                        <span className="text-[9px] px-1 py-0.2 rounded bg-status-warning/15 text-status-warning font-mono font-bold">
+                          {t("common.labels.new")}
+                        </span>
+                      </span>
+                      <span className="text-[10px] text-text-muted leading-tight mt-0.5">
+                        {t("export.menu.thumbDesc")}
+                      </span>
+                    </div>
+                  </button>
+                </div>
+              </>,
+              document.body,
+            )
+          }
         </div>
       </div>
 

@@ -34,7 +34,6 @@ import { useViewportState } from "@/hooks/useViewportController";
 import { PreviewTransport } from "./PreviewTransport";
 import { PreviewZoomControl } from "./PreviewZoomControl";
 import { useNativeSurfaceController } from "./useNativeSurfaceController";
-import { TransformOverlayMemoized as TransformOverlay } from "../transform/TransformOverlay";
 import { applyDragPreviewGeometry } from "./dragPreviewGeometry";
 import {
   setActiveProgramPreviewPresenter,
@@ -564,32 +563,6 @@ const ConnectedProgramTransport: React.FC<ConnectedProgramTransportProps> =
     );
   });
 
-interface ConnectedTransformOverlayProps extends Omit<
-  React.ComponentProps<typeof TransformOverlay>,
-  "currentTime" | "visible"
-> {}
-
-/**
- * Playback is a leaf concern for the transform overlay. Keeping this clock
- * subscription here prevents playhead ticks from re-rendering the preview
- * container, canvas host, and native-surface coordination tree.
- */
-const ConnectedTransformOverlay = React.memo(
-  (props: ConnectedTransformOverlayProps) => {
-    const clockState = usePlaybackClock();
-    const { pause } = useTransportControls();
-
-    return (
-      <TransformOverlay
-        {...props}
-        currentTime={clockState.time}
-        visible={clockState.state !== "playing"}
-        interactionMode={clockState.state === "playing" ? "playing" : "editing"}
-        onPlaybackInteraction={pause}
-      />
-    );
-  },
-);
 
 export const NativeProgramPreview: React.FC = () => {
   const karaokeOverlayEnabled = useCaptionStore((s) => s.karaokeOverlayEnabled);
@@ -1726,10 +1699,14 @@ export const NativeProgramPreview: React.FC = () => {
           generation: terminal.generation,
           frameIndex: terminal.frameIndex,
           scrubDirection:
-            pending?.requestId === terminal.requestId
+            terminal.scrubDirection ??
+            (pending?.requestId === terminal.requestId
               ? pending.scrubDirection
-              : undefined,
+              : undefined),
           disposition: terminal.disposition,
+          outcome: terminal.outcome,
+          workload: terminal.workload,
+          experimentContext: terminal.experimentContext,
           stage: terminal.stage,
           reason: terminal.reason,
           actorWaitUs: terminal.actorWaitUs,
@@ -4408,6 +4385,7 @@ export const NativeProgramPreview: React.FC = () => {
                   createNativePlaybackFrameDemand(pausedDemandRequest, {
                     cancellationEpoch: scrubLifecycle.cancellationEpoch,
                     isScrubbing,
+                    scrubDirection,
                   }),
                 )
                   .then(() => {
@@ -5811,16 +5789,6 @@ export const NativeProgramPreview: React.FC = () => {
                     height: displayHeight,
                     background: "transparent",
                   }}
-                />
-
-                <ConnectedTransformOverlay
-                  canvasWidth={canvasWidth}
-                  canvasHeight={canvasHeight}
-                  scale={scale}
-                  viewport={viewport}
-                  displayOffset={{ x: offsetX, y: offsetY }}
-                  displayWidth={displayWidth}
-                  displayHeight={displayHeight}
                 />
 
                 <SafeOverlay

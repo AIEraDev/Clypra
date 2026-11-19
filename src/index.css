@@ -300,9 +300,19 @@
   --color-pink-500: var(--clypra-clip-caption-bg);
 
   /* Z-index scale — stacking layer tokens */
-  --z-topbar: var(--clypra-z-topbar);
-  --z-dropdown-overlay: var(--clypra-z-dropdown-overlay);
-  --z-dropdown-panel: var(--clypra-z-dropdown-panel);
+  --z-index-topbar: var(--clypra-z-topbar);
+  --z-index-dropdown-overlay: var(--clypra-z-dropdown-overlay);
+  --z-index-dropdown-panel: var(--clypra-z-dropdown-panel);
+}
+
+@utility z-topbar {
+  z-index: var(--clypra-z-topbar);
+}
+@utility z-dropdown-overlay {
+  z-index: var(--clypra-z-dropdown-overlay);
+}
+@utility z-dropdown-panel {
+  z-index: var(--clypra-z-dropdown-panel);
 }
 /*
  * Fluid root font-size — scales with viewport width between 800 px and 1600 px.

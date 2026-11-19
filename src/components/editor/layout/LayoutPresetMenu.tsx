@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { LayoutGrid, Check } from "lucide-react";
 import { useSettingsStore, type LayoutPreset } from "@/store/settingsStore";
 import { useClickOutside } from "@/hooks";
@@ -16,8 +17,8 @@ interface PresetOption {
 export const LayoutPresetMenu: React.FC = () => {
   const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const [dropdownPos, setDropdownPos] = useState<{
     top: number;
     right: number;
@@ -38,7 +39,9 @@ export const LayoutPresetMenu: React.FC = () => {
     setIsOpen(true);
   }, []);
 
-  useClickOutside(menuRef, () => setIsOpen(false), { enabled: isOpen });
+  useClickOutside([buttonRef, dropdownRef], () => setIsOpen(false), {
+    enabled: isOpen,
+  });
 
   useEffect(() => {
     if (isOpen) {
@@ -421,7 +424,7 @@ export const LayoutPresetMenu: React.FC = () => {
   ];
 
   return (
-    <div ref={menuRef}>
+    <div>
       <button
         ref={buttonRef}
         onClick={() => (isOpen ? setIsOpen(false) : openMenu())}
@@ -439,72 +442,77 @@ export const LayoutPresetMenu: React.FC = () => {
         </span>
       </button>
 
-      {isOpen && dropdownPos && (
-        <>
-          {/* Global click-outside overlay */}
-          <div
-            className="fixed inset-0 z-dropdown-overlay"
-            onClick={() => setIsOpen(false)}
-            onPointerDown={() => setIsOpen(false)}
-          />
+      {isOpen &&
+        dropdownPos &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <>
+            {/* Global click-outside overlay */}
+            <div
+              className="fixed inset-0 z-dropdown-overlay"
+              onClick={() => setIsOpen(false)}
+              onPointerDown={() => setIsOpen(false)}
+            />
 
-          {/* Fixed-position dropdown — escapes all parent overflow:hidden stacking contexts */}
-          <div
-            className="fixed z-dropdown-panel w-80 max-h-[85vh] overflow-y-auto scrollbar-thin rounded-xl bg-surface-floating border border-border-default shadow-2xl backdrop-blur-xl p-2 animate-in fade-in zoom-in-95 duration-150"
-            style={{ top: dropdownPos.top, right: dropdownPos.right }}
-          >
-            <div className="px-2 py-1.5 border-b border-border-default/60 mb-1">
-              <div className="text-[11px] font-semibold text-text-primary uppercase tracking-wider">
-                {t("layout.presets.title")}
+            {/* Fixed-position dropdown — escapes all parent overflow:hidden stacking contexts */}
+            <div
+              ref={dropdownRef}
+              className="fixed z-dropdown-panel w-80 max-h-[85vh] overflow-y-auto scrollbar-thin rounded-xl bg-surface-floating border border-border-default shadow-2xl backdrop-blur-xl p-2 animate-in fade-in zoom-in-95 duration-150"
+              style={{ top: dropdownPos.top, right: dropdownPos.right }}
+            >
+              <div className="px-2 py-1.5 border-b border-border-default/60 mb-1">
+                <div className="text-[11px] font-semibold text-text-primary uppercase tracking-wider">
+                  {t("layout.presets.title")}
+                </div>
+                <div className="text-[10px] text-text-muted">
+                  {t("layout.presets.subtitle")}
+                </div>
               </div>
-              <div className="text-[10px] text-text-muted">
-                {t("layout.presets.subtitle")}
+
+              <div className="space-y-1">
+                {presets.map((preset) => {
+                  const isSelected = layoutPreset === preset.id;
+                  return (
+                    <button
+                      key={preset.id}
+                      onClick={() => {
+                        setLayoutPreset(preset.id);
+                        setIsOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-all cursor-pointer ${
+                        isSelected
+                          ? "bg-accent-primary/10 border border-accent-primary/30 text-accent-primary"
+                          : "hover:bg-surface-hover text-text-primary border border-transparent"
+                      }`}
+                    >
+                      <div className="shrink-0">{preset.renderIcon()}</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-semibold flex items-center justify-between">
+                          <span
+                            className={
+                              isSelected
+                                ? "text-accent-primary"
+                                : "text-text-primary"
+                            }
+                          >
+                            {t(preset.titleKey)}
+                          </span>
+                          {isSelected && (
+                            <Check className="w-3.5 h-3.5 text-accent-primary shrink-0" />
+                          )}
+                        </div>
+                        <div className="text-[10px] text-text-muted truncate mt-0.5">
+                          {t(preset.descKey)}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
-
-            <div className="space-y-1">
-              {presets.map((preset) => {
-                const isSelected = layoutPreset === preset.id;
-                return (
-                  <button
-                    key={preset.id}
-                    onClick={() => {
-                      setLayoutPreset(preset.id);
-                      setIsOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-all cursor-pointer ${
-                      isSelected
-                        ? "bg-accent-primary/10 border border-accent-primary/30 text-accent-primary"
-                        : "hover:bg-surface-hover text-text-primary border border-transparent"
-                    }`}
-                  >
-                    <div className="shrink-0">{preset.renderIcon()}</div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-semibold flex items-center justify-between">
-                        <span
-                          className={
-                            isSelected
-                              ? "text-accent-primary"
-                              : "text-text-primary"
-                          }
-                        >
-                          {t(preset.titleKey)}
-                        </span>
-                        {isSelected && (
-                          <Check className="w-3.5 h-3.5 text-accent-primary shrink-0" />
-                        )}
-                      </div>
-                      <div className="text-[10px] text-text-muted truncate mt-0.5">
-                        {t(preset.descKey)}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </>
-      )}
+          </>,
+          document.body,
+        )}
     </div>
   );
 };

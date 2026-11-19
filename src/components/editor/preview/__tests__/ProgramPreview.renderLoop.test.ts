@@ -4428,7 +4428,7 @@ describe("Bug — canvas transform panel sync", () => {
     // handleMouseUp that was the bug: newTransform.baseWidth was set to
     // finalGeometry.width (post-drag) instead of clip.baseWidth (pre-drag).
     const { assembleBaseWidthForCommit } =
-      await import("@/components/editor/transform/TransformOverlay");
+      await import("@/lib/transform/transformUtils");
     const { createClipFromAsset } = await import("@/lib/timeline/timelineClip");
 
     const asset = makeVideoAsset(); // 1920×1080

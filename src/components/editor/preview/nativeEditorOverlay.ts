@@ -7,7 +7,7 @@ import {
   isTauriRuntime,
 } from "@/lib/platform/tauri";
 import { isClipActiveAtTime } from "@/lib/timeline/timelineClip";
-import { resolveClipVisualBounds } from "../transform/TransformOverlay";
+import { resolveClipVisualBounds } from "@/lib/transform/transformUtils";
 
 export interface NativeEditorOverlayParams {
   canvasWidth: number;
