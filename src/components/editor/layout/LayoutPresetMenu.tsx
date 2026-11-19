@@ -5,7 +5,10 @@ import { useSettingsStore, type LayoutPreset } from "@/store/settingsStore";
 import { useUIStore } from "@/store/uiStore";
 import { useClickOutside } from "@/hooks";
 import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
-import { forceRepaintNativeProgramPreview } from "@/core/preview/previewRepaintCoordinator";
+import {
+  forceRepaintNativeProgramPreview,
+  wakeNativeProgramPreviewRenderLoop,
+} from "@/core/preview/previewRepaintCoordinator";
 import { useI18n } from "@/i18n";
 
 interface PresetOption {
@@ -51,8 +54,11 @@ export const LayoutPresetMenu: React.FC = () => {
       registerOverlay("layout-preset-menu");
     } else {
       unregisterOverlay("layout-preset-menu");
-      // Menu closed — repaint the canvas so the current frame is visible again.
+      // Menu closed — repaint and wake the RAF loop so the native surface
+      // re-engages. wakeNativeProgramPreviewRenderLoop() is a no-op when the
+      // loop is already running (active playback), and restarts it when idle.
       forceRepaintNativeProgramPreview();
+      wakeNativeProgramPreviewRenderLoop();
     }
     return () => {
       unregisterOverlay("layout-preset-menu");

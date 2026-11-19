@@ -49,6 +49,7 @@ import { calculateDisplayTransform } from "@/lib/utils/coordinateSystem";
 import { PreviewLayoutManager } from "@/core/preview/PreviewLayoutManager";
 import {
   registerPreviewRepaintHandler,
+  registerPreviewWakeHandler,
   forceRepaintNativeProgramPreview,
 } from "@/core/preview/previewRepaintCoordinator";
 export { forceRepaintNativeProgramPreview };
@@ -3133,6 +3134,10 @@ export const NativeProgramPreview: React.FC = () => {
       forceRenderNeeded = true;
       scheduleNextFrame();
     });
+    // Also register the wake function so overlay components can call
+    // wakeNativeProgramPreviewRenderLoop() via the coordinator without
+    // importing from this component directly.
+    const unregisterWakeHandler = registerPreviewWakeHandler(scheduleNextFrame);
 
     // Transform feedback is an ephemeral render concern. Keep it outside
     // renderStateRef and Zustand so a pointer drag cannot invalidate every
@@ -3877,10 +3882,13 @@ export const NativeProgramPreview: React.FC = () => {
             hasSelectedClip: currentSelectedClipIds.length > 0,
             isAnyModalOpen: pausedOverlayStateRef.current.isAnyModalOpen,
           });
+        // The nativeSurfaceNeedsHide block below (lines ~4021-4049) already
+        // gates native-surface hide on isAnyModalOpen. Do NOT add an extra
+        // !isAnyModalOpen guard here: it would prevent the path from becoming
+        // true again after the overlay closes, deadlocking native re-engagement.
         const nativeDirectSurfacePath =
           nativeSurfaceUsable &&
           Boolean(nativeRequest) &&
-          !pausedOverlayStateRef.current.isAnyModalOpen &&
           (nativePlaybackPath || pausedNativeSurfaceEligible) &&
           !qualificationForcesWebView;
         setActiveProgramPreviewPresenter(
@@ -3896,12 +3904,15 @@ export const NativeProgramPreview: React.FC = () => {
         const outputAdapter = nativeDirectSurfacePath
           ? NativeSurfaceOutput
           : WebViewCanvasOutput;
+        // When an overlay is open during playback the render loop should idle
+        // on the nativeSurfaceNeedsHide path — not reroute frames to WebView
+        // readback. Routing via captureNativePreviewFrame while nativeSurfaceShown
+        // is false creates a stuck-canvas state that persists after overlay close.
+        // isAnyModalOpen must NOT appear here; the hide block already covers it.
         const nativeReadbackFallbackPath =
           isPlaying &&
           nativePlaybackPath &&
-          (!nativeSurfaceUsable ||
-            qualificationForcesWebView ||
-            pausedOverlayStateRef.current.isAnyModalOpen) &&
+          (!nativeSurfaceUsable || qualificationForcesWebView) &&
           !deferWebViewFallbackForNativeStartup;
         // Keep the presenter decision explicit in telemetry. A slow bridge
         // sample is otherwise indistinguishable from a native surface that
@@ -5673,6 +5684,7 @@ export const NativeProgramPreview: React.FC = () => {
         _globalPreviewWakeFn = null;
       }
       unregisterRepaintHandler();
+      unregisterWakeHandler();
       if (rafId !== null) cancelAnimationFrame(rafId);
       frameScheduled = false;
       if (handoverSafetyTimer !== null) {

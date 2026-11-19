@@ -19,7 +19,10 @@ import { platform } from "@/core/platform";
 import { isMacOSPlatform } from "@/lib/platform/windowPlatform";
 import { LayoutPresetMenu } from "./layout/LayoutPresetMenu";
 import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
-import { forceRepaintNativeProgramPreview } from "@/core/preview/previewRepaintCoordinator";
+import {
+  forceRepaintNativeProgramPreview,
+  wakeNativeProgramPreviewRenderLoop,
+} from "@/core/preview/previewRepaintCoordinator";
 import { useClickOutside } from "@/hooks";
 import { useI18n } from "@/i18n";
 
@@ -115,6 +118,9 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
       void hideNativeSurfaceWhenIdle().catch(() => undefined);
     } else {
       forceRepaintNativeProgramPreview();
+      // Wake the RAF loop so the native surface re-engages after the overlay
+      // closes. No-op when the loop is already running during active playback.
+      wakeNativeProgramPreviewRenderLoop();
     }
   }, [hasOpenTopBarOverlay]);
 

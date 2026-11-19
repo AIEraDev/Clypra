@@ -21,7 +21,10 @@ import {
   getTimelineCanvasDuration,
 } from "@/lib/timeline/timelineClip";
 import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
-import { forceRepaintNativeProgramPreview } from "@/core/preview/previewRepaintCoordinator";
+import {
+  forceRepaintNativeProgramPreview,
+  wakeNativeProgramPreviewRenderLoop,
+} from "@/core/preview/previewRepaintCoordinator";
 import {
   useTimelineDrag,
   useTimelineTauriDrop,
@@ -138,6 +141,9 @@ export const Timeline: React.FC = () => {
     } else {
       unregisterOverlay("timeline-context-menu");
       forceRepaintNativeProgramPreview();
+      // Wake the RAF loop so the native surface re-engages. No-op during
+      // active playback when the loop is already self-scheduling.
+      wakeNativeProgramPreviewRenderLoop();
     }
     return () => {
       unregisterOverlay("timeline-context-menu");
