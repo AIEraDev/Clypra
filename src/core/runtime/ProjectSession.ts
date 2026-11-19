@@ -83,6 +83,7 @@ type SessionLoadStage =
   | "preview-runtime"
   | "audio-prewarm"
   | "fonts"
+  | "native-raster-bridge-init"
   | "native-raster-critical"
   | "native-raster-deferred";
 
@@ -463,9 +464,17 @@ export class ProjectSession {
       // transport path.
       if (isTauriRuntime()) {
         this._onInitializationProgress?.(0.55, "Prewarming text and images…");
-        const { NativeRasterBridge } =
-          await import("@/core/render/nativeRasterBridge");
-        this._nativeRasterBridge = new NativeRasterBridge();
+
+        // ── Telemetry: isolate raster bridge dynamic import + construction ──
+        // The gap between s2_audio_prewarm_total and s2_session_audio-prewarm
+        // seen in some sessions may be caused by the dynamic import chain or
+        // NativeRasterBridge constructor below. This stage span makes it
+        // observable in the fleet perf log.
+        await this._measureInitializationStage("native-raster-bridge-init", async () => {
+          const { NativeRasterBridge } =
+            await import("@/core/render/nativeRasterBridge");
+          this._nativeRasterBridge = new NativeRasterBridge();
+        });
 
         // Warming every project's font up front can take seconds on older
         // Windows hardware. The first raster boundary still registers the
@@ -1398,6 +1407,21 @@ export class ProjectSession {
           "s2_audio_prewarm_total",
           Math.round(tPrewarmStart * 1000),
           Math.round((tConfigureEnd - tPrewarmStart) * 1000),
+          0,
+          false,
+          true,
+          "audio",
+        );
+
+        // Post-IPC tail span — time spent inside this method after both IPCs
+        // complete (dynamic imports, recordColdStartSpan overhead). Comparing
+        // this against the s2_session_audio-prewarm stage wrapper duration
+        // reveals whether unexplained time is inside or above this method.
+        const tMethodEnd = performance.now();
+        void recordColdStartSpan(
+          "s2_audio_prewarm_post_ipc_tail",
+          Math.round(tConfigureEnd * 1000),
+          Math.round((tMethodEnd - tConfigureEnd) * 1000),
           0,
           false,
           true,
