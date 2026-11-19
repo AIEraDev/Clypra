@@ -55,6 +55,19 @@ mod tests {
     }
 
     #[test]
+    fn diagnostic_state_reports_unconfigured_hidden_runtime() {
+        let state = NativeSurfaceRuntime::new().diagnostic_state();
+
+        assert_eq!(state.runtime_epoch, 0);
+        assert!(!state.configured);
+        assert!(!state.has_surface);
+        assert!(!state.has_surface_window);
+        assert!(!state.shown);
+        assert_eq!(state.format, None);
+        assert_eq!(state.probe_status, None);
+    }
+
+    #[test]
     fn reset_advances_runtime_epoch() {
         let mut runtime = NativeSurfaceRuntime::new();
         let initial_epoch = runtime.runtime_epoch();

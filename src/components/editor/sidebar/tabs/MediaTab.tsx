@@ -196,7 +196,7 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
       ref={containerRef}
       className={`flex-1 flex flex-col overflow-hidden transition-colors duration-200 ${isDraggingOver ? "bg-accent/5" : ""}`}
     >
-      <div className="p-1 border-b border-border flex gap-1">
+      <div className="p-1 border-b border-border-default flex gap-1">
         <Button
           variant="secondary"
           size="sm"
@@ -210,7 +210,7 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
         <Button
           variant="secondary"
           size="sm"
-          className="border-dashed cursor-pointer text-accent hover:bg-accent/10 px-2.5 shrink-0"
+          className="border-dashed cursor-pointer text-accent-primary hover:bg-accent-primary/10 px-2.5 shrink-0"
           onClick={() => useUIStore.getState().setTransferModal(true)}
           title="Transfer from Phone (Local WiFi)"
         >
@@ -221,10 +221,10 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
       {missingAssets.length > 0 && (
         <div
           data-testid="missing-media-banner"
-          className="m-1.5 p-2 bg-red-950/40 border border-red-500/30 rounded-lg flex items-center justify-between gap-2"
+          className="m-1.5 p-2 bg-status-error/10 border border-status-error/30 rounded-lg flex items-center justify-between gap-2"
         >
-          <div className="flex items-center gap-1.5 text-xs text-red-300">
-            <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+          <div className="flex items-center gap-1.5 text-xs text-status-error">
+            <AlertTriangle className="w-3.5 h-3.5 text-status-error shrink-0" />
             <span className="font-medium">
               {missingAssets.length} offline file
               {missingAssets.length > 1 ? "s" : ""}
@@ -233,7 +233,7 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
           <Button
             variant="secondary"
             size="xs"
-            className="text-[10px] h-6 px-2 border-red-500/40 text-red-200 hover:bg-red-500/20 cursor-pointer"
+            className="text-[10px] h-6 px-2 border-status-error/40 text-status-error hover:bg-status-error/25 cursor-pointer"
             onClick={() => {
               if (missingAssets[0]) {
                 void useProjectStore

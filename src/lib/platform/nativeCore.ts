@@ -606,6 +606,17 @@ export interface NativePlaybackDemandTerminal {
   decoderMutexWaitUs?: number;
   queueResidencyUs?: number;
   queueHit?: boolean;
+  /** Concrete native presentation error, when disposition is failed. */
+  error?: string;
+  surfaceState?: {
+    runtimeEpoch: number;
+    configured: boolean;
+    hasSurface: boolean;
+    hasSurfaceWindow: boolean;
+    shown: boolean;
+    format?: string;
+    probeStatus?: string;
+  };
 }
 
 export interface NativeSyncDriftSnapshot {

@@ -899,7 +899,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
       <div className="flex flex-col gap-3 p-3 pb-2 overflow-y-auto scrollbar-thin">
 
         {/* ── Section: Generator / AI Speech Model ── */}
-        <div className="space-y-2 p-2.5 rounded-xl bg-surface-raised/40 border border-white/6">
+        <div className="space-y-2 p-2.5 rounded-xl bg-surface-raised/40 border border-border-subtle">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-semibold uppercase tracking-widest text-text-muted/70 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-accent" />
@@ -932,11 +932,11 @@ export const CaptionsTab: React.FC<TabProps> = () => {
             <label className="text-[10px] font-semibold uppercase text-text-muted/60">
               Pacing & Chunking
             </label>
-            <div className="grid grid-cols-3 gap-1 bg-background/50 p-0.5 rounded-lg border border-white/8 text-[11px]">
+            <div className="grid grid-cols-3 gap-1 bg-background/50 p-0.5 rounded-lg border border-border-default text-[11px]">
               <button
                 onClick={() => setPacingPreset("standard")}
                 className={`py-1 rounded-md font-semibold transition-all ${
-                  pacingPreset === "standard" ? "bg-accent text-white shadow-sm" : "text-text-muted hover:text-text-primary"
+                  pacingPreset === "standard" ? "bg-accent-primary text-white shadow-sm" : "text-text-muted hover:text-text-primary"
                 }`}
                 title="Standard 1-2 line broadcast subtitles (38 chars/line)"
               >
@@ -945,7 +945,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
               <button
                 onClick={() => setPacingPreset("kinetic")}
                 className={`py-1 rounded-md font-semibold transition-all ${
-                  pacingPreset === "kinetic" ? "bg-accent text-white shadow-sm" : "text-text-muted hover:text-text-primary"
+                  pacingPreset === "kinetic" ? "bg-accent-primary text-white shadow-sm" : "text-text-muted hover:text-text-primary"
                 }`}
                 title="Shorts/Reels punchy word-pop (1-3 words/clip)"
               >
@@ -954,7 +954,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
               <button
                 onClick={() => setPacingPreset("phrase")}
                 className={`py-1 rounded-md font-semibold transition-all ${
-                  pacingPreset === "phrase" ? "bg-accent text-white shadow-sm" : "text-text-muted hover:text-text-primary"
+                  pacingPreset === "phrase" ? "bg-accent-primary text-white shadow-sm" : "text-text-muted hover:text-text-primary"
                 }`}
                 title="Balanced phrase chunks (5-8 words/clip)"
               >
@@ -964,7 +964,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
           </div>
 
           {/* Default Style Template Guide & Selector */}
-          <div className="flex flex-col gap-1.5 p-2 rounded-lg bg-surface/60 border border-white/8">
+          <div className="flex flex-col gap-1.5 p-2 rounded-lg bg-surface/60 border border-border-default">
             <div className="flex items-center justify-between">
               <label className="text-[10px] font-semibold uppercase text-text-muted/70 flex items-center gap-1.5">
                 <Palette className="w-3 h-3 text-accent" />
@@ -996,7 +996,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
                       className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs transition-all ${
                         isSelected
                           ? "border-accent bg-accent/15 text-white shadow-sm ring-1 ring-accent/30"
-                          : "border-white/10 bg-black/30 text-text-muted hover:border-white/20 hover:text-white"
+                          : "border-border-default bg-surface-workspace/60 text-text-muted hover:border-border-hover hover:text-text-primary"
                       }`}
                       title={tmpl.description || displayName}
                     >
@@ -1021,7 +1021,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
                 })}
               </div>
             ) : (
-              <div className="flex items-center justify-between px-2.5 py-2 rounded-lg bg-black/20 border border-white/6 text-xs text-text-muted">
+              <div className="flex items-center justify-between px-2.5 py-2 rounded-lg bg-surface-workspace/40 border border-border-subtle text-xs text-text-muted">
                 <span className="text-[11px]">Custom Typography (no published templates)</span>
                 <button
                   type="button"
@@ -1045,8 +1045,8 @@ export const CaptionsTab: React.FC<TabProps> = () => {
               disabled={isGenerating}
               className={`w-full h-9 flex items-center justify-center gap-2 rounded-lg text-xs font-bold transition-all shadow-md ${
                 isGenerating
-                  ? "bg-accent/50 text-white/70 cursor-wait"
-                  : "bg-accent hover:bg-accent/85 active:scale-[0.99] text-white"
+                  ? "bg-accent/50 text-text-secondary cursor-wait"
+                  : "bg-accent-primary hover:bg-accent-primary/85 active:scale-[0.99] text-white"
               }`}
             >
               <Sparkles className={`w-3.5 h-3.5 ${isGenerating ? "animate-spin" : ""}`} />
@@ -1065,7 +1065,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
                 <button
                   type="button"
                   onClick={handleCancelGeneration}
-                  className="px-2.5 py-1 text-[11px] font-semibold text-white/80 hover:text-white bg-white/10 hover:bg-white/15 rounded border border-white/10 transition-colors"
+                  className="px-2.5 py-1 text-[11px] font-semibold text-text-secondary hover:text-text-primary bg-surface-hover hover:bg-surface-hover rounded border border-border-default transition-colors"
                 >
                   Cancel
                 </button>
@@ -1076,7 +1076,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
 
 
         {/* ── Section: Caption Styling ── */}
-        <div className="space-y-2 p-2.5 rounded-xl bg-surface-raised/40 border border-white/6">
+        <div className="space-y-2 p-2.5 rounded-xl bg-surface-raised/40 border border-border-subtle">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-semibold uppercase tracking-widest text-text-muted/70 flex items-center gap-1.5">
               <Palette className="w-3.5 h-3.5 text-accent" />
@@ -1087,8 +1087,8 @@ export const CaptionsTab: React.FC<TabProps> = () => {
               onClick={() => setApplyToAll(!applyToAll)}
               className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold border transition-all ${
                 applyToAll
-                  ? "bg-accent/15 text-accent border-accent/40"
-                  : "bg-white/5 text-text-muted border-white/10"
+                  ? "bg-accent-primary/15 text-accent-primary border-accent-primary/40"
+                  : "bg-surface-elevated text-text-muted border-border-default"
               }`}
               title="Broadcast styling changes to all captions on the track"
             >
@@ -1098,11 +1098,11 @@ export const CaptionsTab: React.FC<TabProps> = () => {
           </div>
 
           {/* Tier switcher: Templates | Custom */}
-          <div className="grid grid-cols-2 gap-1 bg-background/50 p-0.5 rounded-lg border border-white/8 text-[11px]">
+          <div className="grid grid-cols-2 gap-1 bg-background/50 p-0.5 rounded-lg border border-border-default text-[11px]">
             <button
               onClick={() => setStylingTier("templates")}
               className={`flex items-center justify-center gap-1.5 py-1 rounded-md font-semibold transition-all ${
-                stylingTier === "templates" ? "bg-accent text-white shadow-sm" : "text-text-muted hover:text-text-primary"
+                stylingTier === "templates" ? "bg-accent-primary text-white shadow-sm" : "text-text-muted hover:text-text-primary"
               }`}
             >
               <LayoutTemplate className="w-3 h-3" />
@@ -1111,7 +1111,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
             <button
               onClick={() => setStylingTier("plain")}
               className={`flex items-center justify-center gap-1.5 py-1 rounded-md font-semibold transition-all ${
-                stylingTier === "plain" ? "bg-accent text-white shadow-sm" : "text-text-muted hover:text-text-primary"
+                stylingTier === "plain" ? "bg-accent-primary text-white shadow-sm" : "text-text-muted hover:text-text-primary"
               }`}
             >
               <Type className="w-3 h-3" />
@@ -1139,7 +1139,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
 
               {/* Template cards grid or empty state */}
               {isLoadingTemplates ? (
-                <div className="flex flex-col items-center justify-center py-8 px-4 rounded-xl border border-white/6 bg-black/20 text-center gap-2">
+                <div className="flex flex-col items-center justify-center py-8 px-4 rounded-xl border border-border-subtle bg-surface-workspace/40 text-center gap-2">
                   <RefreshCw className="w-5 h-5 text-accent animate-spin" />
                   <p className="text-xs text-text-muted">Loading caption templates…</p>
                 </div>
@@ -1160,8 +1160,8 @@ export const CaptionsTab: React.FC<TabProps> = () => {
                         title={template.description || displayName}
                         className={`relative flex flex-col rounded-xl overflow-hidden border transition-all duration-150 group ${
                           isSelected
-                            ? "border-accent shadow-[0_0_0_1.5px] shadow-accent/40 ring-1 ring-accent/30"
-                            : "border-white/10 hover:border-white/25"
+                            ? "border-accent-primary shadow-[0_0_0_1.5px] shadow-accent-primary/40 ring-1 ring-accent-primary/30"
+                            : "border-border-default hover:border-border-hover"
                         }`}
                         style={{
                           background: p?.bgColor
@@ -1215,7 +1215,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
 
                           {/* Loading overlay while applying */}
                           {isApplyingThis && (
-                            <span className="absolute inset-0 bg-black/60 flex items-center justify-center backdrop-blur-[1px]">
+                            <span className="absolute inset-0 bg-surface-workspace/90 flex items-center justify-center backdrop-blur-[1px]">
                               <RefreshCw className="w-4 h-4 text-accent animate-spin" />
                             </span>
                           )}
@@ -1234,7 +1234,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
 
                         {/* Active check badge */}
                         {isSelected && !isApplyingThis && (
-                          <span className="absolute top-1.5 right-1.5 w-4 h-4 flex items-center justify-center rounded-full bg-accent text-white shadow">
+                          <span className="absolute top-1.5 right-1.5 w-4 h-4 flex items-center justify-center rounded-full bg-accent-primary text-white shadow">
                             <Check className="w-2.5 h-2.5" />
                           </span>
                         )}
@@ -1243,8 +1243,8 @@ export const CaptionsTab: React.FC<TabProps> = () => {
                   })}
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center py-8 px-4 rounded-xl border border-dashed border-white/10 bg-black/20 text-center gap-2.5">
-                  <div className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center text-text-muted">
+                <div className="flex flex-col items-center justify-center py-8 px-4 rounded-xl border border-dashed border-border-default bg-surface-workspace/40 text-center gap-2.5">
+                  <div className="w-9 h-9 rounded-full bg-surface-elevated flex items-center justify-center text-text-muted">
                     <LayoutTemplate className="w-4 h-4 opacity-50" />
                   </div>
                   <div className="space-y-1 max-w-[240px]">
@@ -1256,7 +1256,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
                   <button
                     type="button"
                     onClick={() => loadCaptionTemplates(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-xs font-medium text-text-primary transition-all cursor-pointer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border-default bg-surface-elevated hover:bg-surface-hover text-xs font-medium text-text-primary transition-all cursor-pointer"
                   >
                     <RefreshCw className="w-3 h-3" />
                     Refresh Templates
@@ -1267,7 +1267,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
               {/* "Customise further" link */}
               <button
                 onClick={() => setStylingTier("plain")}
-                className="flex items-center justify-center gap-1.5 w-full py-1.5 rounded-lg border border-dashed border-white/12 text-[10px] text-text-muted hover:text-text-primary hover:border-accent/30 transition-all cursor-pointer"
+                className="flex items-center justify-center gap-1.5 w-full py-1.5 rounded-lg border border-dashed border-border-default text-[10px] text-text-muted hover:text-text-primary hover:border-accent-primary/30 transition-all cursor-pointer"
               >
                 <Wand2 className="w-3 h-3" />
                 Customise further…
@@ -1290,7 +1290,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
                       setFontFamily(e.target.value);
                       applyPlainTextCustomization({ fontFamily: e.target.value });
                     }}
-                    className="h-7 px-2 bg-background border border-white/10 rounded-md text-xs text-text-primary outline-none"
+                    className="h-7 px-2 bg-background border border-border-default rounded-md text-xs text-text-primary outline-none"
                   >
                     {FONT_OPTIONS.map((f) => (
                       <option key={f} value={f}>
@@ -1321,7 +1321,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
 
               {/* Color & Uppercase */}
               <div className="grid grid-cols-2 gap-2">
-                <div className="flex items-center justify-between p-1.5 bg-background/50 rounded-lg border border-white/8">
+                <div className="flex items-center justify-between p-1.5 bg-background/50 rounded-lg border border-border-default">
                   <span className="text-[10px] font-semibold text-text-secondary">Text Fill</span>
                   <ClypraColorPicker
                     value={fillColor}
@@ -1346,8 +1346,8 @@ export const CaptionsTab: React.FC<TabProps> = () => {
                   }}
                   className={`flex items-center justify-center gap-1.5 p-1.5 rounded-lg border text-[11px] font-semibold transition-all ${
                     uppercase
-                      ? "bg-accent/15 border-accent/40 text-accent"
-                      : "bg-background/50 border-white/8 text-text-muted hover:text-text-primary"
+                      ? "bg-accent/15 border-accent-primary/40 text-accent-primary"
+                      : "bg-background/50 border-border-default text-text-muted hover:text-text-primary"
                   }`}
                 >
                   <Type className="w-3.5 h-3.5" />
@@ -1356,7 +1356,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
               </div>
 
               {/* Outline / Stroke */}
-              <div className="flex flex-col gap-1 p-2 bg-background/40 rounded-lg border border-white/6">
+              <div className="flex flex-col gap-1 p-2 bg-background/40 rounded-lg border border-border-subtle">
                 <div className="flex items-center justify-between">
                   <label className="flex items-center gap-1.5 text-[11px] font-semibold text-text-primary cursor-pointer">
                     <input
@@ -1389,7 +1389,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
                   )}
                 </div>
                 {hasStroke && (
-                  <div className="pt-1.5 border-t border-white/5">
+                  <div className="pt-1.5 border-t border-border-subtle">
                     <ClypraSlider
                       label="Stroke Width"
                       min={1}
@@ -1411,7 +1411,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
 
 
               {/* Background Box */}
-              <div className="flex flex-col gap-1 p-2 bg-background/40 rounded-lg border border-white/6">
+              <div className="flex flex-col gap-1 p-2 bg-background/40 rounded-lg border border-border-subtle">
                 <div className="flex items-center justify-between">
                   <label className="flex items-center gap-1.5 text-[11px] font-semibold text-text-primary cursor-pointer">
                     <input
@@ -1466,7 +1466,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
         <div className="grid grid-cols-3 gap-1.5">
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center justify-center gap-1.5 h-7 px-2 rounded-lg bg-surface-raised border border-white/8 hover:border-accent/40 text-[11px] font-semibold text-text-primary transition-all"
+            className="flex items-center justify-center gap-1.5 h-7 px-2 rounded-lg bg-surface-raised border border-border-default hover:border-accent/40 text-[11px] font-semibold text-text-primary transition-all"
           >
             <Upload className="w-3 h-3 text-accent" />
             Import
@@ -1474,14 +1474,14 @@ export const CaptionsTab: React.FC<TabProps> = () => {
           <button
             onClick={() => handleExport("srt")}
             disabled={cues.length === 0 && timelineCaptionClips.length === 0}
-            className="flex items-center justify-center gap-1.5 h-7 px-2 rounded-lg bg-surface-raised border border-white/8 hover:border-accent/40 text-[11px] font-semibold text-text-primary transition-all disabled:opacity-35 disabled:pointer-events-none"
+            className="flex items-center justify-center gap-1.5 h-7 px-2 rounded-lg bg-surface-raised border border-border-default hover:border-accent/40 text-[11px] font-semibold text-text-primary transition-all disabled:opacity-35 disabled:pointer-events-none"
           >
             <Download className="w-3 h-3 text-accent" />
             Export SRT
           </button>
           <button
             onClick={handleAddManualCaption}
-            className="flex items-center justify-center gap-1.5 h-7 px-2 rounded-lg bg-surface-raised border border-white/8 hover:border-accent/40 text-[11px] font-semibold text-text-primary transition-all"
+            className="flex items-center justify-center gap-1.5 h-7 px-2 rounded-lg bg-surface-raised border border-border-default hover:border-accent/40 text-[11px] font-semibold text-text-primary transition-all"
           >
             <Plus className="w-3 h-3 text-accent" />
             Add Cue
@@ -1503,7 +1503,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
           <h4 className="text-[10px] font-semibold uppercase tracking-widest text-text-muted/70">
             Caption Cues
           </h4>
-          <span className="text-[10px] font-semibold tabular-nums text-text-muted bg-surface-raised px-1.5 py-0.5 rounded-full border border-white/8">
+          <span className="text-[10px] font-semibold tabular-nums text-text-muted bg-surface-raised px-1.5 py-0.5 rounded-full border border-border-default">
             {cues.length} cues
           </span>
         </div>
@@ -1536,12 +1536,12 @@ export const CaptionsTab: React.FC<TabProps> = () => {
                   className={`group flex flex-col gap-1.5 p-2 rounded-xl border transition-all ${
                     !compliance.isTitleSafe
                       ? "bg-status-warning/5 border-status-warning/30"
-                      : "bg-surface-raised/70 border-white/8 hover:border-white/18"
+                      : "bg-surface-raised/70 border-border-default hover:border-border-default"
                   }`}
                 >
                   {/* Cue Header */}
                   <div className="flex items-center gap-2 text-[10px] text-text-muted">
-                    <span className="w-4 h-4 flex items-center justify-center rounded bg-accent/15 text-accent font-bold text-[9px]">
+                    <span className="w-4 h-4 flex items-center justify-center rounded bg-accent-primary/15 text-accent-primary font-bold text-[9px]">
                       {index + 1}
                     </span>
 
@@ -1578,7 +1578,7 @@ export const CaptionsTab: React.FC<TabProps> = () => {
                   <textarea
                     value={cue.text}
                     onChange={(e) => handleCueTextChange(cue, e.target.value)}
-                    className="w-full min-h-[40px] p-1.5 bg-background/50 focus:bg-background/80 border border-white/8 focus:border-accent/60 rounded-md text-xs text-text-primary resize-none outline-none transition-colors"
+                    className="w-full min-h-[40px] p-1.5 bg-background/50 focus:bg-background/80 border border-border-default focus:border-accent/60 rounded-md text-xs text-text-primary resize-none outline-none transition-colors"
                     placeholder="Subtitle text…"
                   />
                 </div>

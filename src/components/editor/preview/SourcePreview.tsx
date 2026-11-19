@@ -656,10 +656,10 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({
   return (
     <div
       data-preview-space="source"
-      className="flex-1 flex flex-col min-h-0 bg-bg"
+      className="flex-1 flex flex-col min-h-0 bg-surface-workspace"
     >
       {/* ── Header ─────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-4 h-10 shrink-0 border-b border-border/50">
+      <div className="flex items-center justify-between px-4 h-10 shrink-0 border-b border-border-default/70 bg-surface-panel">
         <div className="flex items-baseline gap-2">
           <span className="text-[13px] font-semibold text-text-primary tracking-tight">
             Previewing
@@ -670,7 +670,7 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({
           onClick={() => {
             exitSourceMode(); // Auto-switches transport context
           }}
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/6 transition-colors text-text-muted hover:text-text-primary"
+          className="w-7 h-7 flex items-center justify-center rounded hover:bg-surface-hover transition-colors text-text-muted hover:text-text-primary cursor-pointer"
           title="Close (Esc)"
         >
           <X className="w-4 h-4" />
@@ -679,12 +679,12 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({
 
       {/* ── Mark Info Bar ──────────────────────────────────────────── */}
       {hasMarks && (
-        <div className="px-4 py-2 bg-surface/50 border-b border-border/30 flex items-center justify-between text-[11px]">
+        <div className="px-4 py-2 bg-surface-elevated border-b border-border-default/60 flex items-center justify-between text-[11px]">
           <div className="flex items-center gap-4">
             {sourceInPoint !== null && (
               <div className="flex items-center gap-1.5">
                 <span className="text-text-muted">In:</span>
-                <span className="font-mono text-accent">
+                <span className="font-mono text-accent-primary">
                   {formatTC(sourceInPoint)}
                 </span>
               </div>
@@ -692,7 +692,7 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({
             {sourceOutPoint !== null && (
               <div className="flex items-center gap-1.5">
                 <span className="text-text-muted">Out:</span>
-                <span className="font-mono text-accent">
+                <span className="font-mono text-accent-primary">
                   {formatTC(sourceOutPoint)}
                 </span>
               </div>
@@ -708,7 +708,7 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({
           </div>
           <button
             onClick={handleClearMarks}
-            className="flex items-center gap-1 px-2 h-5 rounded text-[10px] font-medium text-text-muted hover:text-text-primary hover:bg-white/6 transition-colors"
+            className="flex items-center gap-1 px-2 h-5 rounded text-[10px] font-medium text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
             title="Clear marks"
           >
             <RotateCcw className="w-3 h-3" />
@@ -858,7 +858,7 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({
       </div>
 
       {sourceAsset.type === "text" || isStillImage ? (
-        <div className="flex items-center justify-between h-10 px-4 shrink-0 border-t border-border/30 bg-surface/30">
+        <div className="flex items-center justify-between h-10 px-4 shrink-0 border-t border-border-default bg-surface-panel">
           <span className="text-[11px] text-text-muted font-medium select-none">
             {sourceAsset.type === "text"
               ? "Procedural Style Preview"
@@ -866,7 +866,7 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({
           </span>
           <button
             onClick={handleAddToTimeline}
-            className="flex items-center gap-1.5 px-3 h-7 rounded text-[11px] font-semibold bg-accent hover:bg-accent-soft active:scale-95 text-white cursor-pointer transition-all duration-150 shadow-sm"
+            className="flex items-center gap-1.5 px-3 h-7 rounded text-[11px] font-semibold bg-accent-primary hover:bg-accent-primary/90 active:scale-95 text-white cursor-pointer transition-all duration-150 shadow-xs"
             title={
               sourceAsset.type === "text"
                 ? "Add text to timeline"
@@ -892,14 +892,14 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({
             <>
               <button
                 onClick={handleMarkIn}
-                className={`px-1.5 @[320px]:px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer ${sourceInPoint !== null && Math.abs(currentTime - sourceInPoint) < 0.1 ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-white/6"}`}
+                className={`px-1.5 @[320px]:px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer ${sourceInPoint !== null && Math.abs(currentTime - sourceInPoint) < 0.1 ? "bg-accent-primary text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-hover"}`}
                 title="Mark In (I)"
               >
                 IN
               </button>
               <button
                 onClick={handleMarkOut}
-                className={`px-1.5 @[320px]:px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer ${sourceOutPoint !== null && Math.abs(currentTime - sourceOutPoint) < 0.1 ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-white/6"}`}
+                className={`px-1.5 @[320px]:px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer ${sourceOutPoint !== null && Math.abs(currentTime - sourceOutPoint) < 0.1 ? "bg-accent-primary text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-hover"}`}
                 title="Mark Out (O)"
               >
                 OUT
@@ -907,14 +907,14 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({
               {hasCompleteMarks && (
                 <button
                   onClick={handlePlayMarkedRegion}
-                  className="hidden @[380px]:flex items-center gap-1 px-2 h-6 rounded text-[10px] font-medium text-text-muted hover:text-text-primary hover:bg-white/6 transition-colors cursor-pointer"
+                  className="hidden @[380px]:flex items-center gap-1 px-2 h-6 rounded text-[10px] font-medium text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
                   title="Play marked region"
                 >
                   <Play className="w-3 h-3" />
                   Play
                 </button>
               )}
-              <div className="hidden @[320px]:block w-px h-4 bg-white/10 mx-0.5" />
+              <div className="hidden @[320px]:block w-px h-4 bg-border-default mx-0.5" />
               {(() => {
                 // SP-2 fix: Allow adding any valid source asset to the timeline.
                 // If In/Out marks are set, it adds the marked slice; if not, it adds the full duration.
@@ -925,7 +925,7 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({
                     disabled={!isAddEnabled}
                     className={`flex items-center gap-1 px-2 @[320px]:px-2.5 h-6 rounded text-[10px] font-semibold transition-all shrink-0 ${
                       isAddEnabled
-                        ? "bg-accent hover:bg-accent-soft text-white cursor-pointer"
+                        ? "bg-accent-primary hover:bg-accent-primary/90 text-white cursor-pointer shadow-xs"
                         : "bg-text-muted/70 hover:bg-text-muted/90 text-white cursor-not-allowed"
                     }`}
                     title={

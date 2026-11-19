@@ -56,10 +56,10 @@ const ZOOM_THUMB_SIZE_PX = 12;
 const ZOOM_RAIL_WIDTH_PX = 112; // w-28
 
 const TIER_BAND_CLASS: Record<SpatialTier, string> = {
-  [SpatialTier.L0]: "bg-accent/20",
-  [SpatialTier.L1]: "bg-accent/35",
-  [SpatialTier.L2]: "bg-accent/50",
-  [SpatialTier.L3]: "bg-accent/70",
+  [SpatialTier.L0]: "bg-accent-primary/20",
+  [SpatialTier.L1]: "bg-accent-primary/35",
+  [SpatialTier.L2]: "bg-accent-primary/50",
+  [SpatialTier.L3]: "bg-accent-primary/70",
 };
 
 const TimelineToolbarComponent: React.FC = () => {
@@ -267,9 +267,9 @@ const TimelineToolbarComponent: React.FC = () => {
   const toolButton =
     "text-text-muted hover:text-text-primary hover:bg-surface-raised/80 cursor-pointer disabled:cursor-not-allowed disabled:pointer-events-auto";
   const activeButton =
-    "bg-accent/15 text-accent-soft border-accent/40 hover:bg-accent/20";
+    "bg-accent-primary/15 text-accent-primary border-accent-primary/40 hover:bg-accent-primary/20";
   const zoomButton =
-    "cursor-pointer disabled:cursor-not-allowed disabled:pointer-events-auto h-6 w-6 rounded-full border border-accent/35 bg-surface-raised text-accent-soft shadow-[0_0_0_1px_rgba(0,0,0,0.28),0_3px_8px_rgba(0,0,0,0.22)] hover:border-accent/60 hover:bg-accent/15 hover:text-text-primary transition-colors";
+    "cursor-pointer disabled:cursor-not-allowed disabled:pointer-events-auto h-6 w-6 rounded-full border border-accent-primary/35 bg-surface-elevated text-accent-primary shadow-[0_0_0_1px_rgba(0,0,0,0.28),0_3px_8px_rgba(0,0,0,0.22)] hover:border-accent-primary/60 hover:bg-accent-primary/15 hover:text-text-primary transition-colors";
 
   const Tool = ({
     label,
@@ -454,7 +454,7 @@ const TimelineToolbarComponent: React.FC = () => {
             <button
               onClick={() => setShowQualityMenu((v) => !v)}
               className={cn(
-                "flex items-center gap-1 px-2 py-1 rounded-md bg-surface-raised border border-white/6 text-[10px] font-semibold transition-colors cursor-pointer",
+                "flex items-center gap-1 px-2 py-1 rounded-md bg-surface-elevated border border-border-default text-[10px] font-semibold transition-colors cursor-pointer",
                 isHardwareLimited
                   ? "text-amber-400 hover:text-amber-300 border-amber-500/30"
                   : "text-text-muted hover:text-text-primary",
@@ -498,8 +498,8 @@ const TimelineToolbarComponent: React.FC = () => {
                       }}
                       className={`w-full px-3 py-1.5 text-[11px] text-left transition-colors cursor-pointer flex items-center justify-between gap-3 ${
                         previewQuality === tier.value
-                          ? "text-accent bg-accent/10 font-semibold"
-                          : "text-text-muted hover:text-text-primary hover:bg-white/5"
+                          ? "text-accent-primary bg-accent-primary/10 font-semibold"
+                          : "text-text-muted hover:text-text-primary hover:bg-surface-hover"
                       }`}
                     >
                       <div className="flex flex-col min-w-0">
@@ -520,7 +520,7 @@ const TimelineToolbarComponent: React.FC = () => {
                             </span>
                           )}
                           {tier.isRecommended && (
-                            <span className="px-1 py-0.2 rounded text-[9px] font-medium bg-accent/15 text-accent border border-accent/25 shrink-0">
+                            <span className="px-1 py-0.2 rounded text-[9px] font-medium bg-accent-primary/15 text-accent-primary border border-accent-primary/25 shrink-0">
                               Recommended
                             </span>
                           )}
@@ -536,7 +536,7 @@ const TimelineToolbarComponent: React.FC = () => {
                     </button>
                   ))}
                   {gpuName && (
-                    <div className="px-3 py-1.5 mt-1 border-t border-white/6 text-[9.5px] text-text-muted flex items-center justify-between bg-white/[0.02]">
+                    <div className="px-3 py-1.5 mt-1 border-t border-border-default text-[9.5px] text-text-muted flex items-center justify-between bg-surface-elevated/20">
                       <span className="truncate max-w-[140px]" title={gpuName}>
                         {gpuName}
                       </span>
@@ -606,7 +606,7 @@ const TimelineToolbarComponent: React.FC = () => {
                   />
                 ))}
                 <div
-                  className="relative h-full rounded-full bg-accent shadow-[0_0_16px_var(--clypra-accent-glow)]"
+                  className="relative h-full rounded-full bg-accent-primary shadow-[0_0_16px_var(--clypra-accent-glow)]"
                   style={{ width: `${zoomProgress}%` }}
                 />
               </div>

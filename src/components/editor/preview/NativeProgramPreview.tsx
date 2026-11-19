@@ -1737,6 +1737,8 @@ export const NativeProgramPreview: React.FC = () => {
           decoderMutexWaitUs: terminal.decoderMutexWaitUs,
           queueResidencyUs: terminal.queueResidencyUs,
           queueHit: terminal.queueHit,
+          error: terminal.error,
+          surfaceState: terminal.surfaceState,
         });
         if (
           !pending ||
@@ -5748,9 +5750,9 @@ export const NativeProgramPreview: React.FC = () => {
   return (
     <div
       data-preview-space="program"
-      className="flex-1 bg-bg flex flex-col min-h-0 border-l border-t border-white/3"
+      className="flex-1 bg-surface-workspace flex flex-col min-h-0 border-l border-t border-border-default/60"
     >
-      <div className="flex-1 flex items-center justify-center overflow-hidden bg-[#06080a] relative">
+      <div className="flex-1 flex items-center justify-center overflow-hidden bg-surface-workspace relative">
         {import.meta.env.DEV && nativeSurfaceError && (
           <div className="absolute top-3 left-3 z-40 px-2.5 py-1 rounded bg-danger/20 border border-danger/40 text-[11px] text-danger font-medium pointer-events-none">
             Preview surface unavailable: {nativeSurfaceError}
@@ -5769,7 +5771,7 @@ export const NativeProgramPreview: React.FC = () => {
             <div
               ref={nativeSurfaceTargetCallback}
               data-testid="program-preview-viewport"
-              className="relative flex shrink-0 items-center justify-center overflow-visible bg-black ring-1 ring-white/15 shadow-[0_4px_30px_rgba(0,0,0,0.8)]"
+              className="relative flex shrink-0 items-center justify-center overflow-visible bg-black ring-1 ring-border-default/50 shadow-2xl"
               style={{ width: displayWidth, height: displayHeight }}
             >
               <>
@@ -5832,19 +5834,19 @@ export const NativeProgramPreview: React.FC = () => {
                 />
                 {karaokeOverlayEnabled && <KaraokeCaptions />}
                 {playbackStats && clock.state === "playing" && (
-                  <div className="absolute top-3 left-3 z-30 pointer-events-none flex items-center gap-2 px-2.5 py-1 rounded-md bg-black/60 backdrop-blur-md border border-white/10 text-[11px] font-mono text-white/90 shadow-lg select-none">
-                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <div className="absolute top-3 left-3 z-30 pointer-events-none flex items-center gap-2 px-2.5 py-1 rounded-md bg-surface-floating/90 backdrop-blur-md border border-border-default text-[11px] font-mono text-text-primary shadow-lg select-none">
+                    <span className="inline-block w-2 h-2 rounded-full bg-status-success animate-pulse" />
                     <span>{playbackStats.fps} fps</span>
-                    <span className="text-white/30">•</span>
+                    <span className="text-text-muted">•</span>
                     <span>{playbackStats.avgTotalMs.toFixed(1)}ms</span>
-                    <span className="text-white/30">•</span>
-                    <span className="text-emerald-300">
+                    <span className="text-text-muted">•</span>
+                    <span className="text-status-success">
                       {playbackStats.hitRatePercent.toFixed(0)}% cached
                     </span>
                     {playbackStats.stackedStreams > 1 && (
                       <>
-                        <span className="text-white/30">•</span>
-                        <span className="text-amber-300">
+                        <span className="text-text-muted">•</span>
+                        <span className="text-status-warning">
                           {playbackStats.stackedStreams} streams
                         </span>
                       </>

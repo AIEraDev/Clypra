@@ -120,6 +120,46 @@ use crate::filmstrip_engine::decoder::VideoColorMetadata;
     }
 
     #[test]
+    fn interactive_scrub_is_not_dropped_for_audio_lateness() {
+        assert!(!should_drop_frame_for_audio_lateness(
+            true,
+            2_000_000,
+            true,
+            Some(true),
+            Some("playback"),
+            true,
+        ));
+        assert!(!should_drop_frame_for_audio_lateness(
+            true,
+            2_000_000,
+            false,
+            Some(false),
+            Some("scrub"),
+            true,
+        ));
+    }
+
+    #[test]
+    fn settled_seek_and_severe_playback_drift_keep_audio_lateness_policy() {
+        assert!(should_drop_frame_for_audio_lateness(
+            true,
+            0,
+            false,
+            Some(false),
+            Some("seek"),
+            true,
+        ));
+        assert!(should_drop_frame_for_audio_lateness(
+            false,
+            120_001,
+            true,
+            Some(false),
+            Some("playback"),
+            true,
+        ));
+    }
+
+    #[test]
     fn unspecified_sdr_metadata_uses_limited_rec709_defaults() {
         let params =
             color_params(&VideoColorMetadata::default()).expect("default should be supported");

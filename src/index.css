@@ -132,14 +132,32 @@
   --color-video-clip: var(--clypra-clip-video-bg);
   --color-audio-clip: var(--clypra-clip-audio-bg);
   --color-text-clip: var(--clypra-clip-text-bg);
-  --color-app: var(--clypra-surface-app);
-  --color-workspace: var(--clypra-surface-workspace);
+  /* Canonical Design System Surfaces */
+  --color-surface-app: var(--clypra-surface-app);
+  --color-surface-workspace: var(--clypra-surface-workspace);
+  --color-surface-panel: var(--clypra-surface-panel);
+  --color-surface-card: var(--clypra-surface-panel);
+  --color-surface-elevated: var(--clypra-surface-elevated);
+  --color-surface-floating: var(--clypra-surface-floating);
+  --color-surface-input: var(--clypra-surface-input);
   --color-surface-hover: var(--clypra-surface-hover);
   --color-surface-active: var(--clypra-surface-active);
-  --color-surface-input: var(--clypra-surface-input);
-  --color-text-secondary: var(--clypra-text-secondary);
-  --color-text-tertiary: var(--clypra-text-tertiary);
-  --color-text-disabled: var(--clypra-text-disabled);
+
+  /* Canonical Design System Borders */
+  --color-border-subtle: var(--clypra-border-subtle);
+  --color-border-default: var(--clypra-border-default);
+  --color-border-strong: var(--clypra-border-strong);
+  --color-border-hover: var(--clypra-border-strong);
+
+  /* Canonical Design System Accents */
+  --color-accent-primary: var(--clypra-interaction-focus);
+  --color-accent-hover: var(--clypra-interaction-hover);
+  --color-accent-active: var(--clypra-interaction-active);
+  --color-accent-selected: var(--clypra-interaction-selected);
+  --color-accent-glow: var(--clypra-accent-glow);
+
+  --color-app: var(--clypra-surface-app);
+  --color-workspace: var(--clypra-surface-workspace);
   --color-focus: var(--clypra-interaction-focus);
   --color-status-success: var(--clypra-status-success);
   --color-status-warning: var(--clypra-status-warning);
@@ -158,8 +176,8 @@
   --color-clypra-clip-sticker: var(--clypra-clip-sticker-bg);
   --color-clypra-clip-fg: var(--clypra-clip-fg);
   --color-clypra-clip-muted-fg: var(--clypra-clip-muted-fg);
-  --color-white: var(--clypra-text-primary);
-  --color-black: var(--clypra-surface-app);
+  --color-white: #ffffff;
+  --color-black: #000000;
   --color-timeline-clip-video: var(--clypra-clip-video-bg);
   --color-timeline-clip-audio: var(--clypra-clip-audio-bg);
   --color-timeline-clip-image: var(--clypra-clip-image-bg);

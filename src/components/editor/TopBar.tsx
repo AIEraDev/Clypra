@@ -86,7 +86,7 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
       {/* The native menu/title bar owns window controls. This is the editor's
           document-command row: identity stays left, commands stay right, and
           neither competes with native chrome for horizontal space. */}
-      <div className="h-9 shrink-0 flex items-center gap-2 border-b border-border/70 bg-bg/95 px-2 shadow-[0_1px_0_rgba(255,255,255,0.025)] select-none">
+      <div className="h-9 shrink-0 flex items-center gap-2 border-b border-border-default/80 bg-surface-panel/95 backdrop-blur-md px-2 shadow-xs select-none">
         <div
           className={`flex min-w-0 items-center gap-2 shrink-0 ${isMacNativeWindow ? "pl-[76px]" : "pl-0"}`}
           style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
@@ -97,12 +97,12 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
             onClick={handleClose}
             title={t("project.backHome")}
             aria-label={t("project.backHome")}
-            className="text-text-muted hover:text-text-primary"
+            className="text-text-muted hover:text-text-primary hover:bg-surface-hover"
             style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
           >
             <Home className="w-4 h-4" />
           </Button>
-          <div className="h-4 w-px bg-border/70" aria-hidden="true" />
+          <div className="h-4 w-px bg-border-default/70" aria-hidden="true" />
           <span
             className="max-w-[180px] truncate text-xs font-semibold text-text-primary sm:max-w-[320px]"
             title={projectName || t("common.labels.untitledProject")}
@@ -125,8 +125,9 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
             variant="ghost"
             size="icon-sm"
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            title={sidebarCollapsed ? "Expand Media Library (⌘B)" : "Collapse Media Library (⌘B)"}
-            className={`transition-colors ${!sidebarCollapsed ? "text-accent bg-accent/10" : "text-text-muted hover:text-text-primary"}`}
+            title={sidebarCollapsed ? t("topbar.expandMedia") : t("topbar.collapseMedia")}
+            aria-label={sidebarCollapsed ? t("topbar.expandMedia") : t("topbar.collapseMedia")}
+            className={`transition-colors ${!sidebarCollapsed ? "text-accent-primary bg-accent-primary/10" : "text-text-muted hover:text-text-primary hover:bg-surface-hover"}`}
             style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
           >
             <PanelLeft className="w-3.5 h-3.5" />
@@ -136,18 +137,27 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
             variant="ghost"
             size="icon-sm"
             onClick={() => setPropertiesPanelCollapsed(!propertiesPanelCollapsed)}
-            title={propertiesPanelCollapsed ? "Expand Properties Panel (⌥P)" : "Collapse Properties Panel (⌥P)"}
-            className={`transition-colors ${!propertiesPanelCollapsed ? "text-accent bg-accent/10" : "text-text-muted hover:text-text-primary"}`}
+            title={propertiesPanelCollapsed ? t("topbar.expandProperties") : t("topbar.collapseProperties")}
+            aria-label={propertiesPanelCollapsed ? t("topbar.expandProperties") : t("topbar.collapseProperties")}
+            className={`transition-colors ${!propertiesPanelCollapsed ? "text-accent-primary bg-accent-primary/10" : "text-text-muted hover:text-text-primary hover:bg-surface-hover"}`}
             style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
           >
             <PanelRight className="w-3.5 h-3.5" />
           </Button>
 
-          <div className="w-px h-3.5 bg-border/60 mx-0.5" />
+          <div className="w-px h-3.5 bg-border-default/60 mx-0.5" />
 
           <LayoutPresetMenu />
 
-          <Button variant="ghost" size="icon-sm" onClick={toggleTransferModal} title="Phone Transfer (Local WiFi)" style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={toggleTransferModal}
+            title={t("topbar.phoneTransfer")}
+            aria-label={t("topbar.phoneTransfer")}
+            className="text-text-muted hover:text-text-primary hover:bg-surface-hover"
+            style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
+          >
             <Smartphone className="w-3.5 h-3.5" />
           </Button>
 
@@ -157,6 +167,7 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
             onClick={toggleSettingsModal}
             title={t("settings.modal.title")}
             aria-label={t("settings.modal.title")}
+            className="text-text-muted hover:text-text-primary hover:bg-surface-hover"
             style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
           >
             <Settings className="w-3.5 h-3.5" />
@@ -164,12 +175,12 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
 
           {/* Export & Thumbnail Dropdown */}
           <div className="relative inline-flex items-center" ref={exportMenuRef}>
-            <div className="flex items-center rounded-md bg-accent text-accent-foreground shadow-sm">
+            <div className="flex items-center rounded-lg bg-accent-primary text-white shadow-xs overflow-hidden">
               <Button
                 variant="default"
                 size="sm"
                 onClick={() => setShowExportDialog(true)}
-                className="text-xs h-6 px-2 rounded-r-none border-r border-accent-foreground/20"
+                className="text-xs h-6 px-2.5 rounded-none bg-accent-primary hover:bg-accent-primary/90 text-white font-medium"
                 style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
                 title={t("export.video")}
                 aria-label={t("export.video")}
@@ -181,7 +192,7 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
                 variant="default"
                 size="icon-sm"
                 onClick={() => setShowExportMenu((prev) => !prev)}
-                className="h-6 w-5 px-0 rounded-l-none"
+                className="h-6 w-5 px-0 rounded-none bg-accent-primary hover:bg-accent-primary/90 text-white border-l border-white/20"
                 style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
                 title={t("common.actions.moreOptions")}
                 aria-label={t("common.actions.moreOptions")}
@@ -192,7 +203,7 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
 
             {showExportMenu && (
               <div
-                className="absolute right-0 top-full mt-1.5 w-56 rounded-xl bg-neutral-900/95 border border-neutral-800 shadow-2xl p-1.5 z-50 backdrop-blur-md animate-in fade-in zoom-in-95 duration-150"
+                className="absolute right-0 top-full mt-1.5 w-60 rounded-xl bg-surface-floating border border-border-default shadow-2xl p-1.5 z-50 backdrop-blur-md animate-in fade-in zoom-in-95 duration-150"
                 style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
               >
                 <button
@@ -201,13 +212,13 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
                     setShowExportMenu(false);
                     setShowExportDialog(true);
                   }}
-                  className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left text-neutral-300 hover:text-white hover:bg-neutral-800 transition-colors"
+                  className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
                 >
-                  <VideoIcon className="w-4 h-4 text-sky-400 mt-0.5 flex-shrink-0" />
+                  <VideoIcon className="w-4 h-4 text-accent-primary mt-0.5 flex-shrink-0" />
                   <div className="flex flex-col">
-                    <span className="text-xs font-medium text-neutral-100">{t("export.video")}</span>
-                    <span className="text-[10px] text-neutral-400 leading-tight mt-0.5">
-                      MP4, MOV, ProRes with GPU acceleration
+                    <span className="text-xs font-medium text-text-primary">{t("export.menu.videoTitle")}</span>
+                    <span className="text-[10px] text-text-muted leading-tight mt-0.5">
+                      {t("export.menu.videoDesc")}
                     </span>
                   </div>
                 </button>
@@ -218,18 +229,18 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
                     setShowExportMenu(false);
                     setShowThumbnailWorkspace(true);
                   }}
-                  className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left text-neutral-300 hover:text-white hover:bg-neutral-800 transition-colors"
+                  className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
                 >
-                  <ImageIcon className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
+                  <ImageIcon className="w-4 h-4 text-status-warning mt-0.5 flex-shrink-0" />
                   <div className="flex flex-col">
-                    <span className="text-xs font-medium text-neutral-100 flex items-center gap-1.5">
-                      Create Thumbnail
-                      <span className="text-[9px] px-1 py-0.2 rounded bg-amber-400/20 text-amber-300 font-mono font-bold">
-                        NEW
+                    <span className="text-xs font-medium text-text-primary flex items-center gap-1.5">
+                      {t("export.menu.thumbTitle")}
+                      <span className="text-[9px] px-1 py-0.2 rounded bg-status-warning/15 text-status-warning font-mono font-bold">
+                        {t("common.labels.new")}
                       </span>
                     </span>
-                    <span className="text-[10px] text-neutral-400 leading-tight mt-0.5">
-                      YouTube, Shorts, TikTok frame compositing
+                    <span className="text-[10px] text-text-muted leading-tight mt-0.5">
+                      {t("export.menu.thumbDesc")}
                     </span>
                   </div>
                 </button>

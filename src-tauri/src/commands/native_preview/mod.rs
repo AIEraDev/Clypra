@@ -2169,6 +2169,41 @@ fn is_preview_preemptive_request(is_scrubbing: Option<bool>, mode: Option<&str>)
     is_scrubbing.unwrap_or(false) || matches!(mode, Some("scrub" | "seek"))
 }
 
+fn is_interactive_scrub_request(is_scrubbing: Option<bool>, mode: Option<&str>) -> bool {
+    is_scrubbing.unwrap_or(false) || mode == Some("scrub")
+}
+
+/// Returns whether an audio-clock lateness result is actionable for this
+/// presentation request.
+///
+/// Interactive scrub targets are visual navigation work, not playback ticks.
+/// They may carry `mode = "playback"` while the pointer is down, and the
+/// audio clock can be stale or intentionally stopped during that interaction.
+/// Applying the playback lateness fence to them discards the only frame that
+/// could make forward scrubbing visible. Continuous playback remains subject
+/// to the severe-drift re-anchor policy, and settled non-scrub seeks retain the
+/// existing lateness behavior.
+fn should_drop_frame_for_audio_lateness(
+    late_for_audio: bool,
+    frame_age_ticks: i64,
+    is_playback: bool,
+    is_scrubbing: Option<bool>,
+    mode: Option<&str>,
+    has_video_layers: bool,
+) -> bool {
+    let is_interactive_scrub = is_interactive_scrub_request(is_scrubbing, mode);
+    let is_severely_late_for_audio = is_playback
+        && !is_interactive_scrub
+        && has_video_layers
+        && frame_age_ticks > 120_000;
+    let should_drop_non_interactive_lateness = late_for_audio
+        && !is_interactive_scrub
+        && has_video_layers
+        && !is_playback;
+
+    should_drop_non_interactive_lateness || is_severely_late_for_audio
+}
+
 /// Interactive seeks are latest-frame work. Starting a forward-only lookahead
 /// worker for every pointer update makes forward scrubbing compete with the
 /// visible request, only to cancel that worker at the next generation.
@@ -3113,11 +3148,21 @@ pub(crate) async fn present_native_frame_internal(
     // Frame skipping occurs naturally at the scheduler boundary on the next tick.
     // EXCEPT when severe A/V drift occurs (> 120 ms behind audio clock). In that case,
     // presenting ancient frames only perpetuates desync. We purge stale queue frames and re-anchor.
-    let is_severely_late_for_audio =
-        is_playback && !legacy_request.layers.is_empty() && frame_age_ticks > 120_000;
+    let late_for_audio = should_drop_frame_for_audio_lateness(
+        late_for_audio,
+        frame_age_ticks,
+        is_playback,
+        request.is_scrubbing,
+        request.mode.as_deref(),
+        !legacy_request.layers.is_empty(),
+    );
 
-    let late_for_audio = (late_for_audio && !legacy_request.layers.is_empty() && !is_playback)
-        || is_severely_late_for_audio;
+    let is_interactive_scrub =
+        is_interactive_scrub_request(request.is_scrubbing, request.mode.as_deref());
+    let is_severely_late_for_audio = is_playback
+        && !is_interactive_scrub
+        && !legacy_request.layers.is_empty()
+        && frame_age_ticks > 120_000;
 
     if is_severely_late_for_audio {
         if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {

@@ -297,7 +297,7 @@ const StickerCard: React.FC<{
     >
       {/* Downloading Overlay */}
       {isDownloading && (
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-20 pointer-events-none">
+        <div className="absolute inset-0 bg-surface-workspace/80 backdrop-blur-[2px] flex items-center justify-center z-20 pointer-events-none">
           <div className="flex flex-col items-center gap-1.5">
             <div className="w-6 h-6 rounded-full border-2 border-accent border-t-transparent animate-spin" />
             <span className="text-[9px] font-semibold text-accent">
@@ -313,13 +313,13 @@ const StickerCard: React.FC<{
           <Tooltip>
             <TooltipTrigger asChild>
               <div
-                className={`p-0.5 rounded bg-black/60 backdrop-blur-sm text-[8px] font-mono text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity`}
+                className={`p-0.5 rounded bg-surface-floating/80 backdrop-blur-sm text-[8px] font-mono text-text-muted opacity-0 group-hover:opacity-100 transition-opacity`}
               >
                 <Info size={10} />
               </div>
             </TooltipTrigger>
             <TooltipContent side="top" className="max-w-48 text-[10px]">
-              <p className="font-semibold text-white">
+              <p className="font-semibold text-text-primary">
                 {sticker.license.spdx}
               </p>
               <p className="text-gray-300">{sticker.license.author}</p>
@@ -368,7 +368,7 @@ const StickerCard: React.FC<{
           }
           className={`w-4 h-4 rounded-full flex items-center justify-center transition-all relative ${
             isDownloadedFlag
-              ? "bg-accent hover:bg-accent/85 border border-accent text-white cursor-pointer"
+              ? "bg-accent-primary hover:bg-accent-primary/85 border border-accent-primary text-white cursor-pointer"
               : isDownloading
                 ? "bg-accent/20 border border-accent cursor-wait"
                 : "bg-surface/50 hover:bg-surface/80 border border-border/50 text-text-muted hover:text-text-primary cursor-pointer"

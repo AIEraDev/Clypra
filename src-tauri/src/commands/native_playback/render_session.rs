@@ -133,6 +133,13 @@ pub(crate) struct NativePlaybackDemandTerminal {
     pub(crate) queue_residency_us: Option<u64>,
     #[serde(default)]
     pub(crate) queue_hit: Option<bool>,
+    /// Native presentation errors are kept separate from the stable reason
+    /// category so telemetry can retain the concrete wgpu/surface failure.
+    #[serde(default)]
+    pub(crate) error: Option<String>,
+    #[serde(default)]
+    pub(crate) surface_state:
+        Option<crate::commands::native_surface::NativeSurfaceDiagnosticState>,
 }
 
 #[derive(Default)]
@@ -221,6 +228,8 @@ impl NativeRenderSession {
             decoder_mutex_wait_us: None,
             queue_residency_us: None,
             queue_hit: None,
+            error: None,
+            surface_state: None,
         }
     }
 
@@ -277,7 +286,47 @@ impl NativeRenderSession {
             decoder_mutex_wait_us: timings.map(|value| value.decoder_mutex_wait_us),
             queue_residency_us: timings.map(|value| value.queue_residency_us),
             queue_hit: timings.map(|value| value.queue_hit),
+            error: None,
+            surface_state: None,
         }
+    }
+
+    fn presentation_failure_terminal(
+        request_id: String,
+        lifecycle_request_id: Option<String>,
+        generation: Option<u64>,
+        cancellation_epoch: u64,
+        frame_index: u64,
+        error: String,
+        surface_state: Option<crate::commands::native_surface::NativeSurfaceDiagnosticState>,
+    ) -> NativePlaybackDemandTerminal {
+        NativePlaybackDemandTerminal {
+            request_id,
+            lifecycle_request_id,
+            generation,
+            cancellation_epoch,
+            frame_index,
+            disposition: "failed",
+            stage: "presentation",
+            reason: "presentation-pipeline",
+            actor_wait_us: None,
+            actor_queue_wait_us: None,
+            decoder_mutex_wait_us: None,
+            queue_residency_us: None,
+            queue_hit: None,
+            error: Some(error),
+            surface_state,
+        }
+    }
+
+    fn surface_diagnostic_state(
+        app: &AppHandle,
+    ) -> Option<crate::commands::native_surface::NativeSurfaceDiagnosticState> {
+        let state = app
+            .try_state::<Arc<Mutex<crate::commands::native_surface::NativeSurfaceRuntime>>>()?;
+        let runtime = state.inner().clone();
+        let guard = runtime.lock().ok()?;
+        Some(guard.diagnostic_state())
     }
 
     pub(crate) async fn new(
@@ -1331,6 +1380,8 @@ impl NativeRenderSession {
                         decoder_mutex_wait_us: None,
                         queue_residency_us: None,
                         queue_hit: None,
+                        error: None,
+                        surface_state: None,
                     },
                 );
             }
@@ -1444,7 +1495,7 @@ impl NativeRenderSession {
                 }
                 Some(presentation)
             }
-            Err(_) => {
+            Err(error) => {
                 // Presentation failed - mark request as failed
                 if let Some(internal_id) = lifecycle_context.request_ids.first() {
                     self.finish_request_if_active(
@@ -1457,24 +1508,18 @@ impl NativeRenderSession {
                 if lifecycle_context.request_ids.first().is_some() {
                     Self::emit_terminal(
                         app,
-                        NativePlaybackDemandTerminal {
-                            request_id: request.request_id,
-                            lifecycle_request_id: lifecycle_context
+                        Self::presentation_failure_terminal(
+                            request.request_id,
+                            lifecycle_context
                                 .request_ids
                                 .first()
                                 .map(|id| id.as_str().to_string()),
-                            generation: request.target_generation.or(request.generation),
-                            cancellation_epoch: generation,
-                            frame_index: request.frame_time.frame_index,
-                            disposition: "failed",
-                            stage: "presentation",
-                            reason: "presentation-pipeline",
-                            actor_wait_us: None,
-                            actor_queue_wait_us: None,
-                            decoder_mutex_wait_us: None,
-                            queue_residency_us: None,
-                            queue_hit: None,
-                        },
+                            request.target_generation.or(request.generation),
+                            generation,
+                            request.frame_time.frame_index,
+                            error,
+                            Self::surface_diagnostic_state(app),
+                        ),
                     );
                 }
                 None
@@ -1565,6 +1610,32 @@ mod tests {
             playback_lookahead_feedback_armed: AtomicBool::new(false),
             lifecycle_registry: Mutex::new(FrameLifecycleRegistry::default()),
         })
+    }
+
+    #[test]
+    fn presentation_failure_terminal_preserves_error_and_surface_state() {
+        let surface_state =
+            crate::commands::native_surface::NativeSurfaceRuntime::new().diagnostic_state();
+        let terminal = NativeRenderSession::presentation_failure_terminal(
+            "request-1".to_string(),
+            Some("lifecycle-1".to_string()),
+            Some(7),
+            7,
+            42,
+            "Native surface acquisition timed out".to_string(),
+            Some(surface_state),
+        );
+
+        assert_eq!(terminal.disposition, "failed");
+        assert_eq!(terminal.reason, "presentation-pipeline");
+        assert_eq!(
+            terminal.error.as_deref(),
+            Some("Native surface acquisition timed out")
+        );
+        let state = terminal.surface_state.expect("surface diagnostic state");
+        assert!(!state.configured);
+        assert!(!state.has_surface);
+        assert!(!state.shown);
     }
 
     #[test]

@@ -763,12 +763,12 @@ export const Timeline: React.FC = () => {
           <div
             data-testid="timeline-program-inactive-overlay"
             aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 top-10 bottom-0 z-[170] bg-black/40 backdrop-blur-[0.5px]"
+            className="pointer-events-none absolute inset-x-0 top-10 bottom-0 z-[170] bg-surface-workspace/60 backdrop-blur-[0.5px]"
           />
           <div className="absolute top-12 left-1/2 -translate-x-1/2 z-[180] pointer-events-none">
             <button
               onClick={exitSourceMode}
-              className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-floating border border-accent/40 text-accent text-xs font-semibold shadow-xl hover:bg-accent/15 transition-all cursor-pointer"
+              className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-floating border border-accent-primary/40 text-accent-primary text-xs font-semibold shadow-xl hover:bg-accent-primary/15 transition-all cursor-pointer"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               Exit Source Mode

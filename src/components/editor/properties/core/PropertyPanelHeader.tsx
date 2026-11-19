@@ -72,7 +72,7 @@ const PropertyPanelHeader: React.FC<PropertyPanelHeaderType> = ({
           {onToggleCollapse && (
             <button
               onClick={onToggleCollapse}
-              className="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-accent hover:bg-white/5 transition-colors cursor-pointer"
+              className="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-accent-primary hover:bg-surface-hover transition-colors cursor-pointer"
               title={t("properties.expand")}
             >
               <ChevronLeft className="w-4 h-4" />
@@ -80,16 +80,16 @@ const PropertyPanelHeader: React.FC<PropertyPanelHeaderType> = ({
           )}
         </div>
       ) : (
-        <div className="panel-head flex justify-between items-center gap-x-4 px-1 py-0.5">
-          <div className="flex border-t border-border/40 overflow-x-auto scrollbar-none gap-1">
+        <div className="bg-surface-panel border-b border-border-default flex justify-between items-center px-2 py-0.5">
+          <div className="flex overflow-x-auto scrollbar-none gap-1">
             {tabs.map((tab) => {
               const isActive = activePropertyTab === tab.id;
               return (
                 <button
                   key={tab.id}
                   onClick={() => handleActiveTab(tab.id)}
-                  className={`px-2.5 py-1.5 text-xs font-medium tracking-wide whitespace-nowrap transition-colors cursor-pointer rounded hover:text-cyan-400 ${
-                    isActive ? "text-cyan-400" : "text-text-muted"
+                  className={`px-2.5 py-1.5 text-xs font-medium tracking-wide whitespace-nowrap transition-colors cursor-pointer rounded hover:text-accent-primary ${
+                    isActive ? "text-accent-primary" : "text-text-muted"
                   }`}
                 >
                   <span className="flex items-center gap-1">
@@ -102,7 +102,7 @@ const PropertyPanelHeader: React.FC<PropertyPanelHeaderType> = ({
           {onToggleCollapse && (
             <button
               onClick={onToggleCollapse}
-              className="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-accent hover:bg-white/5 transition-colors cursor-pointer shrink-0"
+              className="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-accent-primary hover:bg-surface-hover transition-colors cursor-pointer shrink-0"
               title={t("properties.collapse")}
             >
               <ChevronRight className="w-4 h-4" />
