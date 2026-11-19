@@ -107,11 +107,14 @@ const CRITICAL_NATIVE_RASTER_BOUNDARIES = 1;
 
 /**
  * Guards audio-prewarm cold-start telemetry so it fires at most once per
- * process lifetime (matches the hasRecordedAudioSync pattern in
- * nativeAudioTimeline.ts). Reset is intentionally NOT exposed — the prewarm
- * window is only meaningful for the first project open after process launch.
+ * project session lifetime. Reset upon session disposal so each opened project
+ * captures its own clean initialization telemetry.
  */
 let _hasRecordedAudioPrewarm = false;
+
+export function resetAudioPrewarmTelemetryState(): void {
+  _hasRecordedAudioPrewarm = false;
+}
 
 /**
  * Project Session State
@@ -561,6 +564,7 @@ export class ProjectSession {
       this._notifyListeners({ type: "initialized", session: this });
     } catch (error) {
       this._state = "disposed";
+      _hasRecordedAudioPrewarm = false;
       this._notifyListeners({
         type: "error",
         session: this,
@@ -657,6 +661,7 @@ export class ProjectSession {
       );
 
       this._state = "disposed";
+      _hasRecordedAudioPrewarm = false;
 
       // ── Telemetry: record session disposal ─────────────────────────────
       lifecycleMonitor.record("SESSION_DISPOSE", {
@@ -683,7 +688,8 @@ export class ProjectSession {
       this._notifyListeners({ type: "disposed", session: this });
     } catch (error) {
       console.error(`[ProjectSession] Disposal error:`, error);
-      this._state = "disposed"; // Mark as disposed even on error
+      this._state = "disposed";
+      _hasRecordedAudioPrewarm = false; // Mark as disposed even on error
       const detail = {
         durationMs: Math.round(Math.max(0, performance.now() - disposalStartedAt)),
         stagesMs: this.disposalTimingsMs,

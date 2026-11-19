@@ -591,7 +591,18 @@ impl NativeRenderSession {
         configured_at: Instant,
     ) -> Result<Arc<Self>, String> {
         snapshot.validate().map_err(|error| error.to_string())?;
-        let initial_playback_quality = snapshot.quality;
+        let is_4k_or_high_res = snapshot.output_width >= 3840
+            || snapshot.output_height >= 2160
+            || snapshot
+                .project
+                .video_layers
+                .iter()
+                .any(|l| l.width >= 3840.0 || l.height >= 2160.0);
+        let initial_playback_quality = if is_4k_or_high_res && snapshot.quality == QualityTier::Full {
+            QualityTier::Half
+        } else {
+            snapshot.quality
+        };
         let mut streams = HashSet::new();
         let mut leases = HashMap::new();
         let mut actors = HashMap::new();
