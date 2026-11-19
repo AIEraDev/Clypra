@@ -1073,8 +1073,8 @@ const ClipInner: React.FC<ClipProps> = ({
                   }}
                   className={`ml-auto pointer-events-auto flex items-center gap-0.5 px-1 py-px rounded text-[8px] font-semibold transition-colors cursor-pointer shrink-0 ${
                     isKeyframeExpanded
-                      ? "bg-accent text-white shadow-xs"
-                      : "bg-surface-raised border border-border/60 text-text-secondary hover:text-text-primary hover:bg-surface-hover"
+                      ? "bg-accent-primary text-white shadow-xs"
+                      : "bg-surface-raised border border-border-default text-text-secondary hover:text-text-primary hover:bg-surface-hover"
                   }`}
                   title={
                     isKeyframeExpanded
@@ -1225,7 +1225,7 @@ const ClipInner: React.FC<ClipProps> = ({
                   }}
                   className={`ml-auto flex items-center gap-0.5 px-1 py-px rounded text-[8px] font-semibold transition-colors cursor-pointer pointer-events-auto ${
                     isKeyframeExpanded
-                      ? "bg-accent text-white shadow-xs"
+                      ? "bg-accent-primary text-white shadow-xs"
                       : "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
                   }`}
                   title={
@@ -1325,8 +1325,8 @@ const ClipInner: React.FC<ClipProps> = ({
                   }}
                   className={`ml-auto flex items-center gap-0.5 px-1 py-px rounded text-[8px] font-semibold transition-colors cursor-pointer ${
                     isKeyframeExpanded
-                      ? "bg-accent text-white shadow-xs"
-                      : "bg-surface-raised border border-border/60 text-text-secondary hover:text-text-primary hover:bg-surface-hover"
+                      ? "bg-accent-primary text-white shadow-xs"
+                      : "bg-surface-raised border border-border-default text-text-secondary hover:text-text-primary hover:bg-surface-hover"
                   }`}
                   title={
                     isKeyframeExpanded
