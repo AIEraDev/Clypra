@@ -155,12 +155,14 @@ export class TransportAuthority {
   pause(): void {
     this._advanceTransportEpoch("pause");
     this.issueTransportIntent("seek");
+    this._scrubPauseDepth = 0; // CLY-BUG-009: external pause resets scrub depth
     this.activeContext?.pause();
   }
 
   stop(): void {
     this._advanceTransportEpoch("stop");
     this.issueTransportIntent("seek");
+    this._scrubPauseDepth = 0; // CLY-BUG-009: stop resets scrub depth
     this.activeContext?.stop();
   }
 
@@ -179,10 +181,13 @@ export class TransportAuthority {
 
   beginScrub(time: number, source: string = "playhead"): void {
     const isPlaying = this.getState() === "playing";
-    if (isPlaying) {
-      // Only pause and increment depth when we were actually playing.
-      // This keeps the depth counter truthful: one increment per actual pause.
-      this.pause();
+    // CLY-BUG-009 fix: increment depth when playing OR when already in a
+    // scrub session (depth > 0), so overlapping scrubs don't under-count and
+    // endScrub doesn't resume prematurely while a secondary scrub is still active.
+    if (isPlaying || this._scrubPauseDepth > 0) {
+      if (isPlaying) {
+        this.pause();
+      }
       this._scrubPauseDepth++;
     }
     this.seekController.beginScrub({ time, source });

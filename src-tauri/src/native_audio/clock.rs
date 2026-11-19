@@ -132,7 +132,9 @@ impl NativeAudioClock {
         self.inner.played_frames.store(0, Ordering::Release);
         self.inner.callback_count.store(0, Ordering::Release);
         self.inner.non_silent_frames.store(0, Ordering::Release);
-        self.inner.position_ticks.store(0, Ordering::Release);
+        if self.inner.position_ticks.load(Ordering::Acquire) <= 0 {
+            self.inner.position_ticks.store(0, Ordering::Release);
+        }
         self.inner.playing.store(false, Ordering::Release);
         self.inner.transport_ramp_frames.store(0, Ordering::Release);
         self.inner.mixer_lock_misses.store(0, Ordering::Release);
@@ -1057,11 +1059,11 @@ where
                 // compare_exchange is overkill; a store is fine because the
                 // flag only ever transitions false → true.
                 if !output_latency.available.load(Ordering::Relaxed) {
-                    output_latency.available.store(true, Ordering::Relaxed);
+                    output_latency.available.store(true, Ordering::Release);
                 }
             }
 
-            if !playing.load(Ordering::Acquire) || muted.load(Ordering::Acquire) {
+            if !playing.load(Ordering::Acquire) {
                 for sample in data.iter_mut() {
                     *sample = T::EQUILIBRIUM;
                 }
@@ -1079,8 +1081,13 @@ where
                 transport_ramp_frames.fetch_sub(ramp_consumed, Ordering::AcqRel);
             }
 
-            // Non-blocking try_read lock for real-time safety
-            if let Ok(mixer_guard) = mixer.try_read() {
+            if muted.load(Ordering::Acquire) {
+                // When muted, audio samples are silenced but the master playback clock
+                // must continue advancing elapsed ticks (CLY-BUG-002).
+                for sample in data.iter_mut() {
+                    *sample = T::EQUILIBRIUM;
+                }
+            } else if let Ok(mixer_guard) = mixer.try_read() {
                 if mixer_guard.mix_into_with_ramp(
                     data,
                     channels,

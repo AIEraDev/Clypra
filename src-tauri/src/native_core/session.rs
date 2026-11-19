@@ -153,6 +153,17 @@ impl PlaybackSession {
             && self.active_request_id.as_deref() == Some(request_id)
             && self.state.presented_frame == Some(frame_index)
     }
+
+    pub fn reanchor(&mut self, clock: FrameTime) -> Result<(), NativeCoreError> {
+        validate_clock(clock)?;
+        self.anchor_clock = Some(clock);
+        self.anchor_position = position_from_ticks(self.state.audio_position_ticks)?;
+        Ok(())
+    }
+
+    pub fn set_clock_status(&mut self, status: PlaybackClockStatus) {
+        self.state.clock_status = status;
+    }
 }
 
 fn validate_plan(plan: &PlaybackPlan) -> Result<(), NativeCoreError> {

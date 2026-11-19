@@ -227,7 +227,7 @@ impl NativeAudioMixer {
         for frame_index in 0..frames {
             let frame_ticks = ((frame_index as f64
                 * TICKS_PER_SECOND as f64
-                * playback_speed.clamp(0.25, 4.0) as f64)
+                * playback_speed.clamp(0.1, 4.0) as f64)
                 / output_sample_rate as f64)
                 .round() as i64;
             let timeline_ticks = timeline_start_ticks.saturating_add(frame_ticks);
@@ -318,7 +318,7 @@ impl NativeAudioMixer {
             };
             let frame_ticks = ((frame_index as f64
                 * TICKS_PER_SECOND as f64
-                * playback_speed.clamp(0.25, 4.0) as f64)
+                * playback_speed.clamp(0.1, 4.0) as f64)
                 / output_sample_rate as f64)
                 .round() as i64;
             let timeline_ticks = timeline_start_ticks.saturating_add(frame_ticks);
@@ -393,7 +393,7 @@ pub(crate) fn sample_at_with_cache(
         // speed while samples inside each grain remain at their native rate.
         // That keeps perceived pitch stable without allocating or locking in the
         // real-time mixer callback.
-        let speed = playback_speed.clamp(0.25, 4.0) as f64;
+        let speed = playback_speed.clamp(0.1, 4.0) as f64;
         let synthesis_position = source_position / speed;
         let grain_size = ((clip_sample_rate as f64 * 0.04).round() as i64).max(64);
         let hop = (grain_size / 4).max(1);

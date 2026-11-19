@@ -228,6 +228,45 @@ describe("PlaybackClock: RAF Generation Counter", () => {
     expect(notified).toHaveBeenCalled();
   });
 
+  it("regression: (CLY-BUG-001) resyncNativeClockPosition preserves RAF loop during active playback", () => {
+    clock.play();
+    expect(rafCallbacks.size).toBe(1);
+
+    clock.resyncNativeClockPosition(3.0, 1.0);
+    expect(rafCallbacks.size).toBeGreaterThan(0);
+
+    // Frame execution must not be swallowed as a stale tick
+    executeNextFrame();
+    expect(clock.state).toBe("playing");
+    expect(rafCallbacks.size).toBe(1);
+  });
+
+  it("regression: (CLY-BUG-004) falls back to frozen time after CPAL_INIT_TIMEOUT_SEC when no hardware sample arrives", () => {
+    let now = 1000;
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => now);
+    try {
+      clock.setNativeClockAuthority(true);
+      clock.play();
+
+      now += 1000;
+      expect(clock.time).toBeCloseTo(1.0, 1);
+
+      now += 1500; // 2.5s > 2.0s CPAL_INIT_TIMEOUT_SEC
+      expect(clock.time).toBe(0);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("regression: (CLY-BUG-008) resetForProject clears nativeAudioUnavailable flag", () => {
+    clock.setNativeClockAuthority(true);
+    clock.markNativeAudioUnavailable();
+    expect(clock.hasNativeClockPosition).toBe(true);
+
+    clock.resetForProject();
+    expect(clock.hasNativeClockPosition).toBe(false);
+  });
+
   it("preserves global clock identity across a project reset", () => {
     const shared = getPlaybackClock();
     const listener = vi.fn();
@@ -481,6 +520,54 @@ describe("PlaybackClock: RAF Generation Counter", () => {
       const resultingDrift = clock.time - laggedAudioSample;
       expect(resultingDrift).toBeCloseTo(0.016, 2);
       expect(resultingDrift).toBeLessThan(0.020);
+    });
+
+    it("CLY-BUG-007: setSpeed does not emit spurious paused->playing transitions and validates speed", () => {
+      const clock = new PlaybackClock();
+      clock.setDuration(10.0);
+      clock.play();
+      expect(clock.state).toBe("playing");
+
+      const observedStates: string[] = [];
+      const unsubscribe = clock.subscribe((state) => {
+        observedStates.push(state.state);
+      });
+
+      // Change speed while playing
+      clock.setSpeed(2.0);
+      expect(clock.speed).toBe(2.0);
+      expect(clock.state).toBe("playing");
+
+      // Verify that NO "paused" state transition was ever emitted
+      expect(observedStates.includes("paused")).toBe(false);
+
+      // Verify invalid/non-finite speeds are safely ignored
+      clock.setSpeed(NaN);
+      expect(clock.speed).toBe(2.0);
+      clock.setSpeed(Infinity);
+      expect(clock.speed).toBe(2.0);
+      clock.setSpeed(-Infinity);
+      expect(clock.speed).toBe(2.0);
+
+      unsubscribe();
+    });
+
+    it("CLY-BUG-011: setFrameRate guards against NaN and non-positive fps", () => {
+      const clock = new PlaybackClock();
+      expect(clock.frameRate).toBe(30);
+
+      clock.setFrameRate(60);
+      expect(clock.frameRate).toBe(60);
+
+      // NaN should safely fall back to 30 instead of corrupting frameRate to NaN
+      clock.setFrameRate(NaN);
+      expect(clock.frameRate).toBe(30);
+
+      // Non-positive should fall back to 30
+      clock.setFrameRate(-10);
+      expect(clock.frameRate).toBe(30);
+      clock.setFrameRate(0);
+      expect(clock.frameRate).toBe(30);
     });
   });
 });

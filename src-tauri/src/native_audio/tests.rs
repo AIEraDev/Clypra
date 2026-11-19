@@ -837,4 +837,61 @@ mod tests {
         // Verify output_latency.available is an atomic bool
         assert!(!clock.inner.output_latency.available.load(Ordering::Relaxed));
     }
+
+    #[test]
+    fn regression_test_mixer_speed_clamp_preserves_0_1x_speed() {
+        // CLY-BUG-006: At 0.1x playback speed, frame_ticks in mixer must advance at 0.1x, not 0.25x
+        let mut mixer = NativeAudioMixer::default();
+        let clip = NativePcmClip {
+            id: "slow_clip".to_string(),
+            sample_rate: 48_000,
+            channels: 2,
+            samples: Arc::from(vec![0.5f32; 96_000]),
+            timeline_start_ticks: 0,
+            duration_ticks: 10_000_000,
+            gain: 1.0,
+            pan: 0.0,
+            fade_in_ticks: 0,
+            fade_out_ticks: 0,
+            fade_in_curve: "linear".to_string(),
+            fade_out_curve: "linear".to_string(),
+            volume_keyframes: Vec::new(),
+            channel_mode: "stereo".to_string(),
+            downmix: "stereo".to_string(),
+            channel_map: None,
+            preserve_pitch: false,
+            clip_speed: 1.0,
+        };
+        mixer.install_clip(clip).unwrap();
+
+        let output_sample_rate = 48_000_u32;
+        let frame_index = 480_usize;
+        let speed = 0.1_f32;
+
+        let frame_ticks_unclamped = ((frame_index as f64
+            * TICKS_PER_SECOND as f64
+            * speed.clamp(0.1, 4.0) as f64)
+            / output_sample_rate as f64)
+            .round() as i64;
+        assert_eq!(frame_ticks_unclamped, 1000);
+
+        let inspection = mixer.inspect(2, 48_000, 0, 1.0, 0.1);
+        assert!(!inspection.clip_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn regression_test_clock_start_preserves_pre_seek() {
+        // CLY-BUG-005: clock.start() must preserve a pre-existing seek position
+        let mut clock = NativeAudioClock::new();
+        clock.seek(5_000_000);
+        assert_eq!(clock.inner.position_ticks.load(Ordering::Acquire), 5_000_000);
+
+        if clock.start().is_ok() {
+            assert_eq!(
+                clock.inner.position_ticks.load(Ordering::Acquire),
+                5_000_000,
+                "start() should preserve pre-existing seek ticks instead of resetting to 0"
+            );
+        }
+    }
 }

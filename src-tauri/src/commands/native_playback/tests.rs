@@ -49,13 +49,57 @@ mod tests {
 
         assert_eq!(state.audio_position_ticks, 500_000);
         assert_eq!(state.presented_frame, Some(15));
-        assert_eq!(state.clock_status, PlaybackClockStatus::MonotonicFallback);
+        assert_eq!(state.clock_status, PlaybackClockStatus::Audio);
     }
 
     #[test]
     fn coordinator_auto_configures_when_unconfigured() {
         let mut runtime = NativePlaybackRuntime::new();
         assert!(runtime.state().is_ok());
+    }
+
+    /// CLY-BUG-003 negative control:
+    /// Before the fix, audio_clock_time() returning Err fell back to
+    /// FrameTime{ticks:0}, so elapsed = 0-0 = 0 → position permanently frozen.
+    /// This test verifies the OLD behavior (zero-tick fallback) freezes the frame.
+    #[test]
+    fn negative_control_zero_tick_fallback_freezes_playback() {
+        let mut runtime = NativePlaybackRuntime::new();
+        runtime.configure(plan()).unwrap();
+        // anchor at ticks=0
+        runtime.play(clock(0)).unwrap();
+        // tick with ticks=0 (old "audio unavailable" fallback): elapsed = 0 → frozen
+        let state1 = runtime.tick(clock(0)).unwrap();
+        // tick again with ticks=0
+        let state2 = runtime.tick(clock(0)).unwrap();
+        // Both ticks should give frame 0 — confirming zero-tick freezes playback
+        assert_eq!(state1.presented_frame, Some(0), "frame advanced unexpectedly on zero-tick");
+        assert_eq!(state2.presented_frame, Some(0), "frame advanced unexpectedly on zero-tick");
+    }
+
+    /// CLY-BUG-003 regression test:
+    /// tick_with_audio_or_monotonic() with audio Err must advance the frame
+    /// using monotonic ticks, not freeze at zero.
+    #[test]
+    fn regression_test_tick_advances_on_audio_unavailable() {
+        let mut runtime = NativePlaybackRuntime::new();
+        runtime.configure(plan()).unwrap();
+        runtime.play(clock(0)).unwrap();
+        // Simulate audio unavailable: pass Err, give monotonic ticks of 500_000 µs (= 0.5s)
+        let state = runtime
+            .tick_with_audio_or_monotonic(Err("no audio".to_string()), clock(500_000))
+            .unwrap();
+        // 0.5s at 30fps = frame 15
+        assert_eq!(
+            state.presented_frame,
+            Some(15),
+            "playback froze when audio unavailable — CLY-BUG-003 regressed"
+        );
+        assert_eq!(
+            state.clock_status,
+            PlaybackClockStatus::MonotonicFallback,
+            "clock_status should be MonotonicFallback when audio unavailable"
+        );
     }
 
     #[test]

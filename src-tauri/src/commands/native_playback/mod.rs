@@ -580,6 +580,17 @@ pub fn native_tick(app: AppHandle, clock: FrameTime) -> Result<PlaybackState, St
     with_runtime(&app, |runtime| runtime.tick(clock))
 }
 
+static MONOTONIC_EPOCH: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+
+pub(crate) fn fallback_monotonic_frame_time() -> FrameTime {
+    let micros = MONOTONIC_EPOCH
+        .get_or_init(Instant::now)
+        .elapsed()
+        .as_micros()
+        .min(i64::MAX as u128) as i64;
+    FrameTime::new(0, micros, DEFAULT_TIME_SCALE).unwrap()
+}
+
 #[tauri::command]
 pub fn native_play_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
     // INVESTIGATION ONLY — remove before Phase 6
@@ -589,21 +600,22 @@ pub fn native_play_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
 
     // Architectural invariant: Audio readiness must never block video playback!
     // When audio is unavailable (silent project or clips still resolving/hydrating),
-    // fall back to a zeroed FrameTime so video playback starts immediately.
+    // fall back to monotonic clock so video playback starts and advances immediately.
     let clock_result = audio_clock_time(&app, true, true);
     // INVESTIGATION ONLY — remove before Phase 6
     match &clock_result {
         Ok(ft) => log::debug!("[TR1] audio_clock_time() → Ok(ticks={})", ft.ticks),
         Err(e) => log::debug!("[TR1] audio_clock_time() → Err({})", e),
     }
-    let clock = clock_result.unwrap_or_else(|_| FrameTime::new(0, 0, DEFAULT_TIME_SCALE).unwrap());
 
-    let audio_available = audio_clock_time(&app, true, true).is_ok();
+    let audio_available = clock_result.is_ok();
     let state = if audio_available {
+        let clock = clock_result.unwrap();
         let state = with_runtime(&app, |runtime| runtime.play_from_audio(clock))?;
         let _ = set_audio_playing(&app, true);
         state
     } else {
+        let clock = fallback_monotonic_frame_time();
         let state = with_runtime(&app, |runtime| runtime.play(clock))?;
         let _ = set_audio_playing(&app, false);
         state
@@ -623,7 +635,7 @@ pub fn native_play_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
 #[tauri::command]
 pub fn native_pause_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
     let clock = audio_clock_time(&app, false, false)
-        .unwrap_or_else(|_| FrameTime::new(0, 0, DEFAULT_TIME_SCALE).unwrap());
+        .unwrap_or_else(|_| fallback_monotonic_frame_time());
     let state = with_runtime(&app, |runtime| runtime.pause(clock));
     let _ = set_audio_playing(&app, false);
     if let Some(runtime) = app.try_state::<Arc<Mutex<NativePlaybackRuntime>>>() {
@@ -639,8 +651,6 @@ pub fn native_pause_from_audio(app: AppHandle) -> Result<PlaybackState, String> 
     state
 }
 
-static MONOTONIC_EPOCH: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
-
 #[tauri::command]
 pub fn native_tick_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
     let sampled_at_ns = MONOTONIC_EPOCH
@@ -648,9 +658,11 @@ pub fn native_tick_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
         .elapsed()
         .as_nanos()
         .min(u64::MAX as u128) as u64;
-    let clock = audio_clock_time(&app, true, false)
-        .unwrap_or_else(|_| FrameTime::new(0, 0, DEFAULT_TIME_SCALE).unwrap());
-    let mut state = with_runtime(&app, |runtime| runtime.tick(clock))?;
+    let audio_clock = audio_clock_time(&app, true, false);
+    let monotonic_clock = fallback_monotonic_frame_time();
+    let mut state = with_runtime(&app, |runtime| {
+        runtime.tick_with_audio_or_monotonic(audio_clock, monotonic_clock)
+    })?;
     state.sampled_at_ns = Some(sampled_at_ns);
 
     // Terminal playback is a lifecycle boundary. Pause the CPAL audio stream

@@ -27,6 +27,7 @@ import { resumeGlobalAudioEngine } from "@/hooks/useAudioSyncEngine";
 import { isTauriRuntime } from "@/lib/platform/tauri";
 import type { SeekIntentInput } from "@/core/playback/seekController";
 import { getPreviewInteractionCoordinator } from "@/core/interactions";
+import { formatTimecode as formatTimecodeCanonical } from "@/lib/utils/timeFormatting";
 
 /**
  * Hook for UI snapshots of playback state.
@@ -283,15 +284,9 @@ export { getPlaybackClock };
 
 /**
  * Format time as timecode.
+ * CLY-BUG-011 fix: delegate to canonical timeFormatting.ts which guards
+ * against NaN/Infinity inputs and uses frame-accurate rounding.
  */
 export function formatTimecode(seconds: number, frameRate: number): string {
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-  const frames = Math.floor((seconds % 1) * frameRate);
-
-  if (hours > 0) {
-    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}:${String(frames).padStart(2, "0")}`;
-  }
-  return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}:${String(frames).padStart(2, "0")}`;
+  return formatTimecodeCanonical(seconds, frameRate);
 }

@@ -1,8 +1,8 @@
 use super::render_session::{NativePlaybackDemandTerminal, NativeRenderSession};
 use crate::native_audio::NativeAudioClock;
 use crate::native_core::{
-    FrameTime, NativeCoreError, NativePlaybackFrameDemand, PlaybackPlan, PlaybackSession,
-    PlaybackState, DEFAULT_TIME_SCALE,
+    FrameTime, NativeCoreError, NativePlaybackFrameDemand, PlaybackClockStatus, PlaybackPlan,
+    PlaybackSession, PlaybackState, DEFAULT_TIME_SCALE,
 };
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager};
@@ -170,7 +170,10 @@ impl NativePlaybackRuntime {
             .and_then(|value| u64::try_from(value).ok())
             .unwrap_or(0);
         session.seek(frame_index)?;
-        session.play(clock)
+        let mut state = session.play(clock)?;
+        session.set_clock_status(PlaybackClockStatus::Audio);
+        state.clock_status = PlaybackClockStatus::Audio;
+        Ok(state)
     }
 
     pub fn pause(&mut self, clock: FrameTime) -> Result<PlaybackState, NativeCoreError> {
@@ -202,6 +205,30 @@ impl NativePlaybackRuntime {
 
     pub fn tick(&mut self, clock: FrameTime) -> Result<PlaybackState, NativeCoreError> {
         self.ensure_session()?.tick(clock)
+    }
+
+    pub fn tick_with_audio_or_monotonic(
+        &mut self,
+        audio_clock: Result<FrameTime, String>,
+        monotonic_clock: FrameTime,
+    ) -> Result<PlaybackState, NativeCoreError> {
+        let session = self.ensure_session()?;
+        match audio_clock {
+            Ok(audio_ft) => {
+                if session.state().clock_status != PlaybackClockStatus::Audio {
+                    session.reanchor(audio_ft)?;
+                    session.set_clock_status(PlaybackClockStatus::Audio);
+                }
+                session.tick(audio_ft)
+            }
+            Err(_) => {
+                if session.state().clock_status == PlaybackClockStatus::Audio {
+                    session.reanchor(monotonic_clock)?;
+                    session.set_clock_status(PlaybackClockStatus::MonotonicFallback);
+                }
+                session.tick(monotonic_clock)
+            }
+        }
     }
 
     /// Drop the session from the previous project so the next project starts
