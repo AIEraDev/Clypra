@@ -48,7 +48,7 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
       <div className="p-3 bg-gradient-to-r from-purple-900/40 via-indigo-900/30 to-purple-900/40 border border-purple-500/30 rounded-xl relative overflow-hidden">
         <div className="flex items-center gap-2">
           <span className="text-purple-400 text-sm">◆</span>
-          <span className="text-xs font-bold text-white uppercase tracking-wider">
+          <span className="text-xs font-bold text-text-primary uppercase tracking-wider">
             AI Digital Presenter
           </span>
           <span className="ml-auto text-[9px] font-bold bg-purple-500 text-white px-2 py-0.5 rounded-full">
@@ -74,8 +74,8 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
                 onClick={() => setSelectedAvatar(avatar.id)}
                 className={`p-2.5 rounded-xl border transition-all cursor-pointer flex flex-col items-center text-center relative ${
                   isSelected
-                    ? "bg-[#27272a] border-purple-400 shadow-[0_0_12px_rgba(168,85,247,0.2)]"
-                    : "bg-[#202024] border-white/5 hover:border-white/15"
+                    ? "bg-surface-elevated border-purple-400 shadow-sm"
+                    : "bg-surface-panel border border-border-default hover:border-border-hover"
                 }`}
               >
                 {isSelected && (
@@ -88,7 +88,7 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
                 >
                   <User className="w-6 h-6 opacity-90" />
                 </div>
-                <div className="text-xs font-bold text-white truncate max-w-full">
+                <div className="text-xs font-bold text-text-primary truncate max-w-full">
                   {avatar.name}
                 </div>
                 <div className="text-[10px] text-purple-300 truncate max-w-full">

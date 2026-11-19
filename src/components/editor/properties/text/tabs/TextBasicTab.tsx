@@ -277,7 +277,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
             onChange={(e) =>
               handleCustomStyleUpdate("fontSize", Number(e.target.value))
             }
-            className="w-full h-1 bg-[#3f3f46] rounded-full appearance-none outline-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
+            className="w-full h-1 bg-border-default rounded-full appearance-none outline-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent-primary [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent-primary [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
           />
         </div>
         <div className="w-16 shrink-0 bg-surface-input border border-border-default rounded-md px-2 py-1 flex items-center">
@@ -292,7 +292,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
                 Math.max(1, Number(e.target.value) || 1),
               )
             }
-            className="w-full bg-transparent text-xs text-white text-center outline-none tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            className="w-full bg-transparent text-xs text-text-primary text-center outline-none tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
           />
           <div className="flex flex-col -mr-1">
             <button
@@ -303,7 +303,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
                   (textClip.fontSize || 48) + 1,
                 )
               }
-              className="text-text-muted hover:text-white px-0.5 leading-none text-[8px] cursor-pointer"
+              className="text-text-muted hover:text-text-primary px-0.5 leading-none text-[8px] cursor-pointer"
             >
               ▲
             </button>
@@ -315,7 +315,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
                   Math.max(1, (textClip.fontSize || 48) - 1),
                 )
               }
-              className="text-text-muted hover:text-white px-0.5 leading-none text-[8px] cursor-pointer"
+              className="text-text-muted hover:text-text-primary px-0.5 leading-none text-[8px] cursor-pointer"
             >
               ▼
             </button>
@@ -431,7 +431,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
             presetColors={SOLID_COLOR_SWATCHES}
             showAlpha={true}
             size="sm"
-            triggerClassName="w-24 w-full h-7 bg-[#27272a] border-white/10 hover:border-white/20 rounded-md px-2 flex items-center justify-between cursor-pointer"
+            triggerClassName="w-24 w-full h-7 bg-surface-input border border-border-default hover:border-border-hover rounded-md px-2 flex items-center justify-between cursor-pointer text-text-primary shadow-xs"
             popoverClassName="z-[100]"
           />
         </div>
@@ -457,7 +457,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
             onChange={(e) =>
               handleCustomStyleUpdate("letterSpacing", Number(e.target.value))
             }
-            className="w-full bg-transparent text-xs text-white outline-none tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            className="w-full bg-transparent text-xs text-text-primary outline-none tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
           />
           <div className="flex flex-col -mr-1">
             <button
@@ -468,7 +468,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
                   effectiveLetterSpacing + 1,
                 )
               }
-              className="text-text-muted hover:text-white px-0.5 leading-none text-[8px] cursor-pointer"
+              className="text-text-muted hover:text-text-primary px-0.5 leading-none text-[8px] cursor-pointer"
             >
               ▲
             </button>
@@ -480,7 +480,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
                   effectiveLetterSpacing - 1,
                 )
               }
-              className="text-text-muted hover:text-white px-0.5 leading-none text-[8px] cursor-pointer"
+              className="text-text-muted hover:text-text-primary px-0.5 leading-none text-[8px] cursor-pointer"
             >
               ▼
             </button>
@@ -499,7 +499,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
             onChange={(e) =>
               handleCustomStyleUpdate("lineHeight", Number(e.target.value))
             }
-            className="w-full bg-transparent text-xs text-white outline-none tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            className="w-full bg-transparent text-xs text-text-primary outline-none tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
           />
           <div className="flex flex-col -mr-1">
             <button
@@ -510,7 +510,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
                   Math.round((effectiveLineHeight + 0.1) * 10) / 10,
                 )
               }
-              className="text-text-muted hover:text-white px-0.5 leading-none text-[8px] cursor-pointer"
+              className="text-text-muted hover:text-text-primary px-0.5 leading-none text-[8px] cursor-pointer"
             >
               ▲
             </button>
@@ -525,7 +525,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
                   ),
                 )
               }
-              className="text-text-muted hover:text-white px-0.5 leading-none text-[8px] cursor-pointer"
+              className="text-text-muted hover:text-text-primary px-0.5 leading-none text-[8px] cursor-pointer"
             >
               ▼
             </button>
@@ -539,7 +539,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <span className="text-[8px] text-text-muted block">Horizontal</span>
-            <div className="flex gap-0.5 bg-[#18181b] p-0.5 rounded-md">
+            <div className="flex gap-0.5 bg-surface-elevated p-0.5 rounded-md border border-border-default">
               {(
                 [
                   ["left", AlignLeft, "Align left"],
@@ -567,7 +567,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
 
           <div className="space-y-1">
             <span className="text-[8px] text-text-muted block">Vertical</span>
-            <div className="flex gap-0.5 bg-[#18181b] p-0.5 rounded-md">
+            <div className="flex gap-0.5 bg-surface-elevated p-0.5 rounded-md border border-border-default">
               {(
                 [
                   ["top", AlignStartVertical, "Align top"],
@@ -595,7 +595,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
         </div>
       </div>
 
-      <div className="border-t border-white/10 my-2" />
+      <div className="border-t border-border-default my-2" />
 
       {/* CapCut-parity PRESET STYLE Section */}
       <PresetStyleGrid
@@ -603,7 +603,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
         onApplyPreset={handleApplyPresetStyle}
       />
 
-      <div className="border-t border-white/10 my-2" />
+      <div className="border-t border-border-default my-2" />
 
       {/* CapCut-parity TRANSFORM Section under preset */}
       <TextTransformSection
@@ -613,7 +613,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
         handleUpdateMultiple={handleUpdateMultiple}
       />
 
-      <div className="border-t border-white/10 my-2" />
+      <div className="border-t border-border-default my-2" />
 
       {/* CapCut-parity STROKE Section */}
       <TextStrokeSection
@@ -622,7 +622,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
         handleUpdate={handleUpdate}
       />
 
-      <div className="border-t border-white/10 my-2" />
+      <div className="border-t border-border-default my-2" />
 
       {/* CapCut-parity BACKGROUND Section */}
       <TextBackgroundSection
@@ -632,14 +632,14 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
       />
 
       {/* Behind Subject (AI Cutout) */}
-      {/* <div className="p-3 bg-[#202024] border border-white/5 rounded-lg space-y-2">
+      {/* <div className="p-3 bg-surface-elevated border border-border-default rounded-lg space-y-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div
               className={`p-1.5 rounded-md transition-colors ${
                 (textClip as any).behindSubject
                   ? "bg-purple-500/20 text-purple-400"
-                  : "bg-[#27272a] text-text-muted"
+                  : "bg-surface-elevated text-text-muted"
               }`}
             >
               <User className="w-4 h-4" />
@@ -660,7 +660,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
               onChange={(e) => handleUpdate("behindSubject", e.target.checked)}
               className="sr-only peer"
             />
-            <div className="w-8 h-4 bg-surface-raised border border-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-purple-500" />
+            <div className="w-8 h-4 bg-surface-raised border border-border-default peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-purple-500" />
           </label>
         </div>
         {(textClip as any).behindSubject && (
@@ -680,7 +680,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
 
       {/* Caption batch styling */}
       {/* {textClip.textRole === "caption" && (
-        <div className="flex items-center justify-between p-2.5 bg-[#202024] border border-white/5 rounded-lg">
+        <div className="flex items-center justify-between p-2.5 bg-surface-elevated border border-border-default rounded-lg">
           <div className="flex flex-col">
             <span className="text-xs font-semibold text-white">
               Apply to all captions
@@ -695,7 +695,7 @@ export const TextBasicTab: React.FC<TextBasicTabProps> = ({
             className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
               applyToAll
                 ? "bg-cyan-400 text-black font-bold"
-                : "bg-[#27272a] text-[#8e8e93] hover:text-white"
+                : "bg-surface-elevated text-text-muted hover:text-text-primary"
             }`}
           >
             {applyToAll ? "Active" : "Inactive"}

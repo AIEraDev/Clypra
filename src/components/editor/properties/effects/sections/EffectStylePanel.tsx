@@ -34,7 +34,7 @@ export const EffectStylePanel: React.FC<EffectStylePanelProps> = ({
             <Sparkles className="w-4 h-4" />
           </div>
           <div>
-            <div className="text-xs font-semibold text-white leading-tight">
+            <div className="text-xs font-semibold text-text-primary leading-tight">
               {effectName}
             </div>
             <div className="text-[10px] text-zinc-400 capitalize">
@@ -47,7 +47,7 @@ export const EffectStylePanel: React.FC<EffectStylePanelProps> = ({
           <button
             onClick={onChangeEffect}
             title="Change Text Effect"
-            className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition-all duration-150 flex items-center justify-center"
+            className="p-1.5 rounded hover:bg-surface-hover text-text-muted hover:text-text-primary transition-all duration-150 flex items-center justify-center"
           >
             <RefreshCw className="w-3.5 h-3.5" />
           </button>

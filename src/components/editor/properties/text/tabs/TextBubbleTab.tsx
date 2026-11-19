@@ -162,7 +162,7 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
           <button
             type="button"
             onClick={() => setSearchQuery("")}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-white"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -181,7 +181,7 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
               className={`px-3 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-colors cursor-pointer shrink-0 ${
                 isSelected
                   ? "bg-accent-primary text-white border-accent-primary shadow-xs"
-                  : "bg-[#242426] text-text-muted hover:text-white hover:bg-[#2c2c30] border border-white/5"
+                  : "bg-surface-elevated text-text-muted hover:text-text-primary hover:bg-surface-hover border border-border-default"
               }`}
             >
               {cat.label}
@@ -201,7 +201,7 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
           <button
             type="button"
             onClick={() => setIsFilterOpen(!isFilterOpen)}
-            className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#242426] hover:bg-[#2c2c30] border border-white/10 text-[11px] text-white font-medium transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-surface-elevated hover:bg-surface-hover border border-border-default text-[11px] text-text-primary font-medium transition-colors cursor-pointer"
             title={t("properties.bubble.filterTooltip") || "Filter by category"}
           >
             <span>{activeCategoryLabel}</span>
@@ -210,7 +210,7 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
 
           {/* Filter Dropdown Popover */}
           {isFilterOpen && (
-            <div className="absolute right-0 top-full mt-1 w-36 bg-[#1e1e22] border border-white/10 rounded-lg shadow-xl z-50 py-1 overflow-hidden">
+            <div className="absolute right-0 top-full mt-1 w-36 bg-surface-elevated border border-border-default rounded-lg shadow-xl z-50 py-1 overflow-hidden">
               {BUBBLE_CATEGORIES.map((cat) => {
                 const isSelected = selectedCategory === cat.id;
                 return (
@@ -224,7 +224,7 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
                     className={`w-full flex items-center justify-between px-3 py-1.5 text-xs text-left transition-colors cursor-pointer ${
                       isSelected
                         ? "bg-cyan-500/10 text-accent-primary font-semibold"
-                        : "text-text-muted hover:text-white hover:bg-white/5"
+                        : "text-text-muted hover:text-text-primary hover:bg-surface-hover"
                     }`}
                   >
                     <span>{cat.label}</span>
@@ -263,7 +263,7 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
 
                   {/* Corner download icon badge */}
                   <div className="absolute bottom-1 right-1 w-3.5 h-3.5 rounded-full bg-black/70 backdrop-blur-xs flex items-center justify-center pointer-events-none">
-                    <ArrowDown className="w-2 h-2 text-white/90" />
+                    <ArrowDown className="w-2 h-2 text-text-muted" />
                   </div>
                 </>
               )}

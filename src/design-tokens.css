@@ -7,20 +7,20 @@
 /* ─── Primitive palette (not consumed directly by components) ─────────────── */
 :root {
   /* Neutrals */
-  --ds-neutral-0:    #ffffff;
-  --ds-neutral-50:   #f4f6f8;
-  --ds-neutral-100:  #e8ecf0;
-  --ds-neutral-200:  #d0d8e0;
-  --ds-neutral-300:  #b0bcc8;
-  --ds-neutral-400:  #8898a8;
-  --ds-neutral-500:  #647585;
-  --ds-neutral-600:  #48566a;
-  --ds-neutral-700:  #333d4d;
-  --ds-neutral-800:  #232c38;
-  --ds-neutral-850:  #1a2028;
-  --ds-neutral-900:  #12171d;
-  --ds-neutral-920:  #0f141a;
-  --ds-neutral-950:  #0b0e12;
+  --ds-neutral-0: #ffffff;
+  --ds-neutral-50: #f4f6f8;
+  --ds-neutral-100: #e8ecf0;
+  --ds-neutral-200: #d0d8e0;
+  --ds-neutral-300: #b0bcc8;
+  --ds-neutral-400: #8898a8;
+  --ds-neutral-500: #647585;
+  --ds-neutral-600: #48566a;
+  --ds-neutral-700: #333d4d;
+  --ds-neutral-800: #232c38;
+  --ds-neutral-850: #1a2028;
+  --ds-neutral-900: #12171d;
+  --ds-neutral-920: #0f141a;
+  --ds-neutral-950: #0b0e12;
   --ds-neutral-1000: #000000;
 
   /* Brand accent — Clypra Teal */
@@ -28,78 +28,88 @@
   --ds-accent-200: #a0d8ed;
   --ds-accent-300: #86cde0;
   --ds-accent-400: #6dc2d8;
-  --ds-accent-500: #5ab8d4;   /* primary dark-mode accent */
+  --ds-accent-500: #5ab8d4; /* primary dark-mode accent */
   --ds-accent-600: #3f9fbc;
-  --ds-accent-700: #2a7d99;   /* primary light-mode accent */
+  --ds-accent-700: #2a7d99; /* primary light-mode accent */
   --ds-accent-800: #1a5a73;
 
   /* Semantic status */
   --ds-status-success: #4fbd8a;
   --ds-status-warning: #d6a85b;
-  --ds-status-error:   #e26061;
-  --ds-status-info:    #6ea8d8;
+  --ds-status-error: #e26061;
+  --ds-status-info: #6ea8d8;
 
   /* Editor indicators */
-  --ds-editor-playhead:     #f1b66a;
-  --ds-editor-snap:         #67c9a1;
+  --ds-editor-playhead: #f1b66a;
+  --ds-editor-snap: #67c9a1;
   --ds-editor-guide-center: #ff3b30;
 
   /* ─── Spacing scale ──────────────────────────────────────────────────── */
-  --ds-space-1:  0.25rem;   /* 4px  */
-  --ds-space-2:  0.5rem;    /* 8px  */
-  --ds-space-3:  0.75rem;   /* 12px */
-  --ds-space-4:  1rem;      /* 16px */
-  --ds-space-5:  1.25rem;   /* 20px */
-  --ds-space-6:  1.5rem;    /* 24px */
-  --ds-space-8:  2rem;      /* 32px */
-  --ds-space-10: 2.5rem;    /* 40px */
-  --ds-space-12: 3rem;      /* 48px */
-  --ds-space-16: 4rem;      /* 64px */
+  --ds-space-1: 0.25rem; /* 4px  */
+  --ds-space-2: 0.5rem; /* 8px  */
+  --ds-space-3: 0.75rem; /* 12px */
+  --ds-space-4: 1rem; /* 16px */
+  --ds-space-5: 1.25rem; /* 20px */
+  --ds-space-6: 1.5rem; /* 24px */
+  --ds-space-8: 2rem; /* 32px */
+  --ds-space-10: 2.5rem; /* 40px */
+  --ds-space-12: 3rem; /* 48px */
+  --ds-space-16: 4rem; /* 64px */
 
   /* ─── Radius scale ───────────────────────────────────────────────────── */
-  --ds-radius-xs:   2px;
-  --ds-radius-sm:   4px;
-  --ds-radius-md:   6px;
-  --ds-radius-lg:   8px;
-  --ds-radius-xl:   12px;
-  --ds-radius-2xl:  16px;
+  --ds-radius-xs: 2px;
+  --ds-radius-sm: 4px;
+  --ds-radius-md: 6px;
+  --ds-radius-lg: 8px;
+  --ds-radius-xl: 12px;
+  --ds-radius-2xl: 16px;
   --ds-radius-pill: 9999px;
 
   /* ─── Typography scale ───────────────────────────────────────────────── */
-  --ds-text-xs:   0.6875rem;  /* 11px */
-  --ds-text-sm:   0.75rem;    /* 12px */
-  --ds-text-base: 0.8125rem;  /* 13px */
-  --ds-text-md:   0.875rem;   /* 14px */
-  --ds-text-lg:   1rem;       /* 16px */
-  --ds-text-xl:   1.125rem;   /* 18px */
-  --ds-text-2xl:  1.25rem;    /* 20px */
-  --ds-text-3xl:  1.5rem;     /* 24px */
-  --ds-text-4xl:  2rem;       /* 32px */
+  --ds-text-xs: 0.6875rem; /* 11px */
+  --ds-text-sm: 0.75rem; /* 12px */
+  --ds-text-base: 0.8125rem; /* 13px */
+  --ds-text-md: 0.875rem; /* 14px */
+  --ds-text-lg: 1rem; /* 16px */
+  --ds-text-xl: 1.125rem; /* 18px */
+  --ds-text-2xl: 1.25rem; /* 20px */
+  --ds-text-3xl: 1.5rem; /* 24px */
+  --ds-text-4xl: 2rem; /* 32px */
 
-  --ds-weight-regular:   400;
-  --ds-weight-medium:    500;
-  --ds-weight-semibold:  600;
-  --ds-weight-bold:      700;
+  --ds-weight-regular: 400;
+  --ds-weight-medium: 500;
+  --ds-weight-semibold: 600;
+  --ds-weight-bold: 700;
   --ds-weight-extrabold: 800;
 
-  --ds-leading-tight:   1.2;
-  --ds-leading-snug:    1.4;
-  --ds-leading-normal:  1.5;
+  --ds-leading-tight: 1.2;
+  --ds-leading-snug: 1.4;
+  --ds-leading-normal: 1.5;
   --ds-leading-relaxed: 1.6;
 
   /* ─── Elevation shadows ──────────────────────────────────────────────── */
-  --ds-shadow-xs:       0 1px 2px rgba(0, 0, 0, 0.12);
-  --ds-shadow-sm:       0 2px 6px rgba(0, 0, 0, 0.18);
-  --ds-shadow-md:       0 4px 12px rgba(0, 0, 0, 0.22);
-  --ds-shadow-lg:       0 8px 24px rgba(0, 0, 0, 0.28);
-  --ds-shadow-xl:       0 16px 48px rgba(0, 0, 0, 0.35);
+  --ds-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.12);
+  --ds-shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.18);
+  --ds-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.22);
+  --ds-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.28);
+  --ds-shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.35);
   --ds-shadow-floating: 0 8px 24px rgba(0, 0, 0, 0.22);
 
   /* ─── Transition presets ─────────────────────────────────────────────── */
-  --ds-transition-fast:   120ms ease;
-  --ds-transition-base:   200ms ease;
-  --ds-transition-slow:   350ms ease;
+  --ds-transition-fast: 120ms ease;
+  --ds-transition-base: 200ms ease;
+  --ds-transition-slow: 350ms ease;
   --ds-transition-spring: 400ms cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ─── Z-index scale (stacking layers) ─────────────────────────────────── */
+  --ds-z-base: 0;
+  --ds-z-sticky: 10;
+  --ds-z-dropdown: 50;
+  --ds-z-popover: 100;
+  --ds-z-dropdown-overlay: 200;
+  --ds-z-dropdown-panel: 201;
+  --ds-z-context-menu: 1000;
+  --ds-z-modal: 10000;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -110,62 +120,107 @@
   color-scheme: dark;
 
   /* ── Surfaces ──────────────────────────────────────────────────────────── */
-  --clypra-surface-app:       var(--ds-neutral-950);
+  --clypra-surface-app: var(--ds-neutral-950);
   --clypra-surface-workspace: var(--ds-neutral-920);
-  --clypra-surface-panel:     var(--ds-neutral-920);
-  --clypra-surface-elevated:  var(--ds-neutral-850);
-  --clypra-surface-floating:  var(--ds-neutral-800);
-  --clypra-surface-input:     #0d1117;
-  --clypra-surface-hover:     color-mix(in srgb, var(--ds-neutral-850) 78%, white 22%);
-  --clypra-surface-active:    color-mix(in srgb, var(--ds-neutral-850) 68%, var(--ds-accent-500) 32%);
+  --clypra-surface-panel: var(--ds-neutral-920);
+  --clypra-surface-elevated: var(--ds-neutral-850);
+  --clypra-surface-floating: var(--ds-neutral-800);
+  --clypra-surface-input: #0d1117;
+  --clypra-surface-hover: color-mix(
+    in srgb,
+    var(--ds-neutral-850) 78%,
+    white 22%
+  );
+  --clypra-surface-active: color-mix(
+    in srgb,
+    var(--ds-neutral-850) 68%,
+    var(--ds-accent-500) 32%
+  );
 
   /* ── Text ──────────────────────────────────────────────────────────────── */
-  --clypra-text-primary:   #edf2f4;
-  --clypra-text-secondary: color-mix(in srgb, #edf2f4 72%, var(--ds-neutral-950) 28%);
-  --clypra-text-tertiary:  color-mix(in srgb, #edf2f4 54%, var(--ds-neutral-950) 46%);
-  --clypra-text-disabled:  color-mix(in srgb, #edf2f4 36%, var(--ds-neutral-950) 64%);
+  --clypra-text-primary: #edf2f4;
+  --clypra-text-secondary: color-mix(
+    in srgb,
+    #edf2f4 72%,
+    var(--ds-neutral-950) 28%
+  );
+  --clypra-text-tertiary: color-mix(
+    in srgb,
+    #edf2f4 54%,
+    var(--ds-neutral-950) 46%
+  );
+  --clypra-text-disabled: color-mix(
+    in srgb,
+    #edf2f4 36%,
+    var(--ds-neutral-950) 64%
+  );
 
   /* ── Borders ───────────────────────────────────────────────────────────── */
-  --clypra-border-subtle:  color-mix(in srgb, var(--ds-neutral-700) 64%, transparent);
+  --clypra-border-subtle: color-mix(
+    in srgb,
+    var(--ds-neutral-700) 64%,
+    transparent
+  );
   --clypra-border-default: var(--ds-neutral-700);
-  --clypra-border-strong:  var(--ds-neutral-600);
+  --clypra-border-strong: var(--ds-neutral-600);
 
   /* ── Interaction / Focus ───────────────────────────────────────────────── */
-  --clypra-interaction-focus:    var(--ds-accent-500);
-  --clypra-interaction-hover:    color-mix(in srgb, var(--ds-neutral-850) 74%, white 26%);
-  --clypra-interaction-active:   color-mix(in srgb, var(--ds-accent-500) 24%, var(--ds-neutral-850) 76%);
-  --clypra-interaction-selected: color-mix(in srgb, var(--ds-accent-500) 20%, var(--ds-neutral-850) 80%);
-  --clypra-accent-glow:          color-mix(in srgb, var(--ds-accent-500) 28%, transparent);
+  --clypra-interaction-focus: var(--ds-accent-500);
+  --clypra-interaction-hover: color-mix(
+    in srgb,
+    var(--ds-neutral-850) 74%,
+    white 26%
+  );
+  --clypra-interaction-active: color-mix(
+    in srgb,
+    var(--ds-accent-500) 24%,
+    var(--ds-neutral-850) 76%
+  );
+  --clypra-interaction-selected: color-mix(
+    in srgb,
+    var(--ds-accent-500) 20%,
+    var(--ds-neutral-850) 80%
+  );
+  --clypra-accent-glow: color-mix(
+    in srgb,
+    var(--ds-accent-500) 28%,
+    transparent
+  );
 
   /* ── Theme source aliases (backward-compat bridge for applyTheme) ──────── */
-  --clypra-theme-bg:               var(--clypra-surface-app);
-  --clypra-theme-surface:          var(--clypra-surface-panel);
-  --clypra-theme-surface-raised:   var(--clypra-surface-elevated);
-  --clypra-theme-surface-panel:    var(--clypra-surface-workspace);
+  --clypra-theme-bg: var(--clypra-surface-app);
+  --clypra-theme-surface: var(--clypra-surface-panel);
+  --clypra-theme-surface-raised: var(--clypra-surface-elevated);
+  --clypra-theme-surface-panel: var(--clypra-surface-workspace);
   --clypra-theme-surface-floating: var(--clypra-surface-floating);
-  --clypra-theme-border:           var(--clypra-border-default);
-  --clypra-theme-border-soft:      var(--clypra-border-strong);
-  --clypra-theme-accent:           var(--clypra-interaction-focus);
-  --clypra-theme-accent-soft:      var(--ds-accent-300);
-  --clypra-theme-text-primary:     var(--clypra-text-primary);
-  --clypra-theme-text-muted:       var(--clypra-text-tertiary);
-  --clypra-theme-danger:           var(--ds-status-error);
+  --clypra-theme-border: var(--clypra-border-default);
+  --clypra-theme-border-soft: var(--clypra-border-strong);
+  --clypra-theme-accent: var(--clypra-interaction-focus);
+  --clypra-theme-accent-soft: var(--ds-accent-300);
+  --clypra-theme-text-primary: var(--clypra-text-primary);
+  --clypra-theme-text-muted: var(--clypra-text-tertiary);
+  --clypra-theme-danger: var(--ds-status-error);
 
   /* ── Status & editor indicators ────────────────────────────────────────── */
-  --clypra-status-success:   var(--ds-status-success);
-  --clypra-status-warning:   var(--ds-status-warning);
-  --clypra-status-error:     var(--ds-status-error);
-  --clypra-status-info:      var(--ds-status-info);
-  --clypra-editor-playhead:  var(--ds-editor-playhead);
+  --clypra-status-success: var(--ds-status-success);
+  --clypra-status-warning: var(--ds-status-warning);
+  --clypra-status-error: var(--ds-status-error);
+  --clypra-status-info: var(--ds-status-info);
+  --clypra-editor-playhead: var(--ds-editor-playhead);
   --clypra-editor-selection: var(--clypra-interaction-focus);
-  --clypra-editor-snap:      var(--ds-editor-snap);
-  --clypra-editor-drop:      var(--clypra-interaction-focus);
+  --clypra-editor-snap: var(--ds-editor-snap);
+  --clypra-editor-drop: var(--clypra-interaction-focus);
 
   /* ── Layout ────────────────────────────────────────────────────────────── */
-  --elev-shadow:   var(--ds-shadow-lg);
-  --layout-gap:    0.5rem;
+  --elev-shadow: var(--ds-shadow-lg);
+  --layout-gap: 0.5rem;
   --layout-radius: 0.35rem;
-  --radius:        0.5rem;
+  --radius: 0.5rem;
+
+  /* ── Z-index (stacking layers — theme-independent) ────────────────────── */
+  --clypra-z-topbar: var(--ds-z-dropdown);
+  --clypra-z-dropdown-overlay: var(--ds-z-dropdown-overlay);
+  --clypra-z-dropdown-panel: var(--ds-z-dropdown-panel);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -175,60 +230,100 @@
   color-scheme: light;
 
   /* ── Surfaces ──────────────────────────────────────────────────────────── */
-  --clypra-surface-app:       var(--ds-neutral-50);
+  --clypra-surface-app: var(--ds-neutral-50);
   --clypra-surface-workspace: var(--ds-neutral-100);
-  --clypra-surface-panel:     var(--ds-neutral-0);
-  --clypra-surface-elevated:  var(--ds-neutral-100);
-  --clypra-surface-floating:  var(--ds-neutral-0);
-  --clypra-surface-input:     var(--ds-neutral-100);
-  --clypra-surface-hover:     color-mix(in srgb, var(--ds-neutral-100) 78%, black 22%);
-  --clypra-surface-active:    color-mix(in srgb, var(--ds-neutral-100) 68%, var(--ds-accent-700) 32%);
+  --clypra-surface-panel: var(--ds-neutral-0);
+  --clypra-surface-elevated: var(--ds-neutral-100);
+  --clypra-surface-floating: var(--ds-neutral-0);
+  --clypra-surface-input: var(--ds-neutral-100);
+  --clypra-surface-hover: color-mix(
+    in srgb,
+    var(--ds-neutral-100) 78%,
+    black 22%
+  );
+  --clypra-surface-active: color-mix(
+    in srgb,
+    var(--ds-neutral-100) 68%,
+    var(--ds-accent-700) 32%
+  );
 
   /* ── Text ──────────────────────────────────────────────────────────────── */
-  --clypra-text-primary:   #111827;
-  --clypra-text-secondary: color-mix(in srgb, #111827 72%, var(--ds-neutral-50) 28%);
-  --clypra-text-tertiary:  color-mix(in srgb, #111827 54%, var(--ds-neutral-50) 46%);
-  --clypra-text-disabled:  color-mix(in srgb, #111827 36%, var(--ds-neutral-50) 64%);
+  --clypra-text-primary: #111827;
+  --clypra-text-secondary: color-mix(
+    in srgb,
+    #111827 72%,
+    var(--ds-neutral-50) 28%
+  );
+  --clypra-text-tertiary: color-mix(
+    in srgb,
+    #111827 54%,
+    var(--ds-neutral-50) 46%
+  );
+  --clypra-text-disabled: color-mix(
+    in srgb,
+    #111827 36%,
+    var(--ds-neutral-50) 64%
+  );
 
   /* ── Borders ───────────────────────────────────────────────────────────── */
-  --clypra-border-subtle:  color-mix(in srgb, var(--ds-neutral-200) 64%, transparent);
+  --clypra-border-subtle: color-mix(
+    in srgb,
+    var(--ds-neutral-200) 64%,
+    transparent
+  );
   --clypra-border-default: var(--ds-neutral-200);
-  --clypra-border-strong:  var(--ds-neutral-300);
+  --clypra-border-strong: var(--ds-neutral-300);
 
   /* ── Interaction / Focus ───────────────────────────────────────────────── */
-  --clypra-interaction-focus:    var(--ds-accent-700);
-  --clypra-interaction-hover:    color-mix(in srgb, var(--ds-neutral-100) 74%, black 26%);
-  --clypra-interaction-active:   color-mix(in srgb, var(--ds-accent-700) 18%, var(--ds-neutral-100) 82%);
-  --clypra-interaction-selected: color-mix(in srgb, var(--ds-accent-700) 14%, var(--ds-neutral-100) 86%);
-  --clypra-accent-glow:          color-mix(in srgb, var(--ds-accent-700) 20%, transparent);
+  --clypra-interaction-focus: var(--ds-accent-700);
+  --clypra-interaction-hover: color-mix(
+    in srgb,
+    var(--ds-neutral-100) 74%,
+    black 26%
+  );
+  --clypra-interaction-active: color-mix(
+    in srgb,
+    var(--ds-accent-700) 18%,
+    var(--ds-neutral-100) 82%
+  );
+  --clypra-interaction-selected: color-mix(
+    in srgb,
+    var(--ds-accent-700) 14%,
+    var(--ds-neutral-100) 86%
+  );
+  --clypra-accent-glow: color-mix(
+    in srgb,
+    var(--ds-accent-700) 20%,
+    transparent
+  );
 
   /* ── Theme source aliases ───────────────────────────────────────────────── */
-  --clypra-theme-bg:               var(--clypra-surface-app);
-  --clypra-theme-surface:          var(--clypra-surface-panel);
-  --clypra-theme-surface-raised:   var(--clypra-surface-elevated);
-  --clypra-theme-surface-panel:    var(--clypra-surface-workspace);
+  --clypra-theme-bg: var(--clypra-surface-app);
+  --clypra-theme-surface: var(--clypra-surface-panel);
+  --clypra-theme-surface-raised: var(--clypra-surface-elevated);
+  --clypra-theme-surface-panel: var(--clypra-surface-workspace);
   --clypra-theme-surface-floating: var(--clypra-surface-floating);
-  --clypra-theme-border:           var(--clypra-border-default);
-  --clypra-theme-border-soft:      var(--clypra-border-strong);
-  --clypra-theme-accent:           var(--clypra-interaction-focus);
-  --clypra-theme-accent-soft:      var(--ds-accent-600);
-  --clypra-theme-text-primary:     var(--clypra-text-primary);
-  --clypra-theme-text-muted:       var(--clypra-text-tertiary);
-  --clypra-theme-danger:           #dc2626;
+  --clypra-theme-border: var(--clypra-border-default);
+  --clypra-theme-border-soft: var(--clypra-border-strong);
+  --clypra-theme-accent: var(--clypra-interaction-focus);
+  --clypra-theme-accent-soft: var(--ds-accent-600);
+  --clypra-theme-text-primary: var(--clypra-text-primary);
+  --clypra-theme-text-muted: var(--clypra-text-tertiary);
+  --clypra-theme-danger: #dc2626;
 
   /* ── Status & editor indicators ────────────────────────────────────────── */
-  --clypra-status-success:   var(--ds-status-success);
-  --clypra-status-warning:   var(--ds-status-warning);
-  --clypra-status-error:     #dc2626;
-  --clypra-status-info:      var(--ds-status-info);
-  --clypra-editor-playhead:  var(--ds-editor-playhead);
+  --clypra-status-success: var(--ds-status-success);
+  --clypra-status-warning: var(--ds-status-warning);
+  --clypra-status-error: #dc2626;
+  --clypra-status-info: var(--ds-status-info);
+  --clypra-editor-playhead: var(--ds-editor-playhead);
   --clypra-editor-selection: var(--clypra-interaction-focus);
-  --clypra-editor-snap:      var(--ds-editor-snap);
-  --clypra-editor-drop:      var(--clypra-interaction-focus);
+  --clypra-editor-snap: var(--ds-editor-snap);
+  --clypra-editor-drop: var(--clypra-interaction-focus);
 
   /* ── Layout — softer shadows on light surfaces ─────────────────────────── */
-  --elev-shadow:   0 4px 16px rgba(0, 0, 0, 0.10), 0 1px 4px rgba(0, 0, 0, 0.08);
-  --layout-gap:    0.5rem;
+  --elev-shadow: 0 4px 16px rgba(0, 0, 0, 0.1), 0 1px 4px rgba(0, 0, 0, 0.08);
+  --layout-gap: 0.5rem;
   --layout-radius: 0.35rem;
-  --radius:        0.5rem;
+  --radius: 0.5rem;
 }

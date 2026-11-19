@@ -313,7 +313,7 @@ export const BackgroundInspectorPanel: React.FC<
               {/* Angle slider — only shown while a pattern gradient is active */}
               {bgConfig.type === "gradient" && (
                 <div className="space-y-1 pt-1">
-                  <div className="flex justify-between text-white/50 text-[10px]">
+                  <div className="flex justify-between text-text-muted text-[10px]">
                     <span>Angle</span>
                     <span>{bgConfig.gradient?.angle ?? 135}°</span>
                   </div>
@@ -342,9 +342,9 @@ export const BackgroundInspectorPanel: React.FC<
             </div>
           )}
           {selectedMode === "color" && (
-            <div className="space-y-3 p-3 rounded-lg bg-[#2a2a2e] border border-white/10">
+            <div className="space-y-3 p-3 rounded-lg bg-surface-elevated border border-border-default">
               <div className="flex items-center justify-between">
-                <span className="font-medium text-white">Solid Color</span>
+                <span className="font-medium text-text-primary">Solid Color</span>
                 <ClypraColorPicker
                   value={bgConfig.color || "#0e0e12"}
                   onChange={(c: string) =>
@@ -356,7 +356,7 @@ export const BackgroundInspectorPanel: React.FC<
                   format="hex"
                   showAlpha={true}
                   size="sm"
-                  triggerClassName="w-28 h-7 bg-[#1c1c1e] border-white/20 hover:border-white/30 shrink-0"
+                  triggerClassName="w-28 h-7 bg-surface-input border border-border-default hover:border-border-hover shrink-0 text-text-primary"
                   popoverClassName="right-0 left-auto mt-1 z-[100]"
                 />
               </div>
@@ -370,7 +370,7 @@ export const BackgroundInspectorPanel: React.FC<
                     className={`w-6 h-6 rounded border transition-transform hover:scale-110 flex items-center justify-center ${
                       bgConfig.color?.toLowerCase() === hex.toLowerCase()
                         ? "border-cyan-500 ring-2 ring-cyan-500/30 scale-110"
-                        : "border-white/20"
+                        : "border-border-default"
                     }`}
                   >
                     {bgConfig.color?.toLowerCase() === hex.toLowerCase() && (

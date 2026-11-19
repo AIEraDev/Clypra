@@ -298,6 +298,11 @@
   --color-purple-600: var(--clypra-clip-effect-bg);
   --color-pink-400: var(--color-accent-soft);
   --color-pink-500: var(--clypra-clip-caption-bg);
+
+  /* Z-index scale — stacking layer tokens */
+  --z-topbar: var(--clypra-z-topbar);
+  --z-dropdown-overlay: var(--clypra-z-dropdown-overlay);
+  --z-dropdown-panel: var(--clypra-z-dropdown-panel);
 }
 /*
  * Fluid root font-size — scales with viewport width between 800 px and 1600 px.

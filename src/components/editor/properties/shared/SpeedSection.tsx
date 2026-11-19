@@ -189,16 +189,16 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
       "flex items-center justify-center w-7 h-7 rounded transition-all cursor-pointer select-none",
       active
         ? "bg-accent/15 text-accent border border-accent/40"
-        : "bg-white/5 text-white/50 border border-white/8 hover:bg-white/10 hover:text-white/80",
+        : "bg-surface-elevated text-text-muted border border-border-default hover:bg-surface-hover hover:text-text-primary",
       disabled ? "opacity-40 pointer-events-none" : "",
     ].join(" ");
 
   return (
-    <div className="space-y-1.5 select-none text-white relative p-2 pt-0">
+    <div className="space-y-1.5 select-none text-text-primary relative p-2 pt-0">
       {/* Sub-tab switcher */}
       {showTabs && (
-      <div className="bg-(--color-gray-900) pt-2 sticky top-0 z-10 space-y-1.5">
-        <div className="bg-surface-panel p-0.5 rounded-sm flex gap-1 border border-border-default">
+      <div className="bg-surface-panel pt-2 sticky top-0 z-10 space-y-1.5">
+        <div className="bg-surface-elevated p-0.5 rounded-md flex gap-1 border border-border-default">
           {(["standard", "curve", "velocity"] as const).map((tab) => {
             const isLocked = tab !== "standard";
             const labels = {
@@ -345,7 +345,7 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
               >
                 <FlipHorizontal2 className="w-3.5 h-3.5" />
               </button>
-              <span className="text-[11px] text-white/50">
+              <span className="text-[11px] text-text-muted">
                 {isReversed ? "Reversed" : "Reverse"}
               </span>
 
@@ -353,7 +353,7 @@ export const SpeedStyleSection: React.FC<SpeedStyleSectionProps> = ({
 
               {/* Freeze Frame toggle */}
               <span
-                className="text-[11px] text-white/50"
+                className="text-[11px] text-text-muted"
                 title={
                   !playheadInsideClip && !isFrozen
                     ? "Move playhead inside clip to freeze"

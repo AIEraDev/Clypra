@@ -49,7 +49,7 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
         onChange={handleToggle}
         className="sr-only peer"
       />
-      <div className="w-7 h-3.5 bg-surface-raised border border-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-3.5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-accent" />
+      <div className="w-7 h-3.5 bg-surface-raised border border-border-default peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-3.5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-accent" />
     </label>
   );
 
@@ -62,10 +62,10 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
     >
       <div className="space-y-3 pt-1">
         {/* Color picker / Eyedropper row */}
-        <div className="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-surface/60 border border-white/5">
+        <div className="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-surface/60 border border-border-default">
           <div className="flex items-center gap-2">
             <div
-              className="w-5 h-5 rounded-md border border-white/20 shadow-xs shrink-0"
+              className="w-5 h-5 rounded-md border border-border-default shadow-xs shrink-0"
               style={{ backgroundColor: colorRgbStr }}
             />
             <span className="text-[11px] font-mono text-text-secondary">
@@ -79,10 +79,10 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
             disabled={!chromaKey.enabled}
             className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md border transition-all cursor-pointer ${
               !chromaKey.enabled
-                ? "opacity-40 cursor-not-allowed bg-surface-raised border-white/5 text-text-muted"
+                ? "opacity-40 cursor-not-allowed bg-surface-raised border-border-default text-text-muted"
                 : isPicking
                   ? "bg-accent border-accent text-white animate-pulse shadow-xs shadow-accent/30"
-                  : "bg-surface-raised hover:bg-white/10 border-white/10 text-text-secondary hover:text-text-primary"
+                  : "bg-surface-raised hover:bg-surface-hover border-border-default text-text-secondary hover:text-text-primary"
             }`}
           >
             <Pipette className="w-3 h-3" />
@@ -100,7 +100,7 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
         >
           {/* Tolerance */}
           <div className="space-y-1">
-            <span className="text-[11px] text-white select-none block">
+            <span className="text-[11px] text-text-primary select-none block">
               Tolerance
             </span>
             <div className="flex items-center gap-2">
@@ -130,7 +130,7 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
 
           {/* Edge Softness */}
           <div className="space-y-1">
-            <span className="text-[11px] text-white select-none block">
+            <span className="text-[11px] text-text-primary select-none block">
               Edge Softness
             </span>
             <div className="flex items-center gap-2">
@@ -160,7 +160,7 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
 
           {/* Despill Cleanup */}
           <div className="space-y-1">
-            <span className="text-[11px] text-white select-none block">
+            <span className="text-[11px] text-text-primary select-none block">
               Despill Cleanup
             </span>
             <div className="flex items-center gap-2">
@@ -194,7 +194,7 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
 
           {/* Matte Pedestal */}
           <div className="space-y-1">
-            <span className="text-[11px] text-white select-none block">
+            <span className="text-[11px] text-text-primary select-none block">
               Matte Pedestal
             </span>
             <div className="flex items-center gap-2">
@@ -228,7 +228,7 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
 
           {/* Matte Highlight */}
           <div className="space-y-1">
-            <span className="text-[11px] text-white select-none block">
+            <span className="text-[11px] text-text-primary select-none block">
               Matte Highlight
             </span>
             <div className="flex items-center gap-2">

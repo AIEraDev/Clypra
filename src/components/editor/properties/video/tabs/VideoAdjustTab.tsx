@@ -55,10 +55,10 @@ export const VideoAdjustTab: React.FC<VideoAdjustTabProps> = ({
   };
 
   return (
-    <div className="space-y-1.5 select-none text-white relative p-2 pt-0">
+    <div className="space-y-1.5 select-none text-text-primary relative p-2 pt-0">
       {/* Sticky header: sub-tab switcher */}
-      <div className="bg-(--color-gray-900) pt-2 sticky top-0 z-10 space-y-1.5">
-        <div className="bg-surface-panel p-0.5 rounded-sm flex gap-1 border border-border-default">
+      <div className="bg-surface-panel pt-2 sticky top-0 z-10 space-y-1.5">
+        <div className="bg-surface-elevated p-0.5 rounded-md flex gap-1 border border-border-default">
           {(["basic", "hsl", "curves", "color-wheel", "mask"] as const).map(
             (tab) => {
               const isLocked = tab !== "basic" && tab !== "hsl";

@@ -23,7 +23,9 @@ import { useClickOutside } from "@/hooks";
 import { useI18n } from "@/i18n";
 
 // Lazy load ExportDialog
-const ExportDialog = lazy(() => import("../ui/ExportDialog").then((m) => ({ default: m.ExportDialog })));
+const ExportDialog = lazy(() =>
+  import("../ui/ExportDialog").then((m) => ({ default: m.ExportDialog })),
+);
 
 // Lazy load ThumbnailWorkspace
 const ThumbnailWorkspace = lazy(() =>
@@ -44,8 +46,12 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
   const toggleTransferModal = useUIStore((s) => s.toggleTransferModal);
   const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
   const setSidebarCollapsed = useSettingsStore((s) => s.setSidebarCollapsed);
-  const propertiesPanelCollapsed = useSettingsStore((s) => s.propertiesPanelCollapsed);
-  const setPropertiesPanelCollapsed = useSettingsStore((s) => s.setPropertiesPanelCollapsed);
+  const propertiesPanelCollapsed = useSettingsStore(
+    (s) => s.propertiesPanelCollapsed,
+  );
+  const setPropertiesPanelCollapsed = useSettingsStore(
+    (s) => s.setPropertiesPanelCollapsed,
+  );
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showThumbnailWorkspace, setShowThumbnailWorkspace] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
@@ -53,7 +59,9 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
   const showTransferModal = useUIStore((s) => s.showTransferModal);
   const exportMenuRef = useRef<HTMLDivElement>(null);
 
-  useClickOutside(exportMenuRef, () => setShowExportMenu(false), { enabled: showExportMenu });
+  useClickOutside(exportMenuRef, () => setShowExportMenu(false), {
+    enabled: showExportMenu,
+  });
 
   const hasOpenTopBarOverlay = Boolean(
     showExportDialog ||
@@ -85,8 +93,14 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
     <>
       {/* The native menu/title bar owns window controls. This is the editor's
           document-command row: identity stays left, commands stay right, and
-          neither competes with native chrome for horizontal space. */}
-      <div className="h-9 shrink-0 flex items-center gap-2 border-b border-border-default/80 bg-surface-panel/95 backdrop-blur-md px-2 shadow-xs select-none">
+          neither competes with native chrome for horizontal space.
+          z-topbar elevates this bar's backdrop-blur stacking context above
+          the editor body so dropdowns (layout presets, export menu) render
+          on top of editor panels instead of behind them. */}
+      <div
+        data-testid="editor-topbar"
+        className="h-9 shrink-0 flex items-center gap-2 border-b border-border-default/80 bg-surface-panel/95 backdrop-blur-md px-2 shadow-xs select-none z-topbar"
+      >
         <div
           className={`flex min-w-0 items-center gap-2 shrink-0 ${isMacNativeWindow ? "pl-[76px]" : "pl-0"}`}
           style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
@@ -98,7 +112,12 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
             title={t("project.backHome")}
             aria-label={t("project.backHome")}
             className="text-text-muted hover:text-text-primary hover:bg-surface-hover"
-            style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
+            style={
+              {
+                WebkitAppRegion: "no-drag",
+                cursor: "pointer",
+              } as React.CSSProperties
+            }
           >
             <Home className="w-4 h-4" />
           </Button>
@@ -120,15 +139,31 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
 
         {/* Fixed command cluster: its own row and shrink-0 keep action buttons
             aligned regardless of title length or native window state. */}
-        <div className="flex items-center gap-1 shrink-0" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+        <div
+          className="flex items-center gap-1 shrink-0"
+          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+        >
           <Button
             variant="ghost"
             size="icon-sm"
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            title={sidebarCollapsed ? t("topbar.expandMedia") : t("topbar.collapseMedia")}
-            aria-label={sidebarCollapsed ? t("topbar.expandMedia") : t("topbar.collapseMedia")}
+            title={
+              sidebarCollapsed
+                ? t("topbar.expandMedia")
+                : t("topbar.collapseMedia")
+            }
+            aria-label={
+              sidebarCollapsed
+                ? t("topbar.expandMedia")
+                : t("topbar.collapseMedia")
+            }
             className={`transition-colors ${!sidebarCollapsed ? "text-accent-primary bg-accent-primary/10" : "text-text-muted hover:text-text-primary hover:bg-surface-hover"}`}
-            style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
+            style={
+              {
+                WebkitAppRegion: "no-drag",
+                cursor: "pointer",
+              } as React.CSSProperties
+            }
           >
             <PanelLeft className="w-3.5 h-3.5" />
           </Button>
@@ -136,11 +171,26 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={() => setPropertiesPanelCollapsed(!propertiesPanelCollapsed)}
-            title={propertiesPanelCollapsed ? t("topbar.expandProperties") : t("topbar.collapseProperties")}
-            aria-label={propertiesPanelCollapsed ? t("topbar.expandProperties") : t("topbar.collapseProperties")}
+            onClick={() =>
+              setPropertiesPanelCollapsed(!propertiesPanelCollapsed)
+            }
+            title={
+              propertiesPanelCollapsed
+                ? t("topbar.expandProperties")
+                : t("topbar.collapseProperties")
+            }
+            aria-label={
+              propertiesPanelCollapsed
+                ? t("topbar.expandProperties")
+                : t("topbar.collapseProperties")
+            }
             className={`transition-colors ${!propertiesPanelCollapsed ? "text-accent-primary bg-accent-primary/10" : "text-text-muted hover:text-text-primary hover:bg-surface-hover"}`}
-            style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
+            style={
+              {
+                WebkitAppRegion: "no-drag",
+                cursor: "pointer",
+              } as React.CSSProperties
+            }
           >
             <PanelRight className="w-3.5 h-3.5" />
           </Button>
@@ -156,7 +206,12 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
             title={t("topbar.phoneTransfer")}
             aria-label={t("topbar.phoneTransfer")}
             className="text-text-muted hover:text-text-primary hover:bg-surface-hover"
-            style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
+            style={
+              {
+                WebkitAppRegion: "no-drag",
+                cursor: "pointer",
+              } as React.CSSProperties
+            }
           >
             <Smartphone className="w-3.5 h-3.5" />
           </Button>
@@ -168,20 +223,33 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
             title={t("settings.modal.title")}
             aria-label={t("settings.modal.title")}
             className="text-text-muted hover:text-text-primary hover:bg-surface-hover"
-            style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
+            style={
+              {
+                WebkitAppRegion: "no-drag",
+                cursor: "pointer",
+              } as React.CSSProperties
+            }
           >
             <Settings className="w-3.5 h-3.5" />
           </Button>
 
           {/* Export & Thumbnail Dropdown */}
-          <div className="relative inline-flex items-center" ref={exportMenuRef}>
+          <div
+            className="relative inline-flex items-center"
+            ref={exportMenuRef}
+          >
             <div className="flex items-center rounded-lg bg-accent-primary text-white shadow-xs overflow-hidden">
               <Button
                 variant="default"
                 size="sm"
                 onClick={() => setShowExportDialog(true)}
                 className="text-xs h-6 px-2.5 rounded-none bg-accent-primary hover:bg-accent-primary/90 text-white font-medium"
-                style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
+                style={
+                  {
+                    WebkitAppRegion: "no-drag",
+                    cursor: "pointer",
+                  } as React.CSSProperties
+                }
                 title={t("export.video")}
                 aria-label={t("export.video")}
               >
@@ -193,7 +261,12 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
                 size="icon-sm"
                 onClick={() => setShowExportMenu((prev) => !prev)}
                 className="h-6 w-5 px-0 rounded-none bg-accent-primary hover:bg-accent-primary/90 text-white border-l border-white/20"
-                style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
+                style={
+                  {
+                    WebkitAppRegion: "no-drag",
+                    cursor: "pointer",
+                  } as React.CSSProperties
+                }
                 title={t("common.actions.moreOptions")}
                 aria-label={t("common.actions.moreOptions")}
               >
@@ -216,7 +289,9 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
                 >
                   <VideoIcon className="w-4 h-4 text-accent-primary mt-0.5 flex-shrink-0" />
                   <div className="flex flex-col">
-                    <span className="text-xs font-medium text-text-primary">{t("export.menu.videoTitle")}</span>
+                    <span className="text-xs font-medium text-text-primary">
+                      {t("export.menu.videoTitle")}
+                    </span>
                     <span className="text-[10px] text-text-muted leading-tight mt-0.5">
                       {t("export.menu.videoDesc")}
                     </span>
@@ -253,7 +328,10 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
       {/* Export Dialog */}
       {showExportDialog && (
         <Suspense fallback={null}>
-          <ExportDialog isOpen={showExportDialog} onClose={() => setShowExportDialog(false)} />
+          <ExportDialog
+            isOpen={showExportDialog}
+            onClose={() => setShowExportDialog(false)}
+          />
         </Suspense>
       )}
 

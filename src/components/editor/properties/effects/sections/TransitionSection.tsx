@@ -102,7 +102,7 @@ export const TransitionSection: React.FC<TransitionSectionProps> = ({
 
           {/* Duration */}
           <div className="space-y-1">
-            <span className="text-[11px] text-white select-none block">
+            <span className="text-[11px] text-text-primary select-none block">
               Duration
             </span>
             <div className="flex items-center gap-2">

@@ -96,7 +96,7 @@ const TextContentEditor = React.memo<TextContentEditorProps>(
         rows={3}
         placeholder="Enter text..."
         aria-label={`${mode === "effect" ? "Effect" : "Plain"} text content`}
-        className="w-full bg-[#161618] border border-[#2a2a2e] rounded-lg p-3 text-xs text-white placeholder-text-muted/40 outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/20 resize-none font-sans min-h-[84px] transition-colors"
+        className="w-full bg-surface-input border border-border-default rounded-lg p-3 text-xs text-text-primary placeholder-text-muted/50 outline-none focus:border-accent-primary focus:ring-1 focus:ring-accent-primary/20 resize-none font-sans min-h-[84px] transition-colors shadow-xs"
       />
     );
   },
@@ -328,10 +328,10 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-1.5 select-none text-white relative p-2 pt-0">
+    <div className="space-y-1.5 select-none text-text-primary relative p-2 pt-0">
       {/* Sticky header: sub-tab switcher + textarea */}
-      <div className="bg-(--color-gray-900) pt-2 sticky top-0 z-10 space-y-1.5">
-        <div className="bg-panel p-0.5 rounded-sm flex gap-1 border border-white/5">
+      <div className="bg-surface-panel pt-2 sticky top-0 z-10 space-y-1.5">
+        <div className="bg-surface-elevated p-0.5 rounded-md flex gap-1 border border-border-default">
           {(["basic", "bubble"] as const).map((tab) => {
             const isLocked = tab === "bubble";
             return (
@@ -343,10 +343,10 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
                 title={isLocked ? "Coming soon" : undefined}
                 className={`flex-1 py-0.5 text-xs rounded-sm transition-all text-center capitalize flex items-center justify-center gap-1 ${
                   isLocked
-                    ? "text-[#8e8e93]/50 cursor-not-allowed"
+                    ? "text-text-muted/40 cursor-not-allowed"
                     : textSubTab === tab
-                      ? "bg-[#38383e] text-white shadow-sm font-semibold cursor-pointer"
-                      : "text-[#8e8e93] hover:text-white cursor-pointer"
+                      ? "bg-accent-primary text-white shadow-sm font-semibold cursor-pointer"
+                      : "text-text-muted hover:text-text-primary hover:bg-surface-hover cursor-pointer"
                 }`}
               >
                 {tab}

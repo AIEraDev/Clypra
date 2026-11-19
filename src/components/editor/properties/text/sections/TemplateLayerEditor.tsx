@@ -198,10 +198,10 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
           <div
             key={layer.id}
             className={cn(
-              "border border-zinc-800 rounded-md overflow-hidden transition-all duration-200",
+              "border border-border-default rounded-md overflow-hidden transition-all duration-200",
               isExpanded
-                ? "bg-zinc-900"
-                : "bg-zinc-900/60 hover:bg-zinc-900/80",
+                ? "bg-surface-elevated"
+                : "bg-surface-elevated/60 hover:bg-surface-elevated/80",
             )}
           >
             {/* Header */}
@@ -217,7 +217,7 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
                 )}
 
                 <div>
-                  <span className="text-xs font-medium text-white capitalize">
+                  <span className="text-xs font-medium text-text-primary capitalize">
                     {layer.name}
                   </span>
                   {layer.role && (
@@ -237,7 +237,7 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
 
             {/* Content body */}
             {isExpanded && (
-              <div className="p-3 border-t border-zinc-800/60 space-y-3 bg-zinc-950/40">
+              <div className="p-3 border-t border-border-default/60 space-y-3 bg-surface-panel/40">
                 {layer.kind === "text" && (
                   <>
                     {/* Text Content */}
@@ -255,7 +255,7 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
                           )
                         }
                         rows={2}
-                        className="w-full bg-zinc-900 border border-zinc-800 rounded-md py-1.5 px-2 text-xs text-white outline-none focus:border-sky-500 resize-none selectable"
+                        className="w-full bg-surface-input border border-border-default rounded-md py-1.5 px-2 text-xs text-text-primary outline-none focus:border-accent-primary resize-none selectable"
                       />
                     </div>
 
@@ -273,7 +273,7 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
                             layer.role,
                           )
                         }
-                        className="w-full bg-zinc-900 border border-zinc-800 rounded-md py-1.5 px-2 text-xs text-white outline-none focus:border-sky-500"
+                        className="w-full bg-surface-input border border-border-default rounded-md py-1.5 px-2 text-xs text-text-primary outline-none focus:border-accent-primary"
                       >
                         {FONT_PICKER_OPTIONS.map((font) => (
                           <option key={font.value} value={font.value}>
@@ -299,7 +299,7 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
                         format="hex"
                         showAlpha={true}
                         size="sm"
-                        triggerClassName="w-20 h-6.5 bg-zinc-900 border-zinc-800 hover:border-zinc-700 shrink-0"
+                        triggerClassName="w-20 h-6.5 bg-surface-input border border-border-default hover:border-border-hover shrink-0"
                         popoverClassName="right-0 left-auto mt-1 z-[100]"
                       />
                     </div>
@@ -322,7 +322,7 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
                       format="hex"
                       showAlpha={true}
                       size="sm"
-                      triggerClassName="w-20 h-6.5 bg-zinc-900 border-zinc-800 hover:border-zinc-700 shrink-0"
+                      triggerClassName="w-20 h-6.5 bg-surface-input border border-border-default hover:border-border-hover shrink-0"
                       popoverClassName="right-0 left-auto mt-1 z-[100]"
                     />
                   </div>

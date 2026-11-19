@@ -18,7 +18,10 @@ export const LayoutPresetMenu: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const [dropdownPos, setDropdownPos] = useState<{ top: number; right: number } | null>(null);
+  const [dropdownPos, setDropdownPos] = useState<{
+    top: number;
+    right: number;
+  } | null>(null);
   const layoutPreset = useSettingsStore((s) => s.layoutPreset);
   const setLayoutPreset = useSettingsStore((s) => s.setLayoutPreset);
 
@@ -440,14 +443,14 @@ export const LayoutPresetMenu: React.FC = () => {
         <>
           {/* Global click-outside overlay */}
           <div
-            className="fixed inset-0 z-[200]"
+            className="fixed inset-0 z-dropdown-overlay"
             onClick={() => setIsOpen(false)}
             onPointerDown={() => setIsOpen(false)}
           />
 
           {/* Fixed-position dropdown — escapes all parent overflow:hidden stacking contexts */}
           <div
-            className="fixed z-[201] w-80 max-h-[85vh] overflow-y-auto scrollbar-thin rounded-xl bg-surface-floating border border-border-default shadow-2xl backdrop-blur-xl p-2 animate-in fade-in zoom-in-95 duration-150"
+            className="fixed z-dropdown-panel w-80 max-h-[85vh] overflow-y-auto scrollbar-thin rounded-xl bg-surface-floating border border-border-default shadow-2xl backdrop-blur-xl p-2 animate-in fade-in zoom-in-95 duration-150"
             style={{ top: dropdownPos.top, right: dropdownPos.right }}
           >
             <div className="px-2 py-1.5 border-b border-border-default/60 mb-1">

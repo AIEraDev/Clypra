@@ -311,7 +311,7 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
   );
 
   return (
-    <div className="space-y-1.5 select-none text-white relative p-2">
+    <div className="space-y-1.5 select-none text-text-primary relative p-2">
       {/* ── 1. CapCut Phase Switcher Tabs (In, Out, Loop) ────────────────────── */}
       <div className="bg-surface-panel p-0.5 rounded-sm flex gap-1 border border-border-default">
         <button
@@ -439,7 +439,7 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
           <div className="space-y-1">
             <div className="flex items-center gap-1.5">
               <Gauge className="w-3 h-3 text-text-muted" />
-              <span className="text-[11px] text-white select-none block">
+              <span className="text-[11px] text-text-primary select-none block">
                 {t("properties.animation.speed")}
               </span>
             </div>
@@ -469,7 +469,7 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
           <div className="space-y-1">
             <div className="flex items-center gap-1.5">
               <Activity className="w-3 h-3 text-text-muted" />
-              <span className="text-[11px] text-white select-none block">
+              <span className="text-[11px] text-text-primary select-none block">
                 {t("properties.animation.intensity")}
               </span>
             </div>

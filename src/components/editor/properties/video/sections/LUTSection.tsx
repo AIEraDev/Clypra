@@ -141,7 +141,7 @@ export const LUTSection: React.FC<LUTSectionProps> = ({
         <select
           value={activeLutId}
           onChange={(e) => setActiveLut(e.target.value)}
-          className="flex-1 px-2 py-1.5 text-xs bg-surface-input border border-border-default rounded text-text-primary focus:outline-none focus:border-white/30 cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23888%22%20stroke-width%3D%222%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-no-repeat bg-[right_6px_center] pr-6"
+          className="flex-1 px-2 py-1.5 text-xs bg-surface-input border border-border-default rounded text-text-primary focus:outline-none focus:border-accent-primary cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23888%22%20stroke-width%3D%222%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-no-repeat bg-[right_6px_center] pr-6"
         >
           <option value="">None</option>
           {entries.map((e) => (
@@ -170,7 +170,7 @@ export const LUTSection: React.FC<LUTSectionProps> = ({
             onClick={() => handleRemove(activeLutId)}
             title="Remove this LUT from library"
             aria-label="Remove LUT"
-            className="flex items-center justify-center w-7 h-7 rounded bg-white/5 border border-white/10 text-white/50 hover:bg-red-500/20 hover:text-red-400 transition-colors cursor-pointer shrink-0"
+            className="flex items-center justify-center w-7 h-7 rounded bg-surface-elevated border border-border-default text-text-muted hover:bg-red-500/20 hover:text-red-400 hover:border-red-500/30 transition-colors cursor-pointer shrink-0"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
