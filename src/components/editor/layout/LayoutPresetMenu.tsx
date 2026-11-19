@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { LayoutGrid, Check } from "lucide-react";
 import { useSettingsStore, type LayoutPreset } from "@/store/settingsStore";
 import { useClickOutside } from "@/hooks";
@@ -17,8 +17,23 @@ export const LayoutPresetMenu: React.FC = () => {
   const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; right: number } | null>(null);
   const layoutPreset = useSettingsStore((s) => s.layoutPreset);
   const setLayoutPreset = useSettingsStore((s) => s.setLayoutPreset);
+
+  // Calculate fixed position from button bounding rect so the dropdown
+  // escapes all parent overflow:hidden / stacking contexts.
+  const openMenu = useCallback(() => {
+    if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setDropdownPos({
+        top: rect.bottom + 6,
+        right: window.innerWidth - rect.right,
+      });
+    }
+    setIsOpen(true);
+  }, []);
 
   useClickOutside(menuRef, () => setIsOpen(false), { enabled: isOpen });
 
@@ -403,9 +418,10 @@ export const LayoutPresetMenu: React.FC = () => {
   ];
 
   return (
-    <div className="relative" ref={menuRef}>
+    <div ref={menuRef}>
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        ref={buttonRef}
+        onClick={() => (isOpen ? setIsOpen(false) : openMenu())}
         className={`flex items-center gap-1.5 h-6 px-2 text-xs rounded font-medium border transition-colors cursor-pointer ${
           isOpen
             ? "bg-accent-primary/20 border-accent-primary/40 text-accent-primary"
@@ -420,17 +436,20 @@ export const LayoutPresetMenu: React.FC = () => {
         </span>
       </button>
 
-      {isOpen && (
+      {isOpen && dropdownPos && (
         <>
           {/* Global click-outside overlay */}
           <div
-            className="fixed inset-0 z-40"
+            className="fixed inset-0 z-[200]"
             onClick={() => setIsOpen(false)}
             onPointerDown={() => setIsOpen(false)}
           />
 
-          {/* Modal dropdown panel */}
-          <div className="absolute right-0 top-full mt-1.5 z-50 w-80 max-h-[85vh] overflow-y-auto scrollbar-thin rounded-xl bg-surface-floating border border-border-default shadow-2xl backdrop-blur-xl p-2 animate-in fade-in zoom-in-95 duration-150">
+          {/* Fixed-position dropdown — escapes all parent overflow:hidden stacking contexts */}
+          <div
+            className="fixed z-[201] w-80 max-h-[85vh] overflow-y-auto scrollbar-thin rounded-xl bg-surface-floating border border-border-default shadow-2xl backdrop-blur-xl p-2 animate-in fade-in zoom-in-95 duration-150"
+            style={{ top: dropdownPos.top, right: dropdownPos.right }}
+          >
             <div className="px-2 py-1.5 border-b border-border-default/60 mb-1">
               <div className="text-[11px] font-semibold text-text-primary uppercase tracking-wider">
                 {t("layout.presets.title")}
