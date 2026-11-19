@@ -19,6 +19,10 @@ vi.mock("@/i18n", () => ({
         "properties.transform.alignTop": "Align top",
         "properties.transform.alignCenterY": "Align center vertically",
         "properties.transform.alignBottom": "Align bottom",
+        "properties.blend.title": "Blend",
+        "properties.blend.reset": "Reset blend",
+        "properties.blend.mode": "Mode",
+        "properties.blend.opacity": "Opacity",
       };
       return dict[key] || key;
     },

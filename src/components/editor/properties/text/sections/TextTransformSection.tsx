@@ -419,7 +419,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
         <div className="space-y-3.5">
           {/* ── Row 1: Scale ── */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-text-muted shrink-0 w-24">
+            <span className="text-xs text-text-secondary shrink-0 w-24">
               {t("properties.transform.scale") || "Scale"}
             </span>
 
@@ -483,7 +483,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
 
           {/* ── Row 2: Uniform Scale ── */}
           <div className="flex items-center justify-between">
-            <span className="text-xs text-text-muted">
+            <span className="text-xs text-text-secondary">
               {t("properties.transform.uniformScale") || "Uniform scale"}
             </span>
             <button
@@ -507,7 +507,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
 
           {/* ── Row 3: Position ── */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-text-muted shrink-0 w-24">
+            <span className="text-xs text-text-secondary shrink-0 w-24">
               {t("properties.transform.position") || "Position"}
             </span>
 
@@ -515,7 +515,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
               <div className="flex items-center gap-2 flex-1">
                 {/* X Coordinate */}
                 <div className="flex-1 flex items-center bg-surface-input border border-border-default rounded-md px-2 py-1 text-xs">
-                  <span className="text-text-muted mr-2 text-[11px] font-medium">
+                  <span className="text-text-secondary mr-2 text-[11px] font-medium">
                     X
                   </span>
                   <input
@@ -546,7 +546,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
 
                 {/* Y Coordinate */}
                 <div className="flex-1 flex items-center bg-surface-input border border-border-default rounded-md px-2 py-1 text-xs">
-                  <span className="text-text-muted mr-2 text-[11px] font-medium">
+                  <span className="text-text-secondary mr-2 text-[11px] font-medium">
                     Y
                   </span>
                   <input
@@ -594,7 +594,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
 
           {/* ── Row 4: Plane Rotation ── */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-text-muted shrink-0 w-24">
+            <span className="text-xs text-text-secondary shrink-0 w-24">
               {t("properties.transform.planeRotation") || "Plane rotation"}
             </span>
 
@@ -676,7 +676,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
           </div>
 
           {/* ── Row 5: Alignment Toolbar ── */}
-          <div className="bg-surface-elevated border border-border-default rounded-lg p-1 flex items-center justify-between text-text-muted">
+          <div className="bg-surface-elevated border border-border-default rounded-lg p-1 flex items-center justify-between text-text-secondary">
             {/* Align Left |← */}
             <button
               type="button"

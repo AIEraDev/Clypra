@@ -181,7 +181,7 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
               className={`px-3 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-colors cursor-pointer shrink-0 ${
                 isSelected
                   ? "bg-accent-primary text-white border-accent-primary shadow-xs"
-                  : "bg-surface-elevated text-text-muted hover:text-text-primary hover:bg-surface-hover border border-border-default"
+                  : "bg-surface-elevated text-text-secondary hover:text-text-primary hover:bg-surface-hover border border-border-default"
               }`}
             >
               {cat.label}
@@ -192,7 +192,7 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
 
       {/* ── Header Title & Category Dropdown ── */}
       <div className="flex items-center justify-between pt-0.5 relative">
-        <span className="text-[10px] text-text-muted uppercase font-semibold tracking-wider select-none">
+        <span className="text-[10px] text-text-secondary uppercase font-semibold tracking-wider select-none">
           {t("properties.text.speechBubbles")}
         </span>
 
@@ -223,8 +223,8 @@ export const TextBubbleTab: React.FC<TextBubbleTabProps> = ({
                     }}
                     className={`w-full flex items-center justify-between px-3 py-1.5 text-xs text-left transition-colors cursor-pointer ${
                       isSelected
-                        ? "bg-cyan-500/10 text-accent-primary font-semibold"
-                        : "text-text-muted hover:text-text-primary hover:bg-surface-hover"
+                        ? "bg-accent-primary/10 text-accent-primary font-semibold"
+                        : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
                     }`}
                   >
                     <span>{cat.label}</span>

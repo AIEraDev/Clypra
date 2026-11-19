@@ -62,7 +62,7 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
 
       {/* Avatar Presets Grid */}
       <div>
-        <span className="text-xs font-medium text-text-muted block mb-2">
+        <span className="text-xs font-medium text-text-secondary block mb-2">
           Choose Presenter
         </span>
         <div className="grid grid-cols-2 gap-2">
@@ -106,7 +106,7 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
       {/* Framing & Placement */}
       <div className="space-y-3 pt-2 border-t border-border-default">
         <div className="flex items-center justify-between">
-          <span className="text-xs text-text-muted">Framing</span>
+          <span className="text-xs text-text-secondary">Framing</span>
           <div className="flex bg-surface-panel border border-border-default rounded-md p-0.5">
             <button
               type="button"
@@ -114,7 +114,7 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
               className={`px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 framing === "half"
                   ? "bg-accent-primary text-white shadow-sm font-semibold"
-                  : "text-text-muted hover:text-text-primary"
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
               }`}
             >
               Half Body
@@ -125,7 +125,7 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
               className={`px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 framing === "full"
                   ? "bg-accent-primary text-white shadow-sm font-semibold"
-                  : "text-text-muted hover:text-text-primary"
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
               }`}
             >
               Full Body
@@ -136,7 +136,7 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
               className={`px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 framing === "circle"
                   ? "bg-accent-primary text-white shadow-sm font-semibold"
-                  : "text-text-muted hover:text-text-primary"
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
               }`}
             >
               Circle
@@ -145,7 +145,7 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
         </div>
 
         <div className="flex items-center justify-between">
-          <span className="text-xs text-text-muted">Background</span>
+          <span className="text-xs text-text-secondary">Background</span>
           <div className="flex bg-surface-panel border border-border-default rounded-md p-0.5">
             <button
               type="button"
@@ -153,7 +153,7 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
               className={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 background === "transparent"
                   ? "bg-accent-primary text-white shadow-sm"
-                  : "text-text-muted hover:text-text-primary"
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
               }`}
             >
               Transparent
@@ -164,7 +164,7 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
               className={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 background === "greenscreen"
                   ? "bg-accent-primary text-white shadow-sm"
-                  : "text-text-muted hover:text-text-primary"
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
               }`}
             >
               Green Screen

@@ -226,7 +226,7 @@ export const NumericControl: React.FC<NumericControlProps> = ({
       <div className="bg-surface-input border border-border-default rounded-sm overflow-hidden flex items-center shadow-2xs">
         {/* Optional Prefix Label */}
         {prefix && (
-          <span className="text-[10px] text-text-muted select-none w-6 h-6 flex justify-center items-center pl-2">
+          <span className="text-[10px] text-text-secondary font-medium select-none w-6 h-6 flex justify-center items-center pl-2">
             {prefix}
           </span>
         )}

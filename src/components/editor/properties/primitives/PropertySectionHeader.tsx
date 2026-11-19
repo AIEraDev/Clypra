@@ -42,7 +42,7 @@ export const PropertySectionHeader: React.FC<PropertySectionHeaderProps> = ({
 
         {/* Chevron icon - rotates based on collapsed state */}
         {/* prettier-ignore */}
-        <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" className={`transition-transform ${isCollapsed ? "-rotate-90" : ""}`} ><path d="M0 0h24v24H0z" fill="none" /><path fill="currentColor" d="m12 15l5.5-5.5h-11z" /></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" className={`transition-transform text-text-secondary ${isCollapsed ? "-rotate-90" : ""}`} ><path d="M0 0h24v24H0z" fill="none" /><path fill="currentColor" d="m12 15l5.5-5.5h-11z" /></svg>
       </div>
 
       {isKeyframe && (

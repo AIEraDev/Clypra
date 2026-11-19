@@ -67,7 +67,7 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
     <div className="space-y-4 p-1 select-none">
       {/* Text summary box */}
       <div className="p-3 bg-surface-elevated border border-border-default rounded-lg">
-        <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block mb-1">
+        <span className="text-[10px] font-semibold text-text-secondary uppercase tracking-wider block mb-1">
           Source Text ({textClip.text?.length || 0} characters)
         </span>
         <p className="text-xs text-text-primary line-clamp-2 italic">
@@ -85,7 +85,7 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
             className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
               category === cat
                 ? "bg-accent-primary text-white shadow-sm font-semibold"
-                : "bg-surface-elevated text-text-muted hover:text-text-primary hover:bg-surface-hover"
+                : "bg-surface-elevated text-text-secondary hover:text-text-primary hover:bg-surface-hover"
             }`}
           >
             {cat}
@@ -149,7 +149,7 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
       {/* Speed & Pitch Controls */}
       <div className="space-y-3 pt-2 border-t border-border-default">
         <div className="flex items-center justify-between text-xs">
-          <span className="text-text-muted">{t("properties.tts.speechSpeed")}</span>
+          <span className="text-text-secondary">{t("properties.tts.speechSpeed")}</span>
           <span className="text-text-primary font-medium">{speed.toFixed(1)}x</span>
         </div>
         <input
@@ -163,7 +163,7 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
         />
 
         <div className="flex items-center justify-between text-xs">
-          <span className="text-text-muted">{t("properties.tts.pitch")}</span>
+          <span className="text-text-secondary">{t("properties.tts.pitch")}</span>
           <span className="text-text-primary font-medium">{pitch > 0 ? `+${pitch}` : pitch}</span>
         </div>
         <input

@@ -349,7 +349,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
                     ? "text-text-muted/40 cursor-not-allowed"
                     : textSubTab === tab
                       ? "bg-accent-primary text-white shadow-sm font-semibold cursor-pointer"
-                      : "text-text-muted hover:text-text-primary hover:bg-surface-hover cursor-pointer"
+                      : "text-text-secondary hover:text-text-primary hover:bg-surface-hover cursor-pointer"
                 }`}
               >
                 {(tab === "basic" ? t("properties.text.basicTab") : t("properties.text.bubbleTab"))}

@@ -61,7 +61,7 @@ export const TextTrackingSection: React.FC<TextTrackingSectionProps> = ({
       <div className="space-y-3">
         {/* Track Mode */}
         <div className="flex items-center justify-between">
-          <span className="text-xs text-text-muted">{t("properties.tracking.trackObject")}</span>
+          <span className="text-xs text-text-secondary">{t("properties.tracking.trackObject")}</span>
           <div className="flex bg-surface-elevated border border-border-default rounded-md p-0.5">
             <button
               type="button"
@@ -69,7 +69,7 @@ export const TextTrackingSection: React.FC<TextTrackingSectionProps> = ({
               className={`px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 trackingMode === "object"
                   ? "bg-accent-primary text-white shadow-sm font-semibold"
-                  : "text-text-muted hover:text-text-primary hover:bg-surface-hover"
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
               }`}
             >
               {t("properties.tracking.object")}
@@ -80,7 +80,7 @@ export const TextTrackingSection: React.FC<TextTrackingSectionProps> = ({
               className={`px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 trackingMode === "face"
                   ? "bg-accent-primary text-white shadow-sm font-semibold"
-                  : "text-text-muted hover:text-text-primary hover:bg-surface-hover"
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
               }`}
             >
               {t("properties.tracking.face")}
@@ -90,7 +90,7 @@ export const TextTrackingSection: React.FC<TextTrackingSectionProps> = ({
 
         {/* Direction */}
         <div className="flex items-center justify-between">
-          <span className="text-xs text-text-muted">{t("properties.tracking.direction")}</span>
+          <span className="text-xs text-text-secondary">{t("properties.tracking.direction")}</span>
           <div className="flex bg-surface-elevated border border-border-default rounded-md p-0.5">
             <button
               type="button"
@@ -98,7 +98,7 @@ export const TextTrackingSection: React.FC<TextTrackingSectionProps> = ({
               className={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 direction === "forward"
                   ? "bg-accent-primary text-white shadow-sm"
-                  : "text-text-muted hover:text-text-primary hover:bg-surface-hover"
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
               }`}
             >
               {t("properties.tracking.forward")}
@@ -109,7 +109,7 @@ export const TextTrackingSection: React.FC<TextTrackingSectionProps> = ({
               className={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 direction === "backward"
                   ? "bg-accent-primary text-white shadow-sm"
-                  : "text-text-muted hover:text-text-primary hover:bg-surface-hover"
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
               }`}
             >
               {t("properties.tracking.backward")}
@@ -120,7 +120,7 @@ export const TextTrackingSection: React.FC<TextTrackingSectionProps> = ({
               className={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 direction === "both"
                   ? "bg-accent-primary text-white shadow-sm"
-                  : "text-text-muted hover:text-text-primary hover:bg-surface-hover"
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
               }`}
             >
               {t("properties.tracking.both")}

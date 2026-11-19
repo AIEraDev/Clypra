@@ -30,7 +30,7 @@ export const PresetStyleGrid: React.FC<PresetStyleGridProps> = ({
     <div className="space-y-2">
       {/* Section Header */}
       <div className="flex items-center justify-between">
-        <span className="text-[10px] text-text-muted uppercase font-semibold tracking-wider select-none">
+        <span className="text-[10px] text-text-secondary uppercase font-semibold tracking-wider select-none">
           {t("properties.text.presetStyle") || "PRESET STYLE"}
         </span>
       </div>
@@ -77,7 +77,7 @@ const PresetButton: React.FC<PresetButtonProps> = ({
       }`}
     >
       {preset.isReset ? (
-        <Ban className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-text-muted" />
+        <Ban className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-text-secondary" />
       ) : (
         <span
           className="text-xs sm:text-sm font-black select-none pointer-events-none"

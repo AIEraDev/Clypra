@@ -235,7 +235,7 @@ export const TextStrokeSection: React.FC<TextStrokeSectionProps> = ({
         >
           {/* Row 1: Color */}
           <div className="flex items-center justify-between gap-3">
-            <span className="text-xs text-text-muted shrink-0 w-24">
+            <span className="text-xs text-text-secondary shrink-0 w-24">
               {t("properties.stroke.color") || "Color"}
             </span>
 
@@ -256,7 +256,7 @@ export const TextStrokeSection: React.FC<TextStrokeSectionProps> = ({
 
           {/* Row 2: Thickness */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-text-muted shrink-0 w-24">
+            <span className="text-xs text-text-secondary shrink-0 w-24">
               {t("properties.stroke.thickness") || "Thickness"}
             </span>
 

@@ -88,8 +88,10 @@ const PropertyPanelHeader: React.FC<PropertyPanelHeaderType> = ({
                 <button
                   key={tab.id}
                   onClick={() => handleActiveTab(tab.id)}
-                  className={`px-2.5 py-1.5 text-xs font-medium tracking-wide whitespace-nowrap transition-colors cursor-pointer rounded hover:text-accent-primary ${
-                    isActive ? "text-accent-primary" : "text-text-muted"
+                  className={`px-2.5 py-1.5 text-xs font-medium tracking-wide whitespace-nowrap transition-colors cursor-pointer rounded ${
+                    isActive
+                      ? "text-accent-primary font-semibold"
+                      : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
                   }`}
                 >
                   <span className="flex items-center gap-1">

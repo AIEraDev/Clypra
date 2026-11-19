@@ -68,8 +68,8 @@ export const PropertySlider: React.FC<PropertySliderProps> = ({
   if (compact) {
     return (
       <div className={`flex items-center gap-2.5 group ${disabled ? "opacity-40 pointer-events-none" : ""}`}>
-        {icon && <span className="text-text-muted shrink-0">{icon}</span>}
-        <span className="text-[10px] text-text-muted select-none shrink-0 min-w-[52px]">{label}</span>
+        {icon && <span className="text-text-secondary shrink-0">{icon}</span>}
+        <span className="text-[10px] text-text-secondary select-none shrink-0 min-w-[52px]">{label}</span>
         <div className="flex-1">
           <SliderTrack
             value={value}
@@ -107,8 +107,8 @@ export const PropertySlider: React.FC<PropertySliderProps> = ({
       {/* Label row */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          {icon && <span className="text-text-muted">{icon}</span>}
-          <span className="text-[10px] font-medium text-text-muted select-none">{label}</span>
+          {icon && <span className="text-text-secondary">{icon}</span>}
+          <span className="text-[10px] font-medium text-text-secondary select-none">{label}</span>
           {onToggleKeyframe && (
             <KeyframeNavControls
               hasKeyframes={hasKeyframes ?? keyframeActive}

@@ -158,7 +158,7 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
 
   return (
     <div className="space-y-2 select-none">
-      <div className="text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-2">
+      <div className="text-[10px] font-semibold text-text-secondary uppercase tracking-wider mb-2">
         {t("properties.template.layers")}
       </div>
 
@@ -244,7 +244,7 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
                   <>
                     {/* Text Content */}
                     <div className="space-y-1">
-                      <label className="text-[9px] text-text-muted block font-medium">
+                      <label className="text-[9px] text-text-secondary block font-medium">
                         {t("properties.template.textContent")}
                       </label>
                       <textarea
@@ -263,7 +263,7 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
 
                     {/* Font Family */}
                     <div className="space-y-1">
-                      <label className="text-[9px] text-text-muted block font-medium">
+                      <label className="text-[9px] text-text-secondary block font-medium">
                         {t("properties.template.fontFamily")}
                       </label>
                       <select
@@ -287,7 +287,7 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
 
                     {/* Text Color */}
                     <div className="flex items-center justify-between">
-                      <span className="text-[9px] text-text-muted font-medium">
+                      <span className="text-[9px] text-text-secondary font-medium">
                         {t("properties.template.textColor")}
                       </span>
                       <ClypraColorPicker
@@ -310,7 +310,7 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
 
                 {layer.kind === "shape" && (
                   <div className="flex items-center justify-between">
-                    <span className="text-[9px] text-text-muted font-medium">
+                    <span className="text-[9px] text-text-secondary font-medium">
                       Fill Color
                     </span>
                     <ClypraColorPicker
