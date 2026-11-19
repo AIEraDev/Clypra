@@ -249,4 +249,32 @@ describe("Native Surface Overlay Hide & Handover Contract", () => {
       vi.useRealTimers();
     });
   });
+
+  describe("LayoutPresetMenu & TopBar dropdown overlay registration", () => {
+    it("registers overlay in uiStore and hides native surface when dropdown opens, unregisters on close", async () => {
+      const { useUIStore } = await import("@/store/uiStore");
+
+      mockHideNativeSurfaceWhenIdle.mockClear();
+
+      // Opening dropdown
+      useUIStore.getState().registerOverlay("layout-preset-menu");
+      expect(useUIStore.getState().activeOverlayIds).toContain("layout-preset-menu");
+      expect(mockHideNativeSurfaceWhenIdle).toHaveBeenCalledTimes(1);
+
+      // Multiple open overlays are deduplicated and tracked concurrently
+      useUIStore.getState().registerOverlay("topbar-dropdown");
+      expect(useUIStore.getState().activeOverlayIds).toEqual([
+        "layout-preset-menu",
+        "topbar-dropdown",
+      ]);
+
+      // Closing one keeps the other active
+      useUIStore.getState().unregisterOverlay("layout-preset-menu");
+      expect(useUIStore.getState().activeOverlayIds).toEqual(["topbar-dropdown"]);
+
+      // Closing all clears active overlays
+      useUIStore.getState().unregisterOverlay("topbar-dropdown");
+      expect(useUIStore.getState().activeOverlayIds).toEqual([]);
+    });
+  });
 });

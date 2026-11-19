@@ -45,6 +45,8 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
   const closeProject = useProjectStore((s) => s.closeProject);
   const toggleSettingsModal = useUIStore((s) => s.toggleSettingsModal);
   const toggleTransferModal = useUIStore((s) => s.toggleTransferModal);
+  const registerOverlay = useUIStore((s) => s.registerOverlay);
+  const unregisterOverlay = useUIStore((s) => s.unregisterOverlay);
   const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
   const setSidebarCollapsed = useSettingsStore((s) => s.setSidebarCollapsed);
   const propertiesPanelCollapsed = useSettingsStore(
@@ -85,10 +87,25 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
     enabled: showExportMenu,
   });
 
-  const hasOpenTopBarOverlay = Boolean(
+  const hasLocalTopBarOverlay = Boolean(
     showExportDialog ||
     showThumbnailWorkspace ||
-    showExportMenu ||
+    showExportMenu,
+  );
+
+  useEffect(() => {
+    if (hasLocalTopBarOverlay) {
+      registerOverlay("topbar-overlay");
+    } else {
+      unregisterOverlay("topbar-overlay");
+    }
+    return () => {
+      unregisterOverlay("topbar-overlay");
+    };
+  }, [hasLocalTopBarOverlay, registerOverlay, unregisterOverlay]);
+
+  const hasOpenTopBarOverlay = Boolean(
+    hasLocalTopBarOverlay ||
     showSettingsModal ||
     showTransferModal,
   );

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { LayoutGrid, Check } from "lucide-react";
 import { useSettingsStore, type LayoutPreset } from "@/store/settingsStore";
+import { useUIStore } from "@/store/uiStore";
 import { useClickOutside } from "@/hooks";
 import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
 import { forceRepaintNativeProgramPreview } from "@/core/preview/previewRepaintCoordinator";
@@ -25,6 +26,8 @@ export const LayoutPresetMenu: React.FC = () => {
   } | null>(null);
   const layoutPreset = useSettingsStore((s) => s.layoutPreset);
   const setLayoutPreset = useSettingsStore((s) => s.setLayoutPreset);
+  const registerOverlay = useUIStore((s) => s.registerOverlay);
+  const unregisterOverlay = useUIStore((s) => s.unregisterOverlay);
 
   // Calculate fixed position from button bounding rect so the dropdown
   // escapes all parent overflow:hidden / stacking contexts.
@@ -45,12 +48,16 @@ export const LayoutPresetMenu: React.FC = () => {
 
   useEffect(() => {
     if (isOpen) {
-      void hideNativeSurfaceWhenIdle().catch(() => undefined);
+      registerOverlay("layout-preset-menu");
     } else {
+      unregisterOverlay("layout-preset-menu");
       // Menu closed — repaint the canvas so the current frame is visible again.
       forceRepaintNativeProgramPreview();
     }
-  }, [isOpen]);
+    return () => {
+      unregisterOverlay("layout-preset-menu");
+    };
+  }, [isOpen, registerOverlay, unregisterOverlay]);
 
   const presets: PresetOption[] = [
     {

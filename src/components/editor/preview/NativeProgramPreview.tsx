@@ -586,13 +586,15 @@ export const NativeProgramPreview: React.FC = () => {
   const showNewProjectModal = useUIStore((s) => s.showNewProjectModal);
   const showTransferModal = useUIStore((s) => s.showTransferModal);
   const activeCurveEditor = useUIStore((s) => s.activeCurveEditor);
+  const activeOverlayIds = useUIStore((s) => s.activeOverlayIds);
 
   const isAnyModalOpen = Boolean(
     showSettingsModal ||
     showExportModal ||
     showNewProjectModal ||
     showTransferModal ||
-    activeCurveEditor !== null,
+    activeCurveEditor !== null ||
+    activeOverlayIds.length > 0,
   );
 
   const viewport = useViewportState();
@@ -3878,6 +3880,7 @@ export const NativeProgramPreview: React.FC = () => {
         const nativeDirectSurfacePath =
           nativeSurfaceUsable &&
           Boolean(nativeRequest) &&
+          !pausedOverlayStateRef.current.isAnyModalOpen &&
           (nativePlaybackPath || pausedNativeSurfaceEligible) &&
           !qualificationForcesWebView;
         setActiveProgramPreviewPresenter(
@@ -3896,7 +3899,9 @@ export const NativeProgramPreview: React.FC = () => {
         const nativeReadbackFallbackPath =
           isPlaying &&
           nativePlaybackPath &&
-          (!nativeSurfaceUsable || qualificationForcesWebView) &&
+          (!nativeSurfaceUsable ||
+            qualificationForcesWebView ||
+            pausedOverlayStateRef.current.isAnyModalOpen) &&
           !deferWebViewFallbackForNativeStartup;
         // Keep the presenter decision explicit in telemetry. A slow bridge
         // sample is otherwise indistinguishable from a native surface that

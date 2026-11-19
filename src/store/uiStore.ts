@@ -50,6 +50,7 @@ interface UIStore {
   showNewProjectModal: boolean;
   showSettingsModal: boolean;
   showTransferModal: boolean;
+  activeOverlayIds: string[];
   settingsInitialTab:
     | "appearance"
     | "editor"
@@ -98,6 +99,8 @@ interface UIStore {
   toggleSettingsModal: () => void;
   toggleTransferModal: () => void;
   setTransferModal: (open: boolean) => void;
+  registerOverlay: (id: string) => void;
+  unregisterOverlay: (id: string) => void;
   openSettingsModal: (
     tab?:
       | "appearance"
@@ -131,6 +134,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   showNewProjectModal: false,
   showSettingsModal: false,
   showTransferModal: false,
+  activeOverlayIds: [],
   settingsInitialTab: null,
   expandedKeyframeClipIds: [],
   activeCurveEditor: null,
@@ -246,6 +250,23 @@ export const useUIStore = create<UIStore>((set, get) => ({
     if (open) void hideNativeSurfaceWhenIdle().catch(() => undefined);
     set({
       showTransferModal: open,
+    });
+  },
+
+  registerOverlay: (id: string) => {
+    void hideNativeSurfaceWhenIdle().catch(() => undefined);
+    set((state) => {
+      if (state.activeOverlayIds.includes(id)) return state;
+      return { activeOverlayIds: [...state.activeOverlayIds, id] };
+    });
+  },
+
+  unregisterOverlay: (id: string) => {
+    set((state) => {
+      if (!state.activeOverlayIds.includes(id)) return state;
+      return {
+        activeOverlayIds: state.activeOverlayIds.filter((item) => item !== id),
+      };
     });
   },
 

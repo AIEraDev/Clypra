@@ -84,6 +84,8 @@ export const Timeline: React.FC = () => {
   const previewMode = useUIStore((s) => s.previewMode);
   const selectedClipIds = useUIStore((s) => s.selectedClipIds);
   const clearSelection = useUIStore((s) => s.clearSelection);
+  const registerOverlay = useUIStore((s) => s.registerOverlay);
+  const unregisterOverlay = useUIStore((s) => s.unregisterOverlay);
   const { exitSourceMode } = usePreviewMode();
   const { isPlaying, duration } = usePlaybackStatus();
   const { seek: transportSeek } = useTransportControls();
@@ -131,11 +133,16 @@ export const Timeline: React.FC = () => {
 
   useEffect(() => {
     if (anyTimelineContextMenuOpen) {
+      registerOverlay("timeline-context-menu");
       void hideNativeSurfaceWhenIdle().catch(() => undefined);
     } else {
+      unregisterOverlay("timeline-context-menu");
       forceRepaintNativeProgramPreview();
     }
-  }, [anyTimelineContextMenuOpen]);
+    return () => {
+      unregisterOverlay("timeline-context-menu");
+    };
+  }, [anyTimelineContextMenuOpen, registerOverlay, unregisterOverlay]);
 
   const handleClipContextMenu = useCallback(
     (e: React.MouseEvent, clipId: string, trackId: string) => {

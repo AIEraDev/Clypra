@@ -36,6 +36,9 @@ vi.mock("@/store/uiStore", () => ({
       toggleTransferModal: vi.fn(),
       showSettingsModal: false,
       showTransferModal: false,
+      activeOverlayIds: [],
+      registerOverlay: vi.fn(),
+      unregisterOverlay: vi.fn(),
     };
     return typeof selector === "function" ? selector(state) : state;
   }),
