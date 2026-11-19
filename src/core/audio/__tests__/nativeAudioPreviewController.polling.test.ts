@@ -5,10 +5,16 @@ import {
   type NativeAudioPreviewSource,
 } from "../nativeAudioPreviewController";
 import {
+  getNativeAudioStatus,
   nativePlayFromAudio,
   nativeTickFromAudio,
+  seekNativeAudio,
 } from "@/lib/platform/tauri";
 import type { NativePlaybackState } from "@/lib/platform/nativeCore";
+import {
+  buildNativeAudioTimeline,
+  syncNativeAudioTimeline,
+} from "../nativeAudioTimeline";
 
 vi.mock("@/lib/platform/tauri", () => ({
   isTauriRuntime: () => true,
@@ -66,6 +72,8 @@ interface PollingControllerHarness {
   active: boolean;
   lastState: ReturnType<PlaybackClock["getState"]> | null;
   transportQueue: Promise<void>;
+  sourceSyncQueue: Promise<void>;
+  _rendererState: string;
   handleClockState(state: ReturnType<PlaybackClock["getState"]>): void;
   pollNativeClock(): Promise<void>;
   invalidateNativeClockPolls(): void;
@@ -166,6 +174,99 @@ describe("NativeAudioPreviewController native clock polling", () => {
     expect(clock.time).toBeGreaterThanOrEqual(4.9);
 
     unsubscribe();
+    await controller.dispose();
+    clock.dispose();
+  });
+
+  it("REGRESSION: paused seek rejects spurious 0-tick native status during background audio sync", async () => {
+    const clock = new PlaybackClock();
+    clock.setDuration(source.duration);
+    clock.setNativeClockAuthority(true);
+    // User seeks forward to 10 seconds while paused
+    clock.seek(10);
+
+    const controller = new NativeAudioPreviewController({ clock, source });
+    const polling = pollingHarness(controller);
+    polling.active = true;
+    polling.lastState = clock.getState();
+
+    const adoptPosition = vi.spyOn(clock, "setNativeClockPosition");
+    // Simulate background native audio status returning 0 (uninitialized stream)
+    vi.mocked(getNativeAudioStatus).mockResolvedValueOnce({ audioPositionTicks: 0 } as any);
+
+    await polling.pollNativeClock();
+
+    // Must NOT adopt 0 or wipe the user's seek!
+    expect(adoptPosition).not.toHaveBeenCalledWith(0, expect.anything(), expect.anything(), expect.anything());
+    expect(clock.time).toBe(10);
+
+    await controller.dispose();
+    clock.dispose();
+  });
+
+  it("REGRESSION: updateSource re-seeks paused native audio to current clock position", async () => {
+    const clock = new PlaybackClock();
+    clock.setDuration(source.duration);
+    clock.setNativeClockAuthority(true);
+    clock.seek(7.5);
+
+    const controller = new NativeAudioPreviewController({ clock, source });
+    const polling = pollingHarness(controller);
+    polling.active = true;
+    polling.lastState = clock.getState();
+
+    vi.mocked(seekNativeAudio).mockClear();
+    vi.mocked(buildNativeAudioTimeline).mockReturnValueOnce({
+      clips: [{ clipId: "c1" } as any],
+    } as any);
+    vi.mocked(syncNativeAudioTimeline).mockResolvedValueOnce({
+      snapshot: { clips: [{ clipId: "c1" } as any] },
+      installedCount: 1,
+    } as any);
+
+    // Trigger updateSource with a new source snapshot while paused
+    const nextSource = { ...source, projectRevision: "revision-2" };
+    controller.updateSource(nextSource);
+    await polling.sourceSyncQueue;
+    await polling.transportQueue;
+
+    // Must have enqueued a seek to 7.5s (7_500_000 ticks) in CPAL
+    expect(seekNativeAudio).toHaveBeenCalledWith(7_500_000);
+
+    await controller.dispose();
+    clock.dispose();
+  });
+
+  it("REGRESSION: updateSource resumes playback when clock is playing even if rendererState was ready", async () => {
+    const clock = new PlaybackClock();
+    clock.setDuration(source.duration);
+    clock.setNativeClockAuthority(true);
+    clock.seek(3.0);
+    clock.play();
+
+    const controller = new NativeAudioPreviewController({ clock, source });
+    const polling = pollingHarness(controller);
+    polling.active = true;
+    polling._rendererState = "ready"; // Not "resolving"
+    polling.lastState = clock.getState();
+
+    vi.mocked(nativePlayFromAudio).mockClear();
+    vi.mocked(nativePlayFromAudio).mockResolvedValueOnce(nativeState(3_000_000));
+    vi.mocked(buildNativeAudioTimeline).mockReturnValueOnce({
+      clips: [{ clipId: "c1" } as any],
+    } as any);
+    vi.mocked(syncNativeAudioTimeline).mockResolvedValueOnce({
+      snapshot: { clips: [{ clipId: "c1" } as any] },
+      installedCount: 1,
+    } as any);
+
+    const nextSource = { ...source, projectRevision: "revision-3" };
+    controller.updateSource(nextSource);
+    await polling.sourceSyncQueue;
+    await polling.transportQueue;
+
+    expect(nativePlayFromAudio).toHaveBeenCalled();
+
     await controller.dispose();
     clock.dispose();
   });

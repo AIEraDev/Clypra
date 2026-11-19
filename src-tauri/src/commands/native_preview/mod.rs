@@ -2737,6 +2737,18 @@ pub(crate) async fn reset_native_preview_queue(app: &tauri::AppHandle) {
     }
 }
 
+/// Stop speculative playback lookahead without invalidating queued frames or
+/// advancing the native cancellation generation. The interactive demand owns
+/// the next exact decode; `NativeRenderSession` separately signals each
+/// stream actor so a decode already inside FFmpeg can observe cancellation.
+pub(crate) fn preempt_lookahead_predecode() {
+    if let Ok(mut worker) = LOOKAHEAD_WORKER.lock() {
+        if let Some(previous) = worker.take() {
+            previous.handle.abort();
+        }
+    }
+}
+
 /// Mark all older native preview work stale. Decoder calls that cannot be
 /// interrupted at an FFmpeg boundary are still prevented from entering the
 /// bounded queue or presentation path when they return.

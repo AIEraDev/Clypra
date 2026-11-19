@@ -214,6 +214,15 @@ impl StreamDecoderActorHandle {
         }
     }
 
+    /// Interrupt background decode without advancing the native generation or
+    /// clearing already-decoded frames. Interactive scrub/seek work uses this
+    /// lighter boundary so a long playback/lookahead decode cannot hold the
+    /// actor, while the exact request remains eligible to use a current cache
+    /// entry and still establishes its own cancellation epoch.
+    pub fn preempt_background_decode(&self) {
+        self.cancel_in_flight.store(true, Ordering::Release);
+    }
+
     /// Clear the prime cache (e.g. on seek boundary).
     pub async fn clear_prime_cache(&self) {
         let mut cache = self.prime_cache.lock().await;

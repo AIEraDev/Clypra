@@ -313,16 +313,14 @@ export class NativeAudioPreviewController {
               this._rendererState = "ready";
               this.clock.clearNativeAudioUnavailable(); // keep compat for Bug 8/9 tests
 
-              // Bug 9 fix (preserved): if the clock was playing while audio was
-              // resolving, join the timeline at the current position immediately
-              // so there is no seek-back to the beginning.
+              // If the clock is playing while audio layout changed, join the timeline
+              // at the current position immediately so there is no seek-back to the beginning.
               if (
-                wasResolving &&
                 this.clock.state === "playing" &&
                 this.active &&
                 !this.disposed
               ) {
-                // Bug 12 note: Capturing clock.time BEFORE enqueuing is correct here —
+                // Capturing clock.time BEFORE enqueuing is correct here —
                 // the transport queue may have delay, so we want to join at the position
                 // that was current when the audio became ready, not at some later time.
                 const currentTime = this.clock.time;
@@ -344,6 +342,20 @@ export class NativeAudioPreviewController {
                   this.adoptNativePosition(nativeState.audioPositionTicks);
                   this._rendererState = "playing";
                 }, "seek-then-play");
+              } else if (this.active && !this.disposed) {
+                // If paused, ensure CPAL's atomic position matches the user's
+                // current clock position instead of defaulting to 0.
+                const currentTime = this.clock.time;
+                this.enqueueTransport(async () => {
+                  if (
+                    !this.active ||
+                    this.disposed ||
+                    this.clock.state === "playing"
+                  )
+                    return;
+                  await seekNativeAudio(secondsToTicks(currentTime));
+                  await pauseNativeAudio();
+                }, "seek-paused");
               }
             }
           } else if (
@@ -544,8 +556,16 @@ export class NativeAudioPreviewController {
       } else {
         // Paused path: use the static paused position
         await seekNativeAudio(secondsToTicks(this.clock.time));
+        if (this.clock.time > 0) {
+          try {
+            await nativeSeekFromAudio(
+              Math.max(0, Math.floor(this.clock.time * this.clock.frameRate)),
+            );
+          } catch (_) {}
+        }
         await pauseNativeAudio();
       }
+      this.lastHandledClockSeekRevision = this.clock.seekRevision;
       await this.pollNativeClock();
 
       // Drain any source update that arrived while initialize() was in flight:
@@ -908,6 +928,18 @@ export class NativeAudioPreviewController {
   }
 
   private acceptsNativeClockPosition(position: number): boolean {
+    // If the user has an active or unacknowledged forward seek while paused,
+    // reject spurious zero-position samples from uninitialized or resetting native streams.
+    if (
+      this.clock.state !== "playing" &&
+      position <= 0.01 &&
+      this.clock.time > 0.05 &&
+      (this.clock.isSeeking ||
+        this.clock.seekRevision > this.lastHandledClockSeekRevision)
+    ) {
+      return false;
+    }
+
     const handoff = this.nativeClockStartupHandoff;
     if (!handoff) return true;
     if (
@@ -949,9 +981,18 @@ export class NativeAudioPreviewController {
         this.source.duration > 1.0 &&
         durationTicks > 0 &&
         positionTicks >= durationTicks - 100_000;
+      const isSpuriousZeroReset =
+        positionTicks <= 10_000 &&
+        this.clock.time > 0.05 &&
+        (this.clock.isSeeking ||
+          this.clock.seekRevision > this.lastHandledClockSeekRevision);
 
       const position = positionTicks / 1_000_000;
-      if (!isStaleTerminalSample && this.acceptsNativeClockPosition(position)) {
+      if (
+        !isStaleTerminalSample &&
+        !isSpuriousZeroReset &&
+        this.acceptsNativeClockPosition(position)
+      ) {
         this.clock.resyncNativeClockPosition(position, this.clock.speed);
       }
     } catch (error) {
@@ -1049,9 +1090,18 @@ export class NativeAudioPreviewController {
         this.source.duration > 1.0 &&
         durationTicks > 0 &&
         positionTicks >= durationTicks - 100_000;
+      const isSpuriousZeroReset =
+        positionTicks <= 10_000 &&
+        this.clock.time > 0.05 &&
+        (this.clock.isSeeking ||
+          this.clock.seekRevision > this.lastHandledClockSeekRevision);
 
       const position = positionTicks / 1_000_000;
-      if (!isStaleTerminalSample && this.acceptsNativeClockPosition(position)) {
+      if (
+        !isStaleTerminalSample &&
+        !isSpuriousZeroReset &&
+        this.acceptsNativeClockPosition(position)
+      ) {
         const pollRttMs =
           "pollRttMs" in nativeState
             ? (nativeState as any).pollRttMs

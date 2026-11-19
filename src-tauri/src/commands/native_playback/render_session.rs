@@ -36,6 +36,10 @@ pub(crate) struct NativeRenderSession {
     pub(crate) notify: tokio::sync::Notify,
     pub(crate) running: AtomicBool,
     pub(crate) generation: AtomicU64,
+    /// Last interactive cancellation epoch that interrupted background
+    /// playback work. Forward scrub targets share an epoch, so preemption must
+    /// happen once per gesture rather than on every pointer update.
+    pub(crate) last_interactive_preempt_epoch: AtomicU64,
     pub(crate) worker: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     pub(crate) configured_at: Instant,
     pub(crate) ready_after_us: AtomicU64,
@@ -173,6 +177,32 @@ pub(crate) fn tracks_explicit_request(demand: &NativePlaybackFrameDemand) -> boo
     demand.mode.as_deref() != Some("playback") || demand.is_scrubbing
 }
 
+/// Operation IDs are unique per submission, but the portion before `:op-`
+/// identifies the same frontend target. Re-submitting that target while its
+/// mailbox entry is still active must not replace the request that is already
+/// decoding: doing so can produce an endless stream of self-superseded work.
+fn is_duplicate_pending_demand(
+    existing: &NativePlaybackFrameDemand,
+    candidate: &NativePlaybackFrameDemand,
+) -> bool {
+    let existing_target = existing.request_id.split_once(":op-").map_or(
+        existing.request_id.as_str(),
+        |(target, _)| target,
+    );
+    let candidate_target = candidate.request_id.split_once(":op-").map_or(
+        candidate.request_id.as_str(),
+        |(target, _)| target,
+    );
+
+    existing_target == candidate_target
+        && existing.frame_time == candidate.frame_time
+        && existing.generation == candidate.generation
+        && existing.cancellation_epoch == candidate.cancellation_epoch
+        && existing.mode == candidate.mode
+        && existing.is_scrubbing == candidate.is_scrubbing
+        && existing.scrub_direction == candidate.scrub_direction
+}
+
 fn workload_for_mode(mode: Option<&str>, is_scrubbing: bool) -> WorkloadMode {
     if is_scrubbing {
         return WorkloadMode::Scrub;
@@ -222,6 +252,31 @@ impl NativeRenderSession {
     /// issued a newer seek.
     pub(crate) fn demand_requires_recency_barrier(&self, cancellation_epoch: u64) -> bool {
         cancellation_epoch > self.generation.load(Ordering::Acquire)
+    }
+
+    /// Interrupt work that is safe to replace during an interactive scrub or
+    /// seek without advancing the request generation. The exact interactive
+    /// demand is still submitted through the urgent actor channel immediately
+    /// afterward, while a later target in the same gesture remains a mailbox
+    /// replacement rather than repeatedly cancelling the active decode.
+    pub(crate) fn preempt_for_interactive_demand(&self, cancellation_epoch: u64) -> bool {
+        if cancellation_epoch < self.generation.load(Ordering::Acquire) {
+            return false;
+        }
+        let previous = self
+            .last_interactive_preempt_epoch
+            .swap(cancellation_epoch, Ordering::AcqRel);
+        if previous == cancellation_epoch {
+            return false;
+        }
+
+        crate::commands::native_preview::preempt_lookahead_predecode();
+        if let Ok(actors) = self.actors.lock() {
+            for actor in actors.values() {
+                actor.preempt_background_decode();
+            }
+        }
+        true
     }
 
     fn cancellation_epoch(demand: &NativePlaybackFrameDemand) -> u64 {
@@ -571,6 +626,7 @@ impl NativeRenderSession {
             notify: tokio::sync::Notify::new(),
             running: AtomicBool::new(false),
             generation: AtomicU64::new(0),
+            last_interactive_preempt_epoch: AtomicU64::new(u64::MAX),
             worker: Mutex::new(None),
             configured_at,
             ready_after_us: AtomicU64::new(0),
@@ -779,6 +835,8 @@ impl NativeRenderSession {
         // Do not carry missed-deadline history from a stopped/paused audio
         // clock into a new playback epoch.
         self.reset_playback_lookahead_feedback();
+        self.last_interactive_preempt_epoch
+            .store(u64::MAX, Ordering::Release);
         let was_running = self.running.swap(true, Ordering::AcqRel);
         let generation = self.generation.load(Ordering::Acquire);
         let quality = self.playback_quality();
@@ -818,6 +876,8 @@ impl NativeRenderSession {
 
     pub(crate) fn stop(&self, app: Option<AppHandle>) {
         self.running.store(false, Ordering::Release);
+        self.last_interactive_preempt_epoch
+            .store(u64::MAX, Ordering::Release);
         if let Ok(mut pending) = self.pending.lock() {
             // Cancel any pending demand before clearing
             if let Some(internal_id) = pending.internal_request_id.take() {
@@ -951,6 +1011,43 @@ impl NativeRenderSession {
         
         let mut superseded_terminal = None;
         if let Ok(mut pending) = self.pending.lock() {
+            if let (Some(existing), Some(existing_id), Some(candidate_id)) = (
+                pending.value.as_ref(),
+                pending.internal_request_id.as_ref(),
+                internal_request_id.as_ref(),
+            ) {
+                if is_duplicate_pending_demand(existing, &demand) {
+                    let existing_id = existing_id.clone();
+                    let candidate_id = candidate_id.clone();
+                    let mut registry = self
+                        .lifecycle_registry
+                        .lock()
+                        .map_err(|_| "Lifecycle registry lock poisoned".to_string())?;
+                    registry
+                        .finish_request(
+                            &candidate_id,
+                            RequestTerminalDisposition::Superseded {
+                                by_request_id: existing_id,
+                            },
+                        )
+                        .map_err(|error| format!("Failed to finish duplicate request: {error}"))?;
+                    superseded_terminal = Some(Self::terminal(
+                        &demand,
+                        Some(&candidate_id),
+                        "superseded",
+                        "duplicate-mailbox",
+                        NativeDemandOutcome::Superseded,
+                    ));
+                }
+            }
+            if superseded_terminal.is_some() {
+                // Keep the active mailbox owner intact. The duplicate's
+                // terminal is diagnostic only; the original request remains
+                // responsible for the eventual presentation acknowledgement.
+                drop(pending);
+                self.notify.notify_one();
+                return Ok(superseded_terminal);
+            }
             // This assignment is the latest-frame-wins slot: a slow decode can
             // never cause obsolete playback work to accumulate.
             // Cancel the superseded request if one exists
@@ -1391,7 +1488,23 @@ impl NativeRenderSession {
             // Otherwise the `last_rendered_frame_index` fast path swallows the
             // demand and leaves the WebView waiting forever for its event.
             let audio_time = if should_follow_audio_clock(dynamic_demand.as_ref()) {
-                audio_clock_time(&app, true, false).ok()
+                audio_clock_time(&app, true, false).ok().or_else(|| {
+                    if self.running.load(Ordering::Acquire) {
+                        if let Ok(runtime_arc) = crate::commands::native_playback::runtime(&app) {
+                            if let Ok(mut runtime) = runtime_arc.lock() {
+                                let clock = crate::commands::native_playback::fallback_monotonic_frame_time();
+                                if let Ok(state) = runtime.tick(clock) {
+                                    return FrameTime::new(
+                                        state.presented_frame.unwrap_or(0),
+                                        state.audio_position_ticks,
+                                        DEFAULT_TIME_SCALE,
+                                    ).ok();
+                                }
+                            }
+                        }
+                    }
+                    None
+                })
             } else {
                 None
             };
@@ -1858,6 +1971,7 @@ mod tests {
             notify: tokio::sync::Notify::new(),
             running: AtomicBool::new(false),
             generation: AtomicU64::new(0),
+            last_interactive_preempt_epoch: AtomicU64::new(u64::MAX),
             worker: Mutex::new(None),
             configured_at: Instant::now(),
             ready_after_us: AtomicU64::new(0),
@@ -2078,6 +2192,53 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_pending_target_keeps_active_request_owner() {
+        let session = mock_session();
+        session.generation.store(10, Ordering::Release);
+
+        let mut first = mock_demand("scrub-target:op-11-1", 11);
+        first.cancellation_epoch = Some(10);
+        session.submit(first).expect("first target accepted");
+        let first_id = session
+            .pending
+            .lock()
+            .unwrap()
+            .internal_request_id
+            .clone()
+            .expect("first lifecycle ID");
+
+        let mut duplicate = mock_demand("scrub-target:op-11-2", 11);
+        duplicate.cancellation_epoch = Some(10);
+        let terminal = session
+            .submit(duplicate)
+            .expect("duplicate target accepted")
+            .expect("duplicate target terminalized");
+
+        assert_eq!(terminal.reason, "duplicate-mailbox");
+        assert_eq!(terminal.outcome, NativeDemandOutcome::Superseded);
+        let pending = session.pending.lock().unwrap();
+        assert_eq!(pending.internal_request_id.as_ref(), Some(&first_id));
+        assert_eq!(pending.value.as_ref().map(|d| d.generation), Some(Some(11)));
+
+        let registry = session.lifecycle_registry.lock().unwrap();
+        assert!(matches!(
+            registry.request_state(&first_id),
+            Ok(LifecycleState::Active)
+        ));
+        let duplicate_id = terminal
+            .lifecycle_request_id
+            .as_deref()
+            .and_then(|id| FrameRequestId::new(id).ok())
+            .expect("duplicate lifecycle ID");
+        assert!(matches!(
+            registry.request_state(&duplicate_id),
+            Ok(LifecycleState::Terminal(RequestTerminalDisposition::Superseded {
+                by_request_id
+            })) if by_request_id == &first_id
+        ));
+    }
+
+    #[test]
     fn generation_mismatch_coalesces_request() {
         let session = mock_session();
         session.generation.store(10, Ordering::Release);
@@ -2141,6 +2302,17 @@ mod tests {
         assert!(session.demand_requires_recency_barrier(13));
         assert!(!session.demand_requires_recency_barrier(12));
         assert!(!session.demand_requires_recency_barrier(11));
+    }
+
+    #[test]
+    fn interactive_preemption_is_once_per_cancellation_epoch() {
+        let session = mock_session();
+
+        session.generation.store(21, Ordering::Release);
+        assert!(!session.preempt_for_interactive_demand(20));
+        assert!(session.preempt_for_interactive_demand(21));
+        assert!(!session.preempt_for_interactive_demand(21));
+        assert!(session.preempt_for_interactive_demand(22));
     }
 
     #[test]

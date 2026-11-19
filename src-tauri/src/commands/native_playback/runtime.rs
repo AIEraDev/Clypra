@@ -78,6 +78,16 @@ impl NativePlaybackRuntime {
             .ok_or_else(|| "Native playback render snapshot is not configured".to_string())
     }
 
+    pub(crate) fn preempt_for_interactive_demand(
+        &self,
+        cancellation_epoch: u64,
+    ) -> Result<bool, String> {
+        self.render_session
+            .as_ref()
+            .map(|session| session.preempt_for_interactive_demand(cancellation_epoch))
+            .ok_or_else(|| "Native playback render snapshot is not configured".to_string())
+    }
+
     pub fn start_render(&self, app: AppHandle) {
         if let Some(session) = &self.render_session {
             session.start(app);
@@ -122,6 +132,9 @@ impl NativePlaybackRuntime {
     }
 
     pub fn configure(&mut self, plan: PlaybackPlan) -> Result<PlaybackState, NativeCoreError> {
+        if let Some(session) = &mut self.session {
+            return session.update_plan(plan);
+        }
         let session = PlaybackSession::new(plan)?;
         let state = session.state();
         self.session = Some(session);

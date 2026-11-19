@@ -224,6 +224,63 @@ fn test_handle_invalidation() {
 }
 
 #[tokio::test]
+async fn interactive_preemption_cancels_decode_without_discarding_prime_cache() {
+    let (urgent_tx, _urgent_rx) = mpsc::channel(1);
+    let (prefetch_tx, _prefetch_rx) = mpsc::channel(1);
+    let cancel_in_flight = Arc::new(AtomicBool::new(false));
+    let prime_cache = Arc::new(Mutex::new(VecDeque::new()));
+    prime_cache.lock().await.push_back(DecodedActorFrame {
+        time_secs: 1.0,
+        planes: DecodedVideoPlanes::Cpu {
+            y: Arc::from(vec![0u8; 16]),
+            uv: Arc::from(vec![0u8; 8]),
+        },
+        width: 4,
+        height: 4,
+        source_rotation: 0,
+        color: VideoColorMetadata::default(),
+        decode_us: 1,
+        decoder_mutex_wait_us: 0,
+        actor_wait_us: 0,
+        channel_enqueue_us: 0,
+        actor_queue_wait_us: 0,
+        from_prime_cache: false,
+        quality: QualityTier::Full,
+        is_approximate: false,
+        demux_us: 0,
+        container_format: "mp4".to_string(),
+        is_hardware_accelerated: false,
+        decoder_seek_time_us: 0,
+        decoder_seek_count: 0,
+        decoder_frames_decoded: 1,
+        hardware_frame_download_us: None,
+        scale_colorspace_us: 0,
+        hardware_frames_downloaded: 0,
+        source_metadata: VideoStreamMetadata::default(),
+        served_from: crate::native_core::performance::ServedFrom::DecodedInRequest,
+        hw_device_type: None,
+        served_count: 0,
+    });
+
+    let handle = StreamDecoderActorHandle {
+        key: "interactive-preemption".to_string(),
+        urgent_tx,
+        prefetch_tx,
+        current_generation: Arc::new(AtomicU64::new(7)),
+        cancel_in_flight: cancel_in_flight.clone(),
+        prime_cache: prime_cache.clone(),
+        frame_duration_secs: 1.0 / 30.0,
+        last_accessed_ms: Arc::new(AtomicU64::new(0)),
+    };
+
+    handle.preempt_background_decode();
+
+    assert!(cancel_in_flight.load(Ordering::Acquire));
+    assert_eq!(prime_cache.lock().await.len(), 1);
+    assert_eq!(handle.current_generation.load(Ordering::Acquire), 7);
+}
+
+#[tokio::test]
 async fn playback_uses_newest_eligible_cached_frame_without_seeking_back() {
     let (urgent_tx, _urgent_rx) = mpsc::channel(1);
     let (prefetch_tx, _prefetch_rx) = mpsc::channel(1);

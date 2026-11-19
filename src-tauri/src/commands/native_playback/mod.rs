@@ -450,6 +450,14 @@ pub async fn submit_native_playback_demand(
     };
     let state = runtime(&app)?;
     let generation = demand.cancellation_epoch.or(demand.generation).unwrap_or(0);
+    let interactive_demand = demand.is_scrubbing
+        || matches!(demand.mode.as_deref(), Some("scrub") | Some("seek"));
+    if interactive_demand {
+        let runtime = state
+            .lock()
+            .map_err(|_| "Native playback runtime lock is poisoned".to_string())?;
+        runtime.preempt_for_interactive_demand(generation)?;
+    }
     let requires_recency_barrier = {
         let runtime = state
             .lock()

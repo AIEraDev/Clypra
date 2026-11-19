@@ -299,6 +299,7 @@ mod tests {
             notify: tokio::sync::Notify::new(),
             running: AtomicBool::new(false),
             generation: AtomicU64::new(1),
+            last_interactive_preempt_epoch: AtomicU64::new(u64::MAX),
             worker: Mutex::new(None),
             configured_at: Instant::now(),
             ready_after_us: AtomicU64::new(0),
@@ -834,5 +835,30 @@ mod tests {
         assert_eq!(mat4.project.video_layers.len(), 1);
         assert_eq!(mat4.project.video_layers[0].layer_id, "track-2-clip");
         assert_eq!(mat4.project.video_layers[0].video_path, "/test/v2.mp4");
+    }
+
+    #[test]
+    fn configure_preserves_existing_seeked_position_and_state() {
+        let mut runtime = NativePlaybackRuntime::new();
+        runtime.configure(plan()).unwrap();
+        // User seeks to frame 15 (500_000 ticks)
+        let state_before = runtime.seek(15).unwrap();
+        assert_eq!(state_before.presented_frame, Some(15));
+        assert_eq!(state_before.audio_position_ticks, 500_000);
+
+        // Background update reconfigures playback with a new project revision
+        let updated_plan = PlaybackPlan {
+            contract_version: crate::native_core::NATIVE_CORE_CONTRACT_VERSION,
+            project_revision: "test:2".to_string(),
+            frame_rate: 30,
+            duration_frames: 60,
+            audio_track_count: 2,
+        };
+        let state_after = runtime.configure(updated_plan).unwrap();
+
+        // Must preserve the seeked position (15) and not reset to 0!
+        assert_eq!(state_after.presented_frame, Some(15));
+        assert_eq!(state_after.audio_position_ticks, 500_000);
+        assert_eq!(state_after.project_revision, "test:2");
     }
 }

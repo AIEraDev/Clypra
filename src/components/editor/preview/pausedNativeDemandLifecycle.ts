@@ -28,6 +28,7 @@ export function createNativeDemandOperationId(
 export interface PendingPausedNativeDemandIdentity {
   requestId: string;
   generation: number;
+  frameIndex?: number;
 }
 
 export function shouldFallbackForPausedNativeDemand(
@@ -46,6 +47,7 @@ export function shouldFallbackForPausedNativeDemand(
 export function shouldClearPendingPausedNativeDemandOnTerminal(terminal: {
   disposition: string;
   stage: string;
+  reason?: string;
 }): boolean {
   if (
     terminal.disposition === "presented" ||
@@ -53,20 +55,39 @@ export function shouldClearPendingPausedNativeDemandOnTerminal(terminal: {
   ) {
     return false;
   }
+  // A duplicate target is terminalized for accounting, but it deliberately
+  // does not own the mailbox. The original request remains active and will
+  // emit the presentation acknowledgement that settles the frontend owner.
+  if (terminal.reason === "duplicate-mailbox") {
+    return false;
+  }
   return terminal.disposition === "superseded" || terminal.stage === "presentation";
 }
 
 /**
  * Native surface events are asynchronous and may arrive after a newer seek.
- * Only the exact operation that installed the pending slot may settle it.
+ * Exact operation IDs settle normally; when the native mailbox intentionally
+ * retains an older duplicate target, the same target base/frame/generation may
+ * settle the replacement frontend owner without accepting a stale frame.
  */
 export function matchesPausedNativeDemand(
   pending: PendingPausedNativeDemandIdentity | null,
-  presentation: Pick<NativeSurfacePresentation, "requestId" | "generation">,
+  presentation: Pick<NativeSurfacePresentation, "requestId" | "generation"> & {
+    frameIndex?: number;
+  },
 ): boolean {
+  const targetOf = (requestId: string): string =>
+    requestId.split(":op-", 1)[0] ?? requestId;
+  const sameRetainedTarget =
+    pending !== null &&
+    pending.frameIndex !== undefined &&
+    presentation.frameIndex === pending.frameIndex &&
+    targetOf(presentation.requestId) === targetOf(pending.requestId);
+
   return (
     pending !== null &&
-    presentation.requestId === pending.requestId &&
+    (presentation.requestId === pending.requestId ||
+      sameRetainedTarget) &&
     (presentation.generation === undefined ||
       presentation.generation === pending.generation)
   );
