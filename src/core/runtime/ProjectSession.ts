@@ -105,6 +105,14 @@ type SessionCloseTimings = Partial<Record<SessionCloseStage, number>>;
 const CRITICAL_NATIVE_RASTER_BOUNDARIES = 1;
 
 /**
+ * Guards audio-prewarm cold-start telemetry so it fires at most once per
+ * process lifetime (matches the hasRecordedAudioSync pattern in
+ * nativeAudioTimeline.ts). Reset is intentionally NOT exposed — the prewarm
+ * window is only meaningful for the first project open after process launch.
+ */
+let _hasRecordedAudioPrewarm = false;
+
+/**
  * Project Session State
  */
 export type SessionState = "initializing" | "active" | "disposing" | "disposed";
@@ -437,13 +445,15 @@ export class ProjectSession {
         }
       });
 
-      // Browser audio is decoded before the session becomes active, matching
-      // the existing text/image session prewarm. Native CPAL already decodes
-      // the complete native graph in NativeAudioPreviewController.initialize.
       if (!isTauriRuntime()) {
         this._onInitializationProgress?.(0.45, "Prewarming audio…");
         await this._measureInitializationStage("audio-prewarm", () =>
           this._prewarmAudioAssets(),
+        );
+      } else {
+        this._onInitializationProgress?.(0.45, "Preparing audio graph…");
+        await this._measureInitializationStage("audio-prewarm", () =>
+          this._prewarmNativeAudioGraph(),
         );
       }
 
@@ -1295,6 +1305,146 @@ export class ProjectSession {
         loaded: result.loaded,
         failed: result.failed,
       });
+    }
+  }
+
+  private async _prewarmNativeAudioGraph(): Promise<void> {
+    const projectStore = await import("@/store/projectStore");
+    const timelineStore = await import("@/store/timelineStore");
+    const project = projectStore.useProjectStore.getState().project;
+    if (!project || project.id !== this.projectId) return;
+
+    const { clips, tracks } = timelineStore.useTimelineStore.getState();
+    const assets = projectStore.useProjectStore.getState().mediaAssets;
+    const { syncNativeAudioTimeline } = await import(
+      "@/core/audio/nativeAudioTimeline"
+    );
+    const { configureNativePlayback } = await import("@/lib/platform/tauri");
+    const { NATIVE_CORE_CONTRACT_VERSION } = await import(
+      "@/lib/platform/nativeCore"
+    );
+
+    const timelineDuration = clips.reduce(
+      (max, clip) => Math.max(max, clip.startTime + clip.duration),
+      0,
+    );
+    const frameRate = Math.max(1, Math.round(project.frameRate || 30));
+    const durationFrames = Math.max(1, Math.ceil(timelineDuration * frameRate));
+    const audioTrackCount = tracks.filter((t) => t.type === "audio").length;
+
+    const tPrewarmStart = performance.now();
+    let tSyncEnd = tPrewarmStart;
+    let prewarmOk = false;
+
+    try {
+      // ── IPC span 1: syncNativeAudioTimeline (audio decode + CPAL install) ──
+      await syncNativeAudioTimeline(
+        clips,
+        tracks,
+        assets,
+        0,
+        timelineDuration,
+      );
+      tSyncEnd = performance.now();
+
+      // ── IPC span 2: configureNativePlayback (session plan + pipeline warmup) ──
+      const tConfigureStart = performance.now();
+      await configureNativePlayback({
+        contractVersion: NATIVE_CORE_CONTRACT_VERSION,
+        projectRevision: `${project.id}:init`,
+        frameRate,
+        durationFrames,
+        audioTrackCount,
+      });
+      const tConfigureEnd = performance.now();
+
+      prewarmOk = true;
+
+      // ── Telemetry: emit cold-start spans (once per process lifetime) ──
+      if (
+        !_hasRecordedAudioPrewarm &&
+        typeof window !== "undefined" &&
+        (window as any).__clypraProjectOpenRequestedWallMs
+      ) {
+        _hasRecordedAudioPrewarm = true;
+        const { recordColdStartSpan } = await import("@/lib/platform/tauri");
+
+        performance.mark("clypra:audio_prewarm_sync_complete");
+
+        // Sub-span A — syncNativeAudioTimeline IPC duration
+        void recordColdStartSpan(
+          "s2_audio_prewarm_sync_timeline",
+          Math.round(tPrewarmStart * 1000),
+          Math.round((tSyncEnd - tPrewarmStart) * 1000),
+          0,
+          false,
+          true,
+          "audio",
+        );
+
+        // Sub-span B — configureNativePlayback IPC duration
+        void recordColdStartSpan(
+          "s2_audio_prewarm_configure_playback",
+          Math.round(tConfigureStart * 1000),
+          Math.round((tConfigureEnd - tConfigureStart) * 1000),
+          0,
+          false,
+          true,
+          "audio",
+        );
+
+        // Aggregate span — total prewarm stage (both IPCs end-to-end)
+        void recordColdStartSpan(
+          "s2_audio_prewarm_total",
+          Math.round(tPrewarmStart * 1000),
+          Math.round((tConfigureEnd - tPrewarmStart) * 1000),
+          0,
+          false,
+          true,
+          "audio",
+        );
+      }
+    } catch (error) {
+      console.warn("[ProjectSession] Native audio prewarm warning:", error);
+
+      // Partial telemetry: record whatever completed before the failure so
+      // analysis can identify which IPC is the bottleneck.
+      if (
+        !_hasRecordedAudioPrewarm &&
+        typeof window !== "undefined" &&
+        (window as any).__clypraProjectOpenRequestedWallMs
+      ) {
+        _hasRecordedAudioPrewarm = true;
+        const { recordColdStartSpan } = await import("@/lib/platform/tauri");
+        const tErrorAt = performance.now();
+
+        // If sync completed before failure, record it.
+        if (tSyncEnd > tPrewarmStart) {
+          void recordColdStartSpan(
+            "s2_audio_prewarm_sync_timeline",
+            Math.round(tPrewarmStart * 1000),
+            Math.round((tSyncEnd - tPrewarmStart) * 1000),
+            0,
+            false,
+            true,
+            "audio",
+          );
+        }
+
+        // Total span — marked with error flag via console but duration still
+        // gives us the wall-clock cost up to failure.
+        void recordColdStartSpan(
+          "s2_audio_prewarm_total",
+          Math.round(tPrewarmStart * 1000),
+          Math.round((tErrorAt - tPrewarmStart) * 1000),
+          1, // errorCount=1
+          false,
+          true,
+          "audio",
+        );
+      }
+
+      void prewarmOk; // suppress unused-variable lint
     }
   }
 
