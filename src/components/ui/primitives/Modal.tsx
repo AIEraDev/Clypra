@@ -41,14 +41,12 @@ export const Modal: React.FC<ModalProps> = ({
 
   if (!isOpen) return null;
 
-  const maxW =
+  const sizeClass =
     size === "xl"
-      ? "max-w-[960px]"
+      ? "w-[96vw] md:w-[92vw] max-w-[1100px] h-[92vh] max-h-[92vh]"
       : size === "lg"
-        ? "max-w-[680px]"
-        : "max-w-md";
-  const dialogH =
-    size === "xl" ? "h-[90vh]" : size === "lg" ? "h-[85vh]" : "h-auto";
+        ? "w-[94vw] md:w-[90vw] max-w-[680px] h-[85vh] max-h-[85vh]"
+        : "w-[94vw] md:w-[90vw] max-w-md max-h-[85vh] h-auto";
 
   return (
     <div className="fixed inset-0 z-10000 flex items-center justify-center p-2 sm:p-4">
@@ -62,7 +60,7 @@ export const Modal: React.FC<ModalProps> = ({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`relative ${maxW} ${dialogH} w-[94vw] md:w-[90vw] max-h-[85vh] overflow-hidden rounded-xl border border-border bg-surface shadow-2xl animate-in zoom-in-95 fade-in duration-150 flex flex-col`}
+        className={`relative ${sizeClass} overflow-hidden rounded-xl border border-border bg-surface shadow-2xl animate-in zoom-in-95 fade-in duration-150 flex flex-col`}
         style={{
           boxShadow:
             "0 0 0 1px rgba(255,255,255,0.04), 0 24px 64px rgba(0,0,0,0.55)",
