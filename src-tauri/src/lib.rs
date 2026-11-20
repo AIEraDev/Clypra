@@ -13,6 +13,7 @@ pub mod clymatte;
 pub mod cold_start;
 pub mod commands;
 pub mod diagnostics;
+pub mod disk_cache;
 pub mod engine;
 pub mod filmstrip_engine;
 pub mod golden_harness;
@@ -394,10 +395,14 @@ pub fn run() {
                 });
             }
 
-            // Initialize filmstrip tile engine (atlas, disk cache, decode queue)
+            // Initialize unified multi-tier disk cache and filmstrip tile engine
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Ok(dir) = handle.path().app_cache_dir() {
+                    let unified_dir = dir.join("clypra_cache");
+                    let cache_mgr = disk_cache::init_global_disk_cache(unified_dir);
+                    let _ = cache_mgr.migrate_legacy_folders(&dir).await;
+                    let _ = cache_mgr.verify_integrity().await;
                     let _ = init_filmstrip_engine(dir).await;
                 }
             });
@@ -722,6 +727,10 @@ pub fn run() {
             clear_disk_cache,
             set_cache_size_limit,
             get_cache_size_limit,
+            get_unified_cache_stats,
+            set_unified_cache_limit,
+            purge_unified_cache,
+            verify_cache_integrity,
             // Video export commands
             start_video_export,
             write_export_frame,

@@ -33,6 +33,7 @@ pub mod security;
 pub mod silence_detector;
 pub mod sync_metrics;
 pub mod transfer;
+pub mod unified_cache;
 pub mod whisper;
 
 pub use ai::*;
@@ -60,4 +61,5 @@ pub use security::*;
 pub use silence_detector::*;
 pub use sync_metrics::*;
 pub use transfer::*;
+pub use unified_cache::*;
 pub use whisper::*;
