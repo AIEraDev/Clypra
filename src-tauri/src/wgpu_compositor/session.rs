@@ -415,11 +415,6 @@ impl NativePreviewSession {
         params: &ColorTransformUniforms,
         label: &'static str,
     ) -> Result<Arc<wgpu::Texture>, super::render_path::PreviewRenderError> {
-        if !self.gpu.capabilities.wgpu_nv12 {
-            return Err(super::render_path::PreviewRenderError::UnsupportedFeature(
-                "TEXTURE_FORMAT_NV12 is not supported on this adapter".to_string(),
-            ));
-        }
         if source_width == 0 || source_height == 0 {
             return Err(super::render_path::PreviewRenderError::DimensionMismatch {
                 expected: (1, 1),

@@ -349,19 +349,6 @@ pub fn import_into_wgpu(
 
     let attempt_start = Instant::now();
 
-    if !device.features().contains(wgpu::Features::TEXTURE_FORMAT_NV12) {
-        log::warn!("Metal zero-copy import skipped: device does not support TEXTURE_FORMAT_NV12");
-        let attempt_duration_ns = attempt_start.elapsed().as_nanos() as u64;
-        record_attempt(MetalAttemptMetadata {
-            attempted_at: attempt_start,
-            success: false,
-            failure_reason: Some(MetalFailureReason::UnsupportedFormat),
-            cv_status: None,
-            attempt_duration_ns,
-        });
-        return Err(MetalFailureReason::UnsupportedFormat);
-    }
-
     let pixel_buffer = shared.pixel_buffer;
     let width = shared.width;
     let height = shared.height;

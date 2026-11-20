@@ -1571,7 +1571,7 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
     #[cfg(target_os = "macos")]
     if can_use_metal {
         if let Some((frames, max_dec_us, total_wait_us)) = metal_frames_result {
-            if session.gpu.capabilities.wgpu_nv12 {
+            {
                 use crate::wgpu_compositor::metal_import;
                 let mut import_all_ok = true;
                 for (layer, (shared, width, height, color)) in
