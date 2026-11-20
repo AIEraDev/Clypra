@@ -74,6 +74,7 @@ vi.mock("@/core/runtime/nativeSurfaceLifecycle", () => ({
 
 vi.mock("@/core/preview/previewRepaintCoordinator", () => ({
   forceRepaintNativeProgramPreview: vi.fn(),
+  wakeNativeProgramPreviewRenderLoop: vi.fn(),
 }));
 
 // ─── Mock platform ────────────────────────────────────────────────────────

@@ -58,6 +58,21 @@ jobs:
         with:
           targets: ${{ matrix.platform.target }}
 
+      - name: Configure MSVC environment for CMake
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Pin MSVC compiler for CMake
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $cl = (Get-Command cl.exe -ErrorAction Stop).Source
+          "CMAKE_C_COMPILER=$cl" >> $env:GITHUB_ENV
+          "CMAKE_CXX_COMPILER=$cl" >> $env:GITHUB_ENV
+          "CMAKE_ASM_COMPILER=$cl" >> $env:GITHUB_ENV
+
       # ── macOS Dependencies & FFmpeg ─────────────────────────────────────────
       - name: Install System Dependencies (macOS)
         if: runner.os == 'macOS'
