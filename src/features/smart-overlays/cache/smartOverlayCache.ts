@@ -25,7 +25,7 @@ export interface CachedSmartOverlay {
   isCustom?: boolean;
 }
 
-const CACHE_DIR = "smart-overlays";
+const CACHE_DIR = "clypra_cache/assets/smart-overlays";
 const CACHE_INDEX_FILE = "index.json";
 
 function sanitizeFileName(name: string): string {

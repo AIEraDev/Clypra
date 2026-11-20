@@ -28,7 +28,7 @@ export interface CachedSticker {
   isStarter?: boolean;
 }
 
-const CACHE_DIR = "stickers";
+const CACHE_DIR = "clypra_cache/assets/stickers";
 const CACHE_INDEX_FILE = "index.json";
 const MAX_CACHE_BYTES = 50 * 1024 * 1024; // 50 MiB LRU cap
 
