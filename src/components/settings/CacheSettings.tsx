@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Trash2,
   HardDrive,
   RefreshCw,
   AlertCircle,
   CheckCircle,
-  Cloud,
   Database,
   Music2,
   Layers,
@@ -14,21 +13,55 @@ import {
   ChevronDown,
   Sparkles,
   LayoutTemplate,
+  ShieldCheck,
 } from "lucide-react";
 import { useCacheManager } from "@/hooks/useCacheManager";
 import { TextEffectsCacheManager } from "@/features/text-effects/cache/cacheManager";
 import { TextTemplatesCacheManager } from "@/features/text-templates/cache/cacheManager";
 import { useAudioLibraryStore } from "@/features/audio-library/store/audioLibraryStore";
 import { useSettingsStore } from "@/store/settingsStore";
-import { invoke } from "@tauri-apps/api/core";
 import { isTauriRuntime } from "@/lib/platform/tauri";
 import {
   filmstripTelemetry,
   type FilmstripSessionSummary,
 } from "@/lib/filmstrip/filmstripTelemetry";
 import { toast } from "@/lib/toast";
+import { useUnifiedCache, type IntegrityReport } from "@/hooks/useUnifiedCache";
 
 export const CacheSettings: React.FC = () => {
+  // ---------------------------------------------------------------------------
+  // Unified cache hook — disk stats + IPC commands via useUnifiedCache
+  // ---------------------------------------------------------------------------
+  const {
+    stats: unifiedStats,
+    memoryStats,
+    isLoading: isUnifiedLoading,
+    refresh: refreshUnified,
+    setLimit: setUnifiedLimit,
+    purge: purgeUnified,
+    verifyIntegrity,
+  } = useUnifiedCache();
+
+  const [integrityReport, setIntegrityReport] = useState<IntegrityReport | null>(null);
+  const [isVerifyingIntegrity, setIsVerifyingIntegrity] = useState(false);
+  const [diskLimitGb, setDiskLimitGb] = useState<string>("5");
+  const [isClearingFilmstrip, setIsClearingFilmstrip] = useState(false);
+
+  // Sync diskLimitGb dropdown when unified stats load
+  useEffect(() => {
+    if (unifiedStats) {
+      if (unifiedStats.limitBytes === 0) {
+        setDiskLimitGb("0");
+      } else {
+        const gb = Math.round(unifiedStats.limitBytes / (1024 * 1024 * 1024));
+        setDiskLimitGb(String(gb));
+      }
+    }
+  }, [unifiedStats]);
+
+  // ---------------------------------------------------------------------------
+  // General / legacy hooks
+  // ---------------------------------------------------------------------------
   const {
     isClearing,
     cacheInfo,
@@ -68,64 +101,31 @@ export const CacheSettings: React.FC = () => {
   });
   const [isClearingAudio, setIsClearingAudio] = useState(false);
 
-  const [filmstripDiskStats, setFilmstripDiskStats] = useState<{
-    total_bytes: number;
-    atlas_count: number;
-    cache_dir: string;
-    limit_bytes: number;
-    hit_rate_pct: number;
-  } | null>(null);
-  const [isClearingFilmstrip, setIsClearingFilmstrip] = useState(false);
-  const [filmstripLimitGb, setFilmstripLimitGb] = useState<string>("5");
   const [telemetrySummary, setTelemetrySummary] =
     useState<FilmstripSessionSummary>(filmstripTelemetry.getSummary());
 
-  const loadFilmstripStats = async () => {
-    if (isTauriRuntime()) {
-      try {
-        const stats = await invoke<any>("get_disk_cache_stats");
-        setFilmstripDiskStats(stats);
-        if (stats.limit_bytes === 0) {
-          setFilmstripLimitGb("0");
-        } else {
-          const gb = Math.round(stats.limit_bytes / (1024 * 1024 * 1024));
-          setFilmstripLimitGb(String(gb));
-        }
-      } catch (e) {
-        console.warn(
-          "[CacheSettings] Failed to fetch filmstrip disk stats:",
-          e,
-        );
-      }
-    }
+  /** Refresh telemetry summary snapshot. */
+  const loadTelemetrySummary = useCallback(() => {
     setTelemetrySummary(filmstripTelemetry.getSummary());
-  };
+  }, []);
 
   useEffect(() => {
-    loadFilmstripStats();
-  }, []);
+    loadTelemetrySummary();
+  }, [loadTelemetrySummary]);
+
+  // ---------------------------------------------------------------------------
+  // Unified disk cache actions (replace old clear_disk_cache / set_cache_size_limit)
+  // ---------------------------------------------------------------------------
 
   const handleClearFilmstripCache = async () => {
     setIsClearingFilmstrip(true);
     try {
-      if (isTauriRuntime()) {
-        const purgedCount = await invoke<number>("clear_disk_cache");
-        filmstripTelemetry.clear();
-        await loadFilmstripStats();
-        const msg = `Filmstrip & media disk cache purged (${purgedCount} atlas files deleted)`;
-        setApiCacheStatus({
-          type: "success",
-          message: msg,
-        });
-        toast.success(msg);
-      } else {
-        filmstripTelemetry.clear();
-        setApiCacheStatus({
-          type: "success",
-          message: "Filmstrip cache reset",
-        });
-        toast.success("Filmstrip cache reset");
-      }
+      await purgeUnified({ namespaces: ["thumbnails"] });
+      filmstripTelemetry.clear();
+      loadTelemetrySummary();
+      const msg = "Filmstrip & media disk cache purged";
+      setApiCacheStatus({ type: "success", message: msg });
+      toast.success(msg);
       setTimeout(() => setApiCacheStatus(null), 3000);
     } catch (e) {
       setApiCacheStatus({
@@ -139,21 +139,38 @@ export const CacheSettings: React.FC = () => {
     }
   };
 
-  const handleSetFilmstripLimit = async (val: string) => {
-    setFilmstripLimitGb(val);
+  const handleSetDiskLimit = async (val: string) => {
+    setDiskLimitGb(val);
     const gb = Number(val);
     const limitBytes = gb === 0 ? 0 : gb * 1024 * 1024 * 1024;
-    if (isTauriRuntime()) {
-      try {
-        await invoke("set_cache_size_limit", { limitBytes });
-        await loadFilmstripStats();
-        toast.success(
-          `Cache size limit set to ${gb === 0 ? "Unlimited" : `${gb} GB`}`,
-        );
-      } catch (e) {
-        console.error("Failed to set cache limit:", e);
-        toast.error("Failed to set cache limit");
+    try {
+      await setUnifiedLimit(limitBytes);
+      toast.success(
+        `Cache size limit set to ${gb === 0 ? "Unlimited" : `${gb} GB`}`,
+      );
+    } catch (e) {
+      console.error("Failed to set cache limit:", e);
+      toast.error("Failed to set cache limit");
+    }
+  };
+
+  const handleVerifyIntegrity = async () => {
+    setIsVerifyingIntegrity(true);
+    try {
+      const report = await verifyIntegrity();
+      setIntegrityReport(report);
+      if (report) {
+        if (report.quarantinedFiles === 0 && report.errors.length === 0) {
+          toast.success("Cache integrity verified — no issues found");
+        } else {
+          toast.error(`${report.quarantinedFiles} integrity issues found`);
+        }
       }
+    } catch (e) {
+      console.error("[CacheSettings] Integrity verification failed:", e);
+      toast.error("Integrity verification failed");
+    } finally {
+      setIsVerifyingIntegrity(false);
     }
   };
 
@@ -513,7 +530,202 @@ export const CacheSettings: React.FC = () => {
         </button>
       </section>
 
-      {/* Filmstrip & Media Pipeline Disk Cache */}
+      {/* Unified Disk Cache Breakdown */}
+      <section className="space-y-2.5 pt-4 border-t border-white/6">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Disk Cache</h3>
+            <p className="text-[10px] text-text-muted mt-0.5">Unified disk storage across all media pipeline namespaces.</p>
+          </div>
+          <button
+            onClick={refreshUnified}
+            disabled={isUnifiedLoading}
+            title="Refresh disk cache stats"
+            className="p-1.5 rounded-lg hover:bg-surface-raised/50 text-text-muted hover:text-text-primary transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isUnifiedLoading ? "animate-spin" : ""}`} />
+          </button>
+        </div>
+
+        {/* Storage breakdown bar */}
+        {unifiedStats && unifiedStats.totalBytes > 0 && (
+          <div className="rounded-xl bg-surface-raised/40 border border-white/5 p-3.5 space-y-3">
+            {/* Total + limit */}
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-text-muted">Total used</span>
+              <span className="text-text-primary font-semibold">
+                {(unifiedStats.totalBytes / (1024 * 1024)).toFixed(0)} MB
+                {unifiedStats.limitBytes > 0 && (
+                  <span className="text-text-muted font-normal">
+                    {" "}/ {(unifiedStats.limitBytes / (1024 * 1024 * 1024)).toFixed(0)} GB
+                  </span>
+                )}
+              </span>
+            </div>
+
+            {/* Progress bar */}
+            {unifiedStats.limitBytes > 0 && (
+              <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-accent transition-all"
+                  style={{ width: `${Math.min(100, (unifiedStats.totalBytes / unifiedStats.limitBytes) * 100).toFixed(1)}%` }}
+                />
+              </div>
+            )}
+
+            {/* Per-namespace breakdown */}
+            <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+              {(
+                [
+                  { key: "thumbnails", label: "Thumbnails & Filmstrips", color: "text-blue-400" },
+                  { key: "audio",      label: "Audio Stems",             color: "text-purple-400" },
+                  { key: "proxies",    label: "Video Proxies",           color: "text-green-400" },
+                  { key: "mattes",     label: "AI Mattes",               color: "text-orange-400" },
+                  { key: "assets",     label: "Asset Library",           color: "text-cyan-400" },
+                  { key: "temp",       label: "Temp / Scratch",          color: "text-text-muted" },
+                ] as const
+              ).map(({ key, label, color }) => {
+                const bytes = unifiedStats.namespaceBytes[key] ?? 0;
+                if (bytes === 0) return null;
+                return (
+                  <div key={key} className="flex items-center gap-1.5">
+                    <span className={`${color} shrink-0`}>■</span>
+                    <span className="text-text-muted truncate">{label}</span>
+                    <span className="text-text-primary font-medium ml-auto pl-1 shrink-0">
+                      {(bytes / (1024 * 1024)).toFixed(0)} MB
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Stats row */}
+            <div className="flex items-center gap-4 pt-2 border-t border-white/5 text-[10px] text-text-muted">
+              <span>Hit rate: <span className="text-text-primary font-medium">{unifiedStats.hitRatePct.toFixed(1)}%</span></span>
+              <span>Evictions: <span className="text-text-primary font-medium">{unifiedStats.evictionCount}</span></span>
+            </div>
+          </div>
+        )}
+
+        {/* In-memory tier breakdown */}
+        {memoryStats.totalBytesUsed > 0 && (
+          <div className="rounded-xl bg-surface-raised/30 border border-white/5 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <Gauge className="w-3.5 h-3.5 text-accent" />
+              <span className="text-[11px] font-semibold text-text-primary">In-Memory Cache</span>
+              <span className="ml-auto text-[10px] text-text-muted">
+                {(memoryStats.totalBytesUsed / (1024 * 1024)).toFixed(0)} MB
+                {" "}/ {(memoryStats.maxBudgetBytes / (1024 * 1024)).toFixed(0)} MB budget
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+              {(["memory", "gpu"] as const).map((tier) => {
+                const bytes = memoryStats.tierBytes[tier] ?? 0;
+                if (bytes === 0) return null;
+                return (
+                  <div key={tier} className="flex items-center justify-between bg-surface-raised/40 rounded-lg px-2.5 py-1.5 border border-white/5">
+                    <span className="text-text-muted capitalize">{tier === "gpu" ? "GPU VRAM" : "RAM"}</span>
+                    <span className="text-text-primary font-medium">{(bytes / (1024 * 1024)).toFixed(0)} MB</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Disk quota selector */}
+        <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-surface-raised/30 border border-white/5">
+          <span className="text-[11px] text-text-muted">Disk Cache Limit</span>
+          <select
+            value={diskLimitGb}
+            onChange={(e) => handleSetDiskLimit(e.target.value)}
+            className="bg-surface-raised/80 border border-white/10 rounded-lg px-2.5 py-1 text-text-primary text-[11px] focus:outline-none focus:border-accent/40 cursor-pointer"
+          >
+            <option value="1">1 GB</option>
+            <option value="2">2 GB</option>
+            <option value="5">5 GB — Recommended</option>
+            <option value="10">10 GB</option>
+            <option value="25">25 GB</option>
+            <option value="50">50 GB</option>
+            <option value="0">Unlimited</option>
+          </select>
+        </div>
+
+        {/* Integrity report */}
+        {integrityReport && (
+          <div className={`flex items-start gap-2.5 p-3 rounded-lg border text-xs ${
+            integrityReport.quarantinedFiles === 0 && integrityReport.errors.length === 0
+              ? "bg-green-500/10 border-green-500/25 text-green-400"
+              : "bg-red-500/10 border-red-500/25 text-red-400"
+          }`}>
+            {integrityReport.quarantinedFiles === 0 && integrityReport.errors.length === 0
+              ? <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              : <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
+            <div>
+              {integrityReport.quarantinedFiles === 0 && integrityReport.errors.length === 0
+                ? <p>Cache integrity verified — {integrityReport.scannedFiles} files scanned, no issues.</p>
+                : <p>{integrityReport.quarantinedFiles} integrity issues found ({(integrityReport.quarantinedBytes / 1024).toFixed(0)} KB quarantined).</p>}
+            </div>
+          </div>
+        )}
+
+        {/* Per-namespace purge buttons + verify */}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={handleClearFilmstripCache}
+            disabled={isClearingFilmstrip || isUnifiedLoading}
+            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-surface-raised/30 hover:bg-surface-raised/50 border border-white/5 hover:border-red-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          >
+            <div className="shrink-0">
+              {isClearingFilmstrip ? <RefreshCw className="w-3.5 h-3.5 text-red-400 animate-spin" /> : <Film className="w-3.5 h-3.5 text-red-400" />}
+            </div>
+            <div className="text-left min-w-0">
+              <div className="text-[11px] font-medium text-text-primary">Purge Filmstrips</div>
+              <div className="text-[9px] text-text-muted">Thumbnails namespace</div>
+            </div>
+          </button>
+
+          <button
+            onClick={async () => {
+              try {
+                await purgeUnified({ namespaces: ["proxies"] });
+                toast.success("Video proxies purged");
+              } catch {
+                toast.error("Failed to purge proxies");
+              }
+            }}
+            disabled={isUnifiedLoading}
+            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-surface-raised/30 hover:bg-surface-raised/50 border border-white/5 hover:border-red-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          >
+            <Layers className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+            <div className="text-left min-w-0">
+              <div className="text-[11px] font-medium text-text-primary">Purge Proxies</div>
+              <div className="text-[9px] text-text-muted">Preview proxy namespace</div>
+            </div>
+          </button>
+        </div>
+
+        {/* Verify integrity */}
+        {isTauriRuntime() && (
+          <button
+            onClick={handleVerifyIntegrity}
+            disabled={isVerifyingIntegrity}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-surface-raised/30 hover:bg-surface-raised/50 border border-white/5 hover:border-accent/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          >
+            <div className="w-8 h-8 rounded-lg bg-accent/15 flex items-center justify-center shrink-0">
+              {isVerifyingIntegrity
+                ? <RefreshCw className="w-4 h-4 text-accent animate-spin" />
+                : <ShieldCheck className="w-4 h-4 text-accent" />}
+            </div>
+            <div className="text-left flex-1">
+              <div className="text-[12px] font-medium text-text-primary">Verify Integrity</div>
+              <div className="text-[10px] text-text-muted">Scan for corrupted or orphaned cache files</div>
+            </div>
+          </button>
+        )}
+      </section>
+
+      {/* Filmstrip & Media Pipeline Disk Cache (telemetry) */}
       <section className="space-y-2.5 pt-4 border-t border-white/6">
         <div className="flex items-start justify-between gap-2">
           <div>
@@ -521,7 +733,7 @@ export const CacheSettings: React.FC = () => {
             <p className="text-[10px] text-text-muted mt-0.5">High-performance WebP atlases and persistent timeline frames.</p>
           </div>
           <button
-            onClick={loadFilmstripStats}
+            onClick={loadTelemetrySummary}
             title="Refresh Filmstrip Stats"
             className="p-1.5 rounded-lg hover:bg-surface-raised/50 text-text-muted hover:text-text-primary transition-colors cursor-pointer shrink-0"
           >
@@ -538,17 +750,17 @@ export const CacheSettings: React.FC = () => {
             <div className="bg-surface-raised/60 rounded-lg p-2.5 border border-white/5">
               <div className="text-text-muted text-[10px] mb-1">Disk Usage</div>
               <div className="text-text-primary font-semibold">
-                {filmstripDiskStats ? `${(filmstripDiskStats.total_bytes / (1024 * 1024)).toFixed(1)} MB` : "0.0 MB"}
+                {unifiedStats ? `${(( unifiedStats.namespaceBytes["thumbnails"] ?? 0) / (1024 * 1024)).toFixed(1)} MB` : "0.0 MB"}
               </div>
             </div>
             <div className="bg-surface-raised/60 rounded-lg p-2.5 border border-white/5">
-              <div className="text-text-muted text-[10px] mb-1">WebP Atlases</div>
-              <div className="text-text-primary font-semibold">{filmstripDiskStats ? filmstripDiskStats.atlas_count : 0} files</div>
+              <div className="text-text-muted text-[10px] mb-1">Atlas Files</div>
+              <div className="text-text-primary font-semibold">{unifiedStats?.namespaceCounts?.["thumbnails"] ?? 0} files</div>
             </div>
             <div className="bg-surface-raised/60 rounded-lg p-2.5 border border-white/5">
               <div className="text-text-muted text-[10px] mb-1">Hit Rate</div>
               <div className="text-text-primary font-semibold">
-                {filmstripDiskStats ? `${filmstripDiskStats.hit_rate_pct.toFixed(1)}%` : "0.0%"}
+                {unifiedStats ? `${unifiedStats.hitRatePct.toFixed(1)}%` : "0.0%"}
               </div>
             </div>
             <div className="bg-surface-raised/60 rounded-lg p-2.5 border border-white/5">
@@ -557,21 +769,6 @@ export const CacheSettings: React.FC = () => {
                 {telemetrySummary.avgTimeToVisibleMs > 0 ? `${telemetrySummary.avgTimeToVisibleMs.toFixed(1)} ms` : "< 10 ms"}
               </div>
             </div>
-          </div>
-
-          <div className="flex items-center justify-between pt-2 border-t border-white/5">
-            <span className="text-[10px] text-text-muted">Disk Cache Limit</span>
-            <select
-              value={filmstripLimitGb}
-              onChange={(e) => handleSetFilmstripLimit(e.target.value)}
-              className="bg-surface-raised/80 border border-white/10 rounded-lg px-2.5 py-1 text-text-primary text-[11px] focus:outline-none focus:border-accent/40 cursor-pointer"
-            >
-              <option value="1">1 GB — Conservative</option>
-              <option value="5">5 GB — Recommended</option>
-              <option value="10">10 GB — High Performance</option>
-              <option value="20">20 GB — Heavy Timeline</option>
-              <option value="0">Unlimited</option>
-            </select>
           </div>
         </div>
 
