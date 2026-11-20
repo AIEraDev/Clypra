@@ -81,6 +81,10 @@ pub struct UnifiedCacheStats {
     pub hit_rate_pct: f64,
     pub eviction_count: u64,
     pub root_dir: String,
+    #[serde(default)]
+    pub mmap_cache_bytes: u64,
+    #[serde(default)]
+    pub mmap_slot_count: usize,
 }
 
 /// Parameters for targeted or bulk cache purge operations.
@@ -105,4 +109,12 @@ pub struct IntegrityReport {
     pub quarantined_files: usize,
     pub quarantined_bytes: u64,
     pub errors: Vec<String>,
+}
+
+/// Summary report after executing a cache compaction and defragmentation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompactionReport {
+    pub reclaimed_bytes: u64,
+    pub removed_orphans: usize,
+    pub scanned_files: usize,
 }

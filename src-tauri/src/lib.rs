@@ -731,6 +731,7 @@ pub fn run() {
             set_unified_cache_limit,
             purge_unified_cache,
             verify_cache_integrity,
+            compact_unified_cache,
             // Video export commands
             start_video_export,
             write_export_frame,

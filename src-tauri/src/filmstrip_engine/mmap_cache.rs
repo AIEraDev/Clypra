@@ -1,5 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 use memmap2::{MmapMut, MmapOptions};
+use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -235,6 +236,43 @@ impl MmapFrameCache {
             }
         }
         lru_slot
+    }
+}
+
+/// Global singleton instance for timeline scrub mmap frame cache
+pub static GLOBAL_MMAP_CACHE: Lazy<RwLock<Option<MmapFrameCache>>> =
+    Lazy::new(|| RwLock::new(None));
+
+/// Initialize the global memory-mapped scrub cache.
+pub fn init_global_mmap_cache(
+    cache_dir: PathBuf,
+    max_width: u32,
+    max_height: u32,
+    slot_count: usize,
+) -> Result<(), String> {
+    let cache = MmapFrameCache::new(cache_dir, max_width, max_height, slot_count)?;
+    let mut lock = GLOBAL_MMAP_CACHE.write();
+    *lock = Some(cache);
+    Ok(())
+}
+
+/// Retrieve live telemetry for the global mmap scrub cache: (total_allocated_bytes, valid_cached_frames).
+pub fn get_global_mmap_cache_stats() -> (u64, usize) {
+    let lock = GLOBAL_MMAP_CACHE.read();
+    if let Some(ref cache) = *lock {
+        let bytes = (cache.slot_size * cache.slot_count) as u64;
+        let count = cache.len();
+        (bytes, count)
+    } else {
+        (0, 0)
+    }
+}
+
+/// Clears all cached frames in the global memory-mapped scrub cache.
+pub fn clear_global_mmap_cache() {
+    let mut lock = GLOBAL_MMAP_CACHE.write();
+    if let Some(ref mut cache) = *lock {
+        cache.clear();
     }
 }
 

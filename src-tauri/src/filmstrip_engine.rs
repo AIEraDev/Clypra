@@ -28,7 +28,10 @@ pub mod queue;
 pub mod retry;
 pub mod types;
 
-pub use mmap_cache::MmapFrameCache;
+pub use mmap_cache::{
+    clear_global_mmap_cache, get_global_mmap_cache_stats, init_global_mmap_cache, MmapFrameCache,
+    GLOBAL_MMAP_CACHE,
+};
 
 #[cfg(test)]
 mod proptest;

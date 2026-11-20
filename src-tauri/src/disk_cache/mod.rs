@@ -11,5 +11,6 @@ pub use manager::{
     DEFAULT_DISK_CACHE_LIMIT_BYTES,
 };
 pub use types::{
-    CacheNamespace, DiskCacheEntry, IntegrityReport, PurgeFilter, PurgeResult, UnifiedCacheStats,
+    CacheNamespace, CompactionReport, DiskCacheEntry, IntegrityReport, PurgeFilter, PurgeResult,
+    UnifiedCacheStats,
 };

@@ -1,8 +1,8 @@
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::disk_cache::{
-    get_global_disk_cache, init_global_disk_cache, IntegrityReport, PurgeFilter, PurgeResult,
-    UnifiedCacheStats,
+    get_global_disk_cache, init_global_disk_cache, CompactionReport, IntegrityReport, PurgeFilter,
+    PurgeResult, UnifiedCacheStats,
 };
 
 fn get_or_init_cache_manager(app: &AppHandle) -> Result<std::sync::Arc<crate::disk_cache::UnifiedDiskCacheManager>, String> {
@@ -30,7 +30,11 @@ pub async fn set_unified_cache_limit(app: AppHandle, limit_bytes: u64) -> Result
     let mgr = get_or_init_cache_manager(&app)?;
     mgr.set_limit(limit_bytes);
     crate::filmstrip_engine::atlas::set_disk_cache_limit(limit_bytes);
-    let _ = mgr.prune_if_needed().await;
+    if let Ok(freed) = mgr.prune_if_needed().await {
+        if freed > 0 {
+            let _ = app.emit("clypra://cache-eviction", serde_json::json!({ "freed_bytes": freed }));
+        }
+    }
     Ok(())
 }
 
@@ -57,6 +61,16 @@ pub async fn purge_unified_cache(
         crate::filmstrip_engine::GLOBAL_CACHE.clear().await;
     }
 
+    if result.purged_files > 0 {
+        let _ = app.emit(
+            "clypra://cache-eviction",
+            serde_json::json!({
+                "freed_bytes": result.purged_bytes,
+                "purged_files": result.purged_files,
+            }),
+        );
+    }
+
     Ok(result)
 }
 
@@ -64,5 +78,36 @@ pub async fn purge_unified_cache(
 #[tauri::command]
 pub async fn verify_cache_integrity(app: AppHandle) -> Result<IntegrityReport, String> {
     let mgr = get_or_init_cache_manager(&app)?;
-    mgr.verify_integrity().await
+    let report = mgr.verify_integrity().await?;
+
+    if report.quarantined_files > 0 {
+        let _ = app.emit(
+            "clypra://cache-quarantine",
+            serde_json::json!({
+                "quarantined_files": report.quarantined_files,
+                "quarantined_bytes": report.quarantined_bytes,
+            }),
+        );
+    }
+
+    Ok(report)
+}
+
+/// Compact and defragment cache namespaces, removing old temporary files and orphaned data.
+#[tauri::command]
+pub async fn compact_unified_cache(app: AppHandle) -> Result<CompactionReport, String> {
+    let mgr = get_or_init_cache_manager(&app)?;
+    let report = mgr.compact().await?;
+
+    if report.removed_orphans > 0 {
+        let _ = app.emit(
+            "clypra://cache-eviction",
+            serde_json::json!({
+                "freed_bytes": report.reclaimed_bytes,
+                "purged_files": report.removed_orphans,
+            }),
+        );
+    }
+
+    Ok(report)
 }

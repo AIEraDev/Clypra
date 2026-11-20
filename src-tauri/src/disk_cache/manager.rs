@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use super::atomic_io::safe_delete_file;
 use super::types::{
-    CacheNamespace, DiskCacheEntry, IntegrityReport, PurgeFilter, PurgeResult, UnifiedCacheStats,
+    CacheNamespace, CompactionReport, DiskCacheEntry, IntegrityReport, PurgeFilter, PurgeResult,
+    UnifiedCacheStats,
 };
 
 /// Default disk cache budget: 5 Gigabytes
@@ -23,6 +24,73 @@ pub struct UnifiedDiskCacheManager {
     hit_count: AtomicU64,
     miss_count: AtomicU64,
     eviction_count: AtomicU64,
+}
+
+async fn scan_dir_recursive(dir: &Path) -> (u64, usize) {
+    let mut total_bytes = 0u64;
+    let mut total_files = 0usize;
+    let mut queue = vec![dir.to_path_buf()];
+
+    while let Some(current_dir) = queue.pop() {
+        if let Ok(mut entries) = tokio::fs::read_dir(&current_dir).await {
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                if let Ok(meta) = entry.metadata().await {
+                    if meta.is_file() {
+                        total_bytes += meta.len();
+                        total_files += 1;
+                    } else if meta.is_dir() {
+                        queue.push(entry.path());
+                    }
+                }
+            }
+        }
+    }
+
+    (total_bytes, total_files)
+}
+
+async fn collect_files_recursive(
+    dir: &Path,
+    ns: CacheNamespace,
+    now: std::time::SystemTime,
+) -> Vec<(DiskCacheEntry, f64)> {
+    let mut files = Vec::new();
+    let mut queue = vec![dir.to_path_buf()];
+
+    while let Some(current_dir) = queue.pop() {
+        if let Ok(mut entries) = tokio::fs::read_dir(&current_dir).await {
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                if let Ok(meta) = entry.metadata().await {
+                    if meta.is_file() {
+                        let path = entry.path();
+                        let size_bytes = meta.len();
+                        let modified = meta.modified().unwrap_or(now);
+                        let age_secs = now
+                            .duration_since(modified)
+                            .map(|d| d.as_secs_f64())
+                            .unwrap_or(0.0);
+
+                        let eviction_score = age_secs * ns.eviction_weight();
+
+                        files.push((
+                            DiskCacheEntry {
+                                path,
+                                namespace: ns,
+                                size_bytes,
+                                last_accessed_secs: age_secs as u64,
+                                created_secs: 0,
+                            },
+                            eviction_score,
+                        ));
+                    } else if meta.is_dir() {
+                        queue.push(entry.path());
+                    }
+                }
+            }
+        }
+    }
+
+    files
 }
 
 impl UnifiedDiskCacheManager {
@@ -93,25 +161,15 @@ impl UnifiedDiskCacheManager {
         for &ns in CacheNamespace::all() {
             let ns_key = ns.as_str().to_string();
             let ns_dir = self.root_dir.join(ns.as_str());
-            let mut ns_total: u64 = 0;
-            let mut ns_count: usize = 0;
-
-            if let Ok(mut entries) = tokio::fs::read_dir(&ns_dir).await {
-                while let Ok(Some(entry)) = entries.next_entry().await {
-                    if let Ok(meta) = entry.metadata().await {
-                        if meta.is_file() {
-                            let len = meta.len();
-                            ns_total += len;
-                            ns_count += 1;
-                        }
-                    }
-                }
-            }
+            let (ns_total, ns_count) = scan_dir_recursive(&ns_dir).await;
 
             total_bytes += ns_total;
             namespace_bytes.insert(ns_key.clone(), ns_total);
             namespace_counts.insert(ns_key, ns_count);
         }
+
+        let (mmap_cache_bytes, mmap_slot_count) =
+            crate::filmstrip_engine::get_global_mmap_cache_stats();
 
         UnifiedCacheStats {
             total_bytes,
@@ -123,6 +181,8 @@ impl UnifiedDiskCacheManager {
             hit_rate_pct,
             eviction_count,
             root_dir: self.root_dir.to_string_lossy().to_string(),
+            mmap_cache_bytes,
+            mmap_slot_count,
         }
     }
 
@@ -155,36 +215,8 @@ impl UnifiedDiskCacheManager {
 
         for &ns in CacheNamespace::all() {
             let ns_dir = self.root_dir.join(ns.as_str());
-            if let Ok(mut entries) = tokio::fs::read_dir(&ns_dir).await {
-                while let Ok(Some(entry)) = entries.next_entry().await {
-                    if let Ok(meta) = entry.metadata().await {
-                        if meta.is_file() {
-                            let path = entry.path();
-                            let size_bytes = meta.len();
-                            let modified = meta.modified().unwrap_or(now);
-                            let age_secs = now
-                                .duration_since(modified)
-                                .map(|d| d.as_secs_f64())
-                                .unwrap_or(0.0);
-
-                            // Score: higher score = higher priority to evict
-                            // Age amplified by namespace eviction weight
-                            let eviction_score = age_secs * ns.eviction_weight();
-
-                            files.push((
-                                DiskCacheEntry {
-                                    path,
-                                    namespace: ns,
-                                    size_bytes,
-                                    last_accessed_secs: age_secs as u64,
-                                    created_secs: 0,
-                                },
-                                eviction_score,
-                            ));
-                        }
-                    }
-                }
-            }
+            let mut ns_files = collect_files_recursive(&ns_dir, ns, now).await;
+            files.append(&mut ns_files);
         }
 
         // Sort descending: highest eviction score first
@@ -226,34 +258,47 @@ impl UnifiedDiskCacheManager {
         let mut purged_files: usize = 0;
         let mut purged_bytes: u64 = 0;
 
-        for ns in target_namespaces {
+        for ns in &target_namespaces {
             let ns_dir = self.root_dir.join(ns.as_str());
-            if let Ok(mut entries) = tokio::fs::read_dir(&ns_dir).await {
-                while let Ok(Some(entry)) = entries.next_entry().await {
-                    let path = entry.path();
-                    if let Ok(meta) = entry.metadata().await {
-                        if meta.is_file() {
-                            let should_delete = if let Some(min_age) = filter.older_than_secs {
-                                let modified = meta.modified().unwrap_or(now);
-                                let age = now
-                                    .duration_since(modified)
-                                    .map(|d| d.as_secs())
-                                    .unwrap_or(0);
-                                age >= min_age
-                            } else {
-                                true
-                            };
+            let mut queue = vec![ns_dir];
 
-                            if should_delete {
-                                if let Ok(bytes) = safe_delete_file(&path).await {
-                                    purged_files += 1;
-                                    purged_bytes += bytes;
+            while let Some(current_dir) = queue.pop() {
+                if let Ok(mut entries) = tokio::fs::read_dir(&current_dir).await {
+                    while let Ok(Some(entry)) = entries.next_entry().await {
+                        let path = entry.path();
+                        if let Ok(meta) = entry.metadata().await {
+                            if meta.is_file() {
+                                let should_delete = if let Some(min_age) = filter.older_than_secs {
+                                    let modified = meta.modified().unwrap_or(now);
+                                    let age = now
+                                        .duration_since(modified)
+                                        .map(|d| d.as_secs())
+                                        .unwrap_or(0);
+                                    age >= min_age
+                                } else {
+                                    true
+                                };
+
+                                if should_delete {
+                                    if let Ok(bytes) = safe_delete_file(&path).await {
+                                        purged_files += 1;
+                                        purged_bytes += bytes;
+                                    }
                                 }
+                            } else if meta.is_dir() {
+                                queue.push(path);
                             }
                         }
                     }
                 }
             }
+        }
+
+        // If Temp or Thumbnails were purged, clear the mmap frame cache
+        if target_namespaces.contains(&CacheNamespace::Temp)
+            || target_namespaces.contains(&CacheNamespace::Thumbnails)
+        {
+            crate::filmstrip_engine::clear_global_mmap_cache();
         }
 
         let stats = self.get_stats().await;
@@ -275,31 +320,37 @@ impl UnifiedDiskCacheManager {
 
         for &ns in CacheNamespace::all() {
             let ns_dir = self.root_dir.join(ns.as_str());
-            if let Ok(mut entries) = tokio::fs::read_dir(&ns_dir).await {
-                while let Ok(Some(entry)) = entries.next_entry().await {
-                    let path = entry.path();
-                    scanned_files += 1;
+            let mut queue = vec![ns_dir];
 
-                    let file_name = path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or_default();
+            while let Some(current_dir) = queue.pop() {
+                if let Ok(mut entries) = tokio::fs::read_dir(&current_dir).await {
+                    while let Ok(Some(entry)) = entries.next_entry().await {
+                        let path = entry.path();
+                        if let Ok(meta) = entry.metadata().await {
+                            if meta.is_file() {
+                                scanned_files += 1;
 
-                    let is_temp = file_name.contains(".tmp.");
-                    let is_zero_byte = entry
-                        .metadata()
-                        .await
-                        .map(|m| m.len() == 0)
-                        .unwrap_or(false);
+                                let file_name = path
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                    .unwrap_or_default();
 
-                    if is_temp || is_zero_byte {
-                        match safe_delete_file(&path).await {
-                            Ok(bytes) => {
-                                quarantined_files += 1;
-                                quarantined_bytes += bytes;
-                            }
-                            Err(e) => {
-                                errors.push(format!("Failed to quarantine {:?}: {}", path, e));
+                                let is_temp = file_name.contains(".tmp.");
+                                let is_zero_byte = meta.len() == 0;
+
+                                if is_temp || is_zero_byte {
+                                    match safe_delete_file(&path).await {
+                                        Ok(bytes) => {
+                                            quarantined_files += 1;
+                                            quarantined_bytes += bytes;
+                                        }
+                                        Err(e) => {
+                                            errors.push(format!("Failed to quarantine {:?}: {}", path, e));
+                                        }
+                                    }
+                                }
+                            } else if meta.is_dir() {
+                                queue.push(path);
                             }
                         }
                     }
@@ -312,6 +363,72 @@ impl UnifiedDiskCacheManager {
             quarantined_files,
             quarantined_bytes,
             errors,
+        })
+    }
+
+    /// Compaction & defragmentation:
+    /// - Scans all cache namespaces recursively.
+    /// - Purges orphaned `.tmp.*` files older than 1 hour.
+    /// - Safely purges 0-byte corrupted files.
+    /// - Reclaims unreferenced disk space.
+    pub async fn compact(&self) -> Result<CompactionReport, String> {
+        let mut scanned_files: usize = 0;
+        let mut removed_orphans: usize = 0;
+        let mut reclaimed_bytes: u64 = 0;
+        let now = std::time::SystemTime::now();
+        let one_hour = std::time::Duration::from_secs(3600);
+
+        for &ns in CacheNamespace::all() {
+            let ns_dir = self.root_dir.join(ns.as_str());
+            let mut queue = vec![ns_dir];
+
+            while let Some(current_dir) = queue.pop() {
+                if let Ok(mut entries) = tokio::fs::read_dir(&current_dir).await {
+                    while let Ok(Some(entry)) = entries.next_entry().await {
+                        let path = entry.path();
+                        if let Ok(meta) = entry.metadata().await {
+                            if meta.is_file() {
+                                scanned_files += 1;
+                                let file_name = path
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                    .unwrap_or_default();
+
+                                let is_temp = file_name.contains(".tmp.");
+                                let is_zero_byte = meta.len() == 0;
+                                let is_old_temp = if is_temp {
+                                    let modified = meta.modified().unwrap_or(now);
+                                    now.duration_since(modified).unwrap_or_default() > one_hour
+                                } else {
+                                    false
+                                };
+
+                                if is_old_temp || is_zero_byte {
+                                    if let Ok(bytes) = safe_delete_file(&path).await {
+                                        removed_orphans += 1;
+                                        reclaimed_bytes += bytes;
+                                    }
+                                }
+                            } else if meta.is_dir() {
+                                queue.push(path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        log::info!(
+            "[UnifiedDiskCache] Compaction complete: scanned {} files, removed {} orphans, reclaimed {} bytes",
+            scanned_files,
+            removed_orphans,
+            reclaimed_bytes
+        );
+
+        Ok(CompactionReport {
+            reclaimed_bytes,
+            removed_orphans,
+            scanned_files,
         })
     }
 
@@ -371,6 +488,52 @@ impl UnifiedDiskCacheManager {
             let _ = tokio::fs::remove_dir_all(&legacy_dir).await;
         }
 
+        // Migrate legacy stickers and smart-overlays into assets/ subdirectories
+        let asset_mappings = [
+            (
+                app_cache_dir.join("stickers"),
+                self.root_dir
+                    .join(CacheNamespace::RemoteAssets.as_str())
+                    .join("stickers"),
+            ),
+            (
+                app_cache_dir.join("smart-overlays"),
+                self.root_dir
+                    .join(CacheNamespace::RemoteAssets.as_str())
+                    .join("smart-overlays"),
+            ),
+        ];
+
+        for (legacy_dir, target_dir) in asset_mappings {
+            if !legacy_dir.exists() || legacy_dir == target_dir {
+                continue;
+            }
+
+            let _ = tokio::fs::create_dir_all(&target_dir).await;
+
+            if let Ok(mut entries) = tokio::fs::read_dir(&legacy_dir).await {
+                while let Ok(Some(entry)) = entries.next_entry().await {
+                    let src = entry.path();
+                    if let Ok(meta) = entry.metadata().await {
+                        if meta.is_file() {
+                            if let Some(file_name) = src.file_name() {
+                                let dst = target_dir.join(file_name);
+                                if !dst.exists() {
+                                    if tokio::fs::rename(&src, &dst).await.is_ok() {
+                                        migrated_count += 1;
+                                    }
+                                } else {
+                                    let _ = tokio::fs::remove_file(&src).await;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            let _ = tokio::fs::remove_dir_all(&legacy_dir).await;
+        }
+
         if migrated_count > 0 {
             log::info!(
                 "[UnifiedDiskCache] Migrated {} legacy cache files into {:?}",
@@ -386,8 +549,15 @@ impl UnifiedDiskCacheManager {
 /// Initialize the global disk cache singleton.
 pub fn init_global_disk_cache(root_dir: PathBuf) -> Arc<UnifiedDiskCacheManager> {
     let mut lock = GLOBAL_DISK_CACHE.write();
-    let manager = Arc::new(UnifiedDiskCacheManager::new(root_dir));
+    let manager = Arc::new(UnifiedDiskCacheManager::new(root_dir.clone()));
     *lock = Some(manager.clone());
+
+    // Initialize the memory-mapped scrub cache inside the temp namespace (Option A: 60 pre-allocated slots)
+    let temp_dir = root_dir.join(CacheNamespace::Temp.as_str());
+    if let Err(e) = crate::filmstrip_engine::init_global_mmap_cache(temp_dir, 1920, 1080, 60) {
+        log::warn!("[UnifiedDiskCache] Could not initialize mmap scrub cache: {}", e);
+    }
+
     manager
 }
 

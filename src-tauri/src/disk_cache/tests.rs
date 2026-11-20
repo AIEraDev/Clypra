@@ -173,4 +173,54 @@ mod tests {
         let _ = tokio::fs::remove_dir_all(&legacy_root).await;
         let _ = tokio::fs::remove_dir_all(&unified_root).await;
     }
+
+    #[tokio::test]
+    async fn test_nested_namespace_stats() {
+        let temp_dir = make_test_cache_dir();
+        let manager = UnifiedDiskCacheManager::new(temp_dir.clone());
+
+        // Create nested asset subdirectories: assets/stickers and assets/smart-overlays
+        let stickers_dir = temp_dir.join(CacheNamespace::RemoteAssets.as_str()).join("stickers");
+        tokio::fs::create_dir_all(&stickers_dir).await.unwrap();
+        let s1 = stickers_dir.join("sticker1.png");
+        atomic_write_file(&s1, &[1, 2, 3, 4, 5]).await.unwrap();
+
+        let overlays_dir = temp_dir.join(CacheNamespace::RemoteAssets.as_str()).join("smart-overlays");
+        tokio::fs::create_dir_all(&overlays_dir).await.unwrap();
+        let o1 = overlays_dir.join("overlay1.json");
+        atomic_write_file(&o1, &[6, 7, 8, 9, 10, 11, 12]).await.unwrap();
+
+        let stats = manager.get_stats().await;
+        assert_eq!(*stats.namespace_bytes.get("assets").unwrap(), 12);
+        assert_eq!(*stats.namespace_counts.get("assets").unwrap(), 2);
+
+        let _ = tokio::fs::remove_dir_all(&temp_dir).await;
+    }
+
+    #[tokio::test]
+    async fn test_compaction_and_defragmentation() {
+        let temp_dir = make_test_cache_dir();
+        let manager = UnifiedDiskCacheManager::new(temp_dir.clone());
+
+        // 1. Healthy file
+        let good_file = manager.resolve_path(CacheNamespace::Thumbnails, "good.webp");
+        atomic_write_file(&good_file, b"valid_frame_data").await.unwrap();
+
+        // 2. Corrupted 0-byte file
+        let zero_file = manager.resolve_path(CacheNamespace::Thumbnails, "corrupt.webp");
+        tokio::fs::write(&zero_file, b"").await.unwrap();
+
+        // 3. 0-byte temp file
+        let orphan_file = manager.resolve_path(CacheNamespace::Thumbnails, "file.tmp.uuid999");
+        tokio::fs::write(&orphan_file, b"").await.unwrap();
+
+        let report = manager.compact().await.unwrap();
+        assert!(report.scanned_files >= 3);
+        assert_eq!(report.removed_orphans, 2);
+        assert!(!zero_file.exists());
+        assert!(!orphan_file.exists());
+        assert!(good_file.exists());
+
+        let _ = tokio::fs::remove_dir_all(&temp_dir).await;
+    }
 }
