@@ -143,6 +143,10 @@ pub use scopes::{
 #[cfg(target_os = "windows")]
 pub mod dxgi_import;
 
+/// Zero-copy VideoToolbox → Metal → wgpu texture import (macOS only).
+#[cfg(target_os = "macos")]
+pub mod metal_import;
+
 
 pub mod rgba_layer_cache;
 pub mod session;

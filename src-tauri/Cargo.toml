@@ -134,6 +134,8 @@ proptest = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
+metal = "0.31.0"
+foreign-types = "0.5.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # ONNX Runtime: Use load-dynamic to avoid CI binary download issues with copy-dylibs

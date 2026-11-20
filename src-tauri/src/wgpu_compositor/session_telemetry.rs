@@ -59,6 +59,9 @@ pub struct ScrubExperimentContext {
 pub struct FramesBySource {
     /// Frames imported via DXGI zero-copy (NV12 or P010).
     pub dxgi_nv12: u64,
+    /// Frames imported via Metal zero-copy on macOS.
+    #[serde(default)]
+    pub metal_nv12: u64,
     /// Frames uploaded via CPU path as NV12.
     pub cpu_nv12: u64,
     /// Frames uploaded via CPU path as RGBA8.
@@ -427,6 +430,7 @@ struct SessionState {
 
     // Source breakdown
     dxgi_nv12_frames: u64,
+    metal_nv12_frames: u64,
     cpu_nv12_frames: u64,
     cpu_rgba_frames: u64,
     unknown_frames: u64,
@@ -467,6 +471,7 @@ impl Default for SessionState {
             gpu_render_samples: 0,
             peak_gpu_render_us: 0,
             dxgi_nv12_frames: 0,
+            metal_nv12_frames: 0,
             cpu_nv12_frames: 0,
             cpu_rgba_frames: 0,
             unknown_frames: 0,
@@ -533,6 +538,7 @@ impl SessionState {
         // Source breakdown
         match &t.source {
             FrameSource::DxgiNv12 { .. } => self.dxgi_nv12_frames += 1,
+            FrameSource::MetalNv12 { .. } => self.metal_nv12_frames += 1,
             FrameSource::CpuNv12 { .. } => self.cpu_nv12_frames += 1,
             FrameSource::CpuRgba { .. } => self.cpu_rgba_frames += 1,
         }
@@ -631,6 +637,7 @@ impl SessionState {
 
             frames_by_source: FramesBySource {
                 dxgi_nv12: self.dxgi_nv12_frames,
+                metal_nv12: self.metal_nv12_frames,
                 cpu_nv12: self.cpu_nv12_frames,
                 cpu_rgba: self.cpu_rgba_frames,
                 unknown: self.unknown_frames,
@@ -809,6 +816,7 @@ impl SessionTelemetryCollector {
         s.frames_produced += 1;
         match transfer_path {
             "dxgi-zero-copy" => s.dxgi_nv12_frames += 1,
+            "metal-zero-copy" => s.metal_nv12_frames += 1,
             "cpu-nv12" => s.cpu_nv12_frames += 1,
             "cpu-rgba" => s.cpu_rgba_frames += 1,
             _ => s.unknown_frames += 1,

@@ -74,7 +74,7 @@ export interface BackendRenderArtifact {
   content_hash: string;
   spatial_tier: SpatialTier | string;
   /** RGBA bytes — length must equal width * height * 4 */
-  rgba_data: number[] | Uint8ClampedArray;
+  rgba_data: number[] | Uint8ClampedArray | ArrayBuffer | Uint8Array;
   width: number;
   height: number;
   timestamp_ms: number;
@@ -173,19 +173,23 @@ export function isEpochStillValid(
 /**
  * Convert raw RGBA bytes to an ImageBitmap.
  *
- * Copies into ImageData and uses createImageBitmap.
+ * Fast zero-copy path for Uint8ClampedArray, ArrayBuffer, and TypedArrays;
+ * single-allocation fallback for numeric array payloads.
  */
 async function rgbaToImageBitmap(
-  rgba: number[] | Uint8ClampedArray | ArrayBuffer,
+  rgba: number[] | Uint8ClampedArray | ArrayBuffer | Uint8Array,
   width: number,
   height: number,
   _tileKey?: string,
 ): Promise<ImageBitmap> {
   const clamped =
-    rgba instanceof ArrayBuffer
+    rgba instanceof Uint8ClampedArray
+      ? rgba
+      : rgba instanceof ArrayBuffer
       ? new Uint8ClampedArray(rgba)
-      : new Uint8ClampedArray(rgba.length);
-  if (!(rgba instanceof ArrayBuffer)) clamped.set(rgba);
+      : ArrayBuffer.isView(rgba)
+      ? new Uint8ClampedArray(rgba.buffer, rgba.byteOffset, rgba.byteLength)
+      : new Uint8ClampedArray(rgba);
 
   const imageData = new ImageData(clamped, width, height);
   return createImageBitmap(imageData);

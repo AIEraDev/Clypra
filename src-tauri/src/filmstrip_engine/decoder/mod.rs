@@ -1798,6 +1798,18 @@ impl VideoDecoder {
         unsafe { crate::wgpu_compositor::dxgi_import::extract_shared_handle(frame.as_ptr()) }
     }
 
+    /// Attempt to extract a Metal CVPixelBuffer from a VideoToolbox hardware frame
+    /// **without copying data to CPU RAM** (macOS zero-copy path).
+    #[cfg(target_os = "macos")]
+    pub fn try_extract_metal_shared_frame(
+        frame: &ffmpeg::frame::Video,
+    ) -> Option<crate::wgpu_compositor::metal_import::MetalSharedFrame> {
+        if frame.format() != ffmpeg::format::Pixel::VIDEOTOOLBOX {
+            return None;
+        }
+        unsafe { crate::wgpu_compositor::metal_import::extract_shared_frame(frame.as_ptr()) }
+    }
+
     /// Extract raw NV12 planes (Y plane + interleaved UV plane) directly from a decoded frame without CPU sws_scale.
     pub fn extract_nv12_planes(
         &self,
@@ -2714,6 +2726,327 @@ impl VideoDecoder {
             );
             // If CreateSharedHandle failed (e.g., Optimus with cross-adapter),
             // fall through to the CPU copy path below.
+        }
+
+        // CPU fallback: populate raw NV12 cache so caller does NOT need to re-seek or re-decode.
+        if let Ok(cpu_frame) = self.to_cpu_frame(best_frame) {
+            let frame_color = self.frame_metadata(&cpu_frame).color;
+            let (target_width, target_height) =
+                nv12_dimensions_for_quality(cpu_frame.width(), cpu_frame.height(), options.quality);
+            if let Ok(result) = if target_width == cpu_frame.width()
+                && target_height == cpu_frame.height()
+            {
+                if let Some(nv12) = self.extract_nv12_planes(&cpu_frame) {
+                    Ok((
+                        nv12.0,
+                        nv12.1,
+                        nv12.2,
+                        nv12.3,
+                        normalize_converted_nv12_color(frame_color),
+                    ))
+                } else {
+                    scale_frame_to_nv12(
+                        &cpu_frame,
+                        target_width,
+                        target_height,
+                        frame_color.clone(),
+                    )
+                }
+            } else {
+                scale_frame_to_nv12(&cpu_frame, target_width, target_height, frame_color.clone())
+            } {
+                let y_arc: Arc<[u8]> = Arc::from(result.0);
+                let uv_arc: Arc<[u8]> = Arc::from(result.1);
+                let is_approx = options.allow_keyframe_approx
+                    && (self.state.current_pts - target_pts).abs() > pts_tolerance;
+                self.last_raw_nv12 = Some((
+                    target_pts,
+                    Arc::clone(&y_arc),
+                    Arc::clone(&uv_arc),
+                    result.2,
+                    result.3,
+                    result.4.clone(),
+                    options.quality,
+                    is_approx,
+                ));
+                if self.raw_nv12_cache.len() >= MAX_RAW_NV12_CACHE_ENTRIES {
+                    self.raw_nv12_cache.pop_front();
+                }
+                self.raw_nv12_cache.push_back(CachedNv12Frame {
+                    pts: target_pts,
+                    y_plane: Arc::clone(&y_arc),
+                    uv_plane: Arc::clone(&uv_arc),
+                    width: result.2,
+                    height: result.3,
+                    color: result.4,
+                    quality: options.quality,
+                    is_approximate: is_approx,
+                });
+            }
+        }
+        self.last_demux_us = demux_time_us;
+        Ok(None)
+    }
+
+    /// macOS-only: attempt to decode the frame at `timestamp_secs` and return
+    /// a zero-copy Metal shared frame (wrapping CVPixelBufferRef) instead of copying NV12 data to CPU RAM.
+    #[cfg(target_os = "macos")]
+    pub fn decode_frame_metal_macos<F: Fn() -> bool>(
+        &mut self,
+        timestamp_secs: f64,
+        options: DecodeFrameOptions,
+        is_cancelled: F,
+        out_color: &mut VideoColorMetadata,
+        out_width: &mut u32,
+        out_height: &mut u32,
+    ) -> Result<Option<crate::wgpu_compositor::metal_import::MetalSharedFrame>, String> {
+        if is_cancelled() {
+            return Err("Native preview request cancelled".to_string());
+        }
+        let ts = self.clamp_timestamp(timestamp_secs);
+        let target_pts = (ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
+        let stream_fps = if self.stream_metadata.average_frame_rate_den > 0
+            && self.stream_metadata.average_frame_rate_num > 0
+        {
+            self.stream_metadata.average_frame_rate_num as f64
+                / self.stream_metadata.average_frame_rate_den as f64
+        } else {
+            30.0
+        };
+        let frame_duration_secs = (1.0f64 / stream_fps.max(1.0f64)).min(0.2f64);
+        let pts_tolerance = ((frame_duration_secs * 0.95) * self.time_base.1 as f64
+            / self.time_base.0 as f64)
+            .round()
+            .max(1.0) as i64;
+
+        let sequential_window = (2.0 * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
+        self.state.update_sequential(target_pts);
+
+        let backward_distance = self.state.current_pts - target_pts;
+        let is_backward = target_pts < self.state.current_pts;
+        let needs_seek = if options.is_playback {
+            self.state.current_pts < 0
+                || (!is_backward
+                    && !self
+                        .state
+                        .can_decode_forward(target_pts, sequential_window * 2))
+        } else {
+            self.state.current_pts < 0
+                || (is_backward && backward_distance > pts_tolerance)
+                || (!is_backward && !self.state.can_decode_forward(target_pts, sequential_window))
+        };
+
+        let mut demux_time_us = 0u32;
+
+        if needs_seek {
+            if is_cancelled() {
+                return Err("Native preview request cancelled".to_string());
+            }
+            let seek_t0 = Instant::now();
+            unsafe {
+                let ret = ffmpeg::ffi::av_seek_frame(
+                    self.input_ctx.as_mut_ptr(),
+                    self.stream_index as i32,
+                    target_pts,
+                    ffmpeg::ffi::AVSEEK_FLAG_BACKWARD,
+                );
+                if ret < 0 {
+                    return Err(format!("Seek failed at {}s", ts));
+                }
+            }
+            demux_time_us = demux_time_us
+                .saturating_add(seek_t0.elapsed().as_micros().min(u32::MAX as u128) as u32);
+            self.decoder.flush();
+            self.state.current_pts = -1;
+            self.state.gop_start_pts = target_pts;
+        }
+
+        let mut best_frame = ffmpeg::frame::Video::empty();
+        let mut found = false;
+
+        // Keyframe-only fast path (scrubbing)
+        if options.allow_keyframe_approx && needs_seek {
+            'kf: for (stream, packet) in self.input_ctx.packets() {
+                if is_cancelled() {
+                    return Err("Native preview request cancelled".to_string());
+                }
+                if stream.index() != self.stream_index {
+                    continue;
+                }
+                if self.decoder.send_packet(&packet).is_err() {
+                    continue;
+                }
+                let mut frame = ffmpeg::frame::Video::empty();
+                if self.decoder.receive_frame(&mut frame).is_ok() {
+                    if is_cancelled() {
+                        return Err("Native preview request cancelled".to_string());
+                    }
+                    let pts = frame.pts().unwrap_or(0);
+                    self.state.current_pts = pts;
+                    best_frame = frame;
+                    found = true;
+                    break 'kf;
+                }
+            }
+        }
+
+        // Drain DPB
+        if !found {
+            let mut buffered = ffmpeg::frame::Video::empty();
+            while self.decoder.receive_frame(&mut buffered).is_ok() {
+                if is_cancelled() {
+                    return Err("Native preview request cancelled".to_string());
+                }
+                let pts = buffered.pts().unwrap_or(0);
+                self.state.current_pts = pts;
+                let frame_ts = pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
+                if frame_ts >= ts - (1.0 / 60.0) {
+                    best_frame = buffered;
+                    found = true;
+                    break;
+                }
+                best_frame = buffered;
+                buffered = ffmpeg::frame::Video::empty();
+            }
+        }
+
+        if !found {
+            'dec: for (stream, packet) in self.input_ctx.packets() {
+                if is_cancelled() {
+                    return Err("Native preview request cancelled".to_string());
+                }
+                if stream.index() != self.stream_index {
+                    continue;
+                }
+                if self.decoder.send_packet(&packet).is_err() {
+                    continue;
+                }
+                let mut frame = ffmpeg::frame::Video::empty();
+                while self.decoder.receive_frame(&mut frame).is_ok() {
+                    if is_cancelled() {
+                        return Err("Native preview request cancelled".to_string());
+                    }
+                    let pts = frame.pts().unwrap_or(0);
+                    self.state.current_pts = pts;
+                    let frame_ts = pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
+                    best_frame = frame;
+                    if frame_ts >= ts - (1.0 / 60.0) {
+                        found = true;
+                        break 'dec;
+                    }
+                    frame = ffmpeg::frame::Video::empty();
+                }
+            }
+        }
+
+        if !found && self.decoder.send_eof().is_ok() {
+            let mut frame = ffmpeg::frame::Video::empty();
+            while self.decoder.receive_frame(&mut frame).is_ok() {
+                if is_cancelled() {
+                    return Err("Native preview request cancelled".to_string());
+                }
+                let pts = frame.pts().unwrap_or(0);
+                self.state.current_pts = pts;
+                let frame_ts = pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
+                best_frame = frame;
+                if frame_ts >= ts - (1.0 / 60.0) {
+                    found = true;
+                    break;
+                }
+                frame = ffmpeg::frame::Video::empty();
+            }
+            self.state.current_pts = -1;
+        }
+
+        if !found && best_frame.width() == 0 {
+            let retry_ts = (ts - 1.0).max(0.0);
+            let retry_pts = (retry_ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
+
+            unsafe {
+                let ret = ffmpeg::ffi::av_seek_frame(
+                    self.input_ctx.as_mut_ptr(),
+                    self.stream_index as i32,
+                    retry_pts,
+                    ffmpeg::ffi::AVSEEK_FLAG_BACKWARD,
+                );
+                if ret >= 0 {
+                    self.decoder.flush();
+                    self.state.current_pts = -1;
+                    self.state.gop_start_pts = retry_pts;
+
+                    'retry_metal: for (stream, packet) in self.input_ctx.packets() {
+                        if is_cancelled() {
+                            return Err("Native preview request cancelled".to_string());
+                        }
+                        if stream.index() != self.stream_index {
+                            continue;
+                        }
+                        if self.decoder.send_packet(&packet).is_err() {
+                            continue;
+                        }
+                        let mut frame = ffmpeg::frame::Video::empty();
+                        while self.decoder.receive_frame(&mut frame).is_ok() {
+                            if is_cancelled() {
+                                return Err("Native preview request cancelled".to_string());
+                            }
+                            let pts = frame.pts().unwrap_or(0);
+                            self.state.current_pts = pts;
+                            let frame_ts =
+                                pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
+                            best_frame = frame;
+                            if frame_ts >= ts - (1.0 / 60.0) {
+                                found = true;
+                                break 'retry_metal;
+                            }
+                            frame = ffmpeg::frame::Video::empty();
+                        }
+                    }
+
+                    if !found && self.decoder.send_eof().is_ok() {
+                        let mut frame = ffmpeg::frame::Video::empty();
+                        while self.decoder.receive_frame(&mut frame).is_ok() {
+                            if is_cancelled() {
+                                return Err("Native preview request cancelled".to_string());
+                            }
+                            let pts = frame.pts().unwrap_or(0);
+                            self.state.current_pts = pts;
+                            let frame_ts =
+                                pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
+                            best_frame = frame;
+                            if frame_ts >= ts - (1.0 / 60.0) {
+                                found = true;
+                                break;
+                            }
+                            frame = ffmpeg::frame::Video::empty();
+                        }
+                    }
+                }
+            }
+        }
+
+        if !found && best_frame.width() == 0 {
+            return Err(format!("No frame found at {}s", ts));
+        }
+
+        // Check if this is a VideoToolbox hardware frame — if so, try zero-copy.
+        if best_frame.format() == ffmpeg::format::Pixel::VIDEOTOOLBOX {
+            let meta = self.frame_metadata(&best_frame);
+            *out_color = normalize_converted_nv12_color(meta.color);
+            *out_width = best_frame.width();
+            *out_height = best_frame.height();
+
+            if let Some(shared) = Self::try_extract_metal_shared_frame(&best_frame) {
+                log::debug!(
+                    "[VideoDecoder] VideoToolbox zero-copy Metal shared frame extracted successfully for {}x{}",
+                    *out_width,
+                    *out_height
+                );
+                self.last_demux_us = demux_time_us;
+                return Ok(Some(shared));
+            }
+            log::warn!(
+                "[VideoDecoder] VideoToolbox zero-copy handle extraction returned None; falling back to CPU copy"
+            );
         }
 
         // CPU fallback: populate raw NV12 cache so caller does NOT need to re-seek or re-decode.

@@ -64,7 +64,9 @@ pub struct PreviewCapabilities {
     pub wgpu_nv12: bool,
     /// wgpu backend is DX12, enabling DXGI shared handle import on Windows.
     pub dxgi_import: bool,
-    /// FFmpeg D3D11VA hardware decode is available on this adapter.
+    /// wgpu backend is Metal, enabling VideoToolbox IOSurface texture import on macOS.
+    pub metal_import: bool,
+    /// FFmpeg D3D11VA / VideoToolbox hardware decode is available on this adapter.
     pub hw_decode: bool,
     /// Native HWND/NSWindow/X11 surface presentation is available.
     pub native_surface: bool,
@@ -83,6 +85,7 @@ impl PreviewCapabilities {
 
         let wgpu_nv12 = device_features.contains(wgpu::Features::TEXTURE_FORMAT_NV12);
         let dxgi_import = cfg!(target_os = "windows") && info.backend == wgpu::Backend::Dx12;
+        let metal_import = cfg!(target_os = "macos") && info.backend == wgpu::Backend::Metal;
         let hw_decode = cfg!(target_os = "windows") || cfg!(target_os = "macos");
         let hdr = device_features.contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM);
 
@@ -104,6 +107,7 @@ impl PreviewCapabilities {
         Self {
             wgpu_nv12,
             dxgi_import,
+            metal_import,
             hw_decode,
             native_surface: true,
             hdr,
@@ -111,10 +115,10 @@ impl PreviewCapabilities {
         }
     }
 
-    /// Returns true if the full zero-copy DXGI pipeline is available.
+    /// Returns true if zero-copy GPU video import (DXGI on Windows or Metal on macOS) is available.
     #[allow(dead_code)]
     pub fn zero_copy_available(&self) -> bool {
-        self.dxgi_import && self.wgpu_nv12 && self.hw_decode
+        (self.dxgi_import || self.metal_import) && self.wgpu_nv12 && self.hw_decode
     }
 }
 
@@ -127,6 +131,7 @@ mod tests {
         let caps = PreviewCapabilities {
             wgpu_nv12: true,
             dxgi_import: true,
+            metal_import: false,
             hw_decode: true,
             native_surface: true,
             hdr: false,
@@ -134,17 +139,25 @@ mod tests {
         };
         assert!(caps.zero_copy_available());
 
+        let caps_metal = PreviewCapabilities {
+            dxgi_import: false,
+            metal_import: true,
+            ..caps.clone()
+        };
+        assert!(caps_metal.zero_copy_available());
+
         let caps_no_nv12 = PreviewCapabilities {
             wgpu_nv12: false,
             ..caps.clone()
         };
         assert!(!caps_no_nv12.zero_copy_available());
 
-        let caps_no_dxgi = PreviewCapabilities {
+        let caps_no_import = PreviewCapabilities {
             dxgi_import: false,
+            metal_import: false,
             ..caps.clone()
         };
-        assert!(!caps_no_dxgi.zero_copy_available());
+        assert!(!caps_no_import.zero_copy_available());
 
         let caps_no_hw = PreviewCapabilities {
             hw_decode: false,

@@ -5,10 +5,19 @@ use serde::{Deserialize, Serialize};
 pub enum FrameRenderPath {
     /// Optimal zero-copy path: D3D11VA -> DXGI NT shared handle -> wgpu HAL texture (VRAM only).
     ZeroCopyDxgi,
+    /// Optimal zero-copy path on macOS: VideoToolbox -> IOSurface -> Metal -> wgpu HAL texture (Unified Memory).
+    ZeroCopyMetal,
     /// Direct DMA upload path: Hardware or software decode -> CPU-accessible NV12 -> YUV ring buffer -> wgpu texture.
     GpuUploadRing,
     /// Software decode or CPU readback compatibility path.
     CpuFallback,
+}
+
+impl FrameRenderPath {
+    #[inline]
+    pub fn is_zero_copy(&self) -> bool {
+        matches!(self, Self::ZeroCopyDxgi | Self::ZeroCopyMetal)
+    }
 }
 
 /// Describes how a single decoded video layer will be sourced for GPU rendering.
@@ -16,6 +25,8 @@ pub enum FrameRenderPath {
 pub enum FrameSource {
     /// Zero-copy: D3D11VA DXGI NT handle imported directly into wgpu (Windows DX12 only).
     DxgiNv12 { width: u32, height: u32 },
+    /// Zero-copy on macOS: VideoToolbox CVPixelBuffer imported directly into wgpu (Metal only).
+    MetalNv12 { width: u32, height: u32 },
     /// GPU upload: CPU-decoded NV12 planes written into ring-buffer textures via queue.write_texture.
     CpuNv12 { width: u32, height: u32 },
     /// CPU readback: RGBA decoded frame uploaded to GPU texture (compatibility/debugging path).

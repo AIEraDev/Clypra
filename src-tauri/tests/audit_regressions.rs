@@ -705,6 +705,7 @@ async fn test_phase3_rendering_architecture_invariants() {
     let caps_without_nv12 = PreviewCapabilities {
         wgpu_nv12: false,
         dxgi_import: true,
+        metal_import: false,
         hw_decode: true,
         native_surface: true,
         hdr: false,

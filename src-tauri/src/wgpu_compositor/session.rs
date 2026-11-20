@@ -362,14 +362,6 @@ impl NativePreviewSession {
 
     /// Render an NV12 frame that was imported zero-copy from a D3D11VA shared
     /// DXGI texture — **no PCIe transfer, no `queue.write_texture` call**.
-    ///
-    /// The `imported` texture views are the NV12 biplanar views created by
-    /// [`crate::wgpu_compositor::dxgi_import::import_into_wgpu`].  They are
-    /// bound directly into the existing YUV→RGBA pipeline, which expects the
-    /// same `(R8Unorm Y, Rg8Unorm UV)` layout that the CPU-upload path also
-    /// produces.
-    ///
-    /// Windows-only; the CPU path remains the canonical path on all platforms.
     #[cfg(target_os = "windows")]
     pub fn render_nv12_from_imported_texture(
         &mut self,
@@ -378,6 +370,49 @@ impl NativePreviewSession {
         source_height: u32,
         imported: &crate::wgpu_compositor::dxgi_import::ImportedNv12Texture,
         params: &ColorTransformUniforms,
+    ) -> Result<Arc<wgpu::Texture>, super::render_path::PreviewRenderError> {
+        self.render_nv12_from_views(
+            layer_key,
+            source_width,
+            source_height,
+            &imported.y_view,
+            &imported.uv_view,
+            params,
+            "Native Project Video Layer (DXGI)",
+        )
+    }
+
+    /// Render an NV12 frame that was imported zero-copy from a VideoToolbox
+    /// Metal texture — **no host RAM transfer, no `queue.write_texture` call**.
+    #[cfg(target_os = "macos")]
+    pub fn render_nv12_from_imported_metal(
+        &mut self,
+        layer_key: &str,
+        source_width: u32,
+        source_height: u32,
+        imported: &crate::wgpu_compositor::metal_import::ImportedMetalNv12Texture,
+        params: &ColorTransformUniforms,
+    ) -> Result<Arc<wgpu::Texture>, super::render_path::PreviewRenderError> {
+        self.render_nv12_from_views(
+            layer_key,
+            source_width,
+            source_height,
+            &imported.y_view,
+            &imported.uv_view,
+            params,
+            "Native Project Video Layer (Metal)",
+        )
+    }
+
+    fn render_nv12_from_views(
+        &mut self,
+        layer_key: &str,
+        source_width: u32,
+        source_height: u32,
+        y_view: &wgpu::TextureView,
+        uv_view: &wgpu::TextureView,
+        params: &ColorTransformUniforms,
+        label: &'static str,
     ) -> Result<Arc<wgpu::Texture>, super::render_path::PreviewRenderError> {
         if !self.gpu.capabilities.wgpu_nv12 {
             return Err(super::render_path::PreviewRenderError::UnsupportedFeature(
@@ -397,7 +432,7 @@ impl NativePreviewSession {
                 Arc::clone(existing)
             } else {
                 let t = Arc::new(self.gpu.device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("Native Project Video Layer (DXGI)"),
+                    label: Some(label),
                     size: wgpu::Extent3d {
                         width: source_width,
                         height: source_height,
@@ -417,7 +452,7 @@ impl NativePreviewSession {
             }
         } else {
             let t = Arc::new(self.gpu.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("Native Project Video Layer (DXGI)"),
+                label: Some(label),
                 size: wgpu::Extent3d {
                     width: source_width,
                     height: source_height,
@@ -439,11 +474,8 @@ impl NativePreviewSession {
         let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Build a one-shot bind group using the imported biplanar views.
-        // We do not use the ring buffer here — the texture lifetime is tied to
-        // the AVFrame reference (managed by the decoder pool), so it must be
-        // consumed entirely before this function returns and the frame is freed.
         let uniform_buffer = self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("DXGI Color Params Uniform"),
+            label: Some("ZeroCopy Color Params Uniform"),
             size: std::mem::size_of::<ColorTransformUniforms>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -456,12 +488,12 @@ impl NativePreviewSession {
             .gpu
             .device
             .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("DXGI YUV BindGroup"),
+                label: Some("ZeroCopy YUV BindGroup"),
                 layout: &self.yuv_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&imported.y_view),
+                        resource: wgpu::BindingResource::TextureView(y_view),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
@@ -469,7 +501,7 @@ impl NativePreviewSession {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&imported.uv_view),
+                        resource: wgpu::BindingResource::TextureView(uv_view),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
@@ -487,11 +519,11 @@ impl NativePreviewSession {
             .gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("DXGI YUV→RGBA"),
+                label: Some("ZeroCopy YUV→RGBA"),
             });
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("DXGI YUV Render Pass"),
+                label: Some("ZeroCopy YUV Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &target_view,
                     resolve_target: None,

@@ -1389,6 +1389,87 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
         None
     };
 
+    #[cfg(target_os = "macos")]
+    let can_attempt_metal = !request.layers.is_empty() && {
+        let session = state.lock().await;
+        session.gpu.capabilities.zero_copy_available()
+            && session.gpu.capabilities.wgpu_nv12
+    };
+
+    #[cfg(target_os = "macos")]
+    let metal_env_disabled = std::env::var("CLYPRA_DISABLE_METAL_ZERO_COPY").as_deref() == Ok("1");
+
+    #[cfg(target_os = "macos")]
+    let metal_frames_result = if can_attempt_metal && !metal_env_disabled {
+        use crate::filmstrip_engine::decoder::DecodeFrameOptions;
+        let decode_options = DecodeFrameOptions {
+            allow_keyframe_approx: request.allow_keyframe_approx.unwrap_or(false)
+                || request.is_scrubbing.unwrap_or(false)
+                || request.mode.as_deref() == Some("scrub"),
+            quality: request.quality,
+            is_playback: request.mode.as_deref() == Some("playback"),
+            skip_hw_download: false,
+            target_dimensions: None,
+        };
+
+        let mut frames = Vec::with_capacity(request.layers.len());
+        let mut all_succeeded = true;
+        let mut max_dec_us = 0u32;
+        let mut total_wait_us = 0u64;
+
+        for layer in &request.layers {
+            let stream_id = if !layer.layer_id.is_empty() {
+                &layer.layer_id
+            } else {
+                ""
+            };
+            let lock_started = Instant::now();
+            let decoder = match get_preview_decoder_for_stream(&layer.video_path, stream_id).await {
+                Ok(d) => d,
+                Err(_) => {
+                    all_succeeded = false;
+                    break;
+                }
+            };
+            let mut guard = decoder.lock().await;
+            let wait_us = lock_started.elapsed().as_micros() as u64;
+            total_wait_us = total_wait_us.saturating_add(wait_us);
+
+            let mut frame_color = VideoColorMetadata::default();
+            let mut width = 0u32;
+            let mut height = 0u32;
+            let decode_started = Instant::now();
+            match guard.decode_frame_metal_macos(
+                layer.time_secs,
+                decode_options,
+                || false,
+                &mut frame_color,
+                &mut width,
+                &mut height,
+            ) {
+                Ok(Some(shared)) => {
+                    let dec_us = decode_started.elapsed().as_micros().min(u32::MAX as u128) as u32;
+                    max_dec_us = max_dec_us.max(dec_us);
+                    let stream_color = guard.metadata().color;
+                    let color = merge_color_metadata(frame_color, &stream_color);
+                    frames.push((shared, width, height, color));
+                }
+                _ => {
+                    all_succeeded = false;
+                    break;
+                }
+            }
+        }
+
+        if all_succeeded && frames.len() == request.layers.len() {
+            Some((frames, max_dec_us, total_wait_us))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let mut session = state.lock().await;
     let gpu = Arc::clone(&session.gpu);
     let mut conversion_started = Instant::now();
@@ -1480,6 +1561,69 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
         }
     }
 
+    #[cfg(target_os = "macos")]
+    let can_use_metal = session.gpu.capabilities.zero_copy_available() && !metal_env_disabled;
+
+    #[cfg(target_os = "macos")]
+    if can_use_metal {
+        if let Some((frames, max_dec_us, total_wait_us)) = metal_frames_result {
+            if session.gpu.capabilities.wgpu_nv12 {
+                use crate::wgpu_compositor::metal_import;
+                let mut import_all_ok = true;
+                for (layer, (shared, width, height, color)) in
+                    request.layers.iter().zip(frames)
+                {
+                    let layer_key = if !layer.layer_id.is_empty() {
+                        &layer.layer_id
+                    } else {
+                        &layer.video_path
+                    };
+                    let params = match color_params(&color) {
+                        Ok(p) => p,
+                        Err(_) => {
+                            import_all_ok = false;
+                            break;
+                        }
+                    };
+                    match metal_import::import_into_wgpu(&session.gpu.device, shared) {
+                        Ok(imported) => {
+                            match session.render_nv12_from_imported_metal(
+                                layer_key, width, height, &imported, &params,
+                            ) {
+                                Ok(texture) => {
+                                    views.push(
+                                        texture
+                                            .create_view(&wgpu::TextureViewDescriptor::default()),
+                                    );
+                                    textures.push(texture);
+                                }
+                                Err(_) => {
+                                    import_all_ok = false;
+                                    break;
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            import_all_ok = false;
+                            break;
+                        }
+                    }
+                }
+
+                if import_all_ok {
+                    decode_time_us = max_dec_us;
+                    decoder_mutex_wait_us = total_wait_us;
+                    decode_telemetry.actor_wait_us = Some(0);
+                    render_path = FrameRenderPath::ZeroCopyMetal;
+                } else {
+                    views.clear();
+                    textures.clear();
+                    render_path = FrameRenderPath::GpuUploadRing;
+                }
+            }
+        }
+    }
+
     // Check GPU cache residency for effect layers
     let mut effect_cached_entries: Vec<Option<(Arc<wgpu::Texture>, u32, u32)>> =
         Vec::with_capacity(request.effect_layers.len());
@@ -1494,7 +1638,7 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
         }
     }
 
-    let need_cpu_decode = render_path != FrameRenderPath::ZeroCopyDxgi;
+    let need_cpu_decode = !render_path.is_zero_copy();
 
     let (decoded_frames, decoded_effects) = if need_cpu_decode || !effects_to_decode.is_empty() {
         // Decode before taking the GPU session lock so a slow seek cannot block
