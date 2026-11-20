@@ -1,5 +1,6 @@
 use super::config::configure_surface;
 use super::runtime::NativeSurfaceRuntime;
+use crate::diagnostics;
 use crate::native_core::{NativeGpuRuntimeStatus, NativeSurfaceGeometry, NativeSurfaceProbe};
 use crate::wgpu_compositor::GpuContext;
 use std::sync::{Arc, Mutex};
@@ -49,9 +50,13 @@ pub async fn probe_native_surface(
         })
         .map_err(|error| format!("Unable to schedule native surface probe: {error}"))?;
 
-    receiver
+    let result = receiver
         .await
-        .map_err(|_| "Native surface probe was cancelled".to_string())?
+        .map_err(|_| "Native surface probe was cancelled".to_string())?;
+    if let Err(error) = &result {
+        diagnostics::error("native-surface", "probe-failed", error.clone());
+    }
+    result
 }
 
 /// Reconfigure the retained native surface after a DPI or viewport resize.
@@ -84,9 +89,13 @@ pub async fn resize_native_surface(
         })
         .map_err(|error| format!("Unable to schedule native surface resize: {error}"))?;
 
-    receiver
+    let result = receiver
         .await
-        .map_err(|_| "Native surface resize was cancelled".to_string())?
+        .map_err(|_| "Native surface resize was cancelled".to_string())?;
+    if let Err(error) = &result {
+        diagnostics::error("native-surface", "resize-failed", error.clone());
+    }
+    result
 }
 
 /// Hide the child surface while the native compositor owns the preview.

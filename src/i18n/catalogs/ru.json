@@ -673,5 +673,8 @@
   "properties.adjust.brightness": "Яркость",
   "properties.adjust.allChannels": "Все каналы",
   "properties.adjust.channelSuffix": "канал",
-  "properties.adjust.resetChannel": "Сбросить канал {{channel}}"
+  "properties.adjust.resetChannel": "Сбросить канал {{channel}}",
+  "preview.errors.title": "Предпросмотр недоступен",
+  "preview.errors.nativeSurface": "Графическое устройство готово, но собственную поверхность предпросмотра создать не удалось.",
+  "preview.errors.gpu": "Clypra не удалось инициализировать графическое устройство."
 }

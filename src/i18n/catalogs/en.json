@@ -669,5 +669,8 @@
   "properties.adjust.brightness": "Brightness",
   "properties.adjust.allChannels": "All channels",
   "properties.adjust.channelSuffix": "channel",
-  "properties.adjust.resetChannel": "Reset {{channel}} channel"
+  "properties.adjust.resetChannel": "Reset {{channel}} channel",
+  "preview.errors.title": "Preview is unavailable",
+  "preview.errors.nativeSurface": "The graphics device is ready, but the native preview surface could not be created. Restart the editor and send the diagnostics report if this continues.",
+  "preview.errors.gpu": "Clypra could not initialize the graphics device. Check your graphics drivers and restart the editor."
 }

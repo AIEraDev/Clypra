@@ -669,5 +669,8 @@
   "properties.adjust.brightness": "Helligkeit",
   "properties.adjust.allChannels": "Alle Kanäle",
   "properties.adjust.channelSuffix": "Kanal",
-  "properties.adjust.resetChannel": "{{channel}}-Kanal zurücksetzen"
+  "properties.adjust.resetChannel": "{{channel}}-Kanal zurücksetzen",
+  "preview.errors.title": "Vorschau nicht verfügbar",
+  "preview.errors.nativeSurface": "Das Grafikgerät ist bereit, aber die native Vorschauoberfläche konnte nicht erstellt werden.",
+  "preview.errors.gpu": "Clypra konnte das Grafikgerät nicht initialisieren."
 }

@@ -669,5 +669,8 @@
   "properties.adjust.brightness": "明るさ",
   "properties.adjust.allChannels": "全チャンネル",
   "properties.adjust.channelSuffix": "チャンネル",
-  "properties.adjust.resetChannel": "{{channel}}チャンネルをリセット"
+  "properties.adjust.resetChannel": "{{channel}}チャンネルをリセット",
+  "preview.errors.title": "プレビューを利用できません",
+  "preview.errors.nativeSurface": "グラフィックデバイスは準備できていますが、ネイティブプレビューサーフェスを作成できませんでした。",
+  "preview.errors.gpu": "Clypraはグラフィックデバイスを初期化できませんでした。"
 }

@@ -669,5 +669,8 @@
   "properties.adjust.brightness": "Brillo",
   "properties.adjust.allChannels": "Todos los canales",
   "properties.adjust.channelSuffix": "canal",
-  "properties.adjust.resetChannel": "Restablecer canal {{channel}}"
+  "properties.adjust.resetChannel": "Restablecer canal {{channel}}",
+  "preview.errors.title": "Vista previa no disponible",
+  "preview.errors.nativeSurface": "El dispositivo gráfico está listo, pero no se pudo crear la superficie de vista previa nativa.",
+  "preview.errors.gpu": "Clypra no pudo inicializar el dispositivo gráfico."
 }

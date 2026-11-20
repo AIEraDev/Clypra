@@ -669,5 +669,8 @@
   "properties.adjust.brightness": "亮度",
   "properties.adjust.allChannels": "全部通道",
   "properties.adjust.channelSuffix": "通道",
-  "properties.adjust.resetChannel": "重置 {{channel}} 通道"
+  "properties.adjust.resetChannel": "重置 {{channel}} 通道",
+  "preview.errors.title": "预览不可用",
+  "preview.errors.nativeSurface": "图形设备已准备就绪，但无法创建原生预览表面。",
+  "preview.errors.gpu": "Clypra 无法初始化图形设备。"
 }

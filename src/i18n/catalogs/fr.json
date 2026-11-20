@@ -669,5 +669,8 @@
   "properties.adjust.brightness": "Luminosité",
   "properties.adjust.allChannels": "Tous les canaux",
   "properties.adjust.channelSuffix": "canal",
-  "properties.adjust.resetChannel": "Réinitialiser le canal {{channel}}"
+  "properties.adjust.resetChannel": "Réinitialiser le canal {{channel}}",
+  "preview.errors.title": "Aperçu indisponible",
+  "preview.errors.nativeSurface": "Le périphérique graphique est prêt, mais la surface d’aperçu native n’a pas pu être créée.",
+  "preview.errors.gpu": "Clypra n’a pas pu initialiser le périphérique graphique."
 }

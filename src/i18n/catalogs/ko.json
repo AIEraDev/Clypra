@@ -669,5 +669,8 @@
   "properties.adjust.brightness": "밝기",
   "properties.adjust.allChannels": "모든 채널",
   "properties.adjust.channelSuffix": "채널",
-  "properties.adjust.resetChannel": "{{channel}} 채널 재설정"
+  "properties.adjust.resetChannel": "{{channel}} 채널 재설정",
+  "preview.errors.title": "미리보기를 사용할 수 없음",
+  "preview.errors.nativeSurface": "그래픽 장치는 준비되었지만 네이티브 미리보기 표면을 만들 수 없습니다.",
+  "preview.errors.gpu": "Clypra가 그래픽 장치를 초기화하지 못했습니다."
 }

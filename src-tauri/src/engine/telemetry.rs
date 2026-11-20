@@ -76,6 +76,7 @@ pub struct EngineTelemetryCollector {
     total_presented: AtomicU64,
     total_dropped: AtomicU64,
     total_seeks: AtomicU64,
+    runtime_zero_copy_observed: std::sync::atomic::AtomicBool,
     _start_time: Instant,
 }
 
@@ -102,7 +103,7 @@ impl EngineTelemetryCollector {
             cpu_upload_bytes: 0,
             cross_adapter_bytes: 0,
             gpu_copy_bytes: 0,
-            is_zero_copy: true,
+            is_zero_copy: false,
         };
         let qos_config = QoSConfig {
             degrade_window_threshold: hw_profile.recommended_qos_config.degrade_window_threshold,
@@ -137,8 +138,18 @@ impl EngineTelemetryCollector {
             total_presented: AtomicU64::new(0),
             total_dropped: AtomicU64::new(0),
             total_seeks: AtomicU64::new(0),
+            runtime_zero_copy_observed: std::sync::atomic::AtomicBool::new(false),
             _start_time: Instant::now(),
         }
+    }
+
+    /// Record the transfer path actually used by a rendered frame. Capability
+    /// negotiation alone must not be reported as runtime zero-copy evidence.
+    pub fn record_runtime_transfer_path(&self, transfer_path: &str) {
+        let observed = transfer_path == "metal-zero-copy" || transfer_path == "dxgi-zero-copy";
+        self.runtime_zero_copy_observed
+            .store(observed, Ordering::Relaxed);
+        self.transfers.write().is_zero_copy = observed;
     }
 
     /// Records presentation or drop of a frame in the real-time engine.
@@ -446,7 +457,7 @@ impl EngineTelemetryCollector {
         EngineTelemetrySnapshot {
             pipeline: ENGINE_PIPELINE_NAME.to_string(),
             engine_version: ENGINE_VERSION.to_string(),
-            is_zero_copy: transfers.is_zero_copy,
+            is_zero_copy: self.runtime_zero_copy_observed.load(Ordering::Relaxed),
             legacy_pipeline_bypassed: true,
             total_frames_presented: self.total_presented.load(Ordering::Relaxed),
             total_frames_dropped: self.total_dropped.load(Ordering::Relaxed),
@@ -472,3 +483,18 @@ impl EngineTelemetryCollector {
 /// Global lazy singleton instance of the EngineTelemetryCollector.
 pub static ENGINE_TELEMETRY: Lazy<Arc<EngineTelemetryCollector>> =
     Lazy::new(|| Arc::new(EngineTelemetryCollector::new()));
+
+#[cfg(test)]
+mod tests {
+    use super::EngineTelemetryCollector;
+
+    #[test]
+    fn runtime_zero_copy_is_false_until_a_zero_copy_path_is_observed() {
+        let telemetry = EngineTelemetryCollector::new();
+        assert!(!telemetry.snapshot().is_zero_copy);
+        telemetry.record_runtime_transfer_path("cpu-nv12");
+        assert!(!telemetry.snapshot().is_zero_copy);
+        telemetry.record_runtime_transfer_path("metal-zero-copy");
+        assert!(telemetry.snapshot().is_zero_copy);
+    }
+}

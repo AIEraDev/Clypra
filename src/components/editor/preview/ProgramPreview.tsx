@@ -5,13 +5,13 @@ import { WebGLUnavailableError } from "./WebGLUnavailableError.jsx";
 // React Error Boundary for the native preview surface. Browser compatibility
 // support remains isolated behind the migration boundary.
 class PreviewErrorBoundary extends React.Component<
-  { fallback: React.ReactNode; children: React.ReactNode },
-  { hasError: boolean }
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
 > {
-  state = { hasError: false };
+  state = { hasError: false, error: null as Error | null };
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
   }
 
   componentDidCatch(error: Error) {
@@ -20,7 +20,8 @@ class PreviewErrorBoundary extends React.Component<
 
   render() {
     if (this.state.hasError) {
-      return this.props.fallback;
+      const isGpuFailure = this.state.error?.message.toLowerCase().includes("gpu") ?? false;
+      return <WebGLUnavailableError reason={isGpuFailure ? "gpu" : "native-surface"} />;
     }
     return this.props.children;
   }
@@ -28,7 +29,7 @@ class PreviewErrorBoundary extends React.Component<
 
 export const ProgramPreview: React.FC<any> = (props) => {
   return (
-    <PreviewErrorBoundary fallback={<WebGLUnavailableError />}>
+    <PreviewErrorBoundary>
       <NativeProgramPreview {...props} />
     </PreviewErrorBoundary>
   );

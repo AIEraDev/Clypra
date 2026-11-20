@@ -1631,6 +1631,8 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
                     decoder_mutex_wait_us = total_wait_us;
                     decode_telemetry.actor_wait_us = Some(0);
                     render_path = FrameRenderPath::ZeroCopyMetal;
+                    crate::engine::ENGINE_TELEMETRY
+                        .record_runtime_transfer_path("metal-zero-copy");
                 } else {
                     views.clear();
                     textures.clear();
@@ -3830,6 +3832,7 @@ pub(crate) async fn present_native_frame_internal(
         used_dxgi_zero_copy,
         used_cpu_nv12,
     );
+    crate::engine::ENGINE_TELEMETRY.record_runtime_transfer_path(transfer_path);
     let compose_started = Instant::now();
     let compositor_was_warm = session.has_compositor(
         legacy_request.canvas_width,

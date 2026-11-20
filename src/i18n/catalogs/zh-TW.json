@@ -669,5 +669,8 @@
   "properties.adjust.brightness": "亮度",
   "properties.adjust.allChannels": "全部色版",
   "properties.adjust.channelSuffix": "色版",
-  "properties.adjust.resetChannel": "重設 {{channel}} 色版"
+  "properties.adjust.resetChannel": "重設 {{channel}} 色版",
+  "preview.errors.title": "預覽無法使用",
+  "preview.errors.nativeSurface": "圖形裝置已準備就緒，但無法建立原生預覽表面。",
+  "preview.errors.gpu": "Clypra 無法初始化圖形裝置。"
 }

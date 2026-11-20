@@ -1,10 +1,18 @@
 import React from "react";
+import { useI18n } from "@/i18n";
+
+export interface WebGLUnavailableErrorProps {
+  reason?: "native-surface" | "gpu";
+}
 
 /**
  * Shown when the native preview cannot initialize. The desktop editor does
  * not silently switch to a different renderer.
  */
-export const WebGLUnavailableError: React.FC = () => {
+export const WebGLUnavailableError: React.FC<WebGLUnavailableErrorProps> = ({
+  reason = "native-surface",
+}) => {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -37,11 +45,10 @@ export const WebGLUnavailableError: React.FC = () => {
         <line x1="12" y1="16" x2="12.01" y2="16" />
       </svg>
       <p style={{ fontSize: "15px", fontWeight: 600, margin: 0, color: "#fafafa" }}>
-        Preview is unavailable
+        {t("preview.errors.title")}
       </p>
       <p style={{ fontSize: "13px", margin: 0, color: "#9ca3af", maxWidth: "320px", lineHeight: 1.5 }}>
-        Clypra could not initialize the native preview. Please check your graphics
-        drivers and restart the editor.
+        {t(reason === "gpu" ? "preview.errors.gpu" : "preview.errors.nativeSurface")}
       </p>
     </div>
   );
