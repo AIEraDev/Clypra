@@ -39,7 +39,7 @@ export const ProjectTemplatesModal: React.FC<ProjectTemplatesModalProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       title={t("launch.templatesModalTitle")}
-      size="lg"
+      size="xl"
     >
       <div className="p-6 space-y-6 h-full overflow-y-auto">
         <p className="text-xs text-text-secondary leading-relaxed">
@@ -64,7 +64,7 @@ export const ProjectTemplatesModal: React.FC<ProjectTemplatesModalProps> = ({
         </div>
 
         {/* Templates Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredTemplates.map((tpl: ProjectTemplate) => (
             <div
               key={tpl.id}

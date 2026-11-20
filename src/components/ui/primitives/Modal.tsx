@@ -9,8 +9,8 @@ export interface ModalProps {
   title: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
-  /** Use "lg" for wide settings-style modals */
-  size?: "default" | "lg";
+  /** Use "lg" for wide settings-style modals, "xl" for extra-wide content-heavy modals */
+  size?: "default" | "lg" | "xl";
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -41,8 +41,14 @@ export const Modal: React.FC<ModalProps> = ({
 
   if (!isOpen) return null;
 
-  const maxW = size === "lg" ? "max-w-[680px]" : "max-w-md";
-  const dialogH = size === "lg" ? "h-[85vh]" : "h-auto";
+  const maxW =
+    size === "xl"
+      ? "max-w-[960px]"
+      : size === "lg"
+        ? "max-w-[680px]"
+        : "max-w-md";
+  const dialogH =
+    size === "xl" ? "h-[90vh]" : size === "lg" ? "h-[85vh]" : "h-auto";
 
   return (
     <div className="fixed inset-0 z-10000 flex items-center justify-center p-2 sm:p-4">
