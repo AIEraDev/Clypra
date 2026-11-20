@@ -136,7 +136,7 @@ fn non_empty_external_request_id(value: &str) -> Result<&str, LifecycleError> {
 
 fn next_sequence(sequence: &AtomicU64, kind: &'static str) -> Result<u64, LifecycleError> {
     sequence
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
             current.checked_add(1)
         })
         .map(|previous| previous + 1)

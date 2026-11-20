@@ -404,6 +404,7 @@ impl NativePreviewSession {
         )
     }
 
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn render_nv12_from_views(
         &mut self,
         layer_key: &str,

@@ -49,7 +49,6 @@ pub type CVMetalTextureCacheRef = *mut std::ffi::c_void;
 pub type CVMetalTextureRef = *mut std::ffi::c_void;
 
 #[link(name = "CoreVideo", kind = "framework")]
-#[link(name = "CoreFoundation", kind = "framework")]
 extern "C" {
     fn CVPixelBufferRetain(buffer: CVPixelBufferRef) -> CVPixelBufferRef;
     fn CVPixelBufferRelease(buffer: CVPixelBufferRef);
@@ -83,6 +82,10 @@ extern "C" {
 
     fn CVMetalTextureGetTexture(image: CVMetalTextureRef) -> *mut std::ffi::c_void;
     fn CVMetalTextureCacheFlush(texture_cache: CVMetalTextureCacheRef, options: u64);
+}
+
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
     fn CFRetain(cf: *const std::ffi::c_void) -> *const std::ffi::c_void;
     fn CFRelease(cf: *const std::ffi::c_void);
 }

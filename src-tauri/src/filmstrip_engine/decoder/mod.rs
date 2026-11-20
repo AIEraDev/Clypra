@@ -932,7 +932,7 @@ impl VideoDecoder {
                 (*ctx.as_mut_ptr()).get_format = Some(Self::get_sw_format);
                 (*ctx.as_mut_ptr()).thread_count = thread_count;
                 (*ctx.as_mut_ptr()).thread_type =
-                    (ffmpeg::ffi::FF_THREAD_FRAME | ffmpeg::ffi::FF_THREAD_SLICE) as i32;
+                    ffmpeg::ffi::FF_THREAD_FRAME | ffmpeg::ffi::FF_THREAD_SLICE;
             }
         }
 
@@ -1042,7 +1042,7 @@ impl VideoDecoder {
                         .clamp(2, 8) as i32;
                     (*ctx.as_mut_ptr()).thread_count = thread_count;
                     (*ctx.as_mut_ptr()).thread_type =
-                        (ffmpeg::ffi::FF_THREAD_FRAME | ffmpeg::ffi::FF_THREAD_SLICE) as i32;
+                        ffmpeg::ffi::FF_THREAD_FRAME | ffmpeg::ffi::FF_THREAD_SLICE;
                     let decoder = ctx.decoder().video().map_err(|e| e.to_string())?;
                     let w = decoder.width();
                     let h = decoder.height();

@@ -293,14 +293,13 @@ impl FrameLifecycleRegistry {
     /// it never reclassifies already-terminal values.
     pub fn abandon_active(&mut self, reason: AbandonReason) {
         for state in self.requests.values_mut() {
-            if matches!(state, LifecycleState::Active) {
-                if state
+            if matches!(state, LifecycleState::Active)
+                && state
                     .finish(RequestTerminalDisposition::Abandoned { reason })
                     .is_ok()
-                {
-                    self.cumulative_request_accounting.terminal += 1;
-                    self.cumulative_request_accounting.abandoned += 1;
-                }
+            {
+                self.cumulative_request_accounting.terminal += 1;
+                self.cumulative_request_accounting.abandoned += 1;
             }
         }
         let mut abandoned_frames = 0;

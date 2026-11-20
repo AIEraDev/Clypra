@@ -1725,7 +1725,7 @@ impl NativeRenderSession {
             if let Some(internal_id) = lifecycle_context.request_ids.first() {
                 self.finish_request_if_active(internal_id, RequestTerminalDisposition::Cancelled);
             }
-            if lifecycle_context.request_ids.first().is_some() {
+            if !lifecycle_context.request_ids.is_empty() {
                 Self::emit_terminal(
                     app,
                     NativePlaybackDemandTerminal {
@@ -1777,8 +1777,7 @@ impl NativeRenderSession {
                 // is the authoritative marker for an exact interactive
                 // demand. A scrub may still carry `mode=playback` while the
                 // pointer is down and must receive the matching completion.
-                let is_explicit_paused_demand =
-                    lifecycle_context.request_ids.first().is_some();
+                let is_explicit_paused_demand = !lifecycle_context.request_ids.is_empty();
                 if let Some(internal_id) = lifecycle_context.request_ids.first() {
                     let request_disposition = match presentation.outcome {
                         Some(crate::native_core::NativePresentationOutcome::Presented) => None,
@@ -1882,7 +1881,7 @@ impl NativeRenderSession {
                     };
                     self.finish_request_if_active(internal_id, disposition);
                 }
-                if lifecycle_context.request_ids.first().is_some() {
+                if !lifecycle_context.request_ids.is_empty() {
                     Self::emit_terminal(
                         app,
                         Self::presentation_failure_terminal(
