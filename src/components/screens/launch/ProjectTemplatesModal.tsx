@@ -39,8 +39,9 @@ export const ProjectTemplatesModal: React.FC<ProjectTemplatesModalProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       title={t("launch.templatesModalTitle")}
+      size="lg"
     >
-      <div className="p-6 space-y-6 max-w-2xl max-h-[80vh] overflow-y-auto">
+      <div className="p-6 space-y-6 h-full overflow-y-auto">
         <p className="text-xs text-text-secondary leading-relaxed">
           {t("launch.templatesModalDesc")}
         </p>
