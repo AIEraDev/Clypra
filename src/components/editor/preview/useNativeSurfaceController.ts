@@ -86,14 +86,26 @@ export function useNativeSurfaceController({
       void getNativeGpuStatus()
         .then((status) => {
           if (disposed) return;
-          if (status.state === "ready") {
+          const normalizedState = String(status.state).toLowerCase();
+          tracePlayback("native-gpu-status", {
+            state: normalizedState,
+            rawState: String(status.state),
+            available: status.available,
+            surfaceAvailable: status.surfaceAvailable,
+            hasFailureReason: Boolean(status.failureReason),
+          });
+          if (normalizedState === "ready") {
             setGpuReady(true);
             clearPoll();
-          } else if (status.state === "failed") {
+          } else if (normalizedState === "failed") {
             fail(status.failureReason || "Unknown failure");
           }
         })
-        .catch(() => undefined);
+        .catch((error) => {
+          tracePlayback("native-gpu-status-error", {
+            errorType: error instanceof Error ? error.name : "unknown",
+          });
+        });
     };
 
     checkNow();
@@ -102,6 +114,7 @@ export function useNativeSurfaceController({
     let unlistenFailed: (() => void) | null = null;
     void listenForGpuReady(() => {
       if (!disposed) {
+        tracePlayback("native-gpu-ready-event", {});
         setGpuReady(true);
         clearPoll();
       }
@@ -110,7 +123,10 @@ export function useNativeSurfaceController({
       else unlistenReady = unlisten;
     });
     void listenForGpuFailed((reason) => {
-      if (!disposed) fail(reason);
+      if (!disposed) {
+        tracePlayback("native-gpu-failed-event", { hasReason: Boolean(reason) });
+        fail(reason);
+      }
     }).then((unlisten) => {
       if (disposed) unlisten();
       else unlistenFailed = unlisten;

@@ -65,6 +65,7 @@ const App = () => {
     showTransferModal,
     setTransferModal,
   } = useUIStore();
+  const uiTheme = useSettingsStore((state) => state.uiTheme);
   const settingsWasOpenRef = useRef(showSettingsModal);
   const [pendingRecovery, setPendingRecovery] =
     useState<RecoverySnapshot | null>(null);
@@ -1319,12 +1320,12 @@ const App = () => {
       {/* ── Global Toast Notifications ─────────────────────────────────── */}
       <Toaster
         position="bottom-right"
-        theme="dark"
+        theme={uiTheme}
         richColors
         closeButton
         toastOptions={{
           className:
-            "bg-surface-elevated/95 text-text-primary border border-white/10 backdrop-blur-md shadow-2xl font-sans rounded-xl text-xs",
+            "bg-surface-elevated/95 text-text-primary border border-border/60 backdrop-blur-md shadow-2xl font-sans rounded-xl text-xs",
           duration: 3000,
         }}
       />

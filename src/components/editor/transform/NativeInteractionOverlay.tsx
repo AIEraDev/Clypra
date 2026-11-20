@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useRef } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useHistoryStore } from "@/store/historyStore";
 import { useUIStore } from "@/store/uiStore";
 import { useTimelineStore } from "@/store/timelineStore";
@@ -51,8 +52,12 @@ export const NativeInteractionOverlay: React.FC<
   const clip = useTimelineStore((state) =>
     state.clips.find((candidate) => candidate.id === selectedClipId),
   );
-  const activeClips = useTimelineStore((state) =>
-    state.clips.filter((candidate) => isClipActiveAtTime(candidate, currentTime)),
+  const activeClips = useTimelineStore(
+    useShallow((state) =>
+      state.clips.filter((candidate) =>
+        isClipActiveAtTime(candidate, currentTime),
+      ),
+    ),
   );
   const execute = useHistoryStore((state) => state.execute);
   const sessionRef = useRef<{
