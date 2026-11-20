@@ -11,85 +11,190 @@
 //! - `FrameResourceCache<FrameKey, Arc<FrameResource>>`
 //!   Composed frames, keyed with the full `FrameKey` including `render_revision`.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::hash::Hash;
 
-/// Count-bounded LRU cache.
+/// Internal node for the intrusive slot-indexed doubly-linked list.
+struct LruNode<K, V> {
+    key: K,
+    value: V,
+    prev: Option<usize>,
+    next: Option<usize>,
+}
+
+/// Count-bounded $O(1)$ LRU cache.
 ///
 /// Evicts the least-recently-used entry when capacity is exceeded.
-/// All operations are O(n) in the worst case for the `VecDeque` retain;
-/// Phase 5 can upgrade to an intrusive linked-hash-map if needed.
+/// Backed by a slot-indexed intrusive doubly-linked list and a `HashMap<K, usize>`,
+/// providing strictly $O(1)$ time complexity for `get`, `peek`, `insert`, and `remove`
+/// with zero allocations during steady-state caching.
 pub struct FrameResourceCache<K, V> {
     capacity: usize,
-    entries: HashMap<K, V>,
-    order: VecDeque<K>,
+    map: HashMap<K, usize>,
+    nodes: Vec<Option<LruNode<K, V>>>,
+    free_indices: Vec<usize>,
+    lru: Option<usize>, // Oldest entry (evicted first)
+    mru: Option<usize>, // Most recently used entry
 }
 
 impl<K: Hash + Eq + Clone, V: Clone> FrameResourceCache<K, V> {
     /// Create a cache with the given maximum entry count.
     /// Clamped to a minimum of 1.
     pub fn new(capacity: usize) -> Self {
+        let cap = capacity.max(1);
         Self {
-            capacity: capacity.max(1),
-            entries: HashMap::new(),
-            order: VecDeque::new(),
+            capacity: cap,
+            map: HashMap::with_capacity(cap),
+            nodes: Vec::with_capacity(cap),
+            free_indices: Vec::new(),
+            lru: None,
+            mru: None,
         }
     }
 
     /// Look up an entry. Promotes it to most-recently-used on hit.
     pub fn get(&mut self, key: &K) -> Option<V> {
-        if !self.entries.contains_key(key) {
-            return None;
-        }
-        self.touch(key);
-        self.entries.get(key).cloned()
+        let &idx = self.map.get(key)?;
+        self.promote_mru(idx);
+        self.nodes[idx].as_ref().map(|n| n.value.clone())
     }
 
     /// Peek without promoting (does not affect LRU order).
     pub fn peek(&self, key: &K) -> Option<&V> {
-        self.entries.get(key)
+        let &idx = self.map.get(key)?;
+        self.nodes[idx].as_ref().map(|n| &n.value)
     }
 
     /// Insert an entry. Evicts the LRU entry if at capacity.
     /// If the key already exists the entry is updated in-place and promoted.
     pub fn insert(&mut self, key: K, value: V) {
-        if self.entries.contains_key(&key) {
-            self.order.retain(|k| k != &key);
-        } else if self.entries.len() >= self.capacity {
-            if let Some(oldest) = self.order.pop_front() {
-                self.entries.remove(&oldest);
+        if let Some(&idx) = self.map.get(&key) {
+            if let Some(node) = self.nodes[idx].as_mut() {
+                node.value = value;
             }
+            self.promote_mru(idx);
+        } else {
+            if self.map.len() >= self.capacity {
+                self.pop_lru();
+            }
+            let idx = self.allocate_node(key.clone(), value);
+            self.attach_mru(idx);
+            self.map.insert(key, idx);
         }
-        self.order.push_back(key.clone());
-        self.entries.insert(key, value);
     }
 
     /// Remove an entry if present.
     pub fn remove(&mut self, key: &K) {
-        if self.entries.remove(key).is_some() {
-            self.order.retain(|k| k != key);
+        if let Some(idx) = self.map.remove(key) {
+            self.detach(idx);
+            self.free_indices.push(idx);
+            self.nodes[idx] = None;
         }
     }
 
     /// Discard all entries.
     pub fn clear(&mut self) {
-        self.entries.clear();
-        self.order.clear();
+        self.map.clear();
+        self.nodes.clear();
+        self.free_indices.clear();
+        self.lru = None;
+        self.mru = None;
     }
 
     pub fn len(&self) -> usize {
-        self.entries.len()
+        self.map.len()
     }
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.map.is_empty()
     }
     pub fn capacity(&self) -> usize {
         self.capacity
     }
 
-    fn touch(&mut self, key: &K) {
-        self.order.retain(|k| k != key);
-        self.order.push_back(key.clone());
+    fn detach(&mut self, idx: usize) {
+        let (prev, next) = match self.nodes.get(idx).and_then(|n| n.as_ref()) {
+            Some(node) => (node.prev, node.next),
+            None => return,
+        };
+
+        if let Some(p) = prev {
+            if let Some(Some(p_node)) = self.nodes.get_mut(p) {
+                p_node.next = next;
+            }
+        } else {
+            self.lru = next;
+        }
+
+        if let Some(n) = next {
+            if let Some(Some(n_node)) = self.nodes.get_mut(n) {
+                n_node.prev = prev;
+            }
+        } else {
+            self.mru = prev;
+        }
+
+        if let Some(Some(node)) = self.nodes.get_mut(idx) {
+            node.prev = None;
+            node.next = None;
+        }
+    }
+
+    fn attach_mru(&mut self, idx: usize) {
+        if let Some(old_mru) = self.mru {
+            if let Some(Some(old_node)) = self.nodes.get_mut(old_mru) {
+                old_node.next = Some(idx);
+            }
+            if let Some(Some(node)) = self.nodes.get_mut(idx) {
+                node.prev = Some(old_mru);
+                node.next = None;
+            }
+            self.mru = Some(idx);
+        } else {
+            if let Some(Some(node)) = self.nodes.get_mut(idx) {
+                node.prev = None;
+                node.next = None;
+            }
+            self.lru = Some(idx);
+            self.mru = Some(idx);
+        }
+    }
+
+    fn promote_mru(&mut self, idx: usize) {
+        if self.mru == Some(idx) {
+            return;
+        }
+        self.detach(idx);
+        self.attach_mru(idx);
+    }
+
+    fn allocate_node(&mut self, key: K, value: V) -> usize {
+        if let Some(free_idx) = self.free_indices.pop() {
+            self.nodes[free_idx] = Some(LruNode {
+                key,
+                value,
+                prev: None,
+                next: None,
+            });
+            free_idx
+        } else {
+            let idx = self.nodes.len();
+            self.nodes.push(Some(LruNode {
+                key,
+                value,
+                prev: None,
+                next: None,
+            }));
+            idx
+        }
+    }
+
+    fn pop_lru(&mut self) -> Option<(K, V)> {
+        let lru_idx = self.lru?;
+        self.detach(lru_idx);
+        self.free_indices.push(lru_idx);
+        let node = self.nodes[lru_idx].take()?;
+        self.map.remove(&node.key);
+        Some((node.key, node.value))
     }
 }
 
@@ -183,5 +288,37 @@ mod tests {
             c.insert(i, i as u32);
         }
         assert!(c.len() <= 3);
+    }
+
+    #[test]
+    fn intrusive_lru_slot_reuse_and_order() {
+        let mut c: Cache = FrameResourceCache::new(3);
+        c.insert(1, 10);
+        c.insert(2, 20);
+        c.insert(3, 30);
+        assert_eq!(c.len(), 3);
+        assert_eq!(c.nodes.len(), 3);
+
+        // Touch 1 (MRU now 1, order LRU->MRU: 2, 3, 1)
+        assert_eq!(c.get(&1), Some(10));
+
+        // Insert 4 (evicts 2, reuses 2's slot! nodes.len() stays 3!)
+        c.insert(4, 40);
+        assert_eq!(c.get(&2), None);
+        assert_eq!(c.len(), 3);
+        assert_eq!(c.nodes.len(), 3);
+        assert_eq!(c.free_indices.len(), 0);
+
+        // Order is now LRU->MRU: 3, 1, 4
+        // Touch 3 (order: 1, 4, 3)
+        assert_eq!(c.get(&3), Some(30));
+
+        // Insert 5 (evicts 1)
+        c.insert(5, 50);
+        assert_eq!(c.get(&1), None);
+        assert_eq!(c.get(&3), Some(30));
+        assert_eq!(c.get(&4), Some(40));
+        assert_eq!(c.get(&5), Some(50));
+        assert_eq!(c.nodes.len(), 3);
     }
 }
