@@ -123,6 +123,24 @@ export class PropertyEditTelemetryCollector {
     });
   }
 
+  /** Record a sampled keyframe evaluation, throttled by the caller's sampling cadence. */
+  public recordKeyframeEvaluation(input: {
+    property: string;
+    category?: PropertyCategory;
+    timeSeconds: number;
+    source: "exact" | "interpolated" | "default";
+  }): void {
+    this.record({
+      category: input.category || "unknown",
+      property: input.property,
+      inputKind: "button_action",
+      action: `keyframe-evaluate-${input.source}`,
+      durationMs: 0,
+      timeSeconds: Math.max(0, input.timeSeconds),
+      timestampEpochMs: Date.now(),
+    });
+  }
+
   private record(payload: PropertyEditTelemetryPayload): void {
     try {
       if (this.buffer.length >= this.maxBufferSize) {

@@ -10,6 +10,7 @@ import { resolveClipVisualBounds } from "@/lib/transform/transformUtils";
 import type { Clip, TransformHandle } from "@/types";
 import { useI18n } from "@/i18n";
 import { tracePlayback } from "@/core/playback/playbackTrace";
+import { applyNativeTransformSnapping } from "./nativeSnap";
 
 interface NativeInteractionOverlayProps {
   canvasWidth: number;
@@ -21,6 +22,9 @@ interface NativeInteractionOverlayProps {
   currentTime: number;
   visible: boolean;
 }
+
+export const isNativeResizeHandle = (handle: TransformHandle): boolean =>
+  handle !== "move";
 
 /**
  * Transparent WebView hit layer for the native preview surface.
@@ -46,6 +50,9 @@ export const NativeInteractionOverlay: React.FC<
   const selectedClipId = useUIStore((state) => state.selectedClipIds[0]);
   const clip = useTimelineStore((state) =>
     state.clips.find((candidate) => candidate.id === selectedClipId),
+  );
+  const activeClips = useTimelineStore((state) =>
+    state.clips.filter((candidate) => isClipActiveAtTime(candidate, currentTime)),
   );
   const execute = useHistoryStore((state) => state.execute);
   const sessionRef = useRef<{
@@ -110,6 +117,9 @@ export const NativeInteractionOverlay: React.FC<
         startedAt: performance.now(),
       };
       tracePlayback("native-transform-pointer-down", { handle });
+      if (isNativeResizeHandle(handle)) {
+        tracePlayback("native-transform-resize-start", { handle });
+      }
       event.currentTarget.setPointerCapture(event.pointerId);
       controller.startTransform({
         clipId: clip.id,
@@ -141,15 +151,26 @@ export const NativeInteractionOverlay: React.FC<
           session.clip.aspectRatioLocked ?? true,
         ),
       );
-      controller.updateDragGeometry({
+      const nextGeometry = {
         x: next.x ?? session.clip.x,
         y: next.y ?? session.clip.y,
         width: next.width ?? session.clip.width,
         height: next.height ?? session.clip.height,
         rotation: next.rotation ?? session.clip.rotation ?? 0,
+      };
+      const snapped = applyNativeTransformSnapping({
+        geometry: nextGeometry,
+        clip: session.clip,
+        activeClips,
+        canvasWidth,
+        canvasHeight,
+        scale,
+        handle: session.handle,
       });
+      controller.setActiveGuides(snapped.guides);
+      controller.updateDragGeometry(snapped.geometry, snapped.guides ?? undefined);
     },
-    [canvasHeight, canvasWidth, controller, toCanvasPoint],
+    [activeClips, canvasHeight, canvasWidth, controller, scale, toCanvasPoint],
   );
 
   const end = useCallback(
@@ -170,6 +191,12 @@ export const NativeInteractionOverlay: React.FC<
         durationMs: Math.round(performance.now() - session.startedAt),
         changed: Boolean(finalGeometry),
       });
+      if (isNativeResizeHandle(session.handle)) {
+        tracePlayback("native-transform-resize-commit", {
+          handle: session.handle,
+          changed: Boolean(finalGeometry),
+        });
+      }
       controller.endTransform();
       sessionRef.current = null;
     },

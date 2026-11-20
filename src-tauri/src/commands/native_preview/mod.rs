@@ -27,7 +27,7 @@ use crate::wgpu_compositor::{
 };
 use crate::wgpu_compositor::frame_correlation::WorkloadMode;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager};
@@ -36,6 +36,10 @@ use crate::filmstrip_engine::stream_actor::DecodedVideoPlanes;
 
 type DecodedNativeVideoFrame = (DecodedVideoPlanes, u32, u32, VideoColorMetadata, u32);
 static NATIVE_SURFACE_PRESENTATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+#[cfg(target_os = "macos")]
+static METAL_ZERO_COPY_SUCCESS_REPORTED: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "macos")]
+static METAL_ZERO_COPY_FAILURE_REPORTED: AtomicBool = AtomicBool::new(false);
 
 fn frame_attribution_for_mode(
     lifecycle_context: &RenderLifecycleContext,
@@ -1587,6 +1591,13 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
                     };
                     match metal_import::import_into_wgpu(&session.gpu.device, shared) {
                         Ok(imported) => {
+                            if !METAL_ZERO_COPY_SUCCESS_REPORTED.swap(true, Ordering::Relaxed) {
+                                diagnostics::info(
+                                    "native-preview",
+                                    "metal-zero-copy-active",
+                                    "VideoToolbox CVPixelBuffer imported into Metal/wgpu without CPU plane upload",
+                                );
+                            }
                             match session.render_nv12_from_imported_metal(
                                 layer_key, width, height, &imported, &params,
                             ) {
@@ -1603,7 +1614,12 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
                                 }
                             }
                         }
-                        Err(_) => {
+                        Err(reason) => {
+                            diagnostics::warn(
+                                "native-preview",
+                                "metal-zero-copy-import-failed",
+                                format!("Metal CVPixelBuffer import fell back to CPU upload: {reason:?}"),
+                            );
                             import_all_ok = false;
                             break;
                         }
@@ -1621,6 +1637,12 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
                     render_path = FrameRenderPath::GpuUploadRing;
                 }
             }
+        } else if !METAL_ZERO_COPY_FAILURE_REPORTED.swap(true, Ordering::Relaxed) {
+            diagnostics::warn(
+                "native-preview",
+                "metal-zero-copy-decode-unavailable",
+                "VideoToolbox did not return an IOSurface-backed CVPixelBuffer; using CPU upload fallback",
+            );
         }
     }
 

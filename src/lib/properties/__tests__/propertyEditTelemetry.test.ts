@@ -98,6 +98,20 @@ describe("PropertyEditTelemetryCollector", () => {
     });
   });
 
+  it("records keyframe evaluation source and time without clip identity", () => {
+    propertyEditTelemetry.recordKeyframeEvaluation({
+      property: "x",
+      category: "video",
+      timeSeconds: 1.25,
+      source: "interpolated",
+    });
+    expect(propertyEditTelemetry.getRecentEntries()[0]).toMatchObject({
+      action: "keyframe-evaluate-interpolated",
+      property: "x",
+      timeSeconds: 1.25,
+    });
+  });
+
   // -----------------------------------------------------------------------
   // recordNumericCommit
   // -----------------------------------------------------------------------

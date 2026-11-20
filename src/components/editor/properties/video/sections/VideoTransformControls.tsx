@@ -26,6 +26,24 @@ import { propertyEditTelemetry } from "@/lib/properties/propertyEditTelemetry";
 import { evaluateVisualPropertyKeyframes } from "@/core/evaluation/animation";
 import { useDragTransformOverride } from "@/hooks/useDragTransformOverride";
 
+function evaluateTransformKeyframes(
+  property: "width" | "height" | "x" | "y" | "rotation",
+  keyframes: NonNullable<Clip["visualKeyframes"]>["x"],
+  timeSeconds: number,
+  fallback: number,
+  duration: number,
+): number {
+  const value = evaluateVisualPropertyKeyframes(keyframes ?? [], timeSeconds, fallback, duration);
+  const exact = keyframes?.some((keyframe) => Math.abs(keyframe.time - timeSeconds) < 0.0001);
+  propertyEditTelemetry.recordKeyframeEvaluation({
+    category: "video",
+    property,
+    timeSeconds,
+    source: exact ? "exact" : keyframes?.length ? "interpolated" : "default",
+  });
+  return value;
+}
+
 interface VideoTransformControlsProps {
   selectedClip: Clip;
   canvasWidth: number;
@@ -202,7 +220,8 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
   // Live evaluated values when keyframes exist
   const currentWidth = useMemo(() => {
     if (selectedClip.visualKeyframes?.width?.length) {
-      return evaluateVisualPropertyKeyframes(
+      return evaluateTransformKeyframes(
+        "width",
         selectedClip.visualKeyframes.width,
         localTime,
         selectedClip.width ?? baseWidth,
@@ -220,7 +239,8 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
   const currentHeight = useMemo(() => {
     if (selectedClip.visualKeyframes?.height?.length) {
-      return evaluateVisualPropertyKeyframes(
+      return evaluateTransformKeyframes(
+        "height",
         selectedClip.visualKeyframes.height,
         localTime,
         selectedClip.height ?? baseHeight,
@@ -238,7 +258,8 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
   const currentClipX = useMemo(() => {
     if (selectedClip.visualKeyframes?.x?.length) {
-      return evaluateVisualPropertyKeyframes(
+      return evaluateTransformKeyframes(
+        "x",
         selectedClip.visualKeyframes.x,
         localTime,
         selectedClip.x ?? 0,
@@ -262,7 +283,8 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
   const currentClipY = useMemo(() => {
     if (selectedClip.visualKeyframes?.y?.length) {
-      return evaluateVisualPropertyKeyframes(
+      return evaluateTransformKeyframes(
+        "y",
         selectedClip.visualKeyframes.y,
         localTime,
         selectedClip.y ?? 0,
@@ -286,7 +308,8 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
   const currentRotation = useMemo(() => {
     if (selectedClip.visualKeyframes?.rotation?.length) {
-      return evaluateVisualPropertyKeyframes(
+      return evaluateTransformKeyframes(
+        "rotation",
         selectedClip.visualKeyframes.rotation,
         localTime,
         selectedClip.rotation ?? 0,
