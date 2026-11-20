@@ -307,60 +307,150 @@ impl AudioMixGraph {
             || self.clips.is_empty()
             || output_channels == 0
             || output_sample_rate == 0
+            || output.is_empty()
         {
             return false;
         }
 
         let output_channels = usize::from(output_channels);
         let output_sample_rate = i64::from(output_sample_rate);
-        let mut has_audio = false;
+        let total_frames = output.len() / output_channels;
+        let chunk_duration_ticks = (total_frames as i64)
+            .saturating_mul(TICKS_PER_SECOND)
+            / output_sample_rate;
+        let timeline_end_ticks = timeline_start_ticks.saturating_add(chunk_duration_ticks);
 
         let has_any_solo = self.tracks.iter().any(|t| t.solo);
+
+        #[derive(Copy, Clone)]
+        struct ActiveClip<'a> {
+            clip: &'a DecodedAudioClip,
+            effective_gain_mono: f32,
+            effective_gain_l: f32,
+            effective_gain_r: f32,
+        }
+
+        const STACK_ACTIVE_CAP: usize = 32;
+        let mut stack_clips: [Option<ActiveClip>; STACK_ACTIVE_CAP] = [None; STACK_ACTIVE_CAP];
+        let mut stack_count = 0;
+        let mut overflow_clips: Option<Vec<ActiveClip>> = None;
+
+        for clip in &self.clips {
+            let duration_ticks = if clip.config.duration_ticks > 0 {
+                clip.config.duration_ticks
+            } else {
+                let clip_channels = usize::from(clip.channels);
+                let clip_sample_rate = i64::from(clip.sample_rate);
+                if clip_channels == 0 || clip_sample_rate == 0 {
+                    0
+                } else {
+                    (clip.samples.len() as i64 / clip_channels as i64)
+                        .saturating_mul(TICKS_PER_SECOND)
+                        / clip_sample_rate
+                }
+            };
+
+            let clip_start = clip.config.timeline_start_ticks;
+            let clip_end = clip_start.saturating_add(duration_ticks);
+
+            // Bounding box rejection: skip clips that do not overlap this audio chunk
+            if clip_end <= timeline_start_ticks || clip_start >= timeline_end_ticks {
+                continue;
+            }
+
+            let track = clip
+                .config
+                .track_id
+                .as_deref()
+                .and_then(|tid| self.tracks.iter().find(|t| t.id == tid));
+
+            if let Some(t) = track {
+                if t.muted {
+                    continue;
+                }
+                if has_any_solo && !t.solo {
+                    continue;
+                }
+            }
+
+            let (track_vol, track_pan) = track.map(|t| (t.volume, t.pan)).unwrap_or((1.0, 0.0));
+            let (pan_l, pan_r) = constant_power_pan(track_pan);
+
+            let active = ActiveClip {
+                clip,
+                effective_gain_mono: track_vol * self.master_volume,
+                effective_gain_l: track_vol * pan_l * self.master_volume,
+                effective_gain_r: track_vol * pan_r * self.master_volume,
+            };
+
+            if stack_count < STACK_ACTIVE_CAP {
+                stack_clips[stack_count] = Some(active);
+                stack_count += 1;
+            } else {
+                overflow_clips.get_or_insert_with(Vec::new).push(active);
+            }
+        }
+
+        if stack_count == 0 {
+            return false;
+        }
+
+        let mut has_audio = false;
 
         for (frame_index, output_frame) in output.chunks_mut(output_channels).enumerate() {
             let frame_ticks =
                 (frame_index as i64).saturating_mul(TICKS_PER_SECOND) / output_sample_rate;
             let timeline_ticks = timeline_start_ticks.saturating_add(frame_ticks);
 
-            for clip in &self.clips {
-                let track = clip
-                    .config
-                    .track_id
-                    .as_deref()
-                    .and_then(|tid| self.tracks.iter().find(|t| t.id == tid));
-
-                if let Some(t) = track {
-                    if t.muted {
-                        continue;
-                    }
-                    if has_any_solo && !t.solo {
-                        continue;
-                    }
-                }
-
-                let (track_vol, track_pan) = track.map(|t| (t.volume, t.pan)).unwrap_or((1.0, 0.0));
-
-                let (pan_l, pan_r) = constant_power_pan(track_pan);
-
+            // Mix stack-allocated active clips
+            for active in stack_clips[..stack_count].iter().flatten() {
                 if output_channels == 1 {
-                    if let Some(sample) = clip.sample_at(timeline_ticks, 0) {
-                        let sample_out = sample * track_vol * self.master_volume;
+                    if let Some(sample) = active.clip.sample_at(timeline_ticks, 0) {
+                        let sample_out = sample * active.effective_gain_mono;
                         output_frame[0] += sample_out;
                         if sample_out.abs() > 0.00001 {
                             has_audio = true;
                         }
                     }
                 } else {
-                    let sample_l = clip.sample_at(timeline_ticks, 0);
-                    let sample_r = clip.sample_at(timeline_ticks, 1).or(sample_l); // fallback mono to stereo
+                    let sample_l = active.clip.sample_at(timeline_ticks, 0);
+                    let sample_r = active.clip.sample_at(timeline_ticks, 1).or(sample_l);
 
                     if let (Some(l), Some(r)) = (sample_l, sample_r) {
-                        let out_l = l * track_vol * pan_l * self.master_volume;
-                        let out_r = r * track_vol * pan_r * self.master_volume;
+                        let out_l = l * active.effective_gain_l;
+                        let out_r = r * active.effective_gain_r;
                         output_frame[0] += out_l;
                         output_frame[1] += out_r;
                         if out_l.abs() > 0.00001 || out_r.abs() > 0.00001 {
                             has_audio = true;
+                        }
+                    }
+                }
+            }
+
+            // Mix overflow active clips if any
+            if let Some(ref overflow) = overflow_clips {
+                for active in overflow {
+                    if output_channels == 1 {
+                        if let Some(sample) = active.clip.sample_at(timeline_ticks, 0) {
+                            let sample_out = sample * active.effective_gain_mono;
+                            output_frame[0] += sample_out;
+                            if sample_out.abs() > 0.00001 {
+                                has_audio = true;
+                            }
+                        }
+                    } else {
+                        let sample_l = active.clip.sample_at(timeline_ticks, 0);
+                        let sample_r = active.clip.sample_at(timeline_ticks, 1).or(sample_l);
+
+                        if let (Some(l), Some(r)) = (sample_l, sample_r) {
+                            let out_l = l * active.effective_gain_l;
+                            let out_r = r * active.effective_gain_r;
+                            output_frame[0] += out_l;
+                            output_frame[1] += out_r;
+                            if out_l.abs() > 0.00001 || out_r.abs() > 0.00001 {
+                                has_audio = true;
+                            }
                         }
                     }
                 }
