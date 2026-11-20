@@ -358,8 +358,8 @@ const TimelineToolbarComponent: React.FC = () => {
               variant="ghost"
               size="icon-sm"
               className={toolButton}
-              onClick={() => executeClipCommand("clip.splitAllAtPlayhead")}
-              disabled={!getClipCommand("clip.splitAllAtPlayhead")?.isEnabled}
+              onClick={() => executeClipCommand("clip.splitAtPlayhead")}
+              disabled={!getClipCommand("clip.splitAtPlayhead")?.isEnabled}
             >
               <ScissorsLineDashed className="w-4 h-4" />
             </Button>

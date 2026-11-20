@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { clipCommands } from "../clipCommands";
 import type { ClipCommandContext } from "../types";
 import { clipboardService } from "@/core/clipboard/clipboardService";
+import { EditingActions } from "@/core/interactions";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import type { Clip, Track } from "@/types";
@@ -135,6 +136,52 @@ describe("clipCommands registry", () => {
     };
     expect(splitCmd.isEnabled(ctxLocked)).toBe(false);
     expect(splitCmd.disabledReason?.(ctxLocked)).toBe("Clip is on a locked track");
+  });
+
+  it("splits ONLY the selected clip when clip.splitAtPlayhead executes with selection", () => {
+    const splitCmd = clipCommands.find((c) => c.id === "clip.splitAtPlayhead")!;
+    const splitSelectedSpy = vi.spyOn(EditingActions, "splitSelectedAtPlayhead").mockReturnValue([
+      { success: true, clipName: "Clip 1", leftClipId: "left-1", rightClipId: "right-1" },
+    ]);
+    const splitAllSpy = vi.spyOn(EditingActions, "splitAtPlayhead");
+
+    const ctx: ClipCommandContext = {
+      selectedClipIds: ["clip-1"],
+      clickedClipId: "clip-1",
+      playheadTime: 5,
+      clips: sampleClips,
+      tracks: sampleTracks,
+    };
+
+    splitCmd.execute(ctx);
+    expect(splitSelectedSpy).toHaveBeenCalledWith(["clip-1"]);
+    expect(splitAllSpy).not.toHaveBeenCalled();
+
+    splitSelectedSpy.mockRestore();
+    splitAllSpy.mockRestore();
+  });
+
+  it("falls back to splitting clips under playhead when clip.splitAtPlayhead executes with no selection", () => {
+    const splitCmd = clipCommands.find((c) => c.id === "clip.splitAtPlayhead")!;
+    const splitSelectedSpy = vi.spyOn(EditingActions, "splitSelectedAtPlayhead");
+    const splitAllSpy = vi.spyOn(EditingActions, "splitAtPlayhead").mockReturnValue([
+      { success: true, clipName: "Clip 1", leftClipId: "left-1", rightClipId: "right-1" },
+    ]);
+
+    const ctx: ClipCommandContext = {
+      selectedClipIds: [],
+      clickedClipId: null,
+      playheadTime: 5,
+      clips: sampleClips,
+      tracks: sampleTracks,
+    };
+
+    splitCmd.execute(ctx);
+    expect(splitAllSpy).toHaveBeenCalled();
+    expect(splitSelectedSpy).not.toHaveBeenCalled();
+
+    splitSelectedSpy.mockRestore();
+    splitAllSpy.mockRestore();
   });
 
   it("keeps Split All enabled when an unselected clip is under the playhead", () => {
