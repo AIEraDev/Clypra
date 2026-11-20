@@ -984,9 +984,10 @@ impl NativeRenderSession {
         if demand.request_id.trim().is_empty() || demand.frame_time.timescale == 0 {
             return Err("Native playback demand requires request_id and frame time".to_string());
         }
-        // Pointer targets change continuously. Only a lifecycle epoch is a
-        // cancellation fence, so forward scrub can replace its pending target
-        // without killing the decode operation already making progress.
+        // Pointer targets change continuously. The cancellation epoch is a
+        // gesture-level fence: the first explicit demand in an epoch
+        // preempts stale decoder work, while later pointer updates in that
+        // same gesture only replace the latest-value mailbox target.
         let generation = Self::cancellation_epoch(&demand);
         let current = self.generation.load(Ordering::Acquire);
         if generation < current {
@@ -999,6 +1000,9 @@ impl NativeRenderSession {
                     NativeDemandOutcome::Cancelled,
                 )
             }));
+        }
+        if tracks_explicit_request(&demand) {
+            self.preempt_for_interactive_demand(generation);
         }
         self.generation.store(generation, Ordering::Release);
         
@@ -1060,7 +1064,10 @@ impl NativeRenderSession {
                 return Ok(superseded_terminal);
             }
             // This assignment is the latest-frame-wins slot: a slow decode can
-            // never cause obsolete playback work to accumulate.
+            // never cause obsolete playback work to accumulate. The actor
+            // preemption above ensures the in-flight predecessor is also
+            // allowed to exit rather than holding the next target behind a
+            // full GOP decode.
             // Cancel the superseded request if one exists
             let superseded_id = pending.internal_request_id.take();
             if let Some(superseded_id) = superseded_id.as_ref() {
@@ -2323,6 +2330,31 @@ mod tests {
         assert!(session.preempt_for_interactive_demand(21));
         assert!(!session.preempt_for_interactive_demand(21));
         assert!(session.preempt_for_interactive_demand(22));
+    }
+
+    #[test]
+    fn explicit_submission_preempts_once_per_scrub_epoch() {
+        let session = mock_session();
+
+        let mut first = mock_demand("scrub-1", 7);
+        first.cancellation_epoch = Some(7);
+        session.submit(first).expect("first scrub accepted");
+        assert_eq!(
+            session.last_interactive_preempt_epoch.load(Ordering::Acquire),
+            7,
+            "the first explicit target must interrupt stale decoder work"
+        );
+
+        let mut replacement = mock_demand("scrub-2", 8);
+        replacement.cancellation_epoch = Some(7);
+        session
+            .submit(replacement)
+            .expect("replacement scrub accepted");
+        assert_eq!(
+            session.last_interactive_preempt_epoch.load(Ordering::Acquire),
+            7,
+            "pointer updates in one gesture must not repeatedly reset the actor"
+        );
     }
 
     #[test]
