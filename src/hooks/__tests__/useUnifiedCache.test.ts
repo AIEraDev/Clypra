@@ -9,6 +9,10 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: any[]) => mockInvoke(...args),
 }));
 
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn().mockResolvedValue(() => {}),
+}));
+
 vi.mock("@/lib/platform/tauri", () => ({
   isTauriRuntime: vi.fn().mockReturnValue(true),
 }));
@@ -46,6 +50,13 @@ describe("useUnifiedCache hook", () => {
           errors: [],
         });
       }
+      if (cmd === "compact_unified_cache") {
+        return Promise.resolve({
+          reclaimed_bytes: 10485760,
+          removed_orphans: 3,
+          scanned_files: 25,
+        });
+      }
       return Promise.resolve();
     });
   });
@@ -72,6 +83,8 @@ describe("useUnifiedCache hook", () => {
       hitRatePct: 85.0,
       evictionCount: 2,
       rootDir: "/path/to/clypra_cache",
+      mmapCacheBytes: 0,
+      mmapSlotCount: 0,
     });
     expect(hookResult.current.memoryStats).toBeDefined();
     expect(hookResult.current.error).toBeNull();
@@ -132,6 +145,26 @@ describe("useUnifiedCache hook", () => {
       quarantinedFiles: 0,
       quarantinedBytes: 0,
       errors: [],
+    });
+  });
+
+  it("executes compaction and defragmentation", async () => {
+    let hookResult: any;
+    await act(async () => {
+      const { result } = renderHook(() => useUnifiedCache());
+      hookResult = result;
+    });
+
+    let report: any;
+    await act(async () => {
+      report = await hookResult.current.compact();
+    });
+
+    expect(mockInvoke).toHaveBeenCalledWith("compact_unified_cache");
+    expect(report).toEqual({
+      reclaimedBytes: 10485760,
+      removedOrphans: 3,
+      scannedFiles: 25,
     });
   });
 

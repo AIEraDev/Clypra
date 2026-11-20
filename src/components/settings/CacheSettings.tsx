@@ -40,10 +40,12 @@ export const CacheSettings: React.FC = () => {
     setLimit: setUnifiedLimit,
     purge: purgeUnified,
     verifyIntegrity,
+    compact: compactUnified,
   } = useUnifiedCache();
 
   const [integrityReport, setIntegrityReport] = useState<IntegrityReport | null>(null);
   const [isVerifyingIntegrity, setIsVerifyingIntegrity] = useState(false);
+  const [isCompacting, setIsCompacting] = useState(false);
   const [diskLimitGb, setDiskLimitGb] = useState<string>("5");
   const [isClearingFilmstrip, setIsClearingFilmstrip] = useState(false);
 
@@ -171,6 +173,23 @@ export const CacheSettings: React.FC = () => {
       toast.error("Integrity verification failed");
     } finally {
       setIsVerifyingIntegrity(false);
+    }
+  };
+
+  const handleCompact = async () => {
+    setIsCompacting(true);
+    try {
+      const report = await compactUnified();
+      if (report) {
+        toast.success(
+          `Cache compacted: ${(report.reclaimedBytes / (1024 * 1024)).toFixed(1)} MB reclaimed (${report.removedOrphans} files removed)`,
+        );
+      }
+    } catch (e) {
+      console.error("[CacheSettings] Compaction failed:", e);
+      toast.error("Cache compaction failed");
+    } finally {
+      setIsCompacting(false);
     }
   };
 
@@ -600,9 +619,12 @@ export const CacheSettings: React.FC = () => {
             </div>
 
             {/* Stats row */}
-            <div className="flex items-center gap-4 pt-2 border-t border-white/5 text-[10px] text-text-muted">
+            <div className="flex items-center gap-4 pt-2 border-t border-white/5 text-[10px] text-text-muted flex-wrap">
               <span>Hit rate: <span className="text-text-primary font-medium">{unifiedStats.hitRatePct.toFixed(1)}%</span></span>
               <span>Evictions: <span className="text-text-primary font-medium">{unifiedStats.evictionCount}</span></span>
+              {unifiedStats.mmapCacheBytes != null && unifiedStats.mmapCacheBytes > 0 && (
+                <span>Mmap scrub: <span className="text-text-primary font-medium">{(unifiedStats.mmapCacheBytes / (1024 * 1024)).toFixed(0)} MB ({unifiedStats.mmapSlotCount ?? 0} frames)</span></span>
+              )}
             </div>
           </div>
         )}
@@ -705,23 +727,45 @@ export const CacheSettings: React.FC = () => {
           </button>
         </div>
 
-        {/* Verify integrity */}
+        {/* Verify integrity & Compact cache */}
         {isTauriRuntime() && (
-          <button
-            onClick={handleVerifyIntegrity}
-            disabled={isVerifyingIntegrity}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-surface-raised/30 hover:bg-surface-raised/50 border border-white/5 hover:border-accent/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-          >
-            <div className="w-8 h-8 rounded-lg bg-accent/15 flex items-center justify-center shrink-0">
-              {isVerifyingIntegrity
-                ? <RefreshCw className="w-4 h-4 text-accent animate-spin" />
-                : <ShieldCheck className="w-4 h-4 text-accent" />}
-            </div>
-            <div className="text-left flex-1">
-              <div className="text-[12px] font-medium text-text-primary">Verify Integrity</div>
-              <div className="text-[10px] text-text-muted">Scan for corrupted or orphaned cache files</div>
-            </div>
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={handleVerifyIntegrity}
+              disabled={isVerifyingIntegrity || isUnifiedLoading}
+              className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-surface-raised/30 hover:bg-surface-raised/50 border border-white/5 hover:border-accent/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              <div className="w-7 h-7 rounded-lg bg-accent/15 flex items-center justify-center shrink-0">
+                {isVerifyingIntegrity ? (
+                  <RefreshCw className="w-3.5 h-3.5 text-accent animate-spin" />
+                ) : (
+                  <ShieldCheck className="w-3.5 h-3.5 text-accent" />
+                )}
+              </div>
+              <div className="text-left min-w-0">
+                <div className="text-[11px] font-medium text-text-primary">Verify Integrity</div>
+                <div className="text-[9px] text-text-muted truncate">Quarantine corrupted files</div>
+              </div>
+            </button>
+
+            <button
+              onClick={handleCompact}
+              disabled={isCompacting || isUnifiedLoading}
+              className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-surface-raised/30 hover:bg-surface-raised/50 border border-white/5 hover:border-accent/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              <div className="w-7 h-7 rounded-lg bg-accent/15 flex items-center justify-center shrink-0">
+                {isCompacting ? (
+                  <RefreshCw className="w-3.5 h-3.5 text-accent animate-spin" />
+                ) : (
+                  <Database className="w-3.5 h-3.5 text-accent" />
+                )}
+              </div>
+              <div className="text-left min-w-0">
+                <div className="text-[11px] font-medium text-text-primary">Compact Cache</div>
+                <div className="text-[9px] text-text-muted truncate">Reclaim space &amp; orphans</div>
+              </div>
+            </button>
+          </div>
         )}
       </section>
 

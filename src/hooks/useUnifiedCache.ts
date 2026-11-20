@@ -34,6 +34,10 @@ export interface UnifiedCacheStats {
   evictionCount: number;
   /** Absolute path of the cache root directory on the host OS. */
   rootDir: string;
+  /** Pre-allocated memory-mapped scrub cache capacity in bytes. */
+  mmapCacheBytes?: number;
+  /** Number of valid decoded frames currently retained in the mmap scrub cache. */
+  mmapSlotCount?: number;
 }
 
 /** Mirrors Rust `IntegrityReport`. */
@@ -55,6 +59,16 @@ export interface PurgeResult {
   remainingBytes: number;
 }
 
+/** Mirrors Rust `CompactionReport`. */
+export interface CompactionReport {
+  /** Total bytes reclaimed through compaction and orphan removal. */
+  reclaimedBytes: number;
+  /** Number of orphaned temporary or truncated files removed. */
+  removedOrphans: number;
+  /** Total files scanned across all namespaces. */
+  scannedFiles: number;
+}
+
 // ---------------------------------------------------------------------------
 // Raw Rust response shapes (snake_case) used only inside the hook
 // ---------------------------------------------------------------------------
@@ -69,6 +83,8 @@ interface RawUnifiedCacheStats {
   hit_rate_pct: number;
   eviction_count: number;
   root_dir: string;
+  mmap_cache_bytes?: number;
+  mmap_slot_count?: number;
 }
 
 interface RawIntegrityReport {
@@ -76,6 +92,12 @@ interface RawIntegrityReport {
   quarantined_files: number;
   quarantined_bytes: number;
   errors: string[];
+}
+
+interface RawCompactionReport {
+  reclaimed_bytes: number;
+  removed_orphans: number;
+  scanned_files: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -93,6 +115,8 @@ function mapStats(raw: RawUnifiedCacheStats): UnifiedCacheStats {
     hitRatePct: raw.hit_rate_pct,
     evictionCount: raw.eviction_count,
     rootDir: raw.root_dir,
+    mmapCacheBytes: raw.mmap_cache_bytes ?? 0,
+    mmapSlotCount: raw.mmap_slot_count ?? 0,
   };
 }
 
@@ -102,6 +126,14 @@ function mapIntegrityReport(raw: RawIntegrityReport): IntegrityReport {
     quarantinedFiles: raw.quarantined_files,
     quarantinedBytes: raw.quarantined_bytes,
     errors: raw.errors,
+  };
+}
+
+function mapCompactionReport(raw: RawCompactionReport): CompactionReport {
+  return {
+    reclaimedBytes: raw.reclaimed_bytes,
+    removedOrphans: raw.removed_orphans,
+    scannedFiles: raw.scanned_files,
   };
 }
 
@@ -138,6 +170,11 @@ export interface UseUnifiedCacheReturn {
    * @returns The integrity report, or `null` if running outside of a Tauri context.
    */
   verifyIntegrity(): Promise<IntegrityReport | null>;
+  /**
+   * Compact and defragment cache namespaces, removing old temporary files and orphans.
+   * @returns The compaction report, or `null` if running outside of a Tauri context.
+   */
+  compact(): Promise<CompactionReport | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -262,6 +299,74 @@ export function useUnifiedCache(): UseUnifiedCacheReturn {
     }
   }, []);
 
+  // ------------------------------------------------------------------
+  // compact
+  // ------------------------------------------------------------------
+  const compact = useCallback(async (): Promise<CompactionReport | null> => {
+    if (!isTauriRuntime()) return null;
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const raw = await invoke<RawCompactionReport>("compact_unified_cache");
+      const report = mapCompactionReport(raw);
+      await refresh();
+      return report;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      console.error("[useUnifiedCache] compact failed:", message);
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [refresh]);
+
+  // ------------------------------------------------------------------
+  // Real-time cache event listeners (eviction, quarantine)
+  // ------------------------------------------------------------------
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let unlistenEviction: (() => void) | undefined;
+    let unlistenQuarantine: (() => void) | undefined;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const triggerDebouncedRefresh = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        refresh();
+      }, 500);
+    };
+
+    import("@tauri-apps/api/event")
+      .then(({ listen }) => {
+        listen("clypra://cache-eviction", triggerDebouncedRefresh)
+          .then((unlisten) => {
+            unlistenEviction = unlisten;
+          })
+          .catch((err) => {
+            console.warn("[useUnifiedCache] Could not listen to eviction events:", err);
+          });
+        listen("clypra://cache-quarantine", triggerDebouncedRefresh)
+          .then((unlisten) => {
+            unlistenQuarantine = unlisten;
+          })
+          .catch((err) => {
+            console.warn("[useUnifiedCache] Could not listen to quarantine events:", err);
+          });
+      })
+      .catch((err) => {
+        console.warn("[useUnifiedCache] Failed to bind cache event listeners:", err);
+      });
+
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      unlistenEviction?.();
+      unlistenQuarantine?.();
+    };
+  }, [refresh]);
+
   return {
     stats,
     memoryStats,
@@ -271,5 +376,6 @@ export function useUnifiedCache(): UseUnifiedCacheReturn {
     setLimit,
     purge,
     verifyIntegrity,
+    compact,
   };
 }
