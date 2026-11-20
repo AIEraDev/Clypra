@@ -1,7 +1,8 @@
 /**
- * Evaluation Cache - LRU Cache for EvaluatedScene
+ * Evaluation Cache - LRU Cache for EvaluatedScene + Interval Tree Index
  *
  * Caches evaluated scenes to avoid re-evaluation.
+ * Caches spatial TimelineIntervalTree indexed by clipVersion+epoch for O(1) reuse.
  * Invalidates on epoch changes.
  *
  * Cache Key: time + epoch + clipVersion + effectsStoreVersion
@@ -9,8 +10,10 @@
  */
 
 import type { CanvasBackgroundConfig, MediaAsset } from "@/types";
+import type { CompositorClip } from "@/core/compositor/types";
 import type { EvaluatedScene } from "./types";
 import { getCacheCoordinator } from "@/core/cache/cacheCoordinator";
+import { TimelineIntervalTree } from "./spatialIndex";
 
 /**
  * Cache key for evaluated scenes.
@@ -268,6 +271,94 @@ export function getEvaluationCache(): EvaluationCache {
 export function resetEvaluationCache(): void {
   globalCache = null;
 }
+
+// ─── Interval Tree Cache ───────────────────────────────────────────────────────
+
+/**
+ * Epoch-keyed cache entry for the CompositorClip interval tree.
+ * The tree is built ONCE per distinct (clipVersion, epoch) pair and reused
+ * across all playback frames within that epoch, making RAF-loop queries O(log N + K)
+ * with zero per-frame object allocations.
+ */
+interface IntervalTreeCacheEntry {
+  tree: TimelineIntervalTree<CompositorClip>;
+  /** clipVersion hash used to detect clip mutations */
+  clipVersion: string;
+  epoch: number;
+  builtAt: number;
+}
+
+let intervalTreeEntry: IntervalTreeCacheEntry | null = null;
+
+/**
+ * Get (or rebuild) the compositor clip interval tree.
+ *
+ * Returns a stable tree reference when `clipVersion` and `epoch` match the
+ * cached entry, so playback frames within the same epoch share the same tree
+ * without re-building it.
+ *
+ * @param compositorClips All compositor clips after `toCompositorClips` and
+ *   `expandCompoundClips` have run.
+ * @param clipVersion FNV-1a hash string from `computeClipVersion()`.
+ * @param epoch Timeline mutation counter.
+ */
+export function getOrBuildIntervalTree(
+  compositorClips: CompositorClip[],
+  clipVersion: string,
+  epoch: number,
+): TimelineIntervalTree<CompositorClip> {
+  if (
+    intervalTreeEntry !== null &&
+    intervalTreeEntry.clipVersion === clipVersion &&
+    intervalTreeEntry.epoch === epoch
+  ) {
+    return intervalTreeEntry.tree;
+  }
+
+  const tree = new TimelineIntervalTree<CompositorClip>(compositorClips);
+  intervalTreeEntry = {
+    tree,
+    clipVersion,
+    epoch,
+    builtAt: Date.now(),
+  };
+  return tree;
+}
+
+/**
+ * Invalidate the interval tree when the timeline epoch advances.
+ * Called alongside `invalidateEpoch()` on timeline mutations.
+ */
+export function invalidateIntervalTree(): void {
+  intervalTreeEntry = null;
+}
+
+/** Expose for cache-coordinator's `resetSessionCaches` integration (Invariant 2). */
+export function resetIntervalTreeCache(): void {
+  intervalTreeEntry = null;
+}
+
+// ─── Invariant 2 Wiring ───────────────────────────────────────────────────────
+// Register the interval tree as a session-scoped ephemeral cache with the
+// CacheCoordinator so it is cleared on project close / `resetSessionCaches()`.
+// Registration is deferred to the first module-load tick to avoid a circular
+// import between cache.ts → cacheCoordinator.ts that may occur during test
+// hot-reloading. The coordinator already exists by the time any evaluation runs.
+(function registerIntervalTreeWithCoordinator() {
+  getCacheCoordinator().register({
+    name: "interval-tree",
+    lifespan: "session",
+    getBytesUsed: () => (intervalTreeEntry ? 8 * 1024 : 0), // structural estimate
+    trimTo: (_targetBytes: number) => {
+      // Not size-trimmable — reset the whole entry on eviction pressure
+      intervalTreeEntry = null;
+      return 0;
+    },
+    clear: () => {
+      intervalTreeEntry = null;
+    },
+  });
+})();
 
 function fastPropSig(v: unknown): string {
   if (v == null) return "";

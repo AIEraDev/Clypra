@@ -35,6 +35,8 @@ import type {
   SceneMetadata,
   BlendMode,
 } from "./types";
+import type { CompositorClip } from "@/core/compositor/types";
+import type { TimelineIntervalTree } from "./spatialIndex";
 import { toCompositorClips } from "../timeline/adapter";
 import { getClipEndTime } from "@/lib/timeline/timelineClip";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -61,6 +63,8 @@ import {
   computeAssetsVersion,
   computeCanvasBackgroundVersion,
   computeEffectsStoreVersion,
+  getOrBuildIntervalTree,
+  invalidateIntervalTree,
 } from "./cache";
 import { evaluateProperty, evaluateVisualPropertyKeyframes } from "./animation";
 import { applyLoopMotion } from "@/core/animation";
@@ -79,14 +83,24 @@ import { compareCompositorClips } from "@/core/compositor/ordering";
 import { STARTER_STICKERS } from "@/features/stickers/starterStickers";
 
 /**
+ * Module-level reusable scratch buffers for zero-allocation interval-tree queries.
+ * Reset to length=0 by the tree before each fill; never allocated mid-RAF.
+ */
+const _scratchActiveClips: CompositorClip[] = [];
+const _scratchFilterClips: CompositorClip[] = [];
+const _scratchEffectClips: CompositorClip[] = [];
+
+/**
  * Evaluate the NLE timeline at a specific time.
  * Returns a complete EvaluatedScene ready for rasterization.
  *
- * @param time    - Timeline time in seconds
- * @param clips   - All clips in timeline
- * @param tracks  - All tracks
- * @param assets  - All media assets
- * @param project - Project settings
+ * @param time         - Timeline time in seconds
+ * @param clips        - All clips in timeline
+ * @param tracks       - All tracks
+ * @param assets       - All media assets
+ * @param project      - Project settings
+ * @param transitions  - Active transition items
+ * @param prebuiltTree - Optional pre-built interval tree (passed by cached path to avoid rebuild)
  */
 export function evaluateTimelineScene(
   time: number,
@@ -95,6 +109,7 @@ export function evaluateTimelineScene(
   assets: MediaAsset[],
   project: Project | null,
   transitions: TransitionTimelineItem[] = [],
+  prebuiltTree?: TimelineIntervalTree<CompositorClip> | null,
 ): EvaluatedScene {
   const evalStartMs = performance.now();
   let keyframeEvaluationsCount = 0;
@@ -109,11 +124,13 @@ export function evaluateTimelineScene(
   const trackMap = new Map(tracks.map((track) => [track.id, track]));
   const assetMap = new Map(assets.map((asset) => [asset.id, asset]));
 
-  // Determine the max end time of all clips to identify the end of the active timeline
-  const maxEndTime = compositorClips.reduce((max, clip) => {
-    const clipEnd = clip.startTime + clip.duration;
-    return Math.max(max, clipEnd);
-  }, 0);
+  // O(1) maxEndTime from tree if available; otherwise O(N) reduce (uncached path only)
+  const maxEndTime = prebuiltTree
+    ? prebuiltTree.maxEndTime
+    : compositorClips.reduce((max, clip) => {
+        const clipEnd = clip.startTime + clip.duration;
+        return Math.max(max, clipEnd);
+      }, 0);
 
   // If time is exactly at or slightly past the end of the active timeline (and not in a gap),
   // clamp it slightly back (e.g., by 0.001s) so that the final frame remains active and rendered.
@@ -137,48 +154,112 @@ export function evaluateTimelineScene(
   const frameRate = project?.frameRate || 30;
   const frameDuration = 1 / frameRate;
 
-  const activeClips = compositorClips.filter((clip) => {
-    const clipEnd = getClipEndTime(clip);
-    // Allow boundary tolerance (1e-4s = 0.1ms) to guard against IEEE-754 precision drift
-    // and sub-millisecond timer variance on frame boundaries.
-    const isInTimeBounds =
-      clip.startTime <= evalTime + 1e-4 && evalTime < clipEnd;
-    const track = trackMap.get(clip.trackId);
-    const isVisible = track?.visible ?? true;
-    const isInTransition = transitionWindows.some(
-      (transition) =>
-        transition.fromClip.id === clip.id || transition.toClip.id === clip.id,
-    );
-    return (isInTimeBounds || isInTransition) && isVisible;
-  });
+  // Build a Set of clip IDs participating in active transitions (O(M), M ≤ transitions)
+  const transitionClipIds = new Set<string>();
+  for (const tw of transitionWindows) {
+    transitionClipIds.add(tw.fromClip.id);
+    transitionClipIds.add(tw.toClip.id);
+  }
+
+  let activeClips: CompositorClip[];
+
+  if (prebuiltTree) {
+    // ── Fast path: O(log N + K) interval tree point query, zero allocations ──
+    const treeHits = prebuiltTree.queryPoint(evalTime, 1e-4, _scratchActiveClips);
+
+    // Apply visibility filter + include any transition-participant clips missed by time bounds
+    _scratchFilterClips.length = 0;  // reuse as "extra transition clips" accumulator
+    for (const clip of compositorClips) {
+      if (transitionClipIds.has(clip.id)) {
+        const track = trackMap.get(clip.trackId);
+        if (track?.visible ?? true) {
+          // Check it isn't already in tree results
+          let alreadyIncluded = false;
+          for (const hit of treeHits) {
+            if (hit.id === clip.id) { alreadyIncluded = true; break; }
+          }
+          if (!alreadyIncluded) {
+            _scratchFilterClips.push(clip);
+          }
+        }
+      }
+    }
+
+    activeClips = [];
+    for (const clip of treeHits) {
+      const track = trackMap.get(clip.trackId);
+      if (track?.visible ?? true) {
+        activeClips.push(clip);
+      }
+    }
+    for (const clip of _scratchFilterClips) {
+      activeClips.push(clip);
+    }
+  } else {
+    // ── Fallback linear path (uncached evaluation, O(N)) ──
+    activeClips = compositorClips.filter((clip) => {
+      const clipEnd = getClipEndTime(clip);
+      // Allow boundary tolerance (1e-4s = 0.1ms) to guard against IEEE-754 precision drift
+      // and sub-millisecond timer variance on frame boundaries.
+      const isInTimeBounds =
+        clip.startTime <= evalTime + 1e-4 && evalTime < clipEnd;
+      const track = trackMap.get(clip.trackId);
+      const isVisible = track?.visible ?? true;
+      const isInTransition = transitionClipIds.has(clip.id);
+      return (isInTimeBounds || isInTransition) && isVisible;
+    });
+  }
 
   // ─── 2. Compositing Order (Contract §2) ───────────────────────────────────
 
-  // Find active timeline filter clip at this time (lowest trackIndex = top in UI)
-  const activeFilterClips = compositorClips
-    .filter((c) => {
-      const track = trackMap.get(c.trackId);
-      return (
-        c.kind === "filter" &&
-        (track?.visible ?? true) &&
-        c.startTime <= evalTime + 1e-4 &&
-        evalTime < c.startTime + c.duration
-      );
-    })
-    .sort((a, b) => a.trackIndex - b.trackIndex);
-  const activeFilterClip = activeFilterClips[0] ?? null;
+  let activeFilterClip: CompositorClip | null = null;
+  let activeEffectClips: CompositorClip[];
 
-  const activeEffectClips = compositorClips
-    .filter((c) => {
-      const track = trackMap.get(c.trackId);
-      return (
-        (c.kind === "video-effect" || c.kind === "body-effect") &&
-        (track?.visible ?? true) &&
-        c.startTime <= evalTime + 1e-4 &&
-        evalTime < c.startTime + c.duration
-      );
-    })
-    .sort((a, b) => a.trackIndex - b.trackIndex);
+  if (prebuiltTree) {
+    // Filter and effect clips come from the same query results — no extra scan needed.
+    // We scan only the already-resolved activeClips list (K elements, K << N).
+    _scratchFilterClips.length = 0;
+    _scratchEffectClips.length = 0;
+
+    for (const c of activeClips) {
+      if (c.kind === "filter") {
+        _scratchFilterClips.push(c);
+      } else if (c.kind === "video-effect" || c.kind === "body-effect") {
+        _scratchEffectClips.push(c);
+      }
+    }
+
+    _scratchFilterClips.sort((a, b) => a.trackIndex - b.trackIndex);
+    _scratchEffectClips.sort((a, b) => a.trackIndex - b.trackIndex);
+    activeFilterClip = _scratchFilterClips[0] ?? null;
+    activeEffectClips = _scratchEffectClips;
+  } else {
+    // Find active timeline filter clip at this time (lowest trackIndex = top in UI)
+    const activeFilterClips = compositorClips
+      .filter((c) => {
+        const track = trackMap.get(c.trackId);
+        return (
+          c.kind === "filter" &&
+          (track?.visible ?? true) &&
+          c.startTime <= evalTime + 1e-4 &&
+          evalTime < c.startTime + c.duration
+        );
+      })
+      .sort((a, b) => a.trackIndex - b.trackIndex);
+    activeFilterClip = activeFilterClips[0] ?? null;
+
+    activeEffectClips = compositorClips
+      .filter((c) => {
+        const track = trackMap.get(c.trackId);
+        return (
+          (c.kind === "video-effect" || c.kind === "body-effect") &&
+          (track?.visible ?? true) &&
+          c.startTime <= evalTime + 1e-4 &&
+          evalTime < c.startTime + c.duration
+        );
+      })
+      .sort((a, b) => a.trackIndex - b.trackIndex);
+  }
 
   const sortedClips = activeClips.sort(compareCompositorClips);
 
@@ -1334,21 +1415,6 @@ export function evaluateTimelineSceneCached(
 ): EvaluatedScene {
   const cache = getEvaluationCache();
 
-  // Audit 2.3 fix: apply the same end-of-timeline clamp the evaluator uses internally
-  // (evalTime = maxEndTime - 0.001 when time ∈ [maxEndTime, maxEndTime + 0.001)).
-  // Without this, the cache key embeds raw `time` while the evaluated scene is always
-  // identical in that window → every RAF tick at end-of-playback is a cache miss.
-  // One O(n) reduce is cheaper than the O(n log n) hash below and much cheaper than
-  // a full re-evaluation.
-  const maxEndTime = clips.reduce(
-    (max, clip) => Math.max(max, clip.startTime + clip.duration),
-    0,
-  );
-  const cacheTime =
-    maxEndTime > 0 && time >= maxEndTime && time < maxEndTime + 0.001
-      ? Math.max(0, maxEndTime - 0.001)
-      : time;
-
   // Audit 1.3 fix: use caller-supplied precomputed hashes when available so the RAF
   // loop doesn't re-run the full sort+hash pipeline on every frame.
   const clipVersion =
@@ -1358,6 +1424,21 @@ export function evaluateTimelineSceneCached(
   const effectsStoreVersion =
     precomputed?.effectsStoreVersion ??
     computeEffectsStoreVersion(useEffectsStore.getState().definitions);
+
+  // ── Interval Tree: build once per (clipVersion, epoch), reuse across RAF frames ──
+  // The expanded compositor clips are needed for tree construction; we build them
+  // here so the interval tree indexes the same set the evaluator will use.
+  const expandedClips = expandCompoundClips(clips);
+  const compositorClips = toCompositorClips(expandedClips, tracks);
+  const intervalTree = getOrBuildIntervalTree(compositorClips, clipVersion, epoch);
+
+  // O(1) maxEndTime from tree eliminates the O(N) reduce in the cached path.
+  const maxEndTime = intervalTree.maxEndTime;
+  const cacheTime =
+    maxEndTime > 0 && time >= maxEndTime && time < maxEndTime + 0.001
+      ? Math.max(0, maxEndTime - 0.001)
+      : time;
+
   const canvasWidth = project?.canvasWidth ?? 1920;
   const canvasHeight = project?.canvasHeight ?? 1080;
   const backgroundVersion = computeCanvasBackgroundVersion(
@@ -1379,6 +1460,7 @@ export function evaluateTimelineSceneCached(
     return cached;
   }
 
+  // Pass the pre-built interval tree to avoid rebuilding inside the evaluator.
   const scene = evaluateTimelineScene(
     time,
     clips,
@@ -1386,6 +1468,7 @@ export function evaluateTimelineSceneCached(
     assets,
     project,
     transitions,
+    intervalTree,
   );
   cache.set(cacheKey, scene);
   return scene;
@@ -1400,7 +1483,10 @@ export function clearEvaluationCache() {
 }
 
 export function invalidateEvaluationCache(epoch: number) {
+  // Invalidate both the LRU scene cache and the interval tree so the new
+  // epoch gets a freshly built tree on its first evaluation call.
   getEvaluationCache().invalidateEpoch(epoch);
+  invalidateIntervalTree();
 }
 
 /**
