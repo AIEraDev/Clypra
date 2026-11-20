@@ -308,6 +308,12 @@ impl PerformanceWindow {
                     return (max_bottleneck, 0.75);
                 }
             }
+            // Queue-starved playback samples can legitimately carry no stage
+            // timings: presentation never reached decode or the compositor.
+            // Treating that window as healthy leaves Full/Original active
+            // while the visible deadline is being missed, so use the safest
+            // adaptive response and reduce future decode/lookahead work.
+            return (Bottleneck::Decode, 0.75);
         }
 
         // 10. System Healthy
