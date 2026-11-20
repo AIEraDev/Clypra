@@ -6,6 +6,7 @@
 
 use crossbeam::channel::{Receiver, Sender};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 pub const TICKS_PER_SECOND: i64 = 1_000_000;
@@ -170,6 +171,96 @@ pub fn constant_power_pan(pan: f32) -> (f32, f32) {
     (angle.cos(), angle.sin())
 }
 
+// ── Audio Mixer Telemetry ────────────────────────────────────────────────────
+
+/// Lock-free, zero-allocation performance counters for the real-time audio mixer.
+///
+/// All fields are `AtomicU64` updated with `Ordering::Relaxed`.  This guarantees
+/// single-instruction atomic increments on x86_64 (`LOCK XADD`) and ARM64
+/// (`LDADD`) without cache-line ping-ponging or OS-level synchronization.
+///
+/// # Real-Time Safety Contract
+///
+/// This struct satisfies the Phase 5 / CPAL callback real-time requirements:
+/// - **Zero heap allocations** in any counter update path.
+/// - **No blocking locks** (no `Mutex`, no `RwLock`).
+/// - **No formatting or I/O** at the update site.
+/// - Counters are only *read* from non-RT contexts (IPC query commands, diagnostics).
+#[derive(Debug, Default)]
+pub struct AudioMixerMetrics {
+    /// Total number of `mix_chunk` calls processed.
+    pub chunks_mixed_total: AtomicU64,
+    /// Cumulative clip-chunk instances served via the direct contiguous-block
+    /// fast path (matched sample rate + no active fade ramps).
+    pub fast_path_clips_total: AtomicU64,
+    /// Cumulative clip-chunk instances that fell back to `sample_at()` due to
+    /// sample-rate mismatch or active fade ramps.
+    pub fallback_clips_total: AtomicU64,
+    /// Clips rejected per chunk by the bounding-box temporal culling gate
+    /// (clip end ≤ chunk start  OR  clip start ≥ chunk end).
+    pub culled_clips_total: AtomicU64,
+    /// Times the number of concurrently active clips exceeded the 32-slot
+    /// stack arena and required a heap `Vec` fallback.
+    pub stack_overflow_events: AtomicU64,
+}
+
+impl AudioMixerMetrics {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Snapshot all counters into a serialisable value for IPC / NDJSON logging.
+    /// Called only from non-RT contexts; `Ordering::Relaxed` loads are safe here
+    /// because we do not require cross-counter consistency — each counter is an
+    /// independent monotonic aggregate.
+    pub fn snapshot(&self) -> AudioMixerTelemetrySnapshot {
+        let fast = self.fast_path_clips_total.load(Ordering::Relaxed);
+        let fallback = self.fallback_clips_total.load(Ordering::Relaxed);
+        let total_clips = fast + fallback;
+        let fast_path_ratio = if total_clips > 0 {
+            fast as f32 / total_clips as f32
+        } else {
+            0.0
+        };
+        let culled = self.culled_clips_total.load(Ordering::Relaxed);
+        let culling_efficiency = if total_clips + culled > 0 {
+            culled as f32 / (total_clips + culled) as f32
+        } else {
+            0.0
+        };
+        AudioMixerTelemetrySnapshot {
+            chunks_mixed_total: self.chunks_mixed_total.load(Ordering::Relaxed),
+            fast_path_clips_total: fast,
+            fallback_clips_total: fallback,
+            culled_clips_total: culled,
+            stack_overflow_events: self.stack_overflow_events.load(Ordering::Relaxed),
+            fast_path_ratio,
+            culling_efficiency,
+        }
+    }
+}
+
+/// Point-in-time snapshot of `AudioMixerMetrics`.  Serialisable for Tauri IPC
+/// responses and NDJSON session-log payloads.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioMixerTelemetrySnapshot {
+    /// Total `mix_chunk` invocations since session start.
+    pub chunks_mixed_total: u64,
+    /// Clips served without floating-point SRC or fade evaluation.
+    pub fast_path_clips_total: u64,
+    /// Clips requiring full `sample_at()` interpolation.
+    pub fallback_clips_total: u64,
+    /// Clips pruned by the temporal bounding-box culling stage.
+    pub culled_clips_total: u64,
+    /// Stack-arena overflow events (>32 simultaneous clips).
+    pub stack_overflow_events: u64,
+    /// `fast_path / (fast_path + fallback)`; target ≥ 0.90 on 48 kHz timelines.
+    pub fast_path_ratio: f32,
+    /// `culled / (culled + active)`; indicates bounding-box effectiveness.
+    pub culling_efficiency: f32,
+}
+
 /// Multi-track audio mix graph.
 #[derive(Debug, Default, Clone)]
 pub struct AudioMixGraph {
@@ -177,6 +268,9 @@ pub struct AudioMixGraph {
     pub tracks: Vec<AudioTrackConfig>,
     pub master_volume: f32,
     pub master_muted: bool,
+    /// Shared lock-free performance counters.  `Arc` so the caller can hold a
+    /// reference across the mix-graph `Clone` boundary without losing data.
+    pub metrics: Arc<AudioMixerMetrics>,
 }
 
 impl AudioMixGraph {
@@ -186,6 +280,7 @@ impl AudioMixGraph {
             tracks: Vec::new(),
             master_volume: 1.0,
             master_muted: false,
+            metrics: Arc::new(AudioMixerMetrics::new()),
         }
     }
 
@@ -279,6 +374,12 @@ impl AudioMixGraph {
         }
     }
 
+    /// Return a point-in-time snapshot of the mixer telemetry counters.
+    /// Call only from non-RT contexts (IPC command handlers, diagnostics loops).
+    pub fn telemetry_snapshot(&self) -> AudioMixerTelemetrySnapshot {
+        self.metrics.snapshot()
+    }
+
     /// Drain all queued commands from the MPSC command receiver at buffer boundary.
     pub fn drain_commands(&mut self, receiver: &Receiver<AudioCommand>) {
         while let Ok(cmd) = receiver.try_recv() {
@@ -311,6 +412,11 @@ impl AudioMixGraph {
         {
             return false;
         }
+
+        // ── Chunk-level telemetry: one atomic increment per mix_chunk call ──
+        self.metrics
+            .chunks_mixed_total
+            .fetch_add(1, Ordering::Relaxed);
 
         let output_channels = usize::from(output_channels);
         let output_sample_rate = i64::from(output_sample_rate);
@@ -364,6 +470,9 @@ impl AudioMixGraph {
 
             // Bounding box rejection: skip clips that do not overlap this audio chunk
             if clip_end <= timeline_start_ticks || clip_start >= timeline_end_ticks {
+                self.metrics
+                    .culled_clips_total
+                    .fetch_add(1, Ordering::Relaxed);
                 continue;
             }
 
@@ -437,11 +546,33 @@ impl AudioMixGraph {
                 fast_path_start,
             };
 
+            // `ActiveClip` is `Copy`; capture before placement so we can read the
+            // field after `active` has been moved into the stack / overflow array.
+            let is_fast_path = active.fast_path_start.is_some();
+
             if stack_count < STACK_ACTIVE_CAP {
                 stack_clips[stack_count] = Some(active);
                 stack_count += 1;
             } else {
+                // Record the first overflow event (bump once per chunk, not per clip).
+                if overflow_clips.is_none() {
+                    self.metrics
+                        .stack_overflow_events
+                        .fetch_add(1, Ordering::Relaxed);
+                }
                 overflow_clips.get_or_insert_with(Vec::new).push(active);
+            }
+
+            // Per-clip-chunk fast-path / fallback telemetry counter.
+            // Incremented once per active clip per chunk — O(active_clips).
+            if is_fast_path {
+                self.metrics
+                    .fast_path_clips_total
+                    .fetch_add(1, Ordering::Relaxed);
+            } else {
+                self.metrics
+                    .fallback_clips_total
+                    .fetch_add(1, Ordering::Relaxed);
             }
         }
 

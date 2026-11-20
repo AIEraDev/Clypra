@@ -14,6 +14,28 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
+// ── Frame Cache Telemetry ─────────────────────────────────────────────────────
+
+/// Point-in-time cache statistics snapshot.  Serialisable for Tauri IPC and
+/// NDJSON session-log payloads.
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+pub struct FrameCacheStats {
+    /// Successful O(1) cache lookups (`get` calls that found the key).
+    pub hits: u64,
+    /// Cache lookups that did not find the key (requires decode/recompose).
+    pub misses: u64,
+    /// LRU evictions triggered by capacity saturation on `insert`.
+    pub evictions: u64,
+    /// Number of live entries currently occupying slots.
+    pub current_entries: usize,
+    /// Maximum number of entries the cache can hold.
+    pub capacity: usize,
+    /// `hits / (hits + misses)`, or 0.0 when no lookups have occurred.
+    pub hit_ratio: f32,
+}
+
 /// Internal node for the intrusive slot-indexed doubly-linked list.
 struct LruNode<K, V> {
     key: K,
@@ -35,6 +57,10 @@ pub struct FrameResourceCache<K, V> {
     free_indices: Vec<usize>,
     lru: Option<usize>, // Oldest entry (evicted first)
     mru: Option<usize>, // Most recently used entry
+    // ── Telemetry counters ─────────────────────────────────────────────────
+    hits: u64,
+    misses: u64,
+    evictions: u64,
 }
 
 impl<K: Hash + Eq + Clone, V: Clone> FrameResourceCache<K, V> {
@@ -49,14 +75,25 @@ impl<K: Hash + Eq + Clone, V: Clone> FrameResourceCache<K, V> {
             free_indices: Vec::new(),
             lru: None,
             mru: None,
+            hits: 0,
+            misses: 0,
+            evictions: 0,
         }
     }
 
     /// Look up an entry. Promotes it to most-recently-used on hit.
     pub fn get(&mut self, key: &K) -> Option<V> {
-        let &idx = self.map.get(key)?;
-        self.promote_mru(idx);
-        self.nodes[idx].as_ref().map(|n| n.value.clone())
+        match self.map.get(key) {
+            Some(&idx) => {
+                self.promote_mru(idx);
+                self.hits += 1;
+                self.nodes[idx].as_ref().map(|n| n.value.clone())
+            }
+            None => {
+                self.misses += 1;
+                None
+            }
+        }
     }
 
     /// Peek without promoting (does not affect LRU order).
@@ -75,6 +112,7 @@ impl<K: Hash + Eq + Clone, V: Clone> FrameResourceCache<K, V> {
             self.promote_mru(idx);
         } else {
             if self.map.len() >= self.capacity {
+                self.evictions += 1;
                 self.pop_lru();
             }
             let idx = self.allocate_node(key.clone(), value);
@@ -109,6 +147,26 @@ impl<K: Hash + Eq + Clone, V: Clone> FrameResourceCache<K, V> {
     }
     pub fn capacity(&self) -> usize {
         self.capacity
+    }
+
+    /// Return a point-in-time statistics snapshot.
+    ///
+    /// All fields are plain `u64` integer reads — no locks, no allocation.
+    /// Safe to call from any non-RT thread at any time.
+    pub fn stats(&self) -> FrameCacheStats {
+        let total_lookups = self.hits + self.misses;
+        FrameCacheStats {
+            hits: self.hits,
+            misses: self.misses,
+            evictions: self.evictions,
+            current_entries: self.map.len(),
+            capacity: self.capacity,
+            hit_ratio: if total_lookups > 0 {
+                self.hits as f32 / total_lookups as f32
+            } else {
+                0.0
+            },
+        }
     }
 
     fn detach(&mut self, idx: usize) {
