@@ -19,8 +19,11 @@
 
 import { perfLogService } from "@/services/perfLogService";
 
-export type PropertyCategory = "video" | "audio" | "text" | "adjust" | "unknown";
-export type PropertyInputKind = "slider_drag" | "numeric_stepper" | "numeric_input" | "button_action";
+export type PropertyCategory =
+  "video" | "audio" | "text" | "adjust" | "unknown";
+export type PropertyInputKind =
+  "slider_drag" | "numeric_stepper" | "numeric_input" | "button_action";
+export type KeyframeAction = "add" | "remove" | "update" | "evaluate";
 
 export interface PropertyEditTelemetryPayload {
   category: PropertyCategory;
@@ -30,6 +33,7 @@ export interface PropertyEditTelemetryPayload {
   sampleCount?: number;
   direction?: "up" | "down";
   action?: string;
+  timeSeconds?: number;
   timestampEpochMs: number;
 }
 
@@ -97,6 +101,24 @@ export class PropertyEditTelemetryCollector {
       inputKind: "button_action",
       action: input.action,
       durationMs: 0,
+      timestampEpochMs: Date.now(),
+    });
+  }
+
+  /** Record a keyframe lifecycle event without exposing clip or path identity. */
+  public recordKeyframeAction(input: {
+    property: string;
+    category?: PropertyCategory;
+    action: KeyframeAction;
+    timeSeconds: number;
+  }): void {
+    this.record({
+      category: input.category || "unknown",
+      property: input.property,
+      inputKind: "button_action",
+      action: `keyframe-${input.action}`,
+      durationMs: 0,
+      timeSeconds: Math.max(0, input.timeSeconds),
       timestampEpochMs: Date.now(),
     });
   }

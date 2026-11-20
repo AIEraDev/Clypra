@@ -177,6 +177,12 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                 easing: "easeInOut" as const,
               },
             ].sort((a, b) => a.time - b.time);
+      propertyEditTelemetry.recordKeyframeAction({
+        category: "video",
+        property: prop,
+        action: existingIdx >= 0 ? "remove" : "add",
+        timeSeconds: localTime,
+      });
       handleUpdate("visualKeyframes", {
         ...(selectedClip.visualKeyframes || {}),
         [prop]: nextKfs,
@@ -385,6 +391,12 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
       const nextYKfs = currentYKfs.filter(
         (kf) => Math.abs(kf.time - localTime) >= 0.08,
       );
+      propertyEditTelemetry.recordKeyframeAction({
+        category: "video",
+        property: "position",
+        action: "remove",
+        timeSeconds: localTime,
+      });
       handleUpdateMultiple({
         visualKeyframes: {
           ...(selectedClip.visualKeyframes || {}),
@@ -413,6 +425,13 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
           easing: "easeInOut" as const,
         },
       ].sort((a, b) => a.time - b.time);
+
+      propertyEditTelemetry.recordKeyframeAction({
+        category: "video",
+        property: "position",
+        action: "add",
+        timeSeconds: localTime,
+      });
 
       handleUpdateMultiple({
         visualKeyframes: {
@@ -795,6 +814,12 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
       );
 
       if (existingIdx >= 0) {
+        propertyEditTelemetry.recordKeyframeAction({
+          category: "video",
+          property: prop,
+          action: "update",
+          timeSeconds: localTime,
+        });
         const nextKfs = [...currentKfs];
         nextKfs[existingIdx] = {
           ...nextKfs[existingIdx],
@@ -808,6 +833,12 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
           },
         });
       } else if (currentKfs.length > 0) {
+        propertyEditTelemetry.recordKeyframeAction({
+          category: "video",
+          property: prop,
+          action: "add",
+          timeSeconds: localTime,
+        });
         const nextKfs = [
           ...currentKfs,
           {
@@ -1130,7 +1161,9 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
               type="button"
               onClick={toggleAspectLock}
               className={`relative inline-flex h-5 w-9 cursor-pointer items-center rounded-full transition-colors ${
-                isAspectLocked ? "bg-accent-primary text-white" : "bg-surface-elevated text-text-muted border border-border-default"
+                isAspectLocked
+                  ? "bg-accent-primary text-white"
+                  : "bg-surface-elevated text-text-muted border border-border-default"
               }`}
               aria-label="Toggle uniform scale"
             >

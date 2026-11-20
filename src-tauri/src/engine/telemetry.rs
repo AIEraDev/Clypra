@@ -36,7 +36,9 @@ use std::time::Instant;
 use tauri::{AppHandle, Emitter};
 
 pub const ENGINE_PIPELINE_NAME: &str = "native-realtime-v2";
-pub const ENGINE_VERSION: &str = "1.5.4-v2-native";
+/// Keep the engine identity tied to the Rust package version so telemetry from
+/// release builds cannot report a stale historical build number.
+pub const ENGINE_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-native");
 
 /// Authoritative real-time telemetry snapshot of the Clypra Real-Time Media Engine.
 #[derive(Debug, Clone, Serialize, Deserialize)]

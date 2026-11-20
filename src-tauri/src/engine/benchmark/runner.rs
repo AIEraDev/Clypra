@@ -81,8 +81,10 @@ impl HardwareBenchmarkRunner {
             vram_bytes: 4 * 1024 * 1024 * 1024,
             driver_version: "552.22".to_string(),
             graphics_backend: GraphicsBackend::D3D12,
-            ffmpeg_version: "8.0-static".to_string(),
-            clypra_build: "1.5.4-v2-native".to_string(),
+            ffmpeg_version: option_env!("CLYPRA_FFMPEG_VERSION")
+                .unwrap_or("unknown")
+                .to_string(),
+            clypra_build: format!("{}-native", env!("CARGO_PKG_VERSION")),
             display_refresh_rate: 60.0,
             selected_decoder_adapter: "NVIDIA T1200 Laptop GPU".to_string(),
             selected_renderer_adapter: "NVIDIA T1200 Laptop GPU".to_string(),
@@ -1041,8 +1043,10 @@ pub fn probe_machine_identity() -> MachineIdentity {
             .driver_version
             .unwrap_or_else(|| "Generic-Driver".to_string()),
         graphics_backend,
-        ffmpeg_version: "8.0-static".to_string(),
-        clypra_build: "1.5.4".to_string(),
+        ffmpeg_version: option_env!("CLYPRA_FFMPEG_VERSION")
+            .unwrap_or("unknown")
+            .to_string(),
+        clypra_build: format!("{}-native", env!("CARGO_PKG_VERSION")),
         display_refresh_rate: 60.0,
         selected_decoder_adapter: gpu.name.clone(),
         selected_renderer_adapter: gpu.name,

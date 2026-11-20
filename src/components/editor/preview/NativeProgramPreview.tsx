@@ -34,6 +34,7 @@ import { useViewportState } from "@/hooks/useViewportController";
 import { PreviewTransport } from "./PreviewTransport";
 import { PreviewZoomControl } from "./PreviewZoomControl";
 import { useNativeSurfaceController } from "./useNativeSurfaceController";
+import { NativeInteractionOverlay } from "../transform/NativeInteractionOverlay";
 import { applyDragPreviewGeometry } from "./dragPreviewGeometry";
 import {
   setActiveProgramPreviewPresenter,
@@ -564,7 +565,6 @@ const ConnectedProgramTransport: React.FC<ConnectedProgramTransportProps> =
       />
     );
   });
-
 
 export const NativeProgramPreview: React.FC = () => {
   const karaokeOverlayEnabled = useCaptionStore((s) => s.karaokeOverlayEnabled);
@@ -1742,10 +1742,7 @@ export const NativeProgramPreview: React.FC = () => {
           error: terminal.error,
           surfaceState: terminal.surfaceState,
         });
-        if (
-          !pending ||
-          !matchesPausedNativeDemand(pending, terminal)
-        ) {
+        if (!pending || !matchesPausedNativeDemand(pending, terminal)) {
           return;
         }
         // Successful and decode-complete outcomes are followed by the
@@ -3563,7 +3560,7 @@ export const NativeProgramPreview: React.FC = () => {
         const previewScale =
           state.displayWidth && state.canvasWidth
             ? state.displayWidth / state.canvasWidth
-            : (state.scale || 1);
+            : state.scale || 1;
         const nativeEditorOverlay = overlayNeeded
           ? await nativeEditorOverlayManager.getOrRegisterOverlay({
               canvasWidth: projectCanvasWidth,
@@ -3590,7 +3587,9 @@ export const NativeProgramPreview: React.FC = () => {
           tracePlayback("native-overlay-registered", {
             assetId: nativeEditorOverlay.assetId,
             rasterizeMs: Number(
-              nativeEditorOverlayManager.getLastRasterizeDurationMs().toFixed(2),
+              nativeEditorOverlayManager
+                .getLastRasterizeDurationMs()
+                .toFixed(2),
             ),
             uploadMs: Number(
               nativeEditorOverlayManager.getLastUploadDurationMs().toFixed(2),
@@ -3947,10 +3946,7 @@ export const NativeProgramPreview: React.FC = () => {
               ? (qualification.runId ?? undefined)
               : undefined,
           scenario: telemetryScenario as
-            | "playback"
-            | "seek"
-            | "paused-interaction"
-            | "qualification",
+            "playback" | "seek" | "paused-interaction" | "qualification",
           runtimeEnvironment: import.meta.env.DEV
             ? ("development" as const)
             : ("production" as const),
@@ -5829,6 +5825,17 @@ export const NativeProgramPreview: React.FC = () => {
                     height: displayHeight,
                     background: "transparent",
                   }}
+                />
+
+                <NativeInteractionOverlay
+                  canvasWidth={canvasWidth}
+                  canvasHeight={canvasHeight}
+                  scale={scale}
+                  zoom={viewport.zoom}
+                  displayWidth={displayWidth}
+                  displayHeight={displayHeight}
+                  currentTime={clock.time}
+                  visible={clock.state !== "playing" && !isAnyModalOpen}
                 />
 
                 <SafeOverlay
