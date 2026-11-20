@@ -51,6 +51,11 @@ import {
   evaluatePlayheadSnap,
 } from "@/lib/timeline/playheadSnapEngine";
 import { TIMELINE_ZOOM_MIN } from "@/lib/timeline/timelineZoom";
+import {
+  computeViewportWindow,
+  filterClipsInWindow,
+  shouldBypassWindowing,
+} from "@/core/timeline/viewportWindow";
 
 import { TimelineToolbar } from "./TimelineToolbar";
 import { TimelineRuler } from "./TimelineRuler";
@@ -763,6 +768,39 @@ export const Timeline: React.FC = () => {
     setScrollLeft(e.currentTarget.scrollLeft);
   };
 
+  // Pre-group clips by trackId: O(N) single-pass bucket, avoiding O(M * N) filter on every render
+  const clipsByTrack = useMemo(() => {
+    const map = new Map<string, typeof clips>();
+    for (let i = 0; i < clips.length; i++) {
+      const c = clips[i];
+      let list = map.get(c.trackId);
+      if (!list) {
+        list = [];
+        map.set(c.trackId, list);
+      }
+      list.push(c);
+    }
+    return map;
+  }, [clips]);
+
+  // Viewport windowing: compute the visible buffered time span
+  const viewportWindow = useMemo(() => {
+    return computeViewportWindow(
+      scrollLeft,
+      viewportWidth,
+      pixelsPerSecond,
+      TIMELINE_CLIP_START_OFFSET_PX,
+    );
+  }, [scrollLeft, viewportWidth, pixelsPerSecond]);
+
+  const activeDraggedClipIds = useMemo(() => {
+    if (!dragState) return [];
+    if (dragState.draggedClipIds && dragState.draggedClipIds.length > 0) {
+      return dragState.draggedClipIds;
+    }
+    return dragState.draggingClipId ? [dragState.draggingClipId] : [];
+  }, [dragState?.draggedClipIds, dragState?.draggingClipId]);
+
   return (
     <div
       data-preview-mode={previewMode}
@@ -927,11 +965,24 @@ export const Timeline: React.FC = () => {
                       ? track
                       : { ...track, height: visualSpec.height };
 
-                  // Filter clips per track to avoid passing entire clips array
-                  // This prevents tracks from re-rendering when clips on OTHER tracks change
-                  const trackClips = clips.filter(
-                    (c) => c.trackId === track.id,
+                  // Retrieve clips for this track (O(1) lookup via pre-grouped map)
+                  const allTrackClips = clipsByTrack.get(track.id) ?? [];
+
+                  // Viewport windowing: bypass windowing during active drag on this track
+                  // or if any selected clip is on this track (so DOM selection/reveal works).
+                  const bypassWindowing = shouldBypassWindowing(
+                    allTrackClips,
+                    activeDraggedClipIds,
+                    selectedClipIds,
                   );
+
+                  const trackClips = bypassWindowing
+                    ? allTrackClips
+                    : filterClipsInWindow(
+                        allTrackClips,
+                        viewportWindow.windowStart,
+                        viewportWindow.windowEnd,
+                      );
 
                   // Memoize dragState prop to prevent inline object creation
                   // Inline object literals break React.memo even when values are unchanged
