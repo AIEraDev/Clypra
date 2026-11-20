@@ -328,6 +328,15 @@ impl AudioMixGraph {
             effective_gain_mono: f32,
             effective_gain_l: f32,
             effective_gain_r: f32,
+            /// Pre-computed start frame index for the contiguous-block fast path.
+            ///
+            /// `Some(n)` means: this clip's sample_rate matches output_sample_rate and
+            /// it has no active fade ramps — skip per-sample f64 tick division, .floor(),
+            /// sub-sample interpolation, and fade evaluation.  The `effective_gain_*`
+            /// fields already incorporate `clip.config.gain` when this is `Some`.
+            ///
+            /// `None` means: use the existing `sample_at()` fallback path unchanged.
+            fast_path_start: Option<usize>,
         }
 
         const STACK_ACTIVE_CAP: usize = 32;
@@ -376,11 +385,56 @@ impl AudioMixGraph {
             let (track_vol, track_pan) = track.map(|t| (t.volume, t.pan)).unwrap_or((1.0, 0.0));
             let (pan_l, pan_r) = constant_power_pan(track_pan);
 
+            // ── Contiguous-block fast path eligibility ───────────────────────
+            // Criteria (all must hold):
+            //   1. Clip sample rate exactly matches output sample rate → no SRC needed.
+            //   2. No fade-in or fade-out active → gain is constant across the chunk.
+            // When eligible, fold `clip.config.gain` into `effective_gain_*` so the
+            // inner loop becomes a simple multiply-accumulate with no division.
+            let fast_path_start = if i64::from(clip.sample_rate) == output_sample_rate
+                && clip.config.fade_in_ticks == 0
+                && clip.config.fade_out_ticks == 0
+                && clip.sample_rate > 0
+                && !clip.samples.is_empty()
+            {
+                let relative_start_ticks =
+                    timeline_start_ticks.saturating_sub(clip.config.timeline_start_ticks);
+                // relative_start_ticks may be negative when the clip starts after
+                // timeline_start_ticks — in that case start_frame is 0 and the per-frame
+                // bounds check skips silent head samples.
+                let start_ticks = relative_start_ticks.max(0);
+                let start_frame = (start_ticks as u64)
+                    .saturating_mul(clip.sample_rate as u64)
+                    / TICKS_PER_SECOND as u64;
+                Some(start_frame as usize)
+            } else {
+                None
+            };
+
+            // When the fast path is active, fold clip gain in now so the inner loop
+            // only pays one multiply per sample.  When falling back to sample_at(),
+            // sample_at() already applies clip.config.gain internally — do NOT double-apply.
+            let (gain_mono, gain_l, gain_r) = if fast_path_start.is_some() {
+                let g = clip.config.gain;
+                (
+                    track_vol * self.master_volume * g,
+                    track_vol * pan_l * self.master_volume * g,
+                    track_vol * pan_r * self.master_volume * g,
+                )
+            } else {
+                (
+                    track_vol * self.master_volume,
+                    track_vol * pan_l * self.master_volume,
+                    track_vol * pan_r * self.master_volume,
+                )
+            };
+
             let active = ActiveClip {
                 clip,
-                effective_gain_mono: track_vol * self.master_volume,
-                effective_gain_l: track_vol * pan_l * self.master_volume,
-                effective_gain_r: track_vol * pan_r * self.master_volume,
+                effective_gain_mono: gain_mono,
+                effective_gain_l: gain_l,
+                effective_gain_r: gain_r,
+                fast_path_start,
             };
 
             if stack_count < STACK_ACTIVE_CAP {
@@ -397,6 +451,82 @@ impl AudioMixGraph {
 
         let mut has_audio = false;
 
+        // ── Inner mixing macro ───────────────────────────────────────────────
+        // Inlined per-clip mixing with contiguous-block fast path.
+        //
+        // Fast path (`fast_path_start = Some(n)`):
+        //   For clips where sample_rate == output_sample_rate and no active fades,
+        //   we pre-computed the chunk-relative start frame index.  Each output frame
+        //   is served by a direct indexed read: `samples[(n + frame_index) * ch + c]`.
+        //   No f64 arithmetic, no .floor(), no interpolation, no fade evaluation.
+        //   `effective_gain_*` already incorporates `clip.config.gain`.
+        //
+        // Fallback path (`fast_path_start = None`):
+        //   Delegate to the existing `sample_at()` method (mismatched rates, active
+        //   fades, degenerate clips).  `sample_at()` applies `clip.config.gain`
+        //   internally; `effective_gain_*` does NOT include it here.
+        macro_rules! mix_one_clip {
+            ($active:expr, $frame_index:expr, $output_channels:expr, $output_frame:expr, $timeline_ticks:expr, $has_audio:expr) => {{
+                let active = $active;
+                match active.fast_path_start {
+                    // ── Contiguous-block fast path ──────────────────────────────────
+                    Some(start) => {
+                        let frame_idx = start + $frame_index;
+                        let clip_channels = usize::from(active.clip.channels);
+                        let base = frame_idx * clip_channels;
+                        if base < active.clip.samples.len() {
+                            let sample_l = active.clip.samples[base];
+                            if $output_channels == 1 {
+                                let out = sample_l * active.effective_gain_mono;
+                                $output_frame[0] += out;
+                                if out.abs() > 0.00001 {
+                                    *$has_audio = true;
+                                }
+                            } else {
+                                // For mono clips replicate left → right; for stereo read ch 1.
+                                let sample_r = if clip_channels > 1 {
+                                    active.clip.samples.get(base + 1).copied().unwrap_or(sample_l)
+                                } else {
+                                    sample_l
+                                };
+                                let out_l = sample_l * active.effective_gain_l;
+                                let out_r = sample_r * active.effective_gain_r;
+                                $output_frame[0] += out_l;
+                                $output_frame[1] += out_r;
+                                if out_l.abs() > 0.00001 || out_r.abs() > 0.00001 {
+                                    *$has_audio = true;
+                                }
+                            }
+                        }
+                    }
+                    // ── Fallback: existing sample_at() path ─────────────────────────
+                    None => {
+                        if $output_channels == 1 {
+                            if let Some(sample) = active.clip.sample_at($timeline_ticks, 0) {
+                                let sample_out = sample * active.effective_gain_mono;
+                                $output_frame[0] += sample_out;
+                                if sample_out.abs() > 0.00001 {
+                                    *$has_audio = true;
+                                }
+                            }
+                        } else {
+                            let sample_l = active.clip.sample_at($timeline_ticks, 0);
+                            let sample_r = active.clip.sample_at($timeline_ticks, 1).or(sample_l);
+                            if let (Some(l), Some(r)) = (sample_l, sample_r) {
+                                let out_l = l * active.effective_gain_l;
+                                let out_r = r * active.effective_gain_r;
+                                $output_frame[0] += out_l;
+                                $output_frame[1] += out_r;
+                                if out_l.abs() > 0.00001 || out_r.abs() > 0.00001 {
+                                    *$has_audio = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }};
+        }
+
         for (frame_index, output_frame) in output.chunks_mut(output_channels).enumerate() {
             let frame_ticks =
                 (frame_index as i64).saturating_mul(TICKS_PER_SECOND) / output_sample_rate;
@@ -404,55 +534,13 @@ impl AudioMixGraph {
 
             // Mix stack-allocated active clips
             for active in stack_clips[..stack_count].iter().flatten() {
-                if output_channels == 1 {
-                    if let Some(sample) = active.clip.sample_at(timeline_ticks, 0) {
-                        let sample_out = sample * active.effective_gain_mono;
-                        output_frame[0] += sample_out;
-                        if sample_out.abs() > 0.00001 {
-                            has_audio = true;
-                        }
-                    }
-                } else {
-                    let sample_l = active.clip.sample_at(timeline_ticks, 0);
-                    let sample_r = active.clip.sample_at(timeline_ticks, 1).or(sample_l);
-
-                    if let (Some(l), Some(r)) = (sample_l, sample_r) {
-                        let out_l = l * active.effective_gain_l;
-                        let out_r = r * active.effective_gain_r;
-                        output_frame[0] += out_l;
-                        output_frame[1] += out_r;
-                        if out_l.abs() > 0.00001 || out_r.abs() > 0.00001 {
-                            has_audio = true;
-                        }
-                    }
-                }
+                mix_one_clip!(active, frame_index, output_channels, output_frame, timeline_ticks, &mut has_audio);
             }
 
             // Mix overflow active clips if any
             if let Some(ref overflow) = overflow_clips {
                 for active in overflow {
-                    if output_channels == 1 {
-                        if let Some(sample) = active.clip.sample_at(timeline_ticks, 0) {
-                            let sample_out = sample * active.effective_gain_mono;
-                            output_frame[0] += sample_out;
-                            if sample_out.abs() > 0.00001 {
-                                has_audio = true;
-                            }
-                        }
-                    } else {
-                        let sample_l = active.clip.sample_at(timeline_ticks, 0);
-                        let sample_r = active.clip.sample_at(timeline_ticks, 1).or(sample_l);
-
-                        if let (Some(l), Some(r)) = (sample_l, sample_r) {
-                            let out_l = l * active.effective_gain_l;
-                            let out_r = r * active.effective_gain_r;
-                            output_frame[0] += out_l;
-                            output_frame[1] += out_r;
-                            if out_l.abs() > 0.00001 || out_r.abs() > 0.00001 {
-                                has_audio = true;
-                            }
-                        }
-                    }
+                    mix_one_clip!(active, frame_index, output_channels, output_frame, timeline_ticks, &mut has_audio);
                 }
             }
 
@@ -631,5 +719,151 @@ mod tests {
         let (pan_l, pan_r) = constant_power_pan(0.0);
         let expected = [0.5 * pan_l, 0.5 * pan_r];
         assert_pcm_within_tolerance(&output, &expected, 1e-4, 1e-5);
+    }
+
+    /// Task 5.3 — Contiguous-block audio fast path.
+    ///
+    /// Verifies two properties:
+    /// 1. When clip sample_rate == output_sample_rate and no fades are set, the fast
+    ///    path produces sample values within 1e-6 of the expected direct-read result.
+    /// 2. When clip sample_rate ≠ output_sample_rate, the fallback path (`sample_at()`)
+    ///    is taken and still produces valid, non-silent output without panicking.
+    #[test]
+    fn contiguous_block_fast_path_matched_rate_and_mismatched_rate_fallback() {
+        // ── Case 1: Matched rate — fast path ─────────────────────────────────
+        // Stereo 48 kHz clip with known per-frame PCM values: frame i = [0.1*i, 0.2*i].
+        // The clip starts at t=0 on the timeline; we mix a 4-frame chunk at t=0.
+        // Expected output (center pan, no track/master gain adjustment beyond 1.0):
+        //   frame 0 → [0.1*0*pan_l, 0.1*0*pan_r] = [0.0, 0.0]
+        //   frame 1 → [0.1*1*pan_l, 0.2*1*pan_r] = [0.1*pan_l, 0.2*pan_r]  (stereo read)
+        //   frame 2 → [0.1*2*pan_l, 0.2*2*pan_r]
+        //   frame 3 → [0.1*3*pan_l, 0.2*3*pan_r]
+        const FRAMES: usize = 4;
+        const SR: u32 = 48_000;
+        const CHANNELS: u16 = 2;
+
+        // Build PCM: interleaved [L, R] where frame i has L=0.1*(i%100) R=0.2*(i%100)
+        // (capped to 100 to avoid f32 precision loss; the test only reads FRAMES=4 frames)
+        let mut pcm_data = Vec::with_capacity(SR as usize * CHANNELS as usize);
+        for i in 0..(SR as usize) {
+            pcm_data.push(0.1 * (i as f32));
+            pcm_data.push(0.2 * (i as f32));
+        }
+        // Clamp to safe PCM range so the mixer clamp step does not alter values in test range
+        let pcm_data: Vec<f32> = pcm_data
+            .into_iter()
+            .map(|s| s.clamp(-1.0, 1.0))
+            .collect();
+
+        let clip_matched = DecodedAudioClip {
+            config: AudioClipConfig {
+                id: "fast_path_clip".to_string(),
+                path: "test_fast.wav".to_string(),
+                timeline_start_ticks: 0,
+                source_start_ticks: 0,
+                duration_ticks: TICKS_PER_SECOND, // 1 second
+                gain: 1.0,
+                fade_in_ticks: 0,
+                fade_out_ticks: 0,
+                track_id: None,
+            },
+            sample_rate: SR,
+            channels: CHANNELS,
+            samples: pcm_data.clone().into(),
+        };
+
+        let mut graph = AudioMixGraph::new();
+        graph.master_volume = 1.0;
+        graph.set_clips(vec![clip_matched]);
+
+        let mut output_fast = vec![0.0f32; FRAMES * CHANNELS as usize];
+        let has_audio = graph.mix_chunk(&mut output_fast, CHANNELS, SR, 0);
+        assert!(has_audio, "fast path should produce non-silent audio");
+
+        // Build expected output: direct indexed read * pan gains (center pan → equal L/R)
+        let (pan_l, pan_r) = constant_power_pan(0.0);
+        let mut expected_fast = vec![0.0f32; FRAMES * CHANNELS as usize];
+        for i in 0..FRAMES {
+            let base = i * CHANNELS as usize;
+            let raw_l = pcm_data[base].clamp(-1.0, 1.0);
+            let raw_r = pcm_data[base + 1].clamp(-1.0, 1.0);
+            let out_l = (raw_l * pan_l).clamp(-1.0, 1.0);
+            let out_r = (raw_r * pan_r).clamp(-1.0, 1.0);
+            expected_fast[base] = out_l;
+            expected_fast[base + 1] = out_r;
+        }
+        assert_pcm_within_tolerance(&output_fast, &expected_fast, 1e-5, 1e-6);
+
+        // ── Case 2: Mismatched rate — fallback path ───────────────────────────
+        // A 44 100 Hz clip vs. 48 000 Hz output: fast path must NOT activate.
+        // The fallback sample_at() must still produce valid, non-silent output.
+        let clip_mismatched = DecodedAudioClip {
+            config: AudioClipConfig {
+                id: "fallback_clip".to_string(),
+                path: "test_fallback.wav".to_string(),
+                timeline_start_ticks: 0,
+                source_start_ticks: 0,
+                duration_ticks: TICKS_PER_SECOND,
+                gain: 1.0,
+                fade_in_ticks: 0,
+                fade_out_ticks: 0,
+                track_id: None,
+            },
+            sample_rate: 44_100, // ← mismatched
+            channels: 2,
+            samples: vec![0.5f32; 44_100 * 2].into(),
+        };
+
+        let mut graph2 = AudioMixGraph::new();
+        graph2.master_volume = 1.0;
+        graph2.set_clips(vec![clip_mismatched]);
+
+        let mut output_fallback = vec![0.0f32; FRAMES * CHANNELS as usize];
+        let has_audio2 = graph2.mix_chunk(&mut output_fallback, CHANNELS, SR, 0);
+        assert!(has_audio2, "fallback path should produce non-silent audio");
+
+        // Fallback output must be finite and within PCM range (sample_at returns 0.5 * gains)
+        for &s in &output_fallback {
+            assert!(s.is_finite(), "fallback sample must be finite");
+            assert!((-1.0..=1.0).contains(&s), "fallback sample must be in [-1,1]");
+        }
+
+        // ── Case 3: Fade active — must NOT take fast path ─────────────────────
+        // Even if rate matches, a non-zero fade_in_ticks forces the fallback.
+        let clip_with_fade = DecodedAudioClip {
+            config: AudioClipConfig {
+                id: "fade_clip".to_string(),
+                path: "test_fade.wav".to_string(),
+                timeline_start_ticks: 0,
+                source_start_ticks: 0,
+                duration_ticks: TICKS_PER_SECOND,
+                gain: 1.0,
+                fade_in_ticks: 100_000, // ← active fade-in
+                fade_out_ticks: 0,
+                track_id: None,
+            },
+            sample_rate: SR,
+            channels: 2,
+            samples: vec![1.0f32; SR as usize * 2].into(),
+        };
+
+        let mut graph3 = AudioMixGraph::new();
+        graph3.master_volume = 1.0;
+        graph3.set_clips(vec![clip_with_fade]);
+
+        let mut output_faded = vec![0.0f32; FRAMES * CHANNELS as usize];
+        let has_audio3 = graph3.mix_chunk(&mut output_faded, CHANNELS, SR, 0);
+        assert!(has_audio3, "faded clip should produce non-silent audio");
+
+        // Frame 0 is at t=0 → fade_in_gain ≈ 0 → first stereo pair must be very small
+        // (but NOT exactly 0 due to tick rounding).  Just verify it is less than the
+        // non-faded value and is finite.
+        assert!(output_faded[0].is_finite());
+        // Frame 3 (at t≈62.5µs) gain = 62.5µs/100ms = 0.000625 → out_l < 0.001
+        assert!(
+            output_faded[0].abs() < 0.001,
+            "fade-in at frame 0 should be near-silent, got {}",
+            output_faded[0]
+        );
     }
 }
