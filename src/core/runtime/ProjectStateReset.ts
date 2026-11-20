@@ -342,11 +342,14 @@ export async function resetAllProjectState(options: ResetOptions = {}): Promise<
 
 
 
-    // CacheCoordinator — coordinated memory trimming across all registered participants
+    // CacheCoordinator — clears all ephemeral and session-scoped caches on project close.
+    // resetSessionCaches() satisfies Architecture Invariant 2: all session/ephemeral
+    // participants (including EvaluationCache) are cleared unconditionally.
     import("@/core/cache/cacheCoordinator")
       .then(({ getCacheCoordinator }) => {
-        getCacheCoordinator().handleMemoryPressure("moderate");
-        resetSubsystems.push("CacheCoordinator");
+        return getCacheCoordinator().resetSessionCaches().then(() => {
+          resetSubsystems.push("CacheCoordinator");
+        });
       })
       .catch((error) => {
         errors.push({ subsystem: "CacheCoordinator", error: error as Error });
@@ -366,6 +369,26 @@ export async function resetAllProjectState(options: ResetOptions = {}): Promise<
           })
       : Promise.resolve(),
   ]);
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // PHASE 5: Conditional Disk Cache Purge (user setting)
+  // Purge large disk namespaces only when autoClearCacheOnProjectClose is enabled.
+  // Guarded by isTauriRuntime() so it is a no-op in web/test environments.
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  try {
+    const { useSettingsStore } = await import("@/store/settingsStore");
+    const { isTauriRuntime } = await import("@/lib/platform/tauri");
+    const autoClear = useSettingsStore.getState().autoClearCacheOnProjectClose;
+    if (autoClear && isTauriRuntime()) {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("purge_unified_cache", { namespaces: ["thumbnails", "preview_proxies"] });
+      resetSubsystems.push("DiskCachePurge");
+    }
+  } catch (error) {
+    errors.push({ subsystem: "DiskCachePurge", error: error as Error });
+    console.error("  ❌ DiskCachePurge failed:", error);
+  }
 
   // ═══════════════════════════════════════════════════════════════════════════════
   // Summary

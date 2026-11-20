@@ -25,6 +25,7 @@
  */
 
 import { GPUTextureCache } from "./gpuTextureCache";
+import { getCacheCoordinator } from "@/core/cache/cacheCoordinator";
 
 interface ViewportInfo {
   componentId: string;
@@ -64,6 +65,26 @@ export class GlobalGPUCacheManager {
     try {
       this.cache = new GPUTextureCache(canvas, memoryLimitMB);
       this.memoryLimitMB = memoryLimitMB;
+
+      getCacheCoordinator().register({
+        name: "global-gpu-texture-cache",
+        tier: "gpu",
+        lifespan: "session",
+        getBytesUsed: () => {
+          const stats = this.cache?.getStats();
+          return stats ? parseFloat(stats.memoryMB || "0") * 1024 * 1024 : 0;
+        },
+        trimTo: (targetBytes) => {
+          if (!this.cache) return 0;
+          const initialBytes = parseFloat(this.cache.getStats().memoryMB || "0") * 1024 * 1024;
+          this.cache.evictLRU(targetBytes / (1024 * 1024));
+          const finalBytes = parseFloat(this.cache.getStats().memoryMB || "0") * 1024 * 1024;
+          return Math.max(0, initialBytes - finalBytes);
+        },
+        clear: () => {
+          this.clearAllTextures();
+        },
+      });
 
       // Start auto-eviction check (every 10 seconds)
       if (this.autoEvictionEnabled) {

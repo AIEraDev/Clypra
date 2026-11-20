@@ -2,16 +2,28 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   CacheCoordinator,
   getCacheCoordinator,
+  detectDefaultMemoryBudget,
   type ICacheParticipant,
+  type CacheTier,
+  type CacheLifespan,
 } from "../cacheCoordinator";
 
 class MockCacheParticipant implements ICacheParticipant {
   name: string;
+  tier?: CacheTier;
+  lifespan?: CacheLifespan;
   bytes: number;
 
-  constructor(name: string, bytes: number) {
+  constructor(
+    name: string,
+    bytes: number,
+    tier: CacheTier = "memory",
+    lifespan: CacheLifespan = "session",
+  ) {
     this.name = name;
     this.bytes = bytes;
+    this.tier = tier;
+    this.lifespan = lifespan;
   }
 
   getBytesUsed(): number {
@@ -81,5 +93,36 @@ describe("CacheCoordinator", () => {
     expect(coordinator.getTotalBytesUsed()).toBe(0);
     expect(p1.getBytesUsed()).toBe(0);
     expect(p2.getBytesUsed()).toBe(0);
+  });
+
+  it("differentiates tiers and aggregates tierBytes in stats", () => {
+    const mem = new MockCacheParticipant("evaluatedScene", 10 * 1024 * 1024, "memory");
+    const gpu = new MockCacheParticipant("gpuTextures", 25 * 1024 * 1024, "gpu");
+
+    coordinator.register(mem);
+    coordinator.register(gpu);
+
+    const stats = coordinator.getStats();
+    expect(stats.tierBytes.memory).toBe(10 * 1024 * 1024);
+    expect(stats.tierBytes.gpu).toBe(25 * 1024 * 1024);
+  });
+
+  it("resets session caches while preserving persistent caches on resetSessionCaches", async () => {
+    const sessionPart = new MockCacheParticipant("session-frames", 30 * 1024 * 1024, "memory", "session");
+    const persistentPart = new MockCacheParticipant("persistent-luts", 15 * 1024 * 1024, "indexeddb", "persistent");
+
+    coordinator.register(sessionPart);
+    coordinator.register(persistentPart);
+
+    await coordinator.resetSessionCaches();
+
+    expect(sessionPart.getBytesUsed()).toBe(0);
+    expect(persistentPart.getBytesUsed()).toBe(15 * 1024 * 1024);
+  });
+
+  it("detectDefaultMemoryBudget returns bounded bytes", () => {
+    const budget = detectDefaultMemoryBudget();
+    expect(budget).toBeGreaterThanOrEqual(256 * 1024 * 1024);
+    expect(budget).toBeLessThanOrEqual(2048 * 1024 * 1024);
   });
 });
