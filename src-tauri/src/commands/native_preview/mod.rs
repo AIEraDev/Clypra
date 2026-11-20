@@ -1397,7 +1397,6 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
     let can_attempt_metal = !request.layers.is_empty() && {
         let session = state.lock().await;
         session.gpu.capabilities.zero_copy_available()
-            && session.gpu.capabilities.wgpu_nv12
     };
 
     #[cfg(target_os = "macos")]
