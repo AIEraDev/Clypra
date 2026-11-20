@@ -472,6 +472,18 @@ export class EditingActions {
       // halves when the user immediately edits the selected result.
       useUIStore.getState().selectClip(rightClipId);
 
+      // Task 3: Schedule background decoder re-anchor for the new clip boundary
+      // so the next seek/play finds a warm decoder instead of stalling for ~380ms.
+      const mediaAsset = useProjectStore
+        .getState()
+        .mediaAssets.find((a) => a.id === clip.mediaId);
+      if (
+        mediaAsset?.path &&
+        (mediaAsset.type === "video" || clip.kind === "video")
+      ) {
+        void scheduleDecoderReanchor(mediaAsset.path, rightClipId, snappedTime);
+      }
+
       return {
         success: true,
         clipName,
@@ -1121,3 +1133,29 @@ export class EditingActions {
     }
   }
 }
+
+/**
+ * Asynchronously re-anchors the video decoder at the new split boundary PTS
+ * so subsequent user seeks or playback starts at this point without incurring
+ * a 300+ ms cold decode spike (CLY-PERF-SPLIT-REANCHOR).
+ */
+async function scheduleDecoderReanchor(
+  mediaPath: string,
+  clipId: string,
+  splitTime: number,
+): Promise<void> {
+  try {
+    // Yield 50 ms so immediate React UI commits and state updates complete first
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("warm_video_decoder_at_pts", {
+      path: mediaPath,
+      streamId: clipId,
+      targetPts: splitTime,
+      priority: "normal",
+    });
+  } catch {
+    // Best-effort: non-fatal if background warmup fails
+  }
+}
+

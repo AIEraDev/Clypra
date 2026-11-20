@@ -639,6 +639,7 @@ pub fn run() {
             decode_frame_gpu,
             decode_export_frame,
             render_native_preview_frame,
+            warm_video_decoder_at_pts,
             render_native_preview_transport_probe,
             stream_native_playback_frames,
             open_native_playback_push_stream,

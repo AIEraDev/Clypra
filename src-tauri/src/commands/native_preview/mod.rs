@@ -834,6 +834,40 @@ pub fn render_native_preview_transport_probe(
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+/// Pre-warms a preview video decoder and optionally seeks/decodes to a target PTS.
+/// Used for proactive warm-up at stacked video boundaries and post-split re-anchoring.
+#[tauri::command]
+pub async fn warm_video_decoder_at_pts(
+    path: String,
+    stream_id: Option<String>,
+    target_pts: Option<f64>,
+    _priority: Option<String>,
+) -> Result<bool, String> {
+    if let Some(pts) = target_pts {
+        if !pts.is_finite() || pts < 0.0 {
+            return Err("target_pts must be a finite non-negative number".to_string());
+        }
+    }
+
+    let video_path = crate::commands::media::normalize_file_path(&path);
+    let decoder = if let Some(ref stream) = stream_id {
+        if !stream.is_empty() {
+            get_preview_decoder_for_stream(&video_path, stream).await?
+        } else {
+            get_preview_decoder(&video_path).await?
+        }
+    } else {
+        get_preview_decoder(&video_path).await?
+    };
+
+    if let Some(pts) = target_pts {
+        let mut guard = decoder.lock().await;
+        let _ = guard.decode_frame_raw_nv12(pts);
+    }
+
+    Ok(true)
+}
+
 /// Phase 2a transport gate for the playback push bridge.
 ///
 /// This deliberately streams deterministic RGBA-sized buffers through a Tauri
