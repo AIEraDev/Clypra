@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [1.6.7] - 2026-11-20
+
+### Native Playback, Caching & Production Telemetry
+
+- Hardened native preview and scrub lifecycle correlation, cancellation, and terminal outcomes.
+- Added multi-tier telemetry for playback, audio, compositor, evaluator, cache, and render stages.
+- Improved audio mixing, decoder warm-up, timeline evaluation, compositor caching, and zero-copy native imports.
+- Added unified disk-cache management, compaction controls, and cache participant registration.
+- Modernized editor launch, settings, property panels, themes, toolbar actions, and localization coverage.
+- Expanded playback, preview, audio, cache, evaluator, UI, and cross-layer regression coverage.
+
+This release is intended to collect opt-in production telemetry from real user machines for playback and rendering analysis. Users can control telemetry participation in Settings.
+
 ## [1.6.6] - 2026-11-16
 
 ### 📊 Production Telemetry Instrumentation & Lookahead Queue Observability
