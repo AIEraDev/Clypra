@@ -723,6 +723,7 @@ pub fn run() {
             check_coarse_baseline_cache,
             get_decode_metrics_snapshot,
             get_sync_metrics_snapshot,
+            get_multi_tier_native_telemetry,
             get_disk_cache_stats,
             clear_disk_cache,
             set_cache_size_limit,

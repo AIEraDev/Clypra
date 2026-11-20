@@ -35,6 +35,54 @@ export interface WaveformLodLevel {
   rms: Float32Array;
 }
 
+export interface VectorComputeTelemetry {
+  colorScopesCalls: number;
+  colorScopesTotalPixels: number;
+  colorScopesTotalDurationMs: number;
+  waveformCalls: number;
+  waveformTotalSamples: number;
+  waveformTotalDurationMs: number;
+  avgColorScopesMpixPerSec: number;
+  avgWaveformMsamplesPerSec: number;
+}
+
+let colorScopesCalls = 0;
+let colorScopesTotalPixels = 0;
+let colorScopesTotalDurationMs = 0;
+let waveformCalls = 0;
+let waveformTotalSamples = 0;
+let waveformTotalDurationMs = 0;
+
+export function getVectorComputeTelemetrySnapshot(): VectorComputeTelemetry {
+  const scopesSec = colorScopesTotalDurationMs / 1000;
+  const avgColorScopesMpixPerSec =
+    scopesSec > 0 ? colorScopesTotalPixels / 1_000_000 / scopesSec : 0;
+
+  const waveSec = waveformTotalDurationMs / 1000;
+  const avgWaveformMsamplesPerSec =
+    waveSec > 0 ? waveformTotalSamples / 1_000_000 / waveSec : 0;
+
+  return {
+    colorScopesCalls,
+    colorScopesTotalPixels,
+    colorScopesTotalDurationMs,
+    waveformCalls,
+    waveformTotalSamples,
+    waveformTotalDurationMs,
+    avgColorScopesMpixPerSec,
+    avgWaveformMsamplesPerSec,
+  };
+}
+
+export function resetVectorComputeTelemetry(): void {
+  colorScopesCalls = 0;
+  colorScopesTotalPixels = 0;
+  colorScopesTotalDurationMs = 0;
+  waveformCalls = 0;
+  waveformTotalSamples = 0;
+  waveformTotalDurationMs = 0;
+}
+
 /**
  * High-throughput vectorized color scope analysis kernel.
  *
@@ -47,6 +95,7 @@ export function computeColorScopesVectorized(
   height: number,
   options: ColorScopeOptions = {},
 ): ColorScopeResult {
+  const startMs = typeof performance !== "undefined" ? performance.now() : 0;
   const { needHistogram = false, needVectorscope = false, needParade = false } = options;
   const totalPixels = width * height;
 
@@ -166,6 +215,12 @@ export function computeColorScopesVectorized(
     result.parade = paradeArr;
   }
 
+  colorScopesCalls++;
+  colorScopesTotalPixels += totalPixels;
+  if (startMs > 0 && typeof performance !== "undefined") {
+    colorScopesTotalDurationMs += performance.now() - startMs;
+  }
+
   return result;
 }
 
@@ -179,6 +234,7 @@ export function computeWaveformLodVectorized(
   monoPcm: Float32Array,
   step: number,
 ): WaveformLodLevel {
+  const startMs = typeof performance !== "undefined" ? performance.now() : 0;
   const totalSamples = monoPcm.length;
   const bucketCount = Math.max(1, Math.ceil(totalSamples / step));
   const peaks = new Float32Array(bucketCount);
@@ -259,6 +315,12 @@ export function computeWaveformLodVectorized(
 
     peaks[b] = maxVal > 1.0 ? 1.0 : maxVal;
     rms[b] = Math.sqrt(sumSq / count);
+  }
+
+  waveformCalls++;
+  waveformTotalSamples += totalSamples;
+  if (startMs > 0 && typeof performance !== "undefined") {
+    waveformTotalDurationMs += performance.now() - startMs;
   }
 
   return { step, peaks, rms };

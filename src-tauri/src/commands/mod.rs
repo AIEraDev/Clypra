@@ -18,6 +18,7 @@ pub mod thumbnail {
 }
 pub mod lut;
 pub mod media;
+pub mod multi_tier_telemetry;
 pub mod native_audio;
 pub mod native_clymatte;
 pub mod native_export;
@@ -47,6 +48,7 @@ pub use export::*;
 pub use filmstrip::*;
 pub use lut::*;
 pub use media::*;
+pub use multi_tier_telemetry::*;
 pub use native_audio::*;
 pub use native_clymatte::*;
 pub use native_export::*;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { SpscFloat32RingBuffer } from "../ringBuffer";
+import { SpscFloat32RingBuffer, getActiveRingBufferTelemetry } from "../ringBuffer";
 
 describe("SpscFloat32RingBuffer", () => {
   it("initializes with power-of-2 capacity", () => {
@@ -111,5 +111,29 @@ describe("SpscFloat32RingBuffer", () => {
     consumer.read(out);
     expect(Array.from(out)).toEqual([42, 84, 126]);
     expect(producer.availableRead).toBe(0);
+  });
+
+  it("tracks telemetry stats including pushCount, popCount, droppedOverflows, and starvedUnderflows", () => {
+    const rb = new SpscFloat32RingBuffer(16, false); // capacity 16, max write 15
+    // Write 20 elements -> 15 accepted, 5 dropped overflow
+    const overflowData = new Float32Array(20);
+    const written = rb.write(overflowData);
+    expect(written).toBe(15);
+
+    // Read 20 elements -> 15 returned, 5 starved underflow
+    const underflowSink = new Float32Array(20);
+    const read = rb.read(underflowSink);
+    expect(read).toBe(15);
+
+    const stats = rb.getStats();
+    expect(stats.pushCount).toBe(15);
+    expect(stats.popCount).toBe(15);
+    expect(stats.droppedOverflows).toBe(5);
+    expect(stats.starvedUnderflows).toBe(5);
+
+    const globalTelemetry = getActiveRingBufferTelemetry();
+    expect(globalTelemetry.pushCount).toBeGreaterThanOrEqual(15);
+
+    rb.dispose();
   });
 });

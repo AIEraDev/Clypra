@@ -14,6 +14,7 @@ import type { CompositorClip } from "@/core/compositor/types";
 import type { EvaluatedScene } from "./types";
 import { getCacheCoordinator } from "@/core/cache/cacheCoordinator";
 import { TimelineIntervalTree } from "./spatialIndex";
+import { evaluatorTelemetry } from "./evaluatorTelemetry";
 
 /**
  * Cache key for evaluated scenes.
@@ -316,6 +317,7 @@ export function getOrBuildIntervalTree(
   }
 
   const tree = new TimelineIntervalTree<CompositorClip>(compositorClips);
+  evaluatorTelemetry.recordIntervalTreeRebuild();
   intervalTreeEntry = {
     tree,
     clipVersion,

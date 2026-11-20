@@ -5,9 +5,14 @@
 //! command processing.
 
 use crossbeam::channel::{Receiver, Sender};
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+
+/// Global shared metrics accumulator for the utility audio mix graph.
+pub static GLOBAL_AUDIO_MIXER_METRICS: Lazy<Arc<AudioMixerMetrics>> =
+    Lazy::new(|| Arc::new(AudioMixerMetrics::new()));
 
 pub const TICKS_PER_SECOND: i64 = 1_000_000;
 
@@ -280,7 +285,7 @@ impl AudioMixGraph {
             tracks: Vec::new(),
             master_volume: 1.0,
             master_muted: false,
-            metrics: Arc::new(AudioMixerMetrics::new()),
+            metrics: GLOBAL_AUDIO_MIXER_METRICS.clone(),
         }
     }
 

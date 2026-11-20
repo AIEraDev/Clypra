@@ -230,6 +230,16 @@ impl PerformanceManager {
         self.session.snapshot()
     }
 
+    /// Return point-in-time cache statistics from the underlying scheduler.
+    pub fn cache_stats(
+        &self,
+    ) -> (
+        crate::wgpu_compositor::frame_cache::FrameCacheStats,
+        crate::wgpu_compositor::frame_cache::FrameCacheStats,
+    ) {
+        self.scheduler.cache_stats()
+    }
+
     // -----------------------------------------------------------------------
     // request — admission gate
     // -----------------------------------------------------------------------

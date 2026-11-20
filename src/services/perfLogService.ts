@@ -44,6 +44,10 @@ import { getTextMetricsSnapshot } from "@/lib/playback/textMetrics";
 import { timelineZoomTelemetry } from "@/lib/timeline/timelineZoomTelemetry";
 import { mediaAnimationRollup } from "@/features/media-animations/telemetry/mediaAnimationRollup";
 import { getOrCreateHashedInstallId } from "./telemetryCollector";
+import { evaluatorTelemetry } from "@/core/evaluation/evaluatorTelemetry";
+import { viewportTelemetry } from "@/core/timeline/viewportTelemetry";
+import { getActiveRingBufferTelemetry } from "@/core/workers/ringBuffer";
+import { getVectorComputeTelemetrySnapshot } from "@/core/workers/vectorCompute";
 
 // ── Tauri runtime guard ───────────────────────────────────────────────────────
 // Evaluated lazily at call time, not at module-load time. The module-level
@@ -104,7 +108,8 @@ export type PerfLogKind =
   | "media-animation-catalog-fetch"
   | "media-animation-download"
   | "media-animation-cache-hydration"
-  | "media-animation-rollup";
+  | "media-animation-rollup"
+  | "multi-tier-optimization-rollup";
 
 export interface PerfLogEntry {
   kind: PerfLogKind;
@@ -682,6 +687,29 @@ export class PerfLogService {
     this.engineUnlistens.forEach((u) => u());
     this.engineUnlistens = [];
 
+    // Flush final multi-tier optimization rollup
+    try {
+      const finalNativeReport = isTauriRuntime()
+        ? await tauriInvoke<unknown>("get_multi_tier_native_telemetry")
+        : null;
+
+      this.queue.push({
+        kind: "multi-tier-optimization-rollup",
+        sessionId,
+        timestampEpochMs: Date.now(),
+        payload: {
+          evaluator: evaluatorTelemetry.getSnapshot(),
+          viewport: viewportTelemetry.getSnapshot(),
+          ringBuffer: getActiveRingBufferTelemetry(),
+          vectorCompute: getVectorComputeTelemetrySnapshot(),
+          native: finalNativeReport,
+          isFinalSessionRollup: true,
+        },
+      });
+    } catch {
+      // Silently skip if unavailable.
+    }
+
     // Tell Rust to close the file and get back the path.
     let closedPath: string | null = null;
     try {
@@ -853,6 +881,7 @@ export class PerfLogService {
       this.flushTextMetricsSummary();
       this.flushTimelineZoomSummary();
       this.flushAnimationRollupSummary();
+      void this.pollMultiTierTelemetry();
     }, SYNC_POLL_INTERVAL_MS);
   }
 
@@ -930,6 +959,46 @@ export class PerfLogService {
       });
     } catch {
       // Tauri not ready yet or command unavailable — silently skip.
+    }
+  }
+
+  private async pollMultiTierTelemetry(): Promise<void> {
+    if (!this.sessionId) return;
+    try {
+      const nativeReport = isTauriRuntime()
+        ? await tauriInvoke<unknown>("get_multi_tier_native_telemetry")
+        : null;
+
+      const evaluatorSnapshot = evaluatorTelemetry.getSnapshot();
+      const viewportSnapshot = viewportTelemetry.getSnapshot();
+      const ringBufferStats = getActiveRingBufferTelemetry();
+      const vectorComputeStats = getVectorComputeTelemetrySnapshot();
+
+      // Skip logging if everything is completely idle
+      if (
+        evaluatorSnapshot.evaluationsTotal === 0 &&
+        viewportSnapshot.windowComputationsTotal === 0 &&
+        vectorComputeStats.colorScopesCalls === 0 &&
+        vectorComputeStats.waveformCalls === 0 &&
+        (!nativeReport || (nativeReport as any).audioMixGraph?.chunksMixedTotal === 0)
+      ) {
+        return;
+      }
+
+      this.enqueue({
+        kind: "multi-tier-optimization-rollup",
+        sessionId: this.sessionId,
+        timestampEpochMs: Date.now(),
+        payload: {
+          evaluator: evaluatorSnapshot,
+          viewport: viewportSnapshot,
+          ringBuffer: ringBufferStats,
+          vectorCompute: vectorComputeStats,
+          native: nativeReport,
+        },
+      });
+    } catch {
+      // Silently skip if unavailable.
     }
   }
 

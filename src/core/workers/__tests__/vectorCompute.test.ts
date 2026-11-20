@@ -3,6 +3,8 @@ import {
   computeColorScopesVectorized,
   computeWaveformLodVectorized,
   isWasmSimdSupported,
+  getVectorComputeTelemetrySnapshot,
+  resetVectorComputeTelemetry,
 } from "../vectorCompute";
 
 describe("vectorCompute", () => {
@@ -133,6 +135,26 @@ describe("vectorCompute", () => {
     it("runs feature probe without throwing", () => {
       const supported = isWasmSimdSupported();
       expect(typeof supported).toBe("boolean");
+    });
+  });
+
+  describe("vectorCompute telemetry", () => {
+    it("tracks calls and compute throughput", () => {
+      resetVectorComputeTelemetry();
+
+      const rgba = new Uint8ClampedArray(4 * 4 * 4); // 16 pixels
+      computeColorScopesVectorized(rgba, 4, 4, { needHistogram: true });
+
+      const pcm = new Float32Array(64);
+      computeWaveformLodVectorized(pcm, 8);
+
+      const snap = getVectorComputeTelemetrySnapshot();
+      expect(snap.colorScopesCalls).toBe(1);
+      expect(snap.colorScopesTotalPixels).toBe(16);
+      expect(snap.waveformCalls).toBe(1);
+      expect(snap.waveformTotalSamples).toBe(64);
+      expect(snap.avgColorScopesMpixPerSec).toBeGreaterThanOrEqual(0);
+      expect(snap.avgWaveformMsamplesPerSec).toBeGreaterThanOrEqual(0);
     });
   });
 });

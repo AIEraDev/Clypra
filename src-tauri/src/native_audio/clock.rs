@@ -8,8 +8,9 @@ use super::clip::{NativeAudioKeyframe, NativePcmClip};
 use super::mixer::NativeAudioMixer;
 use super::types::{
     output_latency_bucket, NativeAudioClipStatus, NativeAudioDiagnostics,
-    NativeAudioMixerInspection, NativeAudioStatus, OutputLatencyMetrics,
-    INTERVAL_RING_SIZE, MAX_PITCH_CACHE_BYTES, TICKS_PER_SECOND, TRANSPORT_RAMP_FRAMES,
+    NativeAudioMixerInspection, NativeAudioStatus, NativeMixerTelemetrySnapshot,
+    OutputLatencyMetrics, INTERVAL_RING_SIZE, MAX_PITCH_CACHE_BYTES, TICKS_PER_SECOND,
+    TRANSPORT_RAMP_FRAMES,
 };
 
 pub(crate) struct NativeAudioClockInner {
@@ -946,6 +947,23 @@ impl NativeAudioClock {
             active_clip_ids: inspection.active_clip_ids,
             mixer_peak: inspection.mixer_peak,
             clip_diagnostics: inspection.clip_diagnostics,
+        }
+    }
+
+    /// Return point-in-time telemetry snapshot of native audio mixer performance.
+    pub fn mixer_telemetry_snapshot(&self) -> NativeMixerTelemetrySnapshot {
+        let callback_count = self.inner.callback_count.load(Ordering::Relaxed);
+        let lock_misses = self.inner.mixer_lock_misses.load(Ordering::Relaxed);
+        if let Ok(guard) = self.inner.mixer.try_read() {
+            guard.telemetry_snapshot(callback_count, lock_misses)
+        } else {
+            NativeMixerTelemetrySnapshot {
+                mix_chunks_total: callback_count,
+                clips_culled_total: 0,
+                stack_overflow_events: 0,
+                mixer_lock_misses: lock_misses,
+                culling_efficiency: 0.0,
+            }
         }
     }
 }

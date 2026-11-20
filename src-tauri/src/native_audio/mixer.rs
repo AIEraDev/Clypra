@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use cpal::{FromSample, SizedSample};
 use super::clip::{NativeAudioKeyframe, NativePcmClip};
 use super::types::{
     NativeAudioClipDiagnostic, NativeAudioClipStatus, NativeAudioMixerInspection,
-    MAX_ACTIVE_CLIPS, MAX_MIXER_PCM_BYTES, TICKS_PER_SECOND,
+    NativeMixerTelemetrySnapshot, MAX_ACTIVE_CLIPS, MAX_MIXER_PCM_BYTES, TICKS_PER_SECOND,
 };
 
 #[derive(Debug, Clone)]
@@ -19,6 +20,10 @@ pub struct NativeAudioMixer {
     /// Prepared only outside the audio callback. The callback reads this while
     /// holding its existing non-blocking mixer read lock.
     pitch_cache: HashMap<String, PitchCache>,
+    /// Cumulative clips rejected per callback chunk by the temporal bounding-box culling gate.
+    pub(crate) culled_clips_total: AtomicU64,
+    /// Times the concurrent clip count exceeded the 32-slot stack arena.
+    pub(crate) stack_overflow_events: AtomicU64,
 }
 
 impl NativeAudioMixer {
@@ -254,6 +259,28 @@ impl NativeAudioMixer {
         inspection
     }
 
+    /// Return point-in-time telemetry snapshot of native mixer performance.
+    pub fn telemetry_snapshot(
+        &self,
+        callback_count: u64,
+        lock_misses: u64,
+    ) -> NativeMixerTelemetrySnapshot {
+        let culled = self.culled_clips_total.load(Ordering::Relaxed);
+        let stack_overflows = self.stack_overflow_events.load(Ordering::Relaxed);
+        let culling_efficiency = if culled > 0 {
+            culled as f32 / (culled + callback_count.max(1)) as f32
+        } else {
+            0.0
+        };
+        NativeMixerTelemetrySnapshot {
+            mix_chunks_total: callback_count,
+            clips_culled_total: culled,
+            stack_overflow_events: stack_overflows,
+            mixer_lock_misses: lock_misses,
+            culling_efficiency,
+        }
+    }
+
     pub fn mix_into<T>(
         &self,
         output: &mut [T],
@@ -342,6 +369,9 @@ impl NativeAudioMixer {
                     stack_clips[active_count] = clip;
                     active_count += 1;
                 } else {
+                    if heap_clips.is_none() {
+                        self.stack_overflow_events.fetch_add(1, Ordering::Relaxed);
+                    }
                     let vec = heap_clips.get_or_insert_with(|| {
                         let mut v = Vec::with_capacity(self.clips.len());
                         v.extend_from_slice(&stack_clips);
@@ -349,6 +379,8 @@ impl NativeAudioMixer {
                     });
                     vec.push(clip);
                 }
+            } else {
+                self.culled_clips_total.fetch_add(1, Ordering::Relaxed);
             }
         }
 

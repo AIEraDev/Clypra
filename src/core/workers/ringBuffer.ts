@@ -23,8 +23,52 @@ export interface RingBufferHeader {
   capacity: number;
 }
 
+export interface RingBufferStats {
+  pushCount: number;
+  popCount: number;
+  droppedOverflows: number;
+  starvedUnderflows: number;
+  currentAvailableRead: number;
+  currentAvailableWrite: number;
+  capacity: number;
+}
+
 export const RING_HEADER_BYTES = 16;
 export const RING_HEADER_INTS = RING_HEADER_BYTES / 4;
+
+const activeRingBuffers = new Set<SpscFloat32RingBuffer>();
+
+/** Return aggregated telemetry across all active SpscFloat32RingBuffer instances. */
+export function getActiveRingBufferTelemetry(): RingBufferStats {
+  let pushCount = 0;
+  let popCount = 0;
+  let droppedOverflows = 0;
+  let starvedUnderflows = 0;
+  let currentAvailableRead = 0;
+  let currentAvailableWrite = 0;
+  let capacity = 0;
+
+  for (const rb of activeRingBuffers) {
+    const s = rb.getStats();
+    pushCount += s.pushCount;
+    popCount += s.popCount;
+    droppedOverflows += s.droppedOverflows;
+    starvedUnderflows += s.starvedUnderflows;
+    currentAvailableRead += s.currentAvailableRead;
+    currentAvailableWrite += s.currentAvailableWrite;
+    capacity += s.capacity;
+  }
+
+  return {
+    pushCount,
+    popCount,
+    droppedOverflows,
+    starvedUnderflows,
+    currentAvailableRead,
+    currentAvailableWrite,
+    capacity,
+  };
+}
 
 /**
  * Single-Producer Single-Consumer Lock-Free Ring Buffer for Float32 data.
@@ -37,6 +81,11 @@ export class SpscFloat32RingBuffer {
   readonly capacity: number;
   private readonly mask: number;
   readonly isShared: boolean;
+
+  private pushCount = 0;
+  private popCount = 0;
+  private droppedOverflows = 0;
+  private starvedUnderflows = 0;
 
   /**
    * Create a new ring buffer or connect to an existing shared buffer.
@@ -92,6 +141,25 @@ export class SpscFloat32RingBuffer {
       this.mask = this.capacity - 1;
       this.data = new Float32Array(this.buffer, RING_HEADER_BYTES, this.capacity);
     }
+    activeRingBuffers.add(this);
+  }
+
+  /** Unregister this instance from global telemetry tracking. */
+  dispose(): void {
+    activeRingBuffers.delete(this);
+  }
+
+  /** Point-in-time statistics for this ring buffer. */
+  getStats(): RingBufferStats {
+    return {
+      pushCount: this.pushCount,
+      popCount: this.popCount,
+      droppedOverflows: this.droppedOverflows,
+      starvedUnderflows: this.starvedUnderflows,
+      currentAvailableRead: this.availableRead,
+      currentAvailableWrite: this.availableWrite,
+      capacity: this.capacity,
+    };
   }
 
   /**
@@ -123,6 +191,10 @@ export class SpscFloat32RingBuffer {
    */
   write(source: ArrayLike<number>): number {
     const toWrite = Math.min(source.length, this.availableWrite);
+    const overflow = source.length - toWrite;
+    if (overflow > 0) {
+      this.droppedOverflows += overflow;
+    }
     if (toWrite <= 0) return 0;
 
     let w = this.isShared
@@ -140,6 +212,7 @@ export class SpscFloat32RingBuffer {
       this.header[0] = w;
     }
 
+    this.pushCount += toWrite;
     return toWrite;
   }
 
@@ -152,6 +225,10 @@ export class SpscFloat32RingBuffer {
    */
   read(destination: Float32Array | number[]): number {
     const toRead = Math.min(destination.length, this.availableRead);
+    const underflow = destination.length - toRead;
+    if (underflow > 0) {
+      this.starvedUnderflows += underflow;
+    }
     if (toRead <= 0) return 0;
 
     let r = this.isShared
@@ -169,6 +246,7 @@ export class SpscFloat32RingBuffer {
       this.header[1] = r;
     }
 
+    this.popCount += toRead;
     return toRead;
   }
 

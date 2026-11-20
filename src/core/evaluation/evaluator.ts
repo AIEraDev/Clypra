@@ -66,6 +66,7 @@ import {
   getOrBuildIntervalTree,
   invalidateIntervalTree,
 } from "./cache";
+import { evaluatorTelemetry } from "./evaluatorTelemetry";
 import { evaluateProperty, evaluateVisualPropertyKeyframes } from "./animation";
 import { applyLoopMotion } from "@/core/animation";
 import { workerPerfCollector } from "@/core/monitoring/WorkerPerfCollector";
@@ -1457,9 +1458,11 @@ export function evaluateTimelineSceneCached(
 
   const cached = cache.get(cacheKey);
   if (cached) {
+    evaluatorTelemetry.recordEvaluation(compositorClips.length, cached.visualLayers.length, 0, true);
     return cached;
   }
 
+  const startMs = performance.now();
   // Pass the pre-built interval tree to avoid rebuilding inside the evaluator.
   const scene = evaluateTimelineScene(
     time,
@@ -1470,6 +1473,8 @@ export function evaluateTimelineSceneCached(
     transitions,
     intervalTree,
   );
+  const durationUs = (performance.now() - startMs) * 1000;
+  evaluatorTelemetry.recordEvaluation(compositorClips.length, scene.visualLayers.length, durationUs, false);
   cache.set(cacheKey, scene);
   return scene;
 }

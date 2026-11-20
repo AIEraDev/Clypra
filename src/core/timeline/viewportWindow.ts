@@ -27,6 +27,7 @@ import {
   TimelineIntervalTree,
   type TimelineIntervalItem,
 } from "@/core/evaluation/spatialIndex";
+import { viewportTelemetry } from "./viewportTelemetry";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -120,18 +121,17 @@ export function filterClipsInWindow<C extends ClipBounds>(
   if (clips.length === 0) return clips;
 
   // Fast path: window covers everything (e.g. short project, wide viewport)
-  if (windowStart <= 0 && windowEnd === Infinity) return clips;
-
-  if (tree) {
-    // O(log N + K): query the tree and return only matching clips
-    return tree.queryRange(windowStart, windowEnd) as C[];
+  if (windowStart <= 0 && windowEnd === Infinity) {
+    viewportTelemetry.recordWindowComputation(clips.length, clips.length);
+    return clips;
   }
 
-  // O(N) fallback: a clip overlaps the window if it starts before windowEnd
-  // and ends after windowStart.
-  return clips.filter(
-    (c) => c.startTime < windowEnd && c.startTime + c.duration > windowStart,
-  );
+  const result = tree
+    ? (tree.queryRange(windowStart, windowEnd) as C[])
+    : clips.filter((c) => c.startTime < windowEnd && c.startTime + c.duration > windowStart);
+
+  viewportTelemetry.recordWindowComputation(clips.length, result.length);
+  return result;
 }
 
 /**

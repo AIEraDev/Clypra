@@ -13,14 +13,27 @@
 
 use std::collections::HashMap;
 use std::hash::Hash;
+use once_cell::sync::Lazy;
+use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
 
 // ── Frame Cache Telemetry ─────────────────────────────────────────────────────
 
-/// Point-in-time cache statistics snapshot.  Serialisable for Tauri IPC and
+/// Global fallback statistics when a direct scheduler handle is not available.
+pub static GLOBAL_DECODED_CACHE_STATS: Lazy<RwLock<FrameCacheStats>> =
+    Lazy::new(|| RwLock::new(FrameCacheStats::default()));
+pub static GLOBAL_COMPOSED_CACHE_STATS: Lazy<RwLock<FrameCacheStats>> =
+    Lazy::new(|| RwLock::new(FrameCacheStats::default()));
+
+/// Retrieve snapshot of global frame cache stats.
+pub fn get_global_frame_cache_stats() -> (FrameCacheStats, FrameCacheStats) {
+    (*GLOBAL_DECODED_CACHE_STATS.read(), *GLOBAL_COMPOSED_CACHE_STATS.read())
+}
+
+/// Point-in-time cache statistics snapshot. Serialisable for Tauri IPC and
 /// NDJSON session-log payloads.
-#[derive(Debug, Clone, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FrameCacheStats {
     /// Successful O(1) cache lookups (`get` calls that found the key).
     pub hits: u64,
