@@ -382,7 +382,9 @@ export async function resetAllProjectState(options: ResetOptions = {}): Promise<
     const autoClear = useSettingsStore.getState().autoClearCacheOnProjectClose;
     if (autoClear && isTauriRuntime()) {
       const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("purge_unified_cache", { namespaces: ["thumbnails", "preview_proxies"] });
+      await invoke("purge_unified_cache", {
+        filter: { namespaces: ["thumbnails", "preview_proxies"] },
+      });
       resetSubsystems.push("DiskCachePurge");
     }
   } catch (error) {
