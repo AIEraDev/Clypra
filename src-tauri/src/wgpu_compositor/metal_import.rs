@@ -93,10 +93,14 @@ extern "C" {
 // FourCC codes for Apple VideoToolbox pixel formats
 const K_CV_PIXEL_FORMAT_TYPE_420_YP_CB_CR_8_BI_PLANAR_VIDEO_RANGE: u32 = 0x34323076; // '420v'
 const K_CV_PIXEL_FORMAT_TYPE_420_YP_CB_CR_8_BI_PLANAR_FULL_RANGE: u32 = 0x34323066;  // '420f'
+const K_CV_PIXEL_FORMAT_TYPE_420_YP_CB_CR_10_BI_PLANAR_VIDEO_RANGE: u32 = 0x78343230; // 'x420'
+const K_CV_PIXEL_FORMAT_TYPE_420_YP_CB_CR_10_BI_PLANAR_FULL_RANGE: u32 = 0x78663230; // 'xf20'
 
 // Metal pixel formats (MTLPixelFormat)
 const MTL_PIXEL_FORMAT_R8_UNORM: usize = 10;
 const MTL_PIXEL_FORMAT_RG8_UNORM: usize = 30;
+const MTL_PIXEL_FORMAT_R16_UNORM: usize = 53;
+const MTL_PIXEL_FORMAT_RG16_UNORM: usize = 65;
 
 // ---------------------------------------------------------------------------
 // Diagnostic structures
@@ -180,6 +184,13 @@ pub struct MetalSharedFrame {
     pub height: u32,
 }
 
+/// Plane precision exposed by VideoToolbox's IOSurface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetalPixelFormat {
+    Nv12,
+    P010,
+}
+
 unsafe impl Send for MetalSharedFrame {}
 unsafe impl Sync for MetalSharedFrame {}
 
@@ -235,9 +246,13 @@ pub unsafe fn extract_shared_frame(
     }
 
     let format_type = CVPixelBufferGetPixelFormatType(pixel_buffer);
-    if format_type != K_CV_PIXEL_FORMAT_TYPE_420_YP_CB_CR_8_BI_PLANAR_VIDEO_RANGE
-        && format_type != K_CV_PIXEL_FORMAT_TYPE_420_YP_CB_CR_8_BI_PLANAR_FULL_RANGE
-    {
+    if !matches!(
+        format_type,
+        K_CV_PIXEL_FORMAT_TYPE_420_YP_CB_CR_8_BI_PLANAR_VIDEO_RANGE
+            | K_CV_PIXEL_FORMAT_TYPE_420_YP_CB_CR_8_BI_PLANAR_FULL_RANGE
+            | K_CV_PIXEL_FORMAT_TYPE_420_YP_CB_CR_10_BI_PLANAR_VIDEO_RANGE
+            | K_CV_PIXEL_FORMAT_TYPE_420_YP_CB_CR_10_BI_PLANAR_FULL_RANGE
+    ) {
         log::debug!(
             "[metal_import] Unsupported CVPixelBuffer format: 0x{:08X}",
             format_type
@@ -275,6 +290,7 @@ pub struct ImportedMetalNv12Texture {
     pub uv_texture: wgpu::Texture,
     pub y_view: wgpu::TextureView,
     pub uv_view: wgpu::TextureView,
+    pub format: MetalPixelFormat,
 }
 
 // ---------------------------------------------------------------------------
@@ -357,6 +373,29 @@ pub fn import_into_wgpu(
         return Err(MetalFailureReason::InvalidPixelBuffer);
     }
 
+    let pixel_format = unsafe { CVPixelBufferGetPixelFormatType(pixel_buffer) };
+    let format = match pixel_format {
+        K_CV_PIXEL_FORMAT_TYPE_420_YP_CB_CR_8_BI_PLANAR_VIDEO_RANGE
+        | K_CV_PIXEL_FORMAT_TYPE_420_YP_CB_CR_8_BI_PLANAR_FULL_RANGE => MetalPixelFormat::Nv12,
+        K_CV_PIXEL_FORMAT_TYPE_420_YP_CB_CR_10_BI_PLANAR_VIDEO_RANGE
+        | K_CV_PIXEL_FORMAT_TYPE_420_YP_CB_CR_10_BI_PLANAR_FULL_RANGE => MetalPixelFormat::P010,
+        _ => return Err(MetalFailureReason::UnsupportedFormat),
+    };
+    let (y_mtl_format, uv_mtl_format, y_wgpu_format, uv_wgpu_format) = match format {
+        MetalPixelFormat::Nv12 => (
+            MTL_PIXEL_FORMAT_R8_UNORM,
+            MTL_PIXEL_FORMAT_RG8_UNORM,
+            wgpu::TextureFormat::R8Unorm,
+            wgpu::TextureFormat::Rg8Unorm,
+        ),
+        MetalPixelFormat::P010 => (
+            MTL_PIXEL_FORMAT_R16_UNORM,
+            MTL_PIXEL_FORMAT_RG16_UNORM,
+            wgpu::TextureFormat::R16Unorm,
+            wgpu::TextureFormat::Rg16Unorm,
+        ),
+    };
+
     let result = unsafe {
         device.as_hal::<Metal, _, Result<ImportedMetalNv12Texture, (MetalFailureReason, Option<i32>)>>(|hal_device| {
             let hal_device = hal_device.ok_or((MetalFailureReason::ImportFailed, None))?;
@@ -378,7 +417,7 @@ pub fn import_into_wgpu(
                 texture_cache,
                 pixel_buffer,
                 std::ptr::null(),
-                MTL_PIXEL_FORMAT_R8_UNORM,
+                y_mtl_format,
                 width as usize,
                 height as usize,
                 0,
@@ -395,7 +434,7 @@ pub fn import_into_wgpu(
                 texture_cache,
                 pixel_buffer,
                 std::ptr::null(),
-                MTL_PIXEL_FORMAT_RG8_UNORM,
+                uv_mtl_format,
                 (width / 2) as usize,
                 (height / 2) as usize,
                 1,
@@ -431,7 +470,7 @@ pub fn import_into_wgpu(
             // Wrap Y texture into wgpu HAL
             let hal_y = <Metal as wgpu::hal::Api>::Device::texture_from_raw(
                 y_metal_tex,
-                wgpu::TextureFormat::R8Unorm,
+                y_wgpu_format,
                 metal::MTLTextureType::D2,
                 1,
                 1,
@@ -445,7 +484,7 @@ pub fn import_into_wgpu(
             // Wrap UV texture into wgpu HAL
             let hal_uv = <Metal as wgpu::hal::Api>::Device::texture_from_raw(
                 uv_metal_tex,
-                wgpu::TextureFormat::Rg8Unorm,
+                uv_wgpu_format,
                 metal::MTLTextureType::D2,
                 1,
                 1,
@@ -469,7 +508,7 @@ pub fn import_into_wgpu(
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::R8Unorm,
+                    format: y_wgpu_format,
                     usage: wgpu::TextureUsages::TEXTURE_BINDING,
                     view_formats: &[],
                 },
@@ -487,7 +526,7 @@ pub fn import_into_wgpu(
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rg8Unorm,
+                    format: uv_wgpu_format,
                     usage: wgpu::TextureUsages::TEXTURE_BINDING,
                     view_formats: &[],
                 },
@@ -522,6 +561,7 @@ pub fn import_into_wgpu(
                 uv_texture,
                 y_view,
                 uv_view,
+                format,
             })
         })
     };

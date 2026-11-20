@@ -113,11 +113,22 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         y = (y_raw - (16.0 / 255.0)) * (255.0 / 219.0);
         u = (uv_raw.r - (128.0 / 255.0)) * (255.0 / 224.0);
         v = (uv_raw.g - (128.0 / 255.0)) * (255.0 / 224.0);
-    } else {
+    } else if (config.range == 1u) {
         // Full Range
         y = y_raw;
         u = uv_raw.r - (128.0 / 255.0);
         v = uv_raw.g - (128.0 / 255.0);
+    } else if (config.range == 2u) {
+        // P010 limited range imported from VideoToolbox. R16Unorm samples
+        // represent the 10-bit signal normalized to [0, 1].
+        y = (y_raw - (64.0 / 1023.0)) * (1023.0 / 876.0);
+        u = (uv_raw.r - (512.0 / 1023.0)) * (1023.0 / 896.0);
+        v = (uv_raw.g - (512.0 / 1023.0)) * (1023.0 / 896.0);
+    } else {
+        // P010 full range imported from VideoToolbox.
+        y = y_raw;
+        u = uv_raw.r - (512.0 / 1023.0);
+        v = uv_raw.g - (512.0 / 1023.0);
     }
 
     var rgb_non_linear: vec3<f32>;

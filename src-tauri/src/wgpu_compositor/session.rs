@@ -378,6 +378,7 @@ impl NativePreviewSession {
             &imported.y_view,
             &imported.uv_view,
             params,
+            None,
             "Native Project Video Layer (DXGI)",
         )
     }
@@ -400,6 +401,10 @@ impl NativePreviewSession {
             &imported.y_view,
             &imported.uv_view,
             params,
+            matches!(
+                imported.format,
+                crate::wgpu_compositor::metal_import::MetalPixelFormat::P010
+            ),
             "Native Project Video Layer (Metal)",
         )
     }
@@ -413,6 +418,7 @@ impl NativePreviewSession {
         y_view: &wgpu::TextureView,
         uv_view: &wgpu::TextureView,
         params: &ColorTransformUniforms,
+        p010: bool,
         label: &'static str,
     ) -> Result<Arc<wgpu::Texture>, super::render_path::PreviewRenderError> {
         if source_width == 0 || source_height == 0 {
@@ -476,9 +482,20 @@ impl NativePreviewSession {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        // P010 samples are normalized against a 10-bit signal (16..235 and
+        // 128 chroma become 64..940 and 512). Keep the existing uniform ABI
+        // and use the range field's reserved values for this imported path.
+        let mut shader_params = *params;
+        if p010 {
+            shader_params.range = match params.range {
+                0 => 2,
+                1 => 3,
+                value => value,
+            };
+        }
         self.gpu
             .queue
-            .write_buffer(&uniform_buffer, 0, bytemuck::bytes_of(params));
+            .write_buffer(&uniform_buffer, 0, bytemuck::bytes_of(&shader_params));
 
         let bind_group = self
             .gpu
