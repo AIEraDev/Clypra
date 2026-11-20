@@ -221,6 +221,13 @@ Run platform-specific tests where the environment permits. Treat mocked tests an
 
 Never claim cross-platform thread safety solely because one operating system passes.
 
+### Mandatory caching engineering routing
+For any task involving cache namespaces, on-disk media artifacts, in-memory cache participants, memory budgeting, LRU eviction policies, cache invalidation, or project state resets, automatically apply [`.agents/skills/clypra-caching-engineering/SKILL.md`](.agents/skills/clypra-caching-engineering/SKILL.md).
+
+Preserve the two-pillar architecture: Rust `UnifiedDiskCacheManager` (atomic writes, corrupted file quarantine, weighted LRU) and TypeScript `CacheCoordinator` (RAM/VRAM budgeting, `resetSessionCaches()` on project close for Invariant 2).
+
+Ensure new cache implementations adhere to atomic file writes, explicit resource cleanup (`ImageBitmap.close()`), synchronous singleton access (`parking_lot::RwLock`), and 100% i18n key parity for cache controls.
+
 - **`AGENTS.md`**: Universal repository invariants, engineering standards, and completion checklist.
 - **`clypra-ui-ux-engineering`** ([`.agents/skills/clypra-ui-ux-engineering/SKILL.md`](.agents/skills/clypra-ui-ux-engineering/SKILL.md)): Govern design decisions, usability heuristics, WCAG 2.2 AA accessibility, interaction lifecycles, design system consistency, and desktop layout engineering.
 - **`clypra-preview-performance-engineering`** ([`.agents/skills/clypra-preview-performance-engineering/SKILL.md`](.agents/skills/clypra-preview-performance-engineering/SKILL.md)): Measure, benchmark, profile, and compare native GPU surface vs. DOM/canvas fallback, frame pacing, readback costs, and latency.
@@ -231,6 +238,7 @@ Never claim cross-platform thread safety solely because one operating system pas
 - **`architecture-design-review`** ([`.agents/skills/architecture-design-review/SKILL.md`](.agents/skills/architecture-design-review/SKILL.md)): Architecture assessment, boundary analysis, trade-off evaluation, and ADR creation in [`docs/architecture/adr/`](docs/architecture/adr/README.md).
 - **`clypra-codebase-optimization-research`** ([`.agents/skills/clypra-codebase-optimization-research/SKILL.md`](.agents/skills/clypra-codebase-optimization-research/SKILL.md)): Scoped code-path investigation, logic and architecture review, optimization trade-offs, and source-backed validation of current engineering approaches.
 - **`clypra-multi-tier-optimization`** ([`.agents/skills/clypra-multi-tier-optimization/SKILL.md`](.agents/skills/clypra-multi-tier-optimization/SKILL.md)): Holistic, evidence-backed multi-tier performance and architecture discovery across Clypra's Three-Tier Compute Boundary (React UI, Web Workers, Rust native core) and IPC transport.
+- **`clypra-caching-engineering`** ([`.agents/skills/clypra-caching-engineering/SKILL.md`](.agents/skills/clypra-caching-engineering/SKILL.md)): Guides the design, implementation, registration, budgeting, and debugging of Clypra's multi-tier caching infrastructure across both Rust native disk caching (UnifiedDiskCacheManager) and TypeScript in-memory caching (CacheCoordinator).
 - **`nle-domain-engineering`** ([`.agents/skills/nle-domain-engineering/SKILL.md`](.agents/skills/nle-domain-engineering/SKILL.md)): NLE domain knowledge, timecode math, track composition, media lifecycle, and synchronization invariants. Companion specification: [`docs/engineering/nle-architecture-and-semantics.md`](docs/engineering/nle-architecture-and-semantics.md).
 - **`senior-engineer-decision-making`** ([`.agents/skills/senior-engineer-decision-making/SKILL.md`](.agents/skills/senior-engineer-decision-making/SKILL.md)): Problem framing, technical trade-offs, scope discipline, and challenging unsound requests.
 - **`performance-reliability-engineering`** ([`.agents/skills/performance-reliability-engineering/SKILL.md`](.agents/skills/performance-reliability-engineering/SKILL.md)): Measurement-driven optimization, memory leak prevention, queue back-pressure, and resource lifecycles.
