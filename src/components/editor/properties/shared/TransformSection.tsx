@@ -480,7 +480,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                         (!selectedClip.conform &&
                           selectedClip.fitMode === "cover")
                           ? "bg-accent/20 text-accent font-semibold"
-                          : "text-text-muted hover:text-text-primary hover:bg-surface-raised"
+                          : "text-text-muted hover:text-text-primary hover:bg-surface-hover"
                       }`}
                       title="Fill: Scale to fill canvas and crop overflow"
                     >

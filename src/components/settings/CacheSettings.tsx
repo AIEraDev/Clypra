@@ -663,7 +663,7 @@ export const CacheSettings: React.FC = () => {
             onClick={refreshUnified}
             disabled={isUnifiedLoading}
             title="Refresh disk cache stats"
-            className="p-1.5 rounded-lg hover:bg-surface-raised/50 text-text-muted hover:text-text-primary transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+            className="p-1.5 rounded-lg hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors cursor-pointer shrink-0 disabled:opacity-50"
           >
             <RefreshCw
               className={`w-3.5 h-3.5 ${isUnifiedLoading ? "animate-spin" : ""}`}
@@ -673,7 +673,7 @@ export const CacheSettings: React.FC = () => {
 
         {/* Storage breakdown bar */}
         {unifiedStats && unifiedStats.totalBytes > 0 && (
-          <div className="rounded-xl bg-surface-raised/40 border border-white/5 p-3.5 space-y-3">
+          <div className="rounded-xl bg-surface-raised/40 border border-border-subtle p-3.5 space-y-3">
             {/* Total + limit */}
             <div className="flex items-center justify-between text-[11px]">
               <span className="text-text-muted">Total used</span>
@@ -694,7 +694,7 @@ export const CacheSettings: React.FC = () => {
 
             {/* Progress bar */}
             {unifiedStats.limitBytes > 0 && (
-              <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+              <div className="w-full h-1.5 rounded-full bg-surface-elevated overflow-hidden">
                 <div
                   className="h-full rounded-full bg-accent transition-all"
                   style={{
@@ -755,7 +755,7 @@ export const CacheSettings: React.FC = () => {
             </div>
 
             {/* Stats row */}
-            <div className="flex items-center gap-4 pt-2 border-t border-white/5 text-[10px] text-text-muted flex-wrap">
+            <div className="flex items-center gap-4 pt-2 border-t border-border-subtle text-[10px] text-text-muted flex-wrap">
               <span>
                 Hit rate:{" "}
                 <span className="text-text-primary font-medium">
@@ -784,7 +784,7 @@ export const CacheSettings: React.FC = () => {
 
         {/* In-memory tier breakdown */}
         {memoryStats.totalBytesUsed > 0 && (
-          <div className="rounded-xl bg-surface-raised/30 border border-white/5 p-3 space-y-2">
+          <div className="rounded-xl bg-surface-raised/30 border border-border-subtle p-3 space-y-2">
             <div className="flex items-center gap-2">
               <Gauge className="w-3.5 h-3.5 text-accent" />
               <span className="text-[11px] font-semibold text-text-primary">
@@ -803,7 +803,7 @@ export const CacheSettings: React.FC = () => {
                 return (
                   <div
                     key={tier}
-                    className="flex items-center justify-between bg-surface-raised/40 rounded-lg px-2.5 py-1.5 border border-white/5"
+                    className="flex items-center justify-between bg-surface-raised/40 rounded-lg px-2.5 py-1.5 border border-border-subtle"
                   >
                     <span className="text-text-muted capitalize">
                       {tier === "gpu" ? "GPU VRAM" : "RAM"}
@@ -819,12 +819,12 @@ export const CacheSettings: React.FC = () => {
         )}
 
         {/* Disk quota selector */}
-        <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-surface-raised/30 border border-white/5">
+        <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-surface-raised/30 border border-border-subtle">
           <span className="text-[11px] text-text-muted">Disk Cache Limit</span>
           <select
             value={diskLimitGb}
             onChange={(e) => handleSetDiskLimit(e.target.value)}
-            className="bg-surface-raised/80 border border-white/10 rounded-lg px-2.5 py-1 text-text-primary text-[11px] focus:outline-none focus:border-accent/40 cursor-pointer"
+            className="bg-surface-input border border-border rounded-lg px-2.5 py-1 text-text-primary text-[11px] focus:outline-none focus:border-accent/40 cursor-pointer"
           >
             <option value="1">1 GB</option>
             <option value="2">2 GB</option>
@@ -875,7 +875,7 @@ export const CacheSettings: React.FC = () => {
           <button
             onClick={handleClearFilmstripCache}
             disabled={isClearingFilmstrip || isUnifiedLoading}
-            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-surface-raised/30 hover:bg-surface-raised/50 border border-white/5 hover:border-red-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-surface-raised/30 hover:bg-surface-hover border border-border-subtle hover:border-red-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             <div className="shrink-0">
               {isClearingFilmstrip ? (
@@ -904,7 +904,7 @@ export const CacheSettings: React.FC = () => {
               }
             }}
             disabled={isUnifiedLoading}
-            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-surface-raised/30 hover:bg-surface-raised/50 border border-white/5 hover:border-red-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-surface-raised/30 hover:bg-surface-hover border border-border-subtle hover:border-red-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             <Layers className="w-3.5 h-3.5 text-orange-400 shrink-0" />
             <div className="text-left min-w-0">
@@ -924,7 +924,7 @@ export const CacheSettings: React.FC = () => {
             <button
               onClick={handleVerifyIntegrity}
               disabled={isVerifyingIntegrity || isUnifiedLoading}
-              className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-surface-raised/30 hover:bg-surface-raised/50 border border-white/5 hover:border-accent/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-surface-raised/30 hover:bg-surface-hover border border-border-subtle hover:border-accent/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               <div className="w-7 h-7 rounded-lg bg-accent/15 flex items-center justify-center shrink-0">
                 {isVerifyingIntegrity ? (
@@ -946,7 +946,7 @@ export const CacheSettings: React.FC = () => {
             <button
               onClick={handleCompact}
               disabled={isCompacting || isUnifiedLoading}
-              className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-surface-raised/30 hover:bg-surface-raised/50 border border-white/5 hover:border-accent/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-surface-raised/30 hover:bg-surface-hover border border-border-subtle hover:border-accent/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               <div className="w-7 h-7 rounded-lg bg-accent/15 flex items-center justify-center shrink-0">
                 {isCompacting ? (
@@ -982,13 +982,13 @@ export const CacheSettings: React.FC = () => {
           <button
             onClick={loadTelemetrySummary}
             title="Refresh Filmstrip Stats"
-            className="p-1.5 rounded-lg hover:bg-surface-raised/50 text-text-muted hover:text-text-primary transition-colors cursor-pointer shrink-0"
+            className="p-1.5 rounded-lg hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors cursor-pointer shrink-0"
           >
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
         </div>
 
-        <div className="rounded-xl bg-surface-raised/40 border border-white/5 p-3.5 space-y-3">
+        <div className="rounded-xl bg-surface-raised/40 border border-border-subtle p-3.5 space-y-3">
           <div className="flex items-center gap-2">
             <Film className="w-3.5 h-3.5 text-accent" />
             <span className="text-[11px] font-semibold text-text-primary">
@@ -1036,7 +1036,7 @@ export const CacheSettings: React.FC = () => {
         <button
           onClick={handleClearFilmstripCache}
           disabled={isClearingFilmstrip}
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-surface-raised/30 hover:bg-surface-raised/50 border border-white/5 hover:border-red-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-surface-raised/30 hover:bg-surface-hover border border-border-subtle hover:border-red-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
         >
           <div className="w-8 h-8 rounded-lg bg-red-500/15 flex items-center justify-center shrink-0">
             {isClearingFilmstrip ? (
@@ -1068,7 +1068,7 @@ export const CacheSettings: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-2 gap-2 text-[11px]">
-          <div className="bg-surface-raised/40 rounded-lg p-2.5 border border-white/5 flex items-center gap-2.5">
+          <div className="bg-surface-raised/40 rounded-lg p-2.5 border border-border-subtle flex items-center gap-2.5">
             <Music2 className="w-3.5 h-3.5 text-accent shrink-0" />
             <div>
               <div className="text-text-muted text-[10px]">Files cached</div>
@@ -1077,7 +1077,7 @@ export const CacheSettings: React.FC = () => {
               </div>
             </div>
           </div>
-          <div className="bg-surface-raised/40 rounded-lg p-2.5 border border-white/5 flex items-center gap-2.5">
+          <div className="bg-surface-raised/40 rounded-lg p-2.5 border border-border-subtle flex items-center gap-2.5">
             <Gauge className="w-3.5 h-3.5 text-accent shrink-0" />
             <div>
               <div className="text-text-muted text-[10px]">Total size</div>
@@ -1092,7 +1092,7 @@ export const CacheSettings: React.FC = () => {
           <button
             onClick={refreshAudioStats}
             disabled={isClearingAudio}
-            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-surface-raised/30 hover:bg-surface-raised/50 border border-white/5 hover:border-accent/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-surface-raised/30 hover:bg-surface-hover border border-border-subtle hover:border-accent/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5 text-accent shrink-0" />
             <div className="text-left min-w-0">
@@ -1108,7 +1108,7 @@ export const CacheSettings: React.FC = () => {
           <button
             onClick={handleClearAudioCache}
             disabled={isClearingAudio}
-            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-surface-raised/30 hover:bg-surface-raised/50 border border-white/5 hover:border-red-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-surface-raised/30 hover:bg-surface-hover border border-border-subtle hover:border-red-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             <div className="shrink-0">
               {isClearingAudio ? (
@@ -1135,8 +1135,8 @@ export const CacheSettings: React.FC = () => {
       </section>
 
       {/* Auto Cache Cleanup Preference */}
-      <section className="pt-4 border-t border-white/6">
-        <div className="flex items-center justify-between gap-4 px-4 py-3 rounded-xl bg-surface-raised/40 border border-white/5">
+      <section className="pt-4 border-t border-border">
+        <div className="flex items-center justify-between gap-4 px-4 py-3 rounded-xl bg-surface-raised/40 border border-border-subtle">
           <div>
             <div className="text-[12px] font-medium text-text-primary">
               Auto-clear Cache on Project Close
@@ -1153,7 +1153,7 @@ export const CacheSettings: React.FC = () => {
             onClick={() =>
               setAutoClearCacheOnProjectClose(!autoClearCacheOnProjectClose)
             }
-            className={`w-9 h-5 rounded-full relative shrink-0 transition-colors cursor-pointer ${autoClearCacheOnProjectClose ? "bg-accent" : "bg-white/10"}`}
+            className={`w-9 h-5 rounded-full relative shrink-0 transition-colors cursor-pointer ${autoClearCacheOnProjectClose ? "bg-accent" : "bg-surface-elevated"}`}
           >
             <div
               className={`absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform duration-150 ${
@@ -1167,7 +1167,7 @@ export const CacheSettings: React.FC = () => {
       </section>
 
       {/* Tips — collapsible */}
-      <div className="rounded-xl border border-white/6 overflow-hidden bg-surface-raised/20">
+      <div className="rounded-xl border border-border overflow-hidden bg-surface-raised/20">
         <button
           onClick={() => setTipsExpanded((v) => !v)}
           className="w-full flex items-center justify-between px-4 py-3 text-[12px] font-semibold text-text-primary hover:bg-white/[0.03] transition-colors cursor-pointer"
@@ -1181,7 +1181,7 @@ export const CacheSettings: React.FC = () => {
           />
         </button>
         {tipsExpanded && (
-          <ul className="px-4 pb-4 pt-3 space-y-2 border-t border-white/6">
+          <ul className="px-4 pb-4 pt-3 space-y-2 border-t border-border">
             {[
               "Editing 4K+ footage over 30 min? Enable Proxy Editing Mode in Editor → Performance settings.",
               "Set Preview Resolution to Medium or Proxy for multi-hour timelines to maintain 60 FPS scrub.",
