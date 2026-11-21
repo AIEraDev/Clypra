@@ -16,12 +16,54 @@ interface AvatarPresenter {
 }
 
 const AVATARS: AvatarPresenter[] = [
-  { id: "elena", name: "Elena", role: "Studio Host", gender: "Female", tag: "Professional", bgColor: "from-purple-600 to-indigo-800" },
-  { id: "marcus", name: "Marcus", role: "Tech Reviewer", gender: "Male", tag: "Tech / Modern", bgColor: "from-blue-600 to-cyan-800" },
-  { id: "sophie", name: "Sophie", role: "Casual Creator", gender: "Female", tag: "Lifestyle", bgColor: "from-rose-500 to-pink-700" },
-  { id: "david", name: "David", role: "Business Executive", gender: "Male", tag: "Corporate", bgColor: "from-amber-600 to-orange-800" },
-  { id: "clara", name: "Clara", role: "News Anchor", gender: "Female", tag: "Formal", bgColor: "from-teal-600 to-emerald-800" },
-  { id: "liam", name: "Liam", role: "Friendly Guide", gender: "Male", tag: "Casual", bgColor: "from-violet-600 to-purple-800" },
+  {
+    id: "elena",
+    name: "Elena",
+    role: "Studio Host",
+    gender: "Female",
+    tag: "Professional",
+    bgColor: "from-purple-600 to-indigo-800",
+  },
+  {
+    id: "marcus",
+    name: "Marcus",
+    role: "Tech Reviewer",
+    gender: "Male",
+    tag: "Tech / Modern",
+    bgColor: "from-blue-600 to-cyan-800",
+  },
+  {
+    id: "sophie",
+    name: "Sophie",
+    role: "Casual Creator",
+    gender: "Female",
+    tag: "Lifestyle",
+    bgColor: "from-rose-500 to-pink-700",
+  },
+  {
+    id: "david",
+    name: "David",
+    role: "Business Executive",
+    gender: "Male",
+    tag: "Corporate",
+    bgColor: "from-amber-600 to-orange-800",
+  },
+  {
+    id: "clara",
+    name: "Clara",
+    role: "News Anchor",
+    gender: "Female",
+    tag: "Formal",
+    bgColor: "from-teal-600 to-emerald-800",
+  },
+  {
+    id: "liam",
+    name: "Liam",
+    role: "Friendly Guide",
+    gender: "Male",
+    tag: "Casual",
+    bgColor: "from-violet-600 to-purple-800",
+  },
 ];
 
 export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
@@ -29,7 +71,9 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
 }) => {
   const [selectedAvatar, setSelectedAvatar] = useState<string>("elena");
   const [framing, setFraming] = useState<"half" | "full" | "circle">("half");
-  const [background, setBackground] = useState<"transparent" | "greenscreen">("transparent");
+  const [background, setBackground] = useState<"transparent" | "greenscreen">(
+    "transparent",
+  );
   const [isGenerating, setIsGenerating] = useState(false);
   const [generated, setGenerated] = useState(false);
 
@@ -56,7 +100,9 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
           </span>
         </div>
         <p className="text-[11px] text-purple-200/80 mt-1 leading-relaxed">
-          Create a lifelike AI human that speaks &quot;{textClip.text || "your text"}&quot; with realistic lip-sync and expressions.
+          Create a lifelike AI human that speaks &quot;
+          {textClip.text || "your text"}&quot; with realistic lip-sync and
+          expressions.
         </p>
       </div>
 
@@ -94,7 +140,7 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
                 <div className="text-[10px] text-purple-300 truncate max-w-full">
                   {avatar.role}
                 </div>
-                <span className="text-[9px] text-text-muted bg-white/5 px-1.5 py-0.5 rounded mt-1">
+                <span className="text-[9px] text-text-muted bg-surface-elevated px-1.5 py-0.5 rounded mt-1">
                   {avatar.tag}
                 </span>
               </div>

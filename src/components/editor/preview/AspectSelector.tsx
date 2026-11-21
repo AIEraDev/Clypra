@@ -15,7 +15,11 @@ const PREVIEW_ASPECT_RATIO: Record<AspectRatio, number | null> = {
   "4:3": 4 / 3,
 };
 
-function PreviewAspectShapeIcon({ widthOverHeight }: { widthOverHeight: number }) {
+function PreviewAspectShapeIcon({
+  widthOverHeight,
+}: {
+  widthOverHeight: number;
+}) {
   const max = 22;
   const min = 8;
   let w: number;
@@ -67,7 +71,7 @@ export const AspectSelector: React.FC<AspectSelectorProps> = ({
           "flex items-center gap-1 px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer",
           aspectMenuOpen
             ? "bg-accent/15 text-accent"
-            : "text-text-muted hover:text-text-primary hover:bg-white/6"
+            : "text-text-muted hover:text-text-primary hover:bg-surface-hover",
         )}
         title="Preview aspect ratio"
         aria-expanded={aspectMenuOpen}
@@ -100,22 +104,24 @@ export const AspectSelector: React.FC<AspectSelectorProps> = ({
           </div>
           <div className="my-1 h-px bg-border/60" />
           <div className="px-1 space-y-0.5">
-            {(["16:9", "9:16", "1:1", "4:5", "21:9", "4:3"] as const).map((p) => (
-              <AspectMenuRow
-                key={p}
-                preset={p}
-                selected={previewAspectPreset}
-                onSelect={(preset) => {
-                  selectAspectPreset(preset);
-                  setAspectMenuOpen(false);
-                }}
-                icon={
-                  <PreviewAspectShapeIcon
-                    widthOverHeight={PREVIEW_ASPECT_RATIO[p]!}
-                  />
-                }
-              />
-            ))}
+            {(["16:9", "9:16", "1:1", "4:5", "21:9", "4:3"] as const).map(
+              (p) => (
+                <AspectMenuRow
+                  key={p}
+                  preset={p}
+                  selected={previewAspectPreset}
+                  onSelect={(preset) => {
+                    selectAspectPreset(preset);
+                    setAspectMenuOpen(false);
+                  }}
+                  icon={
+                    <PreviewAspectShapeIcon
+                      widthOverHeight={PREVIEW_ASPECT_RATIO[p]!}
+                    />
+                  }
+                />
+              ),
+            )}
           </div>
         </div>
       )}

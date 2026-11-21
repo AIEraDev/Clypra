@@ -1,6 +1,19 @@
 import React, { useState, useCallback, useRef } from "react";
-import { RotateCcw, Keyboard, Search, AlertTriangle, Check } from "lucide-react";
-import { useShortcutStore, formatBinding, getShortcutCategories, type KeyBinding, PRESET_NAME_MAP, type ShortcutPreset } from "@/store/shortcutStore";
+import {
+  RotateCcw,
+  Keyboard,
+  Search,
+  AlertTriangle,
+  Check,
+} from "lucide-react";
+import {
+  useShortcutStore,
+  formatBinding,
+  getShortcutCategories,
+  type KeyBinding,
+  PRESET_NAME_MAP,
+  type ShortcutPreset,
+} from "@/store/shortcutStore";
 
 // ─── Key chip ──────────────────────────────────────────────────────────────
 
@@ -11,7 +24,7 @@ function KeyChip({ binding }: { binding: KeyBinding }) {
       {parts.map((part, i) => (
         <kbd
           key={i}
-          className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-md text-[10px] font-mono font-semibold bg-surface-raised border border-white/12 text-text-primary shadow-[0_1px_0_0_rgba(255,255,255,0.08)] leading-none"
+          className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-md text-[10px] font-mono font-semibold bg-surface-raised border border-border text-text-primary shadow-[0_1px_0_0_rgba(255,255,255,0.08)] leading-none"
         >
           {part}
         </kbd>
@@ -57,7 +70,7 @@ function CaptureInput({ onCapture, onCancel }: CaptureInputProps) {
       setCaptured(binding);
       onCapture(binding);
     },
-    [onCapture, onCancel]
+    [onCapture, onCancel],
   );
 
   return (
@@ -104,7 +117,7 @@ function ShortcutRow({
 
   return (
     <div
-      className={`flex items-center justify-between gap-3 py-2 px-2 rounded-lg transition-colors ${isEditing ? "bg-accent/6 border border-accent/20" : "hover:bg-white/3 border border-transparent"}`}
+      className={`flex items-center justify-between gap-3 py-2 px-2 rounded-lg transition-colors ${isEditing ? "bg-accent/6 border border-accent/20" : "hover:bg-surface-hover border border-transparent"}`}
     >
       <div className="flex items-center gap-2 min-w-0">
         <span className="text-[12px] text-text-primary truncate">{label}</span>
@@ -143,7 +156,7 @@ function ShortcutRow({
           onClick={() => onReset(id)}
           disabled={!isModified}
           title="Reset to default"
-          className={`p-1 rounded transition-colors ${isModified ? "text-text-muted hover:text-accent cursor-pointer" : "text-white/10 cursor-default"}`}
+          className={`p-1 rounded transition-colors ${isModified ? "text-text-muted hover:text-accent cursor-pointer" : "text-text-disabled cursor-default"}`}
         >
           <RotateCcw className="w-3 h-3" />
         </button>
@@ -155,7 +168,14 @@ function ShortcutRow({
 // ─── Main Component ────────────────────────────────────────────────────────
 
 export function KeyboardShortcutsSettings() {
-  const { shortcuts, setShortcut, resetShortcut, resetAll, activePreset, applyPreset } = useShortcutStore();
+  const {
+    shortcuts,
+    setShortcut,
+    resetShortcut,
+    resetAll,
+    activePreset,
+    applyPreset,
+  } = useShortcutStore();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [recentlySaved, setRecentlySaved] = useState<string | null>(null);
@@ -212,13 +232,14 @@ export function KeyboardShortcutsSettings() {
     const actionsInCat = Object.values(shortcuts).filter(
       (a) =>
         a.category === cat &&
-        (!searchQuery || a.label.toLowerCase().includes(searchQuery.toLowerCase()))
+        (!searchQuery ||
+          a.label.toLowerCase().includes(searchQuery.toLowerCase())),
     );
     return actionsInCat.length > 0;
   });
 
   const hasAnyModified = Object.values(shortcuts).some(
-    (a) => formatBinding(a.binding) !== formatBinding(a.defaultBinding)
+    (a) => formatBinding(a.binding) !== formatBinding(a.defaultBinding),
   );
 
   return (
@@ -226,7 +247,11 @@ export function KeyboardShortcutsSettings() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <p className="text-[11px] text-text-muted leading-relaxed max-w-xs">
-          Click any binding to rebind it. Press <kbd className="px-1 py-0.5 text-[10px] bg-surface-raised border border-white/10 rounded">Esc</kbd> to cancel.
+          Click any binding to rebind it. Press{" "}
+          <kbd className="px-1 py-0.5 text-[10px] bg-surface-raised border border-border rounded">
+            Esc
+          </kbd>{" "}
+          to cancel.
         </p>
 
         {showResetConfirm ? (
@@ -240,7 +265,7 @@ export function KeyboardShortcutsSettings() {
             </button>
             <button
               onClick={() => setShowResetConfirm(false)}
-              className="px-2.5 py-1 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-text-primary transition-colors"
+              className="px-2.5 py-1 text-[11px] font-medium rounded-md bg-surface-raised border border-border text-text-muted hover:text-text-primary transition-colors"
             >
               Cancel
             </button>
@@ -249,7 +274,7 @@ export function KeyboardShortcutsSettings() {
           <button
             onClick={() => setShowResetConfirm(true)}
             disabled={!hasAnyModified}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md transition-colors ${hasAnyModified ? "bg-surface-raised border border-white/6 text-text-muted hover:text-danger hover:border-danger/40 cursor-pointer" : "bg-surface border border-white/4 text-white/20 cursor-default"}`}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md transition-colors ${hasAnyModified ? "bg-surface-raised border border-border text-text-muted hover:text-danger hover:border-danger/40 cursor-pointer" : "bg-surface border border-border-subtle text-text-disabled cursor-default"}`}
           >
             <RotateCcw className="w-3 h-3" />
             Reset All
@@ -258,18 +283,22 @@ export function KeyboardShortcutsSettings() {
       </div>
 
       {/* Preset selector */}
-      <div className="flex items-center justify-between bg-surface-raised p-2.5 rounded-lg border border-white/6">
+      <div className="flex items-center justify-between bg-surface-raised p-2.5 rounded-lg border border-border">
         <div className="flex items-center gap-2">
           <Keyboard className="w-4 h-4 text-accent" />
           <div>
-            <span className="text-[11px] font-medium text-text-primary block">Hotkey Layout Preset</span>
-            <span className="text-[10px] text-text-muted">Choose industry standard keybindings</span>
+            <span className="text-[11px] font-medium text-text-primary block">
+              Hotkey Layout Preset
+            </span>
+            <span className="text-[10px] text-text-muted">
+              Choose industry standard keybindings
+            </span>
           </div>
         </div>
         <select
           value={activePreset}
           onChange={(e) => applyPreset(e.target.value as ShortcutPreset)}
-          className="bg-surface border border-white/10 rounded-md px-2 py-1 text-[11px] text-text-primary outline-none focus:border-accent cursor-pointer"
+          className="bg-surface border border-border rounded-md px-2 py-1 text-[11px] text-text-primary outline-none focus:border-accent cursor-pointer"
         >
           {Object.entries(PRESET_NAME_MAP).map(([key, name]) => (
             <option key={key} value={key}>
@@ -287,20 +316,23 @@ export function KeyboardShortcutsSettings() {
           placeholder="Search shortcuts..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full pl-8 pr-3 py-2 text-[12px] rounded-lg bg-surface-raised border border-white/6 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/40"
+          className="w-full pl-8 pr-3 py-2 text-[12px] rounded-lg bg-surface-raised border border-border text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/40"
         />
       </div>
 
       {/* Shortcut list by category */}
       <div className="space-y-5 max-h-[420px] overflow-y-auto pr-1 scrollbar-thin">
         {filteredCategories.length === 0 && (
-          <p className="text-center text-[12px] text-text-muted py-8">No shortcuts match "{searchQuery}"</p>
+          <p className="text-center text-[12px] text-text-muted py-8">
+            No shortcuts match "{searchQuery}"
+          </p>
         )}
         {filteredCategories.map((category) => {
           const actionsInCat = Object.values(shortcuts).filter(
             (a) =>
               a.category === category &&
-              (!searchQuery || a.label.toLowerCase().includes(searchQuery.toLowerCase()))
+              (!searchQuery ||
+                a.label.toLowerCase().includes(searchQuery.toLowerCase())),
           );
 
           return (
