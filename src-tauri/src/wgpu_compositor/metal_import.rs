@@ -92,7 +92,7 @@ extern "C" {
 
 // FourCC codes for Apple VideoToolbox pixel formats
 const K_CV_PIXEL_FORMAT_TYPE_420_YP_CB_CR_8_BI_PLANAR_VIDEO_RANGE: u32 = 0x34323076; // '420v'
-const K_CV_PIXEL_FORMAT_TYPE_420_YP_CB_CR_8_BI_PLANAR_FULL_RANGE: u32 = 0x34323066;  // '420f'
+const K_CV_PIXEL_FORMAT_TYPE_420_YP_CB_CR_8_BI_PLANAR_FULL_RANGE: u32 = 0x34323066; // '420f'
 const K_CV_PIXEL_FORMAT_TYPE_420_YP_CB_CR_10_BI_PLANAR_VIDEO_RANGE: u32 = 0x78343230; // 'x420'
 const K_CV_PIXEL_FORMAT_TYPE_420_YP_CB_CR_10_BI_PLANAR_FULL_RANGE: u32 = 0x78663230; // 'xf20'
 
@@ -101,6 +101,15 @@ const MTL_PIXEL_FORMAT_R8_UNORM: usize = 10;
 const MTL_PIXEL_FORMAT_RG8_UNORM: usize = 30;
 const MTL_PIXEL_FORMAT_R16_UNORM: usize = 53;
 const MTL_PIXEL_FORMAT_RG16_UNORM: usize = 65;
+
+fn fourcc_string(value: u32) -> String {
+    let bytes = value.to_be_bytes();
+    if bytes.iter().all(|byte| byte.is_ascii_graphic()) {
+        format!("'{}'", String::from_utf8_lossy(&bytes))
+    } else {
+        format!("0x{value:08x}")
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Diagnostic structures
@@ -134,11 +143,9 @@ pub struct MetalFirstFailureEvent {
 
 const ATTEMPT_RING_CAPACITY: usize = 300;
 
-static ATTEMPT_RING: StdMutex<VecDeque<MetalAttemptMetadata>> =
-    StdMutex::new(VecDeque::new());
+static ATTEMPT_RING: StdMutex<VecDeque<MetalAttemptMetadata>> = StdMutex::new(VecDeque::new());
 
-static FIRST_FAILURE: StdMutex<Option<MetalFirstFailureEvent>> =
-    StdMutex::new(None);
+static FIRST_FAILURE: StdMutex<Option<MetalFirstFailureEvent>> = StdMutex::new(None);
 
 pub fn drain_attempt_log() -> Vec<MetalAttemptMetadata> {
     if let Ok(mut ring) = ATTEMPT_RING.lock() {
@@ -191,10 +198,22 @@ pub enum MetalPixelFormat {
     P010,
 }
 
+// CoreVideo retains/releases are thread-safe for CVPixelBuffer objects. The
+// lease carries only that retained opaque handle, so it may cross the decoder
+// and presenter threads while the GPU import owns its Metal textures.
 unsafe impl Send for MetalSharedFrame {}
 unsafe impl Sync for MetalSharedFrame {}
 
 impl MetalSharedFrame {
+    /// Return the actual CoreVideo surface format (for example `420f` or
+    /// `x420`) without exposing the backing pointer in telemetry.
+    pub fn pixel_format_fourcc(&self) -> String {
+        if self.pixel_buffer.is_null() {
+            return "none".to_string();
+        }
+        fourcc_string(unsafe { CVPixelBufferGetPixelFormatType(self.pixel_buffer) })
+    }
+
     pub fn duplicate(&self) -> Option<Self> {
         if self.pixel_buffer.is_null() {
             return None;
@@ -307,10 +326,29 @@ unsafe impl Sync for DeviceTextureCache {}
 
 static CACHED_TEXTURE_CACHE: StdMutex<Option<DeviceTextureCache>> = StdMutex::new(None);
 
-fn get_or_create_texture_cache(metal_device_ptr: *mut std::ffi::c_void) -> Result<CVMetalTextureCacheRef, i32> {
-    let mut guard = CACHED_TEXTURE_CACHE
-        .lock()
-        .map_err(|_| -1)?;
+fn texture_formats(
+    format: MetalPixelFormat,
+) -> (usize, usize, wgpu::TextureFormat, wgpu::TextureFormat) {
+    match format {
+        MetalPixelFormat::Nv12 => (
+            MTL_PIXEL_FORMAT_R8_UNORM,
+            MTL_PIXEL_FORMAT_RG8_UNORM,
+            wgpu::TextureFormat::R8Unorm,
+            wgpu::TextureFormat::Rg8Unorm,
+        ),
+        MetalPixelFormat::P010 => (
+            MTL_PIXEL_FORMAT_R16_UNORM,
+            MTL_PIXEL_FORMAT_RG16_UNORM,
+            wgpu::TextureFormat::R16Unorm,
+            wgpu::TextureFormat::Rg16Unorm,
+        ),
+    }
+}
+
+fn get_or_create_texture_cache(
+    metal_device_ptr: *mut std::ffi::c_void,
+) -> Result<CVMetalTextureCacheRef, i32> {
+    let mut guard = CACHED_TEXTURE_CACHE.lock().map_err(|_| -1)?;
 
     let dev_usize = metal_device_ptr as usize;
     if let Some(ref entry) = *guard {
@@ -381,20 +419,7 @@ pub fn import_into_wgpu(
         | K_CV_PIXEL_FORMAT_TYPE_420_YP_CB_CR_10_BI_PLANAR_FULL_RANGE => MetalPixelFormat::P010,
         _ => return Err(MetalFailureReason::UnsupportedFormat),
     };
-    let (y_mtl_format, uv_mtl_format, y_wgpu_format, uv_wgpu_format) = match format {
-        MetalPixelFormat::Nv12 => (
-            MTL_PIXEL_FORMAT_R8_UNORM,
-            MTL_PIXEL_FORMAT_RG8_UNORM,
-            wgpu::TextureFormat::R8Unorm,
-            wgpu::TextureFormat::Rg8Unorm,
-        ),
-        MetalPixelFormat::P010 => (
-            MTL_PIXEL_FORMAT_R16_UNORM,
-            MTL_PIXEL_FORMAT_RG16_UNORM,
-            wgpu::TextureFormat::R16Unorm,
-            wgpu::TextureFormat::Rg16Unorm,
-        ),
-    };
+    let (y_mtl_format, uv_mtl_format, y_wgpu_format, uv_wgpu_format) = texture_formats(format);
 
     let result = unsafe {
         device.as_hal::<Metal, _, Result<ImportedMetalNv12Texture, (MetalFailureReason, Option<i32>)>>(|hal_device| {
@@ -534,7 +559,7 @@ pub fn import_into_wgpu(
 
             let y_view = y_texture.create_view(&wgpu::TextureViewDescriptor {
                 label: Some("VideoToolbox Y View"),
-                format: Some(wgpu::TextureFormat::R8Unorm),
+                format: Some(y_wgpu_format),
                 dimension: Some(wgpu::TextureViewDimension::D2),
                 aspect: wgpu::TextureAspect::All,
                 base_mip_level: 0,
@@ -546,7 +571,7 @@ pub fn import_into_wgpu(
 
             let uv_view = uv_texture.create_view(&wgpu::TextureViewDescriptor {
                 label: Some("VideoToolbox UV View"),
-                format: Some(wgpu::TextureFormat::Rg8Unorm),
+                format: Some(uv_wgpu_format),
                 dimension: Some(wgpu::TextureViewDimension::D2),
                 aspect: wgpu::TextureAspect::All,
                 base_mip_level: 0,
@@ -605,6 +630,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn full_and_video_range_fourccs_are_renderable_formats() {
+        assert_eq!(fourcc_string(0x34323076), "'420v'");
+        assert_eq!(fourcc_string(0x34323066), "'420f'");
+        assert_eq!(fourcc_string(0x78343230), "'x420'");
+        assert_eq!(fourcc_string(0x78663230), "'xf20'");
+    }
+
+    #[test]
     fn test_metal_shared_frame_null_guard() {
         let frame = MetalSharedFrame {
             pixel_buffer: std::ptr::null_mut(),
@@ -632,7 +665,10 @@ mod tests {
         assert!(!records.is_empty());
         let last = records.last().unwrap();
         assert!(!last.success);
-        assert_eq!(last.failure_reason, Some(MetalFailureReason::CacheCreationFailed));
+        assert_eq!(
+            last.failure_reason,
+            Some(MetalFailureReason::CacheCreationFailed)
+        );
         assert_eq!(last.cv_status, Some(-6661));
     }
 
@@ -640,7 +676,126 @@ mod tests {
     fn test_metal_failure_reasons_serde() {
         let reason = MetalFailureReason::TextureCreationFailed;
         let serialized = serde_json::to_string(&reason).expect("serialize");
-        let deserialized: MetalFailureReason = serde_json::from_str(&serialized).expect("deserialize");
+        let deserialized: MetalFailureReason =
+            serde_json::from_str(&serialized).expect("deserialize");
         assert_eq!(reason, deserialized);
+    }
+
+    #[test]
+    fn texture_views_match_imported_plane_precision() {
+        let (_, _, y_nv12, uv_nv12) = texture_formats(MetalPixelFormat::Nv12);
+        assert_eq!(y_nv12, wgpu::TextureFormat::R8Unorm);
+        assert_eq!(uv_nv12, wgpu::TextureFormat::Rg8Unorm);
+
+        let (_, _, y_p010, uv_p010) = texture_formats(MetalPixelFormat::P010);
+        assert_eq!(y_p010, wgpu::TextureFormat::R16Unorm);
+        assert_eq!(uv_p010, wgpu::TextureFormat::Rg16Unorm);
+    }
+
+    /// Reproduces the native preview validation boundary with a real Metal
+    /// wgpu device. This is intentionally ignored in CI because headless
+    /// runners may not expose a Metal adapter; run it locally with:
+    ///
+    /// `cargo test --manifest-path src-tauri/Cargo.toml metal_import --lib -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "requires a local macOS Metal adapter"]
+    async fn headless_texture_views_accept_nv12_and_p010_formats() {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        let Some(adapter) = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            })
+            .await
+        else {
+            eprintln!("SKIP: no graphics adapter available");
+            return;
+        };
+
+        let adapter_info = adapter.get_info();
+        if adapter_info.backend != wgpu::Backend::Metal {
+            eprintln!(
+                "SKIP: selected backend is {:?}, expected Metal",
+                adapter_info.backend
+            );
+            return;
+        }
+
+        let available_features = adapter.features();
+        if !available_features.contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM) {
+            eprintln!("SKIP: Metal adapter lacks TEXTURE_FORMAT_16BIT_NORM");
+            return;
+        }
+
+        let (device, _queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: Some("Metal import validation device"),
+                    required_features: wgpu::Features::TEXTURE_FORMAT_16BIT_NORM,
+                    required_limits: adapter.limits(),
+                    memory_hints: wgpu::MemoryHints::Performance,
+                },
+                None,
+            )
+            .await
+            .expect("Metal device creation should succeed");
+
+        for format in [MetalPixelFormat::Nv12, MetalPixelFormat::P010] {
+            let (_, _, y_format, uv_format) = texture_formats(format);
+            let y_texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("headless VideoToolbox Y plane"),
+                size: wgpu::Extent3d {
+                    width: 64,
+                    height: 64,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: y_format,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            let uv_texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("headless VideoToolbox UV plane"),
+                size: wgpu::Extent3d {
+                    width: 32,
+                    height: 32,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: uv_format,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+
+            // These descriptors intentionally mirror import_into_wgpu. The
+            // P010 case catches the old R16/Rg16 texture -> R8/Rg8 view bug.
+            let _y_view = y_texture.create_view(&wgpu::TextureViewDescriptor {
+                label: Some("headless VideoToolbox Y view"),
+                format: Some(y_format),
+                dimension: Some(wgpu::TextureViewDimension::D2),
+                aspect: wgpu::TextureAspect::All,
+                base_mip_level: 0,
+                mip_level_count: Some(1),
+                base_array_layer: 0,
+                array_layer_count: Some(1),
+                ..Default::default()
+            });
+            let _uv_view = uv_texture.create_view(&wgpu::TextureViewDescriptor {
+                label: Some("headless VideoToolbox UV view"),
+                format: Some(uv_format),
+                dimension: Some(wgpu::TextureViewDimension::D2),
+                aspect: wgpu::TextureAspect::All,
+                base_mip_level: 0,
+                mip_level_count: Some(1),
+                base_array_layer: 0,
+                array_layer_count: Some(1),
+                ..Default::default()
+            });
+        }
     }
 }

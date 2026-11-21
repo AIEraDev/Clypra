@@ -9,6 +9,7 @@
 use crate::native_core::{performance::ServedFrom, QualityTier};
 use ffmpeg_next as ffmpeg;
 use std::collections::VecDeque;
+use std::ffi::CStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -21,12 +22,35 @@ pub mod seek_planner;
 #[cfg(test)]
 mod tests;
 
+pub use crate::engine::types::{AlphaMode, PixelFormat};
 pub use crate::filmstrip_engine::decoder::geometry::*;
 pub use crate::filmstrip_engine::decoder::metadata::*;
 pub use crate::filmstrip_engine::decoder::pixel_ops::*;
 pub use crate::filmstrip_engine::decoder::pool::*;
 pub use crate::filmstrip_engine::decoder::seek_planner::*;
-pub use crate::engine::types::{AlphaMode, PixelFormat};
+
+fn ffmpeg_pixel_format_name(code: i32) -> String {
+    let format = unsafe { std::mem::transmute::<i32, ffmpeg::ffi::AVPixelFormat>(code) };
+    unsafe {
+        let name = ffmpeg::ffi::av_get_pix_fmt_name(format);
+        if name.is_null() {
+            format!("unknown({code})")
+        } else {
+            CStr::from_ptr(name).to_string_lossy().into_owned()
+        }
+    }
+}
+
+fn ffmpeg_codec_profile_name(codec_id: ffmpeg::ffi::AVCodecID, profile: i32) -> String {
+    unsafe {
+        let name = ffmpeg::ffi::avcodec_profile_name(codec_id, profile);
+        if name.is_null() {
+            format!("profile-{profile}")
+        } else {
+            CStr::from_ptr(name).to_string_lossy().into_owned()
+        }
+    }
+}
 
 /// Mathematically exact conversion of straight RGBA8 pixels to premultiplied RGBA8.
 ///
@@ -61,9 +85,7 @@ pub fn convert_straight_to_premultiplied(rgba: &mut [u8]) {
 /// Queries FFmpeg's format descriptor table for the AV_PIX_FMT_FLAG_ALPHA flag.
 pub fn ffmpeg_pixel_format_has_alpha(format: ffmpeg::format::Pixel) -> bool {
     if let Some(desc) = format.descriptor() {
-        unsafe {
-            ((*desc.as_ptr()).flags & (ffmpeg::ffi::AV_PIX_FMT_FLAG_ALPHA as u64)) != 0
-        }
+        unsafe { ((*desc.as_ptr()).flags & (ffmpeg::ffi::AV_PIX_FMT_FLAG_ALPHA as u64)) != 0 }
     } else {
         false
     }
@@ -130,7 +152,6 @@ impl DecodedVideoFrame {
         self.alpha_mode != AlphaMode::Opaque
     }
 }
-
 
 /// Port of FFmpeg's av_display_rotation_get from libavutil/display.h.
 unsafe fn av_display_rotation_get(matrix: *const i32) -> f64 {
@@ -265,6 +286,7 @@ pub struct VideoDecoder {
     /// Accumulated microsecond duration spent demuxing packets from container I/O during the last decode request.
     last_demux_us: u32,
     last_decode_activity: DecodeActivity,
+    transfer_site: crate::engine::benchmark::types::HwframeTransferSite,
 }
 
 impl VideoDecoder {
@@ -299,11 +321,7 @@ impl VideoDecoder {
                 {
                     "vaapi"
                 }
-                #[cfg(not(any(
-                    target_os = "windows",
-                    target_os = "macos",
-                    target_os = "linux"
-                )))]
+                #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
                 {
                     "unknown"
                 }
@@ -434,10 +452,16 @@ impl VideoDecoder {
             }
         };
 
-        let (pixel_format_code, bits_per_raw_sample, color) = unsafe {
+        let (pixel_format_code, bits_per_raw_sample, color, codec_profile, pixel_format) = unsafe {
             let codecpar = (*stream.as_ptr()).codecpar;
             if codecpar.is_null() {
-                (0, 0, VideoColorMetadata::default())
+                (
+                    0,
+                    0,
+                    VideoColorMetadata::default(),
+                    "unknown".to_string(),
+                    "unknown".to_string(),
+                )
             } else {
                 (
                     (*codecpar).format,
@@ -449,6 +473,8 @@ impl VideoDecoder {
                         (*codecpar).color_trc,
                         (*codecpar).chroma_location,
                     ),
+                    ffmpeg_codec_profile_name((*codecpar).codec_id, (*codecpar).profile),
+                    ffmpeg_pixel_format_name((*codecpar).format),
                 )
             }
         };
@@ -549,6 +575,8 @@ impl VideoDecoder {
             color,
             container_format,
             codec_name,
+            codec_profile,
+            pixel_format,
             is_hardware_accelerated,
         };
 
@@ -568,12 +596,24 @@ impl VideoDecoder {
             raw_nv12_cache: VecDeque::with_capacity(MAX_RAW_NV12_CACHE_ENTRIES),
             last_demux_us: 0,
             last_decode_activity: DecodeActivity::default(),
+            // A decoder request without an explicit playback/lookahead label
+            // is a user-driven seek by default. Keeping a concrete site here
+            // prevents hardware downloads from disappearing into an unknown
+            // telemetry bucket.
+            transfer_site: crate::engine::benchmark::types::HwframeTransferSite::Seek,
         })
     }
 
     /// Return the stream-level metadata used to configure native rendering.
     pub fn metadata(&self) -> VideoStreamMetadata {
         self.stream_metadata.clone()
+    }
+
+    pub fn set_transfer_site(
+        &mut self,
+        site: crate::engine::benchmark::types::HwframeTransferSite,
+    ) {
+        self.transfer_site = site;
     }
 
     /// Estimated duration in seconds of a single video frame.
@@ -1132,8 +1172,7 @@ impl VideoDecoder {
 
         let (target_w, target_h) =
             if max_w > 0 && max_h > 0 && (display_w > max_w || display_h > max_h) {
-                let scale =
-                    (max_w as f64 / display_w as f64).min(max_h as f64 / display_h as f64);
+                let scale = (max_w as f64 / display_w as f64).min(max_h as f64 / display_h as f64);
                 let w = (((display_w as f64 * scale).round() as u32).max(1) + 1) & !1;
                 let h = (((display_h as f64 * scale).round() as u32).max(1) + 1) & !1;
                 (w, h)
@@ -1222,8 +1261,7 @@ impl VideoDecoder {
         let (display_w, display_h) = self.display_dimensions();
         let (target_w, target_h) =
             if max_w > 0 && max_h > 0 && (display_w > max_w || display_h > max_h) {
-                let scale =
-                    (max_w as f64 / display_w as f64).min(max_h as f64 / display_h as f64);
+                let scale = (max_w as f64 / display_w as f64).min(max_h as f64 / display_h as f64);
                 let w = (((display_w as f64 * scale).round() as u32).max(1) + 1) & !1;
                 let h = (((display_h as f64 * scale).round() as u32).max(1) + 1) & !1;
                 (w, h)
@@ -1262,7 +1300,10 @@ impl VideoDecoder {
                         let cpu_frame = match &transferred_cpu_frame {
                             Some(cached) => cached.clone(),
                             None => {
-                                let cpu = Self::hw_to_cpu_frame(frame.clone())?;
+                                let cpu = Self::hw_to_cpu_frame(
+                                    frame.clone(),
+                                    crate::engine::benchmark::types::HwframeTransferSite::Filmstrip,
+                                )?;
                                 transferred_cpu_frame = Some(cpu.clone());
                                 cpu
                             }
@@ -1603,7 +1644,8 @@ impl VideoDecoder {
 
         // Dynamic inspection of decoded pixel format
         let source_format = cpu_frame.format();
-        let source_format_str = source_format.descriptor()
+        let source_format_str = source_format
+            .descriptor()
             .map(|d| d.name().to_string())
             .unwrap_or_else(|| format!("{:?}", source_format));
         let has_alpha = ffmpeg_pixel_format_has_alpha(source_format);
@@ -1711,7 +1753,10 @@ impl VideoDecoder {
         Ok(())
     }
 
-    fn hw_to_cpu_frame(frame: ffmpeg::frame::Video) -> Result<ffmpeg::frame::Video, String> {
+    fn hw_to_cpu_frame(
+        frame: ffmpeg::frame::Video,
+        transfer_site: crate::engine::benchmark::types::HwframeTransferSite,
+    ) -> Result<ffmpeg::frame::Video, String> {
         let source_format = unsafe { (*frame.as_ptr()).format };
         let cpu_frame = if source_format
             == ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_VIDEOTOOLBOX as i32
@@ -1734,6 +1779,14 @@ impl VideoDecoder {
                     frame.as_ptr(),
                     0,
                 );
+                crate::engine::ENGINE_TELEMETRY.record_hwframe_transfer_at(
+                    transfer_site,
+                    if ret >= 0 {
+                        Self::software_frame_storage_bytes(&cpu_frame)
+                    } else {
+                        0
+                    },
+                );
                 if ret < 0 {
                     log::debug!(
                         "[VideoDecoder] NV12 HW transfer failed (ret={}), falling back to YUV420P",
@@ -1745,6 +1798,14 @@ impl VideoDecoder {
                         cpu_frame.as_mut_ptr(),
                         frame.as_ptr(),
                         0,
+                    );
+                    crate::engine::ENGINE_TELEMETRY.record_hwframe_transfer_at(
+                        transfer_site,
+                        if ret >= 0 {
+                            Self::software_frame_storage_bytes(&cpu_frame)
+                        } else {
+                            0
+                        },
                     );
                 }
                 if ret < 0 {
@@ -1768,8 +1829,46 @@ impl VideoDecoder {
         Ok(cpu_frame)
     }
 
+    /// Estimate the bytes written into the software destination by a
+    /// successful `av_hwframe_transfer_data` call. The estimate follows the
+    /// destination strides, including allocator padding, so it measures the
+    /// actual upload/readback footprint rather than only visible pixels.
+    fn software_frame_storage_bytes(frame: &ffmpeg::frame::Video) -> usize {
+        let raw = unsafe { &*frame.as_ptr() };
+        let height = raw.height.max(0) as usize;
+        let format = raw.format;
+        let mut total = 0usize;
+        for plane in 0..4 {
+            let stride = raw.linesize[plane].unsigned_abs() as usize;
+            if stride == 0 {
+                continue;
+            }
+            let plane_height = match format {
+                x if x == ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_NV12 as i32
+                    || x == ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_P010LE as i32 =>
+                {
+                    if plane == 0 {
+                        height
+                    } else {
+                        height.div_ceil(2)
+                    }
+                }
+                x if x == ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_YUV420P as i32 => {
+                    if plane == 0 {
+                        height
+                    } else {
+                        height.div_ceil(2)
+                    }
+                }
+                _ => height,
+            };
+            total = total.saturating_add(stride.saturating_mul(plane_height));
+        }
+        total
+    }
+
     fn to_cpu_frame(&self, frame: ffmpeg::frame::Video) -> Result<ffmpeg::frame::Video, String> {
-        Self::hw_to_cpu_frame(frame)
+        Self::hw_to_cpu_frame(frame, self.transfer_site)
     }
 
     /// Attempt to extract a DXGI NT shared handle from a D3D11VA hardware frame
@@ -3198,8 +3297,18 @@ impl VideoDecoder {
                     ffmpeg::color::Range::JPEG => 1,
                     ffmpeg::color::Range::MPEG => 0,
                     _ => {
-                        if self.stream_metadata.color.range.to_lowercase().contains("full")
-                            || self.stream_metadata.color.range.to_lowercase().contains("pc")
+                        if self
+                            .stream_metadata
+                            .color
+                            .range
+                            .to_lowercase()
+                            .contains("full")
+                            || self
+                                .stream_metadata
+                                .color
+                                .range
+                                .to_lowercase()
+                                .contains("pc")
                         {
                             1
                         } else {
@@ -3371,4 +3480,3 @@ impl VideoDecoder {
         }
     }
 }
-

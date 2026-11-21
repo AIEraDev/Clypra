@@ -478,4 +478,3 @@ fn glyph_cache_telemetry_records_real_hit_and_miss_delta() {
     assert_eq!(after_hit_misses.saturating_sub(after_miss_misses), 0);
     assert_eq!(after_hit_hits.saturating_sub(after_miss_hits), 1);
 }
-

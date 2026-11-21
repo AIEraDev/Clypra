@@ -96,9 +96,7 @@ impl StreamDecoderActor {
             // arrived in rapid succession, older ones are superseded. Keep only the newest intent.
             if !job.request.is_prefetch {
                 while let Ok(newer_job) = self.urgent_rx.try_recv() {
-                    let _ = job
-                        .response_tx
-                        .send(Err(StreamDecodeError::Superseded));
+                    let _ = job.response_tx.send(Err(StreamDecodeError::Superseded));
                     job = newer_job;
                 }
             }
@@ -109,9 +107,7 @@ impl StreamDecoderActor {
             // Check generation currency: skip obsolete requests
             let current_gen = self.current_generation.load(Ordering::Acquire);
             if job.request.generation > 0 && job.request.generation < current_gen {
-                let _ = job
-                    .response_tx
-                    .send(Err(StreamDecodeError::Superseded));
+                let _ = job.response_tx.send(Err(StreamDecodeError::Superseded));
                 continue;
             }
 
@@ -154,7 +150,12 @@ impl StreamDecoderActor {
             let actor_queue_wait_us =
                 job.enqueued_at.elapsed().as_micros().min(u64::MAX as u128) as u64;
             let res = self
-                .decode_one(target_time, options, job.request.generation)
+                .decode_one(
+                    target_time,
+                    options,
+                    job.request.generation,
+                    job.request.is_prefetch,
+                )
                 .await;
 
             // FFmpeg decoding is blocking and may complete after a newer
@@ -164,9 +165,7 @@ impl StreamDecoderActor {
             let generation_is_current = job.request.generation == 0
                 || job.request.generation >= self.current_generation.load(Ordering::Acquire);
             if !generation_is_current {
-                let _ = job
-                    .response_tx
-                    .send(Err(StreamDecodeError::Superseded));
+                let _ = job.response_tx.send(Err(StreamDecodeError::Superseded));
                 continue;
             }
 
@@ -275,7 +274,10 @@ impl StreamDecoderActor {
             step_options.skip_hw_download = !is_target && is_hw_accel;
 
             let current_gen = self.current_generation.load(Ordering::Acquire);
-            match self.decode_one(prime_time, step_options, current_gen).await {
+            match self
+                .decode_one(prime_time, step_options, current_gen, true)
+                .await
+            {
                 Ok(frame) => {
                     // Only target display frames (or software frames) are placed
                     // into prime_cache. Intermediate skipped frames have dummy planes
@@ -407,6 +409,7 @@ impl StreamDecoderActor {
         target_time: f64,
         options: DecodeFrameOptions,
         job_generation: u64,
+        is_prefetch: bool,
     ) -> Result<DecodedActorFrame, StreamDecodeError> {
         let decoder = Arc::clone(&self.decoder);
         let cancel_token = Arc::clone(&self.cancel_in_flight);
@@ -429,6 +432,18 @@ impl StreamDecoderActor {
             let container_format = guard.container_format().to_string();
             let is_hardware_accelerated = guard.is_hardware_accelerated();
             let source_rotation = guard.rotation();
+            let transfer_site = if options.is_playback {
+                crate::engine::benchmark::types::HwframeTransferSite::Playback
+            } else if is_prefetch {
+                crate::engine::benchmark::types::HwframeTransferSite::Lookahead
+            } else if options.allow_keyframe_approx {
+                crate::engine::benchmark::types::HwframeTransferSite::Seek
+            } else {
+                // Non-playback requests are user-driven seeks unless the
+                // caller explicitly marks them as lookahead/prefetch.
+                crate::engine::benchmark::types::HwframeTransferSite::Seek
+            };
+            guard.set_transfer_site(transfer_site);
 
             #[cfg(target_os = "windows")]
             if crate::wgpu_compositor::adapter_selector::is_dxgi_runtime_enabled() {
@@ -594,9 +609,7 @@ impl StreamDecoderActor {
         ) = match result {
             Ok(value) => value,
             Err(error) => {
-                if job_generation > 0
-                    && generation_state.load(Ordering::Acquire) > job_generation
-                {
+                if job_generation > 0 && generation_state.load(Ordering::Acquire) > job_generation {
                     return Err(StreamDecodeError::Superseded);
                 }
                 if cancellation_state.load(Ordering::Acquire) {
@@ -616,7 +629,7 @@ impl StreamDecoderActor {
             decode_us,
             decoder_mutex_wait_us: mutex_wait_us,
             actor_wait_us: 0,
-            channel_enqueue_us: 0, // populated by handle.rs after channel send
+            channel_enqueue_us: 0,  // populated by handle.rs after channel send
             actor_queue_wait_us: 0, // populated by worker loop before decode_one is called
             from_prime_cache: false,
             quality: options.quality,

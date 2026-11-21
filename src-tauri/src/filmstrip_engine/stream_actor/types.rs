@@ -24,6 +24,64 @@ pub enum DecodedVideoPlanes {
     D3d11(Arc<crate::wgpu_compositor::dxgi_import::D3d11SharedFrame>),
 }
 
+/// Typed boundary between decoding and presentation.
+///
+/// The CPU variant is the only producer today; the enum is intentionally
+/// closed so a future Metal lease must be handled explicitly by the presenter
+/// and by telemetry instead of being labelled beside an unrelated buffer.
+#[derive(Clone)]
+pub enum DecodedFrame {
+    Cpu {
+        y: Arc<[u8]>,
+        uv: Arc<[u8]>,
+    },
+    #[cfg(target_os = "macos")]
+    Metal(Arc<crate::wgpu_compositor::metal_import::MetalSharedFrame>),
+    #[cfg(target_os = "windows")]
+    Dxgi(Arc<crate::wgpu_compositor::dxgi_import::D3d11SharedFrame>),
+}
+
+impl DecodedFrame {
+    pub fn transfer_path(&self) -> crate::native_core::performance::FrameTransferPath {
+        match self {
+            Self::Cpu { .. } => crate::native_core::performance::FrameTransferPath::CpuNv12,
+            #[cfg(target_os = "macos")]
+            Self::Metal(shared) => match shared.pixel_format_fourcc().as_str() {
+                "'x420'" | "'xf20'" => {
+                    crate::native_core::performance::FrameTransferPath::MetalZeroCopyP010
+                }
+                _ => crate::native_core::performance::FrameTransferPath::MetalZeroCopyNv12,
+            },
+            #[cfg(target_os = "windows")]
+            Self::Dxgi(_) => crate::native_core::performance::FrameTransferPath::DxgiShared,
+        }
+    }
+
+    pub fn cpu_planes(&self) -> Option<(&Arc<[u8]>, &Arc<[u8]>)> {
+        match self {
+            Self::Cpu { y, uv } => Some((y, uv)),
+            #[cfg(target_os = "macos")]
+            Self::Metal(_) => None,
+            #[cfg(target_os = "windows")]
+            Self::Dxgi(_) => None,
+        }
+    }
+
+    pub fn is_same_source(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Cpu { y: left, .. }, Self::Cpu { y: right, .. }) => Arc::ptr_eq(left, right),
+            #[cfg(target_os = "macos")]
+            (Self::Metal(left), Self::Metal(right)) => Arc::ptr_eq(left, right),
+            #[cfg(target_os = "windows")]
+            (Self::Dxgi(left), Self::Dxgi(right)) => {
+                Arc::ptr_eq(left, right) || left.nt_handle == right.nt_handle
+            }
+            #[allow(unreachable_patterns)]
+            _ => false,
+        }
+    }
+}
+
 impl DecodedVideoPlanes {
     /// Returns CPU Y and UV slices if available.
     pub fn cpu_planes(&self) -> Option<(&Arc<[u8]>, &Arc<[u8]>)> {
@@ -161,11 +219,14 @@ pub fn calculate_download_stride(
 }
 
 impl DecodedActorFrame {
-    pub fn into_native_video_frame(
-        self,
-    ) -> (DecodedVideoPlanes, u32, u32, VideoColorMetadata, u32) {
+    pub fn into_native_video_frame(self) -> (DecodedFrame, u32, u32, VideoColorMetadata, u32) {
+        let frame = match self.planes {
+            DecodedVideoPlanes::Cpu { y, uv } => DecodedFrame::Cpu { y, uv },
+            #[cfg(target_os = "windows")]
+            DecodedVideoPlanes::D3d11(shared) => DecodedFrame::Dxgi(shared),
+        };
         (
-            self.planes,
+            frame,
             self.width,
             self.height,
             self.color,

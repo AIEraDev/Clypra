@@ -27,18 +27,29 @@ pub enum FrameSource {
     DxgiNv12 { width: u32, height: u32 },
     /// Zero-copy on macOS: VideoToolbox CVPixelBuffer imported directly into wgpu (Metal only).
     MetalNv12 { width: u32, height: u32 },
+    /// Zero-copy on macOS for 10-bit VideoToolbox P010 frames.
+    MetalP010 { width: u32, height: u32 },
     /// GPU upload: CPU-decoded NV12 planes written into ring-buffer textures via queue.write_texture.
     CpuNv12 { width: u32, height: u32 },
+    /// GPU upload: CPU-produced 10-bit P010 planes written to the renderer.
+    CpuP010 { width: u32, height: u32 },
     /// CPU readback: RGBA decoded frame uploaded to GPU texture (compatibility/debugging path).
     CpuRgba { width: u32, height: u32 },
+    /// A composition without a video layer.
+    GpuRaster,
+    /// A frame staged by the lookahead queue rather than presented.
+    LookaheadQueue,
+    /// A presentation that retained the already-visible frame.
+    UnchangedSkipped,
+    /// A presentation containing layers with different source paths.
+    Mixed,
+    /// An explicit absence of a source tag for a dropped or pre-compositor sample.
+    Unknown,
 }
 
 impl Default for FrameSource {
     fn default() -> Self {
-        Self::CpuNv12 {
-            width: 0,
-            height: 0,
-        }
+        Self::Unknown
     }
 }
 

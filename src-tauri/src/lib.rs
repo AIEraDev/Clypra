@@ -32,7 +32,6 @@ pub mod wgpu_compositor;
 // all call sites have been migrated to `crate::filmstrip_engine`.
 pub use filmstrip_engine as thumbnail_engine;
 
-
 use commands::*;
 use diagnostics::crash_handler::{
     get_unreported_crashes, mark_crash_reported, purge_crash_reports,
@@ -182,7 +181,9 @@ fn get_bench_run_config() -> cold_start::BenchRunConfig {
 #[tauri::command]
 fn write_bench_report(file_path: String, json_content: String) -> Result<(), String> {
     if !cold_start::is_bench_mode_active() {
-        return Err("Benchmark report writing is only permitted when running in benchmark mode".to_string());
+        return Err(
+            "Benchmark report writing is only permitted when running in benchmark mode".to_string(),
+        );
     }
     let path = std::path::Path::new(&file_path);
     if let Some(parent) = path.parent() {
@@ -205,8 +206,22 @@ fn set_menu_language(app: tauri::AppHandle, language: String) -> Result<(), Stri
             "ru" => ["Clypra", "Файл", "Правка", "Вид", "Окно", "Справка"],
             "es" => ["Clypra", "Archivo", "Edición", "Ver", "Ventana", "Ayuda"],
             "ja" => ["Clypra", "ファイル", "編集", "表示", "ウィンドウ", "ヘルプ"],
-            "de" => ["Clypra", "Datei", "Bearbeiten", "Ansicht", "Fenster", "Hilfe"],
-            "fr" => ["Clypra", "Fichier", "Édition", "Affichage", "Fenêtre", "Aide"],
+            "de" => [
+                "Clypra",
+                "Datei",
+                "Bearbeiten",
+                "Ansicht",
+                "Fenster",
+                "Hilfe",
+            ],
+            "fr" => [
+                "Clypra",
+                "Fichier",
+                "Édition",
+                "Affichage",
+                "Fenêtre",
+                "Aide",
+            ],
             "ko" => ["Clypra", "파일", "편집", "보기", "윈도우", "도움말"],
             _ => ["Clypra", "File", "Edit", "View", "Window", "Help"],
         };
@@ -288,6 +303,7 @@ pub fn run() {
         .setup(|app| {
             let setup_start = std::time::Instant::now();
             diagnostics::initialize(app.handle());
+            crate::commands::native_preview::initialize_zero_copy_guard();
             let win_init_start = std::time::Instant::now();
             if let Some(window) = app.get_webview_window("main") {
                 crate::cold_start::record_window_created();
@@ -852,16 +868,16 @@ pub fn run() {
             crate::commands::debug::capture_preview_frame,
         ]);
 
-        let builder = builder.on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
-                    // Prevent immediate OS destruction so the webview can perform
-                    // unsaved-changes dirty checks, user prompt, and clean shutdown.
-                    api.prevent_close();
-                    let _ = window.emit("clypra://close-requested", ());
-                }
+    let builder = builder.on_window_event(|window, event| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            if window.label() == "main" {
+                // Prevent immediate OS destruction so the webview can perform
+                // unsaved-changes dirty checks, user prompt, and clean shutdown.
+                api.prevent_close();
+                let _ = window.emit("clypra://close-requested", ());
             }
-        });
+        }
+    });
 
     let build_start = std::time::Instant::now();
     let app = builder

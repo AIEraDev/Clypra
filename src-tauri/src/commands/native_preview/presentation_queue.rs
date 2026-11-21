@@ -1,9 +1,7 @@
-use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::Instant;
-use tauri::Manager;
+use crate::filmstrip_engine::decoder::VideoColorMetadata;
+use crate::filmstrip_engine::stream_actor::DecodedFrame;
 use crate::native_audio::NativeAudioClock;
+use crate::native_core::performance::FrameTransferPath;
 use crate::native_core::playback::{
     native_presentation_timing as decide_native_presentation_timing, VideoFrameTimingDecision,
 };
@@ -11,10 +9,13 @@ use crate::native_core::{
     FrameRequest, FrameTime, NativeFrameService, PerformanceSample, PreviewMode,
 };
 use crate::sync_metrics::SYNC_METRICS;
-use crate::filmstrip_engine::decoder::VideoColorMetadata;
-use crate::filmstrip_engine::stream_actor::DecodedVideoPlanes;
+use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
+use tauri::Manager;
 
-pub(crate) type DecodedNativeVideoFrame = (DecodedVideoPlanes, u32, u32, VideoColorMetadata, u32);
+pub(crate) type DecodedNativeVideoFrame = (DecodedFrame, u32, u32, VideoColorMetadata, u32);
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct NativeDecodeTimings {
@@ -166,19 +167,55 @@ pub(crate) fn record_successful_readback_metrics(app: &tauri::AppHandle, request
     );
 }
 
-pub(crate) fn classify_surface_transfer_path(
-    video_layer_count: usize,
-    used_dxgi_zero_copy: bool,
-    used_cpu_nv12: bool,
-) -> &'static str {
-    if video_layer_count == 0 {
-        "gpu-raster"
-    } else if used_dxgi_zero_copy && used_cpu_nv12 {
-        "mixed"
-    } else if used_dxgi_zero_copy {
-        "dxgi-zero-copy"
+/// Collapse explicit per-layer source tags into the single presentation tag
+/// used by the current frame sample. Empty input is reserved for non-video
+/// presentations; mixed paths remain explicit instead of defaulting to CPU.
+pub(crate) fn aggregate_transfer_paths(paths: &[FrameTransferPath]) -> Option<FrameTransferPath> {
+    let first = paths.first().copied()?;
+    if paths.iter().all(|path| *path == first) {
+        Some(first)
     } else {
-        "cpu-nv12"
+        Some(FrameTransferPath::Mixed)
+    }
+}
+
+fn frame_source_from_transfer_path(
+    transfer_path: Option<FrameTransferPath>,
+    width: u32,
+    height: u32,
+) -> crate::wgpu_compositor::FrameSource {
+    match transfer_path {
+        Some(FrameTransferPath::MetalZeroCopyNv12) => {
+            crate::wgpu_compositor::FrameSource::MetalNv12 { width, height }
+        }
+        Some(FrameTransferPath::MetalZeroCopyP010) => {
+            crate::wgpu_compositor::FrameSource::MetalP010 { width, height }
+        }
+        Some(FrameTransferPath::DxgiShared) => {
+            crate::wgpu_compositor::FrameSource::DxgiNv12 { width, height }
+        }
+        Some(FrameTransferPath::CpuNv12) => {
+            crate::wgpu_compositor::FrameSource::CpuNv12 { width, height }
+        }
+        Some(FrameTransferPath::CpuP010) => {
+            crate::wgpu_compositor::FrameSource::CpuP010 { width, height }
+        }
+        Some(FrameTransferPath::CpuRgba) => {
+            crate::wgpu_compositor::FrameSource::CpuRgba { width, height }
+        }
+        Some(FrameTransferPath::GpuRaster) => crate::wgpu_compositor::FrameSource::GpuRaster,
+        Some(FrameTransferPath::LookaheadQueue) => {
+            crate::wgpu_compositor::FrameSource::LookaheadQueue
+        }
+        Some(FrameTransferPath::UnchangedSkipped) => {
+            crate::wgpu_compositor::FrameSource::UnchangedSkipped
+        }
+        Some(FrameTransferPath::Mixed) => crate::wgpu_compositor::FrameSource::Mixed,
+        Some(FrameTransferPath::Dropped | FrameTransferPath::Stale) => {
+            crate::wgpu_compositor::FrameSource::Unknown
+        }
+        Some(FrameTransferPath::Unknown) => crate::wgpu_compositor::FrameSource::Unknown,
+        None => crate::wgpu_compositor::FrameSource::Unknown,
     }
 }
 
@@ -201,12 +238,21 @@ pub(crate) fn record_native_surface_sample(
     drop_reason: Option<&str>,
     capability_policy: Option<String>,
     capability_probe_us: Option<u64>,
-    transfer_path: Option<&str>,
+    transfer_path: Option<FrameTransferPath>,
     // Phase 3.1 Rust-clock-domain end-to-end timings.
     // `None` for dropped/stale frames that never reached the compositor.
     command_entry_to_present_enqueue_us: Option<u64>,
     frame_processing_us: Option<u64>,
 ) {
+    let frame_path = transfer_path.unwrap_or_else(|| {
+        if stale {
+            FrameTransferPath::Stale
+        } else if dropped {
+            FrameTransferPath::Dropped
+        } else {
+            FrameTransferPath::Unknown
+        }
+    });
     let Some(service) = app.try_state::<tokio::sync::Mutex<NativeFrameService>>() else {
         return;
     };
@@ -228,21 +274,11 @@ pub(crate) fn record_native_surface_sample(
             Some("frame-step") => crate::wgpu_compositor::WorkloadMode::FrameStep,
             _ => crate::wgpu_compositor::WorkloadMode::PausedInteraction,
         };
-        // Map the transfer path string to FrameSource.
-        let source = match transfer_path {
-            Some("dxgi-zero-copy") => crate::wgpu_compositor::FrameSource::DxgiNv12 {
-                width: decode_timings.source_width.unwrap_or(0),
-                height: decode_timings.source_height.unwrap_or(0),
-            },
-            Some("cpu-nv12") => crate::wgpu_compositor::FrameSource::CpuNv12 {
-                width: decode_timings.source_width.unwrap_or(0),
-                height: decode_timings.source_height.unwrap_or(0),
-            },
-            _ => crate::wgpu_compositor::FrameSource::CpuRgba {
-                width: decode_timings.source_width.unwrap_or(0),
-                height: decode_timings.source_height.unwrap_or(0),
-            },
-        };
+        let source = frame_source_from_transfer_path(
+            Some(frame_path),
+            decode_timings.source_width.unwrap_or(0),
+            decode_timings.source_height.unwrap_or(0),
+        );
         // Build a FrameOutputCorrelation if request_id is present.
         let correlation = Some(crate::wgpu_compositor::FrameOutputCorrelation {
             operation_id: request.request_id.clone(),
@@ -311,7 +347,7 @@ pub(crate) fn record_native_surface_sample(
             }
             .to_string(),
         ),
-        transfer_path: transfer_path.map(str::to_string),
+        transfer_path: Some(frame_path.as_str().to_string()),
         cancelled: false,
         stale,
         dropped,
@@ -367,9 +403,9 @@ pub(crate) fn record_native_surface_sample(
         cache_insert_us: None,
         dxgi_latched_off: None,
         dxgi_latch_reason: None,
-                dxgi_latch_context: None,
-                lookahead_horizon_frames: None,
-                lookahead_clamp_reason: None,
+        dxgi_latch_context: None,
+        lookahead_horizon_frames: None,
+        lookahead_clamp_reason: None,
     });
 }
 
@@ -555,7 +591,12 @@ impl NativePreviewFrameQueue {
         true
     }
 
-    pub(crate) fn complete(&mut self, key: String, frame: QueuedNativeFrame, lifecycle_epoch: u64) -> bool {
+    pub(crate) fn complete(
+        &mut self,
+        key: String,
+        frame: QueuedNativeFrame,
+        lifecycle_epoch: u64,
+    ) -> bool {
         if lifecycle_epoch != self.lifecycle_epoch {
             return false;
         }
@@ -693,12 +734,16 @@ pub(crate) fn deadline_aware_lookahead_count(
         "unclamped"
     };
 
-    LookaheadDecision { count, clamp_reason }
+    LookaheadDecision {
+        count,
+        clamp_reason,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::native_core::performance::FrameTransferPath;
 
     // -------------------------------------------------------------------------
     // LookaheadDecision gate tests
@@ -766,5 +811,23 @@ mod tests {
         let d = deadline_aware_lookahead_count(60, 4, None);
         assert_eq!(d.count, 4);
         assert_eq!(d.clamp_reason, "unclamped");
+    }
+
+    #[test]
+    fn frame_source_mapping_preserves_metal_precision() {
+        assert!(matches!(
+            frame_source_from_transfer_path(Some(FrameTransferPath::MetalZeroCopyNv12), 1920, 1080),
+            crate::wgpu_compositor::FrameSource::MetalNv12 {
+                width: 1920,
+                height: 1080
+            }
+        ));
+        assert!(matches!(
+            frame_source_from_transfer_path(Some(FrameTransferPath::MetalZeroCopyP010), 3840, 2160),
+            crate::wgpu_compositor::FrameSource::MetalP010 {
+                width: 3840,
+                height: 2160
+            }
+        ));
     }
 }

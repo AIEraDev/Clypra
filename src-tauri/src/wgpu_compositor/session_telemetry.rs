@@ -28,8 +28,9 @@
 //! - **All Phase 5 fields populated** — `queue_wait_us`, `deadline_miss`,
 //!   `dropped`, `recorded_at`, `ipc_wait_us`, `gpu_render_us` are all tracked.
 
-use crate::wgpu_compositor::frame_correlation::WorkloadMode;
+use crate::native_core::performance::FrameTransferPath;
 use crate::native_core::NativeDemandOutcome;
+use crate::wgpu_compositor::frame_correlation::WorkloadMode;
 use crate::wgpu_compositor::frame_telemetry::FrameTelemetry;
 use crate::wgpu_compositor::render_path::FrameSource;
 use parking_lot::Mutex;
@@ -62,8 +63,14 @@ pub struct FramesBySource {
     /// Frames imported via Metal zero-copy on macOS.
     #[serde(default)]
     pub metal_nv12: u64,
+    /// Frames imported via Metal zero-copy using P010 planes.
+    #[serde(default)]
+    pub metal_p010: u64,
     /// Frames uploaded via CPU path as NV12.
     pub cpu_nv12: u64,
+    /// Frames uploaded via CPU path as P010.
+    #[serde(default)]
+    pub cpu_p010: u64,
     /// Frames uploaded via CPU path as RGBA8.
     pub cpu_rgba: u64,
     /// Frames with an unrecognised source (should be zero in normal operation).
@@ -237,10 +244,7 @@ impl WorkloadBucket {
 
         // Deadline policy: use the workload-specific threshold when no
         // `deadline_miss` flag is provided from the frame telemetry.
-        let missed = deadline_miss
-            || deadline_us
-                .map(|d| processing_us > d)
-                .unwrap_or(false);
+        let missed = deadline_miss || deadline_us.map(|d| processing_us > d).unwrap_or(false);
         if missed {
             self.missed_deadlines += 1;
         }
@@ -257,8 +261,7 @@ impl WorkloadBucket {
             let j = (self.next_rand() as usize) % (n + 1);
             if j < RESERVOIR_CAPACITY {
                 self.reservoir[j] = processing_us;
-                self.frame_proc_reservoir[j] =
-                    frame_proc_us.unwrap_or(processing_us);
+                self.frame_proc_reservoir[j] = frame_proc_us.unwrap_or(processing_us);
             }
         }
     }
@@ -276,9 +279,7 @@ impl WorkloadBucket {
             NativeDemandOutcome::Coalesced => self.requests_coalesced += 1,
             NativeDemandOutcome::Superseded => self.requests_superseded += 1,
             NativeDemandOutcome::Cancelled => self.requests_cancelled += 1,
-            NativeDemandOutcome::DroppedBeforePresent => {
-                self.requests_dropped_before_present += 1
-            }
+            NativeDemandOutcome::DroppedBeforePresent => self.requests_dropped_before_present += 1,
             NativeDemandOutcome::Failed => self.requests_failed += 1,
         }
     }
@@ -431,7 +432,9 @@ struct SessionState {
     // Source breakdown
     dxgi_nv12_frames: u64,
     metal_nv12_frames: u64,
+    metal_p010_frames: u64,
     cpu_nv12_frames: u64,
+    cpu_p010_frames: u64,
     cpu_rgba_frames: u64,
     unknown_frames: u64,
 
@@ -472,7 +475,9 @@ impl Default for SessionState {
             peak_gpu_render_us: 0,
             dxgi_nv12_frames: 0,
             metal_nv12_frames: 0,
+            metal_p010_frames: 0,
             cpu_nv12_frames: 0,
+            cpu_p010_frames: 0,
             cpu_rgba_frames: 0,
             unknown_frames: 0,
             policy_background_pauses: 0,
@@ -539,8 +544,15 @@ impl SessionState {
         match &t.source {
             FrameSource::DxgiNv12 { .. } => self.dxgi_nv12_frames += 1,
             FrameSource::MetalNv12 { .. } => self.metal_nv12_frames += 1,
+            FrameSource::MetalP010 { .. } => self.metal_p010_frames += 1,
             FrameSource::CpuNv12 { .. } => self.cpu_nv12_frames += 1,
+            FrameSource::CpuP010 { .. } => self.cpu_p010_frames += 1,
             FrameSource::CpuRgba { .. } => self.cpu_rgba_frames += 1,
+            FrameSource::GpuRaster
+            | FrameSource::LookaheadQueue
+            | FrameSource::UnchangedSkipped
+            | FrameSource::Mixed
+            | FrameSource::Unknown => self.unknown_frames += 1,
         }
 
         // Per-workload bucket routing (Phase 3.1)
@@ -638,7 +650,9 @@ impl SessionState {
             frames_by_source: FramesBySource {
                 dxgi_nv12: self.dxgi_nv12_frames,
                 metal_nv12: self.metal_nv12_frames,
+                metal_p010: self.metal_p010_frames,
                 cpu_nv12: self.cpu_nv12_frames,
+                cpu_p010: self.cpu_p010_frames,
                 cpu_rgba: self.cpu_rgba_frames,
                 unknown: self.unknown_frames,
             },
@@ -810,16 +824,25 @@ impl SessionTelemetryCollector {
         self.inner.lock().frames_produced
     }
 
-    /// Record the frame transfer path / source directly (e.g. "dxgi-zero-copy", "cpu-nv12", "cpu-rgba").
-    pub fn record_frame_source(&self, transfer_path: &str) {
+    /// Record the frame transfer path / source directly. The producer supplies
+    /// the closed enum so a new path cannot silently become `unknown` or CPU.
+    pub fn record_frame_source(&self, transfer_path: FrameTransferPath) {
         let mut s = self.inner.lock();
         s.frames_produced += 1;
         match transfer_path {
-            "dxgi-zero-copy" => s.dxgi_nv12_frames += 1,
-            "metal-zero-copy" => s.metal_nv12_frames += 1,
-            "cpu-nv12" => s.cpu_nv12_frames += 1,
-            "cpu-rgba" => s.cpu_rgba_frames += 1,
-            _ => s.unknown_frames += 1,
+            FrameTransferPath::DxgiShared => s.dxgi_nv12_frames += 1,
+            FrameTransferPath::MetalZeroCopyNv12 => s.metal_nv12_frames += 1,
+            FrameTransferPath::MetalZeroCopyP010 => s.metal_p010_frames += 1,
+            FrameTransferPath::CpuNv12 => s.cpu_nv12_frames += 1,
+            FrameTransferPath::CpuP010 => s.cpu_p010_frames += 1,
+            FrameTransferPath::CpuRgba => s.cpu_rgba_frames += 1,
+            FrameTransferPath::GpuRaster
+            | FrameTransferPath::LookaheadQueue
+            | FrameTransferPath::UnchangedSkipped
+            | FrameTransferPath::Mixed
+            | FrameTransferPath::Dropped
+            | FrameTransferPath::Stale
+            | FrameTransferPath::Unknown => s.unknown_frames += 1,
         }
     }
 }
@@ -886,7 +909,10 @@ mod tests {
         );
 
         let snapshot = c.snapshot();
-        let scrub = snapshot.workload_snapshots.get("scrub").expect("scrub bucket");
+        let scrub = snapshot
+            .workload_snapshots
+            .get("scrub")
+            .expect("scrub bucket");
         assert_eq!(scrub.requests_received, 2);
         assert_eq!(scrub.requests_completed, 1);
         assert_eq!(scrub.requests_superseded, 1);
@@ -1029,10 +1055,10 @@ mod tests {
     #[test]
     fn test_record_frame_source_direct() {
         let c = SessionTelemetryCollector::new();
-        c.record_frame_source("dxgi-zero-copy");
-        c.record_frame_source("cpu-nv12");
-        c.record_frame_source("cpu-rgba");
-        c.record_frame_source("unknown-path");
+        c.record_frame_source(FrameTransferPath::DxgiShared);
+        c.record_frame_source(FrameTransferPath::CpuNv12);
+        c.record_frame_source(FrameTransferPath::CpuRgba);
+        c.record_frame_source(FrameTransferPath::Unknown);
 
         let s = c.snapshot();
         assert_eq!(s.frames_produced, 4);
