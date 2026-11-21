@@ -341,6 +341,7 @@ impl HardwareBenchmarkRunner {
             cross_adapter_bytes: 0,
             gpu_copy_bytes: 0,
             is_zero_copy: true,
+            ..TransferMetrics::default()
         };
 
         let mut failure_reasons = Vec::new();

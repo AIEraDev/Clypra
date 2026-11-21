@@ -28,6 +28,10 @@ path = "examples/benchmark.rs"
 name = "decode-throughput-bench"
 path = "examples/decode_throughput_bench.rs"
 
+[[example]]
+name = "vt-frame-probe"
+path = "examples/vt_frame_probe.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

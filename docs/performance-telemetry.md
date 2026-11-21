@@ -131,12 +131,21 @@ Each line:
 
 ```json
 {
+  "schemaVersion": 2,
   "kind": "frontend-rollup",
-  "session_id": "launch-1725890442123-ab3f7",
-  "timestamp_epoch_ms": 1725890472000,
+  "sessionId": "launch-1725890442123-ab3f7",
+  "timestampEpochMs": 1725890472000,
+  "seq": 42,
+  "scope": "frontend.webview",
   "payload": { ... PerformanceEventPayload ... }
 }
 ```
+
+Schema v2 records are self-describing: `seq` must be contiguous, `scope`
+identifies the producing tier, and the first record is a `session-header`.
+`preview-context` records declare the active presenter and stream keys. The
+ingest API rejects empty sessions, accepts legacy records for compatibility but
+grades them `untrusted`, and records malformed v2 provenance as `invalid`.
 
 ### Entry kinds
 
@@ -273,8 +282,17 @@ POST /performance/telemetry/ingest/session
   skipped: number; // entries that failed validation
   persistenceStatus: "saved" | "partial" | "failed";
   storage: "neon" | "d1" | "neon+d1" | "none";
+  evidenceGrade: "measured" | "untrusted" | "invalid";
+  trusted: boolean;
+  validationIssueCount: number;
+  legacy: boolean;
+  completionStatus: "complete" | "incomplete";
 }
 ```
+
+The API writes the untouched entry envelope to the private R2 archive before
+normalising analytics payloads. The database stores only the compact index,
+trust verdict, build/provenance fields, and bounded representative rollups.
 
 Entry size cap: **50,000 entries** per session (413 if exceeded).
 
@@ -329,6 +347,15 @@ CREATE TABLE session_perf_logs (
   total_entries     INT            NOT NULL DEFAULT 0,
   telemetry_events  INT            NOT NULL DEFAULT 0,
   skipped           INT            NOT NULL DEFAULT 0,
+  schema_version    INT,                           -- envelope version
+  evidence_grade    VARCHAR(16),                   -- measured/untrusted/invalid
+  validation_issue_count INT,
+  legacy            BOOLEAN,
+  completion_status VARCHAR(16),
+  preview_context_count INT,
+  build_sha         VARCHAR(64),
+  opt_level         VARCHAR(16),
+  debug_assertions  BOOLEAN,
   metrics_summary   JSONB,                          -- bounded representative rollups
   r2_key            TEXT,                           -- complete raw session archive in R2
   received_at       TIMESTAMPTZ    DEFAULT NOW()    -- indexed

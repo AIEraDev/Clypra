@@ -48,6 +48,13 @@ import { evaluatorTelemetry } from "@/core/evaluation/evaluatorTelemetry";
 import { viewportTelemetry } from "@/core/timeline/viewportTelemetry";
 import { getActiveRingBufferTelemetry } from "@/core/workers/ringBuffer";
 import { getVectorComputeTelemetrySnapshot } from "@/core/workers/vectorCompute";
+import {
+  PERF_SCHEMA_VERSION,
+  scopeForPerfKind,
+  type PerfScope,
+  type PerfSessionHeader,
+  type PreviewContextRecord,
+} from "./perfSchema";
 
 // ── Tauri runtime guard ───────────────────────────────────────────────────────
 // Evaluated lazily at call time, not at module-load time. The module-level
@@ -70,6 +77,8 @@ const MAX_QUEUE_SIZE = 200;
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type PerfLogKind =
+  | "session-header"
+  | "preview-context"
   | "frontend-rollup"
   | "native-sync"
   | "native-session-telemetry"
@@ -117,6 +126,12 @@ export interface PerfLogEntry {
   sessionId: string;
   /** Unix epoch ms — set by the caller at collection time. */
   timestampEpochMs: number;
+  /** Versioned provenance envelope; legacy callers may omit it. */
+  schemaVersion?: number;
+  /** Monotonic sequence assigned once at the writer boundary. */
+  seq?: number;
+  /** Logical producer scope used by the offline analyzer. */
+  scope?: PerfScope;
   /** Raw payload — typed by `kind` but opaque to the Rust layer. */
   payload: unknown;
 }
@@ -125,6 +140,7 @@ interface PerfLogSessionInfo {
   sessionId: string;
   filePath: string;
   openedAtEpochMs: number;
+  header: PerfSessionHeader;
 }
 
 interface MediaRuntimeStatus {
@@ -188,6 +204,7 @@ export class PerfLogService {
   private peakMemoryMb: number = 0;
   /** Last native-sync content persisted in this session (timestamps excluded). */
   private lastNativeSyncFingerprint: string | null = null;
+  private nextSequence = 1;
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
@@ -236,6 +253,7 @@ export class PerfLogService {
       this.filePath = info.filePath;
       this.peakMemoryMb = 0; // reset peak for the new session
       this.lastNativeSyncFingerprint = null;
+      this.nextSequence = 1;
 
       // Reset native session telemetry so previous app launches / sessions
       // in the same process do not contaminate the new session with stale frame counts.
@@ -302,6 +320,7 @@ export class PerfLogService {
    */
   private async retryPendingUploads(): Promise<void> {
     if (!isTauriRuntime()) return;
+    if (!this.isTelemetryUploadEnabled()) return;
     try {
       const uploadedCount = await tauriInvoke<number>(
         "upload_pending_perf_logs",
@@ -353,6 +372,9 @@ export class PerfLogService {
     // Always stamp with the active session ID in case the caller passed a
     // stale ID from before a project switch.
     entry.sessionId = this.sessionId;
+    entry.schemaVersion ??= PERF_SCHEMA_VERSION;
+    entry.seq ??= this.nextSequence++;
+    entry.scope ??= scopeForPerfKind(entry.kind);
 
     this.queue.push(entry);
 
@@ -360,6 +382,19 @@ export class PerfLogService {
       // Non-blocking — do not await inside a synchronous hot path.
       void this.flushQueue();
     }
+  }
+
+  /** Records a preview-context transition without coupling telemetry callers
+   * to the underlying NDJSON envelope. */
+  recordPreviewContext(context: PreviewContextRecord): void {
+    const sessionId = this.sessionId;
+    if (!sessionId) return;
+    this.enqueue({
+      kind: "preview-context",
+      sessionId,
+      timestampEpochMs: Date.now(),
+      payload: context,
+    });
   }
 
   /**
@@ -709,6 +744,11 @@ export class PerfLogService {
     } catch {
       // Silently skip if unavailable.
     }
+
+    // The final native rollup is queued after the first flush above. Persist it
+    // before closing the Rust-owned file; otherwise a clean exit would contain
+    // the session-close marker but silently lose the last summary record.
+    await this._flushQueueWithSession(sessionId);
 
     // Tell Rust to close the file and get back the path.
     let closedPath: string | null = null;
@@ -1329,9 +1369,9 @@ export class PerfLogService {
   }
 
   /**
-   * Returns true unless the user has explicitly opted out of telemetry upload.
+   * Returns true only after the user has explicitly opted into telemetry upload.
    * Respects CLYPRA_DISABLE_TELEMETRY_UPLOAD env var for CI and contributors.
-   * Default is ON — enabled for all installs unless the user sets the flag to false.
+   * Default is OFF — uploads require an explicit user opt-in.
    */
   private isTelemetryUploadEnabled(): boolean {
     // Never upload from a dev build — debug sessions report synthetic latch
@@ -1356,15 +1396,12 @@ export class PerfLogService {
     ) {
       return false;
     }
-    // Default ON — telemetry upload is enabled unless the user explicitly
-    // opts out (stored value === "false").  Absence of the key means the
-    // setting was never changed, which we now treat as consent-to-default
-    // rather than opt-out.
+    // Default OFF — absence of the key means the user has not opted in.
     try {
       const stored = localStorage.getItem("clypra.telemetryUploadEnabled");
-      return stored === null ? true : stored === "true";
+      return stored === "true";
     } catch {
-      return true;
+      return false;
     }
   }
 
@@ -1377,13 +1414,13 @@ export class PerfLogService {
     }
   }
 
-  /** Returns the current opt-in state. Defaults to true when the key is absent. */
+  /** Returns the current opt-in state. Defaults to false when the key is absent. */
   static isTelemetryUploadEnabledStatic(): boolean {
     try {
       const stored = localStorage.getItem("clypra.telemetryUploadEnabled");
-      return stored === null ? true : stored === "true";
+      return stored === "true";
     } catch {
-      return true;
+      return false;
     }
   }
 }

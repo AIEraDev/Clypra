@@ -128,6 +128,79 @@ pub struct TransferMetrics {
     pub cross_adapter_bytes: usize,
     pub gpu_copy_bytes: usize,
     pub is_zero_copy: bool,
+    #[serde(default)]
+    pub metal_nv12_frames: u64,
+    #[serde(default)]
+    pub metal_p010_frames: u64,
+    #[serde(default)]
+    pub dxgi_shared_frames: u64,
+    #[serde(default)]
+    pub cpu_nv12_frames: u64,
+    #[serde(default)]
+    pub cpu_p010_frames: u64,
+    #[serde(default)]
+    pub cpu_rgba_frames: u64,
+    #[serde(default)]
+    pub gpu_raster_frames: u64,
+    #[serde(default)]
+    pub lookahead_queue_frames: u64,
+    #[serde(default)]
+    pub unchanged_skipped_frames: u64,
+    #[serde(default)]
+    pub mixed_frames: u64,
+    #[serde(default)]
+    pub unknown_frames: u64,
+    /// Number of calls made to FFmpeg's hardware-to-CPU transfer API.
+    /// This is a ground-truth copy boundary counter, independent of the
+    /// presentation-path classifier.
+    #[serde(default)]
+    pub hwframe_transfer_calls: u64,
+    /// Bytes represented by successfully transferred software frames. This
+    /// includes decoded row padding because that is the memory written by the
+    /// transfer destination and is therefore the useful copy-cost measure.
+    #[serde(default)]
+    pub hwframe_transfer_bytes: u64,
+    /// Ground-truth transfer call counts grouped by the producer's workload.
+    /// New decode requests must choose a concrete site; `unknown` remains only
+    /// for legacy records that predate the required-site API.
+    #[serde(default)]
+    pub hwframe_transfer_calls_by_site: std::collections::BTreeMap<String, u64>,
+    #[serde(default)]
+    pub metal_decode_attempts: u64,
+    #[serde(default)]
+    pub metal_decode_successes: u64,
+    #[serde(default)]
+    pub metal_decode_failures: u64,
+    #[serde(default)]
+    pub metal_decode_failure_reasons: std::collections::BTreeMap<String, u64>,
+    #[serde(default)]
+    pub metal_decode_unrecorded: u64,
+    /// Metal import failures after a decode attempt already produced a frame.
+    /// These are deliberately separate from decode outcomes so attempts can
+    /// reconcile exactly to decode success/failure/unrecorded.
+    #[serde(default)]
+    pub metal_import_failures: u64,
+    #[serde(default)]
+    pub metal_import_failure_reasons: std::collections::BTreeMap<String, u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HwframeTransferSite {
+    Playback,
+    Seek,
+    Lookahead,
+    Filmstrip,
+}
+
+impl HwframeTransferSite {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Playback => "playback",
+            Self::Seek => "seek",
+            Self::Lookahead => "lookahead",
+            Self::Filmstrip => "filmstrip",
+        }
+    }
 }
 
 /// Outcome of presenting an individual frame against its deadline.

@@ -58,6 +58,7 @@
     "benchmark:playback": "node scripts/benchmarks/run-playback-concurrency-harness.mjs",
     "benchmark:scrub-report": "node scripts/benchmarks/report-scrub-experiment.mjs",
     "benchmark:scrub-controlled": "node scripts/benchmarks/run-controlled-scrub-matrix.mjs",
+    "perf:lint": "node scripts/perf/clypra-perf.mjs lint",
     "benchmark:compare": "node scripts/benchmarks/compare-baseline.mjs",
     "version:sync": "node scripts/bump-version.mjs",
     "version:bump": "node scripts/bump-version.mjs",

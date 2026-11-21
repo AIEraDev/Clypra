@@ -39,6 +39,7 @@ use uuid::Uuid;
 
 const PERF_LOG_DIR: &str = "perf_logs";
 const DEFAULT_MAX_AGE_DAYS: u32 = 7;
+pub const PERF_LOG_SCHEMA_VERSION: u16 = 2;
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -51,14 +52,67 @@ const DEFAULT_MAX_AGE_DAYS: u32 = 7;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PerfLogEntry {
+    /// Major schema version for this record. Legacy callers omit the field and
+    /// are treated as version 1 by the reader.
+    #[serde(default = "default_schema_version")]
+    pub schema_version: u16,
     /// Discriminator so log consumers can route each line correctly.
     pub kind: String,
     /// Matches the Tauri session ID from `telemetryCollector`.
     pub session_id: String,
     /// Unix epoch in milliseconds, set by the frontend at collection time.
     pub timestamp_epoch_ms: u64,
+    /// Monotonic sequence within one session. Optional for legacy records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<u64>,
+    /// Logical producer scope (for example `engine.native` or
+    /// `frontend.webview`). Optional for legacy records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
     /// Raw JSON payload — the caller is responsible for its schema.
     pub payload: serde_json::Value,
+}
+
+fn default_schema_version() -> u16 {
+    1
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PerfBuildIdentity {
+    pub application_version: String,
+    pub git_commit: Option<String>,
+    pub git_dirty: bool,
+    pub opt_level: String,
+    pub debug_assertions: bool,
+    pub ffmpeg_version: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PerfSystemFingerprint {
+    pub os: String,
+    pub os_version: String,
+    pub arch: String,
+    pub cpu: String,
+    pub cpu_cores: usize,
+    pub ram_bytes: u64,
+    pub gpu_adapter: String,
+    pub gpu_vendor: String,
+    pub driver_version: String,
+    pub graphics_backend: String,
+    pub display_refresh_rate: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PerfSessionHeader {
+    pub schema_version: u16,
+    pub session_id: String,
+    pub opened_at_epoch_ms: u64,
+    pub build: PerfBuildIdentity,
+    pub system: PerfSystemFingerprint,
+    pub resolved_flags: std::collections::BTreeMap<String, bool>,
 }
 
 /// Metadata returned to the frontend for the active session.
@@ -68,6 +122,7 @@ pub struct PerfLogSessionInfo {
     pub session_id: String,
     pub file_path: String,
     pub opened_at_epoch_ms: u64,
+    pub header: PerfSessionHeader,
 }
 
 /// Metadata for a completed log file visible to `list_perf_log_files`.
@@ -101,6 +156,64 @@ fn now_epoch_ms() -> u64 {
         .unwrap_or(0)
 }
 
+fn resolved_flag(name: &str) -> bool {
+    std::env::var(name).as_deref() == Ok("1")
+}
+
+fn make_session_header(session_id: &str, opened_at_epoch_ms: u64) -> PerfSessionHeader {
+    let machine = crate::engine::benchmark::runner::probe_machine_identity();
+    PerfSessionHeader {
+        schema_version: PERF_LOG_SCHEMA_VERSION,
+        session_id: session_id.to_string(),
+        opened_at_epoch_ms,
+        build: PerfBuildIdentity {
+            application_version: env!("CARGO_PKG_VERSION").to_string(),
+            git_commit: option_env!("CLYPRA_GIT_COMMIT").map(str::to_string),
+            git_dirty: option_env!("CLYPRA_GIT_DIRTY") == Some("true"),
+            opt_level: if cfg!(debug_assertions) {
+                "debug".to_string()
+            } else {
+                "release".to_string()
+            },
+            debug_assertions: cfg!(debug_assertions),
+            ffmpeg_version: option_env!("CLYPRA_FFMPEG_VERSION")
+                .unwrap_or("unknown")
+                .to_string(),
+        },
+        system: PerfSystemFingerprint {
+            os: machine.os,
+            os_version: machine.os_version,
+            arch: std::env::consts::ARCH.to_string(),
+            cpu: machine.cpu,
+            cpu_cores: std::thread::available_parallelism()
+                .map(|value| value.get())
+                .unwrap_or(1),
+            ram_bytes: machine.ram_bytes,
+            gpu_adapter: machine.gpu_adapter,
+            gpu_vendor: format!("{:?}", machine.gpu_vendor),
+            driver_version: machine.driver_version,
+            graphics_backend: format!("{:?}", machine.graphics_backend),
+            display_refresh_rate: machine.display_refresh_rate,
+        },
+        resolved_flags: [
+            (
+                "CLYPRA_METAL_DECODE".to_string(),
+                resolved_flag("CLYPRA_METAL_DECODE"),
+            ),
+            (
+                "CLYPRA_REQUIRE_ZERO_COPY".to_string(),
+                resolved_flag("CLYPRA_REQUIRE_ZERO_COPY"),
+            ),
+            (
+                "CLYPRA_DISABLE_METAL_ZERO_COPY".to_string(),
+                resolved_flag("CLYPRA_DISABLE_METAL_ZERO_COPY"),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    }
+}
+
 pub fn get_perf_log_dir(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join(PERF_LOG_DIR)
 }
@@ -116,10 +229,12 @@ pub async fn open_perf_log_session(
 ) -> Result<PerfLogSessionInfo, String> {
     // Re-use existing session when the frontend hot-reloads.
     if let Some(session) = SESSIONS.get(&session_id) {
+        let header = make_session_header(&session_id, session.opened_at_epoch_ms);
         return Ok(PerfLogSessionInfo {
             session_id: session_id.clone(),
             file_path: session.file_path.to_string_lossy().to_string(),
             opened_at_epoch_ms: session.opened_at_epoch_ms,
+            header,
         });
     }
 
@@ -151,6 +266,25 @@ pub async fn open_perf_log_session(
         .open(&file_path)
         .map_err(|e| format!("Failed to open perf log file '{file_name}': {e}"))?;
 
+    let header = make_session_header(&session_id, epoch);
+    let header_entry = PerfLogEntry {
+        schema_version: PERF_LOG_SCHEMA_VERSION,
+        kind: "session-header".to_string(),
+        session_id: session_id.clone(),
+        timestamp_epoch_ms: epoch,
+        seq: Some(0),
+        scope: Some("diagnostics.writer".to_string()),
+        payload: serde_json::to_value(&header)
+            .map_err(|e| format!("Failed to serialize perf session header: {e}"))?,
+    };
+    let mut file = file;
+    let header_line = serde_json::to_string(&header_entry)
+        .map_err(|e| format!("Failed to serialize perf session header entry: {e}"))?;
+    writeln!(file, "{header_line}")
+        .map_err(|e| format!("Failed to write perf session header: {e}"))?;
+    file.flush()
+        .map_err(|e| format!("Failed to flush perf session header: {e}"))?;
+
     SESSIONS.insert(
         session_id.clone(),
         PerfLogSession {
@@ -169,6 +303,7 @@ pub async fn open_perf_log_session(
         session_id,
         file_path: file_path.to_string_lossy().to_string(),
         opened_at_epoch_ms: epoch,
+        header,
     })
 }
 
@@ -708,5 +843,33 @@ mod tests {
             "frontend:webview:bridge:project-anon:1"
         );
         assert_eq!(sample["nested"]["nonProject"], "some-other-string");
+    }
+
+    #[test]
+    fn test_perf_log_entry_defaults_legacy_schema_and_roundtrips_v2_provenance() {
+        let legacy: PerfLogEntry = serde_json::from_value(serde_json::json!({
+            "kind": "frontend-rollup",
+            "sessionId": "legacy",
+            "timestampEpochMs": 10,
+            "payload": {}
+        }))
+        .expect("legacy entry should remain readable");
+        assert_eq!(legacy.schema_version, 1);
+        assert_eq!(legacy.seq, None);
+        assert_eq!(legacy.scope, None);
+
+        let current = PerfLogEntry {
+            schema_version: PERF_LOG_SCHEMA_VERSION,
+            kind: "preview-context".to_string(),
+            session_id: "session-v2".to_string(),
+            timestamp_epoch_ms: 20,
+            seq: Some(1),
+            scope: Some("frontend.webview".to_string()),
+            payload: serde_json::json!({ "previewContextId": 1 }),
+        };
+        let encoded = serde_json::to_value(&current).expect("serialize v2 entry");
+        assert_eq!(encoded["schemaVersion"], PERF_LOG_SCHEMA_VERSION);
+        assert_eq!(encoded["seq"], 1);
+        assert_eq!(encoded["scope"], "frontend.webview");
     }
 }

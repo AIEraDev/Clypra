@@ -239,10 +239,16 @@ export interface NativePerformanceSample {
   /** Actual decoded-frame transfer path, not the scheduling/cache strategy. */
   transferPath?:
     | "dxgi-zero-copy"
+    | "metal-zero-copy-nv12"
+    | "metal-zero-copy-p010"
     | "cpu-nv12"
+    | "cpu-p010"
     | "cpu-rgba"
+    | "lookahead-queue"
+    | "unchanged-skipped"
     | "mixed"
     | "gpu-raster"
+    | "unknown"
     | string;
   cancelled?: boolean;
   stale?: boolean;
@@ -711,7 +717,10 @@ export interface NativeSyncMetricsSnapshot {
 /** Source breakdown of rendered frames in the session. */
 export interface NativeFramesBySource {
   dxgiNv12: number;
+  metalNv12: number;
+  metalP010: number;
   cpuNv12: number;
+  cpuP010: number;
   cpuRgba: number;
   unknown: number;
 }
