@@ -289,7 +289,7 @@ const FilterCard: React.FC<FilterCardProps> = ({
       onClick={handleAddToTimeline}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className="w-full aspect-square bg-surface-raised/40 hover:bg-surface-hover border border-border/40 hover:border-accent/40 rounded-xl relative overflow-hidden flex flex-col justify-between p-1 transition-all duration-300 group cursor-pointer shadow-[0_4px_16px_rgba(0,0,0,0.3)]"
+      className="w-full aspect-square bg-surface-raised/40 hover:bg-surface-hover border border-border/40 hover:border-accent/40 rounded-xl relative overflow-hidden flex flex-col justify-between p-1 transition-all duration-300 group cursor-pointer shadow-md"
     >
       {/* Downloading Overlay */}
       {isDownloading && (

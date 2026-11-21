@@ -66,7 +66,7 @@ export function EffectPreview({ onApply, onCancel }: EffectPreviewProps) {
         </button>
         <button
           onClick={handleApply}
-          className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold transition-all duration-200 cursor-pointer shadow-[0_4px_12px_rgba(108,99,255,0.2)] active:scale-[0.98]"
+          className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold transition-all duration-200 cursor-pointer shadow-md active:scale-[0.98]"
         >
           Apply
         </button>

@@ -225,7 +225,7 @@ const TransitionCard: React.FC<{
     <div
       onMouseEnter={() => !disabled && setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className={`w-full aspect-square bg-surface-raised/40 border border-border/40 rounded-xl relative overflow-hidden flex flex-col justify-between p-1 transition-all duration-300 group shadow-[0_4px_16px_rgba(0,0,0,0.3)] ${disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-surface-hover hover:border-accent/40 cursor-pointer"}`}
+      className={`w-full aspect-square bg-surface-raised/40 border border-border/40 rounded-xl relative overflow-hidden flex flex-col justify-between p-1 transition-all duration-300 group shadow-md ${disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-surface-hover hover:border-accent/40 cursor-pointer"}`}
     >
       {/* Premium Badge - top-left, appears on hover */}
       {transition.isPremium && !disabled && (

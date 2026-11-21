@@ -246,7 +246,7 @@ function EffectCard({
       title={
         !isCompatible ? `Incompatible: ${incompatibleReason}` : effect.name
       }
-      className={`w-full aspect-square bg-surface-raised/40 hover:bg-surface-hover border rounded-xl relative overflow-hidden flex flex-col justify-between p-1 transition-all duration-300 group shadow-[0_4px_16px_rgba(0,0,0,0.3)] ${
+      className={`w-full aspect-square bg-surface-raised/40 hover:bg-surface-hover border rounded-xl relative overflow-hidden flex flex-col justify-between p-1 transition-all duration-300 group shadow-md ${
         !isCompatible
           ? "opacity-50 grayscale border-red-500/30 cursor-not-allowed"
           : "border-border/40 hover:border-accent/40 cursor-pointer"

@@ -303,101 +303,85 @@ const TimelineToolbarComponent: React.FC = () => {
           </Tool>
 
           <Tool label={`${t("common.actions.redo")} (Cmd+Shift+Z)`}>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={toolButton}
+            <button
+              className={`flex justify-center items-center py-1 px-2 ${toolButton} rounded-(--ds-radius-sm)`}
               onClick={redo}
               disabled={!historyState.canRedo}
             >
               <ToolbarRedoIcon size="1rem" className="w-4 h-4" />
-            </Button>
+            </button>
           </Tool>
 
           {getClipCommand("clip.swap")?.isVisible && (
             <Tool label={t("timeline.tools.swapClips")}>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className={toolButton}
+              <button
+                className={`flex justify-center items-center py-1 px-2 ${toolButton} rounded-(--ds-radius-sm)`}
                 onClick={() => executeClipCommand("clip.swap")}
                 disabled={!getClipCommand("clip.swap")?.isEnabled}
               >
                 <ArrowLeftRight className="w-4 h-4" />
-              </Button>
+              </button>
             </Tool>
           )}
 
           <Tool label={t("timeline.clips.deleteLeft")}>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={toolButton}
+            <button
+              className={`flex justify-center items-center py-1 px-2 ${toolButton} rounded-(--ds-radius-sm)`}
               onClick={() => executeClipCommand("clip.trimStartToPlayhead")}
               disabled={!getClipCommand("clip.trimStartToPlayhead")?.isEnabled}
             >
               <ToolbarDeleteLeftIcon size="1rem" className="w-4 h-4" />
-            </Button>
+            </button>
           </Tool>
 
           <Tool label={t("timeline.clips.deleteRight")}>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={toolButton}
+            <button
+              className={`flex justify-center items-center py-1 px-2 ${toolButton} rounded-(--ds-radius-sm)`}
               onClick={() => executeClipCommand("clip.trimEndToPlayhead")}
               disabled={!getClipCommand("clip.trimEndToPlayhead")?.isEnabled}
             >
               <ToolbarDeleteRightIcon size="1rem" className="w-4 h-4" />
-            </Button>
+            </button>
           </Tool>
 
           <Tool label={t("timeline.tools.split")}>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={toolButton}
+            <button
+              className={`flex justify-center items-center py-1 px-2 ${toolButton} rounded-(--ds-radius-sm)`}
               onClick={() => executeClipCommand("clip.splitAtPlayhead")}
               disabled={!getClipCommand("clip.splitAtPlayhead")?.isEnabled}
             >
               <ToolbarSplitIcon size="1rem" className="w-4 h-4" />
-            </Button>
+            </button>
           </Tool>
 
           <Tool label={t("timeline.clips.deleteSelected")}>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={toolButton}
+            <button
+              className={`flex justify-center items-center py-1 px-2 ${toolButton} rounded-(--ds-radius-sm)`}
               onClick={() => executeClipCommand("clip.rippleDelete")}
               disabled={!getClipCommand("clip.rippleDelete")?.isEnabled}
             >
               <ToolbarDeleteIcon size="1rem" className="w-4 h-4" />
-            </Button>
+            </button>
           </Tool>
 
           <Tool label={t("timeline.clips.duplicateSelected")}>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={toolButton}
+            <button
+              className={`flex justify-center items-center py-1 px-2 ${toolButton} rounded-(--ds-radius-sm)`}
               onClick={() => executeClipCommand("clip.duplicate")}
               disabled={!getClipCommand("clip.duplicate")?.isEnabled}
             >
               <ToolbarDuplicateIcon size="1rem" className="w-4 h-4" />
-            </Button>
+            </button>
           </Tool>
 
           <Tool label={t("timeline.tools.closeGaps")}>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={toolButton}
+            <button
+              className={`flex justify-center items-center py-1 px-2 ${toolButton} rounded-(--ds-radius-sm)`}
               onClick={() => executeTimelineCommand("timeline.closeAllGaps")}
               disabled={!getTimelineCommand("timeline.closeAllGaps")?.isEnabled}
             >
               <ToolbarCloseGapIcon size="1rem" className="w-4 h-4" />
-            </Button>
+            </button>
           </Tool>
 
           {/* Ripple edit toggle */}
@@ -408,10 +392,8 @@ const TimelineToolbarComponent: React.FC = () => {
                 : "Ripple edit: Off — trim leaves a gap"
             }
           >
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={`${toolButton} ${rippleEditEnabled ? activeButton : ""}`}
+            <button
+              className={`flex justify-center items-center py-1 px-2 ${toolButton} rounded-(--ds-radius-sm)`}
               onClick={toggleRippleEdit}
               aria-pressed={rippleEditEnabled}
             >
@@ -420,7 +402,7 @@ const TimelineToolbarComponent: React.FC = () => {
               ) : (
                 <ToolbarRippleOffIcon size="1rem" className="w-4 h-4" />
               )}
-            </Button>
+            </button>
           </Tool>
 
           {/* Magnetic snap toggle */}
@@ -431,10 +413,8 @@ const TimelineToolbarComponent: React.FC = () => {
                 : "Snap: Off"
             }
           >
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={`${toolButton} ${snapEnabled ? activeButton : ""}`}
+            <button
+              className={`flex justify-center items-center py-1 px-2 ${toolButton} rounded-(--ds-radius-sm)`}
               onClick={toggleSnapEnabled}
               aria-pressed={snapEnabled}
             >
@@ -443,7 +423,7 @@ const TimelineToolbarComponent: React.FC = () => {
               ) : (
                 <ToolbarSnapOffIcon size="1rem" className="w-4 h-4" />
               )}
-            </Button>
+            </button>
           </Tool>
         </div>
 
@@ -603,7 +583,7 @@ const TimelineToolbarComponent: React.FC = () => {
               onKeyDown={handleZoomKeyDown}
               className={`group relative flex h-6 w-28 items-center rounded-full outline-none ${hasTimelineContent ? "cursor-pointer touch-none" : "cursor-not-allowed opacity-40"} focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-surface`}
             >
-              <div className="relative mx-[8px] h-[5px] w-full overflow-hidden rounded-full bg-surface-raised shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(255,255,255,0.04),0_3px_8px_rgba(0,0,0,0.28)]">
+              <div className="relative mx-[8px] h-[5px] w-full overflow-hidden rounded-full bg-surface-raised shadow-inner">
                 {tierSegments.map(({ tier, left, width }) => (
                   <div
                     key={tier}

@@ -820,7 +820,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                   </div>
                 ) : (
                   <Button
-                    className="w-full py-2 bg-accent hover:bg-accent/80 text-white font-semibold flex items-center justify-center gap-1.5 shadow-[0_4px_12px_rgba(108,99,255,0.2)] rounded-lg active:scale-[0.98] transition-all cursor-pointer mt-4"
+                    className="w-full py-2 bg-accent hover:bg-accent/80 text-white font-semibold flex items-center justify-center gap-1.5 shadow-md rounded-lg active:scale-[0.98] transition-all cursor-pointer mt-4"
                     onClick={startCaptioning}
                   >
                     <Sparkles className="w-4 h-4" />

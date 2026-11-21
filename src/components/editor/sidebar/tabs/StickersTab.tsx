@@ -312,7 +312,7 @@ const StickerCard: React.FC<{
       onClick={handlePreview}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className="w-full aspect-square bg-surface-raised/40 hover:bg-surface-hover border border-border/40 hover:border-accent/40 rounded-xl relative overflow-hidden flex flex-col justify-between p-1 transition-all duration-200 group cursor-pointer shadow-[0_2px_8px_rgba(0,0,0,0.2)]"
+      className="w-full aspect-square bg-surface-raised/40 hover:bg-surface-hover border border-border/40 hover:border-accent/40 rounded-xl relative overflow-hidden flex flex-col justify-between p-1 transition-all duration-200 group cursor-pointer shadow-sm"
     >
       {/* Downloading Overlay */}
       {isDownloading && (

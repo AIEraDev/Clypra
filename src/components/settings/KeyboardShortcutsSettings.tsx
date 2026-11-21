@@ -24,7 +24,7 @@ function KeyChip({ binding }: { binding: KeyBinding }) {
       {parts.map((part, i) => (
         <kbd
           key={i}
-          className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-md text-[10px] font-mono font-semibold bg-surface-raised border border-border text-text-primary shadow-[0_1px_0_0_rgba(255,255,255,0.08)] leading-none"
+          className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-md text-[10px] font-mono font-semibold bg-surface-raised border border-border text-text-primary shadow-xs leading-none"
         >
           {part}
         </kbd>
