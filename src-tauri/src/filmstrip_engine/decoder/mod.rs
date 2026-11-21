@@ -181,6 +181,18 @@ struct DecoderState {
     last_requested_pts: i64,
     gop_start_pts: i64,
     sequential_hits: u32,
+    position: DecoderPosition,
+}
+
+/// Whether the decoder's reference chain is safe to continue forward.
+///
+/// A cancellation can stop packet feeding in the middle of a GOP. In that
+/// case `current_pts` is not sufficient evidence that the decoder is usable:
+/// the next request must seek back to a keyframe and rebuild the DPB.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DecoderPosition {
+    Positioned,
+    Dirty,
 }
 
 /// Per-request facts retained by the long-lived decoder. These are deliberately
@@ -223,7 +235,23 @@ impl DecoderState {
             last_requested_pts: -1,
             gop_start_pts: -1,
             sequential_hits: 0,
+            position: DecoderPosition::Dirty,
         }
+    }
+
+    fn is_dirty(&self) -> bool {
+        self.position == DecoderPosition::Dirty
+    }
+
+    fn mark_dirty(&mut self) {
+        self.position = DecoderPosition::Dirty;
+        self.current_pts = -1;
+        self.gop_start_pts = -1;
+        self.sequential_hits = 0;
+    }
+
+    fn mark_positioned(&mut self) {
+        self.position = DecoderPosition::Positioned;
     }
 
     fn can_decode_forward(&self, target_pts: i64, sequential_window: i64) -> bool {
@@ -368,6 +396,11 @@ impl VideoDecoder {
         } else {
             timestamp_secs
         }
+    }
+
+    fn cancellation_error(&mut self) -> String {
+        self.state.mark_dirty();
+        "Native preview request cancelled".to_string()
     }
 
     /// Open a general-purpose CPU decoder. Background and legacy callers use
@@ -2043,7 +2076,7 @@ impl VideoDecoder {
         is_cancelled: F,
     ) -> Result<(Arc<[u8]>, Arc<[u8]>, u32, u32, VideoColorMetadata), String> {
         if is_cancelled() {
-            return Err("Native preview request cancelled".to_string());
+            return Err(self.cancellation_error());
         }
         let ts = self.clamp_timestamp(timestamp_secs);
         let target_pts = (ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
@@ -2593,13 +2626,15 @@ impl VideoDecoder {
         let backward_distance = self.state.current_pts - target_pts;
         let is_backward = target_pts < self.state.current_pts;
         let needs_seek = if options.is_playback {
-            self.state.current_pts < 0
+            self.state.is_dirty()
+                || self.state.current_pts < 0
                 || (!is_backward
                     && !self
                         .state
                         .can_decode_forward(target_pts, sequential_window * 2))
         } else {
-            self.state.current_pts < 0
+            self.state.is_dirty()
+                || self.state.current_pts < 0
                 || (is_backward && backward_distance > pts_tolerance)
                 || (!is_backward && !self.state.can_decode_forward(target_pts, sequential_window))
         };
@@ -2608,7 +2643,7 @@ impl VideoDecoder {
 
         if needs_seek {
             if is_cancelled() {
-                return Err("Native preview request cancelled".to_string());
+                return Err(self.cancellation_error());
             }
             let seek_t0 = Instant::now();
             unsafe {
@@ -2619,6 +2654,7 @@ impl VideoDecoder {
                     ffmpeg::ffi::AVSEEK_FLAG_BACKWARD,
                 );
                 if ret < 0 {
+                    self.state.mark_dirty();
                     return Err(format!("Seek failed at {}s", ts));
                 }
             }
@@ -2636,7 +2672,7 @@ impl VideoDecoder {
         if options.allow_keyframe_approx && needs_seek {
             'kf: for (stream, packet) in self.input_ctx.packets() {
                 if is_cancelled() {
-                    return Err("Native preview request cancelled".to_string());
+                    return Err(self.cancellation_error());
                 }
                 if stream.index() != self.stream_index {
                     continue;
@@ -2647,7 +2683,7 @@ impl VideoDecoder {
                 let mut frame = ffmpeg::frame::Video::empty();
                 if self.decoder.receive_frame(&mut frame).is_ok() {
                     if is_cancelled() {
-                        return Err("Native preview request cancelled".to_string());
+                        return Err(self.cancellation_error());
                     }
                     let pts = frame.pts().unwrap_or(0);
                     self.state.current_pts = pts;
@@ -2663,7 +2699,7 @@ impl VideoDecoder {
             let mut buffered = ffmpeg::frame::Video::empty();
             while self.decoder.receive_frame(&mut buffered).is_ok() {
                 if is_cancelled() {
-                    return Err("Native preview request cancelled".to_string());
+                    return Err(self.cancellation_error());
                 }
                 let pts = buffered.pts().unwrap_or(0);
                 self.state.current_pts = pts;
@@ -2681,7 +2717,7 @@ impl VideoDecoder {
         if !found {
             'dec: for (stream, packet) in self.input_ctx.packets() {
                 if is_cancelled() {
-                    return Err("Native preview request cancelled".to_string());
+                    return Err(self.cancellation_error());
                 }
                 if stream.index() != self.stream_index {
                     continue;
@@ -2692,7 +2728,7 @@ impl VideoDecoder {
                 let mut frame = ffmpeg::frame::Video::empty();
                 while self.decoder.receive_frame(&mut frame).is_ok() {
                     if is_cancelled() {
-                        return Err("Native preview request cancelled".to_string());
+                        return Err(self.cancellation_error());
                     }
                     let pts = frame.pts().unwrap_or(0);
                     self.state.current_pts = pts;
@@ -2713,7 +2749,7 @@ impl VideoDecoder {
             let mut frame = ffmpeg::frame::Video::empty();
             while self.decoder.receive_frame(&mut frame).is_ok() {
                 if is_cancelled() {
-                    return Err("Native preview request cancelled".to_string());
+                    return Err(self.cancellation_error());
                 }
                 let pts = frame.pts().unwrap_or(0);
                 self.state.current_pts = pts;
@@ -2799,6 +2835,7 @@ impl VideoDecoder {
         }
 
         if !found && best_frame.width() == 0 {
+            self.state.mark_dirty();
             return Err(format!("No frame found at {}s", ts));
         }
 
@@ -2818,6 +2855,7 @@ impl VideoDecoder {
                     *out_height
                 );
                 self.last_demux_us = demux_time_us;
+                self.state.mark_positioned();
                 return Ok(Some(shared));
             }
             log::warn!(
@@ -2883,6 +2921,7 @@ impl VideoDecoder {
                 });
             }
         }
+        self.state.mark_positioned();
         self.last_demux_us = demux_time_us;
         Ok(None)
     }
@@ -2900,7 +2939,7 @@ impl VideoDecoder {
         out_height: &mut u32,
     ) -> Result<Option<crate::wgpu_compositor::metal_import::MetalSharedFrame>, String> {
         if is_cancelled() {
-            return Err("Native preview request cancelled".to_string());
+            return Err(self.cancellation_error());
         }
         let ts = self.clamp_timestamp(timestamp_secs);
         let target_pts = (ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
@@ -2924,13 +2963,15 @@ impl VideoDecoder {
         let backward_distance = self.state.current_pts - target_pts;
         let is_backward = target_pts < self.state.current_pts;
         let needs_seek = if options.is_playback {
-            self.state.current_pts < 0
+            self.state.is_dirty()
+                || self.state.current_pts < 0
                 || (!is_backward
                     && !self
                         .state
                         .can_decode_forward(target_pts, sequential_window * 2))
         } else {
-            self.state.current_pts < 0
+            self.state.is_dirty()
+                || self.state.current_pts < 0
                 || (is_backward && backward_distance > pts_tolerance)
                 || (!is_backward && !self.state.can_decode_forward(target_pts, sequential_window))
         };
@@ -2939,7 +2980,7 @@ impl VideoDecoder {
 
         if needs_seek {
             if is_cancelled() {
-                return Err("Native preview request cancelled".to_string());
+                return Err(self.cancellation_error());
             }
             let seek_t0 = Instant::now();
             unsafe {
@@ -2950,6 +2991,7 @@ impl VideoDecoder {
                     ffmpeg::ffi::AVSEEK_FLAG_BACKWARD,
                 );
                 if ret < 0 {
+                    self.state.mark_dirty();
                     return Err(format!("Seek failed at {}s", ts));
                 }
             }
@@ -2967,7 +3009,7 @@ impl VideoDecoder {
         if options.allow_keyframe_approx && needs_seek {
             'kf: for (stream, packet) in self.input_ctx.packets() {
                 if is_cancelled() {
-                    return Err("Native preview request cancelled".to_string());
+                    return Err(self.cancellation_error());
                 }
                 if stream.index() != self.stream_index {
                     continue;
@@ -2978,7 +3020,7 @@ impl VideoDecoder {
                 let mut frame = ffmpeg::frame::Video::empty();
                 if self.decoder.receive_frame(&mut frame).is_ok() {
                     if is_cancelled() {
-                        return Err("Native preview request cancelled".to_string());
+                        return Err(self.cancellation_error());
                     }
                     let pts = frame.pts().unwrap_or(0);
                     self.state.current_pts = pts;
@@ -2994,7 +3036,7 @@ impl VideoDecoder {
             let mut buffered = ffmpeg::frame::Video::empty();
             while self.decoder.receive_frame(&mut buffered).is_ok() {
                 if is_cancelled() {
-                    return Err("Native preview request cancelled".to_string());
+                    return Err(self.cancellation_error());
                 }
                 let pts = buffered.pts().unwrap_or(0);
                 self.state.current_pts = pts;
@@ -3012,7 +3054,7 @@ impl VideoDecoder {
         if !found {
             'dec: for (stream, packet) in self.input_ctx.packets() {
                 if is_cancelled() {
-                    return Err("Native preview request cancelled".to_string());
+                    return Err(self.cancellation_error());
                 }
                 if stream.index() != self.stream_index {
                     continue;
@@ -3023,7 +3065,7 @@ impl VideoDecoder {
                 let mut frame = ffmpeg::frame::Video::empty();
                 while self.decoder.receive_frame(&mut frame).is_ok() {
                     if is_cancelled() {
-                        return Err("Native preview request cancelled".to_string());
+                        return Err(self.cancellation_error());
                     }
                     let pts = frame.pts().unwrap_or(0);
                     self.state.current_pts = pts;
@@ -3042,7 +3084,7 @@ impl VideoDecoder {
             let mut frame = ffmpeg::frame::Video::empty();
             while self.decoder.receive_frame(&mut frame).is_ok() {
                 if is_cancelled() {
-                    return Err("Native preview request cancelled".to_string());
+                    return Err(self.cancellation_error());
                 }
                 let pts = frame.pts().unwrap_or(0);
                 self.state.current_pts = pts;
@@ -3075,7 +3117,7 @@ impl VideoDecoder {
 
                     'retry_metal: for (stream, packet) in self.input_ctx.packets() {
                         if is_cancelled() {
-                            return Err("Native preview request cancelled".to_string());
+                            return Err(self.cancellation_error());
                         }
                         if stream.index() != self.stream_index {
                             continue;
@@ -3086,7 +3128,7 @@ impl VideoDecoder {
                         let mut frame = ffmpeg::frame::Video::empty();
                         while self.decoder.receive_frame(&mut frame).is_ok() {
                             if is_cancelled() {
-                                return Err("Native preview request cancelled".to_string());
+                                return Err(self.cancellation_error());
                             }
                             let pts = frame.pts().unwrap_or(0);
                             self.state.current_pts = pts;
@@ -3105,7 +3147,7 @@ impl VideoDecoder {
                         let mut frame = ffmpeg::frame::Video::empty();
                         while self.decoder.receive_frame(&mut frame).is_ok() {
                             if is_cancelled() {
-                                return Err("Native preview request cancelled".to_string());
+                                return Err(self.cancellation_error());
                             }
                             let pts = frame.pts().unwrap_or(0);
                             self.state.current_pts = pts;
@@ -3124,6 +3166,7 @@ impl VideoDecoder {
         }
 
         if !found && best_frame.width() == 0 {
+            self.state.mark_dirty();
             return Err(format!("No frame found at {}s", ts));
         }
 
@@ -3141,6 +3184,7 @@ impl VideoDecoder {
                     *out_height
                 );
                 self.last_demux_us = demux_time_us;
+                self.state.mark_positioned();
                 return Ok(Some(shared));
             }
             log::warn!(
@@ -3204,6 +3248,7 @@ impl VideoDecoder {
                 });
             }
         }
+        self.state.mark_positioned();
         self.last_demux_us = demux_time_us;
         Ok(None)
     }
