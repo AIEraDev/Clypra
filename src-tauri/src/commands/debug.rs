@@ -7,6 +7,11 @@
 //! Usage from DevTools console (tauri dev):
 //!   await window.__TAURI__.core.invoke("force_dxgi_latch", { reason: "dxgi-decode-failed" })
 //!   await window.__TAURI__.core.invoke("reset_dxgi_latch")
+//!   await window.__TAURI__.core.invoke("set_native_scrub_experiment_context", {
+//!     payload: { experimentId: "scrub-v1", runId: "run-01", cacheCleared: true, backgroundDecodeDisabled: true }
+//!   })
+
+use tauri::Manager;
 
 /// Forces the DXGI runtime latch to the given reason code so the full
 /// Rust→IPC→TypeScript→Worker→Neon chain can be verified without a real
@@ -62,6 +67,45 @@ pub fn reset_dxgi_latch() -> Result<(), String> {
     }
 }
 
+/// Sets the debug-only scrub experiment context attached to native terminal
+/// events and session NDJSON. It does not alter scheduling or decoder policy.
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DebugScrubExperimentContextPayload {
+    pub experiment_id: String,
+    pub run_id: String,
+    pub cache_cleared: bool,
+    pub background_decode_disabled: bool,
+}
+
+#[tauri::command]
+pub fn set_native_scrub_experiment_context(
+    app: tauri::AppHandle,
+    payload: DebugScrubExperimentContextPayload,
+) -> Result<(), String> {
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = (app, payload);
+        return Err("set_native_scrub_experiment_context is only available in debug builds".to_string());
+    }
+    #[cfg(debug_assertions)]
+    {
+        if payload.experiment_id.trim().is_empty() || payload.run_id.trim().is_empty() {
+            return Err("experimentId and runId must be non-empty".to_string());
+        }
+        let collector = app
+            .try_state::<std::sync::Arc<crate::wgpu_compositor::SessionTelemetryCollector>>()
+            .ok_or_else(|| "Session telemetry collector is unavailable".to_string())?;
+        collector.set_experiment_context(crate::wgpu_compositor::ScrubExperimentContext {
+            experiment_id: payload.experiment_id,
+            run_id: payload.run_id,
+            cache_cleared: payload.cache_cleared,
+            background_decode_disabled: payload.background_decode_disabled,
+        });
+        Ok(())
+    }
+}
+
 #[cfg(debug_assertions)]
 pub async fn capture_preview_frame_bytes(
     app: &tauri::AppHandle,
@@ -106,6 +150,7 @@ pub async fn capture_preview_frame_bytes(
             render_graph_version: 1,
             mode: Some("frameStep".to_string()),
             generation: None,
+            target_generation: None,
             scrub_velocity_px_per_second: None,
             requested_at_ms: None,
             is_scrubbing: None,
@@ -179,6 +224,7 @@ pub fn start_debug_ipc_server(app: tauri::AppHandle) {
         let app_handle_present = app.clone();
         let app_handle_reg = app.clone();
         let app_handle_unreg = app.clone();
+        let app_handle_experiment = app.clone();
 
         let cors = tower_http::cors::CorsLayer::new()
             .allow_origin(tower_http::cors::Any)
@@ -187,6 +233,21 @@ pub fn start_debug_ipc_server(app: tauri::AppHandle) {
 
         let router = axum::Router::new()
             .route("/debug/ping", axum::routing::get(|| async { "pong" }))
+            .route(
+                "/debug/set_native_scrub_experiment_context",
+                axum::routing::post({
+                    let app = app_handle_experiment;
+                    move |axum::Json(payload): axum::Json<DebugScrubExperimentContextPayload>| {
+                        let app = app.clone();
+                        async move {
+                            match set_native_scrub_experiment_context(app, payload) {
+                                Ok(()) => (axum::http::StatusCode::OK, "ok").into_response(),
+                                Err(err) => (axum::http::StatusCode::BAD_REQUEST, err).into_response(),
+                            }
+                        }
+                    }
+                }),
+            )
             .route(
                 "/debug/capture_preview_frame",
                 axum::routing::post({
@@ -227,9 +288,9 @@ pub fn start_debug_ipc_server(app: tauri::AppHandle) {
                             if let Ok(mut lock) = crate::commands::native_preview::LAST_PRESENTED_REQUEST.try_write() {
                                 *lock = Some(payload.request.clone());
                             }
-                            match crate::commands::native_preview::present_native_frame_internal(app.clone(), payload.request.clone()).await {
+                            match crate::commands::native_preview::present_native_frame_internal(app.clone(), payload.request.clone(), crate::wgpu_compositor::RenderLifecycleContext::empty(), None).await {
                                 Ok(pres) => (axum::http::StatusCode::OK, axum::Json(pres)).into_response(),
-                                Err(err) if err.contains("Native surface has not been configured") => {
+                                Err(crate::commands::native_preview::NativePresentationError::SurfaceNotConfigured) => {
                                     use crate::native_core::surface::{NativeSurfaceGeometry, NativeSurfacePresentation, NativeSurfaceProbe, NativeSurfaceStatus};
                                     use crate::native_core::NATIVE_CORE_CONTRACT_VERSION;
                                     let pres = NativeSurfacePresentation {
@@ -263,12 +324,15 @@ pub fn start_debug_ipc_server(app: tauri::AppHandle) {
                                         mode: payload.request.mode,
                                         stale: false,
                                         cancelled: false,
+                                        terminal_disposition: Some("presented".to_string()),
+                                        outcome: Some(crate::native_core::NativePresentationOutcome::Presented),
                                         drop_reason: None,
+                                        drop_reason_code: None,
                                         timings: None,
                                     };
                                     (axum::http::StatusCode::OK, axum::Json(pres)).into_response()
                                 }
-                                Err(err) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, err).into_response(),
+                                Err(err) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
                             }
                         }
                     }

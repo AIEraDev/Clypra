@@ -81,32 +81,55 @@ export const VideoScopesModal: React.FC<VideoScopesModalProps> = ({
         } else {
           // Off-thread web worker analysis via ColorScopesWorkerClient
           const workerClient = getColorScopesWorkerClient();
-          const previewCanvas = document.querySelector("canvas") as HTMLCanvasElement | null;
-          if (previewCanvas && previewCanvas.width > 0 && previewCanvas.height > 0) {
-            const scopeKind = activeScope === "rgb_parade" ? "parade" : activeScope === "all" ? ["histogram", "vectorscope", "waveform", "parade"] : [activeScope];
-            const scopes = Array.isArray(scopeKind) ? (scopeKind as any) : [scopeKind as any];
-            const scopeRes = await workerClient.analyzeCanvas(previewCanvas, scopes, 2);
+          const previewCanvas = document.querySelector(
+            "canvas",
+          ) as HTMLCanvasElement | null;
+          if (
+            previewCanvas &&
+            previewCanvas.width > 0 &&
+            previewCanvas.height > 0
+          ) {
+            const scopeKind =
+              activeScope === "rgb_parade"
+                ? "parade"
+                : activeScope === "all"
+                  ? ["histogram", "vectorscope", "waveform", "parade"]
+                  : [activeScope];
+            const scopes = Array.isArray(scopeKind)
+              ? (scopeKind as any)
+              : [scopeKind as any];
+            const scopeRes = await workerClient.analyzeCanvas(
+              previewCanvas,
+              scopes,
+              2,
+            );
             if (isMounted && scopeRes) {
               setTelemetry({
-                histogram: scopeRes.histogram ? {
-                  red: Array.from(scopeRes.histogram.r),
-                  green: Array.from(scopeRes.histogram.g),
-                  blue: Array.from(scopeRes.histogram.b),
-                  luma: Array.from(scopeRes.histogram.luma),
-                  maxBinCount: Math.max(...scopeRes.histogram.luma, 1),
-                } : undefined,
-                vectorscope: scopeRes.vectorscope ? {
-                  width: 256,
-                  height: 256,
-                  data: Array.from(scopeRes.vectorscope),
-                } : undefined,
-                rgbParade: scopeRes.parade ? {
-                  width: 256,
-                  height: 256,
-                  red: Array.from(scopeRes.parade),
-                  green: Array.from(scopeRes.parade),
-                  blue: Array.from(scopeRes.parade),
-                } : undefined,
+                histogram: scopeRes.histogram
+                  ? {
+                      red: Array.from(scopeRes.histogram.r),
+                      green: Array.from(scopeRes.histogram.g),
+                      blue: Array.from(scopeRes.histogram.b),
+                      luma: Array.from(scopeRes.histogram.luma),
+                      maxBinCount: Math.max(...scopeRes.histogram.luma, 1),
+                    }
+                  : undefined,
+                vectorscope: scopeRes.vectorscope
+                  ? {
+                      width: 256,
+                      height: 256,
+                      data: Array.from(scopeRes.vectorscope),
+                    }
+                  : undefined,
+                rgbParade: scopeRes.parade
+                  ? {
+                      width: 256,
+                      height: 256,
+                      red: Array.from(scopeRes.parade),
+                      green: Array.from(scopeRes.parade),
+                      blue: Array.from(scopeRes.parade),
+                    }
+                  : undefined,
                 waveform: undefined,
               });
             }
@@ -142,9 +165,9 @@ export const VideoScopesModal: React.FC<VideoScopesModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed bottom-20 right-6 z-50 w-96 bg-[#121318]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl overflow-hidden flex flex-col transition-all animate-in fade-in zoom-in-95">
+    <div className="fixed bottom-20 right-6 z-50 w-96 bg-surface-floating backdrop-blur-xl border border-border rounded-xl shadow-2xl overflow-hidden flex flex-col transition-all animate-in fade-in zoom-in-95">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-white/10 bg-white/2">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-surface-elevated/40">
         <div className="flex items-center gap-2">
           <Activity className="w-3.5 h-3.5 text-accent" />
           <span className="text-xs font-semibold text-text-primary tracking-wide">
@@ -154,21 +177,21 @@ export const VideoScopesModal: React.FC<VideoScopesModalProps> = ({
         <button
           type="button"
           onClick={onClose}
-          className="text-text-muted hover:text-text-primary transition-colors p-1 rounded-lg hover:bg-white/5"
+          className="text-text-muted hover:text-text-primary transition-colors p-1 rounded-lg hover:bg-surface-hover"
         >
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
 
       {/* Scope Mode Selector Tabs */}
-      <div className="flex items-center gap-1 p-2 border-b border-white/5 bg-black/20">
+      <div className="flex items-center gap-1 p-2 border-b border-border bg-surface-panel/40">
         <button
           type="button"
           onClick={() => setActiveScope("waveform")}
           className={`flex-1 py-1 px-2 text-[10px] rounded font-medium transition-all flex items-center justify-center gap-1.5 ${
             activeScope === "waveform"
               ? "bg-accent text-white shadow"
-              : "text-text-muted hover:text-text-primary hover:bg-white/5"
+              : "text-text-muted hover:text-text-primary hover:bg-surface-hover"
           }`}
         >
           <Sliders className="w-3 h-3" />
@@ -181,7 +204,7 @@ export const VideoScopesModal: React.FC<VideoScopesModalProps> = ({
           className={`flex-1 py-1 px-2 text-[10px] rounded font-medium transition-all flex items-center justify-center gap-1.5 ${
             activeScope === "rgb_parade"
               ? "bg-accent text-white shadow"
-              : "text-text-muted hover:text-text-primary hover:bg-white/5"
+              : "text-text-muted hover:text-text-primary hover:bg-surface-hover"
           }`}
         >
           <BarChart2 className="w-3 h-3" />
@@ -194,7 +217,7 @@ export const VideoScopesModal: React.FC<VideoScopesModalProps> = ({
           className={`flex-1 py-1 px-2 text-[10px] rounded font-medium transition-all flex items-center justify-center gap-1.5 ${
             activeScope === "vectorscope"
               ? "bg-accent text-white shadow"
-              : "text-text-muted hover:text-text-primary hover:bg-white/5"
+              : "text-text-muted hover:text-text-primary hover:bg-surface-hover"
           }`}
         >
           <Radio className="w-3 h-3" />
@@ -207,7 +230,7 @@ export const VideoScopesModal: React.FC<VideoScopesModalProps> = ({
           className={`flex-1 py-1 px-2 text-[10px] rounded font-medium transition-all flex items-center justify-center gap-1.5 ${
             activeScope === "histogram"
               ? "bg-accent text-white shadow"
-              : "text-text-muted hover:text-text-primary hover:bg-white/5"
+              : "text-text-muted hover:text-text-primary hover:bg-surface-hover"
           }`}
         >
           <BarChart2 className="w-3 h-3 rotate-90" />

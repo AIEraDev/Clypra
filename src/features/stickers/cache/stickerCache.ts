@@ -9,6 +9,12 @@ import { BaseDirectory, exists, mkdir, writeFile, readFile, remove } from "@taur
 import { join, appCacheDir } from "@tauri-apps/api/path";
 import type { StickerItem } from "@/features/stickers/api/stickersApi";
 import { STARTER_STICKERS } from "../starterStickers";
+import {
+  getCacheCoordinator,
+  type ICacheParticipant,
+  type CacheTier,
+  type CacheLifespan,
+} from "@/core/cache/cacheCoordinator";
 
 export interface CachedSticker {
   id: string;
@@ -22,7 +28,7 @@ export interface CachedSticker {
   isStarter?: boolean;
 }
 
-const CACHE_DIR = "stickers";
+const CACHE_DIR = "clypra_cache/assets/stickers";
 const CACHE_INDEX_FILE = "index.json";
 const MAX_CACHE_BYTES = 50 * 1024 * 1024; // 50 MiB LRU cap
 
@@ -49,10 +55,39 @@ async function sha256Hex(data: Uint8Array): Promise<string> {
   return "";
 }
 
-class StickerCacheManager {
+class StickerCacheManager implements ICacheParticipant {
+  public readonly name = "sticker-cache";
+  public readonly tier: CacheTier = "indexeddb";
+  public readonly lifespan: CacheLifespan = "persistent";
+
   private cacheIndex: Map<string, CachedSticker> = new Map();
   private cacheDir: string | null = null;
   private initialized = false;
+
+  public getBytesUsed(): number {
+    let bytes = 0;
+    for (const item of this.cacheIndex.values()) {
+      bytes += item.sizeBytes || 0;
+    }
+    return bytes;
+  }
+
+  public trimTo(_targetBytes: number): number {
+    void this.pruneLruIfNeeded();
+    return 0;
+  }
+
+  public async clear(): Promise<void> {
+    for (const item of Array.from(this.cacheIndex.values())) {
+      if (!item.isStarter) {
+        await this.clearCache(item.id);
+      }
+    }
+  }
+
+  public getMetrics(): { entryCount: number } {
+    return { entryCount: this.cacheIndex.size };
+  }
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
@@ -377,3 +412,4 @@ class StickerCacheManager {
 }
 
 export const stickerCacheManager = new StickerCacheManager();
+getCacheCoordinator().register(stickerCacheManager);

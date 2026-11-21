@@ -42,7 +42,8 @@ export const VolumeControl: React.FC<VolumeControlProps> = ({
     setVolume(newVol);
   };
 
-  const VolumeIcon = isMuted || volume === 0 ? VolumeX : volume < 50 ? Volume1 : Volume2;
+  const VolumeIcon =
+    isMuted || volume === 0 ? VolumeX : volume < 50 ? Volume1 : Volume2;
 
   return (
     <div
@@ -53,7 +54,7 @@ export const VolumeControl: React.FC<VolumeControlProps> = ({
       <button
         onClick={() => setIsMuted((m) => !m)}
         onWheel={handleWheel}
-        className="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-text-primary hover:bg-white/6 transition-colors cursor-pointer"
+        className="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
         title={isMuted ? "Unmute" : `Mute (${volume}%) • Scroll to adjust`}
         aria-label={isMuted ? "Unmute audio" : "Mute audio"}
       >
@@ -79,7 +80,7 @@ export const VolumeControl: React.FC<VolumeControlProps> = ({
       {/* Compact floating popover slider on narrow containers (< 440px) */}
       {showPopup && (
         <div
-          className="@[440px]:hidden absolute bottom-full right-0 mb-2 px-2.5 py-2 bg-surface-elevated/95 border border-white/10 backdrop-blur-md rounded-xl shadow-2xl flex items-center gap-2 z-50 animate-in fade-in zoom-in-95 duration-100"
+          className="@[440px]:hidden absolute bottom-full right-0 mb-2 px-2.5 py-2 bg-surface-elevated/95 border border-border backdrop-blur-md rounded-xl shadow-2xl flex items-center gap-2 z-50 animate-in fade-in zoom-in-95 duration-100"
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
         >

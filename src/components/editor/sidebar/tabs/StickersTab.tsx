@@ -1,7 +1,20 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { Smile, Loader2, AlertCircle, Plus, Download, Search, Info, WifiOff } from "lucide-react";
+import {
+  Smile,
+  Loader2,
+  AlertCircle,
+  Plus,
+  Download,
+  Search,
+  Info,
+  WifiOff,
+} from "lucide-react";
 import { NetworkError } from "@/components/ui/NetworkError";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/Tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/Tooltip";
 import { useStickersStore } from "@/features/stickers/store/stickersStore";
 import { useUIStore } from "@/store/uiStore";
 import type { MediaAsset } from "@/types";
@@ -177,7 +190,10 @@ export const StickersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         )}
 
         {!loading && error && isNetworkError && !isOfflineMode && (
-          <NetworkError message="No internet connection." onRetry={fetchStickers} />
+          <NetworkError
+            message="No internet connection."
+            onRetry={fetchStickers}
+          />
         )}
 
         {!loading && error && !isNetworkError && (
@@ -199,17 +215,19 @@ export const StickersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           </div>
         )}
 
-        {!loading && (!error || isOfflineMode) && filteredStickers.length > 0 && (
-          <div className="grid grid-cols-3 gap-1.5">
-            {filteredStickers.map((sticker) => (
-              <StickerCard
-                key={sticker.id}
-                sticker={sticker}
-                onAddToTimeline={onAddToTimeline}
-              />
-            ))}
-          </div>
-        )}
+        {!loading &&
+          (!error || isOfflineMode) &&
+          filteredStickers.length > 0 && (
+            <div className="grid grid-cols-3 gap-1.5">
+              {filteredStickers.map((sticker) => (
+                <StickerCard
+                  key={sticker.id}
+                  sticker={sticker}
+                  onAddToTimeline={onAddToTimeline}
+                />
+              ))}
+            </div>
+          )}
       </div>
     </div>
   );
@@ -251,7 +269,8 @@ const StickerCard: React.FC<{
           ? await platform.joinPaths(appCache, cached.localImagePath)
           : cached.localImagePath || "";
       const absoluteAnimationPath =
-        cached.localAnimationPath && !cached.localAnimationPath.startsWith("bundled://")
+        cached.localAnimationPath &&
+        !cached.localAnimationPath.startsWith("bundled://")
           ? await platform.joinPaths(appCache, cached.localAnimationPath)
           : cached.localAnimationPath || "";
 
@@ -293,11 +312,11 @@ const StickerCard: React.FC<{
       onClick={handlePreview}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className="w-full aspect-square bg-surface-raised/40 hover:bg-surface-raised/80 border border-border/40 hover:border-accent/40 rounded-xl relative overflow-hidden flex flex-col justify-between p-1 transition-all duration-200 group cursor-pointer shadow-[0_2px_8px_rgba(0,0,0,0.2)]"
+      className="w-full aspect-square bg-surface-raised/40 hover:bg-surface-hover border border-border/40 hover:border-accent/40 rounded-xl relative overflow-hidden flex flex-col justify-between p-1 transition-all duration-200 group cursor-pointer shadow-sm"
     >
       {/* Downloading Overlay */}
       {isDownloading && (
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-20 pointer-events-none">
+        <div className="absolute inset-0 bg-surface-workspace/80 backdrop-blur-[2px] flex items-center justify-center z-20 pointer-events-none">
           <div className="flex flex-col items-center gap-1.5">
             <div className="w-6 h-6 rounded-full border-2 border-accent border-t-transparent animate-spin" />
             <span className="text-[9px] font-semibold text-accent">
@@ -313,13 +332,13 @@ const StickerCard: React.FC<{
           <Tooltip>
             <TooltipTrigger asChild>
               <div
-                className={`p-0.5 rounded bg-black/60 backdrop-blur-sm text-[8px] font-mono text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity`}
+                className={`p-0.5 rounded bg-surface-floating/80 backdrop-blur-sm text-[8px] font-mono text-text-muted opacity-0 group-hover:opacity-100 transition-opacity`}
               >
                 <Info size={10} />
               </div>
             </TooltipTrigger>
             <TooltipContent side="top" className="max-w-48 text-[10px]">
-              <p className="font-semibold text-white">
+              <p className="font-semibold text-text-primary">
                 {sticker.license.spdx}
               </p>
               <p className="text-gray-300">{sticker.license.author}</p>
@@ -368,7 +387,7 @@ const StickerCard: React.FC<{
           }
           className={`w-4 h-4 rounded-full flex items-center justify-center transition-all relative ${
             isDownloadedFlag
-              ? "bg-accent hover:bg-accent/85 border border-accent text-white cursor-pointer"
+              ? "bg-accent-primary hover:bg-accent-primary/85 border border-accent-primary text-white cursor-pointer"
               : isDownloading
                 ? "bg-accent/20 border border-accent cursor-wait"
                 : "bg-surface/50 hover:bg-surface/80 border border-border/50 text-text-muted hover:text-text-primary cursor-pointer"

@@ -46,7 +46,7 @@ export const TimelineEffectSection: React.FC<TimelineEffectSectionProps> = ({
       icon={<Icon className="w-3.5 h-3.5 text-accent-soft" />}
     >
       <div className="space-y-3">
-        <div className="flex items-center justify-between bg-surface-raised/40 border border-border/30 rounded-lg p-2.5">
+        <div className="flex items-center justify-between bg-surface-elevated border border-border-default rounded-lg p-2.5">
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-text-primary truncate">
               {selectedClip.name || subtitle}

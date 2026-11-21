@@ -9,11 +9,21 @@ export { GoldFoilStamp } from "./GoldFoilStamp";
 export { Modal } from "./Modal";
 export { NetworkError } from "./NetworkError";
 export { ProgressBar, ClypraProgressBar } from "./ProgressBar";
-export type { ProgressBarProps, ProgressBarSize, ProgressBarVariant } from "./ProgressBar";
+export type {
+  ProgressBarProps,
+  ProgressBarSize,
+  ProgressBarVariant,
+} from "./ProgressBar";
 export { ProgressRing } from "./ProgressRing";
 export { Slider, ClypraSlider } from "./Slider";
 export type { SliderProps, SliderSize } from "./Slider";
 export { SuccessCheck } from "./SuccessCheck";
 export { SuccessToast } from "./SuccessToast";
-export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./Tooltip";
+export {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./Tooltip";
 export { UpdateBanner } from "./UpdateBanner";
+export { UpdateModal } from "./UpdateModal";

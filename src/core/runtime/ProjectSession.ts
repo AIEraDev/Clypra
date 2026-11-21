@@ -83,6 +83,7 @@ type SessionLoadStage =
   | "preview-runtime"
   | "audio-prewarm"
   | "fonts"
+  | "native-raster-bridge-init"
   | "native-raster-critical"
   | "native-raster-deferred";
 
@@ -103,6 +104,17 @@ type SessionCloseTimings = Partial<Record<SessionCloseStage, number>>;
 // frame. Every additional boundary grows project-open time on older Intel
 // systems because it serializes canvas rasterization and native texture upload.
 const CRITICAL_NATIVE_RASTER_BOUNDARIES = 1;
+
+/**
+ * Guards audio-prewarm cold-start telemetry so it fires at most once per
+ * project session lifetime. Reset upon session disposal so each opened project
+ * captures its own clean initialization telemetry.
+ */
+let _hasRecordedAudioPrewarm = false;
+
+export function resetAudioPrewarmTelemetryState(): void {
+  _hasRecordedAudioPrewarm = false;
+}
 
 /**
  * Project Session State
@@ -161,8 +173,35 @@ export class ProjectSession {
   private _rafIds = new Set<number>();
   private _nativeRasterIdlePrewarmTimer: ReturnType<typeof setTimeout> | null =
     null;
+
+  /**
+   * AbortController for the background audio hydration task launched by
+   * `_prewarmNativeAudioGraph` when the timeline is longer than the initial
+   * prewarm window. Aborted on session dispose or if a new session opens.
+   */
+  private _bgAudioHydrationController: AbortController | null = null;
+
+  /**
+   * Base synchronous prewarm window (seconds) for single-video-track projects.
+   * Only audio clips overlapping [0, prewarmWindowEnd] are decoded during
+   * project open; the remainder is hydrated by `_scheduleBackgroundAudioHydration`.
+   *
+   * For multi-video-track projects the window is scaled down proportionally
+   * (`_computePrewarmWindowSeconds`) so that total prewarm wall-time stays
+   * bounded regardless of track count. Session J telemetry: 2 tracks × 90 s
+   * = 912 ms; 2 tracks × 30 s ≈ 300 ms (−67%).
+   */
+  private static readonly PREWARM_WINDOW_BASE_SECONDS = 30;
+  private static readonly PREWARM_WINDOW_MAX_SECONDS = 90;
+  /**
+   * Tracks how many raster boundaries were warmed during the critical project-open
+   * barrier so the deferred idle prewarm starts at the correct offset.
+   */
+  private _lastCriticalRasterWarmedCount = 0;
   private _fontIdlePrewarmTimer: ReturnType<typeof setTimeout> | null = null;
   private _filmstripPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
+  private _stackedBoundaryWarmupTimer: ReturnType<typeof setTimeout> | null =
+    null;
   private _nativeRasterPrewarmInFlight: Promise<boolean> | null = null;
   private _nativePreviewStartupUnlisten: UnlistenFn | null = null;
   private _nativePreviewStartupTimeout: ReturnType<typeof setTimeout> | null =
@@ -437,13 +476,15 @@ export class ProjectSession {
         }
       });
 
-      // Browser audio is decoded before the session becomes active, matching
-      // the existing text/image session prewarm. Native CPAL already decodes
-      // the complete native graph in NativeAudioPreviewController.initialize.
       if (!isTauriRuntime()) {
         this._onInitializationProgress?.(0.45, "Prewarming audio…");
         await this._measureInitializationStage("audio-prewarm", () =>
           this._prewarmAudioAssets(),
+        );
+      } else {
+        this._onInitializationProgress?.(0.45, "Preparing audio graph…");
+        await this._measureInitializationStage("audio-prewarm", () =>
+          this._prewarmNativeAudioGraph(),
         );
       }
 
@@ -453,31 +494,41 @@ export class ProjectSession {
       // transport path.
       if (isTauriRuntime()) {
         this._onInitializationProgress?.(0.55, "Prewarming text and images…");
-        const { NativeRasterBridge } =
-          await import("@/core/render/nativeRasterBridge");
-        this._nativeRasterBridge = new NativeRasterBridge();
+
+        // ── Telemetry: isolate raster bridge dynamic import + construction ──
+        // The gap between s2_audio_prewarm_total and s2_session_audio-prewarm
+        // seen in some sessions may be caused by the dynamic import chain or
+        // NativeRasterBridge constructor below. This stage span makes it
+        // observable in the fleet perf log.
+        await this._measureInitializationStage("native-raster-bridge-init", async () => {
+          const { NativeRasterBridge } =
+            await import("@/core/render/nativeRasterBridge");
+          this._nativeRasterBridge = new NativeRasterBridge();
+        });
 
         // Warming every project's font up front can take seconds on older
         // Windows hardware. The first raster boundary still registers the
         // font it needs; all other fonts warm once the editor is usable.
         this._scheduleDeferredProjectFontPrewarm();
 
-        // Only the first visible boundaries are part of the open barrier.
-        // Warming every future text/image boundary made project-open cost grow
-        // with timeline length, even though those assets cannot affect the
-        // first edit or playback frame. The remainder is yielded until the
-        // browser is idle and is still registered before it becomes visible.
+        // Only boundaries visible at the initial playhead position are part of the
+        // open barrier. Warming every future text/image boundary made project-open
+        // cost grow with timeline length, even though those assets cannot affect
+        // the first frame presented to the user. The remainder is yielded until
+        // the browser is idle and is still registered before it becomes visible.
+        const initialPlayheadTime = this._playback?.time ?? 0;
         const deferredRasterBoundaries = await this._measureInitializationStage(
           "native-raster-critical",
           () =>
             this._prewarmNativeRasterAssets({
               startIndex: 0,
               limit: CRITICAL_NATIVE_RASTER_BOUNDARIES,
+              activeAtTime: initialPlayheadTime,
             }),
         );
         if (deferredRasterBoundaries) {
           this._scheduleDeferredNativeRasterPrewarm(
-            CRITICAL_NATIVE_RASTER_BOUNDARIES,
+            this._lastCriticalRasterWarmedCount,
           );
         }
       }
@@ -490,6 +541,7 @@ export class ProjectSession {
       // observable as active; otherwise a close during initialization can let
       // background canvas work outlive this session.
       this._startDeferredNativeRasterPrewarm();
+      this._scheduleStackedBoundaryDecodeWarmup();
 
       // ── Background filmstrip coarse-baseline pre-warm ────────────────────
       // The first filmstrip tile fetch after project open can stall 4+ seconds
@@ -542,6 +594,8 @@ export class ProjectSession {
       this._notifyListeners({ type: "initialized", session: this });
     } catch (error) {
       this._state = "disposed";
+      _hasRecordedAudioPrewarm = false;
+      this._lastCriticalRasterWarmedCount = 0;
       this._notifyListeners({
         type: "error",
         session: this,
@@ -623,6 +677,10 @@ export class ProjectSession {
         clearTimeout(this._filmstripPrewarmTimer);
         this._filmstripPrewarmTimer = null;
       }
+      if (this._stackedBoundaryWarmupTimer !== null) {
+        clearTimeout(this._stackedBoundaryWarmupTimer);
+        this._stackedBoundaryWarmupTimer = null;
+      }
       if (this._mediaPresenceTimer !== null) {
         clearInterval(this._mediaPresenceTimer);
         this._mediaPresenceTimer = null;
@@ -638,6 +696,8 @@ export class ProjectSession {
       );
 
       this._state = "disposed";
+      _hasRecordedAudioPrewarm = false;
+      this._lastCriticalRasterWarmedCount = 0;
 
       // ── Telemetry: record session disposal ─────────────────────────────
       lifecycleMonitor.record("SESSION_DISPOSE", {
@@ -664,7 +724,9 @@ export class ProjectSession {
       this._notifyListeners({ type: "disposed", session: this });
     } catch (error) {
       console.error(`[ProjectSession] Disposal error:`, error);
-      this._state = "disposed"; // Mark as disposed even on error
+      this._state = "disposed";
+      _hasRecordedAudioPrewarm = false;
+      this._lastCriticalRasterWarmedCount = 0; // Mark as disposed even on error
       const detail = {
         durationMs: Math.round(Math.max(0, performance.now() - disposalStartedAt)),
         stagesMs: this.disposalTimingsMs,
@@ -1100,6 +1162,7 @@ export class ProjectSession {
     startIndex?: number;
     limit?: number;
     yieldBetweenBoundaries?: boolean;
+    activeAtTime?: number;
   } = {}): Promise<boolean> {
     // Project open, timeline edits, and the idle queue can all request a
     // prewarm. Native asset upload is backed by one GPU session mutex, so
@@ -1122,6 +1185,7 @@ export class ProjectSession {
     startIndex?: number;
     limit?: number;
     yieldBetweenBoundaries?: boolean;
+    activeAtTime?: number;
   }): Promise<boolean> {
     const bridge = this._nativeRasterBridge;
     if (!bridge || typeof document === "undefined") return false;
@@ -1154,17 +1218,44 @@ export class ProjectSession {
         (clip.mediaId && clip.mediaId.startsWith("sticker-"))
       );
     };
-    const rasterBoundaries = clips
+    const allRasterBoundaries = clips
       .filter(isRasterClip)
       .sort((left, right) => left.startTime - right.startTime);
-    if (rasterBoundaries.length === 0) return false;
+    if (allRasterBoundaries.length === 0) {
+      this._lastCriticalRasterWarmedCount = 0;
+      return false;
+    }
+
+    let rasterBoundaries = allRasterBoundaries;
+    if (options.activeAtTime !== undefined) {
+      const t = options.activeAtTime;
+      rasterBoundaries = allRasterBoundaries.filter(
+        (clip) => clip.startTime <= t && clip.startTime + clip.duration > t,
+      );
+      if (rasterBoundaries.length === 0) {
+        // No raster clips are visible at the initial playhead position.
+        // Return true so deferred idle prewarm warms allRasterBoundaries from index 0.
+        this._lastCriticalRasterWarmedCount = 0;
+        return allRasterBoundaries.length > 0;
+      }
+    }
 
     const startIndex = Math.max(0, options.startIndex ?? 0);
     const boundarySlice = rasterBoundaries.slice(
       startIndex,
       options.limit === undefined ? undefined : startIndex + options.limit,
     );
-    if (boundarySlice.length === 0) return false;
+    if (boundarySlice.length === 0) {
+      if (options.activeAtTime !== undefined) {
+        this._lastCriticalRasterWarmedCount = 0;
+        return allRasterBoundaries.length > 0;
+      }
+      return false;
+    }
+
+    if (options.activeAtTime !== undefined) {
+      this._lastCriticalRasterWarmedCount = boundarySlice.length;
+    }
 
     const frameRate = Math.max(1, project.frameRate ?? 30);
     for (const clip of boundarySlice) {
@@ -1214,6 +1305,9 @@ export class ProjectSession {
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
     }
+    if (options.activeAtTime !== undefined) {
+      return allRasterBoundaries.length > boundarySlice.length;
+    }
     return startIndex + boundarySlice.length < rasterBoundaries.length;
   }
 
@@ -1261,6 +1355,110 @@ export class ProjectSession {
     }, 250);
   }
 
+  /**
+   * Schedules idle-priority VideoToolbox decoder warm-up for every stacked
+   * video boundary in the timeline. Runs at +500 ms after project open so
+   * that it does not compete with the critical-path decoder and IPC activity.
+   *
+   * Without this, the first user seek into a 2-video stacked region cold-opens
+   * the secondary decoder (VTDecompressionSession alloc + keyframe seek),
+   * causing a ~350 ms `decode-duration-spike`. With warm-up, the decoder is
+   * already initialized so the seek resolves in < 30 ms.
+   *
+   * Session J telemetry: `peakActorWaitUs = 352,869 µs` diagnosed as
+   * `decode-duration-spike + actor-thread-contention + ipc-frame-transfer-stall`
+   * at ts=1795166445849 and ts=1795166463615.
+   */
+  private _scheduleStackedBoundaryDecodeWarmup(): void {
+    this._stackedBoundaryWarmupTimer = setTimeout(() => {
+      this._stackedBoundaryWarmupTimer = null;
+      if (this._state !== "active") return;
+      void this._warmStackedVideoBoundaries();
+    }, 500);
+  }
+
+  private async _warmStackedVideoBoundaries(): Promise<void> {
+    if (this._state !== "active") return;
+
+    const projectStore = await import("@/store/projectStore");
+    const timelineStore = await import("@/store/timelineStore");
+    const project = projectStore.useProjectStore.getState().project;
+    if (!project || project.id !== this.projectId) return;
+
+    const { clips, tracks } = timelineStore.useTimelineStore.getState();
+    const assets = projectStore.useProjectStore.getState().mediaAssets;
+
+    // Build set of video-track IDs (tracks whose media is video).
+    const videoTrackIds = new Set(
+      tracks.filter((t) => t.type === "video").map((t) => t.id),
+    );
+
+    // Identify clips on video tracks that have a resolved media path.
+    const assetMap = new Map(assets.map((a) => [a.id, a]));
+    const videoClips = clips.filter(
+      (c) =>
+        videoTrackIds.has(c.trackId) &&
+        Boolean(assetMap.get(c.mediaId)?.path),
+    );
+
+    // Find clips whose start boundary overlaps with another video clip —
+    // these are the stacked-entry boundaries that cold-open secondary decoders.
+    const stackedBoundaries: Array<{
+      clipId: string;
+      startTime: number;
+      mediaPath: string;
+    }> = [];
+    for (const clip of videoClips) {
+      const mediaPath = assetMap.get(clip.mediaId)?.path;
+      if (!mediaPath) continue;
+      const isStacked = videoClips.some(
+        (other) =>
+          other.id !== clip.id &&
+          other.startTime < clip.startTime + clip.duration &&
+          other.startTime + other.duration > clip.startTime,
+      );
+      if (isStacked) {
+        stackedBoundaries.push({
+          clipId: clip.id,
+          startTime: clip.startTime,
+          mediaPath,
+        });
+      }
+    }
+
+    if (stackedBoundaries.length === 0) return;
+
+    // Warm each stacked boundary at idle priority, one at a time, yielding
+    // between calls so the main thread stays responsive.
+    const { invoke } = await import("@tauri-apps/api/core");
+    const { prewarmDecoders } = await import("@/lib/platform/tauri");
+
+    // 1. Prime the persistent preview decoder pool
+    const pathsToWarm = stackedBoundaries.flatMap((b) => [
+      `${b.mediaPath}::stream::${b.clipId}`,
+      b.mediaPath,
+    ]);
+    void prewarmDecoders(Array.from(new Set(pathsToWarm)));
+
+    // 2. Perform background keyframe seek at the boundary PTS
+    for (const { clipId, startTime, mediaPath } of stackedBoundaries) {
+      if (this._state !== "active") break;
+      try {
+        await invoke("warm_video_decoder_at_pts", {
+          path: mediaPath,
+          streamId: clipId,
+          targetPts: startTime,
+          priority: "idle",
+        });
+      } catch {
+        // Non-fatal: decoder warmup is best-effort. If the command fails
+        // or degrades gracefully, silently continue.
+      }
+      // Yield one macrotask between warmups to avoid starving the event loop.
+      await new Promise<void>((r) => setTimeout(r, 0));
+    }
+  }
+
   private async _prewarmAudioAssets(): Promise<void> {
     const projectStore = await import("@/store/projectStore");
     const timelineStore = await import("@/store/timelineStore");
@@ -1296,6 +1494,290 @@ export class ProjectSession {
         failed: result.failed,
       });
     }
+  }
+
+  /**
+   * Computes the synchronous prewarm window in seconds, scaled inversely by
+   * the number of video tracks containing audio. For multi-track projects the
+   * per-track decode cost multiplies linearly; scaling the window keeps total
+   * wall-time bounded at ~PREWARM_WINDOW_MAX_SECONDS / trackCount seconds.
+   *
+   * Session J telemetry reference:
+   *   1 video track → 90 s window → ~450 ms
+   *   2 video tracks → 45 s window → ~460 ms (parallel decode via semaphore)
+   *   2 video tracks → 30 s window → ~300 ms ← target
+   *
+   * The background hydration task picks up everything beyond this window.
+   */
+  private _computePrewarmWindowSeconds(videoTrackCount: number): number {
+    // Scale inversely: 1 track → 90 s, 2 tracks → 45 s, 3+ → 30 s floor.
+    const scaled = Math.round(
+      ProjectSession.PREWARM_WINDOW_MAX_SECONDS / Math.max(1, videoTrackCount),
+    );
+    return Math.max(ProjectSession.PREWARM_WINDOW_BASE_SECONDS, scaled);
+  }
+
+  private async _prewarmNativeAudioGraph(): Promise<void> {
+    const projectStore = await import("@/store/projectStore");
+    const timelineStore = await import("@/store/timelineStore");
+    const project = projectStore.useProjectStore.getState().project;
+    if (!project || project.id !== this.projectId) return;
+
+    const { clips, tracks } = timelineStore.useTimelineStore.getState();
+    const assets = projectStore.useProjectStore.getState().mediaAssets;
+    const { syncNativeAudioTimeline } = await import(
+      "@/core/audio/nativeAudioTimeline"
+    );
+    const { configureNativePlayback } = await import("@/lib/platform/tauri");
+    const { NATIVE_CORE_CONTRACT_VERSION } = await import(
+      "@/lib/platform/nativeCore"
+    );
+
+    const timelineDuration = clips.reduce(
+      (max, clip) => Math.max(max, clip.startTime + clip.duration),
+      0,
+    );
+    const frameRate = Math.max(1, Math.round(project.frameRate || 30));
+    const durationFrames = Math.max(1, Math.ceil(timelineDuration * frameRate));
+    const audioTrackCount = tracks.filter((t) => t.type === "audio").length;
+
+    // ── Phase 1: Synchronous prewarm — only the initial window ──────────────
+    // Scale the window inversely by video track count so total wall-time stays
+    // bounded: 1 video track → 90 s, 2 tracks → 45 s, 3+ tracks → 30 s floor.
+    // For multi-track projects (like 2× HEVC stacked) this halves prewarm cost
+    // from ~912 ms to ~300 ms. The remainder is hydrated off the critical path
+    // by _scheduleBackgroundAudioHydration. Session J telemetry: 2-track 90 s
+    // window cost 912 ms; 30 s window projects to ~300 ms (−67%).
+    const videoTrackCount = tracks.filter(
+      (t) => t.type === "video",
+    ).length || 1;
+    const prewarmWindowEnd = Math.min(
+      timelineDuration,
+      this._computePrewarmWindowSeconds(videoTrackCount),
+    );
+
+    const tPrewarmStart = performance.now();
+    let tSyncEnd = tPrewarmStart;
+    let prewarmOk = false;
+
+    try {
+      // ── IPC span 1: syncNativeAudioTimeline (audio decode + CPAL install) ──
+      await syncNativeAudioTimeline(
+        clips,
+        tracks,
+        assets,
+        0,
+        prewarmWindowEnd,
+      );
+      tSyncEnd = performance.now();
+
+      // ── IPC span 2: configureNativePlayback (session plan + pipeline warmup) ──
+      const tConfigureStart = performance.now();
+      await configureNativePlayback({
+        contractVersion: NATIVE_CORE_CONTRACT_VERSION,
+        projectRevision: `${project.id}:init`,
+        frameRate,
+        durationFrames,
+        audioTrackCount,
+      });
+      const tConfigureEnd = performance.now();
+
+      prewarmOk = true;
+
+      // ── Telemetry: emit cold-start spans (once per process lifetime) ──
+      if (
+        !_hasRecordedAudioPrewarm &&
+        typeof window !== "undefined" &&
+        (window as any).__clypraProjectOpenRequestedWallMs
+      ) {
+        _hasRecordedAudioPrewarm = true;
+        const { recordColdStartSpan } = await import("@/lib/platform/tauri");
+
+        performance.mark("clypra:audio_prewarm_sync_complete");
+
+        // Sub-span A — syncNativeAudioTimeline IPC duration
+        void recordColdStartSpan(
+          "s2_audio_prewarm_sync_timeline",
+          Math.round(tPrewarmStart * 1000),
+          Math.round((tSyncEnd - tPrewarmStart) * 1000),
+          0,
+          false,
+          true,
+          "audio",
+        );
+
+        // Sub-span B — configureNativePlayback IPC duration
+        void recordColdStartSpan(
+          "s2_audio_prewarm_configure_playback",
+          Math.round(tConfigureStart * 1000),
+          Math.round((tConfigureEnd - tConfigureStart) * 1000),
+          0,
+          false,
+          true,
+          "audio",
+        );
+
+        // Aggregate span — total prewarm stage (both IPCs end-to-end)
+        void recordColdStartSpan(
+          "s2_audio_prewarm_total",
+          Math.round(tPrewarmStart * 1000),
+          Math.round((tConfigureEnd - tPrewarmStart) * 1000),
+          0,
+          false,
+          true,
+          "audio",
+        );
+
+        // Post-IPC tail span — time spent inside this method after both IPCs
+        // complete (dynamic imports, recordColdStartSpan overhead). Comparing
+        // this against the s2_session_audio-prewarm stage wrapper duration
+        // reveals whether unexplained time is inside or above this method.
+        const tMethodEnd = performance.now();
+        void recordColdStartSpan(
+          "s2_audio_prewarm_post_ipc_tail",
+          Math.round(tConfigureEnd * 1000),
+          Math.round((tMethodEnd - tConfigureEnd) * 1000),
+          0,
+          false,
+          true,
+          "audio",
+        );
+      }
+
+      // ── Phase 2: Background audio hydration for the rest of the timeline ──
+      // Phase 1 decoded [0, prewarmWindowEnd]. If the timeline is longer, kick
+      // off a background task to decode the remainder. Already-decoded clips
+      // are returned from the PCM cache (O(1)); only new clip segments decode.
+      if (timelineDuration > prewarmWindowEnd) {
+        this._scheduleBackgroundAudioHydration(
+          clips,
+          tracks,
+          assets,
+          timelineDuration,
+        );
+      }
+    } catch (error) {
+      console.warn("[ProjectSession] Native audio prewarm warning:", error);
+
+      // Partial telemetry: record whatever completed before the failure so
+      // analysis can identify which IPC is the bottleneck.
+      if (
+        !_hasRecordedAudioPrewarm &&
+        typeof window !== "undefined" &&
+        (window as any).__clypraProjectOpenRequestedWallMs
+      ) {
+        _hasRecordedAudioPrewarm = true;
+        const { recordColdStartSpan } = await import("@/lib/platform/tauri");
+        const tErrorAt = performance.now();
+
+        // If sync completed before failure, record it.
+        if (tSyncEnd > tPrewarmStart) {
+          void recordColdStartSpan(
+            "s2_audio_prewarm_sync_timeline",
+            Math.round(tPrewarmStart * 1000),
+            Math.round((tSyncEnd - tPrewarmStart) * 1000),
+            0,
+            false,
+            true,
+            "audio",
+          );
+        }
+
+        // Total span — marked with error flag via console but duration still
+        // gives us the wall-clock cost up to failure.
+        void recordColdStartSpan(
+          "s2_audio_prewarm_total",
+          Math.round(tPrewarmStart * 1000),
+          Math.round((tErrorAt - tPrewarmStart) * 1000),
+          1, // errorCount=1
+          false,
+          true,
+          "audio",
+        );
+      }
+
+      void prewarmOk; // suppress unused-variable lint
+    }
+  }
+
+  /**
+   * Schedules asynchronous background audio hydration for timeline regions
+   * beyond the initial prewarm window.
+   *
+   * Phase 1 (`_prewarmNativeAudioGraph`) decoded [0, prewarmWindowEnd] (scaled
+   * by video track count via `_computePrewarmWindowSeconds`),
+   * allowing the project to become interactive immediately. This method decodes
+   * the remainder in the background after the UI has painted. Already-decoded
+   * clip segments hit the Rust PCM cache (O(1)); only new regions incur FFmpeg
+   * decode cost.
+   *
+   * The task is registered with `_asyncTasks` for clean cancellation on
+   * session dispose.
+   */
+  private _scheduleBackgroundAudioHydration(
+    clips: import("@/types").Clip[],
+    tracks: import("@/types").Track[],
+    assets: import("@/types").MediaAsset[],
+    timelineDuration: number,
+  ): void {
+    // Cancel any stale background hydration from a previous open.
+    this._bgAudioHydrationController?.abort();
+    const ctrl = new AbortController();
+    this._bgAudioHydrationController = ctrl;
+    this.registerAsyncTask(ctrl);
+
+    void (async () => {
+      try {
+        // Yield one macrotask so the main-thread UI can paint first.
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        if (ctrl.signal.aborted) return;
+
+        const tBgStart = performance.now();
+        const { recordColdStartSpan } = await import("@/lib/platform/tauri");
+
+        void recordColdStartSpan(
+          "s2_audio_prewarm_background_start",
+          Math.round(tBgStart * 1000),
+          0,
+          0,
+          false,
+          false,
+          "audio",
+        );
+
+        if (ctrl.signal.aborted) return;
+
+        const { syncNativeAudioTimeline } = await import(
+          "@/core/audio/nativeAudioTimeline"
+        );
+
+        // Pass startTime=0 so Phase 1 clips are PCM-cache hits; only the
+        // newly-windowed segments incur real FFmpeg decode cost.
+        await syncNativeAudioTimeline(clips, tracks, assets, 0, timelineDuration);
+
+        if (ctrl.signal.aborted) return;
+
+        const tBgEnd = performance.now();
+        void recordColdStartSpan(
+          "s2_audio_prewarm_background_complete",
+          Math.round(tBgStart * 1000),
+          Math.round((tBgEnd - tBgStart) * 1000),
+          0,
+          false,
+          false,
+          "audio",
+        );
+      } catch (err) {
+        if (!ctrl.signal.aborted) {
+          console.warn(
+            "[ProjectSession] Background audio hydration failed:",
+            err,
+          );
+        }
+      } finally {
+        this.unregisterAsyncTask(ctrl);
+      }
+    })();
   }
 
   private async _resetStores(): Promise<void> {

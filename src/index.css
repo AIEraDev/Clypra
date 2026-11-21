@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "./design-tokens.css";
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/montserrat";
 @import "@fontsource-variable/geist";
@@ -131,14 +132,32 @@
   --color-video-clip: var(--clypra-clip-video-bg);
   --color-audio-clip: var(--clypra-clip-audio-bg);
   --color-text-clip: var(--clypra-clip-text-bg);
-  --color-app: var(--clypra-surface-app);
-  --color-workspace: var(--clypra-surface-workspace);
+  /* Canonical Design System Surfaces */
+  --color-surface-app: var(--clypra-surface-app);
+  --color-surface-workspace: var(--clypra-surface-workspace);
+  --color-surface-panel: var(--clypra-surface-panel);
+  --color-surface-card: var(--clypra-surface-panel);
+  --color-surface-elevated: var(--clypra-surface-elevated);
+  --color-surface-floating: var(--clypra-surface-floating);
+  --color-surface-input: var(--clypra-surface-input);
   --color-surface-hover: var(--clypra-surface-hover);
   --color-surface-active: var(--clypra-surface-active);
-  --color-surface-input: var(--clypra-surface-input);
-  --color-text-secondary: var(--clypra-text-secondary);
-  --color-text-tertiary: var(--clypra-text-tertiary);
-  --color-text-disabled: var(--clypra-text-disabled);
+
+  /* Canonical Design System Borders */
+  --color-border-subtle: var(--clypra-border-subtle);
+  --color-border-default: var(--clypra-border-default);
+  --color-border-strong: var(--clypra-border-strong);
+  --color-border-hover: var(--clypra-border-strong);
+
+  /* Canonical Design System Accents */
+  --color-accent-primary: var(--clypra-interaction-focus);
+  --color-accent-hover: var(--clypra-interaction-hover);
+  --color-accent-active: var(--clypra-interaction-active);
+  --color-accent-selected: var(--clypra-interaction-selected);
+  --color-accent-glow: var(--clypra-accent-glow);
+
+  --color-app: var(--clypra-surface-app);
+  --color-workspace: var(--clypra-surface-workspace);
   --color-focus: var(--clypra-interaction-focus);
   --color-status-success: var(--clypra-status-success);
   --color-status-warning: var(--clypra-status-warning);
@@ -157,8 +176,8 @@
   --color-clypra-clip-sticker: var(--clypra-clip-sticker-bg);
   --color-clypra-clip-fg: var(--clypra-clip-fg);
   --color-clypra-clip-muted-fg: var(--clypra-clip-muted-fg);
-  --color-white: var(--clypra-text-primary);
-  --color-black: var(--clypra-surface-app);
+  --color-white: #ffffff;
+  --color-black: #000000;
   --color-timeline-clip-video: var(--clypra-clip-video-bg);
   --color-timeline-clip-audio: var(--clypra-clip-audio-bg);
   --color-timeline-clip-image: var(--clypra-clip-image-bg);
@@ -279,6 +298,21 @@
   --color-purple-600: var(--clypra-clip-effect-bg);
   --color-pink-400: var(--color-accent-soft);
   --color-pink-500: var(--clypra-clip-caption-bg);
+
+  /* Z-index scale — stacking layer tokens */
+  --z-index-topbar: var(--clypra-z-topbar);
+  --z-index-dropdown-overlay: var(--clypra-z-dropdown-overlay);
+  --z-index-dropdown-panel: var(--clypra-z-dropdown-panel);
+}
+
+@utility z-topbar {
+  z-index: var(--clypra-z-topbar);
+}
+@utility z-dropdown-overlay {
+  z-index: var(--clypra-z-dropdown-overlay);
+}
+@utility z-dropdown-panel {
+  z-index: var(--clypra-z-dropdown-panel);
 }
 /*
  * Fluid root font-size — scales with viewport width between 800 px and 1600 px.
@@ -324,83 +358,9 @@ body,
   --safe-area-left: env(safe-area-inset-left, 0px);
   --safe-area-right: env(safe-area-inset-right, 0px);
 
-  /* Clypra semantic color layer. Theme presets feed the legacy source
-     variables above; components consume these relationships instead. */
-  --clypra-surface-app: var(--clypra-theme-bg);
-  --clypra-surface-workspace: var(--clypra-theme-surface-panel);
-  --clypra-surface-panel: var(--clypra-theme-surface);
-  --clypra-surface-elevated: var(--clypra-theme-surface-raised);
-  --clypra-surface-floating: var(--clypra-theme-surface-floating);
-  --clypra-surface-input: color-mix(
-    in srgb,
-    var(--clypra-surface-elevated) 78%,
-    black 22%
-  );
-  --clypra-surface-hover: color-mix(
-    in srgb,
-    var(--clypra-surface-elevated) 78%,
-    white 22%
-  );
-  --clypra-surface-active: color-mix(
-    in srgb,
-    var(--clypra-surface-elevated) 68%,
-    var(--clypra-theme-accent) 32%
-  );
-  --clypra-text-primary: var(--clypra-theme-text-primary);
-  --clypra-text-secondary: color-mix(
-    in srgb,
-    var(--clypra-text-primary) 72%,
-    var(--clypra-surface-app) 28%
-  );
-  --clypra-text-tertiary: color-mix(
-    in srgb,
-    var(--clypra-text-primary) 54%,
-    var(--clypra-surface-app) 46%
-  );
-  --clypra-text-disabled: color-mix(
-    in srgb,
-    var(--clypra-text-primary) 36%,
-    var(--clypra-surface-app) 64%
-  );
-  --clypra-interaction-hover: color-mix(
-    in srgb,
-    var(--clypra-surface-elevated) 74%,
-    #fff 26%
-  );
-  --clypra-interaction-active: color-mix(
-    in srgb,
-    var(--color-accent) 24%,
-    var(--clypra-surface-elevated) 76%
-  );
-  --clypra-interaction-selected: color-mix(
-    in srgb,
-    var(--color-accent) 20%,
-    var(--clypra-surface-elevated) 80%
-  );
-  --clypra-interaction-focus: var(--clypra-theme-accent);
-  --clypra-border-subtle: color-mix(
-    in srgb,
-    var(--clypra-theme-border) 64%,
-    transparent
-  );
-  --clypra-border-default: var(--clypra-theme-border);
-  --clypra-border-strong: var(--clypra-theme-border-soft);
-  --clypra-status-success: #4fbd8a;
-  --clypra-status-warning: #d6a85b;
-  --clypra-status-error: var(--clypra-theme-danger);
-  --clypra-status-info: #6ea8d8;
-  --clypra-editor-playhead: #f1b66a;
-  --clypra-editor-selection: var(--clypra-theme-accent);
-  --clypra-editor-snap: #67c9a1;
-  --clypra-editor-drop: var(--clypra-theme-accent);
-  --clypra-accent-glow: color-mix(
-    in srgb,
-    var(--clypra-theme-accent) 28%,
-    transparent
-  );
-
   /* Clip roles are injected by applyTheme from CLIP_PALETTES. This file
-     contains only semantic pointers; it never owns a clip color value. */
+     contains only semantic pointers; it never owns a clip color value.
+     All --clypra-* semantic tokens are defined in design-tokens.css. */
 }
 body {
   margin: 0;
@@ -819,41 +779,6 @@ input[type="range"]:focus-visible {
   --layout-gap: 0.5rem;
   --layout-radius: 0.35rem;
   --elev-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
-}
-
-.dark {
-  --background: var(--clypra-surface-app);
-  --foreground: var(--clypra-text-primary);
-  --card: var(--clypra-surface-panel);
-  --card-foreground: var(--clypra-text-primary);
-  --popover: var(--clypra-surface-floating);
-  --popover-foreground: var(--clypra-text-primary);
-  --primary: var(--color-accent);
-  --primary-foreground: var(--clypra-surface-app);
-  --secondary: var(--clypra-surface-elevated);
-  --secondary-foreground: var(--clypra-text-primary);
-  --muted: var(--clypra-surface-elevated);
-  --muted-foreground: var(--clypra-text-secondary);
-  --accent: var(--color-accent);
-  --accent-foreground: var(--clypra-surface-app);
-  --destructive: var(--clypra-status-error);
-  --destructive-foreground: var(--clypra-text-primary);
-  --border: var(--clypra-border-default);
-  --input: var(--clypra-surface-input);
-  --ring: var(--clypra-interaction-focus);
-  --chart-1: var(--color-accent);
-  --chart-2: var(--clypra-status-info);
-  --chart-3: var(--clypra-status-success);
-  --chart-4: var(--clypra-status-warning);
-  --chart-5: var(--clypra-status-error);
-  --sidebar: var(--clypra-surface-panel);
-  --sidebar-foreground: var(--clypra-text-primary);
-  --sidebar-primary: var(--color-accent);
-  --sidebar-primary-foreground: var(--clypra-surface-app);
-  --sidebar-accent: var(--clypra-surface-elevated);
-  --sidebar-accent-foreground: var(--clypra-text-primary);
-  --sidebar-border: var(--clypra-border-default);
-  --sidebar-ring: var(--clypra-interaction-focus);
 }
 
 @layer components {

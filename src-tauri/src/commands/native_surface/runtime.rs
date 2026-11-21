@@ -1,4 +1,5 @@
 use crate::native_core::NativeSurfaceProbe;
+use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Window;
 
@@ -15,6 +16,22 @@ pub struct NativeSurfaceRuntime {
     pub(super) last_presentation_sequence: u64,
     pub(super) runtime_epoch: u64,
     pub(super) is_shown: AtomicBool,
+}
+
+/// Snapshot of native surface lifecycle state attached to a failed
+/// presentation demand. A probe describes the last configured surface, while
+/// these fields explain whether that surface still exists and belongs to the
+/// current runtime epoch.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct NativeSurfaceDiagnosticState {
+    pub(crate) runtime_epoch: u64,
+    pub(crate) configured: bool,
+    pub(crate) has_surface: bool,
+    pub(crate) has_surface_window: bool,
+    pub(crate) shown: bool,
+    pub(crate) format: Option<String>,
+    pub(crate) probe_status: Option<String>,
 }
 
 impl NativeSurfaceRuntime {
@@ -83,6 +100,25 @@ impl NativeSurfaceRuntime {
 
     pub(crate) fn runtime_epoch(&self) -> u64 {
         self.runtime_epoch
+    }
+
+    pub(crate) fn diagnostic_state(&self) -> NativeSurfaceDiagnosticState {
+        NativeSurfaceDiagnosticState {
+            runtime_epoch: self.runtime_epoch,
+            configured: self.configuration.is_some() && self.configured_format.is_some(),
+            has_surface: self.surface.is_some(),
+            has_surface_window: self.surface_window.is_some(),
+            shown: self.is_shown.load(Ordering::Acquire),
+            format: self
+                .probe
+                .as_ref()
+                .map(|probe| probe.format.clone())
+                .or_else(|| self.configured_format.map(|format| format!("{format:?}"))),
+            probe_status: self
+                .probe
+                .as_ref()
+                .map(|probe| format!("{:?}", probe.status)),
+        }
     }
 
     #[cfg(test)]

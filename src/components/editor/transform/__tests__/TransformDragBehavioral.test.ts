@@ -16,7 +16,7 @@ import {
   shouldScaleTextFontForHandle,
   calculateScaledTextTransform,
   assembleTextCommitTransform,
-} from "../TransformOverlay";
+} from "@/lib/transform/transformUtils";
 import { calculateTransform, getDefaultConstraints } from "../calculator";
 import { createTextClip } from "@/lib/text/textClip";
 import type { Clip, TransformState } from "@/types";

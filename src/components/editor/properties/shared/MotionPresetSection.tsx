@@ -311,9 +311,9 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
   );
 
   return (
-    <div className="space-y-1.5 select-none text-white relative p-2">
+    <div className="space-y-1.5 select-none text-text-primary relative p-2">
       {/* ── 1. CapCut Phase Switcher Tabs (In, Out, Loop) ────────────────────── */}
-      <div className="bg-panel p-0.5 rounded-sm flex gap-1 border border-white/5">
+      <div className="bg-surface-panel p-0.5 rounded-sm flex gap-1 border border-border-default">
         <button
           type="button"
           role="tab"
@@ -322,11 +322,11 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
           onClick={() => handleTabChange("in")}
           className={`flex-1 py-0.5 text-xs rounded-sm transition-all text-center capitalize flex items-center justify-center gap-1 ${
             activeTab === "in"
-              ? "bg-[#38383e] text-white shadow-sm font-semibold cursor-pointer"
-              : "text-[#8e8e93] hover:text-white cursor-pointer"
+              ? "bg-accent-primary text-white shadow-sm font-semibold cursor-pointer"
+              : "text-text-secondary hover:text-text-primary hover:bg-surface-hover cursor-pointer"
           }`}
         >
-          {hasIn && <span className="w-1.5 h-1.5 rounded-full bg-[#00E5FF]" />}
+          {hasIn && <span className="w-1.5 h-1.5 rounded-full bg-accent-primary" />}
           <span>{t("properties.animation.inDetailed")}</span>
         </button>
 
@@ -338,8 +338,8 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
           onClick={() => handleTabChange("out")}
           className={`flex-1 py-0.5 text-xs rounded-sm transition-all text-center capitalize flex items-center justify-center gap-1 ${
             activeTab === "out"
-              ? "bg-[#38383e] text-white shadow-sm font-semibold cursor-pointer"
-              : "text-[#8e8e93] hover:text-white cursor-pointer"
+              ? "bg-accent-primary text-white shadow-sm font-semibold cursor-pointer"
+              : "text-text-secondary hover:text-text-primary hover:bg-surface-hover cursor-pointer"
           }`}
         >
           {hasOut && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
@@ -354,8 +354,8 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
           onClick={() => handleTabChange("loop")}
           className={`flex-1 py-0.5 text-xs rounded-sm transition-all text-center capitalize flex items-center justify-center gap-1 ${
             activeTab === "loop"
-              ? "bg-[#38383e] text-white shadow-sm font-semibold cursor-pointer"
-              : "text-[#8e8e93] hover:text-white cursor-pointer"
+              ? "bg-accent-primary text-white shadow-sm font-semibold cursor-pointer"
+              : "text-text-secondary hover:text-text-primary hover:bg-surface-hover cursor-pointer"
           }`}
         >
           {hasLoop && (
@@ -367,7 +367,7 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
 
       {/* ── 2. CapCut Search Bar & Favorites Toggle ─────────────────────────── */}
       <div className="flex items-center gap-1">
-        <div className="relative flex-1 flex items-center bg-[#18181A] rounded-md border border-border/40 px-2.5 py-1 focus-within:border-[#00E5FF]/60 focus-within:ring-1 focus-within:ring-[#00E5FF]/30 transition-all">
+        <div className="relative flex-1 flex items-center bg-surface-input rounded-md border border-border-default px-2.5 py-1 focus-within:border-accent-primary/60 focus-within:ring-1 focus-within:ring-accent-primary/30 transition-all">
           <Search className="w-3.5 h-3.5 text-text-muted shrink-0 mr-2" />
           <input
             type="text"
@@ -397,7 +397,7 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
           className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 transition-colors cursor-pointer border ${
             activeFilter === "favorites"
               ? "bg-amber-400/20 text-amber-400 border-amber-400/50"
-              : "bg-[#18181A] border-border/40 text-text-muted hover:text-text-primary hover:bg-[#2E2E34]"
+              : "bg-surface-elevated border-border-default text-text-muted hover:text-text-primary hover:bg-surface-hover"
           }`}
         >
           <Star
@@ -434,12 +434,12 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
 
       {/* ── 4. Loop Speed & Intensity Controls (when Loop tab is active and has loop) ── */}
       {activeTab === "loop" && hasLoop && (
-        <div className="space-y-3 pt-2 border-t border-border/30">
+        <div className="space-y-3 pt-2 border-t border-border-default">
           {/* Speed control */}
           <div className="space-y-1">
             <div className="flex items-center gap-1.5">
               <Gauge className="w-3 h-3 text-text-muted" />
-              <span className="text-[11px] text-white select-none block">
+              <span className="text-[11px] text-text-primary select-none block">
                 {t("properties.animation.speed")}
               </span>
             </div>
@@ -469,7 +469,7 @@ export const MotionPresetSection: React.FC<MotionPresetSectionProps> = ({
           <div className="space-y-1">
             <div className="flex items-center gap-1.5">
               <Activity className="w-3 h-3 text-text-muted" />
-              <span className="text-[11px] text-white select-none block">
+              <span className="text-[11px] text-text-primary select-none block">
                 {t("properties.animation.intensity")}
               </span>
             </div>

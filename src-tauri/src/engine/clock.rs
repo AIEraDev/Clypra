@@ -62,6 +62,7 @@ impl EngineClock {
         self.current_time_micros
             .store(audio_time.as_micros(), Ordering::Release);
         self.mode = ClockMode::AudioMaster;
+        self.last_tick_instant = Some(Instant::now());
     }
 
     pub fn start(&mut self) {

@@ -56,6 +56,7 @@ export function useNativeSurfaceController({
   const configuredRef = useRef(false);
   const geometrySettledRef = useRef(false);
   const readyRevisionRef = useRef(0);
+  const readinessGateTraceRef = useRef("");
 
   const targetCallback = useCallback((node: HTMLDivElement | null) => {
     targetRef.current = node;
@@ -85,14 +86,26 @@ export function useNativeSurfaceController({
       void getNativeGpuStatus()
         .then((status) => {
           if (disposed) return;
-          if (status.state === "ready") {
+          const normalizedState = String(status.state).toLowerCase();
+          tracePlayback("native-gpu-status", {
+            state: normalizedState,
+            rawState: String(status.state),
+            available: status.available,
+            surfaceAvailable: status.surfaceAvailable,
+            hasFailureReason: Boolean(status.failureReason),
+          });
+          if (normalizedState === "ready") {
             setGpuReady(true);
             clearPoll();
-          } else if (status.state === "failed") {
+          } else if (normalizedState === "failed") {
             fail(status.failureReason || "Unknown failure");
           }
         })
-        .catch(() => undefined);
+        .catch((error) => {
+          tracePlayback("native-gpu-status-error", {
+            errorType: error instanceof Error ? error.name : "unknown",
+          });
+        });
     };
 
     checkNow();
@@ -101,6 +114,7 @@ export function useNativeSurfaceController({
     let unlistenFailed: (() => void) | null = null;
     void listenForGpuReady(() => {
       if (!disposed) {
+        tracePlayback("native-gpu-ready-event", {});
         setGpuReady(true);
         clearPoll();
       }
@@ -109,7 +123,10 @@ export function useNativeSurfaceController({
       else unlistenReady = unlisten;
     });
     void listenForGpuFailed((reason) => {
-      if (!disposed) fail(reason);
+      if (!disposed) {
+        tracePlayback("native-gpu-failed-event", { hasReason: Boolean(reason) });
+        fail(reason);
+      }
     }).then((unlisten) => {
       if (disposed) unlisten();
       else unlistenFailed = unlisten;
@@ -132,13 +149,27 @@ export function useNativeSurfaceController({
     if (EMBEDDED_PREVIEW_ONLY) return;
 
     const initialTarget = targetRef.current || target;
-    if (
-      !isTauriRuntime() ||
-      !projectId ||
-      !initialTarget ||
-      !viewportReady ||
-      !gpuReady
-    ) {
+    const runtimeAvailable = isTauriRuntime();
+    const gateKey = [
+      runtimeAvailable,
+      Boolean(projectId),
+      Boolean(initialTarget),
+      viewportReady,
+      gpuReady,
+      EMBEDDED_PREVIEW_ONLY,
+    ].join(":");
+    if (readinessGateTraceRef.current !== gateKey) {
+      readinessGateTraceRef.current = gateKey;
+      tracePlayback("native-surface-readiness-gate", {
+        runtimeAvailable,
+        projectAvailable: Boolean(projectId),
+        targetAvailable: Boolean(initialTarget),
+        viewportReady,
+        gpuReady,
+        embeddedOnly: EMBEDDED_PREVIEW_ONLY,
+      });
+    }
+    if (!runtimeAvailable || !projectId || !initialTarget || !viewportReady || !gpuReady) {
       return;
     }
 
@@ -163,6 +194,7 @@ export function useNativeSurfaceController({
       errorRef.current = null;
       setError(null);
       void (async () => {
+        let phase: "geometry" | "configure" = "geometry";
         try {
           while (active && syncRequested) {
             syncRequested = false;
@@ -174,6 +206,7 @@ export function useNativeSurfaceController({
             if (nextGeometryKey === appliedGeometryKey && configuredRef.current) {
               continue;
             }
+            phase = "configure";
             await configureNativeSurface(projectId, geometry);
             if (!active) break;
             configuredRef.current = true;
@@ -186,6 +219,12 @@ export function useNativeSurfaceController({
             markNativeSurfaceReady(readinessToken);
             readyRevisionRef.current += 1;
             onSurfaceReady();
+
+            tracePlayback("native-surface-ready", {
+              projectId,
+              phase,
+              probeStatus: "ready",
+            });
 
             tracePlayback("surface-geometry-sync", {
               projectId,
@@ -203,6 +242,12 @@ export function useNativeSurfaceController({
           geometrySettledRef.current = false;
           if (active) {
             const message = caught instanceof Error ? caught.message : String(caught);
+            tracePlayback("native-surface-configuration-failed", {
+              projectId,
+              phase,
+              errorType: caught instanceof Error ? caught.name : "unknown",
+              message,
+            });
             errorRef.current = message;
             readyRef.current = false;
             setError(message);

@@ -56,6 +56,24 @@ impl PlaybackSession {
         &self.plan
     }
 
+    pub fn update_plan(&mut self, plan: PlaybackPlan) -> Result<PlaybackState, NativeCoreError> {
+        validate_plan(&plan)?;
+        self.state.project_revision = plan.project_revision.clone();
+        self.plan = plan;
+        if self.plan.duration_frames == 0 {
+            self.state.presented_frame = None;
+            self.state.audio_position_ticks = 0;
+            self.playing = false;
+            self.anchor_clock = None;
+            self.state.clock_status = PlaybackClockStatus::Stopped;
+        } else if let Ok(max_ticks) = duration_ticks(&self.plan) {
+            if self.state.audio_position_ticks >= max_ticks {
+                self.seek(self.plan.duration_frames.saturating_sub(1))?;
+            }
+        }
+        Ok(self.state())
+    }
+
     /// True only after normal transport has reached the terminal timeline
     /// frame. This deliberately differs from a user pause at an arbitrary
     /// position so platform owners can release audio resources safely.
@@ -152,6 +170,17 @@ impl PlaybackSession {
         self.plan.project_revision == project_revision
             && self.active_request_id.as_deref() == Some(request_id)
             && self.state.presented_frame == Some(frame_index)
+    }
+
+    pub fn reanchor(&mut self, clock: FrameTime) -> Result<(), NativeCoreError> {
+        validate_clock(clock)?;
+        self.anchor_clock = Some(clock);
+        self.anchor_position = position_from_ticks(self.state.audio_position_ticks)?;
+        Ok(())
+    }
+
+    pub fn set_clock_status(&mut self, status: PlaybackClockStatus) {
+        self.state.clock_status = status;
     }
 }
 

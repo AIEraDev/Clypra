@@ -1,21 +1,22 @@
 import React, { useEffect, useRef, useState } from "react";
-import {
-  ZoomIn,
-  ZoomOut,
-  ArrowLeftRight,
-  Undo2,
-  Redo2,
-  ScissorsLineDashed,
-  ChevronLeft,
-  ChevronRight,
-  Trash2,
-  Copy,
-  Maximize2,
-  Zap,
-  Link2,
-  GitCommitHorizontal,
-} from "lucide-react";
+import { ArrowLeftRight, Maximize2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import {
+  ToolbarUndoIcon,
+  ToolbarRedoIcon,
+  ToolbarDeleteLeftIcon,
+  ToolbarDeleteRightIcon,
+  ToolbarSplitIcon,
+  ToolbarDeleteIcon,
+  ToolbarDuplicateIcon,
+  ToolbarCloseGapIcon,
+  ToolbarZoomInIcon,
+  ToolbarZoomOutIcon,
+  ToolbarRippleOnIcon,
+  ToolbarRippleOffIcon,
+  ToolbarSnapOnIcon,
+  ToolbarSnapOffIcon,
+} from "@/components/ui/icons";
 import {
   Tooltip,
   TooltipContent,
@@ -56,10 +57,10 @@ const ZOOM_THUMB_SIZE_PX = 12;
 const ZOOM_RAIL_WIDTH_PX = 112; // w-28
 
 const TIER_BAND_CLASS: Record<SpatialTier, string> = {
-  [SpatialTier.L0]: "bg-accent/20",
-  [SpatialTier.L1]: "bg-accent/35",
-  [SpatialTier.L2]: "bg-accent/50",
-  [SpatialTier.L3]: "bg-accent/70",
+  [SpatialTier.L0]: "bg-accent-primary/20",
+  [SpatialTier.L1]: "bg-accent-primary/35",
+  [SpatialTier.L2]: "bg-accent-primary/50",
+  [SpatialTier.L3]: "bg-accent-primary/70",
 };
 
 const TimelineToolbarComponent: React.FC = () => {
@@ -265,11 +266,11 @@ const TimelineToolbarComponent: React.FC = () => {
   };
 
   const toolButton =
-    "text-text-muted hover:text-text-primary hover:bg-surface-raised/80 cursor-pointer disabled:cursor-not-allowed disabled:pointer-events-auto";
+    "text-text-muted hover:text-text-primary hover:bg-surface-hover cursor-pointer disabled:cursor-not-allowed disabled:pointer-events-auto";
   const activeButton =
-    "bg-accent/15 text-accent-soft border-accent/40 hover:bg-accent/20";
+    "bg-accent-primary/10 text-accent-primary border-accent-primary/30 hover:bg-accent-primary/15";
   const zoomButton =
-    "cursor-pointer disabled:cursor-not-allowed disabled:pointer-events-auto h-6 w-6 rounded-full border border-accent/35 bg-surface-raised text-accent-soft shadow-[0_0_0_1px_rgba(0,0,0,0.28),0_3px_8px_rgba(0,0,0,0.22)] hover:border-accent/60 hover:bg-accent/15 hover:text-text-primary transition-colors";
+    "cursor-pointer disabled:cursor-not-allowed disabled:pointer-events-auto h-6 w-6 rounded-full border border-accent-primary/35 bg-surface-elevated text-accent-primary shadow-sm hover:border-accent-primary/60 hover:bg-surface-hover hover:text-text-primary transition-colors";
 
   const Tool = ({
     label,
@@ -292,113 +293,95 @@ const TimelineToolbarComponent: React.FC = () => {
       >
         <div className="flex items-center gap-1">
           <Tool label={`${t("common.actions.undo")} (Cmd+Z)`}>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={toolButton}
+            <button
+              className={`flex justify-center items-center py-1 px-2 ${toolButton} rounded-(--ds-radius-sm)`}
               onClick={undo}
               disabled={!historyState.canUndo}
             >
-              <Undo2 className="w-4 h-4" />
-            </Button>
+              <ToolbarUndoIcon size="1rem" className="w-4 h-4" />
+            </button>
           </Tool>
 
           <Tool label={`${t("common.actions.redo")} (Cmd+Shift+Z)`}>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={toolButton}
+            <button
+              className={`flex justify-center items-center py-1 px-2 ${toolButton} rounded-(--ds-radius-sm)`}
               onClick={redo}
               disabled={!historyState.canRedo}
             >
-              <Redo2 className="w-4 h-4" />
-            </Button>
+              <ToolbarRedoIcon size="1rem" className="w-4 h-4" />
+            </button>
           </Tool>
 
           {getClipCommand("clip.swap")?.isVisible && (
             <Tool label={t("timeline.tools.swapClips")}>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className={toolButton}
+              <button
+                className={`flex justify-center items-center py-1 px-2 ${toolButton} rounded-(--ds-radius-sm)`}
                 onClick={() => executeClipCommand("clip.swap")}
                 disabled={!getClipCommand("clip.swap")?.isEnabled}
               >
                 <ArrowLeftRight className="w-4 h-4" />
-              </Button>
+              </button>
             </Tool>
           )}
 
           <Tool label={t("timeline.clips.deleteLeft")}>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={toolButton}
+            <button
+              className={`flex justify-center items-center py-1 px-2 ${toolButton} rounded-(--ds-radius-sm)`}
               onClick={() => executeClipCommand("clip.trimStartToPlayhead")}
               disabled={!getClipCommand("clip.trimStartToPlayhead")?.isEnabled}
             >
-              <ChevronLeft className="w-4 h-4" />
-            </Button>
+              <ToolbarDeleteLeftIcon size="1rem" className="w-4 h-4" />
+            </button>
           </Tool>
 
           <Tool label={t("timeline.clips.deleteRight")}>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={toolButton}
+            <button
+              className={`flex justify-center items-center py-1 px-2 ${toolButton} rounded-(--ds-radius-sm)`}
               onClick={() => executeClipCommand("clip.trimEndToPlayhead")}
               disabled={!getClipCommand("clip.trimEndToPlayhead")?.isEnabled}
             >
-              <ChevronRight className="w-4 h-4" />
-            </Button>
+              <ToolbarDeleteRightIcon size="1rem" className="w-4 h-4" />
+            </button>
           </Tool>
 
           <Tool label={t("timeline.tools.split")}>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={toolButton}
-              onClick={() => executeClipCommand("clip.splitAllAtPlayhead")}
-              disabled={!getClipCommand("clip.splitAllAtPlayhead")?.isEnabled}
+            <button
+              className={`flex justify-center items-center py-1 px-2 ${toolButton} rounded-(--ds-radius-sm)`}
+              onClick={() => executeClipCommand("clip.splitAtPlayhead")}
+              disabled={!getClipCommand("clip.splitAtPlayhead")?.isEnabled}
             >
-              <ScissorsLineDashed className="w-4 h-4" />
-            </Button>
+              <ToolbarSplitIcon size="1rem" className="w-4 h-4" />
+            </button>
           </Tool>
 
           <Tool label={t("timeline.clips.deleteSelected")}>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={toolButton}
+            <button
+              className={`flex justify-center items-center py-1 px-2 ${toolButton} rounded-(--ds-radius-sm)`}
               onClick={() => executeClipCommand("clip.rippleDelete")}
               disabled={!getClipCommand("clip.rippleDelete")?.isEnabled}
             >
-              <Trash2 className="w-4 h-4" />
-            </Button>
+              <ToolbarDeleteIcon size="1rem" className="w-4 h-4" />
+            </button>
           </Tool>
 
           <Tool label={t("timeline.clips.duplicateSelected")}>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={toolButton}
+            <button
+              className={`flex justify-center items-center py-1 px-2 ${toolButton} rounded-(--ds-radius-sm)`}
               onClick={() => executeClipCommand("clip.duplicate")}
               disabled={!getClipCommand("clip.duplicate")?.isEnabled}
             >
-              <Copy className="w-4 h-4" />
-            </Button>
+              <ToolbarDuplicateIcon size="1rem" className="w-4 h-4" />
+            </button>
           </Tool>
 
           <Tool label={t("timeline.tools.closeGaps")}>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={toolButton}
+            <button
+              className={`flex justify-center items-center py-1 px-2 ${toolButton} rounded-(--ds-radius-sm)`}
               onClick={() => executeTimelineCommand("timeline.closeAllGaps")}
               disabled={!getTimelineCommand("timeline.closeAllGaps")?.isEnabled}
             >
-              <ScissorsLineDashed className="w-4 h-4" />
-            </Button>
+              <ToolbarCloseGapIcon size="1rem" className="w-4 h-4" />
+            </button>
           </Tool>
 
           {/* Ripple edit toggle */}
@@ -409,15 +392,17 @@ const TimelineToolbarComponent: React.FC = () => {
                 : "Ripple edit: Off — trim leaves a gap"
             }
           >
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={`${toolButton} ${rippleEditEnabled ? activeButton : ""}`}
+            <button
+              className={`flex justify-center items-center py-1 px-2 ${toolButton} rounded-(--ds-radius-sm)`}
               onClick={toggleRippleEdit}
               aria-pressed={rippleEditEnabled}
             >
-              <Link2 className="w-4 h-4" />
-            </Button>
+              {rippleEditEnabled ? (
+                <ToolbarRippleOnIcon size="1rem" className="w-4 h-4" />
+              ) : (
+                <ToolbarRippleOffIcon size="1rem" className="w-4 h-4" />
+              )}
+            </button>
           </Tool>
 
           {/* Magnetic snap toggle */}
@@ -428,15 +413,17 @@ const TimelineToolbarComponent: React.FC = () => {
                 : "Snap: Off"
             }
           >
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={`${toolButton} ${snapEnabled ? activeButton : ""}`}
+            <button
+              className={`flex justify-center items-center py-1 px-2 ${toolButton} rounded-(--ds-radius-sm)`}
               onClick={toggleSnapEnabled}
               aria-pressed={snapEnabled}
             >
-              <GitCommitHorizontal className="w-4 h-4" />
-            </Button>
+              {snapEnabled ? (
+                <ToolbarSnapOnIcon size="1rem" className="w-4 h-4" />
+              ) : (
+                <ToolbarSnapOffIcon size="1rem" className="w-4 h-4" />
+              )}
+            </button>
           </Tool>
         </div>
 
@@ -454,7 +441,7 @@ const TimelineToolbarComponent: React.FC = () => {
             <button
               onClick={() => setShowQualityMenu((v) => !v)}
               className={cn(
-                "flex items-center gap-1 px-2 py-1 rounded-md bg-surface-raised border border-white/6 text-[10px] font-semibold transition-colors cursor-pointer",
+                "flex items-center gap-1 px-2 py-1 rounded-md bg-surface-elevated border border-border-default text-[10px] font-semibold transition-colors cursor-pointer",
                 isHardwareLimited
                   ? "text-amber-400 hover:text-amber-300 border-amber-500/30"
                   : "text-text-muted hover:text-text-primary",
@@ -498,8 +485,8 @@ const TimelineToolbarComponent: React.FC = () => {
                       }}
                       className={`w-full px-3 py-1.5 text-[11px] text-left transition-colors cursor-pointer flex items-center justify-between gap-3 ${
                         previewQuality === tier.value
-                          ? "text-accent bg-accent/10 font-semibold"
-                          : "text-text-muted hover:text-text-primary hover:bg-white/5"
+                          ? "text-accent-primary bg-accent-primary/10 font-semibold"
+                          : "text-text-muted hover:text-text-primary hover:bg-surface-hover"
                       }`}
                     >
                       <div className="flex flex-col min-w-0">
@@ -520,7 +507,7 @@ const TimelineToolbarComponent: React.FC = () => {
                             </span>
                           )}
                           {tier.isRecommended && (
-                            <span className="px-1 py-0.2 rounded text-[9px] font-medium bg-accent/15 text-accent border border-accent/25 shrink-0">
+                            <span className="px-1 py-0.2 rounded text-[9px] font-medium bg-accent-primary/15 text-accent-primary border border-accent-primary/25 shrink-0">
                               Recommended
                             </span>
                           )}
@@ -536,7 +523,7 @@ const TimelineToolbarComponent: React.FC = () => {
                     </button>
                   ))}
                   {gpuName && (
-                    <div className="px-3 py-1.5 mt-1 border-t border-white/6 text-[9.5px] text-text-muted flex items-center justify-between bg-white/[0.02]">
+                    <div className="px-3 py-1.5 mt-1 border-t border-border-default text-[9.5px] text-text-muted flex items-center justify-between bg-surface-elevated/20">
                       <span className="truncate max-w-[140px]" title={gpuName}>
                         {gpuName}
                       </span>
@@ -575,7 +562,7 @@ const TimelineToolbarComponent: React.FC = () => {
               disabled={!hasTimelineContent || zoomLevel <= TIMELINE_ZOOM_MIN}
               aria-label={t("timeline.tools.zoomOutTimeline")}
             >
-              <ZoomOut className="w-3 h-3" strokeWidth={2} />
+              <ToolbarZoomOutIcon size="0.75rem" className="w-3 h-3" />
             </Button>
 
             <div
@@ -596,7 +583,7 @@ const TimelineToolbarComponent: React.FC = () => {
               onKeyDown={handleZoomKeyDown}
               className={`group relative flex h-6 w-28 items-center rounded-full outline-none ${hasTimelineContent ? "cursor-pointer touch-none" : "cursor-not-allowed opacity-40"} focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-surface`}
             >
-              <div className="relative mx-[8px] h-[5px] w-full overflow-hidden rounded-full bg-surface-raised shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(255,255,255,0.04),0_3px_8px_rgba(0,0,0,0.28)]">
+              <div className="relative mx-[8px] h-[5px] w-full overflow-hidden rounded-full bg-surface-raised shadow-inner">
                 {tierSegments.map(({ tier, left, width }) => (
                   <div
                     key={tier}
@@ -606,7 +593,7 @@ const TimelineToolbarComponent: React.FC = () => {
                   />
                 ))}
                 <div
-                  className="relative h-full rounded-full bg-accent shadow-[0_0_16px_var(--clypra-accent-glow)]"
+                  className="relative h-full rounded-full bg-accent-primary shadow-[0_0_16px_var(--clypra-accent-glow)]"
                   style={{ width: `${zoomProgress}%` }}
                 />
               </div>
@@ -626,7 +613,7 @@ const TimelineToolbarComponent: React.FC = () => {
               disabled={!hasTimelineContent || zoomLevel >= maxZoom}
               aria-label={t("timeline.tools.zoomInTimeline")}
             >
-              <ZoomIn className="w-3.5 h-3.5" strokeWidth={2} />
+              <ToolbarZoomInIcon size="0.875rem" className="w-3.5 h-3.5" />
             </Button>
           </span>
         </div>

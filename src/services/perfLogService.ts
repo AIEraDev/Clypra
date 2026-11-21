@@ -44,6 +44,17 @@ import { getTextMetricsSnapshot } from "@/lib/playback/textMetrics";
 import { timelineZoomTelemetry } from "@/lib/timeline/timelineZoomTelemetry";
 import { mediaAnimationRollup } from "@/features/media-animations/telemetry/mediaAnimationRollup";
 import { getOrCreateHashedInstallId } from "./telemetryCollector";
+import { evaluatorTelemetry } from "@/core/evaluation/evaluatorTelemetry";
+import { viewportTelemetry } from "@/core/timeline/viewportTelemetry";
+import { getActiveRingBufferTelemetry } from "@/core/workers/ringBuffer";
+import { getVectorComputeTelemetrySnapshot } from "@/core/workers/vectorCompute";
+import {
+  PERF_SCHEMA_VERSION,
+  scopeForPerfKind,
+  type PerfScope,
+  type PerfSessionHeader,
+  type PreviewContextRecord,
+} from "./perfSchema";
 
 // ── Tauri runtime guard ───────────────────────────────────────────────────────
 // Evaluated lazily at call time, not at module-load time. The module-level
@@ -66,6 +77,8 @@ const MAX_QUEUE_SIZE = 200;
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type PerfLogKind =
+  | "session-header"
+  | "preview-context"
   | "frontend-rollup"
   | "native-sync"
   | "native-session-telemetry"
@@ -104,7 +117,8 @@ export type PerfLogKind =
   | "media-animation-catalog-fetch"
   | "media-animation-download"
   | "media-animation-cache-hydration"
-  | "media-animation-rollup";
+  | "media-animation-rollup"
+  | "multi-tier-optimization-rollup";
 
 export interface PerfLogEntry {
   kind: PerfLogKind;
@@ -112,6 +126,12 @@ export interface PerfLogEntry {
   sessionId: string;
   /** Unix epoch ms — set by the caller at collection time. */
   timestampEpochMs: number;
+  /** Versioned provenance envelope; legacy callers may omit it. */
+  schemaVersion?: number;
+  /** Monotonic sequence assigned once at the writer boundary. */
+  seq?: number;
+  /** Logical producer scope used by the offline analyzer. */
+  scope?: PerfScope;
   /** Raw payload — typed by `kind` but opaque to the Rust layer. */
   payload: unknown;
 }
@@ -120,6 +140,7 @@ interface PerfLogSessionInfo {
   sessionId: string;
   filePath: string;
   openedAtEpochMs: number;
+  header: PerfSessionHeader;
 }
 
 interface MediaRuntimeStatus {
@@ -173,6 +194,7 @@ export class PerfLogService {
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private syncPollTimer: ReturnType<typeof setInterval> | null = null;
   private diagnosticsUnlisten: (() => void) | null = null;
+  private lifecycleSnapshotUnlisten: (() => void) | null = null;
   private playbackStartupUnlisten: (() => void) | null = null;
   private workerErrorUnlisten: (() => void) | null = null;
   private engineUnlistens: (() => void)[] = [];
@@ -182,6 +204,7 @@ export class PerfLogService {
   private peakMemoryMb: number = 0;
   /** Last native-sync content persisted in this session (timestamps excluded). */
   private lastNativeSyncFingerprint: string | null = null;
+  private nextSequence = 1;
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
@@ -230,6 +253,7 @@ export class PerfLogService {
       this.filePath = info.filePath;
       this.peakMemoryMb = 0; // reset peak for the new session
       this.lastNativeSyncFingerprint = null;
+      this.nextSequence = 1;
 
       // Reset native session telemetry so previous app launches / sessions
       // in the same process do not contaminate the new session with stale frame counts.
@@ -296,6 +320,7 @@ export class PerfLogService {
    */
   private async retryPendingUploads(): Promise<void> {
     if (!isTauriRuntime()) return;
+    if (!this.isTelemetryUploadEnabled()) return;
     try {
       const uploadedCount = await tauriInvoke<number>(
         "upload_pending_perf_logs",
@@ -347,6 +372,9 @@ export class PerfLogService {
     // Always stamp with the active session ID in case the caller passed a
     // stale ID from before a project switch.
     entry.sessionId = this.sessionId;
+    entry.schemaVersion ??= PERF_SCHEMA_VERSION;
+    entry.seq ??= this.nextSequence++;
+    entry.scope ??= scopeForPerfKind(entry.kind);
 
     this.queue.push(entry);
 
@@ -354,6 +382,19 @@ export class PerfLogService {
       // Non-blocking — do not await inside a synchronous hot path.
       void this.flushQueue();
     }
+  }
+
+  /** Records a preview-context transition without coupling telemetry callers
+   * to the underlying NDJSON envelope. */
+  recordPreviewContext(context: PreviewContextRecord): void {
+    const sessionId = this.sessionId;
+    if (!sessionId) return;
+    this.enqueue({
+      kind: "preview-context",
+      sessionId,
+      timestampEpochMs: Date.now(),
+      payload: context,
+    });
   }
 
   /**
@@ -665,10 +706,49 @@ export class PerfLogService {
     if (this.flushInFlight) await this.flushInFlight;
     await this._flushQueueWithSession(sessionId);
 
+    // Freeze the native decode-attempt accounting before taking the final
+    // snapshot. Guards that finish after this boundary are reported as
+    // in-flight-at-close rather than as an unexplained missing outcome.
+    try {
+      await tauriInvoke<void>("mark_engine_telemetry_closing");
+    } catch (err) {
+      console.warn(
+        "[PerfLogService] Failed to mark native telemetry as closing:",
+        err,
+      );
+    }
+
+    // Capture the engine snapshot only after the closing boundary is set. This
+    // makes shutdown in-flight decode guards and the zero-copy guard counter
+    // visible in the final NDJSON record instead of relying on the last timer
+    // poll, which may have happened before the session stopped.
+    try {
+      const finalEngineTelemetry = await tauriInvoke<unknown>(
+        "get_engine_telemetry",
+      );
+      if (finalEngineTelemetry) {
+        this.queue.push({
+          kind: "engine-telemetry",
+          sessionId,
+          timestampEpochMs: Date.now(),
+          payload: finalEngineTelemetry,
+        });
+      }
+    } catch (err) {
+      console.warn(
+        "[PerfLogService] Failed to capture final engine telemetry:",
+        err,
+      );
+    }
+
     // Unsubscribe from native diagnostics before closing.
     if (this.diagnosticsUnlisten) {
       this.diagnosticsUnlisten();
       this.diagnosticsUnlisten = null;
+    }
+    if (this.lifecycleSnapshotUnlisten) {
+      this.lifecycleSnapshotUnlisten();
+      this.lifecycleSnapshotUnlisten = null;
     }
     if (this.playbackStartupUnlisten) {
       this.playbackStartupUnlisten();
@@ -676,6 +756,34 @@ export class PerfLogService {
     }
     this.engineUnlistens.forEach((u) => u());
     this.engineUnlistens = [];
+
+    // Flush final multi-tier optimization rollup
+    try {
+      const finalNativeReport = isTauriRuntime()
+        ? await tauriInvoke<unknown>("get_multi_tier_native_telemetry")
+        : null;
+
+      this.queue.push({
+        kind: "multi-tier-optimization-rollup",
+        sessionId,
+        timestampEpochMs: Date.now(),
+        payload: {
+          evaluator: evaluatorTelemetry.getSnapshot(),
+          viewport: viewportTelemetry.getSnapshot(),
+          ringBuffer: getActiveRingBufferTelemetry(),
+          vectorCompute: getVectorComputeTelemetrySnapshot(),
+          native: finalNativeReport,
+          isFinalSessionRollup: true,
+        },
+      });
+    } catch {
+      // Silently skip if unavailable.
+    }
+
+    // The final native rollup is queued after the first flush above. Persist it
+    // before closing the Rust-owned file; otherwise a clean exit would contain
+    // the session-close marker but silently lose the last summary record.
+    await this._flushQueueWithSession(sessionId);
 
     // Tell Rust to close the file and get back the path.
     let closedPath: string | null = null;
@@ -848,6 +956,7 @@ export class PerfLogService {
       this.flushTextMetricsSummary();
       this.flushTimelineZoomSummary();
       this.flushAnimationRollupSummary();
+      void this.pollMultiTierTelemetry();
     }, SYNC_POLL_INTERVAL_MS);
   }
 
@@ -925,6 +1034,46 @@ export class PerfLogService {
       });
     } catch {
       // Tauri not ready yet or command unavailable — silently skip.
+    }
+  }
+
+  private async pollMultiTierTelemetry(): Promise<void> {
+    if (!this.sessionId) return;
+    try {
+      const nativeReport = isTauriRuntime()
+        ? await tauriInvoke<unknown>("get_multi_tier_native_telemetry")
+        : null;
+
+      const evaluatorSnapshot = evaluatorTelemetry.getSnapshot();
+      const viewportSnapshot = viewportTelemetry.getSnapshot();
+      const ringBufferStats = getActiveRingBufferTelemetry();
+      const vectorComputeStats = getVectorComputeTelemetrySnapshot();
+
+      // Skip logging if everything is completely idle
+      if (
+        evaluatorSnapshot.evaluationsTotal === 0 &&
+        viewportSnapshot.windowComputationsTotal === 0 &&
+        vectorComputeStats.colorScopesCalls === 0 &&
+        vectorComputeStats.waveformCalls === 0 &&
+        (!nativeReport || (nativeReport as any).audioMixGraph?.chunksMixedTotal === 0)
+      ) {
+        return;
+      }
+
+      this.enqueue({
+        kind: "multi-tier-optimization-rollup",
+        sessionId: this.sessionId,
+        timestampEpochMs: Date.now(),
+        payload: {
+          evaluator: evaluatorSnapshot,
+          viewport: viewportSnapshot,
+          ringBuffer: ringBufferStats,
+          vectorCompute: vectorComputeStats,
+          native: nativeReport,
+        },
+      });
+    } catch {
+      // Silently skip if unavailable.
     }
   }
 
@@ -1120,6 +1269,18 @@ export class PerfLogService {
         },
       );
       this.diagnosticsUnlisten = unlisten;
+      this.lifecycleSnapshotUnlisten = await tauriListen(
+        "lifecycle-registry-snapshot",
+        (payload) => {
+          if (!this.sessionId) return;
+          this.enqueue({
+            kind: "native-diagnostic",
+            sessionId: this.sessionId,
+            timestampEpochMs: Date.now(),
+            payload: { marker: "lifecycle-registry-snapshot", ...(payload as object) },
+          });
+        },
+      );
     } catch (err) {
       console.warn(
         "[PerfLogService] Failed to subscribe to native diagnostics:",
@@ -1243,9 +1404,9 @@ export class PerfLogService {
   }
 
   /**
-   * Returns true unless the user has explicitly opted out of telemetry upload.
+   * Returns true only after the user has explicitly opted into telemetry upload.
    * Respects CLYPRA_DISABLE_TELEMETRY_UPLOAD env var for CI and contributors.
-   * Default is ON — enabled for all installs unless the user sets the flag to false.
+   * Default is OFF — uploads require an explicit user opt-in.
    */
   private isTelemetryUploadEnabled(): boolean {
     // Never upload from a dev build — debug sessions report synthetic latch
@@ -1270,15 +1431,12 @@ export class PerfLogService {
     ) {
       return false;
     }
-    // Default ON — telemetry upload is enabled unless the user explicitly
-    // opts out (stored value === "false").  Absence of the key means the
-    // setting was never changed, which we now treat as consent-to-default
-    // rather than opt-out.
+    // Default OFF — absence of the key means the user has not opted in.
     try {
       const stored = localStorage.getItem("clypra.telemetryUploadEnabled");
-      return stored === null ? true : stored === "true";
+      return stored === "true";
     } catch {
-      return true;
+      return false;
     }
   }
 
@@ -1291,13 +1449,13 @@ export class PerfLogService {
     }
   }
 
-  /** Returns the current opt-in state. Defaults to true when the key is absent. */
+  /** Returns the current opt-in state. Defaults to false when the key is absent. */
   static isTelemetryUploadEnabledStatic(): boolean {
     try {
       const stored = localStorage.getItem("clypra.telemetryUploadEnabled");
-      return stored === null ? true : stored === "true";
+      return stored === "true";
     } catch {
-      return true;
+      return false;
     }
   }
 }

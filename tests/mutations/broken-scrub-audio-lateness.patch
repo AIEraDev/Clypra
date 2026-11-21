@@ -1,0 +1,14 @@
+diff --git a/src/core/playback/scrubTraceReplay.ts b/src/core/playback/scrubTraceReplay.ts
+--- a/src/core/playback/scrubTraceReplay.ts
++++ b/src/core/playback/scrubTraceReplay.ts
+@@ -118,7 +118,6 @@ export function shouldDropForAudioLateness(
+   intent: ScrubTraceIntent,
+   lateForAudio: boolean,
+ ): boolean {
+-  // Audio lateness is a playback policy. Interactive scrubs and released seeks
+-  // must still reach the decoder even when the audio clock is stale.
+-  return intent === "playback" && lateForAudio;
++  // Mutation: restore the old global audio-lateness drop policy.
++  return lateForAudio;
+ }
+

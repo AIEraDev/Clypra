@@ -104,7 +104,7 @@ export const GapIndicator: React.FC<GapIndicatorProps> = ({
         {/* Duration label badge on hover */}
         {isHovered && width > 36 && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="px-2 py-0.5 bg-black/75 rounded text-[11px] text-white/90 font-mono shadow-sm backdrop-blur-xs border border-white/10">
+            <div className="px-2 py-0.5 bg-surface-floating/95 border border-border-default text-text-primary rounded text-[11px] font-mono shadow-sm backdrop-blur-xs">
               {formatDuration(gap.duration)}
             </div>
           </div>

@@ -152,6 +152,7 @@ export const RU: Record<string, string> = {
   "Play playback": "Запустить воспроизведение",
   "Base:": "База:",
   "Dark": "Темная",
+  "Light": "Светлая",
   "Midnight": "Полночь",
   "Ocean": "Океан",
   "Forest": "Лес",

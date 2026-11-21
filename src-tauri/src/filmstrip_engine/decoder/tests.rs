@@ -1,6 +1,82 @@
 use super::*;
 use ffmpeg_next as ffmpeg;
 
+#[cfg(test)]
+mod decoder_state_tests {
+    use super::{DecoderPosition, DecoderState};
+
+    #[test]
+    fn cancellation_dirty_state_forces_a_keyframe_recovery() {
+        let mut state = DecoderState::new();
+        assert_eq!(state.position, DecoderPosition::Dirty);
+        assert!(state.is_dirty());
+
+        state.current_pts = 120;
+        state.gop_start_pts = 90;
+        state.sequential_hits = 4;
+        state.mark_positioned();
+        assert!(!state.is_dirty());
+
+        state.mark_dirty();
+        assert!(state.is_dirty());
+        assert_eq!(state.current_pts, -1);
+        assert_eq!(state.gop_start_pts, -1);
+        assert_eq!(state.sequential_hits, 0);
+    }
+
+    #[test]
+    fn positioned_state_preserves_forward_decode_optimization() {
+        let mut state = DecoderState::new();
+        state.mark_positioned();
+        state.current_pts = 100;
+        state.sequential_hits = 3;
+
+        assert!(!state.is_dirty());
+        assert!(state.can_decode_forward(104, 2));
+    }
+}
+
+#[cfg(test)]
+mod ffmpeg_log_classification_tests {
+    use super::{classify_ffmpeg_decode_log, DecodeIncidentKind};
+    use ffmpeg_next as ffmpeg;
+
+    #[test]
+    fn classifies_reference_errors_without_exposing_codec_context_details() {
+        assert_eq!(
+            classify_ffmpeg_decode_log(
+                "[hevc @ 0x1234] Could not find ref with POC 42",
+                ffmpeg::ffi::AV_LOG_ERROR as i32,
+            ),
+            Some(DecodeIncidentKind::Poc)
+        );
+        assert_eq!(
+            classify_ffmpeg_decode_log(
+                "Error constructing the frame RPS.",
+                ffmpeg::ffi::AV_LOG_ERROR as i32,
+            ),
+            Some(DecodeIncidentKind::Rps)
+        );
+        assert_eq!(
+            classify_ffmpeg_decode_log(
+                "decoder failed to output a frame",
+                ffmpeg::ffi::AV_LOG_ERROR as i32,
+            ),
+            Some(DecodeIncidentKind::Other)
+        );
+    }
+
+    #[test]
+    fn ignores_logs_below_error_threshold() {
+        assert_eq!(
+            classify_ffmpeg_decode_log(
+                "Could not find ref with POC 42",
+                (ffmpeg::ffi::AV_LOG_ERROR + 1) as i32,
+            ),
+            None
+        );
+    }
+}
 
 #[cfg(test)]
 mod decode_frame_options_tests {

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useI18n } from "@/i18n";
 import type { Clip } from "@/types";
 import { AudioSection } from "../../audio/sections/AudioSection";
 
@@ -17,18 +18,19 @@ export const AudioStyleSection: React.FC<AudioStyleSectionProps> = ({
   onUnlink,
   onRelink,
 }) => {
+  const { t } = useI18n();
   const [activeSubTab, setActiveSubTab] = useState<AudioSubTab>("basic");
 
   return (
-    <div className="space-y-1.5 select-none text-white relative p-2 pt-0">
+    <div className="space-y-1.5 select-none text-text-primary relative p-2 pt-0">
       {/* Sticky header: sub-tab switcher */}
-      <div className="bg-(--color-gray-900) pt-2 sticky top-0 z-10 space-y-1.5">
-        <div className="bg-panel p-0.5 rounded-sm flex gap-1 border border-white/5">
+      <div className="bg-surface-panel pt-2 sticky top-0 z-10 space-y-1.5">
+        <div className="bg-surface-elevated p-0.5 rounded-md flex gap-1 border border-border-default">
           {(["basic", "voice-changer"] as const).map((tab) => {
             const isLocked = tab !== "basic"; // Only Basic is unlocked for now
             const labels = {
-              basic: "Basic",
-              "voice-changer": "Voice changer",
+              basic: t("properties.text.basicTab"),
+              "voice-changer": t("properties.tabs.voiceChanger"),
             };
 
             return (
@@ -37,13 +39,13 @@ export const AudioStyleSection: React.FC<AudioStyleSectionProps> = ({
                 type="button"
                 onClick={() => !isLocked && setActiveSubTab(tab)}
                 disabled={isLocked}
-                title={isLocked ? "Coming soon" : undefined}
+                title={isLocked ? t("common.comingSoon") : undefined}
                 className={`flex-1 py-0.5 text-xs rounded-sm transition-all text-center flex items-center justify-center gap-1 ${
                   isLocked
-                    ? "text-[#8e8e93]/50 cursor-not-allowed"
+                    ? "text-text-muted/50 cursor-not-allowed"
                     : activeSubTab === tab
-                      ? "bg-[#38383e] text-white shadow-sm font-semibold cursor-pointer"
-                      : "text-[#8e8e93] hover:text-white cursor-pointer"
+                      ? "bg-accent-primary text-white shadow-sm font-semibold cursor-pointer"
+                      : "text-text-secondary hover:text-text-primary hover:bg-surface-hover cursor-pointer"
                 }`}
               >
                 {labels[tab]}

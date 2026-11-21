@@ -173,7 +173,7 @@ export const TextStrokeSection: React.FC<TextStrokeSectionProps> = ({
   };
 
   return (
-    <div className="space-y-3.5 select-none text-white">
+    <div className="space-y-3.5 select-none text-text-primary">
       {/* ── Stroke Header ── */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -183,8 +183,8 @@ export const TextStrokeSection: React.FC<TextStrokeSectionProps> = ({
             onClick={handleToggleEnable}
             className={`w-4 h-4 rounded-[4px] border flex items-center justify-center transition-colors cursor-pointer ${
               isEnabled
-                ? "bg-cyan-500 border-cyan-400 text-black"
-                : "border-white/30 bg-[#242426] hover:border-white/50"
+                ? "bg-accent-primary border-accent-primary text-white"
+                : "border-border-default bg-surface-elevated hover:border-border-hover"
             }`}
             title={t("properties.stroke.enable") || "Enable stroke"}
           >
@@ -195,10 +195,10 @@ export const TextStrokeSection: React.FC<TextStrokeSectionProps> = ({
           <button
             type="button"
             onClick={() => setIsExpanded(!isExpanded)}
-            className="flex items-center gap-1.5 text-xs font-semibold text-white hover:text-cyan-400 transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 text-xs font-semibold text-text-primary hover:text-accent-primary transition-colors cursor-pointer"
           >
             <span>{t("properties.stroke.title") || "Stroke"}</span>
-            <span className="text-[9px] text-[#8e8e93]">
+            <span className="text-[9px] text-text-muted">
               {isExpanded ? "▲" : "▼"}
             </span>
           </button>
@@ -209,7 +209,7 @@ export const TextStrokeSection: React.FC<TextStrokeSectionProps> = ({
           <button
             type="button"
             onClick={handleReset}
-            className="text-[#8e8e93] hover:text-white transition-colors cursor-pointer p-0.5"
+            className="text-text-muted hover:text-text-primary transition-colors cursor-pointer p-0.5"
             title={t("properties.stroke.reset") || "Reset stroke"}
             aria-label={t("properties.stroke.reset") || "Reset stroke"}
           >
@@ -235,7 +235,7 @@ export const TextStrokeSection: React.FC<TextStrokeSectionProps> = ({
         >
           {/* Row 1: Color */}
           <div className="flex items-center justify-between gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-secondary shrink-0 w-24">
               {t("properties.stroke.color") || "Color"}
             </span>
 
@@ -248,7 +248,7 @@ export const TextStrokeSection: React.FC<TextStrokeSectionProps> = ({
                 presetColors={SOLID_COLOR_SWATCHES}
                 showAlpha={true}
                 size="sm"
-                triggerClassName="w-24 h-7 bg-[#242426] border border-white/10 hover:border-white/20 rounded-md px-2 flex items-center justify-between"
+                triggerClassName="w-24 h-7 bg-surface-input border border-border-default hover:border-border-hover rounded-md px-2 flex items-center justify-between text-text-primary"
                 popoverClassName="z-[100]"
               />
             </div>
@@ -256,7 +256,7 @@ export const TextStrokeSection: React.FC<TextStrokeSectionProps> = ({
 
           {/* Row 2: Thickness */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-secondary shrink-0 w-24">
               {t("properties.stroke.thickness") || "Thickness"}
             </span>
 
@@ -269,11 +269,11 @@ export const TextStrokeSection: React.FC<TextStrokeSectionProps> = ({
                 step={1}
                 value={strokeWidth}
                 onChange={(e) => handleThicknessChange(Number(e.target.value))}
-                className="flex-1 h-1 bg-[#242426] rounded-lg appearance-none cursor-pointer accent-cyan-400"
+                className="flex-1 h-1 bg-border-default rounded-lg appearance-none cursor-pointer accent-accent-primary"
               />
 
               {/* Stepper Input: [ 40 ▲▼ ] */}
-              <div className="flex items-center bg-[#242426] border border-white/5 rounded-md px-2 py-1 text-xs w-16">
+              <div className="flex items-center bg-surface-input border border-border-default rounded-md px-2 py-1 text-xs w-16">
                 <input
                   type="number"
                   min={0}
@@ -282,20 +282,20 @@ export const TextStrokeSection: React.FC<TextStrokeSectionProps> = ({
                   onChange={(e) =>
                     handleThicknessChange(Number(e.target.value))
                   }
-                  className="w-full bg-transparent text-right text-white outline-none pr-1"
+                  className="w-full bg-transparent text-right text-text-primary outline-none pr-1"
                 />
-                <div className="flex flex-col text-[8px] text-[#8e8e93] leading-[6px]">
+                <div className="flex flex-col text-[8px] text-text-muted leading-[6px]">
                   <button
                     type="button"
                     onClick={() => handleThicknessChange(strokeWidth + 1)}
-                    className="hover:text-white cursor-pointer"
+                    className="hover:text-text-primary cursor-pointer"
                   >
                     ▲
                   </button>
                   <button
                     type="button"
                     onClick={() => handleThicknessChange(strokeWidth - 1)}
-                    className="hover:text-white cursor-pointer"
+                    className="hover:text-text-primary cursor-pointer"
                   >
                     ▼
                   </button>

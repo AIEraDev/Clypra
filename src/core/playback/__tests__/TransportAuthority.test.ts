@@ -272,5 +272,47 @@ describe("TransportAuthority", () => {
       expect(authority.getSeekController().getCurrent()?.quality).toBe("full");
       expect(mockProgramContext.play).not.toHaveBeenCalled();
     });
+
+    it("CLY-BUG-009: handles overlapping scrubs without resuming playback prematurely", () => {
+      authority.registerContext(mockProgramContext);
+      mockProgramContext.getState = vi.fn(() => "playing" as any);
+      (mockProgramContext.play as any).mockClear();
+
+      // First scrub starts while playing -> pauses and increments depth to 1
+      authority.beginScrub(10, "playhead");
+      expect(mockProgramContext.pause).toHaveBeenCalledTimes(1);
+
+      // Context is now paused
+      mockProgramContext.getState = vi.fn(() => "paused" as any);
+
+      // Second scrub starts (overlapping gesture, e.g. multi-touch or secondary control)
+      // Depth should increment to 2 even though already paused
+      authority.beginScrub(12, "thumbnail");
+
+      // First scrub ends -> depth decrements to 1, MUST NOT resume playback yet
+      authority.endScrub(15);
+      expect(mockProgramContext.play).not.toHaveBeenCalled();
+
+      // Second scrub ends -> depth decrements to 0, NOW it resumes playback
+      authority.endScrub(18);
+      expect(mockProgramContext.play).toHaveBeenCalledTimes(1);
+    });
+
+    it("CLY-BUG-009: explicit pause/stop resets scrub depth so subsequent endScrub does not resume", () => {
+      authority.registerContext(mockProgramContext);
+      mockProgramContext.getState = vi.fn(() => "playing" as any);
+      (mockProgramContext.play as any).mockClear();
+
+      // Scrub starts while playing
+      authority.beginScrub(10, "playhead");
+      mockProgramContext.getState = vi.fn(() => "paused" as any);
+
+      // User hits spacebar or pause button mid-scrub
+      authority.pause();
+
+      // Scrub ends -> should NOT resume because pause cleared the scrub depth
+      authority.endScrub(15);
+      expect(mockProgramContext.play).not.toHaveBeenCalled();
+    });
   });
 });

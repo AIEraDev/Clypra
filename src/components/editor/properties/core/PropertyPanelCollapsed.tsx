@@ -51,7 +51,7 @@ const PropertyPanelCollapsed: React.FC<PropertyPanelCollapsedProps> = ({
       {/* Main clip type button */}
       <button
         onClick={onToggleCollapse}
-        className={`w-8 h-8 rounded-lg flex items-center justify-center bg-surface-raised border border-border/40 hover:border-accent/40 transition-colors cursor-pointer ${typeInfo.color}`}
+        className={`w-8 h-8 rounded-lg flex items-center justify-center bg-surface-elevated border border-border-default hover:border-accent-primary/60 transition-colors cursor-pointer ${typeInfo.color}`}
         title={`Expand ${t(typeInfo.label)} Properties (${clipName})`}
       >
         <TypeIcon className="w-4 h-4" />
@@ -73,8 +73,8 @@ const PropertyPanelCollapsed: React.FC<PropertyPanelCollapsedProps> = ({
                 title={t(tab.labelKey)}
                 className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors cursor-pointer ${
                   isActive
-                    ? "text-accent bg-accent/15"
-                    : "text-text-muted hover:text-accent hover:bg-white/5"
+                    ? "text-accent-primary bg-accent-primary/15"
+                    : "text-text-muted hover:text-accent-primary hover:bg-surface-hover"
                 }`}
               >
                 <TabIcon className="w-3.5 h-3.5" />
@@ -88,7 +88,7 @@ const PropertyPanelCollapsed: React.FC<PropertyPanelCollapsedProps> = ({
             <button
               onClick={onToggleCollapse}
               title="Transform & Fit"
-              className="w-7 h-7 flex items-center justify-center rounded-md text-text-muted hover:text-accent hover:bg-white/5 transition-colors cursor-pointer"
+              className="w-7 h-7 flex items-center justify-center rounded-md text-text-muted hover:text-accent-primary hover:bg-surface-hover transition-colors cursor-pointer"
             >
               <Layout className="w-3.5 h-3.5" />
             </button>
@@ -97,7 +97,7 @@ const PropertyPanelCollapsed: React.FC<PropertyPanelCollapsedProps> = ({
             <button
               onClick={onToggleCollapse}
               title="Motion & Animation"
-              className="w-7 h-7 flex items-center justify-center rounded-md text-text-muted hover:text-accent hover:bg-white/5 transition-colors cursor-pointer"
+              className="w-7 h-7 flex items-center justify-center rounded-md text-text-muted hover:text-accent-primary hover:bg-surface-hover transition-colors cursor-pointer"
             >
               <Zap className="w-3.5 h-3.5" />
             </button>
@@ -106,7 +106,7 @@ const PropertyPanelCollapsed: React.FC<PropertyPanelCollapsedProps> = ({
             <button
               onClick={onToggleCollapse}
               title="Audio Settings"
-              className="w-7 h-7 flex items-center justify-center rounded-md text-text-muted hover:text-accent hover:bg-white/5 transition-colors cursor-pointer"
+              className="w-7 h-7 flex items-center justify-center rounded-md text-text-muted hover:text-accent-primary hover:bg-surface-hover transition-colors cursor-pointer"
             >
               <Music className="w-3.5 h-3.5" />
             </button>
@@ -115,7 +115,7 @@ const PropertyPanelCollapsed: React.FC<PropertyPanelCollapsedProps> = ({
             <button
               onClick={onToggleCollapse}
               title="Color & Adjustments"
-              className="w-7 h-7 flex items-center justify-center rounded-md text-text-muted hover:text-accent hover:bg-white/5 transition-colors cursor-pointer"
+              className="w-7 h-7 flex items-center justify-center rounded-md text-text-muted hover:text-accent-primary hover:bg-surface-hover transition-colors cursor-pointer"
             >
               <Sliders className="w-3.5 h-3.5" />
             </button>
@@ -124,7 +124,7 @@ const PropertyPanelCollapsed: React.FC<PropertyPanelCollapsedProps> = ({
             <button
               onClick={onToggleCollapse}
               title="Effects & Filters"
-              className="w-7 h-7 flex items-center justify-center rounded-md text-text-muted hover:text-accent hover:bg-white/5 transition-colors cursor-pointer"
+              className="w-7 h-7 flex items-center justify-center rounded-md text-text-muted hover:text-accent-primary hover:bg-surface-hover transition-colors cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5" />
             </button>
@@ -133,7 +133,7 @@ const PropertyPanelCollapsed: React.FC<PropertyPanelCollapsedProps> = ({
       )}
 
       <span className="text-[9px] font-semibold text-text-muted/60 uppercase tracking-widest [writing-mode:vertical-lr] select-none mt-2">
-        Properties
+        {t("properties.title")}
       </span>
     </div>
   );

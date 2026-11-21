@@ -302,15 +302,13 @@ pub async fn get_or_create_preview_video(
         return Ok(path);
     }
 
-    let cache_dir = app
-        .path()
-        .app_cache_dir()
-        .map_err(|e| format!("Failed to get app cache dir: {e}"))?
-        .join("preview_video");
-
-    tokio::fs::create_dir_all(&cache_dir)
-        .await
-        .map_err(|e| format!("Failed to create preview cache dir: {e}"))?;
+    let cache_mgr = match crate::disk_cache::get_global_disk_cache() {
+        Some(m) => m,
+        None => {
+            let root = app.path().app_cache_dir().map_err(|e| format!("Failed to get app cache dir: {e}"))?.join("clypra_cache");
+            crate::disk_cache::init_global_disk_cache(root)
+        }
+    };
 
     let meta = std::fs::metadata(&path)
         .map_err(|e| format!("Failed to read metadata for {}: {e}", path))?;
@@ -332,7 +330,10 @@ pub async fn get_or_create_preview_video(
         modified
     );
     let hash = format!("{:x}", md5::compute(key.as_bytes()));
-    let output_path = cache_dir.join(format!("{}.mp4", hash));
+    let output_path = cache_mgr.resolve_path(
+        crate::disk_cache::CacheNamespace::PreviewProxies,
+        &format!("{}.mp4", hash),
+    );
     let out_str = output_path.to_string_lossy().to_string();
 
     if !force && output_path.exists() {
@@ -341,6 +342,7 @@ pub async fn get_or_create_preview_video(
                 // Defensive verification: verify the cached file's video stream is actually browser-playable on this OS.
                 let cached_vcodec = probe_video_codec(&out_str).await;
                 if is_browser_playable_video(cached_vcodec.as_deref(), "mp4") {
+                    cache_mgr.record_hit();
                     return Ok(out_str);
                 } else {
                     log::warn!(
@@ -354,6 +356,7 @@ pub async fn get_or_create_preview_video(
     } else if force && output_path.exists() {
         let _ = std::fs::remove_file(&output_path);
     }
+    cache_mgr.record_miss();
 
     let is_hevc = matches!(codec_ref, Some("hevc" | "hvc1"));
 
@@ -379,6 +382,7 @@ pub async fn get_or_create_preview_video(
                                 "🦀 [get_or_create_preview_video] Stage 1 (stream copy) succeeded for {}",
                                 path
                             );
+                            let _ = cache_mgr.prune_if_needed().await;
                             return Ok(out_str);
                         }
                     }
@@ -410,6 +414,7 @@ pub async fn get_or_create_preview_video(
                 if let Ok(m) = std::fs::metadata(&output_path) {
                     if m.len() > 1024 {
                         log::debug!("🦀 [get_or_create_preview_video] Stage 2 (video copy + aac) succeeded for {}", path);
+                        let _ = cache_mgr.prune_if_needed().await;
                         return Ok(out_str);
                     }
                 }
@@ -454,6 +459,7 @@ pub async fn get_or_create_preview_video(
                 "🦀 [get_or_create_preview_video] Stage 3 (ultrafast proxy) succeeded for {}",
                 path
             );
+            let _ = cache_mgr.prune_if_needed().await;
             Ok(out_str)
         }
         Ok(output) => {

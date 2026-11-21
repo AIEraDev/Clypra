@@ -1,5 +1,6 @@
 import React, { useCallback } from "react";
 import { Gauge, RefreshCw } from "lucide-react";
+import { useI18n } from "@/i18n";
 import type { Clip } from "@/types";
 import { SliderTrack } from "../../primitives/SliderTrack";
 import { NumericControl } from "../../primitives/NumericControl";
@@ -14,6 +15,7 @@ export const StickerSettingsSection: React.FC<StickerSettingsSectionProps> = ({
   selectedClip,
   handleUpdate,
 }) => {
+  const { t } = useI18n();
   const stickerSettings = (selectedClip as any).stickerSettings || {
     speed: 1.0,
     loop: true,
@@ -41,14 +43,14 @@ export const StickerSettingsSection: React.FC<StickerSettingsSectionProps> = ({
   return (
     <div className="space-y-3">
       <PropertySection
-        title="Sticker Animation"
+        title={t("properties.sticker.animation")}
         icon={<Gauge className="w-3.5 h-3.5" />}
       >
         <div className="space-y-3">
           {/* Speed slider */}
           <div className="space-y-1">
-            <span className="text-[11px] text-white select-none block">
-              Speed
+            <span className="text-[11px] text-text-primary select-none block">
+              {t("common.labels.speed")}
             </span>
             <div className="flex items-center gap-2">
               <SliderTrack
@@ -63,7 +65,7 @@ export const StickerSettingsSection: React.FC<StickerSettingsSectionProps> = ({
                 onChange={handleSpeedChange}
                 step={0.1}
                 suffix="x"
-                ariaLabel="Sticker Speed"
+                ariaLabel={t("common.labels.speed")}
                 min={0.1}
                 max={5.0}
                 inputPosition="text-right"
@@ -84,8 +86,8 @@ export const StickerSettingsSection: React.FC<StickerSettingsSectionProps> = ({
                 onClick={() => handleSpeedChange(preset.value)}
                 className={`flex-1 py-1.5 text-[10px] font-medium rounded transition-all cursor-pointer ${
                   Math.abs(speed - preset.value) < 0.05
-                    ? "bg-accent/15 text-accent border border-accent/30"
-                    : "text-text-muted hover:text-text-primary hover:bg-white/[0.04] border border-transparent"
+                    ? "bg-accent-primary/15 text-accent-primary border border-accent-primary/30"
+                    : "text-text-muted hover:text-text-primary hover:bg-surface-hover border border-transparent"
                 }`}
               >
                 {preset.label}
@@ -93,25 +95,25 @@ export const StickerSettingsSection: React.FC<StickerSettingsSectionProps> = ({
             ))}
           </div>
 
-          <hr className="border-border/40" />
+          <hr className="border-border-default" />
 
           {/* Loop toggle */}
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-medium text-text-muted select-none flex items-center gap-1.5">
               <RefreshCw
-                className={`w-3.5 h-3.5 ${loop ? "animate-spin-slow text-accent" : ""}`}
+                className={`w-3.5 h-3.5 ${loop ? "animate-spin-slow text-accent-primary" : ""}`}
               />
-              Loop Animation
+              {t("properties.sticker.loopAnimation")}
             </span>
             <button
               onClick={toggleLoop}
               className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
                 loop
-                  ? "bg-accent/15 text-accent border border-accent/30 hover:bg-accent/25"
-                  : "bg-surface-raised border border-border/60 text-text-muted hover:text-text-primary hover:bg-white/[0.04]"
+                  ? "bg-accent-primary/15 text-accent-primary border border-accent-primary/30 hover:bg-accent-primary/25"
+                  : "bg-surface-elevated border border-border-default text-text-muted hover:text-text-primary hover:bg-surface-hover"
               }`}
             >
-              {loop ? "Enabled" : "Disabled"}
+              {loop ? t("common.status.enabled") : t("common.status.disabled")}
             </button>
           </div>
         </div>

@@ -29,7 +29,6 @@ pub struct DecodeFrameOptions {
     pub target_dimensions: Option<(u32, u32)>,
 }
 
-
 /// Explicit color metadata carried from FFmpeg into the native render path.
 ///
 /// The normalized labels are convenient for renderer decisions while the raw
@@ -89,6 +88,17 @@ pub struct VideoStreamMetadata {
     pub container_format: String,
     #[serde(default)]
     pub codec_name: String,
+    /// Codec profile reported by FFmpeg's stream parameters (for example
+    /// `Main` or `Main 10`). Kept as a string so telemetry remains readable
+    /// across codec families without coupling the preview contract to one
+    /// enum's profile list.
+    #[serde(default)]
+    pub codec_profile: String,
+    /// Encoded stream pixel format (for example `yuvj420p` or
+    /// `yuv420p10le`). This is the source format, not the hardware frame's
+    /// CoreVideo surface format.
+    #[serde(default)]
+    pub pixel_format: String,
     #[serde(default)]
     pub is_hardware_accelerated: bool,
 }

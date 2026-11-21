@@ -231,13 +231,13 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
             {/* Volume */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-[11px] font-medium text-white/90">
+                <label className="text-[11px] font-medium text-text-primary">
                   Volume
                 </label>
                 <button
                   type="button"
                   onClick={handleResetVolume}
-                  className="w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors cursor-pointer"
+                  className="w-4 h-4 flex items-center justify-center rounded hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors cursor-pointer"
                   title="Reset volume"
                   aria-label="Reset volume"
                 >
@@ -304,7 +304,7 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
                   className={`flex items-center justify-center w-6 h-6 rounded transition-all cursor-pointer ml-1 ${
                     audio.muted
                       ? "bg-red-500/15 text-red-400 hover:bg-red-500/25"
-                      : "bg-white/5 hover:bg-white/10 text-white/50 hover:text-white"
+                      : "bg-surface-elevated hover:bg-surface-hover text-text-muted hover:text-text-primary border border-border-default"
                   }`}
                   title={audio.muted ? "Unmute" : "Mute"}
                   aria-label={audio.muted ? "Unmute" : "Mute"}
@@ -331,13 +331,13 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
             {/* Fade In */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-[11px] font-medium text-white/90">
+                <label className="text-[11px] font-medium text-text-primary">
                   Fade in
                 </label>
                 <button
                   type="button"
                   onClick={handleResetFadeIn}
-                  className="w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors cursor-pointer"
+                  className="w-4 h-4 flex items-center justify-center rounded hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors cursor-pointer"
                   title="Reset fade in"
                   aria-label="Reset fade in"
                 >
@@ -395,13 +395,13 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
             {/* Fade Out */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-[11px] font-medium text-white/90">
+                <label className="text-[11px] font-medium text-text-primary">
                   Fade out
                 </label>
                 <button
                   type="button"
                   onClick={handleResetFadeOut}
-                  className="w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors cursor-pointer"
+                  className="w-4 h-4 flex items-center justify-center rounded hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors cursor-pointer"
                   title="Reset fade out"
                   aria-label="Reset fade out"
                 >
@@ -459,13 +459,13 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
             {/* Pan / Balance — matches AudioBasicTab pattern */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-[11px] font-medium text-white/90">
+                <label className="text-[11px] font-medium text-text-primary">
                   Pan
                 </label>
                 <button
                   type="button"
                   onClick={handleResetPan}
-                  className="w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors cursor-pointer"
+                  className="w-4 h-4 flex items-center justify-center rounded hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors cursor-pointer"
                   title="Reset pan"
                   aria-label="Reset pan"
                 >
@@ -487,7 +487,7 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
                   />
                   {/* Center tick at pan = 0 (50% of -1→+1) */}
                   <div
-                    className="absolute top-1/2 -translate-y-1/2 w-px h-2.5 bg-white/40 pointer-events-none"
+                    className="absolute top-1/2 -translate-y-1/2 w-px h-2.5 bg-text-muted/40 pointer-events-none"
                     style={{ left: "50%" }}
                   />
                 </div>
@@ -523,9 +523,9 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
 
       {/* Channel Configuration */}
       {isExpanded && (
-        <div className="space-y-4 px-3 pb-2 border-t border-white/5 pt-4">
+        <div className="space-y-4 px-3 pb-2 border-t border-border-default pt-4">
           <div className="space-y-3">
-            <label className="text-[11px] font-medium text-white/90">
+            <label className="text-[11px] font-medium text-text-primary">
               Channel
             </label>
             <PropertySelect

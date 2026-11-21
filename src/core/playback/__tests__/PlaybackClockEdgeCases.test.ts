@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { PlaybackClock } from "../PlaybackClock";
+import { formatTimecode } from "@/hooks/usePlaybackClock";
 
 describe("PlaybackClock — Deep Edge Cases & Frame Rate Precision", () => {
   let clock: PlaybackClock;
@@ -147,6 +148,26 @@ describe("PlaybackClock — Deep Edge Cases & Frame Rate Precision", () => {
       // Recomputed expected time
       const expectedTime = 100000 * frameDuration;
       expect(currentTime).toBeCloseTo(expectedTime, 8);
+    });
+  });
+
+  // ─── 4. TIMECODE FORMATTING (CLY-BUG-011) ─────────────────────────────────
+  describe("CLY-BUG-011: formatTimecode safety and precision", () => {
+    it("safely formats non-finite time inputs without crashing", () => {
+      expect(formatTimecode(NaN, 30)).toBe("00:00:00");
+      expect(formatTimecode(-10, 30)).toBe("00:00:00");
+      expect(formatTimecode(Infinity, 30)).toBe("00:00:00");
+    });
+
+    it("formats standard timecodes correctly with frame accuracy", () => {
+      // 0 seconds at 30fps
+      expect(formatTimecode(0, 30)).toBe("00:00:00");
+      // 1.5 seconds at 30fps = 1 second 15 frames
+      expect(formatTimecode(1.5, 30)).toBe("00:01:15");
+      // 65 seconds at 30fps = 1 minute 5 seconds 0 frames
+      expect(formatTimecode(65, 30)).toBe("01:05:00");
+      // 3661 seconds at 30fps = 1 hour 1 minute 1 second 0 frames
+      expect(formatTimecode(3661, 30)).toBe("01:01:01:00");
     });
   });
 });

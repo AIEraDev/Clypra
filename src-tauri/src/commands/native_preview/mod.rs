@@ -1,6 +1,10 @@
 use crate::commands::lut::LutCache;
 use crate::commands::native_surface::NativeSurfaceRuntime;
 use crate::diagnostics;
+use crate::filmstrip_engine::decoder::{
+    get_preview_decoder, get_preview_decoder_for_stream, DecodeFrameOptions, DecodedVideoFrame,
+    VideoColorMetadata,
+};
 use crate::native_core::{
     BodyEffectSnapshot, ColorGradeSnapshot, FramePacket, FrameRequest, FrameTime,
     NativeFrameService, NativeFrameServiceStats, NativePerformanceSampleBatch,
@@ -9,30 +13,275 @@ use crate::native_core::{
     NATIVE_CORE_CONTRACT_VERSION,
 };
 use crate::sync_metrics::SYNC_METRICS;
-use crate::filmstrip_engine::decoder::{
-    get_preview_decoder, get_preview_decoder_for_stream, DecodeFrameOptions, DecodedVideoFrame,
-    VideoColorMetadata,
-};
+use crate::wgpu_compositor::frame_correlation::WorkloadMode;
 use crate::wgpu_compositor::multi_track_composer::TransitionUniforms;
 #[cfg(target_os = "windows")]
 #[allow(unused_imports)]
 use crate::wgpu_compositor::DxgiImportState;
 use crate::wgpu_compositor::{
     BodyEffectUniforms, ChromaKeyUniforms, ColorGradeUniforms, ColorTransformUniforms,
-    CompositeLayer, CropMargins, FrameRenderPath, GpuContext, LayerTransform, MultiTrackCompositor,
-    NativePreviewSession, NativeWgpuRenderer,
+    CompositeLayer, CropMargins, FrameAttribution, FrameFailureReason, FrameId,
+    FrameLifecycleRegistry, FrameRenderPath, FrameTerminalDisposition, GpuContext, LayerTransform,
+    MissingCorrelationReason, MultiTrackCompositor, NativePreviewSession, NativeWgpuRenderer,
+    PresentationAttemptDisposition, PresentationAttemptId, PresentationFailureReason,
+    RenderLifecycleContext, RequestTerminalDisposition,
 };
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::hash::{Hash, Hasher};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager};
 
-use crate::filmstrip_engine::stream_actor::DecodedVideoPlanes;
+use crate::filmstrip_engine::stream_actor::DecodedFrame;
+use crate::native_core::performance::FrameTransferPath;
 
-type DecodedNativeVideoFrame = (DecodedVideoPlanes, u32, u32, VideoColorMetadata, u32);
+type DecodedNativeVideoFrame = (DecodedFrame, u32, u32, VideoColorMetadata, u32);
 static NATIVE_SURFACE_PRESENTATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+static ZERO_COPY_GUARD_ENABLED: OnceLock<bool> = OnceLock::new();
+static ZERO_COPY_GUARD_VIOLATIONS: AtomicU64 = AtomicU64::new(0);
+#[cfg(target_os = "macos")]
+static METAL_ZERO_COPY_SUCCESS_REPORTED: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "macos")]
+static METAL_ZERO_COPY_FAILURE_REPORTED: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "macos")]
+static METAL_DECODE_ENABLED: OnceLock<bool> = OnceLock::new();
+#[cfg(target_os = "macos")]
+static METAL_ZERO_COPY_DISABLED: OnceLock<bool> = OnceLock::new();
+#[cfg(target_os = "macos")]
+static METAL_PREFETCH_CANCEL_EPOCH: AtomicU64 = AtomicU64::new(0);
 
+fn frame_attribution_for_mode(
+    lifecycle_context: &RenderLifecycleContext,
+    mode: Option<&str>,
+) -> Result<FrameAttribution, String> {
+    if lifecycle_context.is_empty() {
+        return Ok(FrameAttribution::Uncorrelated {
+            reason: MissingCorrelationReason::UnknownProducer,
+        });
+    }
+
+    let workload = match mode {
+        Some("scrub") => WorkloadMode::Scrub,
+        Some("frameStep") => WorkloadMode::FrameStep,
+        Some("seek") => WorkloadMode::PausedInteraction,
+        Some("playback") | Some("prefetch") | None => WorkloadMode::Playback,
+        Some(_) => WorkloadMode::PausedInteraction,
+    };
+    FrameAttribution::correlated(lifecycle_context.request_ids.clone(), workload)
+        .map_err(|error| error.to_string())
+}
+
+fn visible_frame_attribution(
+    lifecycle_context: &RenderLifecycleContext,
+    request: &FrameRequest,
+) -> Result<FrameAttribution, String> {
+    frame_attribution_for_mode(lifecycle_context, request.mode.as_deref())
+}
+
+/// Debug-only tripwire for the zero-copy validation run. The active presenter
+/// currently accepts CPU planes, so this guard makes an accidental hardware
+/// download visible immediately instead of silently classifying it as normal.
+fn log_required_zero_copy_violation(
+    path: FrameTransferPath,
+    decode_was_hardware_accelerated: Option<bool>,
+    has_video_layers: bool,
+    frame_index: u64,
+) {
+    if !zero_copy_guard_enabled()
+        || !is_required_zero_copy_violation(path, decode_was_hardware_accelerated, has_video_layers)
+    {
+        return;
+    }
+
+    let count = ZERO_COPY_GUARD_VIOLATIONS.fetch_add(1, Ordering::Relaxed) + 1;
+    crate::engine::ENGINE_TELEMETRY.record_zero_copy_guard_violation();
+    if count <= 3 || count % 60 == 0 {
+        log::error!(
+            "[NativePreview] CLYPRA_REQUIRE_ZERO_COPY=1: hardware-decoded frame {} reached {:?}; zero-copy violations so far: {}",
+            frame_index,
+            path,
+            count,
+        );
+    }
+}
+
+fn zero_copy_guard_enabled() -> bool {
+    *ZERO_COPY_GUARD_ENABLED.get_or_init(|| {
+        // Keep this as a runtime switch so optimized release sessions can use
+        // the same validation tripwire as debug builds without changing the
+        // default production path.
+        std::env::var("CLYPRA_REQUIRE_ZERO_COPY").as_deref() == Ok("1")
+    })
+}
+
+/// Resolve the validation flag during Tauri setup so the hot presentation loop
+/// only reads an atomic counter and never consults the process environment.
+pub(crate) fn initialize_zero_copy_guard() {
+    #[cfg(target_os = "macos")]
+    let metal_decode = metal_decode_enabled();
+    #[cfg(not(target_os = "macos"))]
+    let metal_decode = false;
+    #[cfg(target_os = "macos")]
+    let metal_disabled = metal_zero_copy_disabled();
+    #[cfg(not(target_os = "macos"))]
+    let metal_disabled = false;
+    log::info!(
+        "[NativePreview] runtime flags: CLYPRA_METAL_DECODE={}, CLYPRA_REQUIRE_ZERO_COPY={}, CLYPRA_DISABLE_METAL_ZERO_COPY={}",
+        metal_decode,
+        zero_copy_guard_enabled(),
+        metal_disabled,
+    );
+}
+
+#[cfg(target_os = "macos")]
+fn metal_decode_enabled() -> bool {
+    *METAL_DECODE_ENABLED.get_or_init(|| std::env::var("CLYPRA_METAL_DECODE").as_deref() == Ok("1"))
+}
+
+#[cfg(target_os = "macos")]
+fn metal_zero_copy_disabled() -> bool {
+    *METAL_ZERO_COPY_DISABLED
+        .get_or_init(|| std::env::var("CLYPRA_DISABLE_METAL_ZERO_COPY").as_deref() == Ok("1"))
+}
+
+fn report_required_zero_copy_violations() {
+    if !zero_copy_guard_enabled() {
+        return;
+    }
+    let count = ZERO_COPY_GUARD_VIOLATIONS.swap(0, Ordering::Relaxed);
+    if count > 0 {
+        log::error!(
+            "[NativePreview] CLYPRA_REQUIRE_ZERO_COPY summary: {} hardware-decoded frames reached a non-zero-copy path",
+            count,
+        );
+    }
+}
+
+fn is_required_zero_copy_violation(
+    path: FrameTransferPath,
+    decode_was_hardware_accelerated: Option<bool>,
+    has_video_layers: bool,
+) -> bool {
+    has_video_layers
+        && decode_was_hardware_accelerated == Some(true)
+        && !path.is_zero_copy()
+        && !matches!(path, FrameTransferPath::GpuRaster)
+}
+
+fn decoded_frame_transfer_path(decoded_frames: &[DecodedNativeVideoFrame]) -> FrameTransferPath {
+    let paths: Vec<FrameTransferPath> = decoded_frames
+        .iter()
+        .map(|(frame, ..)| frame.transfer_path())
+        .collect();
+    aggregate_transfer_paths(&paths).unwrap_or(FrameTransferPath::GpuRaster)
+}
+
+/// Owns the two terminal transitions created once a visible frame enters the
+/// native presentation path. The guard makes every fallible return after an
+/// attempt begins explicit in the registry without holding its mutex across
+/// GPU work or async suspension.
+struct PresentationLifecycleGuard<'a> {
+    registry: &'a std::sync::Mutex<FrameLifecycleRegistry>,
+    frame_id: FrameId,
+    attempt_id: PresentationAttemptId,
+    request_ids: Vec<crate::wgpu_compositor::FrameRequestId>,
+    terminal: bool,
+}
+
+impl<'a> PresentationLifecycleGuard<'a> {
+    fn begin(
+        registry: &'a std::sync::Mutex<FrameLifecycleRegistry>,
+        attribution: FrameAttribution,
+        request_ids: Vec<crate::wgpu_compositor::FrameRequestId>,
+    ) -> Result<Self, String> {
+        let mut state = registry
+            .lock()
+            .map_err(|_| "Lifecycle registry lock poisoned".to_string())?;
+        let frame_id = state
+            .begin_frame(attribution)
+            .map_err(|error| error.to_string())?;
+        let attempt_id = state
+            .begin_presentation_attempt(frame_id.clone())
+            .map_err(|error| error.to_string())?;
+        Ok(Self {
+            registry,
+            frame_id,
+            attempt_id,
+            request_ids,
+            terminal: false,
+        })
+    }
+
+    #[cfg(test)]
+    fn frame_id(&self) -> &FrameId {
+        &self.frame_id
+    }
+
+    fn complete(&mut self) -> Result<(), String> {
+        let mut registry = self
+            .registry
+            .lock()
+            .map_err(|_| "Lifecycle registry lock poisoned".to_string())?;
+        registry
+            .finish_presentation_attempt(
+                &self.attempt_id,
+                PresentationAttemptDisposition::Presented,
+            )
+            .map_err(|error| error.to_string())?;
+        registry
+            .finish_frame(
+                &self.frame_id,
+                FrameTerminalDisposition::Presented {
+                    attempt_id: self.attempt_id.clone(),
+                },
+            )
+            .map_err(|error| error.to_string())?;
+        for request_id in &self.request_ids {
+            registry
+                .finish_request(
+                    request_id,
+                    RequestTerminalDisposition::Presented {
+                        frame_id: self.frame_id.clone(),
+                    },
+                )
+                .map_err(|error| error.to_string())?;
+        }
+        registry.prune_terminal_history(Instant::now());
+        self.terminal = true;
+        Ok(())
+    }
+
+    fn fail(&mut self, reason: PresentationFailureReason) {
+        let Ok(mut registry) = self.registry.lock() else {
+            return;
+        };
+        let _ = registry.finish_presentation_attempt(
+            &self.attempt_id,
+            PresentationAttemptDisposition::Failed {
+                reason,
+                retryable: false,
+            },
+        );
+        let _ = registry.finish_frame(
+            &self.frame_id,
+            FrameTerminalDisposition::FailedAfterRecovery {
+                reason: FrameFailureReason::PresentationRecoveryExhausted,
+            },
+        );
+        registry.prune_terminal_history(Instant::now());
+        self.terminal = true;
+    }
+}
+
+impl Drop for PresentationLifecycleGuard<'_> {
+    fn drop(&mut self) {
+        if !self.terminal {
+            self.fail(PresentationFailureReason::PresentCallFailed);
+        }
+    }
+}
 
 pub mod font_registry;
 pub mod layer_models;
@@ -50,7 +299,6 @@ pub use performance_report::*;
 pub use presentation_queue::*;
 pub use push_runtime::*;
 pub use raster_assets::*;
-
 
 /// Prepare the compositor graph before a render session is allowed to start.
 ///
@@ -95,8 +343,6 @@ pub(crate) async fn prepare_native_preview_pipelines(
     }
     Ok(())
 }
-
-
 
 fn project_layer_transform(
     layer: &NativeProjectSolidLayer,
@@ -367,7 +613,11 @@ fn color_grade_from_snapshot(snapshot: Option<&ColorGradeSnapshot>) -> ColorGrad
             grade.chromatic_amount,
             grade.chromatic_angle,
             grade.chromatic_edge_feather,
-            if grade.chromatic_amount > 0.0 { 1.0 } else { 0.0 },
+            if grade.chromatic_amount > 0.0 {
+                1.0
+            } else {
+                0.0
+            },
         ],
         hsl_channel_count: grade.hsl_channel_count.min(8),
         hsl_channels: {
@@ -700,6 +950,40 @@ pub fn render_native_preview_transport_probe(
         *byte = (index & 0xff) as u8;
     }
     Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Pre-warms a preview video decoder and optionally seeks/decodes to a target PTS.
+/// Used for proactive warm-up at stacked video boundaries and post-split re-anchoring.
+#[tauri::command]
+pub async fn warm_video_decoder_at_pts(
+    path: String,
+    stream_id: Option<String>,
+    target_pts: Option<f64>,
+    _priority: Option<String>,
+) -> Result<bool, String> {
+    if let Some(pts) = target_pts {
+        if !pts.is_finite() || pts < 0.0 {
+            return Err("target_pts must be a finite non-negative number".to_string());
+        }
+    }
+
+    let video_path = crate::commands::media::normalize_file_path(&path);
+    let decoder = if let Some(ref stream) = stream_id {
+        if !stream.is_empty() {
+            get_preview_decoder_for_stream(&video_path, stream).await?
+        } else {
+            get_preview_decoder(&video_path).await?
+        }
+    } else {
+        get_preview_decoder(&video_path).await?
+    };
+
+    if let Some(pts) = target_pts {
+        let mut guard = decoder.lock().await;
+        let _ = guard.decode_frame_raw_nv12(pts);
+    }
+
+    Ok(true)
 }
 
 /// Phase 2a transport gate for the playback push bridge.
@@ -1099,12 +1383,7 @@ async fn render_native_video_project_frame_bytes_timed(
         .try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
         .map(|s| s.inner().clone())
         .ok_or_else(|| "Native preview GPU session is unavailable".to_string())?;
-    render_native_video_project_frame_bytes_timed_with_session(
-        app,
-        session,
-        request,
-    )
-    .await
+    render_native_video_project_frame_bytes_timed_with_session(app, session, request).await
 }
 
 async fn render_native_video_project_frame_bytes_timed_with_session(
@@ -1223,6 +1502,116 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
         None
     };
 
+    #[cfg(target_os = "macos")]
+    let can_attempt_metal = !request.layers.is_empty() && {
+        let session = state.lock().await;
+        metal_decode_enabled() && session.gpu.capabilities.zero_copy_available()
+    };
+
+    #[cfg(target_os = "macos")]
+    let metal_env_disabled = metal_zero_copy_disabled();
+
+    #[cfg(target_os = "macos")]
+    let metal_frames_result = if can_attempt_metal && !metal_env_disabled {
+        use crate::filmstrip_engine::decoder::DecodeFrameOptions;
+        let decode_options = DecodeFrameOptions {
+            allow_keyframe_approx: request.allow_keyframe_approx.unwrap_or(false)
+                || request.is_scrubbing.unwrap_or(false)
+                || request.mode.as_deref() == Some("scrub"),
+            quality: request.quality,
+            is_playback: request.mode.as_deref() == Some("playback"),
+            skip_hw_download: false,
+            target_dimensions: None,
+        };
+
+        let mut frames = Vec::with_capacity(request.layers.len());
+        let mut all_succeeded = true;
+        let mut max_dec_us = 0u32;
+        let mut total_wait_us = 0u64;
+
+        for layer in &request.layers {
+            let attempt = crate::engine::ENGINE_TELEMETRY.begin_metal_decode_attempt();
+            let stream_id = if !layer.layer_id.is_empty() {
+                &layer.layer_id
+            } else {
+                ""
+            };
+            let lock_started = Instant::now();
+            let decoder = match get_preview_decoder_for_stream(&layer.video_path, stream_id).await {
+                Ok(d) => d,
+                Err(_) => {
+                    attempt.fail(
+                        crate::native_core::performance::MetalDecodeFailureReason::DecoderUnavailable,
+                    );
+                    all_succeeded = false;
+                    break;
+                }
+            };
+            let mut guard = decoder.lock().await;
+            let wait_us = lock_started.elapsed().as_micros() as u64;
+            total_wait_us = total_wait_us.saturating_add(wait_us);
+
+            let mut frame_color = VideoColorMetadata::default();
+            let mut width = 0u32;
+            let mut height = 0u32;
+            let decode_started = Instant::now();
+            match guard.decode_frame_metal_macos(
+                layer.time_secs,
+                decode_options,
+                || false,
+                &mut frame_color,
+                &mut width,
+                &mut height,
+            ) {
+                Ok(Some(shared)) => {
+                    attempt.succeed();
+                    let dec_us = decode_started.elapsed().as_micros().min(u32::MAX as u128) as u32;
+                    max_dec_us = max_dec_us.max(dec_us);
+                    let stream_color = guard.metadata().color;
+                    let stream_metadata = guard.metadata();
+                    crate::engine::ENGINE_TELEMETRY.record_stream_telemetry(
+                        if layer.layer_id.is_empty() {
+                            stream_id
+                        } else {
+                            layer.layer_id.as_str()
+                        },
+                        stream_metadata.codec_name,
+                        stream_metadata.codec_profile,
+                        stream_metadata.pixel_format,
+                        stream_color.range.clone(),
+                        Some(shared.pixel_format_fourcc()),
+                    );
+                    let color = merge_color_metadata(frame_color, &stream_color);
+                    frames.push((DecodedFrame::Metal(Arc::new(shared)), width, height, color));
+                }
+                Ok(None) => {
+                    attempt.fail(
+                        crate::native_core::performance::MetalDecodeFailureReason::NoMetalFrame,
+                    );
+                    all_succeeded = false;
+                    break;
+                }
+                Err(error) => {
+                    attempt.fail(if error.contains("cancelled") {
+                        crate::native_core::performance::MetalDecodeFailureReason::Cancelled
+                    } else {
+                        crate::native_core::performance::MetalDecodeFailureReason::DecodeError
+                    });
+                    all_succeeded = false;
+                    break;
+                }
+            }
+        }
+
+        if all_succeeded && frames.len() == request.layers.len() {
+            Some((frames, max_dec_us, total_wait_us))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let mut session = state.lock().await;
     let gpu = Arc::clone(&session.gpu);
     let mut conversion_started = Instant::now();
@@ -1244,9 +1633,7 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
             } else {
                 use crate::wgpu_compositor::dxgi_import;
                 let mut import_all_ok = true;
-                for (layer, (shared, width, height, color)) in
-                    request.layers.iter().zip(frames)
-                {
+                for (layer, (shared, width, height, color)) in request.layers.iter().zip(frames) {
                     let layer_key = if !layer.layer_id.is_empty() {
                         &layer.layer_id
                     } else {
@@ -1314,6 +1701,122 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
         }
     }
 
+    #[cfg(target_os = "macos")]
+    let can_use_metal = metal_decode_enabled()
+        && session.gpu.capabilities.zero_copy_available()
+        && !metal_env_disabled;
+
+    #[cfg(target_os = "macos")]
+    if can_use_metal {
+        if let Some((frames, max_dec_us, total_wait_us)) = metal_frames_result {
+            {
+                use crate::wgpu_compositor::metal_import;
+                let mut import_all_ok = true;
+                // Keep the typed lease alive for the complete import/render
+                // submission. The GPU-completion handoff will extend this
+                // owner in the follow-up lease-lifetime task.
+                let mut metal_leases = Vec::with_capacity(frames.len());
+                let mut metal_transfer_paths = Vec::with_capacity(frames.len());
+                for (layer, (decoded, width, height, color)) in request.layers.iter().zip(frames) {
+                    let transfer_path = decoded.transfer_path();
+                    let DecodedFrame::Metal(shared) = decoded else {
+                        crate::engine::ENGINE_TELEMETRY.record_metal_import_failure(
+                            crate::native_core::performance::MetalDecodeFailureReason::NoMetalFrame,
+                        );
+                        import_all_ok = false;
+                        break;
+                    };
+                    metal_transfer_paths.push(transfer_path);
+                    let Some(shared_for_import) = shared.duplicate() else {
+                        crate::engine::ENGINE_TELEMETRY.record_metal_import_failure(
+                            crate::native_core::performance::MetalDecodeFailureReason::ImportFailed,
+                        );
+                        import_all_ok = false;
+                        break;
+                    };
+                    metal_leases.push(shared);
+                    let layer_key = if !layer.layer_id.is_empty() {
+                        &layer.layer_id
+                    } else {
+                        &layer.video_path
+                    };
+                    let params = match color_params(&color) {
+                        Ok(p) => p,
+                        Err(_) => {
+                            crate::engine::ENGINE_TELEMETRY.record_metal_import_failure(
+                                crate::native_core::performance::MetalDecodeFailureReason::ImportColorParams,
+                            );
+                            import_all_ok = false;
+                            break;
+                        }
+                    };
+                    match metal_import::import_into_wgpu(&session.gpu.device, shared_for_import) {
+                        Ok(imported) => {
+                            if !METAL_ZERO_COPY_SUCCESS_REPORTED.swap(true, Ordering::Relaxed) {
+                                diagnostics::info(
+                                    "native-preview",
+                                    "metal-zero-copy-active",
+                                    "VideoToolbox CVPixelBuffer imported into Metal/wgpu without CPU plane upload",
+                                );
+                            }
+                            match session.render_nv12_from_imported_metal(
+                                layer_key, width, height, &imported, &params,
+                            ) {
+                                Ok(texture) => {
+                                    views.push(
+                                        texture
+                                            .create_view(&wgpu::TextureViewDescriptor::default()),
+                                    );
+                                    textures.push(texture);
+                                }
+                                Err(_) => {
+                                    crate::engine::ENGINE_TELEMETRY.record_metal_import_failure(
+                                        crate::native_core::performance::MetalDecodeFailureReason::ImportRenderFailed,
+                                    );
+                                    import_all_ok = false;
+                                    break;
+                                }
+                            }
+                        }
+                        Err(reason) => {
+                            crate::engine::ENGINE_TELEMETRY.record_metal_import_failure(
+                                crate::native_core::performance::MetalDecodeFailureReason::ImportFailed,
+                            );
+                            diagnostics::warn(
+                                "native-preview",
+                                "metal-zero-copy-import-failed",
+                                format!("Metal CVPixelBuffer import fell back to CPU upload: {reason:?}"),
+                            );
+                            import_all_ok = false;
+                            break;
+                        }
+                    }
+                }
+
+                if import_all_ok {
+                    decode_time_us = max_dec_us;
+                    decoder_mutex_wait_us = total_wait_us;
+                    decode_telemetry.actor_wait_us = Some(0);
+                    render_path = FrameRenderPath::ZeroCopyMetal;
+                    crate::engine::ENGINE_TELEMETRY.record_runtime_transfer_path(
+                        aggregate_transfer_paths(&metal_transfer_paths)
+                            .unwrap_or(FrameTransferPath::GpuRaster),
+                    );
+                } else {
+                    views.clear();
+                    textures.clear();
+                    render_path = FrameRenderPath::GpuUploadRing;
+                }
+            }
+        } else if !METAL_ZERO_COPY_FAILURE_REPORTED.swap(true, Ordering::Relaxed) {
+            diagnostics::warn(
+                "native-preview",
+                "metal-zero-copy-decode-unavailable",
+                "VideoToolbox did not return an IOSurface-backed CVPixelBuffer; using CPU upload fallback",
+            );
+        }
+    }
+
     // Check GPU cache residency for effect layers
     let mut effect_cached_entries: Vec<Option<(Arc<wgpu::Texture>, u32, u32)>> =
         Vec::with_capacity(request.effect_layers.len());
@@ -1328,7 +1831,7 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
         }
     }
 
-    let need_cpu_decode = render_path != FrameRenderPath::ZeroCopyDxgi;
+    let need_cpu_decode = !render_path.is_zero_copy();
 
     let (decoded_frames, decoded_effects) = if need_cpu_decode || !effects_to_decode.is_empty() {
         // Decode before taking the GPU session lock so a slow seek cannot block
@@ -1336,7 +1839,10 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
         drop(session);
 
         let frames_res = if need_cpu_decode {
-            let (frames, timings) = decode_native_video_layers(&request, None).await?;
+            let (frames, timings, _returned_context) =
+                decode_native_video_layers(&request, None, RenderLifecycleContext::empty())
+                    .await
+                    .map_err(|error| error.to_string())?;
             decode_time_us = timings.decode_time_us;
             decoder_mutex_wait_us = timings.decoder_mutex_wait_us;
             decode_telemetry = timings;
@@ -1375,8 +1881,56 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
 
             #[allow(unused_mut)]
             let mut layer_texture: Option<Arc<wgpu::Texture>> = None;
+            #[cfg(target_os = "macos")]
+            if let DecodedFrame::Metal(ref shared_arc) = planes {
+                if metal_decode_enabled() && !metal_zero_copy_disabled() {
+                    if let Some(shared) = shared_arc.duplicate() {
+                        match crate::wgpu_compositor::metal_import::import_into_wgpu(
+                            &session.gpu.device,
+                            shared,
+                        ) {
+                            Ok(imported) => match session.render_nv12_from_imported_metal(
+                                layer_key, *width, *height, &imported, &params,
+                            ) {
+                                Ok(texture) => {
+                                    layer_texture = Some(texture);
+                                    if !METAL_ZERO_COPY_SUCCESS_REPORTED
+                                        .swap(true, Ordering::Relaxed)
+                                    {
+                                        diagnostics::info(
+                                            "native-preview",
+                                            "metal-zero-copy-active",
+                                            "VideoToolbox CVPixelBuffer imported into Metal/wgpu without CPU plane upload",
+                                        );
+                                    }
+                                }
+                                Err(error) => {
+                                    crate::engine::ENGINE_TELEMETRY.record_metal_import_failure(
+                                        crate::native_core::performance::MetalDecodeFailureReason::ImportRenderFailed,
+                                    );
+                                    log::warn!(
+                                        "[NativePreview] active Metal texture render failed: {error:?}"
+                                    );
+                                }
+                            },
+                            Err(reason) => {
+                                crate::engine::ENGINE_TELEMETRY.record_metal_import_failure(
+                                    crate::native_core::performance::MetalDecodeFailureReason::ImportFailed,
+                                );
+                                log::warn!(
+                                    "[NativePreview] active Metal texture import failed: {reason:?}"
+                                );
+                            }
+                        }
+                    } else {
+                        crate::engine::ENGINE_TELEMETRY.record_metal_import_failure(
+                            crate::native_core::performance::MetalDecodeFailureReason::ImportFailed,
+                        );
+                    }
+                }
+            }
             #[cfg(target_os = "windows")]
-            if let DecodedVideoPlanes::D3d11(ref shared_arc) = planes {
+            if let DecodedFrame::Dxgi(ref shared_arc) = planes {
                 if session.gpu.capabilities.zero_copy_available()
                     && session.dxgi_state.is_usable()
                     && crate::wgpu_compositor::adapter_selector::is_dxgi_runtime_enabled()
@@ -1401,7 +1955,10 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
                 Some(t) => t,
                 None => {
                     let (y_plane, uv_plane) = planes.cpu_planes().ok_or_else(|| {
-                        "CPU fallback planes unavailable for preview rendering".to_string()
+                        format!(
+                            "CPU fallback planes unavailable for preview rendering (decoded path: {})",
+                            planes.transfer_path().as_str()
+                        )
                     })?;
 
                     // Rotate NV12 pixels to upright orientation when the source has a
@@ -1788,12 +2345,245 @@ async fn decode_native_effect_layers(
         .collect())
 }
 
+/// Decode the same frames consumed by the native presenter directly into
+/// retained VideoToolbox/Metal leases. This is deliberately at the presenter
+/// boundary (rather than only in the legacy readback renderer) so the runtime
+/// flag exercises the path that actually feeds the native surface.
+#[cfg(target_os = "macos")]
+async fn decode_native_video_layers_metal(
+    request: &NativeVideoProjectFrameRequest,
+    decode_options: &DecodeFrameOptions,
+    cancellation: Option<(Arc<AtomicU64>, u64)>,
+) -> Result<
+    Option<(Vec<DecodedNativeVideoFrame>, NativeDecodeTimings)>,
+    crate::filmstrip_engine::stream_actor::StreamDecodeError,
+> {
+    if !metal_decode_enabled() || request.layers.is_empty() {
+        return Ok(None);
+    }
+
+    let prefetch_cancel_epoch = if request.mode.as_deref() == Some("prefetch") {
+        Some(METAL_PREFETCH_CANCEL_EPOCH.load(Ordering::Acquire))
+    } else {
+        None
+    };
+
+    // Keep enough parallelism to overlap independent active layers without
+    // exhausting VideoToolbox's IOSurface pool. Layers sharing a decoder still
+    // serialize naturally at that decoder's mutex, while distinct streams can
+    // make progress concurrently.
+    let max_parallel_layers = request.layers.len().min(3).max(1);
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(max_parallel_layers));
+    let request_id = request.request_id.clone();
+    let mut tasks = Vec::with_capacity(request.layers.len());
+
+    for (layer_index, layer) in request.layers.iter().cloned().enumerate() {
+        let semaphore = Arc::clone(&semaphore);
+        let decode_options = decode_options.clone();
+        let cancellation = cancellation.clone();
+        let request_id = request_id.clone();
+        tasks.push(tauri::async_runtime::spawn(async move {
+            let _permit = semaphore.acquire_owned().await.map_err(|error| {
+                crate::filmstrip_engine::stream_actor::StreamDecodeError::Actor(format!(
+                    "Metal layer decode semaphore closed: {error}"
+                ))
+            })?;
+
+            if cancellation.as_ref().is_some_and(|(generation, expected)| {
+                generation.load(Ordering::Acquire) != *expected
+            }) {
+                return Err(crate::filmstrip_engine::stream_actor::StreamDecodeError::Cancelled);
+            }
+
+            let attempt = crate::engine::ENGINE_TELEMETRY.begin_metal_decode_attempt();
+            let stream_id = if layer.layer_id.is_empty() {
+                ""
+            } else {
+                layer.layer_id.as_str()
+            };
+            let lock_started = Instant::now();
+            let decoder = match get_preview_decoder_for_stream(&layer.video_path, stream_id).await {
+                Ok(decoder) => decoder,
+                Err(error) => {
+                    attempt.fail(
+                        crate::native_core::performance::MetalDecodeFailureReason::DecoderUnavailable,
+                    );
+                    log::warn!("[NativePreview] Metal decode decoder unavailable: {error}");
+                    return Ok(None);
+                }
+            };
+            let mut guard = decoder.lock().await;
+            let mutex_wait_us = lock_started
+                .elapsed()
+                .as_micros()
+                .min(u64::MAX as u128) as u64;
+            let mut color = VideoColorMetadata::default();
+            let mut width = 0u32;
+            let mut height = 0u32;
+            let decode_started = Instant::now();
+            let cancelled = || {
+                cancellation.as_ref().is_some_and(|(generation, expected)| {
+                    generation.load(Ordering::Acquire) != *expected
+                }) || prefetch_cancel_epoch.is_some_and(|expected| {
+                    METAL_PREFETCH_CANCEL_EPOCH.load(Ordering::Acquire) != expected
+                })
+            };
+            let _ffmpeg_log_context = guard.enter_ffmpeg_log_context(stream_id, &request_id);
+            let shared = match guard.decode_frame_metal_macos(
+                layer.time_secs,
+                decode_options,
+                cancelled,
+                &mut color,
+                &mut width,
+                &mut height,
+            ) {
+                Ok(Some(shared)) => shared,
+                Ok(None) => {
+                    attempt.fail(
+                        crate::native_core::performance::MetalDecodeFailureReason::NoMetalFrame,
+                    );
+                    return Ok(None);
+                }
+                Err(error) if error.contains("cancelled") => {
+                    attempt.fail(
+                        crate::native_core::performance::MetalDecodeFailureReason::Cancelled,
+                    );
+                    return Err(
+                        crate::filmstrip_engine::stream_actor::StreamDecodeError::Cancelled,
+                    );
+                }
+                Err(error) => {
+                    attempt.fail(
+                        crate::native_core::performance::MetalDecodeFailureReason::DecodeError,
+                    );
+                    log::warn!("[NativePreview] Metal decode failed: {error}");
+                    return Ok(None);
+                }
+            };
+
+            attempt.succeed();
+            let decode_us = decode_started
+                .elapsed()
+                .as_micros()
+                .min(u32::MAX as u128) as u32;
+            let stream_metadata = guard.metadata().clone();
+            let stream_color = stream_metadata.color.clone();
+            crate::engine::ENGINE_TELEMETRY.record_stream_telemetry(
+                if layer.layer_id.is_empty() {
+                    format!("layer-{layer_index}")
+                } else {
+                    layer.layer_id.clone()
+                },
+                stream_metadata.codec_name.clone(),
+                stream_metadata.codec_profile.clone(),
+                stream_metadata.pixel_format.clone(),
+                stream_color.range.clone(),
+                Some(shared.pixel_format_fourcc()),
+            );
+
+            Ok(Some((
+                layer_index,
+                (
+                    DecodedFrame::Metal(Arc::new(shared)),
+                    width,
+                    height,
+                    merge_color_metadata(color, &stream_color),
+                    0,
+                ),
+                decode_us,
+                mutex_wait_us,
+                stream_metadata,
+            )))
+        }));
+    }
+
+    let mut layer_results = Vec::with_capacity(tasks.len());
+    for task_result in futures_util::future::join_all(tasks).await {
+        let result = task_result.map_err(|error| {
+            crate::filmstrip_engine::stream_actor::StreamDecodeError::Actor(format!(
+                "Metal layer decode task failed: {error}"
+            ))
+        })??;
+        let Some(result) = result else {
+            return Ok(None);
+        };
+        layer_results.push(result);
+    }
+    layer_results.sort_by_key(|(layer_index, ..)| *layer_index);
+
+    let mut decoded = Vec::with_capacity(layer_results.len());
+    let mut max_decode_us = 0u32;
+    let mut total_mutex_wait_us = 0u64;
+    let mut primary_container = None;
+    let mut primary_source = None;
+    let layer_count = layer_results.len();
+    let decode_sum_us = layer_results
+        .iter()
+        .map(|(_, _, decode_us, _, _)| u64::from(*decode_us))
+        .sum::<u64>();
+    let decode_critical_path_us = layer_results
+        .iter()
+        .map(|(_, _, decode_us, _, _)| u64::from(*decode_us))
+        .max()
+        .unwrap_or(0);
+    crate::engine::ENGINE_TELEMETRY.record_multilayer_decode(
+        layer_count,
+        decode_sum_us,
+        decode_critical_path_us,
+    );
+    for (_, frame, decode_us, mutex_wait_us, stream_metadata) in layer_results {
+        max_decode_us = max_decode_us.max(decode_us);
+        total_mutex_wait_us = total_mutex_wait_us.saturating_add(mutex_wait_us);
+        if primary_container.is_none() {
+            primary_container = Some(stream_metadata.container_format.clone());
+            primary_source = Some(stream_metadata);
+        }
+        decoded.push(frame);
+    }
+
+    let source = primary_source;
+    Ok(Some((
+        decoded,
+        NativeDecodeTimings {
+            decode_time_us: max_decode_us,
+            decoder_mutex_wait_us: total_mutex_wait_us,
+            actor_wait_us: Some(0),
+            demux_wait_us: Some(0),
+            container_format: primary_container,
+            is_hardware_accelerated: Some(true),
+            source_width: source.as_ref().map(|metadata| metadata.width),
+            source_height: source.as_ref().map(|metadata| metadata.height),
+            source_bits_per_raw_sample: source
+                .as_ref()
+                .map(|metadata| metadata.bits_per_raw_sample),
+            source_frame_rate_milli: source
+                .as_ref()
+                .and_then(|metadata| metadata.average_frame_rate_milli()),
+            codec_name: source.as_ref().map(|metadata| metadata.codec_name.clone()),
+            hw_device_type: Some("videotoolbox".to_string()),
+            ..NativeDecodeTimings::default()
+        },
+    )))
+}
+
 async fn decode_native_video_layers(
     request: &NativeVideoProjectFrameRequest,
     cancellation: Option<(Arc<AtomicU64>, u64)>,
-) -> Result<(Vec<DecodedNativeVideoFrame>, NativeDecodeTimings), String> {
+    lifecycle_context: RenderLifecycleContext,
+) -> Result<
+    (
+        Vec<DecodedNativeVideoFrame>,
+        NativeDecodeTimings,
+        RenderLifecycleContext,
+    ),
+    crate::filmstrip_engine::stream_actor::StreamDecodeError,
+> {
     if request.layers.is_empty() {
-        return Ok((Vec::new(), NativeDecodeTimings::default()));
+        return Ok((
+            Vec::new(),
+            NativeDecodeTimings::default(),
+            lifecycle_context,
+        ));
     }
 
     let decode_options = DecodeFrameOptions {
@@ -1805,6 +2595,13 @@ async fn decode_native_video_layers(
         skip_hw_download: false,
         target_dimensions: None,
     };
+
+    #[cfg(target_os = "macos")]
+    if let Some((decoded, timings)) =
+        decode_native_video_layers_metal(request, &decode_options, cancellation.clone()).await?
+    {
+        return Ok((decoded, timings, lifecycle_context));
+    }
 
     // P0 visible seek/scrub work must preempt any same-source P2/P3 filmstrip
     // extraction before it acquires its own preview decoder. The decoder pools
@@ -1844,7 +2641,8 @@ async fn decode_native_video_layers(
             &layer.video_path,
             stream_id,
         )
-        .await?;
+        .await
+        .map_err(crate::filmstrip_engine::stream_actor::StreamDecodeError::Actor)?;
         let actor_frame = if request.mode.as_deref() == Some("playback") {
             actor
                 .decode_playback_frame(layer.time_secs, decode_options, generation)
@@ -1871,6 +2669,18 @@ async fn decode_native_video_layers(
         let source = actor_frame.source_metadata.clone();
         let actor_served_from = actor_frame.served_from;
         let hw_device_type = actor_frame.hw_device_type.clone();
+        crate::engine::ENGINE_TELEMETRY.record_stream_telemetry(
+            if layer.layer_id.is_empty() {
+                "layer-0"
+            } else {
+                layer.layer_id.as_str()
+            },
+            source.codec_name.clone(),
+            source.codec_profile.clone(),
+            source.pixel_format.clone(),
+            source.color.range.clone(),
+            None,
+        );
         let decoded = actor_frame.into_native_video_frame();
         return Ok((
             vec![decoded],
@@ -1897,6 +2707,7 @@ async fn decode_native_video_layers(
                 served_from: Some(actor_served_from),
                 hw_device_type,
             },
+            lifecycle_context,
         ));
     }
 
@@ -1937,7 +2748,8 @@ async fn decode_native_video_layers(
                         &video_path,
                         stream_id,
                     )
-                    .await?;
+                    .await
+                    .map_err(crate::filmstrip_engine::stream_actor::StreamDecodeError::Actor)?;
                 let actor_frame = if is_playback {
                     actor
                         .decode_playback_frame(time_secs, decode_options, generation)
@@ -1955,8 +2767,21 @@ async fn decode_native_video_layers(
                 let demux_us = actor_frame.demux_us;
                 let container_format = actor_frame.container_format.clone();
                 let is_hw = actor_frame.is_hardware_accelerated;
+                let source = actor_frame.source_metadata.clone();
+                crate::engine::ENGINE_TELEMETRY.record_stream_telemetry(
+                    if layer_id.is_empty() {
+                        format!("layer-{unique_idx}")
+                    } else {
+                        layer_id.clone()
+                    },
+                    source.codec_name,
+                    source.codec_profile,
+                    source.pixel_format,
+                    source.color.range,
+                    None,
+                );
                 let decoded = actor_frame.into_native_video_frame();
-                Ok::<_, String>((
+                Ok::<_, crate::filmstrip_engine::stream_actor::StreamDecodeError>((
                     decoded,
                     decode_us,
                     mutex_wait_us,
@@ -1983,9 +2808,11 @@ async fn decode_native_video_layers(
     let mut all_hw = true;
 
     for task in unique_tasks {
-        let res = task
-            .await
-            .map_err(|e| format!("Decode worker task failed: {e}"))??;
+        let res = task.await.map_err(|e| {
+            crate::filmstrip_engine::stream_actor::StreamDecodeError::Actor(format!(
+                "Decode worker task failed: {e}"
+            ))
+        })??;
         max_decode_us = max_decode_us.max(res.1);
         total_mutex_wait_us = total_mutex_wait_us.saturating_add(res.2);
         max_actor_wait_us = max_actor_wait_us.max(res.3);
@@ -2023,6 +2850,7 @@ async fn decode_native_video_layers(
             // until the report can represent one row per source.
             ..NativeDecodeTimings::default()
         },
+        lifecycle_context,
     ))
 }
 
@@ -2032,6 +2860,57 @@ async fn decode_native_video_layers(
 /// visible filmstrip batch for the same source.
 fn is_preview_preemptive_request(is_scrubbing: Option<bool>, mode: Option<&str>) -> bool {
     is_scrubbing.unwrap_or(false) || matches!(mode, Some("scrub" | "seek"))
+}
+
+fn is_interactive_scrub_request(is_scrubbing: Option<bool>, mode: Option<&str>) -> bool {
+    is_scrubbing.unwrap_or(false) || mode == Some("scrub")
+}
+
+/// Returns whether an audio-clock lateness result is actionable for this
+/// presentation request.
+///
+/// Interactive scrub targets are visual navigation work, not playback ticks.
+/// They may carry `mode = "playback"` while the pointer is down, and the
+/// audio clock can be stale or intentionally stopped during that interaction.
+/// Applying the playback lateness fence to them discards the only frame that
+/// could make forward scrubbing visible. Continuous playback remains subject
+/// to the severe-drift re-anchor policy, and settled non-scrub seeks retain the
+/// existing lateness behavior.
+fn should_drop_frame_for_audio_lateness(
+    late_for_audio: bool,
+    frame_age_ticks: i64,
+    is_playback: bool,
+    is_scrubbing: Option<bool>,
+    mode: Option<&str>,
+    has_video_layers: bool,
+) -> bool {
+    let is_interactive_scrub = is_interactive_scrub_request(is_scrubbing, mode);
+    let is_severely_late_for_audio =
+        is_playback && !is_interactive_scrub && has_video_layers && frame_age_ticks > 120_000;
+    let should_drop_non_interactive_lateness =
+        late_for_audio && !is_interactive_scrub && has_video_layers && !is_playback;
+
+    should_drop_non_interactive_lateness || is_severely_late_for_audio
+}
+
+/// Interactive seeks are latest-frame work. Starting a forward-only lookahead
+/// worker for every pointer update makes forward scrubbing compete with the
+/// visible request, only to cancel that worker at the next generation.
+///
+/// A settled paused frame has neither the interactive flag nor an explicit
+/// seek/scrub mode, so it may still prime the next playback start. Continuous
+/// playback continues to own its bounded forward lookahead window.
+fn should_schedule_lookahead_predecode(is_scrubbing: Option<bool>, mode: Option<&str>) -> bool {
+    !is_scrubbing.unwrap_or(false) && !matches!(mode, Some("prefetch" | "scrub" | "seek"))
+}
+
+/// Text-only prefetches may warm the SDF cache without competing with a video
+/// decode. A video lookahead request must never rasterize text while holding
+/// the native preview session lock: the visible presenter needs that same lock
+/// to import/composite the next frame, so doing both in the speculative worker
+/// turns a cache warmup into a presentation stall.
+fn should_warm_native_text_during_prefetch(is_prefetch: bool, has_video_layers: bool) -> bool {
+    is_prefetch && !has_video_layers
 }
 
 /// Decode a frame into the bounded native playback queue without presenting
@@ -2104,21 +2983,34 @@ pub async fn queue_native_frame(
     };
 
     let cancellation = Some((cancellation_generation, generation));
-    if is_prefetch && !legacy_request.text_layers.is_empty() {
-        // Warm text before the potentially expensive FFmpeg seek. Otherwise a
-        // future boundary can finish decoding only after the text SDF compile
-        // has missed the presentation deadline.
+    if should_warm_native_text_during_prefetch(
+        is_prefetch,
+        !legacy_request.layers.is_empty(),
+    ) && !legacy_request.text_layers.is_empty()
+    {
+        // Text-only prefetches can safely warm the SDF cache. Video lookahead
+        // intentionally skips this work so a speculative rasterization cannot
+        // hold the session mutex across a visible frame's deadline.
         if let Some(preview_state) =
             app.try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
         {
+            crate::engine::ENGINE_TELEMETRY
+                .record_text_prefetch_rasterized_under_preview_lock();
             let mut session = preview_state.lock().await;
             for text_layer in &legacy_request.text_layers {
                 session.get_or_render_text_layer(text_layer)?;
             }
         }
     }
-    match decode_native_video_layers(&legacy_request, cancellation).await {
-        Ok((decoded_frames, decode_timings)) => {
+    match decode_native_video_layers(
+        &legacy_request,
+        cancellation,
+        RenderLifecycleContext::empty(),
+    )
+    .await
+    {
+        Ok((decoded_frames, decode_timings, lifecycle_context)) => {
+            let decoded_transfer_path = decoded_frame_transfer_path(&decoded_frames);
             // Start this clock as soon as decoding is complete, before taking
             // the queue lock. A contended producer lock should be visible as
             // part of the time the decoded result is unavailable to present.
@@ -2135,6 +3027,7 @@ pub async fn queue_native_frame(
                         queued_at: command_started,
                         ready_at,
                         scheduler_wait_us,
+                        lifecycle_context,
                     },
                     lifecycle_epoch,
                 );
@@ -2144,9 +3037,13 @@ pub async fn queue_native_frame(
                         let total_time_us =
                             command_started.elapsed().as_micros().min(u32::MAX as u128) as u32;
                         let measured_stages = scheduler_wait_us
-                            + decode_timings.actor_wait_us.unwrap_or_else(|| u64::from(decode_timings.decode_time_us));
-                        let unaccounted_us = u64::from(total_time_us).saturating_sub(measured_stages);
-                        let stage_overlap_us = measured_stages.saturating_sub(u64::from(total_time_us));
+                            + decode_timings
+                                .actor_wait_us
+                                .unwrap_or_else(|| u64::from(decode_timings.decode_time_us));
+                        let unaccounted_us =
+                            u64::from(total_time_us).saturating_sub(measured_stages);
+                        let stage_overlap_us =
+                            measured_stages.saturating_sub(u64::from(total_time_us));
                         service.record_sample(PerformanceSample {
                             request_id: request.request_id.clone(),
                             frame_index: request.frame_time.frame_index,
@@ -2160,12 +3057,17 @@ pub async fn queue_native_frame(
                             mode: Some(PreviewMode::PlaybackLookahead),
                             quality: Some(format!("{:?}", request.quality)),
                             strategy: Some("LOOKAHEAD_PREFETCH".to_string()),
-                            transfer_path: Some("lookahead-queue".to_string()),
+                            // Keep the scheduling strategy separate from the
+                            // actual pixel provenance. `lookahead-queue` is
+                            // not a transfer path and must not overwrite it.
+                            transfer_path: Some(decoded_transfer_path.as_str().to_string()),
                             cancelled: false,
                             stale: false,
                             dropped: false,
                             drop_reason: None,
-                            disposition: Some(crate::native_core::performance::FrameDisposition::Presented),
+                            disposition: Some(
+                                crate::native_core::performance::FrameDisposition::Presented,
+                            ),
                             seek_time_us: decode_timings.seek_time_us.unwrap_or(0),
                             conversion_time_us: 0,
                             upload_time_us: 0,
@@ -2232,7 +3134,7 @@ pub async fn queue_native_frame(
         Err(error) => {
             pending_guard.key = None;
             queue.lock().await.fail(&key);
-            Err(error)
+            Err(error.to_string())
         }
     }
 }
@@ -2241,6 +3143,12 @@ struct LookaheadWorkerState {
     handle: tauri::async_runtime::JoinHandle<()>,
     generation: u64,
     quality: Option<crate::native_core::QualityTier>,
+    /// Identity of the decode topology this worker was created for. Source
+    /// timestamps are intentionally excluded: they advance on every playback
+    /// tick and must not cause the worker to restart. Stream identity and the
+    /// project revision are included so a clip entering/leaving the active
+    /// scene cannot leave stale lookahead work decoding the old topology.
+    content_key: u64,
     start_frame: Arc<std::sync::atomic::AtomicU64>,
     end_frame: Arc<std::sync::atomic::AtomicU64>,
     finished: Arc<std::sync::atomic::AtomicBool>,
@@ -2248,6 +3156,28 @@ struct LookaheadWorkerState {
 
 static LOOKAHEAD_WORKER: std::sync::Mutex<Option<LookaheadWorkerState>> =
     std::sync::Mutex::new(None);
+
+/// Return a stable identity for the video decode topology used by lookahead.
+///
+/// This deliberately hashes only values that change which source decoders are
+/// needed. Per-frame source timestamps and compositing properties are omitted:
+/// they change continuously during playback and should not abort useful
+/// forward predecode. The resulting value is an in-memory key only; no media
+/// paths or other inputs are written to telemetry.
+fn lookahead_content_key(
+    project_revision: &str,
+    video_layers: &[crate::native_core::VideoLayerSnapshot],
+) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    project_revision.hash(&mut hasher);
+    video_layers.len().hash(&mut hasher);
+    for layer in video_layers {
+        layer.layer_id.hash(&mut hasher);
+        layer.asset_id.hash(&mut hasher);
+        layer.video_path.hash(&mut hasher);
+    }
+    hasher.finish()
+}
 
 /// Read the capability-probe-selected quality tier from the active render session.
 ///
@@ -2306,6 +3236,20 @@ fn record_playback_lookahead_outcome(app: &tauri::AppHandle, queue_hit: bool) {
     }
 }
 
+/// Classifies decode timing at the request boundary, where we still know
+/// whether a seek was satisfied from the ready queue or required cold decode.
+/// Keeping this label next to the request prevents aggregate telemetry from
+/// blending steady playback with scrub/seek pre-roll.
+fn decode_workload_label(mode: Option<&str>, queue_hit: bool) -> &'static str {
+    match mode {
+        Some("playback") | Some("playback-lookahead") => "playback",
+        Some("scrub") => "scrub",
+        Some("seek") if !queue_hit => "cold_seek",
+        Some("seek") => "seek",
+        _ => "other",
+    }
+}
+
 /// Non-blocking lookahead pre-decode worker.
 /// Pre-decodes upcoming frames sequentially into `NativePreviewFrameQueue`
 /// ahead of the presentation playhead. Sequential forward decoding avoids
@@ -2320,10 +3264,27 @@ pub(crate) fn schedule_lookahead_predecode(
         return;
     }
 
+    let is_4k_plus = base_request.project.canvas_width >= 3840
+        || base_request.project.canvas_height >= 2160
+        || base_request
+            .project
+            .video_layers
+            .iter()
+            .any(|l| l.width >= 3840.0 || l.height >= 2160.0);
+    let lookahead_count = if is_4k_plus {
+        lookahead_count.min(2)
+    } else {
+        lookahead_count
+    };
+
     // PR4: count every trigger attempt
     crate::filmstrip_engine::stream_actor::record_lookahead_trigger();
 
     let generation = base_request.generation.unwrap_or(0);
+    let content_key = lookahead_content_key(
+        &base_request.project.project_revision,
+        &base_request.project.video_layers,
+    );
     let frame_rate = base_request.project.frame_rate.max(1);
     let fps = frame_rate as f64;
 
@@ -2351,22 +3312,30 @@ pub(crate) fn schedule_lookahead_predecode(
         let is_active = !active.finished.load(std::sync::atomic::Ordering::Acquire);
         let is_same_gen = active.generation == generation;
         let is_same_quality = active.quality == quality_override;
+        let is_same_content = active.content_key == content_key;
         let start_f = active
             .start_frame
             .load(std::sync::atomic::Ordering::Acquire);
         let end_f = active.end_frame.load(std::sync::atomic::Ordering::Acquire);
         let frames_ahead = end_f.saturating_sub(current_audio_frame);
-        let has_sufficient_lookahead = frames_ahead >= 2;
+        // One ready future frame is sufficient to keep the next visible
+        // playback deadline supplied. Requiring two made the scheduler abort
+        // a still-useful worker on every advancing audio tick, which turned
+        // normal playback into repeated queue-starvation misses.
+        let has_sufficient_lookahead = frames_ahead >= 1;
         let is_in_range =
             current_audio_frame >= start_f.saturating_sub(2) && has_sufficient_lookahead;
 
-        if is_active && is_same_gen && is_same_quality && is_in_range {
+        if is_active && is_same_gen && is_same_quality && is_same_content && is_in_range {
             // PR4: count dropped trigger and record ahead-of-clock
             crate::filmstrip_engine::stream_actor::record_lookahead_trigger_dropped();
             let end_time_secs = end_f as f64 / fps;
             let ahead_ms = (end_time_secs - current_audio_secs) * 1_000.0;
             crate::filmstrip_engine::stream_actor::record_producer_ahead_of_clock_ms(ahead_ms);
             return;
+        }
+        if is_active && is_same_gen && is_same_quality && !is_same_content {
+            crate::engine::ENGINE_TELEMETRY.record_stale_lookahead_discarded();
         }
     }
 
@@ -2376,6 +3345,8 @@ pub(crate) fn schedule_lookahead_predecode(
 
     // If generation changed or audio jumped out of range, abort previous worker to free decoders immediately.
     if let Some(prev) = worker_guard.take() {
+        #[cfg(target_os = "macos")]
+        METAL_PREFETCH_CANCEL_EPOCH.fetch_add(1, Ordering::AcqRel);
         prev.handle.abort();
     }
 
@@ -2415,7 +3386,11 @@ pub(crate) fn schedule_lookahead_predecode(
                     deadline_aware_lookahead_count(frame_rate, lookahead_count, None),
                 )
             };
-            let effective_lookahead_count = lookahead_decision.count;
+            let effective_lookahead_count = if is_4k_plus {
+                lookahead_decision.count.min(2)
+            } else {
+                lookahead_decision.count
+            };
 
             let target_end = current_audio_frame.saturating_add(effective_lookahead_count as u64);
             let start = match highest {
@@ -2518,6 +3493,7 @@ pub(crate) fn schedule_lookahead_predecode(
         handle,
         generation,
         quality: quality_override,
+        content_key,
         start_frame: worker_start,
         end_frame: worker_end,
         finished,
@@ -2530,12 +3506,32 @@ pub(crate) fn schedule_lookahead_predecode(
 pub(crate) async fn reset_native_preview_queue(app: &tauri::AppHandle) {
     if let Ok(mut worker) = LOOKAHEAD_WORKER.lock() {
         if let Some(previous) = worker.take() {
+            #[cfg(target_os = "macos")]
+            METAL_PREFETCH_CANCEL_EPOCH.fetch_add(1, Ordering::AcqRel);
             previous.handle.abort();
         }
     }
     if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
         queue.inner().clone().lock().await.reset();
     }
+}
+
+/// Stop speculative playback lookahead without invalidating queued frames or
+/// advancing the native cancellation generation. The interactive demand owns
+/// the next exact decode; `NativeRenderSession` separately signals each
+/// stream actor so a decode already inside FFmpeg can observe cancellation.
+pub(crate) fn preempt_lookahead_predecode() -> bool {
+    #[cfg(target_os = "macos")]
+    METAL_PREFETCH_CANCEL_EPOCH.fetch_add(1, Ordering::AcqRel);
+    let mut preempted = false;
+    if let Ok(mut worker) = LOOKAHEAD_WORKER.lock() {
+        if let Some(previous) = worker.take() {
+            preempted = true;
+            crate::engine::ENGINE_TELEMETRY.record_lookahead_preempted();
+            previous.handle.abort();
+        }
+    }
+    preempted
 }
 
 /// Mark all older native preview work stale. Decoder calls that cannot be
@@ -2548,6 +3544,8 @@ pub async fn cancel_native_preview_requests(
 ) -> Result<(), String> {
     if let Ok(mut worker) = LOOKAHEAD_WORKER.lock() {
         if let Some(prev) = worker.take() {
+            #[cfg(target_os = "macos")]
+            METAL_PREFETCH_CANCEL_EPOCH.fetch_add(1, Ordering::AcqRel);
             prev.handle.abort();
         }
     }
@@ -2559,13 +3557,15 @@ pub async fn cancel_native_preview_requests(
     queue.lock().await.invalidate_generation(generation);
     if let Some(playback) = app.try_state::<Arc<std::sync::Mutex<crate::commands::native_playback::NativePlaybackRuntime>>>() {
         if let Ok(runtime) = playback.inner().clone().lock() {
-            runtime.invalidate_render_generation(generation);
+            if let Some(terminal) = runtime.invalidate_render_generation(generation) {
+                crate::commands::native_playback::NativeRenderSession::emit_terminal(
+                    &app, terminal,
+                );
+            }
         }
     }
     Ok(())
 }
-
-
 
 /// Present a versioned frame directly to the retained native surface.
 ///
@@ -2638,13 +3638,7 @@ pub(crate) fn composite_layers_to_view(
         )?;
         let overlays = if layers.len() > 2 { &layers[2..] } else { &[] };
         if !overlays.is_empty() {
-            compositor.composite_layers(
-                &gpu.device,
-                &gpu.queue,
-                target_view,
-                overlays,
-                None,
-            )?;
+            compositor.composite_layers(&gpu.device, &gpu.queue, target_view, overlays, None)?;
         }
     } else {
         compositor.composite_layers(
@@ -2658,18 +3652,69 @@ pub(crate) fn composite_layers_to_view(
     Ok(())
 }
 
+#[derive(Debug)]
+pub(crate) enum NativePresentationError {
+    InvalidContract(String),
+    Stale,
+    Superseded,
+    Cancelled,
+    Decode(String),
+    SurfaceNotConfigured,
+    Pipeline(String),
+}
+
+impl std::fmt::Display for NativePresentationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidContract(message) | Self::Decode(message) | Self::Pipeline(message) => {
+                f.write_str(message)
+            }
+            Self::Stale => f.write_str("Native preview frame request is stale"),
+            Self::Superseded => f.write_str("Request superseded by newer generation"),
+            Self::Cancelled => f.write_str("Native preview request cancelled"),
+            Self::SurfaceNotConfigured => f.write_str("Native surface has not been configured"),
+        }
+    }
+}
+
+impl From<String> for NativePresentationError {
+    fn from(value: String) -> Self {
+        Self::Pipeline(value)
+    }
+}
+
+impl From<crate::filmstrip_engine::stream_actor::StreamDecodeError> for NativePresentationError {
+    fn from(value: crate::filmstrip_engine::stream_actor::StreamDecodeError) -> Self {
+        use crate::filmstrip_engine::stream_actor::StreamDecodeError;
+        match value {
+            StreamDecodeError::Superseded => Self::Superseded,
+            StreamDecodeError::Cancelled => Self::Cancelled,
+            StreamDecodeError::Decoder(message) => Self::Decode(message),
+            StreamDecodeError::Actor(message) => Self::Pipeline(message),
+        }
+    }
+}
+
+impl NativePresentationError {
+    pub(crate) fn is_decode_failure(&self) -> bool {
+        matches!(self, Self::Decode(_))
+    }
+}
+
 pub(crate) async fn present_native_frame_internal(
     app: tauri::AppHandle,
     request: FrameRequest,
-) -> Result<NativeSurfacePresentation, String> {
+    lifecycle_context: RenderLifecycleContext,
+    lifecycle_registry: Option<&std::sync::Mutex<FrameLifecycleRegistry>>,
+) -> Result<NativeSurfacePresentation, NativePresentationError> {
     let presentation_started = Instant::now();
     let presentation_sequence =
         NATIVE_SURFACE_PRESENTATION_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     if request.contract_version != NATIVE_CORE_CONTRACT_VERSION {
-        return Err(format!(
+        return Err(NativePresentationError::InvalidContract(format!(
             "Unsupported native core contract version: {}",
             request.contract_version
-        ));
+        )));
     }
     if let Some(generation) = request.generation {
         if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
@@ -2680,7 +3725,7 @@ pub(crate) async fn present_native_frame_internal(
                 .await
                 .is_generation_current(generation)
             {
-                return Err("Native preview frame request is stale".to_string());
+                return Err(NativePresentationError::Stale);
             }
         }
     }
@@ -2688,7 +3733,7 @@ pub(crate) async fn present_native_frame_internal(
     validate_video_project_request(&legacy_request)?;
     let surface_state = app
         .try_state::<Arc<std::sync::Mutex<NativeSurfaceRuntime>>>()
-        .ok_or_else(|| "Native surface runtime is unavailable".to_string())?;
+        .ok_or(NativePresentationError::SurfaceNotConfigured)?;
     let presentation_epoch = surface_state
         .lock()
         .unwrap_or_else(|poisoned| {
@@ -2703,6 +3748,7 @@ pub(crate) async fn present_native_frame_internal(
     let has_video_layers = !request.project.video_layers.is_empty();
     let is_playback_mode = request.mode.as_deref() == Some("playback");
     let mut playback_lookahead_miss = false;
+    let mut visible_preempted_lookahead = false;
     let lookahead_wait_us: u64 = 0;
     let queued_frame = if has_video_layers {
         if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
@@ -2789,6 +3835,11 @@ pub(crate) async fn present_native_frame_internal(
             },
             Some(&app),
         );
+        crate::engine::ENGINE_TELEMETRY.record_decode_workload(
+            decode_workload_label(request.mode.as_deref(), false),
+            0,
+            true,
+        );
         record_native_surface_sample(
             &app,
             &request,
@@ -2825,7 +3876,10 @@ pub(crate) async fn present_native_frame_internal(
             mode: request.mode,
             stale: false,
             cancelled: false,
+            terminal_disposition: Some("dropped-before-present".to_string()),
+            outcome: Some(crate::native_core::NativePresentationOutcome::DroppedBeforePresent),
             drop_reason: Some("lookahead-miss".to_string()),
+            drop_reason_code: Some(crate::native_core::NativePresentationDropReason::LookaheadMiss),
             timings: None,
         });
     }
@@ -2836,6 +3890,7 @@ pub(crate) async fn present_native_frame_internal(
         ready_at,
         request_started_at,
         queue_hit,
+        lifecycle_context_returned,
     ) = match queued_frame {
         Some(frame) => (
             frame.decoded_frames,
@@ -2844,10 +3899,20 @@ pub(crate) async fn present_native_frame_internal(
             Some(frame.ready_at),
             presentation_started,
             true,
+            frame.lifecycle_context,
         ),
         None => {
-            let (decoded_frames, decode_timings) =
-                decode_native_video_layers(&legacy_request, None).await?;
+            // A visible cold decode must not queue behind speculative Metal
+            // work for an upcoming clip. The prefetch epoch is separate from
+            // the playback generation, so this cancels only in-flight
+            // lookahead while preserving already-ready queue entries.
+            if has_video_layers && !is_playback_mode {
+                visible_preempted_lookahead = preempt_lookahead_predecode();
+            }
+            let (decoded_frames, decode_timings, lifecycle_context_after_decode) =
+                decode_native_video_layers(&legacy_request, None, lifecycle_context)
+                    .await
+                    .map_err(NativePresentationError::from)?;
             if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>()
             {
                 queue
@@ -2862,6 +3927,7 @@ pub(crate) async fn present_native_frame_internal(
                 None,
                 presentation_started,
                 false,
+                lifecycle_context_after_decode,
             )
         }
     };
@@ -2869,6 +3935,11 @@ pub(crate) async fn present_native_frame_internal(
     let queue_residency_us =
         ready_at.map(|ready_at| queue_residency_us(ready_at, presentation_started));
     let scheduler_wait_us = scheduler_lock_wait_us;
+    if visible_preempted_lookahead {
+        crate::engine::ENGINE_TELEMETRY.record_visible_decode_waited_behind_lookahead(
+            decode_timings.decoder_mutex_wait_us,
+        );
+    }
     if let Some(generation) = request.generation {
         if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
             if !queue
@@ -2901,7 +3972,7 @@ pub(crate) async fn present_native_frame_internal(
                     None, // command_entry_to_present_enqueue_us
                     None, // frame_processing_us
                 );
-                return Err("Native preview frame request is stale".to_string());
+                return Err(NativePresentationError::Stale);
             }
         }
     }
@@ -2930,7 +4001,7 @@ pub(crate) async fn present_native_frame_internal(
         state
     });
     if surface.runtime_epoch() != presentation_epoch {
-        return Err("Native preview frame request is stale".to_string());
+        return Err(NativePresentationError::Stale);
     }
     let target_format = surface
         .configured_format()
@@ -2953,11 +4024,21 @@ pub(crate) async fn present_native_frame_internal(
     // Frame skipping occurs naturally at the scheduler boundary on the next tick.
     // EXCEPT when severe A/V drift occurs (> 120 ms behind audio clock). In that case,
     // presenting ancient frames only perpetuates desync. We purge stale queue frames and re-anchor.
-    let is_severely_late_for_audio =
-        is_playback && !legacy_request.layers.is_empty() && frame_age_ticks > 120_000;
+    let late_for_audio = should_drop_frame_for_audio_lateness(
+        late_for_audio,
+        frame_age_ticks,
+        is_playback,
+        request.is_scrubbing,
+        request.mode.as_deref(),
+        !legacy_request.layers.is_empty(),
+    );
 
-    let late_for_audio = (late_for_audio && !legacy_request.layers.is_empty() && !is_playback)
-        || is_severely_late_for_audio;
+    let is_interactive_scrub =
+        is_interactive_scrub_request(request.is_scrubbing, request.mode.as_deref());
+    let is_severely_late_for_audio = is_playback
+        && !is_interactive_scrub
+        && !legacy_request.layers.is_empty()
+        && frame_age_ticks > 120_000;
 
     if is_severely_late_for_audio {
         if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
@@ -3014,7 +4095,10 @@ pub(crate) async fn present_native_frame_internal(
             mode: request.mode.clone(),
             stale: true,
             cancelled: false,
+            terminal_disposition: Some("superseded".to_string()),
+            outcome: Some(crate::native_core::NativePresentationOutcome::Superseded),
             drop_reason: Some("superseded".to_string()),
+            drop_reason_code: Some(crate::native_core::NativePresentationDropReason::Superseded),
             timings: None,
         });
     }
@@ -3058,7 +4142,10 @@ pub(crate) async fn present_native_frame_internal(
             mode: request.mode.clone(),
             stale: false,
             cancelled: false,
+            terminal_disposition: Some("dropped-before-present".to_string()),
+            outcome: Some(crate::native_core::NativePresentationOutcome::DroppedBeforePresent),
             drop_reason: Some("late-for-audio".to_string()),
+            drop_reason_code: Some(crate::native_core::NativePresentationDropReason::LateForAudio),
             timings: None,
         });
     }
@@ -3069,9 +4156,9 @@ pub(crate) async fn present_native_frame_internal(
             | wgpu::TextureFormat::Bgra8Unorm
             | wgpu::TextureFormat::Rgba8Unorm
     ) {
-        return Err(format!(
+        return Err(NativePresentationError::InvalidContract(format!(
             "Native direct presentation requires an 8-bit RGBA/BGRA surface format, got {target_format:?}"
-        ));
+        )));
     }
     // Warn once if we are presenting to a non-sRGB surface — colours will be
     // slightly different from the sRGB path but the preview will be visible.
@@ -3081,9 +4168,35 @@ pub(crate) async fn present_native_frame_internal(
     // back-buffer acquisition while it is hidden. Reveal it before acquiring
     // the swapchain texture so the production first frame follows the same
     // path as subsequent frames.
-    surface.show_surface()?;
+    // A FrameId identifies visual work that is now eligible for native
+    // presentation, not a timeline index, decode-cache entry, or request
+    // label. Lookahead cache entries remain identity-free until this boundary.
+    let mut presentation_lifecycle = lifecycle_registry
+        .map(|registry| {
+            let attribution = visible_frame_attribution(&lifecycle_context_returned, &request)?;
+            PresentationLifecycleGuard::begin(
+                registry,
+                attribution,
+                lifecycle_context_returned.request_ids.clone(),
+            )
+        })
+        .transpose()?;
+    if let Err(error) = surface.show_surface() {
+        if let Some(lifecycle) = presentation_lifecycle.as_mut() {
+            lifecycle.fail(PresentationFailureReason::SurfaceUnavailable);
+        }
+        return Err(NativePresentationError::Pipeline(error));
+    }
     let surface_acquire_started = Instant::now();
-    let surface_texture = surface.acquire_current_texture(&gpu.device)?;
+    let surface_texture = match surface.acquire_current_texture(&gpu.device) {
+        Ok(texture) => texture,
+        Err(error) => {
+            if let Some(lifecycle) = presentation_lifecycle.as_mut() {
+                lifecycle.fail(PresentationFailureReason::SurfaceAcquireFailed);
+            }
+            return Err(NativePresentationError::Pipeline(error));
+        }
+    };
     let surface_acquire_us = surface_acquire_started.elapsed().as_micros() as u64;
     let target_view = surface_texture
         .texture
@@ -3100,8 +4213,7 @@ pub(crate) async fn present_native_frame_internal(
     );
     let mut views: Vec<wgpu::TextureView> =
         Vec::with_capacity(legacy_request.layers.len() + legacy_request.raster_layers.len());
-    let mut used_dxgi_zero_copy = false;
-    let mut used_cpu_nv12 = false;
+    let mut frame_transfer_paths = Vec::with_capacity(legacy_request.layers.len());
     for (layer_idx, (layer, (planes, width, height, color, source_rotation))) in legacy_request
         .layers
         .iter()
@@ -3120,6 +4232,8 @@ pub(crate) async fn present_native_frame_internal(
         if let Some(prev_idx) = duplicate_of {
             views.push(views[prev_idx].clone());
             textures.push(textures[prev_idx].clone());
+            let previous_path = frame_transfer_paths[prev_idx];
+            frame_transfer_paths.push(previous_path);
         } else {
             let params = color_params(color)?;
             let layer_key = if !layer.layer_id.is_empty() {
@@ -3131,8 +4245,43 @@ pub(crate) async fn present_native_frame_internal(
             #[allow(unused_mut)]
             let mut layer_texture: Option<Arc<wgpu::Texture>> = None;
 
+            #[cfg(target_os = "macos")]
+            if let DecodedFrame::Metal(ref shared_arc) = planes {
+                if metal_decode_enabled() && !metal_zero_copy_disabled() {
+                    if let Some(shared) = shared_arc.duplicate() {
+                        match crate::wgpu_compositor::metal_import::import_into_wgpu(
+                            &session.gpu.device,
+                            shared,
+                        ) {
+                            Ok(imported) => match session.render_nv12_from_imported_metal(
+                                layer_key, *width, *height, &imported, &params,
+                            ) {
+                                Ok(texture) => {
+                                    layer_texture = Some(texture);
+                                    if !METAL_ZERO_COPY_SUCCESS_REPORTED
+                                        .swap(true, Ordering::Relaxed)
+                                    {
+                                        diagnostics::info(
+                                            "native-preview",
+                                            "metal-zero-copy-active",
+                                            "VideoToolbox CVPixelBuffer imported into Metal/wgpu without CPU plane upload",
+                                        );
+                                    }
+                                }
+                                Err(error) => log::warn!(
+                                    "[NativePreview] active Metal texture render failed: {error:?}"
+                                ),
+                            },
+                            Err(reason) => log::warn!(
+                                "[NativePreview] active Metal texture import failed: {reason:?}"
+                            ),
+                        }
+                    }
+                }
+            }
+
             #[cfg(target_os = "windows")]
-            if let DecodedVideoPlanes::D3d11(ref shared_arc) = planes {
+            if let DecodedFrame::Dxgi(ref shared_arc) = planes {
                 if session.gpu.capabilities.zero_copy_available()
                     && session.dxgi_state.is_usable()
                     && crate::wgpu_compositor::adapter_selector::is_dxgi_runtime_enabled()
@@ -3183,12 +4332,12 @@ pub(crate) async fn present_native_frame_internal(
 
             let texture = match layer_texture {
                 Some(t) => {
-                    used_dxgi_zero_copy = true;
+                    frame_transfer_paths.push(planes.transfer_path());
                     t
                 }
                 None => match planes.cpu_planes() {
                     Some((y_plane, uv_plane)) => {
-                        used_cpu_nv12 = true;
+                        frame_transfer_paths.push(FrameTransferPath::CpuNv12);
                         let (tex_w, tex_h);
                         if *source_rotation != 0 {
                             let (ry, ruv, rw, rh) = crate::filmstrip_engine::decoder::rotate_nv12(
@@ -3213,10 +4362,10 @@ pub(crate) async fn present_native_frame_internal(
                     }
                     None => {
                         crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled();
-                        return Err(
-                            "DXGI zero-copy texture import failed and no CPU planes cached"
-                                .to_string(),
-                        );
+                        return Err(NativePresentationError::Pipeline(format!(
+                            "DXGI zero-copy texture import failed and no CPU planes cached (decoded path: {})",
+                            planes.transfer_path().as_str()
+                        )));
                     }
                 },
             };
@@ -3288,11 +4437,22 @@ pub(crate) async fn present_native_frame_internal(
     }
 
     let conversion_upload_us = conversion_started.elapsed().as_micros() as u64;
-    let transfer_path = classify_surface_transfer_path(
-        legacy_request.layers.len(),
-        used_dxgi_zero_copy,
-        used_cpu_nv12,
-    );
+    let transfer_path = aggregate_transfer_paths(&frame_transfer_paths).or_else(|| {
+        if legacy_request.layers.is_empty() {
+            Some(FrameTransferPath::GpuRaster)
+        } else {
+            Some(FrameTransferPath::Unknown)
+        }
+    });
+    if let Some(path) = transfer_path {
+        crate::engine::ENGINE_TELEMETRY.record_runtime_transfer_path(path);
+        log_required_zero_copy_violation(
+            path,
+            decode_timings.is_hardware_accelerated,
+            !legacy_request.layers.is_empty(),
+            request.frame_time.frame_index,
+        );
+    }
     let compose_started = Instant::now();
     let compositor_was_warm = session.has_compositor(
         legacy_request.canvas_width,
@@ -3471,6 +4631,9 @@ pub(crate) async fn present_native_frame_internal(
     let submit_present_started = Instant::now();
     surface_texture.present();
     let submit_present_us = submit_present_started.elapsed().as_micros() as u64;
+    if let Some(lifecycle) = presentation_lifecycle.as_mut() {
+        lifecycle.complete()?;
+    }
     // Phase 3.1: Rust-clock-domain end-to-end timings.
     // Both are measured after present() returns so they include the full Rust path.
     // `command_entry_to_present_enqueue_us`: from function entry (presentation_started / request_started_at)
@@ -3484,7 +4647,7 @@ pub(crate) async fn present_native_frame_internal(
     let presented_ticks = (request.frame_time.ticks.max(0) as i128 * 1_000_000i128
         / request.frame_time.timescale.max(1) as i128)
         .min(i64::MAX as i128) as i64;
-    SYNC_METRICS.record_frame_presented_with_options(
+    SYNC_METRICS.record_frame_presented_with_generation(
         presented_ticks,
         1_000_000i64 / i64::from(request.project.frame_rate.max(1)),
         matches!(
@@ -3492,6 +4655,7 @@ pub(crate) async fn present_native_frame_internal(
             Some("playback") | Some("playback-lookahead")
         ),
         request.mode.as_deref() != Some("playback-lookahead"),
+        request.target_generation.or(request.generation),
     );
     drop(surface);
     drop(session);
@@ -3520,7 +4684,7 @@ pub(crate) async fn present_native_frame_internal(
         None,
         capability_policy_str,
         capability_probe_us_value,
-        Some(transfer_path),
+        transfer_path,
         command_entry_to_present_enqueue_us,
         frame_processing_us,
     );
@@ -3572,8 +4736,13 @@ pub(crate) async fn present_native_frame_internal(
         },
         Some(&app),
     );
+    crate::engine::ENGINE_TELEMETRY.record_decode_workload(
+        decode_workload_label(request.mode.as_deref(), queue_hit),
+        decode_timings.decode_time_us as u64,
+        false,
+    );
 
-    if request.mode.as_deref() != Some("prefetch") && request.mode.as_deref() != Some("scrub") {
+    if should_schedule_lookahead_predecode(request.is_scrubbing, request.mode.as_deref()) {
         schedule_lookahead_predecode(
             app.clone(),
             request.clone(),
@@ -3595,7 +4764,10 @@ pub(crate) async fn present_native_frame_internal(
         mode: request.mode,
         stale: false,
         cancelled: false,
+        terminal_disposition: Some("presented".to_string()),
+        outcome: Some(crate::native_core::NativePresentationOutcome::Presented),
         drop_reason: None,
+        drop_reason_code: None,
         timings: Some(NativeSurfacePresentationTimings {
             total_us: request_started_at.elapsed().as_micros() as u64,
             decode_us: decode_timings.decode_time_us,
@@ -3624,7 +4796,9 @@ pub async fn present_native_frame(
     app: tauri::AppHandle,
     request: FrameRequest,
 ) -> Result<NativeSurfacePresentation, String> {
-    present_native_frame_internal(app, request).await
+    present_native_frame_internal(app, request, RenderLifecycleContext::empty(), None)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 /// Legacy-shaped command retained as a compatibility boundary while callers
@@ -3728,12 +4902,14 @@ pub async fn render_native_frame(
                         mode: PreviewMode::from_request_mode(request.mode.as_deref()),
                         quality: Some(format!("{:?}", request.quality)),
                         strategy: Some("UNCH".to_string()),
-                        transfer_path: Some("unchanged-skip".to_string()),
+                        transfer_path: Some("unchanged-skipped".to_string()),
                         cancelled: false,
                         stale: false,
                         dropped: false,
                         drop_reason: None,
-                        disposition: Some(crate::native_core::performance::FrameDisposition::Presented),
+                        disposition: Some(
+                            crate::native_core::performance::FrameDisposition::Presented,
+                        ),
                         seek_time_us: 0,
                         conversion_time_us: 0,
                         upload_time_us: 0,
@@ -3782,9 +4958,9 @@ pub async fn render_native_frame(
                         cache_insert_us: None,
                         dxgi_latched_off: None,
                         dxgi_latch_reason: None,
-                dxgi_latch_context: None,
-                lookahead_horizon_frames: None,
-                lookahead_clamp_reason: None,
+                        dxgi_latch_context: None,
+                        lookahead_horizon_frames: None,
+                        lookahead_clamp_reason: None,
                     });
                     log::debug!(
                         "[preview-diag][rust] render_native_frame UNCH: frame={} gen={:?}",
@@ -3864,8 +5040,8 @@ pub async fn render_native_frame(
                 hw_device_type: None,
                 cache_lock_wait_us: None,
                 cache_insert_us: None,
-                        dxgi_latched_off: None,
-                        dxgi_latch_reason: None,
+                dxgi_latched_off: None,
+                dxgi_latch_reason: None,
                 dxgi_latch_context: None,
                 lookahead_horizon_frames: None,
                 lookahead_clamp_reason: None,
@@ -3935,12 +5111,6 @@ pub async fn render_native_frame(
         format: PixelFormat::Rgba8Srgb,
         data: rgba.clone(),
     };
-
-    if let Some(session_collector) =
-        app.try_state::<Arc<crate::wgpu_compositor::SessionTelemetryCollector>>()
-    {
-        session_collector.record_frame_source("cpu-rgba");
-    }
 
     if let Some(cache) = app.try_state::<tokio::sync::Mutex<NativeFrameService>>() {
         let lock_start = Instant::now();
@@ -4034,9 +5204,9 @@ pub async fn render_native_frame(
             cache_insert_us,
             dxgi_latched_off: None,
             dxgi_latch_reason: None,
-                dxgi_latch_context: None,
-                lookahead_horizon_frames: None,
-                lookahead_clamp_reason: None,
+            dxgi_latch_context: None,
+            lookahead_horizon_frames: None,
+            lookahead_clamp_reason: None,
         });
 
         // Commit D: record this delivery so that the next identical playback
@@ -4096,7 +5266,6 @@ pub async fn get_native_frame_service_samples(
     Ok(batch)
 }
 
-
 /// Reset all per-project native preview state on project close.
 ///
 /// This atomically:
@@ -4112,6 +5281,8 @@ pub async fn get_native_frame_service_samples(
 ///    sticky `DxgiImportState::Failed` from the previous session.
 #[tauri::command]
 pub async fn reset_native_preview_runtime(app: tauri::AppHandle) -> Result<(), String> {
+    report_required_zero_copy_violations();
+
     if let Ok(mut worker) = LOOKAHEAD_WORKER.lock() {
         if let Some(prev) = worker.take() {
             prev.handle.abort();
@@ -4172,9 +5343,6 @@ pub async fn reset_native_preview_runtime(app: tauri::AppHandle) -> Result<(), S
     Ok(())
 }
 
-
-
-
 // ── Phase 5: Session performance telemetry ───────────────────────────────────
 
 /// Return a snapshot of the session-level rendering performance statistics.
@@ -4217,8 +5385,18 @@ pub async fn get_session_telemetry(app: tauri::AppHandle) -> Result<serde_json::
 pub async fn reset_session_telemetry(app: tauri::AppHandle) -> Result<(), String> {
     use crate::wgpu_compositor::SessionTelemetryCollector;
 
+    crate::engine::ENGINE_TELEMETRY.begin_session();
     if let Some(state) = app.try_state::<std::sync::Arc<SessionTelemetryCollector>>() {
         state.reset_session();
     }
+    Ok(())
+}
+
+/// Marks the native decode telemetry as closing before the frontend performs
+/// its final snapshot. Decode guards that finish after this boundary are
+/// classified as `in_flight_at_close`, not as forgotten outcomes.
+#[tauri::command]
+pub async fn mark_engine_telemetry_closing() -> Result<(), String> {
+    crate::engine::ENGINE_TELEMETRY.mark_session_closing();
     Ok(())
 }

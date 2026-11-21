@@ -204,6 +204,50 @@ describe("requestRenderArtifacts", () => {
     expect(received[0].epochId).toBe("epoch-1");
   });
 
+  it("handles Uint8ClampedArray, Uint8Array, and ArrayBuffer payloads efficiently", async () => {
+    registerActiveEpoch("clip-typed", eid("epoch-typed"));
+    const received: TransportArtifact[] = [];
+
+    requestRenderArtifacts({
+      videoPath: "/a.mp4",
+      timestampMs: 2000,
+      spatialTiers: [SpatialTier.L0],
+      epochId: eid("epoch-typed"),
+      clipId: "clip-typed",
+      onArtifact: (a) => received.push(a),
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Test 1: Uint8ClampedArray binary payload
+    const clampedData = new Uint8ClampedArray(160 * 90 * 4);
+    clampedData.fill(200);
+    channelInstances[0]?.triggerMessage(
+      makeRawArtifact({ rgba_data: clampedData, timestamp_ms: 2000 }),
+    );
+
+    // Test 2: Uint8Array binary view payload
+    const uint8Data = new Uint8Array(160 * 90 * 4);
+    uint8Data.fill(150);
+    channelInstances[0]?.triggerMessage(
+      makeRawArtifact({ rgba_data: uint8Data, timestamp_ms: 2001 }),
+    );
+
+    // Test 3: ArrayBuffer payload
+    const arrayBuffer = new ArrayBuffer(160 * 90 * 4);
+    channelInstances[0]?.triggerMessage(
+      makeRawArtifact({ rgba_data: arrayBuffer, timestamp_ms: 2002 }),
+    );
+
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(received).toHaveLength(3);
+    expect(received[0].timestampMs).toBe(2000);
+    expect(received[0].bitmap).toBeDefined();
+    expect(received[1].bitmap).toBeDefined();
+    expect(received[2].bitmap).toBeDefined();
+  });
+
   it("drops artifacts after epoch becomes stale", async () => {
     registerActiveEpoch("clip-test", eid("epoch-stale"));
     const received: TransportArtifact[] = [];

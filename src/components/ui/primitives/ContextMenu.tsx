@@ -125,7 +125,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
 
     return (
       <React.Fragment key={item.id || idx}>
-        {item.divider && <div className="my-1 border-t border-white/10" />}
+        {item.divider && <div className="my-1 border-t border-border-default" />}
         <button
           type="button"
           disabled={isDisabled}
@@ -141,7 +141,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
               ? "opacity-40 cursor-not-allowed hover:bg-transparent text-text-muted"
               : item.danger
                 ? "text-rose-400 hover:bg-rose-500/15 hover:text-rose-300"
-                : "text-text-primary hover:bg-surface-raised hover:text-white"
+                : "text-text-primary hover:bg-surface-hover hover:text-text-primary"
           }`}
         >
           <div className="flex items-center gap-2 min-w-0 pr-2">
@@ -185,7 +185,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
       ref={menuRef}
       role="menu"
       data-testid="context-menu"
-      className="fixed z-[1000] bg-surface-floating/95 backdrop-blur-md border border-border/80 rounded-lg shadow-2xl min-w-52 max-w-72 py-1 px-1 text-xs animate-in fade-in zoom-in-95 duration-100 ring-1 ring-black/40 overflow-y-auto scrollbar-thin"
+      className="fixed z-[1000] bg-surface-floating/95 backdrop-blur-md border border-border-default rounded-xl shadow-2xl min-w-52 max-w-72 py-1 px-1 text-xs animate-in fade-in zoom-in-95 duration-100 ring-1 ring-border-strong/15 overflow-y-auto scrollbar-thin"
       style={{
         left: `${menuStyle.left}px`,
         top: `${menuStyle.top}px`,
@@ -196,7 +196,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
       onContextMenu={(e) => e.preventDefault()}
     >
       {renderedGroups.map((grp, gIdx) => (
-        <div key={gIdx} className={gIdx > 0 ? "pt-1 mt-1 border-t border-white/8" : ""}>
+        <div key={gIdx} className={gIdx > 0 ? "pt-1 mt-1 border-t border-border-default" : ""}>
           {grp.title && (
             <div className="px-3 py-0.5 text-[10px] font-semibold text-text-muted/60 uppercase tracking-wider">
               {grp.title}

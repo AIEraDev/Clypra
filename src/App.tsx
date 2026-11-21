@@ -30,7 +30,7 @@ import { FloatingWidget } from "@/components/ui/FloatingWidget";
 import { ScreenRecordingPreviewModal } from "@/components/ui/ScreenRecordingPreviewModal";
 import { useAutoUpdater } from "@/hooks/useAutoUpdater";
 import { useGpuTelemetryInit } from "@/hooks/useGpuTelemetryInit";
-import { UpdateBanner } from "@/components/ui/UpdateBanner";
+import { UpdateModal } from "@/components/ui/primitives/UpdateModal";
 import { Toaster, toast } from "sonner";
 import { ProjectLoadingModal } from "./components/ui/modals/ProjectLoadingModal";
 import { TransferPanel } from "./components/ui/TransferPanel";
@@ -65,6 +65,7 @@ const App = () => {
     showTransferModal,
     setTransferModal,
   } = useUIStore();
+  const uiTheme = useSettingsStore((state) => state.uiTheme);
   const settingsWasOpenRef = useRef(showSettingsModal);
   const [pendingRecovery, setPendingRecovery] =
     useState<RecoverySnapshot | null>(null);
@@ -1213,10 +1214,11 @@ const App = () => {
 
   if (isLoading) {
     return (
-      <div className="w-full h-full flex items-center justify-center bg-bg">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-accent mx-auto mb-4" />
-          <p className="text-text-primary">{t("common.status.loading")}</p>
+      <div className="w-full h-full flex items-center justify-center bg-surface-app">
+        <div className="flex flex-col items-center gap-4">
+          <img src="/clypra.svg" alt="Clypra" className="w-10 h-10 opacity-70" />
+          <div className="animate-spin rounded-full h-7 w-7 border-t-2 border-b-2 border-accent-primary" />
+          <p className="text-xs text-text-muted">{t("common.status.loading")}</p>
         </div>
       </div>
     );
@@ -1226,21 +1228,20 @@ const App = () => {
   return (
     <ErrorBoundary
       fallback={
-        <div className="w-full h-full flex items-center justify-center bg-bg">
-          <div className="text-center max-w-md p-8">
-            <div className="text-red-500 text-6xl mb-4">⚠️</div>
-            <h1 className="text-2xl font-bold text-text-primary mb-4">
-              Application Error
+        <div className="w-full h-full flex items-center justify-center bg-surface-app">
+          <div className="flex flex-col items-center gap-4 text-center max-w-sm px-6">
+            <div className="text-4xl">⚠️</div>
+            <h1 className="text-lg font-semibold text-text-primary">
+              {t("app.error.title")}
             </h1>
-            <p className="text-text-muted mb-6">
-              Something went wrong. The application encountered an unexpected
-              error.
+            <p className="text-sm text-text-muted">
+              {t("app.error.description")}
             </p>
             <button
               onClick={() => window.location.reload()}
-              className="px-6 py-3 bg-accent text-white rounded-lg hover:bg-accent-soft transition-colors font-semibold"
+              className="px-5 py-2 bg-accent-primary text-white rounded-lg hover:bg-accent-primary/80 transition-colors text-sm font-medium"
             >
-              Restart Application
+              {t("app.error.restart")}
             </button>
           </div>
         </div>
@@ -1313,18 +1314,18 @@ const App = () => {
         onCancel={handleCancelExit}
       />
 
-      {/* ── Auto-Update Banner ───────────────────────────────────────────── */}
-      <UpdateBanner updater={autoUpdater} />
+      {/* ── Auto-Update Modal ────────────────────────────────────────────── */}
+      <UpdateModal updater={autoUpdater} />
 
       {/* ── Global Toast Notifications ─────────────────────────────────── */}
       <Toaster
         position="bottom-right"
-        theme="dark"
+        theme={uiTheme}
         richColors
         closeButton
         toastOptions={{
           className:
-            "bg-surface-elevated/95 text-text-primary border border-white/10 backdrop-blur-md shadow-2xl font-sans rounded-xl text-xs",
+            "bg-surface-elevated/95 text-text-primary border border-border/60 backdrop-blur-md shadow-2xl font-sans rounded-xl text-xs",
           duration: 3000,
         }}
       />

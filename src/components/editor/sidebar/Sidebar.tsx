@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import {
-  Music,
   Smile,
   Wand2,
   MessageSquare,
@@ -8,7 +7,6 @@ import {
   Shuffle,
   ChevronLeft,
   ChevronRight,
-  Sparkles,
 } from "lucide-react";
 import { MediaTab } from "./tabs/MediaTab";
 import { AudioTab } from "./tabs/AudioTab";
@@ -20,21 +18,34 @@ import { CaptionsTab } from "./tabs/CaptionsTab";
 import { SmartOverlaysTab } from "./tabs/SmartOverlaysTab";
 import { type TabType, type MediaTabProps } from "./types";
 import { EffectsPanel } from "@/features/video-effects/components/EffectsPanel";
-import { TextIcon, YouTubeIcon } from "@/components/ui/icons";
+import {
+  AssetsTabIcon,
+  AudioTabIcon,
+  TextTabIcon,
+} from "@/components/ui/icons";
 import { FeaturePlaceholder } from "@/components/ui/FeaturePlaceholder";
 import { SIDEBAR_PLACEHOLDERS } from "./placeholders";
+import { useI18n } from "@/i18n";
 
 const SIDEBAR_TABS = [
-  { id: "media" as const, icon: YouTubeIcon, label: "Media" },
-  { id: "audio" as const, icon: Music, label: "Audio" },
-  { id: "text" as const, icon: TextIcon, label: "Text" },
+  { id: "media" as const, icon: AssetsTabIcon, labelKey: "sidebar.tabs.media" },
+  { id: "audio" as const, icon: AudioTabIcon, labelKey: "sidebar.tabs.audio" },
+  { id: "text" as const, icon: TextTabIcon, labelKey: "sidebar.tabs.text" },
   // Overlays tab hidden for now
-  // { id: "smart-overlays" as const, icon: Sparkles, label: "Overlays" },
-  { id: "stickers" as const, icon: Smile, label: "Stickers" },
-  { id: "effects" as const, icon: Wand2, label: "Effects" },
-  { id: "filters" as const, icon: Filter, label: "Filters" },
-  { id: "transitions" as const, icon: Shuffle, label: "Transitions" },
-  { id: "captions" as const, icon: MessageSquare, label: "Captions" },
+  // { id: "smart-overlays" as const, icon: Sparkles, labelKey: "sidebar.tabs.overlays" },
+  { id: "stickers" as const, icon: Smile, labelKey: "sidebar.tabs.stickers" },
+  { id: "effects" as const, icon: Wand2, labelKey: "sidebar.tabs.effects" },
+  { id: "filters" as const, icon: Filter, labelKey: "sidebar.tabs.filters" },
+  {
+    id: "transitions" as const,
+    icon: Shuffle,
+    labelKey: "sidebar.tabs.transitions",
+  },
+  {
+    id: "captions" as const,
+    icon: MessageSquare,
+    labelKey: "sidebar.tabs.captions",
+  },
 ] as const;
 
 export interface SidebarProps extends MediaTabProps {
@@ -52,7 +63,9 @@ const SidebarComponent: React.FC<SidebarProps> = ({
   onToggleCollapse,
   className = "",
 }) => {
-  const resolvedInitialTab = initialTab === "smart-overlays" ? "media" : initialTab;
+  const { t } = useI18n();
+  const resolvedInitialTab =
+    initialTab === "smart-overlays" ? "media" : initialTab;
   const [activeTab, setActiveTab] = useState<TabType>(resolvedInitialTab);
 
   React.useEffect(() => {
@@ -61,20 +74,21 @@ const SidebarComponent: React.FC<SidebarProps> = ({
 
   return (
     <div
-      className={`min-h-0 panel-shell flex flex-col overflow-hidden transition-[width] duration-150 ${
+      className={`min-h-0 bg-surface-panel border border-border-default rounded-md flex flex-col overflow-hidden transition-[width] duration-150 ${
         collapsed || width !== undefined ? "shrink-0" : "flex-1 min-w-0"
       } ${className}`}
       style={{ width: collapsed ? 44 : width }}
     >
       {/* Tab Navigation / Header */}
-      <div className="panel-head border-b border-border relative flex items-center">
+      <div className="bg-surface-panel border-b border-border-default relative flex items-center">
         {collapsed ? (
           <div className="w-full flex items-center justify-center py-2">
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
-                className="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-accent hover:bg-white/5 transition-colors cursor-pointer"
-                title="Expand media panel"
+                className="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-accent-primary hover:bg-surface-hover transition-colors cursor-pointer"
+                title={t("sidebar.expand")}
+                aria-label={t("sidebar.expand")}
               >
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
@@ -100,25 +114,26 @@ const SidebarComponent: React.FC<SidebarProps> = ({
                       onClick={() => setActiveTab(tab.id)}
                       className={`flex items-center flex-col gap-0.5 px-2.5 py-1.5 text-[0.625rem] font-medium transition-colors whitespace-nowrap cursor-pointer border-b-2 ${
                         isActive
-                          ? "text-accent border-accent bg-accent/[0.04]"
-                          : "text-text-muted border-transparent hover:text-text-primary hover:bg-white/2"
+                          ? "text-accent-primary border-accent-primary bg-accent-primary/10"
+                          : "text-text-muted border-transparent hover:text-text-primary hover:bg-surface-hover"
                       }`}
                     >
-                      <Icon size="0.875em" />
-                      {tab.label}
+                      <Icon size="1em" />
+                      {t(tab.labelKey)}
                     </button>
                   );
                 })}
               </div>
               {/* Fade hint for overflow tabs */}
-              <div className="pointer-events-none absolute right-6 top-0 h-full w-6 bg-gradient-to-l from-surface-panel to-transparent" />
+              <div className="pointer-events-none absolute right-6 top-0 h-full w-6 bg-linear-to-l from-surface-panel to-transparent" />
             </div>
 
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
-                className="absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded text-text-muted hover:text-accent hover:bg-white/5 transition-colors cursor-pointer shrink-0"
-                title="Collapse media panel"
+                className="absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded text-text-muted hover:text-accent-primary hover:bg-surface-hover transition-colors cursor-pointer shrink-0"
+                title={t("sidebar.collapse")}
+                aria-label={t("sidebar.collapse")}
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
               </button>
@@ -140,11 +155,12 @@ const SidebarComponent: React.FC<SidebarProps> = ({
                   setActiveTab(tab.id);
                   onToggleCollapse?.();
                 }}
-                title={tab.label}
+                title={t(tab.labelKey)}
+                aria-label={t(tab.labelKey)}
                 className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors cursor-pointer ${
                   isActive
-                    ? "text-accent bg-accent/15"
-                    : "text-text-muted hover:text-accent hover:bg-white/5"
+                    ? "text-accent-primary bg-accent-primary/15"
+                    : "text-text-muted hover:text-accent-primary hover:bg-surface-hover"
                 }`}
               >
                 <Icon size="0.9375em" />

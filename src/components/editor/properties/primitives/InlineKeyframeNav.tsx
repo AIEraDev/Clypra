@@ -36,8 +36,8 @@ export const InlineKeyframeNav: React.FC<InlineKeyframeNavProps> = ({
         disabled={!state.hasPrev}
         className={`p-0.5 transition-colors cursor-pointer ${
           state.hasPrev
-            ? "text-[#8e8e93] hover:text-white"
-            : "text-[#4a4a4e] pointer-events-none"
+            ? "text-text-muted hover:text-text-primary"
+            : "text-text-muted/40 pointer-events-none"
         }`}
         title={`Previous keyframe for ${label}`}
       >
@@ -49,8 +49,8 @@ export const InlineKeyframeNav: React.FC<InlineKeyframeNavProps> = ({
         onClick={onToggle}
         className={`p-0.5 rounded transition-colors cursor-pointer ${
           state.isAtKeyframe
-            ? "text-cyan-400 drop-shadow-[0_0_6px_rgba(34,211,238,0.5)]"
-            : "text-[#8e8e93] hover:text-white"
+            ? "text-accent-primary drop-shadow-[0_0_6px_var(--clypra-accent-glow)]"
+            : "text-text-muted hover:text-text-primary"
         }`}
         title={
           state.isAtKeyframe
@@ -67,8 +67,8 @@ export const InlineKeyframeNav: React.FC<InlineKeyframeNavProps> = ({
         disabled={!state.hasNext}
         className={`p-0.5 transition-colors cursor-pointer ${
           state.hasNext
-            ? "text-[#8e8e93] hover:text-white"
-            : "text-[#4a4a4e] pointer-events-none"
+            ? "text-text-muted hover:text-text-primary"
+            : "text-text-muted/40 pointer-events-none"
         }`}
         title={`Next keyframe for ${label}`}
       >

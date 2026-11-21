@@ -100,7 +100,7 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({
       />
       <span
         data-testid={`track-${track.id}-visual-role`}
-        className={`pointer-events-none inline-flex h-6 w-6 shrink-0 items-center justify-center rounded ${visualSpec.tone === "primary" ? "text-accent" : visualSpec.tone === "secondary" ? "text-accent/70" : visualSpec.tone === "audio" ? "text-text-muted" : "text-accent-soft/75"}`}
+        className={`pointer-events-none inline-flex h-6 w-6 shrink-0 items-center justify-center rounded ${visualSpec.tone === "primary" ? "text-accent-primary" : visualSpec.tone === "secondary" ? "text-accent-primary/70" : visualSpec.tone === "audio" ? "text-text-muted" : "text-accent-soft/75"}`}
         aria-label={visualSpec.label}
         title={visualSpec.label}
       >
@@ -146,7 +146,7 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({
             toggleTrackPropertyWithHistory(track.id, "solo");
           }}
           disabled={track.locked}
-          className={`p-1 rounded transition-colors ${track.locked ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-timeline-button-hover"} ${track.solo ? "bg-accent/20 text-accent" : "text-timeline-button-icon"}`}
+          className={`p-1 rounded transition-colors ${track.locked ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-timeline-button-hover"} ${track.solo ? "bg-accent-primary/20 text-accent-primary" : "text-timeline-button-icon"}`}
           aria-label={track.solo ? t("timeline.tracks.unsolo") : t("timeline.tracks.solo")}
           title={
             track.locked

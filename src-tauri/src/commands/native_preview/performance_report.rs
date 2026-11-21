@@ -4,6 +4,7 @@ use tauri::Manager;
 use crate::native_core::{
     ModeStats, NativeFrameService, NativeFrameServiceStats, NativeGpuRuntimeStatus, PreviewMode,
 };
+use crate::wgpu_compositor::RequestAccounting;
 use super::push_runtime::{NativePlaybackPushRuntime, NativePlaybackPushStatus};
 
 /// Returns `true` when `CLYPRA_SKIP_PLAYBACK_CACHE_INSERT=1` (or `true`) is
@@ -56,6 +57,29 @@ pub struct NativePreviewPerformanceReport {
     /// p50 comparisons can be attributed correctly.
     pub playback_cache_insert_skipped: bool,
     pub cold_start: crate::cold_start::ColdStartReport,
+    /// Explicit request and produced-frame lifecycle counters. These use
+    /// separate denominators because a latest-only request may be superseded
+    /// before it produces any frame.
+    pub lifecycle: Option<NativeLifecycleAccounting>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeLifecycleAccounting {
+    pub requests: RequestAccounting,
+    pub requests_unresolved: u64,
+    pub frames: NativeLifecycleFrameAccounting,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeLifecycleFrameAccounting {
+    pub produced: u64,
+    pub presented: u64,
+    pub dropped_under_backpressure: u64,
+    pub obsolete_before_presentation: u64,
+    pub failed_after_recovery: u64,
+    pub abandoned: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -307,6 +331,37 @@ pub async fn get_native_preview_performance_report(
         .map(|state| state.snapshot())
         .unwrap_or_else(|| SessionTelemetryCollector::new().snapshot());
 
+    let lifecycle = app
+        .try_state::<Arc<std::sync::Mutex<crate::commands::native_playback::NativePlaybackRuntime>>>()
+        .and_then(|state| state.lock().ok().and_then(|runtime| runtime.render_session()))
+        .and_then(|render_session| {
+            render_session
+                .lifecycle_registry
+                .lock()
+                .ok()
+                .map(|registry| {
+                    let snapshot = registry.diagnostic_snapshot();
+                    NativeLifecycleAccounting {
+                        requests: snapshot.request_accounting,
+                        requests_unresolved: snapshot.request_accounting.unresolved(),
+                        frames: NativeLifecycleFrameAccounting {
+                            produced: snapshot.cumulative_frame_accounting.produced,
+                            presented: snapshot.cumulative_frame_accounting.presented,
+                            dropped_under_backpressure: snapshot
+                                .cumulative_frame_accounting
+                                .dropped_under_backpressure,
+                            obsolete_before_presentation: snapshot
+                                .cumulative_frame_accounting
+                                .obsolete_before_presentation,
+                            failed_after_recovery: snapshot
+                                .cumulative_frame_accounting
+                                .failed_after_recovery,
+                            abandoned: snapshot.cumulative_frame_accounting.abandoned,
+                        },
+                    }
+                })
+        });
+
     Ok(NativePreviewPerformanceReport {
         report_version: 2,
         captured_at_ms: crate::native_core::performance::now_ms(),
@@ -330,6 +385,7 @@ pub async fn get_native_preview_performance_report(
             .map(|state| state.status()),
         playback_cache_insert_skipped: skip_playback_cache_insert_enabled(),
         cold_start: crate::cold_start::get_report(),
+        lifecycle,
     })
 }
 

@@ -60,6 +60,19 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
+      - name: Configure MSVC environment for CMake
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Pin MSVC compiler for CMake
+        shell: pwsh
+        run: |
+          $cl = (Get-Command cl.exe -ErrorAction Stop).Source
+          "CMAKE_C_COMPILER=$cl" >> $env:GITHUB_ENV
+          "CMAKE_CXX_COMPILER=$cl" >> $env:GITHUB_ENV
+          "CMAKE_ASM_COMPILER=$cl" >> $env:GITHUB_ENV
+
       - name: Rust Cache
         uses: swatinem/rust-cache@v2
         with:

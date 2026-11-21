@@ -197,9 +197,9 @@ export const SpeedSliderTrack: React.FC<SpeedSliderTrackProps> = ({
       onMouseDown={handleMouseDown}
     >
       {/* Track background with fill */}
-      <div className="bg-[#81818157] w-full h-[3px] rounded-2xl relative overflow-hidden">
+      <div className="bg-surface-elevated border border-border-subtle w-full h-[3px] rounded-2xl relative overflow-hidden">
         <div
-          className="absolute left-0 top-0 h-full bg-white transition-all"
+          className="absolute left-0 top-0 h-full bg-accent-primary transition-all"
           style={{ width: `${fillPercent}%` }}
         />
       </div>
@@ -225,7 +225,7 @@ export const SpeedSliderTrack: React.FC<SpeedSliderTrackProps> = ({
       <div
         role="button"
         aria-label="Speed Slider"
-        className="h-3 w-2 bg-white absolute top-1/2 -translate-y-1/2 rounded-t-lg rounded-b-3xl transition-all cursor-grab active:cursor-grabbing"
+        className="h-3 w-2.5 bg-accent-primary ring-2 ring-surface-panel shadow-md absolute top-1/2 -translate-y-1/2 rounded-full transition-all cursor-grab active:cursor-grabbing"
         style={{
           left: `${fillPercent}%`,
           transform: `translateX(-50%)`,

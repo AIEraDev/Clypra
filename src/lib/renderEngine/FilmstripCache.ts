@@ -33,6 +33,7 @@ import {
   type TransportArtifact,
 } from "./transport";
 import { FilmstripTileCache } from "../filmstrip/FilmstripTileCache";
+import { getCacheCoordinator } from "@/core/cache/cacheCoordinator";
 import {
   generateViewportTileAddresses,
   FILMSTRIP_DENSITY_TIERS,
@@ -260,6 +261,14 @@ export class FilmstripCache {
     this.tileCache = new FilmstripTileCache(memoryBudgetMB, (art) =>
       this.isArtifactActive(art),
     );
+    getCacheCoordinator().register({
+      name: "filmstrip-tile-cache",
+      tier: "memory",
+      lifespan: "session",
+      getBytesUsed: () => this.tileCache.getBytesUsed(),
+      trimTo: (t) => this.tileCache.trimTo(t),
+      clear: () => this.tileCache.clear(),
+    });
   }
 
   /** Expose the underlying FilmstripTileCache for fast zero-decode presentation fallbacks */

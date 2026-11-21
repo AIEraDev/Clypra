@@ -2,7 +2,7 @@ use crate::filmstrip_engine::decoder::get_preview_decoder_for_stream;
 use crate::native_audio::NativeAudioClock;
 use crate::native_core::{
     DecodeCapabilityPolicy, FrameRequest, FrameTime, NativePlaybackFrameDemand, PlaybackPlan,
-    PlaybackState, QualityTier, DEFAULT_TIME_SCALE,
+    PlaybackState, QualityTier, NativeDemandOutcome, NativeScrubDirection, DEFAULT_TIME_SCALE,
 };
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -17,6 +17,46 @@ mod tests;
 
 pub(crate) use render_session::*;
 pub use runtime::*;
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativePlaybackDemandAbandonment {
+    pub request_id: String,
+    pub frame_index: u64,
+    pub generation: Option<u64>,
+    pub cancellation_epoch: u64,
+    pub is_scrubbing: bool,
+    pub mode: Option<String>,
+    pub scrub_direction: Option<NativeScrubDirection>,
+    pub outcome: NativeDemandOutcome,
+    pub reason: String,
+}
+
+/// Finalize an accepted exact demand when the WebView abandons waiting for it
+/// (for example an acknowledgement timeout). Native completion racing this
+/// command is deduplicated by the session telemetry request ID.
+#[tauri::command]
+pub fn abandon_native_playback_demand(
+    app: AppHandle,
+    payload: NativePlaybackDemandAbandonment,
+) -> Result<bool, String> {
+    if payload.request_id.trim().is_empty() {
+        return Err("requestId must be non-empty".to_string());
+    }
+    let state = runtime(&app)?;
+    let session = state
+        .lock()
+        .map_err(|_| "Native playback runtime lock is poisoned".to_string())?
+        .render_session()
+        .ok_or_else(|| "Native playback render snapshot is not configured".to_string())?;
+    let terminal = session.finalize_abandoned_demand(&payload)?;
+    if let Some(terminal) = terminal {
+        NativeRenderSession::emit_terminal(&app, terminal);
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
 
 #[tauri::command]
 pub fn configure_native_playback(
@@ -387,15 +427,69 @@ pub async fn update_native_playback_render(
 /// Replace the single pending Native playback demand. This command returns
 /// without waiting for decode, composition, or surface presentation.
 #[tauri::command]
-pub fn submit_native_playback_demand(
+pub async fn submit_native_playback_demand(
     app: AppHandle,
     demand: NativePlaybackFrameDemand,
 ) -> Result<(), String> {
+    let request_id = demand.request_id.clone();
+    let explicit_demand = crate::commands::native_playback::tracks_explicit_request(&demand);
+    let workload = if demand.is_scrubbing {
+        crate::wgpu_compositor::WorkloadMode::Scrub
+    } else {
+        match demand.mode.as_deref() {
+            Some("playback") | Some("playback-lookahead") => {
+                crate::wgpu_compositor::WorkloadMode::Playback
+            }
+            Some("scrub") => crate::wgpu_compositor::WorkloadMode::Scrub,
+            Some("seek") => crate::wgpu_compositor::WorkloadMode::SeekWarm,
+            Some("frameStep") | Some("frame-step") => {
+                crate::wgpu_compositor::WorkloadMode::FrameStep
+            }
+            _ => crate::wgpu_compositor::WorkloadMode::PausedInteraction,
+        }
+    };
     let state = runtime(&app)?;
+    let generation = demand.cancellation_epoch.or(demand.generation).unwrap_or(0);
+    let interactive_demand = demand.is_scrubbing
+        || matches!(demand.mode.as_deref(), Some("scrub") | Some("seek"));
+    if interactive_demand {
+        let runtime = state
+            .lock()
+            .map_err(|_| "Native playback runtime lock is poisoned".to_string())?;
+        runtime.preempt_for_interactive_demand(generation)?;
+    }
+    let requires_recency_barrier = {
+        let runtime = state
+            .lock()
+            .map_err(|_| "Native playback runtime lock is poisoned".to_string())?;
+        runtime.demand_requires_recency_barrier(generation)?
+    };
+
+    // A newer explicit seek is both a demand and a cancellation boundary.
+    // Keep those actions in one native command so a prior decode cannot
+    // outlive a frontend fire-and-forget cancellation IPC and present an old
+    // frame after the newest seek has been accepted.
+    if requires_recency_barrier {
+        crate::commands::native_preview::cancel_native_preview_requests(app.clone(), generation)
+            .await?;
+    }
+
     let runtime = state
         .lock()
         .map_err(|_| "Native playback runtime lock is poisoned".to_string())?;
-    runtime.submit_render_demand(demand)
+    let terminal = runtime.submit_render_demand(demand)?;
+    drop(runtime);
+    if explicit_demand {
+        if let Some(collector) =
+            app.try_state::<Arc<crate::wgpu_compositor::SessionTelemetryCollector>>()
+        {
+            collector.record_request_received_for(&request_id, workload);
+        }
+    }
+    if let Some(terminal) = terminal {
+        NativeRenderSession::emit_terminal(&app, terminal);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -494,6 +588,17 @@ pub fn native_tick(app: AppHandle, clock: FrameTime) -> Result<PlaybackState, St
     with_runtime(&app, |runtime| runtime.tick(clock))
 }
 
+static MONOTONIC_EPOCH: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+
+pub(crate) fn fallback_monotonic_frame_time() -> FrameTime {
+    let micros = MONOTONIC_EPOCH
+        .get_or_init(Instant::now)
+        .elapsed()
+        .as_micros()
+        .min(i64::MAX as u128) as i64;
+    FrameTime::new(0, micros, DEFAULT_TIME_SCALE).unwrap()
+}
+
 #[tauri::command]
 pub fn native_play_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
     // INVESTIGATION ONLY — remove before Phase 6
@@ -503,21 +608,22 @@ pub fn native_play_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
 
     // Architectural invariant: Audio readiness must never block video playback!
     // When audio is unavailable (silent project or clips still resolving/hydrating),
-    // fall back to a zeroed FrameTime so video playback starts immediately.
+    // fall back to monotonic clock so video playback starts and advances immediately.
     let clock_result = audio_clock_time(&app, true, true);
     // INVESTIGATION ONLY — remove before Phase 6
     match &clock_result {
         Ok(ft) => log::debug!("[TR1] audio_clock_time() → Ok(ticks={})", ft.ticks),
         Err(e) => log::debug!("[TR1] audio_clock_time() → Err({})", e),
     }
-    let clock = clock_result.unwrap_or_else(|_| FrameTime::new(0, 0, DEFAULT_TIME_SCALE).unwrap());
 
-    let audio_available = audio_clock_time(&app, true, true).is_ok();
+    let audio_available = clock_result.is_ok();
     let state = if audio_available {
+        let clock = clock_result.unwrap();
         let state = with_runtime(&app, |runtime| runtime.play_from_audio(clock))?;
         let _ = set_audio_playing(&app, true);
         state
     } else {
+        let clock = fallback_monotonic_frame_time();
         let state = with_runtime(&app, |runtime| runtime.play(clock))?;
         let _ = set_audio_playing(&app, false);
         state
@@ -537,7 +643,7 @@ pub fn native_play_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
 #[tauri::command]
 pub fn native_pause_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
     let clock = audio_clock_time(&app, false, false)
-        .unwrap_or_else(|_| FrameTime::new(0, 0, DEFAULT_TIME_SCALE).unwrap());
+        .unwrap_or_else(|_| fallback_monotonic_frame_time());
     let state = with_runtime(&app, |runtime| runtime.pause(clock));
     let _ = set_audio_playing(&app, false);
     if let Some(runtime) = app.try_state::<Arc<Mutex<NativePlaybackRuntime>>>() {
@@ -553,8 +659,6 @@ pub fn native_pause_from_audio(app: AppHandle) -> Result<PlaybackState, String> 
     state
 }
 
-static MONOTONIC_EPOCH: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
-
 #[tauri::command]
 pub fn native_tick_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
     let sampled_at_ns = MONOTONIC_EPOCH
@@ -562,9 +666,11 @@ pub fn native_tick_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
         .elapsed()
         .as_nanos()
         .min(u64::MAX as u128) as u64;
-    let clock = audio_clock_time(&app, true, false)
-        .unwrap_or_else(|_| FrameTime::new(0, 0, DEFAULT_TIME_SCALE).unwrap());
-    let mut state = with_runtime(&app, |runtime| runtime.tick(clock))?;
+    let audio_clock = audio_clock_time(&app, true, false);
+    let monotonic_clock = fallback_monotonic_frame_time();
+    let mut state = with_runtime(&app, |runtime| {
+        runtime.tick_with_audio_or_monotonic(audio_clock, monotonic_clock)
+    })?;
     state.sampled_at_ns = Some(sampled_at_ns);
 
     // Terminal playback is a lifecycle boundary. Pause the CPAL audio stream

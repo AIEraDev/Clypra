@@ -35,7 +35,7 @@ export const KeyframeNavControls: React.FC<KeyframeNavControlsProps> = ({
   return (
     <div className="flex items-center gap-x-0">
       <span
-        className="text-text-muted cursor-pointer"
+        className="text-text-secondary hover:text-text-primary cursor-pointer transition-colors"
         onClick={onPrevKeyframe}
         title={`Previous keyframe for ${label}`}
       >
@@ -44,7 +44,7 @@ export const KeyframeNavControls: React.FC<KeyframeNavControlsProps> = ({
       </span>
 
       <button
-        className={`w-2.5 h-2.5 border border-text-muted text-white inline-flex justify-center items-center transition-colors duration-300 cursor-pointer group ${isAtKeyframe ? "bg-accent" : "hover:bg-accent hover:border-none"}`}
+        className={`w-2.5 h-2.5 border text-text-primary inline-flex justify-center items-center transition-colors duration-300 cursor-pointer group ${isAtKeyframe ? "bg-accent-primary border-accent-primary text-white" : "border-border-default hover:bg-accent-primary hover:border-accent-primary hover:text-white"}`}
         style={{ transform: "rotate(45deg)", willChange: "transform" }}
         onClick={onToggleKeyframe}
         title={
@@ -73,7 +73,7 @@ export const KeyframeNavControls: React.FC<KeyframeNavControlsProps> = ({
       </button>
 
       <span
-        className="text-text-muted cursor-pointer"
+        className="text-text-secondary hover:text-text-primary cursor-pointer transition-colors"
         onClick={onNextKeyframe}
         title={`Next keyframe for ${label}`}
       >

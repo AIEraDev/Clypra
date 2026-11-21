@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, lazy, Suspense } from "react";
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
+import { createPortal } from "react-dom";
 import {
   Upload,
   Home,
@@ -18,12 +19,17 @@ import { platform } from "@/core/platform";
 import { isMacOSPlatform } from "@/lib/platform/windowPlatform";
 import { LayoutPresetMenu } from "./layout/LayoutPresetMenu";
 import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
-import { forceRepaintNativeProgramPreview } from "@/core/preview/previewRepaintCoordinator";
+import {
+  forceRepaintNativeProgramPreview,
+  wakeNativeProgramPreviewRenderLoop,
+} from "@/core/preview/previewRepaintCoordinator";
 import { useClickOutside } from "@/hooks";
 import { useI18n } from "@/i18n";
 
 // Lazy load ExportDialog
-const ExportDialog = lazy(() => import("../ui/ExportDialog").then((m) => ({ default: m.ExportDialog })));
+const ExportDialog = lazy(() =>
+  import("../ui/ExportDialog").then((m) => ({ default: m.ExportDialog })),
+);
 
 // Lazy load ThumbnailWorkspace
 const ThumbnailWorkspace = lazy(() =>
@@ -42,23 +48,67 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
   const closeProject = useProjectStore((s) => s.closeProject);
   const toggleSettingsModal = useUIStore((s) => s.toggleSettingsModal);
   const toggleTransferModal = useUIStore((s) => s.toggleTransferModal);
+  const registerOverlay = useUIStore((s) => s.registerOverlay);
+  const unregisterOverlay = useUIStore((s) => s.unregisterOverlay);
   const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
   const setSidebarCollapsed = useSettingsStore((s) => s.setSidebarCollapsed);
-  const propertiesPanelCollapsed = useSettingsStore((s) => s.propertiesPanelCollapsed);
-  const setPropertiesPanelCollapsed = useSettingsStore((s) => s.setPropertiesPanelCollapsed);
+  const propertiesPanelCollapsed = useSettingsStore(
+    (s) => s.propertiesPanelCollapsed,
+  );
+  const setPropertiesPanelCollapsed = useSettingsStore(
+    (s) => s.setPropertiesPanelCollapsed,
+  );
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showThumbnailWorkspace, setShowThumbnailWorkspace] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [exportMenuPos, setExportMenuPos] = useState<{
+    top: number;
+    right: number;
+  } | null>(null);
   const showSettingsModal = useUIStore((s) => s.showSettingsModal);
   const showTransferModal = useUIStore((s) => s.showTransferModal);
-  const exportMenuRef = useRef<HTMLDivElement>(null);
+  const exportButtonGroupRef = useRef<HTMLDivElement>(null);
+  const exportMenuPanelRef = useRef<HTMLDivElement>(null);
 
-  useClickOutside(exportMenuRef, () => setShowExportMenu(false), { enabled: showExportMenu });
+  const openExportMenu = useCallback(() => {
+    if (exportButtonGroupRef.current) {
+      const rect = exportButtonGroupRef.current.getBoundingClientRect();
+      setExportMenuPos({
+        top: rect.bottom + 6,
+        right: window.innerWidth - rect.right,
+      });
+    }
+    setShowExportMenu(true);
+  }, []);
 
-  const hasOpenTopBarOverlay = Boolean(
+  const closeExportMenu = useCallback(() => {
+    setShowExportMenu(false);
+    setExportMenuPos(null);
+  }, []);
+
+  useClickOutside([exportButtonGroupRef, exportMenuPanelRef], closeExportMenu, {
+    enabled: showExportMenu,
+  });
+
+  const hasLocalTopBarOverlay = Boolean(
     showExportDialog ||
     showThumbnailWorkspace ||
-    showExportMenu ||
+    showExportMenu,
+  );
+
+  useEffect(() => {
+    if (hasLocalTopBarOverlay) {
+      registerOverlay("topbar-overlay");
+    } else {
+      unregisterOverlay("topbar-overlay");
+    }
+    return () => {
+      unregisterOverlay("topbar-overlay");
+    };
+  }, [hasLocalTopBarOverlay, registerOverlay, unregisterOverlay]);
+
+  const hasOpenTopBarOverlay = Boolean(
+    hasLocalTopBarOverlay ||
     showSettingsModal ||
     showTransferModal,
   );
@@ -68,6 +118,9 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
       void hideNativeSurfaceWhenIdle().catch(() => undefined);
     } else {
       forceRepaintNativeProgramPreview();
+      // Wake the RAF loop so the native surface re-engages after the overlay
+      // closes. No-op when the loop is already running during active playback.
+      wakeNativeProgramPreviewRenderLoop();
     }
   }, [hasOpenTopBarOverlay]);
 
@@ -85,8 +138,14 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
     <>
       {/* The native menu/title bar owns window controls. This is the editor's
           document-command row: identity stays left, commands stay right, and
-          neither competes with native chrome for horizontal space. */}
-      <div className="h-9 shrink-0 flex items-center gap-2 border-b border-border/70 bg-bg/95 px-2 shadow-[0_1px_0_rgba(255,255,255,0.025)] select-none">
+          neither competes with native chrome for horizontal space.
+          z-topbar elevates this bar's backdrop-blur stacking context above
+          the editor body so dropdowns (layout presets, export menu) render
+          on top of editor panels instead of behind them. */}
+      <div
+        data-testid="editor-topbar"
+        className="h-9 shrink-0 flex items-center gap-2 border-b border-border-default/80 bg-surface-panel/95 backdrop-blur-md px-2 shadow-xs select-none z-topbar"
+      >
         <div
           className={`flex min-w-0 items-center gap-2 shrink-0 ${isMacNativeWindow ? "pl-[76px]" : "pl-0"}`}
           style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
@@ -97,12 +156,17 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
             onClick={handleClose}
             title={t("project.backHome")}
             aria-label={t("project.backHome")}
-            className="text-text-muted hover:text-text-primary"
-            style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
+            className="text-text-muted hover:text-text-primary hover:bg-surface-hover"
+            style={
+              {
+                WebkitAppRegion: "no-drag",
+                cursor: "pointer",
+              } as React.CSSProperties
+            }
           >
             <Home className="w-4 h-4" />
           </Button>
-          <div className="h-4 w-px bg-border/70" aria-hidden="true" />
+          <div className="h-4 w-px bg-border-default/70" aria-hidden="true" />
           <span
             className="max-w-[180px] truncate text-xs font-semibold text-text-primary sm:max-w-[320px]"
             title={projectName || t("common.labels.untitledProject")}
@@ -120,14 +184,31 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
 
         {/* Fixed command cluster: its own row and shrink-0 keep action buttons
             aligned regardless of title length or native window state. */}
-        <div className="flex items-center gap-1 shrink-0" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+        <div
+          className="flex items-center gap-1 shrink-0"
+          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+        >
           <Button
             variant="ghost"
             size="icon-sm"
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            title={sidebarCollapsed ? "Expand Media Library (⌘B)" : "Collapse Media Library (⌘B)"}
-            className={`transition-colors ${!sidebarCollapsed ? "text-accent bg-accent/10" : "text-text-muted hover:text-text-primary"}`}
-            style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
+            title={
+              sidebarCollapsed
+                ? t("topbar.expandMedia")
+                : t("topbar.collapseMedia")
+            }
+            aria-label={
+              sidebarCollapsed
+                ? t("topbar.expandMedia")
+                : t("topbar.collapseMedia")
+            }
+            className={`transition-colors ${!sidebarCollapsed ? "text-accent-primary bg-accent-primary/10" : "text-text-muted hover:text-text-primary hover:bg-surface-hover"}`}
+            style={
+              {
+                WebkitAppRegion: "no-drag",
+                cursor: "pointer",
+              } as React.CSSProperties
+            }
           >
             <PanelLeft className="w-3.5 h-3.5" />
           </Button>
@@ -135,19 +216,48 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={() => setPropertiesPanelCollapsed(!propertiesPanelCollapsed)}
-            title={propertiesPanelCollapsed ? "Expand Properties Panel (⌥P)" : "Collapse Properties Panel (⌥P)"}
-            className={`transition-colors ${!propertiesPanelCollapsed ? "text-accent bg-accent/10" : "text-text-muted hover:text-text-primary"}`}
-            style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
+            onClick={() =>
+              setPropertiesPanelCollapsed(!propertiesPanelCollapsed)
+            }
+            title={
+              propertiesPanelCollapsed
+                ? t("topbar.expandProperties")
+                : t("topbar.collapseProperties")
+            }
+            aria-label={
+              propertiesPanelCollapsed
+                ? t("topbar.expandProperties")
+                : t("topbar.collapseProperties")
+            }
+            className={`transition-colors ${!propertiesPanelCollapsed ? "text-accent-primary bg-accent-primary/10" : "text-text-muted hover:text-text-primary hover:bg-surface-hover"}`}
+            style={
+              {
+                WebkitAppRegion: "no-drag",
+                cursor: "pointer",
+              } as React.CSSProperties
+            }
           >
             <PanelRight className="w-3.5 h-3.5" />
           </Button>
 
-          <div className="w-px h-3.5 bg-border/60 mx-0.5" />
+          <div className="w-px h-3.5 bg-border-default/60 mx-0.5" />
 
           <LayoutPresetMenu />
 
-          <Button variant="ghost" size="icon-sm" onClick={toggleTransferModal} title="Phone Transfer (Local WiFi)" style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={toggleTransferModal}
+            title={t("topbar.phoneTransfer")}
+            aria-label={t("topbar.phoneTransfer")}
+            className="text-text-muted hover:text-text-primary hover:bg-surface-hover"
+            style={
+              {
+                WebkitAppRegion: "no-drag",
+                cursor: "pointer",
+              } as React.CSSProperties
+            }
+          >
             <Smartphone className="w-3.5 h-3.5" />
           </Button>
 
@@ -157,20 +267,34 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
             onClick={toggleSettingsModal}
             title={t("settings.modal.title")}
             aria-label={t("settings.modal.title")}
-            style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
+            className="text-text-muted hover:text-text-primary hover:bg-surface-hover"
+            style={
+              {
+                WebkitAppRegion: "no-drag",
+                cursor: "pointer",
+              } as React.CSSProperties
+            }
           >
             <Settings className="w-3.5 h-3.5" />
           </Button>
 
           {/* Export & Thumbnail Dropdown */}
-          <div className="relative inline-flex items-center" ref={exportMenuRef}>
-            <div className="flex items-center rounded-md bg-accent text-accent-foreground shadow-sm">
+          <div
+            className="inline-flex items-center"
+            ref={exportButtonGroupRef}
+          >
+            <div className="flex items-center rounded-lg bg-accent-primary text-white shadow-xs overflow-hidden">
               <Button
                 variant="default"
                 size="sm"
                 onClick={() => setShowExportDialog(true)}
-                className="text-xs h-6 px-2 rounded-r-none border-r border-accent-foreground/20"
-                style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
+                className="text-xs h-6 px-2.5 rounded-none bg-accent-primary hover:bg-accent-primary/90 text-white font-medium"
+                style={
+                  {
+                    WebkitAppRegion: "no-drag",
+                    cursor: "pointer",
+                  } as React.CSSProperties
+                }
                 title={t("export.video")}
                 aria-label={t("export.video")}
               >
@@ -180,69 +304,97 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
               <Button
                 variant="default"
                 size="icon-sm"
-                onClick={() => setShowExportMenu((prev) => !prev)}
-                className="h-6 w-5 px-0 rounded-l-none"
-                style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}
+                onClick={() => (showExportMenu ? closeExportMenu() : openExportMenu())}
+                className="h-6 w-5 px-0 rounded-none bg-accent-primary hover:bg-accent-primary/90 text-white border-l border-white/20"
+                style={
+                  {
+                    WebkitAppRegion: "no-drag",
+                    cursor: "pointer",
+                  } as React.CSSProperties
+                }
                 title={t("common.actions.moreOptions")}
                 aria-label={t("common.actions.moreOptions")}
               >
                 <ChevronDown className="w-3 h-3" />
               </Button>
             </div>
-
-            {showExportMenu && (
-              <div
-                className="absolute right-0 top-full mt-1.5 w-56 rounded-xl bg-neutral-900/95 border border-neutral-800 shadow-2xl p-1.5 z-50 backdrop-blur-md animate-in fade-in zoom-in-95 duration-150"
-                style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowExportMenu(false);
-                    setShowExportDialog(true);
-                  }}
-                  className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left text-neutral-300 hover:text-white hover:bg-neutral-800 transition-colors"
-                >
-                  <VideoIcon className="w-4 h-4 text-sky-400 mt-0.5 flex-shrink-0" />
-                  <div className="flex flex-col">
-                    <span className="text-xs font-medium text-neutral-100">{t("export.video")}</span>
-                    <span className="text-[10px] text-neutral-400 leading-tight mt-0.5">
-                      MP4, MOV, ProRes with GPU acceleration
-                    </span>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowExportMenu(false);
-                    setShowThumbnailWorkspace(true);
-                  }}
-                  className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left text-neutral-300 hover:text-white hover:bg-neutral-800 transition-colors"
-                >
-                  <ImageIcon className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
-                  <div className="flex flex-col">
-                    <span className="text-xs font-medium text-neutral-100 flex items-center gap-1.5">
-                      Create Thumbnail
-                      <span className="text-[9px] px-1 py-0.2 rounded bg-amber-400/20 text-amber-300 font-mono font-bold">
-                        NEW
-                      </span>
-                    </span>
-                    <span className="text-[10px] text-neutral-400 leading-tight mt-0.5">
-                      YouTube, Shorts, TikTok frame compositing
-                    </span>
-                  </div>
-                </button>
-              </div>
-            )}
           </div>
+
+          {/* Export menu portal — renders above native GPU surface */}
+          {showExportMenu && exportMenuPos && typeof document !== "undefined" &&
+            createPortal(
+              <>
+                {/* Backdrop to catch outside clicks */}
+                <div
+                  className="fixed inset-0 z-dropdown-overlay"
+                  onClick={closeExportMenu}
+                  onPointerDown={closeExportMenu}
+                  aria-hidden="true"
+                />
+                <div
+                  ref={exportMenuPanelRef}
+                  className="fixed z-dropdown-panel w-60 rounded-xl bg-surface-floating border border-border-default shadow-2xl p-1.5 backdrop-blur-md animate-in fade-in zoom-in-95 duration-150"
+                  style={{
+                    top: exportMenuPos.top,
+                    right: exportMenuPos.right,
+                    WebkitAppRegion: "no-drag",
+                  } as React.CSSProperties}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      closeExportMenu();
+                      setShowExportDialog(true);
+                    }}
+                    className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
+                  >
+                    <VideoIcon className="w-4 h-4 text-accent-primary mt-0.5 flex-shrink-0" />
+                    <div className="flex flex-col">
+                      <span className="text-xs font-medium text-text-primary">
+                        {t("export.menu.videoTitle")}
+                      </span>
+                      <span className="text-[10px] text-text-muted leading-tight mt-0.5">
+                        {t("export.menu.videoDesc")}
+                      </span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      closeExportMenu();
+                      setShowThumbnailWorkspace(true);
+                    }}
+                    className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
+                  >
+                    <ImageIcon className="w-4 h-4 text-status-warning mt-0.5 flex-shrink-0" />
+                    <div className="flex flex-col">
+                      <span className="text-xs font-medium text-text-primary flex items-center gap-1.5">
+                        {t("export.menu.thumbTitle")}
+                        <span className="text-[9px] px-1 py-0.2 rounded bg-status-warning/15 text-status-warning font-mono font-bold">
+                          {t("common.labels.new")}
+                        </span>
+                      </span>
+                      <span className="text-[10px] text-text-muted leading-tight mt-0.5">
+                        {t("export.menu.thumbDesc")}
+                      </span>
+                    </div>
+                  </button>
+                </div>
+              </>,
+              document.body,
+            )
+          }
         </div>
       </div>
 
       {/* Export Dialog */}
       {showExportDialog && (
         <Suspense fallback={null}>
-          <ExportDialog isOpen={showExportDialog} onClose={() => setShowExportDialog(false)} />
+          <ExportDialog
+            isOpen={showExportDialog}
+            onClose={() => setShowExportDialog(false)}
+          />
         </Suspense>
       )}
 

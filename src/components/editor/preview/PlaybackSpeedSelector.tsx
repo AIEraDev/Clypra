@@ -30,7 +30,7 @@ export const PlaybackSpeedSelector: React.FC<PlaybackSpeedSelectorProps> = ({
           "flex items-center gap-1 px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer",
           speedMenuOpen
             ? "bg-accent/15 text-accent"
-            : "text-text-muted hover:text-text-primary hover:bg-white/6"
+            : "text-text-muted hover:text-text-primary hover:bg-surface-hover",
         )}
         title="Playback speed"
         aria-expanded={speedMenuOpen}
@@ -52,8 +52,9 @@ export const PlaybackSpeedSelector: React.FC<PlaybackSpeedSelectorProps> = ({
                 role="option"
                 aria-selected={playbackSpeed === speed}
                 className={cn(
-                  "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs font-medium text-text-primary hover:bg-surface-raised transition-colors cursor-pointer",
-                  playbackSpeed === speed && "bg-surface-raised text-accent font-semibold"
+                  "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer",
+                  playbackSpeed === speed &&
+                    "bg-surface-hover text-accent font-semibold",
                 )}
                 onClick={() => {
                   setSpeed(speed);

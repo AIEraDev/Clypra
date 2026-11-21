@@ -26,6 +26,24 @@ import { propertyEditTelemetry } from "@/lib/properties/propertyEditTelemetry";
 import { evaluateVisualPropertyKeyframes } from "@/core/evaluation/animation";
 import { useDragTransformOverride } from "@/hooks/useDragTransformOverride";
 
+function evaluateTransformKeyframes(
+  property: "width" | "height" | "x" | "y" | "rotation",
+  keyframes: NonNullable<Clip["visualKeyframes"]>["x"],
+  timeSeconds: number,
+  fallback: number,
+  duration: number,
+): number {
+  const value = evaluateVisualPropertyKeyframes(keyframes ?? [], timeSeconds, fallback, duration);
+  const exact = keyframes?.some((keyframe) => Math.abs(keyframe.time - timeSeconds) < 0.0001);
+  propertyEditTelemetry.recordKeyframeEvaluation({
+    category: "video",
+    property,
+    timeSeconds,
+    source: exact ? "exact" : keyframes?.length ? "interpolated" : "default",
+  });
+  return value;
+}
+
 interface VideoTransformControlsProps {
   selectedClip: Clip;
   canvasWidth: number;
@@ -177,6 +195,12 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                 easing: "easeInOut" as const,
               },
             ].sort((a, b) => a.time - b.time);
+      propertyEditTelemetry.recordKeyframeAction({
+        category: "video",
+        property: prop,
+        action: existingIdx >= 0 ? "remove" : "add",
+        timeSeconds: localTime,
+      });
       handleUpdate("visualKeyframes", {
         ...(selectedClip.visualKeyframes || {}),
         [prop]: nextKfs,
@@ -196,7 +220,8 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
   // Live evaluated values when keyframes exist
   const currentWidth = useMemo(() => {
     if (selectedClip.visualKeyframes?.width?.length) {
-      return evaluateVisualPropertyKeyframes(
+      return evaluateTransformKeyframes(
+        "width",
         selectedClip.visualKeyframes.width,
         localTime,
         selectedClip.width ?? baseWidth,
@@ -214,7 +239,8 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
   const currentHeight = useMemo(() => {
     if (selectedClip.visualKeyframes?.height?.length) {
-      return evaluateVisualPropertyKeyframes(
+      return evaluateTransformKeyframes(
+        "height",
         selectedClip.visualKeyframes.height,
         localTime,
         selectedClip.height ?? baseHeight,
@@ -232,7 +258,8 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
   const currentClipX = useMemo(() => {
     if (selectedClip.visualKeyframes?.x?.length) {
-      return evaluateVisualPropertyKeyframes(
+      return evaluateTransformKeyframes(
+        "x",
         selectedClip.visualKeyframes.x,
         localTime,
         selectedClip.x ?? 0,
@@ -256,7 +283,8 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
   const currentClipY = useMemo(() => {
     if (selectedClip.visualKeyframes?.y?.length) {
-      return evaluateVisualPropertyKeyframes(
+      return evaluateTransformKeyframes(
+        "y",
         selectedClip.visualKeyframes.y,
         localTime,
         selectedClip.y ?? 0,
@@ -280,7 +308,8 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
   const currentRotation = useMemo(() => {
     if (selectedClip.visualKeyframes?.rotation?.length) {
-      return evaluateVisualPropertyKeyframes(
+      return evaluateTransformKeyframes(
+        "rotation",
         selectedClip.visualKeyframes.rotation,
         localTime,
         selectedClip.rotation ?? 0,
@@ -385,6 +414,12 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
       const nextYKfs = currentYKfs.filter(
         (kf) => Math.abs(kf.time - localTime) >= 0.08,
       );
+      propertyEditTelemetry.recordKeyframeAction({
+        category: "video",
+        property: "position",
+        action: "remove",
+        timeSeconds: localTime,
+      });
       handleUpdateMultiple({
         visualKeyframes: {
           ...(selectedClip.visualKeyframes || {}),
@@ -413,6 +448,13 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
           easing: "easeInOut" as const,
         },
       ].sort((a, b) => a.time - b.time);
+
+      propertyEditTelemetry.recordKeyframeAction({
+        category: "video",
+        property: "position",
+        action: "add",
+        timeSeconds: localTime,
+      });
 
       handleUpdateMultiple({
         visualKeyframes: {
@@ -795,6 +837,12 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
       );
 
       if (existingIdx >= 0) {
+        propertyEditTelemetry.recordKeyframeAction({
+          category: "video",
+          property: prop,
+          action: "update",
+          timeSeconds: localTime,
+        });
         const nextKfs = [...currentKfs];
         nextKfs[existingIdx] = {
           ...nextKfs[existingIdx],
@@ -808,6 +856,12 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
           },
         });
       } else if (currentKfs.length > 0) {
+        propertyEditTelemetry.recordKeyframeAction({
+          category: "video",
+          property: prop,
+          action: "add",
+          timeSeconds: localTime,
+        });
         const nextKfs = [
           ...currentKfs,
           {
@@ -985,7 +1039,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
           {/* Scale - Conditional rendering based on uniform scale toggle */}
           {isAspectLocked ? (
             <div className="space-y-1">
-              <span className="text-[11px] text-white select-none block">
+              <span className="text-[11px] text-text-primary select-none block">
                 {t("properties.transform.scale") || "Scale"}
               </span>
               <div className="flex items-center gap-2">
@@ -1029,7 +1083,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
           ) : (
             <>
               <div className="space-y-1">
-                <span className="text-[11px] text-white select-none block">
+                <span className="text-[11px] text-text-primary select-none block">
                   Scale width
                 </span>
                 <div className="flex items-center gap-2">
@@ -1073,7 +1127,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
                 </div>
               </div>
               <div className="space-y-1">
-                <span className="text-[11px] text-white select-none block">
+                <span className="text-[11px] text-text-primary select-none block">
                   Scale height
                 </span>
                 <div className="flex items-center gap-2">
@@ -1123,14 +1177,16 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
           {/* Uniform scale toggle */}
           <div className="flex items-center justify-between">
-            <span className="text-[11px] text-white select-none">
+            <span className="text-[11px] text-text-primary select-none">
               Uniform scale
             </span>
             <button
               type="button"
               onClick={toggleAspectLock}
               className={`relative inline-flex h-5 w-9 cursor-pointer items-center rounded-full transition-colors ${
-                isAspectLocked ? "bg-accent" : "bg-[#3f3f46]"
+                isAspectLocked
+                  ? "bg-accent-primary text-white"
+                  : "bg-surface-elevated text-text-muted border border-border-default"
               }`}
               aria-label="Toggle uniform scale"
             >
@@ -1144,7 +1200,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
           {/* Position */}
           <div className="flex items-center gap-4">
-            <span className="text-[11px] text-white select-none block w-[8rem]">
+            <span className="text-[11px] text-text-primary select-none block w-[8rem]">
               Position
             </span>
 
@@ -1194,7 +1250,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
           {/* Rotate */}
           <div className="flex items-center gap-4">
-            <span className="text-[11px] text-white select-none block w-[8rem]">
+            <span className="text-[11px] text-text-primary select-none block w-[8rem]">
               Rotate
             </span>
 
@@ -1234,7 +1290,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
           <div className="flex items-center rounded-sm">
             <button
               type="button"
-              className="bg-[#27272a] hover:bg-[#3f3f46] text-zinc-300 hover:text-white w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
+              className="bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-text-primary border border-border-default w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
               title={t("properties.transform.alignLeft") || "Align left"}
               aria-label={t("properties.transform.alignLeft") || "Align left"}
               onClick={handleAlignLeft}
@@ -1245,7 +1301,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
             <button
               type="button"
-              className="bg-[#27272a] hover:bg-[#3f3f46] text-zinc-300 hover:text-white w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
+              className="bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-text-primary border border-border-default w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
               title={
                 t("properties.transform.alignCenterX") ||
                 "Align center horizontally"
@@ -1262,7 +1318,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
             <button
               type="button"
-              className="bg-[#27272a] hover:bg-[#3f3f46] text-zinc-300 hover:text-white w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
+              className="bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-text-primary border border-border-default w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
               title={t("properties.transform.alignRight") || "Align right"}
               aria-label={t("properties.transform.alignRight") || "Align right"}
               onClick={handleAlignRight}
@@ -1273,7 +1329,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
             <button
               type="button"
-              className="bg-[#27272a] hover:bg-[#3f3f46] text-zinc-300 hover:text-white w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
+              className="bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-text-primary border border-border-default w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
               title={t("properties.transform.alignTop") || "Align top"}
               aria-label={t("properties.transform.alignTop") || "Align top"}
               onClick={handleAlignTop}
@@ -1284,7 +1340,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
             <button
               type="button"
-              className="bg-[#27272a] hover:bg-[#3f3f46] text-zinc-300 hover:text-white w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
+              className="bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-text-primary border border-border-default w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
               title={
                 t("properties.transform.alignCenterY") ||
                 "Align center vertically"
@@ -1301,7 +1357,7 @@ export const VideoTransformControls: React.FC<VideoTransformControlsProps> = ({
 
             <button
               type="button"
-              className="bg-[#27272a] hover:bg-[#3f3f46] text-zinc-300 hover:text-white w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
+              className="bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-text-primary border border-border-default w-8 h-6 flex items-center justify-center transition-colors cursor-pointer"
               title={t("properties.transform.alignBottom") || "Align bottom"}
               aria-label={
                 t("properties.transform.alignBottom") || "Align bottom"

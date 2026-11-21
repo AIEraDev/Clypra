@@ -1,5 +1,21 @@
 import React, { useMemo, useState, useEffect } from "react";
-import { Filter, Grid3X3, Plus, Search, SlidersHorizontal, Sparkles, Sun, Palette, Droplets, Camera, AlertCircle, Download, Loader2, Star, type LucideIcon } from "lucide-react";
+import {
+  Filter,
+  Grid3X3,
+  Plus,
+  Search,
+  SlidersHorizontal,
+  Sparkles,
+  Sun,
+  Palette,
+  Droplets,
+  Camera,
+  AlertCircle,
+  Download,
+  Loader2,
+  Star,
+  type LucideIcon,
+} from "lucide-react";
 import type { TabProps } from "../types";
 import { useProjectStore } from "@/store/projectStore";
 import { FiltersApi } from "@/features/filters/api/filtersApi";
@@ -44,7 +60,8 @@ const DEFAULT_FILTER_CATEGORIES = [
 
 export const FiltersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState<FilterCategory>("essentials");
+  const [activeCategory, setActiveCategory] =
+    useState<FilterCategory>("essentials");
   const [categories, setCategories] = useState(DEFAULT_FILTER_CATEGORIES);
   const [filters, setFilters] = useState<FilterAsset[]>([]);
   const [loading, setLoading] = useState(false);
@@ -81,7 +98,10 @@ export const FiltersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         const data = await FiltersApi.getByCategory(activeCategory);
         setFilters(data);
       } catch (err) {
-        console.error(`[FiltersTab] Failed to load category ${activeCategory}:`, err);
+        console.error(
+          `[FiltersTab] Failed to load category ${activeCategory}:`,
+          err,
+        );
         setError(err instanceof Error ? err.message : "Failed to load filters");
       } finally {
         setLoading(false);
@@ -95,7 +115,11 @@ export const FiltersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const filteredFilters = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return filters.filter((filter) => {
-      const matchesSearch = !query || filter.name.toLowerCase().includes(query) || filter.description.toLowerCase().includes(query) || filter.category.includes(query);
+      const matchesSearch =
+        !query ||
+        filter.name.toLowerCase().includes(query) ||
+        filter.description.toLowerCase().includes(query) ||
+        filter.category.includes(query);
       return matchesSearch;
     });
   }, [filters, searchQuery]);
@@ -103,16 +127,26 @@ export const FiltersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-surface/5 select-none">
       <div className="flex items-center gap-2.5 p-1 border-b border-border/50 shrink-0 bg-surface/10">
-        <div className="grow overflow-x-auto flex items-center gap-0.5 pb-0.5 whitespace-nowrap" style={{ scrollbarWidth: "none" }}>
+        <div
+          className="grow overflow-x-auto flex items-center gap-0.5 pb-0.5 whitespace-nowrap"
+          style={{ scrollbarWidth: "none" }}
+        >
           {categories.map((category) => (
-            <button key={category.id} onClick={() => setActiveCategory(category.id)} className={`px-2 py-1 rounded text-xs font-semibold transition-all cursor-pointer shrink-0 text-[11px] hover:bg-accent/10 hover:text-accent ${activeCategory === category.id ? "bg-accent/10 text-accent" : "text-text-muted"}`}>
+            <button
+              key={category.id}
+              onClick={() => setActiveCategory(category.id)}
+              className={`px-2 py-1 rounded text-xs font-semibold transition-all cursor-pointer shrink-0 text-[11px] hover:bg-accent/10 hover:text-accent ${activeCategory === category.id ? "bg-accent/10 text-accent" : "text-text-muted"}`}
+            >
               {category.name}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="grow overflow-y-auto scrollbar-thin p-1" style={{ scrollbarWidth: "none" }}>
+      <div
+        className="grow overflow-y-auto scrollbar-thin p-1"
+        style={{ scrollbarWidth: "none" }}
+      >
         {error && (
           <div className="mb-3 p-3 rounded-lg border border-red-500/20 bg-red-500/5 text-red-200 flex items-start gap-2.5 text-xs">
             <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
@@ -149,7 +183,9 @@ export const FiltersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                   e.stopPropagation();
                   toggleFavorite(filter.id);
                 }}
-                onAddToTimeline={() => onAddToTimeline?.(filter as any, "filters")}
+                onAddToTimeline={() =>
+                  onAddToTimeline?.(filter as any, "filters")
+                }
               />
             ))}
           </div>
@@ -159,7 +195,9 @@ export const FiltersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   );
 };
 
-const SkeletonCard = () => <div className="animate-pulse rounded-xl border border-border/30 bg-surface-raised/40 aspect-square" />;
+const SkeletonCard = () => (
+  <div className="animate-pulse rounded-xl border border-border/30 bg-surface-raised/40 aspect-square" />
+);
 
 interface FilterCardProps {
   filter: FilterAsset;
@@ -168,7 +206,12 @@ interface FilterCardProps {
   onAddToTimeline: (e: React.MouseEvent) => void;
 }
 
-const FilterCard: React.FC<FilterCardProps> = ({ filter, isFavorite, onFavorite, onAddToTimeline }) => {
+const FilterCard: React.FC<FilterCardProps> = ({
+  filter,
+  isFavorite,
+  onFavorite,
+  onAddToTimeline,
+}) => {
   const Icon = FILTER_ICONS[filter.id] || DEFAULT_ICON;
   const isReady = true; // All filters are ready (status field is just for UI labeling)
   const [isDownloading, setIsDownloading] = useState(false);
@@ -190,18 +233,21 @@ const FilterCard: React.FC<FilterCardProps> = ({ filter, isFavorite, onFavorite,
   const getCSSFilterStyle = (filterId: string): React.CSSProperties => {
     const filterMap: Record<string, string> = {
       "filter-sepia": "sepia(0.8) hue-rotate(-10deg) saturate(1.2)",
-      "filter-retro": "sepia(0.4) contrast(1.2) saturate(0.8) hue-rotate(10deg)",
+      "filter-retro":
+        "sepia(0.4) contrast(1.2) saturate(0.8) hue-rotate(10deg)",
       "filter-aged": "sepia(0.6) contrast(1.1) brightness(0.95) saturate(0.7)",
       "filter-crisp": "contrast(1.3) saturate(1.2) brightness(1.05)",
       "filter-vivid": "saturate(1.8) contrast(1.1) brightness(1.05)",
       "filter-cool": "hue-rotate(-20deg) saturate(1.2) brightness(1.05)",
       "filter-cinematic-teal": "sepia(0.3) hue-rotate(150deg) saturate(1.4)",
       "filter-bleach": "contrast(1.2) brightness(1.1) saturate(0.6)",
-      "filter-moody": "contrast(1.3) brightness(0.85) saturate(0.9) hue-rotate(-10deg)",
+      "filter-moody":
+        "contrast(1.3) brightness(0.85) saturate(0.9) hue-rotate(-10deg)",
       "filter-bw-classic": "grayscale(1) contrast(1.2)",
       "filter-high-contrast": "grayscale(1) contrast(1.6) brightness(1.05)",
       "filter-soft-bw": "grayscale(1) contrast(0.9) brightness(1.05)",
-      "filter-warm": "sepia(0.3) saturate(1.3) hue-rotate(10deg) brightness(1.05)",
+      "filter-warm":
+        "sepia(0.3) saturate(1.3) hue-rotate(10deg) brightness(1.05)",
       "filter-cool-blue": "hue-rotate(180deg) saturate(1.2) brightness(1.05)",
       "filter-purple-haze": "hue-rotate(260deg) saturate(1.3) brightness(0.95)",
     };
@@ -239,23 +285,39 @@ const FilterCard: React.FC<FilterCardProps> = ({ filter, isFavorite, onFavorite,
   };
 
   return (
-    <div onClick={handleAddToTimeline} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)} className="w-full aspect-square bg-surface-raised/40 hover:bg-surface-raised/80 border border-border/40 hover:border-accent/40 rounded-xl relative overflow-hidden flex flex-col justify-between p-1 transition-all duration-300 group cursor-pointer shadow-[0_4px_16px_rgba(0,0,0,0.3)]">
+    <div
+      onClick={handleAddToTimeline}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      className="w-full aspect-square bg-surface-raised/40 hover:bg-surface-hover border border-border/40 hover:border-accent/40 rounded-xl relative overflow-hidden flex flex-col justify-between p-1 transition-all duration-300 group cursor-pointer shadow-md"
+    >
       {/* Downloading Overlay */}
       {isDownloading && (
         <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-20 pointer-events-none">
           <div className="flex flex-col items-center gap-2">
             <Loader2 className="w-8 h-8 text-accent animate-spin" />
-            <span className="text-[10px] font-semibold text-accent">Downloading...</span>
+            <span className="text-[10px] font-semibold text-accent">
+              Downloading...
+            </span>
           </div>
         </div>
       )}
 
       {/* Favorite Star */}
-      <button onClick={onFavorite} className={`absolute top-1 right-1 p-1 cursor-pointer rounded-full bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary transition-all duration-200 z-10 ${isFavorite ? "opacity-100 text-yellow-400!" : "opacity-0 group-hover:opacity-100 group-hover:translate-y-0 translate-y-2"}`}>
-        <Star className={`w-3 h-3 ${isFavorite ? "fill-yellow-400 text-yellow-400!" : ""}`} />
+      <button
+        onClick={onFavorite}
+        className={`absolute top-1 right-1 p-1 cursor-pointer rounded-full bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary transition-all duration-200 z-10 ${isFavorite ? "opacity-100 text-yellow-400!" : "opacity-0 group-hover:opacity-100 group-hover:translate-y-0 translate-y-2"}`}
+      >
+        <Star
+          className={`w-3 h-3 ${isFavorite ? "fill-yellow-400 text-yellow-400!" : ""}`}
+        />
       </button>
 
-      {filter.pipeline === "v2" && <span className="absolute top-1 left-1 px-1 py-0.5 rounded text-[8px] font-bold uppercase tracking-wide bg-violet-600/80 text-white z-10">V2</span>}
+      {filter.pipeline === "v2" && (
+        <span className="absolute top-1 left-1 px-1 py-0.5 rounded text-[8px] font-bold uppercase tracking-wide bg-violet-600/80 text-white z-10">
+          V2
+        </span>
+      )}
 
       {/* Preview Area / Image or Fallback Gradient */}
       <div className="flex-1 flex items-center justify-center w-full select-none relative overflow-hidden rounded-lg bg-surface">
@@ -280,11 +342,24 @@ const FilterCard: React.FC<FilterCardProps> = ({ filter, isFavorite, onFavorite,
 
       {/* Footer Info / Apply Button */}
       <div className="flex items-center justify-between w-full mt-0.5 z-10 px-0.5">
-        <span className="text-[9px] text-text-muted font-medium group-hover:text-text-primary transition-colors truncate max-w-[65px]" title={filter.name}>
+        <span
+          className="text-[9px] text-text-muted font-medium group-hover:text-text-primary transition-colors truncate max-w-[65px]"
+          title={filter.name}
+        >
           {filter.name}
         </span>
-        <button onClick={handleAddToTimeline} disabled={isDownloading} className={`w-4 h-4 rounded-full flex items-center justify-center transition-all relative ${isDownloaded ? "bg-accent hover:bg-accent/85 border border-accent text-white cursor-pointer" : isDownloading ? "bg-accent/20 border border-accent cursor-wait" : "bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary cursor-pointer"}`}>
-          {isDownloading ? <div className="w-2 h-2 rounded-full border-2 border-accent border-t-transparent animate-spin" /> : isDownloaded ? <Plus className="w-3 h-3 group-hover:scale-110 transition-transform" /> : <Download className="w-2 h-2 group-hover:scale-115 transition-transform" />}
+        <button
+          onClick={handleAddToTimeline}
+          disabled={isDownloading}
+          className={`w-4 h-4 rounded-full flex items-center justify-center transition-all relative ${isDownloaded ? "bg-accent hover:bg-accent/85 border border-accent text-white cursor-pointer" : isDownloading ? "bg-accent/20 border border-accent cursor-wait" : "bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary cursor-pointer"}`}
+        >
+          {isDownloading ? (
+            <div className="w-2 h-2 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+          ) : isDownloaded ? (
+            <Plus className="w-3 h-3 group-hover:scale-110 transition-transform" />
+          ) : (
+            <Download className="w-2 h-2 group-hover:scale-115 transition-transform" />
+          )}
         </button>
       </div>
     </div>

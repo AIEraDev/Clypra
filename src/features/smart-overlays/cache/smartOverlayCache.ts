@@ -6,6 +6,12 @@
 import { BaseDirectory, exists, mkdir, writeFile, readFile, remove } from "@tauri-apps/plugin-fs";
 import { join, appCacheDir } from "@tauri-apps/api/path";
 import type { SmartOverlayClip, SmartOverlayPreset } from "@/types/smartOverlay";
+import {
+  getCacheCoordinator,
+  type ICacheParticipant,
+  type CacheTier,
+  type CacheLifespan,
+} from "@/core/cache/cacheCoordinator";
 
 export interface CachedSmartOverlay {
   id: string;
@@ -19,7 +25,7 @@ export interface CachedSmartOverlay {
   isCustom?: boolean;
 }
 
-const CACHE_DIR = "smart-overlays";
+const CACHE_DIR = "clypra_cache/assets/smart-overlays";
 const CACHE_INDEX_FILE = "index.json";
 
 function sanitizeFileName(name: string): string {
@@ -29,10 +35,36 @@ function sanitizeFileName(name: string): string {
     .substring(0, 100);
 }
 
-class SmartOverlayCacheManager {
+class SmartOverlayCacheManager implements ICacheParticipant {
+  public readonly name = "smart-overlay-cache";
+  public readonly tier: CacheTier = "indexeddb";
+  public readonly lifespan: CacheLifespan = "persistent";
+
   private cacheIndex: Map<string, CachedSmartOverlay> = new Map();
   private cacheDir: string | null = null;
   private initialized = false;
+
+  public getBytesUsed(): number {
+    let bytes = 0;
+    for (const item of this.cacheIndex.values()) {
+      bytes += item.size || 0;
+    }
+    return bytes;
+  }
+
+  public trimTo(_targetBytes: number): number {
+    return 0;
+  }
+
+  public async clear(): Promise<void> {
+    for (const id of Array.from(this.cacheIndex.keys())) {
+      await this.clearCache(id);
+    }
+  }
+
+  public getMetrics(): { entryCount: number } {
+    return { entryCount: this.cacheIndex.size };
+  }
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
@@ -163,3 +195,4 @@ class SmartOverlayCacheManager {
 }
 
 export const smartOverlayCacheManager = new SmartOverlayCacheManager();
+getCacheCoordinator().register(smartOverlayCacheManager);

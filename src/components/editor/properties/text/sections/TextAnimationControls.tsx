@@ -178,7 +178,7 @@ export const TextAnimationControls: React.FC<TextAnimationControlsProps> = ({
       {/* Animation Info */}
       {(clip.entranceAnimation?.type !== "none" ||
         clip.exitAnimation?.type !== "none") && (
-        <div className="text-[10px] text-text-muted/60 italic pt-2 border-t border-border/20 select-none">
+        <div className="text-[10px] text-text-muted/60 italic pt-2 border-t border-border-default select-none">
           Animations preview during playback
         </div>
       )}

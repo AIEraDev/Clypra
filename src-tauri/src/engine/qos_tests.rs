@@ -727,6 +727,25 @@ fn test_phase_i11_high_miss_ratio_without_decode_starvation_diagnoses_dominant_s
     assert!(conf >= 0.7);
 }
 
+#[test]
+fn test_phase_i11_queue_starvation_without_stage_timings_is_not_healthy() {
+    let mut window = PerformanceWindow::new(10, 60.0);
+
+    // A queue miss returns before decode/compositor timing exists. The
+    // controller still needs an actionable diagnosis instead of preserving
+    // Full/Original quality while every presentation deadline is missed.
+    for _ in 0..10 {
+        window.push(PerformanceSnapshot {
+            deadline_missed: true,
+            ..PerformanceSnapshot::default()
+        });
+    }
+
+    let (bottleneck, confidence) = window.diagnose_bottleneck();
+    assert_eq!(bottleneck, Bottleneck::Decode);
+    assert!(confidence >= 0.75);
+}
+
 // ─── I12: IPC Wait & Audio-Video Drift Diagnoses ─────────────────────────────
 #[test]
 fn test_phase_i12_ipc_wait_and_av_drift_bottlenecks() {

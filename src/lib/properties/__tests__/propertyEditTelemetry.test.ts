@@ -98,6 +98,20 @@ describe("PropertyEditTelemetryCollector", () => {
     });
   });
 
+  it("records keyframe evaluation source and time without clip identity", () => {
+    propertyEditTelemetry.recordKeyframeEvaluation({
+      property: "x",
+      category: "video",
+      timeSeconds: 1.25,
+      source: "interpolated",
+    });
+    expect(propertyEditTelemetry.getRecentEntries()[0]).toMatchObject({
+      action: "keyframe-evaluate-interpolated",
+      property: "x",
+      timeSeconds: 1.25,
+    });
+  });
+
   // -----------------------------------------------------------------------
   // recordNumericCommit
   // -----------------------------------------------------------------------
@@ -185,6 +199,23 @@ describe("PropertyEditTelemetryCollector", () => {
     });
   });
 
+  describe("recordKeyframeAction", () => {
+    it("records lifecycle action and local playhead time", () => {
+      propertyEditTelemetry.recordKeyframeAction({
+        property: "position",
+        category: "video",
+        action: "add",
+        timeSeconds: 2.5,
+      });
+
+      expect(propertyEditTelemetry.getRecentEntries()[0]).toMatchObject({
+        property: "position",
+        action: "keyframe-add",
+        timeSeconds: 2.5,
+      });
+    });
+  });
+
   // -----------------------------------------------------------------------
   // Zero-PII guarantees
   // -----------------------------------------------------------------------
@@ -222,6 +253,7 @@ describe("PropertyEditTelemetryCollector", () => {
         "sampleCount",
         "direction",
         "action",
+        "timeSeconds",
         "timestampEpochMs",
       ]);
 
@@ -288,7 +320,10 @@ describe("PropertyEditTelemetryCollector", () => {
       const collector = new PropertyEditTelemetryCollector();
 
       for (let i = 0; i < 105; i++) {
-        collector.recordButtonAction({ action: `action-${i}`, category: "video" });
+        collector.recordButtonAction({
+          action: `action-${i}`,
+          category: "video",
+        });
       }
 
       const entries = collector.getRecentEntries();
@@ -311,7 +346,9 @@ describe("PropertyEditTelemetryCollector", () => {
   // -----------------------------------------------------------------------
   describe("singleton", () => {
     it("exports a shared propertyEditTelemetry instance", () => {
-      expect(propertyEditTelemetry).toBeInstanceOf(PropertyEditTelemetryCollector);
+      expect(propertyEditTelemetry).toBeInstanceOf(
+        PropertyEditTelemetryCollector,
+      );
     });
   });
 });

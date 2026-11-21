@@ -152,20 +152,20 @@ export const TransitionIndicator: React.FC<TransitionIndicatorProps> = ({ transi
       {/* Draggable handle in the center */}
       <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none transition-all ${isDragging || isSelected ? "opacity-100 scale-110" : "opacity-70 scale-100"}`}>
         <div
-          className="flex items-center justify-center rounded-full bg-white/90 shadow-lg backdrop-blur-sm"
+          className="flex items-center justify-center rounded-full bg-surface-floating/95 border border-border-default/80 shadow-lg backdrop-blur-sm"
           style={{
             width: "24px",
             height: "24px",
           }}
         >
-          <GripVertical className="w-3 h-3 text-gray-700" />
+          <GripVertical className="w-3 h-3 text-text-primary" />
         </div>
       </div>
 
       {/* Duration label - shows on hover or when selected */}
       {(isSelected || isDragging) && (
         <div
-          className="absolute -bottom-6 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded bg-black/80 text-white text-[10px] font-medium whitespace-nowrap pointer-events-none"
+          className="absolute -bottom-6 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded bg-surface-floating/95 border border-border-default text-text-primary text-[10px] shadow-lg backdrop-blur-md font-medium whitespace-nowrap pointer-events-none"
           style={{
             zIndex: 50,
           }}

@@ -83,6 +83,17 @@ interface TimedInteraction {
   telemetry: TelemetryInteraction;
 }
 
+/**
+ * A native clock position is only authoritative after the seek → play
+ * handoff for the current transport run has completed. Until then the
+ * PlaybackClock keeps projecting the user-visible time from its wall-clock
+ * anchor, so a pre-play CPAL sample cannot rewind a just-started program.
+ */
+interface NativeClockStartupHandoff {
+  transportEpoch: number;
+  minimumAcceptedTime: number;
+}
+
 export interface NativeAudioPreviewSource {
   projectRevision: string;
   frameRate: number;
@@ -116,6 +127,14 @@ export class NativeAudioPreviewController {
   private notifiedFailureClipIds = new Set<string>();
   private pollHandle: ReturnType<typeof setInterval> | null = null;
   /**
+   * Native audio clock polls are observations, not transport commands. Keep at
+   * most one IPC request in flight so a delayed older observation can never
+   * arrive after a newer one and rewind the sole PlaybackClock authority.
+   */
+  private nativeClockPollInFlight = false;
+  /** Invalidates an in-flight observation when transport intent changes. */
+  private nativeClockPollGeneration = 0;
+  /**
    * Transport has a dedicated short-command lane. Play/pause/seek must never
    * wait behind a media decode or atomic graph replacement initiated by a
    * timeline edit.
@@ -138,6 +157,8 @@ export class NativeAudioPreviewController {
   private installedSnapshot: NativeAudioTimelineSnapshot | null = null;
   /** Epoch of a play/restart transport transition currently in flight. */
   private pendingPlayEpoch: number | null = null;
+  /** Rejects pre-play native samples until audio confirms the current handoff. */
+  private nativeClockStartupHandoff: NativeClockStartupHandoff | null = null;
   private outputVolume = 1;
   private outputMuted = false;
   private initializationUs = 0;
@@ -292,16 +313,14 @@ export class NativeAudioPreviewController {
               this._rendererState = "ready";
               this.clock.clearNativeAudioUnavailable(); // keep compat for Bug 8/9 tests
 
-              // Bug 9 fix (preserved): if the clock was playing while audio was
-              // resolving, join the timeline at the current position immediately
-              // so there is no seek-back to the beginning.
+              // If the clock is playing while audio layout changed, join the timeline
+              // at the current position immediately so there is no seek-back to the beginning.
               if (
-                wasResolving &&
                 this.clock.state === "playing" &&
                 this.active &&
                 !this.disposed
               ) {
-                // Bug 12 note: Capturing clock.time BEFORE enqueuing is correct here —
+                // Capturing clock.time BEFORE enqueuing is correct here —
                 // the transport queue may have delay, so we want to join at the position
                 // that was current when the audio became ready, not at some later time.
                 const currentTime = this.clock.time;
@@ -323,6 +342,20 @@ export class NativeAudioPreviewController {
                   this.adoptNativePosition(nativeState.audioPositionTicks);
                   this._rendererState = "playing";
                 }, "seek-then-play");
+              } else if (this.active && !this.disposed) {
+                // If paused, ensure CPAL's atomic position matches the user's
+                // current clock position instead of defaulting to 0.
+                const currentTime = this.clock.time;
+                this.enqueueTransport(async () => {
+                  if (
+                    !this.active ||
+                    this.disposed ||
+                    this.clock.state === "playing"
+                  )
+                    return;
+                  await seekNativeAudio(secondsToTicks(currentTime));
+                  await pauseNativeAudio();
+                }, "seek-paused");
               }
             }
           } else if (
@@ -508,6 +541,10 @@ export class NativeAudioPreviewController {
         const playStartedAt = performance.now();
         // INVESTIGATION ONLY — remove before Phase 6
         traceAudioEvent("T7", "nativePlayFromAudio IPC send", {});
+        this.beginNativeClockStartupHandoff(
+          this.currentTransportEpoch(),
+          livePosition,
+        );
         const nativeState = await nativePlayFromAudio();
         // INVESTIGATION ONLY — remove before Phase 6
         traceAudioEvent("T7-recv", "nativePlayFromAudio IPC receive", {
@@ -519,8 +556,16 @@ export class NativeAudioPreviewController {
       } else {
         // Paused path: use the static paused position
         await seekNativeAudio(secondsToTicks(this.clock.time));
+        if (this.clock.time > 0) {
+          try {
+            await nativeSeekFromAudio(
+              Math.max(0, Math.floor(this.clock.time * this.clock.frameRate)),
+            );
+          } catch (_) {}
+        }
         await pauseNativeAudio();
       }
+      this.lastHandledClockSeekRevision = this.clock.seekRevision;
       await this.pollNativeClock();
 
       // Drain any source update that arrived while initialize() was in flight:
@@ -560,6 +605,8 @@ export class NativeAudioPreviewController {
     if (this.disposed) return;
     this.disposed = true;
     this.active = false;
+    this.invalidateNativeClockPolls();
+    this.nativeClockStartupHandoff = null;
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.unlistenLifecycle?.();
@@ -595,6 +642,10 @@ export class NativeAudioPreviewController {
       clearInterval(this.pollHandle);
       this.pollHandle = null;
     }
+    // A new playback run must not consume a status request issued for the
+    // preceding run, even if both happen to share the same transport epoch.
+    this.invalidateNativeClockPolls();
+    this.nativeClockStartupHandoff = null;
     if (this.disposed || !this.active || !isPlaying) return;
     const intervalMs = isPlaying ? 33 : 250;
     this.pollHandle = setInterval(() => {
@@ -641,7 +692,8 @@ export class NativeAudioPreviewController {
           traceAudioEvent("T6", "seekNativeAudio IPC send (handleClockState)", {
             ticks: secondsToTicks(this.clock.time),
           });
-          await seekNativeAudio(secondsToTicks(this.clock.time));
+          const handoffTime = this.clock.time;
+          await seekNativeAudio(secondsToTicks(handoffTime));
           interaction.telemetry.audioSeekUs = elapsedUs(seekStartedAt);
           if (
             !this.isCurrentTransportEpoch(transportEpoch) ||
@@ -658,6 +710,7 @@ export class NativeAudioPreviewController {
             "nativePlayFromAudio IPC send (handleClockState)",
             {},
           );
+          this.beginNativeClockStartupHandoff(transportEpoch, handoffTime);
           const nativeState = await nativePlayFromAudio();
           // INVESTIGATION ONLY — remove before Phase 6
           traceAudioEvent(
@@ -676,6 +729,7 @@ export class NativeAudioPreviewController {
           this.adoptNativePosition(nativeState.audioPositionTicks);
           this.finishInteraction(interaction, commandStartedAt, "completed");
         } catch (error) {
+          this.clearNativeClockStartupHandoff(transportEpoch);
           this.finishInteraction(interaction, commandStartedAt, "failed");
           throw error;
         } finally {
@@ -758,6 +812,11 @@ export class NativeAudioPreviewController {
       Math.abs(state.time - previous.time) > frameDuration * 0.5;
 
     if (isPausedSeek || isPlayingJump) {
+      // A poll started before this seek can resolve after native audio accepts
+      // the new target. The transport epoch only distinguishes runs; this
+      // local generation also distinguishes seeks within the same run.
+      this.invalidateNativeClockPolls();
+      this.nativeClockStartupHandoff = null;
       // `isSeeking` is level-triggered until a visual frame settles. Native
       // audio transport is edge-triggered: it must receive exactly one seek
       // per explicit clock revision, otherwise every RAF notification seeks
@@ -795,7 +854,9 @@ export class NativeAudioPreviewController {
           // Collapse rapid scrub updates and use the latest playhead.
           const targetTime = this.clock.time;
           const seekStartedAt = performance.now();
-          await seekNativeAudio(secondsToTicks(targetTime));
+          await seekNativeAudio(secondsToTicks(targetTime), {
+            generation: currentSeek?.generation,
+          });
           const audioSeekUs = elapsedUs(seekStartedAt);
           if (activeScrubId) {
             telemetryCollector.recordScrubAudioSeek(activeScrubId, audioSeekUs);
@@ -851,7 +912,54 @@ export class NativeAudioPreviewController {
       return;
     }
     const position = positionTicks / 1_000_000;
+    if (!this.acceptsNativeClockPosition(position)) return;
     this.clock.setNativeClockPosition(position, this.clock.speed);
+  }
+
+  private beginNativeClockStartupHandoff(
+    transportEpoch: number,
+    soughtTime: number,
+  ): void {
+    const frameTolerance = 2 / Math.max(1, this.clock.frameRate);
+    this.nativeClockStartupHandoff = {
+      transportEpoch,
+      minimumAcceptedTime: Math.max(0, soughtTime - frameTolerance),
+    };
+  }
+
+  private acceptsNativeClockPosition(position: number): boolean {
+    // If the user has an active or unacknowledged forward seek while paused,
+    // reject spurious zero-position samples from uninitialized or resetting native streams.
+    if (
+      this.clock.state !== "playing" &&
+      position <= 0.01 &&
+      this.clock.time > 0.05 &&
+      (this.clock.isSeeking ||
+        this.clock.seekRevision > this.lastHandledClockSeekRevision)
+    ) {
+      return false;
+    }
+
+    const handoff = this.nativeClockStartupHandoff;
+    if (!handoff) return true;
+    if (
+      !this.isCurrentTransportEpoch(handoff.transportEpoch) ||
+      this.clock.state !== "playing"
+    ) {
+      this.nativeClockStartupHandoff = null;
+      return false;
+    }
+    if (position < handoff.minimumAcceptedTime) {
+      return false;
+    }
+    this.nativeClockStartupHandoff = null;
+    return true;
+  }
+
+  private clearNativeClockStartupHandoff(transportEpoch: number): void {
+    if (this.nativeClockStartupHandoff?.transportEpoch === transportEpoch) {
+      this.nativeClockStartupHandoff = null;
+    }
   }
 
   /**
@@ -873,9 +981,18 @@ export class NativeAudioPreviewController {
         this.source.duration > 1.0 &&
         durationTicks > 0 &&
         positionTicks >= durationTicks - 100_000;
+      const isSpuriousZeroReset =
+        positionTicks <= 10_000 &&
+        this.clock.time > 0.05 &&
+        (this.clock.isSeeking ||
+          this.clock.seekRevision > this.lastHandledClockSeekRevision);
 
-      if (!isStaleTerminalSample) {
-        const position = positionTicks / 1_000_000;
+      const position = positionTicks / 1_000_000;
+      if (
+        !isStaleTerminalSample &&
+        !isSpuriousZeroReset &&
+        this.acceptsNativeClockPosition(position)
+      ) {
         this.clock.resyncNativeClockPosition(position, this.clock.speed);
       }
     } catch (error) {
@@ -932,6 +1049,9 @@ export class NativeAudioPreviewController {
 
   private async pollNativeClock(): Promise<void> {
     if (!this.active || this.disposed) return;
+    // setInterval must not build an unbounded queue of native_tick_from_audio
+    // IPC calls when the native side is busy during scrubbing or decode.
+    if (this.nativeClockPollInFlight) return;
     // A status request can resolve after the user starts a new transport run.
     // Its position belongs to the previous run (often exactly `duration`) and
     // must not stop or overwrite the restart.
@@ -943,6 +1063,8 @@ export class NativeAudioPreviewController {
     if (this.pendingPlayEpoch !== null) {
       return;
     }
+    const pollGeneration = this.nativeClockPollGeneration;
+    this.nativeClockPollInFlight = true;
     try {
       const nativeState =
         expectedState === "playing"
@@ -951,6 +1073,7 @@ export class NativeAudioPreviewController {
       if (
         !this.active ||
         this.disposed ||
+        pollGeneration !== this.nativeClockPollGeneration ||
         !this.isCurrentTransportEpoch(transportEpoch) ||
         this.clock.state !== expectedState ||
         this.pendingPlayEpoch !== null
@@ -967,9 +1090,18 @@ export class NativeAudioPreviewController {
         this.source.duration > 1.0 &&
         durationTicks > 0 &&
         positionTicks >= durationTicks - 100_000;
+      const isSpuriousZeroReset =
+        positionTicks <= 10_000 &&
+        this.clock.time > 0.05 &&
+        (this.clock.isSeeking ||
+          this.clock.seekRevision > this.lastHandledClockSeekRevision);
 
-      if (!isStaleTerminalSample) {
-        const position = positionTicks / 1_000_000;
+      const position = positionTicks / 1_000_000;
+      if (
+        !isStaleTerminalSample &&
+        !isSpuriousZeroReset &&
+        this.acceptsNativeClockPosition(position)
+      ) {
         const pollRttMs =
           "pollRttMs" in nativeState
             ? (nativeState as any).pollRttMs
@@ -1000,7 +1132,13 @@ export class NativeAudioPreviewController {
       }
     } catch (error) {
       this.reportError(error);
+    } finally {
+      this.nativeClockPollInFlight = false;
     }
+  }
+
+  private invalidateNativeClockPolls(): void {
+    this.nativeClockPollGeneration += 1;
   }
 
   private async beginStartupProbe(): Promise<void> {

@@ -204,6 +204,27 @@ mod tests {
     }
 
     #[test]
+    fn stale_generation_cannot_settle_the_latest_paused_seek() {
+        let registry = SyncMetricsRegistry::default();
+        registry.record_seek_requested_with_generation(1_000_000, Some(10));
+        registry.record_seek_requested_with_generation(2_000_000, Some(11));
+
+        // The older decode finishes after the newer seek was accepted. It may
+        // complete work, but it must not resolve either seek or erase the
+        // newer pending target.
+        registry.record_frame_presented_with_generation(1_000_000, 33_333, false, true, Some(10));
+        assert!(registry.seek_events.lock().is_empty());
+        assert_eq!(registry.pending_seeks.lock().len(), 1);
+
+        registry.record_frame_presented_with_generation(2_000_000, 33_333, false, true, Some(11));
+        let snapshot = registry.take_and_reset();
+        assert_eq!(snapshot.seeks.n, 1);
+        assert_eq!(snapshot.seeks.correct, 1);
+        assert_eq!(snapshot.seeks.events[0].requested_ticks, 2_000_000);
+        assert_eq!(snapshot.seeks.events[0].generation, Some(11));
+    }
+
+    #[test]
     fn seek_events_and_pending_requests_are_bounded() {
         let registry = SyncMetricsRegistry::default();
         for requested_ticks in 0..(MAX_SEEK_EVENTS + 10) as i64 {
@@ -254,7 +275,7 @@ mod tests {
         {
             let mut pending = registry.pending_seeks.lock();
             for item in pending.iter_mut() {
-                item.1 = Instant::now() - Duration::from_millis(900);
+                item.requested_at = Instant::now() - Duration::from_millis(900);
             }
         }
 

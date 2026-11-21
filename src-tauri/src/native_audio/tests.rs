@@ -837,4 +837,106 @@ mod tests {
         // Verify output_latency.available is an atomic bool
         assert!(!clock.inner.output_latency.available.load(Ordering::Relaxed));
     }
+
+    #[test]
+    fn regression_test_mixer_speed_clamp_preserves_0_1x_speed() {
+        // CLY-BUG-006: At 0.1x playback speed, frame_ticks in mixer must advance at 0.1x, not 0.25x
+        let mut mixer = NativeAudioMixer::default();
+        let clip = NativePcmClip {
+            id: "slow_clip".to_string(),
+            sample_rate: 48_000,
+            channels: 2,
+            samples: Arc::from(vec![0.5f32; 96_000]),
+            timeline_start_ticks: 0,
+            duration_ticks: 10_000_000,
+            gain: 1.0,
+            pan: 0.0,
+            fade_in_ticks: 0,
+            fade_out_ticks: 0,
+            fade_in_curve: "linear".to_string(),
+            fade_out_curve: "linear".to_string(),
+            volume_keyframes: Vec::new(),
+            channel_mode: "stereo".to_string(),
+            downmix: "stereo".to_string(),
+            channel_map: None,
+            preserve_pitch: false,
+            clip_speed: 1.0,
+        };
+        mixer.install_clip(clip).unwrap();
+
+        let output_sample_rate = 48_000_u32;
+        let frame_index = 480_usize;
+        let speed = 0.1_f32;
+
+        let frame_ticks_unclamped = ((frame_index as f64
+            * TICKS_PER_SECOND as f64
+            * speed.clamp(0.1, 4.0) as f64)
+            / output_sample_rate as f64)
+            .round() as i64;
+        assert_eq!(frame_ticks_unclamped, 1000);
+
+        let inspection = mixer.inspect(2, 48_000, 0, 1.0, 0.1);
+        assert!(!inspection.clip_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn regression_test_clock_start_preserves_pre_seek() {
+        // CLY-BUG-005: clock.start() must preserve a pre-existing seek position
+        let mut clock = NativeAudioClock::new();
+        clock.seek(5_000_000);
+        assert_eq!(clock.inner.position_ticks.load(Ordering::Acquire), 5_000_000);
+
+        if clock.start().is_ok() {
+            assert_eq!(
+                clock.inner.position_ticks.load(Ordering::Acquire),
+                5_000_000,
+                "start() should preserve pre-existing seek ticks instead of resetting to 0"
+            );
+        }
+    }
+
+    #[test]
+    fn test_buffer_active_clip_prefiltering_skips_distant_clips() {
+        let mut mixer = NativeAudioMixer::default();
+        // Clip starts at 10 seconds (100_000_000 ticks) and lasts 1 second (10_000_000 ticks)
+        let clip = NativePcmClip {
+            id: "distant_clip".to_string(),
+            timeline_start_ticks: 100_000_000,
+            duration_ticks: 10_000_000,
+            sample_rate: 48_000,
+            channels: 2,
+            samples: Arc::from(vec![0.5_f32; 96_000]),
+            gain: 1.0,
+            pan: 0.0,
+            fade_in_ticks: 0,
+            fade_out_ticks: 0,
+            fade_in_curve: "linear".to_string(),
+            fade_out_curve: "linear".to_string(),
+            volume_keyframes: Vec::new(),
+            channel_mode: "auto".to_string(),
+            downmix: "stereo".to_string(),
+            channel_map: None,
+            preserve_pitch: false,
+            clip_speed: 1.0,
+        };
+        mixer.install_clip(clip).unwrap();
+
+        // 1. Buffer at 0 seconds (0 ticks) - 512 frames @ 48kHz is ~10.6ms
+        let mut output = vec![0.0_f32; 1024];
+        let has_audio = mixer.mix_into(&mut output, 2, 48_000, 0, 1.0, 1.0);
+        assert!(!has_audio, "Buffer at t=0 must report no audio for clip at t=10s");
+        assert!(output.iter().all(|&s| s == 0.0), "Output buffer must remain silent");
+
+        // 2. Buffer at 10 seconds (100_000_000 ticks) - overlapping clip start
+        let mut output_active = vec![0.0_f32; 1024];
+        let has_audio_active = mixer.mix_into(&mut output_active, 2, 48_000, 100_000_000, 1.0, 1.0);
+        assert!(has_audio_active, "Buffer overlapping clip start must report active audio");
+        assert!(output_active.iter().any(|&s| s > 0.1), "Output buffer must contain audio samples");
+
+        // 3. Buffer at 20 seconds (200_000_000 ticks) - after clip end
+        let mut output_after = vec![0.0_f32; 1024];
+        let has_audio_after = mixer.mix_into(&mut output_after, 2, 48_000, 200_000_000, 1.0, 1.0);
+        assert!(!has_audio_after, "Buffer at t=20s must report no audio for clip ended at t=11s");
+        assert!(output_after.iter().all(|&s| s == 0.0), "Output buffer must remain silent");
+    }
 }

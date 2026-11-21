@@ -2,11 +2,19 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
 pub(crate) fn resolve_matte_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Some(mgr) = crate::disk_cache::get_global_disk_cache() {
+        let matte_dir = mgr.root_dir().join(crate::disk_cache::CacheNamespace::RotoscopeMattes.as_str());
+        if !matte_dir.exists() {
+            std::fs::create_dir_all(&matte_dir)
+                .map_err(|e| format!("Failed to create mattes cache dir: {e}"))?;
+        }
+        return Ok(matte_dir);
+    }
     let cache_dir = app
         .path()
         .app_cache_dir()
         .map_err(|e| format!("Failed to get app cache dir: {e}"))?;
-    let matte_dir = cache_dir.join("mattes");
+    let matte_dir = cache_dir.join("clypra_cache").join("mattes");
     if !matte_dir.exists() {
         std::fs::create_dir_all(&matte_dir)
             .map_err(|e| format!("Failed to create mattes cache dir: {e}"))?;

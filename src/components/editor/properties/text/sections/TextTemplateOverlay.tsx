@@ -39,7 +39,7 @@ export const TextTemplateOverlay: React.FC<TextTemplateOverlayProps> = ({
   };
 
   return (
-    <div className="space-y-3 p-3 bg-surface-raised/20 border border-border/40 rounded-xl">
+    <div className="space-y-3 p-3 bg-surface-elevated border border-border-default rounded-xl">
       {templateDef ? (
         <>
           <div className="flex items-center justify-between mb-1">

@@ -1,4 +1,5 @@
 import React from "react";
+import { useI18n } from "@/i18n";
 import { ColorWheel, type ColorWheelValue } from "../../primitives/ColorWheel";
 import type { Clip } from "@/types";
 
@@ -11,6 +12,7 @@ export const ColorWheelsSection: React.FC<ColorWheelsSectionProps> = ({
   selectedClip,
   handleUpdate,
 }) => {
+  const { t } = useI18n();
   const adjustments = selectedClip.adjustments ?? {};
   const wheels = (adjustments as any).wheels ?? {};
 
@@ -34,28 +36,28 @@ export const ColorWheelsSection: React.FC<ColorWheelsSectionProps> = ({
   };
 
   return (
-    <div className="space-y-2 pt-2 border-t border-white/5">
+    <div className="space-y-2 pt-2 border-t border-border-default">
       <div className="flex items-center justify-between px-0.5">
         <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">
-          3-Way Color Wheels
+          {t("properties.adjust.colorWheels")}
         </span>
       </div>
 
       <div className="grid grid-cols-3 gap-1.5">
         <ColorWheel
-          label="Lift"
+          label={t("properties.adjust.lift")}
           value={lift}
           onChange={(val) => updateWheel("lift", val)}
           onReset={() => resetWheel("lift")}
         />
         <ColorWheel
-          label="Gamma"
+          label={t("properties.adjust.gamma")}
           value={gamma}
           onChange={(val) => updateWheel("gamma", val)}
           onReset={() => resetWheel("gamma")}
         />
         <ColorWheel
-          label="Gain"
+          label={t("properties.adjust.gain")}
           value={gain}
           onChange={(val) => updateWheel("gain", val)}
           onReset={() => resetWheel("gain")}

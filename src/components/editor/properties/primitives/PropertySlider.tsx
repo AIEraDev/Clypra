@@ -68,8 +68,8 @@ export const PropertySlider: React.FC<PropertySliderProps> = ({
   if (compact) {
     return (
       <div className={`flex items-center gap-2.5 group ${disabled ? "opacity-40 pointer-events-none" : ""}`}>
-        {icon && <span className="text-text-muted shrink-0">{icon}</span>}
-        <span className="text-[10px] text-text-muted select-none shrink-0 min-w-[52px]">{label}</span>
+        {icon && <span className="text-text-secondary shrink-0">{icon}</span>}
+        <span className="text-[10px] text-text-secondary select-none shrink-0 min-w-[52px]">{label}</span>
         <div className="flex-1">
           <SliderTrack
             value={value}
@@ -90,7 +90,7 @@ export const PropertySlider: React.FC<PropertySliderProps> = ({
             value={displayValue}
             onChange={handleInputChange}
             disabled={disabled}
-            className="w-14 px-1.5 py-0.5 text-[10px] text-center bg-surface-raised border border-border/60 rounded text-text-primary outline-none focus:border-accent tabular-nums selectable"
+            className="w-14 px-1.5 py-0.5 text-[10px] text-center bg-surface-input border border-border-default rounded text-text-primary outline-none focus:border-accent-primary tabular-nums selectable shadow-2xs"
           />
         ) : (
           <span className="text-[10px] text-text-primary tabular-nums min-w-[32px] text-right select-none">
@@ -107,8 +107,8 @@ export const PropertySlider: React.FC<PropertySliderProps> = ({
       {/* Label row */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          {icon && <span className="text-text-muted">{icon}</span>}
-          <span className="text-[10px] font-medium text-text-muted select-none">{label}</span>
+          {icon && <span className="text-text-secondary">{icon}</span>}
+          <span className="text-[10px] font-medium text-text-secondary select-none">{label}</span>
           {onToggleKeyframe && (
             <KeyframeNavControls
               hasKeyframes={hasKeyframes ?? keyframeActive}
@@ -151,7 +151,7 @@ export const PropertySlider: React.FC<PropertySliderProps> = ({
             value={displayValue}
             onChange={handleInputChange}
             disabled={disabled}
-            className="w-14 px-1.5 py-0.5 text-[10px] text-center bg-surface-raised border border-border/60 rounded text-text-primary outline-none focus:border-accent tabular-nums selectable"
+            className="w-14 px-1.5 py-0.5 text-[10px] text-center bg-surface-input border border-border-default rounded text-text-primary outline-none focus:border-accent-primary tabular-nums selectable shadow-2xs"
           />
         )}
       </div>

@@ -171,6 +171,10 @@ pub type EffectLayer = NativeProjectEffectLayer;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativeVideoProjectFrameRequest {
+    /// End-to-end request identity retained for decoder diagnostics. Legacy
+    /// callers may omit it; those incidents remain countable but unjoined.
+    #[serde(default)]
+    pub request_id: String,
     pub canvas_width: u32,
     pub canvas_height: u32,
     #[serde(default = "default_clear_color")]
@@ -601,6 +605,7 @@ pub fn to_video_project_request(
         .collect();
 
     Ok(NativeVideoProjectFrameRequest {
+        request_id: request.request_id.clone(),
         canvas_width: request.output_width,
         canvas_height: request.output_height,
         clear_color: request.project.clear_color,

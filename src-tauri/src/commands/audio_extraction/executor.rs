@@ -32,17 +32,30 @@ pub(super) async fn run_extraction(
             .ok_or_else(|| format!("Audio stream {} was not found", request.source_stream_index))?;
         let (method, container, encoder) = plan_output(&stream, &request)?;
         let fingerprint = fingerprint(&request, &method, &container, &encoder);
-        let cache_dir = app.path().app_cache_dir().map_err(|e| e.to_string())?.join("media-cache").join("audio");
-        tokio::fs::create_dir_all(&cache_dir).await.map_err(|e| format!("Failed to create media cache: {e}"))?;
-        let final_path = cache_dir.join(format!("{fingerprint}.{container}"));
-        let partial_path = cache_dir.join(format!("{fingerprint}.{container}.partial"));
+        let cache_mgr = match crate::disk_cache::get_global_disk_cache() {
+            Some(m) => m,
+            None => {
+                let root = app.path().app_cache_dir().map_err(|e| e.to_string())?.join("clypra_cache");
+                crate::disk_cache::init_global_disk_cache(root)
+            }
+        };
+        let final_path = cache_mgr.resolve_path(
+            crate::disk_cache::CacheNamespace::AudioStems,
+            &format!("{fingerprint}.{container}"),
+        );
+        let partial_path = cache_mgr.resolve_path(
+            crate::disk_cache::CacheNamespace::AudioStems,
+            &format!("{fingerprint}.{container}.partial"),
+        );
         let asset_id = format!("asset-derived-{fingerprint}");
 
         let output_streams = if final_path.is_file() { validate_audio_file(&final_path).await.unwrap_or_default() } else { Vec::new() };
         if !output_streams.is_empty() {
+            cache_mgr.record_hit();
             let duration = output_streams.iter().find(|s| s.stream_type == "audio").and_then(|s| s.duration).or(stream.duration).unwrap_or(0.0);
             return Ok(ExtractedMediaAsset { id: asset_id, name: format!("{} Audio", Path::new(&request.source_path).file_stem().and_then(|s| s.to_str()).unwrap_or("Extracted")), path: final_path.to_string_lossy().to_string(), media_type: "audio".to_string(), duration, size: tokio::fs::metadata(&final_path).await.map(|m| m.len()).unwrap_or(0), streams: output_streams, source_asset_id: request.source_asset_id, source_stream_index: request.source_stream_index, extraction_method: method, operation_fingerprint: fingerprint });
         }
+        cache_mgr.record_miss();
 
         let mut command = crate::commands::binary_resolver::create_async_command("ffmpeg");
         command.args(["-hide_banner", "-loglevel", "error", "-progress", "pipe:1", "-nostats", "-i", &request.source_path, "-map", &format!("0:{}", request.source_stream_index), "-vn"]);
@@ -78,6 +91,7 @@ pub(super) async fn run_extraction(
         if !status.success() { let _ = tokio::fs::remove_file(&partial_path).await; return Err("FFmpeg extraction failed".to_string()); }
         let streams = validate_audio_file(&partial_path).await?;
         tokio::fs::rename(&partial_path, &final_path).await.map_err(|e| format!("Failed to promote extracted media: {e}"))?;
+        let _ = cache_mgr.prune_if_needed().await;
         let duration = streams.iter().find(|s| s.stream_type == "audio").and_then(|s| s.duration).or(stream.duration).unwrap_or(0.0);
         Ok(ExtractedMediaAsset { id: asset_id, name: format!("{} Audio", Path::new(&request.source_path).file_stem().and_then(|s| s.to_str()).unwrap_or("Extracted")), path: final_path.to_string_lossy().to_string(), media_type: "audio".to_string(), duration, size: tokio::fs::metadata(&final_path).await.map(|m| m.len()).unwrap_or(0), streams, source_asset_id: request.source_asset_id, source_stream_index: request.source_stream_index, extraction_method: method, operation_fingerprint: fingerprint })
     }.await;

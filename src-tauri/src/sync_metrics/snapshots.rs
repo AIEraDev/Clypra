@@ -9,6 +9,8 @@ pub struct SeekEvent {
     pub presented_ticks: i64,
     pub latency_micros: i64,
     pub correct: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generation: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]

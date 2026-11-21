@@ -322,7 +322,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
         <div className="space-y-3">
           {/* Conform Mode (visual clips only) */}
           {isVisualClip && (
-            <div className="space-y-3 border-b border-border/40 pb-3 mb-1">
+            <div className="space-y-3 border-b border-border-default pb-3 mb-1">
               <div className="flex items-end gap-2">
                 <div className="flex-1">
                   <PropertySelect
@@ -364,7 +364,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                       userOffsetY: 0,
                     });
                   }}
-                  className="px-2.5 py-1.5 text-[10px] font-medium bg-surface-raised border border-border/60 rounded-md text-text-muted hover:text-text-primary hover:bg-white/[0.06] transition-all active:scale-[0.97] cursor-pointer"
+                  className="px-2.5 py-1.5 text-[10px] font-medium bg-surface-elevated border border-border-default rounded-md text-text-muted hover:text-text-primary hover:bg-surface-hover transition-all active:scale-[0.97] cursor-pointer"
                 >
                   Reset
                 </button>
@@ -447,8 +447,8 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                   onClick={() => toggleKeyframeLane(selectedClip.id)}
                   className={`flex items-center gap-1 px-1.5 py-0.5 text-[9px] rounded transition-all cursor-pointer ${
                     isKeyframeExpanded
-                      ? "bg-accent text-white"
-                      : "text-text-muted hover:text-accent hover:bg-accent/10"
+                      ? "bg-accent-primary text-white"
+                      : "text-text-muted hover:text-accent-primary hover:bg-accent-primary/10"
                   }`}
                   title="Toggle Timeline Keyframe Lanes"
                 >
@@ -457,7 +457,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                 </button>
 
                 {isVisualClip && (
-                  <div className="flex items-center gap-0.5 bg-surface-base/80 p-0.5 rounded border border-border/50">
+                  <div className="flex items-center gap-0.5 bg-surface-elevated p-0.5 rounded border border-border-default">
                     <button
                       type="button"
                       onClick={() => handleApplyFit("contain")}
@@ -465,8 +465,8 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                         selectedClip.conform?.mode === "fit" ||
                         (!selectedClip.conform &&
                           selectedClip.fitMode === "contain")
-                          ? "bg-accent/20 text-accent font-semibold"
-                          : "text-text-muted hover:text-text-primary hover:bg-surface-raised"
+                          ? "bg-accent-primary/20 text-accent-primary font-semibold"
+                          : "text-text-muted hover:text-text-primary hover:bg-surface-hover"
                       }`}
                       title="Fit: Preserve full frame (Letterbox/Pillarbox)"
                     >
@@ -480,7 +480,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                         (!selectedClip.conform &&
                           selectedClip.fitMode === "cover")
                           ? "bg-accent/20 text-accent font-semibold"
-                          : "text-text-muted hover:text-text-primary hover:bg-surface-raised"
+                          : "text-text-muted hover:text-text-primary hover:bg-surface-hover"
                       }`}
                       title="Fill: Scale to fill canvas and crop overflow"
                     >
@@ -536,7 +536,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                       Number(e.target.value),
                     )
                   }
-                  className="w-full bg-surface-raised border border-border/60 rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
+                  className="w-full bg-surface-elevated border border-border-default rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
                 />
               </div>
               <div>
@@ -552,7 +552,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                       Number(e.target.value),
                     )
                   }
-                  className="w-full bg-surface-raised border border-border/60 rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
+                  className="w-full bg-surface-elevated border border-border-default rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
                 />
               </div>
             </div>
@@ -620,7 +620,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                   type="number"
                   value={Math.round(Math.abs(selectedClip.width))}
                   onChange={(e) => handleWidthChange(Number(e.target.value))}
-                  className="w-full bg-surface-raised border border-border/60 rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
+                  className="w-full bg-surface-elevated border border-border-default rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
                 />
               </div>
               <div>
@@ -631,7 +631,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                   type="number"
                   value={Math.round(Math.abs(selectedClip.height))}
                   onChange={(e) => handleHeightChange(Number(e.target.value))}
-                  className="w-full bg-surface-raised border border-border/60 rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
+                  className="w-full bg-surface-elevated border border-border-default rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
                 />
               </div>
             </div>
@@ -732,7 +732,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
             <div className="flex gap-2">
               <button
                 onClick={() => handleUpdate("width", -selectedClip.width)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-medium rounded-md border transition-all cursor-pointer ${isFlippedH ? "bg-accent/15 text-accent border-accent/30" : "bg-surface-raised text-text-muted border-border/60 hover:text-text-primary hover:bg-surface-raised/80"}`}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-medium rounded-md border transition-all cursor-pointer ${isFlippedH ? "bg-accent-primary/15 text-accent-primary border-accent-primary/30" : "bg-surface-elevated text-text-muted border-border-default hover:text-text-primary hover:bg-surface-hover"}`}
                 title="Flip Horizontal"
               >
                 <FlipHorizontal2 className="w-3.5 h-3.5" />
@@ -740,7 +740,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
               </button>
               <button
                 onClick={() => handleUpdate("height", -selectedClip.height)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-medium rounded-md border transition-all cursor-pointer ${isFlippedV ? "bg-accent/15 text-accent border-accent/30" : "bg-surface-raised text-text-muted border-border/60 hover:text-text-primary hover:bg-surface-raised/80"}`}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-medium rounded-md border transition-all cursor-pointer ${isFlippedV ? "bg-accent-primary/15 text-accent-primary border-accent-primary/30" : "bg-surface-elevated text-text-muted border-border-default hover:text-text-primary hover:bg-surface-hover"}`}
                 title="Flip Vertical"
               >
                 <FlipVertical2 className="w-3.5 h-3.5" />
@@ -767,7 +767,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                 className={`relative w-8 h-4 rounded-full transition-colors cursor-pointer ${
                   selectedClip.motionBlur?.enabled
                     ? "bg-accent"
-                    : "bg-surface-raised border border-border/60"
+                    : "bg-surface-elevated border border-border-default"
                 }`}
                 title="Toggle cinematic motion blur"
               >
@@ -815,8 +815,8 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                         }
                         className={`flex-1 py-1 text-[9px] font-medium rounded-md border transition-all cursor-pointer ${
                           (selectedClip.motionBlur?.samples ?? 16) === q
-                            ? "bg-accent/15 text-accent border-accent/30"
-                            : "bg-surface-raised text-text-muted border-border/60 hover:text-text-primary"
+                            ? "bg-accent-primary/15 text-accent-primary border-accent-primary/30"
+                            : "bg-surface-elevated text-text-muted border-border-default hover:text-text-primary hover:bg-surface-hover"
                         }`}
                       >
                         {q}

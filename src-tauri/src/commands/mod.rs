@@ -18,6 +18,7 @@ pub mod thumbnail {
 }
 pub mod lut;
 pub mod media;
+pub mod multi_tier_telemetry;
 pub mod native_audio;
 pub mod native_clymatte;
 pub mod native_export;
@@ -33,6 +34,7 @@ pub mod security;
 pub mod silence_detector;
 pub mod sync_metrics;
 pub mod transfer;
+pub mod unified_cache;
 pub mod whisper;
 
 pub use ai::*;
@@ -46,6 +48,7 @@ pub use export::*;
 pub use filmstrip::*;
 pub use lut::*;
 pub use media::*;
+pub use multi_tier_telemetry::*;
 pub use native_audio::*;
 pub use native_clymatte::*;
 pub use native_export::*;
@@ -60,4 +63,5 @@ pub use security::*;
 pub use silence_detector::*;
 pub use sync_metrics::*;
 pub use transfer::*;
+pub use unified_cache::*;
 pub use whisper::*;
