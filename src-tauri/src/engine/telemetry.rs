@@ -67,12 +67,43 @@ pub struct EngineTelemetrySnapshot {
     /// Multi-layer preview and speculative-work diagnostics. These counters
     /// are additive and remain zero for single-layer sessions.
     pub preview_concurrency: PreviewConcurrencyTelemetry,
+    /// FFmpeg decoder-reference incidents observed during this telemetry
+    /// session. Counts include rate-limited events; `suppressed_events` only
+    /// describes diagnostics omitted from the event stream to avoid flooding.
+    pub decode_incidents: DecodeIncidentTelemetry,
     pub playback: PlaybackSummary,
     pub qos: QoSTelemetry,
     pub graph: RenderGraphTelemetry,
     pub last_seek: Option<SeekTelemetry>,
     pub hw_capability_tier: String,
     pub timestamp_epoch_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DecodeIncidentKind {
+    Poc,
+    Rps,
+    Other,
+}
+
+impl DecodeIncidentKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Poc => "poc",
+            Self::Rps => "rps",
+            Self::Other => "other",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DecodeIncidentTelemetry {
+    pub poc_errors: u64,
+    pub rps_errors: u64,
+    pub other_errors: u64,
+    pub suppressed_events: u64,
+    pub untagged_events: u64,
 }
 
 /// Aggregate decode timing for one runtime workload.  `frame_count` includes
@@ -199,6 +230,7 @@ pub struct EngineTelemetryCollector {
     transfers: RwLock<TransferMetrics>,
     decode_by_workload: RwLock<BTreeMap<String, DecodeWorkloadAccumulator>>,
     preview_concurrency: RwLock<PreviewConcurrencyTelemetry>,
+    decode_incidents: RwLock<DecodeIncidentTelemetry>,
     recent_frames: RwLock<Vec<FrameTelemetry>>,
     qos: RwLock<QoSTelemetry>,
     qos_controller: RwLock<QoSController>,
@@ -268,6 +300,7 @@ impl EngineTelemetryCollector {
             transfers: RwLock::new(transfers),
             decode_by_workload: RwLock::new(BTreeMap::new()),
             preview_concurrency: RwLock::new(PreviewConcurrencyTelemetry::default()),
+            decode_incidents: RwLock::new(DecodeIncidentTelemetry::default()),
             recent_frames: RwLock::new(Vec::with_capacity(120)),
             qos: RwLock::new(qos),
             qos_controller: RwLock::new(qos_controller),
@@ -407,6 +440,35 @@ impl EngineTelemetryCollector {
     /// same process.
     pub fn begin_session(&self) {
         self.session_closing.store(false, Ordering::Release);
+        *self.decode_incidents.write() = DecodeIncidentTelemetry::default();
+    }
+
+    /// Counts one FFmpeg decoder-reference incident. This is intentionally
+    /// separate from event emission so rate limiting cannot hide the actual
+    /// number of malformed-reference observations from offline analysis.
+    pub fn record_decode_incident(&self, kind: DecodeIncidentKind) {
+        let mut incidents = self.decode_incidents.write();
+        match kind {
+            DecodeIncidentKind::Poc => {
+                incidents.poc_errors = incidents.poc_errors.saturating_add(1)
+            }
+            DecodeIncidentKind::Rps => {
+                incidents.rps_errors = incidents.rps_errors.saturating_add(1)
+            }
+            DecodeIncidentKind::Other => {
+                incidents.other_errors = incidents.other_errors.saturating_add(1)
+            }
+        }
+    }
+
+    pub fn record_decode_incident_suppressed(&self) {
+        let mut incidents = self.decode_incidents.write();
+        incidents.suppressed_events = incidents.suppressed_events.saturating_add(1);
+    }
+
+    pub fn record_decode_incident_untagged(&self) {
+        let mut incidents = self.decode_incidents.write();
+        incidents.untagged_events = incidents.untagged_events.saturating_add(1);
     }
 
     fn record_metal_decode_success(&self) {
@@ -702,6 +764,7 @@ impl EngineTelemetryCollector {
             .map(|(workload, accumulator)| (workload.clone(), accumulator.snapshot()))
             .collect();
         let preview_concurrency = self.preview_concurrency.read().clone();
+        let decode_incidents = self.decode_incidents.read().clone();
         let graph = self.graph.read().clone();
         let last_seek = self.last_seek.read().clone();
 
@@ -820,6 +883,7 @@ impl EngineTelemetryCollector {
             transfers,
             decode_by_workload,
             preview_concurrency,
+            decode_incidents,
             playback,
             qos,
             graph,
@@ -880,7 +944,7 @@ pub static ENGINE_TELEMETRY: Lazy<Arc<EngineTelemetryCollector>> =
 
 #[cfg(test)]
 mod tests {
-    use super::EngineTelemetryCollector;
+    use super::{DecodeIncidentKind, EngineTelemetryCollector};
     use crate::native_core::performance::{FrameTransferPath, MetalDecodeFailureReason};
 
     #[test]
@@ -958,6 +1022,23 @@ mod tests {
         assert_eq!(stream.pixel_format, "yuvj420p");
         assert_eq!(stream.color_range, "full");
         assert_eq!(stream.cv_pixel_format.as_deref(), Some("'420f'"));
+
+        telemetry.record_decode_incident(DecodeIncidentKind::Poc);
+        telemetry.record_decode_incident(DecodeIncidentKind::Rps);
+        telemetry.record_decode_incident(DecodeIncidentKind::Other);
+        telemetry.record_decode_incident_suppressed();
+        let incidents = telemetry.snapshot().decode_incidents;
+        assert_eq!(incidents.poc_errors, 1);
+        assert_eq!(incidents.rps_errors, 1);
+        assert_eq!(incidents.other_errors, 1);
+        assert_eq!(incidents.suppressed_events, 1);
+        assert_eq!(incidents.untagged_events, 0);
+
+        telemetry.begin_session();
+        assert_eq!(
+            telemetry.snapshot().decode_incidents,
+            super::DecodeIncidentTelemetry::default()
+        );
     }
 
     #[test]

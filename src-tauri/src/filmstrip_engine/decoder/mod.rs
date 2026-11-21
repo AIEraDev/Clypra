@@ -6,11 +6,14 @@
 //! - Sequential decoding optimization (avoids seeking during scrubbing)
 //! - Display-aware geometry (respects SAR/DAR/rotation)
 
+use crate::engine::telemetry::DecodeIncidentKind;
 use crate::native_core::{performance::ServedFrom, QualityTier};
 use ffmpeg_next as ffmpeg;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::ffi::CStr;
-use std::sync::Arc;
+use std::hash::{Hash, Hasher};
+use std::os::raw::{c_char, c_int, c_void};
+use std::sync::{Arc, Mutex, Once, OnceLock};
 use std::time::{Duration, Instant};
 
 pub mod geometry;
@@ -28,6 +31,188 @@ pub use crate::filmstrip_engine::decoder::metadata::*;
 pub use crate::filmstrip_engine::decoder::pixel_ops::*;
 pub use crate::filmstrip_engine::decoder::pool::*;
 pub use crate::filmstrip_engine::decoder::seek_planner::*;
+
+#[derive(Clone)]
+struct FfmpegLogContext {
+    stream_key: Option<String>,
+    request_id: Option<String>,
+}
+
+struct FfmpegIncidentRateLimiter {
+    last_emitted_epoch_ms: [u64; 3],
+}
+
+impl Default for FfmpegIncidentRateLimiter {
+    fn default() -> Self {
+        Self {
+            last_emitted_epoch_ms: [0; 3],
+        }
+    }
+}
+
+static FFMPEG_LOG_CALLBACK_INSTALLED: Once = Once::new();
+static FFMPEG_LOG_CONTEXTS: OnceLock<Mutex<HashMap<usize, FfmpegLogContext>>> = OnceLock::new();
+static FFMPEG_INCIDENT_RATE_LIMITER: OnceLock<Mutex<FfmpegIncidentRateLimiter>> = OnceLock::new();
+
+fn ffmpeg_log_contexts() -> &'static Mutex<HashMap<usize, FfmpegLogContext>> {
+    FFMPEG_LOG_CONTEXTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn ffmpeg_incident_rate_limiter() -> &'static Mutex<FfmpegIncidentRateLimiter> {
+    FFMPEG_INCIDENT_RATE_LIMITER.get_or_init(|| Mutex::new(FfmpegIncidentRateLimiter::default()))
+}
+
+fn sanitize_ffmpeg_context_id(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if !trimmed.is_empty()
+        && trimmed.len() <= 128
+        && trimmed
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | ':'))
+    {
+        return Some(trimmed.to_string());
+    }
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    trimmed.hash(&mut hasher);
+    Some(format!("id-{:#x}", hasher.finish()))
+}
+
+fn classify_ffmpeg_decode_log(message: &str, level: c_int) -> Option<DecodeIncidentKind> {
+    if level > ffmpeg::ffi::AV_LOG_ERROR as c_int {
+        return None;
+    }
+
+    let normalized = message.to_ascii_lowercase();
+    if normalized.contains("could not find ref with poc")
+        || normalized.contains("reference picture missing")
+    {
+        Some(DecodeIncidentKind::Poc)
+    } else if normalized.contains("error constructing the frame rps")
+        || normalized.contains("frame rps")
+    {
+        Some(DecodeIncidentKind::Rps)
+    } else {
+        Some(DecodeIncidentKind::Other)
+    }
+}
+
+fn incident_slot(kind: DecodeIncidentKind) -> usize {
+    match kind {
+        DecodeIncidentKind::Poc => 0,
+        DecodeIncidentKind::Rps => 1,
+        DecodeIncidentKind::Other => 2,
+    }
+}
+
+fn should_emit_ffmpeg_incident(kind: DecodeIncidentKind, now_epoch_ms: u64) -> bool {
+    let Ok(mut limiter) = ffmpeg_incident_rate_limiter().lock() else {
+        return false;
+    };
+    let slot = incident_slot(kind);
+    let last = limiter.last_emitted_epoch_ms[slot];
+    if last != 0 && now_epoch_ms.saturating_sub(last) < 1_000 {
+        return false;
+    }
+    limiter.last_emitted_epoch_ms[slot] = now_epoch_ms;
+    true
+}
+
+fn ffmpeg_incident_message(kind: DecodeIncidentKind) -> &'static str {
+    match kind {
+        DecodeIncidentKind::Poc => "FFmpeg HEVC reference error: missing picture reference (POC)",
+        DecodeIncidentKind::Rps => {
+            "FFmpeg HEVC reference error: could not construct frame reference set (RPS)"
+        }
+        DecodeIncidentKind::Other => "FFmpeg decoder error",
+    }
+}
+
+unsafe extern "C" fn ffmpeg_log_callback(
+    avcl: *mut c_void,
+    level: c_int,
+    fmt: *const c_char,
+    vl: ffmpeg::ffi::va_list,
+) {
+    if fmt.is_null() {
+        return;
+    }
+
+    let mut line = [0i8; 2048];
+    let mut print_prefix = 1;
+    let formatted = ffmpeg::ffi::av_log_format_line2(
+        avcl,
+        level,
+        fmt,
+        vl,
+        line.as_mut_ptr(),
+        line.len() as c_int,
+        &mut print_prefix,
+    );
+    if formatted < 0 {
+        return;
+    }
+
+    let message = CStr::from_ptr(line.as_ptr()).to_string_lossy();
+    let Some(kind) = classify_ffmpeg_decode_log(&message, level) else {
+        return;
+    };
+    crate::engine::ENGINE_TELEMETRY.record_decode_incident(kind);
+
+    let now_epoch_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0);
+    if !should_emit_ffmpeg_incident(kind, now_epoch_ms) {
+        crate::engine::ENGINE_TELEMETRY.record_decode_incident_suppressed();
+        return;
+    }
+
+    let context = ffmpeg_log_contexts()
+        .lock()
+        .ok()
+        .and_then(|contexts| contexts.get(&(avcl as usize)).cloned());
+    if context
+        .as_ref()
+        .map(|value| value.stream_key.is_none() || value.request_id.is_none())
+        .unwrap_or(true)
+    {
+        crate::engine::ENGINE_TELEMETRY.record_decode_incident_untagged();
+    }
+    crate::diagnostics::report_decode_incident(
+        kind.as_str(),
+        ffmpeg_incident_message(kind),
+        context.as_ref().and_then(|value| value.stream_key.clone()),
+        context.as_ref().and_then(|value| value.request_id.clone()),
+    );
+}
+
+fn install_ffmpeg_log_callback() {
+    FFMPEG_LOG_CALLBACK_INSTALLED.call_once(|| unsafe {
+        ffmpeg::ffi::av_log_set_callback(Some(ffmpeg_log_callback));
+    });
+}
+
+pub(crate) struct FfmpegLogContextGuard {
+    decoder_key: usize,
+    previous: Option<FfmpegLogContext>,
+}
+
+impl Drop for FfmpegLogContextGuard {
+    fn drop(&mut self) {
+        let Ok(mut contexts) = ffmpeg_log_contexts().lock() else {
+            return;
+        };
+        if let Some(previous) = self.previous.take() {
+            contexts.insert(self.decoder_key, previous);
+        } else {
+            contexts.remove(&self.decoder_key);
+        }
+    }
+}
 
 fn ffmpeg_pixel_format_name(code: i32) -> String {
     let format = unsafe { std::mem::transmute::<i32, ffmpeg::ffi::AVPixelFormat>(code) };
@@ -437,6 +622,7 @@ impl VideoDecoder {
     ) -> Result<Self, String> {
         ffmpeg::init().map_err(|e| e.to_string())?;
         ffmpeg::util::log::set_level(ffmpeg::util::log::Level::Error);
+        install_ffmpeg_log_callback();
 
         let mut probe_guard = crate::cold_start::SpanGuard::start("c2_container_open_probe");
         if let Some(p) = purpose {
@@ -647,6 +833,30 @@ impl VideoDecoder {
         site: crate::engine::benchmark::types::HwframeTransferSite,
     ) {
         self.transfer_site = site;
+    }
+
+    /// Associates FFmpeg callback messages with the active preview request.
+    /// The map is keyed by the AVCodecContext pointer passed to FFmpeg's log
+    /// callback, so codec worker-thread messages retain their provenance even
+    /// when decoding is performed asynchronously.
+    pub(crate) fn enter_ffmpeg_log_context(
+        &self,
+        stream_key: &str,
+        request_id: &str,
+    ) -> FfmpegLogContextGuard {
+        let decoder_key = unsafe { self.decoder.as_ptr() as usize };
+        let context = FfmpegLogContext {
+            stream_key: sanitize_ffmpeg_context_id(stream_key),
+            request_id: sanitize_ffmpeg_context_id(request_id),
+        };
+        let previous = ffmpeg_log_contexts()
+            .lock()
+            .ok()
+            .and_then(|mut contexts| contexts.insert(decoder_key, context));
+        FfmpegLogContextGuard {
+            decoder_key,
+            previous,
+        }
     }
 
     /// Estimated duration in seconds of a single video frame.

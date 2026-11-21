@@ -37,6 +37,48 @@ mod decoder_state_tests {
 }
 
 #[cfg(test)]
+mod ffmpeg_log_classification_tests {
+    use super::{classify_ffmpeg_decode_log, DecodeIncidentKind};
+    use ffmpeg_next as ffmpeg;
+
+    #[test]
+    fn classifies_reference_errors_without_exposing_codec_context_details() {
+        assert_eq!(
+            classify_ffmpeg_decode_log(
+                "[hevc @ 0x1234] Could not find ref with POC 42",
+                ffmpeg::ffi::AV_LOG_ERROR as i32,
+            ),
+            Some(DecodeIncidentKind::Poc)
+        );
+        assert_eq!(
+            classify_ffmpeg_decode_log(
+                "Error constructing the frame RPS.",
+                ffmpeg::ffi::AV_LOG_ERROR as i32,
+            ),
+            Some(DecodeIncidentKind::Rps)
+        );
+        assert_eq!(
+            classify_ffmpeg_decode_log(
+                "decoder failed to output a frame",
+                ffmpeg::ffi::AV_LOG_ERROR as i32,
+            ),
+            Some(DecodeIncidentKind::Other)
+        );
+    }
+
+    #[test]
+    fn ignores_logs_below_error_threshold() {
+        assert_eq!(
+            classify_ffmpeg_decode_log(
+                "Could not find ref with POC 42",
+                (ffmpeg::ffi::AV_LOG_ERROR + 1) as i32,
+            ),
+            None
+        );
+    }
+}
+
+#[cfg(test)]
 mod decode_frame_options_tests {
     use super::{DecodeFrameOptions, QualityTier};
 

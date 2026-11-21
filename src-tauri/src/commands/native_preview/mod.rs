@@ -2374,12 +2374,14 @@ async fn decode_native_video_layers_metal(
     // make progress concurrently.
     let max_parallel_layers = request.layers.len().min(3).max(1);
     let semaphore = Arc::new(tokio::sync::Semaphore::new(max_parallel_layers));
+    let request_id = request.request_id.clone();
     let mut tasks = Vec::with_capacity(request.layers.len());
 
     for (layer_index, layer) in request.layers.iter().cloned().enumerate() {
         let semaphore = Arc::clone(&semaphore);
         let decode_options = decode_options.clone();
         let cancellation = cancellation.clone();
+        let request_id = request_id.clone();
         tasks.push(tauri::async_runtime::spawn(async move {
             let _permit = semaphore.acquire_owned().await.map_err(|error| {
                 crate::filmstrip_engine::stream_actor::StreamDecodeError::Actor(format!(
@@ -2426,6 +2428,7 @@ async fn decode_native_video_layers_metal(
                     METAL_PREFETCH_CANCEL_EPOCH.load(Ordering::Acquire) != expected
                 })
             };
+            let _ffmpeg_log_context = guard.enter_ffmpeg_log_context(stream_id, &request_id);
             let shared = match guard.decode_frame_metal_macos(
                 layer.time_secs,
                 decode_options,
