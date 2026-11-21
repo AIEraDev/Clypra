@@ -10,7 +10,9 @@ interface PlaybackQualitySelectorProps {
   setPreviewQuality: (quality: "full" | "high" | "medium" | "low") => void;
 }
 
-export const PlaybackQualitySelector: React.FC<PlaybackQualitySelectorProps> = ({
+export const PlaybackQualitySelector: React.FC<
+  PlaybackQualitySelectorProps
+> = ({
   previewQuality,
   qualityMenuOpen,
   setQualityMenuOpen,
@@ -30,7 +32,7 @@ export const PlaybackQualitySelector: React.FC<PlaybackQualitySelectorProps> = (
           "flex items-center gap-1 px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer",
           qualityMenuOpen
             ? "bg-accent/15 text-accent"
-            : "text-text-muted hover:text-text-primary hover:bg-white/6"
+            : "text-text-muted hover:text-text-primary hover:bg-surface-hover",
         )}
         title="Playback quality"
         aria-expanded={qualityMenuOpen}
@@ -73,8 +75,9 @@ export const PlaybackQualitySelector: React.FC<PlaybackQualitySelectorProps> = (
                 role="option"
                 aria-selected={previewQuality === q.value}
                 className={cn(
-                  "flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left hover:bg-surface-raised transition-colors duration-150 cursor-pointer",
-                  previewQuality === q.value && "bg-surface-raised text-accent font-semibold"
+                  "flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left hover:bg-surface-hover transition-colors duration-150 cursor-pointer",
+                  previewQuality === q.value &&
+                    "bg-surface-hover text-accent font-semibold",
                 )}
                 onClick={() => {
                   setPreviewQuality(q.value as any);

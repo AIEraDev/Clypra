@@ -129,7 +129,11 @@ export function clearTemplateGridCache(): void {
   categoryCacheTimestamps.clear();
 }
 
-export function TemplateGrid({ onPreview, onApply, applyingIds }: TemplateGridProps) {
+export function TemplateGrid({
+  onPreview,
+  onApply,
+  applyingIds,
+}: TemplateGridProps) {
   const [activeCategory, setActiveCategory] = useState<string>(
     TEMPLATE_CATEGORIES[0],
   );
@@ -145,7 +149,8 @@ export function TemplateGrid({ onPreview, onApply, applyingIds }: TemplateGridPr
   const fetchCategory = useCallback(async (category: string, force = false) => {
     const cached = categoryCache.get(category);
     const cachedAt = categoryCacheTimestamps.get(category);
-    const isStale = !cachedAt || Date.now() - cachedAt > TEMPLATE_CATEGORY_TTL_MS;
+    const isStale =
+      !cachedAt || Date.now() - cachedAt > TEMPLATE_CATEGORY_TTL_MS;
 
     // Valid cache hit (non-empty and fresh)
     if (!force && cached && cached.length > 0 && !isStale) {
@@ -164,7 +169,9 @@ export function TemplateGrid({ onPreview, onApply, applyingIds }: TemplateGridPr
     setError(null);
 
     try {
-      const data = await TextEffectsApi.getTemplatesByCategory(category, { forceRefresh: force });
+      const data = await TextEffectsApi.getTemplatesByCategory(category, {
+        forceRefresh: force,
+      });
       if (controller.signal.aborted) return;
       categoryCache.set(category, data as TemplateDefinition[]);
       categoryCacheTimestamps.set(category, Date.now());
@@ -258,9 +265,12 @@ export function TemplateGrid({ onPreview, onApply, applyingIds }: TemplateGridPr
           onClick={() => fetchCategory(activeCategory, true)}
           disabled={loading}
           title="Refresh templates from server"
-          className="p-1.5 rounded-md bg-surface-raised/40 hover:bg-surface-raised border border-border/40 text-text-muted hover:text-accent transition-colors disabled:opacity-50 cursor-pointer shrink-0"
+          className="p-1.5 rounded-md bg-surface-raised/40 hover:bg-surface-hover border border-border/40 text-text-muted hover:text-accent transition-colors disabled:opacity-50 cursor-pointer shrink-0"
         >
-          <RefreshCw size={11} className={loading ? "animate-spin text-accent" : ""} />
+          <RefreshCw
+            size={11}
+            className={loading ? "animate-spin text-accent" : ""}
+          />
         </button>
       </div>
 
@@ -353,7 +363,7 @@ function GridSkeleton() {
       {Array.from({ length: 9 }).map((_, i) => (
         <div
           key={i}
-          className="rounded-xl bg-white/5 animate-pulse aspect-square"
+          className="rounded-xl bg-surface-elevated animate-pulse aspect-square"
           style={{ animationDelay: `${i * 45}ms` }}
         />
       ))}

@@ -17,16 +17,29 @@ interface TextEffectGridProps {
   onAddToTimeline?: (payload: any, type: any) => void;
 }
 
-export function TextEffectGrid({ searchQuery = "", onAddToTimeline }: TextEffectGridProps) {
+export function TextEffectGrid({
+  searchQuery = "",
+  onAddToTimeline,
+}: TextEffectGridProps) {
   const [activeCategory, setActiveCategory] = useState<string>("essentials");
   const { index, indexLoading, indexError, loadCategory } = useEffectsStore();
 
   // Consume global favorites and downloads store
-  const { favorites, downloadedEffects, downloadingIds, toggleFavorite, startDownload, completeDownload, cancelDownload } = useFavoritesStore();
+  const {
+    favorites,
+    downloadedEffects,
+    downloadingIds,
+    toggleFavorite,
+    startDownload,
+    completeDownload,
+    cancelDownload,
+  } = useFavoritesStore();
 
   // Track which effect IDs are currently being applied (in-flight guard).
   const [applyingIds, setApplyingIds] = useState<Set<string>>(new Set());
-  const cooldownTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const cooldownTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+    new Map(),
+  );
 
   // Load index when category changes
   useEffect(() => {
@@ -35,9 +48,12 @@ export function TextEffectGrid({ searchQuery = "", onAddToTimeline }: TextEffect
 
   // Periodic 30-minute background auto-refresh
   useEffect(() => {
-    const timer = setInterval(() => {
-      loadCategory(activeCategory, { forceRefresh: true });
-    }, 30 * 60 * 1000);
+    const timer = setInterval(
+      () => {
+        loadCategory(activeCategory, { forceRefresh: true });
+      },
+      30 * 60 * 1000,
+    );
     return () => clearInterval(timer);
   }, [activeCategory, loadCategory]);
 
@@ -49,29 +65,34 @@ export function TextEffectGrid({ searchQuery = "", onAddToTimeline }: TextEffect
   }, []);
 
   const items = index[activeCategory] ?? [];
-  const filteredItems = items.filter((item) => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredItems = items.filter((item) =>
+    item.name.toLowerCase().includes(searchQuery.toLowerCase()),
+  );
 
   const handleToggleFavorite = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     toggleFavorite(id);
   };
 
-  const applyEffectToTimeline = useCallback((effect: any) => {
-    onAddToTimeline?.(
-      {
-        id: effect.id,
-        name: effect.name,
-        text: effect.text || "CLYPRA",
-        presetType: "effect",
-        styleId: effect.id,
-        styleRevisionId: effect.revisionId ?? effect.revision?.revisionId,
-        styleContentHash: effect.contentHash ?? effect.revision?.contentHash,
-        styleSnapshot: effect.scene,
-        effectDefinition: effect,
-      },
-      "text",
-    );
-  }, [onAddToTimeline]);
+  const applyEffectToTimeline = useCallback(
+    (effect: any) => {
+      onAddToTimeline?.(
+        {
+          id: effect.id,
+          name: effect.name,
+          text: effect.text || "CLYPRA",
+          presetType: "effect",
+          styleId: effect.id,
+          styleRevisionId: effect.revisionId ?? effect.revision?.revisionId,
+          styleContentHash: effect.contentHash ?? effect.revision?.contentHash,
+          styleSnapshot: effect.scene,
+          effectDefinition: effect,
+        },
+        "text",
+      );
+    },
+    [onAddToTimeline],
+  );
 
   /** Mark an itemId as no longer applying after a short cooldown. */
   const scheduleApplyRelease = useCallback((itemId: string) => {
@@ -130,7 +151,9 @@ export function TextEffectGrid({ searchQuery = "", onAddToTimeline }: TextEffect
   };
 
   const handlePreview = async (item: any) => {
-    console.log(`[EffectGrid:Preview] 👁️ Preview requested for: ${item.name} (${item.id})`);
+    console.log(
+      `[EffectGrid:Preview] 👁️ Preview requested for: ${item.name} (${item.id})`,
+    );
 
     const itemId = item.id;
     const isDownloaded = downloadedEffects.includes(itemId);
@@ -145,10 +168,14 @@ export function TextEffectGrid({ searchQuery = "", onAddToTimeline }: TextEffect
     console.log(`[EffectGrid:Preview] 🎯 Set preview target: ${itemId}`);
 
     if (!isDownloaded) {
-      console.log(`[EffectGrid:Preview] 📥 Effect not downloaded, starting download: ${itemId}`);
+      console.log(
+        `[EffectGrid:Preview] 📥 Effect not downloaded, starting download: ${itemId}`,
+      );
       startDownload(itemId);
     } else {
-      console.log(`[EffectGrid:Preview] ✅ Effect already downloaded: ${itemId}`);
+      console.log(
+        `[EffectGrid:Preview] ✅ Effect already downloaded: ${itemId}`,
+      );
     }
 
     try {
@@ -161,11 +188,16 @@ export function TextEffectGrid({ searchQuery = "", onAddToTimeline }: TextEffect
       const fullEffect = await TextEffectsApi.getFullEffect(
         item.category,
         itemId,
-        { forceRefresh: true, ...(item.revisionId ? { revisionId: item.revisionId } : {}) },
+        {
+          forceRefresh: true,
+          ...(item.revisionId ? { revisionId: item.revisionId } : {}),
+        },
       );
 
       const loadTime = (performance.now() - startTime).toFixed(2);
-      console.log(`[EffectGrid:Preview] ✅ Effect loaded in ${loadTime}ms: ${itemId}`);
+      console.log(
+        `[EffectGrid:Preview] ✅ Effect loaded in ${loadTime}ms: ${itemId}`,
+      );
 
       // Mark as downloaded
       completeDownload(itemId, "effect");
@@ -173,7 +205,9 @@ export function TextEffectGrid({ searchQuery = "", onAddToTimeline }: TextEffect
 
       // Only project to the preview player if this item is still the active preview target
       if (useUIStore.getState().previewMediaId === itemId) {
-        console.log(`[EffectGrid:Preview] 🎬 Sending to preview player: ${itemId}`);
+        console.log(
+          `[EffectGrid:Preview] 🎬 Sending to preview player: ${itemId}`,
+        );
 
         // Send directly to the main preview player — same as template preview flow
         useUIStore.getState().previewTextPreset(fullEffect, "effect");
@@ -184,15 +218,22 @@ export function TextEffectGrid({ searchQuery = "", onAddToTimeline }: TextEffect
 
         console.log(`[EffectGrid:Preview] ✅ Preview active for: ${itemId}`);
       } else {
-        console.log(`[EffectGrid:Preview] ⚠️ Preview cancelled - target changed to: ${useUIStore.getState().previewMediaId}`);
+        console.log(
+          `[EffectGrid:Preview] ⚠️ Preview cancelled - target changed to: ${useUIStore.getState().previewMediaId}`,
+        );
       }
     } catch (e) {
-      console.error(`[EffectGrid:Preview] ❌ Failed to load effect ${itemId}:`, e);
+      console.error(
+        `[EffectGrid:Preview] ❌ Failed to load effect ${itemId}:`,
+        e,
+      );
       cancelDownload(itemId);
 
       // Fallback: still preview with partial data if this item is still the active target
       if (useUIStore.getState().previewMediaId === itemId) {
-        console.log(`[EffectGrid:Preview] 🔄 Fallback preview with partial data: ${itemId}`);
+        console.log(
+          `[EffectGrid:Preview] 🔄 Fallback preview with partial data: ${itemId}`,
+        );
         useUIStore.getState().previewTextPreset(item, "effect");
         const session = getActiveSessionOrNull();
         session?.transportAuthority?.setActiveContext("source");
@@ -225,9 +266,16 @@ export function TextEffectGrid({ searchQuery = "", onAddToTimeline }: TextEffect
       {/* ── Category tabs ───────────────────────────────────── */}
       <div className="relative shrink-0 border-b border-border/40 bg-surface/5">
         {/* <div className="absolute left-0 top-0 bottom-0 w-3 bg-linear-to-l to-surface from-transparent pointer-events-none" /> */}
-        <div className="flex overflow-x-auto gap-0.5 p-1 whitespace-nowrap" style={{ scrollbarWidth: "none" }}>
+        <div
+          className="flex overflow-x-auto gap-0.5 p-1 whitespace-nowrap"
+          style={{ scrollbarWidth: "none" }}
+        >
           {CATEGORIES.map((cat) => (
-            <button key={cat} onClick={() => setActiveCategory(cat)} className={`px-2 py-1 capitalize text-[11px] font-medium rounded transition-colors cursor-pointer hover:bg-accent/10 hover:text-accent ${activeCategory === cat ? "bg-accent/10 text-accent" : "text-text-muted"}`}>
+            <button
+              key={cat}
+              onClick={() => setActiveCategory(cat)}
+              className={`px-2 py-1 capitalize text-[11px] font-medium rounded transition-colors cursor-pointer hover:bg-accent/10 hover:text-accent ${activeCategory === cat ? "bg-accent/10 text-accent" : "text-text-muted"}`}
+            >
               {cat}
             </button>
           ))}
@@ -242,7 +290,10 @@ export function TextEffectGrid({ searchQuery = "", onAddToTimeline }: TextEffect
         {indexError && (
           <div className="flex flex-col items-center justify-center h-40 gap-2">
             <p className="text-sm text-text-muted">{indexError}</p>
-            <button onClick={() => loadCategory(activeCategory)} className="text-xs text-accent underline cursor-pointer hover:text-accent-soft">
+            <button
+              onClick={() => loadCategory(activeCategory)}
+              className="text-xs text-accent underline cursor-pointer hover:text-accent-soft"
+            >
               Retry
             </button>
           </div>
@@ -281,7 +332,11 @@ function GridSkeleton() {
   return (
     <div className="grid grid-cols-3 gap-1.5">
       {Array.from({ length: 9 }).map((_, i) => (
-        <div key={i} className="rounded-xl bg-white/5 animate-pulse aspect-square" style={{ animationDelay: `${i * 45}ms` }} />
+        <div
+          key={i}
+          className="rounded-xl bg-surface-elevated animate-pulse aspect-square"
+          style={{ animationDelay: `${i * 45}ms` }}
+        />
       ))}
     </div>
   );

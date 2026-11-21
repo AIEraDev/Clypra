@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
 import {
   Activity,
   Zap,
@@ -30,7 +36,11 @@ import {
   type CurveSamplePoint,
 } from "@/core/animation/keyframeTrackOps";
 import type { BezierControlPoints } from "@/core/animation/cubicBezier";
-import type { Keyframe, KeyframeEasing, KeyframeSpringConfig } from "@/types/keyframes";
+import type {
+  Keyframe,
+  KeyframeEasing,
+  KeyframeSpringConfig,
+} from "@/types/keyframes";
 import type { AudioKeyframe } from "@/types/audio";
 import type { Clip, VisualPropertyKey } from "@/types";
 import { usePlaybackClock } from "@/hooks/usePlaybackClock";
@@ -68,7 +78,10 @@ export const CurveEditorModal: React.FC = () => {
   const activeSegment = useMemo(() => {
     if (!clip || keyframes.length === 0) return null;
     if (activeCurveEditor?.keyframeIndex !== undefined) {
-      const idx = Math.max(0, Math.min(keyframes.length - 1, activeCurveEditor.keyframeIndex));
+      const idx = Math.max(
+        0,
+        Math.min(keyframes.length - 1, activeCurveEditor.keyframeIndex),
+      );
       return {
         index: idx,
         startKeyframe: keyframes[idx],
@@ -76,16 +89,26 @@ export const CurveEditorModal: React.FC = () => {
         progress: 0,
       };
     }
-    const localTime = Math.max(0, Math.min(clip.duration, currentTime - clip.startTime));
+    const localTime = Math.max(
+      0,
+      Math.min(clip.duration, currentTime - clip.startTime),
+    );
     return findActiveKeyframeSegment(keyframes, localTime);
   }, [clip, keyframes, activeCurveEditor?.keyframeIndex, currentTime]);
 
   // Editing state: control points [x1, y1, x2, y2]
-  const [controlPoints, setControlPoints] = useState<BezierControlPoints>([0.42, 0.0, 0.58, 1.0]);
-  const [selectedEasing, setSelectedEasing] = useState<KeyframeEasing>("easeInOut");
-  const [springConfig, setSpringConfig] = useState<KeyframeSpringConfig | undefined>(undefined);
+  const [controlPoints, setControlPoints] = useState<BezierControlPoints>([
+    0.42, 0.0, 0.58, 1.0,
+  ]);
+  const [selectedEasing, setSelectedEasing] =
+    useState<KeyframeEasing>("easeInOut");
+  const [springConfig, setSpringConfig] = useState<
+    KeyframeSpringConfig | undefined
+  >(undefined);
   const [viewMode, setViewMode] = useState<"value" | "speed">("value");
-  const [applyScope, setApplyScope] = useState<"segment" | "property" | "clip">("segment");
+  const [applyScope, setApplyScope] = useState<"segment" | "property" | "clip">(
+    "segment",
+  );
   const [copiedNotification, setCopiedNotification] = useState(false);
 
   // Local animation loop for live curve riding preview
@@ -218,7 +241,12 @@ export const CurveEditorModal: React.FC = () => {
 
   // Generate curve samples
   const samples: CurveSamplePoint[] = useMemo(() => {
-    return generateCurveSamples(controlPoints, selectedEasing, springConfig, 75);
+    return generateCurveSamples(
+      controlPoints,
+      selectedEasing,
+      springConfig,
+      75,
+    );
   }, [controlPoints, selectedEasing, springConfig]);
 
   // Compute curve paths
@@ -252,7 +280,9 @@ export const CurveEditorModal: React.FC = () => {
   }, [samples, toSvgX, toSvgY]);
 
   // Current preview value for playhead indicator
-  const currentT = isLoopPlaying ? localProgress : activeSegment?.progress ?? 0;
+  const currentT = isLoopPlaying
+    ? localProgress
+    : (activeSegment?.progress ?? 0);
   const currentCurveEvaluator = useMemo(() => {
     return getCurveEvaluator(selectedEasing, controlPoints, springConfig);
   }, [selectedEasing, controlPoints, springConfig]);
@@ -290,7 +320,9 @@ export const CurveEditorModal: React.FC = () => {
     let updatedClip = { ...clip };
 
     if (property === "volume") {
-      const currentUnified: Keyframe<number>[] = (clip.volumeKeyframes || []).map((ak) => ({
+      const currentUnified: Keyframe<number>[] = (
+        clip.volumeKeyframes || []
+      ).map((ak) => ({
         id: ak.id,
         time: ak.time,
         value: ak.gain ?? ak.value ?? 1,
@@ -508,7 +540,7 @@ export const CurveEditorModal: React.FC = () => {
             <button
               type="button"
               onClick={handleResetCurve}
-              className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-surface-raised border border-transparent hover:border-border/60 transition-colors"
+              className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-surface-hover border border-transparent hover:border-border/60 transition-colors"
               title="Reset curve to linear"
             >
               <RotateCcw className="w-3.5 h-3.5" />
@@ -527,9 +559,23 @@ export const CurveEditorModal: React.FC = () => {
             onPointerCancel={handlePointerUp}
           >
             <defs>
-              <linearGradient id="curve-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="var(--color-accent, #3b82f6)" stopOpacity="0.25" />
-                <stop offset="100%" stopColor="var(--color-accent, #3b82f6)" stopOpacity="0.0" />
+              <linearGradient
+                id="curve-gradient"
+                x1="0%"
+                y1="0%"
+                x2="0%"
+                y2="100%"
+              >
+                <stop
+                  offset="0%"
+                  stopColor="var(--color-accent, #3b82f6)"
+                  stopOpacity="0.25"
+                />
+                <stop
+                  offset="100%"
+                  stopColor="var(--color-accent, #3b82f6)"
+                  stopOpacity="0.0"
+                />
               </linearGradient>
             </defs>
 
@@ -662,8 +708,22 @@ export const CurveEditorModal: React.FC = () => {
             />
 
             {/* Anchor endpoints P0 and P3 */}
-            <circle cx={p0X} cy={p0Y} r="4" fill="#ffffff" stroke="#18181b" strokeWidth="1.5" />
-            <circle cx={p3X} cy={p3Y} r="4" fill="#ffffff" stroke="#18181b" strokeWidth="1.5" />
+            <circle
+              cx={p0X}
+              cy={p0Y}
+              r="4"
+              fill="#ffffff"
+              stroke="#18181b"
+              strokeWidth="1.5"
+            />
+            <circle
+              cx={p3X}
+              cy={p3Y}
+              r="4"
+              fill="#ffffff"
+              stroke="#18181b"
+              strokeWidth="1.5"
+            />
 
             {/* Draggable Handle P1 */}
             <g
@@ -736,7 +796,7 @@ export const CurveEditorModal: React.FC = () => {
           <button
             type="button"
             onClick={handleCopyCss}
-            className="absolute top-3 right-4 flex items-center gap-1 text-[10px] font-mono bg-surface-raised/80 hover:bg-surface-raised text-text-muted hover:text-text-primary border border-border/60 rounded px-2 py-1 transition-all cursor-pointer"
+            className="absolute top-3 right-4 flex items-center gap-1 text-[10px] font-mono bg-surface-raised/80 hover:bg-surface-hover text-text-muted hover:text-text-primary border border-border/60 rounded px-2 py-1 transition-all cursor-pointer"
             title="Copy CSS cubic-bezier"
           >
             {copiedNotification ? (
@@ -767,7 +827,7 @@ export const CurveEditorModal: React.FC = () => {
                   className={`flex flex-col items-start p-2 rounded-lg border text-left transition-all cursor-pointer ${
                     isSelected
                       ? "bg-accent/15 border-accent text-text-primary shadow-sm"
-                      : "bg-surface-raised/60 border-border/60 text-text-muted hover:text-text-primary hover:bg-surface-raised"
+                      : "bg-surface-raised/60 border-border/60 text-text-muted hover:text-text-primary hover:bg-surface-hover"
                   }`}
                 >
                   <div className="flex items-center justify-between w-full mb-0.5">
@@ -795,18 +855,21 @@ export const CurveEditorModal: React.FC = () => {
         <div className="bg-surface-raised/40 border border-border/60 rounded-lg p-3">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-semibold text-text-muted flex items-center gap-1.5">
-              <Sliders className="w-3.5 h-3.5" /> Manual Tangent Micro-Adjustments
+              <Sliders className="w-3.5 h-3.5" /> Manual Tangent
+              Micro-Adjustments
             </span>
             <span className="text-[10px] font-mono text-accent">
-              cubic-bezier({controlPoints[0]}, {controlPoints[1]}, {controlPoints[2]},{" "}
-              {controlPoints[3]})
+              cubic-bezier({controlPoints[0]}, {controlPoints[1]},{" "}
+              {controlPoints[2]}, {controlPoints[3]})
             </span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div>
               <div className="flex justify-between text-[10px] text-text-muted mb-1">
                 <span>P1.X (Time)</span>
-                <span className="font-mono tabular-nums">{controlPoints[0]}</span>
+                <span className="font-mono tabular-nums">
+                  {controlPoints[0]}
+                </span>
               </div>
               <input
                 type="range"
@@ -816,7 +879,12 @@ export const CurveEditorModal: React.FC = () => {
                 value={controlPoints[0]}
                 onChange={(e) => {
                   const val = parseFloat(e.target.value);
-                  setControlPoints([val, controlPoints[1], controlPoints[2], controlPoints[3]]);
+                  setControlPoints([
+                    val,
+                    controlPoints[1],
+                    controlPoints[2],
+                    controlPoints[3],
+                  ]);
                   setSelectedEasing("cubic-bezier");
                 }}
                 className="w-full accent-[#06b6d4]"
@@ -825,7 +893,9 @@ export const CurveEditorModal: React.FC = () => {
             <div>
               <div className="flex justify-between text-[10px] text-text-muted mb-1">
                 <span>P1.Y (Value)</span>
-                <span className="font-mono tabular-nums">{controlPoints[1]}</span>
+                <span className="font-mono tabular-nums">
+                  {controlPoints[1]}
+                </span>
               </div>
               <input
                 type="range"
@@ -835,7 +905,12 @@ export const CurveEditorModal: React.FC = () => {
                 value={controlPoints[1]}
                 onChange={(e) => {
                   const val = parseFloat(e.target.value);
-                  setControlPoints([controlPoints[0], val, controlPoints[2], controlPoints[3]]);
+                  setControlPoints([
+                    controlPoints[0],
+                    val,
+                    controlPoints[2],
+                    controlPoints[3],
+                  ]);
                   setSelectedEasing("cubic-bezier");
                 }}
                 className="w-full accent-[#06b6d4]"
@@ -844,7 +919,9 @@ export const CurveEditorModal: React.FC = () => {
             <div>
               <div className="flex justify-between text-[10px] text-text-muted mb-1">
                 <span>P2.X (Time)</span>
-                <span className="font-mono tabular-nums">{controlPoints[2]}</span>
+                <span className="font-mono tabular-nums">
+                  {controlPoints[2]}
+                </span>
               </div>
               <input
                 type="range"
@@ -854,7 +931,12 @@ export const CurveEditorModal: React.FC = () => {
                 value={controlPoints[2]}
                 onChange={(e) => {
                   const val = parseFloat(e.target.value);
-                  setControlPoints([controlPoints[0], controlPoints[1], val, controlPoints[3]]);
+                  setControlPoints([
+                    controlPoints[0],
+                    controlPoints[1],
+                    val,
+                    controlPoints[3],
+                  ]);
                   setSelectedEasing("cubic-bezier");
                 }}
                 className="w-full accent-[#f59e0b]"
@@ -863,7 +945,9 @@ export const CurveEditorModal: React.FC = () => {
             <div>
               <div className="flex justify-between text-[10px] text-text-muted mb-1">
                 <span>P2.Y (Value)</span>
-                <span className="font-mono tabular-nums">{controlPoints[3]}</span>
+                <span className="font-mono tabular-nums">
+                  {controlPoints[3]}
+                </span>
               </div>
               <input
                 type="range"
@@ -873,7 +957,12 @@ export const CurveEditorModal: React.FC = () => {
                 value={controlPoints[3]}
                 onChange={(e) => {
                   const val = parseFloat(e.target.value);
-                  setControlPoints([controlPoints[0], controlPoints[1], controlPoints[2], val]);
+                  setControlPoints([
+                    controlPoints[0],
+                    controlPoints[1],
+                    controlPoints[2],
+                    val,
+                  ]);
                   setSelectedEasing("cubic-bezier");
                 }}
                 className="w-full accent-[#f59e0b]"

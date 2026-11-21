@@ -595,7 +595,7 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
                 <button
                   type="button"
                   onClick={onToggleExpand}
-                  className="p-0.5 rounded hover:bg-surface-raised text-text-muted hover:text-text-primary transition-colors"
+                  className="p-0.5 rounded hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors"
                   title="Collapse Keyframe Lane"
                 >
                   <Minimize2 className="w-3 h-3" />
@@ -610,7 +610,7 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
             return (
               <div
                 key={lane.key}
-                className="flex items-center gap-2 h-5 rounded px-1.5 bg-surface-raised/40 hover:bg-surface-raised/70 transition-colors"
+                className="flex items-center gap-2 h-5 rounded px-1.5 bg-surface-raised/40 hover:bg-surface-hover transition-colors"
               >
                 {/* Lane Label */}
                 <div className="w-16 shrink-0 flex items-center gap-1 text-[9px] font-medium text-text-muted truncate">

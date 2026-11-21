@@ -3,7 +3,9 @@ import { AlertTriangle, RotateCcw } from "lucide-react";
 
 export interface ErrorBoundaryProps {
   children: React.ReactNode;
-  fallback?: React.ReactNode | ((props: { error: Error | null; reset: () => void }) => React.ReactNode);
+  fallback?:
+    | React.ReactNode
+    | ((props: { error: Error | null; reset: () => void }) => React.ReactNode);
   name?: string;
   onReset?: () => void;
   compact?: boolean;
@@ -19,7 +21,10 @@ interface ErrorBoundaryState {
  * Prevents full app crash when a child component throws during render.
  * Supports granular subsystem isolation and localized recovery.
  */
-export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+export class ErrorBoundary extends React.Component<
+  ErrorBoundaryProps,
+  ErrorBoundaryState
+> {
   constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = { hasError: false, error: null };
@@ -30,21 +35,25 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
-    const label = this.props.name ? `[ErrorBoundary: ${this.props.name}]` : "[ErrorBoundary]";
+    const label = this.props.name
+      ? `[ErrorBoundary: ${this.props.name}]`
+      : "[ErrorBoundary]";
     console.error(`${label} Caught unhandled error:`, error, errorInfo);
 
     // Forward to crash telemetry pipeline. Import lazily to avoid circular
     // dependencies during module initialisation.
-    import("@/core/telemetry").then(({ crashReporter }) => {
-      void crashReporter.reportCrash({
-        crashType: "SUBSYSTEM_ERROR",
-        error,
-        subsystem: this.props.name,
-        componentStack: errorInfo.componentStack ?? undefined,
+    import("@/core/telemetry")
+      .then(({ crashReporter }) => {
+        void crashReporter.reportCrash({
+          crashType: "SUBSYSTEM_ERROR",
+          error,
+          subsystem: this.props.name,
+          componentStack: errorInfo.componentStack ?? undefined,
+        });
+      })
+      .catch(() => {
+        // Telemetry must never cascade into the error boundary itself.
       });
-    }).catch(() => {
-      // Telemetry must never cascade into the error boundary itself.
-    });
   }
 
   handleReset = () => {
@@ -75,7 +84,9 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
           >
             <div className="flex items-center gap-1.5 truncate">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-danger" />
-              <span className="truncate">{name ? `${name} error` : "Error"}</span>
+              <span className="truncate">
+                {name ? `${name} error` : "Error"}
+              </span>
             </div>
             <button
               onClick={this.handleReset}
@@ -92,7 +103,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
       return (
         <div
           data-testid={`error-boundary-${name || "default"}`}
-          className="flex flex-col items-center justify-center h-full w-full gap-3 p-6 text-center bg-surface-raised/40 border border-white/6 rounded-lg select-none"
+          className="flex flex-col items-center justify-center h-full w-full gap-3 p-6 text-center bg-surface-raised/40 border border-border rounded-lg select-none"
         >
           <div className="w-10 h-10 rounded-full bg-danger/15 flex items-center justify-center text-danger border border-danger/30">
             <AlertTriangle className="w-5 h-5" />
@@ -109,7 +120,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
           <button
             onClick={this.handleReset}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-white/10 hover:bg-white/15 active:bg-white/20 text-text-primary border border-white/10 transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-surface-elevated hover:bg-surface-hover active:bg-surface-active text-text-primary border border-border transition-colors cursor-pointer"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             Reload {subsystemName}
@@ -121,4 +132,3 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     return this.props.children;
   }
 }
-

@@ -246,7 +246,7 @@ const AudioItem: React.FC<AudioItemProps> = ({ item, onAddToTimeline }) => {
   return (
     <div
       onClick={handlePreview}
-      className="group flex items-center gap-3 p-1 bg-surface-raised/40 hover:bg-surface-raised/60 rounded-lg transition-colors cursor-pointer"
+      className="group flex items-center gap-3 p-1 bg-surface-raised/40 hover:bg-surface-hover rounded-lg transition-colors cursor-pointer"
     >
       {/* Hidden audio element for inline streaming */}
       <audio

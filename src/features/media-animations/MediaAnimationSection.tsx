@@ -319,7 +319,7 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
   return (
     <div className="space-y-1.5 select-none text-white relative p-2">
       {/* ── Tabs ── */}
-      <div className="bg-panel p-0.5 rounded-sm flex gap-1 border border-white/5">
+      <div className="bg-surface-elevated p-0.5 rounded-sm flex gap-1 border border-border-subtle">
         {(["in", "out", "combo"] as MediaAnimationCategory[]).map((tab) => {
           const isActive = activeTab === tab;
           const hasDot = tab === "in" ? hasIn : tab === "out" ? hasOut : false;
@@ -344,8 +344,8 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
               onClick={() => handleTabChange(tab)}
               className={`flex-1 py-0.5 text-xs rounded-sm transition-all text-center capitalize flex items-center justify-center gap-1 cursor-pointer ${
                 isActive
-                  ? "bg-[#38383e] text-white shadow-sm font-semibold"
-                  : "text-[#8e8e93] hover:text-white"
+                  ? "bg-surface-hover text-text-primary shadow-sm font-semibold"
+                  : "text-text-muted hover:text-text-primary"
               }`}
             >
               {hasDot && (
@@ -359,7 +359,7 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
 
       {/* ── Search ── */}
       <div className="flex items-center gap-1">
-        <div className="relative flex-1 flex items-center bg-[#18181A] rounded-md border border-border/40 px-2.5 py-1 focus-within:border-[#00E5FF]/60 focus-within:ring-1 focus-within:ring-[#00E5FF]/30 transition-all">
+        <div className="relative flex-1 flex items-center bg-surface-input rounded-md border border-border/40 px-2.5 py-1 focus-within:border-accent/60 focus-within:ring-1 focus-within:ring-accent/30 transition-all">
           <Search className="w-3.5 h-3.5 text-text-muted shrink-0 mr-2" />
           <input
             type="text"
@@ -389,7 +389,7 @@ export const MediaAnimationSection: React.FC<MediaAnimationSectionProps> = ({
           className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 transition-colors cursor-pointer border ${
             activeFilter === "favorites"
               ? "bg-amber-400/20 text-amber-400 border-amber-400/50"
-              : "bg-[#18181A] border-border/40 text-text-muted hover:text-text-primary hover:bg-[#2E2E34]"
+              : "bg-surface-input border-border/40 text-text-muted hover:text-text-primary hover:bg-surface-hover"
           }`}
         >
           <Star
