@@ -83,6 +83,8 @@ pub struct PerfBuildIdentity {
     pub application_version: String,
     pub git_commit: Option<String>,
     pub git_dirty: bool,
+    pub git_tree: Option<String>,
+    pub git_diff_hash: Option<String>,
     pub opt_level: String,
     pub debug_assertions: bool,
     pub ffmpeg_version: String,
@@ -170,6 +172,10 @@ fn make_session_header(session_id: &str, opened_at_epoch_ms: u64) -> PerfSession
             application_version: env!("CARGO_PKG_VERSION").to_string(),
             git_commit: option_env!("CLYPRA_GIT_COMMIT").map(str::to_string),
             git_dirty: option_env!("CLYPRA_GIT_DIRTY") == Some("true"),
+            git_tree: option_env!("CLYPRA_GIT_TREE").map(str::to_string),
+            git_diff_hash: option_env!("CLYPRA_GIT_DIFF_HASH")
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
             opt_level: if cfg!(debug_assertions) {
                 "debug".to_string()
             } else {

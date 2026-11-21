@@ -30,6 +30,7 @@ use crate::native_core::performance::{FrameTransferPath, MetalDecodeFailureReaso
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+use std::backtrace::Backtrace;
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -63,6 +64,9 @@ pub struct EngineTelemetrySnapshot {
     /// Decode latency split by the workload that produced each frame.  This
     /// avoids blending steady playback with scrub and seek pre-roll samples.
     pub decode_by_workload: BTreeMap<String, DecodeWorkloadSummary>,
+    /// Multi-layer preview and speculative-work diagnostics. These counters
+    /// are additive and remain zero for single-layer sessions.
+    pub preview_concurrency: PreviewConcurrencyTelemetry,
     pub playback: PlaybackSummary,
     pub qos: QoSTelemetry,
     pub graph: RenderGraphTelemetry,
@@ -86,6 +90,20 @@ pub struct DecodeWorkloadSummary {
     pub p95_decode_us: u64,
     pub p99_decode_us: u64,
     pub max_decode_us: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewConcurrencyTelemetry {
+    pub multi_layer_frame_count: u64,
+    pub multi_layer_total_layers: u64,
+    pub multi_layer_max_layers: u32,
+    pub multi_layer_decode_sum_us: u64,
+    pub multi_layer_decode_critical_path_us: u64,
+    pub lookahead_preempted: u64,
+    pub stale_lookahead_discarded: u64,
+    pub visible_decode_waited_behind_lookahead_us: u64,
+    pub text_prefetch_rasterized_under_preview_lock: u64,
 }
 
 #[derive(Debug, Default)]
@@ -180,6 +198,7 @@ pub struct EngineTelemetryCollector {
     hw_profile: RwLock<HardwareCapabilityProfile>,
     transfers: RwLock<TransferMetrics>,
     decode_by_workload: RwLock<BTreeMap<String, DecodeWorkloadAccumulator>>,
+    preview_concurrency: RwLock<PreviewConcurrencyTelemetry>,
     recent_frames: RwLock<Vec<FrameTelemetry>>,
     qos: RwLock<QoSTelemetry>,
     qos_controller: RwLock<QoSController>,
@@ -191,6 +210,7 @@ pub struct EngineTelemetryCollector {
     hwframe_transfer_calls: AtomicU64,
     hwframe_transfer_bytes: AtomicU64,
     runtime_zero_copy_observed: std::sync::atomic::AtomicBool,
+    session_closing: std::sync::atomic::AtomicBool,
     _start_time: Instant,
 }
 
@@ -247,6 +267,7 @@ impl EngineTelemetryCollector {
             hw_profile: RwLock::new(hw_profile),
             transfers: RwLock::new(transfers),
             decode_by_workload: RwLock::new(BTreeMap::new()),
+            preview_concurrency: RwLock::new(PreviewConcurrencyTelemetry::default()),
             recent_frames: RwLock::new(Vec::with_capacity(120)),
             qos: RwLock::new(qos),
             qos_controller: RwLock::new(qos_controller),
@@ -258,6 +279,7 @@ impl EngineTelemetryCollector {
             hwframe_transfer_calls: AtomicU64::new(0),
             hwframe_transfer_bytes: AtomicU64::new(0),
             runtime_zero_copy_observed: std::sync::atomic::AtomicBool::new(false),
+            session_closing: std::sync::atomic::AtomicBool::new(false),
             _start_time: Instant::now(),
         }
     }
@@ -287,6 +309,53 @@ impl EngineTelemetryCollector {
             FrameTransferPath::Unknown => transfers.unknown_frames += 1,
         }
         transfers.is_zero_copy = self.runtime_zero_copy_observed.load(Ordering::Relaxed);
+    }
+
+    pub fn record_multilayer_decode(
+        &self,
+        layer_count: usize,
+        decode_sum_us: u64,
+        decode_critical_path_us: u64,
+    ) {
+        if layer_count < 2 {
+            return;
+        }
+        let mut metrics = self.preview_concurrency.write();
+        metrics.multi_layer_frame_count = metrics.multi_layer_frame_count.saturating_add(1);
+        metrics.multi_layer_total_layers = metrics
+            .multi_layer_total_layers
+            .saturating_add(layer_count as u64);
+        metrics.multi_layer_max_layers = metrics.multi_layer_max_layers.max(layer_count as u32);
+        metrics.multi_layer_decode_sum_us = metrics
+            .multi_layer_decode_sum_us
+            .saturating_add(decode_sum_us);
+        metrics.multi_layer_decode_critical_path_us = metrics
+            .multi_layer_decode_critical_path_us
+            .saturating_add(decode_critical_path_us);
+    }
+
+    pub fn record_lookahead_preempted(&self) {
+        let mut metrics = self.preview_concurrency.write();
+        metrics.lookahead_preempted = metrics.lookahead_preempted.saturating_add(1);
+    }
+
+    pub fn record_stale_lookahead_discarded(&self) {
+        let mut metrics = self.preview_concurrency.write();
+        metrics.stale_lookahead_discarded = metrics.stale_lookahead_discarded.saturating_add(1);
+    }
+
+    pub fn record_visible_decode_waited_behind_lookahead(&self, wait_us: u64) {
+        let mut metrics = self.preview_concurrency.write();
+        metrics.visible_decode_waited_behind_lookahead_us = metrics
+            .visible_decode_waited_behind_lookahead_us
+            .saturating_add(wait_us);
+    }
+
+    pub fn record_text_prefetch_rasterized_under_preview_lock(&self) {
+        let mut metrics = self.preview_concurrency.write();
+        metrics.text_prefetch_rasterized_under_preview_lock = metrics
+            .text_prefetch_rasterized_under_preview_lock
+            .saturating_add(1);
     }
 
     /// Records one call to FFmpeg's hardware-frame download boundary. The
@@ -320,6 +389,26 @@ impl EngineTelemetryCollector {
         }
     }
 
+    /// Marks the beginning of the final session flush. Decode guards dropped
+    /// after this point are classified as shutdown in-flight work.
+    pub fn mark_session_closing(&self) {
+        self.session_closing.store(true, Ordering::Release);
+    }
+
+    /// Records a hardware-decoded frame that reached a non-zero-copy path
+    /// while the zero-copy validation guard was enabled.
+    pub fn record_zero_copy_guard_violation(&self) {
+        let mut transfers = self.transfers.write();
+        transfers.zero_copy_guard_violations =
+            transfers.zero_copy_guard_violations.saturating_add(1);
+    }
+
+    /// Clears the shutdown marker when a new telemetry session starts in the
+    /// same process.
+    pub fn begin_session(&self) {
+        self.session_closing.store(false, Ordering::Release);
+    }
+
     fn record_metal_decode_success(&self) {
         let mut transfers = self.transfers.write();
         transfers.metal_decode_successes = transfers.metal_decode_successes.saturating_add(1);
@@ -334,7 +423,7 @@ impl EngineTelemetryCollector {
             .or_default() += 1;
     }
 
-    fn record_metal_decode_unrecorded(&self) {
+    fn record_metal_decode_unrecorded(&self) -> u64 {
         let mut transfers = self.transfers.write();
         transfers.metal_decode_unrecorded = transfers.metal_decode_unrecorded.saturating_add(1);
         transfers
@@ -342,6 +431,13 @@ impl EngineTelemetryCollector {
             .entry("unrecorded".to_string())
             .and_modify(|count| *count = count.saturating_add(1))
             .or_insert(1);
+        transfers.metal_decode_unrecorded
+    }
+
+    fn record_metal_decode_in_flight_at_close(&self) {
+        let mut transfers = self.transfers.write();
+        transfers.metal_decode_in_flight_at_close =
+            transfers.metal_decode_in_flight_at_close.saturating_add(1);
     }
 
     /// Records a failure after a Metal frame was decoded but could not be
@@ -605,6 +701,7 @@ impl EngineTelemetryCollector {
             .iter()
             .map(|(workload, accumulator)| (workload.clone(), accumulator.snapshot()))
             .collect();
+        let preview_concurrency = self.preview_concurrency.read().clone();
         let graph = self.graph.read().clone();
         let last_seek = self.last_seek.read().clone();
 
@@ -722,6 +819,7 @@ impl EngineTelemetryCollector {
             streams,
             transfers,
             decode_by_workload,
+            preview_concurrency,
             playback,
             qos,
             graph,
@@ -761,7 +859,17 @@ impl MetalDecodeAttempt<'_> {
 impl Drop for MetalDecodeAttempt<'_> {
     fn drop(&mut self) {
         if !self.completed {
-            self.telemetry.record_metal_decode_unrecorded();
+            if self.telemetry.session_closing.load(Ordering::Acquire) {
+                self.telemetry.record_metal_decode_in_flight_at_close();
+            } else {
+                let unrecorded_count = self.telemetry.record_metal_decode_unrecorded();
+                if unrecorded_count == 1 {
+                    log::error!(
+                        "[EngineTelemetry] first unrecorded Metal decode attempt backtrace:\n{}",
+                        Backtrace::force_capture()
+                    );
+                }
+            }
         }
     }
 }
@@ -821,6 +929,17 @@ mod tests {
         assert_eq!(
             transfers.metal_decode_failure_reasons.get("unrecorded"),
             Some(&1)
+        );
+        telemetry.mark_session_closing();
+        {
+            let _in_flight = telemetry.begin_metal_decode_attempt();
+        }
+        let transfers = telemetry.snapshot().transfers;
+        assert_eq!(transfers.metal_decode_in_flight_at_close, 1);
+        telemetry.record_zero_copy_guard_violation();
+        assert_eq!(
+            telemetry.snapshot().transfers.zero_copy_guard_violations,
+            1
         );
         telemetry.record_stream_telemetry(
             "layer-main",

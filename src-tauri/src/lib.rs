@@ -695,6 +695,7 @@ pub fn run() {
             // ── Phase 5: Session performance telemetry ──────────────────────
             get_session_telemetry,
             reset_session_telemetry,
+            mark_engine_telemetry_closing,
             hide_native_surface,
             get_native_surface_status,
             configure_native_playback,

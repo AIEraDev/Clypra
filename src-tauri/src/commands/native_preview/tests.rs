@@ -5,6 +5,55 @@ use crate::native_core::TextLayerSnapshot;
 use std::sync::Arc;
 use std::time::Instant;
 
+#[test]
+fn lookahead_content_key_tracks_stream_topology_not_playback_time() {
+    let layer = |source_frame: u64, path: &str| crate::native_core::VideoLayerSnapshot {
+        layer_id: "layer-1".to_string(),
+        asset_id: "asset-1".to_string(),
+        video_path: path.to_string(),
+        source_time: FrameTime::new(source_frame, source_frame as i64, DEFAULT_TIME_SCALE)
+            .expect("valid source time"),
+        x: 0.0,
+        y: 0.0,
+        width: 1920.0,
+        height: 1080.0,
+        rotation: 0.0,
+        opacity: 1.0,
+        z_index: 0,
+        blend_mode: "normal".to_string(),
+        crop: None,
+        color_grade: None,
+        body_effect: None,
+    };
+
+    let at_start = vec![layer(0, "/media/first.mp4")];
+    let later_in_same_stream = vec![layer(30, "/media/first.mp4")];
+    let different_stream = vec![layer(30, "/media/second.mp4")];
+
+    assert_eq!(
+        lookahead_content_key("revision-1", &at_start),
+        lookahead_content_key("revision-1", &later_in_same_stream),
+        "advancing source time must not restart lookahead"
+    );
+    assert_ne!(
+        lookahead_content_key("revision-1", &later_in_same_stream),
+        lookahead_content_key("revision-1", &different_stream),
+        "a changed source stream must invalidate stale lookahead"
+    );
+    assert_ne!(
+        lookahead_content_key("revision-2", &later_in_same_stream),
+        lookahead_content_key("revision-1", &later_in_same_stream),
+        "a project revision change must invalidate stale lookahead"
+    );
+}
+
+#[test]
+fn video_lookahead_does_not_warm_text_under_the_preview_lock() {
+    assert!(!should_warm_native_text_during_prefetch(true, true));
+    assert!(should_warm_native_text_during_prefetch(true, false));
+    assert!(!should_warm_native_text_during_prefetch(false, false));
+}
+
 /// macOS-only seam test for the exact decode entry point used by the native
 /// presenter. Generate a fixture first (for example with
 /// `ffmpeg -f lavfi -i testsrc2=size=3840x2160:rate=30 -t 2 -c:v hevc_videotoolbox -pix_fmt nv12 fixture.mov`)

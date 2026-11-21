@@ -706,6 +706,41 @@ export class PerfLogService {
     if (this.flushInFlight) await this.flushInFlight;
     await this._flushQueueWithSession(sessionId);
 
+    // Freeze the native decode-attempt accounting before taking the final
+    // snapshot. Guards that finish after this boundary are reported as
+    // in-flight-at-close rather than as an unexplained missing outcome.
+    try {
+      await tauriInvoke<void>("mark_engine_telemetry_closing");
+    } catch (err) {
+      console.warn(
+        "[PerfLogService] Failed to mark native telemetry as closing:",
+        err,
+      );
+    }
+
+    // Capture the engine snapshot only after the closing boundary is set. This
+    // makes shutdown in-flight decode guards and the zero-copy guard counter
+    // visible in the final NDJSON record instead of relying on the last timer
+    // poll, which may have happened before the session stopped.
+    try {
+      const finalEngineTelemetry = await tauriInvoke<unknown>(
+        "get_engine_telemetry",
+      );
+      if (finalEngineTelemetry) {
+        this.queue.push({
+          kind: "engine-telemetry",
+          sessionId,
+          timestampEpochMs: Date.now(),
+          payload: finalEngineTelemetry,
+        });
+      }
+    } catch (err) {
+      console.warn(
+        "[PerfLogService] Failed to capture final engine telemetry:",
+        err,
+      );
+    }
+
     // Unsubscribe from native diagnostics before closing.
     if (this.diagnosticsUnlisten) {
       this.diagnosticsUnlisten();

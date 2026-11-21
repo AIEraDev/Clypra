@@ -9,10 +9,12 @@
  */
 
 import fs from "node:fs/promises";
+import childProcess from "node:child_process";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const CURRENT_SCHEMA_VERSION = 2;
+export const DEFAULT_MIN_FRAME_SAMPLES = 1;
 
 function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -69,7 +71,13 @@ function formatMatchesFourcc(swFormat, fourcc) {
  * Lints parsed records and returns a machine-readable trust verdict.
  * Legacy wrapped files are intentionally accepted but marked untrusted.
  */
-export function lintRecords(records) {
+export function lintRecords(records, options = {}) {
+  const {
+    expectedHead = null,
+    expectedTree = null,
+    requireClean = false,
+    minFrameSamples = 0,
+  } = options;
   const errors = [];
   const warnings = [];
   const normalized = records.map((record, index) =>
@@ -148,6 +156,42 @@ export function lintRecords(records) {
       );
     } else {
       addError(errors, 0, "missing-session-header", "no session-header record found");
+    }
+  }
+
+  const build = asObject(header?.payload.build);
+  if (expectedHead !== null) {
+    const recordedHead = typeof build?.gitCommit === "string" ? build.gitCommit : null;
+    if (!recordedHead) {
+      addError(errors, header?.line ?? 0, "missing-build-commit", "session header does not record gitCommit");
+    } else if (recordedHead !== expectedHead) {
+      addError(
+        errors,
+        header?.line ?? 0,
+        "build-commit-mismatch",
+        `session build commit ${recordedHead} does not match expected HEAD ${expectedHead}`,
+      );
+    }
+  }
+  if (expectedTree !== null) {
+    const recordedTree = typeof build?.gitTree === "string" ? build.gitTree : null;
+    if (!recordedTree) {
+      addError(errors, header?.line ?? 0, "missing-build-tree", "session header does not record gitTree");
+    } else if (recordedTree !== expectedTree) {
+      addError(
+        errors,
+        header?.line ?? 0,
+        "build-tree-mismatch",
+        `session build tree ${recordedTree} does not match expected tree ${expectedTree}`,
+      );
+    }
+  }
+  if (requireClean) {
+    if (build?.gitDirty === true) {
+      addError(errors, header?.line ?? 0, "dirty-build", "session was produced from a dirty source tree");
+    }
+    if (typeof build?.gitDiffHash === "string" && build.gitDiffHash.length > 0) {
+      addError(errors, header?.line ?? 0, "dirty-diff-hash", "clean evidence cannot carry a dirty diff hash");
     }
   }
 
@@ -287,37 +331,91 @@ export function lintRecords(records) {
         asFiniteNumber(transfers.metal_decode_unrecorded) ??
         asFiniteNumber(failureReasons?.unrecorded) ??
         0;
-      const accounted = successes + failures + unrecorded;
+      const inFlightAtClose =
+        asFiniteNumber(transfers.metal_decode_in_flight_at_close) ?? 0;
+      const accounted = successes + failures + unrecorded + inFlightAtClose;
       if (attempts !== accounted) {
         addError(
           errors,
           finalEngine.line,
           "counter-reconciliation",
-          `metal decode attempts (${attempts}) do not equal successes (${successes}) plus failures (${failures}) plus unrecorded (${unrecorded})`,
+          `metal decode attempts (${attempts}) do not equal successes (${successes}) plus failures (${failures}) plus unrecorded (${unrecorded}) plus in-flight-at-close (${inFlightAtClose})`,
+        );
+      }
+      if (unrecorded > 0) {
+        addError(
+          errors,
+          finalEngine.line,
+          "unrecorded-decode-outcome",
+          `${unrecorded} decode attempt(s) were dropped without a terminal outcome`,
+        );
+      }
+      if (inFlightAtClose > 0) {
+        addError(
+          errors,
+          finalEngine.line,
+          "in-flight-decode-at-close",
+          `${inFlightAtClose} decode attempt(s) were still in flight at session close`,
         );
       }
     }
     const bySite = asObject(transfers.hwframe_transfer_calls_by_site);
+    const playbackTransfers = asFiniteNumber(bySite?.playback) ?? 0;
+    if (playbackTransfers > 0) {
+      addError(
+        errors,
+        finalEngine.line,
+        "playback-transfer",
+        `playback performed ${playbackTransfers} hardware-frame transfer(s); expected exactly zero`,
+      );
+    }
     const unknownTransfers = asFiniteNumber(bySite?.unknown) ?? 0;
     if (unknownTransfers > 0) {
-      const playback = asObject(finalEngine.payload.playback);
-      const playbackFrames = asFiniteNumber(playback?.total_frames) ?? 0;
-      if (playbackFrames > 0) {
-        addError(
-          errors,
-          finalEngine.line,
-          "unknown-transfer-site",
-          `${unknownTransfers} transfer(s) have an unknown call site during playback`,
-        );
-      } else {
-        addWarning(
-          warnings,
-          finalEngine.line,
-          "unknown-transfer-site",
-          `${unknownTransfers} transfer(s) have an unknown call site`,
-        );
-      }
+      addError(
+        errors,
+        finalEngine.line,
+        "unknown-transfer-site",
+        `${unknownTransfers} transfer(s) have an unknown call site`,
+      );
     }
+    const guardViolations =
+      asFiniteNumber(transfers.zero_copy_guard_violations) ?? 0;
+    if (guardViolations > 0) {
+      addError(
+        errors,
+        finalEngine.line,
+        "zero-copy-guard-violation",
+        `${guardViolations} zero-copy guard violation(s) were recorded by the engine`,
+      );
+    }
+  }
+
+  const emittedGuardViolations = valid.filter(
+    (record) => record.kind === "zero-copy-violation",
+  ).length;
+  if (emittedGuardViolations > 0) {
+    addError(
+      errors,
+      0,
+      "zero-copy-guard-violation",
+      `${emittedGuardViolations} zero-copy guard violation record(s) were emitted`,
+    );
+  }
+
+  const frameSampleKinds = new Set([
+    "frame",
+    "native-frame",
+    "performance-sample",
+    "engine-frame-telemetry",
+  ]);
+  const frameSampleCount = valid.filter((record) => frameSampleKinds.has(record.kind)).length;
+  if (frameSampleCount < minFrameSamples) {
+    addError(
+      errors,
+      0,
+      "insufficient-frame-samples",
+      `session contains ${frameSampleCount} frame sample(s); at least ${minFrameSamples} required`,
+    );
   }
 
   const evidenceGrade =
@@ -329,6 +427,7 @@ export function lintRecords(records) {
     evidenceGrade,
     trusted: evidenceGrade === "measured",
     recordCount: valid.length,
+    frameSampleCount,
     sessionIds: [...sessionIds],
     declaredPreviewContexts: contexts.size,
     completionStatus: hasCloseMarker ? "complete" : "incomplete",
@@ -337,7 +436,7 @@ export function lintRecords(records) {
   };
 }
 
-export async function readNdjson(filePath) {
+export async function readNdjson(filePath, options = {}) {
   const raw = await fs.readFile(filePath, "utf8");
   const records = [];
   const parseErrors = [];
@@ -354,7 +453,7 @@ export async function readNdjson(filePath) {
       });
     }
   });
-  const report = lintRecords(records);
+  const report = lintRecords(records, options);
   report.errors.unshift(...parseErrors);
   if (parseErrors.length > 0) {
     report.trusted = false;
@@ -371,6 +470,7 @@ function renderMarkdown(report, filePath) {
     `- Evidence grade: **${report.evidenceGrade}**`,
     `- Completion: **${report.completionStatus}**`,
     `- Records: ${report.recordCount}`,
+    `- Frame samples: ${report.frameSampleCount}`,
     `- Preview contexts: ${report.declaredPreviewContexts}`,
     `- Errors: ${report.errors.length}`,
     `- Warnings: ${report.warnings.length}`,
@@ -384,10 +484,49 @@ function renderMarkdown(report, filePath) {
 async function main(argv) {
   const [command, filePath, ...flags] = argv;
   if (command !== "lint" || !filePath) {
-    console.error("Usage: clypra-perf.mjs lint <session.ndjson> [--json]");
+    console.error(
+      "Usage: clypra-perf.mjs lint <session.ndjson> [--json] [--expect-head] [--require-clean] [--min-frame-samples N]",
+    );
     return 2;
   }
-  const report = await readNdjson(path.resolve(filePath));
+  const options = {
+    requireClean: flags.includes("--require-clean"),
+    minFrameSamples: DEFAULT_MIN_FRAME_SAMPLES,
+  };
+  if (flags.includes("--min-frame-samples")) {
+    const index = flags.indexOf("--min-frame-samples");
+    const value = Number(flags[index + 1]);
+    if (!Number.isInteger(value) || value < 0) {
+      console.error("--min-frame-samples requires a non-negative integer");
+      return 2;
+    }
+    options.minFrameSamples = value;
+  }
+  if (flags.includes("--expect-head") || options.requireClean) {
+    try {
+      options.expectedHead = childProcess
+        .execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" })
+        .trim();
+      options.expectedTree = childProcess
+        .execFileSync("git", ["rev-parse", "HEAD^{tree}"], { encoding: "utf8" })
+        .trim();
+    } catch (error) {
+      console.error(
+        `Unable to resolve repository HEAD: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return 2;
+    }
+  }
+  if (options.requireClean) {
+    const status = childProcess
+      .execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" })
+      .trim();
+    if (status) {
+      console.error("--require-clean failed: the current source tree has uncommitted changes");
+      return 1;
+    }
+  }
+  const report = await readNdjson(path.resolve(filePath), options);
   if (flags.includes("--json")) {
     console.log(JSON.stringify(report, null, 2));
   } else {

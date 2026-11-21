@@ -159,7 +159,7 @@ test("lint reconciles decode outcomes and transfer call sites", () => {
   assert.ok(report.errors.some((issue) => issue.code === "unknown-transfer-site"));
 });
 
-test("lint accepts explicitly unrecorded decode outcomes", () => {
+test("lint rejects explicitly unrecorded decode outcomes", () => {
   const report = lintRecords([
     header(),
     {
@@ -191,8 +191,57 @@ test("lint accepts explicitly unrecorded decode outcomes", () => {
     },
   ]);
 
-  assert.equal(report.errors.length, 0);
-  assert.equal(report.evidenceGrade, "measured");
+  assert.ok(
+    report.errors.some((issue) => issue.code === "unrecorded-decode-outcome"),
+  );
+  assert.equal(report.evidenceGrade, "untrusted");
+});
+
+test("lint requires zero playback transfers and no guard violations", () => {
+  const report = lintRecords([
+    header(),
+    {
+      schemaVersion: 2,
+      kind: "engine-telemetry",
+      sessionId: "session-test",
+      timestampEpochMs: 110,
+      seq: 1,
+      scope: "engine.native",
+      payload: {
+        playback: { total_frames: 1 },
+        transfers: {
+          metal_decode_attempts: 1,
+          metal_decode_successes: 1,
+          metal_decode_failures: 0,
+          metal_decode_unrecorded: 0,
+          metal_decode_in_flight_at_close: 0,
+          zero_copy_guard_violations: 1,
+          hwframe_transfer_calls_by_site: { playback: 1 },
+        },
+      },
+    },
+    {
+      schemaVersion: 2,
+      kind: "zero-copy-violation",
+      sessionId: "session-test",
+      timestampEpochMs: 115,
+      seq: 2,
+      scope: "engine.native",
+      payload: { frameIndex: 1 },
+    },
+    {
+      schemaVersion: 2,
+      kind: "native-diagnostic",
+      sessionId: "session-test",
+      timestampEpochMs: 120,
+      seq: 3,
+      scope: "bridge.ipc",
+      payload: { marker: "session-close" },
+    },
+  ]);
+
+  assert.ok(report.errors.some((issue) => issue.code === "playback-transfer"));
+  assert.ok(report.errors.some((issue) => issue.code === "zero-copy-guard-violation"));
 });
 
 test("lint rejects a FourCC that contradicts a declared P010 stream", () => {
@@ -230,4 +279,41 @@ test("lint rejects a FourCC that contradicts a declared P010 stream", () => {
   ]);
 
   assert.ok(report.errors.some((issue) => issue.code === "stream-format-mismatch"));
+});
+
+test("lint enforces build provenance and minimum frame evidence", () => {
+  const records = [
+    {
+      ...header(),
+      payload: {
+        ...header().payload,
+        build: {
+          gitCommit: "abc123",
+          gitTree: "tree123",
+          gitDirty: true,
+          gitDiffHash: "diff123",
+        },
+      },
+    },
+    {
+      schemaVersion: 2,
+      kind: "native-diagnostic",
+      sessionId: "session-test",
+      timestampEpochMs: 110,
+      seq: 1,
+      scope: "bridge.ipc",
+      payload: { marker: "session-close" },
+    },
+  ];
+  const report = lintRecords(records, {
+    expectedHead: "abc123",
+    expectedTree: "tree123",
+    requireClean: true,
+    minFrameSamples: 1,
+  });
+
+  assert.ok(report.errors.some((issue) => issue.code === "dirty-build"));
+  assert.ok(report.errors.some((issue) => issue.code === "dirty-diff-hash"));
+  assert.ok(report.errors.some((issue) => issue.code === "insufficient-frame-samples"));
+  assert.equal(report.frameSampleCount, 0);
 });

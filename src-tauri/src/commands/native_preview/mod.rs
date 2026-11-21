@@ -27,6 +27,7 @@ use crate::wgpu_compositor::{
     RenderLifecycleContext, RequestTerminalDisposition,
 };
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -48,6 +49,8 @@ static METAL_ZERO_COPY_FAILURE_REPORTED: AtomicBool = AtomicBool::new(false);
 static METAL_DECODE_ENABLED: OnceLock<bool> = OnceLock::new();
 #[cfg(target_os = "macos")]
 static METAL_ZERO_COPY_DISABLED: OnceLock<bool> = OnceLock::new();
+#[cfg(target_os = "macos")]
+static METAL_PREFETCH_CANCEL_EPOCH: AtomicU64 = AtomicU64::new(0);
 
 fn frame_attribution_for_mode(
     lifecycle_context: &RenderLifecycleContext,
@@ -93,6 +96,7 @@ fn log_required_zero_copy_violation(
     }
 
     let count = ZERO_COPY_GUARD_VIOLATIONS.fetch_add(1, Ordering::Relaxed) + 1;
+    crate::engine::ENGINE_TELEMETRY.record_zero_copy_guard_violation();
     if count <= 3 || count % 60 == 0 {
         log::error!(
             "[NativePreview] CLYPRA_REQUIRE_ZERO_COPY=1: hardware-decoded frame {} reached {:?}; zero-copy violations so far: {}",
@@ -2358,103 +2362,180 @@ async fn decode_native_video_layers_metal(
         return Ok(None);
     }
 
-    let mut decoded = Vec::with_capacity(request.layers.len());
+    let prefetch_cancel_epoch = if request.mode.as_deref() == Some("prefetch") {
+        Some(METAL_PREFETCH_CANCEL_EPOCH.load(Ordering::Acquire))
+    } else {
+        None
+    };
+
+    // Keep enough parallelism to overlap independent active layers without
+    // exhausting VideoToolbox's IOSurface pool. Layers sharing a decoder still
+    // serialize naturally at that decoder's mutex, while distinct streams can
+    // make progress concurrently.
+    let max_parallel_layers = request.layers.len().min(3).max(1);
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(max_parallel_layers));
+    let mut tasks = Vec::with_capacity(request.layers.len());
+
+    for (layer_index, layer) in request.layers.iter().cloned().enumerate() {
+        let semaphore = Arc::clone(&semaphore);
+        let decode_options = decode_options.clone();
+        let cancellation = cancellation.clone();
+        tasks.push(tauri::async_runtime::spawn(async move {
+            let _permit = semaphore.acquire_owned().await.map_err(|error| {
+                crate::filmstrip_engine::stream_actor::StreamDecodeError::Actor(format!(
+                    "Metal layer decode semaphore closed: {error}"
+                ))
+            })?;
+
+            if cancellation.as_ref().is_some_and(|(generation, expected)| {
+                generation.load(Ordering::Acquire) != *expected
+            }) {
+                return Err(crate::filmstrip_engine::stream_actor::StreamDecodeError::Cancelled);
+            }
+
+            let attempt = crate::engine::ENGINE_TELEMETRY.begin_metal_decode_attempt();
+            let stream_id = if layer.layer_id.is_empty() {
+                ""
+            } else {
+                layer.layer_id.as_str()
+            };
+            let lock_started = Instant::now();
+            let decoder = match get_preview_decoder_for_stream(&layer.video_path, stream_id).await {
+                Ok(decoder) => decoder,
+                Err(error) => {
+                    attempt.fail(
+                        crate::native_core::performance::MetalDecodeFailureReason::DecoderUnavailable,
+                    );
+                    log::warn!("[NativePreview] Metal decode decoder unavailable: {error}");
+                    return Ok(None);
+                }
+            };
+            let mut guard = decoder.lock().await;
+            let mutex_wait_us = lock_started
+                .elapsed()
+                .as_micros()
+                .min(u64::MAX as u128) as u64;
+            let mut color = VideoColorMetadata::default();
+            let mut width = 0u32;
+            let mut height = 0u32;
+            let decode_started = Instant::now();
+            let cancelled = || {
+                cancellation.as_ref().is_some_and(|(generation, expected)| {
+                    generation.load(Ordering::Acquire) != *expected
+                }) || prefetch_cancel_epoch.is_some_and(|expected| {
+                    METAL_PREFETCH_CANCEL_EPOCH.load(Ordering::Acquire) != expected
+                })
+            };
+            let shared = match guard.decode_frame_metal_macos(
+                layer.time_secs,
+                decode_options,
+                cancelled,
+                &mut color,
+                &mut width,
+                &mut height,
+            ) {
+                Ok(Some(shared)) => shared,
+                Ok(None) => {
+                    attempt.fail(
+                        crate::native_core::performance::MetalDecodeFailureReason::NoMetalFrame,
+                    );
+                    return Ok(None);
+                }
+                Err(error) if error.contains("cancelled") => {
+                    attempt.fail(
+                        crate::native_core::performance::MetalDecodeFailureReason::Cancelled,
+                    );
+                    return Err(
+                        crate::filmstrip_engine::stream_actor::StreamDecodeError::Cancelled,
+                    );
+                }
+                Err(error) => {
+                    attempt.fail(
+                        crate::native_core::performance::MetalDecodeFailureReason::DecodeError,
+                    );
+                    log::warn!("[NativePreview] Metal decode failed: {error}");
+                    return Ok(None);
+                }
+            };
+
+            attempt.succeed();
+            let decode_us = decode_started
+                .elapsed()
+                .as_micros()
+                .min(u32::MAX as u128) as u32;
+            let stream_metadata = guard.metadata().clone();
+            let stream_color = stream_metadata.color.clone();
+            crate::engine::ENGINE_TELEMETRY.record_stream_telemetry(
+                if layer.layer_id.is_empty() {
+                    format!("layer-{layer_index}")
+                } else {
+                    layer.layer_id.clone()
+                },
+                stream_metadata.codec_name.clone(),
+                stream_metadata.codec_profile.clone(),
+                stream_metadata.pixel_format.clone(),
+                stream_color.range.clone(),
+                Some(shared.pixel_format_fourcc()),
+            );
+
+            Ok(Some((
+                layer_index,
+                (
+                    DecodedFrame::Metal(Arc::new(shared)),
+                    width,
+                    height,
+                    merge_color_metadata(color, &stream_color),
+                    0,
+                ),
+                decode_us,
+                mutex_wait_us,
+                stream_metadata,
+            )))
+        }));
+    }
+
+    let mut layer_results = Vec::with_capacity(tasks.len());
+    for task_result in futures_util::future::join_all(tasks).await {
+        let result = task_result.map_err(|error| {
+            crate::filmstrip_engine::stream_actor::StreamDecodeError::Actor(format!(
+                "Metal layer decode task failed: {error}"
+            ))
+        })??;
+        let Some(result) = result else {
+            return Ok(None);
+        };
+        layer_results.push(result);
+    }
+    layer_results.sort_by_key(|(layer_index, ..)| *layer_index);
+
+    let mut decoded = Vec::with_capacity(layer_results.len());
     let mut max_decode_us = 0u32;
     let mut total_mutex_wait_us = 0u64;
     let mut primary_container = None;
     let mut primary_source = None;
-
-    for layer in &request.layers {
-        if cancellation
-            .as_ref()
-            .is_some_and(|(generation, expected)| generation.load(Ordering::Acquire) != *expected)
-        {
-            return Err(crate::filmstrip_engine::stream_actor::StreamDecodeError::Cancelled);
-        }
-
-        let attempt = crate::engine::ENGINE_TELEMETRY.begin_metal_decode_attempt();
-        let stream_id = if layer.layer_id.is_empty() {
-            ""
-        } else {
-            layer.layer_id.as_str()
-        };
-        let lock_started = Instant::now();
-        let decoder = match get_preview_decoder_for_stream(&layer.video_path, stream_id).await {
-            Ok(decoder) => decoder,
-            Err(error) => {
-                attempt.fail(
-                    crate::native_core::performance::MetalDecodeFailureReason::DecoderUnavailable,
-                );
-                log::warn!("[NativePreview] Metal decode decoder unavailable: {error}");
-                return Ok(None);
-            }
-        };
-        let mut guard = decoder.lock().await;
-        total_mutex_wait_us = total_mutex_wait_us
-            .saturating_add(lock_started.elapsed().as_micros().min(u64::MAX as u128) as u64);
-        let mut color = VideoColorMetadata::default();
-        let mut width = 0u32;
-        let mut height = 0u32;
-        let decode_started = Instant::now();
-        let cancelled = || {
-            cancellation.as_ref().is_some_and(|(generation, expected)| {
-                generation.load(Ordering::Acquire) != *expected
-            })
-        };
-        let shared = match guard.decode_frame_metal_macos(
-            layer.time_secs,
-            decode_options.clone(),
-            cancelled,
-            &mut color,
-            &mut width,
-            &mut height,
-        ) {
-            Ok(Some(shared)) => shared,
-            Ok(None) => {
-                attempt
-                    .fail(crate::native_core::performance::MetalDecodeFailureReason::NoMetalFrame);
-                return Ok(None);
-            }
-            Err(error) if error.contains("cancelled") => {
-                attempt.fail(crate::native_core::performance::MetalDecodeFailureReason::Cancelled);
-                return Err(crate::filmstrip_engine::stream_actor::StreamDecodeError::Cancelled);
-            }
-            Err(error) => {
-                attempt
-                    .fail(crate::native_core::performance::MetalDecodeFailureReason::DecodeError);
-                log::warn!("[NativePreview] Metal decode failed: {error}");
-                return Ok(None);
-            }
-        };
-
-        attempt.succeed();
-        max_decode_us =
-            max_decode_us.max(decode_started.elapsed().as_micros().min(u32::MAX as u128) as u32);
-        let stream_metadata = guard.metadata().clone();
-        let stream_color = stream_metadata.color.clone();
-        crate::engine::ENGINE_TELEMETRY.record_stream_telemetry(
-            if layer.layer_id.is_empty() {
-                format!("layer-{}", decoded.len())
-            } else {
-                layer.layer_id.clone()
-            },
-            stream_metadata.codec_name.clone(),
-            stream_metadata.codec_profile.clone(),
-            stream_metadata.pixel_format.clone(),
-            stream_color.range.clone(),
-            Some(shared.pixel_format_fourcc()),
-        );
+    let layer_count = layer_results.len();
+    let decode_sum_us = layer_results
+        .iter()
+        .map(|(_, _, decode_us, _, _)| u64::from(*decode_us))
+        .sum::<u64>();
+    let decode_critical_path_us = layer_results
+        .iter()
+        .map(|(_, _, decode_us, _, _)| u64::from(*decode_us))
+        .max()
+        .unwrap_or(0);
+    crate::engine::ENGINE_TELEMETRY.record_multilayer_decode(
+        layer_count,
+        decode_sum_us,
+        decode_critical_path_us,
+    );
+    for (_, frame, decode_us, mutex_wait_us, stream_metadata) in layer_results {
+        max_decode_us = max_decode_us.max(decode_us);
+        total_mutex_wait_us = total_mutex_wait_us.saturating_add(mutex_wait_us);
         if primary_container.is_none() {
             primary_container = Some(stream_metadata.container_format.clone());
             primary_source = Some(stream_metadata);
         }
-        decoded.push((
-            DecodedFrame::Metal(Arc::new(shared)),
-            width,
-            height,
-            merge_color_metadata(color, &stream_color),
-            0,
-        ));
+        decoded.push(frame);
     }
 
     let source = primary_source;
@@ -2820,6 +2901,15 @@ fn should_schedule_lookahead_predecode(is_scrubbing: Option<bool>, mode: Option<
     !is_scrubbing.unwrap_or(false) && !matches!(mode, Some("prefetch" | "scrub" | "seek"))
 }
 
+/// Text-only prefetches may warm the SDF cache without competing with a video
+/// decode. A video lookahead request must never rasterize text while holding
+/// the native preview session lock: the visible presenter needs that same lock
+/// to import/composite the next frame, so doing both in the speculative worker
+/// turns a cache warmup into a presentation stall.
+fn should_warm_native_text_during_prefetch(is_prefetch: bool, has_video_layers: bool) -> bool {
+    is_prefetch && !has_video_layers
+}
+
 /// Decode a frame into the bounded native playback queue without presenting
 /// it. The following presentation command can then reuse the decoded planes
 /// and spend its critical path only on GPU conversion/compositing/surface
@@ -2890,13 +2980,19 @@ pub async fn queue_native_frame(
     };
 
     let cancellation = Some((cancellation_generation, generation));
-    if is_prefetch && !legacy_request.text_layers.is_empty() {
-        // Warm text before the potentially expensive FFmpeg seek. Otherwise a
-        // future boundary can finish decoding only after the text SDF compile
-        // has missed the presentation deadline.
+    if should_warm_native_text_during_prefetch(
+        is_prefetch,
+        !legacy_request.layers.is_empty(),
+    ) && !legacy_request.text_layers.is_empty()
+    {
+        // Text-only prefetches can safely warm the SDF cache. Video lookahead
+        // intentionally skips this work so a speculative rasterization cannot
+        // hold the session mutex across a visible frame's deadline.
         if let Some(preview_state) =
             app.try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
         {
+            crate::engine::ENGINE_TELEMETRY
+                .record_text_prefetch_rasterized_under_preview_lock();
             let mut session = preview_state.lock().await;
             for text_layer in &legacy_request.text_layers {
                 session.get_or_render_text_layer(text_layer)?;
@@ -3044,6 +3140,12 @@ struct LookaheadWorkerState {
     handle: tauri::async_runtime::JoinHandle<()>,
     generation: u64,
     quality: Option<crate::native_core::QualityTier>,
+    /// Identity of the decode topology this worker was created for. Source
+    /// timestamps are intentionally excluded: they advance on every playback
+    /// tick and must not cause the worker to restart. Stream identity and the
+    /// project revision are included so a clip entering/leaving the active
+    /// scene cannot leave stale lookahead work decoding the old topology.
+    content_key: u64,
     start_frame: Arc<std::sync::atomic::AtomicU64>,
     end_frame: Arc<std::sync::atomic::AtomicU64>,
     finished: Arc<std::sync::atomic::AtomicBool>,
@@ -3051,6 +3153,28 @@ struct LookaheadWorkerState {
 
 static LOOKAHEAD_WORKER: std::sync::Mutex<Option<LookaheadWorkerState>> =
     std::sync::Mutex::new(None);
+
+/// Return a stable identity for the video decode topology used by lookahead.
+///
+/// This deliberately hashes only values that change which source decoders are
+/// needed. Per-frame source timestamps and compositing properties are omitted:
+/// they change continuously during playback and should not abort useful
+/// forward predecode. The resulting value is an in-memory key only; no media
+/// paths or other inputs are written to telemetry.
+fn lookahead_content_key(
+    project_revision: &str,
+    video_layers: &[crate::native_core::VideoLayerSnapshot],
+) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    project_revision.hash(&mut hasher);
+    video_layers.len().hash(&mut hasher);
+    for layer in video_layers {
+        layer.layer_id.hash(&mut hasher);
+        layer.asset_id.hash(&mut hasher);
+        layer.video_path.hash(&mut hasher);
+    }
+    hasher.finish()
+}
 
 /// Read the capability-probe-selected quality tier from the active render session.
 ///
@@ -3154,6 +3278,10 @@ pub(crate) fn schedule_lookahead_predecode(
     crate::filmstrip_engine::stream_actor::record_lookahead_trigger();
 
     let generation = base_request.generation.unwrap_or(0);
+    let content_key = lookahead_content_key(
+        &base_request.project.project_revision,
+        &base_request.project.video_layers,
+    );
     let frame_rate = base_request.project.frame_rate.max(1);
     let fps = frame_rate as f64;
 
@@ -3181,6 +3309,7 @@ pub(crate) fn schedule_lookahead_predecode(
         let is_active = !active.finished.load(std::sync::atomic::Ordering::Acquire);
         let is_same_gen = active.generation == generation;
         let is_same_quality = active.quality == quality_override;
+        let is_same_content = active.content_key == content_key;
         let start_f = active
             .start_frame
             .load(std::sync::atomic::Ordering::Acquire);
@@ -3194,13 +3323,16 @@ pub(crate) fn schedule_lookahead_predecode(
         let is_in_range =
             current_audio_frame >= start_f.saturating_sub(2) && has_sufficient_lookahead;
 
-        if is_active && is_same_gen && is_same_quality && is_in_range {
+        if is_active && is_same_gen && is_same_quality && is_same_content && is_in_range {
             // PR4: count dropped trigger and record ahead-of-clock
             crate::filmstrip_engine::stream_actor::record_lookahead_trigger_dropped();
             let end_time_secs = end_f as f64 / fps;
             let ahead_ms = (end_time_secs - current_audio_secs) * 1_000.0;
             crate::filmstrip_engine::stream_actor::record_producer_ahead_of_clock_ms(ahead_ms);
             return;
+        }
+        if is_active && is_same_gen && is_same_quality && !is_same_content {
+            crate::engine::ENGINE_TELEMETRY.record_stale_lookahead_discarded();
         }
     }
 
@@ -3210,6 +3342,8 @@ pub(crate) fn schedule_lookahead_predecode(
 
     // If generation changed or audio jumped out of range, abort previous worker to free decoders immediately.
     if let Some(prev) = worker_guard.take() {
+        #[cfg(target_os = "macos")]
+        METAL_PREFETCH_CANCEL_EPOCH.fetch_add(1, Ordering::AcqRel);
         prev.handle.abort();
     }
 
@@ -3356,6 +3490,7 @@ pub(crate) fn schedule_lookahead_predecode(
         handle,
         generation,
         quality: quality_override,
+        content_key,
         start_frame: worker_start,
         end_frame: worker_end,
         finished,
@@ -3368,6 +3503,8 @@ pub(crate) fn schedule_lookahead_predecode(
 pub(crate) async fn reset_native_preview_queue(app: &tauri::AppHandle) {
     if let Ok(mut worker) = LOOKAHEAD_WORKER.lock() {
         if let Some(previous) = worker.take() {
+            #[cfg(target_os = "macos")]
+            METAL_PREFETCH_CANCEL_EPOCH.fetch_add(1, Ordering::AcqRel);
             previous.handle.abort();
         }
     }
@@ -3380,12 +3517,18 @@ pub(crate) async fn reset_native_preview_queue(app: &tauri::AppHandle) {
 /// advancing the native cancellation generation. The interactive demand owns
 /// the next exact decode; `NativeRenderSession` separately signals each
 /// stream actor so a decode already inside FFmpeg can observe cancellation.
-pub(crate) fn preempt_lookahead_predecode() {
+pub(crate) fn preempt_lookahead_predecode() -> bool {
+    #[cfg(target_os = "macos")]
+    METAL_PREFETCH_CANCEL_EPOCH.fetch_add(1, Ordering::AcqRel);
+    let mut preempted = false;
     if let Ok(mut worker) = LOOKAHEAD_WORKER.lock() {
         if let Some(previous) = worker.take() {
+            preempted = true;
+            crate::engine::ENGINE_TELEMETRY.record_lookahead_preempted();
             previous.handle.abort();
         }
     }
+    preempted
 }
 
 /// Mark all older native preview work stale. Decoder calls that cannot be
@@ -3398,6 +3541,8 @@ pub async fn cancel_native_preview_requests(
 ) -> Result<(), String> {
     if let Ok(mut worker) = LOOKAHEAD_WORKER.lock() {
         if let Some(prev) = worker.take() {
+            #[cfg(target_os = "macos")]
+            METAL_PREFETCH_CANCEL_EPOCH.fetch_add(1, Ordering::AcqRel);
             prev.handle.abort();
         }
     }
@@ -3600,6 +3745,7 @@ pub(crate) async fn present_native_frame_internal(
     let has_video_layers = !request.project.video_layers.is_empty();
     let is_playback_mode = request.mode.as_deref() == Some("playback");
     let mut playback_lookahead_miss = false;
+    let mut visible_preempted_lookahead = false;
     let lookahead_wait_us: u64 = 0;
     let queued_frame = if has_video_layers {
         if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
@@ -3753,6 +3899,13 @@ pub(crate) async fn present_native_frame_internal(
             frame.lifecycle_context,
         ),
         None => {
+            // A visible cold decode must not queue behind speculative Metal
+            // work for an upcoming clip. The prefetch epoch is separate from
+            // the playback generation, so this cancels only in-flight
+            // lookahead while preserving already-ready queue entries.
+            if has_video_layers && !is_playback_mode {
+                visible_preempted_lookahead = preempt_lookahead_predecode();
+            }
             let (decoded_frames, decode_timings, lifecycle_context_after_decode) =
                 decode_native_video_layers(&legacy_request, None, lifecycle_context)
                     .await
@@ -3779,6 +3932,11 @@ pub(crate) async fn present_native_frame_internal(
     let queue_residency_us =
         ready_at.map(|ready_at| queue_residency_us(ready_at, presentation_started));
     let scheduler_wait_us = scheduler_lock_wait_us;
+    if visible_preempted_lookahead {
+        crate::engine::ENGINE_TELEMETRY.record_visible_decode_waited_behind_lookahead(
+            decode_timings.decoder_mutex_wait_us,
+        );
+    }
     if let Some(generation) = request.generation {
         if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
             if !queue
@@ -5224,8 +5382,18 @@ pub async fn get_session_telemetry(app: tauri::AppHandle) -> Result<serde_json::
 pub async fn reset_session_telemetry(app: tauri::AppHandle) -> Result<(), String> {
     use crate::wgpu_compositor::SessionTelemetryCollector;
 
+    crate::engine::ENGINE_TELEMETRY.begin_session();
     if let Some(state) = app.try_state::<std::sync::Arc<SessionTelemetryCollector>>() {
         state.reset_session();
     }
+    Ok(())
+}
+
+/// Marks the native decode telemetry as closing before the frontend performs
+/// its final snapshot. Decode guards that finish after this boundary are
+/// classified as `in_flight_at_close`, not as forgotten outcomes.
+#[tauri::command]
+pub async fn mark_engine_telemetry_closing() -> Result<(), String> {
+    crate::engine::ENGINE_TELEMETRY.mark_session_closing();
     Ok(())
 }

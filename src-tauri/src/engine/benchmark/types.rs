@@ -175,6 +175,15 @@ pub struct TransferMetrics {
     pub metal_decode_failure_reasons: std::collections::BTreeMap<String, u64>,
     #[serde(default)]
     pub metal_decode_unrecorded: u64,
+    /// Decode guards dropped after the session was marked closing. These are
+    /// shutdown races, not forgotten decode outcomes.
+    #[serde(default)]
+    pub metal_decode_in_flight_at_close: u64,
+    /// Hardware-decoded frames that violated the required zero-copy guard.
+    /// This is persisted in the engine snapshot so the offline linter can
+    /// validate the guard without depending on console-log capture.
+    #[serde(default)]
+    pub zero_copy_guard_violations: u64,
     /// Metal import failures after a decode attempt already produced a frame.
     /// These are deliberately separate from decode outcomes so attempts can
     /// reconcile exactly to decode success/failure/unrecorded.

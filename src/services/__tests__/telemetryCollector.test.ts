@@ -54,6 +54,24 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
     expect(telemetryCollector.getQueueLength()).toBe(1);
   });
 
+  it("tags known dropped native outcomes instead of emitting unknown transfer paths", () => {
+    telemetryCollector.recordRenderSpan(
+      { totalTimeUs: 1_000 },
+      1,
+      1,
+      {},
+      "playback",
+      undefined,
+      0,
+      0,
+      { forceSample: true },
+    );
+
+    const event = (telemetryCollector as any).queue[0];
+    expect(event.workload.transferPath).toBe("dropped");
+    expect(event.workload.renderPath).toBeUndefined();
+  });
+
   it("records the adaptive embedded-readback policy on sampled spans", () => {
     telemetryCollector.recordRenderSpan(
       { totalTimeUs: 25_000 },

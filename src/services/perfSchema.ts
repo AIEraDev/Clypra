@@ -26,6 +26,8 @@ export interface PerfLogBuildIdentity {
   applicationVersion: string;
   gitCommit?: string | null;
   gitDirty: boolean;
+  gitTree?: string | null;
+  gitDiffHash?: string | null;
   optLevel: string;
   debugAssertions: boolean;
   ffmpegVersion: string;

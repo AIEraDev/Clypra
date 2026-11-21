@@ -2974,6 +2974,11 @@ export const NativeProgramPreview: React.FC = () => {
 
     // Matches PrefetchPolicy::playback_window=200ms at 30fps.
     const LOOKAHEAD_PRIME_FRAMES = 6;
+    // Keep the frontend primer from fan-out submitting six independent decode
+    // requests at once. Rust owns the continuous lookahead worker; the
+    // frontend primer only needs a small startup cushion and must not compete
+    // with a visible frame or an upcoming clip-boundary decode.
+    const MAX_CONCURRENT_LOOKAHEAD_PRIME_REQUESTS = 2;
 
     /**
      * Cold-start lookahead primer (Bug 13 fix).
@@ -3001,7 +3006,11 @@ export const NativeProgramPreview: React.FC = () => {
       const revision = `${project.id ?? "unknown-project"}:${state.epoch}`;
       let queuedCount = 0;
 
-      for (let i = 0; i < frameCount; i++) {
+      const boundedFrameCount = Math.min(
+        frameCount,
+        MAX_CONCURRENT_LOOKAHEAD_PRIME_REQUESTS,
+      );
+      for (let i = 0; i < boundedFrameCount; i++) {
         const frameIdx = currentFrame + i;
         const cacheKey = `${revision}:video:prime:${frameIdx}`;
         if (
@@ -3087,7 +3096,7 @@ export const NativeProgramPreview: React.FC = () => {
             payload: {
               event: "lookahead-prime",
               frameIndex: currentFrame,
-              frameCount,
+              frameCount: boundedFrameCount,
               primeTriggeredBy,
             },
           });
