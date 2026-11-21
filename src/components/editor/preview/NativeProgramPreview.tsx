@@ -764,6 +764,8 @@ export const NativeProgramPreview: React.FC = () => {
     surface: "dom-canvas",
     runtimeEnvironment: import.meta.env.DEV ? "development" : "production",
   });
+  const previewContextIdRef = useRef(0);
+  const lastPreviewContextFingerprintRef = useRef("");
   // Native telemetry is read through the service's bounded sequence cursor.
   // This preserves every retained observation between polls without creating
   // a measurement when the editor is idle.
@@ -3967,10 +3969,67 @@ export const NativeProgramPreview: React.FC = () => {
                 : undefined,
               ...telemetryContextBase,
             };
+        const visualLayers = scene.visualLayers;
+        const previewContext = previewTelemetryContextRef.current;
+        // Native preview stream telemetry keys decoders by clipId (the same
+        // identifier sent as `layer_id`), not by the shared media asset ID.
+        // Keep this join exact so the offline linter can reconcile frontend
+        // preview contexts with native frame samples.
+        const streamKeys = visualLayers
+          .flatMap((layer) =>
+            layer.layerType === "media" && layer.mediaType === "video"
+              ? [layer.clipId]
+              : [],
+          )
+          .filter(Boolean)
+          .sort();
+        const previewContextFingerprint = JSON.stringify({
+          presenterMode: previewContext.presenterMode,
+          fallbackReason: previewContext.presenterFallbackReason,
+          surface: previewContext.surface,
+          canvasWidth,
+          canvasHeight,
+          frameRate,
+          streamKeys,
+        });
+        if (
+          previewContextFingerprint !== lastPreviewContextFingerprintRef.current
+        ) {
+          lastPreviewContextFingerprintRef.current = previewContextFingerprint;
+          previewContextIdRef.current += 1;
+          const userAgent =
+            typeof navigator !== "undefined" ? navigator.userAgent : "";
+          const kind = !nativeDirectSurfacePath
+            ? "dom_canvas"
+            : userAgent.includes("Mac")
+              ? "native_metal_surface"
+              : userAgent.includes("Linux")
+                ? "native_vulkan_surface"
+                : "native_d3d_surface";
+          perfLogService.recordPreviewContext({
+            previewContextId: previewContextIdRef.current,
+            kind,
+            role: "program",
+            surface: {
+              width: canvasWidth,
+              height: canvasHeight,
+              dpr:
+                typeof window !== "undefined" ? window.devicePixelRatio : 1,
+            },
+            pipeline: nativeDirectSurfacePath
+              ? ["hardware_decode", "native_import", "wgpu_compositor", "native_presenter"]
+              : ["cpu_download", "ipc_bridge", "dom_canvas"],
+            fpsTarget: frameRate,
+            streamKeys,
+            presenterMode: nativeDirectSurfacePath
+              ? "native-surface"
+              : "bridge",
+            fallbackReason: previewContext.presenterFallbackReason,
+          });
+        }
         // Capture composition complexity from the evaluated scene—not clip
         // metadata—so hidden, transparent, and non-active layers never skew
         // the media/multi-stack cohort that is persisted with this session.
-        const visualLayers = scene.visualLayers;
         const mediaLayers = visualLayers.filter(
           (layer) => layer.layerType === "media",
         );

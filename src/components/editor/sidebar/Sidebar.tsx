@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import {
-  Music,
   Smile,
   Wand2,
   MessageSquare,
@@ -8,7 +7,6 @@ import {
   Shuffle,
   ChevronLeft,
   ChevronRight,
-  Sparkles,
 } from "lucide-react";
 import { MediaTab } from "./tabs/MediaTab";
 import { AudioTab } from "./tabs/AudioTab";
@@ -20,22 +18,34 @@ import { CaptionsTab } from "./tabs/CaptionsTab";
 import { SmartOverlaysTab } from "./tabs/SmartOverlaysTab";
 import { type TabType, type MediaTabProps } from "./types";
 import { EffectsPanel } from "@/features/video-effects/components/EffectsPanel";
-import { TextIcon, YouTubeIcon } from "@/components/ui/icons";
+import {
+  AssetsTabIcon,
+  AudioTabIcon,
+  TextTabIcon,
+} from "@/components/ui/icons";
 import { FeaturePlaceholder } from "@/components/ui/FeaturePlaceholder";
 import { SIDEBAR_PLACEHOLDERS } from "./placeholders";
 import { useI18n } from "@/i18n";
 
 const SIDEBAR_TABS = [
-  { id: "media" as const, icon: YouTubeIcon, labelKey: "sidebar.tabs.media" },
-  { id: "audio" as const, icon: Music, labelKey: "sidebar.tabs.audio" },
-  { id: "text" as const, icon: TextIcon, labelKey: "sidebar.tabs.text" },
+  { id: "media" as const, icon: AssetsTabIcon, labelKey: "sidebar.tabs.media" },
+  { id: "audio" as const, icon: AudioTabIcon, labelKey: "sidebar.tabs.audio" },
+  { id: "text" as const, icon: TextTabIcon, labelKey: "sidebar.tabs.text" },
   // Overlays tab hidden for now
   // { id: "smart-overlays" as const, icon: Sparkles, labelKey: "sidebar.tabs.overlays" },
   { id: "stickers" as const, icon: Smile, labelKey: "sidebar.tabs.stickers" },
   { id: "effects" as const, icon: Wand2, labelKey: "sidebar.tabs.effects" },
   { id: "filters" as const, icon: Filter, labelKey: "sidebar.tabs.filters" },
-  { id: "transitions" as const, icon: Shuffle, labelKey: "sidebar.tabs.transitions" },
-  { id: "captions" as const, icon: MessageSquare, labelKey: "sidebar.tabs.captions" },
+  {
+    id: "transitions" as const,
+    icon: Shuffle,
+    labelKey: "sidebar.tabs.transitions",
+  },
+  {
+    id: "captions" as const,
+    icon: MessageSquare,
+    labelKey: "sidebar.tabs.captions",
+  },
 ] as const;
 
 export interface SidebarProps extends MediaTabProps {
@@ -54,7 +64,8 @@ const SidebarComponent: React.FC<SidebarProps> = ({
   className = "",
 }) => {
   const { t } = useI18n();
-  const resolvedInitialTab = initialTab === "smart-overlays" ? "media" : initialTab;
+  const resolvedInitialTab =
+    initialTab === "smart-overlays" ? "media" : initialTab;
   const [activeTab, setActiveTab] = useState<TabType>(resolvedInitialTab);
 
   React.useEffect(() => {
@@ -107,14 +118,14 @@ const SidebarComponent: React.FC<SidebarProps> = ({
                           : "text-text-muted border-transparent hover:text-text-primary hover:bg-surface-hover"
                       }`}
                     >
-                      <Icon size="0.875em" />
+                      <Icon size="1em" />
                       {t(tab.labelKey)}
                     </button>
                   );
                 })}
               </div>
               {/* Fade hint for overflow tabs */}
-              <div className="pointer-events-none absolute right-6 top-0 h-full w-6 bg-gradient-to-l from-surface-panel to-transparent" />
+              <div className="pointer-events-none absolute right-6 top-0 h-full w-6 bg-linear-to-l from-surface-panel to-transparent" />
             </div>
 
             {onToggleCollapse && (
