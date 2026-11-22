@@ -352,15 +352,24 @@ fn zero_copy_guard_flags_hardware_frames_that_reach_cpu() {
         FrameTransferPath::CpuNv12,
         Some(true),
         true,
+        false,
     ));
     assert!(!super::is_required_zero_copy_violation(
         FrameTransferPath::MetalZeroCopyP010,
         Some(true),
         true,
+        false,
     ));
     assert!(!super::is_required_zero_copy_violation(
         FrameTransferPath::CpuNv12,
         Some(false),
+        true,
+        false,
+    ));
+    assert!(!super::is_required_zero_copy_violation(
+        FrameTransferPath::CpuNv12,
+        Some(true),
+        true,
         true,
     ));
 }

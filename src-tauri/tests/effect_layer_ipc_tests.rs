@@ -224,6 +224,7 @@ fn test_4_versioned_frame_request_roundtrip_with_effect_layer() {
 fn test_5_validation_rejects_invalid_effect_layers() {
     fn make_valid_request(layer: EffectLayer) -> NativeVideoProjectFrameRequest {
         NativeVideoProjectFrameRequest {
+            request_id: "test-req".to_string(),
             canvas_width: 1920,
             canvas_height: 1080,
             clear_color: [0.0, 0.0, 0.0, 1.0],
