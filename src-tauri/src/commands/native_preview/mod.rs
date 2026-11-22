@@ -3450,6 +3450,7 @@ pub(crate) fn record_playback_presentation(app: &tauri::AppHandle, frame_index: 
                 "marker": "sched.resync-recovered",
                 "frameIndex": frame_index,
                 "recoveryMs": now_ms.saturating_sub(pending_resync_at_ms),
+                "phaseId": crate::commands::perf_driver::active_phase_id(),
             }),
         );
     }
@@ -3509,6 +3510,7 @@ fn trace_lookahead_scheduler_decision(
             "msSincePreviousResync": (previous_resync_at_ms > 0).then_some(now_ms.saturating_sub(previous_resync_at_ms)),
             "lagForMs": lag_for_ms,
             "workerState": "active",
+            "phaseId": crate::commands::perf_driver::active_phase_id(),
             "targetPts": target_end_frame as f64 / fps,
             "playheadPts": current_audio_secs,
             "generation": generation,
@@ -3592,6 +3594,7 @@ fn record_playback_lookahead_outcome(app: &tauri::AppHandle, queue_hit: bool) {
                         "fromQuality": format!("{:?}", previous_quality),
                         "toQuality": format!("{:?}", next_quality),
                         "reason": "consecutive-lookahead-misses",
+                        "phaseId": crate::commands::perf_driver::active_phase_id(),
                     }),
                 );
             }
@@ -4285,6 +4288,7 @@ pub(crate) async fn present_native_frame_internal(
             contract_version: NATIVE_CORE_CONTRACT_VERSION,
             request_id: request.request_id,
             frame_index: request.frame_time.frame_index,
+            phase_id: crate::commands::perf_driver::active_phase_id(),
             presented: false,
             dropped: true,
             audio_position_ticks,
@@ -4504,6 +4508,7 @@ pub(crate) async fn present_native_frame_internal(
             contract_version: NATIVE_CORE_CONTRACT_VERSION,
             request_id: request.request_id,
             frame_index: request.frame_time.frame_index,
+            phase_id: crate::commands::perf_driver::active_phase_id(),
             presented: false,
             dropped: false,
             audio_position_ticks,
@@ -4551,6 +4556,7 @@ pub(crate) async fn present_native_frame_internal(
             contract_version: NATIVE_CORE_CONTRACT_VERSION,
             request_id: request.request_id,
             frame_index: request.frame_time.frame_index,
+            phase_id: crate::commands::perf_driver::active_phase_id(),
             presented: false,
             dropped: true,
             audio_position_ticks,
@@ -5175,6 +5181,7 @@ pub(crate) async fn present_native_frame_internal(
         contract_version: NATIVE_CORE_CONTRACT_VERSION,
         request_id: request.request_id,
         frame_index: request.frame_time.frame_index,
+        phase_id: crate::commands::perf_driver::active_phase_id(),
         presented: true,
         dropped: false,
         audio_position_ticks,
