@@ -672,5 +672,9 @@
   "properties.adjust.resetChannel": "重設 {{channel}} 色版",
   "preview.errors.title": "預覽無法使用",
   "preview.errors.nativeSurface": "圖形裝置已準備就緒，但無法建立原生預覽表面。",
-  "preview.errors.gpu": "Clypra 無法初始化圖形裝置。"
+  "preview.errors.gpu": "Clypra 無法初始化圖形裝置。",
+  "preview.devDefaults": "開發預設值：trace={{trace}} · zero-copy={{zeroCopy}} · 解碼={{decodePath}}",
+  "preview.zeroCopyViolation": "Zero-copy 斷言：{{count}} 個事件",
+  "common.status.on": "開啟",
+  "common.status.off": "關閉"
 }

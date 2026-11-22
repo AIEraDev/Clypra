@@ -127,6 +127,12 @@ pub struct PerfSessionHeader {
     pub build: PerfBuildIdentity,
     pub system: PerfSystemFingerprint,
     pub resolved_flags: std::collections::BTreeMap<String, bool>,
+    /// Profile that supplied defaults for this session. This is separate from
+    /// build debug assertions because release binaries can opt into the dev
+    /// profile with CLYPRA_DEV=1.
+    pub runtime_profile: crate::runtime_profile::RuntimeProfile,
+    pub dev_profile: bool,
+    pub resolved_flag_sources: std::collections::BTreeMap<String, String>,
     pub decode_policy: String,
     pub decode_policy_source: String,
     pub decode_policy_effective: String,
@@ -206,6 +212,88 @@ fn resolved_flag(name: &str) -> bool {
 fn make_session_header(session_id: &str, opened_at_epoch_ms: u64) -> PerfSessionHeader {
     let machine = crate::engine::benchmark::runner::probe_machine_identity();
     let decode_resolution = crate::engine::decode_policy::resolve_decode_resolution();
+    let runtime_profile = crate::runtime_profile::resolve_runtime_flag_profile();
+    let mut resolved_flags = [
+        (
+            "CLYPRA_DECODE_PATH".to_string(),
+            runtime_profile.decode_path_source == "env",
+        ),
+        (
+            "CLYPRA_METAL_DECODE".to_string(),
+            resolved_flag("CLYPRA_METAL_DECODE"),
+        ),
+        (
+            "CLYPRA_REQUIRE_ZERO_COPY".to_string(),
+            runtime_profile.require_zero_copy.enabled,
+        ),
+        (
+            "CLYPRA_ALLOW_UNVERIFIED".to_string(),
+            runtime_profile.allow_unverified.enabled,
+        ),
+        (
+            "CLYPRA_DISABLE_METAL_ZERO_COPY".to_string(),
+            resolved_flag("CLYPRA_DISABLE_METAL_ZERO_COPY"),
+        ),
+        (
+            "CLYPRA_DEBUG_DISABLE_DIRTY_RECOVERY".to_string(),
+            runtime_profile.disable_dirty_recovery.enabled,
+        ),
+        (
+            "CLYPRA_VALIDATE_STAGES".to_string(),
+            runtime_profile.validate_stages.enabled,
+        ),
+        ("CLYPRA_TRACE".to_string(), runtime_profile.trace.enabled),
+        (
+            "CLYPRA_FFMPEG_LOG_LEVEL".to_string(),
+            std::env::var("CLYPRA_FFMPEG_LOG_LEVEL")
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false),
+        ),
+    ]
+    .into_iter()
+    .collect::<std::collections::BTreeMap<_, _>>();
+    resolved_flags.insert("CLYPRA_DEV".to_string(), runtime_profile.is_dev());
+    let resolved_flag_sources = [
+        (
+            "CLYPRA_DEV".to_string(),
+            std::env::var("CLYPRA_DEV")
+                .ok()
+                .map(|_| "env".to_string())
+                .unwrap_or_else(|| {
+                    if runtime_profile.is_dev() {
+                        "dev-default".to_string()
+                    } else {
+                        "release-default".to_string()
+                    }
+                }),
+        ),
+        (
+            "CLYPRA_TRACE".to_string(),
+            runtime_profile.trace.source.to_string(),
+        ),
+        (
+            "CLYPRA_VALIDATE_STAGES".to_string(),
+            runtime_profile.validate_stages.source.to_string(),
+        ),
+        (
+            "CLYPRA_REQUIRE_ZERO_COPY".to_string(),
+            runtime_profile.require_zero_copy.source.to_string(),
+        ),
+        (
+            "CLYPRA_DECODE_PATH".to_string(),
+            runtime_profile.decode_path_source.to_string(),
+        ),
+        (
+            "CLYPRA_ALLOW_UNVERIFIED".to_string(),
+            runtime_profile.allow_unverified.source.to_string(),
+        ),
+        (
+            "CLYPRA_DEBUG_DISABLE_DIRTY_RECOVERY".to_string(),
+            runtime_profile.disable_dirty_recovery.source.to_string(),
+        ),
+    ]
+    .into_iter()
+    .collect();
     PerfSessionHeader {
         schema_version: PERF_LOG_SCHEMA_VERSION,
         session_id: session_id.to_string(),
@@ -256,47 +344,10 @@ fn make_session_header(session_id: &str, opened_at_epoch_ms: u64) -> PerfSession
             low_power_mode: probe_low_power_mode(),
             thermal_state: probe_thermal_state(),
         },
-        resolved_flags: [
-            (
-                "CLYPRA_DECODE_PATH".to_string(),
-                std::env::var("CLYPRA_DECODE_PATH")
-                    .map(|value| !value.trim().is_empty())
-                    .unwrap_or(false),
-            ),
-            (
-                "CLYPRA_METAL_DECODE".to_string(),
-                resolved_flag("CLYPRA_METAL_DECODE"),
-            ),
-            (
-                "CLYPRA_REQUIRE_ZERO_COPY".to_string(),
-                resolved_flag("CLYPRA_REQUIRE_ZERO_COPY"),
-            ),
-            (
-                "CLYPRA_ALLOW_UNVERIFIED".to_string(),
-                resolved_flag("CLYPRA_ALLOW_UNVERIFIED"),
-            ),
-            (
-                "CLYPRA_DISABLE_METAL_ZERO_COPY".to_string(),
-                resolved_flag("CLYPRA_DISABLE_METAL_ZERO_COPY"),
-            ),
-            (
-                "CLYPRA_DEBUG_DISABLE_DIRTY_RECOVERY".to_string(),
-                resolved_flag("CLYPRA_DEBUG_DISABLE_DIRTY_RECOVERY"),
-            ),
-            (
-                "CLYPRA_VALIDATE_STAGES".to_string(),
-                resolved_flag("CLYPRA_VALIDATE_STAGES"),
-            ),
-            ("CLYPRA_TRACE".to_string(), resolved_flag("CLYPRA_TRACE")),
-            (
-                "CLYPRA_FFMPEG_LOG_LEVEL".to_string(),
-                std::env::var("CLYPRA_FFMPEG_LOG_LEVEL")
-                    .map(|value| !value.trim().is_empty())
-                    .unwrap_or(false),
-            ),
-        ]
-        .into_iter()
-        .collect(),
+        resolved_flags,
+        runtime_profile: runtime_profile.profile,
+        dev_profile: runtime_profile.is_dev(),
+        resolved_flag_sources,
         decode_policy: decode_resolution.requested.as_str().to_string(),
         decode_policy_source: decode_resolution.source.as_str().to_string(),
         decode_policy_effective: decode_resolution.effective.as_str().to_string(),
@@ -313,7 +364,7 @@ fn make_session_header(session_id: &str, opened_at_epoch_ms: u64) -> PerfSession
         scenario_id: std::env::var("CLYPRA_SCENARIO_ID").ok(),
         scenario_hash: std::env::var("CLYPRA_SCENARIO_HASH").ok(),
         experiment_arm: std::env::var("CLYPRA_EXPERIMENT_ARM").ok(),
-        validation_mode: resolved_flag("CLYPRA_VALIDATE_STAGES"),
+        validation_mode: runtime_profile.validate_stages.enabled,
     }
 }
 

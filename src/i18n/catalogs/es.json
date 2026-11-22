@@ -672,5 +672,9 @@
   "properties.adjust.resetChannel": "Restablecer canal {{channel}}",
   "preview.errors.title": "Vista previa no disponible",
   "preview.errors.nativeSurface": "El dispositivo gráfico está listo, pero no se pudo crear la superficie de vista previa nativa.",
-  "preview.errors.gpu": "Clypra no pudo inicializar el dispositivo gráfico."
+  "preview.errors.gpu": "Clypra no pudo inicializar el dispositivo gráfico.",
+  "preview.devDefaults": "Valores de desarrollo: trace={{trace}} · zero-copy={{zeroCopy}} · decodificación={{decodePath}}",
+  "preview.zeroCopyViolation": "Aserción zero-copy: {{count}} incidencia(s)",
+  "common.status.on": "Activado",
+  "common.status.off": "Desactivado"
 }

@@ -672,5 +672,9 @@
   "properties.adjust.resetChannel": "{{channel}}-Kanal zurücksetzen",
   "preview.errors.title": "Vorschau nicht verfügbar",
   "preview.errors.nativeSurface": "Das Grafikgerät ist bereit, aber die native Vorschauoberfläche konnte nicht erstellt werden.",
-  "preview.errors.gpu": "Clypra konnte das Grafikgerät nicht initialisieren."
+  "preview.errors.gpu": "Clypra konnte das Grafikgerät nicht initialisieren.",
+  "preview.devDefaults": "Entwicklungsstandards: Trace={{trace}} · Zero-Copy={{zeroCopy}} · Decode={{decodePath}}",
+  "preview.zeroCopyViolation": "Zero-Copy-Assertion: {{count}} Vorfall/Vorfälle",
+  "common.status.on": "Ein",
+  "common.status.off": "Aus"
 }

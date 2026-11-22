@@ -69,6 +69,7 @@ import { refitClipsForCanvasChange } from "@/lib/timeline/refitClips";
 import { isClipActiveAtTime } from "@/lib/timeline/timelineClip";
 import { useAudioSyncEngine } from "@/hooks/useAudioSyncEngine";
 import { toast } from "@/lib/toast";
+import { useI18n } from "@/i18n";
 
 import { AspectSelector } from "./AspectSelector";
 import { PlaybackSpeedSelector } from "./PlaybackSpeedSelector";
@@ -79,6 +80,7 @@ import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
 import {
   tracePlayback,
   traceSlowPlaybackStage,
+  setPlaybackTraceEnabled,
 } from "@/core/playback/playbackTrace";
 import { traceAudioEvent } from "@/core/playback/audioTrace"; // INVESTIGATION ONLY — remove before Phase 6
 import {
@@ -107,6 +109,10 @@ import {
   closeNativePlaybackPushStream,
   queueNativeFrame,
   listenForNativePlaybackStats,
+  listenForNativePlaybackProgress,
+  emitNativeDiagnostic,
+  getRuntimeFlagProfile,
+  listenForNativeDiagnostics,
   listenForNativePlaybackStartup,
   listenForNativePlaybackDemandPresented,
   listenForNativePlaybackDemandTerminal,
@@ -117,7 +123,9 @@ import {
   recordColdStartSpan,
   markFirstFramePainted,
   type NativePlaybackStatsPayload,
+  type RuntimeFlagProfile,
 } from "@/lib/platform/tauri";
+import { NativePlaybackWatchdog } from "@/core/playback/nativePlaybackWatchdog";
 import { telemetryCollector } from "@/services/telemetryCollector";
 import type { TelemetryPreviewContext } from "@/services/telemetryCollector";
 import { perfLogService } from "@/services/perfLogService";
@@ -567,6 +575,7 @@ const ConnectedProgramTransport: React.FC<ConnectedProgramTransportProps> =
   });
 
 export const NativeProgramPreview: React.FC = () => {
+  const { t } = useI18n();
   const karaokeOverlayEnabled = useCaptionStore((s) => s.karaokeOverlayEnabled);
   const project = useProjectStore((s) => s.project);
   const projectInitializing = useProjectStore(
@@ -624,6 +633,47 @@ export const NativeProgramPreview: React.FC = () => {
   const [activeSession, setActiveSession] = useState<ProjectSession | null>(
     () => getActiveSessionOrNull(),
   );
+  const [runtimeFlagProfile, setRuntimeFlagProfile] =
+    useState<RuntimeFlagProfile | null>(null);
+  const [zeroCopyViolationCount, setZeroCopyViolationCount] = useState(0);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let mounted = true;
+    void getRuntimeFlagProfile()
+      .then((profile) => {
+        if (mounted) {
+          setRuntimeFlagProfile(profile);
+          setPlaybackTraceEnabled(profile.trace.enabled);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let mounted = true;
+    let unlisten: (() => void) | undefined;
+    void listenForNativeDiagnostics((diagnostic) => {
+      if (
+        mounted &&
+        diagnostic.source === "native-preview" &&
+        diagnostic.code === "zero-copy-violation"
+      ) {
+        setZeroCopyViolationCount((count) => count + 1);
+      }
+    }).then((cleanup) => {
+      if (mounted) unlisten = cleanup;
+      else cleanup();
+    });
+    return () => {
+      mounted = false;
+      unlisten?.();
+    };
+  }, []);
 
   useEffect(() => {
     return subscribeToSessionChanges(() => {
@@ -1466,10 +1516,12 @@ export const NativeProgramPreview: React.FC = () => {
     let nativeTextPrefetchTimer: number | null = null;
 
     let nativeSurfaceShown = false;
+    const nativePlaybackWatchdog = new NativePlaybackWatchdog();
     let pendingHandoverSurfaceHide = false;
     let handoverSafetyTimer: number | null = null;
     let unlistenStartupMilestone: (() => void) | null = null;
     let unlistenPlaybackStats: (() => void) | null = null;
+    let unlistenPlaybackProgress: (() => void) | null = null;
     let unlistenDemandPresentation: (() => void) | null = null;
     let unlistenDemandTerminal: (() => void) | null = null;
     let lastNativePlaybackRequestKey = "";
@@ -1517,6 +1569,15 @@ export const NativeProgramPreview: React.FC = () => {
       return;
     }
     const nativeRasterBridge = sessionNativeRasterBridge;
+    if (isTauriRuntime()) {
+      void listenForNativePlaybackProgress(({ frameIndex }) => {
+        nativePlaybackWatchdog.recordPresentation(frameIndex, performance.now());
+        nativeSurfaceShown = true;
+      }).then((fn) => {
+        if (!isActive) fn();
+        else unlistenPlaybackProgress = fn;
+      });
+    }
     const nativeEditorOverlayManager = new NativeEditorOverlayManager();
     // tracePlayback("playback-loop-start", {
     //   projectId: project.id,
@@ -3216,13 +3277,29 @@ export const NativeProgramPreview: React.FC = () => {
         const playbackState = state.clock.state;
         const isPlaying = playbackState === "playing";
         // Task 3: Detect first RAF after transition to playing.
+        const wasPlaying = wasPlayingInLastFrame;
         const justStartedPlaying = isPlaying && !wasPlayingInLastFrame;
+        const justStoppedPlaying = !isPlaying && wasPlaying;
         wasPlayingInLastFrame = isPlaying;
         if (justStartedPlaying) {
+          nativePlaybackWatchdog.beginPlayback(performance.now());
           lastNativePlaybackRequestKey = "";
+        } else if (justStoppedPlaying) {
+          nativePlaybackWatchdog.endPlayback();
         }
         const frameRate = state.project?.frameRate ?? 30;
         const frameIndex = getFrameIndexAtTime(timeToRender, frameRate);
+        const watchdogIncident = nativePlaybackWatchdog.check(
+          isPlaying,
+          performance.now(),
+          frameIndex,
+        );
+        if (watchdogIncident) {
+          tracePlayback("native-playback-watchdog", { ...watchdogIncident });
+          void emitNativeDiagnostic({ ...watchdogIncident }).catch(
+            () => undefined,
+          );
+        }
         if (playbackState !== lastTracedPlaybackState) {
           lastTracedPlaybackState = playbackState;
           // tracePlayback("playback-state", {
@@ -5776,6 +5853,7 @@ export const NativeProgramPreview: React.FC = () => {
       abandonPausedNativeDemand("superseded", false);
       unlistenStartupMilestone?.();
       unlistenPlaybackStats?.();
+      unlistenPlaybackProgress?.();
       unlistenDemandPresentation?.();
       unlistenDemandTerminal?.();
     };
@@ -5838,6 +5916,28 @@ export const NativeProgramPreview: React.FC = () => {
         {import.meta.env.DEV && nativeSurfaceError && (
           <div className="absolute top-3 left-3 z-40 px-2.5 py-1 rounded bg-danger/20 border border-danger/40 text-[11px] text-danger font-medium pointer-events-none">
             Preview surface unavailable: {nativeSurfaceError}
+          </div>
+        )}
+        {runtimeFlagProfile?.profile === "dev" && (
+          <div className="absolute top-3 right-3 z-40 pointer-events-none flex flex-col items-end gap-1">
+            <div className="px-2.5 py-1 rounded bg-surface-floating/90 backdrop-blur-md border border-status-warning/40 text-[10px] font-mono text-status-warning shadow-lg select-none">
+              {t("preview.devDefaults", {
+                trace: runtimeFlagProfile.trace.enabled
+                  ? t("common.status.on")
+                  : t("common.status.off"),
+                zeroCopy: runtimeFlagProfile.requireZeroCopy.enabled
+                  ? t("common.status.on")
+                  : t("common.status.off"),
+                decodePath: runtimeFlagProfile.decodePath,
+              })}
+            </div>
+            {zeroCopyViolationCount > 0 && (
+              <div className="px-2.5 py-1 rounded bg-status-warning/15 border border-status-warning/40 text-[10px] font-mono text-status-warning shadow-lg select-none">
+                {t("preview.zeroCopyViolation", {
+                  count: zeroCopyViolationCount,
+                })}
+              </div>
+            )}
           </div>
         )}
         <div

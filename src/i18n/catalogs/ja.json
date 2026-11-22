@@ -672,5 +672,9 @@
   "properties.adjust.resetChannel": "{{channel}}チャンネルをリセット",
   "preview.errors.title": "プレビューを利用できません",
   "preview.errors.nativeSurface": "グラフィックデバイスは準備できていますが、ネイティブプレビューサーフェスを作成できませんでした。",
-  "preview.errors.gpu": "Clypraはグラフィックデバイスを初期化できませんでした。"
+  "preview.errors.gpu": "Clypraはグラフィックデバイスを初期化できませんでした。",
+  "preview.devDefaults": "開発デフォルト: trace={{trace}} · zero-copy={{zeroCopy}} · デコード={{decodePath}}",
+  "preview.zeroCopyViolation": "Zero-copyアサーション: {{count}}件のインシデント",
+  "common.status.on": "オン",
+  "common.status.off": "オフ"
 }

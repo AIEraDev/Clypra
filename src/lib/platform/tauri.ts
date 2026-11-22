@@ -1,5 +1,5 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { AudioFadeCurve, DensityLevel, ThumbnailTile } from "../../types";
 import type { ColdStartReport } from "../../services/telemetryCollector";
@@ -756,6 +756,55 @@ export interface NativePlaybackStatsPayload {
   maxFrameMs: number;
   dropped: number;
   stackedStreams: number;
+  /** Continuous playback accounting; paused seeks are excluded. */
+  playbackSubmissions: number;
+  playbackCompletions: number;
+  playbackSupersessions: number;
+  playbackLookaheadMisses: number;
+  nativeState: "playing";
+  demandClass: "continuous_playback";
+}
+
+export interface RuntimeFlagProfile {
+  profile: "dev" | "release";
+  trace: { enabled: boolean; source: string };
+  validateStages: { enabled: boolean; source: string };
+  requireZeroCopy: { enabled: boolean; source: string };
+  decodePath: string;
+  decodePathSource: string;
+  allowUnverified: { enabled: boolean; source: string };
+  disableDirtyRecovery: { enabled: boolean; source: string };
+}
+
+export interface NativeDiagnosticPayload {
+  level?: string;
+  source?: string;
+  code?: string;
+  message?: string;
+  timestampEpochMs?: number;
+}
+
+export async function getRuntimeFlagProfile(): Promise<RuntimeFlagProfile> {
+  if (!isTauriRuntime()) {
+    throw new Error("getRuntimeFlagProfile requires the Tauri runtime");
+  }
+  return invoke<RuntimeFlagProfile>("get_runtime_flag_profile");
+}
+
+export function listenForNativeDiagnostics(
+  onDiagnostic: (diagnostic: NativeDiagnosticPayload) => void,
+): Promise<UnlistenFn> {
+  return listen<NativeDiagnosticPayload>("clypra://native-diagnostic", (event) => {
+    onDiagnostic(event.payload);
+  });
+}
+
+/** Emit a local diagnostic event for the perf-log bridge. */
+export async function emitNativeDiagnostic(
+  payload: Record<string, unknown>,
+): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await emit("clypra://native-diagnostic", payload);
 }
 
 /** Listen for rolling real-time playback telemetry from Rust. */
@@ -767,6 +816,16 @@ export function listenForNativePlaybackStats(
     (event) => {
       onStats(event.payload);
     },
+  );
+}
+
+/** Listen for presentation progress from continuous native playback. */
+export function listenForNativePlaybackProgress(
+  onProgress: (progress: { frameIndex: number; generation?: number }) => void,
+): Promise<UnlistenFn> {
+  return listen<{ frameIndex: number; generation?: number }>(
+    "clypra://native-playback-progress",
+    (event) => onProgress(event.payload),
   );
 }
 

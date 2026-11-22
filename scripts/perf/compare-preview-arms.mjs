@@ -82,6 +82,10 @@ async function readSession(file) {
     streamPaths,
     footerStatus: footer.status ?? null,
     unverifiedOverride: header.unverifiedCapabilityOverride === true,
+    devProfile:
+      header.devProfile === true
+      || header.runtimeProfile === "dev"
+      || (header.devProfile === undefined && header.build?.debugAssertions === true),
   };
 }
 
@@ -93,6 +97,7 @@ function integrityFailures(session) {
   if (session.unrecorded > 0) failures.push(`unrecorded outcomes=${session.unrecorded}`);
   if (session.inFlightAtClose > 0) failures.push(`in-flight outcomes=${session.inFlightAtClose}`);
   if (session.unverifiedOverride) failures.push("unverified capability override");
+  if (session.devProfile) failures.push("dev profile session is not benchmark-grade");
   if (session.footerStatus !== "closed") {
     failures.push(`footer status=${session.footerStatus}`);
   }
@@ -141,7 +146,12 @@ export async function compareArms({ arms, warmups = 1, minRuns = 5 }) {
       .filter((entry) => entry.reasons.length > 0);
     const valid = eligible.filter((session) => integrityFailures(session).length === 0);
     const measured = valid.slice(warmups);
-    if (measured.length < minRuns) throw new Error(`arm ${arm} has ${measured.length} measured runs; ${minRuns} required after warm-up`);
+    if (measured.length < minRuns) {
+      if (excluded.some((entry) => entry.reasons.includes("dev profile session is not benchmark-grade"))) {
+        throw new Error(`arm ${arm} contains dev profile evidence; benchmark comparison requires non-dev sessions`);
+      }
+      throw new Error(`arm ${arm} has ${measured.length} measured runs; ${minRuns} required after warm-up`);
+    }
     loaded[arm] = {
       ...summarize(measured),
       filteredNonNominal: sessions.length - eligible.length,

@@ -672,5 +672,9 @@
   "properties.adjust.resetChannel": "Reset {{channel}} channel",
   "preview.errors.title": "Preview is unavailable",
   "preview.errors.nativeSurface": "The graphics device is ready, but the native preview surface could not be created. Restart the editor and send the diagnostics report if this continues.",
-  "preview.errors.gpu": "Clypra could not initialize the graphics device. Check your graphics drivers and restart the editor."
+  "preview.errors.gpu": "Clypra could not initialize the graphics device. Check your graphics drivers and restart the editor.",
+  "preview.devDefaults": "Dev defaults: trace={{trace}} · require_zero_copy={{zeroCopy}} · decode={{decodePath}}",
+  "preview.zeroCopyViolation": "Zero-copy assertion: {{count}} incident(s)",
+  "common.status.on": "On",
+  "common.status.off": "Off"
 }

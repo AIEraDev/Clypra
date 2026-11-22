@@ -676,5 +676,9 @@
   "properties.adjust.resetChannel": "Сбросить канал {{channel}}",
   "preview.errors.title": "Предпросмотр недоступен",
   "preview.errors.nativeSurface": "Графическое устройство готово, но собственную поверхность предпросмотра создать не удалось.",
-  "preview.errors.gpu": "Clypra не удалось инициализировать графическое устройство."
+  "preview.errors.gpu": "Clypra не удалось инициализировать графическое устройство.",
+  "preview.devDefaults": "Параметры разработки: trace={{trace}} · zero-copy={{zeroCopy}} · декодирование={{decodePath}}",
+  "preview.zeroCopyViolation": "Проверка zero-copy: инцидентов — {{count}}",
+  "common.status.on": "Вкл.",
+  "common.status.off": "Выкл."
 }

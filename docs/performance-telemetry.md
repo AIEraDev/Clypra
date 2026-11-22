@@ -173,13 +173,37 @@ Decode selection is automatic by default. macOS tries VideoToolbox → Metal,
 Windows tries D3D11/DXGI, and unsupported or unavailable candidates fall back
 to CPU/software decoding. `CLYPRA_DECODE_PATH=auto|cpu|metal|dxgi` is an
 explicit diagnostic override; the legacy `CLYPRA_METAL_DECODE=1` remains
-accepted but is no longer required. `CLYPRA_REQUIRE_ZERO_COPY` is an assertion
-for validation runs, not a normal runtime prerequisite. Each session header
-records requested policy, effective policy, and a typed rejection reason when a
-foreign override is unsupported. Frame transfer telemetry records the path
-actually used. Metal P010 remains capability-gated as `unverified`; only the
-validated NV12 FourCCs enter the default zero-copy path until a Main10 parity
-session promotes it.
+accepted but is no longer required. Each session header records requested
+policy, effective policy, a typed rejection reason when a foreign override is
+unsupported, and the profile/source that supplied each flag.
+
+The Rust runtime resolver applies these defaults. `pnpm tauri dev` sets
+`CLYPRA_DEV=1` through the cross-platform CLI wrapper, while release builds do
+not inherit it. `CLYPRA_DEBUG_DISABLE_DIRTY_RECOVERY` is deliberately off in
+both profiles and remains an explicit experiment toggle; it never becomes a
+developer default.
+
+| Flag | Class | Dev default | Release default |
+| --- | --- | --- | --- |
+| `CLYPRA_TRACE` | Observability | On; bounded/sampleable trace collection | Off |
+| `CLYPRA_VALIDATE_STAGES` | Timing-perturbing observability | Off | Off |
+| `CLYPRA_REQUIRE_ZERO_COPY` | Assertion | On; rate-limited incident, no panic | Off |
+| `CLYPRA_DECODE_PATH` | Policy override | `auto` | `auto` |
+| `CLYPRA_ALLOW_UNVERIFIED` | Experiment | Off | Off |
+| `CLYPRA_DEBUG_DISABLE_DIRTY_RECOVERY` | Correctness-affecting experiment | Off; explicit dev toggle only | Off |
+
+The session header records `runtimeProfile`, `devProfile`, and
+`resolvedFlagSources`. The preview shows the active dev defaults and any
+zero-copy assertion incidents as non-blocking badges. Dev-profile sessions are
+dev-grade evidence; the A/B comparator rejects them before warm-up or baseline
+aggregation. Release-grade baselines must be collected with `devProfile: false`.
+
+`CLYPRA_REQUIRE_ZERO_COPY` is an assertion, not a panic switch. A violation is
+rate-limited into the native diagnostic stream and the preview badge, while
+playback continues. Frame transfer telemetry records the path actually used.
+Metal P010 remains capability-gated as `unverified`; only the validated NV12
+FourCCs enter the default zero-copy path until a Main10 parity session promotes
+it.
 
 To exercise the gated Main10 path deliberately, launch with
 `CLYPRA_DECODE_PATH=metal` (or `CLYPRA_ALLOW_UNVERIFIED=1`). The header then

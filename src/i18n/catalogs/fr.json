@@ -672,5 +672,9 @@
   "properties.adjust.resetChannel": "Réinitialiser le canal {{channel}}",
   "preview.errors.title": "Aperçu indisponible",
   "preview.errors.nativeSurface": "Le périphérique graphique est prêt, mais la surface d’aperçu native n’a pas pu être créée.",
-  "preview.errors.gpu": "Clypra n’a pas pu initialiser le périphérique graphique."
+  "preview.errors.gpu": "Clypra n’a pas pu initialiser le périphérique graphique.",
+  "preview.devDefaults": "Valeurs de développement : trace={{trace}} · zero-copy={{zeroCopy}} · décodage={{decodePath}}",
+  "preview.zeroCopyViolation": "Assertion zero-copy : {{count}} incident(s)",
+  "common.status.on": "Activé",
+  "common.status.off": "Désactivé"
 }

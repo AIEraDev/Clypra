@@ -74,6 +74,22 @@ test("A/B comparator refuses an unverified callback control", async () => {
   );
 });
 
+test("A/B comparator refuses dev-profile evidence", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "clypra-arms-dev-profile-"));
+  const files = {
+    A: [await session(dir, "a", 0.2)],
+    B: [await session(dir, "b", 0.2)],
+    C: [await session(dir, "c", 0.2)],
+  };
+  const path = files.B[0];
+  const contents = await readFile(path, "utf8");
+  await writeFile(path, contents.replace('"ffmpegCallbackVerified":true', '"ffmpegCallbackVerified":true,"devProfile":true'));
+  await assert.rejects(
+    compareArms({ arms: files, warmups: 0, minRuns: 1 }),
+    /contains dev profile evidence/,
+  );
+});
+
 test("A/B comparator refuses mixed instrumentation hashes", async () => {
   const dir = await mkdtemp(join(tmpdir(), "clypra-arms-hash-"));
   const files = {

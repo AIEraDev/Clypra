@@ -672,5 +672,9 @@
   "properties.adjust.resetChannel": "重置 {{channel}} 通道",
   "preview.errors.title": "预览不可用",
   "preview.errors.nativeSurface": "图形设备已准备就绪，但无法创建原生预览表面。",
-  "preview.errors.gpu": "Clypra 无法初始化图形设备。"
+  "preview.errors.gpu": "Clypra 无法初始化图形设备。",
+  "preview.devDefaults": "开发默认值：trace={{trace}} · zero-copy={{zeroCopy}} · 解码={{decodePath}}",
+  "preview.zeroCopyViolation": "Zero-copy 断言：{{count}} 个事件",
+  "common.status.on": "开启",
+  "common.status.off": "关闭"
 }

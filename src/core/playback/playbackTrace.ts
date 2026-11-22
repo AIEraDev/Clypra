@@ -22,10 +22,20 @@ const PLAYBACK_CONSOLE_EVENTS = new Set([
   "preview-hit-test",
 ]);
 
+// The default matches a Vite development session. Tauri sessions replace it
+// once the native runtime profile is resolved; this keeps release playback
+// free of trace-ring work without adding IPC to the render path.
+let traceEnabled = import.meta.env.DEV;
+
+export function setPlaybackTraceEnabled(enabled: boolean): void {
+  traceEnabled = enabled;
+}
+
 export function tracePlayback(
   event: string,
   details: Record<string, unknown> = {},
 ): void {
+  if (!traceEnabled) return;
   const timeMs = performance.now();
   const payload: PlaybackTraceEvent = {
     category: "playback",
