@@ -333,7 +333,15 @@ impl NativeRenderSession {
                 return;
             }
         }
-        let _ = app.emit("clypra://native-playback-demand-terminal", terminal);
+        let mut payload = serde_json::to_value(terminal).unwrap_or_else(|_| serde_json::json!({}));
+        if let Some(object) = payload.as_object_mut() {
+            object.insert(
+                "phaseId".to_string(),
+                serde_json::to_value(crate::commands::perf_driver::active_phase_id())
+                    .unwrap_or(serde_json::Value::Null),
+            );
+        }
+        let _ = app.emit("clypra://native-playback-demand-terminal", payload);
     }
 
     fn experiment_context(
@@ -1537,7 +1545,9 @@ impl NativeRenderSession {
                         contract_version: base_request.contract_version,
                         project_revision: base_request.project.project_revision.clone(),
                         frame_rate: base_request.project.frame_rate,
-                        duration_frames: u64::MAX,
+                        duration_frames: crate::native_core::session::max_supported_duration_frames(
+                            base_request.project.frame_rate.max(1),
+                        ),
                         audio_track_count: 0,
                     },
                 ) {
@@ -1628,6 +1638,7 @@ impl NativeRenderSession {
                                     "generation": generation,
                                     "state": "playing",
                                     "demandClass": "continuous_playback",
+                                    "phaseId": crate::commands::perf_driver::active_phase_id(),
                                 }),
                             );
                             if let Some(t) = &presentation.timings {
@@ -1685,6 +1696,7 @@ impl NativeRenderSession {
                                 playback_lookahead_misses: u64,
                                 native_state: &'static str,
                                 demand_class: &'static str,
+                                phase_id: Option<String>,
                             }
 
                             let _ = app.emit(
@@ -1704,6 +1716,7 @@ impl NativeRenderSession {
                                     playback_lookahead_misses,
                                     native_state: "playing",
                                     demand_class: "continuous_playback",
+                                    phase_id: crate::commands::perf_driver::active_phase_id(),
                                 },
                             );
 
@@ -1835,6 +1848,7 @@ impl NativeRenderSession {
                             "demandClass": "paused_seek",
                             "frameIndex": request.frame_time.frame_index,
                             "generation": request.target_generation.or(request.generation),
+                            "phaseId": crate::commands::perf_driver::active_phase_id(),
                         }),
                     );
                 }

@@ -8,7 +8,11 @@ const tauriBinary = process.platform === "win32"
   ? "node_modules/.bin/tauri.cmd"
   : "node_modules/.bin/tauri";
 
-const child = spawn(tauriBinary, args, {
+const forwardedArgs = isDevCommand && !args.includes("--features")
+  ? [...args, "--", "--features", "perf-driver"]
+  : args;
+
+const child = spawn(tauriBinary, forwardedArgs, {
   stdio: "inherit",
   env: isDevCommand ? { ...process.env, CLYPRA_DEV: "1" } : process.env,
 });

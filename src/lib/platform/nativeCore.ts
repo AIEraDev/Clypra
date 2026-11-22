@@ -544,6 +544,7 @@ export interface NativeSurfacePresentation {
   contractVersion: number;
   requestId: string;
   frameIndex: number;
+  phaseId?: string | null;
   presented: boolean;
   dropped: boolean;
   audioPositionTicks: number;
@@ -607,6 +608,7 @@ export interface NativePlaybackDemandTerminal {
   generation?: number;
   cancellationEpoch: number;
   frameIndex: number;
+  phaseId?: string | null;
   disposition:
     | "presented"
     | "coalesced"

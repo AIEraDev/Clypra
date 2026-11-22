@@ -903,7 +903,7 @@ pub fn run() {
         .expect("error while building tauri application");
     crate::cold_start::record_span("c0_app_build", build_start, 0, false);
 
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, feature = "perf-driver"))]
     crate::commands::debug::start_debug_ipc_server(app.handle().clone());
 
     let run_start = std::time::Instant::now();

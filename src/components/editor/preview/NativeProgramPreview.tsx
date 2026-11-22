@@ -85,6 +85,7 @@ import {
 import { traceAudioEvent } from "@/core/playback/audioTrace"; // INVESTIGATION ONLY — remove before Phase 6
 import {
   nativePerfCollector,
+  setNativePerfPhaseId,
   type NativePerfSpan,
 } from "@/core/playback/nativePerfTelemetry";
 import type { SeekIntent } from "@/core/playback/seekController";
@@ -110,6 +111,8 @@ import {
   queueNativeFrame,
   listenForNativePlaybackStats,
   listenForNativePlaybackProgress,
+  listenForPerfDriverTransport,
+  listenForPerfDriverProbe,
   emitNativeDiagnostic,
   getRuntimeFlagProfile,
   listenForNativeDiagnostics,
@@ -658,6 +661,11 @@ export const NativeProgramPreview: React.FC = () => {
     let mounted = true;
     let unlisten: (() => void) | undefined;
     void listenForNativeDiagnostics((diagnostic) => {
+      if (diagnostic.marker === "perf-phase") {
+        setNativePerfPhaseId(
+          diagnostic.phaseEvent === "start" ? diagnostic.phaseId ?? null : null,
+        );
+      }
       if (
         mounted &&
         diagnostic.source === "native-preview" &&
@@ -1522,6 +1530,8 @@ export const NativeProgramPreview: React.FC = () => {
     let unlistenStartupMilestone: (() => void) | null = null;
     let unlistenPlaybackStats: (() => void) | null = null;
     let unlistenPlaybackProgress: (() => void) | null = null;
+    let unlistenPerfDriverTransport: (() => void) | null = null;
+    let unlistenPerfDriverProbe: (() => void) | null = null;
     let unlistenDemandPresentation: (() => void) | null = null;
     let unlistenDemandTerminal: (() => void) | null = null;
     let lastNativePlaybackRequestKey = "";
@@ -1576,6 +1586,55 @@ export const NativeProgramPreview: React.FC = () => {
       }).then((fn) => {
         if (!isActive) fn();
         else unlistenPlaybackProgress = fn;
+      });
+      void listenForPerfDriverTransport(({ action }) => {
+        const wasPlaying = clock.state === "playing";
+        const activeTransportAuthority =
+          getActiveSessionOrNull()?.transportAuthority ?? null;
+        if (action === "play") {
+          activeTransportAuthority?.setActiveContext("program");
+          activeTransportAuthority?.play();
+        } else if (action === "pause") {
+          activeTransportAuthority?.pause();
+        }
+        void emitNativeDiagnostic({
+          marker: "perf-driver-transport-received",
+          action: action ?? null,
+          transportEntry: "ProjectSession.transportAuthority",
+          transportAuthorityAvailable: activeTransportAuthority !== null,
+          wasPlaying,
+          playbackState: clock.state,
+          playbackTimeSeconds: clock.time,
+          playbackDurationSeconds: clock.duration,
+          transportTimeSeconds: activeTransportAuthority?.getTime() ?? null,
+          transportDurationSeconds: activeTransportAuthority?.getDuration() ?? null,
+        });
+      }).then((fn) => {
+        if (!isActive) fn();
+        else unlistenPerfDriverTransport = fn;
+      });
+      void listenForPerfDriverProbe(({ probeId, durationMs = 1_000 }) => {
+        const startedAt = performance.now();
+        let rafCount = 0;
+        const sample = (now: number) => {
+          rafCount += 1;
+          if (now - startedAt < durationMs) {
+            window.requestAnimationFrame(sample);
+            return;
+          }
+          void emitNativeDiagnostic({
+            marker: "perf-driver-visibility",
+            probeId: probeId ?? null,
+            documentVisibilityState: document.visibilityState,
+            documentHasFocus: document.hasFocus(),
+            rafCount,
+            elapsedMs: Number((now - startedAt).toFixed(2)),
+          });
+        };
+        window.requestAnimationFrame(sample);
+      }).then((fn) => {
+        if (!isActive) fn();
+        else unlistenPerfDriverProbe = fn;
       });
     }
     const nativeEditorOverlayManager = new NativeEditorOverlayManager();
@@ -5854,6 +5913,8 @@ export const NativeProgramPreview: React.FC = () => {
       unlistenStartupMilestone?.();
       unlistenPlaybackStats?.();
       unlistenPlaybackProgress?.();
+      unlistenPerfDriverTransport?.();
+      unlistenPerfDriverProbe?.();
       unlistenDemandPresentation?.();
       unlistenDemandTerminal?.();
     };

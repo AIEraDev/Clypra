@@ -13,6 +13,7 @@ export interface NativeFrontendPerfSample {
   requestId: string;
   generation?: number;
   frameIndex: number;
+  phaseId?: string | null;
   mode: NativePreviewMode;
   dispatchMs: number;
   ipcMs: number;
@@ -43,6 +44,12 @@ export interface NativeFrontendPerfSample {
   readbackCadenceFps?: number;
   playbackSpeed?: number;
   readbackSourceFrameStride?: number;
+}
+
+let activeNativePerfPhaseId: string | null = null;
+
+export function setNativePerfPhaseId(phaseId: string | null): void {
+  activeNativePerfPhaseId = phaseId;
 }
 
 export interface NativeFrontendStagePercentiles {
@@ -88,6 +95,17 @@ export interface NativePushBridgeFrontendStats {
   rejectedGenerationPackets: number;
   /** WebView receive silence; not equivalent to Rust flow-control stall. */
   receiverIdle: number;
+}
+
+export interface NativeFrontendPhaseStats {
+  phaseId: string;
+  sampleCount: number;
+  presentedCount: number;
+  droppedCount: number;
+  staleCount: number;
+  cancelledCount: number;
+  uniquePresentedFrames: number;
+  presentedFraction: number | null;
 }
 
 const TRACE_STORAGE_KEY = "clypra:debug:native-perf";
@@ -138,6 +156,7 @@ export function previewFrameDeadlineUs(sample: NativeFrontendPerfSample): number
 
 export class NativePerfSpan {
   private readonly startedAt = performance.now();
+  private readonly phaseId = activeNativePerfPhaseId;
   private dispatchStartedAt = this.startedAt;
   private ipcStartedAt: number | null = null;
   private ipcMs = 0;
@@ -184,6 +203,7 @@ export class NativePerfSpan {
       dropped?: boolean;
       stale?: boolean;
       cancelled?: boolean;
+      phaseId?: string | null;
       dropReason?:
         | "stale"
         | "superseded"
@@ -213,6 +233,7 @@ export class NativePerfSpan {
       requestId: this.request.requestId,
       generation: this.request.generation,
       frameIndex: this.request.frameTime.frameIndex,
+      phaseId: options.phaseId ?? this.phaseId,
       mode: this.mode,
       dispatchMs: Math.max(0, this.dispatchStartedAt - this.startedAt),
       ipcMs: this.ipcMs,
@@ -499,6 +520,34 @@ class NativePerfCollector {
       "frame-step",
       "prefetch",
     ].map((mode) => this.statsFor(mode as NativePreviewMode));
+  }
+
+  phaseStats(): NativeFrontendPhaseStats[] {
+    const grouped = new Map<string, NativeFrontendPerfSample[]>();
+    for (const sample of this.dump()) {
+      const phaseId = sample.phaseId ?? "unattributed";
+      const bucket = grouped.get(phaseId) ?? [];
+      bucket.push(sample);
+      grouped.set(phaseId, bucket);
+    }
+    return [...grouped.entries()].map(([phaseId, samples]) => {
+      const presented = samples.filter(
+        (sample) => !sample.dropped && !sample.stale && !sample.cancelled,
+      );
+      return {
+        phaseId,
+        sampleCount: samples.length,
+        presentedCount: presented.length,
+        droppedCount: samples.filter((sample) => sample.dropped).length,
+        staleCount: samples.filter((sample) => sample.stale).length,
+        cancelledCount: samples.filter((sample) => sample.cancelled).length,
+        uniquePresentedFrames: new Set(
+          presented.map((sample) => sample.frameIndex),
+        ).size,
+        presentedFraction:
+          samples.length > 0 ? presented.length / samples.length : null,
+      };
+    });
   }
 
   recordPushBridgeFrame(): void {

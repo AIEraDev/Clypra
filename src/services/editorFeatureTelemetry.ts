@@ -218,6 +218,7 @@ export class EditorFeatureTelemetry {
         frontend: {
           units: "milliseconds",
           modeStats: nativePerfCollector.allStats(),
+          phaseStats: nativePerfCollector.phaseStats(),
           pushBridge: nativePerfCollector.pushBridgeStats(),
         },
         ...(extraDiagnostics ? { diagnostics: extraDiagnostics } : {}),

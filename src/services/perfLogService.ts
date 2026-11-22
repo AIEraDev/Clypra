@@ -566,6 +566,7 @@ export class PerfLogService {
             frontendStats = {
               units: "milliseconds",
               modeStats: nativePerfCollector.allStats(),
+              phaseStats: nativePerfCollector.phaseStats(),
               pushBridge: nativePerfCollector.pushBridgeStats(),
             };
           } catch {

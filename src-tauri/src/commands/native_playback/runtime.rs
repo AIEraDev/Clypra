@@ -149,7 +149,9 @@ impl NativePlaybackRuntime {
                     contract_version: snapshot.contract_version,
                     project_revision: snapshot.project.project_revision.clone(),
                     frame_rate: snapshot.project.frame_rate.max(1),
-                    duration_frames: u64::MAX,
+                    duration_frames: crate::native_core::session::max_supported_duration_frames(
+                        snapshot.project.frame_rate.max(1),
+                    ),
                     audio_track_count: 0,
                 }
             } else {
@@ -157,7 +159,7 @@ impl NativePlaybackRuntime {
                     contract_version: crate::native_core::NATIVE_CORE_CONTRACT_VERSION,
                     project_revision: "default".to_string(),
                     frame_rate: 30,
-                    duration_frames: u64::MAX,
+                    duration_frames: crate::native_core::session::max_supported_duration_frames(30),
                     audio_track_count: 0,
                 }
             };

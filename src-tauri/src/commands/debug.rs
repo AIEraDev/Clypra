@@ -11,7 +11,27 @@
 //!     payload: { experimentId: "scrub-v1", runId: "run-01", cacheCleared: true, backgroundDecodeDisabled: true }
 //!   })
 
+#[cfg(debug_assertions)]
 use tauri::Manager;
+
+#[cfg(feature = "perf-driver")]
+fn perf_driver_request_authorized(
+    headers: &axum::http::HeaderMap,
+    expected_token: Option<&str>,
+) -> bool {
+    let host_ok = headers
+        .get(axum::http::header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| matches!(value, "127.0.0.1" | "127.0.0.1:1422"))
+        .unwrap_or(false);
+    let token_ok = expected_token
+        .filter(|token| !token.is_empty())
+        .zip(headers.get("x-clypra-perf-token"))
+        .and_then(|(expected, actual)| actual.to_str().ok().map(|actual| (expected, actual)))
+        .map(|(expected, actual)| expected == actual)
+        .unwrap_or(false);
+    host_ok && token_ok
+}
 
 /// Forces the DXGI runtime latch to the given reason code so the full
 /// Rust→IPC→TypeScript→Worker→Neon chain can be verified without a real
@@ -225,7 +245,10 @@ pub fn start_debug_ipc_server(app: tauri::AppHandle) {
         let app_handle_reg = app.clone();
         let app_handle_unreg = app.clone();
         let app_handle_experiment = app.clone();
+        #[cfg(feature = "perf-driver")]
         let app_handle_perf_driver = app.clone();
+        #[cfg(feature = "perf-driver")]
+        let perf_driver_token = std::env::var("CLYPRA_PERF_DRIVER_TOKEN").ok();
 
         let cors = tower_http::cors::CorsLayer::new()
             .allow_origin(tower_http::cors::Any)
@@ -244,21 +267,6 @@ pub fn start_debug_ipc_server(app: tauri::AppHandle) {
                             match set_native_scrub_experiment_context(app, payload) {
                                 Ok(()) => (axum::http::StatusCode::OK, "ok").into_response(),
                                 Err(err) => (axum::http::StatusCode::BAD_REQUEST, err).into_response(),
-                            }
-                        }
-                    }
-                }),
-            )
-            .route(
-                "/debug/run_perf_scenario",
-                axum::routing::post({
-                    let app = app_handle_perf_driver;
-                    move |axum::Json(payload): axum::Json<crate::commands::perf_driver::PerfScenario>| {
-                        let app = app.clone();
-                        async move {
-                            match crate::commands::perf_driver::run_perf_scenario(app, payload).await {
-                                Ok(result) => (axum::http::StatusCode::OK, axum::Json(result)).into_response(),
-                                Err(error) => (axum::http::StatusCode::BAD_REQUEST, error).into_response(),
                             }
                         }
                     }
@@ -313,6 +321,7 @@ pub fn start_debug_ipc_server(app: tauri::AppHandle) {
                                         contract_version: NATIVE_CORE_CONTRACT_VERSION,
                                         request_id: payload.request.request_id,
                                         frame_index: payload.request.frame_time.frame_index,
+                                        phase_id: crate::commands::perf_driver::active_phase_id(),
                                         presented: true,
                                         dropped: false,
                                         audio_position_ticks: 0,
@@ -386,9 +395,91 @@ pub fn start_debug_ipc_server(app: tauri::AppHandle) {
             )
             .layer(cors);
 
+        #[cfg(feature = "perf-driver")]
+        let router = router.route(
+            "/debug/run_perf_scenario",
+            axum::routing::post({
+                let app = app_handle_perf_driver;
+                move |headers: axum::http::HeaderMap,
+                      axum::Json(payload): axum::Json<crate::commands::perf_driver::PerfScenario>| {
+                    let app = app.clone();
+                    let expected_token = perf_driver_token.clone();
+                    async move {
+                        if !perf_driver_request_authorized(&headers, expected_token.as_deref()) {
+                            return (axum::http::StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+                        }
+                        match crate::commands::perf_driver::run_perf_scenario(app, payload).await {
+                            Ok(result) => (axum::http::StatusCode::OK, axum::Json(result)).into_response(),
+                            Err(error) => (axum::http::StatusCode::BAD_REQUEST, error).into_response(),
+                        }
+                    }
+                }
+            }),
+        );
+
         let addr = "127.0.0.1:1422";
         if let Ok(listener) = tokio::net::TcpListener::bind(addr).await {
             log::info!("[Debug IPC Server] listening on http://{}", addr);
+            let _ = axum::serve(listener, router).await;
+        }
+    });
+}
+
+#[cfg(all(test, feature = "perf-driver"))]
+mod perf_driver_security_tests {
+    use super::perf_driver_request_authorized;
+
+    #[test]
+    fn perf_driver_requires_loopback_host_and_launch_token() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(axum::http::header::HOST, "127.0.0.1:1422".parse().unwrap());
+        headers.insert("x-clypra-perf-token", "token-a".parse().unwrap());
+        assert!(perf_driver_request_authorized(&headers, Some("token-a")));
+        assert!(!perf_driver_request_authorized(&headers, Some("token-b")));
+
+        headers.insert(axum::http::header::HOST, "evil.example".parse().unwrap());
+        assert!(!perf_driver_request_authorized(&headers, Some("token-a")));
+    }
+}
+
+/// Release-optimized perf-driver bridge. It exposes only the deterministic
+/// scenario endpoint; the broader preview/debug bridge remains debug-only.
+#[cfg(all(not(debug_assertions), feature = "perf-driver"))]
+pub fn start_debug_ipc_server(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        use axum::response::IntoResponse;
+        let expected_token = std::env::var("CLYPRA_PERF_DRIVER_TOKEN")
+            .ok()
+            .filter(|token| !token.is_empty());
+        if expected_token.is_none() {
+            log::error!("[Perf Driver IPC] refusing to start without CLYPRA_PERF_DRIVER_TOKEN");
+            return;
+        }
+        let app_handle = app.clone();
+        let router = axum::Router::new()
+            .route("/debug/ping", axum::routing::get(|| async { "pong" }))
+            .route(
+                "/debug/run_perf_scenario",
+                axum::routing::post({
+                    let app = app_handle;
+                    move |headers: axum::http::HeaderMap,
+                          axum::Json(payload): axum::Json<crate::commands::perf_driver::PerfScenario>| {
+                        let app = app.clone();
+                        let expected_token = expected_token.clone();
+                        async move {
+                            if !perf_driver_request_authorized(&headers, expected_token.as_deref()) {
+                                return (axum::http::StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+                            }
+                            match crate::commands::perf_driver::run_perf_scenario(app, payload).await {
+                                Ok(result) => (axum::http::StatusCode::OK, axum::Json(result)).into_response(),
+                                Err(error) => (axum::http::StatusCode::BAD_REQUEST, error).into_response(),
+                            }
+                        }
+                    }
+                }),
+            );
+        if let Ok(listener) = tokio::net::TcpListener::bind("127.0.0.1:1422").await {
+            log::info!("[Perf Driver IPC] listening on http://127.0.0.1:1422");
             let _ = axum::serve(listener, router).await;
         }
     });

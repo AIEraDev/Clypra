@@ -20,7 +20,10 @@ import {
 } from "@/core/audio/audioRuntime";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
-import { isTauriRuntime } from "@/lib/platform/tauri";
+import {
+  emitNativeDiagnostic,
+  isTauriRuntime,
+} from "@/lib/platform/tauri";
 import {
   createAudioPlaybackAdapter,
   type AudioPlaybackAdapter,
@@ -38,6 +41,17 @@ interface UseAudioSyncEngineOptions {
   muted?: boolean;
   /** Enable the native CPAL timeline authority when running in Tauri. */
   nativeMode?: boolean;
+}
+
+export function shouldInitializeNativeAudioPreview(
+  source: Pick<AudioPlaybackSource, "clips" | "duration"> | null,
+  transportAuthorityAvailable: boolean,
+): boolean {
+  return (
+    transportAuthorityAvailable &&
+    source !== null &&
+    (source.clips.length > 0 || source.duration > 0)
+  );
 }
 
 export function getGlobalAudioEngine(): AudioEngine {
@@ -119,6 +133,12 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
       }
     : null;
   latestAudioSourceRef.current = latestAudioSource;
+  const activeSession = getActiveSessionOrNull();
+  const transportAuthority = activeSession?.transportAuthority ?? null;
+  const audioSourceReady = Boolean(
+    latestAudioSource &&
+      (latestAudioSource.clips.length > 0 || latestAudioSource.duration > 0),
+  );
 
   // Audio telemetry is sampled away from the real-time callback. One event per
   // five-second active window is enough to expose bottlenecks without turning
@@ -273,16 +293,37 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
     if (!options.nativeMode || !isTauriRuntime() || !project) return;
 
     const source = latestAudioSourceRef.current;
-    if (!source) return;
+    // Project/session hydration is asynchronous. Do not create a native
+    // controller from the initial empty source or before the session owns its
+    // transport authority; that controller cannot be repaired by updateSource
+    // because it captured the wrong transport wiring at construction time.
+    if (
+      !shouldInitializeNativeAudioPreview(source, transportAuthority !== null) ||
+      !source ||
+      !transportAuthority
+    ) {
+      return;
+    }
 
     const adapter = createAudioPlaybackAdapter({
       clock: getPlaybackClock(),
-      transportAuthority:
-        getActiveSessionOrNull()?.transportAuthority ?? undefined,
+      transportAuthority,
       forceKind: "native",
       onError: (error) => {
         console.warn("[useAudioSyncEngine] Audio adapter error:", error);
       },
+    });
+
+    void emitNativeDiagnostic({
+      marker: "native-audio-adapter-create",
+      adapterKind: adapter.kind,
+      projectFrameRate: source.frameRate,
+      durationSeconds: source.duration,
+      clipCount: source.clips.length,
+      audioTrackCount: source.audioTrackCount,
+      transportAuthorityAvailable:
+        transportAuthority != null,
+      clockState: getPlaybackClock().state,
     });
 
     getPlaybackClock().setNativeClockAuthority(true);
@@ -294,20 +335,41 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
       if (initializeStarted || cancelled) return;
       initializeStarted = true;
       void (async () => {
-        await adapterDisposeChainRef.current;
-        if (cancelled) return;
-        adapterRef.current = adapter;
-        await adapter.initialize(source);
-        if (cancelled || !adapter.isActive) {
+        void emitNativeDiagnostic({
+          marker: "native-audio-adapter-initialize-start",
+          adapterKind: adapter.kind,
+          clockState: getPlaybackClock().state,
+        });
+        try {
+          await adapterDisposeChainRef.current;
+          if (cancelled) return;
+          adapterRef.current = adapter;
+          await adapter.initialize(source);
+          void emitNativeDiagnostic({
+            marker: "native-audio-adapter-initialize-complete",
+            adapterKind: adapter.kind,
+            active: adapter.isActive,
+            clockState: getPlaybackClock().state,
+          });
+          if (cancelled || !adapter.isActive) {
+            engineRef.current?.stopAllVoices(true);
+            return;
+          }
           engineRef.current?.stopAllVoices(true);
-          return;
+          const currentSource = latestAudioSourceRef.current;
+          if (currentSource) {
+            adapter.updateSource(currentSource);
+          }
+          adapter.setOutput(options.volume ?? 100, options.muted ?? false);
+        } catch (error) {
+          void emitNativeDiagnostic({
+            marker: "native-audio-adapter-initialize-error",
+            adapterKind: adapter.kind,
+            clockState: getPlaybackClock().state,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          console.warn("[useAudioSyncEngine] Native adapter initialization failed:", error);
         }
-        engineRef.current?.stopAllVoices(true);
-        const currentSource = latestAudioSourceRef.current;
-        if (currentSource) {
-          adapter.updateSource(currentSource);
-        }
-        adapter.setOutput(options.volume ?? 100, options.muted ?? false);
       })();
     };
     initializeAdapter();
@@ -320,7 +382,14 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
       }
       adapterDisposeChainRef.current = adapter.dispose();
     };
-  }, [options.nativeMode, project?.id, project?.frameRate]);
+  }, [
+    options.nativeMode,
+    project?.id,
+    project?.frameRate,
+    activeSession?.sessionId,
+    transportAuthority,
+    audioSourceReady,
+  ]);
 
   // Update the audio playback source dynamically when timelineEpoch or project duration changes
   const lastProjectIdRef = useRef<string | undefined>(undefined);
