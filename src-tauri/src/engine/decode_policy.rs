@@ -117,7 +117,7 @@ pub fn resolve_decode_policy() -> DecodePolicy {
 
 pub fn resolve_decode_resolution() -> DecodePolicyResolution {
     static RESOLUTION: OnceLock<DecodePolicyResolution> = OnceLock::new();
-    *RESOLUTION.get_or_init(|| resolve_decode_resolution_for_platform(&std::env::consts::OS))
+    *RESOLUTION.get_or_init(|| resolve_decode_resolution_for_platform(std::env::consts::OS))
 }
 
 /// Allows a validation run to exercise a capability that is intentionally not

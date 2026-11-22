@@ -320,7 +320,7 @@ fn make_session_header(session_id: &str, opened_at_epoch_ms: u64) -> PerfSession
 fn probe_power_source() -> String {
     #[cfg(target_os = "macos")]
     {
-        if let Ok(output) = std::process::Command::new("pmset")
+        if let Ok(output) = crate::process_util::hidden_command("pmset")
             .args(["-g", "batt"])
             .output()
         {
@@ -339,7 +339,7 @@ fn probe_power_source() -> String {
 fn probe_low_power_mode() -> Option<bool> {
     #[cfg(target_os = "macos")]
     {
-        if let Ok(output) = std::process::Command::new("pmset").args(["-g"]).output() {
+        if let Ok(output) = crate::process_util::hidden_command("pmset").args(["-g"]).output() {
             let text = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
             if text.contains("lowpowermode 1") {
                 return Some(true);
@@ -355,7 +355,7 @@ fn probe_low_power_mode() -> Option<bool> {
 fn probe_thermal_state() -> String {
     #[cfg(target_os = "macos")]
     {
-        if let Ok(output) = std::process::Command::new("pmset")
+        if let Ok(output) = crate::process_util::hidden_command("pmset")
             .args(["-g", "therm"])
             .output()
         {

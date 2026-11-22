@@ -48,7 +48,7 @@ fn canonical_value(value: &serde_json::Value) -> serde_json::Value {
     match value {
         serde_json::Value::Object(object) => {
             let mut entries: Vec<_> = object.iter().collect();
-            entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+            entries.sort_by_key(|(left, _)| *left);
             let mut sorted = serde_json::Map::new();
             for (key, item) in entries {
                 sorted.insert(key.clone(), canonical_value(item));
@@ -117,7 +117,7 @@ pub async fn run_perf_scenario(
     #[cfg(not(feature = "perf-driver"))]
     {
         let _ = (app, scenario);
-        return Err("run_perf_scenario requires the perf-driver feature".to_string());
+        Err("run_perf_scenario requires the perf-driver feature".to_string())
     }
 
     #[cfg(feature = "perf-driver")]

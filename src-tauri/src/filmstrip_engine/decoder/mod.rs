@@ -38,16 +38,9 @@ struct FfmpegLogContext {
     request_id: Option<String>,
 }
 
+#[derive(Default)]
 struct FfmpegIncidentRateLimiter {
     last_emitted_epoch_ms: [u64; 3],
-}
-
-impl Default for FfmpegIncidentRateLimiter {
-    fn default() -> Self {
-        Self {
-            last_emitted_epoch_ms: [0; 3],
-        }
-    }
 }
 
 static FFMPEG_LOG_CALLBACK_INSTALLED: Once = Once::new();
@@ -63,6 +56,7 @@ fn ffmpeg_incident_rate_limiter() -> &'static Mutex<FfmpegIncidentRateLimiter> {
     FFMPEG_INCIDENT_RATE_LIMITER.get_or_init(|| Mutex::new(FfmpegIncidentRateLimiter::default()))
 }
 
+#[allow(dead_code)]
 fn sanitize_ffmpeg_context_id(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -306,6 +300,7 @@ fn configured_ffmpeg_log_level() -> ffmpeg::util::log::Level {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) struct FfmpegLogContextGuard {
     decoder_key: usize,
     previous: Option<FfmpegLogContext>,
@@ -959,6 +954,7 @@ impl VideoDecoder {
     /// The map is keyed by the AVCodecContext pointer passed to FFmpeg's log
     /// callback, so codec worker-thread messages retain their provenance even
     /// when decoding is performed asynchronously.
+    #[allow(dead_code)]
     pub(crate) fn enter_ffmpeg_log_context(
         &self,
         stream_key: &str,
@@ -2201,8 +2197,8 @@ impl VideoDecoder {
         let height = raw.height.max(0) as usize;
         let format = raw.format;
         let mut total = 0usize;
-        for plane in 0..4 {
-            let stride = raw.linesize[plane].unsigned_abs() as usize;
+        for (plane, linesize) in raw.linesize.iter().enumerate().take(4) {
+            let stride = linesize.unsigned_abs() as usize;
             if stride == 0 {
                 continue;
             }

@@ -103,7 +103,7 @@ fn log_required_zero_copy_violation(
 
     let count = ZERO_COPY_GUARD_VIOLATIONS.fetch_add(1, Ordering::Relaxed) + 1;
     crate::engine::ENGINE_TELEMETRY.record_zero_copy_guard_violation();
-    if count <= 3 || count % 60 == 0 {
+    if count <= 3 || count.is_multiple_of(60) {
         log::error!(
             "[NativePreview] CLYPRA_REQUIRE_ZERO_COPY=1: hardware-decoded frame {} reached {:?}; zero-copy violations so far: {}",
             frame_index,
@@ -2464,14 +2464,14 @@ async fn decode_native_video_layers_metal(
     // exhausting VideoToolbox's IOSurface pool. Layers sharing a decoder still
     // serialize naturally at that decoder's mutex, while distinct streams can
     // make progress concurrently.
-    let max_parallel_layers = request.layers.len().min(3).max(1);
+    let max_parallel_layers = request.layers.len().clamp(1, 3);
     let semaphore = Arc::new(tokio::sync::Semaphore::new(max_parallel_layers));
     let request_id = request.request_id.clone();
     let mut tasks = Vec::with_capacity(request.layers.len());
 
     for (layer_index, layer) in request.layers.iter().cloned().enumerate() {
         let semaphore = Arc::clone(&semaphore);
-        let decode_options = decode_options.clone();
+        let decode_options = *decode_options;
         let cancellation = cancellation.clone();
         let request_id = request_id.clone();
         tasks.push(tauri::async_runtime::spawn(async move {
@@ -4604,13 +4604,13 @@ pub(crate) async fn present_native_frame_internal(
     }
 
     let conversion_upload_us = conversion_started.elapsed().as_micros() as u64;
-    let transfer_path = aggregate_transfer_paths(&frame_transfer_paths).or_else(|| {
+    let transfer_path = aggregate_transfer_paths(&frame_transfer_paths).or(
         if legacy_request.layers.is_empty() {
             Some(FrameTransferPath::GpuRaster)
         } else {
             Some(FrameTransferPath::Unknown)
-        }
-    });
+        },
+    );
     if let Some(path) = transfer_path {
         crate::engine::ENGINE_TELEMETRY.record_runtime_transfer_path(path);
         log_required_zero_copy_violation(

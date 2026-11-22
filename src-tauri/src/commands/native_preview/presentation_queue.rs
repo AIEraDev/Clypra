@@ -244,14 +244,12 @@ pub(crate) fn record_native_surface_sample(
     command_entry_to_present_enqueue_us: Option<u64>,
     frame_processing_us: Option<u64>,
 ) {
-    let frame_path = transfer_path.unwrap_or_else(|| {
-        if stale {
-            FrameTransferPath::Stale
-        } else if dropped {
-            FrameTransferPath::Dropped
-        } else {
-            FrameTransferPath::Unknown
-        }
+    let frame_path = transfer_path.unwrap_or(if stale {
+        FrameTransferPath::Stale
+    } else if dropped {
+        FrameTransferPath::Dropped
+    } else {
+        FrameTransferPath::Unknown
     });
     let Some(service) = app.try_state::<tokio::sync::Mutex<NativeFrameService>>() else {
         return;

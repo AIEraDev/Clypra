@@ -21,7 +21,7 @@ impl FrameRenderPath {
 }
 
 /// Describes how a single decoded video layer will be sourced for GPU rendering.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum FrameSource {
     /// Zero-copy: D3D11VA DXGI NT handle imported directly into wgpu (Windows DX12 only).
     DxgiNv12 { width: u32, height: u32 },
@@ -44,13 +44,8 @@ pub enum FrameSource {
     /// A presentation containing layers with different source paths.
     Mixed,
     /// An explicit absence of a source tag for a dropped or pre-compositor sample.
+    #[default]
     Unknown,
-}
-
-impl Default for FrameSource {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 // ---------------------------------------------------------------------------
