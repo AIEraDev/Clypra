@@ -181,7 +181,7 @@ export const TextStrokeSection: React.FC<TextStrokeSectionProps> = ({
           <button
             type="button"
             onClick={handleToggleEnable}
-            className={`w-4 h-4 rounded-[4px] border flex items-center justify-center transition-colors cursor-pointer ${
+            className={`w-4 h-4 rounded-lg border flex items-center justify-center transition-colors cursor-pointer ${
               isEnabled
                 ? "bg-accent-primary border-accent-primary text-white"
                 : "border-border-default bg-surface-elevated hover:border-border-hover"

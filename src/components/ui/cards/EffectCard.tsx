@@ -106,7 +106,7 @@ export const EffectCard: React.FC<EffectCardProps> = ({
 
       {/* Footer Info / Apply Download Button */}
       <div className="flex items-center justify-between w-full mt-0.5 z-10">
-        <span className="text-[9px] text-text-muted font-medium group-hover:text-text-primary transition-colors truncate max-w-[65px]">
+        <span className="text-[9px] text-text-muted font-medium group-hover:text-text-primary transition-colors truncate max-w-16.25">
           {effect.name}
         </span>
         <button

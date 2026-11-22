@@ -72,10 +72,14 @@ export function getPlayheadFrameCellLayout(
   const t0 = isTelemetryActive ? performance.now() : 0;
   const safeFps = Number.isFinite(frameRate) && frameRate > 0 ? frameRate : 30;
   const safePps =
-    Number.isFinite(pixelsPerSecond) && pixelsPerSecond > 0 ? pixelsPerSecond : 50;
-  const safeTime = Number.isFinite(time) && !isNaN(time) ? Math.max(0, time) : 0;
+    Number.isFinite(pixelsPerSecond) && pixelsPerSecond > 0
+      ? pixelsPerSecond
+      : 50;
+  const safeTime =
+    Number.isFinite(time) && !isNaN(time) ? Math.max(0, time) : 0;
   const currentFrame = getFrameIndexAtTime(safeTime, safeFps);
-  const frameLeft = Math.round((currentFrame * safePps) / safeFps) + startOffset;
+  const frameLeft =
+    Math.round((currentFrame * safePps) / safeFps) + startOffset;
   const frameRight =
     Math.round(((currentFrame + 1) * safePps) / safeFps) + startOffset;
   const layout = {
@@ -185,7 +189,10 @@ export const Playhead: React.FC<PlayheadProps> = ({
         // Playback stopped — React layoutEffect resumes position ownership.
         return;
       }
-      const pos = Math.max(0, timelineTimeToPixel(clock.time, pixelsPerSecondRef.current));
+      const pos = Math.max(
+        0,
+        timelineTimeToPixel(clock.time, pixelsPerSecondRef.current),
+      );
       el.style.left = `${pos}px`;
 
       const cellEl = frameCellRef.current;
@@ -348,14 +355,19 @@ export const Playhead: React.FC<PlayheadProps> = ({
         // Prevents "sticky" playhead at extreme zoom-out levels
         const pixelsPerFrame = pixelsPerSecond / frameRate;
         const snappedTime =
-          pixelsPerFrame > 3 ? snapToFrameBoundary(rawTime, frameRate) : rawTime;
+          pixelsPerFrame > 3
+            ? snapToFrameBoundary(rawTime, frameRate)
+            : rawTime;
         newTime = clampAndSnapProgramTime(snappedTime, duration, frameRate);
       }
 
       // Direct DOM update for 60fps responsive visual needle tracking while dragging
       const el = playheadRef.current;
       if (el) {
-        const visualPos = Math.max(0, timelineTimeToPixel(newTime, pixelsPerSecond));
+        const visualPos = Math.max(
+          0,
+          timelineTimeToPixel(newTime, pixelsPerSecond),
+        );
         el.style.left = `${visualPos}px`;
       }
 
@@ -671,9 +683,7 @@ export const Playhead: React.FC<PlayheadProps> = ({
       newTime = Math.max(0, Math.min(snapResult.time, duration));
       lastSnapGuideTimeRef.current = snapResult.time;
       lastSnapGuideTypeRef.current = snapResult.guide?.type ?? "clip-start";
-      timelineState.setSnapGuides(
-        snapResult.guide ? [snapResult.guide] : [],
-      );
+      timelineState.setSnapGuides(snapResult.guide ? [snapResult.guide] : []);
     } else {
       currentSnappedTargetRef.current = null;
       anchorPointerPxRef.current = null;
@@ -709,7 +719,7 @@ export const Playhead: React.FC<PlayheadProps> = ({
         <div
           ref={frameCellRef}
           data-playhead-frame-cell="true"
-          className="absolute select-none pointer-events-none bg-accent-primary/15 border border-accent-primary/30 rounded-[2px]"
+          className="absolute select-none pointer-events-none bg-accent-primary/15 border border-accent-primary/30 rounded-xs"
           style={{
             top: 0,
             height: `${rulerHeight}px`,
@@ -723,92 +733,92 @@ export const Playhead: React.FC<PlayheadProps> = ({
       <div
         ref={playheadRef}
         data-playhead="true"
-      data-timeline-interactive="true"
-      className="absolute select-none pointer-events-none"
-      style={{
-        // `left` is intentionally omitted from the React style object.
-        // During playback it is written imperatively by the rAF animation loop
-        // above to achieve 60fps position updates without React re-renders.
-        // During pause/scrub the useLayoutEffect above writes it to the DOM.
-        // The initial value is set there too; React never owns this property.
-        top: 0,
-        bottom: 0,
-        width: "8px",
-        marginLeft: "-4px",
-        zIndex: 40,
-        touchAction: "none",
-      }}
-      onLostPointerCapture={() => {
-        currentSnappedTargetRef.current = null;
-        anchorPointerPxRef.current = null;
-        cachedSnapTargetsRef.current = [];
-        bypassModifierRef.current = false;
-        if (lastSnapGuideTimeRef.current !== null) {
-          lastSnapGuideTimeRef.current = null;
-          lastSnapGuideTypeRef.current = null;
-          useTimelineStore.getState().clearSnapGuides();
-        }
-        setIsDragging(false);
-        scrollVelocityRef.current = 0;
-        pointerIdRef.current = null;
-        pointerVelocityRef.current = 0;
-        lastPointerSampleRef.current = null;
-        clearDragCursorLock();
-      }}
-      onClick={(e) => e.stopPropagation()}
-    >
-      {/* Visual line spanning from immediately below ruler to bottom */}
-      <div
-        data-playhead-line="true"
-        className="absolute pointer-events-none bg-accent-primary"
+        data-timeline-interactive="true"
+        className="absolute select-none pointer-events-none"
         style={{
-          left: "50%",
-          top: `${rulerHeight}px`, // Start below ruler
+          // `left` is intentionally omitted from the React style object.
+          // During playback it is written imperatively by the rAF animation loop
+          // above to achieve 60fps position updates without React re-renders.
+          // During pause/scrub the useLayoutEffect above writes it to the DOM.
+          // The initial value is set there too; React never owns this property.
+          top: 0,
           bottom: 0,
-          transform: "translateX(-50%)",
-          width: "2px",
-          boxShadow: "0 0 0 1px rgba(0,0,0,0.25)",
-          cursor: "default",
+          width: "8px",
+          marginLeft: "-4px",
+          zIndex: 40,
+          touchAction: "none",
         }}
-      />
-
-      {/* Sticky top container for handle and ruler hit target — remains docked in ruler during vertical scroll */}
-      <div
-        data-playhead-handle-dock="true"
-        className="sticky top-0 w-full pointer-events-none z-50"
-        style={{ height: `${rulerHeight}px` }}
+        onLostPointerCapture={() => {
+          currentSnappedTargetRef.current = null;
+          anchorPointerPxRef.current = null;
+          cachedSnapTargetsRef.current = [];
+          bypassModifierRef.current = false;
+          if (lastSnapGuideTimeRef.current !== null) {
+            lastSnapGuideTimeRef.current = null;
+            lastSnapGuideTypeRef.current = null;
+            useTimelineStore.getState().clearSnapGuides();
+          }
+          setIsDragging(false);
+          scrollVelocityRef.current = 0;
+          pointerIdRef.current = null;
+          pointerVelocityRef.current = 0;
+          lastPointerSampleRef.current = null;
+          clearDragCursorLock();
+        }}
+        onClick={(e) => e.stopPropagation()}
       >
-        {/* Circle handle at top */}
+        {/* Visual line spanning from immediately below ruler to bottom */}
         <div
-          data-playhead-handle="true"
-          className="absolute rounded-full pointer-events-auto bg-accent-primary cursor-col-resize"
-          onPointerDown={handlePointerDown}
-          onClick={(e) => e.stopPropagation()}
+          data-playhead-line="true"
+          className="absolute pointer-events-none bg-accent-primary"
           style={{
             left: "50%",
+            top: `${rulerHeight}px`, // Start below ruler
+            bottom: 0,
             transform: "translateX(-50%)",
-            top: `${Math.max(0, Math.round((rulerHeight - 12) / 2))}px`,
-            width: "12px",
-            height: "12px",
-            boxShadow: "0 0 0 1px rgba(0,0,0,0.35)",
+            width: "2px",
+            boxShadow: "0 0 0 1px rgba(0,0,0,0.25)",
+            cursor: "default",
           }}
         />
 
-        {/* Ruler-only drag hit target so playhead never steals clip trim handles */}
+        {/* Sticky top container for handle and ruler hit target — remains docked in ruler during vertical scroll */}
         <div
-          data-playhead-hit-target="true"
-          className="absolute left-1/2 -translate-x-1/2 pointer-events-auto cursor-col-resize"
-          onPointerDown={handlePointerDown}
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            top: 0,
-            width: "16px",
-            height: `${rulerHeight}px`,
-            background: "transparent",
-          }}
-        />
+          data-playhead-handle-dock="true"
+          className="sticky top-0 w-full pointer-events-none z-50"
+          style={{ height: `${rulerHeight}px` }}
+        >
+          {/* Circle handle at top */}
+          <div
+            data-playhead-handle="true"
+            className="absolute rounded-full pointer-events-auto bg-accent-primary cursor-col-resize"
+            onPointerDown={handlePointerDown}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              left: "50%",
+              transform: "translateX(-50%)",
+              top: `${Math.max(0, Math.round((rulerHeight - 12) / 2))}px`,
+              width: "12px",
+              height: "12px",
+              boxShadow: "0 0 0 1px rgba(0,0,0,0.35)",
+            }}
+          />
+
+          {/* Ruler-only drag hit target so playhead never steals clip trim handles */}
+          <div
+            data-playhead-hit-target="true"
+            className="absolute left-1/2 -translate-x-1/2 pointer-events-auto cursor-col-resize"
+            onPointerDown={handlePointerDown}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              top: 0,
+              width: "16px",
+              height: `${rulerHeight}px`,
+              background: "transparent",
+            }}
+          />
+        </div>
       </div>
-    </div>
-  </>
+    </>
   );
 };

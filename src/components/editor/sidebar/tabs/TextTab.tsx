@@ -705,7 +705,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
               value={effectsSearch}
               onChange={(e) => setEffectsSearch(e.target.value)}
               placeholder="Search effects…"
-              className="w-full bg-surface-raised/40 border border-border/40 rounded-md pl-6 pr-6 py-1 text-[11px] text-text-primary placeholder:text-text-muted/50 outline-none focus:border-accent/40 transition-colors"
+              className="w-full bg-surface-raised/40 border border-border/40 rounded-md pl-6 pr-6 py-1 text-[11px] text-text-primary outline-none transition-colors"
             />
             {effectsSearch && (
               <button

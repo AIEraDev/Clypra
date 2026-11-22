@@ -72,7 +72,7 @@ export const VolumeControl: React.FC<VolumeControlProps> = ({
             if (isMuted) setIsMuted(false);
             setVolume(Number(e.target.value));
           }}
-          className="w-12 h-1 bg-surface-raised rounded-full appearance-none outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent cursor-pointer"
+          className="w-12 h-1 bg-surface-raised rounded-full appearance-none outline-none cursor-pointer"
           title={`Volume: ${volume}%`}
         />
       </div>
@@ -93,7 +93,7 @@ export const VolumeControl: React.FC<VolumeControlProps> = ({
               if (isMuted) setIsMuted(false);
               setVolume(Number(e.target.value));
             }}
-            className="w-16 h-1 bg-surface-raised rounded-full appearance-none outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent cursor-pointer"
+            className="w-16 h-1 bg-surface-raised rounded-full appearance-none outline-none cursor-pointer"
             title={`Volume: ${volume}%`}
           />
           <span className="text-[10px] text-text-muted font-mono w-7 text-right select-none">
