@@ -38,16 +38,17 @@ pub async fn show_item_in_folder(path: String) -> Result<(), String> {
     if !safe_path.exists() {
         return Err(format!("File does not exist: {}", safe_path.display()));
     }
-    let path_str = safe_path.to_string_lossy();
 
     #[cfg(target_os = "macos")]
     {
+        let path_str = safe_path.to_string_lossy();
         let _ = crate::process_util::hidden_command("open")
             .args(["-R", path_str.as_ref()])
             .spawn();
     }
     #[cfg(target_os = "windows")]
     {
+        let path_str = safe_path.to_string_lossy();
         let _ = crate::process_util::hidden_command("explorer")
             .args(["/select,", path_str.as_ref()])
             .spawn();

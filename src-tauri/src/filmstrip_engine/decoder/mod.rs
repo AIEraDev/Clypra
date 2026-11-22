@@ -138,11 +138,17 @@ fn ffmpeg_incident_message(kind: DecodeIncidentKind) -> &'static str {
     }
 }
 
+#[cfg(target_os = "linux")]
+type FfmpegVaList = *mut ffmpeg::ffi::__va_list_tag;
+
+#[cfg(not(target_os = "linux"))]
+type FfmpegVaList = ffmpeg::ffi::va_list;
+
 unsafe extern "C" fn ffmpeg_log_callback(
     avcl: *mut c_void,
     level: c_int,
     fmt: *const c_char,
-    vl: ffmpeg::ffi::va_list,
+    vl: FfmpegVaList,
 ) {
     if fmt.is_null() {
         return;

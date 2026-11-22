@@ -378,7 +378,7 @@ impl NativePreviewSession {
             &imported.y_view,
             &imported.uv_view,
             params,
-            None,
+            false,
             "Native Project Video Layer (DXGI)",
         )
     }
