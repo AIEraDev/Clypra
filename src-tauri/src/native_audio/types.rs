@@ -200,3 +200,22 @@ pub struct NativeAudioMixerInspection {
     pub clip_diagnostics: Vec<NativeAudioClipDiagnostic>,
 }
 
+/// Point-in-time telemetry snapshot of the native audio mixer callback engine.
+///
+/// Lock-free, zero-allocation metrics tracking CPAL audio callback performance,
+/// temporal bounding-box culling efficiency, and stack arena overflow events.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeMixerTelemetrySnapshot {
+    /// Total audio callback chunks mixed.
+    pub mix_chunks_total: u64,
+    /// Total clip instances culled by temporal bounding-box checks.
+    pub clips_culled_total: u64,
+    /// Times the concurrent clip count exceeded the 32-slot stack arena.
+    pub stack_overflow_events: u64,
+    /// Callbacks where mixer read-lock was contended and silence was rendered.
+    pub mixer_lock_misses: u64,
+    /// Ratio of culled clips: `culled / (culled + mix_chunks)`.
+    pub culling_efficiency: f32,
+}
+

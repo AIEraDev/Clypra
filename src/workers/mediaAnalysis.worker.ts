@@ -24,6 +24,10 @@ import type {
   WhisperWordSegment,
   WorkerErrorResponse,
 } from "./types";
+import {
+  computeColorScopesVectorized,
+  computeWaveformLodVectorized,
+} from "@/core/workers/vectorCompute";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 1. Audio Waveform Multi-LOD Pyramid & Viewport Slicer
@@ -52,42 +56,30 @@ function downmixToMono(pcm: Float32Array, channelCount: number): Float32Array {
   const totalFrames = Math.floor(pcm.length / channelCount);
   const mono = new Float32Array(totalFrames);
 
+  // Fast path for stereo (99% of video editor audio)
+  if (channelCount === 2) {
+    for (let frame = 0; frame < totalFrames; frame++) {
+      const offset = frame * 2;
+      mono[frame] = (pcm[offset] + pcm[offset + 1]) * 0.5;
+    }
+    return mono;
+  }
+
+  const invChannelCount = 1 / channelCount;
   for (let frame = 0; frame < totalFrames; frame++) {
     let sum = 0;
     const offset = frame * channelCount;
     for (let ch = 0; ch < channelCount; ch++) {
       sum += pcm[offset + ch];
     }
-    mono[frame] = sum / channelCount;
+    mono[frame] = sum * invChannelCount;
   }
 
   return mono;
 }
 
 function buildPyramidLevel(monoPcm: Float32Array, step: number): LodLevel {
-  const totalSamples = monoPcm.length;
-  const bucketCount = Math.max(1, Math.ceil(totalSamples / step));
-  const peaks = new Float32Array(bucketCount);
-  const rms = new Float32Array(bucketCount);
-
-  for (let b = 0; b < bucketCount; b++) {
-    const start = b * step;
-    const end = Math.min(start + step, totalSamples);
-    let maxVal = 0;
-    let sumSq = 0;
-    const count = end - start;
-
-    for (let i = start; i < end; i++) {
-      const abs = Math.abs(monoPcm[i]);
-      if (abs > maxVal) maxVal = abs;
-      sumSq += abs * abs;
-    }
-
-    peaks[b] = Math.min(1.0, maxVal);
-    rms[b] = count > 0 ? Math.sqrt(sumSq / count) : 0;
-  }
-
-  return { step, peaks, rms };
+  return computeWaveformLodVectorized(monoPcm, step);
 }
 
 function handleWaveformBuild(msg: WaveformBuildRequest): void {
@@ -239,71 +231,30 @@ function handleColorScopeAnalyze(msg: ScopeAnalyzeRequest): void {
   const needVectorscope = enabledScopes.includes("vectorscope");
   const needParade = enabledScopes.includes("parade");
 
-  let histR: Uint32Array | undefined;
-  let histG: Uint32Array | undefined;
-  let histB: Uint32Array | undefined;
-  let histLuma: Uint32Array | undefined;
+  const scoped = computeColorScopesVectorized(data, width, height, {
+    needHistogram,
+    needVectorscope,
+    needParade,
+  });
 
-  if (needHistogram) {
-    histR = new Uint32Array(256);
-    histG = new Uint32Array(256);
-    histB = new Uint32Array(256);
-    histLuma = new Uint32Array(256);
+  if (needHistogram && scoped.histogram) {
+    result.histogram = scoped.histogram;
+    transferList.push(
+      scoped.histogram.r.buffer,
+      scoped.histogram.g.buffer,
+      scoped.histogram.b.buffer,
+      scoped.histogram.luma.buffer,
+    );
   }
 
-  const vectorPoints: number[] = [];
-  const paradeData: number[] = [];
-
-  // Stride is 1 — downscaling already handled the resolution reduction
-  for (let y = 0; y < height; y++) {
-    const rowOffset = y * width * 4;
-    for (let x = 0; x < width; x++) {
-      const idx = rowOffset + x * 4;
-      const r = data[idx];
-      const g = data[idx + 1];
-      const b = data[idx + 2];
-
-      const luma = Math.min(255, Math.max(0, Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b)));
-
-      if (needHistogram) {
-        histR![r]++;
-        histG![g]++;
-        histB![b]++;
-        histLuma![luma]++;
-      }
-
-      if (needVectorscope) {
-        const u = -0.1146 * r - 0.3854 * g + 0.5 * b;
-        const v = 0.5 * r - 0.4542 * g - 0.0458 * b;
-        vectorPoints.push(u / 128, v / 128, 1.0);
-      }
-
-      if (needParade) {
-        paradeData.push(r, g, b);
-      }
-    }
+  if (needVectorscope && scoped.vectorscope) {
+    result.vectorscope = scoped.vectorscope;
+    transferList.push(scoped.vectorscope.buffer);
   }
 
-  if (needHistogram) {
-    result.histogram = {
-      r: histR!,
-      g: histG!,
-      b: histB!,
-      luma: histLuma!,
-    };
-    transferList.push(histR!.buffer, histG!.buffer, histB!.buffer, histLuma!.buffer);
-  }
-
-  if (needVectorscope) {
-    const arr = new Float32Array(vectorPoints);
-    result.vectorscope = arr;
-    transferList.push(arr.buffer);
-  }
-
-  if (needParade) {
-    const arr = new Float32Array(paradeData);
-    result.parade = arr;
-    transferList.push(arr.buffer);
+  if (needParade && scoped.parade) {
+    result.parade = scoped.parade;
+    transferList.push(scoped.parade.buffer);
   }
 
   result.analysisMs = performance.now() - startMs;
@@ -426,6 +377,16 @@ function handleSubtitleParse(msg: ParseSubtitlesRequest): void {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Compute DoS Quotas & Defensive Boundaries
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const COMPUTE_LIMITS = {
+  MAX_WAVEFORM_SAMPLES: 48000 * 3600, // 1 hour max single audio clip (~172.8M samples)
+  MAX_SUBTITLE_BYTES: 10 * 1024 * 1024, // 10 MB raw subtitle text
+  MAX_SCOPE_CANVAS_DIMENSION: 4096,
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Message Router
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -436,9 +397,16 @@ self.onmessage = (e: MessageEvent) => {
   try {
     switch (msg.type) {
       // Audio Waveform LOD
-      case "BUILD_LOD":
-        handleWaveformBuild(msg as WaveformBuildRequest);
+      case "BUILD_LOD": {
+        const buildReq = msg as WaveformBuildRequest;
+        if (buildReq.pcm && buildReq.pcm.length > COMPUTE_LIMITS.MAX_WAVEFORM_SAMPLES) {
+          throw new Error(
+            `Security Violation: Audio samples (${buildReq.pcm.length}) exceed maximum compute limit (1 hour)`,
+          );
+        }
+        handleWaveformBuild(buildReq);
         break;
+      }
       case "SLICE_VIEWPORT":
         handleWaveformSlice(msg as WaveformSliceRequest);
         break;
@@ -447,14 +415,32 @@ self.onmessage = (e: MessageEvent) => {
         break;
 
       // Video Color Scopes
-      case "ANALYZE":
-        handleColorScopeAnalyze(msg as ScopeAnalyzeRequest);
+      case "ANALYZE": {
+        const scopeReq = msg as ScopeAnalyzeRequest;
+        if (
+          scopeReq.frame &&
+          (scopeReq.frame.width > COMPUTE_LIMITS.MAX_SCOPE_CANVAS_DIMENSION ||
+            scopeReq.frame.height > COMPUTE_LIMITS.MAX_SCOPE_CANVAS_DIMENSION)
+        ) {
+          throw new Error(
+            `Security Violation: Color scope frame dimensions (${scopeReq.frame.width}x${scopeReq.frame.height}) exceed maximum allowable size (4096)`,
+          );
+        }
+        handleColorScopeAnalyze(scopeReq);
         break;
+      }
 
       // Subtitles & Transcripts
-      case "PARSE_SUBTITLES":
-        handleSubtitleParse(msg as ParseSubtitlesRequest);
+      case "PARSE_SUBTITLES": {
+        const subReq = msg as ParseSubtitlesRequest;
+        if (subReq.rawText && subReq.rawText.length > COMPUTE_LIMITS.MAX_SUBTITLE_BYTES) {
+          throw new Error(
+            `Security Violation: Subtitle payload (${subReq.rawText.length} bytes) exceeds maximum allowable size (10 MB)`,
+          );
+        }
+        handleSubtitleParse(subReq);
         break;
+      }
 
       default:
         break;

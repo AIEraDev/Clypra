@@ -53,6 +53,103 @@ pub enum ServedFrom {
     UnchangedSkipped,
 }
 
+/// Explicit provenance for the pixels delivered by a preview frame.
+///
+/// This is intentionally a closed set. A producer must choose the path before
+/// the frame enters presentation; downstream stages must not infer a path from
+/// which texture upload branch happened to run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FrameTransferPath {
+    /// VideoToolbox IOSurface imported through Metal using 8-bit NV12 planes.
+    MetalZeroCopyNv12,
+    /// VideoToolbox IOSurface imported through Metal using 10-bit P010 planes.
+    MetalZeroCopyP010,
+    /// D3D11/DXGI shared texture imported directly into the renderer.
+    #[serde(rename = "dxgi-zero-copy")]
+    DxgiShared,
+    /// CPU-produced 8-bit NV12 planes uploaded to the GPU.
+    CpuNv12,
+    /// CPU-produced 10-bit P010 planes uploaded to the GPU.
+    CpuP010,
+    /// CPU-produced RGBA pixels uploaded to the GPU.
+    CpuRgba,
+    /// A frame with no video layer (raster/text/effect composition only).
+    GpuRaster,
+    /// A decoded frame staged by the lookahead queue rather than presented.
+    LookaheadQueue,
+    /// A presentation that intentionally retained the already-visible frame.
+    UnchangedSkipped,
+    /// A presentation containing video layers with different source paths.
+    Mixed,
+    /// A presentation request that was intentionally dropped before a frame
+    /// reached the compositor. This is not a decode-path failure.
+    Dropped,
+    /// A frame superseded by a newer generation/request before presentation.
+    Stale,
+    /// An explicit absence of a producer tag for a pre-compositor sample.
+    Unknown,
+}
+
+/// Typed failure stages for the optional macOS VideoToolbox-to-Metal decode
+/// path. Keeping these reasons closed prevents an extraction or import failure
+/// from being collapsed into a generic CPU fallback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MetalDecodeFailureReason {
+    DecoderUnavailable,
+    DecodeError,
+    Cancelled,
+    CapabilityUnverified,
+    NoMetalFrame,
+    ImportColorParams,
+    ImportFailed,
+    ImportRenderFailed,
+}
+
+impl MetalDecodeFailureReason {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::DecoderUnavailable => "decoder-unavailable",
+            Self::DecodeError => "decode-error",
+            Self::Cancelled => "cancelled",
+            Self::CapabilityUnverified => "capability-unverified",
+            Self::NoMetalFrame => "no-metal-frame",
+            Self::ImportColorParams => "import-color-params",
+            Self::ImportFailed => "import-failed",
+            Self::ImportRenderFailed => "import-render-failed",
+        }
+    }
+}
+
+impl FrameTransferPath {
+    /// Stable wire spelling used in NDJSON and frontend telemetry.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::MetalZeroCopyNv12 => "metal-zero-copy-nv12",
+            Self::MetalZeroCopyP010 => "metal-zero-copy-p010",
+            Self::DxgiShared => "dxgi-zero-copy",
+            Self::CpuNv12 => "cpu-nv12",
+            Self::CpuP010 => "cpu-p010",
+            Self::CpuRgba => "cpu-rgba",
+            Self::GpuRaster => "gpu-raster",
+            Self::LookaheadQueue => "lookahead-queue",
+            Self::UnchangedSkipped => "unchanged-skipped",
+            Self::Mixed => "mixed",
+            Self::Dropped => "dropped",
+            Self::Stale => "stale",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    pub const fn is_zero_copy(self) -> bool {
+        matches!(
+            self,
+            Self::MetalZeroCopyNv12 | Self::MetalZeroCopyP010 | Self::DxgiShared
+        )
+    }
+}
+
 /// Classification of final frame delivery outcome.
 ///
 /// Serialised as kebab-case strings for JSON telemetry reporting.
@@ -149,9 +246,11 @@ pub struct PerformanceSample {
     pub quality: Option<String>,
     #[serde(default)]
     pub strategy: Option<String>,
-    /// Transfer path for this frame: `dxgi-zero-copy`, `cpu-nv12`,
-    /// `cpu-rgba`, `mixed`, or `gpu-raster`. This is separate from the
-    /// scheduling strategy so fleet analysis can isolate copy pressure.
+    /// Transfer path for this frame: one of the closed `FrameTransferPath`
+    /// wire names (for example `metal-zero-copy-p010`, `dxgi-zero-copy`,
+    /// `cpu-nv12`, `cpu-p010`, `cpu-rgba`, `mixed`, or `gpu-raster`). This is
+    /// separate from the scheduling strategy so fleet analysis can isolate
+    /// copy pressure.
     #[serde(default)]
     pub transfer_path: Option<String>,
     #[serde(default)]
@@ -404,14 +503,12 @@ pub struct NativeFrameServiceStats {
 // The hypothesis: schedule_lookahead_predecode triggers are frequently dropped
 // by the in-flight guard, so effective trigger rate << producer capacity.
 
-static LOOKAHEAD_TRIGGER_COUNT: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
+static LOOKAHEAD_TRIGGER_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 static LOOKAHEAD_TRIGGER_DROPPED: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 
-static PRODUCER_IDLE_TOTAL_US: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
+static PRODUCER_IDLE_TOTAL_US: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 static PRODUCER_AHEAD_OF_CLOCK_MS_MILLI: std::sync::atomic::AtomicI64 =
     std::sync::atomic::AtomicI64::new(0);
@@ -438,24 +535,18 @@ pub fn record_producer_idle_us(us: u64) {
     PRODUCER_IDLE_TOTAL_US.fetch_add(us, std::sync::atomic::Ordering::Relaxed);
 }
 pub fn record_producer_ahead_of_clock_ms(ms: f64) {
-    PRODUCER_AHEAD_OF_CLOCK_MS_MILLI.store(
-        (ms * 1_000.0) as i64,
-        std::sync::atomic::Ordering::Relaxed,
-    );
+    PRODUCER_AHEAD_OF_CLOCK_MS_MILLI
+        .store((ms * 1_000.0) as i64, std::sync::atomic::Ordering::Relaxed);
 }
 
 // ── Text & Glyph Cache Telemetry Instrumentation ──────────────────────────────
-static TEXT_LAYER_CACHE_HITS: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
+static TEXT_LAYER_CACHE_HITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-static TEXT_LAYER_CACHE_MISSES: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
+static TEXT_LAYER_CACHE_MISSES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-static GLYPH_CACHE_HITS: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
+static GLYPH_CACHE_HITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-static GLYPH_CACHE_MISSES: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
+static GLYPH_CACHE_MISSES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 pub fn text_layer_cache_hits() -> u64 {
     TEXT_LAYER_CACHE_HITS.load(std::sync::atomic::Ordering::Relaxed)
@@ -488,7 +579,6 @@ pub fn record_glyph_cache_hit() {
 pub fn record_glyph_cache_miss() {
     GLYPH_CACHE_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
-
 
 /// A cursor-bounded batch of native samples. The cursor belongs to the
 /// service, not to the UI, so polling this endpoint never records a new
@@ -747,5 +837,47 @@ mod tests {
             FrameDisposition::from_sample(true, true, false, Some("stale")),
             FrameDisposition::Superseded
         );
+    }
+
+    #[test]
+    fn frame_transfer_paths_have_stable_wire_names_and_zero_copy_semantics() {
+        assert_eq!(
+            FrameTransferPath::MetalZeroCopyNv12.as_str(),
+            "metal-zero-copy-nv12"
+        );
+        assert_eq!(
+            FrameTransferPath::MetalZeroCopyP010.as_str(),
+            "metal-zero-copy-p010"
+        );
+        assert_eq!(FrameTransferPath::DxgiShared.as_str(), "dxgi-zero-copy");
+        assert!(FrameTransferPath::MetalZeroCopyNv12.is_zero_copy());
+        assert!(FrameTransferPath::MetalZeroCopyP010.is_zero_copy());
+        assert!(FrameTransferPath::DxgiShared.is_zero_copy());
+        assert!(!FrameTransferPath::CpuNv12.is_zero_copy());
+        assert!(!FrameTransferPath::CpuP010.is_zero_copy());
+    }
+
+    #[test]
+    fn frame_transfer_paths_round_trip_through_serde() {
+        for path in [
+            FrameTransferPath::MetalZeroCopyNv12,
+            FrameTransferPath::MetalZeroCopyP010,
+            FrameTransferPath::DxgiShared,
+            FrameTransferPath::CpuNv12,
+            FrameTransferPath::CpuP010,
+            FrameTransferPath::CpuRgba,
+            FrameTransferPath::GpuRaster,
+            FrameTransferPath::LookaheadQueue,
+            FrameTransferPath::UnchangedSkipped,
+            FrameTransferPath::Mixed,
+            FrameTransferPath::Dropped,
+            FrameTransferPath::Stale,
+            FrameTransferPath::Unknown,
+        ] {
+            let encoded = serde_json::to_string(&path).expect("serialize transfer path");
+            let decoded: FrameTransferPath =
+                serde_json::from_str(&encoded).expect("deserialize transfer path");
+            assert_eq!(decoded, path);
+        }
     }
 }

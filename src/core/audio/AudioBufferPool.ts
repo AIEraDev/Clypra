@@ -11,6 +11,13 @@
  * 4. Provide instant synchronous buffer retrieval for sample-accurate voice allocation.
  */
 
+import {
+  getCacheCoordinator,
+  type ICacheParticipant,
+  type CacheTier,
+  type CacheLifespan,
+} from "@/core/cache/cacheCoordinator";
+
 export interface AudioBufferPoolStats {
   usedBytes: number;
   maxBytes: number;
@@ -27,7 +34,11 @@ interface CacheEntry {
   lastUsedAt: number;
 }
 
-export class AudioBufferPool {
+export class AudioBufferPool implements ICacheParticipant {
+  public readonly name: string;
+  public readonly tier: CacheTier = "memory";
+  public readonly lifespan: CacheLifespan = "session";
+
   private cache = new Map<string, CacheEntry>();
   private inFlightLoads = new Map<string, Promise<AudioBuffer>>();
   private totalByteSize = 0;
@@ -36,11 +47,17 @@ export class AudioBufferPool {
   private hits = 0;
   private misses = 0;
 
-  constructor(maxMemoryBytes: number = 256 * 1024 * 1024, audioContext?: AudioContext) {
+  constructor(
+    maxMemoryBytes: number = 256 * 1024 * 1024,
+    audioContext?: AudioContext,
+    name: string = "audio-buffer-pool",
+  ) {
+    this.name = name;
     this.maxMemoryBytes = maxMemoryBytes;
     if (audioContext) {
       this.audioContext = audioContext;
     }
+    getCacheCoordinator().register(this);
   }
 
   public setAudioContext(context: AudioContext): void {
@@ -182,6 +199,42 @@ export class AudioBufferPool {
     this.totalByteSize = 0;
     this.hits = 0;
     this.misses = 0;
+  }
+
+  public getBytesUsed(): number {
+    return this.totalByteSize;
+  }
+
+  public trimTo(targetBytes: number): number {
+    const initial = this.totalByteSize;
+    if (this.totalByteSize <= targetBytes) return 0;
+
+    while (this.totalByteSize > targetBytes && this.cache.size > 0) {
+      let oldestKey: string | null = null;
+      let oldestTime = Infinity;
+
+      for (const [key, entry] of this.cache.entries()) {
+        if (entry.lastUsedAt < oldestTime) {
+          oldestTime = entry.lastUsedAt;
+          oldestKey = key;
+        }
+      }
+
+      if (oldestKey) {
+        this.delete(oldestKey);
+      } else {
+        break;
+      }
+    }
+    return Math.max(0, initial - this.totalByteSize);
+  }
+
+  public getMetrics(): { hits: number; misses: number; entryCount: number } {
+    return {
+      hits: this.hits,
+      misses: this.misses,
+      entryCount: this.cache.size,
+    };
   }
 
   public getStats(): AudioBufferPoolStats {

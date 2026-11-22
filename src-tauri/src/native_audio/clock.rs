@@ -8,8 +8,9 @@ use super::clip::{NativeAudioKeyframe, NativePcmClip};
 use super::mixer::NativeAudioMixer;
 use super::types::{
     output_latency_bucket, NativeAudioClipStatus, NativeAudioDiagnostics,
-    NativeAudioMixerInspection, NativeAudioStatus, OutputLatencyMetrics,
-    INTERVAL_RING_SIZE, MAX_PITCH_CACHE_BYTES, TICKS_PER_SECOND, TRANSPORT_RAMP_FRAMES,
+    NativeAudioMixerInspection, NativeAudioStatus, NativeMixerTelemetrySnapshot,
+    OutputLatencyMetrics, INTERVAL_RING_SIZE, MAX_PITCH_CACHE_BYTES, TICKS_PER_SECOND,
+    TRANSPORT_RAMP_FRAMES,
 };
 
 pub(crate) struct NativeAudioClockInner {
@@ -132,7 +133,9 @@ impl NativeAudioClock {
         self.inner.played_frames.store(0, Ordering::Release);
         self.inner.callback_count.store(0, Ordering::Release);
         self.inner.non_silent_frames.store(0, Ordering::Release);
-        self.inner.position_ticks.store(0, Ordering::Release);
+        if self.inner.position_ticks.load(Ordering::Acquire) <= 0 {
+            self.inner.position_ticks.store(0, Ordering::Release);
+        }
         self.inner.playing.store(false, Ordering::Release);
         self.inner.transport_ramp_frames.store(0, Ordering::Release);
         self.inner.mixer_lock_misses.store(0, Ordering::Release);
@@ -946,6 +949,23 @@ impl NativeAudioClock {
             clip_diagnostics: inspection.clip_diagnostics,
         }
     }
+
+    /// Return point-in-time telemetry snapshot of native audio mixer performance.
+    pub fn mixer_telemetry_snapshot(&self) -> NativeMixerTelemetrySnapshot {
+        let callback_count = self.inner.callback_count.load(Ordering::Relaxed);
+        let lock_misses = self.inner.mixer_lock_misses.load(Ordering::Relaxed);
+        if let Ok(guard) = self.inner.mixer.try_read() {
+            guard.telemetry_snapshot(callback_count, lock_misses)
+        } else {
+            NativeMixerTelemetrySnapshot {
+                mix_chunks_total: callback_count,
+                clips_culled_total: 0,
+                stack_overflow_events: 0,
+                mixer_lock_misses: lock_misses,
+                culling_efficiency: 0.0,
+            }
+        }
+    }
 }
 
 /// Real-time safe audio output stream builder.
@@ -1057,11 +1077,11 @@ where
                 // compare_exchange is overkill; a store is fine because the
                 // flag only ever transitions false → true.
                 if !output_latency.available.load(Ordering::Relaxed) {
-                    output_latency.available.store(true, Ordering::Relaxed);
+                    output_latency.available.store(true, Ordering::Release);
                 }
             }
 
-            if !playing.load(Ordering::Acquire) || muted.load(Ordering::Acquire) {
+            if !playing.load(Ordering::Acquire) {
                 for sample in data.iter_mut() {
                     *sample = T::EQUILIBRIUM;
                 }
@@ -1079,8 +1099,13 @@ where
                 transport_ramp_frames.fetch_sub(ramp_consumed, Ordering::AcqRel);
             }
 
-            // Non-blocking try_read lock for real-time safety
-            if let Ok(mixer_guard) = mixer.try_read() {
+            if muted.load(Ordering::Acquire) {
+                // When muted, audio samples are silenced but the master playback clock
+                // must continue advancing elapsed ticks (CLY-BUG-002).
+                for sample in data.iter_mut() {
+                    *sample = T::EQUILIBRIUM;
+                }
+            } else if let Ok(mixer_guard) = mixer.try_read() {
                 if mixer_guard.mix_into_with_ramp(
                     data,
                     channels,

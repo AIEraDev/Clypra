@@ -40,6 +40,9 @@ jobs:
       - name: Validate Architectural Invariants
         run: npm run verify:architecture
 
+      - name: Validate Performance Schema Sync
+        run: npm run perf:schema:check
+
       - name: Validate engine acceptance runner syntax
         run: node --check scripts/harness/verify-engine-acceptance.mjs
 
@@ -86,6 +89,11 @@ jobs:
 
       - name: Verify Mutation Canary Invariants (Frontend & Layer A)
         run: npm run verify:canary-mutations -- --frontend | tee test-results/frontend-canary-mutations.log
+
+      - name: Verify Scrub Last-Target Mutation Canary
+        run: |
+          node scripts/harness/run-canary-mutations.mjs --frontend --mutation=broken-scrub-last-target-wins.patch \
+            | tee test-results/scrub-last-target-canary.log
 
       - name: Verify Mechanical Evidence Gate
         run: npm run verify:evidence -- --ci
@@ -250,6 +258,19 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+
+      - name: Configure MSVC environment for CMake
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Pin MSVC compiler for CMake
+        shell: pwsh
+        run: |
+          $cl = (Get-Command cl.exe -ErrorAction Stop).Source
+          "CMAKE_C_COMPILER=$cl" >> $env:GITHUB_ENV
+          "CMAKE_CXX_COMPILER=$cl" >> $env:GITHUB_ENV
+          "CMAKE_ASM_COMPILER=$cl" >> $env:GITHUB_ENV
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2

@@ -6,10 +6,14 @@
 //! - Sequential decoding optimization (avoids seeking during scrubbing)
 //! - Display-aware geometry (respects SAR/DAR/rotation)
 
+use crate::engine::telemetry::DecodeIncidentKind;
 use crate::native_core::{performance::ServedFrom, QualityTier};
 use ffmpeg_next as ffmpeg;
-use std::collections::VecDeque;
-use std::sync::Arc;
+use std::collections::{HashMap, VecDeque};
+use std::ffi::CStr;
+use std::hash::{Hash, Hasher};
+use std::os::raw::{c_char, c_int, c_void};
+use std::sync::{Arc, Mutex, Once, OnceLock};
 use std::time::{Duration, Instant};
 
 pub mod geometry;
@@ -21,12 +25,322 @@ pub mod seek_planner;
 #[cfg(test)]
 mod tests;
 
+pub use crate::engine::types::{AlphaMode, PixelFormat};
 pub use crate::filmstrip_engine::decoder::geometry::*;
 pub use crate::filmstrip_engine::decoder::metadata::*;
 pub use crate::filmstrip_engine::decoder::pixel_ops::*;
 pub use crate::filmstrip_engine::decoder::pool::*;
 pub use crate::filmstrip_engine::decoder::seek_planner::*;
-pub use crate::engine::types::{AlphaMode, PixelFormat};
+
+#[derive(Clone)]
+struct FfmpegLogContext {
+    stream_key: Option<String>,
+    request_id: Option<String>,
+}
+
+#[derive(Default)]
+struct FfmpegIncidentRateLimiter {
+    last_emitted_epoch_ms: [u64; 3],
+}
+
+static FFMPEG_LOG_CALLBACK_INSTALLED: Once = Once::new();
+static FFMPEG_LOG_CONTEXTS: OnceLock<Mutex<HashMap<usize, FfmpegLogContext>>> = OnceLock::new();
+static FFMPEG_INCIDENT_RATE_LIMITER: OnceLock<Mutex<FfmpegIncidentRateLimiter>> = OnceLock::new();
+static FFMPEG_CALLBACK_VERIFIED: OnceLock<bool> = OnceLock::new();
+
+fn ffmpeg_log_contexts() -> &'static Mutex<HashMap<usize, FfmpegLogContext>> {
+    FFMPEG_LOG_CONTEXTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn ffmpeg_incident_rate_limiter() -> &'static Mutex<FfmpegIncidentRateLimiter> {
+    FFMPEG_INCIDENT_RATE_LIMITER.get_or_init(|| Mutex::new(FfmpegIncidentRateLimiter::default()))
+}
+
+#[allow(dead_code)]
+fn sanitize_ffmpeg_context_id(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if !trimmed.is_empty()
+        && trimmed.len() <= 128
+        && trimmed
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | ':'))
+    {
+        return Some(trimmed.to_string());
+    }
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    trimmed.hash(&mut hasher);
+    Some(format!("id-{:#x}", hasher.finish()))
+}
+
+fn classify_ffmpeg_decode_log(message: &str, level: c_int) -> Option<DecodeIncidentKind> {
+    let normalized = message.to_ascii_lowercase();
+    // FFmpeg emits HEVC reference-chain diagnostics at warning level on some
+    // builds and error level on others. Keep ordinary warnings out of the
+    // incident stream, but always classify these two known-corruption signals.
+    let is_reference_diagnostic = normalized.contains("could not find ref with poc")
+        || normalized.contains("reference picture missing")
+        || normalized.contains("error constructing the frame rps")
+        || normalized.contains("frame rps");
+    if level > ffmpeg::ffi::AV_LOG_ERROR as c_int && !is_reference_diagnostic {
+        return None;
+    }
+    if normalized.contains("could not find ref with poc")
+        || normalized.contains("reference picture missing")
+    {
+        Some(DecodeIncidentKind::Poc)
+    } else if normalized.contains("error constructing the frame rps")
+        || normalized.contains("frame rps")
+    {
+        Some(DecodeIncidentKind::Rps)
+    } else {
+        Some(DecodeIncidentKind::Other)
+    }
+}
+
+fn incident_slot(kind: DecodeIncidentKind) -> usize {
+    match kind {
+        DecodeIncidentKind::Poc => 0,
+        DecodeIncidentKind::Rps => 1,
+        DecodeIncidentKind::Other => 2,
+    }
+}
+
+fn should_emit_ffmpeg_incident(kind: DecodeIncidentKind, now_epoch_ms: u64) -> bool {
+    let Ok(mut limiter) = ffmpeg_incident_rate_limiter().lock() else {
+        return false;
+    };
+    let slot = incident_slot(kind);
+    let last = limiter.last_emitted_epoch_ms[slot];
+    if last != 0 && now_epoch_ms.saturating_sub(last) < 1_000 {
+        return false;
+    }
+    limiter.last_emitted_epoch_ms[slot] = now_epoch_ms;
+    true
+}
+
+fn ffmpeg_incident_message(kind: DecodeIncidentKind) -> &'static str {
+    match kind {
+        DecodeIncidentKind::Poc => "FFmpeg HEVC reference error: missing picture reference (POC)",
+        DecodeIncidentKind::Rps => {
+            "FFmpeg HEVC reference error: could not construct frame reference set (RPS)"
+        }
+        DecodeIncidentKind::Other => "FFmpeg decoder error",
+    }
+}
+
+#[cfg(target_os = "linux")]
+type FfmpegVaList = *mut ffmpeg::ffi::__va_list_tag;
+
+#[cfg(not(target_os = "linux"))]
+type FfmpegVaList = ffmpeg::ffi::va_list;
+
+unsafe extern "C" fn ffmpeg_log_callback(
+    avcl: *mut c_void,
+    level: c_int,
+    fmt: *const c_char,
+    vl: FfmpegVaList,
+) {
+    if fmt.is_null() {
+        return;
+    }
+
+    let mut line = [0i8; 2048];
+    let mut print_prefix = 1;
+    let formatted = ffmpeg::ffi::av_log_format_line2(
+        avcl,
+        level,
+        fmt,
+        vl,
+        line.as_mut_ptr(),
+        line.len() as c_int,
+        &mut print_prefix,
+    );
+    if formatted < 0 {
+        return;
+    }
+
+    let message = CStr::from_ptr(line.as_ptr()).to_string_lossy();
+    let Some(kind) = classify_ffmpeg_decode_log(&message, level) else {
+        return;
+    };
+    crate::engine::ENGINE_TELEMETRY.record_decode_incident(kind);
+
+    let now_epoch_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0);
+    if !should_emit_ffmpeg_incident(kind, now_epoch_ms) {
+        crate::engine::ENGINE_TELEMETRY.record_decode_incident_suppressed();
+        return;
+    }
+
+    let context = ffmpeg_log_contexts()
+        .lock()
+        .ok()
+        .and_then(|contexts| contexts.get(&(avcl as usize)).cloned());
+    if context
+        .as_ref()
+        .map(|value| value.stream_key.is_none() || value.request_id.is_none())
+        .unwrap_or(true)
+    {
+        crate::engine::ENGINE_TELEMETRY.record_decode_incident_untagged();
+    }
+    crate::diagnostics::report_decode_incident(
+        kind.as_str(),
+        ffmpeg_incident_message(kind),
+        context.as_ref().and_then(|value| value.stream_key.clone()),
+        context.as_ref().and_then(|value| value.request_id.clone()),
+    );
+}
+
+fn install_ffmpeg_log_callback() {
+    FFMPEG_LOG_CALLBACK_INSTALLED.call_once(|| unsafe {
+        ffmpeg::ffi::av_log_set_callback(Some(ffmpeg_log_callback));
+    });
+}
+
+/// Run the software-decoder positive control once for a perf-driver process.
+/// The control starts feeding the long-GOP fixture after its first video
+/// packet (the fixture is encoded with a key packet first); a real decoder
+/// must report a missing-reference incident. The fixture is explicit so a
+/// packaged app never guesses at a media path.
+pub fn run_ffmpeg_callback_positive_control() -> bool {
+    *FFMPEG_CALLBACK_VERIFIED.get_or_init(|| {
+        let Some(path) = std::env::var_os("CLYPRA_FFMPEG_CALLBACK_FIXTURE") else {
+            return false;
+        };
+        if !std::path::Path::new(&path).is_file() || ffmpeg::init().is_err() {
+            return false;
+        }
+        ffmpeg::util::log::set_level(configured_ffmpeg_log_level());
+        install_ffmpeg_log_callback();
+        let Ok(mut input) = ffmpeg::format::input(&path) else {
+            return false;
+        };
+        let Some(stream) = input.streams().best(ffmpeg::media::Type::Video) else {
+            return false;
+        };
+        let stream_index = stream.index();
+        let Ok(codec_context) =
+            ffmpeg::codec::context::Context::from_parameters(stream.parameters())
+        else {
+            return false;
+        };
+        let Ok(mut decoder) = codec_context.decoder().video() else {
+            return false;
+        };
+        let decoder_key = unsafe { decoder.as_ptr() as usize };
+        let previous = ffmpeg_log_contexts().lock().ok().and_then(|mut contexts| {
+            contexts.insert(
+                decoder_key,
+                FfmpegLogContext {
+                    stream_key: Some("positive-control".to_string()),
+                    request_id: Some("positive-control".to_string()),
+                },
+            )
+        });
+
+        let before = crate::engine::ENGINE_TELEMETRY.snapshot().decode_incidents;
+        let mut skipped_key_packet = false;
+        let mut fed_packets = 0usize;
+        let mut frame = ffmpeg::util::frame::video::Video::empty();
+        for (packet_stream, packet) in input.packets() {
+            if packet_stream.index() != stream_index {
+                continue;
+            }
+            if !skipped_key_packet && packet.is_key() {
+                skipped_key_packet = true;
+                continue;
+            }
+            if !skipped_key_packet {
+                continue;
+            }
+            let _ = decoder.send_packet(&packet);
+            while decoder.receive_frame(&mut frame).is_ok() {}
+            fed_packets += 1;
+            if fed_packets >= 120 {
+                break;
+            }
+        }
+        let _ = decoder.send_eof();
+        while decoder.receive_frame(&mut frame).is_ok() {}
+
+        if let Ok(mut contexts) = ffmpeg_log_contexts().lock() {
+            if let Some(previous) = previous {
+                contexts.insert(decoder_key, previous);
+            } else {
+                contexts.remove(&decoder_key);
+            }
+        }
+
+        let after = crate::engine::ENGINE_TELEMETRY.snapshot().decode_incidents;
+        after.poc_errors > before.poc_errors || after.rps_errors > before.rps_errors
+    })
+}
+
+pub fn ffmpeg_callback_verified() -> bool {
+    FFMPEG_CALLBACK_VERIFIED.get().copied().unwrap_or(false)
+}
+
+fn configured_ffmpeg_log_level() -> ffmpeg::util::log::Level {
+    match std::env::var("CLYPRA_FFMPEG_LOG_LEVEL")
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "warning" | "warn" => ffmpeg::util::log::Level::Warning,
+        "info" => ffmpeg::util::log::Level::Info,
+        "debug" => ffmpeg::util::log::Level::Debug,
+        "trace" => ffmpeg::util::log::Level::Trace,
+        _ => ffmpeg::util::log::Level::Error,
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) struct FfmpegLogContextGuard {
+    decoder_key: usize,
+    previous: Option<FfmpegLogContext>,
+}
+
+impl Drop for FfmpegLogContextGuard {
+    fn drop(&mut self) {
+        let Ok(mut contexts) = ffmpeg_log_contexts().lock() else {
+            return;
+        };
+        if let Some(previous) = self.previous.take() {
+            contexts.insert(self.decoder_key, previous);
+        } else {
+            contexts.remove(&self.decoder_key);
+        }
+    }
+}
+
+fn ffmpeg_pixel_format_name(code: i32) -> String {
+    let format = unsafe { std::mem::transmute::<i32, ffmpeg::ffi::AVPixelFormat>(code) };
+    unsafe {
+        let name = ffmpeg::ffi::av_get_pix_fmt_name(format);
+        if name.is_null() {
+            format!("unknown({code})")
+        } else {
+            CStr::from_ptr(name).to_string_lossy().into_owned()
+        }
+    }
+}
+
+fn ffmpeg_codec_profile_name(codec_id: ffmpeg::ffi::AVCodecID, profile: i32) -> String {
+    unsafe {
+        let name = ffmpeg::ffi::avcodec_profile_name(codec_id, profile);
+        if name.is_null() {
+            format!("profile-{profile}")
+        } else {
+            CStr::from_ptr(name).to_string_lossy().into_owned()
+        }
+    }
+}
 
 /// Mathematically exact conversion of straight RGBA8 pixels to premultiplied RGBA8.
 ///
@@ -61,9 +375,7 @@ pub fn convert_straight_to_premultiplied(rgba: &mut [u8]) {
 /// Queries FFmpeg's format descriptor table for the AV_PIX_FMT_FLAG_ALPHA flag.
 pub fn ffmpeg_pixel_format_has_alpha(format: ffmpeg::format::Pixel) -> bool {
     if let Some(desc) = format.descriptor() {
-        unsafe {
-            ((*desc.as_ptr()).flags & (ffmpeg::ffi::AV_PIX_FMT_FLAG_ALPHA as u64)) != 0
-        }
+        unsafe { ((*desc.as_ptr()).flags & (ffmpeg::ffi::AV_PIX_FMT_FLAG_ALPHA as u64)) != 0 }
     } else {
         false
     }
@@ -131,7 +443,6 @@ impl DecodedVideoFrame {
     }
 }
 
-
 /// Port of FFmpeg's av_display_rotation_get from libavutil/display.h.
 unsafe fn av_display_rotation_get(matrix: *const i32) -> f64 {
     let s0 = *matrix.add(0) as f64; // matrix[0]
@@ -160,6 +471,19 @@ struct DecoderState {
     last_requested_pts: i64,
     gop_start_pts: i64,
     sequential_hits: u32,
+    position: DecoderPosition,
+}
+
+/// Whether the decoder's reference chain is safe to continue forward.
+///
+/// A cancellation can stop packet feeding in the middle of a GOP. In that
+/// case `current_pts` is not sufficient evidence that the decoder is usable:
+/// the next request must seek back to a keyframe and rebuild the DPB.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DecoderPosition {
+    #[allow(dead_code)]
+    Positioned,
+    Dirty,
 }
 
 /// Per-request facts retained by the long-lived decoder. These are deliberately
@@ -202,7 +526,25 @@ impl DecoderState {
             last_requested_pts: -1,
             gop_start_pts: -1,
             sequential_hits: 0,
+            position: DecoderPosition::Dirty,
         }
+    }
+
+    #[allow(dead_code)]
+    fn is_dirty(&self) -> bool {
+        self.position == DecoderPosition::Dirty
+    }
+
+    fn mark_dirty(&mut self) {
+        self.position = DecoderPosition::Dirty;
+        self.current_pts = -1;
+        self.gop_start_pts = -1;
+        self.sequential_hits = 0;
+    }
+
+    #[allow(dead_code)]
+    fn mark_positioned(&mut self) {
+        self.position = DecoderPosition::Positioned;
     }
 
     fn can_decode_forward(&self, target_pts: i64, sequential_window: i64) -> bool {
@@ -265,6 +607,10 @@ pub struct VideoDecoder {
     /// Accumulated microsecond duration spent demuxing packets from container I/O during the last decode request.
     last_demux_us: u32,
     last_decode_activity: DecodeActivity,
+    transfer_site: crate::engine::benchmark::types::HwframeTransferSite,
+    /// Debug-only A/B switch. The default preserves the safe dirty recovery;
+    /// disabling it is intentionally observable in the session header.
+    dirty_recovery_enabled: bool,
 }
 
 impl VideoDecoder {
@@ -299,11 +645,7 @@ impl VideoDecoder {
                 {
                     "vaapi"
                 }
-                #[cfg(not(any(
-                    target_os = "windows",
-                    target_os = "macos",
-                    target_os = "linux"
-                )))]
+                #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
                 {
                     "unknown"
                 }
@@ -352,6 +694,15 @@ impl VideoDecoder {
         }
     }
 
+    fn cancellation_error(&mut self) -> String {
+        crate::engine::ENGINE_TELEMETRY.record_decode_cancelled();
+        if self.dirty_recovery_enabled {
+            self.state.mark_dirty();
+            crate::engine::ENGINE_TELEMETRY.record_dirty_recovery();
+        }
+        "Native preview request cancelled".to_string()
+    }
+
     /// Open a general-purpose CPU decoder. Background and legacy callers use
     /// this safe default because they need CPU-readable frames.
     pub fn open(path: &str) -> Result<Self, String> {
@@ -385,7 +736,8 @@ impl VideoDecoder {
         purpose: Option<&'static str>,
     ) -> Result<Self, String> {
         ffmpeg::init().map_err(|e| e.to_string())?;
-        ffmpeg::util::log::set_level(ffmpeg::util::log::Level::Error);
+        ffmpeg::util::log::set_level(configured_ffmpeg_log_level());
+        install_ffmpeg_log_callback();
 
         let mut probe_guard = crate::cold_start::SpanGuard::start("c2_container_open_probe");
         if let Some(p) = purpose {
@@ -434,10 +786,16 @@ impl VideoDecoder {
             }
         };
 
-        let (pixel_format_code, bits_per_raw_sample, color) = unsafe {
+        let (pixel_format_code, bits_per_raw_sample, color, codec_profile, pixel_format) = unsafe {
             let codecpar = (*stream.as_ptr()).codecpar;
             if codecpar.is_null() {
-                (0, 0, VideoColorMetadata::default())
+                (
+                    0,
+                    0,
+                    VideoColorMetadata::default(),
+                    "unknown".to_string(),
+                    "unknown".to_string(),
+                )
             } else {
                 (
                     (*codecpar).format,
@@ -449,6 +807,8 @@ impl VideoDecoder {
                         (*codecpar).color_trc,
                         (*codecpar).chroma_location,
                     ),
+                    ffmpeg_codec_profile_name((*codecpar).codec_id, (*codecpar).profile),
+                    ffmpeg_pixel_format_name((*codecpar).format),
                 )
             }
         };
@@ -549,6 +909,8 @@ impl VideoDecoder {
             color,
             container_format,
             codec_name,
+            codec_profile,
+            pixel_format,
             is_hardware_accelerated,
         };
 
@@ -568,12 +930,52 @@ impl VideoDecoder {
             raw_nv12_cache: VecDeque::with_capacity(MAX_RAW_NV12_CACHE_ENTRIES),
             last_demux_us: 0,
             last_decode_activity: DecodeActivity::default(),
+            // A decoder request without an explicit playback/lookahead label
+            // is a user-driven seek by default. Keeping a concrete site here
+            // prevents hardware downloads from disappearing into an unknown
+            // telemetry bucket.
+            transfer_site: crate::engine::benchmark::types::HwframeTransferSite::Seek,
+            dirty_recovery_enabled: std::env::var("CLYPRA_DEBUG_DISABLE_DIRTY_RECOVERY")
+                .map(|value| value != "1")
+                .unwrap_or(true),
         })
     }
 
     /// Return the stream-level metadata used to configure native rendering.
     pub fn metadata(&self) -> VideoStreamMetadata {
         self.stream_metadata.clone()
+    }
+
+    pub fn set_transfer_site(
+        &mut self,
+        site: crate::engine::benchmark::types::HwframeTransferSite,
+    ) {
+        self.transfer_site = site;
+    }
+
+    /// Associates FFmpeg callback messages with the active preview request.
+    /// The map is keyed by the AVCodecContext pointer passed to FFmpeg's log
+    /// callback, so codec worker-thread messages retain their provenance even
+    /// when decoding is performed asynchronously.
+    #[allow(dead_code)]
+    pub(crate) fn enter_ffmpeg_log_context(
+        &self,
+        stream_key: &str,
+        request_id: &str,
+    ) -> FfmpegLogContextGuard {
+        let decoder_key = unsafe { self.decoder.as_ptr() as usize };
+        let context = FfmpegLogContext {
+            stream_key: sanitize_ffmpeg_context_id(stream_key),
+            request_id: sanitize_ffmpeg_context_id(request_id),
+        };
+        let previous = ffmpeg_log_contexts()
+            .lock()
+            .ok()
+            .and_then(|mut contexts| contexts.insert(decoder_key, context));
+        FfmpegLogContextGuard {
+            decoder_key,
+            previous,
+        }
     }
 
     /// Estimated duration in seconds of a single video frame.
@@ -922,9 +1324,17 @@ impl VideoDecoder {
     fn open_software_codec(
         mut ctx: ffmpeg::codec::context::Context,
     ) -> Result<(ffmpeg::codec::decoder::Video, u32, u32), String> {
+        let thread_count = std::thread::available_parallelism()
+            .map(|p| p.get())
+            .unwrap_or(4)
+            .clamp(2, 8) as i32;
+
         unsafe {
             if !ctx.as_mut_ptr().is_null() {
                 (*ctx.as_mut_ptr()).get_format = Some(Self::get_sw_format);
+                (*ctx.as_mut_ptr()).thread_count = thread_count;
+                (*ctx.as_mut_ptr()).thread_type =
+                    ffmpeg::ffi::FF_THREAD_FRAME | ffmpeg::ffi::FF_THREAD_SLICE;
             }
         }
 
@@ -1028,6 +1438,13 @@ impl VideoDecoder {
                     (*ctx.as_mut_ptr()).hw_device_ctx = ffmpeg::ffi::av_buffer_ref(hw_ctx);
                     ffmpeg::ffi::av_buffer_unref(&mut hw_ctx);
                     (*ctx.as_mut_ptr()).get_format = Some(Self::get_hw_format);
+                    let thread_count = std::thread::available_parallelism()
+                        .map(|p| p.get())
+                        .unwrap_or(4)
+                        .clamp(2, 8) as i32;
+                    (*ctx.as_mut_ptr()).thread_count = thread_count;
+                    (*ctx.as_mut_ptr()).thread_type =
+                        ffmpeg::ffi::FF_THREAD_FRAME | ffmpeg::ffi::FF_THREAD_SLICE;
                     let decoder = ctx.decoder().video().map_err(|e| e.to_string())?;
                     let w = decoder.width();
                     let h = decoder.height();
@@ -1117,8 +1534,7 @@ impl VideoDecoder {
 
         let (target_w, target_h) =
             if max_w > 0 && max_h > 0 && (display_w > max_w || display_h > max_h) {
-                let scale =
-                    (max_w as f64 / display_w as f64).min(max_h as f64 / display_h as f64);
+                let scale = (max_w as f64 / display_w as f64).min(max_h as f64 / display_h as f64);
                 let w = (((display_w as f64 * scale).round() as u32).max(1) + 1) & !1;
                 let h = (((display_h as f64 * scale).round() as u32).max(1) + 1) & !1;
                 (w, h)
@@ -1207,8 +1623,7 @@ impl VideoDecoder {
         let (display_w, display_h) = self.display_dimensions();
         let (target_w, target_h) =
             if max_w > 0 && max_h > 0 && (display_w > max_w || display_h > max_h) {
-                let scale =
-                    (max_w as f64 / display_w as f64).min(max_h as f64 / display_h as f64);
+                let scale = (max_w as f64 / display_w as f64).min(max_h as f64 / display_h as f64);
                 let w = (((display_w as f64 * scale).round() as u32).max(1) + 1) & !1;
                 let h = (((display_h as f64 * scale).round() as u32).max(1) + 1) & !1;
                 (w, h)
@@ -1247,7 +1662,10 @@ impl VideoDecoder {
                         let cpu_frame = match &transferred_cpu_frame {
                             Some(cached) => cached.clone(),
                             None => {
-                                let cpu = Self::hw_to_cpu_frame(frame.clone())?;
+                                let cpu = Self::hw_to_cpu_frame(
+                                    frame.clone(),
+                                    crate::engine::benchmark::types::HwframeTransferSite::Filmstrip,
+                                )?;
                                 transferred_cpu_frame = Some(cpu.clone());
                                 cpu
                             }
@@ -1588,7 +2006,8 @@ impl VideoDecoder {
 
         // Dynamic inspection of decoded pixel format
         let source_format = cpu_frame.format();
-        let source_format_str = source_format.descriptor()
+        let source_format_str = source_format
+            .descriptor()
             .map(|d| d.name().to_string())
             .unwrap_or_else(|| format!("{:?}", source_format));
         let has_alpha = ffmpeg_pixel_format_has_alpha(source_format);
@@ -1696,7 +2115,10 @@ impl VideoDecoder {
         Ok(())
     }
 
-    fn hw_to_cpu_frame(frame: ffmpeg::frame::Video) -> Result<ffmpeg::frame::Video, String> {
+    fn hw_to_cpu_frame(
+        frame: ffmpeg::frame::Video,
+        transfer_site: crate::engine::benchmark::types::HwframeTransferSite,
+    ) -> Result<ffmpeg::frame::Video, String> {
         let source_format = unsafe { (*frame.as_ptr()).format };
         let cpu_frame = if source_format
             == ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_VIDEOTOOLBOX as i32
@@ -1719,6 +2141,14 @@ impl VideoDecoder {
                     frame.as_ptr(),
                     0,
                 );
+                crate::engine::ENGINE_TELEMETRY.record_hwframe_transfer_at(
+                    transfer_site,
+                    if ret >= 0 {
+                        Self::software_frame_storage_bytes(&cpu_frame)
+                    } else {
+                        0
+                    },
+                );
                 if ret < 0 {
                     log::debug!(
                         "[VideoDecoder] NV12 HW transfer failed (ret={}), falling back to YUV420P",
@@ -1730,6 +2160,14 @@ impl VideoDecoder {
                         cpu_frame.as_mut_ptr(),
                         frame.as_ptr(),
                         0,
+                    );
+                    crate::engine::ENGINE_TELEMETRY.record_hwframe_transfer_at(
+                        transfer_site,
+                        if ret >= 0 {
+                            Self::software_frame_storage_bytes(&cpu_frame)
+                        } else {
+                            0
+                        },
                     );
                 }
                 if ret < 0 {
@@ -1753,8 +2191,46 @@ impl VideoDecoder {
         Ok(cpu_frame)
     }
 
+    /// Estimate the bytes written into the software destination by a
+    /// successful `av_hwframe_transfer_data` call. The estimate follows the
+    /// destination strides, including allocator padding, so it measures the
+    /// actual upload/readback footprint rather than only visible pixels.
+    fn software_frame_storage_bytes(frame: &ffmpeg::frame::Video) -> usize {
+        let raw = unsafe { &*frame.as_ptr() };
+        let height = raw.height.max(0) as usize;
+        let format = raw.format;
+        let mut total = 0usize;
+        for (plane, linesize) in raw.linesize.iter().enumerate().take(4) {
+            let stride = linesize.unsigned_abs() as usize;
+            if stride == 0 {
+                continue;
+            }
+            let plane_height = match format {
+                x if x == ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_NV12 as i32
+                    || x == ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_P010LE as i32 =>
+                {
+                    if plane == 0 {
+                        height
+                    } else {
+                        height.div_ceil(2)
+                    }
+                }
+                x if x == ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_YUV420P as i32 => {
+                    if plane == 0 {
+                        height
+                    } else {
+                        height.div_ceil(2)
+                    }
+                }
+                _ => height,
+            };
+            total = total.saturating_add(stride.saturating_mul(plane_height));
+        }
+        total
+    }
+
     fn to_cpu_frame(&self, frame: ffmpeg::frame::Video) -> Result<ffmpeg::frame::Video, String> {
-        Self::hw_to_cpu_frame(frame)
+        Self::hw_to_cpu_frame(frame, self.transfer_site)
     }
 
     /// Attempt to extract a DXGI NT shared handle from a D3D11VA hardware frame
@@ -1781,6 +2257,18 @@ impl VideoDecoder {
         // `frame.as_ptr()` is a valid, non-null AVFrame* and the
         // hardware context is still live because the frame is in scope.
         unsafe { crate::wgpu_compositor::dxgi_import::extract_shared_handle(frame.as_ptr()) }
+    }
+
+    /// Attempt to extract a Metal CVPixelBuffer from a VideoToolbox hardware frame
+    /// **without copying data to CPU RAM** (macOS zero-copy path).
+    #[cfg(target_os = "macos")]
+    pub fn try_extract_metal_shared_frame(
+        frame: &ffmpeg::frame::Video,
+    ) -> Option<crate::wgpu_compositor::metal_import::MetalSharedFrame> {
+        if frame.format() != ffmpeg::format::Pixel::VIDEOTOOLBOX {
+            return None;
+        }
+        unsafe { crate::wgpu_compositor::metal_import::extract_shared_frame(frame.as_ptr()) }
     }
 
     /// Extract raw NV12 planes (Y plane + interleaved UV plane) directly from a decoded frame without CPU sws_scale.
@@ -1917,7 +2405,7 @@ impl VideoDecoder {
         is_cancelled: F,
     ) -> Result<(Arc<[u8]>, Arc<[u8]>, u32, u32, VideoColorMetadata), String> {
         if is_cancelled() {
-            return Err("Native preview request cancelled".to_string());
+            return Err(self.cancellation_error());
         }
         let ts = self.clamp_timestamp(timestamp_secs);
         let target_pts = (ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
@@ -1940,13 +2428,17 @@ impl VideoDecoder {
             .round()
             .max(1.0) as i64;
 
-        // Allow a ready-frame cache to cover requests that are at most 1 frame
-        // behind the cached PTS.  Using exactly pts_tolerance (≈ 0.95 × frame
-        // duration) means the served frame is never more than ~1 frame ahead
-        // of the target, which is the weakest correctness guarantee consistent
-        // with smooth forward playback.  Using 2× was too loose and could
-        // deliver a frame that was visibly a full frame early.
-        let backward_jitter_threshold = pts_tolerance;
+        // Allow a ready-frame cache to cover requests that are at most 1–1.5 frames
+        // behind the cached PTS. Using 1.5× frame duration for continuous playback
+        // prevents spurious backward GOP flushes due to minor VFR timing jitter,
+        // while exact seeks maintain strict sub-frame tolerance.
+        let backward_jitter_threshold = if options.is_playback {
+            ((frame_duration_secs * 1.5) * self.time_base.1 as f64 / self.time_base.0 as f64)
+                .round()
+                .max(1.0) as i64
+        } else {
+            pts_tolerance
+        };
 
         // 1. Check LRU ring-buffer cache for recently decoded frames
         if options.is_playback {
@@ -2463,13 +2955,15 @@ impl VideoDecoder {
         let backward_distance = self.state.current_pts - target_pts;
         let is_backward = target_pts < self.state.current_pts;
         let needs_seek = if options.is_playback {
-            self.state.current_pts < 0
+            self.state.is_dirty()
+                || self.state.current_pts < 0
                 || (!is_backward
                     && !self
                         .state
                         .can_decode_forward(target_pts, sequential_window * 2))
         } else {
-            self.state.current_pts < 0
+            self.state.is_dirty()
+                || self.state.current_pts < 0
                 || (is_backward && backward_distance > pts_tolerance)
                 || (!is_backward && !self.state.can_decode_forward(target_pts, sequential_window))
         };
@@ -2478,7 +2972,7 @@ impl VideoDecoder {
 
         if needs_seek {
             if is_cancelled() {
-                return Err("Native preview request cancelled".to_string());
+                return Err(self.cancellation_error());
             }
             let seek_t0 = Instant::now();
             unsafe {
@@ -2489,6 +2983,7 @@ impl VideoDecoder {
                     ffmpeg::ffi::AVSEEK_FLAG_BACKWARD,
                 );
                 if ret < 0 {
+                    self.state.mark_dirty();
                     return Err(format!("Seek failed at {}s", ts));
                 }
             }
@@ -2506,7 +3001,7 @@ impl VideoDecoder {
         if options.allow_keyframe_approx && needs_seek {
             'kf: for (stream, packet) in self.input_ctx.packets() {
                 if is_cancelled() {
-                    return Err("Native preview request cancelled".to_string());
+                    return Err(self.cancellation_error());
                 }
                 if stream.index() != self.stream_index {
                     continue;
@@ -2517,7 +3012,7 @@ impl VideoDecoder {
                 let mut frame = ffmpeg::frame::Video::empty();
                 if self.decoder.receive_frame(&mut frame).is_ok() {
                     if is_cancelled() {
-                        return Err("Native preview request cancelled".to_string());
+                        return Err(self.cancellation_error());
                     }
                     let pts = frame.pts().unwrap_or(0);
                     self.state.current_pts = pts;
@@ -2533,7 +3028,7 @@ impl VideoDecoder {
             let mut buffered = ffmpeg::frame::Video::empty();
             while self.decoder.receive_frame(&mut buffered).is_ok() {
                 if is_cancelled() {
-                    return Err("Native preview request cancelled".to_string());
+                    return Err(self.cancellation_error());
                 }
                 let pts = buffered.pts().unwrap_or(0);
                 self.state.current_pts = pts;
@@ -2551,7 +3046,7 @@ impl VideoDecoder {
         if !found {
             'dec: for (stream, packet) in self.input_ctx.packets() {
                 if is_cancelled() {
-                    return Err("Native preview request cancelled".to_string());
+                    return Err(self.cancellation_error());
                 }
                 if stream.index() != self.stream_index {
                     continue;
@@ -2562,7 +3057,7 @@ impl VideoDecoder {
                 let mut frame = ffmpeg::frame::Video::empty();
                 while self.decoder.receive_frame(&mut frame).is_ok() {
                     if is_cancelled() {
-                        return Err("Native preview request cancelled".to_string());
+                        return Err(self.cancellation_error());
                     }
                     let pts = frame.pts().unwrap_or(0);
                     self.state.current_pts = pts;
@@ -2583,7 +3078,7 @@ impl VideoDecoder {
             let mut frame = ffmpeg::frame::Video::empty();
             while self.decoder.receive_frame(&mut frame).is_ok() {
                 if is_cancelled() {
-                    return Err("Native preview request cancelled".to_string());
+                    return Err(self.cancellation_error());
                 }
                 let pts = frame.pts().unwrap_or(0);
                 self.state.current_pts = pts;
@@ -2669,6 +3164,7 @@ impl VideoDecoder {
         }
 
         if !found && best_frame.width() == 0 {
+            self.state.mark_dirty();
             return Err(format!("No frame found at {}s", ts));
         }
 
@@ -2688,6 +3184,7 @@ impl VideoDecoder {
                     *out_height
                 );
                 self.last_demux_us = demux_time_us;
+                self.state.mark_positioned();
                 return Ok(Some(shared));
             }
             log::warn!(
@@ -2753,6 +3250,334 @@ impl VideoDecoder {
                 });
             }
         }
+        self.state.mark_positioned();
+        self.last_demux_us = demux_time_us;
+        Ok(None)
+    }
+
+    /// macOS-only: attempt to decode the frame at `timestamp_secs` and return
+    /// a zero-copy Metal shared frame (wrapping CVPixelBufferRef) instead of copying NV12 data to CPU RAM.
+    #[cfg(target_os = "macos")]
+    pub fn decode_frame_metal_macos<F: Fn() -> bool>(
+        &mut self,
+        timestamp_secs: f64,
+        options: DecodeFrameOptions,
+        is_cancelled: F,
+        out_color: &mut VideoColorMetadata,
+        out_width: &mut u32,
+        out_height: &mut u32,
+    ) -> Result<Option<crate::wgpu_compositor::metal_import::MetalSharedFrame>, String> {
+        if is_cancelled() {
+            return Err(self.cancellation_error());
+        }
+        let ts = self.clamp_timestamp(timestamp_secs);
+        let target_pts = (ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
+        let stream_fps = if self.stream_metadata.average_frame_rate_den > 0
+            && self.stream_metadata.average_frame_rate_num > 0
+        {
+            self.stream_metadata.average_frame_rate_num as f64
+                / self.stream_metadata.average_frame_rate_den as f64
+        } else {
+            30.0
+        };
+        let frame_duration_secs = (1.0f64 / stream_fps.max(1.0f64)).min(0.2f64);
+        let pts_tolerance = ((frame_duration_secs * 0.95) * self.time_base.1 as f64
+            / self.time_base.0 as f64)
+            .round()
+            .max(1.0) as i64;
+
+        let sequential_window = (2.0 * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
+        self.state.update_sequential(target_pts);
+
+        let backward_distance = self.state.current_pts - target_pts;
+        let is_backward = target_pts < self.state.current_pts;
+        let needs_seek = if options.is_playback {
+            self.state.is_dirty()
+                || self.state.current_pts < 0
+                || (!is_backward
+                    && !self
+                        .state
+                        .can_decode_forward(target_pts, sequential_window * 2))
+        } else {
+            self.state.is_dirty()
+                || self.state.current_pts < 0
+                || (is_backward && backward_distance > pts_tolerance)
+                || (!is_backward && !self.state.can_decode_forward(target_pts, sequential_window))
+        };
+
+        let mut demux_time_us = 0u32;
+
+        if needs_seek {
+            if is_cancelled() {
+                return Err(self.cancellation_error());
+            }
+            let seek_t0 = Instant::now();
+            unsafe {
+                let ret = ffmpeg::ffi::av_seek_frame(
+                    self.input_ctx.as_mut_ptr(),
+                    self.stream_index as i32,
+                    target_pts,
+                    ffmpeg::ffi::AVSEEK_FLAG_BACKWARD,
+                );
+                if ret < 0 {
+                    self.state.mark_dirty();
+                    return Err(format!("Seek failed at {}s", ts));
+                }
+            }
+            demux_time_us = demux_time_us
+                .saturating_add(seek_t0.elapsed().as_micros().min(u32::MAX as u128) as u32);
+            self.decoder.flush();
+            self.state.current_pts = -1;
+            self.state.gop_start_pts = target_pts;
+        }
+
+        let mut best_frame = ffmpeg::frame::Video::empty();
+        let mut found = false;
+
+        // Keyframe-only fast path (scrubbing)
+        if options.allow_keyframe_approx && needs_seek {
+            'kf: for (stream, packet) in self.input_ctx.packets() {
+                if is_cancelled() {
+                    return Err(self.cancellation_error());
+                }
+                if stream.index() != self.stream_index {
+                    continue;
+                }
+                if self.decoder.send_packet(&packet).is_err() {
+                    continue;
+                }
+                let mut frame = ffmpeg::frame::Video::empty();
+                if self.decoder.receive_frame(&mut frame).is_ok() {
+                    if is_cancelled() {
+                        return Err(self.cancellation_error());
+                    }
+                    let pts = frame.pts().unwrap_or(0);
+                    self.state.current_pts = pts;
+                    best_frame = frame;
+                    found = true;
+                    break 'kf;
+                }
+            }
+        }
+
+        // Drain DPB
+        if !found {
+            let mut buffered = ffmpeg::frame::Video::empty();
+            while self.decoder.receive_frame(&mut buffered).is_ok() {
+                if is_cancelled() {
+                    return Err(self.cancellation_error());
+                }
+                let pts = buffered.pts().unwrap_or(0);
+                self.state.current_pts = pts;
+                let frame_ts = pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
+                if frame_ts >= ts - (1.0 / 60.0) {
+                    best_frame = buffered;
+                    found = true;
+                    break;
+                }
+                best_frame = buffered;
+                buffered = ffmpeg::frame::Video::empty();
+            }
+        }
+
+        if !found {
+            'dec: for (stream, packet) in self.input_ctx.packets() {
+                if is_cancelled() {
+                    return Err(self.cancellation_error());
+                }
+                if stream.index() != self.stream_index {
+                    continue;
+                }
+                if self.decoder.send_packet(&packet).is_err() {
+                    continue;
+                }
+                let mut frame = ffmpeg::frame::Video::empty();
+                while self.decoder.receive_frame(&mut frame).is_ok() {
+                    if is_cancelled() {
+                        return Err(self.cancellation_error());
+                    }
+                    let pts = frame.pts().unwrap_or(0);
+                    self.state.current_pts = pts;
+                    let frame_ts = pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
+                    best_frame = frame;
+                    if frame_ts >= ts - (1.0 / 60.0) {
+                        found = true;
+                        break 'dec;
+                    }
+                    frame = ffmpeg::frame::Video::empty();
+                }
+            }
+        }
+
+        if !found && self.decoder.send_eof().is_ok() {
+            let mut frame = ffmpeg::frame::Video::empty();
+            while self.decoder.receive_frame(&mut frame).is_ok() {
+                if is_cancelled() {
+                    return Err(self.cancellation_error());
+                }
+                let pts = frame.pts().unwrap_or(0);
+                self.state.current_pts = pts;
+                let frame_ts = pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
+                best_frame = frame;
+                if frame_ts >= ts - (1.0 / 60.0) {
+                    found = true;
+                    break;
+                }
+                frame = ffmpeg::frame::Video::empty();
+            }
+            self.state.current_pts = -1;
+        }
+
+        if !found && best_frame.width() == 0 {
+            let retry_ts = (ts - 1.0).max(0.0);
+            let retry_pts = (retry_ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
+
+            unsafe {
+                let ret = ffmpeg::ffi::av_seek_frame(
+                    self.input_ctx.as_mut_ptr(),
+                    self.stream_index as i32,
+                    retry_pts,
+                    ffmpeg::ffi::AVSEEK_FLAG_BACKWARD,
+                );
+                if ret >= 0 {
+                    self.decoder.flush();
+                    self.state.current_pts = -1;
+                    self.state.gop_start_pts = retry_pts;
+
+                    'retry_metal: for (stream, packet) in self.input_ctx.packets() {
+                        if is_cancelled() {
+                            return Err(self.cancellation_error());
+                        }
+                        if stream.index() != self.stream_index {
+                            continue;
+                        }
+                        if self.decoder.send_packet(&packet).is_err() {
+                            continue;
+                        }
+                        let mut frame = ffmpeg::frame::Video::empty();
+                        while self.decoder.receive_frame(&mut frame).is_ok() {
+                            if is_cancelled() {
+                                return Err(self.cancellation_error());
+                            }
+                            let pts = frame.pts().unwrap_or(0);
+                            self.state.current_pts = pts;
+                            let frame_ts =
+                                pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
+                            best_frame = frame;
+                            if frame_ts >= ts - (1.0 / 60.0) {
+                                found = true;
+                                break 'retry_metal;
+                            }
+                            frame = ffmpeg::frame::Video::empty();
+                        }
+                    }
+
+                    if !found && self.decoder.send_eof().is_ok() {
+                        let mut frame = ffmpeg::frame::Video::empty();
+                        while self.decoder.receive_frame(&mut frame).is_ok() {
+                            if is_cancelled() {
+                                return Err(self.cancellation_error());
+                            }
+                            let pts = frame.pts().unwrap_or(0);
+                            self.state.current_pts = pts;
+                            let frame_ts =
+                                pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
+                            best_frame = frame;
+                            if frame_ts >= ts - (1.0 / 60.0) {
+                                found = true;
+                                break;
+                            }
+                            frame = ffmpeg::frame::Video::empty();
+                        }
+                    }
+                }
+            }
+        }
+
+        if !found && best_frame.width() == 0 {
+            self.state.mark_dirty();
+            return Err(format!("No frame found at {}s", ts));
+        }
+
+        // Check if this is a VideoToolbox hardware frame — if so, try zero-copy.
+        if best_frame.format() == ffmpeg::format::Pixel::VIDEOTOOLBOX {
+            let meta = self.frame_metadata(&best_frame);
+            *out_color = normalize_converted_nv12_color(meta.color);
+            *out_width = best_frame.width();
+            *out_height = best_frame.height();
+
+            if let Some(shared) = Self::try_extract_metal_shared_frame(&best_frame) {
+                log::debug!(
+                    "[VideoDecoder] VideoToolbox zero-copy Metal shared frame extracted successfully for {}x{}",
+                    *out_width,
+                    *out_height
+                );
+                self.last_demux_us = demux_time_us;
+                self.state.mark_positioned();
+                return Ok(Some(shared));
+            }
+            log::warn!(
+                "[VideoDecoder] VideoToolbox zero-copy handle extraction returned None; falling back to CPU copy"
+            );
+        }
+
+        // CPU fallback: populate raw NV12 cache so caller does NOT need to re-seek or re-decode.
+        if let Ok(cpu_frame) = self.to_cpu_frame(best_frame) {
+            let frame_color = self.frame_metadata(&cpu_frame).color;
+            let (target_width, target_height) =
+                nv12_dimensions_for_quality(cpu_frame.width(), cpu_frame.height(), options.quality);
+            if let Ok(result) = if target_width == cpu_frame.width()
+                && target_height == cpu_frame.height()
+            {
+                if let Some(nv12) = self.extract_nv12_planes(&cpu_frame) {
+                    Ok((
+                        nv12.0,
+                        nv12.1,
+                        nv12.2,
+                        nv12.3,
+                        normalize_converted_nv12_color(frame_color),
+                    ))
+                } else {
+                    scale_frame_to_nv12(
+                        &cpu_frame,
+                        target_width,
+                        target_height,
+                        frame_color.clone(),
+                    )
+                }
+            } else {
+                scale_frame_to_nv12(&cpu_frame, target_width, target_height, frame_color.clone())
+            } {
+                let y_arc: Arc<[u8]> = Arc::from(result.0);
+                let uv_arc: Arc<[u8]> = Arc::from(result.1);
+                let is_approx = options.allow_keyframe_approx
+                    && (self.state.current_pts - target_pts).abs() > pts_tolerance;
+                self.last_raw_nv12 = Some((
+                    target_pts,
+                    Arc::clone(&y_arc),
+                    Arc::clone(&uv_arc),
+                    result.2,
+                    result.3,
+                    result.4.clone(),
+                    options.quality,
+                    is_approx,
+                ));
+                if self.raw_nv12_cache.len() >= MAX_RAW_NV12_CACHE_ENTRIES {
+                    self.raw_nv12_cache.pop_front();
+                }
+                self.raw_nv12_cache.push_back(CachedNv12Frame {
+                    pts: target_pts,
+                    y_plane: Arc::clone(&y_arc),
+                    uv_plane: Arc::clone(&uv_arc),
+                    width: result.2,
+                    height: result.3,
+                    color: result.4,
+                    quality: options.quality,
+                    is_approximate: is_approx,
+                });
+            }
+        }
+        self.state.mark_positioned();
         self.last_demux_us = demux_time_us;
         Ok(None)
     }
@@ -2846,8 +3671,18 @@ impl VideoDecoder {
                     ffmpeg::color::Range::JPEG => 1,
                     ffmpeg::color::Range::MPEG => 0,
                     _ => {
-                        if self.stream_metadata.color.range.to_lowercase().contains("full")
-                            || self.stream_metadata.color.range.to_lowercase().contains("pc")
+                        if self
+                            .stream_metadata
+                            .color
+                            .range
+                            .to_lowercase()
+                            .contains("full")
+                            || self
+                                .stream_metadata
+                                .color
+                                .range
+                                .to_lowercase()
+                                .contains("pc")
                         {
                             1
                         } else {
@@ -3019,4 +3854,3 @@ impl VideoDecoder {
         }
     }
 }
-

@@ -1,8 +1,8 @@
-use super::render_session::NativeRenderSession;
+use super::render_session::{NativePlaybackDemandTerminal, NativeRenderSession};
 use crate::native_audio::NativeAudioClock;
 use crate::native_core::{
-    FrameTime, NativeCoreError, NativePlaybackFrameDemand, PlaybackPlan, PlaybackSession,
-    PlaybackState, DEFAULT_TIME_SCALE,
+    FrameTime, NativeCoreError, NativePlaybackFrameDemand, PlaybackClockStatus, PlaybackPlan,
+    PlaybackSession, PlaybackState, DEFAULT_TIME_SCALE,
 };
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager};
@@ -58,11 +58,34 @@ impl NativePlaybackRuntime {
         }
     }
 
-    pub fn submit_render_demand(&self, demand: NativePlaybackFrameDemand) -> Result<(), String> {
+    pub(crate) fn submit_render_demand(
+        &self,
+        demand: NativePlaybackFrameDemand,
+    ) -> Result<Option<NativePlaybackDemandTerminal>, String> {
         self.render_session
             .as_ref()
             .ok_or_else(|| "Native playback render snapshot is not configured".to_string())?
             .submit(demand)
+    }
+
+    pub(crate) fn demand_requires_recency_barrier(
+        &self,
+        generation: u64,
+    ) -> Result<bool, String> {
+        self.render_session
+            .as_ref()
+            .map(|session| session.demand_requires_recency_barrier(generation))
+            .ok_or_else(|| "Native playback render snapshot is not configured".to_string())
+    }
+
+    pub(crate) fn preempt_for_interactive_demand(
+        &self,
+        cancellation_epoch: u64,
+    ) -> Result<bool, String> {
+        self.render_session
+            .as_ref()
+            .map(|session| session.preempt_for_interactive_demand(cancellation_epoch))
+            .ok_or_else(|| "Native playback render snapshot is not configured".to_string())
     }
 
     pub fn start_render(&self, app: AppHandle) {
@@ -82,7 +105,9 @@ impl NativePlaybackRuntime {
     /// audio clock has stopped.
     pub fn pause_render(&self, app: AppHandle) {
         if let Some(session) = &self.render_session {
-            session.pause_continuous_playback();
+            if let Some(terminal) = session.pause_continuous_playback() {
+                NativeRenderSession::emit_terminal(&app, terminal);
+            }
             tauri::async_runtime::spawn(async move {
                 crate::commands::native_preview::reset_native_preview_queue(&app).await;
             });
@@ -96,13 +121,20 @@ impl NativePlaybackRuntime {
             .unwrap_or(false)
     }
 
-    pub fn invalidate_render_generation(&self, generation: u64) {
+    pub(crate) fn invalidate_render_generation(
+        &self,
+        generation: u64,
+    ) -> Option<NativePlaybackDemandTerminal> {
         if let Some(session) = &self.render_session {
-            session.invalidate(generation);
+            return session.invalidate(generation);
         }
+        None
     }
 
     pub fn configure(&mut self, plan: PlaybackPlan) -> Result<PlaybackState, NativeCoreError> {
+        if let Some(session) = &mut self.session {
+            return session.update_plan(plan);
+        }
         let session = PlaybackSession::new(plan)?;
         let state = session.state();
         self.session = Some(session);
@@ -131,7 +163,9 @@ impl NativePlaybackRuntime {
             };
             self.session = Some(PlaybackSession::new(plan)?);
         }
-        Ok(self.session.as_mut().unwrap())
+        self.session
+            .as_mut()
+            .ok_or_else(|| NativeCoreError::InvalidContract("Playback session was not initialized".to_string()))
     }
 
     pub fn state(&mut self) -> Result<PlaybackState, NativeCoreError> {
@@ -151,7 +185,10 @@ impl NativePlaybackRuntime {
             .and_then(|value| u64::try_from(value).ok())
             .unwrap_or(0);
         session.seek(frame_index)?;
-        session.play(clock)
+        let mut state = session.play(clock)?;
+        session.set_clock_status(PlaybackClockStatus::Audio);
+        state.clock_status = PlaybackClockStatus::Audio;
+        Ok(state)
     }
 
     pub fn pause(&mut self, clock: FrameTime) -> Result<PlaybackState, NativeCoreError> {
@@ -183,6 +220,30 @@ impl NativePlaybackRuntime {
 
     pub fn tick(&mut self, clock: FrameTime) -> Result<PlaybackState, NativeCoreError> {
         self.ensure_session()?.tick(clock)
+    }
+
+    pub fn tick_with_audio_or_monotonic(
+        &mut self,
+        audio_clock: Result<FrameTime, String>,
+        monotonic_clock: FrameTime,
+    ) -> Result<PlaybackState, NativeCoreError> {
+        let session = self.ensure_session()?;
+        match audio_clock {
+            Ok(audio_ft) => {
+                if session.state().clock_status != PlaybackClockStatus::Audio {
+                    session.reanchor(audio_ft)?;
+                    session.set_clock_status(PlaybackClockStatus::Audio);
+                }
+                session.tick(audio_ft)
+            }
+            Err(_) => {
+                if session.state().clock_status == PlaybackClockStatus::Audio {
+                    session.reanchor(monotonic_clock)?;
+                    session.set_clock_status(PlaybackClockStatus::MonotonicFallback);
+                }
+                session.tick(monotonic_clock)
+            }
+        }
     }
 
     /// Drop the session from the previous project so the next project starts

@@ -73,7 +73,12 @@ interface ExportDialogProps {
   onClose: () => void;
 }
 
-type ExportPhase = "configure" | "exporting" | "complete" | "error" | "blocked-missing-effects";
+type ExportPhase =
+  | "configure"
+  | "exporting"
+  | "complete"
+  | "error"
+  | "blocked-missing-effects";
 
 interface VideoExportProgress {
   currentFrame?: number;
@@ -161,7 +166,9 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
   const { clips, tracks, transitions, epoch, getTimelineEndTime } =
     useTimelineStore();
   const exportHistory = useExportHistoryStore((state) => state.entries);
-  const addExportHistoryEntry = useExportHistoryStore((state) => state.addEntry);
+  const addExportHistoryEntry = useExportHistoryStore(
+    (state) => state.addEntry,
+  );
 
   // State
   const [preset, setPreset] = useState<ExportPreset>("1080p-fast");
@@ -170,12 +177,20 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
   const [progress, setProgress] = useState<VideoExportProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ExportResult | null>(null);
-  const [blockedEffects, setBlockedEffects] = useState<Array<{ clipId: string; clipName: string; styleId: string }>>([]);
-  const [blockedImageAssets, setBlockedImageAssets] = useState<MissingImageAsset[]>([]);
-  const [blockedAudioAssets, setBlockedAudioAssets] = useState<MissingAudioAsset[]>([]);
+  const [blockedEffects, setBlockedEffects] = useState<
+    Array<{ clipId: string; clipName: string; styleId: string }>
+  >([]);
+  const [blockedImageAssets, setBlockedImageAssets] = useState<
+    MissingImageAsset[]
+  >([]);
+  const [blockedAudioAssets, setBlockedAudioAssets] = useState<
+    MissingAudioAsset[]
+  >([]);
   const [ffmpegAvailable, setFfmpegAvailable] = useState<boolean | null>(null);
   const [ffmpegVersion, setFfmpegVersion] = useState<string>("");
-  const [mobileExportMode, setMobileExportMode] = useState<"cloud" | "clypra">("cloud");
+  const [mobileExportMode, setMobileExportMode] = useState<"cloud" | "clypra">(
+    "cloud",
+  );
 
   // Project Rename State
   const [isEditingName, setIsEditingName] = useState(false);
@@ -459,7 +474,15 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
       setError(err?.message || "Cloud rendering failed.");
       setPhase("error");
     }
-  }, [project, clips, tracks, transitions, mediaAssets, sequenceDuration, recordCompletedExport]);
+  }, [
+    project,
+    clips,
+    tracks,
+    transitions,
+    mediaAssets,
+    sequenceDuration,
+    recordCompletedExport,
+  ]);
 
   // ─── Mobile capabilities check ─────────────────────────────────────
   useEffect(() => {
@@ -468,7 +491,8 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
     if (platform.isCapacitor()) {
       const checkMobileCapabilities = async () => {
         try {
-          const { isCloudRenderAvailable } = await import("@/lib/export/cloudExport");
+          const { isCloudRenderAvailable } =
+            await import("@/lib/export/cloudExport");
           const cloudAvailable = await isCloudRenderAvailable();
           if (cloudAvailable) {
             setMobileExportMode("cloud");
@@ -485,178 +509,190 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
   }, [isOpen]);
 
   // ─── Export handler ────────────────────────────────────────────────
-  const handleExport = useCallback(async (forceWithBaseTypography: boolean = false) => {
-    if (!outputPath || !project) return;
+  const handleExport = useCallback(
+    async (forceWithBaseTypography: boolean = false) => {
+      if (!outputPath || !project) return;
 
-    safeSetPhase("exporting");
-    safeSetError(null);
-    safeSetResult(null);
-    safeSetProgress(null);
-    exportAbortRef.current = false;
-    cancelExportFnRef.current = null; // clear any stale cancel fn from previous export
+      safeSetPhase("exporting");
+      safeSetError(null);
+      safeSetResult(null);
+      safeSetProgress(null);
+      exportAbortRef.current = false;
+      cancelExportFnRef.current = null; // clear any stale cancel fn from previous export
 
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
 
-    try {
-      // 1. Analyze the native zero-copy path only in Tauri. Browser and mobile
-      // exports must use their platform-specific compatibility path; invoking a
-      // Tauri IPC command there would turn a valid export into a false failure.
-      if (platform.isTauri()) {
-        const { analyzeNativeTimelineExport, runNativeTimelineExport } =
-          await import("@/lib/export/nativeTimelineExport");
-        const eligibility = analyzeNativeTimelineExport({
+      try {
+        // 1. Analyze the native zero-copy path only in Tauri. Browser and mobile
+        // exports must use their platform-specific compatibility path; invoking a
+        // Tauri IPC command there would turn a valid export into a false failure.
+        if (platform.isTauri()) {
+          const { analyzeNativeTimelineExport, runNativeTimelineExport } =
+            await import("@/lib/export/nativeTimelineExport");
+          const eligibility = analyzeNativeTimelineExport({
+            clips,
+            tracks,
+            transitions,
+            assets: mediaAssets,
+            project,
+            startTime: 0,
+            endTime: sequenceDuration,
+            outputPath,
+            width: resolvedWidth,
+            height: resolvedHeight,
+            frameRate: project.frameRate,
+            codec: selectedPreset.codecValue as any,
+            preset: selectedPreset.preset,
+            crf: selectedPreset.crf,
+            pixelFormat: selectedPreset.pixelFormat as any,
+          });
+
+          if (eligibility.eligible) {
+            console.log(
+              "[ExportDialog] Fast-Path: Native Hardware Acceleration activated!",
+              eligibility.plan,
+            );
+            const nativeResult = await runNativeTimelineExport(
+              eligibility.plan,
+              {
+                signal: controller.signal,
+                onProgress: (p) =>
+                  safeSetProgress({
+                    currentFrame: p.currentFrame,
+                    totalFrames: p.totalFrames,
+                    progress: p.progress,
+                    fps: p.fps,
+                    rtf: p.rtf,
+                    etaSeconds: p.etaSeconds,
+                  }),
+                onSessionReady: (cancel) => {
+                  cancelExportFnRef.current = cancel;
+                },
+              },
+            );
+
+            if (!isMountedRef.current) return;
+
+            if (!nativeResult.cancelled) {
+              const completedResult = {
+                totalFrames: nativeResult.completedFrames,
+                totalTimeMs: nativeResult.totalTimeMs,
+                avgTimePerFrameMs:
+                  nativeResult.totalTimeMs > 0 &&
+                  nativeResult.completedFrames > 0
+                    ? nativeResult.totalTimeMs / nativeResult.completedFrames
+                    : 0,
+                outputPath,
+              };
+              safeSetResult(completedResult);
+              recordCompletedExport(completedResult);
+              safeSetPhase("complete");
+              return;
+            } else {
+              safeSetPhase("configure");
+              return;
+            }
+          }
+        }
+
+        // 2. Fallback to Compositor export for complex layers / overlays
+        const { exportVideo } = await exportVideoModule();
+
+        const exportResult = await exportVideo({
           clips,
           tracks,
           transitions,
           assets: mediaAssets,
           project,
+          epoch,
           startTime: 0,
           endTime: sequenceDuration,
           outputPath,
           width: resolvedWidth,
           height: resolvedHeight,
+          // FIX (BUG-5): Explicitly pass frameRate from project settings
+          // so the user knows exactly what fps the export uses
           frameRate: project.frameRate,
           codec: selectedPreset.codecValue as any,
           preset: selectedPreset.preset,
           crf: selectedPreset.crf,
           pixelFormat: selectedPreset.pixelFormat as any,
+          signal: controller.signal,
+          forceExportWithBaseTypography: forceWithBaseTypography,
+          directGpuPipe: platform.isTauri(),
+          onProgress: (p) => safeSetProgress(p),
+          // FIX (BUG-C2): Receive the live cancel function as soon as FFmpeg starts.
+          // Storing it in a ref lets handleCancelExport call it at any time.
+          onSessionReady: (cancel) => {
+            cancelExportFnRef.current = cancel;
+          },
         });
 
-        if (eligibility.eligible) {
-          console.log(
-            "[ExportDialog] Fast-Path: Native Hardware Acceleration activated!",
-            eligibility.plan,
-          );
-          const nativeResult = await runNativeTimelineExport(eligibility.plan, {
-            signal: controller.signal,
-            onProgress: (p) =>
-              safeSetProgress({
-                currentFrame: p.currentFrame,
-                totalFrames: p.totalFrames,
-                progress: p.progress,
-                fps: p.fps,
-                rtf: p.rtf,
-                etaSeconds: p.etaSeconds,
-              }),
-            onSessionReady: (cancel) => {
-              cancelExportFnRef.current = cancel;
-            },
-          });
+        if (!isMountedRef.current) return;
 
-          if (!isMountedRef.current) return;
-
-          if (!nativeResult.cancelled) {
-            const completedResult = {
-              totalFrames: nativeResult.completedFrames,
-              totalTimeMs: nativeResult.totalTimeMs,
-              avgTimePerFrameMs:
-                nativeResult.totalTimeMs > 0 && nativeResult.completedFrames > 0
-                  ? nativeResult.totalTimeMs / nativeResult.completedFrames
-                  : 0,
-              outputPath,
-            };
-            safeSetResult(completedResult);
-            recordCompletedExport(completedResult);
-            safeSetPhase("complete");
-            return;
+        if (!exportResult.cancelled) {
+          const completedResult = {
+            totalFrames: exportResult.totalFrames,
+            totalTimeMs: exportResult.totalTimeMs,
+            avgTimePerFrameMs: exportResult.avgTimePerFrameMs,
+            outputPath,
+            degradedTextEffects: exportResult.degradedTextEffects,
+          };
+          safeSetResult(completedResult);
+          recordCompletedExport(completedResult);
+          safeSetPhase("complete");
+          if (
+            exportResult.degradedTextEffects &&
+            exportResult.degradedTextEffects.length > 0
+          ) {
+            toast.warning(
+              "Video exported with base typography fallback for uncached effects.",
+            );
           } else {
-            safeSetPhase("configure");
-            return;
+            toast.success("Video exported successfully!");
           }
-        }
-      }
-
-      // 2. Fallback to Compositor export for complex layers / overlays
-      const { exportVideo } = await exportVideoModule();
-
-      const exportResult = await exportVideo({
-        clips,
-        tracks,
-        transitions,
-        assets: mediaAssets,
-        project,
-        epoch,
-        startTime: 0,
-        endTime: sequenceDuration,
-        outputPath,
-        width: resolvedWidth,
-        height: resolvedHeight,
-        // FIX (BUG-5): Explicitly pass frameRate from project settings
-        // so the user knows exactly what fps the export uses
-        frameRate: project.frameRate,
-        codec: selectedPreset.codecValue as any,
-        preset: selectedPreset.preset,
-        crf: selectedPreset.crf,
-        pixelFormat: selectedPreset.pixelFormat as any,
-        signal: controller.signal,
-        forceExportWithBaseTypography: forceWithBaseTypography,
-        directGpuPipe: platform.isTauri(),
-        onProgress: (p) => safeSetProgress(p),
-        // FIX (BUG-C2): Receive the live cancel function as soon as FFmpeg starts.
-        // Storing it in a ref lets handleCancelExport call it at any time.
-        onSessionReady: (cancel) => {
-          cancelExportFnRef.current = cancel;
-        },
-      });
-
-      if (!isMountedRef.current) return;
-
-      if (!exportResult.cancelled) {
-        const completedResult = {
-          totalFrames: exportResult.totalFrames,
-          totalTimeMs: exportResult.totalTimeMs,
-          avgTimePerFrameMs: exportResult.avgTimePerFrameMs,
-          outputPath,
-          degradedTextEffects: exportResult.degradedTextEffects,
-        };
-        safeSetResult(completedResult);
-        recordCompletedExport(completedResult);
-        safeSetPhase("complete");
-        if (exportResult.degradedTextEffects && exportResult.degradedTextEffects.length > 0) {
-          toast.warning("Video exported with base typography fallback for uncached effects.");
         } else {
-          toast.success("Video exported successfully!");
+          safeSetPhase("configure");
+          toast.info("Export cancelled");
         }
-      } else {
-        safeSetPhase("configure");
-        toast.info("Export cancelled");
+      } catch (err: any) {
+        if (!isMountedRef.current) return;
+        if (err?.name === "ExportBlockedError" || err?.missingEffects) {
+          setBlockedEffects(err.missingEffects || []);
+          setBlockedImageAssets(err.missingImageAssets || []);
+          setBlockedAudioAssets(err.missingAudioAssets || []);
+          safeSetPhase("blocked-missing-effects");
+          return;
+        }
+        const msg = err instanceof Error ? err.message : "Export failed";
+        safeSetError(msg);
+        safeSetPhase("error");
+        toast.error(`Export failed: ${msg}`);
+      } finally {
+        abortControllerRef.current = null;
+        cancelExportFnRef.current = null;
       }
-    } catch (err: any) {
-      if (!isMountedRef.current) return;
-      if (err?.name === "ExportBlockedError" || err?.missingEffects) {
-        setBlockedEffects(err.missingEffects || []);
-        setBlockedImageAssets(err.missingImageAssets || []);
-        setBlockedAudioAssets(err.missingAudioAssets || []);
-        safeSetPhase("blocked-missing-effects");
-        return;
-      }
-      const msg = err instanceof Error ? err.message : "Export failed";
-      safeSetError(msg);
-      safeSetPhase("error");
-      toast.error(`Export failed: ${msg}`);
-    } finally {
-      abortControllerRef.current = null;
-      cancelExportFnRef.current = null;
-    }
-  }, [
-    outputPath,
-    project,
-    clips,
-    tracks,
-    transitions,
-    mediaAssets,
-    epoch,
-    selectedPreset,
-    sequenceDuration,
-    resolvedWidth,
-    resolvedHeight,
-    safeSetPhase,
-    safeSetError,
-    safeSetResult,
-    safeSetProgress,
-    recordCompletedExport,
-  ]);
+    },
+    [
+      outputPath,
+      project,
+      clips,
+      tracks,
+      transitions,
+      mediaAssets,
+      epoch,
+      selectedPreset,
+      sequenceDuration,
+      resolvedWidth,
+      resolvedHeight,
+      safeSetPhase,
+      safeSetError,
+      safeSetResult,
+      safeSetProgress,
+      recordCompletedExport,
+    ],
+  );
 
   // FIX (BUG-C2): Actually cancel the backend FFmpeg session and stop the frame loop.
   // Previously this only reset the UI; FFmpeg kept running and writing output.
@@ -719,7 +755,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
     >
       <div className="flex flex-col md:flex-row min-h-[400px]">
         {/* ─── Left Sidebar: Preset Cards ─────────────────────────── */}
-        <div className="w-full md:w-[200px] shrink-0 border-b md:border-b-0 md:border-r border-white/6 p-3 flex flex-row md:flex-col gap-2 overflow-x-auto scrollbar-none items-center md:items-stretch">
+        <div className="w-full md:w-[200px] shrink-0 border-b md:border-b-0 md:border-r border-border-default/70 p-3 flex flex-row md:flex-col gap-2 overflow-x-auto scrollbar-none items-center md:items-stretch">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted px-0.5 hidden md:block">
             {t("export.preset")}
           </div>
@@ -745,7 +781,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
 
           {/* Media Engine status — bottom of sidebar */}
           {!platform.isCapacitor() && (
-            <div className="hidden md:block mt-auto pt-3 border-t border-white/6">
+            <div className="hidden md:block mt-auto pt-3 border-t border-border">
               {ffmpegAvailable === null && (
                 <div className="flex items-center gap-2 px-1">
                   <div className="w-2 h-2 rounded-full bg-text-muted/30 animate-pulse" />
@@ -800,7 +836,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                     <h3 className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-2.5">
                       Project
                     </h3>
-                    <div className="rounded-lg border border-white/6 bg-white/2 p-3 space-y-0.5">
+                    <div className="rounded-lg border border-border/40 bg-surface-raised/40 p-3 space-y-0.5">
                       <div className="flex items-center justify-between py-1.5 min-h-[32px]">
                         <div className="flex items-center gap-2 text-text-muted">
                           <Film className="w-3.5 h-3.5" />
@@ -820,7 +856,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                               autoFocus
                               disabled={isRenaming}
                               maxLength={MAX_PROJECT_NAME_LENGTH}
-                              className="w-full max-w-[180px] px-2 py-0.5 rounded bg-white/5 border border-white/10 text-[12px] text-text-primary text-right focus:outline-none focus:border-accent focus:bg-white/8 transition-all"
+                              className="w-full max-w-[180px] px-2 py-0.5 rounded bg-surface-input border border-border text-[12px] text-text-primary text-right focus:outline-none focus:border-accent focus:bg-surface-hover transition-all"
                             />
                             <button
                               onClick={handleSaveName}
@@ -830,7 +866,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                                 countGraphemes(editNameValue) >
                                   MAX_PROJECT_NAME_LENGTH
                               }
-                              className="text-accent hover:text-accent-soft disabled:opacity-30 disabled:cursor-not-allowed p-1 rounded hover:bg-white/5 cursor-pointer flex items-center justify-center shrink-0"
+                              className="text-accent hover:text-accent-soft disabled:opacity-30 disabled:cursor-not-allowed p-1 rounded hover:bg-surface-hover cursor-pointer flex items-center justify-center shrink-0"
                               title="Save Name"
                             >
                               <Check className="w-3.5 h-3.5" />
@@ -838,7 +874,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                             <button
                               onClick={handleCancelRename}
                               disabled={isRenaming}
-                              className="text-text-muted hover:text-text-primary disabled:opacity-30 disabled:cursor-not-allowed p-1 rounded hover:bg-white/5 cursor-pointer flex items-center justify-center shrink-0"
+                              className="text-text-muted hover:text-text-primary disabled:opacity-30 disabled:cursor-not-allowed p-1 rounded hover:bg-surface-hover cursor-pointer flex items-center justify-center shrink-0"
                               title="Cancel"
                             >
                               <X className="w-3.5 h-3.5" />
@@ -881,7 +917,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                   <h3 className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-2.5">
                     {t("export.settings")}
                   </h3>
-                  <div className="rounded-lg border border-white/6 bg-white/2 p-3 space-y-0.5">
+                  <div className="rounded-lg border border-border/40 bg-surface-raised/40 p-3 space-y-0.5">
                     <DetailRow
                       label="Resolution"
                       value={`${resolvedWidth}×${resolvedHeight}`}
@@ -958,7 +994,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                     </h3>
                     <div className="flex items-center gap-2">
                       <div
-                        className={`flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border text-[12px] min-w-0 ${outputPath ? "border-white/8 bg-white/2 text-text-primary" : "border-white/6 bg-white/1 text-text-muted"}`}
+                        className={`flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border text-[12px] min-w-0 ${outputPath ? "border-border bg-surface-input text-text-primary" : "border-border-subtle bg-surface-panel/40 text-text-muted"}`}
                       >
                         <FolderOpen className="w-3.5 h-3.5 shrink-0 text-text-muted" />
                         <span className="truncate">
@@ -983,12 +1019,16 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                       <History className="w-3.5 h-3.5" />
                       Recent Exports
                     </h3>
-                    <div className="rounded-lg border border-white/6 bg-white/2 divide-y divide-white/6">
+                    <div className="rounded-lg border border-border/40 bg-surface-raised/40 divide-y divide-border-subtle">
                       {recentProjectExports.map((entry) => (
                         <div key={entry.id} className="px-3 py-2.5 text-[11px]">
                           <div className="flex items-center justify-between gap-3">
-                            <span className="font-medium text-text-primary truncate" title={entry.outputPath}>
-                              {entry.outputPath.split("/").pop() || entry.outputPath}
+                            <span
+                              className="font-medium text-text-primary truncate"
+                              title={entry.outputPath}
+                            >
+                              {entry.outputPath.split("/").pop() ||
+                                entry.outputPath}
                             </span>
                             <span className="text-text-muted shrink-0">
                               {new Date(entry.exportedAt).toLocaleDateString()}
@@ -1038,7 +1078,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
               </div>
 
               {/* Footer */}
-              <div className="px-5 py-3 border-t border-white/6 flex items-center justify-end gap-2">
+              <div className="px-5 py-3 border-t border-border flex items-center justify-end gap-2">
                 <Button variant="ghost" onClick={onClose}>
                   {t("common.actions.cancel")}
                 </Button>
@@ -1046,7 +1086,9 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                   <Button
                     variant="default"
                     onClick={
-                      mobileExportMode === "cloud" ? handleCloudExport : handleExportProjectFile
+                      mobileExportMode === "cloud"
+                        ? handleCloudExport
+                        : handleExportProjectFile
                     }
                     disabled={sequenceDuration <= 0}
                     className="min-w-[150px]"
@@ -1057,7 +1099,9 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                           : undefined,
                     }}
                   >
-                    {mobileExportMode === "cloud" ? "Cloud Render Video" : "Export Project File"}
+                    {mobileExportMode === "cloud"
+                      ? "Cloud Render Video"
+                      : "Export Project File"}
                   </Button>
                 ) : (
                   <Button
@@ -1097,7 +1141,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                     )}
                     {progress.currentFrame !== undefined &&
                     progress.totalFrames !== undefined ? (
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 p-3 rounded-lg border border-white/6 bg-white/1 text-[11px]">
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 p-3 rounded-lg border border-border/40 bg-surface-panel/40 text-[11px]">
                         <div className="text-left text-text-muted">Frames</div>
                         <div className="text-right font-medium text-text-primary tabular-nums">
                           {progress.currentFrame} / {progress.totalFrames}
@@ -1167,7 +1211,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                 </div>
 
                 {result && (
-                  <div className="p-3 rounded-lg border border-white/6 bg-white/1 text-[11px] space-y-1.5 text-left">
+                  <div className="p-3 rounded-lg border border-border/40 bg-surface-panel/40 text-[11px] space-y-1.5 text-left">
                     {result.totalTimeMs > 0 && (
                       <div className="flex justify-between">
                         <span className="text-text-muted">
@@ -1213,24 +1257,34 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                   </div>
                 )}
 
-                {result?.degradedTextEffects && result.degradedTextEffects.length > 0 && (
-                  <div className="w-full max-w-[360px] rounded-lg border border-amber-500/25 bg-amber-500/8 p-3 text-left text-[11px]">
-                    <div className="font-semibold text-amber-400">
-                      Export completed with base typography fallback
+                {result?.degradedTextEffects &&
+                  result.degradedTextEffects.length > 0 && (
+                    <div className="w-full max-w-[360px] rounded-lg border border-amber-500/25 bg-amber-500/8 p-3 text-left text-[11px]">
+                      <div className="font-semibold text-amber-400">
+                        Export completed with base typography fallback
+                      </div>
+                      <p className="mt-1 text-text-muted leading-relaxed">
+                        The following uncached text effects were rendered with
+                        their base typography. This result was recorded in
+                        export history.
+                      </p>
+                      <div className="mt-2 space-y-1 text-text-primary">
+                        {result.degradedTextEffects.map((effect) => (
+                          <div
+                            key={`${effect.clipId}-${effect.styleId}`}
+                            className="flex justify-between gap-3"
+                          >
+                            <span className="truncate">
+                              {effect.clipName || effect.clipId}
+                            </span>
+                            <span className="font-mono text-[10px] text-amber-300 shrink-0">
+                              {effect.styleId}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <p className="mt-1 text-text-muted leading-relaxed">
-                      The following uncached text effects were rendered with their base typography. This result was recorded in export history.
-                    </p>
-                    <div className="mt-2 space-y-1 text-text-primary">
-                      {result.degradedTextEffects.map((effect) => (
-                        <div key={`${effect.clipId}-${effect.styleId}`} className="flex justify-between gap-3">
-                          <span className="truncate">{effect.clipName || effect.clipId}</span>
-                          <span className="font-mono text-[10px] text-amber-300 shrink-0">{effect.styleId}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                  )}
 
                 <div className="flex items-center justify-center gap-2 pt-2">
                   {!platform.isCapacitor() && (
@@ -1323,8 +1377,10 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                     Export Blocked: Missing Dependencies
                   </h3>
                   <p className="text-[11px] text-text-muted mt-1 leading-relaxed">
-                    Clypra prevents silent visual degradation and missing image content.
-                    {blockedImageAssets.length > 0 || blockedAudioAssets.length > 0
+                    Clypra prevents silent visual degradation and missing image
+                    content.
+                    {blockedImageAssets.length > 0 ||
+                    blockedAudioAssets.length > 0
                       ? " Restore the missing media assets below before exporting; media cannot be force-exported."
                       : " Restore the dependencies below before exporting, or explicitly force-export with base typography."}
                   </p>
@@ -1332,21 +1388,42 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
 
                 <div className="p-3 rounded-lg border border-amber-500/20 bg-amber-500/5 text-[11px] text-left space-y-2 max-h-[140px] overflow-y-auto scrollbar-thin">
                   {blockedEffects.map((item, idx) => (
-                    <div key={idx} className="flex justify-between items-center text-text-primary">
-                      <span className="font-medium truncate max-w-[200px]">"{item.clipName}"</span>
-                      <span className="text-amber-400 font-mono text-[10px]">style: {item.styleId}</span>
+                    <div
+                      key={idx}
+                      className="flex justify-between items-center text-text-primary"
+                    >
+                      <span className="font-medium truncate max-w-[200px]">
+                        "{item.clipName}"
+                      </span>
+                      <span className="text-amber-400 font-mono text-[10px]">
+                        style: {item.styleId}
+                      </span>
                     </div>
                   ))}
                   {blockedImageAssets.map((item) => (
-                    <div key={`${item.clipId}-${item.assetId}`} className="flex justify-between items-center text-text-primary">
-                      <span className="font-medium truncate max-w-[200px]">"{item.clipName}"</span>
-                      <span className="text-amber-400 font-mono text-[10px]">image: {item.assetId}</span>
+                    <div
+                      key={`${item.clipId}-${item.assetId}`}
+                      className="flex justify-between items-center text-text-primary"
+                    >
+                      <span className="font-medium truncate max-w-[200px]">
+                        "{item.clipName}"
+                      </span>
+                      <span className="text-amber-400 font-mono text-[10px]">
+                        image: {item.assetId}
+                      </span>
                     </div>
                   ))}
                   {blockedAudioAssets.map((item) => (
-                    <div key={`${item.clipId}-${item.assetId}`} className="flex justify-between items-center text-text-primary">
-                      <span className="font-medium truncate max-w-[200px]">"{item.clipName}"</span>
-                      <span className="text-amber-400 font-mono text-[10px]">audio: {item.assetId}</span>
+                    <div
+                      key={`${item.clipId}-${item.assetId}`}
+                      className="flex justify-between items-center text-text-primary"
+                    >
+                      <span className="font-medium truncate max-w-[200px]">
+                        "{item.clipName}"
+                      </span>
+                      <span className="text-amber-400 font-mono text-[10px]">
+                        audio: {item.assetId}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -1366,18 +1443,23 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                     onClick={() => handleExport(false)}
                     className="text-[11px] w-full"
                   >
-                    {blockedImageAssets.length > 0 || blockedAudioAssets.length > 0 ? "Retry Export" : "Retry Connection"}
+                    {blockedImageAssets.length > 0 ||
+                    blockedAudioAssets.length > 0
+                      ? "Retry Export"
+                      : "Retry Connection"}
                   </Button>
-                  {blockedEffects.length > 0 && blockedImageAssets.length === 0 && blockedAudioAssets.length === 0 && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleExport(true)}
-                      className="text-[11px] text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 w-full"
-                    >
-                      Force Export with Base Typography
-                    </Button>
-                  )}
+                  {blockedEffects.length > 0 &&
+                    blockedImageAssets.length === 0 &&
+                    blockedAudioAssets.length === 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleExport(true)}
+                        className="text-[11px] text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 w-full"
+                      >
+                        Force Export with Base Typography
+                      </Button>
+                    )}
                 </div>
               </div>
             </div>

@@ -68,6 +68,27 @@ mod tests {
     }
 
     #[test]
+    fn regression_test_engine_clock_update_from_audio_resets_tick_instant() {
+        let mut clock = EngineClock::new();
+        clock.start();
+        // Simulate 50ms elapsed before audio callback arrives
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        // Audio callback updates clock to 100_000 us (100ms)
+        clock.update_from_audio(MediaTime::from_micros(100_000));
+        // 5ms delay before next tick
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let tick_time = clock.tick();
+        // If update_from_audio did NOT update last_tick_instant, elapsed would include
+        // the 50ms from before update_from_audio (~155_000 us).
+        // With the fix, tick_time should be ~105_000 us (< 140_000 us).
+        assert!(
+            tick_time.as_micros() < 140_000,
+            "EngineClock double-advanced after update_from_audio: {} us",
+            tick_time.as_micros()
+        );
+    }
+
+    #[test]
     fn test_frame_deadline_and_planning() {
         let deadline = FrameDeadline::new(
             MediaTime::from_micros(16_667),

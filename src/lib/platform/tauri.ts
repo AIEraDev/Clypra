@@ -15,6 +15,7 @@ import type {
   NativePreviewPerformanceReport,
   NativePlaybackPlan,
   NativePlaybackFrameDemand,
+  NativePlaybackDemandAbandonment,
   NativePlaybackState,
   NativeFrameTime,
   NativeSurfaceGeometry,
@@ -24,6 +25,7 @@ import type {
   NativeSyncMetricsSnapshot,
   NativeFramesBySource,
   NativeSessionSnapshot,
+  NativeScrubExperimentContext,
 } from "./nativeCore";
 import { recordRasterUpload } from "@/lib/playback/textMetrics";
 
@@ -713,6 +715,14 @@ export async function submitNativePlaybackDemand(
   await invoke("submit_native_playback_demand", { demand });
 }
 
+/** Finalize a native demand that the frontend abandoned waiting for. */
+export async function abandonNativePlaybackDemand(
+  abandonment: NativePlaybackDemandAbandonment,
+): Promise<boolean> {
+  if (!isTauriRuntime()) return false;
+  return invoke<boolean>("abandon_native_playback_demand", { payload: abandonment });
+}
+
 /**
  * Fired by the Rust-owned latest-only render session after an explicit demand
  * has actually reached the retained surface. Unlike the demand command's
@@ -724,6 +734,16 @@ export function listenForNativePlaybackDemandPresented(
   return listen<NativeSurfacePresentation>(
     "clypra://native-playback-demand-presented",
     (event) => onPresented(event.payload),
+  );
+}
+
+/** Fired when an accepted latest-value demand terminates before presentation. */
+export function listenForNativePlaybackDemandTerminal(
+  onTerminal: (terminal: import("./nativeCore").NativePlaybackDemandTerminal) => void,
+): Promise<UnlistenFn> {
+  return listen<import("./nativeCore").NativePlaybackDemandTerminal>(
+    "clypra://native-playback-demand-terminal",
+    (event) => onTerminal(event.payload),
   );
 }
 
@@ -1022,6 +1042,16 @@ export async function resetNativeSessionTelemetry(): Promise<void> {
     throw new Error("resetNativeSessionTelemetry requires the Tauri runtime");
   }
   return invoke<void>("reset_session_telemetry");
+}
+
+/** Debug-only controlled scrub experiment marker for local Tauri sessions. */
+export async function setNativeScrubExperimentContext(
+  context: NativeScrubExperimentContext,
+): Promise<void> {
+  if (!isTauriRuntime()) {
+    throw new Error("setNativeScrubExperimentContext requires the Tauri runtime");
+  }
+  return invoke<void>("set_native_scrub_experiment_context", { payload: context });
 }
 
 export async function getNativeGpuStatus(): Promise<NativeGpuRuntimeStatus> {
@@ -1397,10 +1427,16 @@ export async function setNativeAudioOutput(
   await invoke("set_native_audio_output", { volume, muted });
 }
 
-export async function seekNativeAudio(positionTicks: number): Promise<void> {
+export async function seekNativeAudio(
+  positionTicks: number,
+  correlation?: { generation?: number },
+): Promise<void> {
   if (!isTauriRuntime())
     throw new Error("seekNativeAudio requires the Tauri runtime");
-  await invoke("seek_native_audio", { positionTicks });
+  await invoke("seek_native_audio", {
+    positionTicks,
+    generation: correlation?.generation,
+  });
 }
 
 export async function loadNativeAudioClip(options: {

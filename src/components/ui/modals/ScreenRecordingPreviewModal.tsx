@@ -420,9 +420,9 @@ export const ScreenRecordingPreviewModal: React.FC<
 
   return (
     <div className="fixed inset-0 z-1000 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
-      <div className="w-[600px] rounded-2xl bg-[#14141e]/95 border border-white/8 overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+      <div className="w-[600px] rounded-2xl bg-surface-floating border border-border overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
         {/* Title bar */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-white/5 bg-[#1a1a26]/50">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-surface-elevated/40">
           <button
             onClick={handleClose}
             className="w-3.5 h-3.5 rounded-full bg-red-500 hover:bg-red-600 transition-colors flex items-center justify-center text-[8px] text-red-950 font-bold"
@@ -444,7 +444,7 @@ export const ScreenRecordingPreviewModal: React.FC<
             <div className="flex items-center gap-2">
               <button
                 onClick={handleCancelClose}
-                className="px-2.5 py-1 text-[11px] font-semibold text-slate-300 hover:text-white rounded-md hover:bg-white/5 transition-colors"
+                className="px-2.5 py-1 text-[11px] font-semibold text-text-muted hover:text-text-primary rounded-md hover:bg-surface-hover transition-colors"
               >
                 Cancel
               </button>
@@ -462,7 +462,7 @@ export const ScreenRecordingPreviewModal: React.FC<
         )}
 
         {/* Video Preview */}
-        <div className="relative aspect-video bg-[#0a0a0f] border-b border-white/5 flex items-center justify-center overflow-hidden">
+        <div className="relative aspect-video bg-surface-app border-b border-border flex items-center justify-center overflow-hidden">
           {videoSrc ? (
             <video
               ref={videoRef}
@@ -508,11 +508,11 @@ export const ScreenRecordingPreviewModal: React.FC<
         </div>
 
         {/* Timeline & Controls */}
-        <div className="p-5 flex flex-col gap-4 bg-[#14141e]">
+        <div className="p-5 flex flex-col gap-4 bg-surface-panel">
           {/* Trimmer Timeline Slider */}
           <div className="flex flex-col gap-1.5">
             <div
-              className="relative h-10 bg-[#08080f] rounded-md border border-white/8 overflow-hidden"
+              className="relative h-10 bg-surface-app rounded-md border border-border overflow-hidden"
               ref={containerRef}
             >
               {/* Filmstrip canvas — drawn once from video frames */}
@@ -594,7 +594,7 @@ export const ScreenRecordingPreviewModal: React.FC<
           <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
             <button
               onClick={togglePlay}
-              className="flex items-center justify-center w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 active:bg-white/15 text-white transition-colors"
+              className="flex items-center justify-center w-8 h-8 rounded-full bg-surface-elevated hover:bg-surface-hover active:bg-surface-active text-text-primary transition-colors"
             >
               {isPlaying ? (
                 <Pause className="w-4 h-4 fill-white" />
@@ -642,7 +642,7 @@ export const ScreenRecordingPreviewModal: React.FC<
             <button
               onClick={handleDownload}
               disabled={isDownloading}
-              className="flex items-center justify-center gap-2 py-3 rounded-xl bg-white/5 hover:bg-white/10 active:bg-white/15 text-white font-semibold text-sm transition-all border border-white/5 cursor-pointer disabled:opacity-50"
+              className="flex items-center justify-center gap-2 py-3 rounded-xl bg-surface-elevated hover:bg-surface-hover active:bg-surface-active text-text-primary font-semibold text-sm transition-all border border-border cursor-pointer disabled:opacity-50"
             >
               <Download className="w-4 h-4" />
               {isDownloading
@@ -653,7 +653,7 @@ export const ScreenRecordingPreviewModal: React.FC<
             </button>
             <button
               onClick={handleEditMore}
-              className="flex items-center justify-center gap-2 py-3 rounded-xl bg-[#00b4c8] hover:bg-[#00cdd8] active:bg-[#00a0b0] text-slate-950 font-bold text-sm transition-all shadow-lg shadow-cyan-500/10 cursor-pointer"
+              className="flex items-center justify-center gap-2 py-3 rounded-xl bg-accent hover:bg-accent-soft active:bg-accent text-white font-bold text-sm transition-all shadow-lg shadow-accent/20 cursor-pointer"
             >
               <Edit3 className="w-4 h-4" />
               Edit more

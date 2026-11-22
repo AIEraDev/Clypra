@@ -494,6 +494,26 @@ If the native path is faster on one platform but unavailable or unstable on anot
 
 If results are inconclusive, preserve a safe, documented fallback and collect more evidence instead of declaring a performance winner.
 
+### Clypra desktop-native directive
+
+For Clypra's desktop editor, the default architecture is now native-first:
+the retained Rust/wgpu surface owns video playback, seeking, scrubbing,
+frame-step, composition, and presentation. DOM/canvas remains valid for UI,
+accessibility, controls, scopes, timeline/filmstrip, and raster inputs to the
+native compositor; it is not an automatic presenter fallback for desktop video.
+
+When native preview is unavailable or unhealthy, report an explicit native
+recovery/blocker state with a reason code. Do not label a canvas, HTML video,
+or CPU-readback substitute as successful native recovery. Browser-only runtime
+support is a different product mode and cannot validate the desktop path.
+
+For interactive performance changes, model target generation separately from
+cancellation epoch. Measure and report all terminal outcomes per epoch:
+`produced`, `presented`, `superseded`, `cancelled`, `dropped_before_present`,
+and `failed`. A command acknowledgement is not a presentation measurement.
+Read `docs/architecture/adr/0001-native-first-preview-ownership.md` and any
+current preview incident record before proposing routing changes.
+
 ---
 
 ## 13. Cross-platform benchmark coverage

@@ -260,10 +260,16 @@ pub static DISK_CACHE_LIMIT_BYTES: Lazy<std::sync::atomic::AtomicU64> =
     Lazy::new(|| std::sync::atomic::AtomicU64::new(5 * 1024 * 1024 * 1024));
 
 pub fn set_disk_cache_limit(limit_bytes: u64) {
+    if let Some(mgr) = crate::disk_cache::get_global_disk_cache() {
+        mgr.set_limit(limit_bytes);
+    }
     DISK_CACHE_LIMIT_BYTES.store(limit_bytes, std::sync::atomic::Ordering::Relaxed);
 }
 
 pub fn get_disk_cache_limit() -> u64 {
+    if let Some(mgr) = crate::disk_cache::get_global_disk_cache() {
+        return mgr.get_limit();
+    }
     DISK_CACHE_LIMIT_BYTES.load(std::sync::atomic::Ordering::Relaxed)
 }
 

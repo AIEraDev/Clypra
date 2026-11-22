@@ -2,6 +2,7 @@ import React, { useRef, useCallback, useEffect, useState } from "react";
 import { Play, Pause, SkipBack, SkipForward } from "lucide-react";
 import { parseSmpteTimecode } from "@/lib/timecode";
 import { EditorFeatureTelemetry } from "@/services/editorFeatureTelemetry";
+import { useI18n } from "@/i18n";
 
 interface PreviewTransportProps {
   currentTime: number;
@@ -54,6 +55,7 @@ export const PreviewTransport: React.FC<PreviewTransportProps> = ({
   disabled = false,
   frameRate = 30,
 }) => {
+  const { t } = useI18n();
   const scrubRef = useRef<HTMLDivElement>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [isEditingTimecode, setIsEditingTimecode] = useState(false);
@@ -135,7 +137,7 @@ export const PreviewTransport: React.FC<PreviewTransportProps> = ({
   }, [isScrubbing, seekToPosition]);
 
   return (
-    <div className="@container flex flex-col w-full shrink-0 bg-surface/30 border-t border-white/5 select-none relative z-30">
+    <div className="@container flex flex-col w-full shrink-0 bg-surface-panel/90 border-t border-border-default select-none relative z-30">
       {/* ── Scrub Bar (padded, rounded pill track) ────────────────────────── */}
       <div className="px-3 pt-1.5 pb-0.5">
         <div
@@ -150,11 +152,11 @@ export const PreviewTransport: React.FC<PreviewTransportProps> = ({
           }}
         >
           {/* Track background */}
-          <div className="w-full h-1 group-hover:h-1.5 rounded-full bg-white/10 group-hover:bg-white/15 transition-all overflow-hidden relative">
+          <div className="w-full h-1 group-hover:h-1.5 rounded-full bg-surface-elevated border border-border-subtle group-hover:bg-surface-hover transition-all overflow-hidden relative">
             {/* In/Out range */}
             {inPoint != null && outPoint != null && duration > 0 && (
               <div
-                className="absolute top-0 bottom-0 bg-accent/20"
+                className="absolute top-0 bottom-0 bg-accent-primary/25"
                 style={{
                   left: `${(inPoint / duration) * 100}%`,
                   width: `${((outPoint - inPoint) / duration) * 100}%`,
@@ -164,7 +166,7 @@ export const PreviewTransport: React.FC<PreviewTransportProps> = ({
             {/* Progress fill */}
             <div
               className={`absolute top-0 bottom-0 left-0 transition-all duration-100 ease-linear rounded-full ${
-                disabled ? "bg-text-muted/30" : "bg-accent"
+                disabled ? "bg-text-muted/30" : "bg-accent-primary"
               }`}
               style={{ width: `${progressPct}%` }}
             />
@@ -172,7 +174,7 @@ export const PreviewTransport: React.FC<PreviewTransportProps> = ({
           {/* Playhead dot */}
           {!disabled && (
             <div
-              className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-accent border border-white shadow-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+              className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-accent-primary ring-2 ring-surface-panel shadow-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
               style={{ left: `calc(${progressPct}% - 5px)` }}
             />
           )}
@@ -209,7 +211,7 @@ export const PreviewTransport: React.FC<PreviewTransportProps> = ({
                 }}
                 onBlur={commitTimecodeJump}
                 placeholder={formatTime(currentTime)}
-                className="w-20 px-1 py-0.5 text-[11px] font-semibold font-mono bg-surface-raised border border-accent rounded text-text-primary outline-none"
+                className="w-20 px-1.5 py-0.5 text-[11px] font-semibold font-mono bg-surface-input border border-accent-primary rounded-md text-text-primary shadow-xs outline-none"
               />
             ) : (
               <span
@@ -222,9 +224,9 @@ export const PreviewTransport: React.FC<PreviewTransportProps> = ({
                 className={`text-[11px] font-semibold ${
                   disabled
                     ? "text-text-muted cursor-not-allowed"
-                    : "text-accent cursor-pointer hover:underline"
+                    : "text-accent-primary cursor-pointer hover:underline"
                 }`}
-                title={disabled ? undefined : "Click to jump to timecode (e.g. +10, -1:00, 01:23:00)"}
+                title={disabled ? undefined : t("preview.transport.jumpTimecode")}
               >
                 {formatTime(currentTime)}
               </span>
@@ -250,10 +252,10 @@ export const PreviewTransport: React.FC<PreviewTransportProps> = ({
               className={`hidden @[380px]:flex w-6 h-6 items-center justify-center rounded transition-colors cursor-pointer ${
                 disabled
                   ? "cursor-not-allowed text-text-muted/50"
-                  : "hover:bg-white/6 text-text-muted hover:text-text-primary"
+                  : "hover:bg-surface-hover text-text-secondary hover:text-text-primary"
               }`}
-              title={disabled ? "No clips on timeline" : "Previous frame"}
-              aria-label="Previous frame"
+              title={disabled ? t("preview.transport.noClips") : t("preview.transport.prevFrame")}
+              aria-label={t("preview.transport.prevFrame")}
             >
               <SkipBack className="w-3.5 h-3.5" />
             </button>
@@ -264,10 +266,10 @@ export const PreviewTransport: React.FC<PreviewTransportProps> = ({
             className={`w-7 h-7 flex items-center justify-center rounded-full transition-all cursor-pointer mx-0.5 active:scale-95 ${
               disabled
                 ? "cursor-not-allowed text-text-muted/50"
-                : "hover:bg-white/10 text-text-primary hover:shadow-sm"
+                : "bg-surface-elevated hover:bg-surface-hover text-text-primary shadow-xs"
             }`}
-            title={disabled ? "No clips on timeline" : isPlaying ? "Pause (Space)" : "Play (Space)"}
-            aria-label={isPlaying ? "Pause playback" : "Play playback"}
+            title={disabled ? t("preview.transport.noClips") : isPlaying ? t("preview.transport.pause") : t("preview.transport.play")}
+            aria-label={isPlaying ? t("preview.transport.pause") : t("preview.transport.play")}
           >
             {isPlaying ? (
               <Pause className="w-4 h-4" />
@@ -282,10 +284,10 @@ export const PreviewTransport: React.FC<PreviewTransportProps> = ({
               className={`hidden @[380px]:flex w-6 h-6 items-center justify-center rounded transition-colors cursor-pointer ${
                 disabled
                   ? "cursor-not-allowed text-text-muted/50"
-                  : "hover:bg-white/6 text-text-muted hover:text-text-primary"
+                  : "hover:bg-surface-hover text-text-secondary hover:text-text-primary"
               }`}
-              title={disabled ? "No clips on timeline" : "Next frame"}
-              aria-label="Next frame"
+              title={disabled ? t("preview.transport.noClips") : t("preview.transport.nextFrame")}
+              aria-label={t("preview.transport.nextFrame")}
             >
               <SkipForward className="w-3.5 h-3.5" />
             </button>

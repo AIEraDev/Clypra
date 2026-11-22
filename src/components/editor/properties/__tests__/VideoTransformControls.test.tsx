@@ -19,6 +19,10 @@ vi.mock("@/i18n", () => ({
         "properties.transform.alignTop": "Align top",
         "properties.transform.alignCenterY": "Align center vertically",
         "properties.transform.alignBottom": "Align bottom",
+        "properties.blend.title": "Blend",
+        "properties.blend.reset": "Reset blend",
+        "properties.blend.mode": "Mode",
+        "properties.blend.opacity": "Opacity",
       };
       return dict[key] || key;
     },
@@ -224,7 +228,9 @@ describe("VideoTransformControls & VideoBlendControls Suite", () => {
         />,
       );
 
-      const alignBottomBtn = screen.getByRole("button", { name: "Align bottom" });
+      const alignBottomBtn = screen.getByRole("button", {
+        name: "Align bottom",
+      });
       fireEvent.click(alignBottomBtn);
 
       // 1080 - 180 = 900
@@ -272,6 +278,32 @@ describe("VideoTransformControls & VideoBlendControls Suite", () => {
           ],
         },
       });
+    });
+
+    it("adds synchronized x and y position keyframes at the playhead", () => {
+      const handleUpdate = vi.fn();
+      const handleUpdateMultiple = vi.fn();
+
+      mockCurrentTime = 2.5;
+      render(
+        <VideoTransformControls
+          selectedClip={baseVideoClip}
+          canvasWidth={canvasWidth}
+          canvasHeight={canvasHeight}
+          handleUpdate={handleUpdate}
+          handleUpdateMultiple={handleUpdateMultiple}
+          handleApplyFit={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(screen.getByTitle("Add keyframe for Position"));
+
+      const payload = handleUpdateMultiple.mock.calls[0][0];
+      expect(payload.visualKeyframes.x).toHaveLength(1);
+      expect(payload.visualKeyframes.y).toHaveLength(1);
+      expect(payload.visualKeyframes.x[0].time).toBe(2.5);
+      expect(payload.visualKeyframes.y[0].time).toBe(2.5);
+      expect(handleUpdate).not.toHaveBeenCalled();
     });
   });
 
@@ -510,12 +542,8 @@ describe("VideoTransformControls & VideoBlendControls Suite", () => {
       const clipWithKeyframe: Clip = {
         ...baseVideoClip,
         visualKeyframes: {
-          width: [
-            { id: "kf-w1", time: 0, value: 320, easing: "easeInOut" },
-          ],
-          height: [
-            { id: "kf-h1", time: 0, value: 180, easing: "easeInOut" },
-          ],
+          width: [{ id: "kf-w1", time: 0, value: 320, easing: "easeInOut" }],
+          height: [{ id: "kf-h1", time: 0, value: 180, easing: "easeInOut" }],
         },
       };
 
@@ -548,12 +576,8 @@ describe("VideoTransformControls & VideoBlendControls Suite", () => {
         baseWidth: 320,
         baseHeight: 180,
         visualKeyframes: {
-          width: [
-            { id: "kf-w1", time: 0, value: 320, easing: "easeInOut" },
-          ],
-          height: [
-            { id: "kf-h1", time: 0, value: 180, easing: "easeInOut" },
-          ],
+          width: [{ id: "kf-w1", time: 0, value: 320, easing: "easeInOut" }],
+          height: [{ id: "kf-h1", time: 0, value: 180, easing: "easeInOut" }],
         },
       };
 
@@ -611,7 +635,9 @@ describe("VideoTransformControls & VideoBlendControls Suite", () => {
         />,
       );
 
-      const scaleInput = screen.getByRole("spinbutton", { name: "Scale" }) as HTMLInputElement;
+      const scaleInput = screen.getByRole("spinbutton", {
+        name: "Scale",
+      }) as HTMLInputElement;
       expect(scaleInput.value).toBe("200");
     });
   });
@@ -640,11 +666,13 @@ describe("VideoTransformControls & VideoBlendControls Suite", () => {
 
       render(
         <VideoBlendControls
-          selectedClip={{
-            ...baseVideoClip,
-            opacity: 0.4,
-            blendMode: "multiply",
-          } as any}
+          selectedClip={
+            {
+              ...baseVideoClip,
+              opacity: 0.4,
+              blendMode: "multiply",
+            } as any
+          }
           handleUpdate={handleUpdate}
         />,
       );
@@ -691,11 +719,15 @@ describe("VideoTransformControls & VideoBlendControls Suite", () => {
       const [fields] = handleUpdateMultiple.mock.calls[0];
       expect(fields.opacity).toBeCloseTo(0.6, 5);
       // The keyframe at t=2 must have its value updated
-      const updatedKf = fields.visualKeyframes.opacity.find((k: any) => k.id === "okf-1");
+      const updatedKf = fields.visualKeyframes.opacity.find(
+        (k: any) => k.id === "okf-1",
+      );
       expect(updatedKf).toBeDefined();
       expect(updatedKf.value).toBeCloseTo(0.6, 5);
       // The other keyframe must remain unchanged
-      const otherKf = fields.visualKeyframes.opacity.find((k: any) => k.id === "okf-2");
+      const otherKf = fields.visualKeyframes.opacity.find(
+        (k: any) => k.id === "okf-2",
+      );
       expect(otherKf.value).toBe(0.2);
     });
 
@@ -733,7 +765,9 @@ describe("VideoTransformControls & VideoBlendControls Suite", () => {
       expect(fields.opacity).toBeCloseTo(0.55, 5);
       // A new keyframe should be inserted at t=4
       expect(fields.visualKeyframes.opacity).toHaveLength(3);
-      const newKf = fields.visualKeyframes.opacity.find((k: any) => Math.abs(k.time - 4) < 0.1);
+      const newKf = fields.visualKeyframes.opacity.find(
+        (k: any) => Math.abs(k.time - 4) < 0.1,
+      );
       expect(newKf).toBeDefined();
       expect(newKf.value).toBeCloseTo(0.55, 5);
     });
@@ -785,7 +819,10 @@ describe("VideoTransformControls & VideoBlendControls Suite", () => {
 
       // The displayed opacity % should be ~50% (midpoint of 1.0→0.0 over 10s at t=5)
       const numericInput = screen.getByRole("spinbutton", { name: "Opacity" });
-      expect(Number((numericInput as HTMLInputElement).value)).toBeCloseTo(50, 0);
+      expect(Number((numericInput as HTMLInputElement).value)).toBeCloseTo(
+        50,
+        0,
+      );
     });
   });
 });

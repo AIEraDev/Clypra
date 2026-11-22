@@ -709,7 +709,7 @@ export const Playhead: React.FC<PlayheadProps> = ({
         <div
           ref={frameCellRef}
           data-playhead-frame-cell="true"
-          className="absolute select-none pointer-events-none bg-white/10 border border-white/20 rounded-[2px]"
+          className="absolute select-none pointer-events-none bg-accent-primary/15 border border-accent-primary/30 rounded-[2px]"
           style={{
             top: 0,
             height: `${rulerHeight}px`,
@@ -760,7 +760,7 @@ export const Playhead: React.FC<PlayheadProps> = ({
       {/* Visual line spanning from immediately below ruler to bottom */}
       <div
         data-playhead-line="true"
-        className="absolute pointer-events-none bg-accent"
+        className="absolute pointer-events-none bg-accent-primary"
         style={{
           left: "50%",
           top: `${rulerHeight}px`, // Start below ruler
@@ -781,7 +781,7 @@ export const Playhead: React.FC<PlayheadProps> = ({
         {/* Circle handle at top */}
         <div
           data-playhead-handle="true"
-          className="absolute rounded-full pointer-events-auto bg-accent cursor-col-resize"
+          className="absolute rounded-full pointer-events-auto bg-accent-primary cursor-col-resize"
           onPointerDown={handlePointerDown}
           onClick={(e) => e.stopPropagation()}
           style={{

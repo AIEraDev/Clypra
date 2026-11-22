@@ -9,7 +9,7 @@ import {
 
 describe("independent UI theme and clip palette composition", () => {
   beforeEach(() => {
-    applyTheme("dark", "ember-studio", null);
+    applyTheme("dark", "light", null);
   });
 
   it("keeps UI tokens and clip tokens in their selected layers", () => {
@@ -22,22 +22,22 @@ describe("independent UI theme and clip palette composition", () => {
       UI_THEMES.dark["--color-timeline-track-name"],
     );
     expect(root.style.getPropertyValue("--clypra-clip-video-bg")).toBe(
-      CLIP_PALETTES["ember-studio"]["--color-timeline-clip-video"],
+      CLIP_PALETTES.light["--color-timeline-clip-video"],
     );
     expect(root.style.getPropertyValue("--color-timeline-clip-video")).toBe("");
   });
 
   it("changes the layers independently through settings", () => {
-    useSettingsStore.getState().setClipPalette("ember-studio");
-    useSettingsStore.getState().setUiTheme("midnight");
+    useSettingsStore.getState().setClipPalette("dark");
+    useSettingsStore.getState().setUiTheme("light");
 
-    expect(useSettingsStore.getState().uiTheme).toBe("midnight");
-    expect(useSettingsStore.getState().clipPalette).toBe("ember-studio");
+    expect(useSettingsStore.getState().uiTheme).toBe("light");
+    expect(useSettingsStore.getState().clipPalette).toBe("dark");
     expect(document.documentElement.style.getPropertyValue("--clypra-theme-accent")).toBe(
-      UI_THEMES.midnight["--color-accent"],
+      UI_THEMES.light["--color-accent"],
     );
     expect(document.documentElement.style.getPropertyValue("--clypra-clip-audio-bg")).toBe(
-      CLIP_PALETTES["ember-studio"]["--color-timeline-clip-audio"],
+      CLIP_PALETTES.dark["--color-timeline-clip-audio"],
     );
   });
 
@@ -52,5 +52,22 @@ describe("independent UI theme and clip palette composition", () => {
     for (const uiTheme of Object.values(UI_THEMES)) {
       expect(Object.keys(uiTheme).some((key) => clipKeys.has(key))).toBe(false);
     }
+  });
+
+  it("sets data-theme attribute on document.documentElement for dark and light modes", () => {
+    applyTheme("light", "light", null);
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+
+    applyTheme("dark", "dark", null);
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+
+    useSettingsStore.getState().setTheme("light");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    expect(useSettingsStore.getState().uiTheme).toBe("light");
+    expect(useSettingsStore.getState().clipPalette).toBe("light");
+
+    useSettingsStore.getState().setTheme("dark");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(useSettingsStore.getState().uiTheme).toBe("dark");
   });
 });

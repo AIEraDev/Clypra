@@ -174,6 +174,41 @@ pub struct NativeSurfaceProbe {
     pub supported_formats: Vec<String>,
 }
 
+/// Stable source-level outcome for a native presentation attempt.
+///
+/// Telemetry consumers must classify terminal events from this enum instead
+/// of matching the legacy human-readable `terminal_disposition` or
+/// `drop_reason` strings. The strings remain on the wire for compatibility
+/// with older session readers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NativePresentationOutcome {
+    Presented,
+    Superseded,
+    DroppedBeforePresent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NativePresentationDropReason {
+    LookaheadMiss,
+    LateForAudio,
+    Superseded,
+    Backpressure,
+}
+
+/// Stable outcome for an explicit latest-value playback demand.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NativeDemandOutcome {
+    Presented,
+    Coalesced,
+    Superseded,
+    Cancelled,
+    DroppedBeforePresent,
+    Failed,
+}
+
 /// Acknowledgement returned after a native frame has been submitted directly
 /// to the configured surface. The request identity remains visible at the
 /// boundary so callers can discard a late acknowledgement after a seek.
@@ -190,6 +225,9 @@ pub struct NativeSurfacePresentation {
     /// `stale`, `cancelled`, or `late-for-audio` when a frame is discarded.
     #[serde(default)]
     pub drop_reason: Option<String>,
+    /// Typed drop reason used by native classification.
+    #[serde(default)]
+    pub drop_reason_code: Option<NativePresentationDropReason>,
     /// Native audio position in the audio clock's canonical 1 MHz ticks.
     pub audio_position_ticks: u64,
     /// Audio position minus frame position in canonical 1 MHz ticks.
@@ -203,6 +241,14 @@ pub struct NativeSurfacePresentation {
     pub stale: bool,
     #[serde(default)]
     pub cancelled: bool,
+    /// Exactly one terminal result for an explicit native demand that reached
+    /// presentation processing. Command acknowledgement alone is not a
+    /// terminal result and is intentionally not represented here.
+    #[serde(default)]
+    pub terminal_disposition: Option<String>,
+    /// Typed terminal outcome used for classification by native consumers.
+    #[serde(default)]
+    pub outcome: Option<NativePresentationOutcome>,
     /// Optional stage timings for playback diagnosis. These are attached only
     /// to successful surface submissions so the acknowledgement stays small on
     /// the common path while exposing which native stage misses the frame
@@ -282,5 +328,17 @@ mod tests {
             device_pixel_ratio: 0.0,
         };
         assert!(geometry.validate().is_err());
+    }
+
+    #[test]
+    fn typed_presentation_outcomes_have_stable_wire_names() {
+        assert_eq!(
+            serde_json::to_string(&NativePresentationOutcome::DroppedBeforePresent).unwrap(),
+            "\"droppedBeforePresent\""
+        );
+        assert_eq!(
+            serde_json::to_string(&NativePresentationDropReason::LateForAudio).unwrap(),
+            "\"late-for-audio\""
+        );
     }
 }

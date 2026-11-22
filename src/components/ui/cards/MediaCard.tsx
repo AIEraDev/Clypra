@@ -105,9 +105,9 @@ export const MediaCard: React.FC<MediaCardProps> = ({
       ref={drag as unknown as React.Ref<HTMLDivElement>}
       onClick={handleClick}
       onContextMenu={onContextMenu}
-      className={`group relative bg-surface-raised rounded overflow-hidden transition-all cursor-pointer ${isDragging ? "opacity-50" : ""} ${isSelected ? "ring-1 ring-accent" : ""} ${asset.isMissing ? "ring-1 ring-red-500/60" : ""}`}
+      className={`group relative bg-surface-elevated border border-border-default/60 hover:border-border-strong rounded-lg shadow-xs overflow-hidden transition-all cursor-pointer ${isDragging ? "opacity-50" : ""} ${isSelected ? "ring-1 ring-accent" : ""} ${asset.isMissing ? "ring-1 ring-red-500/60" : ""}`}
     >
-      <div className="aspect-video bg-surface-raised flex items-center justify-center relative">
+      <div className="aspect-video bg-surface-elevated flex items-center justify-center relative">
         {isImage ? (
           <img
             src={
@@ -139,13 +139,13 @@ export const MediaCard: React.FC<MediaCardProps> = ({
           </div>
         )}
         {!isImage && asset.duration > 0 && (
-          <div className="absolute bottom-1 right-1 bg-black/70 px-1.5 py-0.5 rounded text-[10px] text-white">
+          <div className="absolute bottom-1 right-1 bg-surface-floating/90 border border-border-default px-1.5 py-0.5 rounded text-[10px] text-text-primary font-mono shadow-xs">
             {formatTime(asset.duration)}
           </div>
         )}
         {/* "Added" badge */}
         {isUsedInTimeline && (
-          <div className="absolute top-1 left-1 bg-purple-950/80 px-1 py-px rounded-xs text-[8px] text-white flex items-center gap-1">
+          <div className="absolute top-1 left-1 bg-accent-primary/80 px-1 py-px rounded-xs text-[8px] text-white flex items-center gap-1">
             <span>Added</span>
           </div>
         )}
@@ -173,7 +173,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
           onAddToTimeline();
         }}
         title="Add to Track"
-        className="hidden cursor-pointer group-hover:flex bg-accent hover:bg-accent/90 w-5 h-5 rounded-full justify-center items-center absolute top-1 right-1 transition-colors"
+        className="hidden cursor-pointer group-hover:flex bg-accent-primary hover:bg-accent-primary/90 w-5 h-5 rounded-full justify-center items-center absolute top-1 right-1 transition-colors"
       >
         <Plus size={14} className="text-white" />
       </button>

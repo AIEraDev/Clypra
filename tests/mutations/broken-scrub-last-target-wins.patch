@@ -1,0 +1,14 @@
+diff --git a/src/core/playback/scrubTraceReplay.ts b/src/core/playback/scrubTraceReplay.ts
+--- a/src/core/playback/scrubTraceReplay.ts
++++ b/src/core/playback/scrubTraceReplay.ts
+@@ -86,9 +86,9 @@ export function replayScrubTrace(
+     if (pending) {
+       terminals.push({
+         targetFrame: pending.targetFrame,
+         outcome: "superseded",
+       });
+     }
+-    pending = demand;
++    pending = trace[0] ?? demand;
+     startPending(demand.atMs);
+   }

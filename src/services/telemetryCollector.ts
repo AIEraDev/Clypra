@@ -2333,6 +2333,19 @@ class TelemetryCollector {
       normalizedTotalFrames,
       Math.max(0, Math.floor(cancelledFrames || 0)),
     );
+    // A presentation outcome is provenance too. Native samples may omit a
+    // producer path for deadline misses, stale generations, or cancellation;
+    // never turn those known outcomes into `unknown` in the frontend rollup.
+    // Keep `unknown` reserved for a genuinely missing producer tag on a frame
+    // that reached the compositor.
+    const effectiveTransferPath =
+      options.transferPath ??
+      options.renderPath ??
+      (normalizedStaleFrames > 0
+        ? "stale"
+        : normalizedDroppedFrames > 0 || normalizedCancelledFrames > 0
+          ? "dropped"
+          : undefined);
 
     if (options.includeInRollup !== false) {
       const accumulator = this.getRollupAccumulator(options.previewContext);
@@ -2353,7 +2366,7 @@ class TelemetryCollector {
         options.playbackSpeed,
         options.readbackSourceFrameStride,
         options.deadlineUs ?? 16_667,
-        options.transferPath ?? options.renderPath,
+        effectiveTransferPath,
         options.hwDecodeActive,
         options.decoderName,
         options.hwDeviceType,
@@ -2524,7 +2537,7 @@ class TelemetryCollector {
         stageTimings: timings,
         stageTimingsSource: options.stageTimingsSource ?? "measured",
         renderPath: options.renderPath,
-        transferPath: options.transferPath ?? options.renderPath,
+        transferPath: effectiveTransferPath,
         hwDecodeActive: options.hwDecodeActive,
         decoderName: options.decoderName,
         hwDeviceType: options.hwDeviceType,

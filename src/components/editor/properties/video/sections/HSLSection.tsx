@@ -14,6 +14,7 @@
 
 import React, { useState } from "react";
 import type { Clip } from "@/types";
+import { useI18n } from "@/i18n";
 import type { ColorAdjustments } from "@clypra-studio/engine";
 import { PropertySectionHeader } from "../../primitives/PropertySectionHeader";
 import { GradientSliderControl } from "../../primitives/GradientSliderControl";
@@ -50,6 +51,7 @@ export const HSLSection: React.FC<HSLSectionProps> = ({
   selectedClip,
   handleUpdate,
 }) => {
+  const { t } = useI18n();
   const [basicOpen, setBasicOpen] = useState(true);
   const [selectedChannel, setSelectedChannel] = useState<HslChannel>("all");
 
@@ -133,11 +135,16 @@ export const HSLSection: React.FC<HSLSectionProps> = ({
     <div className="p-3 space-y-3">
       <div className="space-y-2">
         <PropertySectionHeader
-          title="BASIC"
+          title={t("properties.subtabs.basic").toUpperCase()}
           isCollapsed={!basicOpen}
           onToggleCollapse={() => setBasicOpen(!basicOpen)}
           onReset={hasChannelValues ? resetChannel : undefined}
-          resetTitle={`Reset ${selectedChannel === "all" ? "all" : selectedChannel} channel`}
+          resetTitle={t("properties.adjust.resetChannel", {
+            channel:
+              selectedChannel === "all"
+                ? t("properties.adjust.allChannels")
+                : selectedChannel,
+          })}
           isKeyframe={hasChannelValues}
         />
 
@@ -154,10 +161,12 @@ export const HSLSection: React.FC<HSLSectionProps> = ({
                     type="button"
                     title={
                       isAll
-                        ? "All channels"
+                        ? t("properties.adjust.allChannels")
                         : label.charAt(0).toUpperCase() + label.slice(1)
                     }
-                    aria-label={isAll ? "All channels" : label}
+                    aria-label={
+                      isAll ? t("properties.adjust.allChannels") : label
+                    }
                     aria-pressed={isActive}
                     onClick={() => setSelectedChannel(label)}
                     className={[
@@ -166,8 +175,8 @@ export const HSLSection: React.FC<HSLSectionProps> = ({
                         ? // Eyedropper-style "All" button
                           `w-8 h-8 flex items-center justify-center rounded border-2 ${
                             isActive
-                              ? "border-white/80 bg-white/15"
-                              : "border-white/20 bg-[#2c2c2e] hover:border-white/40"
+                              ? "border-accent-primary bg-accent-primary/20"
+                              : "border-border-default bg-surface-elevated hover:border-border-hover"
                           }`
                         : // Color chip
                           `w-7 h-7 rounded-full border-2 hover:scale-110 ${
@@ -190,7 +199,7 @@ export const HSLSection: React.FC<HSLSectionProps> = ({
                         strokeWidth="2"
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                        className={isActive ? "text-white" : "text-white/60"}
+                        className={isActive ? "text-accent-primary font-semibold" : "text-text-muted"}
                       >
                         <circle cx="12" cy="12" r="4" />
                         <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
@@ -203,14 +212,14 @@ export const HSLSection: React.FC<HSLSectionProps> = ({
 
             {/* Per-channel label */}
             {selectedChannel !== "all" && (
-              <div className="text-[10px] text-white/40 tracking-wider capitalize">
-                {selectedChannel} channel
+              <div className="text-[10px] text-text-muted tracking-wider capitalize">
+                {selectedChannel} {t("properties.adjust.channelSuffix")}
               </div>
             )}
 
             {/* Hue */}
             <GradientSliderControl
-              label="Hue"
+              label={t("properties.adjust.hue")}
               value={getChannelVal("hue", 0)}
               min={-180}
               max={180}
@@ -219,7 +228,7 @@ export const HSLSection: React.FC<HSLSectionProps> = ({
 
             {/* Saturation */}
             <GradientSliderControl
-              label="Saturation"
+              label={t("properties.adjust.saturation")}
               value={getChannelVal("saturation", 0)}
               min={-100}
               max={100}
@@ -229,7 +238,7 @@ export const HSLSection: React.FC<HSLSectionProps> = ({
 
             {/* Brightness */}
             <GradientSliderControl
-              label="Brightness"
+              label={t("properties.adjust.brightness")}
               value={getChannelVal("brightness", 0)}
               min={-100}
               max={100}

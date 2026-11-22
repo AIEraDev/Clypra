@@ -51,7 +51,7 @@
 //! }
 //! ```
 
-use crate::wgpu_compositor::frame_cache::FrameResourceCache;
+use crate::wgpu_compositor::frame_cache::{FrameCacheStats, FrameResourceCache};
 use crate::wgpu_compositor::frame_deadline::FrameDeadline;
 use crate::wgpu_compositor::frame_request::PreviewQuality;
 use crate::wgpu_compositor::frame_resource::FrameResource;
@@ -513,6 +513,16 @@ impl FrameScheduler {
         inner.decoded_cache.clear();
         inner.composition_cache.clear();
         inner.production_count = 0;
+    }
+
+    /// Return point-in-time telemetry statistics for both decoded and composition caches.
+    pub fn cache_stats(&self) -> (FrameCacheStats, FrameCacheStats) {
+        let inner = self.inner.lock();
+        let decoded = inner.decoded_cache.stats();
+        let composed = inner.composition_cache.stats();
+        *crate::wgpu_compositor::frame_cache::GLOBAL_DECODED_CACHE_STATS.write() = decoded;
+        *crate::wgpu_compositor::frame_cache::GLOBAL_COMPOSED_CACHE_STATS.write() = composed;
+        (decoded, composed)
     }
 }
 

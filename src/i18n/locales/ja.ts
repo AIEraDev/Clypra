@@ -152,6 +152,7 @@ export const JA: Record<string, string> = {
   "Play playback": "再生を開始",
   "Base:": "ベース：",
   "Dark": "ダーク",
+  "Light": "ライト",
   "Midnight": "ミッドナイト",
   "Ocean": "オーシャン",
   "Forest": "フォレスト",

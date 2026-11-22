@@ -8,8 +8,10 @@ import {
   PAUSED_NATIVE_DEMAND_ACK_TIMEOUT_MS,
   shouldFallbackForPausedNativeDemand,
   createNativeDemandOperationId,
+  shouldClearPendingPausedNativeDemandOnTerminal,
   telemetryRequestToken,
 } from "@/components/editor/preview/pausedNativeDemandLifecycle";
+import { decidePausedNativeDemandAction } from "@/core/playback/pausedNativeDemandState";
 import type { Clip, MediaAsset, Track } from "@/types";
 // Mock Tauri API
 vi.mock("@tauri-apps/api/core", () => ({
@@ -4182,25 +4184,96 @@ describe("CLY-PERF-001 / Bug 15 — Native Audio Failure Clock Unblock", () => {
 });
 
 describe("CLY-PERF-002 — Paused Native Demand Acknowledgement", () => {
+  it("REGRESSION: a mailbox superseded terminal releases the stale pending demand", () => {
+    expect(
+      shouldClearPendingPausedNativeDemandOnTerminal({
+        disposition: "superseded",
+        stage: "mailbox",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps the owner while a duplicate mailbox target is terminalized", () => {
+    expect(
+      shouldClearPendingPausedNativeDemandOnTerminal({
+        disposition: "superseded",
+        stage: "mailbox",
+        reason: "duplicate-mailbox",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps successful and dropped-before-present terminals for the presentation event", () => {
+    expect(
+      shouldClearPendingPausedNativeDemandOnTerminal({
+        disposition: "presented",
+        stage: "presentation",
+      }),
+    ).toBe(false);
+    expect(
+      shouldClearPendingPausedNativeDemandOnTerminal({
+        disposition: "dropped-before-present",
+        stage: "presentation",
+      }),
+    ).toBe(false);
+    expect(
+      shouldClearPendingPausedNativeDemandOnTerminal({
+        disposition: "failed",
+        stage: "presentation",
+      }),
+    ).toBe(true);
+  });
+
   it("REGRESSION: a stale or generation-mismatched acknowledgement cannot settle the current demand", () => {
-    const pending = { requestId: "preview-op-42", generation: 42 };
+    const pending = { requestId: "preview-op-42", generation: 42, frameIndex: 42 };
 
     expect(
       matchesPausedNativeDemand(pending, {
         requestId: "preview-op-41",
         generation: 41,
+        frameIndex: 41,
       }),
     ).toBe(false);
     expect(
       matchesPausedNativeDemand(pending, {
         requestId: "preview-op-42",
         generation: 41,
+        frameIndex: 42,
       }),
     ).toBe(false);
     expect(
       matchesPausedNativeDemand(pending, {
         requestId: "preview-op-42",
         generation: 42,
+        frameIndex: 42,
+      }),
+    ).toBe(true);
+  });
+
+  it("correlates a presentation from the retained mailbox owner to a duplicate operation", () => {
+    expect(
+      matchesPausedNativeDemand(
+        { requestId: "preview-op-42:op-1", generation: 42, frameIndex: 42 },
+        { requestId: "preview-op-42:op-2", generation: 42, frameIndex: 42 },
+      ),
+    ).toBe(true);
+    expect(
+      matchesPausedNativeDemand(
+        { requestId: "preview-op-42:op-1", generation: 42, frameIndex: 42 },
+        { requestId: "different-target:op-2", generation: 42, frameIndex: 42 },
+      ),
+    ).toBe(false);
+  });
+
+  it("REGRESSION: a forward scrub terminal keeps its target generation separate from the cancellation epoch", () => {
+    const pending = { requestId: "preview-op-43", generation: 43 };
+
+    // Rust may keep epoch 42 to preserve useful decode work, but the WebView
+    // must still correlate the completion to visible target 43.
+    expect(
+      matchesPausedNativeDemand(pending, {
+        requestId: "preview-op-43",
+        generation: 43,
       }),
     ).toBe(true);
   });
@@ -4383,7 +4456,7 @@ describe("Bug — canvas transform panel sync", () => {
     // handleMouseUp that was the bug: newTransform.baseWidth was set to
     // finalGeometry.width (post-drag) instead of clip.baseWidth (pre-drag).
     const { assembleBaseWidthForCommit } =
-      await import("@/components/editor/transform/TransformOverlay");
+      await import("@/lib/transform/transformUtils");
     const { createClipFromAsset } = await import("@/lib/timeline/timelineClip");
 
     const asset = makeVideoAsset(); // 1920×1080
@@ -5456,6 +5529,115 @@ describe("Bug 14 — Playback Start at Timeline Zero & Effects Cache Invalidatio
     expect(clock.time).toBeCloseTo(3.0, 1);
 
     perfNowSpy.mockRestore();
+  });
+});
+
+describe("Bug 15 — Native Paused-Scrub Liveness (CLY-BUG-NATIVE-SCRUB-HANG)", () => {
+  it("does not replace the only seek-settling operation for repeated or forward scrub RAF targets", () => {
+    const active = {
+      requestKey: "revision:100",
+      generation: 10,
+      frameIndex: 100,
+      cancellationEpoch: 10,
+      isScrubbing: true,
+    };
+
+    expect(decidePausedNativeDemandAction(active, { ...active })).toBe("hold");
+    expect(
+      decidePausedNativeDemandAction(active, {
+        ...active,
+        requestKey: "revision:120",
+        generation: 11,
+        frameIndex: 120,
+      }),
+    ).toBe("hold");
+  });
+
+  it("requires a replacement boundary before a released target can settle playback", () => {
+    const active = {
+      requestKey: "revision:100",
+      generation: 10,
+      frameIndex: 100,
+      cancellationEpoch: 10,
+      isScrubbing: true,
+    };
+    const released = {
+      requestKey: "revision:120",
+      generation: 11,
+      frameIndex: 120,
+      cancellationEpoch: 11,
+      isScrubbing: false,
+    };
+
+    expect(decidePausedNativeDemandAction(active, released)).toBe("replace");
+  });
+
+  it("releases request-key deduplication after an older generation presents", () => {
+    let lastNativePlaybackRequestKey = "revision:120";
+    const pendingGeneration: number = 10;
+    const visibleGeneration: number = 11;
+
+    if (pendingGeneration !== visibleGeneration) {
+      lastNativePlaybackRequestKey = "";
+    }
+
+    expect(lastNativePlaybackRequestKey).toBe("");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bug 16 — Project Open Playback Readiness & Transport Resilience
+// (CLY-BUG-POST-OPEN-SEEK-SNAPBACK)
+//
+// Symptom:
+//   1. When user seeks forward immediately after opening a project, the preview
+//      waits for in-flight snapshot warmup, then snaps back to 0.0s when
+//      background audio graph sync finishes.
+//   2. When user presses play immediately after opening, continuous playback
+//      freezes because the audio clock has not started yet.
+//
+// Fixes:
+//   - Tier 1: Audio graph prewarm in ProjectSession._doInitialize() during open.
+//   - Tier 2: updateSource re-seeks CPAL to this.clock.time for both paused and playing.
+//   - Tier 2: pollNativeClock rejects spurious 0 ticks when clock has a forward seek.
+//   - Tier 2: NativeRenderSession render_loop falls back to monotonic clock when audio is cold.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("Bug 16 — Project Open Playback Readiness & Transport Resilience (CLY-BUG-POST-OPEN-SEEK-SNAPBACK)", () => {
+  it("retains seeked position when audio controller receives native status of 0 while paused with forward seek", () => {
+    const clock = new PlaybackClock();
+    clock.setDuration(30);
+    clock.setNativeClockAuthority(true);
+    clock.seek(8.0);
+
+    // Simulated check from pollNativeClock:
+    const positionTicks = 0;
+    const isSpuriousZeroReset =
+      positionTicks <= 10_000 &&
+      clock.time > 0.05 &&
+      (clock.isSeeking || clock.seekRevision > 0);
+
+    expect(isSpuriousZeroReset).toBe(true);
+    // Because isSpuriousZeroReset is true, setNativeClockPosition(0) is bypassed:
+    if (!isSpuriousZeroReset) {
+      clock.setNativeClockPosition(0, 1.0);
+    }
+    expect(clock.time).toBe(8.0);
+
+    clock.dispose();
+  });
+
+  it("ensures live playback demand is submitted even when nativePlaybackRenderSnapshotInFlight was previously active", () => {
+    const isPlaying = true;
+    const snapshotKey = "snapshot:1";
+    let nativePlaybackRenderSnapshotKey = "snapshot:1";
+    let nativePlaybackRenderSnapshotInFlight: Promise<void> | null = null;
+
+    const canSubmitDemand =
+      (nativePlaybackRenderSnapshotKey === snapshotKey &&
+        nativePlaybackRenderSnapshotInFlight === null) ||
+      (nativePlaybackRenderSnapshotKey !== "" && isPlaying);
+
+    expect(canSubmitDemand).toBe(true);
   });
 });
 

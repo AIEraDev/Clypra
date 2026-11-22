@@ -152,6 +152,7 @@ export const KO: Record<string, string> = {
   "Play playback": "재생 시작",
   "Base:": "기본:",
   "Dark": "다크",
+  "Light": "라이트",
   "Midnight": "미드나이트",
   "Ocean": "오션",
   "Forest": "포레스트",

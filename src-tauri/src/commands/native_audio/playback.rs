@@ -86,8 +86,12 @@ pub fn set_native_audio_output(app: AppHandle, volume: f32, muted: bool) -> Resu
 }
 
 #[tauri::command]
-pub fn seek_native_audio(app: AppHandle, position_ticks: i64) -> Result<(), String> {
-    SYNC_METRICS.record_seek_requested(position_ticks);
+pub fn seek_native_audio(
+    app: AppHandle,
+    position_ticks: i64,
+    generation: Option<u64>,
+) -> Result<(), String> {
+    SYNC_METRICS.record_seek_requested_with_generation(position_ticks, generation);
     let clock = audio_clock(&app)?;
     clock
         .lock()

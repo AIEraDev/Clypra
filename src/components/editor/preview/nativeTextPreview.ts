@@ -698,7 +698,10 @@ function getBrowserTextBitmap(
   if (!bitmapCanvas) return null;
   bitmapCanvas.width = asset.width;
   bitmapCanvas.height = asset.height;
-  const bitmapContext = bitmapCanvas.getContext("2d");
+  const bitmapContext = (bitmapCanvas as any).getContext("2d") as
+    | CanvasRenderingContext2D
+    | OffscreenCanvasRenderingContext2D
+    | null;
   if (!bitmapContext) return null;
   const transferStartedAt = performance.now();
   const image = bitmapContext.createImageData(asset.width, asset.height);
@@ -979,6 +982,16 @@ function createCanvas(
   throw new Error(
     "Native text rasterization requires a canvas-capable runtime",
   );
+}
+
+function get2DContext(
+  canvas: HTMLCanvasElement | OffscreenCanvas,
+  options?: CanvasRenderingContext2DSettings,
+): CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null {
+  return (canvas as any).getContext("2d", options) as
+    | CanvasRenderingContext2D
+    | OffscreenCanvasRenderingContext2D
+    | null;
 }
 
 /**
@@ -1513,7 +1526,7 @@ export async function rasterizeTextLayerForNative(
     const fullCanvasHeight = Math.max(1, Math.round(layer.baseHeight ?? layer.height ?? 1080));
 
     const fullCanvas = createCanvas(fullCanvasWidth, fullCanvasHeight);
-    const fullCtx = fullCanvas.getContext("2d", { alpha: true });
+    const fullCtx = get2DContext(fullCanvas, { alpha: true });
     if (!fullCtx) throw new Error("Unable to create a 2D context for caption rasterization");
 
     fullCtx.clearRect(0, 0, fullCanvasWidth, fullCanvasHeight);
@@ -1532,7 +1545,7 @@ export async function rasterizeTextLayerForNative(
     const croppedHeight = Math.max(1, bounds.height);
 
     const croppedCanvas = createCanvas(croppedWidth, croppedHeight);
-    const croppedCtx = croppedCanvas.getContext("2d", { alpha: true });
+    const croppedCtx = get2DContext(croppedCanvas, { alpha: true });
     if (!croppedCtx) throw new Error("Unable to create cropped canvas context");
 
     const readbackStartedAt = performance.now();
@@ -1624,7 +1637,7 @@ export async function rasterizeTextLayerForNative(
     authoredCanvas: (effectDefinition as any)?.scene?.canvas,
   });
   const canvas = createCanvas(width, height);
-  const ctx = canvas.getContext("2d", { alpha: true });
+  const ctx = get2DContext(canvas, { alpha: true });
   if (!ctx)
     throw new Error(
       "Unable to create a 2D context for native text rasterization",

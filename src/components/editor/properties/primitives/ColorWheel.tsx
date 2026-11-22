@@ -98,14 +98,14 @@ export const ColorWheel: React.FC<ColorWheelProps> = ({
   const isOverridden = r !== 0 || g !== 0 || b !== 0 || y !== 0;
 
   return (
-    <div className="flex flex-col items-center gap-1.5 p-2 bg-surface-raised/80 border border-border/50 rounded-xl select-none shadow-xs">
+    <div className="flex flex-col items-center gap-1.5 p-2 bg-surface-elevated border border-border-default rounded-xl select-none shadow-xs">
       {/* Header Label & Reset */}
       <div className="w-full flex items-center justify-between px-0.5">
         <span className="text-[10px] font-semibold text-text-primary">{label}</span>
         {isOverridden && (
           <button
             onClick={handleResetPuck}
-            className="text-accent hover:opacity-80 transition-colors p-0.5"
+            className="text-accent-primary hover:opacity-80 transition-colors p-0.5"
             title="Reset color wheel"
           >
             <Undo2 className="w-3 h-3" />
@@ -118,7 +118,7 @@ export const ColorWheel: React.FC<ColorWheelProps> = ({
         ref={wheelRef}
         onPointerDown={handlePointerDown}
         onDoubleClick={handleResetPuck}
-        className="relative w-20 h-20 rounded-full border border-border/80 cursor-crosshair shadow-inner overflow-hidden flex items-center justify-center"
+        className="relative w-20 h-20 rounded-full border border-border-default cursor-crosshair shadow-inner overflow-hidden flex items-center justify-center"
         style={{
           background: `conic-gradient(
             from 90deg,

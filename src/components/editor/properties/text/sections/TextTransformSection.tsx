@@ -361,16 +361,16 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
   };
 
   return (
-    <div className="space-y-3.5 select-none text-white">
+    <div className="space-y-3.5 select-none text-text-primary">
       {/* ── Transform Header ── */}
       <div className="flex items-center justify-between">
         <button
           type="button"
           onClick={() => setIsExpanded((prev) => !prev)}
-          className="flex items-center gap-1.5 text-xs font-semibold text-white hover:text-white/80 transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 text-xs font-semibold text-text-primary hover:text-text-secondary transition-colors cursor-pointer"
         >
           <span>{t("properties.transform.title") || "Transform"}</span>
-          <span className="text-[10px] text-[#8e8e93]">
+          <span className="text-[10px] text-text-muted">
             {isExpanded ? "▲" : "▼"}
           </span>
         </button>
@@ -380,7 +380,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
           <button
             type="button"
             onClick={handleReset}
-            className="text-[#8e8e93] hover:text-white transition-colors cursor-pointer p-0.5 rounded"
+            className="text-text-muted hover:text-text-primary transition-colors cursor-pointer p-0.5 rounded"
             title={t("properties.transform.reset") || "Reset transform"}
           >
             <RotateCcw className="w-3.5 h-3.5" />
@@ -419,7 +419,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
         <div className="space-y-3.5">
           {/* ── Row 1: Scale ── */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-secondary shrink-0 w-24">
               {t("properties.transform.scale") || "Scale"}
             </span>
 
@@ -430,11 +430,11 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
                 max={400}
                 value={scalePercent}
                 onChange={(e) => handleScaleChange(Number(e.target.value))}
-                className="w-full h-1 bg-[#3f3f46] rounded-full appearance-none outline-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer"
+                className="w-full h-1 bg-border-default rounded-full appearance-none outline-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent-primary [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer"
               />
 
               {/* Percentage Stepper */}
-              <div className="flex items-center bg-[#242426] border border-white/5 rounded-md px-2 py-1 text-xs text-white shrink-0">
+              <div className="flex items-center bg-surface-input border border-border-default rounded-md px-2 py-1 text-xs text-text-primary shrink-0">
                 <input
                   type="text"
                   value={`${scalePercent}%`}
@@ -447,18 +447,18 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
                   }}
                   className="w-10 bg-transparent text-right outline-none pr-1"
                 />
-                <div className="flex flex-col ml-1 text-[8px] text-[#8e8e93] leading-[6px]">
+                <div className="flex flex-col ml-1 text-[8px] text-text-muted leading-[6px]">
                   <button
                     type="button"
                     onClick={() => handleScaleChange(scalePercent + 1)}
-                    className="hover:text-white cursor-pointer"
+                    className="hover:text-text-primary cursor-pointer"
                   >
                     ▲
                   </button>
                   <button
                     type="button"
                     onClick={() => handleScaleChange(scalePercent - 1)}
-                    className="hover:text-white cursor-pointer"
+                    className="hover:text-text-primary cursor-pointer"
                   >
                     ▼
                   </button>
@@ -483,7 +483,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
 
           {/* ── Row 2: Uniform Scale ── */}
           <div className="flex items-center justify-between">
-            <span className="text-xs text-[#a1a1aa]">
+            <span className="text-xs text-text-secondary">
               {t("properties.transform.uniformScale") || "Uniform scale"}
             </span>
             <button
@@ -494,7 +494,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
                 handleUpdate("aspectRatioLocked", next);
               }}
               className={`w-9 h-5 rounded-full transition-colors cursor-pointer relative p-0.5 ${
-                uniformScale ? "bg-cyan-400" : "bg-[#3f3f46]"
+                uniformScale ? "bg-accent-primary" : "bg-surface-elevated"
               }`}
             >
               <div
@@ -507,15 +507,15 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
 
           {/* ── Row 3: Position ── */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-secondary shrink-0 w-24">
               {t("properties.transform.position") || "Position"}
             </span>
 
             <div className="flex-1 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 flex-1">
                 {/* X Coordinate */}
-                <div className="flex-1 flex items-center bg-[#242426] border border-white/5 rounded-md px-2 py-1 text-xs">
-                  <span className="text-[#8e8e93] mr-2 text-[11px] font-medium">
+                <div className="flex-1 flex items-center bg-surface-input border border-border-default rounded-md px-2 py-1 text-xs">
+                  <span className="text-text-secondary mr-2 text-[11px] font-medium">
                     X
                   </span>
                   <input
@@ -524,20 +524,20 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
                     onChange={(e) =>
                       handleDisplayXChange(Number(e.target.value))
                     }
-                    className="w-full bg-transparent text-center text-white outline-none"
+                    className="w-full bg-transparent text-center text-text-primary outline-none"
                   />
-                  <div className="flex flex-col text-[8px] text-[#8e8e93] leading-[6px]">
+                  <div className="flex flex-col text-[8px] text-text-muted leading-[6px]">
                     <button
                       type="button"
                       onClick={() => handleDisplayXChange(displayX + 1)}
-                      className="hover:text-white cursor-pointer"
+                      className="hover:text-text-primary cursor-pointer"
                     >
                       ▲
                     </button>
                     <button
                       type="button"
                       onClick={() => handleDisplayXChange(displayX - 1)}
-                      className="hover:text-white cursor-pointer"
+                      className="hover:text-text-primary cursor-pointer"
                     >
                       ▼
                     </button>
@@ -545,8 +545,8 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
                 </div>
 
                 {/* Y Coordinate */}
-                <div className="flex-1 flex items-center bg-[#242426] border border-white/5 rounded-md px-2 py-1 text-xs">
-                  <span className="text-[#8e8e93] mr-2 text-[11px] font-medium">
+                <div className="flex-1 flex items-center bg-surface-input border border-border-default rounded-md px-2 py-1 text-xs">
+                  <span className="text-text-secondary mr-2 text-[11px] font-medium">
                     Y
                   </span>
                   <input
@@ -555,20 +555,20 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
                     onChange={(e) =>
                       handleDisplayYChange(Number(e.target.value))
                     }
-                    className="w-full bg-transparent text-center text-white outline-none"
+                    className="w-full bg-transparent text-center text-text-primary outline-none"
                   />
-                  <div className="flex flex-col text-[8px] text-[#8e8e93] leading-[6px]">
+                  <div className="flex flex-col text-[8px] text-text-muted leading-[6px]">
                     <button
                       type="button"
                       onClick={() => handleDisplayYChange(displayY + 1)}
-                      className="hover:text-white cursor-pointer"
+                      className="hover:text-text-primary cursor-pointer"
                     >
                       ▲
                     </button>
                     <button
                       type="button"
                       onClick={() => handleDisplayYChange(displayY - 1)}
-                      className="hover:text-white cursor-pointer"
+                      className="hover:text-text-primary cursor-pointer"
                     >
                       ▼
                     </button>
@@ -594,14 +594,14 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
 
           {/* ── Row 4: Plane Rotation ── */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-secondary shrink-0 w-24">
               {t("properties.transform.planeRotation") || "Plane rotation"}
             </span>
 
             <div className="flex-1 flex items-center justify-between gap-2">
               <div className="flex items-center gap-3">
                 {/* Degrees Stepper */}
-                <div className="flex items-center bg-[#242426] border border-white/5 rounded-md px-2 py-1 text-xs w-24">
+                <div className="flex items-center bg-surface-input border border-border-default rounded-md px-2 py-1 text-xs w-24">
                   <input
                     type="text"
                     value={`${(textClip.rotation || 0).toFixed(2)}°`}
@@ -612,9 +612,9 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
                       if (!Number.isNaN(num))
                         handleUpdatePropertyWithKeyframe("rotation", num);
                     }}
-                    className="w-full bg-transparent text-right text-white outline-none pr-1"
+                    className="w-full bg-transparent text-right text-text-primary outline-none pr-1"
                   />
-                  <div className="flex flex-col text-[8px] text-[#8e8e93] leading-[6px]">
+                  <div className="flex flex-col text-[8px] text-text-muted leading-[6px]">
                     <button
                       type="button"
                       onClick={() =>
@@ -623,7 +623,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
                           Math.round((textClip.rotation || 0) + 1),
                         )
                       }
-                      className="hover:text-white cursor-pointer"
+                      className="hover:text-text-primary cursor-pointer"
                     >
                       ▲
                     </button>
@@ -635,7 +635,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
                           Math.round((textClip.rotation || 0) - 1),
                         )
                       }
-                      className="hover:text-white cursor-pointer"
+                      className="hover:text-text-primary cursor-pointer"
                     >
                       ▼
                     </button>
@@ -645,7 +645,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
                 {/* Circular Dial Knob Widget */}
                 <div
                   onPointerDown={handleDialPointerDown}
-                  className="w-5 h-5 rounded-full bg-[#1e1e22] border border-white/20 relative cursor-pointer flex items-center justify-center hover:border-cyan-400 transition-colors shadow-sm shrink-0"
+                  className="w-5 h-5 rounded-full bg-surface-panel border border-border-default relative cursor-pointer flex items-center justify-center hover:border-accent-primary transition-colors shadow-sm shrink-0"
                   title="Drag to rotate"
                 >
                   <div
@@ -676,12 +676,12 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
           </div>
 
           {/* ── Row 5: Alignment Toolbar ── */}
-          <div className="bg-[#1c1c1f] border border-white/5 rounded-lg p-1 flex items-center justify-between text-[#8e8e93]">
+          <div className="bg-surface-elevated border border-border-default rounded-lg p-1 flex items-center justify-between text-text-secondary">
             {/* Align Left |← */}
             <button
               type="button"
               onClick={alignLeft}
-              className="p-1 rounded hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+              className="p-1 rounded hover:text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
               title={t("properties.transform.alignLeft") || "Align left"}
             >
               <svg
@@ -697,7 +697,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
             <button
               type="button"
               onClick={alignCenterX}
-              className="p-1 rounded hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+              className="p-1 rounded hover:text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
               title={
                 t("properties.transform.alignCenterX") ||
                 "Align center horizontally"
@@ -716,7 +716,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
             <button
               type="button"
               onClick={alignRight}
-              className="p-1 rounded hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+              className="p-1 rounded hover:text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
               title={t("properties.transform.alignRight") || "Align right"}
             >
               <svg
@@ -732,7 +732,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
             <button
               type="button"
               onClick={alignTop}
-              className="p-1 rounded hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+              className="p-1 rounded hover:text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
               title={t("properties.transform.alignTop") || "Align top"}
             >
               <svg
@@ -748,7 +748,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
             <button
               type="button"
               onClick={alignCenterY}
-              className="p-1 rounded hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+              className="p-1 rounded hover:text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
               title={
                 t("properties.transform.alignCenterY") ||
                 "Align center vertically"
@@ -767,7 +767,7 @@ export const TextTransformSection: React.FC<TextTransformSectionProps> = ({
             <button
               type="button"
               onClick={alignBottom}
-              className="p-1 rounded hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+              className="p-1 rounded hover:text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
               title={t("properties.transform.alignBottom") || "Align bottom"}
             >
               <svg

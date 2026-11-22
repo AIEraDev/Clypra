@@ -2,6 +2,7 @@
 import React from "react";
 import { Pipette, Sparkles } from "lucide-react";
 import type { Clip } from "@/types";
+import { useI18n } from "@/i18n";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useEyedropper } from "@/core/hooks/useEyedropper";
 import { defaultChromaKeyConfig } from "@/types/compositor";
@@ -18,6 +19,7 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
   selectedClip,
   surfaceRef,
 }) => {
+  const { t } = useI18n();
   const updateClipChromaKey = useTimelineStore(
     (state) => state.updateClipChromaKey,
   );
@@ -49,23 +51,23 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
         onChange={handleToggle}
         className="sr-only peer"
       />
-      <div className="w-7 h-3.5 bg-surface-raised border border-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-3.5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-accent" />
+      <div className="w-7 h-3.5 bg-surface-raised border border-border-default peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-3.5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-accent" />
     </label>
   );
 
   return (
     <PropertySection
-      title="UltraKey (Chroma Key)"
+      title={t("properties.chromaKey.title")}
       icon={<Sparkles className="w-3.5 h-3.5" />}
       defaultCollapsed={!chromaKey.enabled}
       action={headerAction}
     >
       <div className="space-y-3 pt-1">
         {/* Color picker / Eyedropper row */}
-        <div className="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-surface/60 border border-white/5">
+        <div className="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-surface/60 border border-border-default">
           <div className="flex items-center gap-2">
             <div
-              className="w-5 h-5 rounded-md border border-white/20 shadow-xs shrink-0"
+              className="w-5 h-5 rounded-md border border-border-default shadow-xs shrink-0"
               style={{ backgroundColor: colorRgbStr }}
             />
             <span className="text-[11px] font-mono text-text-secondary">
@@ -79,14 +81,14 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
             disabled={!chromaKey.enabled}
             className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md border transition-all cursor-pointer ${
               !chromaKey.enabled
-                ? "opacity-40 cursor-not-allowed bg-surface-raised border-white/5 text-text-muted"
+                ? "opacity-40 cursor-not-allowed bg-surface-raised border-border-default text-text-muted"
                 : isPicking
-                  ? "bg-accent border-accent text-white animate-pulse shadow-xs shadow-accent/30"
-                  : "bg-surface-raised hover:bg-white/10 border-white/10 text-text-secondary hover:text-text-primary"
+                  ? "bg-accent-primary border-accent-primary text-white animate-pulse shadow-xs shadow-accent-primary/30"
+                  : "bg-surface-raised hover:bg-surface-hover border-border-default text-text-secondary hover:text-text-primary"
             }`}
           >
             <Pipette className="w-3 h-3" />
-            <span>{isPicking ? "Click Canvas..." : "Eyedropper"}</span>
+            <span>{isPicking ? t("properties.chromaKey.clickCanvas") : t("properties.chromaKey.eyedropper")}</span>
           </button>
         </div>
 
@@ -100,8 +102,8 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
         >
           {/* Tolerance */}
           <div className="space-y-1">
-            <span className="text-[11px] text-white select-none block">
-              Tolerance
+            <span className="text-[11px] text-text-primary select-none block">
+              {t("properties.chromaKey.tolerance")}
             </span>
             <div className="flex items-center gap-2">
               <SliderTrack
@@ -120,7 +122,7 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
                 }
                 step={1}
                 suffix="%"
-                ariaLabel="Tolerance"
+                ariaLabel={t("properties.chromaKey.tolerance")}
                 min={0}
                 max={100}
                 inputPosition="text-right"
@@ -130,8 +132,8 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
 
           {/* Edge Softness */}
           <div className="space-y-1">
-            <span className="text-[11px] text-white select-none block">
-              Edge Softness
+            <span className="text-[11px] text-text-primary select-none block">
+              {t("properties.chromaKey.edgeSoftness")}
             </span>
             <div className="flex items-center gap-2">
               <SliderTrack
@@ -150,7 +152,7 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
                 }
                 step={1}
                 suffix="%"
-                ariaLabel="Edge Softness"
+                ariaLabel={t("properties.chromaKey.edgeSoftness")}
                 min={0}
                 max={100}
                 inputPosition="text-right"
@@ -160,8 +162,8 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
 
           {/* Despill Cleanup */}
           <div className="space-y-1">
-            <span className="text-[11px] text-white select-none block">
-              Despill Cleanup
+            <span className="text-[11px] text-text-primary select-none block">
+              {t("properties.chromaKey.despill")}
             </span>
             <div className="flex items-center gap-2">
               <SliderTrack
@@ -184,7 +186,7 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
                 }
                 step={1}
                 suffix="%"
-                ariaLabel="Despill Cleanup"
+                ariaLabel={t("properties.chromaKey.despill")}
                 min={0}
                 max={100}
                 inputPosition="text-right"
@@ -194,8 +196,8 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
 
           {/* Matte Pedestal */}
           <div className="space-y-1">
-            <span className="text-[11px] text-white select-none block">
-              Matte Pedestal
+            <span className="text-[11px] text-text-primary select-none block">
+              {t("properties.chromaKey.mattePedestal")}
             </span>
             <div className="flex items-center gap-2">
               <SliderTrack
@@ -218,7 +220,7 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
                 }
                 step={1}
                 suffix="%"
-                ariaLabel="Matte Pedestal"
+                ariaLabel={t("properties.chromaKey.mattePedestal")}
                 min={0}
                 max={50}
                 inputPosition="text-right"
@@ -228,8 +230,8 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
 
           {/* Matte Highlight */}
           <div className="space-y-1">
-            <span className="text-[11px] text-white select-none block">
-              Matte Highlight
+            <span className="text-[11px] text-text-primary select-none block">
+              {t("properties.chromaKey.matteHighlight")}
             </span>
             <div className="flex items-center gap-2">
               <SliderTrack
@@ -252,7 +254,7 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
                 }
                 step={1}
                 suffix="%"
-                ariaLabel="Matte Highlight"
+                ariaLabel={t("properties.chromaKey.matteHighlight")}
                 min={50}
                 max={100}
                 inputPosition="text-right"

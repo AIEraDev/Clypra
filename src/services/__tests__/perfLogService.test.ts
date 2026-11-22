@@ -111,12 +111,12 @@ describe("PerfLogService Telemetry Upload Default Behavior", () => {
     Storage.prototype.setItem = originalSetItem;
   });
 
-  it("defaults to opt-in (true) when localStorage key is absent", () => {
-    // Key is absent (default state for new users)
+  it("defaults to opt-out (false) when localStorage key is absent", () => {
+    // Key is absent; a new user must explicitly opt in.
     expect(localStorage.getItem(TELEMETRY_KEY)).toBeNull();
 
     // Static accessor (primary API)
-    expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(true);
+    expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(false);
   });
 
   it("respects explicit opt-out (false)", () => {
@@ -135,9 +135,9 @@ describe("PerfLogService Telemetry Upload Default Behavior", () => {
     expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(true);
   });
 
-  it("allows user to toggle from default opt-in to opt-out", () => {
+  it("allows user to toggle from default opt-out to opt-in", () => {
     // Start with default (key absent)
-    expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(true);
+    expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(false);
 
     // User opts out
     PerfLogService.setTelemetryUploadEnabled(false);

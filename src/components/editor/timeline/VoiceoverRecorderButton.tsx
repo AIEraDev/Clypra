@@ -1,9 +1,11 @@
 import React from "react";
-import { Mic, Square } from "lucide-react";
+import { Square } from "lucide-react";
+import { ToolbarRecordVoiceoverIcon } from "@/components/ui/icons";
 import { useVoiceoverRecorder } from "@/hooks/useVoiceoverRecorder";
 
 export const VoiceoverRecorderButton: React.FC = () => {
-  const { voiceoverActive, startVoiceover, stopVoiceover } = useVoiceoverRecorder();
+  const { voiceoverActive, startVoiceover, stopVoiceover } =
+    useVoiceoverRecorder();
 
   return (
     <button
@@ -14,7 +16,11 @@ export const VoiceoverRecorderButton: React.FC = () => {
           ? "bg-red-500/20 text-red-400 border-red-500/40 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.4)]"
           : "bg-surface-raised border-border/60 text-text-muted hover:text-text-primary hover:border-accent/40"
       }`}
-      title={voiceoverActive ? "Stop Voiceover Recording" : "Record Live Voiceover at Playhead"}
+      title={
+        voiceoverActive
+          ? "Stop Voiceover Recording"
+          : "Record Live Voiceover at Playhead"
+      }
     >
       {voiceoverActive ? (
         <>
@@ -23,7 +29,7 @@ export const VoiceoverRecorderButton: React.FC = () => {
         </>
       ) : (
         <>
-          <Mic className="w-3.5 h-3.5 text-accent" />
+          <ToolbarRecordVoiceoverIcon size="0.875rem" className="w-3.5 h-3.5" />
           <span>Record Voiceover</span>
         </>
       )}

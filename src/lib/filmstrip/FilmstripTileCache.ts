@@ -387,6 +387,26 @@ export class FilmstripTileCache {
   }
 
   /**
+   * Total bytes used by tiles in memory.
+   */
+  getBytesUsed(): number {
+    return this.currentMemoryBytes;
+  }
+
+  /**
+   * Trim cache until memory consumption is under `targetBytes`.
+   */
+  trimTo(targetBytes: number): number {
+    const initial = this.currentMemoryBytes;
+    while (this.currentMemoryBytes > targetBytes && this.tiles.size > 0) {
+      const prev = this.currentMemoryBytes;
+      this._evictLRU();
+      if (this.currentMemoryBytes >= prev) break;
+    }
+    return Math.max(0, initial - this.currentMemoryBytes);
+  }
+
+  /**
    * Get cache statistics.
    */
   getStats(): TileCacheStats {

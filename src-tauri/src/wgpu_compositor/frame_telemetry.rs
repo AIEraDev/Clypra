@@ -70,6 +70,10 @@ pub struct FrameTelemetry {
     /// Populated by the Tauri command layer in Phase 5.
     pub ipc_wait_us: Option<u64>,
 
+    /// Time the decode actor held this demand before it could return a frame.
+    /// This is distinct from decoder CPU time and identifies actor contention.
+    pub actor_wait_us: Option<u64>,
+
     // ------------------------------------------------------------------
     // End-to-end Rust-side timings (Phase 3.1) — µs unless noted
     // ------------------------------------------------------------------
@@ -161,7 +165,12 @@ impl FrameTelemetry {
 
     /// Returns true if this frame used the DXGI zero-copy path.
     pub fn used_zero_copy(&self) -> bool {
-        matches!(self.source, FrameSource::DxgiNv12 { .. })
+        matches!(
+            self.source,
+            FrameSource::DxgiNv12 { .. }
+                | FrameSource::MetalNv12 { .. }
+                | FrameSource::MetalP010 { .. }
+        )
     }
 }
 
@@ -363,6 +372,7 @@ mod tests {
         assert!(t.telemetry_overhead_ns.is_none());
         assert!(t.correlation.is_none());
         assert!(t.memory.is_none());
+        assert_eq!(t.source, FrameSource::Unknown);
     }
 
     #[test]
@@ -388,6 +398,15 @@ mod tests {
             ..Default::default()
         };
         assert!(t.used_zero_copy());
+
+        let p010 = FrameTelemetry {
+            source: FrameSource::MetalP010 {
+                width: 3840,
+                height: 2160,
+            },
+            ..Default::default()
+        };
+        assert!(p010.used_zero_copy());
     }
 
     #[test]

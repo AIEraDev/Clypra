@@ -189,8 +189,8 @@ export const PlaybackSection: React.FC<PlaybackSectionProps> = ({
                   onClick={() => handleSpeedChange(preset.value)}
                   className={`text-[10px] font-medium px-2 py-0.5 rounded-md border transition-colors ${
                     Math.abs(speed - preset.value) < 0.01
-                      ? "border-accent bg-accent/20 text-accent"
-                      : "border-border/50 text-text-muted hover:border-accent/50 hover:text-text-primary"
+                      ? "border-accent-primary bg-accent-primary/20 text-accent-primary"
+                      : "border-border-default text-text-muted hover:border-accent-primary hover:text-text-primary"
                   }`}
                 >
                   {preset.label}
@@ -245,7 +245,7 @@ export const PlaybackSection: React.FC<PlaybackSectionProps> = ({
             className={`flex-1 flex items-center justify-center gap-1.5 text-[10px] font-medium px-2.5 py-1.5 rounded-lg border transition-colors ${
               reversed
                 ? "border-orange-400/50 bg-orange-400/15 text-orange-400"
-                : "border-border/50 text-text-muted hover:border-border hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed"
+                : "border-border-default text-text-muted hover:border-border-hover hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed"
             }`}
           >
             <FlipHorizontal2 className="w-3 h-3" />
@@ -262,8 +262,8 @@ export const PlaybackSection: React.FC<PlaybackSectionProps> = ({
             }
             className={`flex-1 flex items-center justify-center gap-1.5 text-[10px] font-medium px-2.5 py-1.5 rounded-lg border transition-colors ${
               frozen
-                ? "border-accent/50 bg-accent/15 text-accent"
-                : "border-border/50 text-text-muted hover:border-border hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed"
+                ? "border-accent-primary/50 bg-accent-primary/15 text-accent-primary"
+                : "border-border-default text-text-muted hover:border-border-hover hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed"
             }`}
           >
             <Snowflake className="w-3 h-3" />
@@ -275,7 +275,7 @@ export const PlaybackSection: React.FC<PlaybackSectionProps> = ({
             type="button"
             onClick={handleReset}
             title="Reset to normal 1× playback"
-            className="flex items-center justify-center w-7 h-7 rounded-lg border border-border/50 text-text-muted hover:border-border hover:text-text-primary transition-colors"
+            className="flex items-center justify-center w-7 h-7 rounded-lg border border-border-default text-text-muted hover:border-border-hover hover:text-text-primary transition-colors"
           >
             <RotateCcw className="w-3 h-3" />
           </button>

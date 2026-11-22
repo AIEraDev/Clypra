@@ -7,9 +7,11 @@
  */
 
 type RepaintHandler = () => void;
+type WakeHandler = () => void;
 
 let _repaintHandler: RepaintHandler | null = null;
 let _pendingRepaint = false;
+let _wakeHandler: WakeHandler | null = null;
 
 /**
  * Registers the active preview render loop's repaint handler.
@@ -33,6 +35,21 @@ export function registerPreviewRepaintHandler(handler: RepaintHandler): () => vo
 }
 
 /**
+ * Registers the active preview render loop's RAF wake function.
+ * External callers that suppress native-surface presentation (e.g. overlay menus)
+ * must call wakeNativeProgramPreviewRenderLoop() when they are done so the RAF
+ * loop restarts if it went idle. No-op during active playback (loop self-schedules).
+ */
+export function registerPreviewWakeHandler(handler: WakeHandler): () => void {
+  _wakeHandler = handler;
+  return () => {
+    if (_wakeHandler === handler) {
+      _wakeHandler = null;
+    }
+  };
+}
+
+/**
  * Request an immediate or next-RAF repaint of the active program preview.
  * Safe to call at any time, even before the preview render loop is mounted.
  */
@@ -42,6 +59,15 @@ export function requestPreviewRepaint(): void {
   } else {
     _pendingRepaint = true;
   }
+}
+
+/**
+ * Wake the preview RAF render loop after an overlay/dropdown is dismissed.
+ * No-op when the loop is already running (active playback) or not yet mounted.
+ * Matches the documented contract in NativeProgramPreview (line ~365).
+ */
+export function wakeNativeProgramPreviewRenderLoop(): void {
+  _wakeHandler?.();
 }
 
 /**
@@ -58,6 +84,7 @@ export function isPreviewRepaintPending(): boolean {
 export function resetPreviewRepaintCoordinator(): void {
   _repaintHandler = null;
   _pendingRepaint = false;
+  _wakeHandler = null;
 }
 
 /**

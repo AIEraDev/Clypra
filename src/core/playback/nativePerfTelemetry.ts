@@ -30,10 +30,12 @@ export interface NativeFrontendPerfSample {
   cancelled: boolean;
   dropReason?:
     | "stale"
+    | "superseded"
     | "cancelled"
     | "late-for-audio"
     | "present-failed"
-    | "lookahead-miss";
+    | "lookahead-miss"
+    | "backpressure";
   previewContext?: TelemetryPreviewContext;
   stageTimings?: Partial<TelemetryStageTimings>;
   readbackMaxDimension?: number;
@@ -184,10 +186,12 @@ export class NativePerfSpan {
       cancelled?: boolean;
       dropReason?:
         | "stale"
+        | "superseded"
         | "cancelled"
         | "late-for-audio"
         | "present-failed"
-        | "lookahead-miss";
+        | "lookahead-miss"
+        | "backpressure";
       stageTimings?: Partial<TelemetryStageTimings>;
       readbackMaxDimension?: number;
       readbackTier?: number;

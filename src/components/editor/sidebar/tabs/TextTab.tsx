@@ -134,7 +134,6 @@ const generateContextualCaptions = (
   ];
 };
 
-
 export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const [activeTab, setActiveTab] = useState<
     "effects" | "templates" | "yours" | "captions"
@@ -411,8 +410,8 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         await selectTemplate(item);
         completeDownload(itemId, "template");
 
-          // Only project to the preview player if this item is still the active preview target
-          if (useUIStore.getState().previewMediaId === itemId) {
+        // Only project to the preview player if this item is still the active preview target
+        if (useUIStore.getState().previewMediaId === itemId) {
           // TemplateGrid owns category summaries and does not necessarily
           // populate templateStore.templates. selectTemplate resolves the
           // full payload into selectedTemplate, so use that authoritative
@@ -508,15 +507,22 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
               text: fullEffect.text || "CLYPRA",
               presetType: "effect",
               styleId: fullEffect.id,
-              styleRevisionId: fullEffect.revisionId ?? (fullEffect as any).revision?.revisionId,
-              styleContentHash: fullEffect.contentHash ?? (fullEffect as any).revision?.contentHash,
+              styleRevisionId:
+                fullEffect.revisionId ??
+                (fullEffect as any).revision?.revisionId,
+              styleContentHash:
+                fullEffect.contentHash ??
+                (fullEffect as any).revision?.contentHash,
               styleSnapshot: (fullEffect as any).scene,
               effectDefinition: fullEffect,
             },
             "text",
           );
         } catch (err) {
-          console.error("[Clypra:TextTab] Failed to load effect on first apply:", err);
+          console.error(
+            "[Clypra:TextTab] Failed to load effect on first apply:",
+            err,
+          );
           cancelDownload(itemId);
         }
       } else {
@@ -528,14 +534,20 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
               name: item.name || item.label,
               presetType: "template",
               templateId: item.id,
-              templateRevisionId: (item as any).revisionId ?? (item as any).revision?.revisionId,
-              templateContentHash: (item as any).contentHash ?? (item as any).revision?.contentHash,
+              templateRevisionId:
+                (item as any).revisionId ?? (item as any).revision?.revisionId,
+              templateContentHash:
+                (item as any).contentHash ??
+                (item as any).revision?.contentHash,
               templateDefinition: item,
             },
             "text",
           );
         } catch (err) {
-          console.error("[Clypra:TextTab] Failed to load template on first apply:", err);
+          console.error(
+            "[Clypra:TextTab] Failed to load template on first apply:",
+            err,
+          );
           cancelDownload(itemId);
         }
       }
@@ -551,8 +563,10 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
             text: targetEffect.text || "CLYPRA",
             presetType: "effect",
             styleId: targetEffect.id,
-            styleRevisionId: targetEffect.revisionId ?? targetEffect.revision?.revisionId,
-            styleContentHash: targetEffect.contentHash ?? targetEffect.revision?.contentHash,
+            styleRevisionId:
+              targetEffect.revisionId ?? targetEffect.revision?.revisionId,
+            styleContentHash:
+              targetEffect.contentHash ?? targetEffect.revision?.contentHash,
             styleSnapshot: targetEffect.scene,
             effectDefinition: targetEffect,
           },
@@ -565,8 +579,10 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
             name: item.name || item.label,
             presetType: "template",
             templateId: item.id,
-            templateRevisionId: (item as any).revisionId ?? (item as any).revision?.revisionId,
-            templateContentHash: (item as any).contentHash ?? (item as any).revision?.contentHash,
+            templateRevisionId:
+              (item as any).revisionId ?? (item as any).revision?.revisionId,
+            templateContentHash:
+              (item as any).contentHash ?? (item as any).revision?.contentHash,
             templateDefinition: item,
           },
           "text",
@@ -585,8 +601,12 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         name: template.name || template.label,
         presetType: "template",
         templateId: template.id,
-        templateRevisionId: (template as any).revisionId ?? (template as any).revision?.revisionId,
-        templateContentHash: (template as any).contentHash ?? (template as any).revision?.contentHash,
+        templateRevisionId:
+          (template as any).revisionId ??
+          (template as any).revision?.revisionId,
+        templateContentHash:
+          (template as any).contentHash ??
+          (template as any).revision?.contentHash,
         templateDefinition: template,
         customization: customization,
       },
@@ -647,25 +667,25 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         >
           <button
             onClick={() => handleTabChange("effects")}
-            className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "effects" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-raised/40"}`}
+            className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "effects" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-hover"}`}
           >
             Text Effects
           </button>
           <button
             onClick={() => handleTabChange("templates")}
-            className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "templates" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-raised/40"}`}
+            className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "templates" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-hover"}`}
           >
             Templates
           </button>
           <button
             onClick={() => handleTabChange("yours")}
-            className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "yours" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-raised/40"}`}
+            className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "yours" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-hover"}`}
           >
             Favorites ({favorites.length})
           </button>
           <button
             onClick={() => handleTabChange("captions")}
-            className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "captions" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-raised/40"}`}
+            className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "captions" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-hover"}`}
           >
             Captions
           </button>
@@ -676,7 +696,10 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       {activeTab === "effects" && (
         <div className="shrink-0 px-2 py-1.5 border-b border-border/30">
           <div className="relative flex items-center">
-            <Search size={11} className="absolute left-2 text-text-muted/60 pointer-events-none" />
+            <Search
+              size={11}
+              className="absolute left-2 text-text-muted/60 pointer-events-none"
+            />
             <input
               type="text"
               value={effectsSearch}
@@ -729,7 +752,9 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           {activeTab === "templates" && (
             <TemplateGrid
               onPreview={(template) => handlePreview(template, "template")}
-              onApply={(template, e) => handleDownloadAndApply(template, "template", e)}
+              onApply={(template, e) =>
+                handleDownloadAndApply(template, "template", e)
+              }
             />
           )}
         </>
@@ -795,7 +820,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                   </div>
                 ) : (
                   <Button
-                    className="w-full py-2 bg-accent hover:bg-accent/80 text-white font-semibold flex items-center justify-center gap-1.5 shadow-[0_4px_12px_rgba(108,99,255,0.2)] rounded-lg active:scale-[0.98] transition-all cursor-pointer mt-4"
+                    className="w-full py-2 bg-accent hover:bg-accent/80 text-white font-semibold flex items-center justify-center gap-1.5 shadow-md rounded-lg active:scale-[0.98] transition-all cursor-pointer mt-4"
                     onClick={startCaptioning}
                   >
                     <Sparkles className="w-4 h-4" />
@@ -853,7 +878,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                   </div>
                 </div>
                 <Button
-                  className="w-full py-2 bg-surface-raised hover:bg-surface-raised/80 text-text-primary border border-border rounded-lg active:scale-[0.98] transition-all cursor-pointer mt-4"
+                  className="w-full py-2 bg-surface-elevated hover:bg-surface-hover text-text-primary border border-border rounded-lg active:scale-[0.98] transition-all cursor-pointer mt-4"
                   onClick={() => setCaptioningState("idle")}
                 >
                   Caption Again

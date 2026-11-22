@@ -16,12 +16,54 @@ interface AvatarPresenter {
 }
 
 const AVATARS: AvatarPresenter[] = [
-  { id: "elena", name: "Elena", role: "Studio Host", gender: "Female", tag: "Professional", bgColor: "from-purple-600 to-indigo-800" },
-  { id: "marcus", name: "Marcus", role: "Tech Reviewer", gender: "Male", tag: "Tech / Modern", bgColor: "from-blue-600 to-cyan-800" },
-  { id: "sophie", name: "Sophie", role: "Casual Creator", gender: "Female", tag: "Lifestyle", bgColor: "from-rose-500 to-pink-700" },
-  { id: "david", name: "David", role: "Business Executive", gender: "Male", tag: "Corporate", bgColor: "from-amber-600 to-orange-800" },
-  { id: "clara", name: "Clara", role: "News Anchor", gender: "Female", tag: "Formal", bgColor: "from-teal-600 to-emerald-800" },
-  { id: "liam", name: "Liam", role: "Friendly Guide", gender: "Male", tag: "Casual", bgColor: "from-violet-600 to-purple-800" },
+  {
+    id: "elena",
+    name: "Elena",
+    role: "Studio Host",
+    gender: "Female",
+    tag: "Professional",
+    bgColor: "from-purple-600 to-indigo-800",
+  },
+  {
+    id: "marcus",
+    name: "Marcus",
+    role: "Tech Reviewer",
+    gender: "Male",
+    tag: "Tech / Modern",
+    bgColor: "from-blue-600 to-cyan-800",
+  },
+  {
+    id: "sophie",
+    name: "Sophie",
+    role: "Casual Creator",
+    gender: "Female",
+    tag: "Lifestyle",
+    bgColor: "from-rose-500 to-pink-700",
+  },
+  {
+    id: "david",
+    name: "David",
+    role: "Business Executive",
+    gender: "Male",
+    tag: "Corporate",
+    bgColor: "from-amber-600 to-orange-800",
+  },
+  {
+    id: "clara",
+    name: "Clara",
+    role: "News Anchor",
+    gender: "Female",
+    tag: "Formal",
+    bgColor: "from-teal-600 to-emerald-800",
+  },
+  {
+    id: "liam",
+    name: "Liam",
+    role: "Friendly Guide",
+    gender: "Male",
+    tag: "Casual",
+    bgColor: "from-violet-600 to-purple-800",
+  },
 ];
 
 export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
@@ -29,7 +71,9 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
 }) => {
   const [selectedAvatar, setSelectedAvatar] = useState<string>("elena");
   const [framing, setFraming] = useState<"half" | "full" | "circle">("half");
-  const [background, setBackground] = useState<"transparent" | "greenscreen">("transparent");
+  const [background, setBackground] = useState<"transparent" | "greenscreen">(
+    "transparent",
+  );
   const [isGenerating, setIsGenerating] = useState(false);
   const [generated, setGenerated] = useState(false);
 
@@ -48,7 +92,7 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
       <div className="p-3 bg-gradient-to-r from-purple-900/40 via-indigo-900/30 to-purple-900/40 border border-purple-500/30 rounded-xl relative overflow-hidden">
         <div className="flex items-center gap-2">
           <span className="text-purple-400 text-sm">◆</span>
-          <span className="text-xs font-bold text-white uppercase tracking-wider">
+          <span className="text-xs font-bold text-text-primary uppercase tracking-wider">
             AI Digital Presenter
           </span>
           <span className="ml-auto text-[9px] font-bold bg-purple-500 text-white px-2 py-0.5 rounded-full">
@@ -56,13 +100,15 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
           </span>
         </div>
         <p className="text-[11px] text-purple-200/80 mt-1 leading-relaxed">
-          Create a lifelike AI human that speaks &quot;{textClip.text || "your text"}&quot; with realistic lip-sync and expressions.
+          Create a lifelike AI human that speaks &quot;
+          {textClip.text || "your text"}&quot; with realistic lip-sync and
+          expressions.
         </p>
       </div>
 
       {/* Avatar Presets Grid */}
       <div>
-        <span className="text-xs font-medium text-[#a1a1aa] block mb-2">
+        <span className="text-xs font-medium text-text-secondary block mb-2">
           Choose Presenter
         </span>
         <div className="grid grid-cols-2 gap-2">
@@ -74,8 +120,8 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
                 onClick={() => setSelectedAvatar(avatar.id)}
                 className={`p-2.5 rounded-xl border transition-all cursor-pointer flex flex-col items-center text-center relative ${
                   isSelected
-                    ? "bg-[#27272a] border-purple-400 shadow-[0_0_12px_rgba(168,85,247,0.2)]"
-                    : "bg-[#202024] border-white/5 hover:border-white/15"
+                    ? "bg-surface-elevated border-purple-400 shadow-sm"
+                    : "bg-surface-panel border border-border-default hover:border-border-hover"
                 }`}
               >
                 {isSelected && (
@@ -88,13 +134,13 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
                 >
                   <User className="w-6 h-6 opacity-90" />
                 </div>
-                <div className="text-xs font-bold text-white truncate max-w-full">
+                <div className="text-xs font-bold text-text-primary truncate max-w-full">
                   {avatar.name}
                 </div>
                 <div className="text-[10px] text-purple-300 truncate max-w-full">
                   {avatar.role}
                 </div>
-                <span className="text-[9px] text-[#8e8e93] bg-white/5 px-1.5 py-0.5 rounded mt-1">
+                <span className="text-[9px] text-text-muted bg-surface-elevated px-1.5 py-0.5 rounded mt-1">
                   {avatar.tag}
                 </span>
               </div>
@@ -104,17 +150,17 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
       </div>
 
       {/* Framing & Placement */}
-      <div className="space-y-3 pt-2 border-t border-border/30">
+      <div className="space-y-3 pt-2 border-t border-border-default">
         <div className="flex items-center justify-between">
-          <span className="text-xs text-[#a1a1aa]">Framing</span>
-          <div className="flex bg-[#242428] border border-white/5 rounded-md p-0.5">
+          <span className="text-xs text-text-secondary">Framing</span>
+          <div className="flex bg-surface-panel border border-border-default rounded-md p-0.5">
             <button
               type="button"
               onClick={() => setFraming("half")}
               className={`px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 framing === "half"
-                  ? "bg-[#38383e] text-white shadow-sm font-semibold"
-                  : "text-[#8e8e93] hover:text-white"
+                  ? "bg-accent-primary text-white shadow-sm font-semibold"
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
               }`}
             >
               Half Body
@@ -124,8 +170,8 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
               onClick={() => setFraming("full")}
               className={`px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 framing === "full"
-                  ? "bg-[#38383e] text-white shadow-sm font-semibold"
-                  : "text-[#8e8e93] hover:text-white"
+                  ? "bg-accent-primary text-white shadow-sm font-semibold"
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
               }`}
             >
               Full Body
@@ -135,8 +181,8 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
               onClick={() => setFraming("circle")}
               className={`px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 framing === "circle"
-                  ? "bg-[#38383e] text-white shadow-sm font-semibold"
-                  : "text-[#8e8e93] hover:text-white"
+                  ? "bg-accent-primary text-white shadow-sm font-semibold"
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
               }`}
             >
               Circle
@@ -145,15 +191,15 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
         </div>
 
         <div className="flex items-center justify-between">
-          <span className="text-xs text-[#a1a1aa]">Background</span>
-          <div className="flex bg-[#242428] border border-white/5 rounded-md p-0.5">
+          <span className="text-xs text-text-secondary">Background</span>
+          <div className="flex bg-surface-panel border border-border-default rounded-md p-0.5">
             <button
               type="button"
               onClick={() => setBackground("transparent")}
               className={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 background === "transparent"
-                  ? "bg-[#38383e] text-white shadow-sm"
-                  : "text-[#8e8e93] hover:text-white"
+                  ? "bg-accent-primary text-white shadow-sm"
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
               }`}
             >
               Transparent
@@ -163,8 +209,8 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
               onClick={() => setBackground("greenscreen")}
               className={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 background === "greenscreen"
-                  ? "bg-[#38383e] text-white shadow-sm"
-                  : "text-[#8e8e93] hover:text-white"
+                  ? "bg-accent-primary text-white shadow-sm"
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
               }`}
             >
               Green Screen

@@ -3,7 +3,8 @@ use super::*;
 #[cfg(test)]
 mod tests {
     use super::render_session::{
-        playback_quality_after_lookahead_misses, should_follow_audio_clock,
+        audio_clock_lifecycle_context, playback_quality_after_lookahead_misses,
+        should_follow_audio_clock,
     };
     use super::*;
     use crate::native_core::{
@@ -48,13 +49,57 @@ mod tests {
 
         assert_eq!(state.audio_position_ticks, 500_000);
         assert_eq!(state.presented_frame, Some(15));
-        assert_eq!(state.clock_status, PlaybackClockStatus::MonotonicFallback);
+        assert_eq!(state.clock_status, PlaybackClockStatus::Audio);
     }
 
     #[test]
     fn coordinator_auto_configures_when_unconfigured() {
         let mut runtime = NativePlaybackRuntime::new();
         assert!(runtime.state().is_ok());
+    }
+
+    /// CLY-BUG-003 negative control:
+    /// Before the fix, audio_clock_time() returning Err fell back to
+    /// FrameTime{ticks:0}, so elapsed = 0-0 = 0 → position permanently frozen.
+    /// This test verifies the OLD behavior (zero-tick fallback) freezes the frame.
+    #[test]
+    fn negative_control_zero_tick_fallback_freezes_playback() {
+        let mut runtime = NativePlaybackRuntime::new();
+        runtime.configure(plan()).unwrap();
+        // anchor at ticks=0
+        runtime.play(clock(0)).unwrap();
+        // tick with ticks=0 (old "audio unavailable" fallback): elapsed = 0 → frozen
+        let state1 = runtime.tick(clock(0)).unwrap();
+        // tick again with ticks=0
+        let state2 = runtime.tick(clock(0)).unwrap();
+        // Both ticks should give frame 0 — confirming zero-tick freezes playback
+        assert_eq!(state1.presented_frame, Some(0), "frame advanced unexpectedly on zero-tick");
+        assert_eq!(state2.presented_frame, Some(0), "frame advanced unexpectedly on zero-tick");
+    }
+
+    /// CLY-BUG-003 regression test:
+    /// tick_with_audio_or_monotonic() with audio Err must advance the frame
+    /// using monotonic ticks, not freeze at zero.
+    #[test]
+    fn regression_test_tick_advances_on_audio_unavailable() {
+        let mut runtime = NativePlaybackRuntime::new();
+        runtime.configure(plan()).unwrap();
+        runtime.play(clock(0)).unwrap();
+        // Simulate audio unavailable: pass Err, give monotonic ticks of 500_000 µs (= 0.5s)
+        let state = runtime
+            .tick_with_audio_or_monotonic(Err("no audio".to_string()), clock(500_000))
+            .unwrap();
+        // 0.5s at 30fps = frame 15
+        assert_eq!(
+            state.presented_frame,
+            Some(15),
+            "playback froze when audio unavailable — CLY-BUG-003 regressed"
+        );
+        assert_eq!(
+            state.clock_status,
+            PlaybackClockStatus::MonotonicFallback,
+            "clock_status should be MonotonicFallback when audio unavailable"
+        );
     }
 
     #[test]
@@ -77,7 +122,10 @@ mod tests {
             frame_time: FrameTime::new(frame_index, frame_index as i64, DEFAULT_TIME_SCALE)
                 .unwrap(),
             generation: Some(1),
+            cancellation_epoch: None,
             mode: Some("playback".to_string()),
+            is_scrubbing: false,
+            scrub_direction: None,
             video_layers: Vec::new(),
             raster_layers: Vec::new(),
             text_layers: Vec::new(),
@@ -87,11 +135,15 @@ mod tests {
 
     #[test]
     fn latest_playback_demand_replaces_obsolete_pending_frame() {
+        use crate::wgpu_compositor::FrameRequestId;
         let mut slot = LatestPlaybackDemand::default();
-        slot.replace(demand("old", 1));
-        slot.replace(demand("new", 2));
-        let current = slot.take().unwrap();
+        let id1 = FrameRequestId::new("id1").unwrap();
+        let id2 = FrameRequestId::new("id2").unwrap();
+        slot.replace(demand("old", 1), Some(id1));
+        slot.replace(demand("new", 2), Some(id2.clone()));
+        let (current, current_id) = slot.take().unwrap();
         assert_eq!(current.request_id, "new");
+        assert_eq!(current_id, Some(id2));
         assert!(slot.take().is_none());
     }
 
@@ -100,8 +152,27 @@ mod tests {
         // A paused seek can legitimately request the frame currently reported
         // by the audio clock. It still needs a completion event, so it must
         // not enter the continuous-playback same-frame fast path.
-        assert!(!should_follow_audio_clock(true));
-        assert!(should_follow_audio_clock(false));
+        let mut paused_seek = demand("seek", 1);
+        paused_seek.mode = Some("seek".to_string());
+        paused_seek.is_scrubbing = false;
+        assert!(!should_follow_audio_clock(Some(&paused_seek)));
+
+        let mut scrubbing = demand("scrub", 1);
+        scrubbing.mode = Some("scrub".to_string());
+        scrubbing.is_scrubbing = true;
+        assert!(!should_follow_audio_clock(Some(&scrubbing)));
+
+        let playback = demand("play", 1);
+        assert!(should_follow_audio_clock(Some(&playback)));
+
+        assert!(should_follow_audio_clock(None));
+    }
+
+    #[test]
+    fn continuous_audio_clock_ticks_carry_no_request_identity() {
+        // A tick is a clock-derived scheduler event, not a demand. Explicit
+        // seek/scrub identities enter through NativeRenderSession::submit.
+        assert!(audio_clock_lifecycle_context().is_empty());
     }
 
     #[test]
@@ -155,6 +226,7 @@ mod tests {
             color_policy: crate::native_core::ColorPolicy::default(),
             render_graph_version: 1,
             generation: Some(1),
+            target_generation: None,
             mode: Some("playback".to_string()),
             scrub_velocity_px_per_second: None,
             requested_at_ms: None,
@@ -215,6 +287,7 @@ mod tests {
     }
 
     fn test_session(snapshot: FrameRequest) -> NativeRenderSession {
+        use crate::wgpu_compositor::FrameLifecycleRegistry;
         let playback_quality = snapshot.quality;
         NativeRenderSession {
             snapshot: RwLock::new(Arc::new(snapshot)),
@@ -226,6 +299,7 @@ mod tests {
             notify: tokio::sync::Notify::new(),
             running: AtomicBool::new(false),
             generation: AtomicU64::new(1),
+            last_interactive_preempt_epoch: AtomicU64::new(u64::MAX),
             worker: Mutex::new(None),
             configured_at: Instant::now(),
             ready_after_us: AtomicU64::new(0),
@@ -235,6 +309,7 @@ mod tests {
             )),
             playback_lookahead_miss_streak: AtomicU8::new(0),
             playback_lookahead_feedback_armed: AtomicBool::new(false),
+            lifecycle_registry: Mutex::new(FrameLifecycleRegistry::default()),
         }
     }
 
@@ -244,11 +319,10 @@ mod tests {
         session
             .running
             .store(true, std::sync::atomic::Ordering::Release);
-        session
-            .pending
-            .lock()
-            .unwrap()
-            .replace(demand("obsolete-playback", 10));
+        
+        // Use the public submit method to allocate internal ID
+        let d = demand("obsolete-playback", 10);
+        session.submit(d).expect("submit should succeed");
 
         session.pause_continuous_playback();
 
@@ -761,5 +835,30 @@ mod tests {
         assert_eq!(mat4.project.video_layers.len(), 1);
         assert_eq!(mat4.project.video_layers[0].layer_id, "track-2-clip");
         assert_eq!(mat4.project.video_layers[0].video_path, "/test/v2.mp4");
+    }
+
+    #[test]
+    fn configure_preserves_existing_seeked_position_and_state() {
+        let mut runtime = NativePlaybackRuntime::new();
+        runtime.configure(plan()).unwrap();
+        // User seeks to frame 15 (500_000 ticks)
+        let state_before = runtime.seek(15).unwrap();
+        assert_eq!(state_before.presented_frame, Some(15));
+        assert_eq!(state_before.audio_position_ticks, 500_000);
+
+        // Background update reconfigures playback with a new project revision
+        let updated_plan = PlaybackPlan {
+            contract_version: crate::native_core::NATIVE_CORE_CONTRACT_VERSION,
+            project_revision: "test:2".to_string(),
+            frame_rate: 30,
+            duration_frames: 60,
+            audio_track_count: 2,
+        };
+        let state_after = runtime.configure(updated_plan).unwrap();
+
+        // Must preserve the seeked position (15) and not reset to 0!
+        assert_eq!(state_after.presented_frame, Some(15));
+        assert_eq!(state_after.audio_position_ticks, 500_000);
+        assert_eq!(state_after.project_revision, "test:2");
     }
 }

@@ -194,6 +194,7 @@ fn test_4_versioned_frame_request_roundtrip_with_effect_layer() {
         color_policy: ColorPolicy::default(),
         render_graph_version: 1,
         generation: Some(1),
+        target_generation: None,
         mode: Some("playback".to_string()),
         scrub_velocity_px_per_second: None,
         requested_at_ms: None,
@@ -223,6 +224,7 @@ fn test_4_versioned_frame_request_roundtrip_with_effect_layer() {
 fn test_5_validation_rejects_invalid_effect_layers() {
     fn make_valid_request(layer: EffectLayer) -> NativeVideoProjectFrameRequest {
         NativeVideoProjectFrameRequest {
+            request_id: "test-req".to_string(),
             canvas_width: 1920,
             canvas_height: 1080,
             clear_color: [0.0, 0.0, 0.0, 1.0],
@@ -341,6 +343,7 @@ fn test_6_to_video_project_request_scales_effect_layers_proportionally() {
         color_policy: ColorPolicy::default(),
         render_graph_version: 1,
         generation: None,
+        target_generation: None,
         mode: None,
         scrub_velocity_px_per_second: None,
         requested_at_ms: None,
@@ -414,6 +417,7 @@ fn test_7_cache_key_behavior_invariance_and_sensitivity() {
         color_policy: ColorPolicy::default(),
         render_graph_version: 1,
         generation: None,
+        target_generation: None,
         mode: None,
         scrub_velocity_px_per_second: None,
         requested_at_ms: None,

@@ -107,12 +107,12 @@ export const AudioFXSection: React.FC<AudioFXSectionProps> = ({
   }) => (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <label className="text-[11px] font-medium text-white/90">{label}</label>
+        <label className="text-[11px] font-medium text-text-primary">{label}</label>
         {onReset && (
           <button
             type="button"
             onClick={onReset}
-            className="w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors cursor-pointer"
+            className="w-4 h-4 flex items-center justify-center rounded hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors cursor-pointer"
             title={`Reset ${label}`}
             aria-label={`Reset ${label}`}
           >
@@ -137,7 +137,7 @@ export const AudioFXSection: React.FC<AudioFXSectionProps> = ({
           {/* Center tick for bipolar (±) sliders */}
           {snapAtZero && (
             <div
-              className="absolute top-1/2 -translate-y-1/2 w-px h-2.5 bg-white/40 pointer-events-none"
+              className="absolute top-1/2 -translate-y-1/2 w-px h-2.5 bg-text-muted/40 pointer-events-none"
               style={{ left: `${((0 - min) / (max - min)) * 100}%` }}
             />
           )}
@@ -190,14 +190,14 @@ export const AudioFXSection: React.FC<AudioFXSectionProps> = ({
           {/* EQ */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <label className="text-[11px] font-medium text-white/90">
+              <label className="text-[11px] font-medium text-text-primary">
                 EQ
               </label>
               {(eqLow !== 0 || eqMid !== 0 || eqHigh !== 0) && (
                 <button
                   type="button"
                   onClick={resetEQ}
-                  className="w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors cursor-pointer"
+                  className="w-4 h-4 flex items-center justify-center rounded hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors cursor-pointer"
                   title="Reset EQ"
                   aria-label="Reset EQ"
                 >
@@ -246,14 +246,14 @@ export const AudioFXSection: React.FC<AudioFXSectionProps> = ({
           {/* Compressor */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <label className="text-[11px] font-medium text-white/90">
+              <label className="text-[11px] font-medium text-text-primary">
                 Compressor
               </label>
               {fx.compressor && (
                 <button
                   type="button"
                   onClick={resetCompressor}
-                  className="w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors cursor-pointer"
+                  className="w-4 h-4 flex items-center justify-center rounded hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors cursor-pointer"
                   title="Reset compressor"
                   aria-label="Reset compressor"
                 >

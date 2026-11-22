@@ -204,7 +204,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
   // 1. TALL PLAYER RIGHT (CapCut Layout)
   if (layoutPreset === "tall-player-right") {
     return (
-      <div className="w-full h-full flex flex-col app-shell overflow-hidden p-1 pt-0 select-none relative">
+      <div className="w-full h-full flex flex-col bg-surface-app overflow-hidden p-1 pt-0 select-none relative">
         <TopBar onRequestClose={onRequestClose} />
 
         <div className="flex-1 min-h-0 flex overflow-hidden mt-1 relative">
@@ -232,8 +232,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
                   style={{ cursor: "col-resize" }}
                   className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
                     isSidebarDragging
-                      ? "bg-accent"
-                      : "hover:bg-accent/60 active:bg-accent"
+                      ? "bg-accent-primary"
+                      : "hover:bg-accent-primary/60 active:bg-accent-primary"
                   }`}
                   title="Drag to resize media panel • Double-click to reset"
                 />
@@ -257,8 +257,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
               style={{ cursor: "row-resize" }}
               className={`h-1 w-full shrink-0 resizer-vertical cursor-row-resize transition-colors select-none ${
                 isTimelineDragging
-                  ? "bg-accent"
-                  : "hover:bg-accent/60 active:bg-accent"
+                  ? "bg-accent-primary"
+                  : "hover:bg-accent-primary/60 active:bg-accent-primary"
               }`}
               title="Drag to resize timeline • Double-click to reset"
             />
@@ -279,8 +279,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             style={{ cursor: "col-resize" }}
             className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
               isTallPlayerDragging
-                ? "bg-accent"
-                : "hover:bg-accent/60 active:bg-accent"
+                ? "bg-accent-primary"
+                : "hover:bg-accent-primary/60 active:bg-accent-primary"
             }`}
             title={`Drag to resize player • Double-click to reset (${defaultTallPlayerW}px)`}
           />
@@ -296,16 +296,16 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
           {/* Live Dimension HUDs */}
           {isTallPlayerDragging && (
             <div
-              className="absolute top-3 z-50 pointer-events-none px-2.5 py-1 rounded-full bg-surface-floating/95 border border-accent/50 shadow-2xl backdrop-blur-md text-[11px] font-medium text-text-primary flex items-center gap-1.5"
+              className="absolute top-3 z-50 pointer-events-none px-2.5 py-1 rounded-full bg-surface-floating/95 border border-border-default/80 shadow-2xl backdrop-blur-md text-[11px] font-medium text-text-primary flex items-center gap-1.5"
               style={{ right: `${tallPlayerW + 10}px` }}
             >
-              <span className="text-accent font-semibold">Player</span>
-              <span className="text-white/30">•</span>
+              <span className="text-accent-primary font-semibold">Player</span>
+              <span className="text-text-muted">•</span>
               <span className="tabular-nums font-mono">
                 {Math.round(tallPlayerW)} px
               </span>
               {Math.round(tallPlayerW) === defaultTallPlayerW && (
-                <span className="text-[0.625rem] text-accent font-medium">
+                <span className="text-[0.625rem] text-accent-primary font-medium">
                   (Default)
                 </span>
               )}
@@ -314,11 +314,11 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
           {isTimelineDragging && (
             <div
-              className="absolute left-1/3 -translate-x-1/2 z-50 pointer-events-none px-2.5 py-1 rounded-full bg-surface-floating/95 border border-accent/50 shadow-2xl backdrop-blur-md text-[11px] font-medium text-text-primary flex items-center gap-1.5"
+              className="absolute left-1/3 -translate-x-1/2 z-50 pointer-events-none px-2.5 py-1 rounded-full bg-surface-floating/95 border border-border-default/80 shadow-2xl backdrop-blur-md text-[11px] font-medium text-text-primary flex items-center gap-1.5"
               style={{ bottom: `${timelineH + 10}px` }}
             >
-              <span className="text-accent font-semibold">Timeline</span>
-              <span className="text-white/30">•</span>
+              <span className="text-accent-primary font-semibold">Timeline</span>
+              <span className="text-text-muted">•</span>
               <span className="tabular-nums font-mono">
                 {Math.round(timelineH)} px
               </span>
@@ -332,7 +332,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
   // 2. TALL PLAYER LEFT Layout
   if (layoutPreset === "tall-player-left") {
     return (
-      <div className="w-full h-full flex flex-col app-shell overflow-hidden p-1 pt-0 select-none relative">
+      <div className="w-full h-full flex flex-col bg-surface-app overflow-hidden p-1 pt-0 select-none relative">
         <TopBar onRequestClose={onRequestClose} />
 
         <div className="flex-1 min-h-0 flex overflow-hidden mt-1 relative">
@@ -351,8 +351,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             style={{ cursor: "col-resize" }}
             className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
               isTallPlayerDragging
-                ? "bg-accent"
-                : "hover:bg-accent/60 active:bg-accent"
+                ? "bg-accent-primary"
+                : "hover:bg-accent-primary/60 active:bg-accent-primary"
             }`}
             title={`Drag to resize player • Double-click to reset (${defaultTallPlayerW}px)`}
           />
@@ -381,8 +381,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
                   style={{ cursor: "col-resize" }}
                   className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
                     isSidebarDragging
-                      ? "bg-accent"
-                      : "hover:bg-accent/60 active:bg-accent"
+                      ? "bg-accent-primary"
+                      : "hover:bg-accent-primary/60 active:bg-accent-primary"
                   }`}
                   title="Drag to resize media panel • Double-click to reset"
                 />
@@ -405,8 +405,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
               style={{ cursor: "row-resize" }}
               className={`h-1 w-full shrink-0 resizer-vertical cursor-row-resize transition-colors select-none ${
                 isTimelineDragging
-                  ? "bg-accent"
-                  : "hover:bg-accent/60 active:bg-accent"
+                  ? "bg-accent-primary"
+                  : "hover:bg-accent-primary/60 active:bg-accent-primary"
               }`}
               title="Drag to resize timeline • Double-click to reset"
             />
@@ -423,16 +423,16 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
           {/* Live Dimension HUD */}
           {isTallPlayerDragging && (
             <div
-              className="absolute top-3 z-50 pointer-events-none px-2.5 py-1 rounded-full bg-surface-floating/95 border border-accent/50 shadow-2xl backdrop-blur-md text-[11px] font-medium text-text-primary flex items-center gap-1.5"
+              className="absolute top-3 z-50 pointer-events-none px-2.5 py-1 rounded-full bg-surface-floating/95 border border-border-default/80 shadow-2xl backdrop-blur-md text-[11px] font-medium text-text-primary flex items-center gap-1.5"
               style={{ left: `${tallPlayerW + 10}px` }}
             >
-              <span className="text-accent font-semibold">Player</span>
-              <span className="text-white/30">•</span>
+              <span className="text-accent-primary font-semibold">Player</span>
+              <span className="text-text-muted">•</span>
               <span className="tabular-nums font-mono">
                 {Math.round(tallPlayerW)} px
               </span>
               {Math.round(tallPlayerW) === defaultTallPlayerW && (
-                <span className="text-[0.625rem] text-accent font-medium">
+                <span className="text-[0.625rem] text-accent-primary font-medium">
                   (Default)
                 </span>
               )}
@@ -446,7 +446,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
   // 3. DUAL PLAYER Layout (Assembly / Footage Ingest & Comparison)
   if (layoutPreset === "dual-player") {
     return (
-      <div className="w-full h-full flex flex-col app-shell overflow-hidden p-1 pt-0 select-none relative">
+      <div className="w-full h-full flex flex-col bg-surface-app overflow-hidden p-1 pt-0 select-none relative">
         <TopBar onRequestClose={onRequestClose} />
 
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden mt-1 relative">
@@ -466,8 +466,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
                 style={{ cursor: "col-resize" }}
                 className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
                   isSidebarDragging
-                    ? "bg-accent"
-                    : "hover:bg-accent/60 active:bg-accent"
+                    ? "bg-accent-primary"
+                    : "hover:bg-accent-primary/60 active:bg-accent-primary"
                 }`}
                 title="Drag to resize media panel • Double-click to reset"
               />
@@ -509,8 +509,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
                 style={{ cursor: "col-resize" }}
                 className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
                   isPropertiesDragging
-                    ? "bg-accent"
-                    : "hover:bg-accent/60 active:bg-accent"
+                    ? "bg-accent-primary"
+                    : "hover:bg-accent-primary/60 active:bg-accent-primary"
                 }`}
                 title="Drag to resize properties panel • Double-click to reset"
               />
@@ -533,8 +533,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             style={{ cursor: "row-resize" }}
             className={`h-1 w-full shrink-0 resizer-vertical cursor-row-resize transition-colors select-none ${
               isTimelineDragging
-                ? "bg-accent"
-                : "hover:bg-accent/60 active:bg-accent"
+                ? "bg-accent-primary"
+                : "hover:bg-accent-primary/60 active:bg-accent-primary"
             }`}
             title="Drag to resize timeline • Double-click to reset"
           />
@@ -559,7 +559,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
       Math.round(Math.min(vh * 0.25, 240)),
     );
     return (
-      <div className="w-full h-full flex flex-col app-shell overflow-hidden p-1 pt-0 select-none relative">
+      <div className="w-full h-full flex flex-col bg-surface-app overflow-hidden p-1 pt-0 select-none relative">
         <TopBar onRequestClose={onRequestClose} />
 
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden mt-1 relative">
@@ -579,8 +579,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
                 style={{ cursor: "col-resize" }}
                 className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
                   isSidebarDragging
-                    ? "bg-accent"
-                    : "hover:bg-accent/60 active:bg-accent"
+                    ? "bg-accent-primary"
+                    : "hover:bg-accent-primary/60 active:bg-accent-primary"
                 }`}
                 title="Drag to resize media panel"
               />
@@ -598,8 +598,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
                 style={{ cursor: "col-resize" }}
                 className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
                   isPropertiesDragging
-                    ? "bg-accent"
-                    : "hover:bg-accent/60 active:bg-accent"
+                    ? "bg-accent-primary"
+                    : "hover:bg-accent-primary/60 active:bg-accent-primary"
                 }`}
                 title="Drag to resize properties panel"
               />
@@ -622,8 +622,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             style={{ cursor: "row-resize" }}
             className={`h-1 w-full shrink-0 resizer-vertical cursor-row-resize transition-colors select-none ${
               isTimelineDragging
-                ? "bg-accent"
-                : "hover:bg-accent/60 active:bg-accent"
+                ? "bg-accent-primary"
+                : "hover:bg-accent-primary/60 active:bg-accent-primary"
             }`}
             title="Drag to resize timeline"
           />
@@ -643,7 +643,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
   // 5. VERTICAL / SHORTS Layout (9:16 Creator Focus)
   if (layoutPreset === "vertical-shorts") {
     return (
-      <div className="w-full h-full flex flex-col app-shell overflow-hidden p-1 pt-0 select-none relative">
+      <div className="w-full h-full flex flex-col bg-surface-app overflow-hidden p-1 pt-0 select-none relative">
         <TopBar onRequestClose={onRequestClose} />
 
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden mt-1 relative">
@@ -663,8 +663,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
                 style={{ cursor: "col-resize" }}
                 className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
                   isSidebarDragging
-                    ? "bg-accent"
-                    : "hover:bg-accent/60 active:bg-accent"
+                    ? "bg-accent-primary"
+                    : "hover:bg-accent-primary/60 active:bg-accent-primary"
                 }`}
                 title="Drag to resize media panel • Double-click to reset"
               />
@@ -684,8 +684,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
                 style={{ cursor: "col-resize" }}
                 className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
                   isPropertiesDragging
-                    ? "bg-accent"
-                    : "hover:bg-accent/60 active:bg-accent"
+                    ? "bg-accent-primary"
+                    : "hover:bg-accent-primary/60 active:bg-accent-primary"
                 }`}
                 title="Drag to resize properties panel • Double-click to reset"
               />
@@ -708,8 +708,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             style={{ cursor: "row-resize" }}
             className={`h-1 w-full shrink-0 resizer-vertical cursor-row-resize transition-colors select-none ${
               isTimelineDragging
-                ? "bg-accent"
-                : "hover:bg-accent/60 active:bg-accent"
+                ? "bg-accent-primary"
+                : "hover:bg-accent-primary/60 active:bg-accent-primary"
             }`}
             title="Drag to resize timeline • Double-click to reset"
           />
@@ -734,7 +734,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
       Math.round(Math.min(Math.max(vw * 0.35, 380), 560)),
     );
     return (
-      <div className="w-full h-full flex flex-col app-shell overflow-hidden p-1 pt-0 select-none relative">
+      <div className="w-full h-full flex flex-col bg-surface-app overflow-hidden p-1 pt-0 select-none relative">
         <TopBar onRequestClose={onRequestClose} />
 
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden mt-1 relative">
@@ -754,8 +754,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
                 style={{ cursor: "col-resize" }}
                 className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
                   isSidebarDragging
-                    ? "bg-accent"
-                    : "hover:bg-accent/60 active:bg-accent"
+                    ? "bg-accent-primary"
+                    : "hover:bg-accent-primary/60 active:bg-accent-primary"
                 }`}
                 title="Drag to resize media panel"
               />
@@ -773,8 +773,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
                 style={{ cursor: "col-resize" }}
                 className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
                   isPropertiesDragging
-                    ? "bg-accent"
-                    : "hover:bg-accent/60 active:bg-accent"
+                    ? "bg-accent-primary"
+                    : "hover:bg-accent-primary/60 active:bg-accent-primary"
                 }`}
                 title="Drag to resize inspector panel"
               />
@@ -797,8 +797,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             style={{ cursor: "row-resize" }}
             className={`h-1 w-full shrink-0 resizer-vertical cursor-row-resize transition-colors select-none ${
               isTimelineDragging
-                ? "bg-accent"
-                : "hover:bg-accent/60 active:bg-accent"
+                ? "bg-accent-primary"
+                : "hover:bg-accent-primary/60 active:bg-accent-primary"
             }`}
             title="Drag to resize timeline"
           />
@@ -817,7 +817,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
   // 7. DEFAULT & TIMELINE-FOCUS (Classic 3-column top + bottom timeline)
   return (
-    <div className="w-full h-full flex flex-col app-shell overflow-hidden p-1 pt-0 select-none relative">
+    <div className="w-full h-full flex flex-col bg-surface-app overflow-hidden p-1 pt-0 select-none relative">
       <TopBar onRequestClose={onRequestClose} />
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden mt-1 relative">
@@ -833,16 +833,16 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
           {/* Sidebar Dimension HUD */}
           {isSidebarDragging && (
             <div
-              className="absolute top-3 z-50 pointer-events-none px-2.5 py-1 rounded-full bg-surface-floating/95 border border-accent/50 shadow-2xl backdrop-blur-md text-[11px] font-medium text-text-primary flex items-center gap-1.5"
+              className="absolute top-3 z-50 pointer-events-none px-2.5 py-1 rounded-full bg-surface-floating/95 border border-border-default/80 shadow-2xl backdrop-blur-md text-[11px] font-medium text-text-primary flex items-center gap-1.5"
               style={{ left: `${sidebarW + 10}px` }}
             >
-              <span className="text-accent font-semibold">Media</span>
-              <span className="text-white/30">•</span>
+              <span className="text-accent-primary font-semibold">Media</span>
+              <span className="text-text-muted">•</span>
               <span className="tabular-nums font-mono">
                 {Math.round(sidebarW)} px
               </span>
               {Math.round(sidebarW) === defaultPanelW && (
-                <span className="text-[0.625rem] text-accent font-medium">
+                <span className="text-[0.625rem] text-accent-primary font-medium">
                   (Default)
                 </span>
               )}
@@ -857,8 +857,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
               style={{ cursor: "col-resize" }}
               className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
                 isSidebarDragging
-                  ? "bg-accent"
-                  : "hover:bg-accent/60 active:bg-accent"
+                  ? "bg-accent-primary"
+                  : "hover:bg-accent-primary/60 active:bg-accent-primary"
               }`}
               title="Drag to resize media panel • Double-click to reset"
             />
@@ -872,16 +872,16 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
           {/* Properties Dimension HUD */}
           {isPropertiesDragging && (
             <div
-              className="absolute top-3 z-50 pointer-events-none px-2.5 py-1 rounded-full bg-surface-floating/95 border border-accent/50 shadow-2xl backdrop-blur-md text-[11px] font-medium text-text-primary flex items-center gap-1.5"
+              className="absolute top-3 z-50 pointer-events-none px-2.5 py-1 rounded-full bg-surface-floating/95 border border-border-default/80 shadow-2xl backdrop-blur-md text-[11px] font-medium text-text-primary flex items-center gap-1.5"
               style={{ right: `${propertiesW + 10}px` }}
             >
-              <span className="text-accent font-semibold">Properties</span>
-              <span className="text-white/30">•</span>
+              <span className="text-accent-primary font-semibold">Properties</span>
+              <span className="text-text-muted">•</span>
               <span className="tabular-nums font-mono">
                 {Math.round(propertiesW)} px
               </span>
               {Math.round(propertiesW) === defaultPanelW && (
-                <span className="text-[0.625rem] text-accent font-medium">
+                <span className="text-[0.625rem] text-accent-primary font-medium">
                   (Default)
                 </span>
               )}
@@ -896,8 +896,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
               style={{ cursor: "col-resize" }}
               className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
                 isPropertiesDragging
-                  ? "bg-accent"
-                  : "hover:bg-accent/60 active:bg-accent"
+                  ? "bg-accent-primary"
+                  : "hover:bg-accent-primary/60 active:bg-accent-primary"
               }`}
               title="Drag to resize properties panel • Double-click to reset"
             />
@@ -916,11 +916,11 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
         {/* Timeline Dimension HUD */}
         {isTimelineDragging && (
           <div
-            className="absolute left-1/2 -translate-x-1/2 z-50 pointer-events-none px-2.5 py-1 rounded-full bg-surface-floating/95 border border-accent/50 shadow-2xl backdrop-blur-md text-[11px] font-medium text-text-primary flex items-center gap-1.5"
+            className="absolute left-1/2 -translate-x-1/2 z-50 pointer-events-none px-2.5 py-1 rounded-full bg-surface-floating/95 border border-border-default/80 shadow-2xl backdrop-blur-md text-[11px] font-medium text-text-primary flex items-center gap-1.5"
             style={{ bottom: `${timelineH + 10}px` }}
           >
-            <span className="text-accent font-semibold">Timeline</span>
-            <span className="text-white/30">•</span>
+            <span className="text-accent-primary font-semibold">Timeline</span>
+            <span className="text-text-muted">•</span>
             <span className="tabular-nums font-mono">
               {Math.round(timelineH)} px
             </span>
@@ -939,8 +939,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
           style={{ cursor: "row-resize" }}
           className={`h-1 w-full shrink-0 resizer-vertical cursor-row-resize transition-colors select-none ${
             isTimelineDragging
-              ? "bg-accent"
-              : "hover:bg-accent/60 active:bg-accent"
+              ? "bg-accent-primary"
+              : "hover:bg-accent-primary/60 active:bg-accent-primary"
           }`}
           title={`Drag to resize timeline • Double-click to reset (${defaultTimelineH}px)`}
         />

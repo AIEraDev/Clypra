@@ -955,7 +955,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "clypra"
-version = "1.6.6"
+version = "1.6.7"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -968,6 +968,7 @@ dependencies = [
  "ffmpeg-next",
  "ffmpeg-sys-next",
  "flate2",
+ "foreign-types 0.5.0",
  "futures-util",
  "image",
  "libc",
@@ -975,6 +976,7 @@ dependencies = [
  "lz4_flex",
  "md5",
  "memmap2",
+ "metal 0.31.0",
  "ndarray",
  "objc2",
  "once_cell",

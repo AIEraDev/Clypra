@@ -1,5 +1,35 @@
 #![allow(clippy::disallowed_methods)]
 
+use std::io::Write;
+
+fn git_output(args: &[&str]) -> Option<Vec<u8>> {
+    let output = std::process::Command::new("git")
+        .args(args)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(output.stdout)
+}
+
+fn git_hash_bytes(bytes: &[u8]) -> Option<String> {
+    let mut child = std::process::Command::new("git")
+        .args(["hash-object", "--stdin"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .ok()?;
+    child.stdin.take()?.write_all(bytes).ok()?;
+    let output = child.wait_with_output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8(output.stdout)
+        .ok()
+        .map(|hash| hash.trim().to_string())
+}
+
 fn main() {
     // Tell Cargo to re-run this if these env vars change
     println!("cargo:rerun-if-env-changed=FFMPEG_DIR");
@@ -9,6 +39,10 @@ fn main() {
     println!("cargo:rerun-if-changed=../.git/HEAD");
     println!("cargo:rerun-if-changed=../.git/index");
     println!("cargo:rerun-if-changed=../.git/packed-refs");
+    println!("cargo:rerun-if-changed=../.git/refs");
+    println!("cargo:rerun-if-changed=../.git");
+    println!("cargo:rerun-if-changed=../src");
+    println!("cargo:rerun-if-changed=src");
     if let Ok(head) = std::fs::read_to_string("../.git/HEAD") {
         if let Some(ref_path) = head.strip_prefix("ref: ") {
             let path = format!("../.git/{}", ref_path.trim());
@@ -40,8 +74,30 @@ fn main() {
         .map(|output| output.status.success() && !output.stdout.is_empty())
         .unwrap_or(false);
 
+    let git_tree = git_output(&["rev-parse", "HEAD^{tree}"])
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .map(|tree| tree.trim().to_string());
+    let diff = git_output(&["diff", "HEAD", "--no-ext-diff", "--binary"]).unwrap_or_default();
+    let status = git_output(&["status", "--porcelain=v1", "-z"]).unwrap_or_default();
+    let mut dirty_fingerprint = Vec::with_capacity(diff.len() + status.len());
+    dirty_fingerprint.extend_from_slice(&diff);
+    dirty_fingerprint.extend_from_slice(&status);
+    let git_diff_hash = if git_dirty {
+        git_hash_bytes(&dirty_fingerprint)
+    } else {
+        None
+    };
+
     println!("cargo:rustc-env=CLYPRA_GIT_COMMIT={git_sha}");
     println!("cargo:rustc-env=CLYPRA_GIT_DIRTY={git_dirty}");
+    println!(
+        "cargo:rustc-env=CLYPRA_GIT_TREE={}",
+        git_tree.as_deref().unwrap_or("unknown")
+    );
+    println!(
+        "cargo:rustc-env=CLYPRA_GIT_DIFF_HASH={}",
+        git_diff_hash.as_deref().unwrap_or("")
+    );
 
     // On macOS, link required system libraries for static FFmpeg and set bundle rpath
     #[cfg(target_os = "macos")]

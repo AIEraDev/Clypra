@@ -55,4 +55,59 @@ mod tests {
         assert!((update.gain - 0.8).abs() < 1e-4);
         assert!((update.pan - (-0.5)).abs() < 1e-4);
     }
+
+    #[tokio::test]
+    async fn test_parallel_batch_clip_order_preserved() {
+        let requests: Vec<NativeAudioClipRequest> = (0..8)
+            .map(|i| NativeAudioClipRequest {
+                path: format!("/path/to/clip_{i}.mp4"),
+                clip_id: format!("clip_{i}"),
+                timeline_start_ticks: i * 1_000_000,
+                source_start_ticks: 0,
+                duration_ticks: 1_000_000,
+                gain: 0.0, // muted so it doesn't need real disk media
+                pan: 0.0,
+                fade_in_ticks: 0,
+                fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: vec![],
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
+                clip_speed: 1.0,
+            })
+            .collect();
+
+        let decode_futures = requests.into_iter().map(|req| async move {
+            crate::native_audio::NativePcmClip {
+                id: req.clip_id,
+                sample_rate: 44100,
+                channels: 2,
+                samples: std::sync::Arc::from(Vec::<f32>::new()),
+                timeline_start_ticks: req.timeline_start_ticks,
+                duration_ticks: req.duration_ticks,
+                gain: 0.0,
+                pan: 0.0,
+                fade_in_ticks: 0,
+                fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: vec![],
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
+                clip_speed: 1.0,
+            }
+        });
+
+        let decoded = futures_util::future::join_all(decode_futures).await;
+        assert_eq!(decoded.len(), 8);
+        for (i, clip) in decoded.iter().enumerate() {
+            assert_eq!(clip.id, format!("clip_{i}"));
+            assert_eq!(clip.timeline_start_ticks, (i as i64) * 1_000_000);
+        }
+    }
 }

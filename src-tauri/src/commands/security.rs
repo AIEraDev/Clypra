@@ -115,3 +115,66 @@ pub fn validate_export_dimensions(w: u32, h: u32, fps: u32) -> Result<(), String
     }
     Ok(())
 }
+
+/// Validates that an internal path resides strictly within the designated base directory.
+/// Strictly blocks path traversal, null bytes, and escapes outside `base_dir`.
+pub fn validate_internal_managed_path(base_dir: &Path, rel_path: &str) -> Result<PathBuf, String> {
+    let clean_rel = sanitize_and_validate_path(rel_path)?;
+
+    if clean_rel.is_absolute() {
+        return Err("Security Violation: Managed internal path cannot be absolute".into());
+    }
+
+    let combined = base_dir.join(&clean_rel);
+
+    let mut norm_base = base_dir.to_string_lossy().replace('\\', "/");
+    if !norm_base.ends_with('/') {
+        norm_base.push('/');
+    }
+    let norm_combined = combined.to_string_lossy().replace('\\', "/");
+
+    if !norm_combined.starts_with(&norm_base) {
+        return Err("Security Violation: Managed internal path escapes base directory".into());
+    }
+
+    Ok(combined)
+}
+
+/// Validates an external user-selected export destination.
+/// Strictly forbids targeting system root directories while permitting user folders,
+/// desktop, external volumes, and project-relative export locations.
+pub fn validate_user_destination_path(raw_path: &str) -> Result<PathBuf, String> {
+    let clean_path = sanitize_and_validate_path(raw_path)?;
+    let norm = clean_path.to_string_lossy().replace('\\', "/");
+    let norm_lower = norm.to_lowercase();
+
+    if norm_lower == "/" || norm_lower.is_empty() {
+        return Err("Security Violation: Cannot export directly to filesystem root".into());
+    }
+
+    // POSIX root violations
+    let forbidden_posix = [
+        "/bin", "/sbin", "/etc", "/usr", "/system", "/private/etc", "/dev", "/proc", "/sys",
+    ];
+    for prefix in forbidden_posix {
+        if norm_lower == prefix || norm_lower.starts_with(&format!("{}/", prefix)) {
+            return Err(format!(
+                "Security Violation: Cannot export to protected system root: {}",
+                raw_path
+            ));
+        }
+    }
+
+    // Windows root violations
+    if norm_lower.len() <= 3 && norm_lower.ends_with(":/") {
+        return Err("Security Violation: Cannot export directly to drive root".into());
+    }
+    if norm_lower.starts_with("c:/windows") || norm_lower.starts_with("c:/program files") {
+        return Err(format!(
+            "Security Violation: Cannot export to Windows system directory: {}",
+            raw_path
+        ));
+    }
+
+    Ok(clean_path)
+}

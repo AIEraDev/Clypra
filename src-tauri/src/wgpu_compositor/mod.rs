@@ -43,6 +43,19 @@ pub use frame_correlation::{
     FrameOutputCorrelation, FrameRequestCorrelation, FrameRequestOutcome, WorkloadMode,
 };
 
+pub mod frame_lifecycle;
+pub use frame_lifecycle::{
+    AbandonReason, FrameAccounting, FrameAttribution, FrameFailureReason, FrameId,
+    FrameRequestId, FrameTerminalDisposition, LifecycleError, LifecycleState,
+    LifecycleIdAllocator, MissingCorrelationReason, PresentationAttemptDisposition, PresentationAttemptId,
+    PresentationFailureReason, RenderLifecycleContext, RequestAccounting, RequestDropReason,
+    RequestFailureReason, RequestTerminalDisposition,
+    reconcile_produced_frames,
+};
+
+pub mod frame_lifecycle_registry;
+pub use frame_lifecycle_registry::{FrameLifecycleRegistry, RegistryError, RegistrySnapshot};
+
 pub mod frame_memory;
 pub use frame_memory::{FrameMemoryTelemetry, FrameTransferOperation, MemoryDomain};
 
@@ -67,7 +80,9 @@ pub use performance_manager::{
 pub use frame_telemetry::ResourceBudget;
 
 pub mod session_telemetry;
-pub use session_telemetry::{FramesBySource, SessionSnapshot, SessionTelemetryCollector};
+pub use session_telemetry::{
+    FramesBySource, ScrubExperimentContext, SessionSnapshot, SessionTelemetryCollector,
+};
 
 pub mod preview_capabilities;
 pub use preview_capabilities::{GpuTimestampCapabilities, PreviewCapabilities};
@@ -127,6 +142,10 @@ pub use scopes::{
 /// reference it unconditionally behind `#[cfg(target_os = "windows")]`.
 #[cfg(target_os = "windows")]
 pub mod dxgi_import;
+
+/// Zero-copy VideoToolbox → Metal → wgpu texture import (macOS only).
+#[cfg(target_os = "macos")]
+pub mod metal_import;
 
 
 pub mod rgba_layer_cache;

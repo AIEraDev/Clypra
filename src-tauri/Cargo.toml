@@ -1,11 +1,20 @@
 [package]
 name = "clypra"
-version = "1.6.6"
+version = "1.6.7"
 description = "A modern, open-source video editor with native performance and GPU-accelerated preview"
 authors = ["Clypra Contributors"]
 edition = "2021"
 autobins = false
 default-run = "clypra"
+
+[features]
+default = []
+# Embed the Vite `dist/` assets in release binaries. Development runs keep
+# using the configured dev URL unless this feature is explicitly selected.
+custom-protocol = ["tauri/custom-protocol"]
+# Development-only deterministic native preview scenario driver. Release
+# artifacts intentionally omit this feature.
+perf-driver = []
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -27,6 +36,10 @@ path = "examples/benchmark.rs"
 [[example]]
 name = "decode-throughput-bench"
 path = "examples/decode_throughput_bench.rs"
+
+[[example]]
+name = "vt-frame-probe"
+path = "examples/vt_frame_probe.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -134,6 +147,8 @@ proptest = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
+metal = "0.31.0"
+foreign-types = "0.5.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # ONNX Runtime: Use load-dynamic to avoid CI binary download issues with copy-dylibs

@@ -202,7 +202,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
   };
 
   return (
-    <div className="space-y-3.5 select-none text-white">
+    <div className="space-y-3.5 select-none text-text-primary">
       {/* ── Background Header ── */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -212,8 +212,8 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
             onClick={handleToggleEnable}
             className={`w-4 h-4 rounded-[4px] border flex items-center justify-center transition-colors cursor-pointer ${
               isEnabled
-                ? "bg-cyan-500 border-cyan-400 text-black"
-                : "border-white/30 bg-[#242426] hover:border-white/50"
+                ? "bg-accent-primary border-accent-primary text-white"
+                : "border-border-default bg-surface-elevated hover:border-border-hover"
             }`}
             title={t("properties.background.enable") || "Enable background"}
           >
@@ -224,10 +224,10 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
           <button
             type="button"
             onClick={() => setIsExpanded(!isExpanded)}
-            className="flex items-center gap-1.5 text-xs font-semibold text-white hover:text-cyan-400 transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 text-xs font-semibold text-text-primary hover:text-accent-primary transition-colors cursor-pointer"
           >
             <span>{t("properties.background.title") || "Background"}</span>
-            <span className="text-[9px] text-[#8e8e93]">
+            <span className="text-[9px] text-text-muted">
               {isExpanded ? "▲" : "▼"}
             </span>
           </button>
@@ -238,7 +238,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
           <button
             type="button"
             onClick={handleReset}
-            className="text-[#8e8e93] hover:text-white transition-colors cursor-pointer p-0.5"
+            className="text-text-muted hover:text-text-primary transition-colors cursor-pointer p-0.5"
             title={t("properties.background.reset") || "Reset background"}
             aria-label={t("properties.background.reset") || "Reset background"}
           >
@@ -270,14 +270,14 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
             <button
               type="button"
               onClick={() => updateBackground({ style: "rectangle" })}
-              className={`w-16 h-14 rounded-lg bg-[#242426] flex items-center justify-center p-1.5 transition-all cursor-pointer relative ${
+              className={`w-16 h-14 rounded-lg bg-surface-elevated flex items-center justify-center p-1.5 transition-all cursor-pointer relative ${
                 bgStyle === "rectangle"
-                  ? "border-2 border-cyan-400 shadow-sm"
-                  : "border border-white/5 hover:border-white/20"
+                  ? "border-2 border-accent-primary shadow-sm"
+                  : "border border-border-default hover:border-border-hover"
               }`}
               title={t("properties.background.styleRectangle") || "Rectangle"}
             >
-              <div className="w-12 h-10 rounded bg-[#38383e] flex flex-col items-center justify-center text-[8px] font-bold text-[#8e8e93] leading-3">
+              <div className="w-12 h-10 rounded bg-surface-panel border border-border-default flex flex-col items-center justify-center text-[8px] font-bold text-text-primary leading-3 shadow-2xs">
                 <span>ABC</span>
                 <span>AB</span>
               </div>
@@ -287,18 +287,18 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
             <button
               type="button"
               onClick={() => updateBackground({ style: "split" })}
-              className={`w-16 h-14 rounded-lg bg-[#242426] flex items-center justify-center p-1.5 transition-all cursor-pointer relative ${
+              className={`w-16 h-14 rounded-lg bg-surface-elevated flex items-center justify-center p-1.5 transition-all cursor-pointer relative ${
                 bgStyle === "split"
-                  ? "border-2 border-cyan-400 shadow-sm"
-                  : "border border-white/5 hover:border-white/20"
+                  ? "border-2 border-accent-primary shadow-sm"
+                  : "border border-border-default hover:border-border-hover"
               }`}
               title={t("properties.background.styleSplit") || "Split lines"}
             >
-              <div className="flex flex-col items-center justify-center gap-0.5 text-[8px] font-bold text-[#8e8e93] leading-3">
-                <span className="bg-[#38383e] px-1.5 py-0.5 rounded-[3px]">
+              <div className="flex flex-col items-center justify-center gap-0.5 text-[8px] font-bold text-text-primary leading-3">
+                <span className="bg-surface-panel border border-border-default px-1.5 py-0.5 rounded-[3px] shadow-2xs">
                   ABC
                 </span>
-                <span className="bg-[#38383e] px-1 py-0.5 rounded-[3px]">
+                <span className="bg-surface-panel border border-border-default px-1 py-0.5 rounded-[3px] shadow-2xs">
                   AB
                 </span>
               </div>
@@ -307,7 +307,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
 
           {/* Row 1: Color */}
           <div className="flex items-center justify-between gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-secondary shrink-0 w-24">
               {t("properties.background.color") || "Color"}
             </span>
 
@@ -320,7 +320,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                 presetColors={SOLID_COLOR_SWATCHES}
                 showAlpha={true}
                 size="sm"
-                triggerClassName="w-24 h-7 bg-[#242426] border border-white/10 hover:border-white/20 rounded-md px-2 flex items-center justify-between"
+                triggerClassName="w-24 h-7 bg-surface-input border border-border-default hover:border-border-hover rounded-md px-2 flex items-center justify-between text-text-primary"
                 popoverClassName="z-[100]"
               />
             </div>
@@ -328,7 +328,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
 
           {/* Row 2: Opacity */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-secondary shrink-0 w-24">
               {t("properties.background.opacity") || "Opacity"}
             </span>
 
@@ -342,10 +342,10 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                 onChange={(e) =>
                   updateBackground({ opacity: Number(e.target.value) })
                 }
-                className="flex-1 h-1 bg-[#242426] rounded-lg appearance-none cursor-pointer accent-cyan-400"
+                className="flex-1 h-1 bg-border-default rounded-lg appearance-none cursor-pointer accent-accent-primary"
               />
 
-              <div className="flex items-center bg-[#242426] border border-white/5 rounded-md px-2 py-1 text-xs w-16">
+              <div className="flex items-center bg-surface-input border border-border-default rounded-md px-2 py-1 text-xs w-16">
                 <input
                   type="text"
                   value={`${bgOpacity}%`}
@@ -360,9 +360,9 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                       });
                     }
                   }}
-                  className="w-full bg-transparent text-right text-white outline-none pr-1"
+                  className="w-full bg-transparent text-right text-text-primary outline-none pr-1"
                 />
-                <div className="flex flex-col text-[8px] text-[#8e8e93] leading-[6px]">
+                <div className="flex flex-col text-[8px] text-text-muted leading-[6px]">
                   <button
                     type="button"
                     onClick={() =>
@@ -370,7 +370,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                         opacity: Math.min(100, bgOpacity + 1),
                       })
                     }
-                    className="hover:text-white cursor-pointer"
+                    className="hover:text-text-primary cursor-pointer"
                   >
                     ▲
                   </button>
@@ -381,7 +381,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                         opacity: Math.max(0, bgOpacity - 1),
                       })
                     }
-                    className="hover:text-white cursor-pointer"
+                    className="hover:text-text-primary cursor-pointer"
                   >
                     ▼
                   </button>
@@ -402,7 +402,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
 
           {/* Row 3: Rounded rectangle */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-secondary shrink-0 w-24">
               {t("properties.background.roundedRectangle") ||
                 "Rounded rectangle"}
             </span>
@@ -417,10 +417,10 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                 onChange={(e) =>
                   updateBackground({ borderRadius: Number(e.target.value) })
                 }
-                className="flex-1 h-1 bg-[#242426] rounded-lg appearance-none cursor-pointer accent-cyan-400"
+                className="flex-1 h-1 bg-border-default rounded-lg appearance-none cursor-pointer accent-accent-primary"
               />
 
-              <div className="flex items-center bg-[#242426] border border-white/5 rounded-md px-2 py-1 text-xs w-16">
+              <div className="flex items-center bg-surface-input border border-border-default rounded-md px-2 py-1 text-xs w-16">
                 <input
                   type="text"
                   value={`${bgRadius}%`}
@@ -435,9 +435,9 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                       });
                     }
                   }}
-                  className="w-full bg-transparent text-right text-white outline-none pr-1"
+                  className="w-full bg-transparent text-right text-text-primary outline-none pr-1"
                 />
-                <div className="flex flex-col text-[8px] text-[#8e8e93] leading-[6px]">
+                <div className="flex flex-col text-[8px] text-text-muted leading-[6px]">
                   <button
                     type="button"
                     onClick={() =>
@@ -445,7 +445,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                         borderRadius: Math.min(100, bgRadius + 1),
                       })
                     }
-                    className="hover:text-white cursor-pointer"
+                    className="hover:text-text-primary cursor-pointer"
                   >
                     ▲
                   </button>
@@ -456,7 +456,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                         borderRadius: Math.max(0, bgRadius - 1),
                       })
                     }
-                    className="hover:text-white cursor-pointer"
+                    className="hover:text-text-primary cursor-pointer"
                   >
                     ▼
                   </button>
@@ -477,7 +477,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
 
           {/* Row 4: Height */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-secondary shrink-0 w-24">
               {t("properties.background.height") || "Height"}
             </span>
 
@@ -491,10 +491,10 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                 onChange={(e) =>
                   updateBackground({ height: Number(e.target.value) })
                 }
-                className="flex-1 h-1 bg-[#242426] rounded-lg appearance-none cursor-pointer accent-cyan-400"
+                className="flex-1 h-1 bg-border-default rounded-lg appearance-none cursor-pointer accent-accent-primary"
               />
 
-              <div className="flex items-center bg-[#242426] border border-white/5 rounded-md px-2 py-1 text-xs w-16">
+              <div className="flex items-center bg-surface-input border border-border-default rounded-md px-2 py-1 text-xs w-16">
                 <input
                   type="text"
                   value={`${bgHeight}%`}
@@ -509,9 +509,9 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                       });
                     }
                   }}
-                  className="w-full bg-transparent text-right text-white outline-none pr-1"
+                  className="w-full bg-transparent text-right text-text-primary outline-none pr-1"
                 />
-                <div className="flex flex-col text-[8px] text-[#8e8e93] leading-[6px]">
+                <div className="flex flex-col text-[8px] text-text-muted leading-[6px]">
                   <button
                     type="button"
                     onClick={() =>
@@ -519,7 +519,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                         height: Math.min(100, bgHeight + 1),
                       })
                     }
-                    className="hover:text-white cursor-pointer"
+                    className="hover:text-text-primary cursor-pointer"
                   >
                     ▲
                   </button>
@@ -530,7 +530,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                         height: Math.max(0, bgHeight - 1),
                       })
                     }
-                    className="hover:text-white cursor-pointer"
+                    className="hover:text-text-primary cursor-pointer"
                   >
                     ▼
                   </button>
@@ -555,7 +555,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
 
           {/* Row 5: Width */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-secondary shrink-0 w-24">
               {t("properties.background.width") || "Width"}
             </span>
 
@@ -569,10 +569,10 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                 onChange={(e) =>
                   updateBackground({ width: Number(e.target.value) })
                 }
-                className="flex-1 h-1 bg-[#242426] rounded-lg appearance-none cursor-pointer accent-cyan-400"
+                className="flex-1 h-1 bg-border-default rounded-lg appearance-none cursor-pointer accent-accent-primary"
               />
 
-              <div className="flex items-center bg-[#242426] border border-white/5 rounded-md px-2 py-1 text-xs w-16">
+              <div className="flex items-center bg-surface-input border border-border-default rounded-md px-2 py-1 text-xs w-16">
                 <input
                   type="text"
                   value={`${bgWidth}%`}
@@ -587,9 +587,9 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                       });
                     }
                   }}
-                  className="w-full bg-transparent text-right text-white outline-none pr-1"
+                  className="w-full bg-transparent text-right text-text-primary outline-none pr-1"
                 />
-                <div className="flex flex-col text-[8px] text-[#8e8e93] leading-[6px]">
+                <div className="flex flex-col text-[8px] text-text-muted leading-[6px]">
                   <button
                     type="button"
                     onClick={() =>
@@ -597,7 +597,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                         width: Math.min(100, bgWidth + 1),
                       })
                     }
-                    className="hover:text-white cursor-pointer"
+                    className="hover:text-text-primary cursor-pointer"
                   >
                     ▲
                   </button>
@@ -608,7 +608,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                         width: Math.max(0, bgWidth - 1),
                       })
                     }
-                    className="hover:text-white cursor-pointer"
+                    className="hover:text-text-primary cursor-pointer"
                   >
                     ▼
                   </button>
@@ -633,7 +633,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
 
           {/* Row 6: Y-offset */}
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[#a1a1aa] shrink-0 w-24">
+            <span className="text-xs text-text-secondary shrink-0 w-24">
               {t("properties.background.yOffset") || "Y-offset"}
             </span>
 
@@ -647,10 +647,10 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                 onChange={(e) =>
                   updateBackground({ yOffset: Number(e.target.value) })
                 }
-                className="flex-1 h-1 bg-[#242426] rounded-lg appearance-none cursor-pointer accent-cyan-400"
+                className="flex-1 h-1 bg-border-default rounded-lg appearance-none cursor-pointer accent-accent-primary"
               />
 
-              <div className="flex items-center bg-[#242426] border border-white/5 rounded-md px-2 py-1 text-xs w-16">
+              <div className="flex items-center bg-surface-input border border-border-default rounded-md px-2 py-1 text-xs w-16">
                 <input
                   type="text"
                   value={`${bgYOffset}%`}
@@ -665,9 +665,9 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                       });
                     }
                   }}
-                  className="w-full bg-transparent text-right text-white outline-none pr-1"
+                  className="w-full bg-transparent text-right text-text-primary outline-none pr-1"
                 />
-                <div className="flex flex-col text-[8px] text-[#8e8e93] leading-[6px]">
+                <div className="flex flex-col text-[8px] text-text-muted leading-[6px]">
                   <button
                     type="button"
                     onClick={() =>
@@ -675,7 +675,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                         yOffset: Math.min(100, bgYOffset + 1),
                       })
                     }
-                    className="hover:text-white cursor-pointer"
+                    className="hover:text-text-primary cursor-pointer"
                   >
                     ▲
                   </button>
@@ -686,7 +686,7 @@ export const TextBackgroundSection: React.FC<TextBackgroundSectionProps> = ({
                         yOffset: Math.max(0, bgYOffset - 1),
                       })
                     }
-                    className="hover:text-white cursor-pointer"
+                    className="hover:text-text-primary cursor-pointer"
                   >
                     ▼
                   </button>

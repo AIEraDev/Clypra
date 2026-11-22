@@ -223,10 +223,10 @@ export const NumericControl: React.FC<NumericControlProps> = ({
   return (
     <div className="flex items-center gap-1">
       {/* Input Container */}
-      <div className="bg-panel rounded-sm overflow-hidden flex items-center">
+      <div className="bg-surface-input border border-border-default rounded-sm overflow-hidden flex items-center shadow-2xs">
         {/* Optional Prefix Label */}
         {prefix && (
-          <span className="text-[10px] text-text-muted select-none w-6 h-6 flex justify-center items-center pl-2">
+          <span className="text-[10px] text-text-secondary font-medium select-none w-6 h-6 flex justify-center items-center pl-2">
             {prefix}
           </span>
         )}
@@ -242,7 +242,7 @@ export const NumericControl: React.FC<NumericControlProps> = ({
           onFocus={handleInputFocus}
           onBlur={handleInputBlur}
           onKeyDown={handleInputKey}
-          className={`${inputWidth} ${inputPosition} h-6 text-[11px] text-white outline-none transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+          className={`${inputWidth} ${inputPosition} h-6 text-[11px] text-text-primary outline-none transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
             disabled ? "opacity-50 cursor-not-allowed" : ""
           }`}
           disabled={disabled}
@@ -251,7 +251,7 @@ export const NumericControl: React.FC<NumericControlProps> = ({
 
         {/* Optional Suffix Label */}
         {suffix && (
-          <span className="text-[10px] font-medium text-white select-none flex items-center pr-1">
+          <span className="text-[10px] font-medium text-text-secondary select-none flex items-center pr-1">
             {suffix}
           </span>
         )}

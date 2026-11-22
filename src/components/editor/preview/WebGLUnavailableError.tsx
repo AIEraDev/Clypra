@@ -1,33 +1,25 @@
 import React from "react";
+import { useI18n } from "@/i18n";
+
+export interface WebGLUnavailableErrorProps {
+  reason?: "native-surface" | "gpu";
+}
 
 /**
  * Shown when the native preview cannot initialize. The desktop editor does
  * not silently switch to a different renderer.
  */
-export const WebGLUnavailableError: React.FC = () => {
+export const WebGLUnavailableError: React.FC<WebGLUnavailableErrorProps> = ({
+  reason = "native-surface",
+}) => {
+  const { t } = useI18n();
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        width: "100%",
-        height: "100%",
-        background: "#0f0f11",
-        color: "#e0e0e6",
-        fontFamily: "system-ui, -apple-system, sans-serif",
-        gap: "12px",
-        padding: "32px",
-        textAlign: "center",
-      }}
-    >
+    <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-surface-workspace px-8 text-center font-sans text-text-primary">
       <svg
-        width="40"
-        height="40"
+        className="h-10 w-10 text-danger"
         viewBox="0 0 24 24"
         fill="none"
-        stroke="#f87171"
+        stroke="currentColor"
         strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -36,12 +28,11 @@ export const WebGLUnavailableError: React.FC = () => {
         <line x1="12" y1="8" x2="12" y2="12" />
         <line x1="12" y1="16" x2="12.01" y2="16" />
       </svg>
-      <p style={{ fontSize: "15px", fontWeight: 600, margin: 0, color: "#fafafa" }}>
-        Preview is unavailable
+      <p className="m-0 text-[15px] font-semibold text-text-primary">
+        {t("preview.errors.title")}
       </p>
-      <p style={{ fontSize: "13px", margin: 0, color: "#9ca3af", maxWidth: "320px", lineHeight: 1.5 }}>
-        Clypra could not initialize the native preview. Please check your graphics
-        drivers and restart the editor.
+      <p className="m-0 max-w-[320px] text-[13px] leading-relaxed text-text-secondary">
+        {t(reason === "gpu" ? "preview.errors.gpu" : "preview.errors.nativeSurface")}
       </p>
     </div>
   );

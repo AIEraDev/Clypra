@@ -16,6 +16,7 @@
 pub mod benchmark;
 pub mod clock;
 pub mod decoder;
+pub mod decode_policy;
 pub mod diagnostic;
 pub mod frame;
 pub mod graph;

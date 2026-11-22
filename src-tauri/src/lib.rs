@@ -13,6 +13,7 @@ pub mod clymatte;
 pub mod cold_start;
 pub mod commands;
 pub mod diagnostics;
+pub mod disk_cache;
 pub mod engine;
 pub mod filmstrip_engine;
 pub mod golden_harness;
@@ -30,7 +31,6 @@ pub mod wgpu_compositor;
 // continues to compile while the rename propagates. This will be removed once
 // all call sites have been migrated to `crate::filmstrip_engine`.
 pub use filmstrip_engine as thumbnail_engine;
-
 
 use commands::*;
 use diagnostics::crash_handler::{
@@ -181,7 +181,9 @@ fn get_bench_run_config() -> cold_start::BenchRunConfig {
 #[tauri::command]
 fn write_bench_report(file_path: String, json_content: String) -> Result<(), String> {
     if !cold_start::is_bench_mode_active() {
-        return Err("Benchmark report writing is only permitted when running in benchmark mode".to_string());
+        return Err(
+            "Benchmark report writing is only permitted when running in benchmark mode".to_string(),
+        );
     }
     let path = std::path::Path::new(&file_path);
     if let Some(parent) = path.parent() {
@@ -204,8 +206,22 @@ fn set_menu_language(app: tauri::AppHandle, language: String) -> Result<(), Stri
             "ru" => ["Clypra", "Файл", "Правка", "Вид", "Окно", "Справка"],
             "es" => ["Clypra", "Archivo", "Edición", "Ver", "Ventana", "Ayuda"],
             "ja" => ["Clypra", "ファイル", "編集", "表示", "ウィンドウ", "ヘルプ"],
-            "de" => ["Clypra", "Datei", "Bearbeiten", "Ansicht", "Fenster", "Hilfe"],
-            "fr" => ["Clypra", "Fichier", "Édition", "Affichage", "Fenêtre", "Aide"],
+            "de" => [
+                "Clypra",
+                "Datei",
+                "Bearbeiten",
+                "Ansicht",
+                "Fenster",
+                "Hilfe",
+            ],
+            "fr" => [
+                "Clypra",
+                "Fichier",
+                "Édition",
+                "Affichage",
+                "Fenêtre",
+                "Aide",
+            ],
             "ko" => ["Clypra", "파일", "편집", "보기", "윈도우", "도움말"],
             _ => ["Clypra", "File", "Edit", "View", "Window", "Help"],
         };
@@ -287,6 +303,13 @@ pub fn run() {
         .setup(|app| {
             let setup_start = std::time::Instant::now();
             diagnostics::initialize(app.handle());
+            crate::commands::native_preview::initialize_zero_copy_guard();
+            #[cfg(feature = "perf-driver")]
+            {
+                let verified =
+                    crate::filmstrip_engine::decoder::run_ffmpeg_callback_positive_control();
+                log::info!("[PerfDriver] ffmpeg callback positive control verified={verified}");
+            }
             let win_init_start = std::time::Instant::now();
             if let Some(window) = app.get_webview_window("main") {
                 crate::cold_start::record_window_created();
@@ -394,10 +417,14 @@ pub fn run() {
                 });
             }
 
-            // Initialize filmstrip tile engine (atlas, disk cache, decode queue)
+            // Initialize unified multi-tier disk cache and filmstrip tile engine
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Ok(dir) = handle.path().app_cache_dir() {
+                    let unified_dir = dir.join("clypra_cache");
+                    let cache_mgr = disk_cache::init_global_disk_cache(unified_dir);
+                    let _ = cache_mgr.migrate_legacy_folders(&dir).await;
+                    let _ = cache_mgr.verify_integrity().await;
                     let _ = init_filmstrip_engine(dir).await;
                 }
             });
@@ -639,6 +666,7 @@ pub fn run() {
             decode_frame_gpu,
             decode_export_frame,
             render_native_preview_frame,
+            warm_video_decoder_at_pts,
             render_native_preview_transport_probe,
             stream_native_playback_frames,
             open_native_playback_push_stream,
@@ -673,12 +701,14 @@ pub fn run() {
             // ── Phase 5: Session performance telemetry ──────────────────────
             get_session_telemetry,
             reset_session_telemetry,
+            mark_engine_telemetry_closing,
             hide_native_surface,
             get_native_surface_status,
             configure_native_playback,
             configure_native_playback_render,
             update_native_playback_render,
             submit_native_playback_demand,
+            abandon_native_playback_demand,
             get_engine_telemetry,
             get_playback_policy,
             get_native_playback_state,
@@ -716,10 +746,16 @@ pub fn run() {
             check_coarse_baseline_cache,
             get_decode_metrics_snapshot,
             get_sync_metrics_snapshot,
+            get_multi_tier_native_telemetry,
             get_disk_cache_stats,
             clear_disk_cache,
             set_cache_size_limit,
             get_cache_size_limit,
+            get_unified_cache_stats,
+            set_unified_cache_limit,
+            purge_unified_cache,
+            verify_cache_integrity,
+            compact_unified_cache,
             // Video export commands
             start_video_export,
             write_export_frame,
@@ -825,6 +861,8 @@ pub fn run() {
             get_bench_run_config,
             write_bench_report,
             exit_app,
+            #[cfg(feature = "perf-driver")]
+            run_perf_scenario,
             // ── Debug / chain-test commands ──────────────────────────────────
             // Registered in all builds; the command bodies return an error in
             // release builds (#[cfg(not(debug_assertions))]) so a webview
@@ -834,20 +872,21 @@ pub fn run() {
             // Box::new(invoke_handler)).
             crate::commands::debug::force_dxgi_latch,
             crate::commands::debug::reset_dxgi_latch,
+            crate::commands::debug::set_native_scrub_experiment_context,
             #[cfg(debug_assertions)]
             crate::commands::debug::capture_preview_frame,
         ]);
 
-        let builder = builder.on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
-                    // Prevent immediate OS destruction so the webview can perform
-                    // unsaved-changes dirty checks, user prompt, and clean shutdown.
-                    api.prevent_close();
-                    let _ = window.emit("clypra://close-requested", ());
-                }
+    let builder = builder.on_window_event(|window, event| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            if window.label() == "main" {
+                // Prevent immediate OS destruction so the webview can perform
+                // unsaved-changes dirty checks, user prompt, and clean shutdown.
+                api.prevent_close();
+                let _ = window.emit("clypra://close-requested", ());
             }
-        });
+        }
+    });
 
     let build_start = std::time::Instant::now();
     let app = builder

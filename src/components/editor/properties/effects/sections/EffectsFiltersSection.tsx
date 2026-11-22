@@ -66,7 +66,7 @@ export const EffectsFiltersSection: React.FC<EffectsFiltersSectionProps> = ({
           icon={<Filter className="w-3.5 h-3.5 text-accent-soft" />}
         >
           <div className="space-y-3">
-            <div className="flex items-center justify-between bg-surface-raised/40 border border-border/30 rounded-lg p-2.5">
+            <div className="flex items-center justify-between bg-surface-elevated border border-border-default rounded-lg p-2.5">
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-semibold text-text-primary truncate">
                   {appliedFilter.name}
@@ -121,9 +121,9 @@ export const EffectsFiltersSection: React.FC<EffectsFiltersSectionProps> = ({
             {appliedEffects.map((effect) => (
               <div
                 key={effect.id}
-                className="space-y-2 border-b border-border/30 pb-3 last:border-0 last:pb-0"
+                className="space-y-2 border-b border-border-default pb-3 last:border-0 last:pb-0"
               >
-                <div className="flex items-center justify-between bg-surface-raised/40 border border-border/30 rounded-lg p-2.5">
+                <div className="flex items-center justify-between bg-surface-elevated border border-border-default rounded-lg p-2.5">
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-semibold text-text-primary truncate">
                       {effect.name}

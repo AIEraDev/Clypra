@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import type { Clip } from "@/types";
+import { useI18n } from "@/i18n";
 import { filterCacheManager } from "@/features/filters/cache/filterCache";
 import type { ColorAdjustments } from "@clypra-studio/engine";
 import { LUTSection } from "../sections/LUTSection";
@@ -18,6 +19,7 @@ export const VideoAdjustTab: React.FC<VideoAdjustTabProps> = ({
   selectedClip,
   handleUpdate,
 }) => {
+  const { t } = useI18n();
   const [activeSubTab, setActiveSubTab] = useState<AdjustSubTab>("basic");
   const [lutOpen, setLutOpen] = useState(true);
   const [adjustOpen, setAdjustOpen] = useState(true);
@@ -55,19 +57,19 @@ export const VideoAdjustTab: React.FC<VideoAdjustTabProps> = ({
   };
 
   return (
-    <div className="space-y-1.5 select-none text-white relative p-2 pt-0">
+    <div className="space-y-1.5 select-none text-text-primary relative p-2 pt-0">
       {/* Sticky header: sub-tab switcher */}
-      <div className="bg-(--color-gray-900) pt-2 sticky top-0 z-10 space-y-1.5">
-        <div className="bg-panel p-0.5 rounded-sm flex gap-1 border border-white/5">
+      <div className="bg-surface-panel pt-2 sticky top-0 z-10 space-y-1.5">
+        <div className="bg-surface-elevated p-0.5 rounded-md flex gap-1 border border-border-default">
           {(["basic", "hsl", "curves", "color-wheel", "mask"] as const).map(
             (tab) => {
               const isLocked = tab !== "basic" && tab !== "hsl";
               const labels = {
-                basic: "Basic",
-                hsl: "HSL",
-                curves: "Curves",
-                "color-wheel": "Color wheel",
-                mask: "Mask",
+                basic: t("properties.subtabs.basic"),
+                hsl: t("properties.subtabs.hsl"),
+                curves: t("properties.subtabs.curves"),
+                "color-wheel": t("properties.subtabs.colorWheel"),
+                mask: t("properties.subtabs.mask"),
               };
 
               return (
@@ -76,13 +78,13 @@ export const VideoAdjustTab: React.FC<VideoAdjustTabProps> = ({
                   type="button"
                   onClick={() => !isLocked && setActiveSubTab(tab)}
                   disabled={isLocked}
-                  title={isLocked ? "Coming soon" : undefined}
+                  title={isLocked ? t("common.comingSoon") : undefined}
                   className={`flex-1 py-0.5 text-xs rounded-sm transition-all text-center flex items-center justify-center gap-1 ${
                     isLocked
-                      ? "text-[#8e8e93]/50 cursor-not-allowed"
+                      ? "text-text-muted/50 cursor-not-allowed"
                       : activeSubTab === tab
-                        ? "bg-[#38383e] text-white shadow-sm font-semibold cursor-pointer"
-                        : "text-[#8e8e93] hover:text-white cursor-pointer"
+                        ? "bg-accent-primary text-white shadow-sm font-semibold cursor-pointer"
+                        : "text-text-secondary hover:text-text-primary hover:bg-surface-hover cursor-pointer"
                   }`}
                 >
                   {labels[tab]}
@@ -114,7 +116,7 @@ export const VideoAdjustTab: React.FC<VideoAdjustTabProps> = ({
           {/* LUT Section */}
           <div className="space-y-2">
             <PropertySectionHeader
-              title="LUT"
+              title={t("properties.adjust.lut")}
               isCollapsed={!lutOpen}
               onToggleCollapse={() => setLutOpen(!lutOpen)}
             />
@@ -127,12 +129,12 @@ export const VideoAdjustTab: React.FC<VideoAdjustTabProps> = ({
             )}
           </div>
 
-          <div className="h-px bg-white/5" />
+          <div className="h-px bg-border-default/60" />
 
           {/* Adjust Section */}
           <div className="space-y-2">
             <PropertySectionHeader
-              title="ADJUST"
+              title={t("properties.adjust.adjustTitle")}
               isCollapsed={!adjustOpen}
               onToggleCollapse={() => setAdjustOpen(!adjustOpen)}
             />
@@ -141,11 +143,11 @@ export const VideoAdjustTab: React.FC<VideoAdjustTabProps> = ({
               <div className="pt-2 space-y-4">
                 {/* Color Section */}
                 <div className="space-y-3">
-                  <div className="text-[10px] text-white/40 tracking-wider">
-                    Color
+                  <div className="text-[10px] text-text-muted tracking-wider">
+                    {t("properties.adjust.tone")}
                   </div>
                   <GradientSliderControl
-                    label="Temp"
+                    label={t("properties.adjust.temperature")}
                     value={getVal("temperature", 0)}
                     min={-100}
                     max={100}
@@ -153,7 +155,7 @@ export const VideoAdjustTab: React.FC<VideoAdjustTabProps> = ({
                     onChange={(val) => updateField("temperature", val)}
                   />
                   <GradientSliderControl
-                    label="Tint"
+                    label={t("properties.adjust.tint")}
                     value={getVal("tint", 0)}
                     min={-100}
                     max={100}
@@ -161,7 +163,7 @@ export const VideoAdjustTab: React.FC<VideoAdjustTabProps> = ({
                     onChange={(val) => updateField("tint", val)}
                   />
                   <GradientSliderControl
-                    label="Saturation"
+                    label={t("properties.adjust.saturation")}
                     value={getVal("saturation", 0)}
                     min={-100}
                     max={100}
@@ -172,53 +174,53 @@ export const VideoAdjustTab: React.FC<VideoAdjustTabProps> = ({
 
                 {/* Lightness Section */}
                 <div className="space-y-3">
-                  <div className="text-[10px] text-white/40 tracking-wider">
-                    Lightness
+                  <div className="text-[10px] text-text-muted tracking-wider">
+                    {t("properties.adjust.lightness")}
                   </div>
                   <GradientSliderControl
-                    label="Exposure"
+                    label={t("properties.adjust.exposure")}
                     value={getVal("exposure", 0)}
                     min={-100}
                     max={100}
                     onChange={(val) => updateField("exposure", val)}
                   />
                   <GradientSliderControl
-                    label="Contrast"
+                    label={t("properties.adjust.contrast")}
                     value={getVal("contrast", 0)}
                     min={-100}
                     max={100}
                     onChange={(val) => updateField("contrast", val)}
                   />
                   <GradientSliderControl
-                    label="Highlight"
+                    label={t("properties.adjust.highlight")}
                     value={getVal("highlights", 0)}
                     min={-100}
                     max={100}
                     onChange={(val) => updateField("highlights", val)}
                   />
                   <GradientSliderControl
-                    label="Shadow"
+                    label={t("properties.adjust.shadow")}
                     value={getVal("shadows", 0)}
                     min={-100}
                     max={100}
                     onChange={(val) => updateField("shadows", val)}
                   />
                   <GradientSliderControl
-                    label="Whites"
+                    label={t("properties.adjust.whites")}
                     value={getVal("whites", 0)}
                     min={-100}
                     max={100}
                     onChange={(val) => updateField("whites", val)}
                   />
                   <GradientSliderControl
-                    label="Blacks"
+                    label={t("properties.adjust.blacks")}
                     value={getVal("blacks", 0)}
                     min={-100}
                     max={100}
                     onChange={(val) => updateField("blacks", val)}
                   />
                   <GradientSliderControl
-                    label="Brilliance"
+                    label={t("properties.adjust.brilliance")}
                     value={getVal("brilliance", 0)}
                     min={-100}
                     max={100}
@@ -228,39 +230,39 @@ export const VideoAdjustTab: React.FC<VideoAdjustTabProps> = ({
 
                 {/* Effects Section */}
                 <div className="space-y-3">
-                  <div className="text-[10px] text-white/40 tracking-wider">
-                    Effects
+                  <div className="text-[10px] text-text-muted tracking-wider">
+                    {t("properties.adjust.effects")}
                   </div>
                   <GradientSliderControl
-                    label="Sharpen"
+                    label={t("properties.adjust.sharpen")}
                     value={getVal("sharpen", 0)}
                     min={0}
                     max={100}
                     onChange={(val) => updateField("sharpen", val)}
                   />
                   <GradientSliderControl
-                    label="Clarity"
+                    label={t("properties.adjust.clarity")}
                     value={getVal("clarity", 0)}
                     min={-100}
                     max={100}
                     onChange={(val) => updateField("clarity", val)}
                   />
                   <GradientSliderControl
-                    label="Particles"
+                    label={t("properties.adjust.particles")}
                     value={getVal("particles", 0)}
                     min={0}
                     max={100}
                     onChange={(val) => updateField("particles", val)}
                   />
                   <GradientSliderControl
-                    label="Fade"
+                    label={t("properties.adjust.fade")}
                     value={getVal("fade", 0)}
                     min={0}
                     max={100}
                     onChange={(val) => updateField("fade", val)}
                   />
                   <GradientSliderControl
-                    label="Vignette"
+                    label={t("properties.adjust.vignette")}
                     value={getVal("vignette", 0)}
                     min={0}
                     max={100}
@@ -281,21 +283,21 @@ export const VideoAdjustTab: React.FC<VideoAdjustTabProps> = ({
       {/* Curves Sub-tab (Locked) */}
       {activeSubTab === "curves" && (
         <div className="p-4 text-center text-text-muted text-sm">
-          Curves feature coming soon
+          {t("properties.adjust.curvesComingSoon")}
         </div>
       )}
 
       {/* Color Wheel Sub-tab (Locked) */}
       {activeSubTab === "color-wheel" && (
         <div className="p-4 text-center text-text-muted text-sm">
-          Color Wheel feature coming soon
+          {t("properties.adjust.colorWheelComingSoon")}
         </div>
       )}
 
       {/* Mask Sub-tab (Locked) */}
       {activeSubTab === "mask" && (
         <div className="p-4 text-center text-text-muted text-sm">
-          Mask feature coming soon
+          {t("properties.adjust.maskComingSoon")}
         </div>
       )}
     </div>

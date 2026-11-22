@@ -1,22 +1,51 @@
 import React, { useEffect, useRef, useState } from "react";
-import { StopCircle, AlertTriangle, Pause, Play, Mic, MicOff, FlipHorizontal, Square, Circle, EyeOff } from "lucide-react";
+import {
+  StopCircle,
+  AlertTriangle,
+  Pause,
+  Play,
+  Mic,
+  MicOff,
+  FlipHorizontal,
+  Square,
+  Circle,
+  EyeOff,
+} from "lucide-react";
 import { useRecordingStore } from "@/store/recordingStore";
 import { DualRecordService } from "@/services/dualRecordService";
 import { useSettingsStore } from "@/store/settingsStore";
 import { AspectRatio } from "@/types";
 
 interface FloatingWidgetProps {
-  onProjectCreate: (name: string, aspectRatio: AspectRatio, frameRate: 24 | 30 | 60, initialClipPaths?: string[]) => void;
+  onProjectCreate: (
+    name: string,
+    aspectRatio: AspectRatio,
+    frameRate: 24 | 30 | 60,
+    initialClipPaths?: string[],
+  ) => void;
 }
 
-const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+const isTauri =
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate }) => {
-  const { seconds, setSeconds, hasWebcam, setPreviewRecording, setIsRecording, recordingError, setRecordingError } = useRecordingStore();
+export const FloatingWidget: React.FC<FloatingWidgetProps> = ({
+  onProjectCreate,
+}) => {
+  const {
+    seconds,
+    setSeconds,
+    hasWebcam,
+    setPreviewRecording,
+    setIsRecording,
+    recordingError,
+    setRecordingError,
+  } = useRecordingStore();
   const videoRef = useRef<HTMLVideoElement>(null);
 
   // Interactive UI State
-  const [shape, setShape] = useState<"circle" | "rectangle" | "hidden">("circle");
+  const [shape, setShape] = useState<"circle" | "rectangle" | "hidden">(
+    "circle",
+  );
   const [isMirrored, setIsMirrored] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -48,7 +77,10 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
           if (playPromise && typeof playPromise.catch === "function") {
             playPromise.catch((err) => {
               if (err.name !== "AbortError") {
-                console.error("[FloatingWidget] Failed to play video stream:", err);
+                console.error(
+                  "[FloatingWidget] Failed to play video stream:",
+                  err,
+                );
               }
             });
           }
@@ -75,13 +107,18 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
     const timeout = setTimeout(async () => {
       setIsStopping(true);
       try {
-        const { filePaths } = await DualRecordService.getInstance().stopRecording();
+        const { filePaths } =
+          await DualRecordService.getInstance().stopRecording();
         if (isTauri) {
           try {
-            const { restorePreRecordingWindowGeometry } = await import("@/lib/platform/windowState");
+            const { restorePreRecordingWindowGeometry } =
+              await import("@/lib/platform/windowState");
             await restorePreRecordingWindowGeometry();
           } catch (winErr) {
-            console.error("[FloatingWidget] Failed to restore window geometry:", winErr);
+            console.error(
+              "[FloatingWidget] Failed to restore window geometry:",
+              winErr,
+            );
           }
         }
         if (filePaths.length > 0) {
@@ -98,10 +135,19 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
     }, 2000);
 
     return () => clearTimeout(timeout);
-  }, [recordingError, isStopping, setPreviewRecording, setIsRecording, setSeconds, setRecordingError]);
+  }, [
+    recordingError,
+    isStopping,
+    setPreviewRecording,
+    setIsRecording,
+    setSeconds,
+    setRecordingError,
+  ]);
 
   const formatTime = (secs: number) => {
-    const m = Math.floor(secs / 60).toString().padStart(2, "0");
+    const m = Math.floor(secs / 60)
+      .toString()
+      .padStart(2, "0");
     const s = (secs % 60).toString().padStart(2, "0");
     return `${m}:${s}`;
   };
@@ -140,14 +186,19 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
     setIsStopping(true);
 
     try {
-      const { filePaths, metadata } = await DualRecordService.getInstance().stopRecording();
+      const { filePaths, metadata } =
+        await DualRecordService.getInstance().stopRecording();
 
       if (isTauri) {
         try {
-          const { restorePreRecordingWindowGeometry } = await import("@/lib/platform/windowState");
+          const { restorePreRecordingWindowGeometry } =
+            await import("@/lib/platform/windowState");
           await restorePreRecordingWindowGeometry();
         } catch (winErr) {
-          console.error("[FloatingWidget] Failed to restore window geometry:", winErr);
+          console.error(
+            "[FloatingWidget] Failed to restore window geometry:",
+            winErr,
+          );
         }
       }
 
@@ -160,11 +211,15 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
       DualRecordService.getInstance().cleanup();
       setSeconds(0);
       setIsRecording(false);
-      setRecordingError(err?.message || "Screen recording ended unexpectedly. Please check permissions.");
+      setRecordingError(
+        err?.message ||
+          "Screen recording ended unexpectedly. Please check permissions.",
+      );
 
       if (isTauri) {
         try {
-          const { restorePreRecordingWindowGeometry } = await import("@/lib/platform/windowState");
+          const { restorePreRecordingWindowGeometry } =
+            await import("@/lib/platform/windowState");
           await restorePreRecordingWindowGeometry();
         } catch {
           // Best effort
@@ -179,8 +234,8 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
     shape === "circle"
       ? "w-48 h-48 rounded-full border-2 border-accent/40"
       : shape === "rectangle"
-      ? "w-56 h-36 rounded-2xl border-2 border-accent/40"
-      : "hidden";
+        ? "w-56 h-36 rounded-2xl border-2 border-accent/40"
+        : "hidden";
 
   return (
     <div
@@ -195,7 +250,9 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
         <div className="absolute top-0 left-0 right-0 z-30 bg-red-600/95 backdrop-blur-sm text-white text-[11px] font-semibold px-3 py-2 flex items-center gap-2 animate-fade-in">
           <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
           <span className="truncate">{recordingError}</span>
-          <span className="text-white/70 ml-auto text-[10px] flex-shrink-0">Auto-saving…</span>
+          <span className="text-white/70 ml-auto text-[10px] flex-shrink-0">
+            Auto-saving…
+          </span>
         </div>
       )}
 
@@ -204,12 +261,19 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
         data-tauri-drag-region
         className="w-full h-4 flex items-center justify-center cursor-move text-slate-600 hover:text-slate-400 active:text-slate-300 transition-colors"
       >
-        <div data-tauri-drag-region className="w-12 h-1 bg-white/20 rounded-full" />
+        <div
+          data-tauri-drag-region
+          className="w-12 h-1 bg-white/20 rounded-full"
+        />
       </div>
 
       {/* Facecam Display Area */}
-      {hasWebcam && DualRecordService.getInstance().hasWebcamVideoTrack() && shape !== "hidden" ? (
-        <div className={`relative overflow-hidden shadow-xl bg-black ${shapeContainerClass}`}>
+      {hasWebcam &&
+      DualRecordService.getInstance().hasWebcamVideoTrack() &&
+      shape !== "hidden" ? (
+        <div
+          className={`relative overflow-hidden shadow-xl bg-black ${shapeContainerClass}`}
+        >
           <video
             ref={videoRef}
             autoPlay
@@ -218,7 +282,9 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
             className={`w-full h-full object-cover ${isMirrored ? "scale-x-[-1]" : "scale-x-1"}`}
           />
           <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-lg">
-            <span className={`w-1.5 h-1.5 rounded-full bg-white ${isPaused ? "" : "animate-ping"}`} />
+            <span
+              className={`w-1.5 h-1.5 rounded-full bg-white ${isPaused ? "" : "animate-ping"}`}
+            />
             {isPaused ? "PAUSED" : `REC ${formatTime(seconds)}`}
           </div>
         </div>
@@ -229,20 +295,24 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
             {shape === "hidden" ? "Camera Hidden" : "Recording Screen"}
           </span>
           <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-lg">
-            <span className={`w-1.5 h-1.5 rounded-full bg-white ${isPaused ? "" : "animate-ping"}`} />
+            <span
+              className={`w-1.5 h-1.5 rounded-full bg-white ${isPaused ? "" : "animate-ping"}`}
+            />
             {isPaused ? "PAUSED" : `REC ${formatTime(seconds)}`}
           </div>
         </div>
       )}
 
       {/* Interactive Control Toolbar */}
-      <div className="w-full bg-[#181826]/90 border border-white/10 rounded-2xl p-2 flex items-center justify-between shadow-xl mb-1 gap-1">
+      <div className="w-full bg-surface-floating/95 border border-border rounded-2xl p-2 flex items-center justify-between shadow-xl mb-1 gap-1">
         {/* Left: Duration & Status */}
         <div className="flex flex-col ml-1">
           <span className="text-[8px] font-bold uppercase tracking-wider text-slate-500">
             {isPaused ? "PAUSED" : "REC"}
           </span>
-          <span className="text-xs font-bold text-white font-mono">{formatTime(seconds)}</span>
+          <span className="text-xs font-bold text-white font-mono">
+            {formatTime(seconds)}
+          </span>
         </div>
 
         {/* Middle: Interactive Actions */}
@@ -255,10 +325,14 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
             className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
               isPaused
                 ? "bg-amber-500/20 border-amber-500/40 text-amber-300 hover:bg-amber-500/30"
-                : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-white"
+                : "bg-surface-elevated border-border text-text-muted hover:bg-surface-hover hover:text-text-primary"
             }`}
           >
-            {isPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
+            {isPaused ? (
+              <Play className="w-3.5 h-3.5" />
+            ) : (
+              <Pause className="w-3.5 h-3.5" />
+            )}
           </button>
 
           {/* Mic Mute / Unmute */}
@@ -268,21 +342,27 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
             className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
               isMuted
                 ? "bg-red-500/20 border-red-500/40 text-red-400 hover:bg-red-500/30"
-                : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-white"
+                : "bg-surface-elevated border-border text-text-muted hover:bg-surface-hover hover:text-text-primary"
             }`}
           >
-            {isMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+            {isMuted ? (
+              <MicOff className="w-3.5 h-3.5" />
+            ) : (
+              <Mic className="w-3.5 h-3.5" />
+            )}
           </button>
 
           {/* Mirror Flip Toggle */}
           {hasWebcam && shape !== "hidden" && (
             <button
               onClick={toggleMirror}
-              title={isMirrored ? "Disable Selfie Mirror" : "Enable Selfie Mirror"}
+              title={
+                isMirrored ? "Disable Selfie Mirror" : "Enable Selfie Mirror"
+              }
               className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
                 isMirrored
                   ? "bg-accent/20 border-accent/40 text-accent hover:bg-accent/30"
-                  : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-white"
+                  : "bg-surface-elevated border-border text-text-muted hover:bg-surface-hover hover:text-text-primary"
               }`}
             >
               <FlipHorizontal className="w-3.5 h-3.5" />
@@ -294,9 +374,15 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
             <button
               onClick={toggleShape}
               title={`Camera Shape: ${shape}`}
-              className="p-1.5 rounded-lg bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10 hover:text-white transition-all cursor-pointer"
+              className="p-1.5 rounded-lg bg-surface-elevated border border-border text-text-muted hover:bg-surface-hover hover:text-text-primary transition-all cursor-pointer"
             >
-              {shape === "circle" ? <Circle className="w-3.5 h-3.5" /> : shape === "rectangle" ? <Square className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+              {shape === "circle" ? (
+                <Circle className="w-3.5 h-3.5" />
+              ) : shape === "rectangle" ? (
+                <Square className="w-3.5 h-3.5" />
+              ) : (
+                <EyeOff className="w-3.5 h-3.5" />
+              )}
             </button>
           )}
         </div>

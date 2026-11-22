@@ -1,6 +1,7 @@
+diff --git a/src/lib/timeline/timelineZoom.ts b/src/lib/timeline/timelineZoom.ts
 --- a/src/lib/timeline/timelineZoom.ts
 +++ b/src/lib/timeline/timelineZoom.ts
-@@ -100,8 +100,8 @@ export function calculateDiscreteWheelZoomTarget(
+@@ -114,6 +114,6 @@ export function calculateDiscreteWheelZoomTarget(
  ): number {
    const maxPps = getTimelineMaxPps(frameRate, sequenceDuration);
    const nominalMin = TIMELINE_MIN_PPS; // 10 px/s
@@ -8,6 +9,4 @@
 -  const factor = Math.pow(notchStep, Math.abs(notches));
 +  const exponent = Math.max(-0.22, Math.min(0.22, notches * 0.22));
 +  const factor = Math.exp(exponent);
-   return clampTimelinePixelsPerSecond(
-     notches > 0 ? basePps * factor : basePps / factor,
-     true,
+   // If basePps is already below nominalMin (e.g. Fit Sequence overview density),

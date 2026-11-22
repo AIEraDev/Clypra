@@ -178,6 +178,43 @@ mod tests {
     }
 
     // ==========================================
+    // DUAL-DOMAIN PATH SECURITY UNIT TESTS
+    // ==========================================
+
+    #[test]
+    fn test_validate_internal_managed_path_bounds() {
+        use std::path::Path;
+        let base = Path::new("/var/app/clypra_cache");
+
+        // Valid relative paths
+        assert!(validate_internal_managed_path(base, "waveforms/audio_1.bin").is_ok());
+        assert!(validate_internal_managed_path(base, "thumbnails/thumb.jpg").is_ok());
+
+        // Escaping attempts
+        assert!(validate_internal_managed_path(base, "../escaped.txt").is_err());
+        assert!(validate_internal_managed_path(base, "waveforms/../../etc/passwd").is_err());
+        assert!(validate_internal_managed_path(base, "/etc/passwd").is_err());
+        assert!(validate_internal_managed_path(base, "bad\0file").is_err());
+    }
+
+    #[test]
+    fn test_validate_user_destination_path_blocks_system_roots() {
+        // Forbidden system roots
+        assert!(validate_user_destination_path("/").is_err());
+        assert!(validate_user_destination_path("/etc/export.mp4").is_err());
+        assert!(validate_user_destination_path("/bin/sh").is_err());
+        assert!(validate_user_destination_path("/usr/local/bin/evil").is_err());
+        assert!(validate_user_destination_path("C:/Windows/System32/out.mp4").is_err());
+        assert!(validate_user_destination_path("C:/Program Files/test.mov").is_err());
+        assert!(validate_user_destination_path("C:/").is_err());
+
+        // Valid user paths
+        assert!(validate_user_destination_path("/Users/developer/Movies/export.mp4").is_ok());
+        assert!(validate_user_destination_path("/home/user/Videos/render.mov").is_ok());
+        assert!(validate_user_destination_path("D:/Projects/Clypra/export.mp4").is_ok());
+    }
+
+    // ==========================================
     // PROPTEST PROPERTY-BASED TESTS
     // ==========================================
 

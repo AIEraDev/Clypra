@@ -65,6 +65,8 @@ When an agent receives any new request, it must automatically evaluate the task 
 | **Lag, stutter, frame drop, high memory usage, IPC bottleneck, cache exhaustion, leaks** | `performance-reliability-engineering` | `clypra-dev` |
 | **Windows paths, macOS menus, Linux WebKitGTK, Tauri commands, IPC invoke, OS dialogs** | `tauri-cross-platform-engineering` | `architecture-design-review` |
 | **Tauri native API, OS window, HWND, NSWindow, GTK, GtkWindow, SetWindowPos, addChildWindow, run_on_main_thread, native UI thread safety, thread affinity, platform event loop, SIGTRAP, EXC_BREAKPOINT** | `tauri-native-thread-safety` | `tauri-cross-platform-engineering`, `bugfix-regression` |
+| **Cache, caching, CacheCoordinator, disk cache, unified cache, LRU eviction, memory budget, purge, ResourceCache, FilmstripTileCache, atomic write, quarantine** | `clypra-caching-engineering` | `performance-reliability-engineering`, `clypra-multi-tier-optimization`, `architecture-design-review` |
+| **Security, vulnerability, path traversal, injection, prototype pollution, sanitization, shell injection, Tauri capabilities, ACL, privacy redaction, Invariant 14** | `clypra-security-engineering` | `architecture-design-review`, `tauri-cross-platform-engineering`, `clypra-bug-hunter` |
 | **EvaluatedScene, thumbnail cache, filmstrip, decode pipeline, GPU compositor** | `clypra-media-regression-testing` | `nle-domain-engineering` |
 | **Subsystem boundary, store reorganization, persistence schema change, refactor** | `architecture-design-review` | `senior-engineer-decision-making` |
 | **Version bump, packaged installer (.dmg, .msi, .deb), sidecar binary, release audit** | `release-readiness` | `tauri-cross-platform-engineering` |
@@ -139,7 +141,27 @@ When an agent receives any new request, it must automatically evaluate the task 
 
 This skill is investigation-first and read-only by default. Do not implement changes unless the developer explicitly asks for implementation. Current research must be checked against Clypra's actual versions and architecture; performance claims require relevant measurements.
 
-### 3.8 Mandatory Mixed-Stack Benchmark & Deep Automation Contract
+### 3.8 Dedicated Caching Engineering Skill Registration
+
+| Field | Value |
+| :--- | :--- |
+| Skill | `clypra-caching-engineering` |
+| Path | `.agents/skills/clypra-caching-engineering/SKILL.md` |
+| Activates for | Multi-tier caching architecture, cache namespaces, in-memory participant registration, memory budgeting, LRU eviction weights, atomic writes, corrupted file quarantine, and project close session teardown |
+| Related skills | `performance-reliability-engineering`, `clypra-multi-tier-optimization`, `architecture-design-review` |
+| Required evidence | Atomic file persistence, explicit handle cleanup (`ImageBitmap.close()`), synchronous singleton access, session reset verification (Invariant 2), and 100% i18n key parity |
+
+### 3.9 Dedicated Security Engineering Skill Registration
+
+| Field | Value |
+| :--- | :--- |
+| Skill | `clypra-security-engineering` |
+| Path | `.agents/skills/clypra-security-engineering/SKILL.md` |
+| Activates for | Threat modeling, defensive architecture, input sanitization, path traversal defense, shell argument sanitization, prototype pollution protection, Web Worker compute DoS boundaries, Tauri v2 capability least privilege, and Invariant 14 privacy scrubbing |
+| Related skills | `architecture-design-review`, `tauri-cross-platform-engineering`, `clypra-bug-hunter`, `bugfix-regression` |
+| Required evidence | Strict input validation, discrete shell arguments, panic-free error propagation (`Result<T, String>`), path sanitization assertions, and property-based or negative unit tests |
+
+### 3.10 Mandatory Mixed-Stack Benchmark & Deep Automation Contract
 
 For every new feature, layer type, or subsystem upgrade, the agent must automatically execute the Deep Automation Contract:
 1. **Multi-Property Mixed-Stack Testing**: Evaluate against realistic composite timelines combining Video + Audio/Music + Text + Stickers + Transforms (`goldenProjectManifest.ts`). Never benchmark features in isolation.

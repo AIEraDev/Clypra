@@ -199,7 +199,7 @@ function LanguageSelector() {
       <div className="relative">
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-surface-raised border border-white/8 text-[12px] text-text-primary hover:border-white/15 transition-colors"
+          className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-surface-raised border border-border text-[12px] text-text-primary hover:border-border-strong transition-colors"
         >
           <span className="flex items-center gap-2">
             {selectedLanguage?.code === "auto" && (
@@ -212,15 +212,18 @@ function LanguageSelector() {
 
         {isOpen && (
           <>
-            <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-            <div className="absolute top-full left-0 right-0 mt-1 bg-surface-raised border border-white/10 rounded-lg shadow-xl z-50 overflow-hidden">
-              <div className="p-2 border-b border-white/6">
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setIsOpen(false)}
+            />
+            <div className="absolute top-full left-0 right-0 mt-1 bg-surface-floating border border-border rounded-lg shadow-xl z-50 overflow-hidden">
+              <div className="p-2 border-b border-border-subtle">
                 <input
                   type="text"
                   placeholder={t("common.actions.search")}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full px-3 py-1.5 bg-surface-raised/50 border border-white/6 rounded text-[12px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/40"
+                  className="w-full px-3 py-1.5 bg-surface-input border border-border rounded text-[12px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/40"
                   autoFocus
                 />
               </div>
@@ -233,13 +236,15 @@ function LanguageSelector() {
                       setIsOpen(false);
                       setSearchQuery("");
                     }}
-                    className={`w-full flex items-center justify-between px-3 py-2 text-[12px] transition-colors ${lang.code === captionSettings.language ? "bg-accent/10 text-accent" : "text-text-primary hover:bg-surface-raised"}`}
+                    className={`w-full flex items-center justify-between px-3 py-2 text-[12px] transition-colors ${lang.code === captionSettings.language ? "bg-accent/10 text-accent" : "text-text-primary hover:bg-surface-hover"}`}
                   >
                     <span className="flex items-center gap-2">
                       {lang.code === "auto" && <Sparkles className="w-3 h-3" />}
                       {lang.name}
                     </span>
-                    {lang.code === captionSettings.language && <Check className="w-3.5 h-3.5" />}
+                    {lang.code === captionSettings.language && (
+                      <Check className="w-3.5 h-3.5" />
+                    )}
                   </button>
                 ))}
               </div>
@@ -249,7 +254,8 @@ function LanguageSelector() {
       </div>
 
       <p className="text-[10px] text-text-muted leading-relaxed">
-        Auto-detect works well for most content. Set a language explicitly to improve accuracy for accented or mixed-language speech.
+        Auto-detect works well for most content. Set a language explicitly to
+        improve accuracy for accented or mixed-language speech.
       </p>
     </div>
   );
@@ -412,13 +418,15 @@ function ModelCard({ model }: { model: ModelInfo }) {
 
   return (
     <div
-      className={`rounded-xl p-4 border transition-all ${isActive ? "bg-accent/5 border-accent/30" : "bg-surface-raised/40 border-white/6 hover:border-white/10"}`}
+      className={`rounded-xl p-4 border transition-all ${isActive ? "bg-accent/5 border-accent/30" : "bg-surface-raised/40 border-border hover:border-border-strong"}`}
     >
       {/* Model header */}
       <div className="flex items-start justify-between gap-3 mb-2.5">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h4 className="text-[13px] font-semibold text-text-primary capitalize">{model.size}</h4>
+            <h4 className="text-[13px] font-semibold text-text-primary capitalize">
+              {model.size}
+            </h4>
             {model.recommended && (
               <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-accent/15 text-accent rounded-full uppercase tracking-wide">
                 {t("common.status.recommended")}
@@ -430,11 +438,17 @@ function ModelCard({ model }: { model: ModelInfo }) {
               </span>
             )}
           </div>
-          <p className="text-[11px] text-text-muted mt-1 leading-relaxed">{model.quality}</p>
+          <p className="text-[11px] text-text-muted mt-1 leading-relaxed">
+            {model.quality}
+          </p>
         </div>
         <div className="text-right shrink-0">
-          <div className="text-[10px] font-mono text-accent bg-accent/10 px-2 py-0.5 rounded">{model.speed}</div>
-          <div className="text-[9px] text-text-muted mt-1 font-mono">{model.params} · {model.vram}</div>
+          <div className="text-[10px] font-mono text-accent bg-accent/10 px-2 py-0.5 rounded">
+            {model.speed}
+          </div>
+          <div className="text-[9px] text-text-muted mt-1 font-mono">
+            {model.params} · {model.vram}
+          </div>
         </div>
       </div>
 
@@ -460,10 +474,15 @@ function ModelCard({ model }: { model: ModelInfo }) {
           </div>
           <div className="flex items-center justify-between text-[10px] font-mono text-text-muted">
             <span>
-              {formatFileSize(modelState.progressBytes)} / {formatFileSize(modelState.totalBytes)}
-              {modelState.speedBytesPerSec > 0 && ` · ${formatFileSize(modelState.speedBytesPerSec)}/s`}
+              {formatFileSize(modelState.progressBytes)} /{" "}
+              {formatFileSize(modelState.totalBytes)}
+              {modelState.speedBytesPerSec > 0 &&
+                ` · ${formatFileSize(modelState.speedBytesPerSec)}/s`}
             </span>
-            <button onClick={handleCancel} className="text-danger hover:underline">
+            <button
+              onClick={handleCancel}
+              className="text-danger hover:underline"
+            >
               {t("common.actions.cancel")}
             </button>
           </div>
@@ -481,7 +500,7 @@ function ModelCard({ model }: { model: ModelInfo }) {
           </button>
           <button
             onClick={handleDelete}
-            className="px-3 py-2 border border-white/8 text-text-muted rounded-lg hover:border-danger/40 hover:text-danger transition-colors"
+            className="px-3 py-2 border border-border text-text-muted rounded-lg hover:border-danger/40 hover:text-danger transition-colors"
             title={t("common.actions.delete")}
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -507,7 +526,9 @@ function ModelCard({ model }: { model: ModelInfo }) {
         <div className="space-y-2">
           <div className="flex items-start gap-2 p-2.5 bg-red-500/10 border border-red-500/20 rounded-lg">
             <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-red-400 flex-1">{modelState.errorMessage || t("errors.unknown")}</p>
+            <p className="text-[11px] text-red-400 flex-1">
+              {modelState.errorMessage || t("errors.unknown")}
+            </p>
           </div>
           <button
             onClick={handleRetry}
@@ -545,7 +566,8 @@ function ActiveModelIndicator() {
       <div className="flex items-start gap-2.5 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
         <AlertCircle className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
         <p className="text-[11px] text-blue-300/90 leading-relaxed">
-          No active model selected. Click "Use this model" on a downloaded model to enable auto-captions.
+          No active model selected. Click "Use this model" on a downloaded model
+          to enable auto-captions.
         </p>
       </div>
     );
@@ -558,7 +580,9 @@ function ActiveModelIndicator() {
       </div>
       <div className="flex-1 min-w-0">
         <span className="text-[11px] text-text-muted">Active model: </span>
-        <span className="text-[11px] font-semibold text-text-primary capitalize">{activeModel}</span>
+        <span className="text-[11px] font-semibold text-text-primary capitalize">
+          {activeModel}
+        </span>
       </div>
     </div>
   );
@@ -570,7 +594,9 @@ export const WhisperSettings: React.FC = () => {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h2 className="text-[13px] font-semibold text-text-primary mb-1">{t("settings.tabs.captions")}</h2>
+        <h2 className="text-[13px] font-semibold text-text-primary mb-1">
+          {t("settings.tabs.captions")}
+        </h2>
         <p className="text-[11px] text-text-muted leading-relaxed">
           {t("captions.generator.description")}
         </p>
@@ -581,7 +607,9 @@ export const WhisperSettings: React.FC = () => {
 
       {/* Model Download Manager */}
       <section className="space-y-2.5">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Whisper Models</h3>
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+          Whisper Models
+        </h3>
         <div className="space-y-2">
           {MODEL_INFO.map((model) => (
             <ModelCard key={model.size} model={model} />
@@ -593,12 +621,15 @@ export const WhisperSettings: React.FC = () => {
       <ActiveModelIndicator />
 
       {/* Privacy note */}
-      <div className="flex items-start gap-3 px-3.5 py-3 bg-surface-raised/40 border border-white/6 rounded-xl">
+      <div className="flex items-start gap-3 px-3.5 py-3 bg-surface-raised/40 border border-border rounded-xl">
         <Sparkles className="w-4 h-4 text-accent shrink-0 mt-0.5" />
         <div>
-          <p className="text-[11px] font-semibold text-text-primary mb-0.5">Local-First Privacy</p>
+          <p className="text-[11px] font-semibold text-text-primary mb-0.5">
+            Local-First Privacy
+          </p>
           <p className="text-[10px] text-text-muted leading-relaxed">
-            All models run locally on your device. Your audio never leaves your computer, ensuring complete privacy and offline functionality.
+            All models run locally on your device. Your audio never leaves your
+            computer, ensuring complete privacy and offline functionality.
           </p>
         </div>
       </div>

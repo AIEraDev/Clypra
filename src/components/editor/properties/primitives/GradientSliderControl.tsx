@@ -35,7 +35,7 @@ export const GradientSliderControl: React.FC<GradientSliderControlProps> = ({
 
   return (
     <div className="flex items-center gap-3">
-      <label className="text-sm text-white/80 min-w-[80px]">{label}</label>
+      <label className="text-sm text-text-primary min-w-[80px]">{label}</label>
       <div className="flex-1 flex items-center gap-2">
         <GradientSliderTrack
           value={value}

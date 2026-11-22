@@ -131,12 +131,138 @@ Each line:
 
 ```json
 {
+  "schemaVersion": 2,
   "kind": "frontend-rollup",
-  "session_id": "launch-1725890442123-ab3f7",
-  "timestamp_epoch_ms": 1725890472000,
+  "sessionId": "launch-1725890442123-ab3f7",
+  "timestampEpochMs": 1725890472000,
+  "seq": 42,
+  "scope": "frontend.webview",
   "payload": { ... PerformanceEventPayload ... }
 }
 ```
+
+Schema v2 records are self-describing: `seq` must be contiguous, `scope`
+identifies the producing tier, and the first record is a `session-header`.
+`preview-context` records declare the active presenter and stream keys. The
+ingest API rejects empty sessions, accepts legacy records for compatibility but
+grades them `untrusted`, and records malformed v2 provenance as `invalid`.
+Application shutdown appends a `session-footer` with `status: "closed"`; a
+project-close marker alone is intentionally incomplete. The complete envelope
+shape is checked in `scripts/perf/perf-v2.schema.json` and cross-record rules
+are enforced by `npm run perf:lint`.
+The two self-test clips (video-range Main10 and full-range 8-bit NV12) can be
+regenerated with `scripts/perf/make-fixtures.sh`; the script prefers
+VideoToolbox encoders on macOS and otherwise uses software encoders.
+
+Experiment binaries also run a real-decoder FFmpeg callback positive control at
+startup. Set `CLYPRA_FFMPEG_CALLBACK_FIXTURE` to the generated long-GOP fixture;
+the resulting header records `ffmpegCallbackVerified: true` only when the
+callback observes a genuine missing-reference warning. The offline arm
+comparator refuses to interpret zero POC/RPS incidents without that fact.
+The control can be exercised directly with:
+
+```bash
+bash scripts/perf/make-fixtures.sh tests/fixtures/perf
+CLYPRA_FFMPEG_CALLBACK_FIXTURE=tests/fixtures/perf/hevc-main10-video-range.mov \
+  cargo test --manifest-path src-tauri/Cargo.toml --lib \
+  filmstrip_engine::decoder::tests::real_decoder_positive_control_verifies_ffmpeg_callback \
+  -- --ignored
+```
+
+Decode selection is automatic by default. macOS tries VideoToolbox → Metal,
+Windows tries D3D11/DXGI, and unsupported or unavailable candidates fall back
+to CPU/software decoding. `CLYPRA_DECODE_PATH=auto|cpu|metal|dxgi` is an
+explicit diagnostic override; the legacy `CLYPRA_METAL_DECODE=1` remains
+accepted but is no longer required. `CLYPRA_REQUIRE_ZERO_COPY` is an assertion
+for validation runs, not a normal runtime prerequisite. Each session header
+records requested policy, effective policy, and a typed rejection reason when a
+foreign override is unsupported. Frame transfer telemetry records the path
+actually used. Metal P010 remains capability-gated as `unverified`; only the
+validated NV12 FourCCs enter the default zero-copy path until a Main10 parity
+session promotes it.
+
+To exercise the gated Main10 path deliberately, launch with
+`CLYPRA_DECODE_PATH=metal` (or `CLYPRA_ALLOW_UNVERIFIED=1`). The header then
+records `unverifiedCapabilityOverride: true` and
+`unverifiedCapabilitiesVerified: false`; these sessions are validation-only.
+
+P010 promotion is pre-registered: a single-stream Main10 session must lint
+clean with `metalP010 > 0`, `x420`/`xf20`, zero playback transfers, and no guard
+or unrecorded-outcome incidents; a self-identifying fixture must match the CPU
+reference within the documented pixel tolerance; and the `CVPixelBuffer`/Metal
+lease must remain held through GPU completion. Validation overrides are recorded
+with `unverifiedCapabilityOverride: true` and are never used as performance
+baselines.
+
+Until promotion, any Main10 frame rejected by the default gate increments
+`cpuNv12BitDepthReducedFrames`; this explicitly exposes the current 10-bit to
+8-bit fallback rather than presenting it as ordinary NV12 evidence.
+
+To validate the default on macOS, start a clean process with the old flags
+unset and inspect the session header for `decodePolicy: "auto"`,
+`decodePolicySource: "default"`, and `decodePolicyEffective: "auto"` (the
+stream decision should then report `metal-zero-copy-nv12` for validated NV12):
+
+```bash
+env -u CLYPRA_METAL_DECODE -u CLYPRA_DECODE_PATH npm run tauri dev
+```
+
+For a packaged-equivalent local binary, build with the custom protocol feature
+so the frontend is embedded, then launch `src-tauri/target/release/clypra`:
+
+```bash
+npm run build
+cargo build --manifest-path src-tauri/Cargo.toml --release --features custom-protocol
+env -u CLYPRA_METAL_DECODE -u CLYPRA_DECODE_PATH \
+  CLYPRA_REQUIRE_ZERO_COPY=1 src-tauri/target/release/clypra
+```
+
+### Deterministic preview experiment
+
+The development-only scenario driver is enabled with the Cargo feature
+`perf-driver`; normal release artifacts omit this feature, while a prebuilt
+experiment binary may enable it explicitly. Generate the
+fixed multi-layer workload and launch a local dev app with the same provenance:
+
+```bash
+node scripts/perf/run-preview-scenario.mjs --output /tmp/clypra-preview-scenario.json --arm B
+CLYPRA_FFMPEG_CALLBACK_FIXTURE=tests/fixtures/perf/hevc-main10-video-range.mov \
+CLYPRA_SCENARIO_ID=preview-multilayer-scrub-v1 \
+CLYPRA_SCENARIO_HASH=<hash-from-scenario> \
+CLYPRA_EXPERIMENT_ARM=B \
+CLYPRA_MEDIA_HASH=<sha256-of-the-fixed-media-set> \
+CLYPRA_PROJECT_HASH=<sha256-of-the-fixed-project-file> \
+npm run tauri -- dev --release --features perf-driver
+```
+
+Pass `--instrumentation-patch-hash <hash>` when the behavior commit is being
+tested from a baseline checkout with a shared measurement patch; the value is
+stored in the session header so the comparator can reject mixed instruments.
+
+With the app running, post the scenario to the debug IPC endpoint:
+
+```bash
+node scripts/perf/run-preview-scenario.mjs \
+  --scenario /tmp/clypra-preview-scenario.json \
+  --endpoint http://127.0.0.1:1422/debug/run_perf_scenario \
+  --arm B
+```
+
+Collect arms A (baseline behavior), B (dirty recovery enabled), and C
+(`CLYPRA_DEBUG_DISABLE_DIRTY_RECOVERY=1`) interleaved. Discard one warm-up and
+run at least five measured sessions per arm. The comparator enforces matching
+scenario and instrumentation hashes and applies the precommitted decision rule:
+decoder POC/RPS differences keep dirty recovery; a material stale-display/drop
+regression without decoder differences points to packet-boundary cancellation;
+otherwise investigate invalidation causes before changing lookahead policy.
+The pre-registered `dirty-recovery-v1` thresholds are a 20% higher median
+dropped-display ratio or a 20% lower median presented-frame count for dirty-on
+versus dirty-off. The report records this rule ID so later runs cannot silently
+change the interpretation.
+
+Before accepting an arm set, run `npm run perf:schema:check`. The comparator
+also requires a verified real-decoder FFmpeg callback positive control,
+matching instrumentation/media/project hashes, and nominal thermal state.
 
 ### Entry kinds
 
@@ -157,6 +283,28 @@ Each line:
 | `native-sync`       | `SyncMetricsSnapshot`     | A/V drift, frame pacing, seek correctness from Rust |
 | `native-diagnostic` | `NativeDiagnostic`        | Warnings / errors from the Tauri event bridge       |
 | `playback-trace`    | `PlaybackTraceEvent`      | State transitions, dropped frames, slow stages      |
+
+### Native lifecycle denominators
+
+Native preview telemetry reports two intentionally separate ledgers:
+
+- **Request accounting** uses accepted exact scrub/seek/frame-step demands as
+  its denominator. Its terminal outcomes are `presented`, `coalesced`,
+  `superseded`, `cancelled`, `droppedBeforePresent`, `failed`, and `abandoned`.
+  Continuous audio-clock playback ticks are not request records; they are
+  accounted through produced-frame telemetry.
+- **Produced-frame accounting** uses frames that entered the native
+  presentation lifecycle as its denominator. It reports `produced`,
+  `presented`, `droppedUnderBackpressure`, `obsoleteBeforePresentation`,
+  `failedAfterRecovery`, and `abandoned`.
+
+The ledgers must never be added together. A request can be superseded before a
+frame exists, while one produced frame can satisfy more than one request. The
+`lifecycle-registry-snapshot` diagnostic includes cumulative request accounting
+and retained lifecycle counts. Explicit demand terminal events include the
+internal lifecycle request identity, generation reason, queue residency/hit,
+and actor/queue/decoder wait timings so generation supersession and native
+contention can be correlated without guessing from aggregate drop ratios.
 
 ---
 
@@ -251,8 +399,17 @@ POST /performance/telemetry/ingest/session
   skipped: number; // entries that failed validation
   persistenceStatus: "saved" | "partial" | "failed";
   storage: "neon" | "d1" | "neon+d1" | "none";
+  evidenceGrade: "measured" | "untrusted" | "invalid";
+  trusted: boolean;
+  validationIssueCount: number;
+  legacy: boolean;
+  completionStatus: "complete" | "incomplete";
 }
 ```
+
+The API writes the untouched entry envelope to the private R2 archive before
+normalising analytics payloads. The database stores only the compact index,
+trust verdict, build/provenance fields, and bounded representative rollups.
 
 Entry size cap: **50,000 entries** per session (413 if exceeded).
 
@@ -307,6 +464,15 @@ CREATE TABLE session_perf_logs (
   total_entries     INT            NOT NULL DEFAULT 0,
   telemetry_events  INT            NOT NULL DEFAULT 0,
   skipped           INT            NOT NULL DEFAULT 0,
+  schema_version    INT,                           -- envelope version
+  evidence_grade    VARCHAR(16),                   -- measured/untrusted/invalid
+  validation_issue_count INT,
+  legacy            BOOLEAN,
+  completion_status VARCHAR(16),
+  preview_context_count INT,
+  build_sha         VARCHAR(64),
+  opt_level         VARCHAR(16),
+  debug_assertions  BOOLEAN,
   metrics_summary   JSONB,                          -- bounded representative rollups
   r2_key            TEXT,                           -- complete raw session archive in R2
   received_at       TIMESTAMPTZ    DEFAULT NOW()    -- indexed

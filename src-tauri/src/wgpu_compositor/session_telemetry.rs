@@ -28,14 +28,27 @@
 //! - **All Phase 5 fields populated** — `queue_wait_us`, `deadline_miss`,
 //!   `dropped`, `recorded_at`, `ipc_wait_us`, `gpu_render_us` are all tracked.
 
+use crate::native_core::performance::FrameTransferPath;
+use crate::native_core::NativeDemandOutcome;
 use crate::wgpu_compositor::frame_correlation::WorkloadMode;
 use crate::wgpu_compositor::frame_telemetry::FrameTelemetry;
 use crate::wgpu_compositor::render_path::FrameSource;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
+
+/// Debug-only metadata identifying a controlled scrub experiment. The context
+/// is optional so production sessions keep the existing payload shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScrubExperimentContext {
+    pub experiment_id: String,
+    pub run_id: String,
+    pub cache_cleared: bool,
+    pub background_decode_disabled: bool,
+}
 
 // ---------------------------------------------------------------------------
 // FramesBySource — breakdown of frames per render path
@@ -47,8 +60,17 @@ use std::time::Instant;
 pub struct FramesBySource {
     /// Frames imported via DXGI zero-copy (NV12 or P010).
     pub dxgi_nv12: u64,
+    /// Frames imported via Metal zero-copy on macOS.
+    #[serde(default)]
+    pub metal_nv12: u64,
+    /// Frames imported via Metal zero-copy using P010 planes.
+    #[serde(default)]
+    pub metal_p010: u64,
     /// Frames uploaded via CPU path as NV12.
     pub cpu_nv12: u64,
+    /// Frames uploaded via CPU path as P010.
+    #[serde(default)]
+    pub cpu_p010: u64,
     /// Frames uploaded via CPU path as RGBA8.
     pub cpu_rgba: u64,
     /// Frames with an unrecognised source (should be zero in normal operation).
@@ -93,12 +115,18 @@ pub struct WorkloadSnapshot {
     pub requests_received: u64,
     /// Requests for which a frame was successfully presented.
     pub requests_completed: u64,
+    /// Explicit alias with the presentation denominator named directly.
+    pub requests_presented: u64,
     /// Requests merged into an existing in-flight frame (intentional).
     pub requests_coalesced: u64,
     /// Requests replaced by a later request before decoding began.
     pub requests_superseded: u64,
     /// Requests cancelled (e.g. clip closed, session reset).
     pub requests_cancelled: u64,
+    /// Explicit demands dropped after entering presentation processing.
+    pub requests_dropped_before_present: u64,
+    /// Explicit demands that failed in the native pipeline.
+    pub requests_failed: u64,
 
     // ── Frame accounting ──────────────────────────────────────────────────────
     /// Total frames produced for this workload (pushed to telemetry).
@@ -147,9 +175,12 @@ struct WorkloadBucket {
     // Request and frame counters
     requests_received: u64,
     requests_completed: u64,
+    requests_presented: u64,
     requests_coalesced: u64,
     requests_superseded: u64,
     requests_cancelled: u64,
+    requests_dropped_before_present: u64,
+    requests_failed: u64,
     expected_frames: u64,
     completed_frames: u64,
     dropped_frames: u64,
@@ -169,9 +200,12 @@ impl WorkloadBucket {
             rng_state: 0xDEAD_BEEF_CAFE_1234,
             requests_received: 0,
             requests_completed: 0,
+            requests_presented: 0,
             requests_coalesced: 0,
             requests_superseded: 0,
             requests_cancelled: 0,
+            requests_dropped_before_present: 0,
+            requests_failed: 0,
             expected_frames: 0,
             completed_frames: 0,
             dropped_frames: 0,
@@ -210,10 +244,7 @@ impl WorkloadBucket {
 
         // Deadline policy: use the workload-specific threshold when no
         // `deadline_miss` flag is provided from the frame telemetry.
-        let missed = deadline_miss
-            || deadline_us
-                .map(|d| processing_us > d)
-                .unwrap_or(false);
+        let missed = deadline_miss || deadline_us.map(|d| processing_us > d).unwrap_or(false);
         if missed {
             self.missed_deadlines += 1;
         }
@@ -230,9 +261,26 @@ impl WorkloadBucket {
             let j = (self.next_rand() as usize) % (n + 1);
             if j < RESERVOIR_CAPACITY {
                 self.reservoir[j] = processing_us;
-                self.frame_proc_reservoir[j] =
-                    frame_proc_us.unwrap_or(processing_us);
+                self.frame_proc_reservoir[j] = frame_proc_us.unwrap_or(processing_us);
             }
+        }
+    }
+
+    fn record_request(&mut self) {
+        self.requests_received += 1;
+    }
+
+    fn record_request_terminal(&mut self, outcome: NativeDemandOutcome) {
+        match outcome {
+            NativeDemandOutcome::Presented => {
+                self.requests_completed += 1;
+                self.requests_presented += 1;
+            }
+            NativeDemandOutcome::Coalesced => self.requests_coalesced += 1,
+            NativeDemandOutcome::Superseded => self.requests_superseded += 1,
+            NativeDemandOutcome::Cancelled => self.requests_cancelled += 1,
+            NativeDemandOutcome::DroppedBeforePresent => self.requests_dropped_before_present += 1,
+            NativeDemandOutcome::Failed => self.requests_failed += 1,
         }
     }
 
@@ -255,9 +303,12 @@ impl WorkloadBucket {
         WorkloadSnapshot {
             requests_received: self.requests_received,
             requests_completed: self.requests_completed,
+            requests_presented: self.requests_presented,
             requests_coalesced: self.requests_coalesced,
             requests_superseded: self.requests_superseded,
             requests_cancelled: self.requests_cancelled,
+            requests_dropped_before_present: self.requests_dropped_before_present,
+            requests_failed: self.requests_failed,
             expected_frames: self.expected_frames,
             completed_frames: self.completed_frames,
             dropped_frames: self.dropped_frames,
@@ -316,6 +367,11 @@ pub struct SessionSnapshot {
     pub avg_ipc_wait_us: Option<u64>,
     pub peak_ipc_wait_us: Option<u64>,
 
+    /// Decode-actor wait is reported independently from decode time so queue
+    /// ownership contention cannot be misclassified as codec throughput.
+    pub avg_actor_wait_us: Option<u64>,
+    pub peak_actor_wait_us: Option<u64>,
+
     // ── GPU render (µs) — Phase 6 will populate ──────────────────────────────
     pub avg_gpu_render_us: Option<u64>,
     pub peak_gpu_render_us: Option<u64>,
@@ -335,6 +391,8 @@ pub struct SessionSnapshot {
     /// Absent when no correlated frames have been recorded.
     #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub workload_snapshots: HashMap<String, WorkloadSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub experiment_context: Option<ScrubExperimentContext>,
 }
 
 // ---------------------------------------------------------------------------
@@ -362,6 +420,10 @@ struct SessionState {
     ipc_wait_samples: u64,
     peak_ipc_wait_us: u64,
 
+    total_actor_wait_us: u64,
+    actor_wait_samples: u64,
+    peak_actor_wait_us: u64,
+
     // GPU render (Phase 6)
     total_gpu_render_us: u64,
     gpu_render_samples: u64,
@@ -369,7 +431,10 @@ struct SessionState {
 
     // Source breakdown
     dxgi_nv12_frames: u64,
+    metal_nv12_frames: u64,
+    metal_p010_frames: u64,
     cpu_nv12_frames: u64,
+    cpu_p010_frames: u64,
     cpu_rgba_frames: u64,
     unknown_frames: u64,
 
@@ -379,6 +444,12 @@ struct SessionState {
 
     // Per-workload accumulators (Phase 3.1)
     workload_buckets: HashMap<WorkloadMode, WorkloadBucket>,
+    /// Explicit demand IDs accepted by the native command boundary. These
+    /// sets make frontend timeout recovery idempotent with a late native
+    /// completion for the same operation.
+    received_request_ids: HashSet<String>,
+    terminal_request_ids: HashSet<String>,
+    experiment_context: Option<ScrubExperimentContext>,
 }
 
 impl Default for SessionState {
@@ -396,16 +467,25 @@ impl Default for SessionState {
             total_ipc_wait_us: 0,
             ipc_wait_samples: 0,
             peak_ipc_wait_us: 0,
+            total_actor_wait_us: 0,
+            actor_wait_samples: 0,
+            peak_actor_wait_us: 0,
             total_gpu_render_us: 0,
             gpu_render_samples: 0,
             peak_gpu_render_us: 0,
             dxgi_nv12_frames: 0,
+            metal_nv12_frames: 0,
+            metal_p010_frames: 0,
             cpu_nv12_frames: 0,
+            cpu_p010_frames: 0,
             cpu_rgba_frames: 0,
             unknown_frames: 0,
             policy_background_pauses: 0,
             policy_interactive_throttles: 0,
             workload_buckets: HashMap::new(),
+            received_request_ids: HashSet::new(),
+            terminal_request_ids: HashSet::new(),
+            experiment_context: None,
         }
     }
 }
@@ -445,6 +525,12 @@ impl SessionState {
             }
         }
 
+        if let Some(actor_wait) = t.actor_wait_us {
+            self.total_actor_wait_us += actor_wait;
+            self.actor_wait_samples += 1;
+            self.peak_actor_wait_us = self.peak_actor_wait_us.max(actor_wait);
+        }
+
         // GPU render — only measured samples (Phase 6)
         if let Some(gpu) = t.gpu_render_us {
             self.total_gpu_render_us += gpu;
@@ -457,8 +543,16 @@ impl SessionState {
         // Source breakdown
         match &t.source {
             FrameSource::DxgiNv12 { .. } => self.dxgi_nv12_frames += 1,
+            FrameSource::MetalNv12 { .. } => self.metal_nv12_frames += 1,
+            FrameSource::MetalP010 { .. } => self.metal_p010_frames += 1,
             FrameSource::CpuNv12 { .. } => self.cpu_nv12_frames += 1,
+            FrameSource::CpuP010 { .. } => self.cpu_p010_frames += 1,
             FrameSource::CpuRgba { .. } => self.cpu_rgba_frames += 1,
+            FrameSource::GpuRaster
+            | FrameSource::LookaheadQueue
+            | FrameSource::UnchangedSkipped
+            | FrameSource::Mixed
+            | FrameSource::Unknown => self.unknown_frames += 1,
         }
 
         // Per-workload bucket routing (Phase 3.1)
@@ -535,6 +629,15 @@ impl SessionState {
                 None
             },
 
+            avg_actor_wait_us: self
+                .total_actor_wait_us
+                .checked_div(self.actor_wait_samples),
+            peak_actor_wait_us: if self.actor_wait_samples > 0 {
+                Some(self.peak_actor_wait_us)
+            } else {
+                None
+            },
+
             avg_gpu_render_us: self
                 .total_gpu_render_us
                 .checked_div(self.gpu_render_samples),
@@ -546,7 +649,10 @@ impl SessionState {
 
             frames_by_source: FramesBySource {
                 dxgi_nv12: self.dxgi_nv12_frames,
+                metal_nv12: self.metal_nv12_frames,
+                metal_p010: self.metal_p010_frames,
                 cpu_nv12: self.cpu_nv12_frames,
+                cpu_p010: self.cpu_p010_frames,
                 cpu_rgba: self.cpu_rgba_frames,
                 unknown: self.unknown_frames,
             },
@@ -554,6 +660,7 @@ impl SessionState {
             policy_background_pauses: self.policy_background_pauses,
             policy_interactive_throttles: self.policy_interactive_throttles,
             workload_snapshots,
+            experiment_context: self.experiment_context.clone(),
         }
     }
 }
@@ -616,6 +723,75 @@ impl SessionTelemetryCollector {
         self.inner.lock().push(telemetry);
     }
 
+    /// Record an accepted explicit native demand. Continuous audio-clock
+    /// ticks intentionally do not call this method.
+    pub fn record_request_received(&self, workload: WorkloadMode) {
+        self.inner
+            .lock()
+            .workload_buckets
+            .entry(workload)
+            .or_insert_with(WorkloadBucket::new)
+            .record_request();
+    }
+
+    /// Record one accepted explicit demand by its unique operation ID.
+    pub fn record_request_received_for(&self, request_id: &str, workload: WorkloadMode) {
+        let mut state = self.inner.lock();
+        if !state.received_request_ids.insert(request_id.to_string()) {
+            return;
+        }
+        state
+            .workload_buckets
+            .entry(workload)
+            .or_insert_with(WorkloadBucket::new)
+            .record_request();
+    }
+
+    /// Record exactly one terminal outcome for an explicit native demand.
+    pub fn record_request_terminal(&self, workload: WorkloadMode, outcome: NativeDemandOutcome) {
+        self.inner
+            .lock()
+            .workload_buckets
+            .entry(workload)
+            .or_insert_with(WorkloadBucket::new)
+            .record_request_terminal(outcome);
+    }
+
+    /// Record one terminal outcome for an accepted explicit demand. Returns
+    /// false for an unknown or already-terminal request so late native work
+    /// cannot duplicate a frontend timeout/supersession outcome.
+    pub fn record_request_terminal_once(
+        &self,
+        request_id: &str,
+        workload: WorkloadMode,
+        outcome: NativeDemandOutcome,
+    ) -> bool {
+        let mut state = self.inner.lock();
+        if !state.received_request_ids.contains(request_id)
+            || !state.terminal_request_ids.insert(request_id.to_string())
+        {
+            return false;
+        }
+        state
+            .workload_buckets
+            .entry(workload)
+            .or_insert_with(WorkloadBucket::new)
+            .record_request_terminal(outcome);
+        true
+    }
+
+    pub fn set_experiment_context(&self, context: ScrubExperimentContext) {
+        self.inner.lock().experiment_context = Some(context);
+    }
+
+    pub fn clear_experiment_context(&self) {
+        self.inner.lock().experiment_context = None;
+    }
+
+    pub fn experiment_context(&self) -> Option<ScrubExperimentContext> {
+        self.inner.lock().experiment_context.clone()
+    }
+
     /// Record a policy event — call when `PerformanceManager` updates policy.
     pub fn record_policy_event(&self, background_paused: bool, interactive_throttled: bool) {
         let mut s = self.inner.lock();
@@ -648,15 +824,25 @@ impl SessionTelemetryCollector {
         self.inner.lock().frames_produced
     }
 
-    /// Record the frame transfer path / source directly (e.g. "dxgi-zero-copy", "cpu-nv12", "cpu-rgba").
-    pub fn record_frame_source(&self, transfer_path: &str) {
+    /// Record the frame transfer path / source directly. The producer supplies
+    /// the closed enum so a new path cannot silently become `unknown` or CPU.
+    pub fn record_frame_source(&self, transfer_path: FrameTransferPath) {
         let mut s = self.inner.lock();
         s.frames_produced += 1;
         match transfer_path {
-            "dxgi-zero-copy" => s.dxgi_nv12_frames += 1,
-            "cpu-nv12" => s.cpu_nv12_frames += 1,
-            "cpu-rgba" => s.cpu_rgba_frames += 1,
-            _ => s.unknown_frames += 1,
+            FrameTransferPath::DxgiShared => s.dxgi_nv12_frames += 1,
+            FrameTransferPath::MetalZeroCopyNv12 => s.metal_nv12_frames += 1,
+            FrameTransferPath::MetalZeroCopyP010 => s.metal_p010_frames += 1,
+            FrameTransferPath::CpuNv12 => s.cpu_nv12_frames += 1,
+            FrameTransferPath::CpuP010 => s.cpu_p010_frames += 1,
+            FrameTransferPath::CpuRgba => s.cpu_rgba_frames += 1,
+            FrameTransferPath::GpuRaster
+            | FrameTransferPath::LookaheadQueue
+            | FrameTransferPath::UnchangedSkipped
+            | FrameTransferPath::Mixed
+            | FrameTransferPath::Dropped
+            | FrameTransferPath::Stale
+            | FrameTransferPath::Unknown => s.unknown_frames += 1,
         }
     }
 }
@@ -710,6 +896,60 @@ mod tests {
     }
 
     #[test]
+    fn explicit_request_counters_use_request_denominator() {
+        let c = SessionTelemetryCollector::new();
+        c.record_request_received(WorkloadMode::Scrub);
+        c.record_request_received(WorkloadMode::Scrub);
+        c.record_request_terminal(WorkloadMode::Scrub, NativeDemandOutcome::Presented);
+        c.record_request_terminal(WorkloadMode::Scrub, NativeDemandOutcome::Superseded);
+        c.record_request_received(WorkloadMode::Playback);
+        c.record_request_terminal(
+            WorkloadMode::Playback,
+            NativeDemandOutcome::DroppedBeforePresent,
+        );
+
+        let snapshot = c.snapshot();
+        let scrub = snapshot
+            .workload_snapshots
+            .get("scrub")
+            .expect("scrub bucket");
+        assert_eq!(scrub.requests_received, 2);
+        assert_eq!(scrub.requests_completed, 1);
+        assert_eq!(scrub.requests_superseded, 1);
+        let playback = snapshot
+            .workload_snapshots
+            .get("playback")
+            .expect("playback bucket");
+        assert_eq!(playback.requests_received, 1);
+        assert_eq!(playback.requests_dropped_before_present, 1);
+    }
+
+    #[test]
+    fn scrub_experiment_context_is_present_in_snapshot_and_json() {
+        let c = SessionTelemetryCollector::new();
+        c.set_experiment_context(ScrubExperimentContext {
+            experiment_id: "cold-backward-vs-forward".to_string(),
+            run_id: "run-01".to_string(),
+            cache_cleared: true,
+            background_decode_disabled: true,
+        });
+
+        let snapshot = c.snapshot();
+        assert_eq!(
+            snapshot
+                .experiment_context
+                .as_ref()
+                .map(|context| context.run_id.as_str()),
+            Some("run-01")
+        );
+        let json = serde_json::to_value(snapshot).expect("snapshot serializes");
+        assert_eq!(
+            json["experimentContext"]["backgroundDecodeDisabled"],
+            serde_json::Value::Bool(true)
+        );
+    }
+
+    #[test]
     fn frame_counts_are_accurate() {
         let c = SessionTelemetryCollector::new();
         c.push(&rgba_frame(5000, Some(200), false, false));
@@ -743,6 +983,26 @@ mod tests {
         let s = c.snapshot();
         assert_eq!(s.avg_queue_wait_us, Some(500), "avg of 400+600 / 2");
         assert_eq!(s.peak_queue_wait_us, Some(600));
+    }
+
+    #[test]
+    fn actor_wait_is_reported_separately_from_decode_time() {
+        let c = SessionTelemetryCollector::new();
+        c.push(&FrameTelemetry {
+            decode_cpu_us: 1_000,
+            actor_wait_us: Some(20_000),
+            ..Default::default()
+        });
+        c.push(&FrameTelemetry {
+            decode_cpu_us: 3_000,
+            actor_wait_us: Some(40_000),
+            ..Default::default()
+        });
+
+        let snapshot = c.snapshot();
+        assert_eq!(snapshot.avg_decode_us, Some(2_000));
+        assert_eq!(snapshot.avg_actor_wait_us, Some(30_000));
+        assert_eq!(snapshot.peak_actor_wait_us, Some(40_000));
     }
 
     #[test]
@@ -795,10 +1055,10 @@ mod tests {
     #[test]
     fn test_record_frame_source_direct() {
         let c = SessionTelemetryCollector::new();
-        c.record_frame_source("dxgi-zero-copy");
-        c.record_frame_source("cpu-nv12");
-        c.record_frame_source("cpu-rgba");
-        c.record_frame_source("unknown-path");
+        c.record_frame_source(FrameTransferPath::DxgiShared);
+        c.record_frame_source(FrameTransferPath::CpuNv12);
+        c.record_frame_source(FrameTransferPath::CpuRgba);
+        c.record_frame_source(FrameTransferPath::Unknown);
 
         let s = c.snapshot();
         assert_eq!(s.frames_produced, 4);
@@ -831,6 +1091,38 @@ mod tests {
         let s = c.snapshot();
         assert_eq!(s.policy_background_pauses, 2);
         assert_eq!(s.policy_interactive_throttles, 1);
+    }
+
+    #[test]
+    fn keyed_request_terminal_is_recorded_once() {
+        let c = SessionTelemetryCollector::new();
+        c.record_request_received_for("op-1", WorkloadMode::Scrub);
+        assert!(c.record_request_terminal_once(
+            "op-1",
+            WorkloadMode::Scrub,
+            NativeDemandOutcome::Presented,
+        ));
+        assert!(!c.record_request_terminal_once(
+            "op-1",
+            WorkloadMode::Scrub,
+            NativeDemandOutcome::Cancelled,
+        ));
+        assert!(!c.record_request_terminal_once(
+            "unknown",
+            WorkloadMode::Scrub,
+            NativeDemandOutcome::Failed,
+        ));
+
+        let snapshot = c.snapshot();
+        let scrub = snapshot
+            .workload_snapshots
+            .get("scrub")
+            .expect("scrub workload snapshot");
+        assert_eq!(scrub.requests_received, 1);
+        assert_eq!(scrub.requests_presented, 1);
+        assert_eq!(scrub.requests_completed, 1);
+        assert_eq!(scrub.requests_cancelled, 0);
+        assert_eq!(scrub.requests_failed, 0);
     }
 
     #[test]

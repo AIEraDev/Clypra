@@ -224,7 +224,11 @@ export class PlaybackClock {
     }
     // CPAL position available — extrapolate from the latest hardware sample
     // (highest accuracy, preferred path during live CPAL playback).
-    if (this._state === "playing" && this._nativeClockPosition) {
+    if (
+      this._state === "playing" &&
+      this._nativeClockPosition &&
+      this._hasRealNativeClockSample
+    ) {
       const elapsed =
         Math.max(
           0,
@@ -259,7 +263,7 @@ export class PlaybackClock {
       const CPAL_INIT_TIMEOUT_SEC = 2.0;
       if (
         elapsed > CPAL_INIT_TIMEOUT_SEC &&
-        !this._nativeClockPosition &&
+        !this._hasRealNativeClockSample &&
         !this._nativeAudioUnavailable
       ) {
         console.warn(
@@ -528,7 +532,17 @@ export class PlaybackClock {
     };
     this._time = clampedTime;
     this._generation++;
+    const currentGeneration = this._generation;
     this._notifyListeners();
+
+    if (this._state === "playing") {
+      if (this._rafId !== null) {
+        cancelAnimationFrame(this._rafId);
+      }
+      this._rafId = requestAnimationFrame(() =>
+        this._tickWithGeneration(currentGeneration),
+      );
+    }
   }
 
   /** Stop consuming native samples and return to the local audio clock. */
@@ -566,32 +580,53 @@ export class PlaybackClock {
 
   /**
    * Set frame rate.
+   * CLY-BUG-011 fix: Reject non-finite fps values to prevent _frameRate = NaN
+   * which permanently breaks timecode display for the session.
    */
   setFrameRate(fps: number): void {
-    this._frameRate = Math.max(1, fps);
+    this._frameRate = Number.isFinite(fps) && fps > 0 ? fps : 30;
     this._notifyListeners();
   }
 
   /**
    * Set playback speed.
-   * PB-BUG-006 fix: Syncs _time from AudioContext before pausing to prevent
-   * ~8ms drift caused by stale _time from the last RAF tick.
+   * CLY-BUG-007 fix: Re-anchors the clock inline instead of calling pause()/play(),
+   * which fired spurious "paused"→"playing" events causing unnecessary native IPC
+   * transport reloads. Also validates speed is a finite positive number.
    */
   setSpeed(speed: number): void {
-    const wasPlaying = this._state === "playing";
-
-    if (wasPlaying) {
-      // Sync from whichever clock is authoritative. During native takeover,
-      // reading AudioContext here would rewind/advance the playhead away from
-      // the CPAL hardware position.
-      this._time = this.time;
-      this.pause(true);
+    if (!Number.isFinite(speed)) {
+      return;
     }
 
+    const wasPlaying = this._state === "playing";
+
+    // Clamp to supported range
     this._speed = Math.max(0.1, Math.min(4, speed));
 
     if (wasPlaying) {
-      this.play();
+      // Re-anchor the clock at the current position WITHOUT emitting pause/play.
+      // This keeps the state machine in "playing" and avoids a full native IPC reload.
+      const now = this.time;
+
+      if (this._nativeClockAuthority) {
+        // Update the native clock anchor so extrapolation uses the new speed from now.
+        this._playStartMs = performance.now();
+        this._playStartClockTime = now;
+        if (this._nativeClockPosition) {
+          this._nativeClockPosition = {
+            time: now,
+            receivedAtMs: performance.now(),
+            speed: this._speed,
+          };
+        }
+      } else if (this._audioContext) {
+        // Re-anchor AudioContext start references for the browser clock path.
+        this._playStartAudioTime = this._audioContext.currentTime;
+        this._playStartClockTime = now;
+      }
+
+      this._time = now;
     }
 
     this._notifyListeners();
@@ -1014,6 +1049,7 @@ export class PlaybackClock {
     this._nativeClockPosition = null;
     this._hasRealNativeClockSample = false;
     this._nativeClockAuthority = false;
+    this._nativeAudioUnavailable = false;
 
     if (this._audioContext && this._ownsAudioContext) {
       this._audioContext.close();
@@ -1044,6 +1080,8 @@ export class PlaybackClock {
     this._nativeClockPosition = null;
     this._hasRealNativeClockSample = false;
     this._nativeClockAuthority = false;
+    this._nativeAudioUnavailable = false;
+    this._consecutiveBackwardPollCount = 0;
     this._clipFreezeMap.clear();
     this._stallStartAudioTime = null;
     if (this._audioContext && this._ownsAudioContext) {

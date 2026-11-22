@@ -163,6 +163,30 @@ export interface NativePreviewPerformanceReport {
   pushBridge: NativePlaybackPushStatus | null;
   playbackCacheInsertSkipped?: boolean;
   coldStart?: ColdStartReport;
+  lifecycle?: NativeLifecycleAccounting;
+}
+
+export interface NativeLifecycleAccounting {
+  requests: {
+    accepted: number;
+    terminal: number;
+    presented: number;
+    superseded: number;
+    coalesced: number;
+    cancelled: number;
+    droppedBeforePresent: number;
+    failed: number;
+    abandoned: number;
+  };
+  requestsUnresolved: number;
+  frames: {
+    produced: number;
+    presented: number;
+    droppedUnderBackpressure: number;
+    obsoleteBeforePresentation: number;
+    failedAfterRecovery: number;
+    abandoned: number;
+  };
 }
 
 export interface NativePlaybackPushStatus {
@@ -215,10 +239,16 @@ export interface NativePerformanceSample {
   /** Actual decoded-frame transfer path, not the scheduling/cache strategy. */
   transferPath?:
     | "dxgi-zero-copy"
+    | "metal-zero-copy-nv12"
+    | "metal-zero-copy-p010"
     | "cpu-nv12"
+    | "cpu-p010"
     | "cpu-rgba"
+    | "lookahead-queue"
+    | "unchanged-skipped"
     | "mixed"
     | "gpu-raster"
+    | "unknown"
     | string;
   cancelled?: boolean;
   stale?: boolean;
@@ -523,12 +553,27 @@ export interface NativeSurfacePresentation {
   mode?: "playback" | "scrub" | "seek" | "frameStep";
   stale?: boolean;
   cancelled?: boolean;
+  terminalDisposition?:
+    | "presented"
+    | "superseded"
+    | "cancelled"
+    | "dropped-before-present"
+    | "failed";
+  /** Stable source-level classification; prefer this over legacy strings. */
+  outcome?: "presented" | "superseded" | "droppedBeforePresent";
   dropReason?:
     | "stale"
     | "cancelled"
     | "late-for-audio"
     | "present-failed"
-    | "lookahead-miss";
+    | "lookahead-miss"
+    | "superseded"
+    | "backpressure";
+  dropReasonCode?:
+    | "lookahead-miss"
+    | "late-for-audio"
+    | "superseded"
+    | "backpressure";
   timings?: {
     totalUs: number;
     decodeUs: number;
@@ -547,6 +592,82 @@ export interface NativeSurfacePresentation {
     queueResidencyUs?: number;
     queueHit: boolean;
   };
+}
+
+/**
+ * A latest-value native demand can terminate before presentation when it is
+ * superseded, cancelled at a recency fence, or fails in the presentation
+ * pipeline. The visible target generation is kept separate from the native
+ * cancellation epoch so forward scrub acknowledgements remain correlatable.
+ */
+export interface NativePlaybackDemandTerminal {
+  requestId: string;
+  /** Internal native lifecycle identity; external request IDs may be reused. */
+  lifecycleRequestId?: string;
+  generation?: number;
+  cancellationEpoch: number;
+  frameIndex: number;
+  disposition:
+    | "presented"
+    | "coalesced"
+    | "superseded"
+    | "cancelled"
+    | "dropped-before-present"
+    | "failed";
+  outcome?:
+    | "presented"
+    | "coalesced"
+    | "superseded"
+    | "cancelled"
+    | "droppedBeforePresent"
+    | "failed";
+  workload?:
+    | "playback"
+    | "pausedInteraction"
+    | "seekCold"
+    | "seekWarm"
+    | "scrub"
+    | "frameStep";
+  experimentContext?: NativeScrubExperimentContext;
+  stage: "mailbox" | "audio-clock" | "recency-fence" | "decode" | "presentation";
+  reason: string;
+  scrubDirection?: "forward" | "backward" | "stationary";
+  actorWaitUs?: number;
+  actorQueueWaitUs?: number;
+  decoderMutexWaitUs?: number;
+  queueResidencyUs?: number;
+  queueHit?: boolean;
+  /** Concrete native presentation error, when disposition is failed. */
+  error?: string;
+  surfaceState?: {
+    runtimeEpoch: number;
+    configured: boolean;
+    hasSurface: boolean;
+    hasSurfaceWindow: boolean;
+    shown: boolean;
+    format?: string;
+    probeStatus?: string;
+  };
+}
+
+/** Frontend-owned timeout/abandonment finalization for an accepted demand. */
+export interface NativePlaybackDemandAbandonment {
+  requestId: string;
+  frameIndex: number;
+  generation?: number;
+  cancellationEpoch: number;
+  isScrubbing: boolean;
+  mode?: NativeFrameRequest["mode"];
+  scrubDirection?: NativeScrubDirection;
+  outcome: "superseded" | "cancelled" | "droppedBeforePresent" | "failed";
+  reason: string;
+}
+
+export interface NativeScrubExperimentContext {
+  experimentId: string;
+  runId: string;
+  cacheCleared: boolean;
+  backgroundDecodeDisabled: boolean;
 }
 
 export interface NativeSyncDriftSnapshot {
@@ -580,6 +701,7 @@ export interface NativeSyncSeekSnapshot {
     presented_ticks: number;
     latency_micros: number;
     correct: boolean;
+    generation?: number;
   }>;
 }
 
@@ -595,7 +717,10 @@ export interface NativeSyncMetricsSnapshot {
 /** Source breakdown of rendered frames in the session. */
 export interface NativeFramesBySource {
   dxgiNv12: number;
+  metalNv12: number;
+  metalP010: number;
   cpuNv12: number;
+  cpuP010: number;
   cpuRgba: number;
   unknown: number;
 }
@@ -614,11 +739,32 @@ export interface NativeSessionSnapshot {
   peakQueueWaitUs?: number | null;
   avgIpcWaitUs?: number | null;
   peakIpcWaitUs?: number | null;
+  avgActorWaitUs?: number | null;
+  peakActorWaitUs?: number | null;
   avgGpuRenderUs?: number | null;
   peakGpuRenderUs?: number | null;
   framesBySource: NativeFramesBySource;
   policyBackgroundPauses: number;
   policyInteractiveThrottles: number;
+  workloadSnapshots?: Record<string, {
+    requestsReceived: number;
+    requestsCompleted: number;
+    requestsPresented?: number;
+    requestsCoalesced: number;
+    requestsSuperseded: number;
+    requestsCancelled: number;
+    requestsDroppedBeforePresent?: number;
+    requestsFailed?: number;
+    expectedFrames: number;
+    completedFrames: number;
+    droppedFrames: number;
+    missedDeadlines: number;
+    p50Us?: number | null;
+    p95Us?: number | null;
+    p99Us?: number | null;
+    frameProcessingP50Us?: number | null;
+  }>;
+  experimentContext?: NativeScrubExperimentContext;
 }
 
 export interface NativeFrameTime {
@@ -955,7 +1101,11 @@ export interface NativePlaybackFrameDemand {
   requestId: string;
   frameTime: NativeFrameTime;
   generation?: number;
+  /** Decoder/queue cancellation boundary; separate from the visible target. */
+  cancellationEpoch?: number;
   mode?: NativeFrameRequest["mode"];
+  isScrubbing?: boolean;
+  scrubDirection?: NativeScrubDirection;
   videoLayers: Array<{
     layerId?: string;
     sourceTime: NativeFrameTime;
@@ -995,16 +1145,26 @@ export interface NativePlaybackFrameDemand {
   transitionProgress?: number;
 }
 
+export type NativeScrubDirection = "forward" | "backward" | "stationary";
+
 /** Build the compact per-frame update for the persistent Rust Native session. */
 export function createNativePlaybackFrameDemand(
   request: NativeFrameRequest,
+  lifecycle?: {
+    cancellationEpoch?: number;
+    isScrubbing?: boolean;
+    scrubDirection?: NativeScrubDirection;
+  },
 ): NativePlaybackFrameDemand {
   return {
     contractVersion: request.contractVersion,
     requestId: request.requestId,
     frameTime: request.frameTime,
     generation: request.generation,
+    cancellationEpoch: lifecycle?.cancellationEpoch,
     mode: request.mode,
+    isScrubbing: lifecycle?.isScrubbing ?? request.isScrubbing === true,
+    scrubDirection: lifecycle?.scrubDirection,
     videoLayers: request.project.videoLayers.map((layer) => ({
       layerId: layer.layerId,
       sourceTime: layer.sourceTime,

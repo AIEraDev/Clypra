@@ -204,7 +204,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   return (
     <div
       data-properties-panel="true"
-      className={`min-h-0 panel-shell flex flex-col overflow-hidden transition-[width] duration-150 ${
+      className={`min-h-0 bg-surface-panel border border-border-default rounded-md flex flex-col overflow-hidden transition-[width] duration-150 ${
         fillWidth && !collapsed ? "w-full flex-1" : "shrink-0"
       } ${className}`}
       style={{
@@ -374,7 +374,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           };
 
           return (
-            <div className="sticky bottom-0 left-0 right-0 bg-panel border-t border-white/5 px-3 py-2 space-y-1.5">
+            <div className="sticky bottom-0 left-0 right-0 bg-surface-panel border-t border-border-default px-3 py-2 space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-medium text-text-muted">
                   {t("properties.animation.duration")}
@@ -384,7 +384,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     type="button"
                     aria-label="Decrease duration"
                     onClick={() => step(-0.1)}
-                    className="p-0.5 rounded hover:bg-white/10 text-text-muted hover:text-white transition-colors cursor-pointer"
+                    className="p-0.5 rounded hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors cursor-pointer"
                   >
                     <svg
                       width="14"
@@ -396,14 +396,14 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                       <path d="M3 7h8" strokeLinecap="round" />
                     </svg>
                   </button>
-                  <span className="min-w-[44px] text-center text-[11px] font-mono text-white bg-[#2a2a2a] rounded px-1.5 py-0.5">
+                  <span className="min-w-[44px] text-center text-[11px] font-mono text-text-primary bg-surface-input border border-border-default rounded px-1.5 py-0.5">
                     {currentDuration.toFixed(1)}s
                   </span>
                   <button
                     type="button"
                     aria-label="Increase duration"
                     onClick={() => step(0.1)}
-                    className="p-0.5 rounded hover:bg-white/10 text-text-muted hover:text-white transition-colors cursor-pointer"
+                    className="p-0.5 rounded hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors cursor-pointer"
                   >
                     <svg
                       width="14"
@@ -419,15 +419,15 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               </div>
               {/* Slider track with click & drag scrubbing */}
               <div
-                className="relative h-1.5 rounded-full bg-white/10 cursor-pointer select-none touch-none"
+                className="relative h-1.5 rounded-full bg-border-default cursor-pointer select-none touch-none"
                 onPointerDown={handleTrackPointerDown}
               >
                 <div
-                  className="absolute inset-y-0 left-0 rounded-full bg-[#00E5FF]/70 pointer-events-none"
+                  className="absolute inset-y-0 left-0 rounded-full bg-accent-primary/70 pointer-events-none"
                   style={{ width: `${(currentDuration / maxDuration) * 100}%` }}
                 />
                 <div
-                  className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white shadow border border-white/20 pointer-events-none"
+                  className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-accent-primary shadow border border-accent-primary/40 pointer-events-none"
                   style={{
                     left: `calc(${(currentDuration / maxDuration) * 100}% - 6px)`,
                   }}
@@ -438,7 +438,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
         }
 
         return (
-          <div className="sticky bottom-0 left-0 right-0 bg-panel flex justify-end items-center gap-2 p-1.5 border-t border-white/5">
+          <div className="sticky bottom-0 left-0 right-0 bg-surface-panel flex justify-end items-center gap-2 p-1.5 border-t border-border-default">
             <button
               type="button"
               onClick={() => {
@@ -448,7 +448,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   });
                 }
               }}
-              className="bg-[#38383e] hover:bg-[#4a4a52] text-white font-medium text-xs px-3.5 py-1.5 rounded-md transition-colors cursor-pointer shadow-sm"
+              className="bg-surface-elevated hover:bg-surface-hover border border-border-default text-text-primary font-medium text-xs px-3.5 py-1.5 rounded-md transition-colors cursor-pointer shadow-xs"
             >
               {t("common.actions.reset")}
             </button>

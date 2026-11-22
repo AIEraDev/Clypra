@@ -5,6 +5,7 @@ import type {
   TransitionType,
   TransitionEasing,
 } from "@/types";
+import { useI18n } from "@/i18n";
 import { PropertySection } from "../../primitives/PropertySection";
 import { SliderTrack } from "../../primitives/SliderTrack";
 import { NumericControl } from "../../primitives/NumericControl";
@@ -36,6 +37,7 @@ export const TransitionSection: React.FC<TransitionSectionProps> = ({
   removeTransition,
   clearSelection,
 }) => {
+  const { t } = useI18n();
   const handleTypeChange = useCallback(
     (val: string) => {
       updateTransition(selectedTransition.id, { type: val as TransitionType });
@@ -80,13 +82,13 @@ export const TransitionSection: React.FC<TransitionSectionProps> = ({
   return (
     <div className="space-y-3">
       <PropertySection
-        title="Transition Settings"
+        title={t("properties.transition.title")}
         icon={<Shuffle className="w-3.5 h-3.5" />}
       >
         <div className="space-y-3">
           {/* Transition Type */}
           <PropertySelect
-            label="Type"
+            label={t("properties.transition.type")}
             value={selectedTransition.type}
             options={TRANSITION_TYPE_OPTIONS}
             onChange={handleTypeChange}
@@ -94,7 +96,7 @@ export const TransitionSection: React.FC<TransitionSectionProps> = ({
 
           {/* Easing */}
           <PropertySelect
-            label="Easing"
+            label={t("properties.transition.easing")}
             value={selectedTransition.easing}
             options={EASING_OPTIONS}
             onChange={handleEasingChange}
@@ -102,8 +104,8 @@ export const TransitionSection: React.FC<TransitionSectionProps> = ({
 
           {/* Duration */}
           <div className="space-y-1">
-            <span className="text-[11px] text-white select-none block">
-              Duration
+            <span className="text-[11px] text-text-primary select-none block">
+              {t("properties.transition.duration")}
             </span>
             <div className="flex items-center gap-2">
               <SliderTrack
@@ -118,7 +120,7 @@ export const TransitionSection: React.FC<TransitionSectionProps> = ({
                 onChange={handleDurationChange}
                 step={0.1}
                 suffix="s"
-                ariaLabel="Transition Duration"
+                ariaLabel={t("properties.transition.ariaDuration")}
                 min={0.1}
                 max={2.0}
                 inputPosition="text-right"
@@ -135,7 +137,7 @@ export const TransitionSection: React.FC<TransitionSectionProps> = ({
           className="w-full flex items-center justify-center gap-2 py-2 text-xs font-semibold bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/30 text-red-400 rounded-lg transition-all active:scale-[0.98] cursor-pointer"
         >
           <Trash2 className="w-3.5 h-3.5" />
-          Remove Transition
+          {t("properties.transition.remove")}
         </button>
       </div>
     </div>

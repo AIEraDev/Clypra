@@ -11,8 +11,8 @@ use crate::filmstrip_engine::decoder::{
     get_preview_decoder_for_stream, preview_pool_key, DecodeFrameOptions,
 };
 use crate::filmstrip_engine::stream_actor::types::{
-    ActorDecodeRequest, DecodedActorFrame, StreamDecodeJob, DEFAULT_FRAME_DURATION_SECS,
-    MAX_PREVIEW_ACTOR_POOL_SIZE, PRODUCER_DOWNLOADS_WASTED,
+    ActorDecodeRequest, DecodedActorFrame, StreamDecodeError, StreamDecodeJob,
+    DEFAULT_FRAME_DURATION_SECS, MAX_PREVIEW_ACTOR_POOL_SIZE, PRODUCER_DOWNLOADS_WASTED,
 };
 use crate::filmstrip_engine::stream_actor::worker::StreamDecoderActor;
 
@@ -53,7 +53,7 @@ impl StreamDecoderActorHandle {
         mut options: DecodeFrameOptions,
         is_prefetch: bool,
         generation: u64,
-    ) -> Result<DecodedActorFrame, String> {
+    ) -> Result<DecodedActorFrame, StreamDecodeError> {
         options.is_playback = false;
         self.decode_frame_with_policy(time_secs, options, is_prefetch, false, generation)
             .await
@@ -69,7 +69,7 @@ impl StreamDecoderActorHandle {
         time_secs: f64,
         mut options: DecodeFrameOptions,
         generation: u64,
-    ) -> Result<DecodedActorFrame, String> {
+    ) -> Result<DecodedActorFrame, StreamDecodeError> {
         options.is_playback = true;
         self.decode_frame_with_policy(time_secs, options, false, true, generation)
             .await
@@ -82,7 +82,7 @@ impl StreamDecoderActorHandle {
         is_prefetch: bool,
         playback_latest_frame_wins: bool,
         generation: u64,
-    ) -> Result<DecodedActorFrame, String> {
+    ) -> Result<DecodedActorFrame, StreamDecodeError> {
         let start = Instant::now();
         let frame_duration = self.frame_duration_secs.max(0.001);
         let tolerance = (frame_duration * 0.95).max(0.001);
@@ -180,18 +180,18 @@ impl StreamDecoderActorHandle {
             self.prefetch_tx
                 .send(job)
                 .await
-                .map_err(|_| "Stream decoder actor is shut down".to_string())?;
+                .map_err(|_| StreamDecodeError::Actor("Stream decoder actor is shut down".to_string()))?;
         } else {
             self.urgent_tx
                 .send(job)
                 .await
-                .map_err(|_| "Stream decoder actor is shut down".to_string())?;
+                .map_err(|_| StreamDecodeError::Actor("Stream decoder actor is shut down".to_string()))?;
         }
         let channel_enqueue_us = enqueued_at.elapsed().as_micros().min(u64::MAX as u128) as u64;
 
         let mut res = response_rx
             .await
-            .map_err(|_| "Decoder actor dropped response channel".to_string())??;
+            .map_err(|_| StreamDecodeError::Actor("Decoder actor dropped response channel".to_string()))??;
         res.actor_wait_us = start.elapsed().as_micros().min(u64::MAX as u128) as u64;
         res.channel_enqueue_us = channel_enqueue_us;
         Ok(res)
@@ -201,6 +201,25 @@ impl StreamDecoderActorHandle {
     pub fn invalidate(&self, generation: u64) {
         self.current_generation
             .fetch_max(generation, Ordering::AcqRel);
+        self.cancel_in_flight.store(true, Ordering::Release);
+        // Cached frames were decoded under an older transport generation. A
+        // playback restart after a scrub must establish a new decoder anchor,
+        // never satisfy the first demand from a stale GOP cache entry.
+        if let Ok(mut cache) = self.prime_cache.try_lock() {
+            for frame in cache.drain(..) {
+                if frame.served_count == 0 {
+                    PRODUCER_DOWNLOADS_WASTED.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        }
+    }
+
+    /// Interrupt background decode without advancing the native generation or
+    /// clearing already-decoded frames. Interactive scrub/seek work uses this
+    /// lighter boundary so a long playback/lookahead decode cannot hold the
+    /// actor, while the exact request remains eligible to use a current cache
+    /// entry and still establishes its own cancellation epoch.
+    pub fn preempt_background_decode(&self) {
         self.cancel_in_flight.store(true, Ordering::Release);
     }
 

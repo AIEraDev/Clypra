@@ -7,7 +7,7 @@ import {
   isTauriRuntime,
 } from "@/lib/platform/tauri";
 import { isClipActiveAtTime } from "@/lib/timeline/timelineClip";
-import { resolveClipVisualBounds } from "../transform/TransformOverlay";
+import { resolveClipVisualBounds } from "@/lib/transform/transformUtils";
 
 export interface NativeEditorOverlayParams {
   canvasWidth: number;
@@ -314,49 +314,6 @@ export function rasterizeNativeEditorOverlay(
       ctx.lineWidth = Math.max(1, 1 * invScale);
       ctx.stroke();
     }
-
-    // Rotation Handle: floating 32px below the bottom edge (matching TransformOverlay.tsx), 20px screen diameter
-    const rotOffset = 32 * invScale;
-    const rotRadius = 10 * invScale;
-    const rotY = halfH + rotOffset;
-
-    ctx.save();
-    ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
-    ctx.shadowBlur = Math.max(3, 6 * invScale);
-    ctx.shadowOffsetY = Math.max(1, 3 * invScale);
-    ctx.beginPath();
-    ctx.arc(0, rotY, rotRadius, 0, Math.PI * 2);
-    ctx.fillStyle = "#ffffff";
-    ctx.fill();
-    ctx.restore();
-
-    ctx.beginPath();
-    ctx.arc(0, rotY, rotRadius, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.25)";
-    ctx.lineWidth = Math.max(1, 1 * invScale);
-    ctx.stroke();
-
-    // Curved rotation arrow icon inside the rotation handle circle
-    ctx.save();
-    ctx.translate(0, rotY);
-    const iconScale = (12 / 24) * invScale;
-    ctx.scale(iconScale, iconScale);
-    ctx.translate(-12, -12); // Center the 24x24 SVG viewBox at (0, 0)
-    ctx.strokeStyle = "#18181b"; // Dark icon color
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    if (typeof Path2D !== "undefined") {
-      const arrowPath = new Path2D(
-        "M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8 M3 3v5h5 M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16 M16 16h5v5",
-      );
-      ctx.stroke(arrowPath);
-    } else {
-      ctx.beginPath();
-      ctx.arc(12, 12, 8, 0, Math.PI * 1.5);
-      ctx.stroke();
-    }
-    ctx.restore();
 
     ctx.restore();
   }

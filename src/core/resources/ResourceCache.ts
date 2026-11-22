@@ -16,6 +16,7 @@
  */
 
 import type { RenderResource, RenderResourceHandle, RenderResourceType } from "./types";
+import { getCacheCoordinator } from "@/core/cache/cacheCoordinator";
 
 /**
  * Resource manager configuration.
@@ -302,6 +303,25 @@ export class ResourceCache {
 
     this.currentCacheSizeBytes = totalBytes;
   }
+
+  /**
+   * Get total estimated bytes used by cached resources.
+   */
+  getBytesUsed(): number {
+    return this.currentCacheSizeBytes;
+  }
+
+  /**
+   * Trim cache until it is under `targetBytes`.
+   */
+  trimTo(targetBytes: number): number {
+    const initial = this.currentCacheSizeBytes;
+    while (this.currentCacheSizeBytes > targetBytes && this.resources.size > 0) {
+      this.evictLRU();
+      this.updateCacheSize();
+    }
+    return Math.max(0, initial - this.currentCacheSizeBytes);
+  }
 }
 
 /**
@@ -315,6 +335,14 @@ let globalResourceCache: ResourceCache | null = null;
 export function getResourceCache(): ResourceCache {
   if (!globalResourceCache) {
     globalResourceCache = new ResourceCache();
+    getCacheCoordinator().register({
+      name: "media-resource-cache",
+      tier: "memory",
+      lifespan: "session",
+      getBytesUsed: () => globalResourceCache?.getBytesUsed() ?? 0,
+      trimTo: (t) => globalResourceCache?.trimTo(t) ?? 0,
+      clear: () => globalResourceCache?.clear(),
+    });
   }
   return globalResourceCache;
 }

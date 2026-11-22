@@ -360,7 +360,10 @@ export const clipCommands: ClipCommand[] = [
     },
     execute: (ctx) => {
       const ids = getTargetClipIds(ctx);
-      const results = EditingActions.splitSelectedAtPlayhead(ids);
+      const results =
+        ids.length > 0
+          ? EditingActions.splitSelectedAtPlayhead(ids)
+          : EditingActions.splitAtPlayhead();
       if (results.length > 0) {
         const successCount = results.filter((r) => r.success).length;
         if (successCount > 0) {

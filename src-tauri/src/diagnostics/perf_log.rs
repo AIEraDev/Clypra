@@ -25,11 +25,12 @@ use flate2::Compression;
 use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::error::Error;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::Manager;
 use tokio::sync::Mutex as AsyncMutex;
@@ -39,6 +40,7 @@ use uuid::Uuid;
 
 const PERF_LOG_DIR: &str = "perf_logs";
 const DEFAULT_MAX_AGE_DAYS: u32 = 7;
+pub const PERF_LOG_SCHEMA_VERSION: u16 = 2;
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -51,14 +53,95 @@ const DEFAULT_MAX_AGE_DAYS: u32 = 7;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PerfLogEntry {
+    /// Major schema version for this record. Legacy callers omit the field and
+    /// are treated as version 1 by the reader.
+    #[serde(default = "default_schema_version")]
+    pub schema_version: u16,
     /// Discriminator so log consumers can route each line correctly.
     pub kind: String,
     /// Matches the Tauri session ID from `telemetryCollector`.
     pub session_id: String,
     /// Unix epoch in milliseconds, set by the frontend at collection time.
     pub timestamp_epoch_ms: u64,
+    /// Monotonic sequence within one session. Optional for legacy records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<u64>,
+    /// Logical producer scope (for example `engine.native` or
+    /// `frontend.webview`). Optional for legacy records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
     /// Raw JSON payload — the caller is responsible for its schema.
     pub payload: serde_json::Value,
+}
+
+fn default_schema_version() -> u16 {
+    1
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PerfBuildIdentity {
+    pub application_version: String,
+    pub git_commit: Option<String>,
+    pub git_dirty: bool,
+    pub git_tree: Option<String>,
+    pub git_diff_hash: Option<String>,
+    pub opt_level: String,
+    pub debug_assertions: bool,
+    pub ffmpeg_version: String,
+    /// Hash of the measurement-only patch applied to an experiment baseline.
+    /// This is distinct from `git_commit`, which identifies behavior.
+    pub instrumentation_patch_hash: Option<String>,
+    /// Whether the development-only deterministic scenario driver was compiled.
+    pub perf_driver_enabled: bool,
+    pub binary_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PerfSystemFingerprint {
+    pub os: String,
+    pub os_version: String,
+    pub arch: String,
+    pub cpu: String,
+    pub cpu_cores: usize,
+    pub ram_bytes: u64,
+    pub gpu_adapter: String,
+    pub gpu_vendor: String,
+    pub driver_version: String,
+    pub graphics_backend: String,
+    pub display_refresh_rate: f64,
+    /// Power/thermal state is part of the benchmark provenance. `unknown` is
+    /// used when the platform does not expose a non-blocking probe.
+    pub power_source: String,
+    pub low_power_mode: Option<bool>,
+    pub thermal_state: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PerfSessionHeader {
+    pub schema_version: u16,
+    pub session_id: String,
+    pub opened_at_epoch_ms: u64,
+    pub build: PerfBuildIdentity,
+    pub system: PerfSystemFingerprint,
+    pub resolved_flags: std::collections::BTreeMap<String, bool>,
+    pub decode_policy: String,
+    pub decode_policy_source: String,
+    pub decode_policy_effective: String,
+    pub decode_policy_rejection_reason: Option<String>,
+    pub unverified_capability_override: bool,
+    pub unverified_capabilities_verified: bool,
+    pub ffmpeg_callback_verified: bool,
+    pub media_hash: Option<String>,
+    pub project_hash: Option<String>,
+    /// Canonical scenario identity. These remain optional for ordinary user
+    /// sessions and are populated by the development scenario driver.
+    pub scenario_id: Option<String>,
+    pub scenario_hash: Option<String>,
+    pub experiment_arm: Option<String>,
+    pub validation_mode: bool,
 }
 
 /// Metadata returned to the frontend for the active session.
@@ -68,6 +151,7 @@ pub struct PerfLogSessionInfo {
     pub session_id: String,
     pub file_path: String,
     pub opened_at_epoch_ms: u64,
+    pub header: PerfSessionHeader,
 }
 
 /// Metadata for a completed log file visible to `list_perf_log_files`.
@@ -91,6 +175,7 @@ struct PerfLogSession {
 // ── Global session registry ────────────────────────────────────────────────
 
 static SESSIONS: Lazy<DashMap<String, PerfLogSession>> = Lazy::new(DashMap::new);
+static BINARY_HASH: OnceLock<Option<String>> = OnceLock::new();
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -99,6 +184,203 @@ fn now_epoch_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+fn current_binary_hash() -> Option<String> {
+    BINARY_HASH
+        .get_or_init(|| {
+            let path = std::env::current_exe().ok()?;
+            let bytes = fs::read(path).ok()?;
+            Some(format!("{:x}", Sha256::digest(bytes)))
+        })
+        .clone()
+}
+
+fn resolved_flag(name: &str) -> bool {
+    matches!(
+        std::env::var(name).as_deref(),
+        Ok("1") | Ok("true") | Ok("yes")
+    )
+}
+
+fn make_session_header(session_id: &str, opened_at_epoch_ms: u64) -> PerfSessionHeader {
+    let machine = crate::engine::benchmark::runner::probe_machine_identity();
+    let decode_resolution = crate::engine::decode_policy::resolve_decode_resolution();
+    PerfSessionHeader {
+        schema_version: PERF_LOG_SCHEMA_VERSION,
+        session_id: session_id.to_string(),
+        opened_at_epoch_ms,
+        build: PerfBuildIdentity {
+            application_version: env!("CARGO_PKG_VERSION").to_string(),
+            git_commit: option_env!("CLYPRA_GIT_COMMIT").map(str::to_string),
+            git_dirty: option_env!("CLYPRA_GIT_DIRTY") == Some("true"),
+            git_tree: option_env!("CLYPRA_GIT_TREE").map(str::to_string),
+            git_diff_hash: option_env!("CLYPRA_GIT_DIFF_HASH")
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            opt_level: if cfg!(debug_assertions) {
+                "debug".to_string()
+            } else {
+                "release".to_string()
+            },
+            debug_assertions: cfg!(debug_assertions),
+            ffmpeg_version: option_env!("CLYPRA_FFMPEG_VERSION")
+                .unwrap_or("unknown")
+                .to_string(),
+            instrumentation_patch_hash: std::env::var("CLYPRA_INSTRUMENTATION_PATCH_HASH")
+                .ok()
+                .filter(|value| !value.is_empty())
+                .or_else(|| {
+                    option_env!("CLYPRA_INSTRUMENTATION_PATCH_HASH")
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_string)
+                }),
+            perf_driver_enabled: cfg!(feature = "perf-driver"),
+            binary_hash: current_binary_hash(),
+        },
+        system: PerfSystemFingerprint {
+            os: machine.os,
+            os_version: machine.os_version,
+            arch: std::env::consts::ARCH.to_string(),
+            cpu: machine.cpu,
+            cpu_cores: std::thread::available_parallelism()
+                .map(|value| value.get())
+                .unwrap_or(1),
+            ram_bytes: machine.ram_bytes,
+            gpu_adapter: machine.gpu_adapter,
+            gpu_vendor: format!("{:?}", machine.gpu_vendor),
+            driver_version: machine.driver_version,
+            graphics_backend: format!("{:?}", machine.graphics_backend),
+            display_refresh_rate: machine.display_refresh_rate,
+            power_source: probe_power_source(),
+            low_power_mode: probe_low_power_mode(),
+            thermal_state: probe_thermal_state(),
+        },
+        resolved_flags: [
+            (
+                "CLYPRA_DECODE_PATH".to_string(),
+                std::env::var("CLYPRA_DECODE_PATH")
+                    .map(|value| !value.trim().is_empty())
+                    .unwrap_or(false),
+            ),
+            (
+                "CLYPRA_METAL_DECODE".to_string(),
+                resolved_flag("CLYPRA_METAL_DECODE"),
+            ),
+            (
+                "CLYPRA_REQUIRE_ZERO_COPY".to_string(),
+                resolved_flag("CLYPRA_REQUIRE_ZERO_COPY"),
+            ),
+            (
+                "CLYPRA_ALLOW_UNVERIFIED".to_string(),
+                resolved_flag("CLYPRA_ALLOW_UNVERIFIED"),
+            ),
+            (
+                "CLYPRA_DISABLE_METAL_ZERO_COPY".to_string(),
+                resolved_flag("CLYPRA_DISABLE_METAL_ZERO_COPY"),
+            ),
+            (
+                "CLYPRA_DEBUG_DISABLE_DIRTY_RECOVERY".to_string(),
+                resolved_flag("CLYPRA_DEBUG_DISABLE_DIRTY_RECOVERY"),
+            ),
+            (
+                "CLYPRA_VALIDATE_STAGES".to_string(),
+                resolved_flag("CLYPRA_VALIDATE_STAGES"),
+            ),
+            ("CLYPRA_TRACE".to_string(), resolved_flag("CLYPRA_TRACE")),
+            (
+                "CLYPRA_FFMPEG_LOG_LEVEL".to_string(),
+                std::env::var("CLYPRA_FFMPEG_LOG_LEVEL")
+                    .map(|value| !value.trim().is_empty())
+                    .unwrap_or(false),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+        decode_policy: decode_resolution.requested.as_str().to_string(),
+        decode_policy_source: decode_resolution.source.as_str().to_string(),
+        decode_policy_effective: decode_resolution.effective.as_str().to_string(),
+        decode_policy_rejection_reason: decode_resolution
+            .rejection_reason
+            .map(str::to_string),
+        unverified_capability_override: crate::engine::decode_policy::unverified_capability_override(),
+        // P010 remains unverified until the real Main10 parity and lease
+        // validation is accepted; an override never upgrades its evidence.
+        unverified_capabilities_verified: false,
+        ffmpeg_callback_verified: crate::filmstrip_engine::decoder::ffmpeg_callback_verified(),
+        media_hash: std::env::var("CLYPRA_MEDIA_HASH").ok(),
+        project_hash: std::env::var("CLYPRA_PROJECT_HASH").ok(),
+        scenario_id: std::env::var("CLYPRA_SCENARIO_ID").ok(),
+        scenario_hash: std::env::var("CLYPRA_SCENARIO_HASH").ok(),
+        experiment_arm: std::env::var("CLYPRA_EXPERIMENT_ARM").ok(),
+        validation_mode: resolved_flag("CLYPRA_VALIDATE_STAGES"),
+    }
+}
+
+fn probe_power_source() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(output) = crate::process_util::hidden_command("pmset")
+            .args(["-g", "batt"])
+            .output()
+        {
+            let text = String::from_utf8_lossy(&output.stdout);
+            if text.contains("AC Power") {
+                return "ac".to_string();
+            }
+            if text.contains("Battery Power") {
+                return "battery".to_string();
+            }
+        }
+    }
+    "unknown".to_string()
+}
+
+fn probe_low_power_mode() -> Option<bool> {
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(output) = crate::process_util::hidden_command("pmset").args(["-g"]).output() {
+            let text = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
+            if text.contains("lowpowermode 1") {
+                return Some(true);
+            }
+            if text.contains("lowpowermode 0") {
+                return Some(false);
+            }
+        }
+    }
+    None
+}
+
+fn probe_thermal_state() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(output) = crate::process_util::hidden_command("pmset")
+            .args(["-g", "therm"])
+            .output()
+        {
+            let text = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
+            if output.status.success() {
+                if text.contains("cpu_speed_limit")
+                    && (text.contains("cpu_speed_limit: 1")
+                        || text.contains("cpu_speed_limit = 1"))
+                {
+                    return "throttled".to_string();
+                }
+                if text.contains("thermal level: 2") || text.contains("thermal level = 2") {
+                    return "critical".to_string();
+                }
+                if text.contains("thermal level: 1") || text.contains("thermal level = 1") {
+                    return "serious".to_string();
+                }
+                // pmset does not expose a single stable "nominal" token
+                // across macOS releases. A successful probe with no
+                // throttling signal is the strongest available nominal fact.
+                return "nominal".to_string();
+            }
+        }
+    }
+    "unknown".to_string()
 }
 
 pub fn get_perf_log_dir(app_data_dir: &Path) -> PathBuf {
@@ -116,10 +398,12 @@ pub async fn open_perf_log_session(
 ) -> Result<PerfLogSessionInfo, String> {
     // Re-use existing session when the frontend hot-reloads.
     if let Some(session) = SESSIONS.get(&session_id) {
+        let header = make_session_header(&session_id, session.opened_at_epoch_ms);
         return Ok(PerfLogSessionInfo {
             session_id: session_id.clone(),
             file_path: session.file_path.to_string_lossy().to_string(),
             opened_at_epoch_ms: session.opened_at_epoch_ms,
+            header,
         });
     }
 
@@ -151,6 +435,25 @@ pub async fn open_perf_log_session(
         .open(&file_path)
         .map_err(|e| format!("Failed to open perf log file '{file_name}': {e}"))?;
 
+    let header = make_session_header(&session_id, epoch);
+    let header_entry = PerfLogEntry {
+        schema_version: PERF_LOG_SCHEMA_VERSION,
+        kind: "session-header".to_string(),
+        session_id: session_id.clone(),
+        timestamp_epoch_ms: epoch,
+        seq: Some(0),
+        scope: Some("diagnostics.writer".to_string()),
+        payload: serde_json::to_value(&header)
+            .map_err(|e| format!("Failed to serialize perf session header: {e}"))?,
+    };
+    let mut file = file;
+    let header_line = serde_json::to_string(&header_entry)
+        .map_err(|e| format!("Failed to serialize perf session header entry: {e}"))?;
+    writeln!(file, "{header_line}")
+        .map_err(|e| format!("Failed to write perf session header: {e}"))?;
+    file.flush()
+        .map_err(|e| format!("Failed to flush perf session header: {e}"))?;
+
     SESSIONS.insert(
         session_id.clone(),
         PerfLogSession {
@@ -169,6 +472,7 @@ pub async fn open_perf_log_session(
         session_id,
         file_path: file_path.to_string_lossy().to_string(),
         opened_at_epoch_ms: epoch,
+        header,
     })
 }
 
@@ -708,5 +1012,33 @@ mod tests {
             "frontend:webview:bridge:project-anon:1"
         );
         assert_eq!(sample["nested"]["nonProject"], "some-other-string");
+    }
+
+    #[test]
+    fn test_perf_log_entry_defaults_legacy_schema_and_roundtrips_v2_provenance() {
+        let legacy: PerfLogEntry = serde_json::from_value(serde_json::json!({
+            "kind": "frontend-rollup",
+            "sessionId": "legacy",
+            "timestampEpochMs": 10,
+            "payload": {}
+        }))
+        .expect("legacy entry should remain readable");
+        assert_eq!(legacy.schema_version, 1);
+        assert_eq!(legacy.seq, None);
+        assert_eq!(legacy.scope, None);
+
+        let current = PerfLogEntry {
+            schema_version: PERF_LOG_SCHEMA_VERSION,
+            kind: "preview-context".to_string(),
+            session_id: "session-v2".to_string(),
+            timestamp_epoch_ms: 20,
+            seq: Some(1),
+            scope: Some("frontend.webview".to_string()),
+            payload: serde_json::json!({ "previewContextId": 1 }),
+        };
+        let encoded = serde_json::to_value(&current).expect("serialize v2 entry");
+        assert_eq!(encoded["schemaVersion"], PERF_LOG_SCHEMA_VERSION);
+        assert_eq!(encoded["seq"], 1);
+        assert_eq!(encoded["scope"], "frontend.webview");
     }
 }

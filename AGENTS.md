@@ -3,7 +3,7 @@
 # Automatically loaded by: Antigravity, Kiro, Cursor, OpenAI Codex, Copilot.
 
 ## 1. Project Identity & Verified Technology Stack
-Clypra is a high-performance native desktop video editor (`v1.6.0`) targeting macOS and Windows.
+Clypra is a high-performance native desktop video editor (`v1.6.7`) targeting macOS and Windows.
 - **Frontend**: React 19 + TypeScript 5.8 + Vite 7 (`src/`)
 - **Desktop Shell & Backend**: Tauri 2.11 + Rust 2021 edition (`src-tauri/`)
 - **State Management**: Zustand v5 stores (`src/store/`)
@@ -221,6 +221,18 @@ Run platform-specific tests where the environment permits. Treat mocked tests an
 
 Never claim cross-platform thread safety solely because one operating system passes.
 
+### Mandatory caching engineering routing
+For any task involving cache namespaces, on-disk media artifacts, in-memory cache participants, memory budgeting, LRU eviction policies, cache invalidation, or project state resets, automatically apply [`.agents/skills/clypra-caching-engineering/SKILL.md`](.agents/skills/clypra-caching-engineering/SKILL.md).
+
+Preserve the two-pillar architecture: Rust `UnifiedDiskCacheManager` (atomic writes, corrupted file quarantine, weighted LRU) and TypeScript `CacheCoordinator` (RAM/VRAM budgeting, `resetSessionCaches()` on project close for Invariant 2).
+
+Ensure new cache implementations adhere to atomic file writes, explicit resource cleanup (`ImageBitmap.close()`), synchronous singleton access (`parking_lot::RwLock`), and 100% i18n key parity for cache controls.
+
+### Mandatory security engineering routing
+For any task involving Tauri IPC command authoring, filesystem operations, external process/FFmpeg invocations, remote asset fetching, project file serialization, SVG/text template parsing, worker messaging, privacy/telemetry redaction, or capability configuration, automatically apply [`.agents/skills/clypra-security-engineering/SKILL.md`](.agents/skills/clypra-security-engineering/SKILL.md).
+
+Enforce the Zero-Trust Three-Tier Defensive Architecture: Tier 1 (prototype pollution, remote URL schemes, numeric clamping, SVG sanitization), Tier 2 (worker message schemas, compute DoS quotas, explicit disposal), Tier 3 (path traversal elimination, shell argument sanitization, atomic I/O quarantine, Invariant 14 privacy scrubbing, Invariant 16 main-thread UI dispatch), and Cross-Tier (least-privilege Tauri v2 ACL capabilities, panic-free error propagation).
+
 - **`AGENTS.md`**: Universal repository invariants, engineering standards, and completion checklist.
 - **`clypra-ui-ux-engineering`** ([`.agents/skills/clypra-ui-ux-engineering/SKILL.md`](.agents/skills/clypra-ui-ux-engineering/SKILL.md)): Govern design decisions, usability heuristics, WCAG 2.2 AA accessibility, interaction lifecycles, design system consistency, and desktop layout engineering.
 - **`clypra-preview-performance-engineering`** ([`.agents/skills/clypra-preview-performance-engineering/SKILL.md`](.agents/skills/clypra-preview-performance-engineering/SKILL.md)): Measure, benchmark, profile, and compare native GPU surface vs. DOM/canvas fallback, frame pacing, readback costs, and latency.
@@ -229,7 +241,10 @@ Never claim cross-platform thread safety solely because one operating system pas
 - **`behavior-coverage`** ([`.agents/skills/behavior-coverage/SKILL.md`](.agents/skills/behavior-coverage/SKILL.md)): Systematic user behavior discovery, 10 scenario categories, traceability matrix, and Playwright UI / native desktop test automation.
 - **`i18n-localization-engineering`** ([`.agents/skills/i18n-localization-engineering/SKILL.md`](.agents/skills/i18n-localization-engineering/SKILL.md)): Canonical semantic keys, catalog parity checks (`npm run i18n:check`), 9 first-party supported locales, locale-aware formatting, and native menu synchronization.
 - **`architecture-design-review`** ([`.agents/skills/architecture-design-review/SKILL.md`](.agents/skills/architecture-design-review/SKILL.md)): Architecture assessment, boundary analysis, trade-off evaluation, and ADR creation in [`docs/architecture/adr/`](docs/architecture/adr/README.md).
-- **clypra-codebase-optimization-research** ([.agents/skills/clypra-codebase-optimization-research/SKILL.md](.agents/skills/clypra-codebase-optimization-research/SKILL.md)): Scoped code-path investigation, logic and architecture review, optimization trade-offs, and source-backed validation of current engineering approaches.
+- **`clypra-codebase-optimization-research`** ([`.agents/skills/clypra-codebase-optimization-research/SKILL.md`](.agents/skills/clypra-codebase-optimization-research/SKILL.md)): Scoped code-path investigation, logic and architecture review, optimization trade-offs, and source-backed validation of current engineering approaches.
+- **`clypra-multi-tier-optimization`** ([`.agents/skills/clypra-multi-tier-optimization/SKILL.md`](.agents/skills/clypra-multi-tier-optimization/SKILL.md)): Holistic, evidence-backed multi-tier performance and architecture discovery across Clypra's Three-Tier Compute Boundary (React UI, Web Workers, Rust native core) and IPC transport.
+- **`clypra-caching-engineering`** ([`.agents/skills/clypra-caching-engineering/SKILL.md`](.agents/skills/clypra-caching-engineering/SKILL.md)): Guides the design, implementation, registration, budgeting, and debugging of Clypra's multi-tier caching infrastructure across both Rust native disk caching (UnifiedDiskCacheManager) and TypeScript in-memory caching (CacheCoordinator).
+- **`clypra-security-engineering`** ([`.agents/skills/clypra-security-engineering/SKILL.md`](.agents/skills/clypra-security-engineering/SKILL.md)): Guides threat modeling, defensive architecture, vulnerability prevention, and input sanitization across Clypra's Three-Tier Compute Boundary (React UI, Web Workers, Rust native core) and Tauri v2 IPC transport.
 - **`nle-domain-engineering`** ([`.agents/skills/nle-domain-engineering/SKILL.md`](.agents/skills/nle-domain-engineering/SKILL.md)): NLE domain knowledge, timecode math, track composition, media lifecycle, and synchronization invariants. Companion specification: [`docs/engineering/nle-architecture-and-semantics.md`](docs/engineering/nle-architecture-and-semantics.md).
 - **`senior-engineer-decision-making`** ([`.agents/skills/senior-engineer-decision-making/SKILL.md`](.agents/skills/senior-engineer-decision-making/SKILL.md)): Problem framing, technical trade-offs, scope discipline, and challenging unsound requests.
 - **`performance-reliability-engineering`** ([`.agents/skills/performance-reliability-engineering/SKILL.md`](.agents/skills/performance-reliability-engineering/SKILL.md)): Measurement-driven optimization, memory leak prevention, queue back-pressure, and resource lifecycles.

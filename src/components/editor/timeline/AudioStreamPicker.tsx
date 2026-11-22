@@ -8,7 +8,7 @@ export const AudioStreamPicker: React.FC = () => {
   if (!request) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45" onMouseDown={closePicker}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-surface-workspace/60 backdrop-blur-xs" onMouseDown={closePicker}>
       <div className="w-[360px] rounded-lg border border-border bg-surface-raised p-4 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
         <div className="mb-3 text-sm font-semibold text-foreground">Choose audio stream</div>
         <div className="space-y-2">

@@ -96,7 +96,7 @@ export const AudioTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           <button
             key={category}
             onClick={() => setActiveCategory(category)}
-            className={`shrink-0 cursor-pointer rounded px-2 py-1 text-[11px] font-semibold capitalize transition-colors ${activeCategory === category ? "bg-accent text-white" : "text-text-muted hover:bg-surface-raised hover:text-text-primary"}`}
+            className={`shrink-0 cursor-pointer rounded px-2 py-1 text-[11px] font-semibold capitalize transition-colors ${activeCategory === category ? "bg-accent-primary text-white" : "text-text-muted hover:bg-surface-hover hover:text-text-primary"}`}
           >
             {category === "sound-effects"
               ? "Sound Effects"
@@ -246,7 +246,7 @@ const AudioItem: React.FC<AudioItemProps> = ({ item, onAddToTimeline }) => {
   return (
     <div
       onClick={handlePreview}
-      className="group flex items-center gap-3 p-1 bg-surface-raised/40 hover:bg-surface-raised/60 rounded-lg transition-colors cursor-pointer"
+      className="group flex items-center gap-3 p-1 bg-surface-raised/40 hover:bg-surface-hover rounded-lg transition-colors cursor-pointer"
     >
       {/* Hidden audio element for inline streaming */}
       <audio
@@ -262,7 +262,7 @@ const AudioItem: React.FC<AudioItemProps> = ({ item, onAddToTimeline }) => {
       <button
         onClick={handleInlinePlay}
         disabled={isDownloading}
-        className="relative w-14 h-14 rounded-lg overflow-hidden shrink-0 bg-surface-raised border border-white/10 disabled:opacity-50 disabled:cursor-not-allowed group/cover"
+        className="relative w-14 h-14 rounded-lg overflow-hidden shrink-0 bg-surface-raised border border-border-default disabled:opacity-50 disabled:cursor-not-allowed group/cover"
       >
         {item.coverArtUrl && !imageError ? (
           <img
@@ -281,16 +281,16 @@ const AudioItem: React.FC<AudioItemProps> = ({ item, onAddToTimeline }) => {
           </div>
         )}
         {/* Play/Pause Overlay */}
-        <div className="absolute inset-0 bg-black/0 group-hover/cover:bg-black/60 transition-colors flex items-center justify-center">
+        <div className="absolute inset-0 bg-transparent group-hover/cover:bg-surface-workspace/70 transition-colors flex items-center justify-center">
           {isPlaying ? (
-            <Pause className="w-5 h-5 text-white opacity-0 group-hover/cover:opacity-100 transition-opacity" />
+            <Pause className="w-5 h-5 text-text-primary opacity-0 group-hover/cover:opacity-100 transition-opacity" />
           ) : (
-            <Play className="w-5 h-5 text-white opacity-0 group-hover/cover:opacity-100 transition-opacity" />
+            <Play className="w-5 h-5 text-text-primary opacity-0 group-hover/cover:opacity-100 transition-opacity" />
           )}
         </div>
         {/* Download Progress Indicator */}
         {isDownloading && (
-          <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
+          <div className="absolute inset-0 bg-surface-workspace/80 flex items-center justify-center">
             <Download className="w-4 h-4 text-accent animate-pulse" />
           </div>
         )}
@@ -332,7 +332,7 @@ const AudioItem: React.FC<AudioItemProps> = ({ item, onAddToTimeline }) => {
             <button
               onClick={handleAddToTimeline}
               disabled={isDownloading}
-              className="w-9 h-9 flex items-center justify-center hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-9 h-9 flex items-center justify-center hover:bg-surface-hover rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isDownloading ? (
                 <Download className="w-4 h-4 text-accent animate-pulse" />

@@ -886,6 +886,11 @@ pub struct FrameRequest {
     pub render_graph_version: u32,
     #[serde(default)]
     pub generation: Option<u64>,
+    /// Visible UI target identity. Native queue/decode cancellation continues
+    /// to use `generation`; this value exists only for exact demand
+    /// correlation and must never invalidate useful forward scrub work.
+    #[serde(default)]
+    pub target_generation: Option<u64>,
     #[serde(default)]
     pub mode: Option<String>,
     #[serde(default)]
@@ -977,6 +982,14 @@ pub struct NativePlaybackTextLayerUpdate {
 /// one bounded pending slot and returns immediately; the render worker owns
 /// decode/composition/presentation and the audio clock remains the only late
 /// frame authority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NativeScrubDirection {
+    Forward,
+    Backward,
+    Stationary,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativePlaybackFrameDemand {
@@ -985,8 +998,19 @@ pub struct NativePlaybackFrameDemand {
     pub frame_time: FrameTime,
     #[serde(default)]
     pub generation: Option<u64>,
+    /// Cancellation boundary for the demand. Unlike `generation`, which
+    /// identifies a visible UI target, this only advances when in-flight
+    /// decoder work must be invalidated.
+    #[serde(default)]
+    pub cancellation_epoch: Option<u64>,
     #[serde(default)]
     pub mode: Option<String>,
+    /// Whether this compact demand is an active pointer scrub rather than an
+    /// exact released seek.
+    #[serde(default)]
+    pub is_scrubbing: bool,
+    #[serde(default)]
+    pub scrub_direction: Option<NativeScrubDirection>,
     #[serde(default)]
     pub video_layers: Vec<NativePlaybackVideoLayerUpdate>,
     #[serde(default)]
@@ -1954,6 +1978,7 @@ mod tests {
             color_policy: ColorPolicy::default(),
             render_graph_version: 1,
             generation: None,
+            target_generation: None,
             mode: None,
             scrub_velocity_px_per_second: None,
             requested_at_ms: None,

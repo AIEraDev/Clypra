@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Volume2, Play, Pause, Sparkles, Check } from "lucide-react";
 import type { TextClip } from "@/types";
+import { useI18n } from "@/i18n";
 
 interface TextToSpeechSectionProps {
   textClip: TextClip;
@@ -28,6 +29,7 @@ const VOICES: VoicePreset[] = [
 export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
   textClip,
 }) => {
+  const { t } = useI18n();
   const [selectedVoice, setSelectedVoice] = useState<string>("jessie");
   const [category, setCategory] = useState<string>("All");
   const [speed, setSpeed] = useState<number>(1.0);
@@ -64,11 +66,11 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
   return (
     <div className="space-y-4 p-1 select-none">
       {/* Text summary box */}
-      <div className="p-3 bg-[#18181b] border border-[#2a2a2e] rounded-lg">
-        <span className="text-[10px] font-semibold text-[#8e8e93] uppercase tracking-wider block mb-1">
+      <div className="p-3 bg-surface-elevated border border-border-default rounded-lg">
+        <span className="text-[10px] font-semibold text-text-secondary uppercase tracking-wider block mb-1">
           Source Text ({textClip.text?.length || 0} characters)
         </span>
-        <p className="text-xs text-white line-clamp-2 italic">
+        <p className="text-xs text-text-primary line-clamp-2 italic">
           &quot;{textClip.text || "No text content"}&quot;
         </p>
       </div>
@@ -82,8 +84,8 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
             onClick={() => setCategory(cat)}
             className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
               category === cat
-                ? "bg-[#38383e] text-white shadow-sm font-semibold"
-                : "bg-[#242428] text-[#8e8e93] hover:text-white"
+                ? "bg-accent-primary text-white shadow-sm font-semibold"
+                : "bg-surface-elevated text-text-secondary hover:text-text-primary hover:bg-surface-hover"
             }`}
           >
             {cat}
@@ -102,8 +104,8 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
               onClick={() => setSelectedVoice(voice.id)}
               className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between group ${
                 isSelected
-                  ? "bg-[#27272a] border-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.15)]"
-                  : "bg-[#202024] border-white/5 hover:border-white/15"
+                  ? "bg-surface-elevated border-accent-primary shadow-sm"
+                  : "bg-surface-panel border border-border-default hover:border-border-hover"
               }`}
             >
               <div className="flex items-center gap-2.5 min-w-0">
@@ -113,11 +115,11 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
                   {voice.name[0]}
                 </div>
                 <div className="min-w-0">
-                  <div className="text-xs font-semibold text-white truncate flex items-center gap-1">
+                  <div className="text-xs font-semibold text-text-primary truncate flex items-center gap-1">
                     {voice.name}
-                    {isSelected && <Check className="w-3 h-3 text-cyan-400" />}
+                    {isSelected && <Check className="w-3 h-3 text-accent-primary" />}
                   </div>
-                  <div className="text-[10px] text-[#8e8e93] truncate">
+                  <div className="text-[10px] text-text-muted truncate">
                     {voice.language}
                   </div>
                 </div>
@@ -128,10 +130,10 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
                 onClick={(e) => handlePlayPreview(voice.id, e)}
                 className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors cursor-pointer shrink-0 ml-1 ${
                   isPlaying
-                    ? "bg-cyan-400 text-black"
-                    : "bg-white/10 text-white hover:bg-white/20"
+                    ? "bg-accent-primary text-white"
+                    : "bg-surface-elevated text-text-primary hover:bg-surface-hover"
                 }`}
-                title="Preview Voice Sample"
+                title={t("properties.tts.previewVoice")}
               >
                 {isPlaying ? (
                   <Pause className="w-3 h-3 fill-current" />
@@ -145,10 +147,10 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
       </div>
 
       {/* Speed & Pitch Controls */}
-      <div className="space-y-3 pt-2 border-t border-border/30">
+      <div className="space-y-3 pt-2 border-t border-border-default">
         <div className="flex items-center justify-between text-xs">
-          <span className="text-[#a1a1aa]">Speech Speed</span>
-          <span className="text-white font-medium">{speed.toFixed(1)}x</span>
+          <span className="text-text-secondary">{t("properties.tts.speechSpeed")}</span>
+          <span className="text-text-primary font-medium">{speed.toFixed(1)}x</span>
         </div>
         <input
           type="range"
@@ -157,12 +159,12 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
           step={0.1}
           value={speed}
           onChange={(e) => setSpeed(Number(e.target.value))}
-          className="w-full h-1 bg-[#3f3f46] rounded-full appearance-none outline-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
+          className="w-full h-1 bg-border-default rounded-full appearance-none outline-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent-primary"
         />
 
         <div className="flex items-center justify-between text-xs">
-          <span className="text-[#a1a1aa]">Pitch</span>
-          <span className="text-white font-medium">{pitch > 0 ? `+${pitch}` : pitch}</span>
+          <span className="text-text-secondary">{t("properties.tts.pitch")}</span>
+          <span className="text-text-primary font-medium">{pitch > 0 ? `+${pitch}` : pitch}</span>
         </div>
         <input
           type="range"
@@ -171,7 +173,7 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
           step={1}
           value={pitch}
           onChange={(e) => setPitch(Number(e.target.value))}
-          className="w-full h-1 bg-[#3f3f46] rounded-full appearance-none outline-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
+          className="w-full h-1 bg-border-default rounded-full appearance-none outline-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent-primary"
         />
       </div>
 
@@ -181,22 +183,22 @@ export const TextToSpeechSection: React.FC<TextToSpeechSectionProps> = ({
           type="button"
           onClick={handleGenerate}
           disabled={isGenerating}
-          className="w-full py-2 px-4 rounded-lg bg-cyan-400 hover:bg-cyan-300 disabled:opacity-60 text-black font-semibold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+          className="w-full py-2 px-4 rounded-lg bg-accent-primary hover:bg-accent-primary/90 disabled:opacity-60 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm"
         >
           {isGenerating ? (
             <>
               <div className="w-3.5 h-3.5 border-2 border-black border-t-transparent rounded-full animate-spin" />
-              Synthesizing Speech...
+              {t("properties.tts.synthesizing")}
             </>
           ) : generated ? (
             <>
               <Check className="w-4 h-4 text-black" />
-              Speech Generated &bull; Added to Audio Track
+              {t("properties.tts.generated")}
             </>
           ) : (
             <>
               <Volume2 className="w-3.5 h-3.5 fill-black" />
-              Generate Speech Audio
+              {t("properties.tts.generate")}
             </>
           )}
         </button>
