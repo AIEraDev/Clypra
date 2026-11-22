@@ -481,6 +481,7 @@ struct DecoderState {
 /// the next request must seek back to a keyframe and rebuild the DPB.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DecoderPosition {
+    #[allow(dead_code)]
     Positioned,
     Dirty,
 }
@@ -529,6 +530,7 @@ impl DecoderState {
         }
     }
 
+    #[allow(dead_code)]
     fn is_dirty(&self) -> bool {
         self.position == DecoderPosition::Dirty
     }
@@ -540,6 +542,7 @@ impl DecoderState {
         self.sequential_hits = 0;
     }
 
+    #[allow(dead_code)]
     fn mark_positioned(&mut self) {
         self.position = DecoderPosition::Positioned;
     }
