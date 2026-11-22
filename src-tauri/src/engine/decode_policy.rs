@@ -109,10 +109,9 @@ impl Default for DecodePathHealth {
 }
 
 pub fn resolve_decode_policy() -> DecodePolicy {
-    resolve_decode_policy_from_values(
-        std::env::var("CLYPRA_DECODE_PATH").ok(),
-        std::env::var("CLYPRA_METAL_DECODE").ok(),
-    )
+    let profile = crate::runtime_profile::resolve_runtime_flag_profile();
+    let decode_path = (profile.decode_path_source == "env").then_some(profile.decode_path);
+    resolve_decode_policy_from_values(decode_path, std::env::var("CLYPRA_METAL_DECODE").ok())
 }
 
 pub fn resolve_decode_resolution() -> DecodePolicyResolution {

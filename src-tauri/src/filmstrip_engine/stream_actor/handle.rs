@@ -75,6 +75,21 @@ impl StreamDecoderActorHandle {
             .await
     }
 
+    /// Lookahead is speculative work, but it still follows the continuous
+    /// playback decoder cursor. Keep it on the prefetch queue while applying
+    /// the same forward-only policy as visible playback, so a resync cannot
+    /// turn an older clock tick into a backward GOP seek.
+    pub async fn decode_prefetch_frame(
+        &self,
+        time_secs: f64,
+        mut options: DecodeFrameOptions,
+        generation: u64,
+    ) -> Result<DecodedActorFrame, StreamDecodeError> {
+        options.is_playback = true;
+        self.decode_frame_with_policy(time_secs, options, true, true, generation)
+            .await
+    }
+
     async fn decode_frame_with_policy(
         &self,
         time_secs: f64,

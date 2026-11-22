@@ -23,6 +23,7 @@ pub mod native_audio;
 pub mod native_core;
 pub mod preview_golden;
 pub mod process_util;
+pub mod runtime_profile;
 pub mod sync_metrics;
 pub mod transfer;
 pub mod wgpu_compositor;
@@ -72,6 +73,13 @@ fn get_process_memory_mb() -> u64 {
     {
         0
     }
+}
+
+/// Returns the resolved process profile used by native diagnostics and
+/// validation guards. This is read-only and contains no user or media paths.
+#[tauri::command]
+fn get_runtime_flag_profile() -> runtime_profile::RuntimeFlagProfile {
+    runtime_profile::resolve_runtime_flag_profile()
 }
 
 /// Returns the cold-start span report collected since process start.
@@ -696,6 +704,7 @@ pub fn run() {
             get_native_preview_performance_report,
             reset_native_preview_runtime,
             get_native_gpu_status,
+            get_runtime_flag_profile,
             probe_native_surface,
             resize_native_surface,
             // ── Phase 5: Session performance telemetry ──────────────────────

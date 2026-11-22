@@ -935,9 +935,8 @@ impl VideoDecoder {
             // prevents hardware downloads from disappearing into an unknown
             // telemetry bucket.
             transfer_site: crate::engine::benchmark::types::HwframeTransferSite::Seek,
-            dirty_recovery_enabled: std::env::var("CLYPRA_DEBUG_DISABLE_DIRTY_RECOVERY")
-                .map(|value| value != "1")
-                .unwrap_or(true),
+            dirty_recovery_enabled: crate::runtime_profile::resolve_runtime_flag_profile()
+                .dirty_recovery_enabled(),
         })
     }
 

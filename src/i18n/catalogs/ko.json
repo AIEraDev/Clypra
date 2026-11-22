@@ -672,5 +672,9 @@
   "properties.adjust.resetChannel": "{{channel}} 채널 재설정",
   "preview.errors.title": "미리보기를 사용할 수 없음",
   "preview.errors.nativeSurface": "그래픽 장치는 준비되었지만 네이티브 미리보기 표면을 만들 수 없습니다.",
-  "preview.errors.gpu": "Clypra가 그래픽 장치를 초기화하지 못했습니다."
+  "preview.errors.gpu": "Clypra가 그래픽 장치를 초기화하지 못했습니다.",
+  "preview.devDefaults": "개발 기본값: trace={{trace}} · zero-copy={{zeroCopy}} · 디코드={{decodePath}}",
+  "preview.zeroCopyViolation": "Zero-copy 어설션: {{count}}건의 인시던트",
+  "common.status.on": "켜짐",
+  "common.status.off": "꺼짐"
 }
