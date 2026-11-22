@@ -104,6 +104,14 @@ fn log_required_zero_copy_violation(
     let count = ZERO_COPY_GUARD_VIOLATIONS.fetch_add(1, Ordering::Relaxed) + 1;
     crate::engine::ENGINE_TELEMETRY.record_zero_copy_guard_violation();
     if count <= 3 || count.is_multiple_of(60) {
+        diagnostics::warning(
+            "native-preview",
+            "zero-copy-violation",
+            format!(
+                "Required zero-copy path was unavailable for frame {}; violations so far: {}",
+                frame_index, count
+            ),
+        );
         log::error!(
             "[NativePreview] CLYPRA_REQUIRE_ZERO_COPY=1: hardware-decoded frame {} reached {:?}; zero-copy violations so far: {}",
             frame_index,
@@ -115,10 +123,9 @@ fn log_required_zero_copy_violation(
 
 fn zero_copy_guard_enabled() -> bool {
     *ZERO_COPY_GUARD_ENABLED.get_or_init(|| {
-        // Keep this as a runtime switch so optimized release sessions can use
-        // the same validation tripwire as debug builds without changing the
-        // default production path.
-        std::env::var("CLYPRA_REQUIRE_ZERO_COPY").as_deref() == Ok("1")
+        crate::runtime_profile::resolve_runtime_flag_profile()
+            .require_zero_copy
+            .enabled
     })
 }
 
@@ -2725,7 +2732,7 @@ async fn decode_native_video_layers(
             || request.is_scrubbing.unwrap_or(false)
             || request.mode.as_deref() == Some("scrub"),
         quality: request.quality,
-        is_playback: request.mode.as_deref() == Some("playback"),
+        is_playback: matches!(request.mode.as_deref(), Some("playback" | "prefetch")),
         skip_hw_download: false,
         target_dimensions: None,
     };
@@ -2880,6 +2887,7 @@ async fn decode_native_video_layers(
             let time_secs = layer.time_secs;
 
             let is_playback = request.mode.as_deref() == Some("playback");
+            let is_prefetch = request.mode.as_deref() == Some("prefetch");
             unique_tasks.push(tauri::async_runtime::spawn(async move {
                 let stream_id = if !layer_id.is_empty() {
                     layer_id.as_str()
@@ -2897,10 +2905,12 @@ async fn decode_native_video_layers(
                     actor
                         .decode_playback_frame(time_secs, decode_options, generation)
                         .await?
-                } else {
+                } else if is_prefetch {
                     actor
-                        .decode_frame(time_secs, decode_options, is_prefetch, generation)
+                        .decode_prefetch_frame(time_secs, decode_options, generation)
                         .await?
+                } else {
+                    actor.decode_frame(time_secs, decode_options, false, generation).await?
                 };
                 let decode_us = actor_frame.decode_us;
                 let mutex_wait_us = actor_frame.decoder_mutex_wait_us;
@@ -3302,13 +3312,213 @@ struct LookaheadWorkerState {
     /// scene cannot leave stale lookahead work decoding the old topology.
     content_key: u64,
     project_revision: String,
-    start_frame: Arc<std::sync::atomic::AtomicU64>,
     end_frame: Arc<std::sync::atomic::AtomicU64>,
     finished: Arc<std::sync::atomic::AtomicBool>,
+    lag_started_at_ms: Arc<std::sync::atomic::AtomicU64>,
+}
+
+const LOOKAHEAD_RESYNC_BEHIND_HYSTERESIS_FRAMES: u64 = 3;
+const LOOKAHEAD_RESYNC_SUSTAINED_MS: u64 = 250;
+const LOOKAHEAD_RESYNC_COOLDOWN_MS: u64 = 1_000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LookaheadWorkerAction {
+    Start { reason: &'static str },
+    Keep { reason: &'static str },
+    Abort { reason: &'static str },
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LookaheadWorkerDecisionInput {
+    active: bool,
+    same_generation: bool,
+    same_quality: bool,
+    same_content: bool,
+    project_revision_changed: bool,
+    current_frame: u64,
+    end_frame: u64,
+    lag_for_ms: u64,
+    ms_since_last_resync: Option<u64>,
+}
+
+/// Decide whether a lookahead trigger should reuse, replace, or start a worker.
+///
+/// A worker that is still decoding the same stream must survive a transient
+/// zero-frame horizon. Cancelling it at that boundary turns decoder latency
+/// into a feedback loop: the only work that can refill the queue is repeatedly
+/// discarded before it can complete. A deliberate resync is reserved for a
+/// worker that has remained materially behind the playhead.
+fn decide_lookahead_worker_action(
+    input: LookaheadWorkerDecisionInput,
+) -> LookaheadWorkerAction {
+    let frames_behind = input.current_frame.saturating_sub(input.end_frame);
+    let cooldown_ready = input
+        .ms_since_last_resync
+        .map(|elapsed| elapsed >= LOOKAHEAD_RESYNC_COOLDOWN_MS)
+        .unwrap_or(true);
+
+    if !input.active {
+        return if frames_behind > LOOKAHEAD_RESYNC_BEHIND_HYSTERESIS_FRAMES
+            && input.lag_for_ms >= LOOKAHEAD_RESYNC_SUSTAINED_MS
+            && cooldown_ready
+        {
+            LookaheadWorkerAction::Start {
+                reason: "resync_behind",
+            }
+        } else {
+            LookaheadWorkerAction::Start { reason: "none" }
+        };
+    }
+
+    if input.project_revision_changed {
+        return LookaheadWorkerAction::Abort {
+            reason: "project_edit",
+        };
+    }
+    if !input.same_content {
+        return LookaheadWorkerAction::Abort {
+            reason: "clip_boundary",
+        };
+    }
+    if !input.same_generation {
+        return LookaheadWorkerAction::Abort {
+            reason: "generation",
+        };
+    }
+    if !input.same_quality {
+        return LookaheadWorkerAction::Abort {
+            reason: "quality_change",
+        };
+    }
+
+    let frames_ahead = input.end_frame.saturating_sub(input.current_frame);
+    if frames_ahead >= 1 {
+        return LookaheadWorkerAction::Keep { reason: "covered" };
+    }
+
+    if frames_behind > LOOKAHEAD_RESYNC_BEHIND_HYSTERESIS_FRAMES {
+        // An active worker is still attached to the decoder's forward cursor.
+        // Let it finish; aborting here dirties the reference chain and turns a
+        // catch-up decision into a backward GOP recovery on the next worker.
+        return if input.lag_for_ms >= LOOKAHEAD_RESYNC_SUSTAINED_MS {
+            LookaheadWorkerAction::Keep {
+                reason: "resync_deferred",
+            }
+        } else {
+            LookaheadWorkerAction::Keep { reason: "starvation" }
+        };
+    }
+
+    // The worker is still the only producer capable of making forward
+    // progress. Its temporary lack of lookahead is starvation, not a seek.
+    // Keep it alive and let the next trigger observe its updated horizon.
+    LookaheadWorkerAction::Keep { reason: "starvation" }
 }
 
 static LOOKAHEAD_WORKER: std::sync::Mutex<Option<LookaheadWorkerState>> =
     std::sync::Mutex::new(None);
+static LOOKAHEAD_DECISION_TRACE_SAMPLE: AtomicU64 = AtomicU64::new(0);
+const NO_PLAYBACK_FRAME: u64 = u64::MAX;
+static LAST_PLAYBACK_PRESENTED_FRAME: AtomicU64 = AtomicU64::new(NO_PLAYBACK_FRAME);
+static LAST_PLAYBACK_PRESENTED_AT_MS: AtomicU64 = AtomicU64::new(0);
+static LAST_LOOKAHEAD_DECODED_FRAME: AtomicU64 = AtomicU64::new(NO_PLAYBACK_FRAME);
+static LAST_LOOKAHEAD_DECODED_AT_MS: AtomicU64 = AtomicU64::new(0);
+static LAST_LOOKAHEAD_RESYNC_AT_MS: AtomicU64 = AtomicU64::new(0);
+static PENDING_LOOKAHEAD_RESYNC_AT_MS: AtomicU64 = AtomicU64::new(0);
+
+fn lookahead_frame_distances(current_frame: u64, target_end_frame: u64) -> (u64, u64) {
+    (
+        target_end_frame.saturating_sub(current_frame),
+        current_frame.saturating_sub(target_end_frame),
+    )
+}
+
+/// Record the visible continuous-playback presentation boundary used by the
+/// scheduler diagnostics. This is deliberately separate from paused seek
+/// presentation so a paused frame cannot make a starving playback worker look
+/// healthy.
+pub(crate) fn record_playback_presentation(app: &tauri::AppHandle, frame_index: u64) {
+    let now_ms = crate::native_core::performance::now_ms();
+    LAST_PLAYBACK_PRESENTED_FRAME.store(frame_index, Ordering::Release);
+    LAST_PLAYBACK_PRESENTED_AT_MS.store(now_ms, Ordering::Release);
+
+    let pending_resync_at_ms = PENDING_LOOKAHEAD_RESYNC_AT_MS.swap(0, Ordering::AcqRel);
+    if pending_resync_at_ms > 0 {
+        let _ = app.emit(
+            "clypra://native-diagnostic",
+            serde_json::json!({
+                "marker": "sched.resync-recovered",
+                "frameIndex": frame_index,
+                "recoveryMs": now_ms.saturating_sub(pending_resync_at_ms),
+            }),
+        );
+    }
+}
+
+fn trace_lookahead_scheduler_decision(
+    app: &tauri::AppHandle,
+    action: LookaheadWorkerAction,
+    current_audio_frame: u64,
+    current_audio_secs: f64,
+    target_end_frame: u64,
+    fps: f64,
+    generation: u64,
+    lag_for_ms: u64,
+) {
+    let sample = LOOKAHEAD_DECISION_TRACE_SAMPLE.fetch_add(1, Ordering::Relaxed);
+    let should_emit = matches!(
+        action,
+        LookaheadWorkerAction::Abort { .. }
+            | LookaheadWorkerAction::Start {
+                reason: "resync_behind"
+            }
+            | LookaheadWorkerAction::Keep {
+                reason: "resync_deferred"
+            }
+    ) || sample.is_multiple_of(30);
+    if !should_emit {
+        return;
+    }
+
+    let (action_name, reason) = match action {
+        LookaheadWorkerAction::Start { reason } => ("start", reason),
+        LookaheadWorkerAction::Keep { reason } => ("keep", reason),
+        LookaheadWorkerAction::Abort { reason } => ("abort", reason),
+    };
+    let now_ms = crate::native_core::performance::now_ms();
+    let last_presented_frame = LAST_PLAYBACK_PRESENTED_FRAME.load(Ordering::Acquire);
+    let last_presented_at_ms = LAST_PLAYBACK_PRESENTED_AT_MS.load(Ordering::Acquire);
+    let last_decoded_frame = LAST_LOOKAHEAD_DECODED_FRAME.load(Ordering::Acquire);
+    let last_decoded_at_ms = LAST_LOOKAHEAD_DECODED_AT_MS.load(Ordering::Acquire);
+    let previous_resync_at_ms = LAST_LOOKAHEAD_RESYNC_AT_MS.load(Ordering::Acquire);
+    let (frames_ahead, frames_behind) =
+        lookahead_frame_distances(current_audio_frame, target_end_frame);
+    let _ = app.emit(
+        "clypra://native-diagnostic",
+        serde_json::json!({
+            "marker": "sched.decision",
+            "action": action_name,
+            "reason": reason,
+            "lookaheadFrames": frames_ahead,
+            "framesAhead": frames_ahead,
+            "framesBehind": frames_behind,
+            "lastPresentedFrame": (last_presented_frame != NO_PLAYBACK_FRAME).then_some(last_presented_frame),
+            "msSinceLastPresented": (last_presented_at_ms > 0).then_some(now_ms.saturating_sub(last_presented_at_ms)),
+            "lastWorkerFrame": (last_decoded_frame != NO_PLAYBACK_FRAME).then_some(last_decoded_frame),
+            "msSinceLastWorkerFrame": (last_decoded_at_ms > 0).then_some(now_ms.saturating_sub(last_decoded_at_ms)),
+            "msSincePreviousResync": (previous_resync_at_ms > 0).then_some(now_ms.saturating_sub(previous_resync_at_ms)),
+            "lagForMs": lag_for_ms,
+            "workerState": "active",
+            "targetPts": target_end_frame as f64 / fps,
+            "playheadPts": current_audio_secs,
+            "generation": generation,
+        }),
+    );
+    if reason == "resync_behind" {
+        LAST_LOOKAHEAD_RESYNC_AT_MS.store(now_ms, Ordering::Release);
+        PENDING_LOOKAHEAD_RESYNC_AT_MS.store(now_ms, Ordering::Release);
+    }
+}
 
 /// Return a stable identity for the video decode topology used by lookahead.
 ///
@@ -3459,27 +3669,62 @@ pub(crate) fn schedule_lookahead_predecode(
         Err(_) => return,
     };
 
-    // If an active worker for the SAME generation is already busy pre-decoding upcoming frames,
-    // do NOT abort it if it covers the forward horizon of current_audio_frame!
+    let mut replacement_reason = None;
+
+    // If an active worker for the same stream is already busy pre-decoding,
+    // keep it alive through transient starvation. Only identity changes or a
+    // hysteresis-qualified lag may replace it.
     if let Some(active) = worker_guard.as_ref() {
         let is_active = !active.finished.load(std::sync::atomic::Ordering::Acquire);
         let is_same_gen = active.generation == generation;
         let is_same_quality = active.quality == quality_override;
         let is_same_content = active.content_key == content_key;
-        let start_f = active
-            .start_frame
-            .load(std::sync::atomic::Ordering::Acquire);
         let end_f = active.end_frame.load(std::sync::atomic::Ordering::Acquire);
-        let frames_ahead = end_f.saturating_sub(current_audio_frame);
-        // One ready future frame is sufficient to keep the next visible
-        // playback deadline supplied. Requiring two made the scheduler abort
-        // a still-useful worker on every advancing audio tick, which turned
-        // normal playback into repeated queue-starvation misses.
-        let has_sufficient_lookahead = frames_ahead >= 1;
-        let is_in_range =
-            current_audio_frame >= start_f.saturating_sub(2) && has_sufficient_lookahead;
+        let now_ms = crate::native_core::performance::now_ms();
+        let lag_started_at_ms = active
+            .lag_started_at_ms
+            .load(std::sync::atomic::Ordering::Acquire);
+        let lag_for_ms = if lag_started_at_ms > 0 {
+            now_ms.saturating_sub(lag_started_at_ms)
+        } else {
+            0
+        };
+        let previous_resync_at_ms = LAST_LOOKAHEAD_RESYNC_AT_MS.load(Ordering::Acquire);
+        let decision = decide_lookahead_worker_action(LookaheadWorkerDecisionInput {
+            active: is_active,
+            same_generation: is_same_gen,
+            same_quality: is_same_quality,
+            same_content: is_same_content,
+            project_revision_changed: active.project_revision
+                != base_request.project.project_revision,
+            current_frame: current_audio_frame,
+            end_frame: end_f,
+            lag_for_ms,
+            ms_since_last_resync: (previous_resync_at_ms > 0)
+                .then_some(now_ms.saturating_sub(previous_resync_at_ms)),
+        });
 
-        if is_active && is_same_gen && is_same_quality && is_same_content && is_in_range {
+        trace_lookahead_scheduler_decision(
+            &app,
+            decision,
+            current_audio_frame,
+            current_audio_secs,
+            end_f,
+            fps,
+            generation,
+            lag_for_ms,
+        );
+
+        let frames_behind = current_audio_frame.saturating_sub(end_f);
+        if frames_behind > LOOKAHEAD_RESYNC_BEHIND_HYSTERESIS_FRAMES {
+            if lag_started_at_ms == 0 {
+                active.lag_started_at_ms.store(now_ms, Ordering::Release);
+            }
+        } else {
+            active.lag_started_at_ms.store(0, Ordering::Release);
+        }
+
+        if let LookaheadWorkerAction::Keep { .. } = decision {
             // PR4: count dropped trigger and record ahead-of-clock
             crate::filmstrip_engine::stream_actor::record_lookahead_trigger_dropped();
             let end_time_secs = end_f as f64 / fps;
@@ -3487,8 +3732,16 @@ pub(crate) fn schedule_lookahead_predecode(
             crate::filmstrip_engine::stream_actor::record_producer_ahead_of_clock_ms(ahead_ms);
             return;
         }
-        if is_active && is_same_gen && is_same_quality && !is_same_content {
-            crate::engine::ENGINE_TELEMETRY.record_stale_lookahead_discarded();
+        if let LookaheadWorkerAction::Abort { reason } = decision {
+            if reason == "clip_boundary" {
+                crate::engine::ENGINE_TELEMETRY.record_stale_lookahead_discarded();
+            }
+            replacement_reason = Some(reason);
+        }
+        if let LookaheadWorkerAction::Start { reason } = decision {
+            if reason == "resync_behind" {
+                crate::engine::ENGINE_TELEMETRY.record_lookahead_invalidation(reason);
+            }
         }
     }
 
@@ -3496,21 +3749,16 @@ pub(crate) fn schedule_lookahead_predecode(
     let ahead_ms = (lookahead_count as f64 / fps) * 1_000.0;
     crate::filmstrip_engine::stream_actor::record_producer_ahead_of_clock_ms(ahead_ms);
 
-    // If generation changed or audio jumped out of range, abort previous worker to free decoders immediately.
+    // Identity changes and deliberate resyncs replace the old worker. A
+    // same-generation starvation decision returns above and never reaches
+    // this cancellation boundary.
     if let Some(prev) = worker_guard.take() {
-        let cause = if prev.project_revision != base_request.project.project_revision {
-            "project_edit"
-        } else if prev.content_key != content_key {
-            "clip_boundary"
-        } else if prev.generation != generation {
-            "generation"
-        } else {
-            "seek"
-        };
-        crate::engine::ENGINE_TELEMETRY.record_lookahead_invalidation(cause);
-        #[cfg(target_os = "macos")]
-        METAL_PREFETCH_CANCEL_EPOCH.fetch_add(1, Ordering::AcqRel);
-        prev.handle.abort();
+        if let Some(cause) = replacement_reason {
+            crate::engine::ENGINE_TELEMETRY.record_lookahead_invalidation(cause);
+            #[cfg(target_os = "macos")]
+            METAL_PREFETCH_CANCEL_EPOCH.fetch_add(1, Ordering::AcqRel);
+            prev.handle.abort();
+        }
     }
 
     let _base_timeline_secs =
@@ -3518,11 +3766,10 @@ pub(crate) fn schedule_lookahead_predecode(
 
     let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let worker_finished = finished.clone();
+    let lag_started_at_ms = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
     let initial_target_end = current_audio_frame.saturating_add(lookahead_count as u64);
-    let worker_start = Arc::new(std::sync::atomic::AtomicU64::new(current_audio_frame));
     let worker_end = Arc::new(std::sync::atomic::AtomicU64::new(initial_target_end));
-    let worker_start_clone = worker_start.clone();
     let worker_end_clone = worker_end.clone();
     let project_revision = base_request.project.project_revision.clone();
 
@@ -3567,7 +3814,6 @@ pub(crate) fn schedule_lookahead_predecode(
             (start, target_end, lookahead_decision)
         };
 
-        worker_start_clone.store(start_frame_index, std::sync::atomic::Ordering::Release);
         worker_end_clone.store(target_end_frame_index, std::sync::atomic::Ordering::Release);
 
         if start_frame_index > target_end_frame_index {
@@ -3649,6 +3895,11 @@ pub(crate) fn schedule_lookahead_predecode(
             if res.is_err() {
                 break;
             }
+            LAST_LOOKAHEAD_DECODED_FRAME.store(target_frame_index, Ordering::Release);
+            LAST_LOOKAHEAD_DECODED_AT_MS.store(
+                crate::native_core::performance::now_ms(),
+                Ordering::Release,
+            );
         }
         worker_finished.store(true, std::sync::atomic::Ordering::Release);
     });
@@ -3659,9 +3910,9 @@ pub(crate) fn schedule_lookahead_predecode(
         quality: quality_override,
         content_key,
         project_revision,
-        start_frame: worker_start,
         end_frame: worker_end,
         finished,
+        lag_started_at_ms,
     });
 }
 

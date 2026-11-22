@@ -1439,6 +1439,10 @@ impl NativeRenderSession {
         let mut decode_time_sum_us: u64 = 0;
         let mut max_frame_us: u64 = 0;
         let mut dropped_frames: u64 = 0;
+        let mut playback_submissions: u64 = 0;
+        let mut playback_completions: u64 = 0;
+        let mut playback_supersessions: u64 = 0;
+        let mut playback_lookahead_misses: u64 = 0;
         let mut last_report = Instant::now();
 
         while self.running.load(Ordering::Acquire) {
@@ -1601,6 +1605,7 @@ impl NativeRenderSession {
                         }
                     }
 
+                    playback_submissions += 1;
                     if let Some(presentation) = self.render_one(
                         &app,
                         request,
@@ -1611,6 +1616,20 @@ impl NativeRenderSession {
                     {
                         if presentation.presented {
                             frames_rendered += 1;
+                            playback_completions += 1;
+                            crate::commands::native_preview::record_playback_presentation(
+                                &app,
+                                presentation.frame_index,
+                            );
+                            let _ = app.emit(
+                                "clypra://native-playback-progress",
+                                serde_json::json!({
+                                    "frameIndex": presentation.frame_index,
+                                    "generation": generation,
+                                    "state": "playing",
+                                    "demandClass": "continuous_playback",
+                                }),
+                            );
                             if let Some(t) = &presentation.timings {
                                 if t.queue_hit {
                                     queue_hits += 1;
@@ -1621,6 +1640,16 @@ impl NativeRenderSession {
                             }
                         } else if presentation.dropped {
                             dropped_frames += 1;
+                            if presentation.drop_reason_code
+                                == Some(crate::native_core::NativePresentationDropReason::LookaheadMiss)
+                            {
+                                playback_lookahead_misses += 1;
+                            }
+                            if presentation.outcome
+                                == Some(crate::native_core::NativePresentationOutcome::Superseded)
+                            {
+                                playback_supersessions += 1;
+                            }
                         }
 
                         #[allow(clippy::manual_is_multiple_of)]
@@ -1650,6 +1679,12 @@ impl NativeRenderSession {
                                 max_frame_ms: f64,
                                 dropped: u64,
                                 stacked_streams: usize,
+                                playback_submissions: u64,
+                                playback_completions: u64,
+                                playback_supersessions: u64,
+                                playback_lookahead_misses: u64,
+                                native_state: &'static str,
+                                demand_class: &'static str,
                             }
 
                             let _ = app.emit(
@@ -1663,6 +1698,12 @@ impl NativeRenderSession {
                                     max_frame_ms: peak_ms,
                                     dropped: dropped_frames,
                                     stacked_streams: stream_count,
+                                    playback_submissions,
+                                    playback_completions,
+                                    playback_supersessions,
+                                    playback_lookahead_misses,
+                                    native_state: "playing",
+                                    demand_class: "continuous_playback",
                                 },
                             );
 
@@ -1785,6 +1826,18 @@ impl NativeRenderSession {
                 // demand. A scrub may still carry `mode=playback` while the
                 // pointer is down and must receive the matching completion.
                 let is_explicit_paused_demand = !lifecycle_context.request_ids.is_empty();
+                if is_explicit_paused_demand {
+                    let _ = app.emit(
+                        "clypra://native-diagnostic",
+                        serde_json::json!({
+                            "marker": "native-playback-state",
+                            "state": "paused",
+                            "demandClass": "paused_seek",
+                            "frameIndex": request.frame_time.frame_index,
+                            "generation": request.target_generation.or(request.generation),
+                        }),
+                    );
+                }
                 if let Some(internal_id) = lifecycle_context.request_ids.first() {
                     let request_disposition = match presentation.outcome {
                         Some(crate::native_core::NativePresentationOutcome::Presented) => None,

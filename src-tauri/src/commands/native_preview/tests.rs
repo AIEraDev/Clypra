@@ -5,6 +5,211 @@ use crate::native_core::TextLayerSnapshot;
 use std::sync::Arc;
 use std::time::Instant;
 
+fn lookahead_decision(
+    current_frame: u64,
+    end_frame: u64,
+    same_generation: bool,
+    same_quality: bool,
+    same_content: bool,
+    project_revision_changed: bool,
+) -> LookaheadWorkerAction {
+    decide_lookahead_worker_action(LookaheadWorkerDecisionInput {
+        active: true,
+        same_generation,
+        same_quality,
+        same_content,
+        project_revision_changed,
+        current_frame,
+        end_frame,
+        lag_for_ms: 0,
+        ms_since_last_resync: None,
+    })
+}
+
+#[test]
+fn lookahead_scheduler_keeps_same_stream_alive_during_transient_starvation() {
+    let action = lookahead_decision(100, 100, true, true, true, false);
+
+    assert_eq!(
+        action,
+        LookaheadWorkerAction::Keep {
+            reason: "starvation"
+        }
+    );
+}
+
+#[test]
+fn lookahead_scheduler_resyncs_only_after_hysteresis_qualified_lag() {
+    let action = lookahead_decision(104, 100, true, true, true, false);
+
+    assert_eq!(
+        action,
+        LookaheadWorkerAction::Keep {
+            reason: "starvation"
+        }
+    );
+}
+
+#[test]
+fn lookahead_scheduler_defers_resync_until_worker_finishes() {
+    let action = decide_lookahead_worker_action(LookaheadWorkerDecisionInput {
+        active: true,
+        same_generation: true,
+        same_quality: true,
+        same_content: true,
+        project_revision_changed: false,
+        current_frame: 110,
+        end_frame: 100,
+        lag_for_ms: LOOKAHEAD_RESYNC_SUSTAINED_MS,
+        ms_since_last_resync: None,
+    });
+
+    assert_eq!(
+        action,
+        LookaheadWorkerAction::Keep {
+            reason: "resync_deferred"
+        }
+    );
+}
+
+#[test]
+fn lookahead_scheduler_starts_forward_resync_only_after_cooldown() {
+    let input = |elapsed| LookaheadWorkerDecisionInput {
+        active: false,
+        same_generation: true,
+        same_quality: true,
+        same_content: true,
+        project_revision_changed: false,
+        current_frame: 110,
+        end_frame: 100,
+        lag_for_ms: LOOKAHEAD_RESYNC_SUSTAINED_MS,
+        ms_since_last_resync: elapsed,
+    };
+
+    assert_eq!(
+        decide_lookahead_worker_action(input(Some(LOOKAHEAD_RESYNC_COOLDOWN_MS - 1))),
+        LookaheadWorkerAction::Start { reason: "none" }
+    );
+    assert_eq!(
+        decide_lookahead_worker_action(input(Some(LOOKAHEAD_RESYNC_COOLDOWN_MS))),
+        LookaheadWorkerAction::Start {
+            reason: "resync_behind"
+        }
+    );
+}
+
+#[test]
+fn lookahead_trace_reports_signed_lag_without_clamping_ahead_to_behind() {
+    assert_eq!(lookahead_frame_distances(100, 104), (4, 0));
+    assert_eq!(lookahead_frame_distances(104, 100), (0, 4));
+}
+
+fn simulate_playback_decode(
+    service_times_ms: &[u64],
+    tick_ms: u64,
+    duration_ms: u64,
+) -> (u64, u64) {
+    assert!(!service_times_ms.is_empty());
+    let mut now_ms = 0;
+    let mut decoded_frames = 0;
+    let mut next_decode_due_ms = service_times_ms[0];
+    let mut decode_index = 0;
+    let mut resyncs = 0;
+    let mut lag_started_at_ms: Option<u64> = None;
+    let mut last_resync_ms: Option<u64> = None;
+
+    while now_ms <= duration_ms {
+        let current_frame = now_ms / tick_ms;
+        let mut frame_completed = false;
+        while now_ms >= next_decode_due_ms {
+            decoded_frames += 1;
+            frame_completed = true;
+            decode_index = (decode_index + 1) % service_times_ms.len();
+            next_decode_due_ms = next_decode_due_ms.saturating_add(service_times_ms[decode_index]);
+        }
+
+        let frames_behind = current_frame.saturating_sub(decoded_frames);
+        if frames_behind > LOOKAHEAD_RESYNC_BEHIND_HYSTERESIS_FRAMES {
+            if lag_started_at_ms.is_none() {
+                lag_started_at_ms = Some(now_ms);
+            }
+        } else {
+            lag_started_at_ms = None;
+        }
+
+        let lag_for_ms = lag_started_at_ms
+            .map(|start| now_ms.saturating_sub(start))
+            .unwrap_or(0);
+
+        let action = decide_lookahead_worker_action(LookaheadWorkerDecisionInput {
+            active: !frame_completed,
+            same_generation: true,
+            same_quality: true,
+            same_content: true,
+            project_revision_changed: false,
+            current_frame,
+            end_frame: decoded_frames,
+            lag_for_ms,
+            ms_since_last_resync: last_resync_ms.map(|t| now_ms.saturating_sub(t)),
+        });
+
+        if matches!(
+            action,
+            LookaheadWorkerAction::Start {
+                reason: "resync_behind"
+            }
+        ) {
+            resyncs += 1;
+            last_resync_ms = Some(now_ms);
+            lag_started_at_ms = None;
+            // A planned resync reanchors the worker once, rather than
+            // cancelling every subsequent starvation observation.
+            decoded_frames = current_frame;
+            next_decode_due_ms = now_ms.saturating_add(service_times_ms[decode_index]);
+        }
+
+        now_ms = now_ms.saturating_add(tick_ms);
+    }
+
+    (decoded_frames, resyncs)
+}
+
+#[test]
+fn slower_than_real_time_decode_resyncs_but_keeps_making_progress() {
+    let (decoded_frames, resyncs) = simulate_playback_decode(&[60], 40, 1_200);
+
+    assert!(decoded_frames > 0, "slow decode must still produce frames");
+    assert!(resyncs > 0, "material lag must eventually trigger a planned resync");
+}
+
+#[test]
+fn decode_jitter_around_the_budget_does_not_resync() {
+    let (decoded_frames, resyncs) = simulate_playback_decode(&[30, 50, 30, 50], 40, 1_200);
+
+    assert!(decoded_frames > 0, "jittering decode must continue making progress");
+    assert_eq!(resyncs, 0, "ordinary jitter must remain below resync hysteresis");
+}
+
+#[test]
+fn lookahead_scheduler_preserves_distinct_invalidation_reasons() {
+    assert_eq!(
+        lookahead_decision(10, 10, false, true, true, false),
+        LookaheadWorkerAction::Abort { reason: "generation" }
+    );
+    assert_eq!(
+        lookahead_decision(10, 10, true, true, false, false),
+        LookaheadWorkerAction::Abort {
+            reason: "clip_boundary"
+        }
+    );
+    assert_eq!(
+        lookahead_decision(10, 10, true, true, true, true),
+        LookaheadWorkerAction::Abort {
+            reason: "project_edit"
+        }
+    );
+}
+
 #[test]
 fn lookahead_content_key_tracks_stream_topology_not_playback_time() {
     let layer = |source_frame: u64, path: &str| crate::native_core::VideoLayerSnapshot {
