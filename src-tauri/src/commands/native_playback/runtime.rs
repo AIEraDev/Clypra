@@ -163,7 +163,9 @@ impl NativePlaybackRuntime {
             };
             self.session = Some(PlaybackSession::new(plan)?);
         }
-        Ok(self.session.as_mut().unwrap())
+        self.session
+            .as_mut()
+            .ok_or_else(|| NativeCoreError::InvalidContract("Playback session was not initialized".to_string()))
     }
 
     pub fn state(&mut self) -> Result<PlaybackState, NativeCoreError> {

@@ -49,7 +49,9 @@ impl RenderTargetManager {
             let target = Self::create_native_target(id, kind, size, app, &self.gpu)?;
             self.targets.insert(id, target);
         }
-        Ok(self.targets.get_mut(&id).unwrap())
+        self.targets
+            .get_mut(&id)
+            .ok_or_else(|| format!("Render target {} not found after creation", id))
     }
 
     /// Permanently destroy a target and release its window + surface.

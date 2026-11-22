@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { useProjectStore } from "@/store/projectStore";
 import { parseSubtitles } from "@/features/subtitles/parser";
+import { safeJsonParse, sanitizeProjectName } from "../inputSanitization";
 
 // Helper replicating sanitizeFileName logic used in cache modules
 function sanitizeFileName(name: string): string {
@@ -114,6 +115,42 @@ INVALID_TIMESTAMP --> ALSO_INVALID
 Corrupted caption body
 `;
       expect(() => parseSubtitles(corruptSrt)).not.toThrow();
+    });
+  });
+
+  // ─── 4. SAFE JSON PARSING & PROTOTYPE POLLUTION DEFENSES ─────────────────
+  describe("safeJsonParse & Prototype Pollution Gate", () => {
+    it("should safely parse valid JSON text", () => {
+      const valid = JSON.stringify({ id: "proj_1", name: "Valid Project", fps: 30 });
+      const res = safeJsonParse<{ id: string; name: string }>(valid);
+      expect(res.success).toBe(true);
+      expect(res.data?.id).toBe("proj_1");
+    });
+
+    it("should reject JSON payloads containing __proto__ pollution", () => {
+      const malicious = '{"id":"hack","__proto__":{"polluted":true}}';
+      const res = safeJsonParse(malicious);
+      expect(res.success).toBe(false);
+      expect(res.error).toContain("Prototype pollution keys detected");
+    });
+
+    it("should reject JSON payloads containing constructor pollution", () => {
+      const malicious = '{"id":"hack","constructor":{"prototype":{"admin":true}}}';
+      const res = safeJsonParse(malicious);
+      expect(res.success).toBe(false);
+      expect(res.error).toContain("Prototype pollution keys detected");
+    });
+
+    it("should reject empty or malformed JSON gracefully", () => {
+      expect(safeJsonParse("").success).toBe(false);
+      expect(safeJsonParse("{not-json").success).toBe(false);
+    });
+
+    it("should sanitize and clamp project names", () => {
+      expect(sanitizeProjectName("  ")).toBe("Untitled Project");
+      expect(sanitizeProjectName("My\x00Clean\x1FProject")).toBe("MyCleanProject");
+      const longName = "A".repeat(200);
+      expect(sanitizeProjectName(longName).length).toBe(64);
     });
   });
 });

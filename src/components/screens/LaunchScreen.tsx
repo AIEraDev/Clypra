@@ -16,6 +16,7 @@ import { useRecordingStore } from "@/store/recordingStore";
 import { useCameraStore } from "@/store/cameraStore";
 import { CameraRecordingModal } from "@/components/ui/CameraRecordingModal";
 import { useI18n } from "@/i18n/I18nProvider";
+import { safeJsonParse } from "@/core/security/inputSanitization";
 
 import { LaunchHeader } from "./launch/LaunchHeader";
 import { StudioActionHub } from "./launch/StudioActionHub";
@@ -301,14 +302,22 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({
       if (!selected || selected.length === 0) return;
       const filePath = selected[0].path;
       const projectJson = await platform.loadProject(filePath);
-      const parsed = JSON.parse(projectJson);
+      const parseResult = safeJsonParse<Record<string, unknown>>(projectJson);
+      if (!parseResult.success || !parseResult.data) {
+        console.error(
+          "[LaunchScreen] Security violation or invalid project file:",
+          parseResult.error,
+        );
+        return;
+      }
+      const parsed = parseResult.data;
       onProjectOpen({
         ...parsed,
         kind: "ready",
         path: filePath,
         backupPath: "",
         backupAvailable: false,
-      });
+      } as unknown as RecentProjectEntry);
     } catch (err) {
       console.error("[LaunchScreen] Failed to open project file from disk:", err);
     }

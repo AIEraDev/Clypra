@@ -377,6 +377,16 @@ function handleSubtitleParse(msg: ParseSubtitlesRequest): void {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Compute DoS Quotas & Defensive Boundaries
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const COMPUTE_LIMITS = {
+  MAX_WAVEFORM_SAMPLES: 48000 * 3600, // 1 hour max single audio clip (~172.8M samples)
+  MAX_SUBTITLE_BYTES: 10 * 1024 * 1024, // 10 MB raw subtitle text
+  MAX_SCOPE_CANVAS_DIMENSION: 4096,
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Message Router
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -387,9 +397,16 @@ self.onmessage = (e: MessageEvent) => {
   try {
     switch (msg.type) {
       // Audio Waveform LOD
-      case "BUILD_LOD":
-        handleWaveformBuild(msg as WaveformBuildRequest);
+      case "BUILD_LOD": {
+        const buildReq = msg as WaveformBuildRequest;
+        if (buildReq.pcm && buildReq.pcm.length > COMPUTE_LIMITS.MAX_WAVEFORM_SAMPLES) {
+          throw new Error(
+            `Security Violation: Audio samples (${buildReq.pcm.length}) exceed maximum compute limit (1 hour)`,
+          );
+        }
+        handleWaveformBuild(buildReq);
         break;
+      }
       case "SLICE_VIEWPORT":
         handleWaveformSlice(msg as WaveformSliceRequest);
         break;
@@ -398,14 +415,32 @@ self.onmessage = (e: MessageEvent) => {
         break;
 
       // Video Color Scopes
-      case "ANALYZE":
-        handleColorScopeAnalyze(msg as ScopeAnalyzeRequest);
+      case "ANALYZE": {
+        const scopeReq = msg as ScopeAnalyzeRequest;
+        if (
+          scopeReq.frame &&
+          (scopeReq.frame.width > COMPUTE_LIMITS.MAX_SCOPE_CANVAS_DIMENSION ||
+            scopeReq.frame.height > COMPUTE_LIMITS.MAX_SCOPE_CANVAS_DIMENSION)
+        ) {
+          throw new Error(
+            `Security Violation: Color scope frame dimensions (${scopeReq.frame.width}x${scopeReq.frame.height}) exceed maximum allowable size (4096)`,
+          );
+        }
+        handleColorScopeAnalyze(scopeReq);
         break;
+      }
 
       // Subtitles & Transcripts
-      case "PARSE_SUBTITLES":
-        handleSubtitleParse(msg as ParseSubtitlesRequest);
+      case "PARSE_SUBTITLES": {
+        const subReq = msg as ParseSubtitlesRequest;
+        if (subReq.rawText && subReq.rawText.length > COMPUTE_LIMITS.MAX_SUBTITLE_BYTES) {
+          throw new Error(
+            `Security Violation: Subtitle payload (${subReq.rawText.length} bytes) exceeds maximum allowable size (10 MB)`,
+          );
+        }
+        handleSubtitleParse(subReq);
         break;
+      }
 
       default:
         break;
