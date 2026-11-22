@@ -53,6 +53,7 @@ impl Default for FfmpegIncidentRateLimiter {
 static FFMPEG_LOG_CALLBACK_INSTALLED: Once = Once::new();
 static FFMPEG_LOG_CONTEXTS: OnceLock<Mutex<HashMap<usize, FfmpegLogContext>>> = OnceLock::new();
 static FFMPEG_INCIDENT_RATE_LIMITER: OnceLock<Mutex<FfmpegIncidentRateLimiter>> = OnceLock::new();
+static FFMPEG_CALLBACK_VERIFIED: OnceLock<bool> = OnceLock::new();
 
 fn ffmpeg_log_contexts() -> &'static Mutex<HashMap<usize, FfmpegLogContext>> {
     FFMPEG_LOG_CONTEXTS.get_or_init(|| Mutex::new(HashMap::new()))
@@ -82,11 +83,17 @@ fn sanitize_ffmpeg_context_id(raw: &str) -> Option<String> {
 }
 
 fn classify_ffmpeg_decode_log(message: &str, level: c_int) -> Option<DecodeIncidentKind> {
-    if level > ffmpeg::ffi::AV_LOG_ERROR as c_int {
+    let normalized = message.to_ascii_lowercase();
+    // FFmpeg emits HEVC reference-chain diagnostics at warning level on some
+    // builds and error level on others. Keep ordinary warnings out of the
+    // incident stream, but always classify these two known-corruption signals.
+    let is_reference_diagnostic = normalized.contains("could not find ref with poc")
+        || normalized.contains("reference picture missing")
+        || normalized.contains("error constructing the frame rps")
+        || normalized.contains("frame rps");
+    if level > ffmpeg::ffi::AV_LOG_ERROR as c_int && !is_reference_diagnostic {
         return None;
     }
-
-    let normalized = message.to_ascii_lowercase();
     if normalized.contains("could not find ref with poc")
         || normalized.contains("reference picture missing")
     {
@@ -194,6 +201,103 @@ fn install_ffmpeg_log_callback() {
     FFMPEG_LOG_CALLBACK_INSTALLED.call_once(|| unsafe {
         ffmpeg::ffi::av_log_set_callback(Some(ffmpeg_log_callback));
     });
+}
+
+/// Run the software-decoder positive control once for a perf-driver process.
+/// The control starts feeding the long-GOP fixture after its first video
+/// packet (the fixture is encoded with a key packet first); a real decoder
+/// must report a missing-reference incident. The fixture is explicit so a
+/// packaged app never guesses at a media path.
+pub fn run_ffmpeg_callback_positive_control() -> bool {
+    *FFMPEG_CALLBACK_VERIFIED.get_or_init(|| {
+        let Some(path) = std::env::var_os("CLYPRA_FFMPEG_CALLBACK_FIXTURE") else {
+            return false;
+        };
+        if !std::path::Path::new(&path).is_file() || ffmpeg::init().is_err() {
+            return false;
+        }
+        ffmpeg::util::log::set_level(configured_ffmpeg_log_level());
+        install_ffmpeg_log_callback();
+        let Ok(mut input) = ffmpeg::format::input(&path) else {
+            return false;
+        };
+        let Some(stream) = input.streams().best(ffmpeg::media::Type::Video) else {
+            return false;
+        };
+        let stream_index = stream.index();
+        let Ok(codec_context) =
+            ffmpeg::codec::context::Context::from_parameters(stream.parameters())
+        else {
+            return false;
+        };
+        let Ok(mut decoder) = codec_context.decoder().video() else {
+            return false;
+        };
+        let decoder_key = unsafe { decoder.as_ptr() as usize };
+        let previous = ffmpeg_log_contexts().lock().ok().and_then(|mut contexts| {
+            contexts.insert(
+                decoder_key,
+                FfmpegLogContext {
+                    stream_key: Some("positive-control".to_string()),
+                    request_id: Some("positive-control".to_string()),
+                },
+            )
+        });
+
+        let before = crate::engine::ENGINE_TELEMETRY.snapshot().decode_incidents;
+        let mut skipped_key_packet = false;
+        let mut fed_packets = 0usize;
+        let mut frame = ffmpeg::util::frame::video::Video::empty();
+        for (packet_stream, packet) in input.packets() {
+            if packet_stream.index() != stream_index {
+                continue;
+            }
+            if !skipped_key_packet && packet.is_key() {
+                skipped_key_packet = true;
+                continue;
+            }
+            if !skipped_key_packet {
+                continue;
+            }
+            let _ = decoder.send_packet(&packet);
+            while decoder.receive_frame(&mut frame).is_ok() {}
+            fed_packets += 1;
+            if fed_packets >= 120 {
+                break;
+            }
+        }
+        let _ = decoder.send_eof();
+        while decoder.receive_frame(&mut frame).is_ok() {}
+
+        if let Ok(mut contexts) = ffmpeg_log_contexts().lock() {
+            if let Some(previous) = previous {
+                contexts.insert(decoder_key, previous);
+            } else {
+                contexts.remove(&decoder_key);
+            }
+        }
+
+        let after = crate::engine::ENGINE_TELEMETRY.snapshot().decode_incidents;
+        after.poc_errors > before.poc_errors || after.rps_errors > before.rps_errors
+    })
+}
+
+pub fn ffmpeg_callback_verified() -> bool {
+    FFMPEG_CALLBACK_VERIFIED.get().copied().unwrap_or(false)
+}
+
+fn configured_ffmpeg_log_level() -> ffmpeg::util::log::Level {
+    match std::env::var("CLYPRA_FFMPEG_LOG_LEVEL")
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "warning" | "warn" => ffmpeg::util::log::Level::Warning,
+        "info" => ffmpeg::util::log::Level::Info,
+        "debug" => ffmpeg::util::log::Level::Debug,
+        "trace" => ffmpeg::util::log::Level::Trace,
+        _ => ffmpeg::util::log::Level::Error,
+    }
 }
 
 pub(crate) struct FfmpegLogContextGuard {
@@ -500,6 +604,9 @@ pub struct VideoDecoder {
     last_demux_us: u32,
     last_decode_activity: DecodeActivity,
     transfer_site: crate::engine::benchmark::types::HwframeTransferSite,
+    /// Debug-only A/B switch. The default preserves the safe dirty recovery;
+    /// disabling it is intentionally observable in the session header.
+    dirty_recovery_enabled: bool,
 }
 
 impl VideoDecoder {
@@ -584,7 +691,11 @@ impl VideoDecoder {
     }
 
     fn cancellation_error(&mut self) -> String {
-        self.state.mark_dirty();
+        crate::engine::ENGINE_TELEMETRY.record_decode_cancelled();
+        if self.dirty_recovery_enabled {
+            self.state.mark_dirty();
+            crate::engine::ENGINE_TELEMETRY.record_dirty_recovery();
+        }
         "Native preview request cancelled".to_string()
     }
 
@@ -621,7 +732,7 @@ impl VideoDecoder {
         purpose: Option<&'static str>,
     ) -> Result<Self, String> {
         ffmpeg::init().map_err(|e| e.to_string())?;
-        ffmpeg::util::log::set_level(ffmpeg::util::log::Level::Error);
+        ffmpeg::util::log::set_level(configured_ffmpeg_log_level());
         install_ffmpeg_log_callback();
 
         let mut probe_guard = crate::cold_start::SpanGuard::start("c2_container_open_probe");
@@ -820,6 +931,9 @@ impl VideoDecoder {
             // prevents hardware downloads from disappearing into an unknown
             // telemetry bucket.
             transfer_site: crate::engine::benchmark::types::HwframeTransferSite::Seek,
+            dirty_recovery_enabled: std::env::var("CLYPRA_DEBUG_DISABLE_DIRTY_RECOVERY")
+                .map(|value| value != "1")
+                .unwrap_or(true),
         })
     }
 

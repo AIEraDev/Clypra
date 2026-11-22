@@ -31,6 +31,9 @@ export interface PerfLogBuildIdentity {
   optLevel: string;
   debugAssertions: boolean;
   ffmpegVersion: string;
+  instrumentationPatchHash?: string | null;
+  perfDriverEnabled: boolean;
+  binaryHash?: string | null;
 }
 
 export interface PerfLogSystemFingerprint {
@@ -45,6 +48,9 @@ export interface PerfLogSystemFingerprint {
   driverVersion: string;
   graphicsBackend: string;
   displayRefreshRate: number;
+  powerSource: string;
+  lowPowerMode?: boolean | null;
+  thermalState: string;
 }
 
 export interface PerfSessionHeader {
@@ -54,6 +60,19 @@ export interface PerfSessionHeader {
   build: PerfLogBuildIdentity;
   system: PerfLogSystemFingerprint;
   resolvedFlags: Record<string, boolean>;
+  decodePolicy?: "auto" | "cpu" | "metal" | "dxgi";
+  decodePolicySource?: string;
+  decodePolicyEffective?: "auto" | "cpu" | "metal" | "dxgi";
+  decodePolicyRejectionReason?: string | null;
+  unverifiedCapabilityOverride?: boolean;
+  unverifiedCapabilitiesVerified?: boolean;
+  ffmpegCallbackVerified?: boolean;
+  mediaHash?: string | null;
+  projectHash?: string | null;
+  scenarioId?: string | null;
+  scenarioHash?: string | null;
+  experimentArm?: string | null;
+  validationMode: boolean;
 }
 
 export interface PreviewContextRecord {
@@ -84,7 +103,7 @@ export function scopeForPerfKind(kind: string): PerfScope {
   if (kind === "native-sync" || kind === "native-session-telemetry") {
     return "engine.native";
   }
-  if (kind === "session-header") return "diagnostics.writer";
+  if (kind === "session-header" || kind === "session-footer") return "diagnostics.writer";
   if (kind === "preview-context") return "frontend.webview";
   if (kind === "worker-rollup" || kind === "animation-eval") {
     return "worker.compute";

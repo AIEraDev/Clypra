@@ -18,6 +18,18 @@ function header() {
   };
 }
 
+function footer(seq = 4) {
+  return {
+    schemaVersion: 2,
+    kind: "session-footer",
+    sessionId: "session-test",
+    timestampEpochMs: 140,
+    seq,
+    scope: "diagnostics.writer",
+    payload: { status: "closed" },
+  };
+}
+
 test("lint accepts a self-describing session with declared preview context", () => {
   const report = lintRecords([
     header(),
@@ -54,6 +66,7 @@ test("lint accepts a self-describing session with declared preview context", () 
       scope: "bridge.ipc",
       payload: { marker: "session-close" },
     },
+    footer(),
   ]);
 
   assert.equal(report.trusted, true);
@@ -244,6 +257,32 @@ test("lint requires zero playback transfers and no guard violations", () => {
   assert.ok(report.errors.some((issue) => issue.code === "zero-copy-guard-violation"));
 });
 
+test("lint rejects unknown producer paths", () => {
+  const report = lintRecords([
+    header(),
+    {
+      schemaVersion: 2,
+      kind: "engine-telemetry",
+      sessionId: "session-test",
+      timestampEpochMs: 110,
+      seq: 1,
+      scope: "engine.native",
+      payload: { transfers: { unknown_frames: 1 } },
+    },
+    {
+      schemaVersion: 2,
+      kind: "native-diagnostic",
+      sessionId: "session-test",
+      timestampEpochMs: 120,
+      seq: 2,
+      scope: "bridge.ipc",
+      payload: { marker: "session-close" },
+    },
+    footer(3),
+  ]);
+  assert.ok(report.errors.some((issue) => issue.code === "unknown-frame-path"));
+});
+
 test("lint rejects a FourCC that contradicts a declared P010 stream", () => {
   const report = lintRecords([
     header(),
@@ -316,4 +355,25 @@ test("lint enforces build provenance and minimum frame evidence", () => {
   assert.ok(report.errors.some((issue) => issue.code === "dirty-diff-hash"));
   assert.ok(report.errors.some((issue) => issue.code === "insufficient-frame-samples"));
   assert.equal(report.frameSampleCount, 0);
+});
+
+test("lint grades unverified capability sessions as validation-only", () => {
+  const validationHeader = header();
+  validationHeader.payload.unverifiedCapabilityOverride = true;
+  const report = lintRecords([
+    validationHeader,
+    {
+      schemaVersion: 2,
+      kind: "native-diagnostic",
+      sessionId: "session-test",
+      timestampEpochMs: 110,
+      seq: 1,
+      scope: "bridge.ipc",
+      payload: { marker: "session-close" },
+    },
+    footer(2),
+  ]);
+  assert.equal(report.trusted, false);
+  assert.equal(report.evidenceGrade, "validation");
+  assert.ok(report.warnings.some((issue) => issue.code === "unverified-capability-override"));
 });

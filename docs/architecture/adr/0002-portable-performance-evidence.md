@@ -91,7 +91,31 @@ per-frame stream key, a native Metal/D3D/VAAPI path, and reconciled counters.
 Capability status is maintained separately for each platform, API, codec, bit
 depth, and range as `verified`, `supported-with-limitations`, `unverified`, or
 `known-broken`. Unverified hardware paths default to the existing CPU fallback
-and may be enabled only through an explicit diagnostic flag.
+for that stream; until a CPU P010 path is validated, its telemetry must retain
+the `capability-unverified` reason rather than claiming 10-bit parity. The process-level `auto` policy tries the platform's best
+verified native candidate first (Metal on macOS, DXGI on Windows, and the
+platform adapter on Linux when implemented), then demotes to CPU/software when
+the stream probe or import fails. `CLYPRA_DECODE_PATH` remains an explicit
+diagnostic override; it is never required for normal hardware acceleration.
+
+The evidence workflow is deliberately phased. Phase 1 adds provenance and
+measurement foundations without changing scheduling: machine power/thermal
+state, scenario and experiment-arm identity, a process-exit `session-footer`,
+request joins, stream-keyed summaries, and lookahead invalidation causes. Phase
+2 uses the feature-gated deterministic scenario driver and a three-arm A/B
+experiment (baseline behavior, dirty recovery enabled, dirty recovery
+disabled). Each arm is run interleaved at least five times after one warm-up;
+the decision rule is fixed before collection and reports stale-display/drop
+rate before interpreting decoder incidents. Lookahead scheduling is not
+rewritten until those counters identify topology-wide invalidation as the
+dominant cause.
+
+The canonical event envelope is described by the checked-in
+`scripts/perf/perf-v2.schema.json`. JSON Schema validates record shape;
+`clypra-perf lint` owns cross-record invariants such as stream/context joins,
+footer completion, counter reconciliation, and build provenance. The
+`session-footer` is emitted on application shutdown (not merely project close)
+so a project-close marker cannot certify an incomplete process session.
 
 ## Alternatives Considered
 

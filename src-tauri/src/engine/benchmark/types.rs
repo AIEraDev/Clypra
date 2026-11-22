@@ -136,6 +136,10 @@ pub struct TransferMetrics {
     pub dxgi_shared_frames: u64,
     #[serde(default)]
     pub cpu_nv12_frames: u64,
+    /// Main10/P010 frames that were forced through the current NV12 CPU
+    /// fallback. This is a correctness warning: precision/range may be lost.
+    #[serde(default)]
+    pub cpu_nv12_bit_depth_reduced_frames: u64,
     #[serde(default)]
     pub cpu_p010_frames: u64,
     #[serde(default)]
@@ -167,6 +171,9 @@ pub struct TransferMetrics {
     pub hwframe_transfer_calls_by_site: std::collections::BTreeMap<String, u64>,
     #[serde(default)]
     pub metal_decode_attempts: u64,
+    /// Decode requests that were superseded before producing a terminal frame.
+    #[serde(default)]
+    pub metal_decode_cancelled: u64,
     #[serde(default)]
     pub metal_decode_successes: u64,
     #[serde(default)]

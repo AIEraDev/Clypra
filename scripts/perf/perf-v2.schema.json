@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clypra.app/schemas/perf-v2.schema.json",
+  "title": "Clypra performance event v2",
+  "description": "Common envelope for append-only Clypra performance NDJSON events.",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "sessionId", "timestampEpochMs", "seq", "scope", "payload"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "kind": { "type": "string", "minLength": 1 },
+    "sessionId": { "type": "string", "minLength": 1 },
+    "timestampEpochMs": { "type": "number" },
+    "seq": { "type": "integer", "minimum": 0 },
+    "scope": { "type": "string", "minLength": 1 },
+    "payload": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "session-header" } } },
+      "then": {
+        "properties": {
+          "seq": { "const": 0 },
+          "payload": {
+            "required": ["schemaVersion", "sessionId", "openedAtEpochMs", "build", "system", "resolvedFlags", "decodePolicy", "decodePolicySource", "decodePolicyEffective", "decodePolicyRejectionReason", "unverifiedCapabilityOverride", "unverifiedCapabilitiesVerified", "ffmpegCallbackVerified", "mediaHash", "projectHash", "validationMode"],
+            "properties": {
+              "schemaVersion": { "const": 2 },
+              "sessionId": { "type": "string", "minLength": 1 },
+              "openedAtEpochMs": { "type": "integer", "minimum": 0 },
+              "build": { "type": "object", "required": ["gitDirty", "optLevel", "debugAssertions", "ffmpegVersion", "perfDriverEnabled", "binaryHash"] },
+              "system": { "type": "object", "required": ["os", "osVersion", "arch", "powerSource", "thermalState"] },
+              "resolvedFlags": { "type": "object", "additionalProperties": { "type": "boolean" } },
+              "decodePolicy": { "enum": ["auto", "cpu", "metal", "dxgi"] },
+              "decodePolicySource": { "type": "string", "minLength": 1 },
+              "decodePolicyEffective": { "enum": ["auto", "cpu", "metal", "dxgi"] },
+              "decodePolicyRejectionReason": { "type": ["string", "null"] },
+              "unverifiedCapabilityOverride": { "type": "boolean" },
+              "unverifiedCapabilitiesVerified": { "type": "boolean" },
+              "ffmpegCallbackVerified": { "type": "boolean" },
+              "mediaHash": { "type": ["string", "null"] },
+              "projectHash": { "type": ["string", "null"] },
+              "validationMode": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "session-footer" } } },
+      "then": {
+        "properties": {
+          "payload": {
+            "required": ["status"],
+            "properties": { "status": { "enum": ["closed", "crashed", "incomplete"] } }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "frame" } } },
+      "then": {
+        "properties": {
+          "payload": {
+            "required": ["streamKey", "previewContextId"],
+            "properties": {
+              "streamKey": { "type": "string", "minLength": 1 },
+              "previewContextId": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

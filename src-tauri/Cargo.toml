@@ -7,6 +7,15 @@ edition = "2021"
 autobins = false
 default-run = "clypra"
 
+[features]
+default = []
+# Embed the Vite `dist/` assets in release binaries. Development runs keep
+# using the configured dev URL unless this feature is explicitly selected.
+custom-protocol = ["tauri/custom-protocol"]
+# Development-only deterministic native preview scenario driver. Release
+# artifacts intentionally omit this feature.
+perf-driver = []
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]

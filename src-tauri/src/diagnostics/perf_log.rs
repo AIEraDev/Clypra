@@ -25,11 +25,12 @@ use flate2::Compression;
 use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::error::Error;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::Manager;
 use tokio::sync::Mutex as AsyncMutex;
@@ -88,6 +89,12 @@ pub struct PerfBuildIdentity {
     pub opt_level: String,
     pub debug_assertions: bool,
     pub ffmpeg_version: String,
+    /// Hash of the measurement-only patch applied to an experiment baseline.
+    /// This is distinct from `git_commit`, which identifies behavior.
+    pub instrumentation_patch_hash: Option<String>,
+    /// Whether the development-only deterministic scenario driver was compiled.
+    pub perf_driver_enabled: bool,
+    pub binary_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -104,6 +111,11 @@ pub struct PerfSystemFingerprint {
     pub driver_version: String,
     pub graphics_backend: String,
     pub display_refresh_rate: f64,
+    /// Power/thermal state is part of the benchmark provenance. `unknown` is
+    /// used when the platform does not expose a non-blocking probe.
+    pub power_source: String,
+    pub low_power_mode: Option<bool>,
+    pub thermal_state: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -115,6 +127,21 @@ pub struct PerfSessionHeader {
     pub build: PerfBuildIdentity,
     pub system: PerfSystemFingerprint,
     pub resolved_flags: std::collections::BTreeMap<String, bool>,
+    pub decode_policy: String,
+    pub decode_policy_source: String,
+    pub decode_policy_effective: String,
+    pub decode_policy_rejection_reason: Option<String>,
+    pub unverified_capability_override: bool,
+    pub unverified_capabilities_verified: bool,
+    pub ffmpeg_callback_verified: bool,
+    pub media_hash: Option<String>,
+    pub project_hash: Option<String>,
+    /// Canonical scenario identity. These remain optional for ordinary user
+    /// sessions and are populated by the development scenario driver.
+    pub scenario_id: Option<String>,
+    pub scenario_hash: Option<String>,
+    pub experiment_arm: Option<String>,
+    pub validation_mode: bool,
 }
 
 /// Metadata returned to the frontend for the active session.
@@ -148,6 +175,7 @@ struct PerfLogSession {
 // ── Global session registry ────────────────────────────────────────────────
 
 static SESSIONS: Lazy<DashMap<String, PerfLogSession>> = Lazy::new(DashMap::new);
+static BINARY_HASH: OnceLock<Option<String>> = OnceLock::new();
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -158,12 +186,26 @@ fn now_epoch_ms() -> u64 {
         .unwrap_or(0)
 }
 
+fn current_binary_hash() -> Option<String> {
+    BINARY_HASH
+        .get_or_init(|| {
+            let path = std::env::current_exe().ok()?;
+            let bytes = fs::read(path).ok()?;
+            Some(format!("{:x}", Sha256::digest(bytes)))
+        })
+        .clone()
+}
+
 fn resolved_flag(name: &str) -> bool {
-    std::env::var(name).as_deref() == Ok("1")
+    matches!(
+        std::env::var(name).as_deref(),
+        Ok("1") | Ok("true") | Ok("yes")
+    )
 }
 
 fn make_session_header(session_id: &str, opened_at_epoch_ms: u64) -> PerfSessionHeader {
     let machine = crate::engine::benchmark::runner::probe_machine_identity();
+    let decode_resolution = crate::engine::decode_policy::resolve_decode_resolution();
     PerfSessionHeader {
         schema_version: PERF_LOG_SCHEMA_VERSION,
         session_id: session_id.to_string(),
@@ -185,6 +227,16 @@ fn make_session_header(session_id: &str, opened_at_epoch_ms: u64) -> PerfSession
             ffmpeg_version: option_env!("CLYPRA_FFMPEG_VERSION")
                 .unwrap_or("unknown")
                 .to_string(),
+            instrumentation_patch_hash: std::env::var("CLYPRA_INSTRUMENTATION_PATCH_HASH")
+                .ok()
+                .filter(|value| !value.is_empty())
+                .or_else(|| {
+                    option_env!("CLYPRA_INSTRUMENTATION_PATCH_HASH")
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_string)
+                }),
+            perf_driver_enabled: cfg!(feature = "perf-driver"),
+            binary_hash: current_binary_hash(),
         },
         system: PerfSystemFingerprint {
             os: machine.os,
@@ -200,8 +252,17 @@ fn make_session_header(session_id: &str, opened_at_epoch_ms: u64) -> PerfSession
             driver_version: machine.driver_version,
             graphics_backend: format!("{:?}", machine.graphics_backend),
             display_refresh_rate: machine.display_refresh_rate,
+            power_source: probe_power_source(),
+            low_power_mode: probe_low_power_mode(),
+            thermal_state: probe_thermal_state(),
         },
         resolved_flags: [
+            (
+                "CLYPRA_DECODE_PATH".to_string(),
+                std::env::var("CLYPRA_DECODE_PATH")
+                    .map(|value| !value.trim().is_empty())
+                    .unwrap_or(false),
+            ),
             (
                 "CLYPRA_METAL_DECODE".to_string(),
                 resolved_flag("CLYPRA_METAL_DECODE"),
@@ -211,13 +272,115 @@ fn make_session_header(session_id: &str, opened_at_epoch_ms: u64) -> PerfSession
                 resolved_flag("CLYPRA_REQUIRE_ZERO_COPY"),
             ),
             (
+                "CLYPRA_ALLOW_UNVERIFIED".to_string(),
+                resolved_flag("CLYPRA_ALLOW_UNVERIFIED"),
+            ),
+            (
                 "CLYPRA_DISABLE_METAL_ZERO_COPY".to_string(),
                 resolved_flag("CLYPRA_DISABLE_METAL_ZERO_COPY"),
+            ),
+            (
+                "CLYPRA_DEBUG_DISABLE_DIRTY_RECOVERY".to_string(),
+                resolved_flag("CLYPRA_DEBUG_DISABLE_DIRTY_RECOVERY"),
+            ),
+            (
+                "CLYPRA_VALIDATE_STAGES".to_string(),
+                resolved_flag("CLYPRA_VALIDATE_STAGES"),
+            ),
+            ("CLYPRA_TRACE".to_string(), resolved_flag("CLYPRA_TRACE")),
+            (
+                "CLYPRA_FFMPEG_LOG_LEVEL".to_string(),
+                std::env::var("CLYPRA_FFMPEG_LOG_LEVEL")
+                    .map(|value| !value.trim().is_empty())
+                    .unwrap_or(false),
             ),
         ]
         .into_iter()
         .collect(),
+        decode_policy: decode_resolution.requested.as_str().to_string(),
+        decode_policy_source: decode_resolution.source.as_str().to_string(),
+        decode_policy_effective: decode_resolution.effective.as_str().to_string(),
+        decode_policy_rejection_reason: decode_resolution
+            .rejection_reason
+            .map(str::to_string),
+        unverified_capability_override: crate::engine::decode_policy::unverified_capability_override(),
+        // P010 remains unverified until the real Main10 parity and lease
+        // validation is accepted; an override never upgrades its evidence.
+        unverified_capabilities_verified: false,
+        ffmpeg_callback_verified: crate::filmstrip_engine::decoder::ffmpeg_callback_verified(),
+        media_hash: std::env::var("CLYPRA_MEDIA_HASH").ok(),
+        project_hash: std::env::var("CLYPRA_PROJECT_HASH").ok(),
+        scenario_id: std::env::var("CLYPRA_SCENARIO_ID").ok(),
+        scenario_hash: std::env::var("CLYPRA_SCENARIO_HASH").ok(),
+        experiment_arm: std::env::var("CLYPRA_EXPERIMENT_ARM").ok(),
+        validation_mode: resolved_flag("CLYPRA_VALIDATE_STAGES"),
     }
+}
+
+fn probe_power_source() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(output) = std::process::Command::new("pmset")
+            .args(["-g", "batt"])
+            .output()
+        {
+            let text = String::from_utf8_lossy(&output.stdout);
+            if text.contains("AC Power") {
+                return "ac".to_string();
+            }
+            if text.contains("Battery Power") {
+                return "battery".to_string();
+            }
+        }
+    }
+    "unknown".to_string()
+}
+
+fn probe_low_power_mode() -> Option<bool> {
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(output) = std::process::Command::new("pmset").args(["-g"]).output() {
+            let text = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
+            if text.contains("lowpowermode 1") {
+                return Some(true);
+            }
+            if text.contains("lowpowermode 0") {
+                return Some(false);
+            }
+        }
+    }
+    None
+}
+
+fn probe_thermal_state() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(output) = std::process::Command::new("pmset")
+            .args(["-g", "therm"])
+            .output()
+        {
+            let text = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
+            if output.status.success() {
+                if text.contains("cpu_speed_limit")
+                    && (text.contains("cpu_speed_limit: 1")
+                        || text.contains("cpu_speed_limit = 1"))
+                {
+                    return "throttled".to_string();
+                }
+                if text.contains("thermal level: 2") || text.contains("thermal level = 2") {
+                    return "critical".to_string();
+                }
+                if text.contains("thermal level: 1") || text.contains("thermal level = 1") {
+                    return "serious".to_string();
+                }
+                // pmset does not expose a single stable "nominal" token
+                // across macOS releases. A successful probe with no
+                // throttling signal is the strongest available nominal fact.
+                return "nominal".to_string();
+            }
+        }
+    }
+    "unknown".to_string()
 }
 
 pub fn get_perf_log_dir(app_data_dir: &Path) -> PathBuf {

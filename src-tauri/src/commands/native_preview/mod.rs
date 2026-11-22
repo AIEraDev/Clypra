@@ -46,8 +46,6 @@ static METAL_ZERO_COPY_SUCCESS_REPORTED: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "macos")]
 static METAL_ZERO_COPY_FAILURE_REPORTED: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "macos")]
-static METAL_DECODE_ENABLED: OnceLock<bool> = OnceLock::new();
-#[cfg(target_os = "macos")]
 static METAL_ZERO_COPY_DISABLED: OnceLock<bool> = OnceLock::new();
 #[cfg(target_os = "macos")]
 static METAL_PREFETCH_CANCEL_EPOCH: AtomicU64 = AtomicU64::new(0);
@@ -87,10 +85,16 @@ fn log_required_zero_copy_violation(
     path: FrameTransferPath,
     decode_was_hardware_accelerated: Option<bool>,
     has_video_layers: bool,
+    policy_fallback: bool,
     frame_index: u64,
 ) {
     if !zero_copy_guard_enabled()
-        || !is_required_zero_copy_violation(path, decode_was_hardware_accelerated, has_video_layers)
+        || !is_required_zero_copy_violation(
+            path,
+            decode_was_hardware_accelerated,
+            has_video_layers,
+            policy_fallback,
+        )
     {
         return;
     }
@@ -119,6 +123,7 @@ fn zero_copy_guard_enabled() -> bool {
 /// Resolve the validation flag during Tauri setup so the hot presentation loop
 /// only reads an atomic counter and never consults the process environment.
 pub(crate) fn initialize_zero_copy_guard() {
+    let decode_policy = crate::engine::decode_policy::resolve_decode_resolution();
     #[cfg(target_os = "macos")]
     let metal_decode = metal_decode_enabled();
     #[cfg(not(target_os = "macos"))]
@@ -128,7 +133,11 @@ pub(crate) fn initialize_zero_copy_guard() {
     #[cfg(not(target_os = "macos"))]
     let metal_disabled = false;
     log::info!(
-        "[NativePreview] runtime flags: CLYPRA_METAL_DECODE={}, CLYPRA_REQUIRE_ZERO_COPY={}, CLYPRA_DISABLE_METAL_ZERO_COPY={}",
+        "[NativePreview] decode policy: requested={}, source={}, effective={}, rejection={}, metal_enabled={}, CLYPRA_REQUIRE_ZERO_COPY={}, CLYPRA_DISABLE_METAL_ZERO_COPY={}",
+        decode_policy.requested.as_str(),
+        decode_policy.source.as_str(),
+        decode_policy.effective.as_str(),
+        decode_policy.rejection_reason.unwrap_or("none"),
         metal_decode,
         zero_copy_guard_enabled(),
         metal_disabled,
@@ -137,7 +146,41 @@ pub(crate) fn initialize_zero_copy_guard() {
 
 #[cfg(target_os = "macos")]
 fn metal_decode_enabled() -> bool {
-    *METAL_DECODE_ENABLED.get_or_init(|| std::env::var("CLYPRA_METAL_DECODE").as_deref() == Ok("1"))
+    let policy = crate::engine::decode_policy::resolve_decode_resolution();
+    !matches!(
+        policy.effective,
+        crate::engine::decode_policy::DecodePathPreference::Cpu
+            | crate::engine::decode_policy::DecodePathPreference::Dxgi
+    )
+}
+
+/// P010 import is implemented but remains unverified until a real Main10
+/// session and CPU-vs-Metal parity check are accepted. Keep the default safe:
+/// only the exercised 8-bit VideoToolbox surfaces enter Metal zero-copy.
+#[cfg(target_os = "macos")]
+fn metal_zero_copy_fourcc_verified(fourcc: &str) -> bool {
+    matches!(fourcc, "'420v'" | "'420f'")
+        || (matches!(fourcc, "'x420'" | "'xf20'")
+            && crate::engine::decode_policy::unverified_capability_override())
+}
+
+#[cfg(target_os = "macos")]
+fn metal_transfer_path_for_fourcc(fourcc: &str) -> FrameTransferPath {
+    if matches!(fourcc, "'x420'" | "'xf20'") {
+        FrameTransferPath::MetalZeroCopyP010
+    } else {
+        FrameTransferPath::MetalZeroCopyNv12
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn dxgi_decode_enabled() -> bool {
+    let policy = crate::engine::decode_policy::resolve_decode_resolution();
+    !matches!(
+        policy.effective,
+        crate::engine::decode_policy::DecodePathPreference::Cpu
+            | crate::engine::decode_policy::DecodePathPreference::Metal
+    )
 }
 
 #[cfg(target_os = "macos")]
@@ -163,9 +206,11 @@ fn is_required_zero_copy_violation(
     path: FrameTransferPath,
     decode_was_hardware_accelerated: Option<bool>,
     has_video_layers: bool,
+    policy_fallback: bool,
 ) -> bool {
     has_video_layers
         && decode_was_hardware_accelerated == Some(true)
+        && !policy_fallback
         && !path.is_zero_copy()
         && !matches!(path, FrameTransferPath::GpuRaster)
 }
@@ -1564,6 +1609,37 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
                 &mut height,
             ) {
                 Ok(Some(shared)) => {
+                    let fourcc = shared.pixel_format_fourcc();
+                    if !metal_zero_copy_fourcc_verified(&fourcc) {
+                        let stream_metadata = guard.metadata().clone();
+                        crate::engine::ENGINE_TELEMETRY.record_stream_telemetry(
+                            if layer.layer_id.is_empty() {
+                                stream_id
+                            } else {
+                                layer.layer_id.as_str()
+                            },
+                            stream_metadata.codec_name,
+                            stream_metadata.codec_profile,
+                            stream_metadata.pixel_format,
+                            stream_metadata.color.range,
+                            Some(fourcc.clone()),
+                        );
+                        crate::engine::ENGINE_TELEMETRY.record_stream_decode_decision(
+                            if layer.layer_id.is_empty() {
+                                stream_id
+                            } else {
+                                layer.layer_id.as_str()
+                            },
+                            FrameTransferPath::CpuNv12,
+                            Some("capability-unverified"),
+                        );
+                        crate::engine::ENGINE_TELEMETRY.record_cpu_nv12_bit_depth_reduced();
+                        attempt.fail(
+                            crate::native_core::performance::MetalDecodeFailureReason::CapabilityUnverified,
+                        );
+                        all_succeeded = false;
+                        break;
+                    }
                     attempt.succeed();
                     let dec_us = decode_started.elapsed().as_micros().min(u32::MAX as u128) as u32;
                     max_dec_us = max_dec_us.max(dec_us);
@@ -1581,6 +1657,15 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
                         stream_color.range.clone(),
                         Some(shared.pixel_format_fourcc()),
                     );
+                    crate::engine::ENGINE_TELEMETRY.record_stream_decode_decision(
+                        if layer.layer_id.is_empty() {
+                            stream_id
+                        } else {
+                            layer.layer_id.as_str()
+                        },
+                        metal_transfer_path_for_fourcc(&fourcc),
+                        None,
+                    );
                     let color = merge_color_metadata(frame_color, &stream_color);
                     frames.push((DecodedFrame::Metal(Arc::new(shared)), width, height, color));
                 }
@@ -1591,12 +1676,16 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
                     all_succeeded = false;
                     break;
                 }
+                Err(error) if error.contains("cancelled") => {
+                    attempt.cancelled();
+                    all_succeeded = false;
+                    break;
+                }
                 Err(error) => {
-                    attempt.fail(if error.contains("cancelled") {
-                        crate::native_core::performance::MetalDecodeFailureReason::Cancelled
-                    } else {
-                        crate::native_core::performance::MetalDecodeFailureReason::DecodeError
-                    });
+                    attempt.fail(
+                        crate::native_core::performance::MetalDecodeFailureReason::DecodeError,
+                    );
+                    log::warn!("[NativePreview] Metal decode failed: {error}");
                     all_succeeded = false;
                     break;
                 }
@@ -1622,6 +1711,7 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
     #[cfg(target_os = "windows")]
     let can_use_dxgi = session.gpu.capabilities.zero_copy_available()
         && session.dxgi_state.is_usable()
+        && dxgi_decode_enabled()
         && !dxgi_env_disabled;
 
     #[cfg(target_os = "windows")]
@@ -2445,9 +2535,7 @@ async fn decode_native_video_layers_metal(
                     return Ok(None);
                 }
                 Err(error) if error.contains("cancelled") => {
-                    attempt.fail(
-                        crate::native_core::performance::MetalDecodeFailureReason::Cancelled,
-                    );
+                    attempt.cancelled();
                     return Err(
                         crate::filmstrip_engine::stream_actor::StreamDecodeError::Cancelled,
                     );
@@ -2460,6 +2548,41 @@ async fn decode_native_video_layers_metal(
                     return Ok(None);
                 }
             };
+
+            let fourcc = shared.pixel_format_fourcc();
+            if !metal_zero_copy_fourcc_verified(&fourcc) {
+                let stream_metadata = guard.metadata().clone();
+                crate::engine::ENGINE_TELEMETRY.record_stream_telemetry(
+                    if layer.layer_id.is_empty() {
+                        format!("layer-{layer_index}")
+                    } else {
+                        layer.layer_id.clone()
+                    },
+                    stream_metadata.codec_name,
+                    stream_metadata.codec_profile,
+                    stream_metadata.pixel_format,
+                    stream_metadata.color.range,
+                    Some(fourcc.clone()),
+                );
+                crate::engine::ENGINE_TELEMETRY.record_stream_decode_decision(
+                    if layer.layer_id.is_empty() {
+                        format!("layer-{layer_index}")
+                    } else {
+                        layer.layer_id.clone()
+                    },
+                    FrameTransferPath::CpuNv12,
+                    Some("capability-unverified"),
+                );
+                crate::engine::ENGINE_TELEMETRY.record_cpu_nv12_bit_depth_reduced();
+                attempt.fail(
+                    crate::native_core::performance::MetalDecodeFailureReason::CapabilityUnverified,
+                );
+                log::info!(
+                    "[NativePreview] Metal zero-copy capability is unverified for {}; using CPU fallback",
+                    fourcc
+                );
+                return Ok(None);
+            }
 
             attempt.succeed();
             let decode_us = decode_started
@@ -2479,6 +2602,15 @@ async fn decode_native_video_layers_metal(
                 stream_metadata.pixel_format.clone(),
                 stream_color.range.clone(),
                 Some(shared.pixel_format_fourcc()),
+            );
+            crate::engine::ENGINE_TELEMETRY.record_stream_decode_decision(
+                if layer.layer_id.is_empty() {
+                    format!("layer-{layer_index}")
+                } else {
+                    layer.layer_id.clone()
+                },
+                metal_transfer_path_for_fourcc(&fourcc),
+                None,
             );
 
             Ok(Some((
@@ -2682,6 +2814,15 @@ async fn decode_native_video_layers(
             None,
         );
         let decoded = actor_frame.into_native_video_frame();
+        crate::engine::ENGINE_TELEMETRY.record_stream_decode_decision(
+            if layer.layer_id.is_empty() {
+                "layer-0"
+            } else {
+                layer.layer_id.as_str()
+            },
+            decoded.0.transfer_path(),
+            None,
+        );
         return Ok((
             vec![decoded],
             NativeDecodeTimings {
@@ -2781,6 +2922,15 @@ async fn decode_native_video_layers(
                     None,
                 );
                 let decoded = actor_frame.into_native_video_frame();
+                crate::engine::ENGINE_TELEMETRY.record_stream_decode_decision(
+                    if layer_id.is_empty() {
+                        format!("layer-{unique_idx}")
+                    } else {
+                        layer_id.clone()
+                    },
+                    decoded.0.transfer_path(),
+                    None,
+                );
                 Ok::<_, crate::filmstrip_engine::stream_actor::StreamDecodeError>((
                     decoded,
                     decode_us,
@@ -3149,6 +3299,7 @@ struct LookaheadWorkerState {
     /// project revision are included so a clip entering/leaving the active
     /// scene cannot leave stale lookahead work decoding the old topology.
     content_key: u64,
+    project_revision: String,
     start_frame: Arc<std::sync::atomic::AtomicU64>,
     end_frame: Arc<std::sync::atomic::AtomicU64>,
     finished: Arc<std::sync::atomic::AtomicBool>,
@@ -3345,6 +3496,16 @@ pub(crate) fn schedule_lookahead_predecode(
 
     // If generation changed or audio jumped out of range, abort previous worker to free decoders immediately.
     if let Some(prev) = worker_guard.take() {
+        let cause = if prev.project_revision != base_request.project.project_revision {
+            "project_edit"
+        } else if prev.content_key != content_key {
+            "clip_boundary"
+        } else if prev.generation != generation {
+            "generation"
+        } else {
+            "seek"
+        };
+        crate::engine::ENGINE_TELEMETRY.record_lookahead_invalidation(cause);
         #[cfg(target_os = "macos")]
         METAL_PREFETCH_CANCEL_EPOCH.fetch_add(1, Ordering::AcqRel);
         prev.handle.abort();
@@ -3361,6 +3522,7 @@ pub(crate) fn schedule_lookahead_predecode(
     let worker_end = Arc::new(std::sync::atomic::AtomicU64::new(initial_target_end));
     let worker_start_clone = worker_start.clone();
     let worker_end_clone = worker_end.clone();
+    let project_revision = base_request.project.project_revision.clone();
 
     let handle = tauri::async_runtime::spawn(async move {
         // Determine the next forward frame range that needs decoding:
@@ -3494,6 +3656,7 @@ pub(crate) fn schedule_lookahead_predecode(
         generation,
         quality: quality_override,
         content_key,
+        project_revision,
         start_frame: worker_start,
         end_frame: worker_end,
         finished,
@@ -3506,6 +3669,7 @@ pub(crate) fn schedule_lookahead_predecode(
 pub(crate) async fn reset_native_preview_queue(app: &tauri::AppHandle) {
     if let Ok(mut worker) = LOOKAHEAD_WORKER.lock() {
         if let Some(previous) = worker.take() {
+            crate::engine::ENGINE_TELEMETRY.record_lookahead_invalidation("generation");
             #[cfg(target_os = "macos")]
             METAL_PREFETCH_CANCEL_EPOCH.fetch_add(1, Ordering::AcqRel);
             previous.handle.abort();
@@ -3527,6 +3691,7 @@ pub(crate) fn preempt_lookahead_predecode() -> bool {
     if let Ok(mut worker) = LOOKAHEAD_WORKER.lock() {
         if let Some(previous) = worker.take() {
             preempted = true;
+            crate::engine::ENGINE_TELEMETRY.record_lookahead_invalidation("seek");
             crate::engine::ENGINE_TELEMETRY.record_lookahead_preempted();
             previous.handle.abort();
         }
@@ -4450,6 +4615,8 @@ pub(crate) async fn present_native_frame_internal(
             path,
             decode_timings.is_hardware_accelerated,
             !legacy_request.layers.is_empty(),
+            decode_timings.source_bits_per_raw_sample.unwrap_or(8) >= 10
+                && !crate::engine::decode_policy::unverified_capability_override(),
             request.frame_time.frame_index,
         );
     }

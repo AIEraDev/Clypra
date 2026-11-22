@@ -135,6 +135,11 @@ pub struct PreviewConcurrencyTelemetry {
     pub stale_lookahead_discarded: u64,
     pub visible_decode_waited_behind_lookahead_us: u64,
     pub text_prefetch_rasterized_under_preview_lock: u64,
+    /// Counts why lookahead work was invalidated. This is observational only;
+    /// scheduler policy remains unchanged until an experiment attributes the
+    /// churn to a specific cause.
+    pub lookahead_invalidations_by_cause: BTreeMap<String, u64>,
+    pub dirty_recoveries: u64,
 }
 
 #[derive(Debug, Default)]
@@ -203,6 +208,13 @@ pub struct StreamTelemetry {
     pub pixel_format: String,
     pub color_range: String,
     pub cv_pixel_format: Option<String>,
+    /// Requested/effective policy and the path actually selected for this
+    /// stream. These are separate because an explicit request may be rejected
+    /// by the platform or by a stream capability probe.
+    pub decode_policy_requested: Option<String>,
+    pub decode_policy_effective: Option<String>,
+    pub decode_path_chosen: Option<String>,
+    pub decode_path_rejections: Vec<String>,
 }
 
 fn sanitize_stream_key(raw: &str) -> String {
@@ -391,6 +403,35 @@ impl EngineTelemetryCollector {
             .saturating_add(1);
     }
 
+    pub fn record_lookahead_invalidation(&self, cause: &str) {
+        let mut metrics = self.preview_concurrency.write();
+        *metrics
+            .lookahead_invalidations_by_cause
+            .entry(cause.to_string())
+            .or_default() += 1;
+    }
+
+    pub fn record_dirty_recovery(&self) {
+        let mut metrics = self.preview_concurrency.write();
+        metrics.dirty_recoveries = metrics.dirty_recoveries.saturating_add(1);
+    }
+
+    pub fn record_decode_cancelled(&self) {
+        let mut transfers = self.transfers.write();
+        transfers.metal_decode_cancelled = transfers.metal_decode_cancelled.saturating_add(1);
+    }
+
+    /// Records a Main10/P010 frame that had to use the legacy NV12 CPU
+    /// fallback. This is intentionally separate from `cpu_nv12_frames` so a
+    /// session cannot mistake an 8-bit precision loss for an ordinary NV12
+    /// source.
+    pub fn record_cpu_nv12_bit_depth_reduced(&self) {
+        let mut transfers = self.transfers.write();
+        transfers.cpu_nv12_bit_depth_reduced_frames = transfers
+            .cpu_nv12_bit_depth_reduced_frames
+            .saturating_add(1);
+    }
+
     /// Records one call to FFmpeg's hardware-frame download boundary. The
     /// caller must provide the workload site at the transfer boundary so an
     /// unlabeled transfer cannot be introduced through this API.
@@ -441,6 +482,7 @@ impl EngineTelemetryCollector {
     pub fn begin_session(&self) {
         self.session_closing.store(false, Ordering::Release);
         *self.decode_incidents.write() = DecodeIncidentTelemetry::default();
+        *self.preview_concurrency.write() = PreviewConcurrencyTelemetry::default();
     }
 
     /// Counts one FFmpeg decoder-reference incident. This is intentionally
@@ -543,17 +585,58 @@ impl EngineTelemetryCollector {
     ) {
         let stream_key = sanitize_stream_key(&stream_key.into());
         let mut streams = self.streams.write();
-        streams.insert(
-            stream_key.clone(),
-            StreamTelemetry {
+        let next = StreamTelemetry {
                 stream_key,
                 codec: codec.into(),
                 codec_profile: codec_profile.into(),
                 pixel_format: pixel_format.into(),
                 color_range: color_range.into(),
                 cv_pixel_format,
-            },
-        );
+                decode_policy_requested: None,
+                decode_policy_effective: None,
+                decode_path_chosen: None,
+                decode_path_rejections: Vec::new(),
+            };
+        if let Some(existing) = streams.get_mut(&next.stream_key) {
+            existing.codec = next.codec;
+            existing.codec_profile = next.codec_profile;
+            existing.pixel_format = next.pixel_format;
+            existing.color_range = next.color_range;
+            existing.cv_pixel_format = next.cv_pixel_format;
+        } else {
+            streams.insert(next.stream_key.clone(), next);
+        }
+    }
+
+    /// Records the stream-local outcome of policy resolution and capability
+    /// probing. The policy is cached once per process; this method only updates
+    /// the already-sanitized stream descriptor.
+    pub fn record_stream_decode_decision(
+        &self,
+        stream_key: impl Into<String>,
+        chosen_path: FrameTransferPath,
+        rejection_reason: Option<&str>,
+    ) {
+        let stream_key = sanitize_stream_key(&stream_key.into());
+        let resolution = crate::engine::decode_policy::resolve_decode_resolution();
+        let mut streams = self.streams.write();
+        let Some(stream) = streams.get_mut(&stream_key) else {
+            return;
+        };
+        stream.decode_policy_requested = Some(resolution.requested.as_str().to_string());
+        stream.decode_policy_effective = Some(resolution.effective.as_str().to_string());
+        stream.decode_path_chosen = Some(chosen_path.as_str().to_string());
+        if let Some(reason) = resolution.rejection_reason.or(rejection_reason) {
+            let reason = reason.to_string();
+            if !stream.decode_path_rejections.contains(&reason) {
+                stream.decode_path_rejections.push(reason);
+            }
+        }
+        if let Some(reason) = rejection_reason.map(str::to_string) {
+            if !stream.decode_path_rejections.contains(&reason) {
+                stream.decode_path_rejections.push(reason);
+            }
+        }
     }
 
     /// Records presentation or drop of a frame in the real-time engine.
@@ -918,6 +1001,14 @@ impl MetalDecodeAttempt<'_> {
         self.telemetry.record_metal_decode_failure(reason);
         self.completed = true;
     }
+
+    /// Cancellation is expected control flow during scrubbing. It must be
+    /// reconciled, but it is not a decode failure and must never contribute to
+    /// capability demotion or failure-based fallback decisions.
+    pub fn cancelled(mut self) {
+        self.telemetry.record_decode_cancelled();
+        self.completed = true;
+    }
 }
 
 impl Drop for MetalDecodeAttempt<'_> {
@@ -976,6 +1067,10 @@ mod tests {
         telemetry.begin_metal_decode_attempt().succeed();
         let transfers = telemetry.snapshot().transfers;
         assert_eq!(transfers.metal_decode_attempts, 2);
+        telemetry.begin_metal_decode_attempt().cancelled();
+        let cancelled = telemetry.snapshot().transfers;
+        assert_eq!(cancelled.metal_decode_cancelled, 1);
+        assert_eq!(cancelled.metal_decode_failures, 1);
         assert_eq!(transfers.metal_decode_successes, 1);
         assert_eq!(transfers.metal_decode_failures, 1);
         assert_eq!(
@@ -986,7 +1081,7 @@ mod tests {
             let _unrecorded = telemetry.begin_metal_decode_attempt();
         }
         let transfers = telemetry.snapshot().transfers;
-        assert_eq!(transfers.metal_decode_attempts, 3);
+        assert_eq!(transfers.metal_decode_attempts, 4);
         assert_eq!(transfers.metal_decode_successes, 1);
         assert_eq!(transfers.metal_decode_failures, 1);
         assert_eq!(transfers.metal_decode_unrecorded, 1);
@@ -1001,10 +1096,7 @@ mod tests {
         let transfers = telemetry.snapshot().transfers;
         assert_eq!(transfers.metal_decode_in_flight_at_close, 1);
         telemetry.record_zero_copy_guard_violation();
-        assert_eq!(
-            telemetry.snapshot().transfers.zero_copy_guard_violations,
-            1
-        );
+        assert_eq!(telemetry.snapshot().transfers.zero_copy_guard_violations, 1);
         telemetry.record_stream_telemetry(
             "layer-main",
             "hevc",
@@ -1022,6 +1114,50 @@ mod tests {
         assert_eq!(stream.pixel_format, "yuvj420p");
         assert_eq!(stream.color_range, "full");
         assert_eq!(stream.cv_pixel_format.as_deref(), Some("'420f'"));
+        telemetry.record_stream_decode_decision(
+            "layer-main",
+            FrameTransferPath::CpuNv12,
+            Some("capability-unverified"),
+        );
+        let stream = telemetry
+            .snapshot()
+            .streams
+            .into_iter()
+            .find(|stream| stream.stream_key == "layer-main")
+            .expect("stream decision should update existing stream");
+        assert!(stream.decode_policy_requested.is_some());
+        assert_eq!(stream.decode_path_chosen, Some("cpu-nv12".to_string()));
+        assert!(stream
+            .decode_path_rejections
+            .contains(&"capability-unverified".to_string()));
+        telemetry.record_stream_telemetry(
+            "layer-main",
+            "hevc",
+            "Main",
+            "yuvj420p",
+            "full",
+            Some("'420f'".to_string()),
+        );
+        let stream = telemetry
+            .snapshot()
+            .streams
+            .into_iter()
+            .find(|stream| stream.stream_key == "layer-main")
+            .expect("stream metadata refresh should retain the decision");
+        assert_eq!(stream.decode_path_chosen, Some("cpu-nv12".to_string()));
+        assert!(stream
+            .decode_path_rejections
+            .contains(&"capability-unverified".to_string()));
+
+        telemetry.record_lookahead_invalidation("clip_boundary");
+        telemetry.record_lookahead_invalidation("clip_boundary");
+        telemetry.record_lookahead_invalidation("seek");
+        let invalidations = telemetry
+            .snapshot()
+            .preview_concurrency
+            .lookahead_invalidations_by_cause;
+        assert_eq!(invalidations.get("clip_boundary"), Some(&2));
+        assert_eq!(invalidations.get("seek"), Some(&1));
 
         telemetry.record_decode_incident(DecodeIncidentKind::Poc);
         telemetry.record_decode_incident(DecodeIncidentKind::Rps);
@@ -1039,6 +1175,11 @@ mod tests {
             telemetry.snapshot().decode_incidents,
             super::DecodeIncidentTelemetry::default()
         );
+        assert!(telemetry
+            .snapshot()
+            .preview_concurrency
+            .lookahead_invalidations_by_cause
+            .is_empty());
     }
 
     #[test]

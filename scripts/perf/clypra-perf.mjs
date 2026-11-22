@@ -222,6 +222,16 @@ export function lintRecords(records, options = {}) {
       for (const stream of streams) {
         const streamObject = asObject(stream);
         const streamKey = streamObject?.streamKey ?? streamObject?.stream_key;
+        const chosenPath =
+          streamObject?.decodePathChosen ?? streamObject?.decode_path_chosen;
+        if (record.schemaVersion >= CURRENT_SCHEMA_VERSION && typeof streamKey === "string" && typeof chosenPath !== "string") {
+          addError(
+            errors,
+            record.line,
+            "missing-stream-decode-decision",
+            `stream ${streamKey} has no chosen decode path`,
+          );
+        }
         const format =
           streamObject?.sw_format ??
           streamObject?.swFormat ??
@@ -249,12 +259,27 @@ export function lintRecords(records, options = {}) {
       record.kind === "native-diagnostic" &&
       record.payload.marker === "session-close",
   );
+  const footers = valid.filter((record) => record.kind === "session-footer");
+  const hasFooter = footers.some((record) => record.payload.status === "closed");
+  const hasProjectCloseOnly = valid.some(
+    (record) => record.kind === "project-session-close",
+  ) && !hasFooter;
   if (!hasCloseMarker) {
     addWarning(
       warnings,
       0,
       "incomplete-session",
       "session-close marker is missing; treating the session as incomplete",
+    );
+  }
+  if (!hasFooter) {
+    addWarning(
+      warnings,
+      footers.at(-1)?.line ?? 0,
+      hasProjectCloseOnly ? "project-close-without-footer" : "incomplete-session-footer",
+      hasProjectCloseOnly
+        ? "project-session-close is not an application session footer"
+        : "session-footer is missing; treating the session as incomplete",
     );
   }
 
@@ -388,6 +413,18 @@ export function lintRecords(records, options = {}) {
         `${guardViolations} zero-copy guard violation(s) were recorded by the engine`,
       );
     }
+    const unknownFrames =
+      asFiniteNumber(transfers.unknown_frames) ??
+      asFiniteNumber(transfers.unknownFrames) ??
+      0;
+    if (unknownFrames > 0) {
+      addError(
+        errors,
+        finalEngine.line,
+        "unknown-frame-path",
+        `${unknownFrames} frame(s) reached telemetry without a producer path`,
+      );
+    }
   }
 
   const emittedGuardViolations = valid.filter(
@@ -418,9 +455,21 @@ export function lintRecords(records, options = {}) {
     );
   }
 
+  const unverifiedOverride = header?.payload?.unverifiedCapabilityOverride === true;
+  if (unverifiedOverride) {
+    addWarning(
+      warnings,
+      header?.line ?? 0,
+      "unverified-capability-override",
+      "session exercised an explicitly unverified decode capability; it is validation-grade only",
+    );
+  }
+
   const evidenceGrade =
-    headers.length > 0 && errors.length === 0 && hasCloseMarker
-      ? "measured"
+    headers.length > 0 && errors.length === 0 && hasCloseMarker && hasFooter
+      ? unverifiedOverride
+        ? "validation"
+        : "measured"
       : "untrusted";
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -430,7 +479,7 @@ export function lintRecords(records, options = {}) {
     frameSampleCount,
     sessionIds: [...sessionIds],
     declaredPreviewContexts: contexts.size,
-    completionStatus: hasCloseMarker ? "complete" : "incomplete",
+    completionStatus: hasCloseMarker && hasFooter ? "complete" : "incomplete",
     errors,
     warnings,
   };

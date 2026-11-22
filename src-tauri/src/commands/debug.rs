@@ -225,6 +225,7 @@ pub fn start_debug_ipc_server(app: tauri::AppHandle) {
         let app_handle_reg = app.clone();
         let app_handle_unreg = app.clone();
         let app_handle_experiment = app.clone();
+        let app_handle_perf_driver = app.clone();
 
         let cors = tower_http::cors::CorsLayer::new()
             .allow_origin(tower_http::cors::Any)
@@ -243,6 +244,21 @@ pub fn start_debug_ipc_server(app: tauri::AppHandle) {
                             match set_native_scrub_experiment_context(app, payload) {
                                 Ok(()) => (axum::http::StatusCode::OK, "ok").into_response(),
                                 Err(err) => (axum::http::StatusCode::BAD_REQUEST, err).into_response(),
+                            }
+                        }
+                    }
+                }),
+            )
+            .route(
+                "/debug/run_perf_scenario",
+                axum::routing::post({
+                    let app = app_handle_perf_driver;
+                    move |axum::Json(payload): axum::Json<crate::commands::perf_driver::PerfScenario>| {
+                        let app = app.clone();
+                        async move {
+                            match crate::commands::perf_driver::run_perf_scenario(app, payload).await {
+                                Ok(result) => (axum::http::StatusCode::OK, axum::Json(result)).into_response(),
+                                Err(error) => (axum::http::StatusCode::BAD_REQUEST, error).into_response(),
                             }
                         }
                     }

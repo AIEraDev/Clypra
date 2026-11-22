@@ -70,12 +70,37 @@ mod ffmpeg_log_classification_tests {
     fn ignores_logs_below_error_threshold() {
         assert_eq!(
             classify_ffmpeg_decode_log(
-                "Could not find ref with POC 42",
+                "ordinary decoder warning",
                 (ffmpeg::ffi::AV_LOG_ERROR + 1) as i32,
             ),
             None
         );
     }
+
+    #[test]
+    fn captures_reference_diagnostics_emitted_at_warning_level() {
+        assert_eq!(
+            classify_ffmpeg_decode_log(
+                "Could not find ref with POC 42",
+                ffmpeg::ffi::AV_LOG_WARNING as i32,
+            ),
+            Some(DecodeIncidentKind::Poc)
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires tests/fixtures/perf/hevc-main10-video-range.mov and an FFmpeg-enabled build"]
+fn real_decoder_positive_control_verifies_ffmpeg_callback() {
+    assert!(
+        std::env::var_os("CLYPRA_FFMPEG_CALLBACK_FIXTURE").is_some(),
+        "set CLYPRA_FFMPEG_CALLBACK_FIXTURE to a generated long-GOP fixture"
+    );
+    assert!(
+        run_ffmpeg_callback_positive_control(),
+        "the real decoder did not emit a classified POC/RPS warning"
+    );
+    assert!(ffmpeg_callback_verified());
 }
 
 #[cfg(test)]

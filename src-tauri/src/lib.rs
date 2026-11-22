@@ -304,6 +304,12 @@ pub fn run() {
             let setup_start = std::time::Instant::now();
             diagnostics::initialize(app.handle());
             crate::commands::native_preview::initialize_zero_copy_guard();
+            #[cfg(feature = "perf-driver")]
+            {
+                let verified =
+                    crate::filmstrip_engine::decoder::run_ffmpeg_callback_positive_control();
+                log::info!("[PerfDriver] ffmpeg callback positive control verified={verified}");
+            }
             let win_init_start = std::time::Instant::now();
             if let Some(window) = app.get_webview_window("main") {
                 crate::cold_start::record_window_created();
@@ -855,6 +861,8 @@ pub fn run() {
             get_bench_run_config,
             write_bench_report,
             exit_app,
+            #[cfg(feature = "perf-driver")]
+            run_perf_scenario,
             // ── Debug / chain-test commands ──────────────────────────────────
             // Registered in all builds; the command bodies return an error in
             // release builds (#[cfg(not(debug_assertions))]) so a webview

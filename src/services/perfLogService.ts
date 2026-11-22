@@ -78,6 +78,7 @@ const MAX_QUEUE_SIZE = 200;
 
 export type PerfLogKind =
   | "session-header"
+  | "session-footer"
   | "preview-context"
   | "frontend-rollup"
   | "native-sync"
@@ -598,7 +599,6 @@ export class PerfLogService {
       timestampEpochMs: Date.now(),
       payload: { marker: "session-close" },
     });
-
     // Flush the final filmstrip window so the partial interval at session end is not lost.
     if (filmstripTelemetry.hasRecordedData()) {
       const filmstripSummary = filmstripTelemetry.getSummary();
@@ -780,6 +780,24 @@ export class PerfLogService {
       // Silently skip if unavailable.
     }
 
+    // Emit the footer after every final rollup has been queued. The footer is
+    // the durable completion boundary, so it must be the last event in the
+    // session rather than merely another close marker in the middle of the
+    // final batch.
+    this.queue.push({
+      kind: "session-footer",
+      sessionId,
+      timestampEpochMs: Date.now(),
+      payload: {
+        status: "closed",
+        closeReason: "application-exit-or-explicit-close",
+        validationMode: Boolean(
+          typeof import.meta !== "undefined" &&
+            import.meta.env?.VITE_CLYPRA_VALIDATE_STAGES === "1",
+        ),
+      },
+    });
+
     // The final native rollup is queued after the first flush above. Persist it
     // before closing the Rust-owned file; otherwise a clean exit would contain
     // the session-close marker but silently lose the last summary record.
@@ -810,7 +828,12 @@ export class PerfLogService {
   private async _flushQueueWithSession(sessionId: string): Promise<void> {
     if (this.queue.length === 0) return;
 
-    const batch = this.queue.splice(0, this.queue.length);
+    const batch = this.queue.splice(0, this.queue.length).map((entry) => ({
+      ...entry,
+      schemaVersion: entry.schemaVersion ?? PERF_SCHEMA_VERSION,
+      seq: entry.seq ?? this.nextSequence++,
+      scope: entry.scope ?? scopeForPerfKind(entry.kind),
+    }));
 
     try {
       await tauriInvoke<number>("append_perf_log_entries", {

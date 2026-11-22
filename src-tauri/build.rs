@@ -39,6 +39,7 @@ fn main() {
     println!("cargo:rerun-if-changed=../.git/HEAD");
     println!("cargo:rerun-if-changed=../.git/index");
     println!("cargo:rerun-if-changed=../.git/packed-refs");
+    println!("cargo:rerun-if-changed=../.git/refs");
     println!("cargo:rerun-if-changed=../.git");
     println!("cargo:rerun-if-changed=../src");
     println!("cargo:rerun-if-changed=src");
