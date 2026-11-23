@@ -76,6 +76,7 @@ const App = () => {
   const runAutomatedBenchRef = useRef<
     ((config: BenchRunConfig) => Promise<void>) | null
   >(null);
+  const hasRunAutomatedBenchRef = useRef(false);
 
   useEffect(() => {
     if (!platform.isTauri()) return;
@@ -819,6 +820,13 @@ const App = () => {
   };
 
   const runAutomatedBench = async (benchConfig: BenchRunConfig) => {
+    if (hasRunAutomatedBenchRef.current) {
+      console.warn(
+        "[BenchRunner] Benchmark already initiated or executed; skipping duplicate trigger",
+      );
+      return;
+    }
+    hasRunAutomatedBenchRef.current = true;
     console.info("[BenchRunner] Starting automated benchmark:", benchConfig);
     try {
       const targetPath = benchConfig.projectPath;
