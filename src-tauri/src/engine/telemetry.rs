@@ -883,12 +883,29 @@ impl EngineTelemetryCollector {
             let mut render_sum = 0;
             let mut present_sum = 0;
             let mut times: Vec<f64> = Vec::with_capacity(total);
+            let mut cur_consecutive = 0usize;
+            let mut max_consecutive = 0usize;
 
             for f in frames.iter() {
                 match f.outcome {
-                    FrameOutcome::PresentedOnTime => on_time += 1,
-                    FrameOutcome::PresentedLate(_) => late += 1,
-                    FrameOutcome::Dropped => dropped += 1,
+                    FrameOutcome::PresentedOnTime => {
+                        on_time += 1;
+                        cur_consecutive = 0;
+                    }
+                    FrameOutcome::PresentedLate(_) => {
+                        late += 1;
+                        cur_consecutive += 1;
+                        if cur_consecutive > max_consecutive {
+                            max_consecutive = cur_consecutive;
+                        }
+                    }
+                    FrameOutcome::Dropped => {
+                        dropped += 1;
+                        cur_consecutive += 1;
+                        if cur_consecutive > max_consecutive {
+                            max_consecutive = cur_consecutive;
+                        }
+                    }
                     FrameOutcome::RepeatedPrevious | FrameOutcome::Obsolete => {}
                 }
                 decode_sum += f.decode_us;
@@ -923,7 +940,7 @@ impl EngineTelemetryCollector {
                 } else {
                     0.0
                 },
-                consecutive_misses_max: 0,
+                consecutive_misses_max: max_consecutive,
                 p50_frame_ms: p50,
                 p90_frame_ms: p90,
                 p95_frame_ms: p95,
