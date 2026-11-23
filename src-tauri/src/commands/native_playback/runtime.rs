@@ -52,6 +52,13 @@ impl NativePlaybackRuntime {
             .map(|session| session.record_playback_lookahead_miss())
     }
 
+    pub(crate) fn is_first_frame_presented(&self) -> bool {
+        self.render_session
+            .as_ref()
+            .map(|s| s.first_presented.load(std::sync::atomic::Ordering::Acquire))
+            .unwrap_or(false)
+    }
+
     pub(crate) fn record_playback_lookahead_hit(&self) {
         if let Some(session) = &self.render_session {
             session.record_playback_lookahead_hit();

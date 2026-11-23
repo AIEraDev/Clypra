@@ -42,6 +42,8 @@ test("default scenario includes the fixed multi-workload matrix", () => {
 test("isolated acceptance presets have one measurable workload phase", () => {
   for (const [name, phaseId, kind] of [
     ["playback-steady-30s", "steady_playback", "play"],
+    ["playback-composite-30s", "composite_playback", "play"],
+    ["composite-scrub-sweep", "composite_scrub", "scrubSweep"],
     ["cold-seek", "cold_seek", "coldSeek"],
     ["scrub-sweep", "scrub", "scrubSweep"],
     ["clip-boundary", "clip_boundary", "clipBoundary"],

@@ -215,6 +215,27 @@ export function buildScenarioPreset(name) {
         { kind: "pause", phaseId: "pause", durationMs: 1 },
       ],
     },
+    "playback-composite-30s": {
+      scenarioId: "playback-composite-30s-v1",
+      actions: [
+        { kind: "play", phaseId: "composite_playback", durationMs: 30_000 },
+        { kind: "pause", phaseId: "pause", durationMs: 1 },
+      ],
+    },
+    "composite-scrub-sweep": {
+      scenarioId: "composite-scrub-sweep-v1",
+      actions: [
+        {
+          kind: "scrubSweep",
+          phaseId: "composite_scrub",
+          startFrame: 750,
+          endFrame: 50,
+          steps: 40,
+          durationMs: 1_600,
+        },
+        { kind: "pause", phaseId: "pause", durationMs: 1 },
+      ],
+    },
     "cold-seek": {
       scenarioId: "cold-seek-v1",
       actions: [

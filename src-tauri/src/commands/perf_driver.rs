@@ -7,8 +7,10 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 #[cfg(feature = "perf-driver")]
+use std::sync::{Arc, Mutex};
+#[cfg(feature = "perf-driver")]
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 fn is_false(value: &bool) -> bool {
     !*value
@@ -84,13 +86,14 @@ fn emit_phase_marker(
     action_index: usize,
     event: &'static str,
 ) {
-    emit_phase_marker_for_phase(
+    emit_phase_marker_with_attempts(
         app,
         action,
         action_index,
         phase_id_for_action(action),
         action.kind.as_str(),
         event,
+        None,
     );
 }
 
@@ -102,7 +105,27 @@ fn emit_phase_marker_for_phase(
     phase_kind: &str,
     event: &'static str,
 ) {
-    let payload = serde_json::json!({
+    emit_phase_marker_with_attempts(
+        app,
+        action,
+        action_index,
+        phase_id,
+        phase_kind,
+        event,
+        None,
+    );
+}
+
+fn emit_phase_marker_with_attempts(
+    app: &AppHandle,
+    action: &PerfScenarioAction,
+    action_index: usize,
+    phase_id: &str,
+    phase_kind: &str,
+    event: &'static str,
+    play_start_attempts: Option<u32>,
+) {
+    let mut payload = serde_json::json!({
         "marker": "perf-phase",
         "phaseId": phase_id,
         "phaseKind": phase_kind,
@@ -113,6 +136,9 @@ fn emit_phase_marker_for_phase(
         "endFrame": action.end_frame,
         "steps": action.steps,
     });
+    if let Some(attempts) = play_start_attempts {
+        payload["playStartAttempts"] = serde_json::json!(attempts);
+    }
     if event == "start" {
         set_active_phase_id(Some(phase_id));
     }
@@ -147,6 +173,8 @@ pub struct PerfScenarioResult {
     pub transport_start_ticks: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transport_end_ticks: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub play_start_attempts: Option<u32>,
 }
 
 fn canonical_value(value: &serde_json::Value) -> serde_json::Value {
@@ -210,15 +238,35 @@ fn validate_action(action: &PerfScenarioAction) -> Result<(), String> {
 }
 
 #[cfg(feature = "perf-driver")]
-async fn wait_for_audio_clock_start(app: &AppHandle) -> Result<i64, String> {
-    let deadline = Instant::now() + Duration::from_secs(2);
+async fn wait_for_audio_clock_start(app: &AppHandle) -> Result<(i64, u32), String> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut attempts = 1u32;
     while Instant::now() < deadline {
-        if let Ok(clock) = crate::commands::native_playback::audio_clock_time(app, true, false) {
-            if clock.ticks > 0 {
-                return Ok(clock.ticks);
+        let is_playing = if let Some(audio) =
+            app.try_state::<std::sync::Arc<std::sync::Mutex<crate::native_audio::NativeAudioClock>>>()
+        {
+            if let Ok(clock) = audio.lock() {
+                let status = clock.status();
+                status.running && status.playing
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if is_playing {
+            if let Ok(clock) = crate::commands::native_playback::audio_clock_time(app, true, false) {
+                if clock.ticks >= 0 {
+                    return Ok((clock.ticks, attempts));
+                }
             }
         }
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        attempts += 1;
+        let _ = app.emit(
+            "clypra://perf-driver-transport",
+            serde_json::json!({ "action": "play" }),
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
     Err("transport-start-failed".to_string())
 }
@@ -265,6 +313,11 @@ pub async fn run_perf_scenario(
         let mut invalid_reason = None;
         let mut transport_start_ticks = None;
         let mut transport_end_ticks = None;
+        let mut play_start_attempts = None;
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
         let _ = app.emit(
             "clypra://perf-driver-probe",
             serde_json::json!({
@@ -294,11 +347,26 @@ pub async fn run_perf_scenario(
                             serde_json::json!({ "action": "play" }),
                         );
                         tokio::time::sleep(Duration::from_millis(100)).await;
-                        let start_ticks = wait_for_audio_clock_start(&app).await?;
+                        let (start_ticks, attempts) = wait_for_audio_clock_start(&app).await?;
                         transport_start_ticks = Some(start_ticks);
+                        play_start_attempts = Some(attempts);
                         let duration_ms = action.duration_ms.unwrap_or(1);
                         if startup_phase {
-                            tokio::time::sleep(Duration::from_millis(STARTUP_PHASE_DURATION_MS)).await;
+                            let startup_start = tokio::time::Instant::now();
+                            while startup_start.elapsed() < Duration::from_millis(STARTUP_PHASE_DURATION_MS) {
+                                let is_presented = app
+                                    .try_state::<Arc<Mutex<crate::commands::native_playback::NativePlaybackRuntime>>>()
+                                    .and_then(|rt| rt.lock().ok().map(|r| r.is_first_frame_presented()))
+                                    .unwrap_or(false);
+                                if is_presented {
+                                    break;
+                                }
+                                tokio::time::sleep(Duration::from_millis(50)).await;
+                            }
+                            let elapsed = startup_start.elapsed();
+                            if elapsed < Duration::from_millis(STARTUP_PHASE_DURATION_MS) {
+                                tokio::time::sleep(Duration::from_millis(STARTUP_PHASE_DURATION_MS) - elapsed).await;
+                            }
                             emit_phase_marker_for_phase(
                                 &app,
                                 action,
@@ -307,9 +375,17 @@ pub async fn run_perf_scenario(
                                 "startup",
                                 "end",
                             );
-                            emit_phase_marker(&app, action, action_index, "start");
+                            emit_phase_marker_with_attempts(
+                                &app,
+                                action,
+                                action_index,
+                                phase_id_for_action(action),
+                                action.kind.as_str(),
+                                "start",
+                                Some(attempts),
+                            );
                             tokio::time::sleep(
-                                Duration::from_millis(duration_ms - STARTUP_PHASE_DURATION_MS),
+                                Duration::from_millis(duration_ms.saturating_sub(STARTUP_PHASE_DURATION_MS)),
                             )
                             .await;
                         } else {
@@ -399,6 +475,7 @@ pub async fn run_perf_scenario(
             invalid_reason,
             transport_start_ticks,
             transport_end_ticks,
+            play_start_attempts,
         })
     }
 }
