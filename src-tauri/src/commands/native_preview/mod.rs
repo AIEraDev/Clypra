@@ -3476,7 +3476,7 @@ fn trace_lookahead_scheduler_decision(
             | LookaheadWorkerAction::Keep {
                 reason: "resync_deferred"
             }
-    ) || sample.is_multiple_of(30);
+    ) || sample.is_multiple_of(10);
     if !should_emit {
         return;
     }
