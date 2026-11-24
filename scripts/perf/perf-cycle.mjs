@@ -289,7 +289,7 @@ export async function runPreflight(options = {}) {
 export async function materializeProject(projectPath, targetDir, mediaDir) {
   const raw = await readFile(projectPath, "utf8");
   const project = JSON.parse(raw);
-  for (const asset of project.media_assets ?? []) {
+  for (const asset of project.media_assets ?? project.mediaAssets ?? []) {
     if (typeof asset?.path === "string" && asset.path.length > 0) {
       asset.path = path.resolve(mediaDir, path.basename(asset.path));
     }

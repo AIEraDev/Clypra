@@ -432,6 +432,7 @@ export class ProjectSession {
         import("@/store/timelineStore"),
       ]);
       this._transportAuthority = new TransportAuthority();
+      let lastOfflineToastAtMs = 0;
       this._transportAuthority.setCanPlayGuard(() => {
         const projectState = useProjectStore.getState();
         const timelineState = useTimelineStoreRef.getState();
@@ -445,11 +446,15 @@ export class ProjectSession {
           (clip) => clip.mediaId && missingAssetIds.has(clip.mediaId),
         );
         if (hasOfflineTimelineClip) {
-          projectState.showToast(
-            "Cannot play: one or more timeline media files are missing or offline. Use Relink Media to locate.",
-            "warning",
-            5000,
-          );
+          const now = Date.now();
+          if (now - lastOfflineToastAtMs > 3000) {
+            lastOfflineToastAtMs = now;
+            projectState.showToast(
+              "Cannot play: one or more timeline media files are missing or offline. Use Relink Media to locate.",
+              "warning",
+              5000,
+            );
+          }
           return false;
         }
         return true;
