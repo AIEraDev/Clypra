@@ -319,8 +319,11 @@ pub async fn run_perf_scenario(
         let mut transport_end_ticks = None;
         let mut play_start_attempts = None;
         if let Some(window) = app.get_webview_window("main") {
-            let _ = window.show();
-            let _ = window.set_focus();
+            let win_clone = window.clone();
+            let _ = window.run_on_main_thread(move || {
+                let _ = win_clone.show();
+                let _ = win_clone.set_focus();
+            });
         }
         // Settle until the native surface is configured or timeout after 5s
         let surface_wait_deadline = Instant::now() + Duration::from_secs(5);

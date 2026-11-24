@@ -28,6 +28,7 @@ export type TransportEventListener = (event: TransportEvent) => void;
  */
 export class TransportAuthority {
   private readonly seekController = new SeekController();
+  private canPlayGuard: (() => boolean) | null = null;
   private activeContext: PlaybackContext | null = null;
   private contexts = new Map<PlaybackContextType, PlaybackContext>();
   private _switchListeners = new Set<AuthorityContextSwitchListener>();
@@ -120,7 +121,14 @@ export class TransportAuthority {
 
   // ─── Unified Transport Controls ────────────────────────────────────────
 
+  setCanPlayGuard(guard: (() => boolean) | null): void {
+    this.canPlayGuard = guard;
+  }
+
   play(): void {
+    if (this.canPlayGuard && !this.canPlayGuard()) {
+      return;
+    }
     const duration = this.getDuration();
     if (duration > 0 && this.getTime() >= duration) {
       this.seekController.request({ time: 0, mode: "playback" });
@@ -140,6 +148,9 @@ export class TransportAuthority {
       this.issueTransportIntent("seek");
       context.pause();
     } else {
+      if (this.canPlayGuard && !this.canPlayGuard()) {
+        return;
+      }
       const duration = this.getDuration();
       const isAtEnd = duration > 0 && this.getTime() >= duration;
       if (isAtEnd) {
