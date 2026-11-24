@@ -18,7 +18,7 @@ Clypra is a high-performance native desktop video editor (`v1.6.7`) targeting ma
 ## 2. Architectural Invariants (Non-Negotiable)
 1. **Single Time Source**: `PlaybackClock.ts` is the sole session authority for playback position. Never create secondary clocks. Note: singleton module requires dev server restart after edits.
 2. **EvaluatedScene Currency**: All render pipelines (preview, export, thumbnail, filmstrip) consume `EvaluatedScene` emitted by `evaluateTimelineSceneCached()`. Never read `timelineStore` directly in render loops.
-3. **Command-Pattern Mutations**: All undoable timeline edits must be dispatched via `historyStore.dispatch(command)`. Direct store array mutations bypass undo history.
+3. **Command-Pattern Mutations**: All undoable timeline edits must be dispatched via `useHistoryStore.getState().execute(command)` (or `beginTransaction` / `commitTransaction`). Direct store array mutations bypass undo history.
 4. **Asynchronous Asset Hydration**: `MediaAsset.path` is empty (`""`) until probed. Never pass empty paths to Rust IPC. Respect `.filter(c => Boolean(c.path))` in `getActiveAudioClips()`.
 5. **IPC Discipline**: Every Tauri `invoke()` has latency (0.5–2ms warm, 50–500ms cold). Never invoke IPC in `requestAnimationFrame` loops for non-essential tasks. Batch and debounce.
 6. **Native Preview Surface Invariant**: The native GPU preview (Metal on macOS, DirectX 12 on Windows) is enabled by default. Default builds and dev sessions use the native hardware surface; set `VITE_CLYPRA_NATIVE_SURFACE=0` to force the WebGL/web-canvas readback fallback.
