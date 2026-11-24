@@ -24,7 +24,7 @@ function cloneState(state: TimelineState): TimelineState {
 }
 
 function getFrameRate(state: TimelineState): number {
-  const rate = (state as unknown as { frameRate?: number }).frameRate;
+  const rate = state.frameRate;
   return typeof rate === "number" && rate > 0 ? rate : 30;
 }
 
@@ -58,39 +58,71 @@ function resolveTarget(
   return null;
 }
 
-function buildCommandsForOp(
+function statesEqual(a: TimelineState, b: TimelineState): boolean {
+  if (a === b) return true;
+  if (a.clips.length !== b.clips.length) return false;
+  for (let i = 0; i < a.clips.length; i++) {
+    const ca = a.clips[i];
+    const cb = b.clips[i];
+    if (
+      ca.id !== cb.id ||
+      ca.trackId !== cb.trackId ||
+      ca.startTime !== cb.startTime ||
+      ca.duration !== cb.duration ||
+      ca.trimIn !== cb.trimIn ||
+      ca.trimOut !== cb.trimOut
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+const EPS = 0.001;
+
+/**
+ * Executes a single op by building fresh command(s) against the current state
+ * and applying them via `runCommand`. Handles sub-clip splitting for `deleteRange`
+ * (including linked clips) so only `[startMs, endMs]` is removed.
+ */
+function executeOp(
   op: EditOp,
   opIndex: number,
-  state: TimelineState,
+  getState: () => TimelineState,
+  runCommand: (cmd: Command) => TimelineState,
   refs: Map<string, string>,
-): { commands: Command[]; afterApply?: (prev: TimelineState, next: TimelineState) => void } | { error: EditPlanError } {
+): { ok: true } | { ok: false; error: EditPlanError } {
+  const state = getState();
+
   switch (op.op) {
     case "split": {
       const clip = resolveTarget(op.target, state, refs);
       if (!clip) {
-        return { error: { code: "TARGET_NOT_FOUND", message: `Split target not found at op ${opIndex}`, opIndex } };
+        return { ok: false, error: { code: "TARGET_NOT_FOUND", message: `Split target not found at op ${opIndex}`, opIndex } };
       }
+      const prev = state;
       const cmd = new SplitClipCommand(clip.id, op.atMs / 1000, getFrameRate(state), clip);
-      return {
-        commands: [cmd],
-        afterApply: (prev, next) => {
-          if (op.as) {
-            const prevIds = new Set(prev.clips.map((c) => c.id));
-            const created = next.clips
-              .filter((c) => !prevIds.has(c.id))
-              .sort((a, b) => a.startTime - b.startTime);
-            if (created.length >= 2) {
-              refs.set(op.as[0], created[0].id);
-              refs.set(op.as[1], created[1].id);
-            }
-          }
-        },
-      };
+      const next = runCommand(cmd);
+      if (statesEqual(prev, next)) {
+        return { ok: false, error: { code: "NO_OP_EFFECT", message: `Op ${opIndex} (split) produced no state change`, opIndex } };
+      }
+      if (op.as) {
+        const prevIds = new Set(prev.clips.map((c) => c.id));
+        const created = next.clips
+          .filter((c) => !prevIds.has(c.id))
+          .sort((a, b) => a.startTime - b.startTime);
+        if (created.length >= 2) {
+          refs.set(op.as[0], created[0].id);
+          refs.set(op.as[1], created[1].id);
+        }
+      }
+      return { ok: true };
     }
+
     case "trim": {
       const clip = resolveTarget(op.target, state, refs);
       if (!clip) {
-        return { error: { code: "TARGET_NOT_FOUND", message: `Trim target not found at op ${opIndex}`, opIndex } };
+        return { ok: false, error: { code: "TARGET_NOT_FOUND", message: `Trim target not found at op ${opIndex}`, opIndex } };
       }
       const oldTrimIn = clip.trimIn ?? 0;
       const oldTrimOut = clip.trimOut ?? clip.duration;
@@ -99,11 +131,12 @@ function buildCommandsForOp(
       const newEndSec = op.endMs !== undefined ? op.endMs / 1000 : clip.startTime + clip.duration;
       const newDuration = newEndSec - newStartSec;
       if (newDuration <= 0) {
-        return { error: { code: "INVALID_RANGE", message: `Trim results in non-positive duration at op ${opIndex}`, opIndex } };
+        return { ok: false, error: { code: "INVALID_RANGE", message: `Trim results in non-positive duration at op ${opIndex}`, opIndex } };
       }
       const deltaIn = newStartSec - clip.startTime;
       const newTrimIn = Math.max(0, oldTrimIn + deltaIn);
       const newTrimOut = newTrimIn + newDuration;
+      const prev = state;
       const cmd = new TrimClipCommand(
         clip.id,
         oldTrimIn,
@@ -113,25 +146,97 @@ function buildCommandsForOp(
         newTrimOut,
         newDuration,
       );
-      return { commands: [cmd] };
+      const next = runCommand(cmd);
+      if (statesEqual(prev, next)) {
+        return { ok: false, error: { code: "NO_OP_EFFECT", message: `Op ${opIndex} (trim) produced no state change`, opIndex } };
+      }
+      return { ok: true };
     }
+
     case "deleteRange": {
       const startSec = op.startMs / 1000;
       const endSec = op.endMs / 1000;
-      const matching = state.clips.filter(
+      const frameRate = getFrameRate(state);
+
+      // Find matching clips on the target track, plus any linked clips on other tracks
+      const onTrack = state.clips.filter(
         (c) =>
           c.trackId === op.track &&
-          c.startTime + c.duration > startSec &&
-          c.startTime < endSec,
+          c.startTime + c.duration > startSec + EPS &&
+          c.startTime < endSec - EPS,
       );
-      if (matching.length === 0) {
-        return { error: { code: "TARGET_NOT_FOUND", message: `No clips in deleteRange at op ${opIndex}`, opIndex } };
+      if (onTrack.length === 0) {
+        return { ok: false, error: { code: "TARGET_NOT_FOUND", message: `No clips in deleteRange at op ${opIndex}`, opIndex } };
       }
+
+      const targetIds = new Set(onTrack.map((c) => c.id));
+      for (const c of onTrack) {
+        const linkedId = (c as { linkedClipId?: string }).linkedClipId;
+        if (linkedId) {
+          const linked = state.clips.find((l) => l.id === linkedId);
+          if (linked && linked.startTime + linked.duration > startSec + EPS && linked.startTime < endSec - EPS) {
+            targetIds.add(linked.id);
+          }
+        }
+      }
+
+      // Split any clip that extends outside [startSec, endSec] so only the interior is deleted
+      const idsToDelete: string[] = [];
+      for (const initialId of targetIds) {
+        let currentClip = getState().clips.find((c) => c.id === initialId);
+        if (!currentClip) continue;
+
+        if (currentClip.startTime < startSec - EPS) {
+          const prev = getState();
+          const splitLeft = new SplitClipCommand(currentClip.id, startSec, frameRate, currentClip);
+          const next = runCommand(splitLeft);
+          const prevIds = new Set(prev.clips.map((c) => c.id));
+          const created = next.clips
+            .filter((c) => !prevIds.has(c.id))
+            .sort((a, b) => a.startTime - b.startTime);
+          if (created.length >= 2) {
+            currentClip = created[1];
+          }
+        }
+
+        if (currentClip.startTime + currentClip.duration > endSec + EPS) {
+          const prev = getState();
+          const splitRight = new SplitClipCommand(currentClip.id, endSec, frameRate, currentClip);
+          const next = runCommand(splitRight);
+          const prevIds = new Set(prev.clips.map((c) => c.id));
+          const created = next.clips
+            .filter((c) => !prevIds.has(c.id))
+            .sort((a, b) => a.startTime - b.startTime);
+          if (created.length >= 2) {
+            currentClip = created[0];
+          }
+        }
+
+        idsToDelete.push(currentClip.id);
+      }
+
+      if (idsToDelete.length === 0) {
+        return { ok: false, error: { code: "NO_OP_EFFECT", message: `Op ${opIndex} (deleteRange) produced no segments to delete`, opIndex } };
+      }
+
+      const prevBeforeDelete = getState();
       if (op.ripple) {
-        return { commands: [new RippleDeleteRangeCommand(matching.map((c) => c.id))] };
+        const next = runCommand(new RippleDeleteRangeCommand(idsToDelete));
+        if (statesEqual(prevBeforeDelete, next)) {
+          return { ok: false, error: { code: "NO_OP_EFFECT", message: `Op ${opIndex} (deleteRange) produced no state change`, opIndex } };
+        }
+      } else {
+        for (const id of idsToDelete) {
+          const prev = getState();
+          const next = runCommand(new DeleteClipCommand(id));
+          if (statesEqual(prev, next)) {
+            return { ok: false, error: { code: "NO_OP_EFFECT", message: `Op ${opIndex} (deleteRange) produced no state change`, opIndex } };
+          }
+        }
       }
-      return { commands: matching.map((c) => new DeleteClipCommand(c.id)) };
+      return { ok: true };
     }
+
     case "addText": {
       const id = `ai-text-${Date.now()}-${opIndex}-${Math.random().toString(36).slice(2, 7)}`;
       const durationSec = op.durationMs / 1000;
@@ -151,29 +256,14 @@ function buildCommandsForOp(
         rotation: 0,
         opacity: 1,
       };
-      return { commands: [new AddClipCommand(textClip)] };
+      const prev = state;
+      const next = runCommand(new AddClipCommand(textClip));
+      if (statesEqual(prev, next)) {
+        return { ok: false, error: { code: "NO_OP_EFFECT", message: `Op ${opIndex} (addText) produced no state change`, opIndex } };
+      }
+      return { ok: true };
     }
   }
-}
-
-function statesEqual(a: TimelineState, b: TimelineState): boolean {
-  if (a === b) return true;
-  if (a.clips.length !== b.clips.length) return false;
-  for (let i = 0; i < a.clips.length; i++) {
-    const ca = a.clips[i];
-    const cb = b.clips[i];
-    if (
-      ca.id !== cb.id ||
-      ca.trackId !== cb.trackId ||
-      ca.startTime !== cb.startTime ||
-      ca.duration !== cb.duration ||
-      ca.trimIn !== cb.trimIn ||
-      ca.trimOut !== cb.trimOut
-    ) {
-      return false;
-    }
-  }
-  return true;
 }
 
 /**
@@ -198,30 +288,17 @@ export function compileEditPlan(plan: EditPlan, liveState: TimelineState): Compi
   const refs = new Map<string, string>();
 
   for (let i = 0; i < plan.ops.length; i++) {
-    const built = buildCommandsForOp(plan.ops[i], i, working, refs);
-    if ("error" in built) {
-      return { ok: false, error: built.error };
-    }
-
-    const prev = working;
-    let next = working;
-    for (const cmd of built.commands) {
-      next = cmd.apply(next);
-    }
-
-    if (statesEqual(prev, next)) {
-      return {
-        ok: false,
-        error: {
-          code: "NO_OP_EFFECT",
-          message: `Op ${i} (${plan.ops[i].op}) produced no state change`,
-          opIndex: i,
-        },
-      };
-    }
-
-    built.afterApply?.(prev, next);
-    working = next;
+    const res = executeOp(
+      plan.ops[i],
+      i,
+      () => working,
+      (cmd) => {
+        working = cmd.apply(working);
+        return working;
+      },
+      refs,
+    );
+    if (!res.ok) return res;
   }
 
   return { ok: true, opCount: plan.ops.length };
@@ -240,36 +317,30 @@ export function applyEditPlan(
   const dryRun = compileEditPlan(plan, getState());
   if (!dryRun.ok) return dryRun;
 
+  if (plan.ops.length === 0) {
+    return { ok: true, opCount: 0, newEpoch: getState().epoch };
+  }
+
   const refs = new Map<string, string>();
   journal.beginTransaction(`AI: ${plan.intent}`);
 
   try {
     for (let i = 0; i < plan.ops.length; i++) {
-      const current = getState();
-      const built = buildCommandsForOp(plan.ops[i], i, current, refs);
-      if ("error" in built) {
-        const rolledBack = journal.rollbackTransaction(current);
+      const res = executeOp(
+        plan.ops[i],
+        i,
+        getState,
+        (cmd) => {
+          const next = journal.execute(cmd, getState());
+          setState(next);
+          return next;
+        },
+        refs,
+      );
+      if (!res.ok) {
+        const rolledBack = journal.rollbackTransaction(getState());
         if (rolledBack) setState(rolledBack);
-        return { ok: false, error: built.error };
-      }
-
-      for (const cmd of built.commands) {
-        const prev = getState();
-        const next = journal.execute(cmd, prev);
-        if (statesEqual(prev, next)) {
-          const rolledBack = journal.rollbackTransaction(prev);
-          if (rolledBack) setState(rolledBack);
-          return {
-            ok: false,
-            error: {
-              code: "NO_OP_EFFECT",
-              message: `Op ${i} (${plan.ops[i].op}) produced no state change during apply`,
-              opIndex: i,
-            },
-          };
-        }
-        setState(next);
-        built.afterApply?.(prev, next);
+        return res;
       }
     }
 

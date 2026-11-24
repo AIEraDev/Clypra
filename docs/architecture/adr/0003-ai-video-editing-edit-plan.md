@@ -284,7 +284,11 @@ point; existing history and commands are untouched.
 ## Open Questions
 
 - Which text-effect, text-template and video-effect edits bypass
-  `useHistoryStore` today? (Plain text add does not.)
+  `useHistoryStore` today?
+  - **Plain text add** (`TextTab.tsx`): goes through `useHistoryStore` (`AddClipCommand`). **Yes.**
+  - **Caption edits** (`CaptionsTab.tsx`): go through `useHistoryStore` (`AddCaptionCueCommand`, `BatchUpdateCaptionCuesCommand`, `UpdateCaptionCueCommand`, `AddClipCommand`). **Yes.**
+  - **Chroma key / video-effect parameters** (`ChromaKeySection.tsx`): call `useTimelineStore.getState().updateClipChromaKey` directly, bypassing `useHistoryStore`. **No** — must be wrapped in `UpdateClipCommand` before exposing as an AI op.
+  - **Epoch on undo/redo**: Confirmed in `src/store/historyStore.ts` that `undo()`, `redo()`, and `rollbackTransaction()` all increment `timelineStore.epoch` monotonically.
 - Should plan replay use `SerializableCommand`, and which of the 10
   non-serializable commands are worth converting first?
 - What is the right default for the maximum ops per plan and per session?
