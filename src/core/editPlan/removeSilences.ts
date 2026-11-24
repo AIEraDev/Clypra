@@ -1,5 +1,7 @@
 import type { Clip } from "@/types";
-import { EDIT_PLAN_MAX_OPS, type EditOp, type EditPlan } from "./types";
+import type { EditOp, EditPlan } from "./types";
+
+export const REMOVE_SILENCES_MAX_OPS = 1000;
 
 export interface SilenceRangeInput {
   start_time: number;
@@ -79,9 +81,9 @@ export function buildRemoveSilencesPlan(options: RemoveSilencesOptions): EditPla
     }
   }
 
-  if (merged.length > EDIT_PLAN_MAX_OPS) {
+  if (merged.length > REMOVE_SILENCES_MAX_OPS) {
     throw new RangeError(
-      `Silence removal produced ${merged.length} ops, exceeding EDIT_PLAN_MAX_OPS (${EDIT_PLAN_MAX_OPS})`,
+      `Silence removal produced ${merged.length} ops, exceeding REMOVE_SILENCES_MAX_OPS (${REMOVE_SILENCES_MAX_OPS})`,
     );
   }
 

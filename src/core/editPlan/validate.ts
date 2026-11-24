@@ -125,7 +125,12 @@ function validateOp(op: unknown, index: number): ValidationResult | null {
   }
 }
 
-export function validateEditPlan(input: unknown): ValidationResult {
+export interface ValidateEditPlanOptions {
+  maxOps?: number;
+}
+
+export function validateEditPlan(input: unknown, options?: ValidateEditPlanOptions): ValidationResult {
+  const maxOps = options?.maxOps ?? EDIT_PLAN_MAX_OPS;
   if (!isRecord(input)) {
     return { ok: false, error: { code: "INVALID_SCHEMA", message: "Plan must be an object" } };
   }
@@ -144,10 +149,10 @@ export function validateEditPlan(input: unknown): ValidationResult {
   if (!Array.isArray(input.ops)) {
     return { ok: false, error: { code: "INVALID_SCHEMA", message: "ops must be an array" } };
   }
-  if (input.ops.length > EDIT_PLAN_MAX_OPS) {
+  if (input.ops.length > maxOps) {
     return {
       ok: false,
-      error: { code: "OP_CAP_EXCEEDED", message: `Plan exceeds maximum of ${EDIT_PLAN_MAX_OPS} ops` },
+      error: { code: "OP_CAP_EXCEEDED", message: `Plan exceeds maximum of ${maxOps} ops` },
     };
   }
 

@@ -294,3 +294,10 @@ point; existing history and commands are untouched.
 - Should plan replay use `SerializableCommand`, and which of the 10
   non-serializable commands are worth converting first?
 - What is the right default for the maximum ops per plan and per session?
+  - General AI plans keep `EDIT_PLAN_MAX_OPS = 200`. Deterministic
+    silence-removal plans (`buildRemoveSilencesPlan`) use
+    `REMOVE_SILENCES_MAX_OPS = 1000` (with `maxOps` override) because all ops
+    are `deleteRange` and long recordings frequently exceed 200 pauses.
+  - `applyEditPlan` also accepts `isLiveEditActive` to reject plans while
+    `usePropertyEditCoordinator` has an uncommitted `_skipEpochIncrement` drag
+    or scrub in progress.

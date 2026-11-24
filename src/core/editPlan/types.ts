@@ -26,6 +26,7 @@ export type EditPlanErrorCode =
   | "UNKNOWN_OP"
   | "INVALID_RANGE"
   | "STALE_EPOCH"
+  | "LIVE_EDIT_IN_PROGRESS"
   | "TARGET_NOT_FOUND"
   | "NO_OP_EFFECT"
   | "APPLY_FAILED";

@@ -2,9 +2,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { CommandJournal } from "@/core/history/CommandJournal";
 import type { Clip, Track } from "@/types";
 import type { TimelineState } from "../compile";
-import { applyEditPlan } from "../compile";
-import { buildRemoveSilencesPlan } from "../removeSilences";
-import { EDIT_PLAN_MAX_OPS } from "../types";
+import { applyEditPlan, compileEditPlan } from "../compile";
+import { buildRemoveSilencesPlan, REMOVE_SILENCES_MAX_OPS } from "../removeSilences";
 
 function makeTrack(id = "v1", type: Track["type"] = "video"): Track {
   return {
@@ -170,9 +169,9 @@ describe("buildRemoveSilencesPlan (Phase 2)", () => {
     ]);
   });
 
-  it("fails clearly when merged silences exceed EDIT_PLAN_MAX_OPS instead of truncating", () => {
-    const clip = makeClip({ duration: 1000 });
-    const silence_ranges = Array.from({ length: EDIT_PLAN_MAX_OPS + 1 }, (_, i) => ({
+  it("fails clearly when merged silences exceed REMOVE_SILENCES_MAX_OPS instead of truncating", () => {
+    const clip = makeClip({ duration: 5000 });
+    const silence_ranges = Array.from({ length: REMOVE_SILENCES_MAX_OPS + 1 }, (_, i) => ({
       start_time: i * 3,
       end_time: i * 3 + 1,
     }));
@@ -184,7 +183,38 @@ describe("buildRemoveSilencesPlan (Phase 2)", () => {
         clip,
         jumpCutPlan: { silence_ranges },
       }),
-    ).toThrow(/EDIT_PLAN_MAX_OPS/);
+    ).toThrow(/REMOVE_SILENCES_MAX_OPS/);
+  });
+
+  it("validates and dry-run compiles 1,000 silence deleteRange ops within budget", () => {
+    const clip = makeClip({ duration: 4000 });
+    const state: TimelineState = {
+      tracks: [makeTrack("v1")],
+      clips: [clip],
+      transitions: [],
+      gaps: [],
+      selectedClipIds: [],
+      epoch: 1,
+      frameRate: 30,
+    };
+    const silence_ranges = Array.from({ length: 1000 }, (_, i) => ({
+      start_time: i * 3 + 1,
+      end_time: i * 3 + 2,
+    }));
+
+    const t0 = performance.now();
+    const plan = buildRemoveSilencesPlan({
+      planId: "bench-1000",
+      baseEpoch: state.epoch,
+      clip,
+      jumpCutPlan: { silence_ranges },
+    });
+    const compiled = compileEditPlan(plan, state, { maxOps: REMOVE_SILENCES_MAX_OPS });
+    const elapsedMs = performance.now() - t0;
+
+    expect(compiled.ok).toBe(true);
+    expect(plan.ops).toHaveLength(1000);
+    expect(elapsedMs).toBeLessThan(2000);
   });
 
   it("keeps linked video and audio clips in sync during ripple deleteRange", () => {

@@ -266,12 +266,25 @@ function executeOp(
   }
 }
 
+export interface CompileEditPlanOptions {
+  maxOps?: number;
+}
+
+export interface ApplyEditPlanOptions extends CompileEditPlanOptions {
+  /** Rejects apply while a live drag/scrub preview with _skipEpochIncrement is active. */
+  isLiveEditActive?: () => boolean;
+}
+
 /**
  * Dry-run compile: validates schema, checks staleness, builds fresh commands
  * against a cloned working state, and verifies every op produces an effect.
  */
-export function compileEditPlan(plan: EditPlan, liveState: TimelineState): CompileResult {
-  const validation = validateEditPlan(plan);
+export function compileEditPlan(
+  plan: EditPlan,
+  liveState: TimelineState,
+  options?: CompileEditPlanOptions,
+): CompileResult {
+  const validation = validateEditPlan(plan, { maxOps: options?.maxOps });
   if (!validation.ok) return validation;
 
   if (liveState.epoch !== plan.baseEpoch) {
@@ -313,8 +326,19 @@ export function applyEditPlan(
   getState: () => TimelineState,
   setState: (next: TimelineState) => void,
   journal: CommandJournal,
+  options?: ApplyEditPlanOptions,
 ): ApplyResult {
-  const dryRun = compileEditPlan(plan, getState());
+  if (options?.isLiveEditActive?.()) {
+    return {
+      ok: false,
+      error: {
+        code: "LIVE_EDIT_IN_PROGRESS",
+        message: "Cannot apply EditPlan while a live property edit is in progress",
+      },
+    };
+  }
+
+  const dryRun = compileEditPlan(plan, getState(), { maxOps: options?.maxOps });
   if (!dryRun.ok) return dryRun;
 
   if (plan.ops.length === 0) {

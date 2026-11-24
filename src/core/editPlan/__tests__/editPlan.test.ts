@@ -202,4 +202,32 @@ describe("EditPlan core (Phase 1)", () => {
     expect(state.clips[0].id).toBe("clip-1");
     expect(journal.canUndo()).toBe(false);
   });
+
+  it("refuses to apply a plan while a live property edit is in progress", () => {
+    let state = makeState([makeClip({ id: "clip-1", startTime: 0, duration: 10 })]);
+    const plan: EditPlan = {
+      schemaVersion: 1,
+      planId: "plan-live-edit",
+      baseEpoch: state.epoch,
+      intent: "Split while dragging",
+      ops: [{ op: "split", target: { clipId: "clip-1" }, atMs: 4000 }],
+    };
+
+    const result = applyEditPlan(
+      plan,
+      () => state,
+      (next) => {
+        state = next;
+      },
+      journal,
+      { isLiveEditActive: () => true },
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("LIVE_EDIT_IN_PROGRESS");
+    }
+    expect(state.clips.length).toBe(1);
+    expect(journal.canUndo()).toBe(false);
+  });
 });
