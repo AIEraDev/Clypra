@@ -320,7 +320,7 @@ export async function runSingleScenarioIteration(spec, binaryPath, isolatedDataD
     "--close-after-run",
     "--wait-for-footer", perfLogsDir,
     "--startup-timeout-ms", "120000",
-    "--settle-ms", "1500",
+    "--settle-ms", "4000",
     "--footer-timeout-ms", "45000",
   ];
 

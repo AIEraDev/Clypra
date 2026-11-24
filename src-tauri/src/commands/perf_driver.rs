@@ -243,7 +243,7 @@ fn validate_action(action: &PerfScenarioAction) -> Result<(), String> {
 
 #[cfg(feature = "perf-driver")]
 async fn wait_for_audio_clock_start(app: &AppHandle) -> Result<(i64, u32), String> {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(15);
     let mut attempts = 1u32;
     while Instant::now() < deadline {
         let is_playing = if let Some(audio) =
@@ -321,6 +321,18 @@ pub async fn run_perf_scenario(
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.show();
             let _ = window.set_focus();
+        }
+        // Settle until the native surface is configured or timeout after 5s
+        let surface_wait_deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < surface_wait_deadline {
+            let is_configured = app
+                .try_state::<Arc<Mutex<crate::commands::native_surface::NativeSurfaceRuntime>>>()
+                .and_then(|surface| surface.lock().ok().map(|s| s.diagnostic_state().configured))
+                .unwrap_or(false);
+            if is_configured {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
         let _ = app.emit(
             "clypra://perf-driver-probe",
