@@ -218,7 +218,13 @@ describe("buildRemoveSilencesPlan (Phase 2)", () => {
     const aClips = state.clips.filter((c) => c.trackId === "a1").sort((a, b) => a.startTime - b.startTime);
     expect(vClips).toHaveLength(2);
     expect(aClips).toHaveLength(2);
-    expect(vClips[1].startTime).toBeCloseTo(aClips[1].startTime, 3);
-    expect(vClips[1].duration).toBeCloseTo(aClips[1].duration, 3);
+    expect(vClips[0].startTime).toBeCloseTo(0, 3);
+    expect(vClips[0].duration).toBeCloseTo(2, 3);
+    expect(vClips[1].startTime).toBeCloseTo(2, 3);
+    expect(vClips[1].duration).toBeCloseTo(6, 3);
+    expect(aClips[0].startTime).toBeCloseTo(0, 3);
+    expect(aClips[0].duration).toBeCloseTo(2, 3);
+    expect(aClips[1].startTime).toBeCloseTo(2, 3);
+    expect(aClips[1].duration).toBeCloseTo(6, 3);
   });
 });

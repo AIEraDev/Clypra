@@ -287,7 +287,9 @@ point; existing history and commands are untouched.
   `useHistoryStore` today?
   - **Plain text add** (`TextTab.tsx`): goes through `useHistoryStore` (`AddClipCommand`). **Yes.**
   - **Caption edits** (`CaptionsTab.tsx`): go through `useHistoryStore` (`AddCaptionCueCommand`, `BatchUpdateCaptionCuesCommand`, `UpdateCaptionCueCommand`, `AddClipCommand`). **Yes.**
-  - **Chroma key / video-effect parameters** (`ChromaKeySection.tsx`): call `useTimelineStore.getState().updateClipChromaKey` directly, bypassing `useHistoryStore`. **No** — must be wrapped in `UpdateClipCommand` before exposing as an AI op.
+  - **Chroma key / video-effect parameters** (`ChromaKeySection.tsx`): call `useTimelineStore((state) => state.updateClipChromaKey)` directly, bypassing `useHistoryStore`. **No** — must be wrapped in `UpdateClipCommand` before exposing as an AI op.
+  - **Live property preview** (`usePropertyEditCoordinator.ts:66`): calls `useTimelineStore.getState().updateClip` with `_skipEpochIncrement: true` during drag/scrub preview, then commits via `useHistoryStore` (`execute(new TransformCommand(...))`) on release. **Yes (commit path).**
+  - **Auto-created caption track rename** (`TextTab.tsx:207`, `CaptionsTab.tsx:209`): call `useTimelineStore.setState` only to rename a newly created `"text"` track immediately after `ensureTrackForType("text")`.
   - **Epoch on undo/redo**: Confirmed in `src/store/historyStore.ts` that `undo()`, `redo()`, and `rollbackTransaction()` all increment `timelineStore.epoch` monotonically.
 - Should plan replay use `SerializableCommand`, and which of the 10
   non-serializable commands are worth converting first?
