@@ -1,0 +1,57 @@
+{
+  "id": "project-text",
+  "name": "Plain Text Overlay Benchmark",
+  "created_at": 1700000000000,
+  "modified_at": 1700000000000,
+  "aspect_ratio": "16:9",
+  "canvas_width": 1920,
+  "canvas_height": 1080,
+  "frame_rate": 25,
+  "duration": 30,
+  "timeline_schema_version": 1,
+  "audio_model_version": 1,
+  "caption_model_version": 2,
+  "caption_tracks": [],
+  "transcripts": {},
+  "transitions": [],
+  "gaps": [],
+  "markers": [],
+  "main_video_track_id": "track-v1",
+  "media_assets": [],
+  "tracks": [
+    {
+      "id": "track-t1",
+      "type": "text",
+      "name": "Text Track",
+      "muted": false,
+      "locked": false,
+      "visible": true,
+      "height": 50
+    }
+  ],
+  "clips": [],
+  "text_effects": [
+    {
+      "id": "text-fx-1",
+      "trackId": "track-t1",
+      "text": "Performance Benchmark Text",
+      "startTime": 0,
+      "duration": 30,
+      "style": {
+        "fontSize": 48,
+        "fontFamily": "sans-serif",
+        "color": "#FFFFFF",
+        "textAlign": "center"
+      },
+      "transform": {
+        "position": {
+          "x": 960,
+          "y": 540
+        },
+        "scale": 1,
+        "rotation": 0
+      }
+    }
+  ],
+  "text_templates": []
+}

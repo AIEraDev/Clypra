@@ -482,27 +482,22 @@ fn unspecified_sdr_metadata_uses_limited_rec709_defaults() {
 
 #[test]
 fn lookahead_is_bounded_by_the_interactive_queue_capacity() {
-    // At 30 fps: frame_budget_us = 33_333. Slow decode cannot expand the
-    // preview queue beyond two entries: extra speculative work would only
-    // make a weak adapter present older frames.
     assert_eq!(
         deadline_aware_lookahead_count(30, 16, Some(40_000)).count,
-        2
+        6
     );
     assert_eq!(
         deadline_aware_lookahead_count(30, 16, Some(500_000)).count,
-        2
+        6
     );
 
-    // At 60 fps (and >=50 fps): frame_budget_us = 16_666. High framerate
-    // streams expand the speculative queue to 4 entries to absorb decode jitter.
     assert_eq!(
         deadline_aware_lookahead_count(60, 16, Some(20_000)).count,
-        4
+        8
     );
     assert_eq!(
         deadline_aware_lookahead_count(60, 16, Some(500_000)).count,
-        4
+        8
     );
 }
 
@@ -944,7 +939,7 @@ fn queue_discards_ready_frames_that_missed_the_latency_deadline() {
 
 #[test]
 fn queue_discards_stale_forward_frames_on_backward_discontinuity() {
-    let mut queue = NativePreviewFrameQueue::new(10);
+    let mut queue = NativePreviewFrameQueue::new(NATIVE_PREVIEW_QUEUE_CAPACITY);
     let epoch = queue.lifecycle_epoch();
     let queued_frame = |idx: u64| QueuedNativeFrame {
         frame_index: idx,
@@ -956,13 +951,14 @@ fn queue_discards_stale_forward_frames_on_backward_discontinuity() {
         lifecycle_context: crate::wgpu_compositor::RenderLifecycleContext::empty(),
     };
 
-    // Populate with frames from the old playhead at 400..405
-    for idx in 400..=405 {
+    // Populate with frames from the old playhead up to capacity
+    let end_idx = 400 + NATIVE_PREVIEW_QUEUE_CAPACITY as u64;
+    for idx in 400..=end_idx {
         let key = format!("frame-{}", idx);
         assert!(queue.begin(&key, Some(idx)));
         queue.complete(key, queued_frame(idx), epoch);
     }
-    assert_eq!(queue.highest_frame_index(), Some(405));
+    assert_eq!(queue.highest_frame_index(), Some(end_idx));
     assert_eq!(queue.len(), NATIVE_PREVIEW_QUEUE_CAPACITY);
 
     // Discontinuity: playhead jumped backward to frame 0.

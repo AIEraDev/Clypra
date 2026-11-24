@@ -250,7 +250,16 @@ fn set_menu_language(app: tauri::AppHandle, language: String) -> Result<(), Stri
 
 #[tauri::command]
 fn exit_app(app: tauri::AppHandle, code: Option<i32>) -> Result<(), String> {
-    if !cold_start::is_bench_mode_active() {
+    #[cfg(feature = "perf-driver")]
+    let perf_driver_active = true;
+    #[cfg(not(feature = "perf-driver"))]
+    let perf_driver_active = false;
+
+    if !cold_start::is_bench_mode_active()
+        && !perf_driver_active
+        && std::env::var("CLYPRA_SCENARIO_HASH").is_err()
+        && std::env::var("CLYPRA_PERF_DRIVER_TOKEN").is_err()
+    {
         return Err("exit_app is only permitted when running in benchmark mode".to_string());
     }
     let exit_code = code.unwrap_or(0);

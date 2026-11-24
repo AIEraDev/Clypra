@@ -50,20 +50,36 @@ const SNAPSHOT_KEY = "activeProject";
 // ─── Internal helpers ───────────────────────────────────────────────────────
 
 function openDatabase(): Promise<IDBDatabase> {
+  if (typeof indexedDB === "undefined") {
+    return Promise.reject(new Error("indexedDB is not available"));
+  }
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const timer = setTimeout(() => {
+      reject(new Error("indexedDB.open timed out after 1000ms"));
+    }, 1000);
 
-    request.onupgradeneeded = (event) => {
-      const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME);
-      }
-    };
+    try {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-    request.onsuccess = (event) =>
-      resolve((event.target as IDBOpenDBRequest).result);
-    request.onerror = (event) =>
-      reject((event.target as IDBOpenDBRequest).error);
+      request.onupgradeneeded = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME);
+        }
+      };
+
+      request.onsuccess = (event) => {
+        clearTimeout(timer);
+        resolve((event.target as IDBOpenDBRequest).result);
+      };
+      request.onerror = (event) => {
+        clearTimeout(timer);
+        reject((event.target as IDBOpenDBRequest).error);
+      };
+    } catch (err) {
+      clearTimeout(timer);
+      reject(err);
+    }
   });
 }
 

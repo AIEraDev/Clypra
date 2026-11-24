@@ -358,13 +358,15 @@ export function lintRecords(records, options = {}) {
         0;
       const inFlightAtClose =
         asFiniteNumber(transfers.metal_decode_in_flight_at_close) ?? 0;
-      const accounted = successes + failures + unrecorded + inFlightAtClose;
+      const cancelled =
+        asFiniteNumber(transfers.metal_decode_cancelled) ?? 0;
+      const accounted = successes + failures + cancelled + unrecorded + inFlightAtClose;
       if (attempts !== accounted) {
         addError(
           errors,
           finalEngine.line,
           "counter-reconciliation",
-          `metal decode attempts (${attempts}) do not equal successes (${successes}) plus failures (${failures}) plus unrecorded (${unrecorded}) plus in-flight-at-close (${inFlightAtClose})`,
+          `metal decode attempts (${attempts}) do not equal successes (${successes}) plus failures (${failures}) plus cancelled (${cancelled}) plus unrecorded (${unrecorded}) plus in-flight-at-close (${inFlightAtClose})`,
         );
       }
       if (unrecorded > 0) {

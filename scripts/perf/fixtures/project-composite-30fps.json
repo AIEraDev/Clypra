@@ -1,13 +1,13 @@
 {
   "id": "project-composite-30fps",
-  "name": "Composite Motion Graphics & Multi-Media (30fps)",
-  "created_at": 1795407894037,
-  "modified_at": 1795407894037,
+  "name": "Composite Multi-Media Interaction (30fps)",
+  "created_at": 1700000000000,
+  "modified_at": 1700000000000,
   "aspect_ratio": "16:9",
   "canvas_width": 1920,
   "canvas_height": 1080,
   "frame_rate": 30,
-  "duration": 60,
+  "duration": 35,
   "timeline_schema_version": 1,
   "audio_model_version": 1,
   "caption_model_version": 2,
@@ -16,42 +16,50 @@
   "transitions": [],
   "gaps": [],
   "markers": [],
-  "main_video_track_id": "track-v1-aroll",
+  "main_video_track_id": "track-v1",
   "media_assets": [
     {
-      "id": "asset-video-primary",
-      "name": "clip_1440p25_gop1s.mp4",
-      "path": "/Users/AIEraDev/Documents/clypra-fixtures/clip_1440p25_gop1s.mp4",
+      "id": "asset-video-aroll",
+      "name": "clip_1080p30_gop1s.mp4",
+      "path": "tests/fixtures/perf/clip_1080p30_gop1s.mp4",
       "type": "video",
-      "duration": 60,
-      "width": 2560,
-      "height": 1440
-    },
-    {
-      "id": "asset-video-secondary",
-      "name": "sync_test.mp4",
-      "path": "/Users/AIEraDev/Documents/clypra-fixtures/sync_test.mp4",
-      "type": "video",
-      "duration": 60,
+      "duration": 35,
       "width": 1920,
       "height": 1080
     },
     {
+      "id": "asset-video-broll",
+      "name": "sync_test.mp4",
+      "path": "tests/fixtures/perf/sync_test.mp4",
+      "type": "video",
+      "duration": 35,
+      "width": 1280,
+      "height": 720
+    },
+    {
       "id": "asset-image-logo",
-      "name": "clypra.png",
-      "path": "/Users/AIEraDev/Documents/clypra-family/clypra/public/clypra.png",
+      "name": "image_corner_markers_1080p.png",
+      "path": "tests/fixtures/perf/image_corner_markers_1080p.png",
       "type": "image",
-      "duration": 0,
-      "width": 1024,
-      "height": 1024,
-      "has_alpha": true
+      "duration": 35,
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "id": "asset-audio-bed",
+      "name": "audio_beeps_48k_35s.m4a",
+      "path": "tests/fixtures/perf/audio_beeps_48k_35s.m4a",
+      "type": "audio",
+      "duration": 35,
+      "width": 0,
+      "height": 0
     }
   ],
   "tracks": [
     {
       "id": "track-v1-aroll",
       "type": "video",
-      "name": "Primary Video (A-Roll)",
+      "name": "Primary Video A-Roll",
       "muted": false,
       "locked": false,
       "visible": true,
@@ -60,44 +68,35 @@
     {
       "id": "track-v2-broll",
       "type": "video",
-      "name": "Overlay B-Roll / PIP",
+      "name": "Overlay B-Roll PIP",
       "muted": false,
       "locked": false,
       "visible": true,
-      "height": 64
+      "height": 60
     },
     {
-      "id": "track-v3-images",
+      "id": "track-v3-image",
       "type": "video",
-      "name": "Image Graphics",
+      "name": "Corner Graphics",
       "muted": false,
       "locked": false,
       "visible": true,
-      "height": 52
+      "height": 50
     },
     {
-      "id": "track-a1-music",
+      "id": "track-a1-audio",
       "type": "audio",
       "name": "Audio Bed",
       "muted": false,
       "locked": false,
       "visible": true,
       "height": 48,
-      "volume": 0.8
+      "volume": 0.9
     },
     {
       "id": "track-t1-titles",
       "type": "text",
-      "name": "Text Effects",
-      "muted": false,
-      "locked": false,
-      "visible": true,
-      "height": 44
-    },
-    {
-      "id": "track-t2-templates",
-      "type": "text",
-      "name": "Text Templates",
+      "name": "Text Overlay",
       "muted": false,
       "locked": false,
       "visible": true,
@@ -106,266 +105,64 @@
   ],
   "clips": [
     {
-      "id": "clip-v1-primary",
+      "id": "clip-v1",
       "kind": "video",
       "trackId": "track-v1-aroll",
-      "mediaId": "asset-video-primary",
-      "name": "Primary Video A-Roll",
-      "startTime": 0,
-      "duration": 60,
-      "trimIn": 0,
-      "trimOut": 60,
-      "x": 0,
-      "y": 0,
-      "width": 1920,
-      "height": 1080,
-      "opacity": 1,
-      "rotation": 0,
-      "aspectRatioLocked": true,
-      "sourceAspectRatio": 1.7777777777777777,
-      "fitMode": "contain",
-      "conform": {
-        "mode": "fit",
-        "sourceWidth": 2560,
-        "sourceHeight": 1440,
-        "userScale": 1,
-        "userOffsetX": 0,
-        "userOffsetY": 0
-      },
-      "baseWidth": 1920,
-      "baseHeight": 1080,
-      "audio": {
-        "audioModelVersion": 1,
-        "origin": "embedded",
-        "linkState": "linked",
-        "gainDb": 0,
-        "pan": 0,
-        "muted": false,
-        "volumeKeyframes": [],
-        "fadeIn": {
-          "duration": 0,
-          "curve": "linear"
-        },
-        "fadeOut": {
-          "duration": 0,
-          "curve": "linear"
-        },
-        "channelConfig": {
-          "mode": "auto",
-          "downmix": "auto"
-        },
-        "speed": {
-          "preservePitch": true
-        }
-      }
-    },
-    {
-      "id": "clip-v2-overlay",
-      "kind": "video",
-      "trackId": "track-v2-broll",
-      "mediaId": "asset-video-secondary",
-      "name": "Secondary Video PIP",
-      "startTime": 4,
-      "duration": 26,
-      "trimIn": 0,
-      "trimOut": 26,
-      "x": 1240,
-      "y": 80,
-      "width": 600,
-      "height": 338,
-      "opacity": 0.9,
-      "rotation": 0,
-      "aspectRatioLocked": true,
-      "sourceAspectRatio": 1.7777777777777777,
-      "fitMode": "contain",
-      "conform": {
-        "mode": "fit",
-        "sourceWidth": 1920,
-        "sourceHeight": 1080,
-        "userScale": 1,
-        "userOffsetX": 0,
-        "userOffsetY": 0
-      },
-      "baseWidth": 1920,
-      "baseHeight": 1080,
-      "audio": {
-        "audioModelVersion": 1,
-        "origin": "embedded",
-        "linkState": "linked",
-        "gainDb": -6,
-        "pan": 0,
-        "muted": false,
-        "volumeKeyframes": [],
-        "fadeIn": {
-          "duration": 1,
-          "curve": "linear"
-        },
-        "fadeOut": {
-          "duration": 1,
-          "curve": "linear"
-        },
-        "channelConfig": {
-          "mode": "auto",
-          "downmix": "auto"
-        },
-        "speed": {
-          "preservePitch": true
-        }
-      }
-    },
-    {
-      "id": "clip-v3-image-logo",
-      "kind": "image",
-      "trackId": "track-v3-images",
-      "mediaId": "asset-image-logo",
-      "name": "Clypra Watermark Logo",
-      "startTime": 2,
-      "duration": 28,
-      "trimIn": 0,
-      "trimOut": 28,
-      "x": 60,
-      "y": 60,
-      "width": 200,
-      "height": 200,
-      "opacity": 0.85,
-      "rotation": 0,
-      "aspectRatioLocked": true,
-      "sourceAspectRatio": 1,
-      "fitMode": "contain",
-      "conform": {
-        "mode": "fit",
-        "sourceWidth": 1024,
-        "sourceHeight": 1024,
-        "userScale": 1,
-        "userOffsetX": 0,
-        "userOffsetY": 0
-      },
-      "baseWidth": 1920,
-      "baseHeight": 1080
-    },
-    {
-      "id": "clip-t1-text-effect",
-      "kind": "text",
-      "trackId": "track-t1-titles",
-      "name": "Animated Title Effect",
-      "startTime": 3,
-      "duration": 22,
-      "trimIn": 0,
-      "trimOut": 22,
-      "x": 100,
-      "y": 840,
-      "width": 900,
-      "height": 120,
-      "opacity": 1,
-      "rotation": 0,
-      "text": "Clypra Multi-Layer Engine",
-      "fontFamily": "Inter Variable",
-      "fontSize": 52,
-      "fontWeight": "700",
-      "color": "#FFFFFF",
-      "align": "left",
-      "valign": "middle",
-      "lineHeight": 1.2,
-      "paddingX": 16,
-      "paddingY": 16,
-      "stroke": {
-        "color": "#000000",
-        "width": 3
-      },
-      "shadow": {
-        "color": "rgba(0,0,0,0.6)",
-        "blur": 8,
-        "offsetX": 0,
-        "offsetY": 4
-      },
-      "entranceAnimation": {
-        "type": "slide-up",
-        "duration": 0.6,
-        "easing": "ease-out"
-      },
-      "exitAnimation": {
-        "type": "fade",
-        "duration": 0.4,
-        "easing": "ease-in"
-      }
-    },
-    {
-      "id": "clip-t2-template",
-      "kind": "text-template",
-      "trackId": "track-t2-templates",
-      "name": "Lower Third Template",
-      "startTime": 6,
-      "duration": 18,
-      "trimIn": 0,
-      "trimOut": 18,
-      "x": 120,
-      "y": 700,
-      "width": 700,
-      "height": 140,
-      "opacity": 1,
-      "rotation": 0,
-      "templateId": "lower-third-modern",
-      "templateControlValues": {
-        "headline": "High Performance Preview",
-        "subline": "Text \u2022 Audio \u2022 Video \u2022 Image Compositing",
-        "accentColor": "#38BDF8"
-      }
-    },
-    {
-      "id": "clip-a1-audio-bed",
-      "kind": "audio",
-      "trackId": "track-a1-music",
-      "mediaId": "asset-video-primary",
-      "name": "Secondary Audio Bed",
+      "mediaId": "asset-video-aroll",
+      "name": "A-Roll Clip",
       "startTime": 0,
       "duration": 35,
       "trimIn": 0,
-      "trimOut": 35,
-      "audio": {
-        "audioModelVersion": 1,
-        "origin": "extracted",
-        "linkState": "unlinked",
-        "gainDb": -3,
-        "pan": 0,
-        "muted": false,
-        "volumeKeyframes": [
-          {
-            "id": "kf-1",
-            "time": 0,
-            "gain": 0
-          },
-          {
-            "id": "kf-2",
-            "time": 2,
-            "gain": 0.75
-          },
-          {
-            "id": "kf-3",
-            "time": 32,
-            "gain": 0.75
-          },
-          {
-            "id": "kf-4",
-            "time": 35,
-            "gain": 0
-          }
-        ],
-        "fadeIn": {
-          "duration": 2,
-          "curve": "linear"
-        },
-        "fadeOut": {
-          "duration": 3,
-          "curve": "linear"
-        },
-        "channelConfig": {
-          "mode": "auto",
-          "downmix": "auto"
-        },
-        "speed": {
-          "preservePitch": true
-        }
+      "trimOut": 35
+    },
+    {
+      "id": "clip-v2",
+      "kind": "video",
+      "trackId": "track-v2-broll",
+      "mediaId": "asset-video-broll",
+      "name": "B-Roll PIP Clip",
+      "startTime": 2,
+      "duration": 31,
+      "trimIn": 0,
+      "trimOut": 31
+    },
+    {
+      "id": "clip-v3",
+      "kind": "image",
+      "trackId": "track-v3-image",
+      "mediaId": "asset-image-logo",
+      "name": "Corner Image",
+      "startTime": 0,
+      "duration": 35,
+      "trimIn": 0,
+      "trimOut": 35
+    },
+    {
+      "id": "clip-a1",
+      "kind": "audio",
+      "trackId": "track-a1-audio",
+      "mediaId": "asset-audio-bed",
+      "name": "Periodic Beeps Track",
+      "startTime": 0,
+      "duration": 35,
+      "trimIn": 0,
+      "trimOut": 35
+    }
+  ],
+  "text_effects": [
+    {
+      "id": "fx-composite-1",
+      "trackId": "track-t1-titles",
+      "text": "Composite Multi-Layer 30fps",
+      "startTime": 1,
+      "duration": 33,
+      "style": {
+        "fontSize": 44,
+        "fontFamily": "sans-serif",
+        "color": "#00FFCC",
+        "textAlign": "center"
       }
     }
-  ]
+  ],
+  "text_templates": []
 }

@@ -143,6 +143,10 @@ fn emit_phase_marker_with_attempts(
         set_active_phase_id(Some(phase_id));
     }
     let _ = app.emit("clypra://native-diagnostic", payload);
+    let _ = app.emit(
+        "clypra://engine-telemetry",
+        crate::engine::ENGINE_TELEMETRY.snapshot(),
+    );
     if matches!(event, "end" | "error") {
         set_active_phase_id(None);
     }
@@ -463,7 +467,7 @@ pub async fn run_perf_scenario(
         if scenario.close_after_run {
             // Reuse the normal application close lifecycle so the frontend
             // flushes telemetry and writes the session footer before exit.
-            let _ = app.emit("clypra://close-requested", ());
+            let _ = app.emit("clypra://close-requested", serde_json::json!({ "force": true }));
         }
 
         Ok(PerfScenarioResult {

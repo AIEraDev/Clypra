@@ -67,16 +67,16 @@ pub(crate) struct QueuedNativeFrame {
 pub(crate) const MAX_LOOKAHEAD_RESIDENCY_US: u64 = 300_000;
 pub(crate) const MAX_LOOKAHEAD_EXPIRATION_US: u64 = 600_000;
 /// A preview is an interactive surface, not a throughput batch.
-/// Lower framerates (<=30fps) maintain a tight 2-frame window to prevent latency.
-/// High framerate streams (>=50fps, e.g. 60fps 4K) require a 4-frame buffer to absorb
-/// decode jitter and prevent lookahead queue starvation.
-pub(crate) const NATIVE_PREVIEW_QUEUE_CAPACITY: usize = 5;
-pub(crate) const NATIVE_PREVIEW_LOOKAHEAD_FRAMES: usize = 2;
+/// Buffer capacity and lookahead targets.
+/// Standard rates maintain a 6-frame jitter buffer (~240ms at 25fps) to absorb decode stalls.
+/// High framerate streams (>=50fps) scale to 8 frames.
+pub(crate) const NATIVE_PREVIEW_QUEUE_CAPACITY: usize = 12;
+pub(crate) const NATIVE_PREVIEW_LOOKAHEAD_FRAMES: usize = 6;
 
 #[inline]
 pub(crate) fn lookahead_frames_for_rate(frame_rate: u32) -> usize {
     if frame_rate >= 50 {
-        4
+        8
     } else {
         NATIVE_PREVIEW_LOOKAHEAD_FRAMES
     }
@@ -752,17 +752,17 @@ mod tests {
     /// The function should return count = 2 with reason "unclamped".
     #[test]
     fn unclamped_path_at_30fps() {
-        let d = deadline_aware_lookahead_count(30, 2, None);
-        assert_eq!(d.count, 2, "count should be the configured depth");
+        let d = deadline_aware_lookahead_count(30, 4, None);
+        assert_eq!(d.count, 4, "count should be the configured depth");
         assert_eq!(d.clamp_reason, "unclamped");
     }
 
-    /// At 60 fps the rate-bound is 4. A configured depth of 8 must be clamped
-    /// to 4 and the reason must be "rate-bound".
+    /// At 60 fps the rate-bound is 8. A configured depth of 12 must be clamped
+    /// to 8 and the reason must be "rate-bound".
     #[test]
     fn rate_bound_clamps_at_60fps() {
-        let d = deadline_aware_lookahead_count(60, 8, None);
-        assert_eq!(d.count, 4, "rate_bound for 60fps is 4");
+        let d = deadline_aware_lookahead_count(60, 12, None);
+        assert_eq!(d.count, 8, "rate_bound for 60fps is 8");
         assert_eq!(d.clamp_reason, "rate-bound");
     }
 

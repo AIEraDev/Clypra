@@ -1,0 +1,57 @@
+{
+  "id": "project-image",
+  "name": "Image Overlay Benchmark",
+  "created_at": 1700000000000,
+  "modified_at": 1700000000000,
+  "aspect_ratio": "16:9",
+  "canvas_width": 1920,
+  "canvas_height": 1080,
+  "frame_rate": 25,
+  "duration": 30,
+  "timeline_schema_version": 1,
+  "audio_model_version": 1,
+  "caption_model_version": 2,
+  "caption_tracks": [],
+  "transcripts": {},
+  "transitions": [],
+  "gaps": [],
+  "markers": [],
+  "main_video_track_id": "track-v1",
+  "media_assets": [
+    {
+      "id": "asset-image-1",
+      "name": "image_corner_markers_1080p.png",
+      "path": "tests/fixtures/perf/image_corner_markers_1080p.png",
+      "type": "image",
+      "duration": 30,
+      "width": 1920,
+      "height": 1080
+    }
+  ],
+  "tracks": [
+    {
+      "id": "track-v1",
+      "type": "video",
+      "name": "Image Track",
+      "muted": false,
+      "locked": false,
+      "visible": true,
+      "height": 80
+    }
+  ],
+  "clips": [
+    {
+      "id": "clip-img-1",
+      "kind": "image",
+      "trackId": "track-v1",
+      "mediaId": "asset-image-1",
+      "name": "Corner Markers Image",
+      "startTime": 0,
+      "duration": 30,
+      "trimIn": 0,
+      "trimOut": 30
+    }
+  ],
+  "text_effects": [],
+  "text_templates": []
+}

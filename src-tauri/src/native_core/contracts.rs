@@ -195,13 +195,21 @@ pub struct VideoLayerSnapshot {
     pub asset_id: String,
     pub video_path: String,
     pub source_time: FrameTime,
+    #[serde(default)]
     pub x: f32,
+    #[serde(default)]
     pub y: f32,
+    #[serde(default = "default_layer_width")]
     pub width: f32,
+    #[serde(default = "default_layer_height")]
     pub height: f32,
+    #[serde(default)]
     pub rotation: f32,
+    #[serde(default = "default_opacity")]
     pub opacity: f32,
+    #[serde(default)]
     pub z_index: i32,
+    #[serde(default = "default_blend_mode")]
     pub blend_mode: String,
     #[serde(default)]
     pub crop: Option<CropMarginsSnapshot>,
@@ -506,11 +514,17 @@ pub struct RasterLayerSnapshot {
     pub display_width: Option<f32>,
     #[serde(default)]
     pub display_height: Option<f32>,
+    #[serde(default)]
     pub x: f32,
+    #[serde(default)]
     pub y: f32,
+    #[serde(default)]
     pub rotation: f32,
+    #[serde(default = "default_opacity")]
     pub opacity: f32,
+    #[serde(default)]
     pub z_index: i32,
+    #[serde(default = "default_blend_mode")]
     pub blend_mode: String,
     #[serde(default)]
     pub color_grade: Option<ColorGradeSnapshot>,
@@ -674,7 +688,9 @@ pub struct TextLayerSnapshot {
     pub text_align: String,
     #[serde(default = "default_text_vertical_align")]
     pub vertical_align: String,
+    #[serde(default)]
     pub x: f32,
+    #[serde(default)]
     pub y: f32,
     #[serde(default)]
     pub box_width: Option<f32>,
@@ -791,6 +807,14 @@ fn default_text_weight() -> String {
 
 fn default_text_style() -> String {
     "normal".to_string()
+}
+
+fn default_layer_width() -> f32 {
+    1920.0
+}
+
+fn default_layer_height() -> f32 {
+    1080.0
 }
 
 fn default_opacity() -> f32 {
@@ -925,12 +949,19 @@ pub struct NativePlaybackVideoLayerUpdate {
     #[serde(default)]
     pub layer_id: Option<String>,
     pub source_time: FrameTime,
+    #[serde(default)]
     pub x: f32,
+    #[serde(default)]
     pub y: f32,
+    #[serde(default = "default_layer_width")]
     pub width: f32,
+    #[serde(default = "default_layer_height")]
     pub height: f32,
+    #[serde(default)]
     pub rotation: f32,
+    #[serde(default = "default_opacity")]
     pub opacity: f32,
+    #[serde(default)]
     pub z_index: i32,
     #[serde(default)]
     pub color_grade: Option<ColorGradeSnapshot>,
@@ -953,10 +984,15 @@ pub struct NativePlaybackRasterLayerUpdate {
     pub display_width: Option<f32>,
     #[serde(default)]
     pub display_height: Option<f32>,
+    #[serde(default)]
     pub x: f32,
+    #[serde(default)]
     pub y: f32,
+    #[serde(default)]
     pub rotation: f32,
+    #[serde(default = "default_opacity")]
     pub opacity: f32,
+    #[serde(default)]
     pub z_index: i32,
     #[serde(default)]
     pub blend_mode: Option<String>,
@@ -969,10 +1005,15 @@ pub struct NativePlaybackRasterLayerUpdate {
 pub struct NativePlaybackTextLayerUpdate {
     #[serde(default)]
     pub layer_id: Option<String>,
+    #[serde(default)]
     pub x: f32,
+    #[serde(default)]
     pub y: f32,
+    #[serde(default)]
     pub rotation: f32,
+    #[serde(default = "default_opacity")]
     pub opacity: f32,
+    #[serde(default)]
     pub z_index: i32,
 }
 

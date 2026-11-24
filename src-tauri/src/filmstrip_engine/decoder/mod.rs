@@ -695,7 +695,6 @@ impl VideoDecoder {
     }
 
     fn cancellation_error(&mut self) -> String {
-        crate::engine::ENGINE_TELEMETRY.record_decode_cancelled();
         if self.dirty_recovery_enabled {
             self.state.mark_dirty();
             crate::engine::ENGINE_TELEMETRY.record_dirty_recovery();

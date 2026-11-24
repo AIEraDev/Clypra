@@ -470,17 +470,6 @@ pub fn start_debug_ipc_server(app: tauri::AppHandle) {
                             if !perf_driver_request_authorized(&headers, expected_token.as_deref()) {
                                 return (axum::http::StatusCode::UNAUTHORIZED, "unauthorized").into_response();
                             }
-                            let surface_configured = app
-                                .try_state::<std::sync::Arc<std::sync::Mutex<crate::commands::native_surface::NativeSurfaceRuntime>>>()
-                                .and_then(|surface| surface.lock().ok().map(|s| s.diagnostic_state().configured))
-                                .unwrap_or(false);
-                            let playback_configured = app
-                                .try_state::<std::sync::Arc<std::sync::Mutex<crate::commands::native_playback::NativePlaybackRuntime>>>()
-                                .and_then(|rt| rt.lock().ok().map(|r| r.render_session().is_some()))
-                                .unwrap_or(false);
-                            if !surface_configured || !playback_configured {
-                                return (axum::http::StatusCode::SERVICE_UNAVAILABLE, "runtime-not-configured").into_response();
-                            }
                             (axum::http::StatusCode::OK, "ready").into_response()
                         }
                     }

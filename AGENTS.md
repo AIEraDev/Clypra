@@ -94,6 +94,15 @@ npm run benchmark:playback
 # Baseline regression comparator
 npm run benchmark:compare
 
+# Automated performance loop (fast dev iteration)
+npm run perf:cycle
+
+# Unified release gate performance qualification
+npm run perf:gate
+
+# Deterministic performance fixtures & manifest generator
+npm run perf:fixtures
+
 # Targeted verification based on git changed files
 npm run verify:changed
 
@@ -152,7 +161,7 @@ Before reporting any task complete, every agent must verify:
    npx vitest run src/core/evaluation/__tests__/compositeMediaBehavioralContract.test.ts
    ```
 9. **Negative Control (Bug Fixes)**: Every bug fix must demonstrate that the new regression test FAILS on the base commit. Apply only the test file to the pre-fix codebase and confirm failure.
-10. **Evidence Bundle**: Changes to preview, playback, audio, text, or sticker code must include raw command output in the PR description. Use the PR template at `.github/pull_request_template.md`.
+10. **Evidence Bundle**: Changes to preview, playback, audio, text, or sticker code must include raw command output and `npm run perf:cycle --auto` report in the PR description. Use the PR template at `.github/pull_request_template.md`.
 11. **Mutation Canary**: Run `npm run verify:canary-mutations` to confirm known-bad patches turn contract tests red.
 
 ---

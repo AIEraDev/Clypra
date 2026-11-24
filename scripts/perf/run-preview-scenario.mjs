@@ -113,6 +113,45 @@ function projectClips(project) {
   return [...byId.values()];
 }
 
+async function fileExists(filePath) {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function validateManifestProvenance(mediaPath, projectPath, manifestPath = "scripts/perf/fixtures/manifest.json") {
+  if (!manifestPath || !(await fileExists(manifestPath))) return null;
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  const mediaName = path.basename(mediaPath);
+  const projectName = path.basename(projectPath);
+
+  if (manifest.media && manifest.media[mediaName]) {
+    const expectedMediaSha = manifest.media[mediaName].sha256;
+    const actualMediaSha = await hashFile(mediaPath);
+    if (actualMediaSha !== expectedMediaSha) {
+      throw new Error(`Media hash mismatch against manifest for ${mediaName}: expected ${expectedMediaSha}, got ${actualMediaSha}`);
+    }
+  }
+
+  // The template project file in scripts/perf/fixtures/ (or dirname of manifestPath) defines the baseline hash
+  const templateProjectPath = path.join(path.dirname(manifestPath), projectName);
+  const targetProjectForHash = (await fileExists(templateProjectPath)) ? templateProjectPath : projectPath;
+
+  if (manifest.projects && manifest.projects[projectName]) {
+    const expectedProjectSha = manifest.projects[projectName].sha256;
+    const projectContent = await readFile(targetProjectForHash, "utf8");
+    const actualProjectSha = createHash("sha256").update(projectContent).digest("hex");
+    if (actualProjectSha !== expectedProjectSha) {
+      throw new Error(`Project hash mismatch against manifest for ${projectName}: expected ${expectedProjectSha}, got ${actualProjectSha}`);
+    }
+  }
+
+  return { verified: true, manifestVersion: manifest.schemaVersion };
+}
+
 export async function validateProjectMediaInputs(mediaPath, projectPath) {
   const project = JSON.parse(await readFile(projectPath, "utf8"));
   const mediaHash = await hashFile(mediaPath);
@@ -120,18 +159,27 @@ export async function validateProjectMediaInputs(mediaPath, projectPath) {
   const resolvedMatchingAssets = [];
   for (const asset of assets) {
     if (typeof asset?.path !== "string" || asset.path.trim() === "") continue;
-    try {
-      // Match the actual bytes, not only the display name or stored path. This
-      // rejects accidentally selecting the gop10s variant for a gop1s project.
-      if (await hashFile(asset.path) === mediaHash) resolvedMatchingAssets.push(asset);
-    } catch {
-      // Ignore stale project assets; the supplied media must still be referenced.
+    const candidates = [
+      asset.path,
+      path.resolve(path.dirname(projectPath), asset.path),
+      path.resolve(path.dirname(mediaPath), path.basename(asset.path)),
+      path.resolve("tests", "fixtures", "perf", path.basename(asset.path)),
+    ];
+    for (const cand of candidates) {
+      try {
+        if ((await hashFile(cand)) === mediaHash) {
+          resolvedMatchingAssets.push(asset);
+          break;
+        }
+      } catch {
+        // Continue checking candidates
+      }
     }
   }
   const matchingAssetIds = new Set(resolvedMatchingAssets.map((asset) => asset.id));
   const clips = projectClips(project);
   const matchingVideoClip = clips.find(
-    (clip) => clip.kind === "video" && matchingAssetIds.has(clip.mediaId),
+    (clip) => clip.kind === "video" && (matchingAssetIds.has(clip.mediaId) || matchingAssetIds.has(clip.assetId) || matchingAssetIds.has(clip.media_id)),
   );
   if (!matchingVideoClip) {
     throw new Error("project has no video clip referencing the supplied --media file");
@@ -406,18 +454,21 @@ function startCommand(command, env) {
 async function waitForEndpoint(endpoint, token, timeoutMs = 180_000) {
   const pingEndpoint = new URL("/debug/ping", endpoint).toString();
   const deadline = Date.now() + timeoutMs;
+  let lastStatus = "unreachable";
   while (Date.now() <= deadline) {
     try {
       const response = await fetch(pingEndpoint, {
         headers: token ? { "x-clypra-perf-token": token } : undefined,
       });
       if (response.ok) return;
-    } catch {
-      // The optimized app and Vite server may still be starting.
+      const text = await response.text();
+      lastStatus = `${response.status} ${text}`;
+    } catch (err) {
+      lastStatus = err instanceof Error ? err.message : String(err);
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  throw new Error(`timed out waiting for perf-driver endpoint ${endpoint}`);
+  throw new Error(`timed out waiting for perf-driver endpoint ${endpoint} (last status: ${lastStatus})`);
 }
 
 async function runCommandWithScenario(
@@ -454,6 +505,7 @@ export async function main(argv = process.argv.slice(2)) {
   const settleMs = Number(valueAfter(argv, "--settle-ms", "0"));
   const mediaPath = valueAfter(argv, "--media");
   const projectPath = valueAfter(argv, "--project");
+  const manifestPath = valueAfter(argv, "--manifest", "scripts/perf/fixtures/manifest.json");
   const arm = valueAfter(argv, "--arm", "C");
   const suppliedToken = valueAfter(argv, "--token", process.env.CLYPRA_PERF_DRIVER_TOKEN ?? null);
   const instrumentationPatchHash = valueAfter(
@@ -471,6 +523,9 @@ export async function main(argv = process.argv.slice(2)) {
   const scenario = withHash(validateScenario(input));
   if ((endpoint || command) && (!mediaPath || !projectPath)) {
     throw new Error("acceptance runs require both --media and --project");
+  }
+  if (mediaPath && projectPath) {
+    await validateManifestProvenance(mediaPath, projectPath, manifestPath);
   }
   const inputMetadata = mediaPath && projectPath
     ? await validateProjectMediaInputs(mediaPath, projectPath)

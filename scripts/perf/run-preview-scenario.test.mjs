@@ -8,6 +8,8 @@ import {
   buildScenarioPreset,
   canonicalize,
   scenarioHash,
+  validateManifestProvenance,
+  validateProjectMediaInputs,
   validateScenario,
   waitForClosedFooter,
 } from "./run-preview-scenario.mjs";
@@ -69,6 +71,42 @@ test("footer wait resolves only a matching closed session", async () => {
     );
     assert.equal(await waitForClosedFooter(directory, "hash-a", 500), filePath);
     await assert.rejects(() => waitForClosedFooter(directory, "hash-b", 20));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("validateManifestProvenance validates sha256 and rejects tampering", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "clypra-perf-manifest-"));
+  try {
+    const mediaFile = path.join(directory, "test-clip.mp4");
+    const projectFile = path.join(directory, "test-project.json");
+    const manifestFile = path.join(directory, "manifest.json");
+
+    await writeFile(mediaFile, "media-binary-data");
+    await writeFile(projectFile, '{"id":"test-proj"}');
+
+    const { createHash } = await import("node:crypto");
+    const mediaSha = createHash("sha256").update("media-binary-data").digest("hex");
+    const projectSha = createHash("sha256").update('{"id":"test-proj"}').digest("hex");
+
+    const manifest = {
+      schemaVersion: 1,
+      media: { "test-clip.mp4": { sha256: mediaSha } },
+      projects: { "test-project.json": { sha256: projectSha } },
+    };
+    await writeFile(manifestFile, JSON.stringify(manifest));
+
+    // Passes when hashes match
+    const res = await validateManifestProvenance(mediaFile, projectFile, manifestFile);
+    assert.equal(res?.verified, true);
+
+    // Fails on media tampering
+    await writeFile(mediaFile, "tampered-media-data");
+    await assert.rejects(
+      () => validateManifestProvenance(mediaFile, projectFile, manifestFile),
+      /Media hash mismatch against manifest/,
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

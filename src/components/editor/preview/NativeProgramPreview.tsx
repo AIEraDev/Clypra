@@ -2757,6 +2757,10 @@ export const NativeProgramPreview: React.FC = () => {
         .then(() => {
           nativePlaybackRenderSnapshotKey = key;
           nativePlaybackRenderFailed = false;
+          void emitNativeDiagnostic({
+            marker: "persistent-render-session-succeeded",
+            key,
+          });
         })
         .catch((error) => {
           if (isLiveUpdate) {
@@ -2764,9 +2768,18 @@ export const NativeProgramPreview: React.FC = () => {
             return configureNativePlaybackRender(request).then(() => {
               nativePlaybackRenderSnapshotKey = key;
               nativePlaybackRenderFailed = false;
+              void emitNativeDiagnostic({
+                marker: "persistent-render-session-succeeded-fallback",
+                key,
+              });
             });
           }
           nativePlaybackRenderFailed = true;
+          void emitNativeDiagnostic({
+            marker: "persistent-render-session-failed",
+            key,
+            error: error instanceof Error ? error.message : String(error),
+          });
           console.warn("[native-preview] persistent-render-session-failed", {
             error: error instanceof Error ? error.message : String(error),
           });
@@ -4224,10 +4237,24 @@ export const NativeProgramPreview: React.FC = () => {
           nativeRequest !== null &&
           nativeRequest.project.videoLayers.length > 0
         ) {
-          // Check that the next line wouldn't duplicate this call — it won't
-          // because the outer gate (nativeDirectSurfacePath || nativeReadbackFallbackPath)
-          // may be false when persistentNativePausedEligible is not yet satisfied.
+          void emitNativeDiagnostic({
+            marker: "eager-render-snapshot-called",
+            videoLayers: nativeRequest.project.videoLayers.length,
+          });
           ensureNativePlaybackRenderSnapshot(nativeRequest);
+        } else if (
+          !isPlaying &&
+          nativePlaybackRenderSnapshotKey === "" &&
+          nativePlaybackRenderSnapshotInFlight === null
+        ) {
+          void emitNativeDiagnostic({
+            marker: "eager-render-snapshot-skipped",
+            nativeSurfaceUsable,
+            qualificationForcesWebView,
+            hasNativeRequest: nativeRequest !== null,
+            videoLayerCount: nativeRequest?.project?.videoLayers?.length ?? 0,
+            nativeBlockers,
+          });
         }
         const nativeSurfaceNeedsHide =
           nativeSurfaceShown &&

@@ -458,6 +458,11 @@ fn probe_thermal_state() -> String {
 }
 
 pub fn get_perf_log_dir(app_data_dir: &Path) -> PathBuf {
+    if let Ok(custom) = std::env::var("CLYPRA_DATA_DIR") {
+        if !custom.trim().is_empty() {
+            return PathBuf::from(custom).join(PERF_LOG_DIR);
+        }
+    }
     app_data_dir.join(PERF_LOG_DIR)
 }
 

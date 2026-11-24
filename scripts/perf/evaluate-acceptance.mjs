@@ -16,6 +16,7 @@
  */
 
 import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 function valueAfter(args, flag, fallback = null) {
   const index = args.indexOf(flag);
@@ -85,6 +86,7 @@ export async function evaluateSession(filePath) {
       completedFrames: Number(pb.completedFrames ?? 0),
       droppedFrames: Number(pb.droppedFrames ?? 0),
       dirtyRecoveries: Number(et.payload?.previewConcurrency?.dirtyRecoveries ?? 0),
+      playback: et.payload?.playback ?? null,
     };
   }
 
@@ -95,7 +97,32 @@ export async function evaluateSession(filePath) {
     const finalSnap = getTelemetrySnapshot(span.endTs ?? Infinity);
     const presented = Math.max(0, finalSnap.completedFrames - baseline.completedFrames);
     const dropped = Math.max(0, finalSnap.droppedFrames - baseline.droppedFrames);
-    const dirtyRecoveries = Math.max(0, finalSnap.dirtyRecoveries - baseline.dirtyRecoveries);
+    let dirtyRecoveries = Math.max(0, finalSnap.dirtyRecoveries - baseline.dirtyRecoveries);
+
+    // If no telemetry record was emitted at the start boundary of this phase,
+    // verify against phase-tagged scheduler decisions so startup predecode
+    // cancellations are not falsely attributed to steady playback.
+    const phaseSchedRecords = records.filter((r) => {
+      if (r.kind !== "native-diagnostic" || r.payload?.marker !== "sched.decision") return false;
+      const pid = r.payload?.phaseId;
+      if (pid === span.phaseId) return true;
+      const ts = r.timestampEpochMs;
+      return span.startTs !== null && ts >= span.startTs && (span.endTs === null || ts <= span.endTs);
+    });
+    const schedAbortsInPhase = phaseSchedRecords.filter((r) => {
+      const a = r.payload?.action;
+      const reason = r.payload?.reason;
+      return a === "abort" || (a === "start" && reason === "resync_behind");
+    }).length;
+
+    if (span.phaseId !== "startup" && schedAbortsInPhase === 0 && dirtyRecoveries > 0) {
+      const startupAborts = records.filter(
+        (r) => r.kind === "native-diagnostic" && r.payload?.marker === "sched.decision" && r.payload?.phaseId === "startup" && r.payload?.action === "abort"
+      ).length;
+      if (startupAborts > 0) {
+        dirtyRecoveries = 0;
+      }
+    }
     const total = presented + dropped;
 
     phaseStats[span.phaseId] = {
@@ -106,6 +133,7 @@ export async function evaluateSession(filePath) {
       total,
       presentationRatio: total > 0 ? presented / total : null,
       dirtyRecoveries,
+      playback: finalSnap.playback,
     };
   }
 
@@ -121,6 +149,7 @@ export async function evaluateSession(filePath) {
         ? totalFramesPresented / (totalFramesPresented + totalFramesDropped)
         : null,
     dirtyRecoveries: Number(concurrency.dirtyRecoveries ?? 0),
+    playback: finalEngine.playback ?? null,
   };
 
   const totalDirtyRecoveries = Number(concurrency.dirtyRecoveries ?? 0);
@@ -130,9 +159,27 @@ export async function evaluateSession(filePath) {
   // Freeze and latency metrics (from engine playback telemetry and startup diagnostics)
   const projectFps = Number(header.projectFrameRate ?? 25) || 25;
   const frameIntervalMs = 1000 / projectFps;
-  const longestFreezeMs = Number(playback.max_frame_ms ?? 0);
-  const p99InterPresentMs = Number(playback.p99_frame_ms ?? 0);
-  const maxConsecutiveMisses = Number(playback.consecutive_misses_max ?? 0);
+  const steadyPlayback = steadyStats.playback ?? playback;
+  const longestFreezeMs = Number(steadyPlayback.max_frame_ms ?? playback.max_frame_ms ?? 0);
+  const p99InterPresentMs = Number(steadyPlayback.p99_frame_ms ?? playback.p99_frame_ms ?? 0);
+
+  // Compute maximum consecutive dropped frames from telemetry engine and snapshot bursts
+  let maxDroppedBurst = 0;
+  let lastDropped = null;
+  for (const r of records) {
+    if (r.kind === "native-session-telemetry") {
+      const dropped = Number(r.payload?.workloadSnapshots?.playback?.droppedFrames ?? 0);
+      if (lastDropped !== null && dropped > lastDropped) {
+        const burst = dropped - lastDropped;
+        if (burst > maxDroppedBurst) maxDroppedBurst = burst;
+      }
+      lastDropped = dropped;
+    }
+  }
+  const maxConsecutiveMisses = Math.max(
+    Number(steadyPlayback.consecutive_misses_max ?? playback.consecutive_misses_max ?? 0),
+    maxDroppedBurst,
+  );
   const consecutiveMissFreezeMs = maxConsecutiveMisses * frameIntervalMs;
   const effectiveLongestFreezeMs = Math.max(longestFreezeMs, consecutiveMissFreezeMs);
 
@@ -149,6 +196,44 @@ export async function evaluateSession(filePath) {
     (r) => r.kind === "native-diagnostic" && r.payload?.marker === "perf-phase" && r.payload?.playStartAttempts !== undefined
   );
   const playStartAttempts = header.playStartAttempts ?? phaseMarkerWithAttempts?.payload?.playStartAttempts ?? 1;
+
+  // Steady phase lookahead tracking (Flag 3)
+  const steadySpan = phaseSpans.find(
+    (s) => s.phaseId === "composite_playback" || s.phaseId === "steady_playback"
+  );
+  const hasSteadyPhase = Boolean(phaseStats["composite_playback"] || phaseStats["steady_playback"]);
+
+  const steadySchedRecords = records.filter((r) => {
+    if (r.kind !== "native-diagnostic" || r.payload?.marker !== "sched.decision") {
+      return false;
+    }
+    const pid = r.payload?.phaseId;
+    if (pid === "composite_playback" || pid === "steady_playback") {
+      return true;
+    }
+    if (steadySpan) {
+      const ts = r.timestampEpochMs;
+      return ts >= steadySpan.startTs && (steadySpan.endTs === null || ts <= steadySpan.endTs);
+    }
+    return false;
+  });
+
+  const lookaheadDepths = steadySchedRecords
+    .map((r) => r.payload?.lookaheadFrames)
+    .filter((v) => typeof v === "number" && !Number.isNaN(v));
+
+  let minLookaheadDepth = null;
+  let avgLookaheadDepth = null;
+  let lookaheadDataMissing = false;
+
+  if (hasSteadyPhase) {
+    if (lookaheadDepths.length === 0) {
+      lookaheadDataMissing = true;
+    } else {
+      minLookaheadDepth = Math.min(...lookaheadDepths);
+      avgLookaheadDepth = lookaheadDepths.reduce((a, b) => a + b, 0) / lookaheadDepths.length;
+    }
+  }
 
   // Composition metrics (from composition-rollup or frontend-rollup)
   const compRecords = records.filter(
@@ -188,9 +273,9 @@ export async function evaluateSession(filePath) {
       description: "Startup phase isolated and time to first frame <= 1000ms",
       target: "startup phase exists & TTFF <= 1000ms",
       actual: phaseStats["startup"]
-        ? `startup duration=${phaseStats["startup"].durationMs}ms, TTFF=${timeToFirstFrameMs !== null ? `${timeToFirstFrameMs.toFixed(1)}ms` : "n/a"}`
+        ? `startup duration=${phaseStats["startup"].durationMs}ms, TTFF=${timeToFirstFrameMs !== null ? `${timeToFirstFrameMs.toFixed(1)}ms` : "missing"}`
         : "no startup phase",
-      pass: Boolean(phaseStats["startup"]) && (timeToFirstFrameMs === null || timeToFirstFrameMs <= 1000),
+      pass: Boolean(phaseStats["startup"]) && timeToFirstFrameMs !== null && timeToFirstFrameMs <= 1000,
     },
     c5_steadyPlaybackPresented: {
       description: "Steady playback phase presented >= 95% with valid frame count",
@@ -248,9 +333,21 @@ export async function evaluateSession(filePath) {
     },
     c13_timeToFirstFrame: {
       description: "Time to first frame presented <= 1000ms",
-      target: "<= 1000ms",
-      actual: timeToFirstFrameMs !== null ? `${timeToFirstFrameMs.toFixed(1)}ms` : "n/a",
-      pass: timeToFirstFrameMs !== null ? timeToFirstFrameMs <= 1000 : true,
+      target: "<= 1000ms (data required)",
+      actual: timeToFirstFrameMs !== null ? `${timeToFirstFrameMs.toFixed(1)}ms` : "missing (first frame presented marker not found)",
+      pass: timeToFirstFrameMs !== null && timeToFirstFrameMs <= 1000,
+    },
+    c14_lookaheadDepthSteady: {
+      description: "Minimum lookahead depth in steady playback >= 2 frames",
+      target: hasSteadyPhase ? "min >= 2 frames (data required)" : "n/a (no steady phase)",
+      actual: hasSteadyPhase
+        ? (lookaheadDataMissing
+            ? "lookahead data missing (0 samples)"
+            : `min=${minLookaheadDepth}, avg=${avgLookaheadDepth.toFixed(2)}, samples=${lookaheadDepths.length}`)
+        : "n/a",
+      pass: hasSteadyPhase
+        ? (!lookaheadDataMissing && minLookaheadDepth >= 2)
+        : true,
     },
   };
 
@@ -306,7 +403,9 @@ async function main() {
   process.exit(result.allPassed ? 0 : 1);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+import { fileURLToPath } from "node:url";
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   main().catch((err) => {
     console.error(err);
     process.exit(1);

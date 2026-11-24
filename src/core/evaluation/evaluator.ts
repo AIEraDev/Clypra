@@ -330,9 +330,24 @@ export function evaluateTimelineScene(
     let conformedX = clip.x;
     let conformedY = clip.y;
 
-    if (clip.conform && clip.conform.sourceWidth && clip.conform.sourceHeight) {
+    const effectiveSourceWidth =
+      clip.conform?.sourceWidth ||
+      clip.width ||
+      assetMap.get(clip.mediaId)?.width ||
+      0;
+    const effectiveSourceHeight =
+      clip.conform?.sourceHeight ||
+      clip.height ||
+      assetMap.get(clip.mediaId)?.height ||
+      0;
+
+    if (clip.conform && effectiveSourceWidth && effectiveSourceHeight) {
       const conformed = resolveConform(
-        clip.conform,
+        {
+          ...clip.conform,
+          sourceWidth: effectiveSourceWidth,
+          sourceHeight: effectiveSourceHeight,
+        },
         project?.canvasWidth ?? 1920,
         project?.canvasHeight ?? 1080,
       );
@@ -406,22 +421,22 @@ export function evaluateTimelineScene(
       ? evaluateVisualPropertyKeyframes(
           vkf.rotation,
           offset,
-          clip.rotation,
+          clip.rotation ?? 0,
           clip.duration,
         )
       : kf.rotation !== undefined
         ? evaluateProperty(kf.rotation, offset, clip.duration)
-        : clip.rotation;
+        : (clip.rotation ?? 0);
     let evalOpacity = vkf?.opacity?.length
       ? evaluateVisualPropertyKeyframes(
           vkf.opacity,
           offset,
-          clip.opacity,
+          clip.opacity ?? 1.0,
           clip.duration,
         )
       : kf.opacity !== undefined
         ? evaluateProperty(kf.opacity, offset, clip.duration)
-        : clip.opacity;
+        : (clip.opacity ?? 1.0);
 
     // Apply continuous loop emphasis motion (Float, Pulse, Wiggle, etc.)
     if (clip.motion?.loopPreset && clip.motion.loopPreset !== "none") {

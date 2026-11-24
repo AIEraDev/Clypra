@@ -1,0 +1,58 @@
+{
+  "id": "project-audio",
+  "name": "Audio Mixer & Beeps Benchmark",
+  "created_at": 1700000000000,
+  "modified_at": 1700000000000,
+  "aspect_ratio": "16:9",
+  "canvas_width": 1920,
+  "canvas_height": 1080,
+  "frame_rate": 25,
+  "duration": 35,
+  "timeline_schema_version": 1,
+  "audio_model_version": 1,
+  "caption_model_version": 2,
+  "caption_tracks": [],
+  "transcripts": {},
+  "transitions": [],
+  "gaps": [],
+  "markers": [],
+  "main_video_track_id": "track-v1",
+  "media_assets": [
+    {
+      "id": "asset-audio-1",
+      "name": "audio_beeps_48k_35s.m4a",
+      "path": "tests/fixtures/perf/audio_beeps_48k_35s.m4a",
+      "type": "audio",
+      "duration": 35,
+      "width": 0,
+      "height": 0
+    }
+  ],
+  "tracks": [
+    {
+      "id": "track-a1",
+      "type": "audio",
+      "name": "Audio Track",
+      "muted": false,
+      "locked": false,
+      "visible": true,
+      "height": 50,
+      "volume": 1
+    }
+  ],
+  "clips": [
+    {
+      "id": "clip-aud-1",
+      "kind": "audio",
+      "trackId": "track-a1",
+      "mediaId": "asset-audio-1",
+      "name": "Periodic Beeps Track",
+      "startTime": 0,
+      "duration": 35,
+      "trimIn": 0,
+      "trimOut": 35
+    }
+  ],
+  "text_effects": [],
+  "text_templates": []
+}

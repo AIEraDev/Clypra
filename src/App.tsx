@@ -124,28 +124,9 @@ const App = () => {
   useEffect(() => {
     const initializeApp = async () => {
       try {
-        const projects = await platform.getRecentProjects();
-        setRecentProjects(projects);
-
-        // ── Crash recovery check ─────────────────────────────────────────
-        // If the previous session was not closed cleanly (crash / browser refresh),
-        // an IndexedDB snapshot will exist. Prompt the user to restore it.
-        const recovered = await hasSnapshot();
-        if (recovered) {
-          const snapshot = await getSnapshot();
-          if (snapshot) {
-            lifecycleMonitor.record("CRASH_RECOVERY_FOUND", {
-              projectId: snapshot.project.id,
-              detail: { savedAt: snapshot.savedAt },
-            });
-            setPendingRecovery(snapshot);
-          }
-        }
-
         // ── Perf-log session ─────────────────────────────────────────────
-        // Open a stable session ID scoped to this app launch. The session file
-        // accumulates all telemetry locally and is uploaded as a single payload
-        // when the window closes, replacing hundreds of per-rollup API calls.
+        // Open a stable session ID scoped to this app launch FIRST so all launch
+        // errors, milestones, and telemetry are tracked from the very beginning.
         if (platform.isTauri() && !perfLogService.getSessionId()) {
           const launchSessionId = `launch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           void perfLogService.openSession(launchSessionId);
@@ -163,6 +144,28 @@ const App = () => {
               );
             }, 2000);
           }
+        }
+
+        const projects = await platform.getRecentProjects().catch((err) => {
+          console.warn("[App] Failed to get recent projects:", err);
+          return [];
+        });
+        setRecentProjects(projects);
+
+        // ── Crash recovery check ─────────────────────────────────────────
+        // If the previous session was not closed cleanly (crash / browser refresh),
+        // an IndexedDB snapshot will exist. Prompt the user to restore it.
+        const recovered = await hasSnapshot().catch(() => false);
+        if (recovered) {
+          const snapshot = await getSnapshot().catch(() => null);
+          if (snapshot) {
+            lifecycleMonitor.record("CRASH_RECOVERY_FOUND", {
+              projectId: snapshot.project.id,
+              detail: { savedAt: snapshot.savedAt },
+            });
+            setPendingRecovery(snapshot);
+          }
+        }
 
           // Measure and record frontend launch milestones (shell painted via double rAF)
           const navEntry = performance.getEntriesByType("navigation")[0] as
@@ -323,7 +326,6 @@ const App = () => {
               }
             });
           });
-        }
       } catch (error) {
         console.error("Failed to initialize app:", error);
       } finally {
@@ -1099,7 +1101,7 @@ const App = () => {
     }
   };
 
-  const requestAppClose = useCallback(async () => {
+  const requestAppClose = useCallback(async (force = false) => {
     if (closingWindowRef.current) return;
     const currentProject = useProjectStore.getState().project;
     if (!currentProject) {
@@ -1109,13 +1111,13 @@ const App = () => {
       return;
     }
 
-    const isDirty = useProjectStore.getState().hasUnsavedChanges();
+    const isDirty = !force && useProjectStore.getState().hasUnsavedChanges();
     if (isDirty) {
       setShowUnsavedDialog(true);
       return;
     }
 
-    // Clean project: close smoothly and exit
+    // Clean project or forced close: close smoothly and exit
     closingWindowRef.current = true;
     try {
       const { disposeActiveSession } =
@@ -1205,9 +1207,13 @@ const App = () => {
 
         const { listen } = await import("@tauri-apps/api/event");
         if (disposed) return;
-        unlistenCustomEvent = await listen("clypra://close-requested", () => {
-          void requestAppClose();
-        });
+        unlistenCustomEvent = await listen<{ force?: boolean } | undefined>(
+          "clypra://close-requested",
+          (event) => {
+            const force = event.payload?.force ?? true;
+            void requestAppClose(force);
+          },
+        );
       } catch (error) {
         console.warn("[App] Failed to install native close handler:", error);
       }
