@@ -178,11 +178,16 @@ export async function validateProjectMediaInputs(mediaPath, projectPath) {
   }
   const matchingAssetIds = new Set(resolvedMatchingAssets.map((asset) => asset.id));
   const clips = projectClips(project);
-  const matchingVideoClip = clips.find(
-    (clip) => clip.kind === "video" && (matchingAssetIds.has(clip.mediaId) || matchingAssetIds.has(clip.assetId) || matchingAssetIds.has(clip.media_id)),
+  const matchingMediaClip = clips.find(
+    (clip) =>
+      (clip.kind === "video" || clip.kind === "image" || clip.kind === "audio") &&
+      (matchingAssetIds.has(clip.mediaId) || matchingAssetIds.has(clip.assetId) || matchingAssetIds.has(clip.media_id)),
   );
-  if (!matchingVideoClip) {
-    throw new Error("project has no video clip referencing the supplied --media file");
+  const hasTextClip = clips.some(
+    (clip) => clip.kind === "text" || clip.kind === "text-template" || clip.kind === "text-effect",
+  );
+  if (!matchingMediaClip && !hasTextClip) {
+    throw new Error("project has no clip referencing the supplied --media file");
   }
 
   const computedDuration = clips.reduce((end, clip) => {
@@ -196,7 +201,14 @@ export async function validateProjectMediaInputs(mediaPath, projectPath) {
 
   const projectFrameRate = parseRate(project.frame_rate ?? project.frameRate);
   if (!projectFrameRate) throw new Error("project frame rate must be positive");
-  const mediaFrameRate = await probeMediaFrameRate(mediaPath);
+  let mediaFrameRate = projectFrameRate;
+  try {
+    mediaFrameRate = await probeMediaFrameRate(mediaPath);
+  } catch {
+    if (matchingMediaClip?.kind === "video") {
+      throw new Error("ffprobe failed to determine video media frame rate");
+    }
+  }
   return { computedDuration, projectFrameRate, mediaFrameRate, mediaHash };
 }
 
