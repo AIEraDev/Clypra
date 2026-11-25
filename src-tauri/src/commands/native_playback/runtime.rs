@@ -52,6 +52,7 @@ impl NativePlaybackRuntime {
             .map(|session| session.record_playback_lookahead_miss())
     }
 
+    #[cfg_attr(not(feature = "perf-driver"), allow(dead_code))]
     pub(crate) fn is_first_frame_presented(&self) -> bool {
         self.render_session
             .as_ref()

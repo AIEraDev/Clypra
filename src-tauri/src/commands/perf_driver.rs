@@ -10,9 +10,9 @@ use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "perf-driver")]
 use std::time::{Duration, Instant};
+use tauri::AppHandle;
 #[cfg(feature = "perf-driver")]
-use tauri::Manager;
-use tauri::{AppHandle, Emitter};
+use tauri::{Emitter, Manager};
 
 fn is_false(value: &bool) -> bool {
     !*value
@@ -22,6 +22,7 @@ static ACTIVE_PHASE_ID: std::sync::OnceLock<std::sync::Mutex<Option<String>>> =
     std::sync::OnceLock::new();
 static TRANSPORT_PLAYING: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
+#[cfg_attr(not(feature = "perf-driver"), allow(dead_code))]
 const STARTUP_PHASE_DURATION_MS: u64 = 2_000;
 
 #[tauri::command]
@@ -37,6 +38,7 @@ pub(crate) fn active_phase_id() -> Option<String> {
         .and_then(|phase_id| phase_id.clone())
 }
 
+#[cfg_attr(not(feature = "perf-driver"), allow(dead_code))]
 fn set_active_phase_id(phase_id: Option<&str>) {
     if let Ok(mut active) = ACTIVE_PHASE_ID
         .get_or_init(|| std::sync::Mutex::new(None))
@@ -64,6 +66,7 @@ pub struct PerfScenarioAction {
     pub steps: Option<u32>,
 }
 
+#[cfg(feature = "perf-driver")]
 fn default_phase_id(kind: &str) -> &'static str {
     match kind {
         "play" => "steady_playback",
@@ -75,6 +78,7 @@ fn default_phase_id(kind: &str) -> &'static str {
     }
 }
 
+#[cfg(feature = "perf-driver")]
 fn phase_id_for_action(action: &PerfScenarioAction) -> &str {
     action
         .phase_id
@@ -83,12 +87,17 @@ fn phase_id_for_action(action: &PerfScenarioAction) -> &str {
         .unwrap_or_else(|| default_phase_id(&action.kind))
 }
 
+#[cfg(feature = "perf-driver")]
 fn action_has_startup_phase(action: &PerfScenarioAction) -> bool {
     action.kind == "play"
-        && phase_id_for_action(action) == "steady_playback"
+        && matches!(
+            phase_id_for_action(action),
+            "steady_playback" | "composite_playback"
+        )
         && action.duration_ms.unwrap_or(1) > STARTUP_PHASE_DURATION_MS
 }
 
+#[cfg(feature = "perf-driver")]
 fn emit_phase_marker(
     app: &AppHandle,
     action: &PerfScenarioAction,
@@ -106,6 +115,7 @@ fn emit_phase_marker(
     );
 }
 
+#[cfg(feature = "perf-driver")]
 fn emit_phase_marker_for_phase(
     app: &AppHandle,
     action: &PerfScenarioAction,
@@ -125,6 +135,7 @@ fn emit_phase_marker_for_phase(
     );
 }
 
+#[cfg(feature = "perf-driver")]
 fn emit_phase_marker_with_attempts(
     app: &AppHandle,
     action: &PerfScenarioAction,
@@ -601,5 +612,9 @@ mod tests {
         let value = scenario();
         assert!(action_has_startup_phase(&value.actions[0]));
         assert!(!action_has_startup_phase(&value.actions[1]));
+
+        let mut composite = value.actions[0].clone();
+        composite.phase_id = Some("composite_playback".to_string());
+        assert!(action_has_startup_phase(&composite));
     }
 }
