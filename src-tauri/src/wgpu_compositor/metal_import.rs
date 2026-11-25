@@ -32,7 +32,7 @@
 //! Every import attempt is recorded in a bounded ring of [`MetalAttemptMetadata`] (capacity 300).
 //! The first structural failure is captured in [`MetalFirstFailureEvent`].
 
-#![cfg(target_os = "macos")]
+#![cfg(any(target_os = "macos", target_os = "ios"))]
 
 use std::collections::VecDeque;
 use std::sync::Mutex as StdMutex;

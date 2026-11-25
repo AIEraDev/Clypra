@@ -222,6 +222,18 @@ impl RenderTargetManager {
     // Internal helpers
     // -----------------------------------------------------------------------
 
+    #[cfg(not(desktop))]
+    fn create_native_target(
+        _id: RenderTargetId,
+        _kind: RenderTargetKind,
+        _size: PhysicalSize<u32>,
+        _app: &AppHandle,
+        _gpu: &GpuContext,
+    ) -> Result<RenderTarget, String> {
+        Err("Native render target window is not yet supported on mobile".to_string())
+    }
+
+    #[cfg(desktop)]
     fn create_native_target(
         id: RenderTargetId,
         kind: RenderTargetKind,
