@@ -143,8 +143,8 @@ pub use scopes::{
 #[cfg(target_os = "windows")]
 pub mod dxgi_import;
 
-/// Zero-copy VideoToolbox → Metal → wgpu texture import (macOS only).
-#[cfg(target_os = "macos")]
+/// Zero-copy VideoToolbox → Metal → wgpu texture import (Apple platforms).
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 pub mod metal_import;
 
 

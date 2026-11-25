@@ -70,6 +70,14 @@ pub(super) fn configure_surface(
 ) -> Result<NativeSurfaceProbe, String> {
     geometry.validate()?;
 
+    #[cfg(not(desktop))]
+    {
+        let _ = (app, window, gpu, runtime);
+        return Err("Native preview surface window is not yet supported on mobile".to_string());
+    }
+
+    #[cfg(desktop)]
+    {
     let mut runtime_state = runtime.lock().unwrap_or_else(|poisoned| {
         let mut state = poisoned.into_inner();
         state.handle_poison_recovery("configure_surface");
@@ -367,4 +375,5 @@ pub(super) fn configure_surface(
     runtime_state.is_shown.store(false, Ordering::Release);
 
     Ok(probe)
+    }
 }

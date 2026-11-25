@@ -207,6 +207,7 @@ fn write_bench_report(file_path: String, json_content: String) -> Result<(), Str
 
 #[tauri::command]
 fn set_menu_language(app: tauri::AppHandle, language: String) -> Result<(), String> {
+    #[cfg(desktop)]
     if let Some(menu) = app.menu() {
         let labels: [&str; 6] = match language.as_str() {
             "zh-TW" => ["Clypra", "檔案", "編輯", "顯示方式", "視窗", "輔助說明"],
@@ -245,6 +246,8 @@ fn set_menu_language(app: tauri::AppHandle, language: String) -> Result<(), Stri
             }
         }
     }
+    #[cfg(not(desktop))]
+    let _ = (app, language);
     Ok(())
 }
 
@@ -288,9 +291,12 @@ pub fn run() {
     let mut builder = tauri::Builder::default();
     crate::cold_start::record_span("c0_builder_default", t_builder, 0, false);
 
-    let t_plugin_shell = std::time::Instant::now();
-    builder = builder.plugin(tauri_plugin_shell::init());
-    crate::cold_start::record_span("c0_plugin_shell", t_plugin_shell, 0, false);
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let t_plugin_shell = std::time::Instant::now();
+        builder = builder.plugin(tauri_plugin_shell::init());
+        crate::cold_start::record_span("c0_plugin_shell", t_plugin_shell, 0, false);
+    }
 
     let t_plugin_opener = std::time::Instant::now();
     builder = builder.plugin(tauri_plugin_opener::init());
@@ -308,13 +314,16 @@ pub fn run() {
     builder = builder.plugin(tauri_plugin_persisted_scope::init());
     crate::cold_start::record_span("c0_plugin_persisted_scope", t_plugin_persisted, 0, false);
 
-    let t_plugin_updater = std::time::Instant::now();
-    builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
-    crate::cold_start::record_span("c0_plugin_updater", t_plugin_updater, 0, false);
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let t_plugin_updater = std::time::Instant::now();
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+        crate::cold_start::record_span("c0_plugin_updater", t_plugin_updater, 0, false);
 
-    let t_plugin_process = std::time::Instant::now();
-    builder = builder.plugin(tauri_plugin_process::init());
-    crate::cold_start::record_span("c0_plugin_process", t_plugin_process, 0, false);
+        let t_plugin_process = std::time::Instant::now();
+        builder = builder.plugin(tauri_plugin_process::init());
+        crate::cold_start::record_span("c0_plugin_process", t_plugin_process, 0, false);
+    }
 
     let builder = builder
         .setup(|app| {

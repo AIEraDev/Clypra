@@ -172,6 +172,23 @@ Proposed, to be agreed before step 1:
 - Do we accept a mobile-specific perf budget if the desktop one is unreachable?
 - Which desktop-only dependencies have an iOS-safe alternative versus being
   excluded from mobile builds?
+  - **Gated out on mobile (`not(any(target_os = "android", target_os = "ios"))`)**:
+    `crabcamera` (pulls `nokhwa-bindings-macos` → `core-video-sys` which fails
+    on iOS), `tauri-plugin-shell`, `tauri-plugin-updater`, `tauri-plugin-process`,
+    and desktop-only `capabilities/desktop.json` + `capabilities/sidecar.json`
+    (`"platforms": ["linux", "macOS", "windows"]`).
+  - **Configured for iOS**: `ort` switched to `load-dynamic` on iOS; `objc2`,
+    `metal`, `foreign-types`, and `wgpu_compositor::metal_import` widened to
+    `any(target_os = "macos", target_os = "ios")`.
+  - **Compiles on `aarch64-apple-ios` with deployment target ≥ 15.0**:
+    `clypra-native-core`, `whisper-rs` / `whisper-rs-sys` (requires
+    `CMAKE_OSX_DEPLOYMENT_TARGET=15.0` for `std::filesystem::path`), `cpal`
+    (`coreaudio-rs` / `objc2-avf-audio`), `wgpu` / `wgpu-hal`.
+  - **Desktop-only `WindowBuilder` / menu APIs**: `set_menu_language` and
+    child-window `WindowBuilder` calls in `native_surface/config.rs` and
+    `render_target_manager/manager.rs` gated behind `#[cfg(desktop)]`.
+  - **Remaining for Step 1 full link (`cargo build`)**: iOS cross-built static
+    FFmpeg (`FFMPEG_DIR`) and `externalBin: []` bundle override for iOS.
 - How are project files and media made available on iOS (photo library,
   Files app, security-scoped access)?
 - What is the LGPL position for a statically linked FFmpeg in an App Store
