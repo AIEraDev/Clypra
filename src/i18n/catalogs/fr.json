@@ -693,5 +693,17 @@
   "aiPlan.op.trim": "Rogner le clip",
   "aiPlan.op.addText": "Ajouter du texte",
   "aiPlan.toggleOp": "Activer/désactiver la modification {{index}}",
-  "aiPlan.markersCount": "{{count}} marqueurs sur la timeline"
+  "aiPlan.markersCount": "{{count}} marqueurs sur la timeline",
+  "stickers.import": "Importer",
+  "stickers.tab.stickers": "Stickers",
+  "stickers.tab.shapes": "Formes",
+  "stickers.tab.yours": "Les vôtres ({{count}})",
+  "stickers.tab.giphy": "GIPHY",
+  "stickers.search": "Rechercher des stickers et emojis…",
+  "stickers.category.all": "Tous",
+  "stickers.category.trending": "Tendances",
+  "stickers.offline": "Mode hors ligne : les stickers de départ sont prêts.",
+  "stickers.loading": "Chargement du catalogue de stickers…",
+  "stickers.empty.title": "Aucun sticker trouvé",
+  "stickers.empty.description": "Essayez une autre recherche ou catégorie."
 }

@@ -693,5 +693,17 @@
   "aiPlan.op.trim": "Clip trimmen",
   "aiPlan.op.addText": "Text hinzufügen",
   "aiPlan.toggleOp": "Bearbeitung {{index}} umschalten",
-  "aiPlan.markersCount": "{{count}} Zeitleisten-Markierungen"
+  "aiPlan.markersCount": "{{count}} Zeitleisten-Markierungen",
+  "stickers.import": "Importieren",
+  "stickers.tab.stickers": "Sticker",
+  "stickers.tab.shapes": "Formen",
+  "stickers.tab.yours": "Deine ({{count}})",
+  "stickers.tab.giphy": "GIPHY",
+  "stickers.search": "Sticker und Emojis suchen…",
+  "stickers.category.all": "Alle",
+  "stickers.category.trending": "Im Trend",
+  "stickers.offline": "Offline-Modus: Starter-Sticker sind verfügbar.",
+  "stickers.loading": "Sticker-Katalog wird geladen…",
+  "stickers.empty.title": "Keine Sticker gefunden",
+  "stickers.empty.description": "Versuche eine andere Suche oder Kategorie."
 }

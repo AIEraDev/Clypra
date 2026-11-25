@@ -693,5 +693,17 @@
   "aiPlan.op.trim": "クリップをトリム",
   "aiPlan.op.addText": "テキストを追加",
   "aiPlan.toggleOp": "編集 {{index}} を切り替え",
-  "aiPlan.markersCount": "{{count}} 個のタイムラインマーカー"
+  "aiPlan.markersCount": "{{count}} 個のタイムラインマーカー",
+  "stickers.import": "インポート",
+  "stickers.tab.stickers": "ステッカー",
+  "stickers.tab.shapes": "図形",
+  "stickers.tab.yours": "マイステッカー ({{count}})",
+  "stickers.tab.giphy": "GIPHY",
+  "stickers.search": "ステッカーと絵文字を検索…",
+  "stickers.category.all": "すべて",
+  "stickers.category.trending": "トレンド",
+  "stickers.offline": "オフラインモード：スターターステッカーを使用できます。",
+  "stickers.loading": "ステッカーカタログを読み込み中…",
+  "stickers.empty.title": "ステッカーが見つかりません",
+  "stickers.empty.description": "別の検索語またはカテゴリをお試しください。"
 }

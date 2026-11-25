@@ -697,5 +697,17 @@
   "aiPlan.op.trim": "Обрезать клип",
   "aiPlan.op.addText": "Добавить текст",
   "aiPlan.toggleOp": "Переключить правку {{index}}",
-  "aiPlan.markersCount": "{{count}} меток на таймлайне"
+  "aiPlan.markersCount": "{{count}} меток на таймлайне",
+  "stickers.import": "Импорт",
+  "stickers.tab.stickers": "Стикеры",
+  "stickers.tab.shapes": "Фигуры",
+  "stickers.tab.yours": "Ваши ({{count}})",
+  "stickers.tab.giphy": "GIPHY",
+  "stickers.search": "Поиск стикеров и эмодзи…",
+  "stickers.category.all": "Все",
+  "stickers.category.trending": "В тренде",
+  "stickers.offline": "Офлайн-режим: стартовые стикеры готовы.",
+  "stickers.loading": "Загрузка каталога стикеров…",
+  "stickers.empty.title": "Стикеры не найдены",
+  "stickers.empty.description": "Попробуйте другой запрос или категорию."
 }
