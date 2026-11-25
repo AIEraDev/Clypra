@@ -66,7 +66,7 @@ pub struct PerfScenarioAction {
     pub steps: Option<u32>,
 }
 
-#[cfg(feature = "perf-driver")]
+#[cfg(any(feature = "perf-driver", test))]
 fn default_phase_id(kind: &str) -> &'static str {
     match kind {
         "play" => "steady_playback",
@@ -78,7 +78,7 @@ fn default_phase_id(kind: &str) -> &'static str {
     }
 }
 
-#[cfg(feature = "perf-driver")]
+#[cfg(any(feature = "perf-driver", test))]
 fn phase_id_for_action(action: &PerfScenarioAction) -> &str {
     action
         .phase_id
@@ -87,7 +87,7 @@ fn phase_id_for_action(action: &PerfScenarioAction) -> &str {
         .unwrap_or_else(|| default_phase_id(&action.kind))
 }
 
-#[cfg(feature = "perf-driver")]
+#[cfg(any(feature = "perf-driver", test))]
 fn action_has_startup_phase(action: &PerfScenarioAction) -> bool {
     action.kind == "play"
         && matches!(
