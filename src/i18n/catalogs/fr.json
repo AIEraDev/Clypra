@@ -676,5 +676,22 @@
   "preview.devDefaults": "Valeurs de développement : trace={{trace}} · zero-copy={{zeroCopy}} · décodage={{decodePath}}",
   "preview.zeroCopyViolation": "Assertion zero-copy : {{count}} incident(s)",
   "common.status.on": "Activé",
-  "common.status.off": "Désactivé"
+  "common.status.off": "Désactivé",
+  "aiPlan.title": "Vérifier le plan de montage IA",
+  "aiPlan.summary": "{{cuts}} coupes · {{before}} → {{after}}",
+  "aiPlan.durationBefore": "Avant : {{duration}}",
+  "aiPlan.durationAfter": "Après : {{duration}}",
+  "aiPlan.staleBanner": "La timeline a changé depuis la création de ce plan.",
+  "aiPlan.rerun": "Timeline modifiée, relancer",
+  "aiPlan.approve": "Appliquer",
+  "aiPlan.reject": "Rejeter",
+  "aiPlan.keep": "Conserver",
+  "aiPlan.undo": "Annuler",
+  "aiPlan.appliedBanner": "Plan appliqué ({{count}} modifications).",
+  "aiPlan.op.deleteRange": "Supprimer la plage",
+  "aiPlan.op.split": "Scinder le clip",
+  "aiPlan.op.trim": "Rogner le clip",
+  "aiPlan.op.addText": "Ajouter du texte",
+  "aiPlan.toggleOp": "Activer/désactiver la modification {{index}}",
+  "aiPlan.markersCount": "{{count}} marqueurs sur la timeline"
 }

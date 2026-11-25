@@ -676,5 +676,22 @@
   "preview.devDefaults": "開發預設值：trace={{trace}} · zero-copy={{zeroCopy}} · 解碼={{decodePath}}",
   "preview.zeroCopyViolation": "Zero-copy 斷言：{{count}} 個事件",
   "common.status.on": "開啟",
-  "common.status.off": "關閉"
+  "common.status.off": "關閉",
+  "aiPlan.title": "審核 AI 編輯計畫",
+  "aiPlan.summary": "{{cuts}} 處剪輯 · {{before}} → {{after}}",
+  "aiPlan.durationBefore": "之前：{{duration}}",
+  "aiPlan.durationAfter": "之後：{{duration}}",
+  "aiPlan.staleBanner": "自建立此計畫以來時間軸已變更。",
+  "aiPlan.rerun": "時間軸已變更，重新執行",
+  "aiPlan.approve": "套用",
+  "aiPlan.reject": "拒絕",
+  "aiPlan.keep": "保留",
+  "aiPlan.undo": "復原",
+  "aiPlan.appliedBanner": "已套用計畫（{{count}} 項編輯）。",
+  "aiPlan.op.deleteRange": "移除區間",
+  "aiPlan.op.split": "分割片段",
+  "aiPlan.op.trim": "裁剪片段",
+  "aiPlan.op.addText": "新增文字",
+  "aiPlan.toggleOp": "切換編輯 {{index}}",
+  "aiPlan.markersCount": "{{count}} 個時間軸標記"
 }

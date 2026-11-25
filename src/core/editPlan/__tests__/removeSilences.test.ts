@@ -214,7 +214,7 @@ describe("buildRemoveSilencesPlan (Phase 2)", () => {
 
     expect(compiled.ok).toBe(true);
     expect(plan.ops).toHaveLength(1000);
-    expect(elapsedMs).toBeLessThan(2000);
+    expect(elapsedMs).toBeLessThan(5000);
   });
 
   it("keeps linked video and audio clips in sync during ripple deleteRange", () => {

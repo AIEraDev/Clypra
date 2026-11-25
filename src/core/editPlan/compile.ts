@@ -275,15 +275,27 @@ export interface ApplyEditPlanOptions extends CompileEditPlanOptions {
   isLiveEditActive?: () => boolean;
 }
 
+export interface OpTraceEntry {
+  opIndex: number;
+  op: EditOp;
+  beforeClips: Clip[];
+  afterClips: Clip[];
+}
+
+export type CompileTraceResult =
+  | { ok: true; opCount: number; finalState: TimelineState; trace: OpTraceEntry[] }
+  | { ok: false; error: EditPlanError };
+
 /**
- * Dry-run compile: validates schema, checks staleness, builds fresh commands
- * against a cloned working state, and verifies every op produces an effect.
+ * Dry-run compile with per-op trace: validates schema, checks staleness, builds
+ * fresh commands against a cloned working state, and verifies every op produces
+ * an effect. Used by both `compileEditPlan` and `buildPlanPreview`.
  */
-export function compileEditPlan(
+export function compileEditPlanWithTrace(
   plan: EditPlan,
   liveState: TimelineState,
   options?: CompileEditPlanOptions,
-): CompileResult {
+): CompileTraceResult {
   const validation = validateEditPlan(plan, { maxOps: options?.maxOps });
   if (!validation.ok) return validation;
 
@@ -299,8 +311,10 @@ export function compileEditPlan(
 
   let working = cloneState(liveState);
   const refs = new Map<string, string>();
+  const trace: OpTraceEntry[] = [];
 
   for (let i = 0; i < plan.ops.length; i++) {
+    const beforeClips = working.clips;
     const res = executeOp(
       plan.ops[i],
       i,
@@ -312,9 +326,29 @@ export function compileEditPlan(
       refs,
     );
     if (!res.ok) return res;
+    trace.push({
+      opIndex: i,
+      op: plan.ops[i],
+      beforeClips,
+      afterClips: working.clips,
+    });
   }
 
-  return { ok: true, opCount: plan.ops.length };
+  return { ok: true, opCount: plan.ops.length, finalState: working, trace };
+}
+
+/**
+ * Dry-run compile: validates schema, checks staleness, builds fresh commands
+ * against a cloned working state, and verifies every op produces an effect.
+ */
+export function compileEditPlan(
+  plan: EditPlan,
+  liveState: TimelineState,
+  options?: CompileEditPlanOptions,
+): CompileResult {
+  const res = compileEditPlanWithTrace(plan, liveState, options);
+  if (!res.ok) return res;
+  return { ok: true, opCount: res.opCount };
 }
 
 /**

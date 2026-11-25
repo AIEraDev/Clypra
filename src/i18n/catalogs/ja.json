@@ -676,5 +676,22 @@
   "preview.devDefaults": "開発デフォルト: trace={{trace}} · zero-copy={{zeroCopy}} · デコード={{decodePath}}",
   "preview.zeroCopyViolation": "Zero-copyアサーション: {{count}}件のインシデント",
   "common.status.on": "オン",
-  "common.status.off": "オフ"
+  "common.status.off": "オフ",
+  "aiPlan.title": "AI編集プランの確認",
+  "aiPlan.summary": "{{cuts}} カット · {{before}} → {{after}}",
+  "aiPlan.durationBefore": "変更前: {{duration}}",
+  "aiPlan.durationAfter": "変更後: {{duration}}",
+  "aiPlan.staleBanner": "このプランの作成後にタイムラインが変更されました。",
+  "aiPlan.rerun": "タイムラインが変更されました。再実行",
+  "aiPlan.approve": "適用",
+  "aiPlan.reject": "却下",
+  "aiPlan.keep": "維持",
+  "aiPlan.undo": "元に戻す",
+  "aiPlan.appliedBanner": "プランを適用しました（{{count}}件の編集）。",
+  "aiPlan.op.deleteRange": "範囲を削除",
+  "aiPlan.op.split": "クリップを分割",
+  "aiPlan.op.trim": "クリップをトリム",
+  "aiPlan.op.addText": "テキストを追加",
+  "aiPlan.toggleOp": "編集 {{index}} を切り替え",
+  "aiPlan.markersCount": "{{count}} 個のタイムラインマーカー"
 }
