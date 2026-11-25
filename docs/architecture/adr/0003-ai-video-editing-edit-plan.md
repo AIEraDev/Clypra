@@ -160,6 +160,49 @@ plan JSON
   `source: "ai"`, model identifier, prompt hash. Prompt text is never logged
   with paths or personal data (invariant 14).
 
+### 2a. Phase 3 design: preview and approve
+
+1. **The diff is computed from the compiled ops, never from model text.** Clypra
+   builds the summary ("14 silences removed, 38 s shorter, 1 clip split") from
+   the dry-run result. A model-written description could mislead the user about
+   what will change. Transcript or caption text shown in the panel is rendered
+   as quoted data.
+2. **Data shape.** `PlanPreview` contains:
+   - per-op rows (type, time range, clips affected, duration change)
+   - totals (duration before and after, cut count)
+   - warnings (capability limits, ops dropped by validation)
+
+   It comes from the same dry run the compiler already does, so there is no
+   second code path.
+3. **Per-op toggles.** In v1, toggling is limited to ops with no `ref`
+   dependencies. Remove-silences ops are independent, so each cut can be
+   switched off. Ops that depend on another op's `ref` toggle together as a
+   group. Any toggle recompiles and revalidates the plan, and the totals update.
+4. **Where the user sees it.** Two surfaces:
+   - A list panel with the totals and the per-op rows.
+   - Markers over the timeline showing the ranges to be removed, drawn from the
+     pre-edit state. This needs no engine work.
+5. **Approve and reject.**
+   - Reject discards the plan with no state change.
+   - Approve recompiles against live state, applies the plan as one
+     transaction, and shows a "Keep / Undo" banner, reusing the single undo step.
+6. **Stale plans.** If `epoch` changes while the panel is open, disable Apply
+   and offer "Timeline changed, re-run". Do not lock the timeline.
+7. **Deferred to later.** Playing the result before applying is deferred.
+   Holding a transaction open across UI interaction would collide with the
+   live-edit guard and the coalescing window, so audition waits until the
+   engine can render a cloned state.
+8. **Cross-cutting rules.** All panel strings go in `en.json` and the other 8
+   locales (invariant 12), with locale-formatted numbers and durations. The
+   `ai-plan` telemetry event records approved/rejected, toggled-off op count,
+   and apply time, with no media paths or transcript text (invariant 14).
+
+Required Phase 3 tests:
+- selector test verifying diff totals match the applied result
+- toggle-recompile test
+- stale-epoch disable test
+- component test for approve and reject
+
 ### 3. Tool surface for the agent
 
 Separate from the UI command registry (`clipCommands.ts`, which carries icons,
