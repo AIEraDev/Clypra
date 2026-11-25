@@ -693,5 +693,17 @@
   "aiPlan.op.trim": "裁剪片段",
   "aiPlan.op.addText": "新增文字",
   "aiPlan.toggleOp": "切換編輯 {{index}}",
-  "aiPlan.markersCount": "{{count}} 個時間軸標記"
+  "aiPlan.markersCount": "{{count}} 個時間軸標記",
+  "stickers.import": "匯入",
+  "stickers.tab.stickers": "貼圖",
+  "stickers.tab.shapes": "圖形",
+  "stickers.tab.yours": "我的 ({{count}})",
+  "stickers.tab.giphy": "GIPHY",
+  "stickers.search": "搜尋貼圖與表情符號…",
+  "stickers.category.all": "全部",
+  "stickers.category.trending": "熱門",
+  "stickers.offline": "離線模式：入門貼圖已準備就緒。",
+  "stickers.loading": "正在載入貼圖目錄…",
+  "stickers.empty.title": "找不到貼圖",
+  "stickers.empty.description": "請嘗試其他搜尋或分類。"
 }

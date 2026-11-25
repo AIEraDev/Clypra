@@ -693,5 +693,17 @@
   "aiPlan.op.trim": "Recortar clip",
   "aiPlan.op.addText": "Añadir texto",
   "aiPlan.toggleOp": "Alternar edición {{index}}",
-  "aiPlan.markersCount": "{{count}} marcadores en la línea de tiempo"
+  "aiPlan.markersCount": "{{count}} marcadores en la línea de tiempo",
+  "stickers.import": "Importar",
+  "stickers.tab.stickers": "Stickers",
+  "stickers.tab.shapes": "Formas",
+  "stickers.tab.yours": "Tuyos ({{count}})",
+  "stickers.tab.giphy": "GIPHY",
+  "stickers.search": "Buscar stickers y emojis…",
+  "stickers.category.all": "Todos",
+  "stickers.category.trending": "Tendencias",
+  "stickers.offline": "Modo sin conexión: los stickers iniciales están listos.",
+  "stickers.loading": "Cargando catálogo de stickers…",
+  "stickers.empty.title": "No se encontraron stickers",
+  "stickers.empty.description": "Prueba otra búsqueda o categoría."
 }

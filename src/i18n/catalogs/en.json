@@ -693,5 +693,17 @@
   "aiPlan.op.trim": "Trim clip",
   "aiPlan.op.addText": "Add text",
   "aiPlan.toggleOp": "Toggle edit {{index}}",
-  "aiPlan.markersCount": "{{count}} timeline markers"
+  "aiPlan.markersCount": "{{count}} timeline markers",
+  "stickers.import": "Import",
+  "stickers.tab.stickers": "Stickers",
+  "stickers.tab.shapes": "Shapes",
+  "stickers.tab.yours": "Yours ({{count}})",
+  "stickers.tab.giphy": "GIPHY",
+  "stickers.search": "Search stickers and emojis…",
+  "stickers.category.all": "All",
+  "stickers.category.trending": "Trending",
+  "stickers.offline": "Offline mode: starter stickers are ready to use.",
+  "stickers.loading": "Loading sticker catalog…",
+  "stickers.empty.title": "No stickers found",
+  "stickers.empty.description": "Try a different search or category."
 }
