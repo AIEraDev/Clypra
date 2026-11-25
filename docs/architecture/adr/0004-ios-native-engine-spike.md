@@ -1,195 +1,249 @@
-# ADR-0004: iOS Native Engine Spike and Shell Decision
+# ADR-0004: Mobile Native Engine Spike with Native Shells (iOS and Android)
 
 ## Status
 
 Proposed
 
+This replaces the earlier draft that proposed trying Tauri 2 mobile first. The
+mobile apps will be native shells around the Rust engine, so the Tauri-first
+branch is dropped.
+
 ## Context & Problem Statement
 
 Clypra's native preview (wgpu compositor, VideoToolbox decode, Metal zero-copy
 import) runs on macOS. Mobile today is a frozen Capacitor web shell with no
-native engine. We need to decide how to bring the engine to iPhone, and to find
-out cheaply whether it can run there at all before committing to a full port.
+native engine. The mobile apps will be native applications (SwiftUI/UIKit on
+iOS, Kotlin/Compose on Android) that host a native render surface and call the
+Rust engine over FFI. That choice is made for smoothness: no WebView
+compositing, direct control of the render surface, and direct handling of
+lifecycle and gestures.
 
-iOS is the first mobile target because it shares the Apple media stack with
-macOS (VideoToolbox, IOSurface-backed `CVPixelBuffer`, Metal). Android needs a
-different decoder (MediaCodec) and GPU import path, and is out of scope here.
+Before any production work we need to know three things: whether the engine can
+be separated from Tauri cleanly, whether it can sustain a timeline on a real
+phone, and where the editing logic lives when the UI is no longer React.
 
 Verified facts (read from the repository at `perf/multi-tier-composite-automation`):
 
-- `src-tauri/src/lib.rs` already has `#[cfg_attr(mobile, tauri::mobile_entry_point)]`
-  and `Cargo.toml` builds `staticlib`, `cdylib` and `rlib`, so the crate is
-  shaped for Tauri 2 mobile.
-- There is no iOS project: no `ios/` directory and no `src-tauri/gen/`. The only
-  mobile project is the Capacitor `android/` directory, which is frozen.
-- No code path targets `ios` or `android` (`target_os = "ios"` and
-  `"android"` do not appear in `src-tauri` or `crates`).
+- The engine lives inside the `src-tauri` crate, which carries all the Tauri
+  dependencies. Files referencing `tauri` are few: 0 of 37 in
+  `wgpu_compositor`, 1 of 62 in `engine`, 1 of 31 in `filmstrip_engine`. In
+  `engine/telemetry.rs` the coupling is `Option<&AppHandle>` used to emit
+  events, which is a small seam. File counts do not capture every kind of
+  coupling (shared state, command modules), so Step 0 must confirm it.
+- `crates/clypra-native-core` is small (font registry, glyph cache, SDF, golden
+  tests) and does not contain the compositor, decoder or engine.
+- There is no exported FFI interface (no UniFFI, no `cbindgen` output). The
+  `extern "C"` matches in `metal_import.rs` and `filmstrip_engine/decoder/mod.rs`
+  appear to declare system APIs and were not read in detail.
+- No Rust type named `EvaluatedScene` exists. How the engine receives a scene
+  today must be confirmed in Step 0.
 - The Apple-specific engine code is gated to macOS, not to Apple platforms.
   `wgpu_compositor/metal_import.rs` starts with `#![cfg(target_os = "macos")]`,
-  the `objc2`, `metal` and `foreign-types` dependencies sit under
-  `[target.'cfg(target_os = "macos")'.dependencies]`, and the native surface
-  setup in `commands/native_surface/config.rs` uses `#[cfg(target_os = "macos")]`.
-  On `target_os = "ios"` all of it compiles out.
-- The macOS native surface is an AppKit child view managed on the main thread
-  (invariants 6 and 16). iOS needs a `UIView` with a `CAMetalLayer` in the
-  Tauri 2 `WKWebView` hierarchy. That is a different integration, not a
-  re-gate.
-- `ort` uses the `copy-dylibs` feature on every platform except Windows and
-  x86_64 macOS, so an iOS build would select that branch, which cannot work on
-  iOS.
-- `[dependencies]` includes `tauri-plugin-shell`, `tauri-plugin-updater`,
-  `tauri-plugin-process`, `whisper-rs`, `crabcamera` and `cpal`. Which of these
-  build or make sense on iOS is unverified.
-- `ffmpeg-next`/`ffmpeg-sys-next` use the `static` feature, and
-  `scripts/setup-ffmpeg.sh` builds a static FFmpeg 8.x for the host. There is
-  no iOS cross-build.
-- `core/history`, `core/evaluation` and the edit-plan layer
-  (ADR-0003) are platform-neutral TypeScript, so the editing model is not a
-  mobile blocker. The on-device preview is.
+  the `objc2`, `metal` and `foreign-types` dependencies are under
+  `cfg(target_os = "macos")`, and native surface setup in
+  `commands/native_surface/config.rs` uses `#[cfg(target_os = "macos")]`. On
+  `target_os = "ios"` all of it compiles out.
+- `ort` takes the `copy-dylibs` configuration on every platform except Windows
+  and x86_64 macOS, so mobile targets would select a branch that cannot work
+  on them. (Local commit `3266851b` already updated `ort` to `load-dynamic` on
+  iOS and gated desktop-only plugins/crates.)
+- `ffmpeg-next`/`ffmpeg-sys-next` use the `static` feature and
+  `scripts/setup-ffmpeg.sh` builds a static FFmpeg 8.x for the host only. There
+  is no iOS or Android cross-build.
+- The decode policy already falls back in order from zero-copy to CPU
+  (`DecodedFrame::{Cpu, Dxgi, Metal}` with a typed path decision). Android can
+  start on the CPU frame path.
+- The editing logic (command history, scene evaluation, the ADR-0003 edit-plan
+  layer) is platform-neutral TypeScript (`core/history` has no Tauri imports).
+  A native UI cannot run it directly.
+- Verified locally on the developer's machine: the Android SDK/NDK is absent,
+  the `aarch64-linux-android` Rust target is not installed, and `cpal` uses
+  `oboe` on Android.
 
 Unknowns this ADR exists to resolve:
 
-- Whether a Tauri 2 iOS app can host a wgpu/Metal surface that composites with
-  the webview reliably, including across background and foreground cycles.
-- Whether VideoToolbox decode into the existing Metal import path is portable
-  to iOS or needs changes.
+- Whether the engine separates from Tauri without changing desktop behavior.
 - Whether a phone sustains a 1080p, two-layer timeline without thermal
   throttling or a memory kill.
-- Whether the static FFmpeg plus App Store distribution is acceptable under the
-  LGPL. This needs legal review and is not decided here.
+- Where the editing core lives for native UIs (see the open decision below).
+- Whether a statically linked FFmpeg is acceptable for store distribution
+  under the LGPL. This needs legal review and is not decided here.
 
 ## Decision
 
-Run a **time-boxed, gated spike** on a real iPhone before any production
-integration. Each step has a stop rule: if a step fails, stop, record why, and
-reconsider the shell choice. Nothing from the spike merges into the engine
-until the exit criteria below are met.
+Build mobile as **native shells around a Tauri-free Rust engine**, validated by
+a **time-boxed, gated spike** on real devices. Each step has a stop rule. Nothing
+from the spike merges into the engine until the exit criteria are met.
 
 ### Shell decision
 
 | Option | Verdict |
 | --- | --- |
-| **Tauri 2 iOS** | Try first. The crate already has a mobile entry point, all existing Tauri commands carry over, and the React UI stays one codebase. Risk: native surface layering with `WKWebView`. |
-| **Thin SwiftUI/UIKit shell, Rust engine over FFI** | Fallback if the surface cannot be made reliable under Tauri. Native view control, but UI and IPC need a second implementation. |
-| **Capacitor** (current) | Rejected for the engine path. It is a web shell with no native engine, and it is frozen. |
-| **Flutter or React Native with FFI** | Rejected for now. It adds a second UI stack without removing the native-surface problem. |
+| **Native shells (SwiftUI/UIKit, Kotlin/Compose) + Rust engine over FFI** | Chosen. Direct `CAMetalLayer` and `SurfaceView` surfaces, no WebView compositing, full control of lifecycle and gestures. Cost: two native UIs and an FFI boundary. |
+| Tauri 2 mobile | Rejected. It would reuse the React UI, but that is not the target. |
+| Flutter or React Native + FFI | Rejected. A second UI stack plus video texture plumbing, without removing the native-surface problem. |
+| Capacitor (current) | Rejected. A web shell with no native engine, and frozen. |
 
-### Spike steps
+### Step 0: extract a Tauri-free engine crate
 
-1. **Build.** Make the crate compile for `aarch64-apple-ios`.
-   - Split macOS gates into `apple` (shared VideoToolbox, `CVPixelBuffer`,
-     Metal import) versus `macos`-only (AppKit surface). Do this with
+Move the compositor, decoder and engine into a new crate with no `tauri`
+dependency. Desktop keeps working through a thin Tauri wrapper that depends on
+it. iOS and Android link it as a library.
+
+- Replace `Option<&AppHandle>` event emission with an event-sink trait that the
+  Tauri wrapper implements.
+- Expose a narrow public API: create engine, attach a native surface, load
+  scene and media, play, seek, query state, and stream telemetry. Keep
+  hot-path calls (frame submit, surface handle) free of per-call allocation or
+  serialization.
+- Pick the FFI binding approach with a short experiment: UniFFI for the control
+  and query API (generated Swift and Kotlin bindings), and a small hand-written
+  C ABI for the surface and frame hot path if UniFFI overhead is measurable.
+  Not decided here.
+- Desktop must be unchanged: `native-golden`, the full test suite and
+  `npm run perf:cycle` pass before and after with no regression.
+
+Stop rule: if the two `tauri`-referencing engine files hide deeper shared state
+than the file counts suggest, report the real coupling before proceeding.
+
+### Test harness, not the editor
+
+Spike apps are minimal native harnesses, not the editor UI. They are driven by
+launch arguments and a scenario file, write v2 perf NDJSON to the app container,
+and the logs are pulled off the device for the existing `clypra-perf lint` and
+acceptance tooling. Timelines come from fixed scene fixtures, so the spike does
+not depend on the editing-core decision.
+
+### iOS track
+
+1. **Build.** Build the extracted engine for `aarch64-apple-ios`.
+   - Split macOS gates into shared Apple code (VideoToolbox, `CVPixelBuffer`,
+     Metal import) and macOS-only AppKit code, using
      `cfg(any(target_os = "macos", target_os = "ios"))` or a build-script alias
      for the shared parts, not by loosening the macOS-only code.
-   - Gate or replace desktop-only dependencies (`tauri-plugin-updater`,
-     `-shell`, `-process`, `crabcamera`) and give `ort` an iOS-compatible
-     configuration or exclude it for the spike.
+   - Give `ort` an iOS-compatible configuration or exclude it for the spike.
    - Cross-build static FFmpeg for iOS with VideoToolbox enabled.
    Stop rule: if FFmpeg or `wgpu` will not link, stop.
-2. **Surface.** Render one wgpu/Metal frame on a real device from a Tauri 2
-   iOS app, then composite it with a webview UI element on top.
-   Stop rule: if layering or touch pass-through is unreliable, evaluate the
-   SwiftUI-shell fallback before continuing.
-3. **Decode to GPU.** Decode with VideoToolbox into an IOSurface-backed buffer
-   and import it into wgpu through the existing `metal_import` path.
-   Record the decode path decision and rejection reasons using the existing
-   typed decode-path telemetry, so iOS fallbacks are traceable like macOS ones.
-4. **Stress.** Play a 1080p30, two-layer timeline for 60 seconds, then run a
-   background and foreground cycle, then import media through the system photo
-   picker.
+2. **Surface.** Render one wgpu/Metal frame to a `CAMetalLayer` in a UIKit or
+   SwiftUI host on a real iPhone, with native controls overlaid.
+3. **Decode to GPU.** VideoToolbox into an IOSurface-backed buffer, imported
+   through the shared Metal path. Record the decode path decision and rejection
+   reasons with the existing typed telemetry.
+4. **Stress.** 60 seconds of a 1080p30 two-layer timeline, then a background
+   and foreground cycle, then media import through the system photo picker.
+
+### Android track
+
+1. **Build.** Install the NDK and the `aarch64-linux-android` target, then build
+   the extracted engine. Cross-build static FFmpeg with software decode.
+   Verify audio (`cpal`) on Android.
+   Stop rule: if FFmpeg or `wgpu` will not link, stop.
+2. **Surface.** Render one wgpu Vulkan frame to an `ANativeWindow` from a
+   `SurfaceView` in a Kotlin host on a real mid-range phone.
+3. **CPU decode to GPU.** FFmpeg software decode into `DecodedFrame::Cpu`,
+   uploaded to wgpu textures. MediaCodec with `AHardwareBuffer` import is
+   deferred until the CPU path shows where the real bottleneck is.
+4. **Stress.** The same 60-second scenario on a mid-range device, then a
+   background and foreground cycle and storage access through the system
+   picker. A flagship device hides the problems found in the field, so the
+   mid-range result is the one that counts.
 
 ### Exit criteria
 
-Proposed, to be agreed before step 1:
+Proposed, to be agreed before Step 0 starts:
 
 - No thermal-driven stall and no memory termination during the 60-second run.
 - Frame drops and freeze duration within the desktop acceptance budget
-  (desktop used a 200 ms freeze limit and 20% drop thresholds). If a phone
+  (desktop used a 200 ms freeze limit and 20% drop thresholds). If a device
   cannot meet it, record the achieved numbers and decide whether a mobile
-  budget is acceptable, rather than relaxing the number silently.
+  budget is acceptable, instead of relaxing the number silently.
 - Playback and the native surface recover after backgrounding without a
   restart.
-- Zero-copy is verified from runtime telemetry (not inferred from flags),
-  consistent with invariant 13.
+- Zero-copy (iOS) or the CPU path (Android) is verified from runtime
+  telemetry, not inferred from flags (invariant 13).
 
 ### Evidence
 
-- Reuse the v2 perf envelope and add device identity (model, OS version) to
-  the session header, so iOS results are comparable and lintable like desktop
-  results.
-- Record `ProcessInfo.thermalState` and memory warnings as telemetry events
-  during the stress step.
-- Keep the spike on a branch and report results in this ADR (or a follow-up
-  ADR) before any production work.
+- Reuse the v2 perf envelope. Add device identity (model, OS version, chipset)
+  to the session header so mobile sessions are comparable and lintable.
+- Record thermal state and memory warnings as telemetry events during the
+  stress step (`ProcessInfo.thermalState` on iOS, the equivalent thermal and
+  low-memory signals on Android).
+
+### Open decision: where the editing core lives
+
+A native UI cannot run the TypeScript editing core (command history, scene
+evaluation, the ADR-0003 edit-plan layer). This ADR does not decide it. The
+options:
+
+| Option | Trade-off |
+| --- | --- |
+| **A. Port the editing core to Rust** and share it across desktop and mobile | One implementation and consistent behavior, but a large refactor and the desktop TypeScript would either call it or remain a duplicate. |
+| **B. Embed a JS runtime and run the existing core headless** (JavaScriptCore is available on iOS; Android needs an engine such as QuickJS) | Reuses tested code and ADR-0003, but adds a runtime, a bridge and a start-up cost. Unproven here; it needs a benchmark. |
+| **C. Reimplement in Swift and Kotlin** | Three implementations that can drift. Highest long-term cost. |
+
+A decision is needed before production work and will be recorded in a
+follow-up ADR, informed by the spike. Whatever is chosen must keep the project
+file format compatible across desktop and mobile. ADR-0003's edit-plan layer
+runs wherever the editing core runs; on mobile its capability profile comes from
+the native layer, not from the web `deviceCapabilities.ts`.
 
 ## Alternatives Considered
 
-- **Skip the spike and port directly.** Fastest if it works, but a surface or
-  thermal failure would be found after committing to a shell and a design.
-  Rejected.
-- **Simulator-only testing.** Hides the hardware decoder limits, thermal
-  behavior and memory pressure that decide viability. Rejected as evidence,
-  acceptable only for compile checks.
-- **Android first.** Larger device fragmentation and a new decoder and import
-  path before we know the engine fits a phone. Deferred.
-- **WebCodecs/WebGL preview on mobile.** Possible fallback for preview, but it
-  discards the native zero-copy path that is the reason for the engine. Keep
-  as a degraded mode, not the target.
+- **Skip the spike and port directly.** Fastest if it works, but a surface,
+  extraction or thermal failure would be found after the commitment. Rejected.
+- **Simulator-only testing.** Hides hardware decoder limits, thermal behavior
+  and memory pressure. Acceptable for compile checks only.
+- **Android first.** More device fragmentation and a new decoder and import
+  path before the engine is proven on a phone. Both tracks proceed, but iOS
+  validates the zero-copy design and Android validates the CPU fallback and
+  low-end limits. If the audience is mostly Android, the Android track can lead.
+- **WebCodecs/WebGL preview on mobile.** A possible degraded mode, but it
+  discards the native path that is the reason for the engine.
 
 ## Consequences & Trade-offs
 
-- **Positive**: the main unknowns are answered on real hardware with stop
-  rules; the macOS code is refactored toward a shared Apple layer that is
-  useful either way; the result informs the Android plan.
-- **Negative / Costs**: needs a physical iPhone, an Apple developer account
-  and Xcode; the cfg split touches macOS-only code, so macOS regression checks
-  are required; an iOS FFmpeg build adds maintenance.
+- **Positive**: smoother UI and gestures than a WebView shell; the engine
+  becomes reusable across desktop, iOS and Android; engine extraction removes
+  most Tauri-specific mobile concerns at the source; real-device evidence
+  decides viability.
+- **Negative / Costs**: two native UIs to build and maintain; an FFI boundary
+  to design and version; the editing-core decision and its cost; real devices,
+  an Apple developer account and the Android toolchain are required.
 - **Risks & Mitigations**:
-  - Widening `cfg` gates breaks macOS. Mitigation: keep AppKit code under
-    `macos` only, and run the macOS native-golden and full test suites on the
-    same change.
-  - LGPL and App Store distribution. Mitigation: legal review before any
-    release, independent of the spike.
-  - Thermal or memory limits make the full engine unviable on older phones.
-    Mitigation: report achieved numbers and define a capability profile
-    (proxy-only preview, layer cap), reusing `deviceCapabilities.ts`.
+  - Extraction changes desktop behavior. Mitigation: `native-golden`, the full
+    test suite and `perf:cycle` before and after, and a thin desktop wrapper.
+  - Widening `cfg` gates breaks macOS. Mitigation: AppKit code stays under
+    `macos` only.
+  - Thermal or memory limits make full-quality playback unviable on mid-range
+    phones. Mitigation: report achieved numbers and define device capability
+    profiles (proxy-only preview, layer cap).
+  - LGPL and store distribution of static FFmpeg. Mitigation: legal review
+    before any release, independent of the spike.
   - AI perception models (Whisper, ONNX) may be too heavy on device. Out of
-    scope for this spike; the edit-plan layer works without them.
+    scope here; the edit-plan layer works without them.
 
 ## Verification & Migration Strategy
 
-- Step 1 passes when `cargo build --target aarch64-apple-ios` succeeds for the
-  engine crate and the macOS build and tests are unchanged.
-- Steps 2 to 4 pass on a physical device against the exit criteria above, with
-  the telemetry session lint-clean.
-- Migration: no change to desktop behavior or to project files. Rollback is
-  deleting the spike branch; the shared `apple` cfg split is kept only if it
-  passes the macOS suites.
+- Step 0 passes when the engine crate builds with no `tauri` dependency, the
+  desktop app is rebuilt on it, and `native-golden`, the full tests and
+  `perf:cycle` show no regression.
+- Each platform's Step 1 passes when the engine builds for the target
+  (`aarch64-apple-ios`, `aarch64-linux-android`) and the macOS build and tests
+  are unchanged.
+- Steps 2 to 4 pass on physical devices against the exit criteria, with the
+  telemetry session lint-clean.
+- Migration: no change to project files or desktop behavior. Rollback is
+  deleting the spike branches; the engine extraction and shared Apple cfg split
+  are kept only if they pass the desktop checks.
 
 ## Open Questions
 
-- Which iPhone model(s) and minimum iOS version are the target?
+- Which iPhone model and minimum iOS version, and which mid-range Android
+  device and minimum API level, are the targets?
+- Native UI via SwiftUI/Compose with which editing-core option (A, B or C)?
+- UniFFI, hand-written C ABI, or both for the FFI boundary?
 - Do we accept a mobile-specific perf budget if the desktop one is unreachable?
-- Which desktop-only dependencies have an iOS-safe alternative versus being
-  excluded from mobile builds?
-  - **Gated out on mobile (`not(any(target_os = "android", target_os = "ios"))`)**:
-    `crabcamera` (pulls `nokhwa-bindings-macos` → `core-video-sys` which fails
-    on iOS), `tauri-plugin-shell`, `tauri-plugin-updater`, `tauri-plugin-process`,
-    and desktop-only `capabilities/desktop.json` + `capabilities/sidecar.json`
-    (`"platforms": ["linux", "macOS", "windows"]`).
-  - **Configured for iOS**: `ort` switched to `load-dynamic` on iOS; `objc2`,
-    `metal`, `foreign-types`, and `wgpu_compositor::metal_import` widened to
-    `any(target_os = "macos", target_os = "ios")`.
-  - **Compiles on `aarch64-apple-ios` with deployment target ≥ 15.0**:
-    `clypra-native-core`, `whisper-rs` / `whisper-rs-sys` (requires
-    `CMAKE_OSX_DEPLOYMENT_TARGET=15.0` for `std::filesystem::path`), `cpal`
-    (`coreaudio-rs` / `objc2-avf-audio`), `wgpu` / `wgpu-hal`.
-  - **Desktop-only `WindowBuilder` / menu APIs**: `set_menu_language` and
-    child-window `WindowBuilder` calls in `native_surface/config.rs` and
-    `render_target_manager/manager.rs` gated behind `#[cfg(desktop)]`.
-  - **Remaining for Step 1 full link (`cargo build`)**: iOS cross-built static
-    FFmpeg (`FFMPEG_DIR`) and `externalBin: []` bundle override for iOS.
-- How are project files and media made available on iOS (photo library,
-  Files app, security-scoped access)?
-- What is the LGPL position for a statically linked FFmpeg in an App Store
-  build?
+- How are project files and media made available on each platform (photo
+  library, Files app, scoped storage, security-scoped access)?
+- What is the LGPL position for statically linked FFmpeg in store builds?
