@@ -5,6 +5,7 @@ import type {
   ClipAudioProperties,
 } from "./audio";
 import type { FrameRate } from "@/store/settingsTypes";
+import type { StickerRef } from "@/features/stickers/types";
 
 export type AspectRatio =
   | "original"
@@ -323,6 +324,8 @@ export interface MediaAsset {
   stickerAnimationPath?: string;
   /** Stable sticker library id used to recover cached metadata. */
   stickerSourceId?: string;
+  /** Additive provider and content provenance for sticker assets. */
+  stickerRef?: StickerRef;
   streams?: MediaStreamInfo[];
   derivedFrom?: DerivedMediaProvenance;
   /** Whether the media asset file was detected as missing/offline on disk */
@@ -515,6 +518,8 @@ export interface Clip {
   stickerFormat?: "static" | "gif" | "lottie";
   stickerAnimationPath?: string;
   stickerSourceId?: string;
+  /** Additive provider and content provenance for sticker clips. */
+  stickerRef?: StickerRef;
   stickerImagePath?: string;
   stickerSettings?: StickerSettings;
   /** Text template ID for text clips */

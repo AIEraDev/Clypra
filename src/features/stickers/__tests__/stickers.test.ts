@@ -13,6 +13,11 @@ vi.mock("@tauri-apps/plugin-fs", () => {
     writeFile: vi.fn().mockImplementation(async (path: string, data: Uint8Array) => {
       mockCache.set(path, new TextDecoder().decode(data));
     }),
+    rename: vi.fn().mockImplementation(async (from: string, to: string) => {
+      const content = mockCache.get(from);
+      if (content !== undefined) mockCache.set(to, content);
+      mockCache.delete(from);
+    }),
     readFile: vi.fn().mockImplementation(async (path: string) => {
       const content = mockCache.get(path) ?? "[]";
       return new TextEncoder().encode(content);
@@ -61,6 +66,8 @@ describe("Stickers Store & Cache Manager", () => {
       expect(cached.id).toBe("sticker-123");
       expect(stickerCacheManager.isCached("sticker-123")).toBe(true);
       expect(stickerCacheManager.getCached("sticker-123")).toEqual(cached);
+    const { rename } = await import("@tauri-apps/plugin-fs");
+    expect(rename).toHaveBeenCalled();
 
       // Clean up cache
       await stickerCacheManager.clearCache("sticker-123");
@@ -68,6 +75,26 @@ describe("Stickers Store & Cache Manager", () => {
       expect(remove).toHaveBeenCalled();
 
       // Restore fetch
+      globalThis.fetch = globalFetch;
+    });
+
+    it("reports bytes trimmed and preserves pinned artifacts", async () => {
+      const globalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => new TextEncoder().encode('{"v":"5.5.0"}').buffer,
+      });
+
+      const cached = await stickerCacheManager.downloadSticker({ ...mockItem, id: "pinned-sticker" });
+      expect(cached.sizeBytes).toBeGreaterThan(0);
+      expect(stickerCacheManager.setPinned("pinned-sticker", true, "catalog")).toBe(true);
+      expect(stickerCacheManager.trimTo(0)).toBe(0);
+      expect(stickerCacheManager.isCached("pinned-sticker", "catalog")).toBe(true);
+
+      expect(stickerCacheManager.setPinned("pinned-sticker", false, "catalog")).toBe(true);
+      expect(stickerCacheManager.trimTo(0)).toBeGreaterThan(0);
+      expect(stickerCacheManager.isCached("pinned-sticker", "catalog")).toBe(false);
       globalThis.fetch = globalFetch;
     });
   });

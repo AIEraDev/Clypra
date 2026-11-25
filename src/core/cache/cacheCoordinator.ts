@@ -16,7 +16,7 @@
  * flushes session caches on project close, and tracks application-wide cache telemetry.
  */
 
-export type CacheTier = "memory" | "gpu" | "indexeddb" | "worker";
+export type CacheTier = "memory" | "gpu" | "indexeddb" | "disk" | "worker";
 export type CacheLifespan = "ephemeral" | "session" | "persistent";
 
 export interface ICacheParticipant {
@@ -123,6 +123,7 @@ export class CacheCoordinator {
       memory: 0,
       gpu: 0,
       indexeddb: 0,
+      disk: 0,
       worker: 0,
     };
 

@@ -3,6 +3,33 @@ import type { Project, Track, Clip, MediaAsset, TextClip } from "../index";
 import { toRustProject, fromRustProject, fromRustTrack, fromRustClip, toRustTrack, toRustClip, toRustMediaAsset, fromRustMediaAsset, validateAndMigrateProjectPayload } from "../serialization";
 
 describe("Project Serialization Layer", () => {
+  it("migrates legacy sticker clips to provider-scoped references", () => {
+    const legacy = fromRustClip({
+      id: "sticker-clip-1",
+      kind: "sticker",
+      trackId: "track-1",
+      mediaId: "media-1",
+      startTime: 0,
+      duration: 2,
+      trimIn: 0,
+      trimOut: 2,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      opacity: 1,
+      rotation: 0,
+      stickerSourceId: "starter-golden-star",
+      stickerFormat: "lottie",
+    });
+
+    expect(legacy.stickerRef).toEqual({
+      providerId: "bundled",
+      itemId: "starter-golden-star",
+      format: "lottie",
+    });
+  });
+
   it("converts a frontend Project to a RustProject with correct snake_case mapping", () => {
     const frontendProject: Project = {
       id: "project-1",
